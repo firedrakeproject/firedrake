@@ -49,9 +49,9 @@ def check_element(element, top=True):
     ValueError
         If the element is illegal.
     """
-    if False and element.cell.cellname() == "hexahedron" and \
-       element.family() not in ["Q", "DQ", "DPC", "BrokenElement", "Real"]:
-        raise NotImplementedError("Currently can only use 'Q' and/or 'DQ' elements on hexahedral meshes, not", element.family())
+    if element.cell.cellname() == "hexahedron" and \
+       element.family() not in ["Q", "DQ", "Real"]:
+        raise NotImplementedError("Currently can only use 'Q', 'DQ', and/or 'Real' elements on hexahedral meshes, not", element.family())
     if type(element) in (finat.ufl.BrokenElement, finat.ufl.RestrictedElement,
                          finat.ufl.HDivElement, finat.ufl.HCurlElement):
         inner = (element._element, )
@@ -176,16 +176,13 @@ class WithGeometryBase(object):
     def _components(self):
         if len(self) == 1:
             return tuple(type(self).create(self.topological.sub(i), self.mesh())
-                         for i in range(self.value_size))
+                         for i in range(self.block_size))
         else:
             return self.subfunctions
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
-        if len(self) == 1:
-            bound = self.value_size
-        else:
-            bound = len(self)
+        bound = len(self._components)
         if i < 0 or i >= bound:
             raise IndexError("Invalid component %d, not in [0, %d)" % (i, bound))
         return self._components[i]
@@ -489,13 +486,16 @@ class FunctionSpace(object):
             shape_element = element
             if isinstance(element, finat.ufl.WithMapping):
                 shape_element = element.wrapee
-            sub = shape_element.sub_elements[0].value_shape
+            sub = shape_element.sub_elements[0].reference_value_shape
             self.shape = rvs[:len(rvs) - len(sub)]
         else:
             self.shape = ()
         self._label = ""
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element, label=self._label)
         self._mesh = mesh
+
+        self.value_size = self._ufl_function_space.value_size
+        r"""The number of scalar components of this :class:`FunctionSpace`."""
 
         self.rank = len(self.shape)
         r"""The rank of this :class:`FunctionSpace`.  Spaces where the
@@ -505,7 +505,7 @@ class FunctionSpace(object):
         the number of components of their
         :attr:`finat.ufl.finiteelementbase.FiniteElementBase.value_shape`."""
 
-        self.value_size = int(numpy.prod(self.shape, dtype=int))
+        self.block_size = int(numpy.prod(self.shape, dtype=int))
         r"""The total number of degrees of freedom at each function
         space node."""
         self.name = name
@@ -654,7 +654,7 @@ class FunctionSpace(object):
 
     @utils.cached_property
     def _components(self):
-        return tuple(ComponentFunctionSpace(self, i) for i in range(self.value_size))
+        return tuple(ComponentFunctionSpace(self, i) for i in range(self.block_size))
 
     def sub(self, i):
         r"""Return a view into the ith component."""
@@ -684,7 +684,7 @@ class FunctionSpace(object):
     def dof_count(self):
         r"""The number of degrees of freedom (includes halo dofs) of this
         function space on this process. Cf. :attr:`FunctionSpace.node_count` ."""
-        return self.node_count*self.value_size
+        return self.node_count*self.block_size
 
     def dim(self):
         r"""The global number of degrees of freedom for this function space.
@@ -696,6 +696,53 @@ class FunctionSpace(object):
         r"""Return a newly allocated :class:`pyop2.types.dat.Dat` defined on the
         :attr:`dof_dset` of this :class:`.Function`."""
         return op2.Dat(self.dof_dset, val, valuetype, name)
+
+    def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
+        r"""Return entity node map rebased on ``source_mesh``.
+
+        Parameters
+        ----------
+        source_mesh : MeshTopology
+            Source (base) mesh topology.
+        source_integral_type : str
+            Integral type on source_mesh.
+        source_subdomain_id : int
+            Subdomain ID on source_mesh.
+        source_all_integer_subdomain_ids : dict
+            All integer subdomain ids on source_mesh.
+
+        Returns
+        -------
+        pyop2.types.map.Map or None
+            Entity node map.
+
+        """
+        if source_mesh is self.mesh():
+            target_integral_type = source_integral_type
+        else:
+            composed_map, target_integral_type = self.mesh().trans_mesh_entity_map(source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids)
+        if target_integral_type == "cell":
+            self_map = self.cell_node_map()
+        elif target_integral_type == "exterior_facet_top":
+            self_map = self.cell_node_map()
+        elif target_integral_type == "exterior_facet_bottom":
+            self_map = self.cell_node_map()
+        elif target_integral_type == "interior_facet_horiz":
+            self_map = self.cell_node_map()
+        elif target_integral_type == "exterior_facet":
+            self_map = self.exterior_facet_node_map()
+        elif target_integral_type == "exterior_facet_vert":
+            self_map = self.exterior_facet_node_map()
+        elif target_integral_type == "interior_facet":
+            self_map = self.interior_facet_node_map()
+        elif target_integral_type == "interior_facet_vert":
+            self_map = self.interior_facet_node_map()
+        else:
+            raise ValueError(f"Unknown integral_type: {target_integral_type}")
+        if source_mesh is self.mesh():
+            return self_map
+        else:
+            return op2.ComposedMap(self_map, composed_map)
 
     def cell_node_map(self):
         r"""Return the :class:`pyop2.types.map.Map` from cels to
@@ -774,7 +821,7 @@ class FunctionSpace(object):
             else:
                 indices = lgmap.block_indices.copy()
                 bsize = lgmap.getBlockSize()
-                assert bsize == self.value_size
+                assert bsize == self.block_size
         else:
             # MatBlock case, LGMap is already unrolled.
             indices = lgmap.block_indices.copy()
@@ -783,11 +830,11 @@ class FunctionSpace(object):
         nodes = []
         for bc in bcs:
             if bc.function_space().component is not None:
-                nodes.append(bc.nodes * self.value_size
+                nodes.append(bc.nodes * self.block_size
                              + bc.function_space().component)
             elif unblocked:
-                tmp = bc.nodes * self.value_size
-                for i in range(self.value_size):
+                tmp = bc.nodes * self.block_size
+                for i in range(self.block_size):
                     nodes.append(tmp + i)
             else:
                 nodes.append(bc.nodes)
@@ -796,8 +843,7 @@ class FunctionSpace(object):
         return PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm)
 
     def collapse(self):
-        from firedrake import FunctionSpace
-        return FunctionSpace(self.mesh(), self.ufl_element())
+        return type(self)(self.mesh(), self.ufl_element())
 
 
 class RestrictedFunctionSpace(FunctionSpace):
@@ -1037,6 +1083,29 @@ class MixedFunctionSpace(object):
         composed."""
         return op2.MixedDataSet(s.dof_dset for s in self._spaces)
 
+    def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
+        r"""Return entity node map rebased on ``source_mesh``.
+
+        Parameters
+        ----------
+        source_mesh : MeshTopology
+            Source (base) mesh topology.
+        source_integral_type : str
+            Integral type on source_mesh.
+        source_subdomain_id : int
+            Subdomain ID on source_mesh.
+        source_all_integer_subdomain_ids : dict
+            All integer subdomain ids on source_mesh.
+
+        Returns
+        -------
+        pyop2.types.map.MixedMap
+            Entity node map.
+
+        """
+        return op2.MixedMap(s.entity_node_map(source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids)
+                            for s in self._spaces)
+
     def cell_node_map(self):
         r"""A :class:`pyop2.types.map.MixedMap` from the ``Mesh.cell_set`` of the
         underlying mesh to the :attr:`node_set` of this
@@ -1089,6 +1158,9 @@ class MixedFunctionSpace(object):
     @utils.cached_property
     def _ises(self):
         return self.dof_dset.field_ises
+
+    def collapse(self):
+        return type(self)([V_ for V_ in self], self.mesh())
 
 
 class ProxyFunctionSpace(FunctionSpace):
@@ -1228,9 +1300,9 @@ def ComponentFunctionSpace(parent, component):
     """
     element = parent.ufl_element()
     assert type(element) in frozenset([finat.ufl.VectorElement, finat.ufl.TensorElement])
-    if not (0 <= component < parent.value_size):
+    if not (0 <= component < parent.block_size):
         raise IndexError("Invalid component %d. not in [0, %d)" %
-                         (component, parent.value_size))
+                         (component, parent.block_size))
     new = ProxyFunctionSpace(parent.mesh(), element.sub_elements[0], name=parent.name)
     new.identifier = "component"
     new.component = component
@@ -1274,7 +1346,10 @@ class RealFunctionSpace(FunctionSpace):
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.glob.Global` representing the
         data for a :class:`.Function` on this space."""
-        return op2.Global(self.value_size, val, valuetype, name, self._comm)
+        return op2.Global(self.block_size, val, valuetype, name, self._comm)
+
+    def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
+        return None
 
     def cell_node_map(self, bcs=None):
         ":class:`RealFunctionSpace` objects have no cell node map."

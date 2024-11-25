@@ -25,14 +25,14 @@ def degree(request):
     return request.param
 
 
-@pytest.fixture(params=["RT", "N1curl"])
+@pytest.fixture(params=["RT", "N1curl", "CG"])
 def space(request):
     return request.param
 
 
 @pytest.fixture
 def V(mesh, degree, space):
-    return FunctionSpace(mesh, space, degree)
+    return FunctionSpace(mesh, space, degree, variant="integral")
 
 
 @pytest.fixture(params=["Default", "Exact", "Averaging"])
@@ -93,6 +93,8 @@ def solver(V, space, solver_parameters):
         F = a*inner(u, v)*dx + b*inner(div(u), div(v))*dx - inner(f, v)*dx
     elif space == "N1curl":
         F = a*inner(u, v)*dx + b*inner(curl(u), curl(v))*dx - inner(f, v)*dx
+    elif space == "CG":
+        F = a*inner(u, v)*dx + b*inner(grad(u), grad(v))*dx - inner(1, v)*dx
     problem = NonlinearVariationalProblem(F, u)
     solver = NonlinearVariationalSolver(problem, solver_parameters=solver_parameters,
                                         options_prefix="")

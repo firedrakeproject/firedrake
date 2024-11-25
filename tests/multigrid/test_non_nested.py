@@ -1,5 +1,6 @@
 from firedrake import *
 from firedrake.mg.ufl_utils import coarsen as symbolic_coarsen
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 from functools import singledispatch
 
 
@@ -58,7 +59,7 @@ def test_sphere_mg():
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    a = (inner(u, v) + inner(u, v))*dx
+    a = (inner(grad(u), grad(v)) + inner(u, v))*dx
 
     f1 = exp((x+y+z)/R)*x*y*z/R**3
     F = inner(f1, v)*dx
@@ -77,8 +78,7 @@ def test_sphere_mg():
                  "mg_coarse_pc_type": "python",
                  "mg_coarse_pc_python_type": "firedrake.AssembledPC",
                  "mg_coarse_assembled_pc_type": "lu",
-                 "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps",
-                 "mg_coarse_assembled_mat_mumps_icntl_14": 200,
+                 "mg_coarse_assembled_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
                  "mg_levels_pc_type": "python",
                  "mg_levels_pc_python_type": "firedrake.AssembledPC",
                  "mg_levels_assembled_pc_type": "bjacobi",
@@ -91,4 +91,4 @@ def test_sphere_mg():
     prob = LinearVariationalProblem(a, F, w)
     solver = LinearVariationalSolver(prob, solver_parameters=mg_params)
     solver.solve()
-    assert solver.snes.ksp.getIterationNumber() < 5
+    assert solver.snes.ksp.getIterationNumber() < 7

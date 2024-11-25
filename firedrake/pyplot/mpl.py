@@ -119,12 +119,12 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
         V = VectorFunctionSpace(mesh, element.family(), 1)
         coordinates = assemble(Interpolate(coordinates, V))
 
-    coords = toreal(coordinates.dat.data_ro, "real")
+    coords = toreal(coordinates.dat.data_ro_with_halos, "real")
     result = []
     interior_kw = dict(interior_kw)
     # If the domain isn't a 3D volume, draw the interior.
     if tdim <= 2:
-        cell_node_map = coordinates.cell_node_map().values
+        cell_node_map = coordinates.cell_node_map().values_with_halo
         idx = (tuple(range(tdim + 1)) if not quad else (0, 1, 3, 2)) + (0,)
         vertices = coords[cell_node_map[:, idx]]
 
@@ -141,12 +141,12 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
         if typ == "interior":
             facets = mesh.interior_facets
             node_map = coordinates.interior_facet_node_map()
-            node_map = node_map.values[:, :node_map.arity//2]
-            local_facet_ids = facets.local_facet_dat.data_ro[:, :1].reshape(-1)
+            node_map = node_map.values_with_halo[:, :node_map.arity//2]
+            local_facet_ids = facets.local_facet_dat.data_ro_with_halos[:, :1].reshape(-1)
         elif typ == "exterior":
             facets = mesh.exterior_facets
-            local_facet_ids = facets.local_facet_dat.data_ro
-            node_map = coordinates.exterior_facet_node_map().values
+            local_facet_ids = facets.local_facet_dat.data_ro_with_halos
+            node_map = coordinates.exterior_facet_node_map().values_with_halo
         else:
             raise ValueError("Unhandled facet type")
         mask = np.zeros(node_map.shape, dtype=bool)
@@ -162,7 +162,12 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     color_key = "colors" if tdim <= 2 else "facecolors"
     boundary_colors = boundary_kw.pop(color_key, None)
     if boundary_colors is None:
-        cmap = matplotlib.cm.get_cmap("Dark2")
+        # matplotlib.cm.get_cmap was deprecated in Matplotlib 3.9, see:
+        # https://matplotlib.org/3.9.0/api/prev_api_changes/api_changes_3.9.0.html#top-level-cmap-registration-and-access-functions-in-mpl-cm
+        try:
+            cmap = matplotlib.cm.get_cmap("Dark2")
+        except AttributeError:
+            cmap = matplotlib.colormaps["Dark2"]
         num_markers = len(markers)
         colors = cmap([k / num_markers for k in range(num_markers)])
     else:

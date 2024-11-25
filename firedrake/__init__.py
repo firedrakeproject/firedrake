@@ -119,7 +119,6 @@ from firedrake.ensemble import *
 from firedrake.randomfunctiongen import *
 from firedrake.external_operators import *
 from firedrake.progress_bar import ProgressBar  # noqa: F401
-from firedrake.fml import *
 
 from firedrake.logging import *
 # Set default log level
@@ -131,7 +130,7 @@ from firedrake._deprecation import plot, File  # noqa: F401
 # Once `File` is deprecated update the above line removing `File` and add
 #   from firedrake._deprecation import output
 #   sys.modules["firedrake.output"] = output
-#   from firedrake.output import *
+from firedrake.output import *
 sys.modules["firedrake.plot"] = plot
 from firedrake.plot import *
 

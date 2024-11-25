@@ -27,7 +27,6 @@ def run_test(x, degree, quadrilateral, parameters={}, test_mode=False):
               - (boundary * 1.0 / layers))
 
     if not test_mode:
-        from firedrake.output import VTKFile
         print("The error is ", res)
         file = VTKFile("bt-bcs.pvd")
         file.write(u)

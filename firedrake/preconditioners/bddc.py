@@ -1,6 +1,6 @@
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
-from firedrake.preconditioners.facet_split import restrict, restricted_local_dofs
+from firedrake.preconditioners.facet_split import restrict, get_restriction_indices
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space, get_appctx
 from firedrake.ufl_expr import TestFunction, TrialFunction
@@ -115,7 +115,7 @@ class BDDCPC(PCBase):
 
 def get_vertex_dofs(V):
     W = FunctionSpace(V.mesh(), restrict(V.ufl_element(), "vertex"))
-    indices = restricted_local_dofs(V, W)
+    indices = get_restriction_indices(V, W)
     V.dof_dset.lgmap.apply(indices, result=indices)
     vertex_dofs = PETSc.IS().createGeneral(indices, comm=V.comm)
     return vertex_dofs

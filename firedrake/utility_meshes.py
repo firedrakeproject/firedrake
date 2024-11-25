@@ -3,21 +3,30 @@ import numpy as np
 import ufl
 
 from pyop2.mpi import COMM_WORLD
-from firedrake.utils import IntType, RealType, ScalarType
+from firedrake.utils import IntType, ScalarType
 
 from firedrake import (
     VectorFunctionSpace,
+    FunctionSpace,
     Function,
     Constant,
-    par_loop,
-    dx,
-    WRITE,
-    READ,
     assemble,
     Interpolate,
     FiniteElement,
     interval,
     tetrahedron,
+    atan2,
+    pi,
+    as_vector,
+    SpatialCoordinate,
+    conditional,
+    gt,
+    as_tensor,
+    dot,
+    And,
+    sin,
+    cos,
+    real
 )
 from firedrake.cython import dmcommon
 from firedrake import mesh
@@ -64,8 +73,8 @@ __all__ = [
 ]
 
 
-distribution_parameters_noop = {"partition": False,
-                                "overlap_type": (mesh.DistributedMeshOverlapType.NONE, 0)}
+distribution_parameters_no_overlap = {"partition": True,
+                                      "overlap_type": (mesh.DistributedMeshOverlapType.NONE, 0)}
 reorder_noop = False
 
 
@@ -252,51 +261,29 @@ cells are not currently supported"
         )
     m = CircleManifoldMesh(
         ncells,
-        distribution_parameters=distribution_parameters_noop,
+        distribution_parameters=distribution_parameters_no_overlap,
         reorder=reorder_noop,
         comm=comm,
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
     )
+    indicator = Function(FunctionSpace(m, "DG", 0))
     coord_fs = VectorFunctionSpace(
         m, FiniteElement("DG", interval, 1, variant="equispaced"), dim=1
     )
-    old_coordinates = m.coordinates
     new_coordinates = Function(
         coord_fs, name=mesh._generate_default_mesh_coordinates_name(name)
     )
-
-    domain = "{ [i, j] : 0 <= i, j < 2 }"
-    instructions = f"""
-    <{RealType}> eps = 1e-12
-    <{RealType}> pi = 3.141592653589793
-    <{RealType}> oc[i, j] = real(old_coords[i, j])
-    <{RealType}> a = atan2(oc[0, 1], oc[0, 0]) / (2*pi)
-    <{RealType}> b = atan2(oc[1, 1], oc[1, 0]) / (2*pi)
-    <{IntType}> swap = 1 if a >= b else 0
-    <{RealType}> aa = fmin(a, b)
-    <{RealType}> bb = fmax(a, b)
-    <{RealType}> bb_abs = abs(bb)
-    bb = (1.0 if aa < -eps else bb) if bb_abs < eps else bb
-    aa = aa + 1 if aa < -eps else aa
-    bb = bb + 1 if bb < -eps else bb
-    a = bb if swap == 1 else aa
-    b = aa if swap == 1 else bb
-    new_coords[0] = a * L[0]
-    new_coords[1] = b * L[0]
-    """
-
-    cL = Constant(length)
-
-    par_loop(
-        (domain, instructions),
-        dx,
-        {
-            "new_coords": (new_coordinates, WRITE),
-            "old_coords": (old_coordinates, READ),
-            "L": (cL, READ),
-        },
+    x, y = SpatialCoordinate(m)
+    eps = 1.e-14
+    indicator.interpolate(conditional(gt(real(y), 0), 0., 1.))
+    new_coordinates.interpolate(
+        as_vector((conditional(
+            gt(real(x), real(1. - eps)), indicator,  # Periodic break.
+            # Unwrap rest of circle.
+            atan2(real(-y), real(-x))/(2 * pi) + 0.5
+        ) * length,))
     )
 
     return _postprocess_periodic_mesh(new_coordinates,
@@ -318,7 +305,7 @@ def PeriodicUnitIntervalMesh(
     distribution_name=None,
     permutation_name=None,
 ):
-    """Generate a periodic mesh of the unit interval
+    """Generate a periodic mesh of the unit interval.
 
     :arg ncells: The number of cells in the interval.
     :kwarg distribution_parameters: options controlling mesh
@@ -984,7 +971,7 @@ def PeriodicRectangleMesh(
         0.5,
         quadrilateral=quadrilateral,
         reorder=reorder_noop,
-        distribution_parameters=distribution_parameters_noop,
+        distribution_parameters=distribution_parameters_no_overlap,
         comm=comm,
         name=name,
         distribution_name=distribution_name,
@@ -992,59 +979,35 @@ def PeriodicRectangleMesh(
     )
     coord_family = "DQ" if quadrilateral else "DG"
     cell = "quadrilateral" if quadrilateral else "triangle"
+
     coord_fs = VectorFunctionSpace(
         m, FiniteElement(coord_family, cell, 1, variant="equispaced"), dim=2
     )
-    old_coordinates = m.coordinates
     new_coordinates = Function(
         coord_fs, name=mesh._generate_default_mesh_coordinates_name(name)
     )
-
-    domain = "{[i, j, k, l]: 0 <= i, k < old_coords.dofs and 0 <= j < new_coords.dofs and 0 <= l < 3}"
-    instructions = f"""
-    <{RealType}> pi = 3.141592653589793
-    <{RealType}> eps = 1e-12
-    <{RealType}> bigeps = 1e-1
-    <{RealType}> oc[k, l] = real(old_coords[k, l])
-    <{RealType}> Y = 0
-    <{RealType}> Z = 0
-    for i
-        Y = Y + oc[i, 1]
-        Z = Z + oc[i, 2]
-    end
-    for j
-        <{RealType}> phi = atan2(oc[j, 1], oc[j, 0])
-        <{RealType}> theta1 = atan2(oc[j, 2], oc[j, 1] / sin(phi) - 1)
-        <{RealType}> theta2 = atan2(oc[j, 2], oc[j, 0] / cos(phi) - 1)
-        <{RealType}> abssin = abs(sin(phi))
-        <{RealType}> theta = theta1 if abssin > bigeps else theta2
-        <{RealType}> nc0 = phi / (2 * pi)
-        <{RealType}> absnc = 0
-        nc0 = nc0 + 1 if nc0 < -eps else nc0
-        absnc = abs(nc0)
-        nc0 = 1 if absnc < eps and Y < 0 else nc0
-        <{RealType}> nc1 = theta / (2 * pi)
-        nc1 = nc1 + 1 if nc1 < -eps else nc1
-        absnc = abs(nc1)
-        nc1 = 1 if absnc < eps and Z < 0 else nc1
-        new_coords[j, 0] = nc0 * Lx[0]
-        new_coords[j, 1] = nc1 * Ly[0]
-    end
-    """
-
-    cLx = Constant(Lx)
-    cLy = Constant(Ly)
-
-    par_loop(
-        (domain, instructions),
-        dx,
-        {
-            "new_coords": (new_coordinates, WRITE),
-            "old_coords": (old_coordinates, READ),
-            "Lx": (cLx, READ),
-            "Ly": (cLy, READ),
-        },
+    x, y, z = SpatialCoordinate(m)
+    eps = 1.e-14
+    indicator_y = Function(FunctionSpace(m, coord_family, 0))
+    indicator_y.interpolate(conditional(gt(real(y), 0), 0., 1.))
+    x_coord = Function(FunctionSpace(m, coord_family, 1, variant="equispaced"))
+    x_coord.interpolate(
+        # Periodic break.
+        conditional(And(gt(real(eps), real(abs(y))), gt(real(x), 0.)), indicator_y,
+                    # Unwrap rest of circle.
+                    atan2(real(-y), real(-x))/(2*pi)+0.5)
     )
+    phi_coord = as_vector([cos(2*pi*x_coord), sin(2*pi*x_coord)])
+    dr = dot(as_vector((x, y))-phi_coord, phi_coord)
+    indicator_z = Function(FunctionSpace(m, coord_family, 0))
+    indicator_z.interpolate(conditional(gt(real(z), 0), 0., 1.))
+    new_coordinates.interpolate(as_vector((
+        x_coord * Lx,
+        # Periodic break.
+        conditional(And(gt(real(eps), real(abs(z))), gt(real(dr), 0.)), indicator_z,
+                    # Unwrap rest of circle.
+                    atan2(real(-z), real(-dr))/(2*pi)+0.5) * Ly
+    )))
 
     return _postprocess_periodic_mesh(new_coordinates,
                                       comm,
@@ -1905,70 +1868,39 @@ def PeriodicBoxMesh(
     m = mesh.Mesh(
         plex,
         reorder=reorder_noop,
-        distribution_parameters=distribution_parameters_noop,
+        distribution_parameters=distribution_parameters_no_overlap,
         name=name,
         distribution_name=distribution_name,
         permutation_name=permutation_name,
         comm=comm,
     )
 
-    old_coordinates = m.coordinates
     new_coordinates = Function(
         VectorFunctionSpace(
             m, FiniteElement("DG", tetrahedron, 1, variant="equispaced")
         ),
         name=mesh._generate_default_mesh_coordinates_name(name),
     )
+    new_coordinates.interpolate(m.coordinates)
 
-    domain = ""
-    instructions = f"""
-    <{RealType}> x0 = real(old_coords[0, 0])
-    <{RealType}> x1 = real(old_coords[1, 0])
-    <{RealType}> x2 = real(old_coords[2, 0])
-    <{RealType}> x3 = real(old_coords[3, 0])
-    <{RealType}> x_max = fmax(fmax(fmax(x0, x1), x2), x3)
-    <{RealType}> y0 = real(old_coords[0, 1])
-    <{RealType}> y1 = real(old_coords[1, 1])
-    <{RealType}> y2 = real(old_coords[2, 1])
-    <{RealType}> y3 = real(old_coords[3, 1])
-    <{RealType}> y_max = fmax(fmax(fmax(y0, y1), y2), y3)
-    <{RealType}> z0 = real(old_coords[0, 2])
-    <{RealType}> z1 = real(old_coords[1, 2])
-    <{RealType}> z2 = real(old_coords[2, 2])
-    <{RealType}> z3 = real(old_coords[3, 2])
-    <{RealType}> z_max = fmax(fmax(fmax(z0, z1), z2), z3)
+    coords_by_cell = new_coordinates.dat.data.reshape((-1, 4, 3)).transpose(1, 0, 2)
 
-    new_coords[0, 0] = x_max+hx[0]  if (x_max > real(1.5*hx[0]) and old_coords[0, 0] == 0.) else old_coords[0, 0]
-    new_coords[0, 1] = y_max+hy[0]  if (y_max > real(1.5*hy[0]) and old_coords[0, 1] == 0.) else old_coords[0, 1]
-    new_coords[0, 2] = z_max+hz[0]  if (z_max > real(1.5*hz[0]) and old_coords[0, 2] == 0.) else old_coords[0, 2]
+    # ensure we really got a view:
+    assert coords_by_cell.base is new_coordinates.dat.data.base
 
-    new_coords[1, 0] = x_max+hx[0]  if (x_max > real(1.5*hx[0]) and old_coords[1, 0] == 0.) else old_coords[1, 0]
-    new_coords[1, 1] = y_max+hy[0]  if (y_max > real(1.5*hy[0]) and old_coords[1, 1] == 0.) else old_coords[1, 1]
-    new_coords[1, 2] = z_max+hz[0]  if (z_max > real(1.5*hz[0]) and old_coords[1, 2] == 0.) else old_coords[1, 2]
-
-    new_coords[2, 0] = x_max+hx[0]  if (x_max > real(1.5*hx[0]) and old_coords[2, 0] == 0.) else old_coords[2, 0]
-    new_coords[2, 1] = y_max+hy[0]  if (y_max > real(1.5*hy[0]) and old_coords[2, 1] == 0.) else old_coords[2, 1]
-    new_coords[2, 2] = z_max+hz[0]  if (z_max > real(1.5*hz[0]) and old_coords[2, 2] == 0.) else old_coords[2, 2]
-
-    new_coords[3, 0] = x_max+hx[0]  if (x_max > real(1.5*hx[0]) and old_coords[3, 0] == 0.) else old_coords[3, 0]
-    new_coords[3, 1] = y_max+hy[0]  if (y_max > real(1.5*hy[0]) and old_coords[3, 1] == 0.) else old_coords[3, 1]
-    new_coords[3, 2] = z_max+hz[0]  if (z_max > real(1.5*hz[0]) and old_coords[3, 2] == 0.) else old_coords[3, 2]
-    """
-    hx = Constant(Lx / nx)
-    hy = Constant(Ly / ny)
-    hz = Constant(Lz / nz)
-
-    par_loop(
-        (domain, instructions),
-        dx,
-        {
-            "new_coords": (new_coordinates, WRITE),
-            "old_coords": (old_coordinates, READ),
-            "hx": (hx, READ),
-            "hy": (hy, READ),
-            "hz": (hz, READ),
-        },
+    # Find the cells that are too big in each direction because they are
+    # wrapped.
+    cell_is_wrapped = (
+        (coords_by_cell.max(axis=0) - coords_by_cell.min(axis=0))
+        / (Lx/nx, Ly/ny, Lz/nz) > 1.1
     )
+
+    # Move wrapped coordinates to the other end of the domain.
+    for i, extent in enumerate((Lx, Ly, Lz)):
+        coords = coords_by_cell[:, :, i]
+        coords[np.logical_and(cell_is_wrapped[:, i], np.isclose(coords, 0))] \
+            = extent
+
     return _postprocess_periodic_mesh(new_coordinates,
                                       comm,
                                       distribution_parameters,
@@ -2342,10 +2274,10 @@ def OctahedralSphereMesh(
     s = ufl.real(abs(z) - z0) / (1 - z0)
     exp = ufl.exp
     taper = ufl.conditional(
-        ufl.gt(s, 1.0 - tol),
+        ufl.gt(real(s), real(1.0 - tol)),
         1.0,
         ufl.conditional(
-            ufl.gt(s, tol), exp(-1.0 / s) / (exp(-1.0 / s) + exp(-1.0 / (1.0 - s))), 0.0
+            ufl.gt(real(s), real(tol)), exp(-1.0 / s) / (exp(-1.0 / s) + exp(-1.0 / (1.0 - s))), 0.0
         ),
     )
     m.coordinates.interpolate(taper * Xradial + (1 - taper) * Xlatitudinal)
@@ -3031,7 +2963,7 @@ def PartiallyPeriodicRectangleMesh(
     distribution_name=None,
     permutation_name=None,
 ):
-    """Generates RectangleMesh that is periodic in the x or y direction.
+    """Generate a RectangleMesh that is periodic in the x or y direction.
 
     :arg nx: The number of cells in the x direction
     :arg ny: The number of cells in the y direction
@@ -3063,14 +2995,13 @@ def PartiallyPeriodicRectangleMesh(
     * 1: plane x == 0
     * 2: plane x == Lx
     """
-
     if direction not in ("x", "y"):
         raise ValueError("Unsupported periodic direction '%s'" % direction)
 
     # handle x/y directions: na, La are for the periodic axis
-    na, nb, La, Lb = nx, ny, Lx, Ly
+    na, nb = nx, ny
     if direction == "y":
-        na, nb, La, Lb = ny, nx, Ly, Lx
+        na, nb = ny, nx
 
     if na < 3:
         raise ValueError(
@@ -3085,7 +3016,7 @@ def PartiallyPeriodicRectangleMesh(
         longitudinal_direction="z",
         quadrilateral=quadrilateral,
         reorder=reorder_noop,
-        distribution_parameters=distribution_parameters_noop,
+        distribution_parameters=distribution_parameters_no_overlap,
         diagonal=diagonal,
         comm=comm,
         name=name,
@@ -3094,52 +3025,29 @@ def PartiallyPeriodicRectangleMesh(
     )
     coord_family = "DQ" if quadrilateral else "DG"
     cell = "quadrilateral" if quadrilateral else "triangle"
+    indicator = Function(FunctionSpace(m, coord_family, 0))
     coord_fs = VectorFunctionSpace(
         m, FiniteElement(coord_family, cell, 1, variant="equispaced"), dim=2
     )
-    old_coordinates = m.coordinates
     new_coordinates = Function(
         coord_fs, name=mesh._generate_default_mesh_coordinates_name(name)
     )
-
-    # make x-periodic mesh
-    # unravel x coordinates like in periodic interval
-    # set y coordinates to z coordinates
-    domain = "{[i, j, k, l]: 0 <= i, k < old_coords.dofs and 0 <= j < new_coords.dofs and 0 <= l < 3}"
-    instructions = f"""
-    <{RealType}> Y = 0
-    <{RealType}> pi = 3.141592653589793
-    <{RealType}> oc[k, l] = real(old_coords[k, l])
-    for i
-        Y = Y + oc[i, 1]
-    end
-    for j
-        <{RealType}> nc0 = atan2(oc[j, 1], oc[j, 0]) / (pi* 2)
-        nc0 = nc0 + 1 if nc0 < 0 else nc0
-        nc0 = 1 if nc0 == 0 and Y < 0 else nc0
-        new_coords[j, 0] = nc0 * Lx[0]
-        new_coords[j, 1] = old_coords[j, 2] * Ly[0]
-    end
-    """
-
-    cLx = Constant(La)
-    cLy = Constant(Lb)
-
-    par_loop(
-        (domain, instructions),
-        dx,
-        {
-            "new_coords": (new_coordinates, WRITE),
-            "old_coords": (old_coordinates, READ),
-            "Lx": (cLx, READ),
-            "Ly": (cLy, READ),
-        },
-    )
-
-    if direction == "y":
-        # flip x and y coordinates
-        operator = np.asarray([[0, 1], [1, 0]])
-        new_coordinates.dat.data[:] = np.dot(new_coordinates.dat.data, operator.T)
+    x, y, z = SpatialCoordinate(m)
+    eps = 1.e-14
+    indicator.interpolate(conditional(gt(real(y), 0), 0., 1.))
+    if direction == "x":
+        transform = as_tensor([[Lx, 0.], [0., Ly]])
+    else:
+        transform = as_tensor([[0., Lx], [Ly, 0]])
+    new_coordinates.interpolate(dot(
+        transform,
+        as_vector((
+            conditional(gt(real(x), real(1. - eps)), indicator,  # Periodic break.
+                        # Unwrap rest of circle.
+                        atan2(real(-y), real(-x))/(2 * pi) + 0.5),
+            z
+        ))
+    ))
 
     return _postprocess_periodic_mesh(new_coordinates,
                                       comm,

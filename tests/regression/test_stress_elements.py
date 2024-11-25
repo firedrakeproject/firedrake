@@ -7,17 +7,21 @@ relative_magnitudes = lambda x: np.array(x)[1:] / np.array(x)[:-1]
 convergence_orders = lambda x: -np.log2(relative_magnitudes(x))
 
 
-@pytest.fixture(scope='module', params=["conforming", "nonconforming"])
+@pytest.fixture(params=["macro", "nonconforming", "conforming", "high-order"])
 def stress_element(request):
-    if request.param == "conforming":
-        return FiniteElement("AWc", triangle, 3)
+    if request.param == "macro":
+        return FiniteElement("JM", triangle, 1)
     elif request.param == "nonconforming":
         return FiniteElement("AWnc", triangle, 2)
+    elif request.param == "conforming":
+        return FiniteElement("AWc", triangle, 3)
+    elif request.param == "high-order":
+        return FiniteElement("HZ", triangle, 3)
     else:
         raise ValueError("Unknown family")
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture
 def mesh_hierarchy(request):
     N_base = 2
     mesh = UnitSquareMesh(N_base, N_base)
@@ -25,7 +29,7 @@ def mesh_hierarchy(request):
     return mh
 
 
-def test_aw_convergence(stress_element, mesh_hierarchy):
+def test_stress_displacement_convergence(stress_element, mesh_hierarchy):
 
     mesh = mesh_hierarchy[0]
     V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
@@ -62,7 +66,10 @@ def test_aw_convergence(stress_element, mesh_hierarchy):
     l2_u = []
     l2_sigma = []
     l2_div_sigma = []
-    displacement_element = VectorElement("DG", cell=mesh.ufl_cell(), degree=1, variant="integral")
+    sdegree = stress_element.degree()
+    sfamily = stress_element.family()
+    vdegree = sdegree-1 if sfamily == "Hu-Zhang" else 1
+    displacement_element = VectorElement("DG", cell=mesh.ufl_cell(), degree=vdegree, variant="integral")
     element = MixedElement([stress_element, displacement_element])
     for msh in mesh_hierarchy[1:]:
         x, y = SpatialCoordinate(msh)
@@ -95,7 +102,7 @@ def test_aw_convergence(stress_element, mesh_hierarchy):
             )  # noqa: E123
 
         # Augmented Lagrangian preconditioner
-        gamma = Constant(1E2)
+        gamma = Constant(1E4)
         Jp = inner(A(sig), tau)*dx + inner(div(sig) * gamma, div(tau))*dx + inner(u * (1/gamma), v) * dx
 
         params = {"mat_type": "matfree",
@@ -124,19 +131,21 @@ def test_aw_convergence(stress_element, mesh_hierarchy):
         l2_sigma.append(error_sigma)
         l2_div_sigma.append(error_div_sigma)
 
-    if stress_element.family().startswith("Conforming"):
-        assert min(convergence_orders(l2_u)) > 1.9
-        assert min(convergence_orders(l2_sigma)) > 2.9
-        assert min(convergence_orders(l2_div_sigma)) > 1.9
-    elif stress_element.family().startswith("Nonconforming"):
-        assert min(convergence_orders(l2_u)) > 1.9
-        assert min(convergence_orders(l2_sigma)) > 1
-        assert min(convergence_orders(l2_div_sigma)) > 1.9
+    sdegree = V[0].ufl_element().degree()
+    vdegree = V[1].ufl_element().degree()
+    if stress_element.family().startswith("Nonconforming"):
+        expected_rates = (vdegree+1, sdegree-1, sdegree)
+    elif stress_element.family().startswith("Conforming"):
+        expected_rates = (vdegree+1, sdegree, sdegree-1)
     else:
-        raise ValueError("Don't know what the convergence should be")
+        expected_rates = (vdegree+1, sdegree+1, sdegree)
+
+    assert min(convergence_orders(l2_u[1:])) > expected_rates[0] * 0.9
+    assert min(convergence_orders(l2_sigma[1:])) > expected_rates[1] * 0.9
+    assert min(convergence_orders(l2_div_sigma[1:])) > expected_rates[2] * 0.9
 
 
-def test_aw_conditioning(stress_element, mesh_hierarchy):
+def test_mass_conditioning(stress_element, mesh_hierarchy):
     mass_cond = []
     for msh in mesh_hierarchy[:3]:
         Sig = FunctionSpace(msh, stress_element)

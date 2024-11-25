@@ -120,7 +120,7 @@ India Marsden.................<https://www.maths.ox.ac.uk/people/india.marsden>
 
 Geordie McBain
 
-Andrew T. T. McRae............<https://www2.physics.ox.ac.uk/contacts/people/mcraea>
+Andrew T. T. McRae
 
 Oliver Meister................<https://www5.in.tum.de/wiki/index.php/Dipl.-Inf._Oliver_Meister>
 

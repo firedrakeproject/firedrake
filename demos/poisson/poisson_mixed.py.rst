@@ -85,7 +85,6 @@ follows:
 The mesh is chosen as a :math:`32\times32` element unit square. ::
 
   from firedrake import *
-  from firedrake.output import VTKFile
   mesh = UnitSquareMesh(32, 32)
 
 As argued above, a stable choice of function spaces for our problem is the

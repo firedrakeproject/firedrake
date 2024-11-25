@@ -40,10 +40,6 @@ class BCBase(object):
     @PETSc.Log.EventDecorator()
     def __init__(self, V, sub_domain):
 
-        # First, we bail out on zany elements.  We don't know how to do BC's for them.
-        if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
-           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension() > 1):
-            raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
         self._function_space = V
         self.sub_domain = sub_domain
         # If this BC is defined on a subspace (IndexedFunctionSpace or
@@ -131,12 +127,26 @@ class BCBase(object):
     def nodes(self):
         '''The list of nodes at which this boundary condition applies.'''
 
+        # First, we bail out on zany elements.  We don't know how to do BC's for them.
+        V = self._function_space
+        if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
+           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension() > 1):
+            raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
+
         def hermite_stride(bcnodes):
-            if isinstance(self._function_space.finat_element, finat.Hermite) and \
-               self._function_space.mesh().topological_dimension() == 1:
-                return bcnodes[::2]  # every second dof is the vertex value
-            else:
-                return bcnodes
+            fe = self._function_space.finat_element
+            tdim = self._function_space.mesh().topological_dimension()
+            if isinstance(fe, finat.Hermite) and tdim == 1:
+                bcnodes = bcnodes[::2]  # every second dof is the vertex value
+            elif fe.complex.is_macrocell() and self._function_space.ufl_element().sobolev_space == ufl.H1:
+                # Skip derivative nodes for supersmooth H1 functions
+                nodes = fe.fiat_equivalent.dual_basis()
+                deriv_nodes = [i for i, node in enumerate(nodes)
+                               if len(node.deriv_dict) != 0]
+                if len(deriv_nodes) > 0:
+                    deriv_ids = self._function_space.cell_node_list[:, deriv_nodes]
+                    bcnodes = np.setdiff1d(bcnodes, deriv_ids)
+            return bcnodes
 
         sub_d = (self.sub_domain, ) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
         sub_d = [s if isinstance(s, str) else as_tuple(s) for s in sub_d]
@@ -332,20 +342,21 @@ class DirichletBC(BCBase, DirichletBCMixin):
             del self._function_arg_update
         except AttributeError:
             pass
+        V = self.function_space()
         if isinstance(g, firedrake.Function) and g.ufl_element().family() != "Real":
-            if g.function_space() != self.function_space():
+            if g.function_space() != V:
                 raise RuntimeError("%r is defined on incompatible FunctionSpace!" % g)
             self._function_arg = g
         elif isinstance(g, ufl.classes.Zero):
-            if g.ufl_shape and g.ufl_shape != self.function_space().ufl_element().value_shape:
+            if g.ufl_shape and g.ufl_shape != V.value_shape:
                 raise ValueError(f"Provided boundary value {g} does not match shape of space")
             # Special case. Scalar zero for direct Function.assign.
             self._function_arg = g
         elif isinstance(g, ufl.classes.Expr):
-            if g.ufl_shape != self.function_space().ufl_element().value_shape:
+            if g.ufl_shape != V.value_shape:
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
             try:
-                self._function_arg = firedrake.Function(self.function_space())
+                self._function_arg = firedrake.Function(V)
                 # Use `Interpolator` instead of assembling an `Interpolate` form
                 # as the expression compilation needs to happen at this stage to
                 # determine if we should use interpolation or projection
@@ -353,7 +364,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 self._function_arg_update = firedrake.Interpolator(g, self._function_arg)._interpolate
             except (NotImplementedError, AttributeError):
                 # Element doesn't implement interpolation
-                self._function_arg = firedrake.Function(self.function_space()).project(g)
+                self._function_arg = firedrake.Function(V).project(g)
                 self._function_arg_update = firedrake.Projector(g, self._function_arg).project
         else:
             try:
@@ -449,6 +460,9 @@ class DirichletBC(BCBase, DirichletBCMixin):
         # DirichletBC is directly used in assembly.
         return self
 
+    def _as_nonlinear_variational_problem_arg(self):
+        return self
+
 
 class EquationBC(object):
     r'''Construct and store EquationBCSplit objects (for `F`, `J`, and `Jp`).
@@ -539,12 +553,15 @@ class EquationBC(object):
             return getattr(self, f"_{form_type}")
 
     @PETSc.Log.EventDecorator()
-    def reconstruct(self, V, subu, u, field):
+    def reconstruct(self, V, subu, u, field, is_linear):
         _F = self._F.reconstruct(field=field, V=V, subu=subu, u=u)
         _J = self._J.reconstruct(field=field, V=V, subu=subu, u=u)
         _Jp = self._Jp.reconstruct(field=field, V=V, subu=subu, u=u)
         if all([_F is not None, _J is not None, _Jp is not None]):
-            return EquationBC(_F, _J, _Jp, Jp_eq_J=self.Jp_eq_J, is_linear=self.is_linear)
+            return EquationBC(_F, _J, _Jp, Jp_eq_J=self.Jp_eq_J, is_linear=is_linear)
+
+    def _as_nonlinear_variational_problem_arg(self):
+        return self
 
 
 class EquationBCSplit(BCBase):
@@ -634,6 +651,20 @@ class EquationBCSplit(BCBase):
                 if bc_temp is not None:
                     ebc.add(bc_temp)
         return ebc
+
+    def _as_nonlinear_variational_problem_arg(self):
+        # NonlinearVariationalProblem expects EquationBC, not EquationBCSplit.
+        # -- This method is required when NonlinearVariationalProblem is constructed inside PC.
+        if len(self.f.arguments()) != 2:
+            raise NotImplementedError(f"Not expecting a form of rank {len(self.f.arguments())} (!= 2)")
+        J = self.f
+        Vcol = J.arguments()[-1].function_space()
+        u = firedrake.Function(Vcol)
+        F = ufl_expr.action(J, u)
+        Vrow = self._function_space
+        sub_domain = self.sub_domain
+        bcs = tuple(bc._as_nonlinear_variational_problem_arg() for bc in self.bcs)
+        return EquationBC(F == 0, u, sub_domain, bcs=bcs, J=J, V=Vrow)
 
 
 @PETSc.Log.EventDecorator()

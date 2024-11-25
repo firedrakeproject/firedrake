@@ -3,13 +3,14 @@ import ufl
 
 from ufl.form import BaseForm
 from pyop2 import op2, mpi
-from pyadjoint.tape import stop_annotating, annotate_tape
+from pyadjoint.tape import stop_annotating, annotate_tape, get_working_tape
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
 from firedrake import utils, vector, ufl_expr
 from firedrake.utils import ScalarType
 from firedrake.adjoint_utils.function import FunctionMixin
 from firedrake.adjoint_utils.checkpointing import DelegatedFunctionCheckpoint
+from firedrake.adjoint_utils.blocks.function import CofunctionAssignBlock
 from firedrake.petsc import PETSc
 
 
@@ -65,13 +66,13 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         # Internal comm
         self._comm = mpi.internal_comm(V.comm, self)
         self._function_space = V
-        self.uid = utils._new_uid()
+        self.uid = utils._new_uid(self._comm)
         self._name = name or 'cofunction_%d' % self.uid
         self._label = "a cofunction"
 
-        if isinstance(val, vector.Vector):
-            # Allow constructing using a vector.
+        if isinstance(val, Cofunction):
             val = val.dat
+
         if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
             assert val.comm == self._comm
             self.dat = val
@@ -172,7 +173,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @utils.known_pyop2_safe
-    def assign(self, expr, subset=None):
+    def assign(self, expr, subset=None, expr_from_assemble=False):
         r"""Set the :class:`Cofunction` value to the pointwise value of
         expr. expr may only contain :class:`Cofunction`\s on the same
         :class:`.FunctionSpace` as the :class:`Cofunction` being assigned to.
@@ -188,6 +189,11 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         If present, subset must be an :class:`pyop2.types.set.Subset` of this
         :class:`Cofunction`'s ``node_set``.  The expression will then
         only be assigned to the nodes on that subset.
+
+        The `expr_from_assemble` optional argument indicates whether the
+        expression results from an assemble operation performed within the
+        current method. `expr_from_assemble` is required for the
+        `CofunctionAssignBlock`.
         """
         expr = ufl.as_ufl(expr)
         if isinstance(expr, ufl.classes.Zero):
@@ -198,16 +204,27 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
               and expr.function_space() == self.function_space()):
             # do not annotate in case of self assignment
             if annotate_tape() and self != expr:
+                if subset is not None:
+                    raise NotImplementedError("Cofunction subset assignment "
+                                              "annotation is not supported.")
                 self.block_variable = self.create_block_variable()
-                self.block_variable._checkpoint = DelegatedFunctionCheckpoint(expr.block_variable)
+                self.block_variable._checkpoint = DelegatedFunctionCheckpoint(
+                    expr.block_variable)
+                get_working_tape().add_block(
+                    CofunctionAssignBlock(
+                        self, expr, rhs_from_assemble=expr_from_assemble)
+                )
+
             expr.dat.copy(self.dat, subset=subset)
             return self
         elif isinstance(expr, BaseForm):
-            # Enable c.assign(B) where c is a Cofunction and B an appropriate BaseForm object.
-            # If annotation is enabled, the following operation will result in an assemble block on the
-            # Pyadjoint tape.
+            # Enable c.assign(B) where c is a Cofunction and B an appropriate
+            # BaseForm object. If annotation is enabled, the following
+            # operation will result in an assemble block on the Pyadjoint tape.
             assembled_expr = firedrake.assemble(expr)
-            return self.assign(assembled_expr, subset=subset)
+            return self.assign(
+                assembled_expr, subset=subset,
+                expr_from_assemble=True)
 
         raise ValueError('Cannot assign %s' % expr)
 

@@ -1,5 +1,5 @@
 """A module providing support for disk checkpointing of the adjoint tape."""
-from pyadjoint import get_working_tape
+from pyadjoint import get_working_tape, OverloadedType, disk_checkpointing_callback
 from pyadjoint.tape import TapePackageData
 from pyop2.mpi import COMM_WORLD
 import tempfile
@@ -10,6 +10,8 @@ from abc import ABC, abstractmethod
 from numbers import Number
 _enable_disk_checkpoint = False
 _checkpoint_init_data = False
+disk_checkpointing_callback["firedrake"] = "Please call enable_disk_checkpointing() "\
+    "before checkpointing on the disk."
 
 __all__ = ["enable_disk_checkpointing", "disk_checkpointing",
            "pause_disk_checkpointing", "continue_disk_checkpointing",
@@ -204,6 +206,12 @@ class DiskCheckpointer(TapePackageData):
         self.init_checkpoint_file = state["init"]
         self.current_checkpoint_file = state["current"]
 
+    def continue_checkpointing(self):
+        continue_disk_checkpointing()
+
+    def pause_checkpointing(self):
+        pause_disk_checkpointing()
+
 
 def checkpointable_mesh(mesh):
     """Write a mesh to disk and read it back.
@@ -251,7 +259,7 @@ class CheckpointBase(ABC):
         pass
 
 
-class CheckpointFunction(CheckpointBase):
+class CheckpointFunction(CheckpointBase, OverloadedType):
     """Metadata for a Function checkpointed to disk.
 
     An object of this class replaces the :class:`~firedrake.Function` stored as
@@ -304,13 +312,16 @@ class CheckpointFunction(CheckpointBase):
         return type(function)(function.function_space(),
                               function.dat, name=self.name(), count=self.count)
 
+    def _ad_restore_at_checkpoint(self, checkpoint):
+        return checkpoint.restore()
+
 
 def maybe_disk_checkpoint(function):
     """Checkpoint a Function to disk if disk checkpointing is active."""
     return CheckpointFunction(function) if disk_checkpointing() else function
 
 
-class DelegatedFunctionCheckpoint(CheckpointBase):
+class DelegatedFunctionCheckpoint(CheckpointBase, OverloadedType):
     """A wrapper which delegates the checkpoint of this Function to another Function.
 
     This enables us to avoid checkpointing a Function twice when it is copied.
@@ -334,3 +345,10 @@ class DelegatedFunctionCheckpoint(CheckpointBase):
             return type(saved_output)(saved_output.function_space(),
                                       saved_output.dat,
                                       count=self.count)
+
+    def _ad_restore_at_checkpoint(self, checkpoint):
+        # This method is reached when a Block output is `self`.
+        if isinstance(checkpoint, DelegatedFunctionCheckpoint):
+            raise ValueError("We must not have output and checkpoint as "
+                             "DelegatedFunctionCheckpoint objects.")
+        return checkpoint

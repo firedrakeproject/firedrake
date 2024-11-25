@@ -1,5 +1,5 @@
-from firedrake.petsc import *
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 import pytest
 distribution_parameters = {"partition": True, "overlap_type": (DistributedMeshOverlapType.VERTEX, 2)}
 
@@ -79,50 +79,55 @@ def test_auxiliary_dm():
 
     # Parameters for block factorization
     block_fact = {
-                 "mat_type": "aij",        # noqa: E126
-                 "snes_type": "newtonls",
-                 "snes_atol": 2.0e-5,
-                 "snes_rtol": 1.0e-5,
-                 "snes_monitor": None,
-                 "ksp_type": "fgmres",
-                 "ksp_norm_type": "unpreconditioned",
-                 "ksp_monitor": None,
-                 "ksp_converged_reason": None,
-                 "ksp_atol": 1e-10,
-                 "ksp_rtol": 1e-10,
-                 "ksp_max_it": 100,
-                 "pc_type": "fieldsplit",
-                 "pc_fieldsplit_0_fields": "0",
-                 "pc_fieldsplit_1_fields": "1,2",
-                 "pc_fieldsplit_type": "schur",
-                 "pc_fieldsplit_schur_fact_type": "full",
-                 "pc_fieldsplit_schur_precondition": "user",
-                 "fieldsplit_0_ksp_type": "richardson",
-                 "fieldsplit_0_pc_type": "ilu",
-                 "fieldsplit_0_ksp_max_it": 1,
-                 "fieldsplit_0_ksp_convergence_test": "skip",
-                 "fieldsplit_1_ksp_type": "gmres",
-                 "fieldsplit_1_ksp_max_it": 1,
-                 "fieldsplit_1_ksp_convergence_test": "skip",
-                 "fieldsplit_1_ksp_monitor_true_residual": None,
-                 "fieldsplit_1_pc_type": "python",
-                 "fieldsplit_1_pc_python_type": "test_auxiliary_dm.ApproximateSchur",
-                 "fieldsplit_1_aux_pc_type": "mg",
-                 "fieldsplit_1_aux_mg_levels_ksp_type": "richardson",
-                 "fieldsplit_1_aux_mg_levels_ksp_richardson_scale": 1/3,
-                 "fieldsplit_1_aux_mg_levels_pc_type": "python",
-                 "fieldsplit_1_aux_mg_levels_pc_python_type": "firedrake.PatchPC",
-                 "fieldsplit_1_aux_mg_levels_patch_pc_patch_save_operators": True,
-                 "fieldsplit_1_aux_mg_levels_patch_pc_patch_partition_of_unity": False,
-                 "fieldsplit_1_aux_mg_levels_patch_pc_patch_sub_mat_type": "seqdense",
-                 "fieldsplit_1_aux_mg_levels_patch_pc_patch_construct_dim": 0,
-                 "fieldsplit_1_aux_mg_levels_patch_pc_patch_construct_type": "star",
-                 "fieldsplit_1_aux_mg_levels_patch_sub_ksp_type": "preonly",
-                 "fieldsplit_1_aux_mg_levels_patch_sub_pc_type": "svd",
-                 "fieldsplit_1_aux_mg_levels_patch_sub_pc_factor_shift_type": "nonzero",
-                 "fieldsplit_1_aux_mg_coarse_pc_type": "lu",
-                 "fieldsplit_1_aux_mg_coarse_pc_factor_mat_solver_type": "mumps",
-                 "fieldsplit_1_aux_mg_coarse_mat_mumps_icntl_14": 200,
+        "mat_type": "aij",        # noqa: E126
+        "snes_type": "newtonls",
+        "snes_atol": 2.0e-5,
+        "snes_rtol": 1.0e-5,
+        "snes_monitor": None,
+        "ksp_type": "fgmres",
+        "ksp_norm_type": "unpreconditioned",
+        "ksp_monitor": None,
+        "ksp_converged_reason": None,
+        "ksp_atol": 1e-10,
+        "ksp_rtol": 1e-10,
+        "ksp_max_it": 100,
+        "pc_type": "fieldsplit",
+        "pc_fieldsplit_0_fields": "0",
+        "pc_fieldsplit_1_fields": "1,2",
+        "pc_fieldsplit_type": "schur",
+        "pc_fieldsplit_schur_fact_type": "full",
+        "pc_fieldsplit_schur_precondition": "user",
+        "fieldsplit_0": {
+            "ksp_type": "richardson",
+            "pc_type": "ilu",
+            "ksp_max_it": 1,
+            "ksp_convergence_test": "skip"
+        },
+        "fieldsplit_1": {
+            "ksp_type": "gmres",
+            "ksp_max_it": 1,
+            "ksp_convergence_test": "skip",
+            "ksp_monitor_true_residual": None,
+            "pc_type": "python",
+            "pc_python_type": "test_auxiliary_dm.ApproximateSchur",
+            "aux_pc_type": "mg",
+            "aux_mg_levels": {
+                "ksp_type": "richardson",
+                "ksp_richardson_scale": 1/3,
+                "pc_type": "python",
+                "pc_python_type": "firedrake.PatchPC",
+                "patch_pc_patch_save_operators": True,
+                "patch_pc_patch_partition_of_unity": False,
+                "patch_pc_patch_sub_mat_type": "seqdense",
+                "patch_pc_patch_construct_dim": 0,
+                "patch_pc_patch_construct_type": "star",
+                "patch_sub_ksp_type": "preonly",
+                "patch_sub_pc_type": "svd",
+                "patch_sub_pc_factor_shift_type": "nonzero"
+            },
+            "aux_mg_coarse_pc_type": "lu",
+            "aux_mg_coarse_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS
+        }
     }
 
     # Solve variational form

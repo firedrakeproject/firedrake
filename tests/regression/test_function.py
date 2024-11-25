@@ -97,7 +97,7 @@ def test_mismatching_shape_interpolation(V):
     VV = VectorFunctionSpace(V.mesh(), 'CG', 1)
     f = Function(VV)
     with pytest.raises(RuntimeError):
-        f.interpolate(Constant([1] * (VV.ufl_element().value_shape[0] + 1)))
+        f.interpolate(Constant([1] * (VV.value_shape[0] + 1)))
 
 
 def test_function_val(V):
@@ -204,6 +204,35 @@ def test_tensor_function_zero_with_subset(W):
     f.zero(subset=subset)
     assert np.allclose(f.dat.data_ro[:3], 0.0)
     assert np.allclose(f.dat.data_ro[3:], 1.0)
+
+
+def test_component_function_zero(W):
+    f = Function(W)
+
+    f.assign(1)
+    assert np.allclose(f.dat.data_ro, 1.0)
+
+    g = f.sub(0).zero()
+    assert f.sub(0) is g
+    for i, j in np.ndindex(f.dat.data_ro.shape[1:]):
+        expected = 0.0 if i == 0 and j == 0 else 1.0
+        assert np.allclose(f.dat.data_ro[..., i, j], expected)
+
+
+def test_component_function_zero_with_subset(W):
+    f = Function(W)
+    # create an arbitrary subset consisting of the first three nodes
+    assert W.node_set.size > 3
+    subset = op2.Subset(W.node_set, [0, 1, 2])
+
+    f.assign(1)
+    assert np.allclose(f.dat.data_ro, 1.0)
+
+    f.sub(0).zero(subset=subset)
+    for i, j in np.ndindex(f.dat.data_ro.shape[1:]):
+        expected = 0.0 if i == 0 and j == 0 else 1.0
+        assert np.allclose(f.dat.data_ro[:3, i, j], expected)
+        assert np.allclose(f.dat.data_ro[3:, i, j], 1.0)
 
 
 @pytest.mark.parametrize("value", [

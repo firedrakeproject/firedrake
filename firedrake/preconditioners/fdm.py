@@ -6,7 +6,7 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
                                            evaluate_dual,
-                                           get_permutation_to_line_elements,
+                                           get_permutation_to_nodal_elements,
                                            cache_generate_code)
 from firedrake.preconditioners.facet_split import split_dofs, restricted_dofs
 from firedrake.formmanipulation import ExtractSubBlock
@@ -21,6 +21,7 @@ from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices
 from tsfc.finatinterface import create_element
 from pyop2.compilation import load
+from pyop2.mpi import COMM_SELF
 from pyop2.sparsity import get_preallocation
 from pyop2.utils import get_petsc_dir, as_tuple
 from pyop2 import op2
@@ -35,8 +36,8 @@ import finat
 import numpy
 import ctypes
 
-Citations().add("Brubeck2022a", """
-@article{Brubeck2022a,
+Citations().add("Brubeck2022", """
+@article{Brubeck2022,
   title={A scalable and robust vertex-star relaxation for high-order {FEM}},
   author={Brubeck, Pablo D. and Farrell, Patrick E.},
   journal = {SIAM J. Sci. Comput.},
@@ -47,14 +48,16 @@ Citations().add("Brubeck2022a", """
   doi = {10.1137/21M1444187}
 """)
 
-Citations().add("Brubeck2022b", """
-@misc{Brubeck2022b,
+Citations().add("Brubeck2024", """
+@article{Brubeck2024,
   title={{Multigrid solvers for the de Rham complex with optimal complexity in polynomial degree}},
   author={Brubeck, Pablo D. and Farrell, Patrick E.},
-  archiveprefix = {arXiv},
-  eprint = {2211.14284},
-  primaryclass = {math.NA},
-  year={2022}
+  journal = {SIAM J. Sci. Comput.},
+  volume = {46},
+  number = {3},
+  pages = {A1549-A1573},
+  year = {2024},
+  doi = {10.1137/22M1537370}
 """)
 
 
@@ -110,7 +113,7 @@ class FDMPC(PCBase):
 
     _prefix = "fdm_"
     _variant = "fdm"
-    _citation = "Brubeck2022b"
+    _citation = "Brubeck2024"
     _cache = {}
 
     @PETSc.Log.EventDecorator("FDMInit")
@@ -137,15 +140,12 @@ class FDMPC(PCBase):
         self.appctx = appctx
 
         # Get original Jacobian form and bcs
+        J, bcs = self.form(pc)
+
         if Pmat.getType() == "python":
-            ctx = Pmat.getPythonContext()
-            J = ctx.a
-            bcs = tuple(ctx.bcs)
             mat_type = "matfree"
         else:
             ctx = dmhooks.get_appctx(pc.getDM())
-            J = ctx.Jp or ctx.J
-            bcs = tuple(ctx._problem.bcs)
             mat_type = ctx.mat_type
 
         # TODO assemble Schur complements specified by a SLATE Tensor
@@ -255,10 +255,10 @@ class FDMPC(PCBase):
             raise ValueError("Expecting at most one FunctionSpace restricted onto facets.")
         self.embedding_element = ebig
 
-        if Vbig.value_size == 1:
-            self.fises = PETSc.IS().createGeneral(fdofs, comm=PETSc.COMM_SELF)
+        if Vbig.block_size == 1:
+            self.fises = PETSc.IS().createGeneral(fdofs, comm=COMM_SELF)
         else:
-            self.fises = PETSc.IS().createBlock(Vbig.value_size, fdofs, comm=PETSc.COMM_SELF)
+            self.fises = PETSc.IS().createBlock(Vbig.block_size, fdofs, comm=COMM_SELF)
 
         # Create data structures needed for assembly
         self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
@@ -274,7 +274,7 @@ class FDMPC(PCBase):
             self.schur_kernel[V] = SchurComplementPattern
         elif Vfacet and use_static_condensation:
             # If we are in a facet space, we build the Schur complement on its diagonal block
-            if Vfacet.finat_element.formdegree == 0 and Vfacet.value_size == 1:
+            if Vfacet.finat_element.formdegree == 0 and Vfacet.block_size == 1:
                 self.schur_kernel[Vfacet] = SchurComplementDiagonal
                 interior_pc_type = PETSc.PC.Type.JACOBI
             elif symmetric:
@@ -345,10 +345,9 @@ class FDMPC(PCBase):
                                             comm=nsp.getComm())
 
         def set_nullspaces(P, A, iset=None):
-            set_nsps = (P.setNullSpace, P.setTransposeNullSpace, P.setNearNullSpace)
-            get_nsps = (A.getNullSpace, A.getTransposeNullSpace, A.getNearNullSpace)
-            for setNP, getNA in zip(set_nsps, get_nsps):
-                setNP(sub_nullspace(getNA(), iset))
+            P.setNullSpace(sub_nullspace(A.getNullSpace(), iset))
+            P.setTransposeNullSpace(sub_nullspace(A.getTransposeNullSpace(), iset))
+            P.setNearNullSpace(sub_nullspace(A.getNearNullSpace(), iset))
 
         if len(V) == 1:
             Pmat = Pmats[V, V]
@@ -459,7 +458,6 @@ class FDMPC(PCBase):
         A0 = TripleProductKernel(R0, self._element_mass_matrix, C0)
         K0 = InteriorSolveKernel(A0, J00, fcp=fcp, pc_type=pc_type)
         K1 = ImplicitSchurComplementKernel(K0)
-        self.kernels.extend((A0, K0, K1))
         kernels = {V0: K0, V1: K1}
         comm = self.comm
         args = [self.coefficients["cell"], V0.mesh().coordinates, *J00.coefficients(), *extract_firedrake_constants(J00)]
@@ -487,7 +485,7 @@ class FDMPC(PCBase):
         """
         Obtain coefficients for the auxiliary operator as the diagonal of a
         weighted mass matrix in broken(V^k) * broken(V^{k+1}).
-        See Section 3.2 of Brubeck2022b.
+        See Section 3.2 of Brubeck2024.
 
         :arg J: the Jacobian bilinear :class:`ufl.Form`,
         :arg fcp: form compiler parameters to assemble the diagonal of the mass matrices.
@@ -581,6 +579,7 @@ class FDMPC(PCBase):
         facet_integrals = [i for i in J.integrals() if "facet" in i.integral_type()]
         J_facet = expand_indices(expand_derivatives(ufl.Form(facet_integrals)))
         if len(J_facet.integrals()) > 0:
+            from firedrake.assemble import get_assembler
             gamma = coefficients.setdefault("facet", Function(V.dual()))
             assembly_callables.append(partial(get_assembler(J_facet, form_compiler_parameters=fcp, tensor=gamma, diagonal=True).assemble, tensor=gamma))
         return coefficients, assembly_callables
@@ -589,14 +588,14 @@ class FDMPC(PCBase):
     def assemble_reference_tensor(self, V, transpose=False, sort_interior=False):
         """
         Return the reference tensor used in the diagonal factorisation of the
-        sparse cell matrices.  See Section 3.2 of Brubeck2022b.
+        sparse cell matrices.  See Section 3.2 of Brubeck2024.
 
         :arg V: a :class:`.FunctionSpace`
 
         :returns: a :class:`PETSc.Mat` interpolating V^k * d(V^k) onto
                   broken(V^k) * broken(V^{k+1}) on the reference element.
         """
-        value_size = V.value_size
+        bsize = V.block_size
         fe = V.finat_element
         tdim = fe.cell.get_spatial_dimension()
         formdegree = fe.formdegree
@@ -604,7 +603,7 @@ class FDMPC(PCBase):
         if formdegree == tdim:
             degree = degree + 1
         is_interior, is_facet = is_restricted(fe)
-        key = (value_size, tdim, degree, formdegree, is_interior, is_facet, transpose, sort_interior)
+        key = (bsize, tdim, degree, formdegree, is_interior, is_facet, transpose, sort_interior)
         cache = self._cache.setdefault("reference_tensor", {})
         try:
             return cache[key]
@@ -660,7 +659,7 @@ class FDMPC(PCBase):
                 q1 = sorted(get_base_elements(Q1), key=lambda e: e.formdegree)[-1]
 
             # Interpolate V * d(V) -> space(beta) * space(alpha)
-            comm = PETSc.COMM_SELF
+            comm = COMM_SELF
             zero = PETSc.Mat()
             A00 = petsc_sparse(evaluate_dual(e0, q0), comm=comm) if e0 and q0 else zero
             A11 = petsc_sparse(evaluate_dual(e1, q1), comm=comm) if e1 else zero
@@ -671,8 +670,8 @@ class FDMPC(PCBase):
             A00.destroy()
             A11.destroy()
             A10.destroy()
-            if value_size != 1:
-                eye = petsc_sparse(numpy.eye(value_size), comm=result.getComm())
+            if bsize != 1:
+                eye = petsc_sparse(numpy.eye(bsize), comm=result.getComm())
                 temp = result
                 result = temp.kron(eye)
                 temp.destroy()
@@ -695,7 +694,7 @@ class FDMPC(PCBase):
         if shape[2] > 1:
             ai *= shape[2]
             data = numpy.tile(numpy.eye(shape[2], dtype=data.dtype), shape[:1] + (1,)*(len(shape)-1))
-        return PETSc.Mat().createAIJ((nrows, nrows), csr=(ai, aj, data), comm=PETSc.COMM_SELF)
+        return PETSc.Mat().createAIJ((nrows, nrows), csr=(ai, aj, data), comm=COMM_SELF)
 
     @cached_property
     def _element_kernels(self):
@@ -822,6 +821,21 @@ class FDMPC(PCBase):
             addv = self.insert_mode[Vrow, Vcol]
             spaces = (Vrow,) if on_diag else (Vrow, Vcol)
             indices_acc = tuple(self.indices_acc[V] for V in spaces)
+            M = self._element_mass_matrix
+            # Interpolation of basis and exterior derivative onto broken spaces
+            C1 = self.assemble_reference_tensor(Vcol)
+            R1 = self.assemble_reference_tensor(Vrow, transpose=True)
+            # Element stiffness matrix = R1 * M * C1, see Equation (3.9) of Brubeck2024
+            element_kernel = TripleProductKernel(R1, M, C1)
+            schur_kernel = self.schur_kernel.get(Vrow) if on_diag else None
+            if schur_kernel is not None:
+                V0 = FunctionSpace(Vrow.mesh(), restrict_element(self.embedding_element, "interior"))
+                C0 = self.assemble_reference_tensor(V0, sort_interior=True)
+                R0 = self.assemble_reference_tensor(V0, sort_interior=True, transpose=True)
+                element_kernel = schur_kernel(element_kernel,
+                                              TripleProductKernel(R1, M, C0),
+                                              TripleProductKernel(R0, M, C1),
+                                              TripleProductKernel(R0, M, C0))
             coefficients = self.coefficients["cell"]
             coefficients_acc = coefficients.dat(op2.READ, coefficients.cell_node_map())
 
@@ -1454,10 +1468,10 @@ class ImplicitSchurComplementKernel(ElementKernel):
         V = FunctionSpace(Q.mesh(), unrestrict_element(Q.ufl_element()))
         V0 = FunctionSpace(Q.mesh(), restrict_element(V.ufl_element(), "interior"))
         V1 = FunctionSpace(Q.mesh(), restrict_element(V.ufl_element(), "facet"))
-        idofs = PETSc.IS().createBlock(V.value_size, restricted_dofs(V0.finat_element, V.finat_element), comm=comm)
-        fdofs = PETSc.IS().createBlock(V.value_size, restricted_dofs(V1.finat_element, V.finat_element), comm=comm)
+        idofs = PETSc.IS().createBlock(V.block_size, restricted_dofs(V0.finat_element, V.finat_element), comm=comm)
+        fdofs = PETSc.IS().createBlock(V.block_size, restricted_dofs(V1.finat_element, V.finat_element), comm=comm)
         size = idofs.size + fdofs.size
-        assert size == V.finat_element.space_dimension() * V.value_size
+        assert size == V.finat_element.space_dimension() * V.block_size
         # Bilinear form on the space with interior and interface
         a = form if Q == V else form(*(t.reconstruct(function_space=V) for t in args))
         # Generate code to apply the action of A within the Schur complement action
@@ -1685,47 +1699,52 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
     if ef.formdegree - ec.formdegree != 1:
         raise ValueError("Expecting Vf = d(Vc)")
 
-    elements = sorted(get_base_elements(ec), key=lambda e: e.formdegree)
-    c0, c1 = elements[::len(elements)-1]
-    elements = sorted(get_base_elements(ef), key=lambda e: e.formdegree)
-    f0, f1 = elements[::len(elements)-1]
-    if f0.formdegree != 0:
-        f0 = None
-    if c1.formdegree != 1:
-        c1 = None
+    if Vf.mesh().ufl_cell().is_simplex():
+        c0 = ec.fiat_equivalent
+        f1 = ef.fiat_equivalent
+        derivative = {ufl.H1: "grad", ufl.HCurl: "curl", ufl.HDiv: "div"}[Vc.ufl_element().sobolev_space]
+        Dhat = petsc_sparse(evaluate_dual(c0, f1, derivative), comm=COMM_SELF)
+    else:
+        elements = sorted(get_base_elements(ec), key=lambda e: e.formdegree)
+        c0, c1 = elements[::len(elements)-1]
+        elements = sorted(get_base_elements(ef), key=lambda e: e.formdegree)
+        f0, f1 = elements[::len(elements)-1]
+        if f0.formdegree != 0:
+            f0 = None
+        if c1.formdegree != 1:
+            c1 = None
 
-    tdim = Vc.mesh().topological_dimension()
-    zero = PETSc.Mat()
-    A00 = petsc_sparse(evaluate_dual(c0, f0), comm=PETSc.COMM_SELF) if f0 else zero
-    A11 = petsc_sparse(evaluate_dual(c1, f1), comm=PETSc.COMM_SELF) if c1 else zero
-    A10 = petsc_sparse(evaluate_dual(c0, f1, "grad"), comm=PETSc.COMM_SELF)
-    Dhat = block_mat(diff_blocks(tdim, ec.formdegree, A00, A11, A10), destroy_blocks=True)
-    A00.destroy()
-    A11.destroy()
-    if Dhat != A10:
-        A10.destroy()
+        tdim = Vc.mesh().topological_dimension()
+        zero = PETSc.Mat()
+        A00 = petsc_sparse(evaluate_dual(c0, f0), comm=COMM_SELF) if f0 else zero
+        A11 = petsc_sparse(evaluate_dual(c1, f1), comm=COMM_SELF) if c1 else zero
+        A10 = petsc_sparse(evaluate_dual(c0, f1, "grad"), comm=COMM_SELF)
+        Dhat = block_mat(diff_blocks(tdim, ec.formdegree, A00, A11, A10), destroy_blocks=True)
+        A00.destroy()
+        A11.destroy()
+        if Dhat != A10:
+            A10.destroy()
 
-    if any(is_restricted(ec)) or any(is_restricted(ef)):
-        scalar_element = lambda e: e._sub_element if isinstance(e, (finat.ufl.TensorElement, finat.ufl.VectorElement)) else e
-        fdofs = restricted_dofs(ef, create_element(unrestrict_element(scalar_element(Vf.ufl_element()))))
-        cdofs = restricted_dofs(ec, create_element(unrestrict_element(scalar_element(Vc.ufl_element()))))
+        if any(is_restricted(ec)) or any(is_restricted(ef)):
+            scalar_element = lambda e: e._sub_element if isinstance(e, (finat.ufl.TensorElement, finat.ufl.VectorElement)) else e
+            fdofs = restricted_dofs(ef, create_element(unrestrict_element(scalar_element(Vf.ufl_element()))))
+            cdofs = restricted_dofs(ec, create_element(unrestrict_element(scalar_element(Vc.ufl_element()))))
+            temp = Dhat
+            fises = PETSc.IS().createGeneral(fdofs, comm=temp.getComm())
+            cises = PETSc.IS().createGeneral(cdofs, comm=temp.getComm())
+            Dhat = temp.createSubMatrix(fises, cises)
+            temp.destroy()
+            fises.destroy()
+            cises.destroy()
+
+    if Vf.block_size > 1:
         temp = Dhat
-        fises = PETSc.IS().createGeneral(fdofs, comm=temp.getComm())
-        cises = PETSc.IS().createGeneral(cdofs, comm=temp.getComm())
-        Dhat = temp.createSubMatrix(fises, cises)
-        temp.destroy()
-        fises.destroy()
-        cises.destroy()
-
-    if Vf.value_size > 1:
-        temp = Dhat
-        eye = petsc_sparse(numpy.eye(Vf.value_size, dtype=PETSc.RealType), comm=temp.getComm())
+        eye = petsc_sparse(numpy.eye(Vf.block_size, dtype=PETSc.RealType), comm=temp.getComm())
         Dhat = temp.kron(eye)
         temp.destroy()
         eye.destroy()
 
     sizes = tuple(V.dof_dset.layout_vec.getSizes() for V in (Vf, Vc))
-    block_size = Vf.dof_dset.layout_vec.getBlockSize()
     preallocator = PETSc.Mat().create(comm=comm)
     preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
     preallocator.setSizes(sizes)
@@ -1743,7 +1762,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
     nnz = get_preallocation(preallocator, sizes[0][0])
     preallocator.destroy()
 
-    Dmat = PETSc.Mat().createAIJ(sizes, block_size, nnz=nnz, comm=comm)
+    Dmat = PETSc.Mat().createAIJ(sizes, Vf.block_size, nnz=nnz, comm=comm)
     Dmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
     assembler.arguments[0].data = Dmat.handle
     assembler()
@@ -1844,7 +1863,7 @@ class SparseAssembler:
                                   InsertMode addv)
             {{
                 PetscInt m, ncols, irow, icol;
-                PetscInt *cols, *indices;
+                PetscInt *indices, *cols;
                 PetscScalar *vals;
                 PetscCall(MatGetSize(B, &m, NULL));
                 PetscCall(MatSeqAIJGetMaxRowNonzeros(B, &ncols));
@@ -1898,11 +1917,11 @@ class PoissonFDMPC(FDMPC):
     """
 
     _variant = "fdm_ipdg"
-    _citation = "Brubeck2022a"
+    _citation = "Brubeck2022"
 
     def assemble_reference_tensor(self, V):
         try:
-            _, line_elements, shifts = get_permutation_to_line_elements(V)
+            _, line_elements, shifts = get_permutation_to_nodal_elements(V)
         except ValueError:
             raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
 
@@ -1923,7 +1942,7 @@ class PoissonFDMPC(FDMPC):
             try:
                 rtensor = cache[key]
             except KeyError:
-                rtensor = cache.setdefault(key, fdm_setup_ipdg(e, eta, comm=PETSc.COMM_SELF))
+                rtensor = cache.setdefault(key, fdm_setup_ipdg(e, eta, comm=COMM_SELF))
             Afdm[:0], Dfdm[:0], bdof[:0] = tuple(zip(rtensor))
             if not is_dg and e.degree() == degree:
                 # do not apply SIPG along continuous directions
@@ -1947,21 +1966,20 @@ class PoissonFDMPC(FDMPC):
             The matrix type of auxiliary operator. This only used when ``A`` is a preallocator
             to determine the nonzeros on the upper triangual part of an ``'sbaij'`` matrix.
         """
+        if mat_type is None:
+            mat_type = A.getType()
         triu = A.getType() == "preallocator" and mat_type.endswith("sbaij")
-        set_submat = SparseAssembler.setSubMatCSR(PETSc.COMM_SELF, triu=triu)
+        set_submat = SparseAssembler.setSubMatCSR(COMM_SELF, triu=triu)
         update_A = lambda A, Ae, rindices: set_submat(A, Ae, rindices, rindices, addv)
         condense_element_mat = lambda x: x
         addv = PETSc.InsertMode.ADD_VALUES
-        if mat_type is None:
-            mat_type = A.getType()
 
         def cell_to_global(lgmap, cell_to_local, cell_index, result=None):
             # Be careful not to create new arrays
             result = cell_to_local(cell_index, result=result)
             return lgmap.apply(result, result=result)
 
-        bsize = Vrow.dof_dset.layout_vec.getBlockSize()
-        cell_to_local, nel = extrude_node_map(Vrow.cell_node_map(), bsize=bsize)
+        cell_to_local, nel = extrude_node_map(Vrow.cell_node_map(), bsize=Vrow.block_size)
         get_rindices = partial(cell_to_global, self.lgmaps[Vrow], cell_to_local)
         Afdm, Dfdm, bdof, axes_shifts = self.assemble_reference_tensor(Vrow)
 
@@ -1972,7 +1990,7 @@ class PoissonFDMPC(FDMPC):
         PT_facet = self.coefficients.get("PT_facet")
 
         V = Vrow
-        bsize = V.value_size
+        bsize = V.block_size
         ncomp = V.ufl_element().reference_value_size
         sdim = (V.finat_element.space_dimension() * bsize) // ncomp  # dimension of a single component
         tdim = V.mesh().topological_dimension()
@@ -2009,7 +2027,7 @@ class PoissonFDMPC(FDMPC):
             for e in range(nel):
                 # Ae = Be kron Bq[e]
                 adata = numpy.sum(Bq.dat.data_ro[index_coef(e)], axis=0)
-                Ae = PETSc.Mat().createAIJWithArrays(bshape, (aptr, aidx, adata), comm=PETSc.COMM_SELF)
+                Ae = PETSc.Mat().createAIJWithArrays(bshape, (aptr, aidx, adata), comm=COMM_SELF)
                 Ae = Be.kron(Ae)
                 rindices = get_rindices(e, result=rindices)
                 update_A(A, Ae, rindices)
@@ -2346,7 +2364,7 @@ def fdm_setup_ipdg(fdm_element, eta, comm=None):
 
     :arg fdm_element: a :class:`FIAT.FDMElement`
     :arg eta: penalty coefficient as a `float`
-    :arg comm: a :class:`PETSc.Comm`
+    :arg comm: an mpi4py communicator
 
     :returns: 3-tuple of:
         Afdm: a list of :class:`PETSc.Mats` with the sparse interval matrices

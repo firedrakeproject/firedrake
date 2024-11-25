@@ -12,7 +12,7 @@ from firedrake.utils import ScalarType_c, IntType_c, cached_property
 from tsfc.finatinterface import create_element
 from tsfc import compile_expression_dual_evaluation
 from pyop2 import op2
-from pyop2.caching import cached
+from pyop2.caching import serial_cache
 from pyop2.utils import as_tuple
 
 import firedrake
@@ -114,10 +114,14 @@ class PMGBase(PCSNESBase):
         ppc = self.configure_pmg(obj, pdm)
         self.is_snes = isinstance(obj, PETSc.SNES)
 
+        default_mat_type = ctx.mat_type
+        if default_mat_type == "submatrix":
+            default_mat_type = "matfree"
+
         # Get the coarse degree from PETSc options
         copts = PETSc.Options(ppc.getOptionsPrefix() + ppc.getType() + "_coarse_")
         self.coarse_degree = copts.getInt("degree", default=1)
-        self.coarse_mat_type = copts.getString("mat_type", default=ctx.mat_type)
+        self.coarse_mat_type = copts.getString("mat_type", default=default_mat_type)
         self.coarse_pmat_type = copts.getString("pmat_type", default=self.coarse_mat_type)
         self.coarse_form_compiler_mode = copts.getString("form_compiler_mode", default=mode)
 
@@ -127,9 +131,7 @@ class PMGBase(PCSNESBase):
         elements = [ele]
         while True:
             try:
-                ele_ = self.coarsen_element(ele)
-                assert ele_.value_shape == ele.value_shape
-                ele = ele_
+                ele = self.coarsen_element(ele)
             except ValueError:
                 break
             elements.append(ele)
@@ -377,7 +379,9 @@ class PMGBase(PCSNESBase):
     def create_interpolation(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
         mat_type = PETSc.Options(prefix).getString("mg_levels_transfer_mat_type", default="matfree")
-        return self.create_transfer(mat_type, get_appctx(dmc), get_appctx(dmf), True, False), None
+        interpolation = self.create_transfer(mat_type, get_appctx(dmc), get_appctx(dmf), True, False)
+        rscale = interpolation.createVecRight()
+        return interpolation, rscale
 
     def create_injection(self, dmc, dmf):
         prefix = dmc.getOptionsPrefix()
@@ -439,7 +443,7 @@ class PMGPC(PCBase, PMGBase):
     def configure_pmg(self, pc, pdm):
         odm = pc.getDM()
         ppc = PETSc.PC().create(comm=pc.comm)
-        ppc.setOptionsPrefix(pc.getOptionsPrefix() + "pmg_")
+        ppc.setOptionsPrefix(pc.getOptionsPrefix() + self._prefix)
         ppc.setType("mg")
         ppc.setOperators(*pc.getOperators())
         ppc.setDM(pdm)
@@ -475,7 +479,7 @@ class PMGSNES(SNESBase, PMGBase):
     def configure_pmg(self, snes, pdm):
         odm = snes.getDM()
         psnes = PETSc.SNES().create(comm=snes.comm)
-        psnes.setOptionsPrefix(snes.getOptionsPrefix() + "pfas_")
+        psnes.setOptionsPrefix(snes.getOptionsPrefix() + self._prefix)
         psnes.setType("fas")
         psnes.setDM(pdm)
         psnes.setTolerances(max_it=1)
@@ -592,7 +596,7 @@ def get_readonly_view(arr):
     return result
 
 
-@cached({}, key=generate_key_evaluate_dual)
+@serial_cache(hashkey=generate_key_evaluate_dual)
 def evaluate_dual(source, target, derivative=None):
     """Evaluate the action of a set of dual functionals of the target element
     on the (derivative of the) basis functions of the source element.
@@ -605,28 +609,36 @@ def evaluate_dual(source, target, derivative=None):
         A :class:`FIAT.CiarletElement` defining the interpolation space.
     derivative : ``str`` or ``None``
         An optional differential operator to apply on the source expression,
-        (currently only "grad" is supported).
+        either "grad", "curl", or "div".
 
     Returns
     -------
     A read-only :class:`numpy.ndarray` with the evaluation of the target
     dual basis on the (derivative of the) source primal basis.
     """
-    if derivative is None:
-        primal = source.get_nodal_basis()
-    else:
-        from FIAT.demkowicz import project_derivative
-        primal = project_derivative(source, derivative)
-
-    coeffs = primal.get_coeffs()
+    primal = source.get_nodal_basis()
     dual = target.get_dual_set()
-    dual_mat = dual.to_riesz(primal)
-    A = dual_mat.reshape((dual_mat.shape[0], -1))
-    B = coeffs.reshape((-1, A.shape[1]))
-    return get_readonly_view(numpy.dot(A, B.T))
+    A = dual.to_riesz(primal)
+    B = primal.get_coeffs()
+    if derivative in ("grad", "curl", "div"):
+        dmats = primal.get_dmats()
+        B = numpy.tensordot(B, dmats, axes=(-1, -1))
+        if derivative == "curl":
+            d = B.shape[1]
+            idx = ((i, j) for i in reversed(range(d)) for j in reversed(range(i+1, d)))
+            B = numpy.stack([((-1)**k) * (B[:, i, j, :] - B[:, j, i, :])
+                             for k, (i, j) in enumerate(idx)], axis=1)
+        elif derivative == "div":
+            B = numpy.trace(B, axis1=1, axis2=2)
+    elif derivative is not None:
+        raise ValueError(f"Invalid derivative type {derivative}.")
+
+    B = B.reshape(-1, *A.shape[1:])
+    V = numpy.tensordot(A, B, axes=(range(1, A.ndim), range(1, B.ndim)))
+    return get_readonly_view(V)
 
 
-@cached({}, key=generate_key_evaluate_dual)
+@serial_cache(hashkey=generate_key_evaluate_dual)
 def compare_element(e1, e2):
     """Numerically compare two :class:`FIAT.elements`.
        Equality is satisfied if e2.dual_basis(e1.primal_basis) == identity."""
@@ -638,9 +650,9 @@ def compare_element(e1, e2):
     return numpy.allclose(B, numpy.eye(B.shape[0]), rtol=1E-14, atol=1E-14)
 
 
-@cached({}, key=lambda V: V.ufl_element())
+@serial_cache(hashkey=lambda V: V.ufl_element())
 @PETSc.Log.EventDecorator("GetLineElements")
-def get_permutation_to_line_elements(V):
+def get_permutation_to_nodal_elements(V):
     """Find DOF permutation to factor out the EnrichedElement expansion
     into common TensorProductElements.
 
@@ -667,29 +679,29 @@ def get_permutation_to_line_elements(V):
     if expansion.space_dimension() != finat_element.space_dimension():
         raise ValueError("Failed to decompose %s into tensor products" % V.ufl_element())
 
-    line_elements = []
+    nodal_elements = []
     terms = expansion.elements if hasattr(expansion, "elements") else [expansion]
     for term in terms:
         factors = term.factors if hasattr(term, "factors") else (term,)
         fiat_factors = tuple(e.fiat_equivalent for e in reversed(factors))
-        if any(e.get_reference_element().get_spatial_dimension() != 1 for e in fiat_factors):
-            raise ValueError("Failed to decompose %s into line elements" % V.ufl_element())
-        line_elements.append(fiat_factors)
+        if not all(e.is_nodal() for e in fiat_factors):
+            raise ValueError("Failed to decompose %s into nodal elements" % V.ufl_element())
+        nodal_elements.append(fiat_factors)
 
-    shapes = [tuple(e.space_dimension() for e in factors) for factors in line_elements]
+    shapes = [tuple(e.space_dimension() for e in factors) for factors in nodal_elements]
     sizes = list(map(numpy.prod, shapes))
     dof_ranges = numpy.cumsum([0] + sizes)
 
     dof_perm = []
-    unique_line_elements = []
+    unique_nodal_elements = []
     shifts = []
 
-    visit = [False for e in line_elements]
+    visit = [False for e in nodal_elements]
     while False in visit:
-        base = line_elements[visit.index(False)]
+        base = nodal_elements[visit.index(False)]
         tdim = len(base)
         pshape = tuple(e.space_dimension() for e in base)
-        unique_line_elements.append(base)
+        unique_nodal_elements.append(base)
 
         axes_shifts = tuple()
         for shift in range(tdim):
@@ -697,7 +709,7 @@ def get_permutation_to_line_elements(V):
                 shift = (tdim - shift) % tdim
 
             perm = base[shift:] + base[:shift]
-            for i, term in enumerate(line_elements):
+            for i, term in enumerate(nodal_elements):
                 if not visit[i]:
                     is_perm = all(e1.space_dimension() == e2.space_dimension()
                                   for e1, e2 in zip(perm, term))
@@ -715,7 +727,7 @@ def get_permutation_to_line_elements(V):
         shifts.append(axes_shifts)
 
     dof_perm = get_readonly_view(numpy.concatenate(dof_perm))
-    return dof_perm, unique_line_elements, shifts
+    return dof_perm, unique_nodal_elements, shifts
 
 
 def get_permuted_map(V):
@@ -723,7 +735,7 @@ def get_permuted_map(V):
     Return a PermutedMap with the same tensor product shape for
     every component of H(div) or H(curl) tensor product elements
     """
-    indices, _, _ = get_permutation_to_line_elements(V)
+    indices, _, _ = get_permutation_to_nodal_elements(V)
     if numpy.all(indices[:-1] < indices[1:]):
         return V.cell_node_map()
     return op2.PermutedMap(V.cell_node_map(), indices)
@@ -886,25 +898,25 @@ def make_kron_code(Vc, Vf, t_in, t_out, mat_name, scratch):
     operator_decl = []
     prolong_code = []
     restrict_code = []
-    _, celems, cshifts = get_permutation_to_line_elements(Vc)
-    _, felems, fshifts = get_permutation_to_line_elements(Vf)
+    _, celems, cshifts = get_permutation_to_nodal_elements(Vc)
+    _, felems, fshifts = get_permutation_to_nodal_elements(Vf)
 
     shifts = fshifts
     in_place = False
     if len(felems) == len(celems):
-        in_place = all((len(fs)*Vf.value_size == len(cs)*Vc.value_size) for fs, cs in zip(fshifts, cshifts))
-        psize = Vf.value_size
+        in_place = all((len(fs)*Vf.block_size == len(cs)*Vc.block_size) for fs, cs in zip(fshifts, cshifts))
+        psize = Vf.block_size
 
     if not in_place:
         if len(celems) == 1:
-            psize = Vc.value_size
+            psize = Vc.block_size
             pelem = celems[0]
             perm_name = "perm_%s" % t_in
             celems = celems*len(felems)
 
         elif len(felems) == 1:
             shifts = cshifts
-            psize = Vf.value_size
+            psize = Vf.block_size
             pelem = felems[0]
             perm_name = "perm_%s" % t_out
             felems = felems*len(celems)
@@ -912,7 +924,7 @@ def make_kron_code(Vc, Vf, t_in, t_out, mat_name, scratch):
             raise ValueError("Cannot assign fine to coarse DOFs")
 
         if set(cshifts) == set(fshifts):
-            csize = Vc.value_size * Vc.finat_element.space_dimension()
+            csize = Vc.block_size * Vc.finat_element.space_dimension()
             prolong_code.append(f"""
             for({IntType_c} j=1; j<{len(fshifts)}; j++)
                 for({IntType_c} i=0; i<{csize}; i++)
@@ -926,8 +938,8 @@ def make_kron_code(Vc, Vf, t_in, t_out, mat_name, scratch):
 
         elif pelem == celems[0]:
             for k in range(len(shifts)):
-                if Vc.value_size*len(shifts[k]) < Vf.value_size:
-                    shifts[k] = shifts[k]*(Vf.value_size//Vc.value_size)
+                if Vc.block_size*len(shifts[k]) < Vf.block_size:
+                    shifts[k] = shifts[k]*(Vf.block_size//Vc.block_size)
 
             pshape = [e.space_dimension() for e in pelem]
             pargs = ", ".join(map(str, pshape+[1]*(3-len(pshape))))
@@ -1084,7 +1096,7 @@ def make_mapping_code(Q, cmapping, fmapping, t_in, t_out):
     if B:
         tensor = ufl.dot(B, tensor) if tensor else B
     if tensor is None:
-        tensor = ufl.Identity(Q.ufl_element().value_shape[0])
+        tensor = ufl.Identity(Q.value_shape[0])
 
     u = ufl.Coefficient(Q)
     expr = ufl.dot(tensor, u)
@@ -1103,7 +1115,7 @@ def make_mapping_code(Q, cmapping, fmapping, t_in, t_out):
 
     coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
     coef_decl = "".join([", PetscScalar const *restrict c%d" % i for i in range(len(coefficients))])
-    qlen = Q.value_size * Q.finat_element.space_dimension()
+    qlen = Q.block_size * Q.finat_element.space_dimension()
     prolong_code = f"""
             for({IntType_c} i=0; i<{qlen}; i++) {t_out}[i] = 0.0E0;
 
@@ -1119,7 +1131,7 @@ def make_mapping_code(Q, cmapping, fmapping, t_in, t_out):
 
 
 def make_permutation_code(V, vshape, pshape, t_in, t_out, array_name):
-    _, _, shifts = get_permutation_to_line_elements(V)
+    _, _, shifts = get_permutation_to_nodal_elements(V)
     shift = shifts[0]
     if shift != (0,):
         ndof = numpy.prod(vshape)
@@ -1165,20 +1177,37 @@ def make_permutation_code(V, vshape, pshape, t_in, t_out, array_name):
     return decl, prolong, restrict
 
 
+def reference_value_space(V):
+    element = finat.ufl.WithMapping(V.ufl_element(), mapping="identity")
+    return firedrake.FunctionSpace(V.mesh(), element)
+
+
 class StandaloneInterpolationMatrix(object):
     """
     Interpolation matrix for a single standalone space.
     """
+
+    _cache_kernels = {}
     _cache_work = {}
 
-    def __init__(self, Vc, Vf, Vc_bcs, Vf_bcs, derivative=False):
+    def __init__(self, Vc, Vf, Vc_bcs, Vf_bcs):
         self.uc = self.work_function(Vc)
         self.uf = self.work_function(Vf)
         self.Vc = self.uc.function_space()
         self.Vf = self.uf.function_space()
         self.Vc_bcs = Vc_bcs
         self.Vf_bcs = Vf_bcs
-        self.derivative = derivative
+
+        fmapping = self.Vf.ufl_element().mapping()
+        cmapping = self.Vc.ufl_element().mapping()
+        if type(self.Vf.ufl_element()) is not finat.ufl.MixedElement and fmapping != "identity" and fmapping == cmapping:
+            # Ignore Piola mapping if it is the same for both source and target, and simply transfer reference values.
+            self.Vc = reference_value_space(self.Vc)
+            self.Vf = reference_value_space(self.Vf)
+            self.uc = firedrake.Function(self.Vc, val=self.uc.dat)
+            self.uf = firedrake.Function(self.Vf, val=self.uf.dat)
+            self.Vc_bcs = [bc.reconstruct(V=self.Vc) for bc in self.Vc_bcs]
+            self.Vf_bcs = [bc.reconstruct(V=self.Vf) for bc in self.Vf_bcs]
 
     def work_function(self, V):
         if isinstance(V, firedrake.Function):
@@ -1192,10 +1221,11 @@ class StandaloneInterpolationMatrix(object):
     @cached_property
     def _weight(self):
         weight = firedrake.Function(self.Vf)
-        size = self.Vf.finat_element.space_dimension() * self.Vf.value_size
+        size = self.Vf.finat_element.space_dimension() * self.Vf.block_size
         kernel_code = f"""
         void weight(PetscScalar *restrict w){{
             for(PetscInt i=0; i<{size}; i++) w[i] += 1.0;
+            return;
         }}
         """
         kernel = op2.Kernel(kernel_code, "weight", requires_zeroed_output_arguments=True)
@@ -1205,8 +1235,7 @@ class StandaloneInterpolationMatrix(object):
         return weight
 
     @cached_property
-    def _parloops(self):
-        self._prolong_write = True
+    def _kernels(self):
         try:
             # We generate custom prolongation and restriction kernels mainly because:
             # 1. Code generation for the transpose of prolongation is not readily available
@@ -1218,7 +1247,6 @@ class StandaloneInterpolationMatrix(object):
                             self.uf.dat(op2.INC, uf_map),
                             self.uc.dat(op2.READ, uc_map),
                             self._weight.dat(op2.READ, uf_map)]
-            self._prolong_write = False
         except ValueError:
             # The elements do not have the expected tensor product structure
             # Fall back to aij kernels
@@ -1239,10 +1267,14 @@ class StandaloneInterpolationMatrix(object):
         return prolong, restrict
 
     def _prolong(self):
-        self._parloops[0]()
+        with self.uf.dat.vec_wo as uf:
+            uf.set(0.0E0)
+        self._kernels[0]()
 
     def _restrict(self):
-        self._parloops[1]()
+        with self.uc.dat.vec_wo as uc:
+            uc.set(0.0E0)
+        self._kernels[1]()
 
     def view(self, mat, viewer=None):
         if viewer is None:
@@ -1280,9 +1312,12 @@ class StandaloneInterpolationMatrix(object):
         and using the fact that the 2D / 3D tabulation is the
         tensor product J = kron(Jhat, kron(Jhat, Jhat))
         """
-        if self.derivative:
-            # TODO hook up tabulate_exterior_derivative from fdm.py
-            raise ValueError
+        cache = self._cache_kernels
+        key = (Vf.ufl_element(), Vc.ufl_element())
+        try:
+            return cache[key]
+        except KeyError:
+            pass
         felem = Vf.ufl_element()
         celem = Vc.ufl_element()
         fmapping = felem.mapping().lower()
@@ -1310,12 +1345,12 @@ class StandaloneInterpolationMatrix(object):
                 in_place_mapping = True
             except Exception:
                 qelem = finat.ufl.FiniteElement("DQ", cell=felem.cell, degree=PMGBase.max_degree(felem))
-                if felem.value_shape:
-                    qelem = finat.ufl.TensorElement(qelem, shape=felem.value_shape, symmetry=felem.symmetry())
+                if Vf.value_shape:
+                    qelem = finat.ufl.TensorElement(qelem, shape=Vf.value_shape, symmetry=felem.symmetry())
                 Qf = firedrake.FunctionSpace(Vf.mesh(), qelem)
                 mapping_output = make_mapping_code(Qf, cmapping, fmapping, "t0", "t1")
 
-            qshape = (Qf.value_size, Qf.finat_element.space_dimension())
+            qshape = (Qf.block_size, Qf.finat_element.space_dimension())
             # interpolate to embedding fine space
             decl[0], prolong[0], restrict[0], shapes = make_kron_code(Vc, Qf, "t0", "t1", "J0", "t2")
 
@@ -1340,8 +1375,8 @@ class StandaloneInterpolationMatrix(object):
         # We could benefit from loop tiling for the transpose, but that makes the code
         # more complicated.
 
-        fshape = (Vf.value_size, Vf.finat_element.space_dimension())
-        cshape = (Vc.value_size, Vc.finat_element.space_dimension())
+        fshape = (Vf.block_size, Vf.finat_element.space_dimension())
+        cshape = (Vc.block_size, Vc.finat_element.space_dimension())
 
         lwork = numpy.prod([max(*dims) for dims in zip(*shapes)])
         lwork = max(lwork, max(numpy.prod(fshape), numpy.prod(cshape)))
@@ -1410,30 +1445,7 @@ class StandaloneInterpolationMatrix(object):
                                     ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
         restrict_kernel = op2.Kernel(kernel_code, "restriction", include_dirs=BLASLAPACK_INCLUDE.split(),
                                      ldargs=BLASLAPACK_LIB.split(), requires_zeroed_output_arguments=True)
-        return prolong_kernel, restrict_kernel, coefficients
-
-    def mat_mult_kernel(self, A, value_size, transpose=False):
-        if transpose:
-            A = A.T
-        name = "matmult"
-        code = f"""
-        void {name}(PetscScalar *restrict y, const PetscScalar *restrict x
-                    {", const PetscScalar *restrict w" if transpose else ""}
-        ){{
-            const PetscScalar A[] = {{ {", ".join(map(float.hex, A.flat))} }};
-            {IntType_c} i0, i1;
-            for ({IntType_c} k = 0; k < {value_size}; k++) {{
-                for ({IntType_c} i = 0; i < {A.shape[0]}; i++) {{
-                    i0 = i * {value_size} + k;
-                    {"" if transpose else "y[i0] = 0;"}
-                    for ({IntType_c} j = 0; j < {A.shape[1]}; j++) {{
-                        i1 = j * {value_size} + k;
-                        y[i0] += A[i * {A.shape[1]} + j] * {"(x[i1] * w[i1])" if transpose else "x[i1]"};
-                    }}
-                }}
-            }}
-        }}"""
-        return op2.Kernel(code, name, requires_zeroed_output_arguments=transpose)
+        return cache.setdefault(key, (prolong_kernel, restrict_kernel, coefficients))
 
     def make_kernels(self, Vf, Vc):
         """
@@ -1441,27 +1453,23 @@ class StandaloneInterpolationMatrix(object):
 
         This is temporary while we wait for dual evaluation in FInAT.
         """
-        if Vf.finat_element.formdegree == Vc.finat_element.formdegree + self.derivative and Vf.shape == Vc.shape:
-            derivative = None
-            if self.derivative:
-                derivative = {ufl.HCurl: "grad", ufl.HDiv: "curl", ufl.L2: "div"}[Vf.ufl_element().sobolev_space]
-            A = evaluate_dual(Vc.finat_element.fiat_equivalent, Vf.finat_element.fiat_equivalent, derivative=derivative)
-            return self.mat_mult_kernel(A, Vf.value_size), self.mat_mult_kernel(A, Vf.value_size, transpose=True), []
-
-        expr = self.uc
-        if self.derivative:
-            expr = ufl.exterior_derivative(expr)
-        prolong_kernel, _ = prolongation_transfer_kernel_action(Vf, expr)
-        matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, ufl.derivative(expr, self.uc))
+        cache = self._cache_kernels
+        key = (Vf.ufl_element(), Vc.ufl_element())
+        try:
+            return cache[key]
+        except KeyError:
+            pass
+        prolong_kernel, _ = prolongation_transfer_kernel_action(Vf, self.uc)
+        matrix_kernel, coefficients = prolongation_transfer_kernel_action(Vf, firedrake.TestFunction(Vc))
 
         # The way we transpose the prolongation kernel is suboptimal.
         # A local matrix is generated each time the kernel is executed.
-        element_kernel = loopy.generate_code_v2(matrix_kernel.code).device_code()
+        element_kernel = cache_generate_code(matrix_kernel, Vf._comm)
         element_kernel = element_kernel.replace("void expression_kernel", "static void expression_kernel")
         coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
         coef_decl = "".join([", const %s *restrict c%d" % (ScalarType_c, i) for i in range(len(coefficients))])
-        dimc = Vc.finat_element.space_dimension() * Vc.value_size
-        dimf = Vf.finat_element.space_dimension() * Vf.value_size
+        dimc = Vc.finat_element.space_dimension() * Vc.block_size
+        dimf = Vf.finat_element.space_dimension() * Vf.block_size
         restrict_code = f"""
         {element_kernel}
 
@@ -1480,47 +1488,50 @@ class StandaloneInterpolationMatrix(object):
             requires_zeroed_output_arguments=True,
             events=matrix_kernel.events,
         )
-        return prolong_kernel, restrict_kernel, coefficients
+        return cache.setdefault(key, (prolong_kernel, restrict_kernel, coefficients))
 
-    def _copy(self, x, y):
-        if x.handle != y.handle:
-            x.copy(y)
+    def multTranspose(self, mat, rf, rc):
+        """
+        Implement restriction: restrict residual on fine grid rf to coarse grid rc.
+        """
+        with self.uf.dat.vec_wo as uf:
+            rf.copy(uf)
+        for bc in self.Vf_bcs:
+            bc.zero(self.uf)
 
-    def _op(self, action, x_bcs, y_bcs, x, y, X, Y, W=None, inc=False):
-        out = Y if W is None else W
+        self._restrict()
+
+        for bc in self.Vc_bcs:
+            bc.zero(self.uc)
+        with self.uc.dat.vec_ro as uc:
+            uc.copy(rc)
+
+    def mult(self, mat, xc, xf, inc=False):
+        """
+        Implement prolongation: prolong correction on coarse grid xc to fine grid xf.
+        """
+        with self.uc.dat.vec_wo as uc:
+            xc.copy(uc)
+        for bc in self.Vc_bcs:
+            bc.zero(self.uc)
+
+        self._prolong()
+
+        for bc in self.Vf_bcs:
+            bc.zero(self.uf)
         if inc:
-            self._copy(Y, out)
-        with y.dat.vec_wo as v:
-            if W is None or inc:
-                v.zeroEntries()
-            else:
-                self._copy(Y, v)
-        with x.dat.vec_wo as v:
-            self._copy(X, v)
-        for bc in x_bcs:
-            bc.zero(x)
-        action()
-        for bc in y_bcs:
-            bc.zero(y)
-        with y.dat.vec_ro as v:
-            if inc:
-                out.axpy(1.0, v)
-            else:
-                self._copy(v, out)
+            with self.uf.dat.vec_ro as uf:
+                xf.axpy(1.0, uf)
+        else:
+            with self.uf.dat.vec_ro as uf:
+                uf.copy(xf)
 
-    def mult(self, mat, X, Y):
-        """Prolong correction on coarse grid X to fine grid Y."""
-        self._op(self._prolong, self.Vc_bcs, self.Vf_bcs, self.uc, self.uf, X, Y)
-
-    def multAdd(self, mat, X, Y, W):
-        self._op(self._prolong, self.Vc_bcs, self.Vf_bcs, self.uc, self.uf, X, Y, W=W, inc=self._prolong_write)
-
-    def multTranspose(self, mat, X, Y):
-        """Restrict residual on fine grid X to coarse grid Y."""
-        self._op(self._restrict, self.Vf_bcs, self.Vc_bcs, self.uf, self.uc, X, Y)
-
-    def multTransposeAdd(self, mat, X, Y, W):
-        self._op(self._restrict, self.Vf_bcs, self.Vc_bcs, self.uf, self.uc, X, Y, W=W)
+    def multAdd(self, mat, x, y, w):
+        if y.handle == w.handle:
+            self.mult(mat, x, w, inc=True)
+        else:
+            self.mult(mat, x, w)
+            w.axpy(1.0, y)
 
 
 class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
@@ -1542,12 +1553,7 @@ class MixedInterpolationMatrix(StandaloneInterpolationMatrix):
         return standalones
 
     @cached_property
-    def _parloops(self):
-        # FIXME we cannot be lazy, as we do not know a priori if prolongation has write access
-        # Therefore we must initiliaze all standalone parloops in order to know the prolongation access
-        for s in self._standalones:
-            s._parloops
-        self._prolong_write = any(s._prolong_write for s in self._standalones)
+    def _kernels(self):
         prolong = lambda: [s._prolong() for s in self._standalones]
         restrict = lambda: [s._restrict() for s in self._standalones]
         return prolong, restrict
@@ -1570,8 +1576,10 @@ def prolongation_matrix_aij(P1, Pk, P1_bcs=[], Pk_bcs=[]):
         Pk = Pk.function_space()
     sp = op2.Sparsity((Pk.dof_dset,
                        P1.dof_dset),
-                      (Pk.cell_node_map(),
-                       P1.cell_node_map()))
+                      {(i, j): [(rmap, cmap, None)]
+                          for i, rmap in enumerate(Pk.cell_node_map())
+                          for j, cmap in enumerate(P1.cell_node_map())
+                          if i == j})
     mat = op2.Mat(sp, PETSc.ScalarType)
     mesh = Pk.mesh()
 

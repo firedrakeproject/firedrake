@@ -1,10 +1,10 @@
 cached_property
 cachetools
-ipython
 nbval
 packaging
 pkgconfig
 progress
+pybind11
 pylint
 pylit
 pytest

@@ -1,10 +1,14 @@
 import ufl
 from itertools import chain
 from contextlib import ExitStack
+from types import MappingProxyType
 
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
 from firedrake import function
-from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
+from firedrake.petsc import (
+    PETSc, OptionsManager, flatten_parameters, DEFAULT_KSP_PARAMETERS,
+    DEFAULT_SNES_PARAMETERS
+)
 from firedrake.function import Function
 from firedrake.functionspace import RestrictedFunctionSpace
 from firedrake.ufl_expr import TrialFunction, TestFunction
@@ -126,12 +130,16 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
 class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
     r"""Solves a :class:`NonlinearVariationalProblem`."""
 
-    DEFAULT_SNES_PARAMETERS = {"snes_type": "newtonls",
-                               "snes_linesearch_type": "basic"}
+    DEFAULT_SNES_PARAMETERS = DEFAULT_SNES_PARAMETERS
 
     # Looser default tolerance for KSP inside SNES.
-    DEFAULT_KSP_PARAMETERS = solving_utils.DEFAULT_KSP_PARAMETERS.copy()
-    DEFAULT_KSP_PARAMETERS["ksp_rtol"] = 1e-5
+    # TODO: When we drop Python 3.8 replace this mess with
+    # DEFAULT_KSP_PARAMETERS = MappingProxyType(DEFAULT_KSP_PARAMETERS | {'ksp_rtol': 1e-5})
+    DEFAULT_KSP_PARAMETERS = MappingProxyType({
+        k: v
+        if k != 'ksp_rtol' else 1e-5
+        for k, v in DEFAULT_KSP_PARAMETERS.items()
+    })
 
     @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_init
@@ -292,7 +300,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
         # Make sure the solution dm is visited last
         solution_dm = self.snes.getDM()
-        problem_dms = [V.dm for V in utils.unique(c.function_space() for c in coefficients) if V.dm != solution_dm]
+        problem_dms = [V.dm for V in utils.unique(chain.from_iterable(c.function_space() for c in coefficients)) if V.dm != solution_dm]
         problem_dms.append(solution_dm)
 
         for dbc in problem.dirichlet_bcs():
@@ -358,7 +366,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         else:
             if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)):
                 raise TypeError("Provided RHS is a '%s', not a Form or Slate Tensor" % type(L).__name__)
-            if len(L.arguments()) != 1:
+            if len(L.arguments()) != 1 and not L.empty():
                 raise ValueError("Provided RHS is not a linear form")
             F = ufl_expr.action(J, u) - L
 
@@ -402,7 +410,8 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
 
     DEFAULT_SNES_PARAMETERS = {"snes_type": "ksponly"}
 
-    DEFAULT_KSP_PARAMETERS = solving_utils.DEFAULT_KSP_PARAMETERS
+    # Tighter default tolerance for KSP only.
+    DEFAULT_KSP_PARAMETERS = DEFAULT_KSP_PARAMETERS
 
     def invalidate_jacobian(self):
         r"""

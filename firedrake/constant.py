@@ -79,7 +79,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
 
             if not isinstance(domain, ufl.AbstractDomain):
                 cell = ufl.as_cell(domain)
-                coordinate_element = finat.ufl.VectorElement("Lagrange", cell, 1, gdim=cell.geometric_dimension)
+                coordinate_element = finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension())
                 domain = ufl.Mesh(coordinate_element)
 
             cell = domain.ufl_cell()
@@ -104,14 +104,12 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
 
         self.dat, rank, self._ufl_shape = _create_dat(op2.Constant, value, None)
 
-        self.uid = utils._new_uid()
-        self.name = name or 'constant_%d' % self.uid
-
         super().__init__()
         Counted.__init__(self, count, Counted)
+        self.name = name or f"constant_{self._count}"
 
     def __repr__(self):
-        return f"Constant({self.dat.data_ro}, {self.count()})"
+        return f"Constant({self.dat.data_ro}, name='{self.name}', count={self._count})"
 
     def _ufl_signature_data_(self, renumbering):
         return (type(self).__name__, renumbering[self])
@@ -201,7 +199,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
     def __imul__(self, o):
         raise NotImplementedError("Augmented assignment to Constant not implemented")
 
-    def __idiv__(self, o):
+    def __itruediv__(self, o):
         raise NotImplementedError("Augmented assignment to Constant not implemented")
 
     def __str__(self):

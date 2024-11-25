@@ -413,7 +413,7 @@ def test_interpolate_periodic_coords_max():
     continuous = assemble(interpolate(SpatialCoordinate(mesh), V, access=MAX))
 
     # All nodes on the "seam" end up being 1, not 0.
-    assert np.allclose(np.unique(continuous.dat.data_ro),
+    assert np.allclose(np.unique(continuous.dat.data_ro.round(decimals=16)),
                        [0.25, 0.5, 0.75, 1])
 
 
@@ -471,7 +471,7 @@ def test_interpolation_tensor_convergence():
         V = TensorFunctionSpace(mesh, "RT", 1)
         x, y = SpatialCoordinate(mesh)
 
-        vs = V.ufl_element().value_shape
+        vs = V.value_shape
         expr = as_tensor(np.asarray([
             sin(2*pi*x*(i+1))*cos(4*pi*y*i)
             for i in range(np.prod(vs, dtype=int))

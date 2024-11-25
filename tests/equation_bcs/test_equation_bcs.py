@@ -4,6 +4,7 @@
 import pytest
 
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 import math
 
 
@@ -265,6 +266,8 @@ def test_EquationBC_poisson_matfree(with_bbc):
     assert abs(math.log2(err[0]) - math.log2(err[1]) - (porder+1)) < 0.05
 
 
+# This test is so sensitive it will not pass unless MUMPS is used
+@pytest.mark.skipmumps
 @pytest.mark.parametrize("eq_type", ["linear", "nonlinear"])
 def test_EquationBC_mixedpoisson_matrix(eq_type):
     mat_type = "aij"
@@ -275,7 +278,7 @@ def test_EquationBC_mixedpoisson_matrix(eq_type):
     solver_parameters = {"mat_type": mat_type,
                          "ksp_type": "preonly",
                          "pc_type": "lu",
-                         "pc_factor_mat_solver_type": "mumps"}
+                         "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
     err = []
     mesh_sizes = [16, 32]
     if eq_type == "linear":
@@ -351,3 +354,46 @@ def test_EquationBC_mixedpoisson_matfree_fieldsplit():
             err.append(nonlinear_poisson_mixed(solver_parameters, mesh_num, porder))
 
     assert abs(math.log2(err[0][0]) - math.log2(err[1][0]) - (porder+1)) < 0.05
+
+
+def test_equation_bcs_pc():
+    mesh = UnitSquareMesh(2**6, 2**6)
+    CG = FunctionSpace(mesh, "CG", 3)
+    R = FunctionSpace(mesh, "R", 0)
+    V = CG * R
+    f = Function(V)
+    u, l = split(f)
+    v, w = split(TestFunction(V))
+    x, y = SpatialCoordinate(mesh)
+    exact = cos(2 * pi * x) * cos(2 * pi * y)
+    g = Function(CG).interpolate(8 * pi**2 * exact)
+    F = inner(grad(u), grad(v)) * dx + inner(l, w) * dx - inner(g, v) * dx
+    bc = EquationBC(inner((u - exact), v) * ds == 0, f, (1, 2, 3, 4), V=V.sub(0))
+    params = {
+        "mat_type": "matfree",
+        "ksp_type": "fgmres",
+        "pc_type": "fieldsplit",
+        "pc_fieldsplit_type": "schur",
+        "pc_fieldsplit_schur_fact_type": "full",
+        "pc_fieldsplit_0_fields": "0",
+        "pc_fieldsplit_1_fields": "1",
+        "fieldsplit_0": {
+            "ksp_type": "preonly",
+            "pc_type": "python",
+            "pc_python_type": "firedrake.AssembledPC",
+            "assembled": {
+                "ksp_type": "cg",
+                "pc_type": "asm",
+            },
+        },
+        "fieldsplit_1": {
+            "ksp_type": "gmres",
+            "max_it": 1,
+            "convergence_test": "skip",
+        }
+    }
+    problem = NonlinearVariationalProblem(F, f, bcs=[bc])
+    solver = NonlinearVariationalSolver(problem, solver_parameters=params)
+    solver.solve()
+    error = assemble(inner(u - exact, u - exact) * dx)**0.5
+    assert error < 1.e-7

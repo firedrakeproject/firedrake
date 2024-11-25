@@ -1,16 +1,20 @@
 import abc
+import numpy
 
 from pyop2.utils import as_tuple
+from firedrake.bcs import DirichletBC
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.functionspace import FunctionSpace
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.preconditioners.hypre_ams import chop
+from firedrake.preconditioners.facet_split import restrict
 from firedrake.parameters import parameters
 from firedrake_citations import Citations
 from firedrake.interpolation import Interpolator
 from ufl.algorithms.ad import expand_derivatives
 import firedrake.dmhooks as dmhooks
+import firedrake.utils as utils
 import ufl
 import finat.ufl
 
@@ -92,9 +96,7 @@ class TwoLevelPC(PCBase):
                                           fcp,
                                           options_prefix=prefix)
 
-        with dmhooks.add_hooks(coarse_dm, self,
-                               appctx=self._ctx_ref,
-                               save=False):
+        with dmhooks.add_hooks(coarse_dm, self, appctx=self._ctx_ref, save=False):
             coarse_solver.setFromOptions()
 
     def update(self, pc):
@@ -142,16 +144,7 @@ class HiptmairPC(TwoLevelPC):
         Citations().register("Hiptmair1998")
         appctx = self.get_appctx(pc)
 
-        _, P = pc.getOperators()
-        if P.getType() == "python":
-            ctx = P.getPythonContext()
-            a = ctx.a
-            bcs = tuple(ctx.bcs)
-        else:
-            ctx = dmhooks.get_appctx(pc.getDM())
-            a = ctx.Jp or ctx.J
-            bcs = tuple(ctx._problem.bcs)
-
+        a, bcs = self.form(pc)
         V = a.arguments()[-1].function_space()
         mesh = V.mesh()
         element = V.ufl_element()
@@ -163,9 +156,16 @@ class HiptmairPC(TwoLevelPC):
         else:
             raise ValueError("Hiptmair decomposition not available for", element)
 
+        prefix = pc.getOptionsPrefix()
+        options_prefix = prefix + self._prefix
+        opts = PETSc.Options(options_prefix)
+        domain = opts.getString("mg_coarse_restriction_domain", "")
+        if domain:
+            celement = restrict(celement, domain)
+
         coarse_space = FunctionSpace(mesh, celement)
         assert coarse_space.finat_element.formdegree + 1 == formdegree
-        coarse_space_bcs = tuple(bc.reconstruct(V=coarse_space, g=0) for bc in bcs)
+        coarse_space_bcs = [bc.reconstruct(V=coarse_space, g=0) for bc in bcs]
 
         if element.sobolev_space == ufl.HDiv:
             G_callback = appctx.get("get_curl", None)
@@ -185,6 +185,16 @@ class HiptmairPC(TwoLevelPC):
         trial = TrialFunction(coarse_space)
         coarse_operator = beta(dminus(test), dminus(trial))
 
+        zero_beta = opts.getBool("zero_beta_poisson", True)
+        if zero_beta:
+            from firedrake.assemble import assemble
+            # Remove coarse nodes where beta is zero
+            coarse_diagonal = assemble(coarse_operator, diagonal=True)
+            diag = numpy.abs(coarse_diagonal.dat.data_ro_with_halos)
+            atol = numpy.max(diag) * 1E-10
+            bc_nodes = numpy.flatnonzero(diag <= atol).astype(PETSc.IntType)
+            coarse_space_bcs.append(BCFromNodes(coarse_space, 0, bc_nodes))
+
         cdegree = max(as_tuple(celement.degree()))
         if formdegree > 1 and cdegree > 1:
             shift = appctx.get("hiptmair_shift", None)
@@ -192,6 +202,7 @@ class HiptmairPC(TwoLevelPC):
                 b = beta(test, shift * trial)
                 coarse_operator += ufl.Form(b.integrals_by_type("cell"))
 
+        coarse_space_bcs = tuple(coarse_space_bcs)
         if G_callback is None:
             interp_petscmat = chop(Interpolator(dminus(test), V, bcs=bcs + coarse_space_bcs).callable().handle)
         else:
@@ -204,7 +215,7 @@ def curl_to_grad(ele):
     if isinstance(ele, finat.ufl.VectorElement):
         return type(ele)(curl_to_grad(ele._sub_element), dim=ele.num_sub_elements)
     elif isinstance(ele, finat.ufl.TensorElement):
-        return type(ele)(curl_to_grad(ele._sub_element), shape=ele.value_shape, symmetry=ele.symmetry())
+        return type(ele)(curl_to_grad(ele._sub_element), shape=ele._shape, symmetry=ele.symmetry())
     elif isinstance(ele, finat.ufl.MixedElement):
         return type(ele)(*(curl_to_grad(e) for e in ele.sub_elements))
     elif isinstance(ele, finat.ufl.RestrictedElement):
@@ -231,7 +242,7 @@ def div_to_curl(ele):
     if isinstance(ele, finat.ufl.VectorElement):
         return type(ele)(div_to_curl(ele._sub_element), dim=ele.num_sub_elements)
     elif isinstance(ele, finat.ufl.TensorElement):
-        return type(ele)(div_to_curl(ele._sub_element), shape=ele.value_shape, symmetry=ele.symmetry())
+        return type(ele)(div_to_curl(ele._sub_element), shape=ele._shape, symmetry=ele.symmetry())
     elif isinstance(ele, finat.ufl.MixedElement):
         return type(ele)(*(div_to_curl(e) for e in ele.sub_elements))
     elif isinstance(ele, finat.ufl.RestrictedElement):
@@ -272,3 +283,14 @@ def div_to_curl(ele):
             if family is None:
                 raise ValueError("Unexpected family %s" % family)
         return ele.reconstruct(degree=degree, family=family)
+
+
+class BCFromNodes(DirichletBC):
+
+    def __init__(self, V, g, nodes):
+        self._nodes = nodes
+        super(BCFromNodes, self).__init__(V, g, tuple())
+
+    @utils.cached_property
+    def nodes(self):
+        return self._nodes

@@ -102,7 +102,7 @@ def vfs(request, parentmesh):
 
 @pytest.fixture(params=[("CG", 2, TensorFunctionSpace),
                         ("BDM", 2, VectorFunctionSpace),
-                        ("Regge", 2, FunctionSpace)],
+                        ("Regge", 2, lambda *args: FunctionSpace(*args, variant="point"))],
                 ids=lambda x: f"{x[2].__name__}({x[0]}{x[1]})")
 def tfs(request, parentmesh):
     family = request.param[0]

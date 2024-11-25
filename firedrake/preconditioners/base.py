@@ -2,6 +2,7 @@ import abc
 
 from firedrake_citations import Citations
 from firedrake.petsc import PETSc
+from firedrake.dmhooks import get_appctx
 
 __all__ = ("PCBase", "SNESBase", "PCSNESBase")
 
@@ -58,9 +59,53 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         if hasattr(self, "pc"):
             self.pc.destroy()
 
+    def form(self, obj, *args):
+        """Return the preconditioning bilinear form and boundary conditions.
+
+        Parameters
+        ----------
+        obj : PETSc.PC or PETSc.SNES
+            The PETSc solver object.
+        test : ufl.TestFunction
+            The test function.
+        trial : ufl.TrialFunction
+            The trial function.
+
+        Returns
+        -------
+        a : ufl.Form
+            The preconditioning bilinear form.
+        bcs : DirichletBC[] or None
+            The boundary conditions.
+
+        Notes
+        -----
+        Subclasses may override this function to provide an auxiliary bilinear
+        form. Use `self.get_appctx(obj)` to get the user-supplied
+        application-context, if desired.
+        """
+        if isinstance(obj, PETSc.PC):
+            pc = obj
+        elif isinstance(obj, PETSc.SNES):
+            pc = obj.ksp.pc
+        else:
+            raise ValueError("Not a PC or SNES?")
+
+        _, P = pc.getOperators()
+        if P.getType() == "python":
+            ctx = P.getPythonContext()
+            a = ctx.a
+            bcs = tuple(ctx.bcs)
+        else:
+            ctx = get_appctx(pc.getDM())
+            a = ctx.Jp or ctx.J
+            bcs = ctx.bcs_Jp
+        if len(args):
+            a = a(*args)
+        return a, bcs
+
     @staticmethod
     def get_appctx(pc):
-        from firedrake.dmhooks import get_appctx
         return get_appctx(pc.getDM()).appctx
 
     @staticmethod
@@ -70,13 +115,14 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         from firedrake.variational_solver import NonlinearVariationalProblem
         from firedrake.function import Function
         from firedrake.ufl_expr import action
-        from firedrake.dmhooks import get_appctx
         from firedrake.solving_utils import _SNESContext
 
         dm = pc.getDM()
         old_appctx = get_appctx(dm).appctx
         u = Function(op.arguments()[-1].function_space())
         F = action(op, u)
+        if bcs:
+            bcs = tuple(bc._as_nonlinear_variational_problem_arg() for bc in bcs)
         nprob = NonlinearVariationalProblem(F, u,
                                             bcs=bcs,
                                             J=op,

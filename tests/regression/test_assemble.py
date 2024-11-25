@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.assemble import TwoFormAssembler
 from firedrake.utils import ScalarType, IntType
 
 
@@ -123,6 +124,23 @@ def test_assemble_mat_with_tensor(mesh):
     M = assemble(Constant(2)*a, tensor=M)
     # Make sure we get the result of the last assembly
     assert np.allclose(M.M.values, 2*assemble(a).M.values, rtol=1e-14)
+
+
+@pytest.mark.skipcomplex
+def test_mat_nest_real_block_assembler_correctly_reuses_tensor(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(mesh, "R", 0)
+    W = V * R
+
+    u = TrialFunction(W)
+    v = TestFunction(W)
+    a = inner(v, u) * dx
+
+    assembler = TwoFormAssembler(a, mat_type="nest")
+    A1 = assembler.assemble()
+    A2 = assembler.assemble(tensor=A1)
+
+    assert A2.M is A1.M
 
 
 def test_assemble_diagonal(mesh):
@@ -316,3 +334,13 @@ def test_assemble_sparsity_diagonal_entries_for_bc():
     A = assemble(inner(u[1], v[0]) * dx, bcs=[bc], mat_type="nest")
     # Make sure that diagonals are allocated.
     assert np.all(A.M.sparsity[1][1].nnz == np.ones(4, dtype=IntType))
+
+
+@pytest.mark.skipcomplex
+def test_assemble_power_zero_minmax():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    f = Function(V).assign(1.)
+    g = Function(V).assign(2.)
+    assert assemble(zero()**min_value(f, g) * dx) == 0.0
+    assert assemble(zero()**max_value(f, g) * dx) == 0.0
