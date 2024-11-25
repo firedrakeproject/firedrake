@@ -17,7 +17,7 @@ def main():
     print(f"Removing cached TSFC kernels from {os.environ.get('FIREDRAKE_TSFC_KERNEL_CACHE_DIR', '???')}")
     tsfc_clear_cache()
 
-    print(f"Removing cached PyOP2 code from {os.environ.get('FIREDRAKE_TSFC_KERNEL_CACHE_DIR', '???')}")
+    print(f"Removing cached PyOP2 code from {os.environ.get('PYOP2_CACHE_DIR', '???')}")
     pyop2_clear_cache()
 
     pytools_cache = appdirs.user_cache_dir("pytools", "pytools")
