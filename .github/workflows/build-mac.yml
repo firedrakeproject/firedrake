@@ -30,12 +30,12 @@ jobs:
       - name: Install Python
         run: |
           brew install python@3.12
-          $(brew --prefix)/bin/python3 -m pip install -U pip
-          $(brew --prefix)/bin/python3 -m pip install -U setuptools
+          $(brew --prefix)/bin/python3.12 -m pip install -U pip
+          $(brew --prefix)/bin/python3.12 -m pip install -U setuptools
       - name: Build Firedrake
         run: |
           cd ..
-          $(brew --prefix)/bin/python3 \
+          $(brew --prefix)/bin/python3.12 \
             firedrake/scripts/firedrake-install \
             --venv-name firedrake_venv \
             --disable-ssh \
