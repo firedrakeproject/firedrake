@@ -33,7 +33,7 @@ class ASMPatchPC(PCBase):
         # Extract function space and mesh to obtain plex and indexing functions
         V = get_function_space(dm)
 
-        # Obtain patches from user defined funtion
+        # Obtain patches from user defined function
         ises = self.get_patches(V)
         # PCASM expects at least one patch, so we define an empty one on idle processes
         if len(ises) == 0:
@@ -103,6 +103,30 @@ class ASMPatchPC(PCBase):
 
     def view(self, pc, viewer=None):
         self.asmpc.view(viewer=viewer)
+        self.prefix = pc.getOptionsPrefix() + self._prefix
+
+        if viewer is not None:
+            opts = PETSc.Options(self.prefix)
+            print_statistics = opts.getBool("print_patch_statistics", default=False)
+
+            if print_statistics:
+                from mpi4py import MPI
+
+                dm = pc.getDM()
+                V = get_function_space(dm)
+
+                # Obtain patches from user defined function
+                ises = self.get_patches(V)
+                # PCASM expects at least one patch, so we define an empty one on idle processes
+                if len(ises) == 0:
+                    ises = [PETSc.IS().createGeneral(numpy.empty(0, dtype=IntType), comm=PETSc.COMM_SELF)]
+
+                max_local_patch = max(is_.getSize() for is_ in ises)
+                min_local_patch = min(is_.getSize() for is_ in ises)
+                max_global_patch = pc.comm.tompi4py().allreduce(max_local_patch, op=MPI.MAX)
+                min_global_patch = pc.comm.tompi4py().allreduce(min_local_patch, op=MPI.MIN)
+
+                viewer.printfASCII(f"Minimum / maximum patch sizes: {min_global_patch} / {max_global_patch}\n")
 
     def update(self, pc):
         # This is required to update an inplace ILU factorization
