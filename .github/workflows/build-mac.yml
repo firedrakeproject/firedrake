@@ -51,6 +51,7 @@ jobs:
 
       - name: Run parallel smoke tests  # ideally in the same step as above
         run: |
+          . ../firedrake_venv/bin/activate
           mpiexec -n 3 python -m pytest -v tests/regression/ \
             -k "poisson_strong or stokes_mini or dg_advection" -m "parallel[3]"
         timeout-minutes: 30
