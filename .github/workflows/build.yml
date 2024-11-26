@@ -86,6 +86,7 @@ jobs:
             --install gadopt \
             --install asQ \
             --package-branch petsc connorjward/merge-upstream \
+            --package-branch slepc connorjward/merge-upstream \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
