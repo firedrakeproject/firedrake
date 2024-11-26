@@ -48,6 +48,8 @@ jobs:
       COMPLEX: ${{ matrix.complex }}
       RDMAV_FORK_SAFE: 1
     steps:
+      - name: Install pkg-config  # just for testing, will be put into firedrake-env
+        run: sudo apt update && sudo apt install -y pkg-config
       - uses: actions/checkout@v4
       - name: Cleanup
         if: ${{ always() }}
