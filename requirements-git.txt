@@ -6,3 +6,4 @@ git+https://github.com/firedrakeproject/pytest-mpi.git@main#egg=pytest-mpi
 git+https://github.com/firedrakeproject/petsc.git@firedrake#egg=petsc
 git+https://github.com/connorjward/pyop3.git@main#egg=pyop3
 git+https://github.com/firedrakeproject/libsupermesh.git#egg=libsupermesh
+git+https://github.com/indiamai/redefining_fe.git#egg=redefining_fe
