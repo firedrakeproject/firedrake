@@ -2158,8 +2158,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # ilocal = None -> leaves are swarm points [0, 1, 2, ...).
         # ilocal can also be Firedrake cell numbers.
         sf = PETSc.SF().create(comm=swarm.comm)
-        input_ranks = swarm.getField("inputrank")
-        input_indices = swarm.getField("inputindex")
+        input_ranks = swarm.getField("inputrank").ravel()
+        input_indices = swarm.getField("inputindex").ravel()
         nleaves = len(input_ranks)
         if ilocal is not None and nleaves != len(ilocal):
             swarm.restoreField("inputrank")
@@ -3652,7 +3652,7 @@ def _pic_swarm_in_mesh(
     # local_points[halo_indices] (it also updates local_points[~halo_indices]`, not changing any values there).
     # If some index of local_points_reduced corresponds to a missing point, local_points_reduced[index] is not updated
     # when we reduce and it does not update any leaf data, i.e., local_points, when we bcast.
-    owners = swarm.getField("DMSwarm_rank")
+    owners = swarm.getField("DMSwarm_rank").ravel()
     halo_indices, = np.where(owners != parent_mesh.comm.rank)
     halo_indices = halo_indices.astype(IntType)
     n = coords.shape[0]
@@ -3868,13 +3868,13 @@ def _dmswarm_create(
 
     # NOTE ensure that swarm.restoreField is called for each field too!
     swarm_coords = swarm.getField("DMSwarmPIC_coor").reshape((num_vertices, gdim))
-    swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid")
-    field_parent_cell_nums = swarm.getField("parentcellnum")
+    swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid").ravel()
+    field_parent_cell_nums = swarm.getField("parentcellnum").ravel()
     field_reference_coords = swarm.getField("refcoord").reshape((num_vertices, tdim))
-    field_global_index = swarm.getField("globalindex")
-    field_rank = swarm.getField("DMSwarm_rank")
-    field_input_rank = swarm.getField("inputrank")
-    field_input_index = swarm.getField("inputindex")
+    field_global_index = swarm.getField("globalindex").ravel()
+    field_rank = swarm.getField("DMSwarm_rank").ravel()
+    field_input_rank = swarm.getField("inputrank").ravel()
+    field_input_index = swarm.getField("inputindex").ravel()
     swarm_coords[...] = coords
     swarm_parent_cell_nums[...] = plex_parent_cell_nums
     field_parent_cell_nums[...] = parent_cell_nums
