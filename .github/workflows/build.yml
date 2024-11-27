@@ -83,6 +83,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch pyadjoint dolci/fix_out_floatoperator \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
