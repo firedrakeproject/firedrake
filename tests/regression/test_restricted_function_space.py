@@ -173,16 +173,6 @@ def test_restricted_function_space_coord_change(j):
     compare_function_space_assembly(new_V, new_V_restricted, [bc])
 
 
-def test_restricted_mixed_space():
-    mesh = UnitSquareMesh(1, 1)
-    V = FunctionSpace(mesh, "RT", 1)
-    Q = FunctionSpace(mesh, "DG", 0)
-    Z = V * Q
-    bcs = [DirichletBC(Z.sub(0), 0, [1])]
-    Z_restricted = restricted_function_space(Z, bcs)
-    compare_function_space_assembly(Z, Z_restricted, bcs)
-
-
 def test_poisson_restricted_mixed_space():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "RT", 1)

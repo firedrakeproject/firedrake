@@ -11,7 +11,7 @@ from firedrake.petsc import (
 )
 from firedrake.function import Function
 from firedrake.ufl_expr import TrialFunction, TestFunction
-from firedrake.bcs import DirichletBC, EquationBC, restricted_function_space
+from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
 from ufl import replace
 
@@ -87,7 +87,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         self.restrict = restrict
 
         if restrict and bcs:
-            V_res = restricted_function_space(V, bcs)
+            V_res = restricted_function_space(V, extract_subdomain_ids(bcs))
             bcs = [bc.reconstruct(V=V_res, indices=bc._indices) for bc in bcs]
             self.u_restrict = Function(V_res).interpolate(u)
             v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
