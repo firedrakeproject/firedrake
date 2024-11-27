@@ -452,7 +452,7 @@ class VTKFile(object):
     @no_annotations
     def _prepare_output(self, function, max_elem):
         from firedrake import FunctionSpace, VectorFunctionSpace, \
-            TensorFunctionSpace, Function
+            TensorFunctionSpace, Function, Cofunction
 
         name = function.name()
         # Need to project/interpolate?
@@ -477,8 +477,14 @@ class VTKFile(object):
                                     shape=shape)
         else:
             raise ValueError("Unsupported shape %s" % (shape, ))
-        output = Function(V)
+        if isinstance(function, Function):
+            output = Function(V)
+        elif isinstance(function, Cofunction):
+            output = Function(V.dual())
+
         if self.project:
+            if isinstance(function, Cofunction):
+                raise ValueError("Can not project Cofunctions")
             output.project(function)
         else:
             output.interpolate(function)
@@ -487,6 +493,7 @@ class VTKFile(object):
 
     def _write_vtu(self, *functions):
         from firedrake.function import Function
+        from firedrake.cofunction import Cofunction
 
         # Check if the user has requested to write out a plain mesh
         if len(functions) == 1 and isinstance(functions[0], ufl.Mesh):
@@ -496,7 +503,7 @@ class VTKFile(object):
             functions = [Function(V)]
 
         for f in functions:
-            if not isinstance(f, Function):
+            if not isinstance(f, (Function, Cofunction)):
                 raise ValueError("Can only output Functions or a single mesh, not %r" % type(f))
         meshes = tuple(extract_unique_domain(f) for f in functions)
         if not all(m == meshes[0] for m in meshes):
