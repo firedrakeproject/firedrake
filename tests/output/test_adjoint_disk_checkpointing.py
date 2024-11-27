@@ -104,6 +104,6 @@ def test_disk_checkpointing_successive_writes():
 
     J = assemble(v*dx)
     Jhat = ReducedFunctional(J, Control(u))
-    assert np.allclose(J, Jhat(1))
+    assert np.allclose(J, Jhat(Function(cg_space).interpolate(1.)))
     pause_disk_checkpointing()
     tape.clear_tape()
