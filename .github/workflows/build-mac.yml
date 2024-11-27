@@ -43,17 +43,15 @@ jobs:
             --venv-name firedrake_venv \
             --disable-ssh \
             || (cat firedrake-install.log && /bin/false)
+      # TODO: Merge https://github.com/firedrakeproject/pytest-mpi/pull/9
+      - name: (remove) install branch of pytest-mpi
+        run: |
+          . ../firedrake_venv/bin/activate
+          python -m pip install git+https://github.com/firedrakeproject/pytest-mpi.git@connorjward/fix-macos
       - name: Run smoke tests
         run: |
           . ../firedrake_venv/bin/activate
-          python -m pytest -v tests/regression/ \
-            -k "poisson_strong or stokes_mini or dg_advection" -m "not parallel"
-
-      - name: Run parallel smoke tests  # ideally in the same step as above
-        run: |
-          . ../firedrake_venv/bin/activate
-          mpiexec -n 3 python -m pytest -v tests/regression/ \
-            -k "poisson_strong or stokes_mini or dg_advection" -m "parallel[3]"
+          python -m pytest -v tests/regression/ -k "poisson_strong or stokes_mini or dg_advection"
         timeout-minutes: 30
       - name: Post-run cleanup
         if: ${{ always() }}
