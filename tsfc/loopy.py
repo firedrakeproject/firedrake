@@ -126,6 +126,7 @@ class LoopyContext(object):
         self.gem_to_pymbolic = {}  # gem node -> pymbolic variable
         self.name_gen = UniqueNameGenerator()
         self.target = target
+        self.loop_priorities = set()  # used to avoid disadvantageous loop interchanges
 
     def fetch_multiindex(self, multiindex):
         indices = []
@@ -191,6 +192,12 @@ class LoopyContext(object):
         # Return all active indices
         return frozenset([i.name for i in self.active_indices.values()])
 
+    def save_loop_ordering(self):
+        """Save the active loops to prevent loop reordering."""
+        priority = tuple(map(str, self.active_indices.values()))
+        if len(priority) > 1:
+            self.loop_priorities.add(priority)
+
 
 @contextmanager
 def active_indices(mapping, ctx):
@@ -199,6 +206,7 @@ def active_indices(mapping, ctx):
    :arg ctx: code generation context.
    :returns: new code generation context."""
     ctx.active_indices.update(mapping)
+    ctx.save_loop_ordering()
     yield ctx
     for key in mapping:
         ctx.active_indices.pop(key)
@@ -261,11 +269,9 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
         seq_dependencies=True,
         silenced_warnings=["summing_if_branches_ops"],
         lang_version=(2018, 2),
-        preambles=preamble
+        preambles=preamble,
+        loop_priority=frozenset(ctx.loop_priorities),
     )
-
-    # Prevent loopy interchange by loopy
-    knl = lp.prioritize_loops(knl, ",".join(ctx.index_extent.keys()))
 
     return knl, event_name
 
