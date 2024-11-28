@@ -46,11 +46,6 @@ jobs:
             --venv-name firedrake_venv \
             --disable-ssh \
             || (cat firedrake-install.log && /bin/false)
-      # TODO: Merge https://github.com/firedrakeproject/pytest-mpi/pull/9
-      - name: (remove) install branch of pytest-mpi
-        run: |
-          . ../firedrake_venv/bin/activate
-          python -m pip install git+https://github.com/firedrakeproject/pytest-mpi.git@connorjward/fix-macos
       - name: Run smoke tests
         run: |
           . ../firedrake_venv/bin/activate
