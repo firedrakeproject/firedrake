@@ -37,11 +37,11 @@ jobs:
           cd ..
           rm -rf firedrake_venv
       - name: Install Python
-        run: brew install python@3.12 python-setuptools
+        run: brew install python python-setuptools
       - name: Build Firedrake
         run: |
           cd ..
-          "$(brew --prefix)/bin/python3.12" \
+          "$(brew --prefix)/bin/python3" \
             firedrake/scripts/firedrake-install \
             --venv-name firedrake_venv \
             --disable-ssh \
