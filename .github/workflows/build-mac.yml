@@ -18,10 +18,13 @@ concurrency:
 
 jobs:
   build:
-    name: Build Firedrake
+    name: Build Firedrake (macOS)
     runs-on: [self-hosted, macOS]
     # Only run this action if we are pushing to master or the PR is labelled "macOS"
     if: ${{ (github.ref == 'refs/heads/master') || contains(github.event.pull_request.labels.*.name, 'macOS') }}
+    defaults:
+      run:
+        shell: zsh
     env:
       FIREDRAKE_CI_TESTS: 1  # needed to symlink the checked out branch into the venv
       OMP_NUM_THREADS: 1
