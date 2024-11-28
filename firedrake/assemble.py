@@ -378,8 +378,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             return self.base_form_assembly_visitor(e, t, *operands)
 
         # DAG assembly: traverse the DAG in a post-order fashion and evaluate the node on the fly.
-        visited = {}
-        result = BaseFormAssembler.base_form_postorder_traversal(self._form, visitor, visited)
+        result = BaseFormAssembler.base_form_postorder_traversal(self._form, visitor)
 
         if tensor:
             BaseFormAssembler.update_tensor(result, tensor)
