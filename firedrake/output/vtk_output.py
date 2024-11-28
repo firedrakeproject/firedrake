@@ -503,7 +503,7 @@ class VTKFile(object):
 
         for f in functions:
             if not isinstance(f, (Function, Cofunction)):
-                raise ValueError("Can only output Functions, Cofunctions or a single mesh, not %r" % type(f))
+                raise ValueError(f"Can only output Functions, Cofunctions or a single mesh, not {type(f).__name__}")
         meshes = tuple(extract_unique_domain(f) for f in functions)
         if not all(m == meshes[0] for m in meshes):
             raise ValueError("All functions must be on same mesh")
