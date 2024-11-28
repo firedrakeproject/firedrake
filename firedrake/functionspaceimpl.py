@@ -639,7 +639,7 @@ class FunctionSpace(object):
     @utils.cached_property
     def subfunctions(self):
         r"""Split into a tuple of constituent spaces."""
-        return (self, )
+        return tuple((self, ))
 
     def split(self):
         import warnings

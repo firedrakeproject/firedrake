@@ -124,12 +124,16 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     @utils.cached_property
     def _components(self):
-        if self.dof_dset.cdim == 1:
-            return (self, )
+        if self.function_space().rank == 0:
+            return tuple((self, ))
         else:
-            return tuple(CoordinatelessFunction(self.function_space().sub(i), val=op2.DatView(self.dat, j),
-                                                name="view[%d](%s)" % (i, self.name()))
-                         for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
+            if self.dof_dset.cdim == 1:
+                return tuple((CoordinatelessFunction(self.function_space().sub(0), val=self.dat,
+                                                    name="view[%d](%s)" % (0, self.name())),))
+            else:
+                return tuple(CoordinatelessFunction(self.function_space().sub(i), val=op2.DatView(self.dat, j),
+                                                    name="view[%d](%s)" % (i, self.name()))
+                             for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
@@ -327,7 +331,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @utils.cached_property
     def _components(self):
-        if self.function_space().block_size == 1:
+        if self.function_space().rank == 0:
             return (self, )
         else:
             return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
