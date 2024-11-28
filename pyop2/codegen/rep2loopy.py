@@ -288,8 +288,8 @@ def runtime_indices(expressions):
     for node in traversal(expressions):
         if isinstance(node, RuntimeIndex):
             indices.append(node.name)
-
-    return frozenset(indices)
+    # use a dict as an ordered set
+    return {i: None for i in indices}
 
 
 def imperatives(exprs):
@@ -325,7 +325,7 @@ def loop_nesting(instructions, deps, outer_inames, kernel_name):
 
     # boost inames, if one instruction is inside inner inames (free indices),
     # it should be inside the outer inames as dictated by other instructions.
-    index_nesting = defaultdict(frozenset)  # free index -> {runtime indices}
+    index_nesting = defaultdict(dict)  # free index -> {runtime indices}
     for insn in instructions:
         if isinstance(insn, When):
             key = insn.children[1]
@@ -338,7 +338,7 @@ def loop_nesting(instructions, deps, outer_inames, kernel_name):
     for insn in imperatives(instructions):
         outer = reduce(operator.or_,
                        iter(index_nesting[fi] for fi in traversal([insn]) if isinstance(fi, Index)),
-                       frozenset())
+                       {})
         nesting[insn] = nesting[insn] | outer
 
     return nesting
@@ -407,11 +407,10 @@ def generate(builder, wrapper_name=None):
     Materialise._count = itertools.count()
     RuntimeIndex._count = itertools.count()
 
+    # use a dict as an ordered set
+    outer_inames = {builder._loop_index.name: None}
     if builder.layer_index is not None:
-        outer_inames = frozenset([builder._loop_index.name,
-                                  builder.layer_index.name])
-    else:
-        outer_inames = frozenset([builder._loop_index.name])
+        outer_inames |= {builder.layer_index.name: None}
 
     instructions = list(builder.emit_instructions())
 
@@ -476,10 +475,17 @@ def generate(builder, wrapper_name=None):
     deps = instruction_dependencies(instructions, mapper.initialisers)
     within_inames = loop_nesting(instructions, deps, outer_inames, parameters.kernel_name)
 
+    # used to avoid disadvantageous loop interchanges
+    loop_priorities = set()
+    for iname_nest in within_inames.values():
+        if len(iname_nest) > 1:
+            loop_priorities.add(tuple(iname_nest.keys()))
+    loop_priorities = frozenset(loop_priorities)
+
     # generate loopy
     context = Bag()
     context.parameters = parameters
-    context.within_inames = within_inames
+    context.within_inames = {k: frozenset(v.keys()) for k, v in within_inames.items()}
     context.conditions = []
     context.index_ordering = []
     context.instruction_dependencies = deps
@@ -544,11 +550,8 @@ def generate(builder, wrapper_name=None):
                                 options=options,
                                 assumptions=assumptions,
                                 lang_version=(2018, 2),
-                                name=wrapper_name)
-
-    # prioritize loops
-    for indices in context.index_ordering:
-        wrapper = loopy.prioritize_loops(wrapper, indices)
+                                name=wrapper_name,
+                                loop_priority=loop_priorities)
 
     # register kernel
     kernel = builder.kernel
