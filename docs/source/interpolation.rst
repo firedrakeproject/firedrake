@@ -25,18 +25,18 @@ where :math:`\bar{\phi}^*_i` is the :math:`i`-th dual basis function to
    The extension of dual basis functions to :math:`e` usually follows from the
    definition of the dual basis. For example, point evaluation and integral
    nodes can naturally be extended to any expression which is evaluatable at
-   the relevant points, or integrable over that domain. 
-   
+   the relevant points, or integrable over that domain.
+
    Firedrake will not impose any constraints on the expression to be
    interpolated beyond that its value shape matches that of the space into
    which it is interpolated. If the user interpolates an expression for which
    the nodes are not well defined (for example point evaluation at a
-   discontinuity), the result is implementation-dependent. 
+   discontinuity), the result is implementation-dependent.
 
 The interpolate operator
 ------------------------
 
-.. note:: 
+.. note::
    The semantics for interpolation in Firedrake are in the course of changing.
    The documentation provided here is for the new behaviour, in which the
    `interpolate` operator is symbolic. In order to access the behaviour
@@ -50,7 +50,7 @@ The interpolate operator
 
 The basic syntax for interpolation is:
 
-.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_interpolate_operator 1]
@@ -59,7 +59,7 @@ The basic syntax for interpolation is:
 It is also possible to interpolate an expression directly into an existing
 :py:class:`~.Function`:
 
-.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_interpolate_operator 3]
@@ -67,7 +67,7 @@ It is also possible to interpolate an expression directly into an existing
 
 This is a numerical operation, equivalent to:
 
-.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_interpolate_operator 5]
@@ -93,7 +93,7 @@ including:
 
 Here is an example demonstrating some of these features:
 
-.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_interpolate_operator 7]
@@ -102,7 +102,7 @@ Here is an example demonstrating some of these features:
 This also works as expected when interpolating into a a space defined on the facets
 of the mesh:
 
-.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_interpolate_operator 9]
@@ -155,13 +155,13 @@ surface or line of interest in the domain. The integral itself is calculated
 by calling :py:func:`~.assemble` on an approriate form over the target mesh
 function space:
 
-.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_line_integral 1]
    :end-before: [test_line_integral 2]
 
-.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_line_integral 3]
@@ -181,13 +181,13 @@ Interpolating onto other meshes
 If the target mesh extends outside the source mesh domain, then cross-mesh
 interpolation will raise a :py:class:`~.DofNotDefinedError`.
 
-.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_cross_mesh 1]
    :end-before: [test_cross_mesh 2]
 
-.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_cross_mesh 3]
@@ -196,13 +196,13 @@ interpolation will raise a :py:class:`~.DofNotDefinedError`.
 This can be overriden with the optional ``allow_missing_dofs`` keyword
 argument:
 
-.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_cross_mesh 5]
    :end-before: [test_cross_mesh 6]
 
-.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_cross_mesh 7]
@@ -211,7 +211,7 @@ argument:
 In this case, the missing degrees of freedom (DoFs, the global basis function
 coefficients which could not be set) are, by default, set to zero:
 
-.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_cross_mesh 9]
@@ -223,7 +223,7 @@ unmodified.
 We can optionally specify a value to use for our missing DoFs. Here
 we set them to be ``nan`` ('not a number') for easy identification:
 
-.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_cross_mesh 11]
@@ -235,7 +235,7 @@ DoFs.
 When using :py:class:`~.Interpolator`\s, the ``allow_missing_dofs`` keyword
 argument is set at construction:
 
-.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_cross_mesh 13]
@@ -244,7 +244,7 @@ argument is set at construction:
 The ``default_missing_val`` keyword argument is then set whenever we call
 :py:meth:`~.Interpolator.interpolate`:
 
-.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_cross_mesh 15]
@@ -254,19 +254,19 @@ If we supply an output :py:class:`~.Function` and don't set
 ``default_missing_val`` then any missing DoFs are left as they were prior to
 interpolation:
 
-.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_cross_mesh 17]
    :end-before: [test_cross_mesh 18]
 
-.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_cross_mesh 19]
    :end-before: [test_cross_mesh 20]
 
-.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_cross_mesh 21]
@@ -294,7 +294,7 @@ now.  In this case, interpolation into a target function space ``V``
 proceeds as follows:
 
 
-.. literalinclude:: ../../tests/regression/test_interpolation_manual.py
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
    :dedent:
    :start-after: [test_interpolate_external 1]
