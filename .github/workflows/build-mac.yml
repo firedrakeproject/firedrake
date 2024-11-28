@@ -27,6 +27,9 @@ jobs:
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
     steps:
+      - name: Add homebrew to PATH
+        # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
+        run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
       - uses: actions/checkout@v4
       - name: Pre-run cleanup
         if: ${{ always() }}
@@ -34,11 +37,11 @@ jobs:
           cd ..
           rm -rf firedrake_venv
       - name: Install Python
-        run: /opt/homebrew/bin/brew install python@3.12 python-setuptools
+        run: brew install python@3.12 python-setuptools
       - name: Build Firedrake
         run: |
           cd ..
-          "$(/opt/homebrew/bin/brew --prefix)/bin/python3.12" \
+          "$(brew --prefix)/bin/python3.12" \
             firedrake/scripts/firedrake-install \
             --venv-name firedrake_venv \
             --disable-ssh \
