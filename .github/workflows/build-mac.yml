@@ -51,7 +51,7 @@ jobs:
       - name: Run smoke tests
         run: |
           . ../firedrake_venv/bin/activate
-          python -m pytest -v tests/regression/ -k "poisson_strong or stokes_mini or dg_advection"
+          python -m pytest -v tests/firedrake/regression/ -k "poisson_strong or stokes_mini or dg_advection"
         timeout-minutes: 30
       - name: Post-run cleanup
         if: ${{ always() }}
