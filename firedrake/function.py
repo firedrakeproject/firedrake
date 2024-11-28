@@ -331,7 +331,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             return (self, )
         else:
             return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
-                         for i in range(self.function_space().value_size))
+                         for i in range(self.function_space().block_size))
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
