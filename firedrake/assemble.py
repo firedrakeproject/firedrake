@@ -583,7 +583,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             raise NotImplementedError("Cannot update tensor of type %s" % type(tensor))
 
     @staticmethod
-    def base_form_postorder_traversal(expr, visitor, visited={}):
+    def base_form_postorder_traversal(expr, visitor, visited=None):
+        visited = visited if visited is not None else {}
         if expr in visited:
             return visited[expr]
 
@@ -605,7 +606,8 @@ class BaseFormAssembler(AbstractFormAssembler):
         return visited[expr]
 
     @staticmethod
-    def base_form_preorder_traversal(expr, visitor, visited={}):
+    def base_form_preorder_traversal(expr, visitor, visited=None):
+        visited = visited if visited is not None else {}
         if expr in visited:
             return visited[expr]
 
