@@ -80,7 +80,7 @@ def test_bad_file_name(tmpdir):
 
 
 @pytest.mark.parametrize("space",
-                         ["primal", "dual"])      
+                         ["primal", "dual"])
 def test_different_functions(mesh, pvd, space):
     V = FunctionSpace(mesh, "DG", 0)
     if space == "primal":
@@ -142,7 +142,7 @@ def test_not_function(mesh, pvd):
 
 
 @pytest.mark.parametrize("space",
-                         ["primal", "dual"])   
+                         ["primal", "dual"])
 def test_append(mesh, tmpdir, space):
     V = FunctionSpace(mesh, "DG", 0)
     if space == "primal":
