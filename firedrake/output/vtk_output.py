@@ -492,8 +492,7 @@ class VTKFile(object):
         return OFunction(array=get_array(output), name=name, function=output)
 
     def _write_vtu(self, *functions):
-        from firedrake.function import Function
-        from firedrake.cofunction import Cofunction
+        from firedrake import Function, Cofunction
 
         # Check if the user has requested to write out a plain mesh
         if len(functions) == 1 and isinstance(functions[0], ufl.Mesh):
