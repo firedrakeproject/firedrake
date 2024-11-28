@@ -22,9 +22,6 @@ jobs:
     runs-on: [self-hosted, macOS]
     # Only run this action if we are pushing to master or the PR is labelled "macOS"
     if: ${{ (github.ref == 'refs/heads/master') || contains(github.event.pull_request.labels.*.name, 'macOS') }}
-    defaults:
-      run:
-        shell: zsh
     env:
       FIREDRAKE_CI_TESTS: 1  # needed to symlink the checked out branch into the venv
       OMP_NUM_THREADS: 1
@@ -37,11 +34,11 @@ jobs:
           cd ..
           rm -rf firedrake_venv
       - name: Install Python
-        run: brew install python@3.12 python-setuptools
+        run: /opt/homebrew/bin/brew install python@3.12 python-setuptools
       - name: Build Firedrake
         run: |
           cd ..
-          "$(brew --prefix)/bin/python3.12" \
+          "$(/opt/homebrew/bin/brew --prefix)/bin/python3.12" \
             firedrake/scripts/firedrake-install \
             --venv-name firedrake_venv \
             --disable-ssh \
