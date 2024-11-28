@@ -19,7 +19,6 @@
 
       * `Firedrake on GitHub <https://github.com/firedrakeproject/firedrake/>`__
       * `TSFC on GitHub <https://github.com/firedrakeproject/tsfc/>`__
-      * `PyOP2 on GitHub <https://github.com/OP2/PyOP2>`__
       * `FIAT on GitHub <https://github.com/firedrakeproject/fiat>`__
       * `Firedrake version of UFL on GitHub <https://github.com/firedrakeproject/ufl>`__
 
