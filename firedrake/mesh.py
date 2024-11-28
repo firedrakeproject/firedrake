@@ -1966,7 +1966,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         if reorder:
             swarm = self.topology_dm
             parent = self._parent_mesh.topology_dm
-            swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid")
+            swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid").ravel()
             parent_renum = self._parent_mesh._dm_renumbering.getIndices()
             pStart, _ = parent.getChart()
             parent_renum_inv = np.empty_like(parent_renum)
@@ -2063,7 +2063,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """Return a list of parent mesh cells numbers in vertex only
         mesh cell order.
         """
-        cell_parent_cell_list = np.copy(self.topology_dm.getField("parentcellnum"))
+        cell_parent_cell_list = np.copy(self.topology_dm.getField("parentcellnum").ravel())
         self.topology_dm.restoreField("parentcellnum")
         return cell_parent_cell_list[self.cell_closure[:, -1]]
 
@@ -2082,7 +2082,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
         if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
             raise AttributeError("Parent mesh is not extruded")
-        cell_parent_base_cell_list = np.copy(self.topology_dm.getField("parentcellbasenum"))
+        cell_parent_base_cell_list = np.copy(self.topology_dm.getField("parentcellbasenum").ravel())
         self.topology_dm.restoreField("parentcellbasenum")
         return cell_parent_base_cell_list[self.cell_closure[:, -1]]
 
@@ -2103,7 +2103,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
         if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
             raise AttributeError("Parent mesh is not extruded.")
-        cell_parent_extrusion_height_list = np.copy(self.topology_dm.getField("parentcellextrusionheight"))
+        cell_parent_extrusion_height_list = np.copy(self.topology_dm.getField("parentcellextrusionheight").ravel())
         self.topology_dm.restoreField("parentcellextrusionheight")
         return cell_parent_extrusion_height_list[self.cell_closure[:, -1]]
 
@@ -2123,7 +2123,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_global_index(self):
         """Return a list of unique cell IDs in vertex only mesh cell order."""
-        cell_global_index = np.copy(self.topology_dm.getField("globalindex"))
+        cell_global_index = np.copy(self.topology_dm.getField("globalindex").ravel())
         self.topology_dm.restoreField("globalindex")
         return cell_global_index
 
@@ -3895,8 +3895,8 @@ def _dmswarm_create(
     swarm.restoreField("DMSwarm_cellid")
 
     if extruded:
-        field_base_parent_cell_nums = swarm.getField("parentcellbasenum")
-        field_extrusion_heights = swarm.getField("parentcellextrusionheight")
+        field_base_parent_cell_nums = swarm.getField("parentcellbasenum").ravel()
+        field_extrusion_heights = swarm.getField("parentcellextrusionheight").ravel()
         field_base_parent_cell_nums[...] = base_parent_cell_nums
         field_extrusion_heights[...] = extrusion_heights
         swarm.restoreField("parentcellbasenum")

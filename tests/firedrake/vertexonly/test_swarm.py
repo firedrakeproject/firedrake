@@ -208,7 +208,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
         exclude_halos = True
 
     # Get point coords on current MPI rank
-    localpointcoords = np.copy(swarm.getField("DMSwarmPIC_coor"))
+    localpointcoords = np.copy(swarm.getField("DMSwarmPIC_coor").ravel())
     swarm.restoreField("DMSwarmPIC_coor")
     if len(inputpointcoords.shape) > 1:
         localpointcoords = np.reshape(localpointcoords, (-1, inputpointcoords.shape[1]))
@@ -218,11 +218,11 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     nptslocal = len(localpointcoords)
     nptsglobal = MPI.COMM_WORLD.allreduce(nptslocal, op=MPI.SUM)
     # Get parent PETSc cell indices on current MPI rank
-    localparentcellindices = np.copy(swarm.getField("DMSwarm_cellid"))
+    localparentcellindices = np.copy(swarm.getField("DMSwarm_cellid").ravel())
     swarm.restoreField("DMSwarm_cellid")
 
     # also get the global coordinate numbering
-    globalindices = np.copy(swarm.getField("globalindex"))
+    globalindices = np.copy(swarm.getField("globalindex").ravel())
     swarm.restoreField("globalindex")
 
     # Tests
@@ -233,7 +233,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
 
     # get custom fields on swarm - will fail if didn't get created
     for name, size, dtype in other_fields:
-        f = swarm.getField(name)
+        f = swarm.getField(name).ravel()
         assert len(f) == size*nptslocal
         assert f.dtype == dtype
         swarm.restoreField(name)
@@ -330,7 +330,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     # Check that the rank numbering is correct. Since we know all points are at
     # the midpoints of cells, there should be no disagreement about cell
     # ownership and the voting algorithm should have no effect.
-    owned_ranks = np.copy(swarm.getField("DMSwarm_rank"))
+    owned_ranks = np.copy(swarm.getField("DMSwarm_rank").ravel())
     swarm.restoreField("DMSwarm_rank")
     if exclude_halos:
         assert np.array_equal(owned_ranks, inputlocalpointcoordranks)
@@ -339,7 +339,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
         assert np.all(np.isin(inputlocalpointcoordranks, owned_ranks))
 
     # check that the input rank is correct
-    input_ranks = np.copy(swarm.getField("inputrank"))
+    input_ranks = np.copy(swarm.getField("inputrank").ravel())
     swarm.restoreField("inputrank")
     if exclude_halos:
         assert np.all(input_ranks == input_rank)
@@ -351,7 +351,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
         assert np.all(input_ranks < parentmesh.comm.size)
 
     # check that the input index is correct
-    input_indices = np.copy(swarm.getField("inputindex"))
+    input_indices = np.copy(swarm.getField("inputindex").ravel())
     swarm.restoreField("inputindex")
     if exclude_halos:
         assert np.array_equal(input_indices, input_local_coord_indices)
@@ -365,7 +365,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
 
     # check we have unique parent cell numbers, which we should since we have
     # points at cell midpoints
-    parentcellnums = np.copy(swarm.getField("parentcellnum"))
+    parentcellnums = np.copy(swarm.getField("parentcellnum").ravel())
     swarm.restoreField("parentcellnum")
     assert len(np.unique(parentcellnums)) == len(parentcellnums)
 
@@ -378,7 +378,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     ):
         swarm.setPointCoordinates(localpointcoords, redundant=False,
                                   mode=PETSc.InsertMode.INSERT_VALUES)
-        petsclocalparentcellindices = np.copy(swarm.getField("DMSwarm_cellid"))
+        petsclocalparentcellindices = np.copy(swarm.getField("DMSwarm_cellid").ravel())
         swarm.restoreField("DMSwarm_cellid")
         if exclude_halos:
             assert np.all(petsclocalparentcellindices == localparentcellindices)
