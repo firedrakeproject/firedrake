@@ -35,7 +35,7 @@ jobs:
         run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
 
       - name: Install homebrew packages
-        run: brew install gcc autoconf pkg-config make automake cmake ninja libtool boost openblas python python-setuptools mpich
+        run: brew install gcc autoconf pkg-config make automake cmake ninja libtool boost openblas python python-setuptools mpich bison
 
       - name: Install PETSc
         run: |
