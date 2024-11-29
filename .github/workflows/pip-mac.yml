@@ -37,14 +37,10 @@ jobs:
       - name: Install homebrew packages
         run: brew install gcc autoconf pkg-config make automake cmake ninja libtool boost openblas python python-setuptools mpich bison
 
-      - uses: actions/checkout@v4
-        with:
-          path: src/firedrake
-
-      - name: Create a venv
+      - name: Create a cirtual environment
         run: |
           "$(brew --prefix)/bin/python3" -m venv pip_venv
-          ln -s /__w/firedrake/firedrake/src pip_venv/
+          mkdir pip_venv/src
 
       - name: Install PETSc
         run: |
@@ -75,7 +71,7 @@ jobs:
           pip install 'rtree>=1.2'
           cd pip_venv/src
           git clone https://github.com/firedrakeproject/libsupermesh.git
-          mkdir -p libsupermesh/build
+          mkdir libsupermesh/build
           cd libsupermesh/build
           cmake .. \
             -DBUILD_SHARED_LIBS=ON \
@@ -88,15 +84,19 @@ jobs:
           make
           make install
 
+      - uses: actions/checkout@v4
+        with:
+          path: pip_venv/src/firedrake
+
       - name: Pip install
         run: |
           export PETSC_DIR="$PWD/pip_venv/src/petsc"
           export PETSC_ARCH=default
-          source pip_venv/bin/activate
-          cd pip_venv/src
           export CC=/opt/homebrew/bin/mpicc
           export CXX=opt/homebrew/bin/mpicxx
           export MPICC="$CC"
+          source pip_venv/bin/activate
+          cd pip_venv/src
           pip install \
             --log=firedrake-install.log \
             --no-binary mpi4py,h5py \
