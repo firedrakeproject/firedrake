@@ -37,6 +37,10 @@ jobs:
       - name: Install homebrew packages
         run: brew install gcc autoconf pkg-config make automake cmake ninja libtool boost openblas python python-setuptools mpich bison
 
+      - uses: actions/checkout@v4
+        with:
+          path: src/firedrake
+
       - name: Create a venv
         run: |
           "$(brew --prefix)/bin/python3" -m venv pip_venv
@@ -83,10 +87,6 @@ jobs:
             -DMPIEXEC_EXECUTABLE=/opt/homebrew/bin/mpiexec
           make
           make install
-
-      - uses: actions/checkout@v4
-        with:
-          path: src/firedrake
 
       - name: Pip install
         run: |
