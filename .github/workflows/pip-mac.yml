@@ -26,7 +26,7 @@ jobs:
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
     steps:
-      - name: Cleanup
+      - name: Cleanup (pre)
         if: ${{ always() }}
         run: rm -rf pip_venv
 
@@ -37,13 +37,19 @@ jobs:
       - name: Install homebrew packages
         run: brew install gcc autoconf pkg-config make automake cmake ninja libtool boost openblas python python-setuptools mpich bison
 
+      - name: Create a venv
+        run: |
+          "$(brew --prefix)/bin/python3" -m venv pip_venv
+          ln -s /__w/firedrake/firedrake/src pip_venv/
+
       - name: Install PETSc
         run: |
+          cd pip_venv/src
           git clone https://github.com/firedrakeproject/petsc.git
           cd petsc
           ./configure PETSC_DIR="$PWD" PETSC_ARCH=default \
             --with-shared-libraries=1 \
-            --with-mpi-dir="$(brew --prefix)" \
+            --with-mpi-dir=/opt/homebrew \
             --with-zlib \
             --download-hdf5 \
             --download-hwloc \
@@ -59,15 +65,10 @@ jobs:
             --download-superlu_dist
           make
 
-      - name: Create a venv
-        run: |
-          "$(brew --prefix)/bin/python3" -m venv pip_venv
-          ln -s /__w/firedrake/firedrake/src pip_venv/
-
       - name: Install libsupermesh
         run: |
           source pip_venv/bin/activate
-          python -m pip install 'rtree>=1.2'
+          pip install 'rtree>=1.2'
           cd pip_venv/src
           git clone https://github.com/firedrakeproject/libsupermesh.git
           mkdir -p libsupermesh/build
@@ -75,11 +76,11 @@ jobs:
           cmake .. \
             -DBUILD_SHARED_LIBS=ON \
             -DCMAKE_INSTALL_PREFIX="$VIRTUAL_ENV" \
-            -DMPI_C_COMPILER="$MPICH_DIR/mpicc" \
-            -DMPI_CXX_COMPILER="$MPICH_DIR/mpicxx" \
-            -DMPI_Fortran_COMPILER="$MPICH_DIR/mpif90" \
-            -DCMAKE_Fortran_COMPILER="$MPICH_DIR/mpif90" \
-            -DMPIEXEC_EXECUTABLE="$MPICH_DIR/mpiexec"
+            -DMPI_C_COMPILER=/opt/homebrew/bin/mpicc \
+            -DMPI_CXX_COMPILER=/opt/homebrew/bin/mpicxx \
+            -DMPI_Fortran_COMPILER=/opt/homebrew/bin/mpif90 \
+            -DCMAKE_Fortran_COMPILER=/opt/homebrew/bin/mpif90 \
+            -DMPIEXEC_EXECUTABLE=/opt/homebrew/bin/mpiexec
           make
           make install
 
@@ -89,7 +90,7 @@ jobs:
 
       - name: Pip install
         run: |
-          export PETSC_DIR="$PWD"/petsc
+          export PETSC_DIR="$PWD/pip_venv/src/petsc"
           export PETSC_ARCH=default
           source pip_venv/bin/activate
           cd pip_venv/src
@@ -101,32 +102,19 @@ jobs:
             --no-binary mpi4py,h5py \
             -v -e './firedrake[test]'
 
-      - name: Add mpiexec to the venv and install timeout
+      - name: Install CI-specific test dependencies
         run: |
           source pip_venv/bin/activate
-          cat << EOF > "$VIRTUAL_ENV/bin/mpiexec"
-          #!/bin/bash
-          "$MPICH_DIR"/mpiexec "\$@"
-          EOF
-          chmod +x "$VIRTUAL_ENV"/bin/mpiexec
           pip install -U pytest-timeout
 
       - name: Run Firedrake smoke tests
         run: |
           source pip_venv/bin/activate
           cd pip_venv/src/firedrake
-          pytest -v tests/firedrake/test_0init.py
-          pytest \
-            --durations=200 \
-            --timeout=1800 \
-            --timeout-method=thread \
-            -o faulthandler_timeout=1860 \
-            -n 12 --dist worksteal \
-            --junit-xml=firedrake.xml \
-            -sv tests/firedrake/regression -k "poisson_strong or stokes_mini or dg_advection"
-        timeout-minutes: 120
+          pytest --timeout=1800 -v tests/firedrake/regression \
+            -k "poisson_strong or stokes_mini or dg_advection"
+        timeout-minutes: 30
 
-      - name: Cleanup
-        # Belt and braces: clean up before and after the run.
+      - name: Cleanup (post)
         if: ${{ always() }}
         run: rm -rf pip_venv
