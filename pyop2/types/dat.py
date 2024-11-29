@@ -358,14 +358,14 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         _self = p.Variable("self")
         _ret = p.Variable("ret")
         i = p.Variable("i")
-        lhs = _ret.index(i)
+        lhs = _ret[i]
         if globalp:
-            rhs = _other.index(0)
+            rhs = _other[0]
             rshape = (1, )
         else:
-            rhs = _other.index(i)
+            rhs = _other[i]
             rshape = (self.cdim, )
-        insn = lp.Assignment(lhs, op(_self.index(i), rhs), within_inames=frozenset(["i"]))
+        insn = lp.Assignment(lhs, op(_self[i], rhs), within_inames=frozenset(["i"]))
         data = [lp.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,)),
                 lp.GlobalArg("other", dtype=dtype, shape=rshape),
                 lp.GlobalArg("ret", dtype=self.dtype, shape=(self.cdim,))]
@@ -405,15 +405,15 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         _other = p.Variable("other")
         _self = p.Variable("self")
         i = p.Variable("i")
-        lhs = _self.index(i)
+        lhs = _self[i]
         rshape = (self.cdim, )
         if globalp:
-            rhs = _other.index(0)
+            rhs = _other[0]
             rshape = (1, )
         elif other_is_self:
-            rhs = _self.index(i)
+            rhs = _self[i]
         else:
-            rhs = _other.index(i)
+            rhs = _other[i]
         insn = lp.Assignment(lhs, op(lhs, rhs), within_inames=frozenset(["i"]))
         data = [lp.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,))]
         if not other_is_self:
@@ -518,7 +518,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         lvalue = p.Variable("other")
         rvalue = p.Variable("self")
         i = p.Variable("i")
-        insn = lp.Assignment(lvalue.index(i), -rvalue.index(i), within_inames=frozenset(["i"]))
+        insn = lp.Assignment(lvalue[i], -rvalue[i], within_inames=frozenset(["i"]))
         data = [lp.GlobalArg("other", dtype=self.dtype, shape=(self.cdim,)),
                 lp.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,))]
         knl = lp.make_function([domain], [insn], data, name=name, target=conf.target, lang_version=(2018, 2))
