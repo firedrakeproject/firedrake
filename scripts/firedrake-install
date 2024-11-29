@@ -1517,6 +1517,7 @@ if mode == "install" or not args.update_script:
     if osname == "Darwin":
         package_manager = "brew"
         required_packages = ["gcc",
+                             "pkg-config",
                              "autoconf",
                              "make",
                              "automake",
@@ -1535,6 +1536,7 @@ if mode == "install" or not args.update_script:
                              "flex",   # for ptscotch
                              "cmake",
                              "gfortran",
+                             "pkg-config",
                              "git",
                              "libcurl4-openssl-dev",
                              "pkgconf",  # for p4est
