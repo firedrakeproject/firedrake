@@ -29,8 +29,8 @@ def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
     """
     cdef:
         PetscInt start, end, p, ndof, entity
-        np.ndarray[PetscInt, ndim=1] old_to_new
-        np.ndarray[PetscInt, ndim=1] new_to_old
+        np.ndarray old_to_new
+        np.ndarray new_to_old
 
     if entity_type == "cell":
         start, end = plex.getHeightStratum(0)
@@ -55,10 +55,10 @@ def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def coarse_to_fine_nodes(Vc, Vf, np.ndarray[PetscInt, ndim=2, mode="c"] coarse_to_fine_cells):
+def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
     cdef:
-        np.ndarray[PetscInt, ndim=2, mode="c"] fine_map, coarse_map, coarse_to_fine_map
-        np.ndarray[PetscInt, ndim=1, mode="c"] coarse_offset, fine_offset
+        np.ndarray fine_map, coarse_map, coarse_to_fine_map
+        np.ndarray coarse_offset, fine_offset
         PetscInt i, j, k, l, m, node, fine, layer
         PetscInt coarse_per_cell, fine_per_cell, fine_cell_per_coarse_cell, coarse_cells
         PetscInt fine_layer, fine_layers, coarse_layer, coarse_layers, ratio
@@ -116,10 +116,10 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray[PetscInt, ndim=2, mode="c"] coarse_t
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def fine_to_coarse_nodes(Vf, Vc, np.ndarray[PetscInt, ndim=2, mode="c"] fine_to_coarse_cells):
+def fine_to_coarse_nodes(Vf, Vc, np.ndarray fine_to_coarse_cells):
     cdef:
-        np.ndarray[PetscInt, ndim=2, mode="c"] fine_map, coarse_map, fine_to_coarse_map
-        np.ndarray[PetscInt, ndim=1, mode="c"] coarse_offset, fine_offset
+        np.ndarray fine_map, coarse_map, fine_to_coarse_map
+        np.ndarray coarse_offset, fine_offset
         PetscInt i, j, k, node, fine_layer, fine_layers, coarse_layer, coarse_layers, ratio
         PetscInt coarse_per_cell, fine_per_cell, coarse_cell, fine_cells
         bint extruded
@@ -247,9 +247,9 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
         PETSc.DM cdm, fdm
         PetscInt cStart, cEnd, c, val, dim, nref, ncoarse
         PetscInt i, ccell, fcell, nfine
-        np.ndarray[PetscInt, ndim=2, mode="c"] coarse_to_fine
-        np.ndarray[PetscInt, ndim=2, mode="c"] fine_to_coarse
-        np.ndarray[PetscInt, ndim=1, mode="c"] co2n, fn2o, idx
+        np.ndarray coarse_to_fine
+        np.ndarray fine_to_coarse
+        np.ndarray co2n, fn2o, idx
 
     cdm = mc.topology_dm
     fdm = mf.topology_dm
