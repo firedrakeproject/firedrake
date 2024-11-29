@@ -1,5 +1,6 @@
 import ctypes
 import numpy
+from dataclasses import dataclass
 
 import loopy
 from loopy.symbolic import SubArrayRef
@@ -207,16 +208,18 @@ class _PreambleGen(ImmutableRecord):
         yield ("0", self.preamble)
 
 
+@dataclass(frozen=True, init=False)
 class PyOP2KernelCallable(loopy.ScalarCallable):
     """Handles PyOP2 Kernel passed in as a string
     """
 
-    fields = set(["name", "parameters", "arg_id_to_dtype", "arg_id_to_descr", "name_in_target"])
     init_arg_names = ("name", "parameters", "arg_id_to_dtype", "arg_id_to_descr", "name_in_target")
 
+    parameters: tuple
+
     def __init__(self, name, parameters, arg_id_to_dtype=None, arg_id_to_descr=None, name_in_target=None):
-        super(PyOP2KernelCallable, self).__init__(name, arg_id_to_dtype, arg_id_to_descr, name_in_target)
-        self.parameters = parameters
+        super().__init__(name, arg_id_to_dtype, arg_id_to_descr, name_in_target)
+        object.__setattr__(self, "parameters", tuple(parameters))
 
     def with_types(self, arg_id_to_dtype, callables_table):
         new_arg_id_to_dtype = arg_id_to_dtype.copy()
