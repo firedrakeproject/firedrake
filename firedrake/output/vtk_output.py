@@ -479,7 +479,8 @@ class VTKFile(object):
             raise ValueError("Unsupported shape %s" % (shape, ))
         if isinstance(function, Function):
             output = Function(V)
-        elif isinstance(function, Cofunction):
+        else:
+            assert isinstance(function, Cofunction)
             output = Function(V.dual())
 
         if self.project:
