@@ -2073,6 +2073,7 @@ with environment(**compiler_env):
 
     if options["netgen"]:
         packages += ["ngsPETSc"]
+        run_pip(["install", "-U", "ngsPETSc"])
 
 with pipargs("--no-deps"):
     if options["opencascade"]:

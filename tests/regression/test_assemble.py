@@ -334,3 +334,13 @@ def test_assemble_sparsity_diagonal_entries_for_bc():
     A = assemble(inner(u[1], v[0]) * dx, bcs=[bc], mat_type="nest")
     # Make sure that diagonals are allocated.
     assert np.all(A.M.sparsity[1][1].nnz == np.ones(4, dtype=IntType))
+
+
+@pytest.mark.skipcomplex
+def test_assemble_power_zero_minmax():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    f = Function(V).assign(1.)
+    g = Function(V).assign(2.)
+    assert assemble(zero()**min_value(f, g) * dx) == 0.0
+    assert assemble(zero()**max_value(f, g) * dx) == 0.0
