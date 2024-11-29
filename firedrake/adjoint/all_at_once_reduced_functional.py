@@ -155,6 +155,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             self.x = x
 
             self.control = control
+            self.controls = [control]
             self._controls = tuple(Control(xi) for xi in x)
 
             # first control on rank 0 is initial conditions, not end of observation stage
@@ -267,7 +268,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             The computed value. Typically of instance of :class:`pyadjoint.AdjFloat`.
 
         """
-        self.control.assign(values)
+        self.control.assign(values[0] if isinstance(values, list) else values)
         trank = self.trank
 
         # first "control" for later ranks is the halo
