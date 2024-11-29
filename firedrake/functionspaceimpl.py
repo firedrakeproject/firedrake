@@ -182,10 +182,12 @@ class WithGeometryBase(object):
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
-        bound = len(self._components)
+        mixed = len(self) != 1
+        data = self.subfunctions if mixed else self._components
+        bound = len(data)
         if i < 0 or i >= bound:
             raise IndexError("Invalid component %d, not in [0, %d)" % (i, bound))
-        return self._components[i]
+        return data[i]
 
     @utils.cached_property
     def dm(self):
@@ -639,7 +641,7 @@ class FunctionSpace(object):
     @utils.cached_property
     def subfunctions(self):
         r"""Split into a tuple of constituent spaces."""
-        return (self, )
+        return tuple((self, ))
 
     def split(self):
         import warnings
@@ -654,13 +656,16 @@ class FunctionSpace(object):
 
     @utils.cached_property
     def _components(self):
-        return tuple(ComponentFunctionSpace(self, i) for i in range(self.block_size))
+        if self.rank == 0:
+            return self.subfunctions
+        else:
+            return tuple(ComponentFunctionSpace(self, i) for i in range(self.block_size))
 
     def sub(self, i):
         r"""Return a view into the ith component."""
-        if self.rank == 0:
-            assert i == 0
-            return self
+        bound = len(self._components)
+        if i < 0 or i >= bound:
+            raise IndexError("Invalid component %d, not in [0, %d)" % (i, bound))
         return self._components[i]
 
     def __mul__(self, other):
