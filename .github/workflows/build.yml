@@ -83,7 +83,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
-            --package-branch loopy connorjward/merge-upstream \
+            --package-branch loopy connorjward/revert-hack-for-firedrake \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |

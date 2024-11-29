@@ -113,10 +113,12 @@ class LACallable(loopy.ScalarCallable, metaclass=abc.ABCMeta):
                  arg_id_to_descr=None, name_in_target=None):
         if name is not None:
             assert name == self.name
+
+        name_in_target = name_in_target if name_in_target else self.name
         super(LACallable, self).__init__(self.name,
                                          arg_id_to_dtype=arg_id_to_dtype,
-                                         arg_id_to_descr=arg_id_to_descr)
-        self.name_in_target = name_in_target if name_in_target else self.name
+                                         arg_id_to_descr=arg_id_to_descr,
+                                         name_in_target=name_in_target)
 
     @abc.abstractproperty
     def name(self):
