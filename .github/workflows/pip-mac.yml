@@ -35,9 +35,9 @@ jobs:
         run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
 
       - name: Install homebrew packages
-        run: brew install gcc autoconf pkg-config make automake cmake ninja libtool boost openblas python python-setuptools mpich bison
+        run: brew install gcc autoconf pkg-config make automake cmake ninja libtool boost openblas python python-setuptools mpich
 
-      - name: Create a cirtual environment
+      - name: Create a virtual environment
         run: |
           "$(brew --prefix)/bin/python3" -m venv pip_venv
           mkdir pip_venv/src
@@ -51,6 +51,7 @@ jobs:
             --with-shared-libraries=1 \
             --with-mpi-dir=/opt/homebrew \
             --with-zlib \
+            --download-bison \
             --download-hdf5 \
             --download-hwloc \
             --download-hypre \
