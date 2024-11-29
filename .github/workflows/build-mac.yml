@@ -1,4 +1,4 @@
-name: Test MacOS
+name: Install and test Firedrake (macOS)
 
 on:
   push:
