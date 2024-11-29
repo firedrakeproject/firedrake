@@ -378,8 +378,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             return self.base_form_assembly_visitor(e, t, *operands)
 
         # DAG assembly: traverse the DAG in a post-order fashion and evaluate the node on the fly.
-        visited = {}
-        result = BaseFormAssembler.base_form_postorder_traversal(self._form, visitor, visited=visited)
+        result = BaseFormAssembler.base_form_postorder_traversal(self._form, visitor)
 
         if tensor:
             BaseFormAssembler.update_tensor(result, tensor)
@@ -469,8 +468,11 @@ class BaseFormAssembler(AbstractFormAssembler):
                 return sum(weight * arg for weight, arg in zip(expr.weights(), args))
             elif all(isinstance(op, firedrake.Cofunction) for op in args):
                 V, = set(a.function_space() for a in args)
-                res = sum([w*op.dat for (op, w) in zip(args, expr.weights())])
-                return firedrake.Cofunction(V, res)
+                # res = sum([w*op.dat for (op, w) in zip(args, expr.weights())])
+                # return firedrake.Cofunction(V, res)
+                result = firedrake.Cofunction(V)
+                result.dat.data[...] = sum(w * op.dat.data[...] for op, w in zip(args, expr.weights()))
+                return result
             elif all(isinstance(op, ufl.Matrix) for op in args):
                 res = tensor.petscmat if tensor else PETSc.Mat()
                 is_set = False
@@ -585,35 +587,26 @@ class BaseFormAssembler(AbstractFormAssembler):
 
     @staticmethod
     def base_form_postorder_traversal(expr, visitor, visited=None):
-        visited = visited or {}
+        visited = visited if visited is not None else {}
         if expr in visited:
             return visited[expr]
 
         stack = [expr]
-        processing = set()
-
         while stack:
-            e = stack[-1]
-            if e in visited:
-                stack.pop()
-                continue
-
+            e = stack.pop()
+            unvisited_children = []
             operands = BaseFormAssembler.base_form_operands(e)
-            unvisited_children = [arg for arg in operands if arg not in visited]
+            for arg in operands:
+                if arg not in visited:
+                    unvisited_children.append(arg)
 
             if unvisited_children:
+                stack.append(e)
                 stack.extend(unvisited_children)
-                processing.update(unvisited_children)
             else:
-                stack.pop()
-                # if not isinstance(e, firedrake.Cofunction):
                 visited[e] = visitor(e, *(visited[arg] for arg in operands))
-                # else:
-                #     visited[e] = e
-                processing.discard(e)
 
         return visited[expr]
-
 
     @staticmethod
     def base_form_preorder_traversal(expr, visitor, visited=None):
@@ -668,13 +661,9 @@ class BaseFormAssembler(AbstractFormAssembler):
             # Need to reconstruct the expression with its visited operands!
             expr = BaseFormAssembler.reconstruct_node_from_operands(expr, operands)
             # Perform the DAG restructuring when needed
-            if visited:
-                return BaseFormAssembler.restructure_base_form(expr, visited=visited)
-            return BaseFormAssembler.restructure_base_form(expr)
-        if visited:
-            return BaseFormAssembler.base_form_postorder_traversal(
-                expression, visitor, visited=visited)
-        return BaseFormAssembler.base_form_postorder_traversal(expression, visitor)
+            return BaseFormAssembler.restructure_base_form(expr, visited)
+
+        return BaseFormAssembler.base_form_postorder_traversal(expression, visitor, visited)
 
     @staticmethod
     def restructure_base_form_preorder(expression, visited=None):
@@ -682,13 +671,9 @@ class BaseFormAssembler(AbstractFormAssembler):
 
         def visitor(expr):
             # Perform the DAG restructuring when needed
-            if visited:
-                return BaseFormAssembler.restructure_base_form(expr, visited=visited)
-            return BaseFormAssembler.restructure_base_form(expr)
-        if visited:
-            return BaseFormAssembler.base_form_preorder_traversal(expression, visitor, visited=visited)
-        else:
-            return BaseFormAssembler.base_form_preorder_traversal(expression, visitor)
+            return BaseFormAssembler.restructure_base_form(expr, visited)
+
+        expression = BaseFormAssembler.base_form_preorder_traversal(expression, visitor, visited)
         # Need to reconstruct the expression at the end when all its operands have been visited!
         operands = [visited.get(args, args) for args in BaseFormAssembler.base_form_operands(expression)]
         return BaseFormAssembler.reconstruct_node_from_operands(expression, operands)
@@ -992,7 +977,6 @@ class ParloopFormAssembler(FormAssembler):
             )
 
         if tensor is None:
-            # Creating a cofunction.
             tensor = self.allocate()
         else:
             self._check_tensor(tensor)
