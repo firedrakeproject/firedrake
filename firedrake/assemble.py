@@ -5,6 +5,7 @@ import functools
 import itertools
 from itertools import product
 import numbers
+import numpy as np
 
 import cachetools
 import finat
@@ -378,7 +379,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             return self.base_form_assembly_visitor(e, t, *operands)
 
         # DAG assembly: traverse the DAG in a post-order fashion and evaluate the node on the fly.
-        result = BaseFormAssembler.base_form_postorder_traversal(self._form, visitor)
+        visited = {}
+        result = BaseFormAssembler.base_form_postorder_traversal(self._form, visitor, visited)
 
         if tensor:
             BaseFormAssembler.update_tensor(result, tensor)
@@ -468,10 +470,13 @@ class BaseFormAssembler(AbstractFormAssembler):
                 return sum(weight * arg for weight, arg in zip(expr.weights(), args))
             elif all(isinstance(op, firedrake.Cofunction) for op in args):
                 V, = set(a.function_space() for a in args)
-                # res = sum([w*op.dat for (op, w) in zip(args, expr.weights())])
-                # return firedrake.Cofunction(V, res)
                 result = firedrake.Cofunction(V)
-                result.dat.data[...] = sum(w * op.dat.data[...] for op, w in zip(args, expr.weights()))
+                for op, w in zip(args, expr.weights()):
+                    for dat_result, dat_op in zip(result.dat.split, op.dat.split):
+                        np.add(
+                            dat_result.data_ro_with_halos,
+                            w * dat_op.data_ro_with_halos,
+                            out=dat_result.data_wo_with_halos)
                 return result
             elif all(isinstance(op, ufl.Matrix) for op in args):
                 res = tensor.petscmat if tensor else PETSc.Mat()
@@ -586,8 +591,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             raise NotImplementedError("Cannot update tensor of type %s" % type(tensor))
 
     @staticmethod
-    def base_form_postorder_traversal(expr, visitor, visited=None):
-        visited = visited if visited is not None else {}
+    def base_form_postorder_traversal(expr, visitor, visited={}):
         if expr in visited:
             return visited[expr]
 
@@ -609,8 +613,7 @@ class BaseFormAssembler(AbstractFormAssembler):
         return visited[expr]
 
     @staticmethod
-    def base_form_preorder_traversal(expr, visitor, visited=None):
-        visited = visited if visited is not None else {}
+    def base_form_preorder_traversal(expr, visitor, visited={}):
         if expr in visited:
             return visited[expr]
 
