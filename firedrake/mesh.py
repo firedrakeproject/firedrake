@@ -66,10 +66,10 @@ _cells = {
 }
 
 
-_supported_embedded_cell_types_and_gdims = [(ufl.Cell('interval'), 2),
-                                            (ufl.Cell('triangle'), 3),
-                                            (ufl.Cell("quadrilateral"), 3),
-                                            (ufl.TensorProductCell(ufl.Cell('interval'), ufl.Cell('interval')), 3)]
+_supported_embedded_cell_types_and_gdims = [('interval', 2),
+                                            ('triangle', 3),
+                                            ("quadrilateral", 3),
+                                            ("interval * interval", 3)]
 
 
 unmarked = -1
@@ -2765,7 +2765,7 @@ values from f.)"""
         import firedrake.function as function
         import firedrake.functionspace as functionspace
 
-        if (self.ufl_cell(), self.geometric_dimension()) not in _supported_embedded_cell_types_and_gdims:
+        if (self.ufl_cell().cellname(), self.geometric_dimension()) not in _supported_embedded_cell_types_and_gdims:
             raise NotImplementedError('Only implemented for intervals embedded in 2d and triangles and quadrilaterals embedded in 3d')
 
         if hasattr(self, '_cell_orientations'):
