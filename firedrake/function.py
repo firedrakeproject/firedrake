@@ -128,11 +128,11 @@ class CoordinatelessFunction(ufl.Coefficient):
             return tuple((self, ))
         else:
             if self.dof_dset.cdim == 1:
-                return tuple((CoordinatelessFunction(self.function_space().sub(0), val=self.dat,
-                                                     name="view[%d](%s)" % (0, self.name())),))
+                return (CoordinatelessFunction(self.function_space().sub(0), val=self.dat,
+                                               name=f"view[0]({self.name()})"),)
             else:
                 return tuple(CoordinatelessFunction(self.function_space().sub(i), val=op2.DatView(self.dat, j),
-                                                    name="view[%d](%s)" % (i, self.name()))
+                                                    name=f"view[{i}]({self.name()})")
                              for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
 
     @PETSc.Log.EventDecorator()
@@ -151,7 +151,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         data = self.subfunctions if mixed else self._components
         bound = len(data)
         if i < 0 or i >= bound:
-            raise IndexError("Invalid component %d, not in [0, %d)" % (i, bound))
+            raise IndexError(f"Invalid component {i}, not in [0, {bound})")
         return data[i]
 
     @property
@@ -356,7 +356,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         data = self.subfunctions if mixed else self._components
         bound = len(data)
         if i < 0 or i >= bound:
-            raise IndexError("Invalid component %d, not in [0, %d)" % (i, bound))
+            raise IndexError(f"Invalid component {i}, not in [0, {bound})")
         return data[i]
 
     @PETSc.Log.EventDecorator()

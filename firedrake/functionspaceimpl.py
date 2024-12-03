@@ -186,7 +186,7 @@ class WithGeometryBase(object):
         data = self.subfunctions if mixed else self._components
         bound = len(data)
         if i < 0 or i >= bound:
-            raise IndexError("Invalid component %d, not in [0, %d)" % (i, bound))
+            raise IndexError(f"Invalid component {i}, not in [0, {bound})")
         return data[i]
 
     @utils.cached_property
@@ -641,7 +641,7 @@ class FunctionSpace(object):
     @utils.cached_property
     def subfunctions(self):
         r"""Split into a tuple of constituent spaces."""
-        return tuple((self, ))
+        return (self, )
 
     def split(self):
         import warnings
@@ -665,7 +665,7 @@ class FunctionSpace(object):
         r"""Return a view into the ith component."""
         bound = len(self._components)
         if i < 0 or i >= bound:
-            raise IndexError("Invalid component %d, not in [0, %d)" % (i, bound))
+            raise IndexError(f"Invalid component {i}, not in [0, {bound})")
         return self._components[i]
 
     def __mul__(self, other):
