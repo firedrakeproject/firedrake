@@ -95,7 +95,7 @@ jobs:
           export PETSC_ARCH=default
           export HDF5_DIR="$PETSC_DIR/$PETSC_ARCH"
           export CC=/opt/homebrew/bin/mpicc
-          export CXX=opt/homebrew/bin/mpicxx
+          export CXX=/opt/homebrew/bin/mpicxx
           export MPICC="$CC"
           source pip_venv/bin/activate
           cd pip_venv/src
