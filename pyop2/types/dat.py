@@ -383,8 +383,16 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         else:
             self._check_shape(other)
             globalp = False
+            if hasattr(other, "_op_kernel_cache"):
+                if hasattr(self, "_op_kernel_cache"):
+                    self._op_kernel_cache.update(other._op_kernel_cache)
+                else:
+                    self._op_kernel_cache = other._op_kernel_cache
         parloop(self._op_kernel(op, globalp, other.dtype),
                 self.dataset.set, self(Access.READ), other(Access.READ), ret(Access.WRITE))
+        ret._op_kernel_cache = self._op_kernel_cache
+        if not globalp:
+            other._op_kernel_cache = self._op_kernel_cache
         return ret
 
     def _iop_kernel(self, op, globalp, other_is_self, dtype):
