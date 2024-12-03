@@ -72,7 +72,7 @@ jobs:
           pip install 'rtree>=1.2'
           cd pip_venv/src
           git clone https://github.com/firedrakeproject/libsupermesh.git
-          mkdir libsupermesh/build
+          mkdir -p libsupermesh/build
           cd libsupermesh/build
           cmake .. \
             -DBUILD_SHARED_LIBS=ON \
