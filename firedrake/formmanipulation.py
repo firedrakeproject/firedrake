@@ -88,6 +88,7 @@ class ExtractSubBlock(MultiFunction):
         from ufl import split
         from firedrake import MixedFunctionSpace, FunctionSpace
         V = o.function_space()
+
         if len(V) == 1:
             # Not on a mixed space, just return ourselves.
             return o
@@ -127,6 +128,59 @@ class ExtractSubBlock(MultiFunction):
                          for j in numpy.ndindex(V_is[i].value_shape)]
         return self._arg_cache.setdefault(o, as_vector(args))
 
+    def cofunction(self, o):
+        from firedrake import Cofunction
+        from ufl.classes import ZeroBaseForm
+
+        V = o.function_space()
+
+        # Not on a mixed space, just return ourselves.
+        if len(V) == 1:
+            return o
+
+        # We only need the test space for Cofunction
+        indices = self.blocks[0]
+        V_is = V.subfunctions
+
+        try:
+            indices = tuple(indices)
+            nidx = len(indices)
+        except TypeError:  # Only one index
+            indices = (indices, )
+            nidx = 1
+
+        # the cofunction should only be returned on the
+        # diagonal elements, so if we are off-diagonal
+        # on a two-form then we return a zero form,
+        # analogously to the off components of arguments.
+        if len(self.blocks) == 2:
+            itest, itrial = self.blocks[0], self.blocks[1]
+            on_diag = (itest == itrial)
+        else:
+            on_diag = True
+
+        # if we are on the diagonal, then return a Cofunction
+        # in the relevant subspace that points to the data in
+        # the full space. This means that the right hand side
+        # of the fieldsplit problem will be correct.
+        if on_diag:
+            if nidx == 1:
+                from firedrake import FunctionSpace
+                i = indices[0]
+                W = V_is[i]
+                W = FunctionSpace(W.mesh(), W.ufl_element())
+                c = Cofunction(W.dual(), val=o.subfunctions[i].dat)
+            else:
+                from firedrake import MixedFunctionSpace
+                from pyop2 import MixedDat
+                W = MixedFunctionSpace([V_is[i] for i in indices])
+                c = Cofunction(W.dual(), val=MixedDat(o.subfunctions[i].dat
+                                                      for i in indices))
+        else:
+            c = ZeroBaseForm(o.arguments())
+
+        return c
+
 
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
 
@@ -160,6 +214,8 @@ def split_form(form, diagonal=False):
     compiler will remove these in its more complex simplification
     stages.
     """
+    from firedrake import Cofunction
+    from ufl import FormSum
     splitter = ExtractSubBlock()
     args = form.arguments()
     shape = tuple(len(a.function_space()) for a in args)
@@ -168,7 +224,16 @@ def split_form(form, diagonal=False):
         assert len(shape) == 2
     for idx in numpy.ndindex(shape):
         f = splitter.split(form, idx)
-        if len(f.integrals()) > 0:
+
+        # does f actually contain anything?
+        if isinstance(f, Cofunction):
+            flen = 1
+        elif isinstance(f, FormSum):
+            flen = len(f.components())
+        else:  # Form
+            flen = len(f.integrals())
+
+        if flen > 0:
             if diagonal:
                 i, j = idx
                 if i != j:
