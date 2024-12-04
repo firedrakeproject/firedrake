@@ -13,9 +13,27 @@ __all__ = ("BDDCPC",)
 
 
 class BDDCPC(PCBase):
-    """PC for PETSc PCBDDC (Balancing Domain Decomposition with Constraints).
+    """PC for PETSc PCBDDC (Balancing Domain Decomposition by Constraints).
+    This is a domain decomposition method using subdomains defined by the
+    blocks in a Mat of type IS.
 
-    A Mat of type MATIS is required. Currently, this type is only supported by FDMPC.
+    Internally, this PC creates a PETSc PCBDDC object that can be controlled by
+    the options:
+    - ``'bddc_pc_bddc_neumann'`` to set sub-KSPs on subdomains excluding corners,
+    - ``'bddc_pc_bddc_dirichlet'`` to set sub-KSPs on subdomain interiors,
+    - ``'bddc_pc_bddc_coarse'`` to set the coarse solver KSP.
+
+    This PC also inspects optional arguments supplied in the application context:
+    - ``'discrete_gradient'`` for problems in H(curl), this sets the arguments
+    (a Mat tabulating the gradient of the auxiliary H1 space) and
+    keyword arguments supplied to ``PETSc.PC.setBDDCDiscreteGradient``.
+    - ``'divergence_mat'`` for 3D problems in H(div), this sets the Mat with the
+    assembled bilinear form testing the divergence against an L2 space.
+
+    Notes
+    -----
+    Currently the Mat type IS is only supported by FDMPC.
+
     """
 
     _prefix = "bddc_"

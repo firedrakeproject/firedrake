@@ -124,12 +124,16 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     @utils.cached_property
     def _components(self):
-        if self.dof_dset.cdim == 1:
-            return (self, )
+        if self.function_space().rank == 0:
+            return tuple((self, ))
         else:
-            return tuple(CoordinatelessFunction(self.function_space().sub(i), val=op2.DatView(self.dat, j),
-                                                name="view[%d](%s)" % (i, self.name()))
-                         for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
+            if self.dof_dset.cdim == 1:
+                return (CoordinatelessFunction(self.function_space().sub(0), val=self.dat,
+                                               name=f"view[0]({self.name()})"),)
+            else:
+                return tuple(CoordinatelessFunction(self.function_space().sub(i), val=op2.DatView(self.dat, j),
+                                                    name=f"view[{i}]({self.name()})")
+                             for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
@@ -143,9 +147,12 @@ class CoordinatelessFunction(ufl.Coefficient):
         rank-n :class:`~.FunctionSpace`, this returns a proxy object
         indexing the ith component of the space, suitable for use in
         boundary condition application."""
-        if len(self.function_space()) == 1:
-            return self._components[i]
-        return self.subfunctions[i]
+        mixed = len(self.function_space()) != 1
+        data = self.subfunctions if mixed else self._components
+        bound = len(data)
+        if i < 0 or i >= bound:
+            raise IndexError(f"Invalid component {i}, not in [0, {bound})")
+        return data[i]
 
     @property
     def cell_set(self):
@@ -327,11 +334,11 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @utils.cached_property
     def _components(self):
-        if self.function_space().value_size == 1:
-            return (self, )
+        if self.function_space().rank == 0:
+            return tuple((self, ))
         else:
             return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
-                         for i in range(self.function_space().value_size))
+                         for i in range(self.function_space().block_size))
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
@@ -345,9 +352,12 @@ class Function(ufl.Coefficient, FunctionMixin):
         :func:`~.VectorFunctionSpace` or :func:`~.TensorFunctionSpace` this returns a proxy object
         indexing the ith component of the space, suitable for use in
         boundary condition application."""
-        if len(self.function_space()) == 1:
-            return self._components[i]
-        return self.subfunctions[i]
+        mixed = len(self.function_space()) != 1
+        data = self.subfunctions if mixed else self._components
+        bound = len(data)
+        if i < 0 or i >= bound:
+            raise IndexError(f"Invalid component {i}, not in [0, {bound})")
+        return data[i]
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_project

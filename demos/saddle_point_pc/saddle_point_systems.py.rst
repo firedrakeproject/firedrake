@@ -613,6 +613,5 @@ A runnable python script version of this demo is available :demo:`here
 
 .. _PETSc: https://petsc.org/
 .. _hypre: https://hypre.readthedocs.io/en/latest/
-.. _PyOP2: https://github.com/OP2/PyOP2/
 .. _numpy: https://www.numpy.org
 .. _MUMPS: https://mumps-solver.org/index.php
