@@ -23,12 +23,12 @@ def test_physically_mapped_facet():
     s = FacetNormal(mesh)
     trans = as_matrix([[1, 0], [0, 1]])
     mat = trans*grad(grad(u))*trans + outer(d, d) * u
-    J = (u**2*dx +
-         u**3*dx +
-         u**4*dx +
-         inner(mat, mat)*dx +
-         inner(grad(d), grad(d))*dx +
-         dot(s, d)**2*ds)
+    J = (u**2*dx
+         + u**3*dx
+         + u**4*dx
+         + inner(mat, mat)*dx
+         + inner(grad(d), grad(d))*dx
+         + dot(s, d)**2*ds)
     L_match = inner(qhat, dhat - d)
     L = J + inner(lam, inner(d, d)-1)*dx + (L_match('+') + L_match('-'))*dS + L_match*ds
     compile_form(L)

@@ -16,35 +16,25 @@ import datetime
 
 # Change this to https://sandbox.zenodo.org/api for testing
 ZENODO_URL = "https://zenodo.org/api"
-# TODO: Remove "petsc4py" once all users have switched to "petsc/src/binding/petsc4py".
-# And the same for slepc4py.
 descriptions = OrderedDict([
     ("firedrake", "an automated finite element system"),
-    ("tsfc", "The Two Stage Form Compiler"),
     ("ufl", "The Unified Form Language"),
-    ("FInAT", "a smarter library of finite elements"),
     ("fiat", "The Finite Element Automated Tabulator"),
     ("petsc", "Portable, Extensible Toolkit for Scientific Computation"),
-    ("petsc4py", "The Python interface to PETSc"),
     ("loopy", "Transformation-Based Generation of High-Performance CPU/GPU Code"),
-    ("slepc", "Scalable Library for Eigenvalue Problem Computations"),
-    ("slepc4py", "The Python interface to SLEPc")])
+    ("slepc", "Scalable Library for Eigenvalue Problem Computations")])
 
 projects = dict(
     [("firedrake", "firedrakeproject"),
-     ("tsfc", "firedrakeproject"),
      ("ufl", "firedrakeproject"),
-     ("FInAT", "FInAT"),
      ("fiat", "firedrakeproject"),
      ("petsc", "firedrakeproject"),
-     ("petsc4py", "firedrakeproject"),
      ("loopy", "firedrakeproject"),
-     ("slepc", "firedrakeproject"),
-     ("slepc4py", "firedrakeproject")])
+     ("slepc", "firedrakeproject")])
 
 components = list(descriptions.keys())
 
-optional_components = ("slepc", "slepc4py", "petsc4py")
+optional_components = ("slepc",)
 
 parser = ArgumentParser(description="""Create Zenodo DOIs for specific versions of Firedrake components.
 

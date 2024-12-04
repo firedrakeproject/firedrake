@@ -21,11 +21,11 @@ def count_flops(n):
     i, j = indices(2)
     nc = 42  # magic number
     L = ((IndexSum(IndexSum(Product(nc * phi[i, j], Product(ensemble_f[i], ensemble_f[i])),
-                            MultiIndex((i,))), MultiIndex((j,))) * dx) +
-         (IndexSum(IndexSum(Product(nc * phi[i, j], Product(ensemble2_f[j], ensemble2_f[j])),
-                            MultiIndex((i,))), MultiIndex((j,))) * dx) -
-         (IndexSum(IndexSum(2 * nc * Product(phi[i, j], Product(ensemble_f[i], ensemble2_f[j])),
-                            MultiIndex((i,))), MultiIndex((j,))) * dx))
+                            MultiIndex((i,))), MultiIndex((j,))) * dx)
+         + (IndexSum(IndexSum(Product(nc * phi[i, j], Product(ensemble2_f[j], ensemble2_f[j])),
+                              MultiIndex((i,))), MultiIndex((j,))) * dx)
+         - (IndexSum(IndexSum(2 * nc * Product(phi[i, j], Product(ensemble_f[i], ensemble2_f[j])),
+                              MultiIndex((i,))), MultiIndex((j,))) * dx))
 
     kernel, = compile_form(L, parameters=dict(mode='spectral'))
     return kernel.flop_count
