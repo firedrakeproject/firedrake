@@ -705,6 +705,8 @@ def extract_subdomain_ids(bcs):
     A tuple of subdomain ids for each component of a MixedFunctionSpace.
 
     """
+    if isinstance(bcs, DirichletBC):
+        bcs = (bcs,)
     if len(bcs) == 0:
         return None
 
@@ -713,7 +715,8 @@ def extract_subdomain_ids(bcs):
         V = V.parent
 
     _chain = itertools.chain.from_iterable
-    subdomain_ids = tuple(tuple(_chain(as_tuple(bc.sub_domain)
+    _to_tuple = lambda s: (s,) if isinstance(s, (int, str)) else s
+    subdomain_ids = tuple(tuple(_chain(_to_tuple(bc.sub_domain)
                                 for bc in bcs if bc.function_space() == Vsub))
                           for Vsub in V)
     return subdomain_ids
