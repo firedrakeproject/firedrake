@@ -1211,7 +1211,7 @@ def build_and_install_h5py():
         log.info("Removing old h5py.tar.gz")
         os.remove("h5py.tar.gz")
 
-    url = "git+https://github.com/firedrakeproject/h5py.git@firedrake#egg=h5py"
+    url = "git+https://github.com/firedrakeproject/h5py.git@connorjward/merge-upstream#egg=h5py"
     if os.path.exists("h5py"):
         changed = False
         with directory("h5py"):
