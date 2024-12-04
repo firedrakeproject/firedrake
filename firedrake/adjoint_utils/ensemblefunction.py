@@ -82,6 +82,12 @@ class EnsembleFunctionMixin(OverloadedType):
         else:
             return self.copy()
 
+    def _ad_restore_at_checkpoint(self, checkpoint):
+        if isinstance(checkpoint, type(self)):
+            return checkpoint
+        raise NotImplementedError(
+            "Checkpointing not implemented for EnsembleFunctions")
+
     def _ad_from_petsc(self, vec):
         with self.vec_wo as self_v:
             vec.copy(result=self_v)
