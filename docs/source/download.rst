@@ -135,6 +135,7 @@ they have the system dependencies:
 * zlib
 * flex, bison
 * Ninja
+* pkg-config
 
 Firedrake has been successfully installed on Windows 10 using the
 Windows Subsystem for Linux. There are more detailed instructions for
