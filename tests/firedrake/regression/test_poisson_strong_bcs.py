@@ -16,9 +16,10 @@ This has the analytical solution
 """
 import pytest
 from firedrake import *
+from mpi4py import MPI
 
 
-def run_test(r, degree, parameters={}, quadrilateral=False):
+def run_test(r, degree, parameters, quadrilateral=False):
     # Create mesh and define function space
     mesh = UnitSquareMesh(2 ** r, 2 ** r, quadrilateral=quadrilateral)
     x = SpatialCoordinate(mesh)
@@ -41,7 +42,7 @@ def run_test(r, degree, parameters={}, quadrilateral=False):
     return sqrt(assemble(inner(u - f, u - f) * dx))
 
 
-def run_test_linear(r, degree, parameters={}, quadrilateral=False):
+def run_test_linear(r, degree, parameters, quadrilateral=False):
     # Create mesh and define function space
     mesh = UnitSquareMesh(2 ** r, 2 ** r, quadrilateral=quadrilateral)
     x = SpatialCoordinate(mesh)
@@ -86,7 +87,7 @@ def test_poisson_analytic_linear(params, degree, quadrilateral):
 
 @pytest.mark.parallel(nprocs=2)
 def test_poisson_analytic_linear_parallel():
-    from mpi4py import MPI
-    error = run_test_linear(1, 1)
-    print('[%d]' % MPI.COMM_WORLD.rank, 'error:', error)
+    # specify superlu_dist as MUMPS fails in parallel on MacOS
+    solver_parameters = {'pc_factor_mat_solver_type': 'superlu_dist'}
+    error = run_test_linear(1, 1, solver_parameters)
     assert error < 5e-6
