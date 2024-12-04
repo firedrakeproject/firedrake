@@ -27,7 +27,7 @@ arch = platform.uname().machine
 # Packages which we wish to ensure are always recompiled
 wheel_blacklist = ["mpi4py", "randomgen", "numpy"]
 # Packages for which we set CC=mpicc, CXX=mpicxx, F90=mpif90.
-parallel_packages = ["h5py", "petsc4py", "slepc", "slepc4py", "PyOP2", "libsupermesh", "firedrake"]
+parallel_packages = ["h5py", "petsc4py", "slepc", "slepc4py", "libsupermesh", "firedrake"]
 
 # Firedrake application installation shortcuts.
 firedrake_apps = {
@@ -377,19 +377,12 @@ honoured.""",
 
     config = FiredrakeConfiguration(args)
 else:
-    # This duplicates code from firedrake_configuration in order to avoid the module dependency and allow for installation recovery.
     try:
         with open(os.path.join(os.environ["VIRTUAL_ENV"],
                                ".configuration.json"), "r") as f:
             config = json.load(f)
-
     except FileNotFoundError:
-        # Fall back to the old location.
-        import firedrake_configuration
-
-        config = firedrake_configuration.get_config()
-        if config is None:
-            raise InstallError("Failed to find existing Firedrake configuration")
+        raise InstallError("Failed to find existing Firedrake configuration")
 
     parser = ArgumentParser(description="""Update this firedrake install to the latest versions of all packages.""",
                             formatter_class=RawDescriptionHelpFormatter)
@@ -749,7 +742,7 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--download-suitesparse")
         petsc_options.add("--download-pastix")
         # Required by pastix
-        petsc_options.add("--download-hwloc")
+        petsc_options.update({"--download-hwloc", "--download-netlib-lapack", "--with-netlib-lapack-c-bindings"})
         if osname == "Darwin":
             petsc_options.add("--download-hwloc-configure-arguments=--disable-opencl")
         # Serial mesh partitioner
@@ -1524,6 +1517,7 @@ if mode == "install" or not args.update_script:
     if osname == "Darwin":
         package_manager = "brew"
         required_packages = ["gcc",
+                             "pkg-config",
                              "autoconf",
                              "make",
                              "automake",
@@ -1542,6 +1536,7 @@ if mode == "install" or not args.update_script:
                              "flex",   # for ptscotch
                              "cmake",
                              "gfortran",
+                             "pkg-config",
                              "git",
                              "libcurl4-openssl-dev",
                              "pkgconf",  # for p4est
@@ -1803,7 +1798,7 @@ if mode == "install":
         run_pip(["install", "lazy-object-proxy==1.4.*"])
 
     packages = clone_dependencies("firedrake")
-    packages = clone_dependencies("PyOP2") + ["petsc4py"] + packages
+    packages = ["petsc4py"] + packages
     packages += ["firedrake"]
 
     for p in options["packages"]:
@@ -1812,13 +1807,18 @@ if mode == "install":
         packages += [name]
 
     if args.honour_petsc_dir:
-        packages.remove("petsc")
-
-    # Need to install petsc first in order to resolve hdf5 dependency.
-    if not args.honour_petsc_dir:
+        try:
+            packages.remove("petsc")
+        except ValueError:
+            log.warning("PETSc wasn't in dependencies list")
+    else:
+        # Need to install petsc first in order to resolve hdf5 dependency.
         with environment(**compiler_env):
             with pipargs("--no-deps"):
-                packages.remove("petsc")
+                try:
+                    packages.remove("petsc")
+                except ValueError:
+                    log.warning("PETSc wasn't in dependencies list")
                 install("petsc/")
         os.environ["PETSC_DIR"] = petsc_dir
         os.environ["PETSC_ARCH"] = petsc_arch
@@ -1865,7 +1865,6 @@ if mode == "install":
 
     with pipargs("--no-deps"):
         try:
-            packages.remove("PyOP2")
             packages.remove("firedrake")
         except ValueError:
             pass
@@ -1882,14 +1881,8 @@ if mode == "install":
         build_and_install_libsupermesh(cc, cxx, f90, mpiexec)
 
     with pipargs("--no-deps"), environment(**compiler_env, **link_env):
-        for p in ("PyOP2", "firedrake"):
-            install(p+"/")
+        install("firedrake/")
 
-    # Work around easy-install.pth bug.
-    try:
-        packages.remove("petsc")
-    except ValueError:
-        pass
     packages.remove("petsc4py")
 
 else:
@@ -1909,7 +1902,6 @@ else:
             run_pip_install(package.split())
 
     deps = OrderedDict()
-    deps.update(list_cloned_dependencies("PyOP2"))
     deps.update(list_cloned_dependencies("firedrake"))
     for p in options["packages"]:
         name = split_requirements_url(p)[0]
@@ -1938,7 +1930,10 @@ else:
         clean("slepc4py")
         shutil.move("slepc4py", "slepc4py_old")
 
-    packages.remove("petsc")
+    try:
+        packages.remove("petsc")
+    except ValueError:
+        log.warning("PETSc wasn't in dependencies list")
     packages.remove("petsc4py")
 
     if args.clean:
@@ -2039,7 +2034,6 @@ Please consider updating your PETSc manually.
 
     with pipargs("--no-deps"):
         try:
-            packages.remove("PyOP2")
             packages.remove("firedrake")
         except ValueError:
             pass
@@ -2056,8 +2050,7 @@ Please consider updating your PETSc manually.
             build_and_install_libsupermesh(cc, cxx, f90, mpiexec)
 
         with pipargs("--no-deps"), environment(**compiler_env, **link_env):
-            for p in ("PyOP2", "firedrake"):
-                install(p+"/")
+            install("firedrake/")
 
         # Ensure pytest is at the latest version
         run_pip(["install", "-U", "pytest"])
@@ -2073,6 +2066,7 @@ with environment(**compiler_env):
 
     if options["netgen"]:
         packages += ["ngsPETSc"]
+        run_pip(["install", "-U", "ngsPETSc"])
 
 with pipargs("--no-deps"):
     if options["opencascade"]:
@@ -2091,8 +2085,8 @@ if args.documentation_dependencies:
 
 if mode == "update":
     try:
-        import firedrake_configuration
-        firedrake_configuration.setup_cache_dirs()
+        from firedrake.configuration import setup_cache_dirs
+        setup_cache_dirs()
         log.info("Clearing just in time compilation caches.")
         from firedrake.tsfc_interface import clear_cache, TSFCKernel
         from pyop2.compilation import clear_cache as pyop2_clear_cache

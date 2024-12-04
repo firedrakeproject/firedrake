@@ -61,7 +61,7 @@ that Firedrake is fully functional. Activate the venv_ as above and
 then run::
 
   cd $VIRTUAL_ENV/src/firedrake
-  pytest tests/regression/ -k "poisson_strong or stokes_mini or dg_advection"
+  pytest tests/firedrake/regression/ -k "poisson_strong or stokes_mini or dg_advection"
 
 This command will run a few of the unit tests, which exercise a good
 chunk of the functionality of the library. These tests should take a
@@ -104,6 +104,8 @@ gives a full list of update options. For instance additional Firedrake
 packages can be installed into an existing Firedrake installation using
 ``firedrake-update``.
 
+.. _system-requirements:
+
 System requirements
 -------------------
 
@@ -133,6 +135,7 @@ they have the system dependencies:
 * zlib
 * flex, bison
 * Ninja
+* pkg-config
 
 Firedrake has been successfully installed on Windows 10 using the
 Windows Subsystem for Linux. There are more detailed instructions for
@@ -227,6 +230,49 @@ type::
 
 You should now be able to run ``firedrake-update``.
 
+Installing Firedrake with pip (experimental, Linux only)
+--------------------------------------------------------
+
+Firedrake has experimental support for installing using ``pip``, avoiding the need for the ``firedrake-install`` script. At present only Linux is tested using this install method.
+
+Requirements
+~~~~~~~~~~~~
+
+* An activated virtual environment.
+* All the system requirements listed in :ref:`system-requirements`.
+* A Firedrake-compatible PETSc installation (using our `fork of PETSc <https://github.com/firedrakeproject/petsc.git>`_). The set of flags passed to PETSc can be retrieved by passing the command ``--show-petsc-configure-options`` to ``firedrake-install``.
+* `libsupermesh <https://github.com/firedrakeproject/libsupermesh.git>`_ to be installed inside the virtual environment (see `here <https://github.com/firedrakeproject/firedrake/blob/master/.github/workflows/pip.yml>`_ for an example of how to do this).
+*  The following environment variables to be set:
+
+  * ``PETSC_DIR`` and ``PETSC_ARCH`` to point to the correct location for the PETSc installation.
+  * ``HDF5_DIR`` to ``$PETSC_DIR/$PETSC_ARCH``.
+  * ``CC`` and ``MPICC`` to point to the ``mpicc`` compiler wrapper.
+  * ``CXX`` to point to the ``mpicxx`` compiler wrapper.
+
+Installation
+~~~~~~~~~~~~
+
+Having set up this environment, Firedrake can now be installed with the command::
+
+  pip install --no-binary mpi4py,h5py git+https://github.com/firedrakeproject/firedrake.git
+
+Removing Firedrake
+------------------
+Firedrake and its dependencies can be removed by deleting the Firedrake
+install directory. This is usually the ``firedrake`` subdirectory
+created after having run ``firedrake-install``. Note that this will not
+undo the installation of any system packages which are Firedrake
+dependencies: removing these might affect subsequently installed
+packages for which these are also dependencies.
+
+.. _Paraview: http://www.paraview.org
+.. _venv: https://docs.python.org/3/tutorial/venv.html
+.. _homebrew: https://brew.sh/
+.. _PETSc: https://www.mcs.anl.gov/petsc/
+.. _discussions: https://github.com/firedrakeproject/firedrake/discussions
+.. _issue: https://github.com/firedrakeproject/firedrake/issues
+.. _WSL: https://github.com/firedrakeproject/firedrake/wiki/Installing-on-Windows-Subsystem-for-Linux
+
 Visualisation software
 ----------------------
 
@@ -254,20 +300,3 @@ and can be built by executing::
 
 This will generate the HTML documentation (this website) on your local
 machine.
-
-Removing Firedrake
-------------------
-Firedrake and its dependencies can be removed by deleting the Firedrake
-install directory. This is usually the ``firedrake`` subdirectory
-created after having run ``firedrake-install``. Note that this will not
-undo the installation of any system packages which are Firedrake
-dependencies: removing these might affect subsequently installed
-packages for which these are also dependencies.
-
-.. _Paraview: http://www.paraview.org
-.. _venv: https://docs.python.org/3/tutorial/venv.html
-.. _homebrew: https://brew.sh/
-.. _PETSc: https://www.mcs.anl.gov/petsc/
-.. _discussions: https://github.com/firedrakeproject/firedrake/discussions
-.. _issue: https://github.com/firedrakeproject/firedrake/issues
-.. _WSL: https://github.com/firedrakeproject/firedrake/wiki/Installing-on-Windows-Subsystem-for-Linux
