@@ -13,7 +13,10 @@ __all__ = ("BDDCPC",)
 
 
 class BDDCPC(PCBase):
-    """PC for PETSc PCBDDC"""
+    """PC for PETSc PCBDDC (Balancing Domain Decomposition with Constraints).
+
+    A Mat of type MATIS is required. Currently, this type is only supported by FDMPC.
+    """
 
     _prefix = "bddc_"
 
