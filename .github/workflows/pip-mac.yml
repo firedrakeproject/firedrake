@@ -102,6 +102,7 @@ jobs:
           cd pip_venv/src
           pip install \
             --log=firedrake-install.log \
+            --no-cache \
             --no-binary mpi4py,h5py \
             -v -e './firedrake[test]'
 
