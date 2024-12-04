@@ -650,6 +650,15 @@ def compare_element(e1, e2):
     return numpy.allclose(B, numpy.eye(B.shape[0]), rtol=1E-14, atol=1E-14)
 
 
+def fiat_equivalent(finat_element):
+    """Return the FIAT equivalent for this FInAT element, handling extended elements."""
+    fe = finat_element.fiat_equivalent
+    ndofs = finat_element.space_dimension()
+    if fe.space_dimension() > ndofs:
+        fe = FIAT.RestrictedElement(fe, indices=list(range(ndofs)))
+    return fe
+
+
 @serial_cache(hashkey=lambda V: V.ufl_element())
 @PETSc.Log.EventDecorator("GetLineElements")
 def get_permutation_to_nodal_elements(V):
@@ -683,13 +692,14 @@ def get_permutation_to_nodal_elements(V):
     terms = expansion.elements if hasattr(expansion, "elements") else [expansion]
     for term in terms:
         factors = term.factors if hasattr(term, "factors") else (term,)
-        fiat_factors = tuple(e.fiat_equivalent for e in reversed(factors))
+        fiat_factors = tuple(map(fiat_equivalent, reversed(factors)))
         if not all(e.is_nodal() for e in fiat_factors):
             raise ValueError("Failed to decompose %s into nodal elements" % V.ufl_element())
         nodal_elements.append(fiat_factors)
 
     shapes = [tuple(e.space_dimension() for e in factors) for factors in nodal_elements]
     sizes = list(map(numpy.prod, shapes))
+    assert sum(sizes) == finat_element.space_dimension()
     dof_ranges = numpy.cumsum([0] + sizes)
 
     dof_perm = []
