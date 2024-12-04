@@ -16,7 +16,8 @@ requires-python = ">=3.10"
 dependencies = [
   "cachetools",
   "decorator<=4.4.2",
-  "mpi4py",
+  "mpi4py>3; python_version >= '3.13'",
+  "mpi4py; python_version < '3.13'",
   "h5py",
   "petsc4py",
   "numpy",
@@ -91,7 +92,8 @@ requires = [
   "pybind11",
   "pkgconfig",
   "numpy",
-  "mpi4py",
+  "mpi4py>3; python_version >= '3.13'",
+  "mpi4py; python_version < '3.13'",
   "petsc4py",
   "rtree>=1.2",
 ]
