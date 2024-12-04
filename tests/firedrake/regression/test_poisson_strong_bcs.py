@@ -16,7 +16,6 @@ This has the analytical solution
 """
 import pytest
 from firedrake import *
-from mpi4py import MPI
 
 
 def run_test(r, degree, parameters, quadrilateral=False):
