@@ -107,8 +107,6 @@ jobs:
         run: |
           source ../venv/bin/activate
           python -m pip install -v ".[test]"
-          python -m pip uninstall -y pytools loopy
-          python -m pip install git+https://github.com/firedrakeproject/loopy.git@connorjward/merge-upstream
 
       - name: Run tests
         shell: bash
