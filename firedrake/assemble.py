@@ -5,7 +5,6 @@ import functools
 import itertools
 from itertools import product
 import numbers
-import numpy as np
 
 import cachetools
 import finat
@@ -472,11 +471,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 V, = set(a.function_space() for a in args)
                 result = firedrake.Cofunction(V)
                 for op, w in zip(args, expr.weights()):
-                    for dat_result, dat_op in zip(result.dat.split, op.dat.split):
-                        np.add(
-                            dat_result.data_ro_with_halos,
-                            w * dat_op.data_ro_with_halos,
-                            out=dat_result.data_wo_with_halos)
+                    result.dat.axpy(w, op.dat)
                 return result
             elif all(isinstance(op, ufl.Matrix) for op in args):
                 res = tensor.petscmat if tensor else PETSc.Mat()

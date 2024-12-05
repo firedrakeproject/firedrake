@@ -492,6 +492,21 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         from math import sqrt
         return sqrt(self.inner(self).real)
 
+    def axpy(self, alpha: float, other: 'Dat') -> None:
+        """Compute the operation :math:`y = \\alpha x + y`.
+
+        :arg alpha: a scalar
+        :arg other: the :class:`Dat` to add to this one
+
+        """
+        for dat_result, dat_other in zip(self.split, other.split):
+            if isinstance(dat_result._data, np.ndarray):
+                np.add(
+                    alpha * dat_other.data_ro, dat_result.data_ro,
+                    out=dat_result.data_wo)
+            else:
+                raise NotImplementedError("Not implemented for GPU")
+
     def __pos__(self):
         pos = Dat(self)
         return pos
