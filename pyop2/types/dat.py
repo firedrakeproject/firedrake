@@ -1035,7 +1035,7 @@ class MixedDat(AbstractDat, VecAccessMixin):
         for s, o in zip(self, other):
             ret += s.inner(o)
         return ret
-    
+
     def axpy(self, alpha: float, other: 'MixedDat') -> None:
         """Compute the operation :math:`y = \\alpha x + y`.
 

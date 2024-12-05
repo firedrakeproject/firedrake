@@ -207,8 +207,7 @@ class SetFreeDataCarrier(DataCarrier, EmptyDataMixin):
         """Compute the operation :math:`y = \\alpha x + y`.
         """
         if isinstance(self._data, np.ndarray):
-            np.add(alpha * other.data_ro, self.data_ro,
-                out=self.data_wo)
+            np.add(alpha * other.data_ro, self.data_ro, out=self.data_wo)
         else:
             raise NotImplementedError("Not implemented for GPU")
 
