@@ -38,13 +38,14 @@ def run_test(mesh):
     t = 0.0
     T = 10*dt
 
-    problem = LinearVariationalProblem(a_mass, action(arhs, D1), dD1)
+    problem = LinearVariationalProblem(a_mass, action(arhs, D1), dD1,
+                                       constant_jacobian=True)
     solver = LinearVariationalSolver(
         problem,
         solver_parameters={
-            'ksp_type': 'cg',
-            # specify superlu_dist as MUMPS fails in parallel on MacOS
-            'pc_factor_mat_solver_type': 'superlu_dist',
+            'ksp_type': 'preonly',
+            'pc_type': 'bjacobi',
+            'sub_pc_type': 'ilu'
         }
     )
 
