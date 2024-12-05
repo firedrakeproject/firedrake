@@ -3,6 +3,7 @@ import contextlib
 import ctypes
 import itertools
 import operator
+from collections.abc import Sequence
 
 import loopy as lp
 import numpy as np

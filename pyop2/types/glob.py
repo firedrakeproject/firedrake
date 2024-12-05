@@ -2,6 +2,7 @@ import contextlib
 import ctypes
 import operator
 import warnings
+from collections.abc import Sequence
 
 import numpy as np
 from petsc4py import PETSc
