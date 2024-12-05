@@ -106,6 +106,8 @@ jobs:
         working-directory: PyOP2
         run: |
           source ../venv/bin/activate
+          export HDF5_DIR="$PETSC_DIR/$PETSC_ARCH"
+          export HDF5_MPI=ON
           python -m pip install -v ".[test]"
 
       - name: Run tests
