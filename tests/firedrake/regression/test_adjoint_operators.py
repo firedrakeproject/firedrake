@@ -717,7 +717,7 @@ def test_init_constant():
     c2.assign(c1)
     J = assemble(c2*dx(domain=mesh))
     rf = ReducedFunctional(J, Control(c1))
-    assert np.isclose(rf(-1.0), -1.0)
+    assert np.isclose(rf(Function(R, val=-1.0)), -1.0)
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
