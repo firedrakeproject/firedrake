@@ -415,7 +415,7 @@ def generate(builder, wrapper_name=None):
     # use a dict as an ordered set
     outer_inames = {builder._loop_index.name: None}
     if builder.layer_index is not None:
-        outer_inames |= {builder.layer_index.name: None}
+        outer_inames.update({builder.layer_index.name: None})
 
     instructions = list(builder.emit_instructions())
 
@@ -546,14 +546,6 @@ def generate(builder, wrapper_name=None):
         assumptions = assumptions & pwaffd[parameters.layer_start].le_set(pwaffd[parameters.layer_end])
     assumptions = reduce(operator.and_, assumptions.get_basic_sets())
 
-    # Even though we think we are setting loop priorities correctly here, loopy cannot
-    # use its new scheduler and raises a warning stating that there are
-    # "loop priority dependencies between sibling loop nests".
-    # See https://github.com/inducer/loopy/issues/890.
-    # Therefore until loopy fixes this we disable this warning and use the old (slower)
-    # scheduling algorithm.
-    silenced_warnings = ["v1_scheduler_fallback"]
-
     wrapper = loopy.make_kernel(domains,
                                 statements,
                                 kernel_data=parameters.kernel_data,
@@ -564,8 +556,7 @@ def generate(builder, wrapper_name=None):
                                 assumptions=assumptions,
                                 lang_version=(2018, 2),
                                 name=wrapper_name,
-                                loop_priority=loop_priorities,
-                                silenced_warnings=silenced_warnings)
+                                loop_priority=loop_priorities)
 
     # register kernel
     kernel = builder.kernel
