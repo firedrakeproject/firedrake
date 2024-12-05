@@ -203,6 +203,15 @@ class SetFreeDataCarrier(DataCarrier, EmptyDataMixin):
         assert issubclass(type(other), type(self))
         return np.dot(self.data_ro, np.conj(other.data_ro))
 
+    def axpy(self, alpha, other):
+        """Compute the operation :math:`y = \\alpha x + y`.
+        """
+        if isinstance(self._data, np.ndarray):
+            np.add(alpha * other.data_ro, self.data_ro,
+                out=self.data_wo)
+        else:
+            raise NotImplementedError("Not implemented for GPU")
+
 
 # must have comm, can be modified in parloop (implies a reduction)
 class Global(SetFreeDataCarrier, VecAccessMixin):

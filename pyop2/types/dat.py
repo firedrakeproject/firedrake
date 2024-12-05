@@ -499,13 +499,12 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         :arg other: the :class:`Dat` to add to this one
 
         """
-        for dat_result, dat_other in zip(self.split, other.split):
-            if isinstance(dat_result._data, np.ndarray):
-                np.add(
-                    alpha * dat_other.data_ro, dat_result.data_ro,
-                    out=dat_result.data_wo)
-            else:
-                raise NotImplementedError("Not implemented for GPU")
+        if isinstance(other._data, np.ndarray):
+            np.add(
+                alpha * other.data_ro, self.data_ro,
+                out=self.data_wo)
+        else:
+            raise NotImplementedError("Not implemented for GPU")
 
     def __pos__(self):
         pos = Dat(self)
@@ -1036,6 +1035,21 @@ class MixedDat(AbstractDat, VecAccessMixin):
         for s, o in zip(self, other):
             ret += s.inner(o)
         return ret
+    
+    def axpy(self, alpha: float, other: 'MixedDat') -> None:
+        """Compute the operation :math:`y = \\alpha x + y`.
+
+        :arg alpha: a scalar
+        :arg other: the :class:`Dat` to add to this one
+
+        """
+        for dat_result, dat_other in zip(self, other):
+            if isinstance(dat_result._data, np.ndarray):
+                np.add(
+                    alpha * dat_other.data_ro, dat_result.data_ro,
+                    out=dat_result.data_wo)
+            else:
+                raise NotImplementedError("Not implemented for GPU")
 
     def _op(self, other, op):
         ret = []
