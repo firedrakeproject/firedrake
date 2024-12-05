@@ -79,11 +79,16 @@ def test_bad_file_name(tmpdir):
         VTKFile(str(tmpdir.join("foo.vtu")))
 
 
-def test_different_functions(mesh, pvd):
+@pytest.mark.parametrize("space",
+                         ["primal", "dual"])
+def test_different_functions(mesh, pvd, space):
     V = FunctionSpace(mesh, "DG", 0)
-
-    f = Function(V, name="foo")
-    g = Function(V, name="bar")
+    if space == "primal":
+        f = Function(V, name="foo")
+        g = Function(V, name="bar")
+    else:
+        f = Cofunction(V.dual(), name="foo")
+        g = Cofunction(V.dual(), name="bar")
 
     pvd.write(f)
 
@@ -136,9 +141,14 @@ def test_not_function(mesh, pvd):
         pvd.write(grad(f))
 
 
-def test_append(mesh, tmpdir):
+@pytest.mark.parametrize("space",
+                         ["primal", "dual"])
+def test_append(mesh, tmpdir, space):
     V = FunctionSpace(mesh, "DG", 0)
-    g = Function(V)
+    if space == "primal":
+        g = Function(V)
+    else:
+        g = Cofunction(V.dual())
 
     outfile = VTKFile(str(tmpdir.join("restart_test.pvd")))
     outfile.write(g)
