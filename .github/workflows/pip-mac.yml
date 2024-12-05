@@ -26,16 +26,18 @@ jobs:
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
     steps:
-      - name: Cleanup (pre)
-        if: ${{ always() }}
-        run: rm -rf pip_venv
-
       - name: Add homebrew to PATH
         # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
         run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
 
       - name: Install homebrew packages
         run: brew install gcc autoconf pkg-config make automake cmake ninja libtool boost openblas python python-setuptools mpich
+
+      - name: Cleanup (pre)
+        if: ${{ always() }}
+        run: |
+          rm -rf pip_venv
+          "$(brew --prefix)/bin/python3" -m pip cache purge
 
       - name: Create a virtual environment
         run: |
@@ -102,8 +104,7 @@ jobs:
           cd pip_venv/src
           python -m pip install \
             --log=firedrake-install.log \
-            --no-cache \
-            --no-binary mpi4py,h5py \
+            --no-binary h5py \
             -v -e './firedrake[test]'
 
       - name: Install CI-specific test dependencies
@@ -121,4 +122,6 @@ jobs:
 
       - name: Cleanup (post)
         if: ${{ always() }}
-        run: rm -rf pip_venv
+        run: |
+          rm -rf pip_venv
+          "$(brew --prefix)/bin/python3" -m pip cache purge
