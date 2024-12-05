@@ -24,7 +24,7 @@ dependencies = [
   "pkgconfig",
   "progress",
   "pycparser",
-  "pytools",
+  "pytools[siphash]",
   "requests",
   "rtree>=1.2",
   "scipy",
