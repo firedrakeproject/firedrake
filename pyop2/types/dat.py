@@ -1061,7 +1061,7 @@ class MixedDat(AbstractDat, VecAccessMixin):
     def axpy(self, alpha: float, other: 'MixedDat') -> None:
         """Compute the operation :math:`y = \\alpha x + y`.
 
-        On this case, `self` is `y` and `other` is `x`.
+        In this case, ``self`` is ``y`` and ``other`` is ``x``.
 
         """
         self._check_shape(other)
