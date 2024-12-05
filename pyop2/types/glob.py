@@ -203,10 +203,32 @@ class SetFreeDataCarrier(DataCarrier, EmptyDataMixin):
         assert issubclass(type(other), type(self))
         return np.dot(self.data_ro, np.conj(other.data_ro))
 
-    def axpy(self, alpha, other):
+    def maxpy(self, scalar: list, x: list) -> None:
+        """Compute a sequence of axpy operations.
+
+        This is equivalent to calling :meth:`axpy` for each pair of
+        scalars and :class:`Dat` in the input sequences.
+
+        :arg scalar: A sequence of scalars.
+        :arg x: A sequence of :class:`Dat`.
+
+        See also :meth:`axpy`.
+
+        """
+        if len(scalar) != len(x):
+            raise ValueError("scalar and x must have the same length")
+        for alpha_i, x_i in zip(scalar, x):
+            self.axpy(alpha_i, x_i)
+
+    def axpy(self, alpha: float, other: 'Global') -> None:
         """Compute the operation :math:`y = \\alpha x + y`.
+
+        On this case, `self` is `y` and `other` is `x`.
+
         """
         if isinstance(self._data, np.ndarray):
+            if not np.isscalar(alpha):
+                raise ValueError("alpha must be a scalar")
             np.add(alpha * other.data_ro, self.data_ro, out=self.data_wo)
         else:
             raise NotImplementedError("Not implemented for GPU")

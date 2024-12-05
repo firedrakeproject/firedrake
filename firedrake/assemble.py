@@ -470,8 +470,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             elif all(isinstance(op, firedrake.Cofunction) for op in args):
                 V, = set(a.function_space() for a in args)
                 result = firedrake.Cofunction(V)
-                for op, w in zip(args, expr.weights()):
-                    result.dat.axpy(w, op.dat)
+                result.dat.maxpy(expr.weights(), [a.dat for a in args])
                 return result
             elif all(isinstance(op, ufl.Matrix) for op in args):
                 res = tensor.petscmat if tensor else PETSc.Mat()

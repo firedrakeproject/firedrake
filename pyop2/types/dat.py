@@ -492,14 +492,33 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         from math import sqrt
         return sqrt(self.inner(self).real)
 
+    def maxpy(self, scalar: list, x: list) -> None:
+        """Compute a sequence of axpy operations.
+
+        This is equivalent to calling :meth:`axpy` for each pair of
+        scalars and :class:`Dat` in the input sequences.
+
+        :arg scalar: A sequence of scalars.
+        :arg x: A sequence of :class:`Dat`.
+
+        See also :meth:`axpy`.
+
+        """
+        if len(scalar) != len(x):
+            raise ValueError("scalar and x must have the same length")
+        for alpha_i, x_i in zip(scalar, x):
+            self.axpy(alpha_i, x_i)
+
     def axpy(self, alpha: float, other: 'Dat') -> None:
         """Compute the operation :math:`y = \\alpha x + y`.
 
-        :arg alpha: a scalar
-        :arg other: the :class:`Dat` to add to this one
+        On this case, `self` is `y` and `other` is `x`.
 
         """
+        self._check_shape(other)
         if isinstance(other._data, np.ndarray):
+            if not np.isscalar(alpha):
+                raise TypeError("alpha must be a scalar")
             np.add(
                 alpha * other.data_ro, self.data_ro,
                 out=self.data_wo)
@@ -1039,12 +1058,14 @@ class MixedDat(AbstractDat, VecAccessMixin):
     def axpy(self, alpha: float, other: 'MixedDat') -> None:
         """Compute the operation :math:`y = \\alpha x + y`.
 
-        :arg alpha: a scalar
-        :arg other: the :class:`Dat` to add to this one
+        On this case, `self` is `y` and `other` is `x`.
 
         """
+        self._check_shape(other)
         for dat_result, dat_other in zip(self, other):
             if isinstance(dat_result._data, np.ndarray):
+                if not np.isscalar(alpha):
+                    raise TypeError("alpha must be a scalar")
                 np.add(
                     alpha * dat_other.data_ro, dat_result.data_ro,
                     out=dat_result.data_wo)
