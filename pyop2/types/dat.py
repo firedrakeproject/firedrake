@@ -492,16 +492,18 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         from math import sqrt
         return sqrt(self.inner(self).real)
 
-    def maxpy(self, scalar: list, x: list) -> None:
+    def maxpy(self, scalar: Sequence, x: Sequence) -> None:
         """Compute a sequence of axpy operations.
 
         This is equivalent to calling :meth:`axpy` for each pair of
         scalars and :class:`Dat` in the input sequences.
 
-        :arg scalar: A sequence of scalars.
-        :arg x: A sequence of :class:`Dat`.
-
-        See also :meth:`axpy`.
+        Parameters
+        ----------
+        scalar :
+            A sequence of scalars.
+        x :
+            A sequence of :class:`Dat`.
 
         """
         if len(scalar) != len(x):
@@ -512,7 +514,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
     def axpy(self, alpha: float, other: 'Dat') -> None:
         """Compute the operation :math:`y = \\alpha x + y`.
 
-        On this case, `self` is `y` and `other` is `x`.
+        In this case, ``self`` is ``y`` and ``other`` is ``x``.
 
         """
         self._check_shape(other)

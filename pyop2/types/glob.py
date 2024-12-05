@@ -203,16 +203,18 @@ class SetFreeDataCarrier(DataCarrier, EmptyDataMixin):
         assert issubclass(type(other), type(self))
         return np.dot(self.data_ro, np.conj(other.data_ro))
 
-    def maxpy(self, scalar: list, x: list) -> None:
+    def maxpy(self, scalar: Sequence, x: Sequence) -> None:
         """Compute a sequence of axpy operations.
 
         This is equivalent to calling :meth:`axpy` for each pair of
         scalars and :class:`Dat` in the input sequences.
 
-        :arg scalar: A sequence of scalars.
-        :arg x: A sequence of :class:`Dat`.
-
-        See also :meth:`axpy`.
+        Parameters
+        ----------
+        scalar :
+            A sequence of scalars.
+        x :
+            A sequence of `Global`.
 
         """
         if len(scalar) != len(x):
@@ -223,7 +225,7 @@ class SetFreeDataCarrier(DataCarrier, EmptyDataMixin):
     def axpy(self, alpha: float, other: 'Global') -> None:
         """Compute the operation :math:`y = \\alpha x + y`.
 
-        On this case, `self` is `y` and `other` is `x`.
+        In this case, ``self`` is ``y`` and ``other`` is ``x``.
 
         """
         if isinstance(self._data, np.ndarray):
