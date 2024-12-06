@@ -2,6 +2,7 @@ import contextlib
 import ctypes
 import operator
 import warnings
+from collections.abc import Sequence
 
 import numpy as np
 from petsc4py import PETSc
@@ -202,6 +203,38 @@ class SetFreeDataCarrier(DataCarrier, EmptyDataMixin):
     def inner(self, other):
         assert issubclass(type(other), type(self))
         return np.dot(self.data_ro, np.conj(other.data_ro))
+
+    def maxpy(self, scalar: Sequence, x: Sequence) -> None:
+        """Compute a sequence of axpy operations.
+
+        This is equivalent to calling :meth:`axpy` for each pair of
+        scalars and :class:`Dat` in the input sequences.
+
+        Parameters
+        ----------
+        scalar :
+            A sequence of scalars.
+        x :
+            A sequence of `Global`.
+
+        """
+        if len(scalar) != len(x):
+            raise ValueError("scalar and x must have the same length")
+        for alpha_i, x_i in zip(scalar, x):
+            self.axpy(alpha_i, x_i)
+
+    def axpy(self, alpha: float, other: 'Global') -> None:
+        """Compute the operation :math:`y = \\alpha x + y`.
+
+        In this case, ``self`` is ``y`` and ``other`` is ``x``.
+
+        """
+        if isinstance(self._data, np.ndarray):
+            if not np.isscalar(alpha):
+                raise ValueError("alpha must be a scalar")
+            np.add(alpha * other.data_ro, self.data_ro, out=self.data_wo)
+        else:
+            raise NotImplementedError("Not implemented for GPU")
 
 
 # must have comm, can be modified in parloop (implies a reduction)

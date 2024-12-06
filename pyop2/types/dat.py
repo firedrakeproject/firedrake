@@ -3,6 +3,7 @@ import contextlib
 import ctypes
 import itertools
 import operator
+from collections.abc import Sequence
 
 import loopy as lp
 import numpy as np
@@ -491,6 +492,41 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
            This acts on the flattened data (see also :meth:`inner`)."""
         from math import sqrt
         return sqrt(self.inner(self).real)
+
+    def maxpy(self, scalar: Sequence, x: Sequence) -> None:
+        """Compute a sequence of axpy operations.
+
+        This is equivalent to calling :meth:`axpy` for each pair of
+        scalars and :class:`Dat` in the input sequences.
+
+        Parameters
+        ----------
+        scalar :
+            A sequence of scalars.
+        x :
+            A sequence of :class:`Dat`.
+
+        """
+        if len(scalar) != len(x):
+            raise ValueError("scalar and x must have the same length")
+        for alpha_i, x_i in zip(scalar, x):
+            self.axpy(alpha_i, x_i)
+
+    def axpy(self, alpha: float, other: 'Dat') -> None:
+        """Compute the operation :math:`y = \\alpha x + y`.
+
+        In this case, ``self`` is ``y`` and ``other`` is ``x``.
+
+        """
+        self._check_shape(other)
+        if isinstance(other._data, np.ndarray):
+            if not np.isscalar(alpha):
+                raise TypeError("alpha must be a scalar")
+            np.add(
+                alpha * other.data_ro, self.data_ro,
+                out=self.data_wo)
+        else:
+            raise NotImplementedError("Not implemented for GPU")
 
     def __pos__(self):
         pos = Dat(self)
@@ -1021,6 +1057,23 @@ class MixedDat(AbstractDat, VecAccessMixin):
         for s, o in zip(self, other):
             ret += s.inner(o)
         return ret
+
+    def axpy(self, alpha: float, other: 'MixedDat') -> None:
+        """Compute the operation :math:`y = \\alpha x + y`.
+
+        In this case, ``self`` is ``y`` and ``other`` is ``x``.
+
+        """
+        self._check_shape(other)
+        for dat_result, dat_other in zip(self, other):
+            if isinstance(dat_result._data, np.ndarray):
+                if not np.isscalar(alpha):
+                    raise TypeError("alpha must be a scalar")
+                np.add(
+                    alpha * dat_other.data_ro, dat_result.data_ro,
+                    out=dat_result.data_wo)
+            else:
+                raise NotImplementedError("Not implemented for GPU")
 
     def _op(self, other, op):
         ret = []
