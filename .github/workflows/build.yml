@@ -83,6 +83,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch ufl ksagiyam/remove_apply_default_restrictions \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
