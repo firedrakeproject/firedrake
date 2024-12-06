@@ -8,10 +8,18 @@
 Firedrake events
 ----------------
 
+Firedrake USA'25
+~~~~~~~~~~~~~~~~
+
+The ninth Firedrake user and developer workshop will be held 28 February
+and 1 March 2025 at Baylor University in Texas, USA.  For more information
+see :doc:`the workshop page <firedrake_usa_25>`.
+
+
 Firedrake '24
 ~~~~~~~~~~~~~
 
-The eighth Firedrake user and developer workshop will be held
+The eighth Firedrake user and developer workshop was held
 between 16-18 September 2024 at the University of Oxford. For more
 information see :doc:`the workshop page <firedrake_24>`.
 
