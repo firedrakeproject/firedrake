@@ -1943,6 +1943,19 @@ else:
         if args.rebuild:
             pip_uninstall("petsc4py")
 
+    # Handle archived repositories
+    archived_repos = [("PyOP2", "firedrake", "PyOP2"),
+                      ("tsfc", "firedrake+fiat", "tsfc"),
+                      ("FInAT", "fiat", "FInAT")]
+    for src_repo, dest_repo, pip_pkg_name in archived_repos:
+        archived_path = os.path.join(firedrake_env, "src", src_repo)
+        if os.path.exists(archived_path):
+            log.warning("%s has been moved into %s, renaming to %s_old and pip uninstalling.\n"
+                        % (src_repo, dest_repo, src_repo))
+            pip_uninstall(pip_pkg_name)
+            new_path = os.path.join(firedrake_env, "src", "%s_old" % src_repo)
+            os.rename(archived_path, new_path)
+
     # If there is a petsc package to remove, then we're an old installation which will need to rebuild PETSc.
     update_petsc = pip_uninstall("petsc") or update_petsc
 
