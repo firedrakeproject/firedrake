@@ -8,7 +8,7 @@
    :align: center
 
 Firedrake USA'25
--------------
+----------------
                
 The ninth Firedrake user and developer workshop will be held at 
 `Baylor University 
