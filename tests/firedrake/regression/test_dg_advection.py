@@ -38,8 +38,16 @@ def run_test(mesh):
     t = 0.0
     T = 10*dt
 
-    problem = LinearVariationalProblem(a_mass, action(arhs, D1), dD1)
-    solver = LinearVariationalSolver(problem, solver_parameters={'ksp_type': 'cg'})
+    problem = LinearVariationalProblem(a_mass, action(arhs, D1), dD1,
+                                       constant_jacobian=True)
+    solver = LinearVariationalSolver(
+        problem,
+        solver_parameters={
+            'ksp_type': 'preonly',
+            'pc_type': 'bjacobi',
+            'sub_pc_type': 'ilu'
+        }
+    )
 
     L2_0 = norm(D)
     Dbar_0 = assemble(D*dx)

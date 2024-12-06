@@ -16,8 +16,13 @@ requires-python = ">=3.10"
 dependencies = [
   "cachetools",
   "decorator<=4.4.2",
-  "mpi4py",
-  "h5py",
+  "mpi4py>3; python_version >= '3.13'",
+  "mpi4py; python_version < '3.13'",
+  # TODO: We are only using our fork here because the most recent PyPI release
+  # does not yet work with build isolation for Python 3.13. Once a version
+  # newer than 3.12.1 is released we can revert to simply using "h5py".
+  "h5py @ git+https://github.com/firedrakeproject/h5py.git ; python_version >= '3.13'",
+  "h5py; python_version < '3.13'",
   "petsc4py",
   "numpy",
   "packaging",
@@ -91,7 +96,8 @@ requires = [
   "pybind11",
   "pkgconfig",
   "numpy",
-  "mpi4py",
+  "mpi4py>3; python_version >= '3.13'",
+  "mpi4py; python_version < '3.13'",
   "petsc4py",
   "rtree>=1.2",
 ]
