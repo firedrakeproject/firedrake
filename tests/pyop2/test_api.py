@@ -504,8 +504,8 @@ class TestDataSetAPI:
 
     def test_dset_str(self, dset):
         "DataSet should have the expected string representation."
-        assert str(dset) == "OP2 DataSet: %s on set %s, with dim %s" \
-            % (dset.name, dset.set, dset.dim)
+        assert str(dset) == "OP2 DataSet: %s on set %s, with dim %s, %s" \
+            % (dset.name, dset.set, dset.dim, dset._apply_local_global_filter)
 
     def test_dset_eq(self, dset):
         "The equality test for DataSets is same dim and same set"

@@ -14,6 +14,7 @@ import ufl
 import finat.ufl
 
 from pyop2 import op2, mpi
+from pyop2.utils import as_tuple
 
 from firedrake import dmhooks, utils
 from firedrake.functionspacedata import get_shared_data, create_element
@@ -876,6 +877,16 @@ class RestrictedFunctionSpace(FunctionSpace):
     """
     def __init__(self, function_space, boundary_set=frozenset(), name=None):
         label = ""
+        boundary_set_ = []
+        for boundary_domain in boundary_set:
+            if isinstance(boundary_domain, str):
+                boundary_set_.append(boundary_domain)
+            else:
+                # Currently, can not handle intersection of boundaries;
+                # e.g., boundary_set = [(1, 2)], which is different from [1, 2].
+                bd, = as_tuple(boundary_domain)
+                boundary_set_.append(bd)
+        boundary_set = boundary_set_
         for boundary_domain in boundary_set:
             label += str(boundary_domain)
             label += "_"
@@ -896,7 +907,8 @@ class RestrictedFunctionSpace(FunctionSpace):
         self.node_set = sdata.node_set
         r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
         self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
-                                    name="%s_nodes_dset" % self.name)
+                                    name="%s_nodes_dset" % self.name,
+                                    apply_local_global_filter=sdata.extruded)
         r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
         degrees of freedom."""
 
