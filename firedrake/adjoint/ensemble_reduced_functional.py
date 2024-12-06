@@ -59,8 +59,22 @@ class EnsembleReducedFunctional(ReducedFunctional):
     <https://www.firedrakeproject.org/parallelism.html#id8>`_.
     """
     def __init__(self, J, control, ensemble, scatter_control=True,
-                 gather_functional=None):
-        super(EnsembleReducedFunctional, self).__init__(J, control)
+                 gather_functional=None,
+                 derivative_components=None,
+                 scale=1.0, tape=None,
+                 eval_cb_pre=lambda *args: None,
+                 eval_cb_post=lambda *args: None,
+                 derivative_cb_pre=lambda controls: controls,
+                 derivative_cb_post=lambda checkpoint, derivative_components, controls: derivative_components,
+                 hessian_cb_pre=lambda *args: None,
+                 hessian_cb_post=lambda *args: None):
+        super(EnsembleReducedFunctional, self).__init__(
+            J, control, derivative_components=derivative_components,
+            scale=scale, tape=tape, eval_cb_pre=eval_cb_pre,
+            eval_cb_post=eval_cb_post, derivative_cb_pre=derivative_cb_pre,
+            derivative_cb_post=derivative_cb_post,
+            hessian_cb_pre=hessian_cb_pre,
+            hessian_cb_post=hessian_cb_post)
         self.ensemble = ensemble
         self.scatter_control = scatter_control
         self.gather_functional = gather_functional
