@@ -230,10 +230,10 @@ type::
 
 You should now be able to run ``firedrake-update``.
 
-Installing Firedrake with pip (experimental, Linux only)
+Installing Firedrake with pip (experimental)
 --------------------------------------------------------
 
-Firedrake has experimental support for installing using ``pip``, avoiding the need for the ``firedrake-install`` script. At present only Linux is tested using this install method.
+Firedrake has experimental support for installing using ``pip``, avoiding the need for the ``firedrake-install`` script.
 
 Requirements
 ~~~~~~~~~~~~
