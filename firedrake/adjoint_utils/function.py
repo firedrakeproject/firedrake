@@ -226,7 +226,7 @@ class FunctionMixin(FloatingType):
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "L2")
         solver_options = options.get("solver_options", {})
-        mensure_options = options.get("mensure_options", {})
+        measure_options = options.get("measure_options", {})
         V = options.get("function_space", self.function_space())
         if value == 0.:
             # In adjoint-based differentiation, value == 0. arises only when
@@ -245,7 +245,7 @@ class FunctionMixin(FloatingType):
 
             ret = Function(V)
             a = self._define_riesz_map_form(
-                riesz_representation, V, mensure_options)
+                riesz_representation, V, measure_options)
             firedrake.solve(a == value, ret, **solver_options)
             return ret
 
@@ -256,18 +256,18 @@ class FunctionMixin(FloatingType):
             raise ValueError(
                 "Unknown Riesz representation %s" % riesz_representation)
 
-    def _define_riesz_map_form(self, riesz_representation, V, mensure_options):
+    def _define_riesz_map_form(self, riesz_representation, V, measure_options):
         from firedrake import TrialFunction, TestFunction
 
         u = TrialFunction(V)
         v = TestFunction(V)
         if riesz_representation == "L2":
-            a = firedrake.inner(u, v)*firedrake.dx(**mensure_options)
+            a = firedrake.inner(u, v)*firedrake.dx(**measure_options)
 
         elif riesz_representation == "H1":
-            a = firedrake.inner(u, v)*firedrake.dx(**mensure_options) \
+            a = firedrake.inner(u, v)*firedrake.dx(**measure_options) \
                 + firedrake.inner(firedrake.grad(u), firedrake.grad(v)
-                                  ) * firedrake.dx(**mensure_options)
+                                  ) * firedrake.dx(**measure_options)
 
         else:
             raise NotImplementedError(
