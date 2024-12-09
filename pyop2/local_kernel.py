@@ -120,13 +120,11 @@ class LocalKernel(abc.ABC):
     def _immutable_cache_key(self):
         # We need this function because self.accesses is mutable due to legacy support
         if isinstance(self.code, lp.TranslationUnit):
-            key_hash = hashlib.sha256()
-            self.code.update_persistent_hash(key_hash, LoopyKeyBuilder())
-            code = key_hash.hexdigest()
+            code_key = LoopyKeyBuilder()(self.code)
         else:
-            code = self.code
+            code_key = self.code
 
-        key = (code, self.name, self.cpp, self.flop_count,
+        key = (code_key, self.name, self.cpp, self.flop_count,
                self.headers, self.include_dirs, self.ldargs, sorted(self.opts.items()),
                self.requires_zeroed_output_arguments, self.user_code, version.__version__)
         return hashlib.md5(str(key).encode()).hexdigest()

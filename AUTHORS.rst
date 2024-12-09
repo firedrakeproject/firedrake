@@ -90,6 +90,8 @@ Christopher Hawkes
 
 Miklós Homolya
 
+Joshua Hope-Collins...........<https://www.imperial.ac.uk/people/joshua.hope-collins13>
+
 Christian T. Jacobs
 
 Darko Janeković

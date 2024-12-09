@@ -199,7 +199,7 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     # Correct parent cell numbers
     stored_vertex_coords = np.copy(vm.topology_dm.getField("DMSwarmPIC_coor")).reshape((vm.num_cells(), gdim))
     vm.topology_dm.restoreField("DMSwarmPIC_coor")
-    stored_parent_cell_nums = np.copy(vm.topology_dm.getField("parentcellnum"))
+    stored_parent_cell_nums = np.copy(vm.topology_dm.getField("parentcellnum").ravel())
     vm.topology_dm.restoreField("parentcellnum")
     assert len(stored_vertex_coords) == len(stored_parent_cell_nums)
     if MPI.COMM_WORLD.size == 1:

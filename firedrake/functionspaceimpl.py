@@ -182,10 +182,12 @@ class WithGeometryBase(object):
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
-        bound = len(self._components)
+        mixed = len(self) != 1
+        data = self.subfunctions if mixed else self._components
+        bound = len(data)
         if i < 0 or i >= bound:
-            raise IndexError("Invalid component %d, not in [0, %d)" % (i, bound))
-        return self._components[i]
+            raise IndexError(f"Invalid component {i}, not in [0, {bound})")
+        return data[i]
 
     @utils.cached_property
     def dm(self):
@@ -654,13 +656,16 @@ class FunctionSpace(object):
 
     @utils.cached_property
     def _components(self):
-        return tuple(ComponentFunctionSpace(self, i) for i in range(self.block_size))
+        if self.rank == 0:
+            return self.subfunctions
+        else:
+            return tuple(ComponentFunctionSpace(self, i) for i in range(self.block_size))
 
     def sub(self, i):
         r"""Return a view into the ith component."""
-        if self.rank == 0:
-            assert i == 0
-            return self
+        bound = len(self._components)
+        if i < 0 or i >= bound:
+            raise IndexError(f"Invalid component {i}, not in [0, {bound})")
         return self._components[i]
 
     def __mul__(self, other):
@@ -860,17 +865,16 @@ class RestrictedFunctionSpace(FunctionSpace):
     output of the solver.
 
     :arg function_space: The :class:`FunctionSpace` to restrict.
+    :kwarg boundary_set: A set of subdomains on which a DirichletBC will be applied.
     :kwarg name: An optional name for this :class:`RestrictedFunctionSpace`,
         useful for later identification.
-    :kwarg boundary_set: A set of subdomains on which a DirichletBC will be
-        applied.
 
     Notes
     -----
     If using this class to solve or similar, a list of DirichletBCs will still
     need to be specified on this space and passed into the function.
     """
-    def __init__(self, function_space, name=None, boundary_set=frozenset()):
+    def __init__(self, function_space, boundary_set=frozenset(), name=None):
         label = ""
         for boundary_domain in boundary_set:
             label += str(boundary_domain)
@@ -884,8 +888,7 @@ class RestrictedFunctionSpace(FunctionSpace):
                                                      label=self._label)
         self.function_space = function_space
         self.name = name or (function_space.name or "Restricted" + "_"
-                             + "_".join(sorted(
-                                        [str(i) for i in self.boundary_set])))
+                             + "_".join(sorted(map(str, self.boundary_set))))
 
     def set_shared_data(self):
         sdata = get_shared_data(self._mesh, self.ufl_element(), self.boundary_set)
