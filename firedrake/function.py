@@ -152,14 +152,17 @@ class CoordinatelessFunction(ufl.Coefficient):
                 # this is disabled for tensor things.
                 raise NotImplementedError
 
+            # TODO: Ultimately we want to remove all this extra code when we can index
+            # things more flexibly.
             root_axis = self.dat.axes.root
             root_index = op3.Slice(
                 root_axis.label,
                 [op3.AffineSliceComponent(c.label) for c in root_axis.components],
             )
             root_index_tree = op3.IndexTree(root_index)
-            subtree = op3.IndexTree(op3.Slice("dof", [op3.AffineSliceComponent("XXX")]))
-            for component in root_index.component_labels:
+            for axis_component, component in zip(root_axis.components, root_index.component_labels):
+                dof_axis = self.dat.axes.child(root_axis, axis_component)
+                subtree = op3.IndexTree(op3.Slice(dof_axis.label, [op3.AffineSliceComponent("XXX")]))
                 root_index_tree = root_index_tree.add_subtree(subtree, root_index, component, uniquify_ids=True)
 
             subfuncs = []
@@ -176,7 +179,9 @@ class CoordinatelessFunction(ufl.Coefficient):
 
                 subfunc = CoordinatelessFunction(
                     self.function_space().sub(i),
-                    # val=self.dat[indices],
+                    # FIXME: (06/12/24) This doesnt yet work because we assume certain ordering
+                    # constraints when indexing (see compose_targets)
+                    # val=self.dat[subtree],
                     val=self.dat.getitem(indices, strict=True),
                     name=f"view[{i}]({self.name()})"
                 )
