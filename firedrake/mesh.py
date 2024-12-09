@@ -21,6 +21,7 @@ from textwrap import dedent
 from pathlib import Path
 from typing import Iterable, Optional, Union
 
+from cachetools import cachedmethod
 from pyop2 import op2
 from pyop2.mpi import (
     MPI, COMM_WORLD, internal_comm, is_pyop2_comm, temp_internal_comm
@@ -738,6 +739,7 @@ class AbstractMeshTopology(abc.ABC):
         self._permutation_name = permutation_name or _generate_default_mesh_topology_permutation_name(reorder)
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
+        self._cache = defaultdict(dict)
         # Cell subsets for integration over subregions
         self._subsets = {}
         # A set of weakrefs to meshes that are explicitly labelled as being
@@ -1187,35 +1189,62 @@ class AbstractMeshTopology(abc.ABC):
         return self._star(k=k)(index)
 
     # TODO: Cythonize
-    def _renumber_map(self, src_dim, dest_dim, map_data):
+    def _renumber_map(self, src_dim, dest_dim, map_pts, sizes=None):
+        """
+        sizes :
+            If `None` implies non-ragged
+        """
         src_renumbering = self._entity_numbering(src_dim)
         dest_renumbering = self._entity_numbering(dest_dim)
 
         # TODO: We should distinguish between different numberings
         # (from plex point or "component-wise" point)
-        src_offset, _ = self.topology_dm.getDepthStratum(src_dim)
+        src_start, src_end = self.topology_dm.getDepthStratum(src_dim)
 
-        map_data_renum = np.empty_like(map_data)
-        for src_pt, map_data_per_pt in enumerate(map_data):
-            src_pt_renum = src_renumbering.getOffset(src_pt + src_offset)
-            for i, dest_pt in enumerate(map_data_per_pt):
-                dest_pt_renum = dest_renumbering.getOffset(dest_pt)
-                map_data_renum[src_pt_renum, i] = dest_pt_renum
+        map_pts_renum = np.empty_like(map_pts)
 
-        map_data_renum.flags.writeable = False
-        return map_data_renum
+        if sizes is None:
+            for src_pt, map_data_per_pt in enumerate(map_pts):
+                src_pt_renum = src_renumbering.getOffset(src_pt + src_start)
+                for i, dest_pt in enumerate(map_data_per_pt):
+                    dest_pt_renum = dest_renumbering.getOffset(dest_pt)
+                    map_pts_renum[src_pt_renum, i] = dest_pt_renum
+        else:
+            # map from a renumbered point to the offset in the original array
+            offsets = op3.utils.steps(sizes)
+            renum_offsets = np.empty_like(offsets)
+            for stratum_pt, src_pt in enumerate(range(src_start, src_end)):
+                stratum_pt_renum = src_renumbering.getOffset(src_pt)
+                renum_offsets[stratum_pt_renum] = offsets[stratum_pt]
 
-    # TODO: restore caching here
-    # @cached_property
-    def _star(self, *, k):
+            breakpoint()
+
+            offset = 0
+            for i, src_pt in enumerate(range(src_start, src_end)):
+                src_pt_renum = src_renumbering.getOffset(src_pt)
+                for j in range(sizes[i]):
+                    dest_pt = map_pts[offset]
+                    dest_pt_renum = dest_renumbering.getOffset(dest_pt)
+                    map_pts_renum[src_pt_renum, i] = dest_pt_renum
+                offset += sizes[i]
+
+
+        return op3.utils.readonly(map_pts_renum)
+
+    @cachedmethod(lambda self: self._cache["MeshTopology._star"])
+    def _star(self, *, k: int) -> op3.Map:
         def star_func(pt):
             return self.topology_dm.getTransitiveClosure(pt, useCone=False)[0]
 
         stars = {}
         for dim in range(self.dimension+1):
-            map_data, sizes = self._memoize_map(star_func, dim)
-            # stars are ragged
-            assert all(isinstance(s, np.ndarray) for s in sizes)
+            map_pts, sizes = self._memoize_map(star_func, dim)
+
+            map_pts_renum = tuple(
+                self._renumber_map(dim, d, map_pts[d], sizes[d]) for d in range(self.dimension+1)
+            )
+
+            breakpoint()
 
             map_components = []
             for map_dim, (size, data) in enumerate(
@@ -1620,28 +1649,6 @@ class AbstractMeshTopology(abc.ABC):
                 global_pt = -global_pt - 1
             numbering[i] = global_pt
 
-        from pyop3.extras.debug import print_if_rank
-
-        # numbering2 = PETSc.LGMap().createSF(self.topology_dm.getPointSF(), 0)
-
-        # print_if_rank(0, numbering)
-        # print_if_rank(0, numbering2.indices)
-
-        # raise NotImplementedError
-        return numbering
-
-    @utils.cached_property
-    def debug_global_numbering(self):
-        numbering = np.empty(self.points.size, dtype=IntType)
-        for local_pt, global_pt in enumerate(self._default_global_numbering):
-            stratum, stratum_pt = self.points.axis_to_component_number(local_pt)
-            stratum_dim = int(stratum.label)
-            stratum_index = self.points.component_index(stratum)
-
-            stratum_pt_renum = self.points.renumber_point(stratum, stratum_pt)
-            global_stratum_pt = global_pt - self.points._component_offsets[stratum_index]
-            numbering[local_pt] = stratum_pt_renum
-
         return numbering
 
     @utils.cached_property
@@ -1949,18 +1956,6 @@ class MeshTopology(AbstractMeshTopology):
         """
         return tuple(self._memoize_closures(dim) for dim in range(self.dimension+1))
 
-    @cached_property
-    def _plex_closures_renum(self):
-        """Memoized, renumbered, DMPlex point closures."""
-        raise NotImplementedError
-        closures_renum = []
-        closures_default, sizes = self._plex_closures_default
-        for src_dim in range(self.dimension+1):
-            map_data = closures_default[src_dim]
-            map_data_renum = self._renumber_map(map_data, src_dim)
-            closures_renum.append(map_data_renum)
-        return tuple(closures_renum), sizes
-
     def _memoize_closures(self, dim):
         def closure_func(_pt):
             return self.topology_dm.getTransitiveClosure(_pt)[0]
@@ -1973,8 +1968,7 @@ class MeshTopology(AbstractMeshTopology):
         for i, pt in enumerate(range(p_start, p_end)):
             closure_data[i] = closure_func(pt)
 
-        closure_data.flags.writeable = False
-        return closure_data
+        return op3.utils.readonly(closure_data)
 
     def _memoize_map(self, map_func, dim, sizes=None):
         if sizes is not None:
@@ -1991,86 +1985,46 @@ class MeshTopology(AbstractMeshTopology):
             for d in range(self.dimension+1)
         )
 
-        src_label = str(dim)
-        # src_strata_offset = self.points.component_offset(src_label)
-        src_strata_offset = pstart
-
         for pt in range(pstart, pend):
-            # stratum, stratum_pt = self.points.axis_to_component_number(pt)
-            stratum_pt = pt - src_strata_offset
+            stratum_pt = pt - pstart
 
             map_pts = iter(map_func(pt))
             for map_dim in reversed(range(self.dimension+1)):
                 for i in range(sizes[map_dim]):
                     map_pt = next(map_pts)
-                    # map_stratum, map_stratum_pt = self.points.axis_to_component_number(map_pt)
-                    # map_data[map_dim][stratum_pt, i] = map_stratum_pt
                     map_data[map_dim][stratum_pt, i] = map_pt
             utils.assert_empty(map_pts)
         return map_data
 
-    # NOTE: This function *does* renumber things, whereas the fixed version does not.
     def _memoize_map_ragged(self, map_func, dim):
-        pstart, pend = self.topology_dm.getDepthStratum(dim)
-        npoints = pend - pstart
-        # ragged
+        strata = tuple(self.topology_dm.getDepthStratum(d) for d in range(self.dimension+1))
+        def get_dim(_pt):
+            for _d, (_start, _end) in enumerate(strata):
+                if _start <= _pt < _end:
+                    return _d
+            assert False
+
+        p_start, p_end = self.topology_dm.getDepthStratum(dim)
+        npoints = p_end - p_start
+
+        # Store arities
         sizes = np.zeros((self.dimension+1, npoints), dtype=IntType)
-        for pt in range(pstart, pend):
-            cpt, cpt_pt = self.points.axis_to_component_number(pt)
-            renum_cpt_pt = self.points.renumber_point(cpt, cpt_pt)
-
+        for stratum_pt, pt in enumerate(range(p_start, p_end)):
             for map_pt in map_func(pt):
-                map_cpt, _ = self.points.axis_to_component_number(map_pt)
-                map_dim = int(map_cpt.label)
-                sizes[map_dim, renum_cpt_pt] += 1
+                map_dim = get_dim(map_pt)
+                sizes[map_dim, stratum_pt] += 1
 
-        map_data = tuple(
-            np.empty(sum(sizes[d]), dtype=IntType)
-            for d in range(self.dimension+1)
-        )
+        # Now store map data
+        map_pts = tuple(np.full(sum(sizes[d]), -1, dtype=IntType) for d in range(self.dimension+1))
         offsets = tuple(op3.utils.steps(sizes[d]) for d in range(self.dimension+1))
-        for pt in range(pstart, pend):
-            cpt, cpt_pt = self.points.axis_to_component_number(pt)
-            renum_cpt_pt = self.points.renumber_point(cpt, cpt_pt)
-
-            ptrs = [0] * (self.dimension + 1)
-
-            for map_pt in map_func(pt):
-                # determine whether map_pt is a cell, edge, etc
-                map_cpt, map_cpt_pt = self.points.axis_to_component_number(map_pt)
-                map_dim = int(map_cpt.label)
-                renum_map_cpt_pt = self.points.renumber_point(map_cpt, map_cpt_pt)
-                map_data[map_dim][offsets[map_dim][renum_cpt_pt] + ptrs[map_dim]] = renum_map_cpt_pt
-                ptrs[map_dim] += 1
-        # assert all(ptrs[d] == sum(sizes[d]) for d in range(self.dimension+1))
-        return map_data, sizes
-
-    # def _renumber_map(self, map_data, src_dim):
-    #     # FIXME: do later
-    #     return map_data
-    #
-    #     # TODO: Rename vars here to be non-closure specific
-    #     closures_default = map_data
-    #     closures_renum = tuple(np.empty_like(cl) for cl in closures_default)
-    #     src_label = str(src_dim)
-    #     src_renumbering = self.points.component_numbering(src_label)
-    #
-    #     for dest_dim in range(self.dimension+1):
-    #         dest_label = str(dest_dim)
-    #         dest_renumbering = self.points.component_numbering(dest_label)
-    #         dest_strata_offset = self.points.component_offset(dest_label)
-    #
-    #         # This is the hot loop
-    #         closure_renum = closures_renum[dest_dim]
-    #         closure_default = closures_default[dest_dim]
-    #         for src_strata_pt, dest_pts in enumerate(closure_default):
-    #             dest_strata_pts = dest_pts - dest_strata_offset
-    #
-    #             src_pt_renum = src_renumbering[src_strata_pt]
-    #             dest_pts_renum = dest_renumbering[dest_strata_pts]
-    #             closure_renum[src_pt_renum] = dest_pts_renum
-    #
-    #     return closures_renum
+        plex_pt_offsets = np.empty(self.dimension+1, dtype=IntType)
+        for stratum_pt, plex_pt in enumerate(range(p_start, p_end)):
+            plex_pt_offsets[...] = 0
+            for map_pt in map_func(plex_pt):
+                map_dim = get_dim(map_pt)
+                map_pts[map_dim][offsets[map_dim][stratum_pt] + plex_pt_offsets[map_dim]] = map_pt
+                plex_pt_offsets[map_dim] += 1
+        return map_pts, sizes
 
     @utils.cached_property
     def entity_orientations(self):
