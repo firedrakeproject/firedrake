@@ -54,17 +54,18 @@ class EnsembleReducedFunctional(ReducedFunctional):
         A scaling factor applied to the functional and its gradient(with respect to the control).
     tape : pyadjoint.Tape
         A tape object that the reduced functional will use to evaluate the functional and
-        its gradient (or gradients).
-    eval_cb_pre : callable
+        its gradients (or derivatives).
+    eval_cb_pre : :func:
         Callback function before evaluating the functional. Input is a list of Controls.
-    derivative_cb_pre : callable
-        Callback function before evaluating derivatives. Input is a list of derivatives.
-        Should return a list of Controls (usually the same list as the input) to be passed
-        to :func:`pyadjoint.compute_gradient`.
-    derivative_cb_post : callable
-        Callback function after evaluating derivatives. Inputs are the functional, the derivative,
-        and the controls. All of them are the checkpointed versions. Should return a list of
-        derivatives (usually the same list as the input)to be returned from ``self.derivative``.
+    derivative_cb_pre : :func:
+        Callback function before evaluating gradients (or derivatives). Input is a list of gradients
+        (or derivatives). Should return a list of Controls (usually the same list as the input) to
+        be passed to :func:`pyadjoint.compute_gradient`.
+    derivative_cb_post : :func:
+        Callback function after evaluating derivatives. Inputs are the functional, a list of
+        gradients (or derivatives), and controls. All of them are the checkpointed versions. Should
+        return a list of gradients (or derivatives) (usually the same list as the input)to be returned
+        from ``self.derivative``.
 
 
     See Also
