@@ -256,9 +256,10 @@ class FunctionMixin(FloatingType):
             raise ValueError(
                 "Unknown Riesz representation %s" % riesz_representation)
 
-    def _define_riesz_map_form(self, riesz_representation, V, measure_options):
+    def _define_riesz_map_form(self, riesz_representation, V, measure_options=None):
         from firedrake import TrialFunction, TestFunction
 
+        measure_options = {} if measure_options is None else measure_options
         u = TrialFunction(V)
         v = TestFunction(V)
         if riesz_representation == "L2":
