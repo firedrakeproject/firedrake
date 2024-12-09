@@ -223,9 +223,11 @@ def convert_finiteelement(element, **kwargs):
 
     return lmbda(cell, element.degree(), **finat_kwargs), set()
 
+
 @convert.register(redefining_fe.triples.IndiaTripleUFL)
 def convert_india_def(element, **kwargs):
     return finat.fiat_elements.IndiaDefElement(element.triple), set()
+
 
 # Element modifiers and compound element types
 @convert.register(finat.ufl.BrokenElement)
