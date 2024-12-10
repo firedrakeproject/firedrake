@@ -51,7 +51,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
         The indices of the controls that the derivative should be computed with respect to.
         If present, it overwrites ``derivative_cb_pre`` and ``derivative_cb_post``.
     scale : float
-        A scaling factor applied to the functional and its gradient(with respect to the control).
+        A scaling factor applied to the functional and its gradient (with respect to the control).
     tape : pyadjoint.Tape
         A tape object that the reduced functional will use to evaluate the functional and
         its gradients (or derivatives).
