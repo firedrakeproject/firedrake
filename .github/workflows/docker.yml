@@ -32,7 +32,7 @@ jobs:
   docker_vanilla:
     needs: docker_env
     # Only run if "Build Firedrake" succeeds
-    if: ${{ inputs.status == 'success' }}
+    # if: ${{ inputs.status == 'success' }}
     uses: ./.github/workflows/docker_reuse.yml
     with:
       target: firedrake-vanilla
@@ -63,7 +63,7 @@ jobs:
   docker_complex:
     needs: docker_env
     # Only run if "Build Firedrake" succeeds
-    if: ${{ inputs.status == 'success' }}
+    # if: ${{ inputs.status == 'success' }}
     uses: ./.github/workflows/docker_reuse.yml
     with:
       target: firedrake-complex
