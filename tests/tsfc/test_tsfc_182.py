@@ -20,7 +20,7 @@ def test_delta_elimination(mode):
 
     element_chi_lambda = MixedElement(element_eps_p, element_lambda)
     domain = Mesh(VectorElement("Lagrange", tetrahedron, 1))
-    domains = MixedMesh(domain, domain)
+    domains = MixedMesh([domain, domain])
     space = FunctionSpace(domains, element_chi_lambda)
 
     chi_lambda = Coefficient(space)

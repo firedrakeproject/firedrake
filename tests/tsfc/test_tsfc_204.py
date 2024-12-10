@@ -7,7 +7,7 @@ from finat.ufl import BrokenElement, FiniteElement, MixedElement, VectorElement
 
 def test_physically_mapped_facet():
     mesh = Mesh(VectorElement("P", triangle, 1))
-    meshes = MixedMesh(mesh, mesh, mesh, mesh, mesh)
+    meshes = MixedMesh([mesh, mesh, mesh, mesh, mesh])
 
     # set up variational problem
     U = FiniteElement("Morley", mesh.ufl_cell(), 2)
