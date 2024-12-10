@@ -120,7 +120,19 @@ class ContextBase(ProxyKernelInterface):
         # Directly set use_canonical_quadrature_point_ordering = False in context
         # for translation of special nodes, e.g., CellVolume, FacetArea, CellOrigin, and CellVertices,
         # as quadrature point ordering is not relevant for those node types.
-        return isinstance(self.fiat_cell, UFCHexahedron) and self.integral_type in ['exterior_facet', 'interior_facet']
+        cell_integral_type_map = {
+            as_fiat_cell(domain.ufl_cell()): integral_type
+            for domain, integral_type in self.domain_integral_type_map.items()
+            if integral_type is not None
+        }
+        if all(integral_type == 'cell' for integral_type in cell_integral_type_map.values()):
+            return False
+        elif all(integral_type in ['exterior_facet', 'interior_facet'] for integral_type in cell_integral_type_map.values()):
+            if all(isinstance(cell, UFCHexahedron) for cell in cell_integral_type_map):
+                return True
+            elif len(set(cell_integral_type_map)) > 1:  # mixed cell types
+                return True
+        return False
 
 
 class CoordinateMapping(PhysicalGeometry):
@@ -153,7 +165,7 @@ class CoordinateMapping(PhysicalGeometry):
     @property
     def config(self):
         config = {name: getattr(self.interface, name)
-                  for name in ["ufl_cell", "index_cache", "scalar_type"]}
+                  for name in ["ufl_cell", "index_cache", "scalar_type", "domain_integral_type_map"]}
         config["interface"] = self.interface
         return config
 
