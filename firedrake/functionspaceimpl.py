@@ -201,9 +201,6 @@ class WithGeometryBase(object):
         bound = len(data)
         if i < 0 or i >= bound:
             raise IndexError(f"Invalid component {i}, not in [0, {bound})")
-        #bound = len(self._components)
-        #if i < 0 or i >= bound:
-        #    raise IndexError("Invalid component %d, not in [0, %d)" % (i, bound))
         return data[i]
 
     @utils.cached_property
