@@ -1,5 +1,6 @@
 import loopy as lp
 import numpy as np
+import pytest
 
 import pyop3 as op3
 from firedrake import *
@@ -20,7 +21,8 @@ def make_max_kernel():
     return op3.Function(lpy_kernel, [op3.READ, op3.RW])
 
 
-def test_patch_loop():
+@pytest.mark.parametrize("optimize", [False, True])
+def test_patch_loop(optimize):
     mesh = UnitSquareMesh(1, 1)
 
     V_cg = FunctionSpace(mesh, "CG", 1)
@@ -45,6 +47,7 @@ def test_patch_loop():
             c := mesh.star(v, k=2).iter(),
             max_(dg.dat[c], cg.dat[v]),
         ),
+        compiler_parameters={"optimize": optimize},
     )
 
     assert np.allclose(sorted(cg.dat.data_ro), [0.33, 0.66, 0.66, 0.66], atol=0.01)
