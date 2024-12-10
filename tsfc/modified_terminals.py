@@ -21,7 +21,7 @@
 """Definitions of 'modified terminals', a core concept in uflacs."""
 
 from ufl.classes import (ReferenceValue, ReferenceGrad,
-                         NegativeRestricted, PositiveRestricted,
+                         NegativeRestricted, PositiveRestricted, SingleValueRestricted, ToBeRestricted,
                          Restricted, ConstantValue,
                          Jacobian, SpatialCoordinate, Zero)
 from ufl.checks import is_cellwise_constant
@@ -39,7 +39,7 @@ class ModifiedTerminal(object):
         terminal           - the underlying Terminal object
         local_derivatives  - tuple of ints, each meaning derivative in that local direction
         reference_value    - bool, whether this is represented in reference frame
-        restriction        - None, '+' or '-'
+        restriction        - None, '+', '-', '|', or '?'
     """
 
     def __init__(self, expr, terminal, local_derivatives, restriction, reference_value):
@@ -175,5 +175,9 @@ def construct_modified_terminal(mt, terminal):
             expr = PositiveRestricted(expr)
         elif mt.restriction == '-':
             expr = NegativeRestricted(expr)
+        elif mt.restriction == '|':
+            expr = SingleValueRestricted(expr)
+        elif mt.restriction == '?':
+            expr = ToBeRestricted(expr)
 
     return expr
