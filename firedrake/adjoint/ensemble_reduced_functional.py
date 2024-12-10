@@ -51,22 +51,29 @@ class EnsembleReducedFunctional(ReducedFunctional):
         The indices of the controls that the derivative should be computed with respect to.
         If present, it overwrites ``derivative_cb_pre`` and ``derivative_cb_post``.
     scale : float
-        A scaling factor applied to the functional and its gradient (with respect to the control).
+        A scaling factor applied to the functional and its gradient(with respect to the control).
     tape : pyadjoint.Tape
         A tape object that the reduced functional will use to evaluate the functional and
         its gradients (or derivatives).
     eval_cb_pre : :func:
         Callback function before evaluating the functional. Input is a list of Controls.
+    eval_cb_pos : :func:
+        Callback function after evaluating the functional. Inputs are the functional value
+        and a list of Controls.
     derivative_cb_pre : :func:
-        Callback function before evaluating gradients (or derivatives). Input is a list of gradients
-        (or derivatives). Should return a list of Controls (usually the same list as the input) to
-        be passed to :func:`pyadjoint.compute_gradient`.
+        Callback function before evaluating gradients (or derivatives). Input is a list of
+        gradients (or derivatives). Should return a list of Controls (usually the same list as
+        the input) to be passed to :func:`pyadjoint.compute_gradient`.
     derivative_cb_post : :func:
         Callback function after evaluating derivatives. Inputs are the functional, a list of
-        gradients (or derivatives), and controls. All of them are the checkpointed versions. Should
-        return a list of gradients (or derivatives) (usually the same list as the input)to be returned
-        from ``self.derivative``.
-
+        gradients (or derivatives), and controls. All of them are the checkpointed versions.
+        Should return a list of gradients (or derivatives) (usually the same list as the input)
+        to be returned from ``self.derivative``.
+    hessian_cb_pre : :func:
+        Callback function before evaluating the Hessian. Input is a list of Controls.
+    hessian_cb_post : :func:
+        Callback function after evaluating the Hessian. Inputs are the functional, a list of
+        Hessian, and controls.
 
     See Also
     --------
