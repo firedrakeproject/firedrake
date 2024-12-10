@@ -1078,6 +1078,43 @@ class AbstractMeshTopology(abc.ABC):
 
         return op3.Map(closures, name="closure")
 
+    # NOTE: Probably better to cache the 'everything' case and then drop as necessary when k is given
+    @cachedmethod(lambda self: self._cache["MeshTopology._star"])
+    def _star(self, *, k: int) -> op3.Map:
+        def star_func(pt):
+            return self.topology_dm.getTransitiveClosure(pt, useCone=False)[0]
+
+        stars = {}
+        for dim in range(self.dimension+1):
+            map_plex_pts, sizes = self._memoize_map(star_func, dim)
+
+            # Now renumber the points. Note that this transforms us from 'plex' numbering to 'stratum' numbering.
+            map_strata_pts_renum = tuple(
+                self._renumber_map(dim, d, map_plex_pts[d], sizes[d]) for d in range(self.dimension+1)
+            )
+
+            map_components = []
+            for map_dim, (map_stratum_pts, sizes) in enumerate(map_strata_pts_renum):
+                if k is not None and k != map_dim:
+                    continue
+
+                outer_axis = self.points[str(dim)].root
+                # NOTE: This is technically constant-sized, so we want to invalidate writes, but we don't
+                # want to inject into the kernel!
+                size_dat = op3.Dat(outer_axis, data=sizes, max_value=max(sizes), prefix="size")
+                inner_axis = op3.Axis({str(map_dim): size_dat}, "star")
+                map_axes = op3.AxisTree.from_nest(
+                    {outer_axis: inner_axis}
+                )
+                map_dat = op3.Dat(map_axes, data=map_stratum_pts, prefix="map")
+                map_components.append(
+                    op3.TabulatedMapComponent(self.name, str(map_dim), map_dat)
+                )
+            # 1-tuple here because in theory star(cell) could map to other valid things (like points)
+            stars[pmap({self.name: str(dim)})] = (tuple(map_components),)
+
+        return op3.Map(stars, name="star")
+
     def _reorder_closure_fiat_simplex(self, closure_data):
         return dmcommon.closure_ordering(self, closure_data)
 
@@ -1209,63 +1246,26 @@ class AbstractMeshTopology(abc.ABC):
                 for i, dest_pt in enumerate(map_data_per_pt):
                     dest_pt_renum = dest_renumbering.getOffset(dest_pt)
                     map_pts_renum[src_pt_renum, i] = dest_pt_renum
+            return op3.utils.readonly(map_pts_renum)
         else:
             # map from a renumbered point to the offset in the original array
-            offsets = op3.utils.steps(sizes)
-            renum_offsets = np.empty_like(offsets)
+            sizes_renum = np.empty_like(sizes)
+            offsets = op3.utils.steps(sizes, drop_last=True)
+            offsets_renum = np.empty_like(offsets)
             for stratum_pt, src_pt in enumerate(range(src_start, src_end)):
                 stratum_pt_renum = src_renumbering.getOffset(src_pt)
-                renum_offsets[stratum_pt_renum] = offsets[stratum_pt]
+                sizes_renum[stratum_pt_renum] = sizes[stratum_pt]
+                offsets_renum[stratum_pt_renum] = offsets[stratum_pt]
 
-            breakpoint()
+            map_pts_renum = np.empty_like(map_pts)
+            for src_stratum_pt, src_plex_pt in enumerate(range(src_start, src_end)):
+                src_stratum_pt_renum = src_renumbering.getOffset(src_plex_pt)
+                for i in range(sizes[src_stratum_pt]):
+                    dest_pt = map_pts[offsets[src_stratum_pt]+i]
+                    dest_stratum_pt_renum = dest_renumbering.getOffset(dest_pt)
+                    map_pts_renum[offsets_renum[src_stratum_pt_renum]+i] = dest_stratum_pt_renum
 
-            offset = 0
-            for i, src_pt in enumerate(range(src_start, src_end)):
-                src_pt_renum = src_renumbering.getOffset(src_pt)
-                for j in range(sizes[i]):
-                    dest_pt = map_pts[offset]
-                    dest_pt_renum = dest_renumbering.getOffset(dest_pt)
-                    map_pts_renum[src_pt_renum, i] = dest_pt_renum
-                offset += sizes[i]
-
-
-        return op3.utils.readonly(map_pts_renum)
-
-    @cachedmethod(lambda self: self._cache["MeshTopology._star"])
-    def _star(self, *, k: int) -> op3.Map:
-        def star_func(pt):
-            return self.topology_dm.getTransitiveClosure(pt, useCone=False)[0]
-
-        stars = {}
-        for dim in range(self.dimension+1):
-            map_pts, sizes = self._memoize_map(star_func, dim)
-
-            map_pts_renum = tuple(
-                self._renumber_map(dim, d, map_pts[d], sizes[d]) for d in range(self.dimension+1)
-            )
-
-            breakpoint()
-
-            map_components = []
-            for map_dim, (size, data) in enumerate(
-                checked_zip(sizes, map_data)
-            ):
-                if k is not None and k != map_dim:
-                    continue
-
-                outer_axis = self.points[str(dim)].root
-                size_dat = op3.Dat(outer_axis, data=size, max_value=max(size), prefix="size")
-                inner_axis = op3.Axis(size_dat)
-                map_axes = op3.AxisTree.from_nest(
-                    {outer_axis: inner_axis}
-                )
-                map_dat = op3.Dat(map_axes, data=data, prefix="map")
-                map_components.append(
-                    op3.TabulatedMapComponent(self.name, str(map_dim), map_dat)
-                )
-            stars[freeze({self.name: str(dim)})] = map_components
-
-        return op3.Map(stars)
+            return op3.utils.readonly(map_pts_renum), op3.utils.readonly(sizes_renum)
 
     def support(self, index):
         return self._support(index)

@@ -40,9 +40,9 @@ def test_patch_loop():
 
     max_ = make_max_kernel()
     op3.do_loop(
-        v := mesh.vertices.index(),
+        v := mesh.vertices.index(),  # TODO: make .iter() instead
         op3.loop(
-            c := mesh.star(v, k=2).index(),
+            c := mesh.star(v, k=2).iter(),
             max_(dg.dat[c], cg.dat[v]),
         ),
     )
