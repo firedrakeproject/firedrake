@@ -10,7 +10,7 @@ from gem.flop_count import count_flops
 
 import loopy as lp
 
-from tsfc import kernel_args, fem
+from tsfc import kernel_args
 from tsfc.finatinterface import create_element
 from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase, KernelBuilderMixin, get_index_names, check_requirements, prepare_coefficient, prepare_arguments, prepare_constant
 from tsfc.loopy import generate as generate_loopy
@@ -504,8 +504,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
                                                                 exterior_facets=tuple(active_domain_numbers_exterior_facets),
                                                                 interior_facets=tuple(active_domain_numbers_interior_facets),
                                                                 exterior_facet_orientations=tuple(active_domain_numbers_exterior_facet_orientations),
-                                                                interior_facet_orientations=tuple(active_domain_numbers_interior_facet_orientations),
-                                            ),
+                                                                interior_facet_orientations=tuple(active_domain_numbers_interior_facet_orientations),),
                       coefficient_numbers=tuple(zip(info.coefficient_numbers, coefficient_indices)),
                       tabulations=tabulations,
                       flop_count=flop_count,
