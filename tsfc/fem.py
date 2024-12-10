@@ -114,13 +114,17 @@ class ContextBase(ProxyKernelInterface):
 
     @cached_property
     def use_canonical_quadrature_point_ordering(self):
-        filtered_map = {domain: integral_type for domain, integral_type in self.domain_integral_type_map.items() if integral_type is not None}
+        cell_integral_type_map = {as_fiat_cell(domain.ufl_cell()): integral_type
+                                  for domain, integral_type in self.domain_integral_type_map.items()
+                                  if integral_type is not None}
+        if all(integral_type == 'cell' for integral_type in cell_integral_type_map.values()):
+            return False
+        elif all(integral_type in ['exterior_facet', 'interior_facet'] for integral_type in cell_integral_type_map.values()):
+            if all(isinstance(cell, UFCHexahedron) for cell in cell_integral_type_map):
+                return True
+            elif len(set(cell_integral_type_map)) > 1:  # mixed cell types
+                return True
         return False
-        import pdb;pdb.set_trace()
-        for domain, integral_type in filtered_map.items():
-            if domain.ufl_cell() == 999:
-                pass
-        return isinstance(self.fiat_cell, UFCHexahedron) and self.integral_type in ['exterior_facet', 'interior_facet']
 
 
 class CoordinateMapping(PhysicalGeometry):
@@ -153,7 +157,7 @@ class CoordinateMapping(PhysicalGeometry):
     @property
     def config(self):
         config = {name: getattr(self.interface, name)
-                  for name in ["ufl_cell", "index_cache", "scalar_type"]}
+                  for name in ["ufl_cell", "index_cache", "scalar_type", "domain_integral_type_map"]}
         config["interface"] = self.interface
         return config
 
