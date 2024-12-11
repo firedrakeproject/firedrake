@@ -134,8 +134,12 @@ class ASMStarPC(ASMPatchPC):
 
     def get_patches(self, V):
         mesh = V._mesh
-        mesh_dm = mesh.topology_dm
-        if mesh.cell_set._extruded:
+        if len(set(mesh)) == 1:
+            mesh_unique = mesh.unique()
+        else:
+            raise NotImplementedError("Not implemented for general mixed meshes")
+        mesh_dm = mesh_unique.topology_dm
+        if mesh_unique.cell_set._extruded:
             warning("applying ASMStarPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
@@ -189,8 +193,12 @@ class ASMVankaPC(ASMPatchPC):
 
     def get_patches(self, V):
         mesh = V._mesh
-        mesh_dm = mesh.topology_dm
-        if mesh.layers:
+        if len(set(mesh)) == 1:
+            mesh_unique = mesh.unique()
+        else:
+            raise NotImplementedError("Not implemented for general mixed meshes")
+        mesh_dm = mesh_unique.topology_dm
+        if mesh_unique.layers:
             warning("applying ASMVankaPC on an extruded mesh")
 
         # Obtain the topological entities to use to construct the stars
@@ -278,8 +286,12 @@ class ASMLinesmoothPC(ASMPatchPC):
 
     def get_patches(self, V):
         mesh = V._mesh
-        assert mesh.cell_set._extruded
-        dm = mesh.topology_dm
+        if len(set(mesh)) == 1:
+            mesh_unique = mesh.unique()
+        else:
+            raise NotImplementedError("Not implemented for general mixed meshes")
+        assert mesh_unique.cell_set._extruded
+        dm = mesh_unique.topology_dm
         section = V.dm.getDefaultSection()
         # Obtain the codimensions to loop over from options, if present
         opts = PETSc.Options(self.prefix)
@@ -377,9 +389,13 @@ class ASMExtrudedStarPC(ASMStarPC):
 
     def get_patches(self, V):
         mesh = V.mesh()
-        mesh_dm = mesh.topology_dm
-        nlayers = mesh.layers
-        if not mesh.cell_set._extruded:
+        if len(set(mesh)) == 1:
+            mesh_unique = mesh.unique()
+        else:
+            raise NotImplementedError("Not implemented for general mixed meshes")
+        mesh_dm = mesh_unique.topology_dm
+        nlayers = mesh_unique.layers
+        if not mesh_unique.cell_set._extruded:
             return super(ASMExtrudedStarPC, self).get_patches(V)
 
         # Obtain the topological entities to use to construct the stars
