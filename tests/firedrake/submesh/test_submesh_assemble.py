@@ -50,7 +50,7 @@ def test_submesh_assemble_cell_cell_integral_facet():
     v0, v1 = split(v)
     dS0 = Measure("dS", domain=mesh)
     ds1 = Measure("ds", domain=subm)
-    a = inner(u1('|'), v0('+')) * dS0 + inner(u0('+'), v1('|')) * ds1(5)
+    a = inner(u1, v0('+')) * dS0 + inner(u0('+'), v1) * ds1(5)
     A = assemble(a, mat_type="nest")
     assert np.allclose(A.M.sparsity[0][0].nnz, [1, 1, 1, 1, 1, 1, 1, 1])  # bc nodes
     assert np.allclose(A.M.sparsity[0][1].nnz, [4, 4, 4, 4, 4, 4, 4, 4])
@@ -62,7 +62,7 @@ def test_submesh_assemble_cell_cell_integral_facet():
                     [0., 0., 0., 0., 0., 0., 0., 0.]])
     assert np.allclose(A.M[0][1].values, np.transpose(M10))
     assert np.allclose(A.M[1][0].values, M10)
-    b = inner(u1('|'), v0('+')) * ds1(5) + inner(u0('+'), v1('|')) * dS0
+    b = inner(u1, v0('+')) * ds1(5) + inner(u0('+'), v1) * dS0
     B = assemble(b, mat_type="nest")
     assert np.allclose(B.M.sparsity[0][0].nnz, [1, 1, 1, 1, 1, 1, 1, 1])  # bc nodes
     assert np.allclose(B.M.sparsity[0][1].nnz, [4, 4, 4, 4, 4, 4, 4, 4])
@@ -126,7 +126,7 @@ def test_submesh_assemble_cell_cell_cell_cell_integral_various():
     V = V_l * V_rl
     u_l, u_rl = TrialFunctions(V)
     v_l, v_rl = TestFunctions(V)
-    a = inner(u_rl('|'), v_l('|')) * ds_l(label_int) + inner(u_l('|'), v_rl('|')) * ds_rl(label_int)
+    a = inner(u_rl, v_l) * ds_l(label_int) + inner(u_l, v_rl) * ds_rl(label_int)
     A = assemble(a, mat_type="nest")
     assert np.allclose(A.M.sparsity[0][0].nnz, [1, 1, 1, 1, 1, 1, 1, 1])  # bc nodes
     assert np.allclose(A.M.sparsity[0][1].nnz, [4, 4, 4, 4, 0, 0, 0, 0])
@@ -138,7 +138,7 @@ def test_submesh_assemble_cell_cell_cell_cell_integral_various():
                     [0., 0., 0., 0., 0., 0., 0., 0.]])
     assert np.allclose(A.M[0][1].values, np.transpose(M10))
     assert np.allclose(A.M[1][0].values, M10)
-    b = inner(u_rl('|'), v_l('|')) * dS(label_int) + inner(u_l('|'), v_rl('|')) * dS(label_int)
+    b = inner(u_rl, v_l) * dS(label_int) + inner(u_l, v_rl) * dS(label_int)
     B = assemble(b, mat_type="nest")
     assert np.allclose(B.M.sparsity[0][0].nnz, [1, 1, 1, 1, 1, 1, 1, 1])  # bc nodes
     assert np.allclose(B.M.sparsity[0][1].nnz, [4, 4, 4, 4, 0, 0, 0, 0])
@@ -203,8 +203,8 @@ def test_submesh_assemble_cell_cell_cell_cell_integral_avg():
     assert abs(assemble(cell_avg(x_l) * dx_rl) - 2.5) < 5.e-16
     assert abs(assemble(facet_avg(y * y) * dS(label_int)) - 1. / 3.) < 5.e-16
     assert abs(assemble(facet_avg(y('+') * y('-')) * ds_rl(label_int)) - 1. / 3.) < 5.e-16
-    assert abs(assemble(facet_avg(y_rl('|') * y_rl('|')) * dS(label_int)) - 1. / 3.) < 5.e-16
-    assert abs(assemble(facet_avg(y_rl('|') * y_rl('|')) * dS_l(label_int)) - 1. / 3.) < 5.e-16
+    assert abs(assemble(facet_avg(y_rl * y_rl) * dS(label_int)) - 1. / 3.) < 5.e-16
+    assert abs(assemble(facet_avg(y_rl * y_rl) * dS_l(label_int)) - 1. / 3.) < 5.e-16
     assert abs(assemble(facet_avg(y_l('+') * y_l('-')) * ds_rl(label_int)) - 1. / 3.) < 5.e-16
 
 
