@@ -1411,6 +1411,7 @@ def create_compiler_env(cc, cxx, f90):
         env["MPIF90"] = f90
         env["MPI_C_COMPILER"] = f90
         env["F90"] = f90
+        env["MPI_Fortran"] = f90
 
     return env
 
