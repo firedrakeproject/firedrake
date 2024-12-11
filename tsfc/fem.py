@@ -3,7 +3,7 @@ geometric quantities into GEM expressions."""
 
 import collections
 import itertools
-from functools import singledispatch
+from functools import cached_property, singledispatch
 
 import gem
 import numpy
@@ -18,7 +18,6 @@ from finat.quadrature import make_quadrature
 from gem.node import traversal
 from gem.optimise import constant_fold_zero, ffc_rounding
 from gem.unconcatenate import unconcatenate
-from gem.utils import cached_property
 from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
                          CellFacetJacobian, CellOrientation, CellOrigin,
                          CellVertices, CellVolume, Coefficient, FacetArea,
@@ -41,6 +40,8 @@ from tsfc.parameters import is_complex
 from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
                             TSFCConstantMixin, entity_avg, one_times,
                             preprocess_expression, simplify_abs)
+
+from pyop2.caching import serial_cache
 
 
 class ContextBase(ProxyKernelInterface):
@@ -296,6 +297,12 @@ class PointSetContext(ContextBase):
     def weight_expr(self):
         return self.quadrature_rule.weight_expression
 
+    def make_basis_evaluation_key(self, finat_element, mt, entity_id):
+        domain = extract_unique_domain(mt.terminal)
+        restriction = mt.restriction
+        return (self, finat_element, mt.local_derivatives, domain, restriction, entity_id)
+
+    @serial_cache(hashkey=make_basis_evaluation_key)
     def basis_evaluation(self, finat_element, mt, entity_id):
         return finat_element.basis_evaluation(mt.local_derivatives,
                                               self.point_set,
