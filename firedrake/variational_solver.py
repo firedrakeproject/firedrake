@@ -9,7 +9,7 @@ from firedrake.petsc import (
     PETSc, OptionsManager, flatten_parameters, DEFAULT_KSP_PARAMETERS,
     DEFAULT_SNES_PARAMETERS
 )
-from firedrake.function import Function
+from firedrake.function import Function, Cofunction
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
@@ -92,7 +92,11 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             self.u_restrict = Function(V_res).interpolate(u)
             v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
             F_arg, = F.arguments()
-            self.F = replace(F, {F_arg: v_res, self.u: self.u_restrict})
+            replace_F = {F_arg: v_res, self.u: self.u_restrict}
+            for c in F.coefficients():
+                if c.function_space() == V.dual():
+                    replace_F[c] = Cofunction(V_res.dual()).interpolate(c)
+            self.F = replace(F, replace_F)
             v_arg, u_arg = self.J.arguments()
             self.J = replace(self.J, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
             if self.Jp:

@@ -1201,7 +1201,7 @@ class OneFormAssembler(ParloopFormAssembler):
             bc.zero(tensor)
 
     def _check_tensor(self, tensor):
-        if tensor.function_space() != self._form.arguments()[0].function_space():
+        if tensor.function_space() != self._form.arguments()[0].function_space().dual():
             raise ValueError("Form's argument does not match provided result tensor")
 
     @staticmethod
