@@ -258,8 +258,6 @@ class PickRestriction(MultiFunction, ModifiedTerminalMixin):
         mt = analyse_modified_terminal(o)
         t = mt.terminal
         r = mt.restriction
-        if r == '?':
-            raise RuntimeError("Not expecting '?' restriction at this stage")
         if isinstance(t, Argument) and r in ['+', '-']:
             if r == self.restrictions[t.number()]:
                 return o
