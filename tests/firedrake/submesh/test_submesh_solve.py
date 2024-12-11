@@ -271,13 +271,13 @@ def _mixed_poisson_solve_2d(nref, degree, quadrilateral, submesh_region):
     w = Function(W)
     sigma, u = split(w)
     a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx1 + inner(u - u_exact, v) * dx0(label_submesh_compl)
-    L = inner(f, v) * dx1 + inner((u('+') + u('-')) / 2., dot(tau('|'), nsub('|'))) * dS0(boun_int) + inner(u_exact('|'), dot(tau('|'), nsub('|'))) * ds0(boun_ext)
+    L = inner(f, v) * dx1 + inner((u('+') + u('-')) / 2., dot(tau, nsub)) * dS0(boun_int) + inner(u_exact, dot(tau, nsub)) * ds0(boun_ext)
     solve(a - L == 0, w, bcs=[bc])
     # Change domains of integration.
     w_ = Function(W)
     sigma_, u_ = split(w_)
     a_ = (inner(sigma_, tau) + inner(u_, div(tau)) + inner(div(sigma_), v)) * dx1 + inner(u_ - u_exact, v) * dx0(label_submesh_compl)
-    L_ = inner(f, v) * dx0(label_submesh) + inner((u_('+') + u_('-')) / 2., dot(tau('|'), nsub('|'))) * ds1(boun_int) + inner(u_exact('|'), dot(tau('|'), nsub('|'))) * ds1(boun_ext)
+    L_ = inner(f, v) * dx0(label_submesh) + inner((u_('+') + u_('-')) / 2., dot(tau, nsub)) * ds1(boun_int) + inner(u_exact, dot(tau, nsub)) * ds1(boun_ext)
     solve(a_ - L_ == 0, w_, bcs=[bc])
     assert assemble(inner(sigma_ - sigma, sigma_ - sigma) * dx1) < 1.e-20
     assert assemble(inner(u_ - u, u_ - u) * dx0(label_submesh)) < 1.e-20
@@ -401,7 +401,7 @@ def _mixed_poisson_solve_3d(hexahedral, degree, submesh_region):
     w = Function(W)
     sigma, u = split(w)
     a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx1 + inner(u - u_exact, v) * dx0(label_submesh_compl)
-    L = inner(f, v) * dx1 + inner((u('+') + u('-')) / 2., dot(tau('|'), nsub('|'))) * ds1(boun_int) + inner(u_exact('|'), dot(tau('|'), nsub('|'))) * ds0(boun_ext)
+    L = inner(f, v) * dx1 + inner((u('+') + u('-')) / 2., dot(tau, nsub)) * ds1(boun_int) + inner(u_exact, dot(tau, nsub)) * ds0(boun_ext)
     solve(a - L == 0, w, bcs=[bc])
     sigma_error = sqrt(assemble(inner(sigma - sigma_exact, sigma - sigma_exact) * dx1))
     u_error = sqrt(assemble(inner(u - u_exact, u - u_exact) * dx0(label_submesh)))

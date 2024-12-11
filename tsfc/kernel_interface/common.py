@@ -54,13 +54,11 @@ class KernelBuilderBase(KernelInterface):
     def coefficient(self, ufl_coefficient, restriction):
         """A function that maps :class:`ufl.Coefficient`s to GEM
         expressions."""
-        if restriction == '?':
-            raise RuntimeError("Not expecting '?' restriction at this stage")
         kernel_arg = self.coefficient_map[ufl_coefficient]
         domain = extract_unique_domain(ufl_coefficient)
         if ufl_coefficient.ufl_element().family() == 'Real':
             return kernel_arg
-        elif not self._domain_integral_type_map[domain].startswith("interior_facet"):  # '|' is for exterior_facet
+        elif not self._domain_integral_type_map[domain].startswith("interior_facet"):
             return kernel_arg
         else:
             return kernel_arg[{'+': 0, '-': 1}[restriction]]
@@ -70,11 +68,9 @@ class KernelBuilderBase(KernelInterface):
 
     def cell_orientation(self, domain, restriction):
         """Cell orientation as a GEM expression."""
-        if restriction == '?':
-            raise RuntimeError("Not expecting '?' restriction at this stage")
         if not hasattr(self, "_cell_orientations"):
             raise RuntimeError("Haven't called set_cell_orientations")
-        f = {None: 0, '|': 0, '+': 0, '-': 1}[restriction]
+        f = {None: 0, '+': 0, '-': 1}[restriction]
         co_int = self._cell_orientations[domain][f]
         return gem.Conditional(gem.Comparison("==", co_int, gem.Literal(1)),
                                gem.Literal(-1),
@@ -83,8 +79,6 @@ class KernelBuilderBase(KernelInterface):
                                                gem.Literal(numpy.nan)))
 
     def cell_size(self, domain, restriction):
-        if restriction == '?':
-            raise RuntimeError("Not expecting '?' restriction at this stage")
         if not hasattr(self, "_cell_sizes"):
             raise RuntimeError("Haven't called set_cell_sizes")
         if self._domain_integral_type_map[domain].startswith("interior_facet"):
