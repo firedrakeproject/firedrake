@@ -12,7 +12,7 @@ Firedrake USA'25
                
 The ninth Firedrake user and developer workshop will be held at 
 `Baylor University 
-<https://math.artsandsciences.baylor.edu>`__ from 28 February-1 March 2024.
+<https://math.artsandsciences.baylor.edu>`__ from 28 February-1 March 2025.
 
 The workshop will be an opportunity for Firedrake users and developers
 to discuss the latest developments in the
@@ -21,13 +21,7 @@ in the numerical solution of partial differential equations. The event
 will provide Firedrake users with the opportunity to interact directly
 with developers and with other users.
 
-The conference will begin with a tutorial session on the morning of 28 February and end on the evening of 1 March. The `program can be found here <https://easychair.org/smart-program/Firedrake'25/>`__.
-
-Programme
----------
-
-`The programme is now available
-<https://easychair.org/smart-program/Firedrake'24/>`__.
+The conference will begin with a tutorial session on the morning of 28 February and end on the evening of 1 March. 
 
 
 Conference venue
@@ -46,7 +40,6 @@ Conference dinner
 -----------------
 
 The conference dinner will be held Friday night at the Baylor Club in McLane Stadium.  The dinner is included with the registration fee.
-
 
 
 Registration
