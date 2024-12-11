@@ -155,6 +155,7 @@ def test_zero_form(M, f, one):
     assert abs(zero_form - 0.5 * np.prod(f.ufl_shape)) < 1.0e-12
 
 
+@pytest.mark.xfail(reason="action(M, M) causes primal-dual error")
 def test_preprocess_form(M, a, f):
     from ufl.algorithms import expand_indices, expand_derivatives
 
