@@ -56,25 +56,6 @@ jobs:
         with:
           path: src/firedrake
 
-      - name: Install libsupermesh
-        run: |
-          source pip_venv/bin/activate
-          python -m pip install 'rtree>=1.2'
-          cd pip_venv/src
-          git clone https://github.com/firedrakeproject/libsupermesh.git
-          mkdir -p libsupermesh/build
-          cd libsupermesh/build
-          cmake .. \
-            -DBUILD_SHARED_LIBS=ON \
-            -DCMAKE_INSTALL_PREFIX="$VIRTUAL_ENV" \
-            -DMPI_C_COMPILER="$MPICH_DIR/mpicc" \
-            -DMPI_CXX_COMPILER="$MPICH_DIR/mpicxx" \
-            -DMPI_Fortran_COMPILER="$MPICH_DIR/mpif90" \
-            -DCMAKE_Fortran_COMPILER="$MPICH_DIR/mpif90" \
-            -DMPIEXEC_EXECUTABLE="$MPICH_DIR/mpiexec"
-          make
-          make install
-
       - name: Pip install
         run: |
           source pip_venv/bin/activate
