@@ -6,6 +6,7 @@ import numpy as np
 import pybind11
 import petsc4py
 import rtree
+import libsupermesh
 import pkgconfig
 from dataclasses import dataclass, field
 from setuptools import setup, find_packages, Extension
@@ -145,6 +146,9 @@ else:
 # In the next 2 linkages we are using `site.getsitepackages()[0]`, which isn't
 # guaranteed to be the correct place we could also use "$ORIGIN/../../lib_dir",
 # but that definitely doesn't work with editable installs.
+# This is necessary because Python build isolation means that the compile-time
+# library dirs (in the isolated build env) are different to the run-time
+# library dirs (in the venv).
 
 # libspatialindex
 # example:
@@ -159,15 +163,16 @@ spatialindex_ = ExternalDependency(
 
 # libsupermesh
 # example:
-# gcc -I/supermesh/include
-# gcc /supermesh/supermesh.cpython-311-x86_64-linux-gnu.so \
+# gcc -Ipath/to/libsupermesh/include
+# gcc path/to/libsupermesh/libsupermesh.cpython-311-x86_64-linux-gnu.so \
 #    -lsupermesh \
-#    -Wl,-rpath,$ORIGIN/../../supermesh
-supermesh_ = ExternalDependency(
-    include_dirs=[f"{sys.prefix}/include"],
-    library_dirs=[f"{sys.prefix}/lib"],
+#    -Wl,-rpath,$ORIGIN/../../libsupermesh
+libsupermesh_dir = Path(libsupermesh.__path__._path[0]).absolute()
+libsupermesh_ = ExternalDependency(
+    include_dirs=[str(libsupermesh_dir.joinpath("include"))],
+    library_dirs=[str(libsupermesh_dir.joinpath("lib"))],
+    runtime_library_dirs=[os.path.join(site.getsitepackages()[0], "libsupermesh", "lib")],
     libraries=["supermesh"],
-    runtime_library_dirs=[f"{sys.prefix}/lib"],
 )
 
 # The following extensions need to be linked accordingly:
@@ -221,7 +226,7 @@ def extensions():
         name="firedrake.cython.supermeshimpl",
         language="c",
         sources=[os.path.join("firedrake", "cython", "supermeshimpl.pyx")],
-        **(petsc_ + numpy_ + supermesh_)
+        **(petsc_ + numpy_ + libsupermesh_)
     ))
     # pyop2/sparsity.pyx: petsc, numpy,
     cython_list.append(Extension(
