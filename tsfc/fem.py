@@ -27,7 +27,7 @@ from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
                          PositiveRestricted, QuadratureWeight,
                          ReferenceCellEdgeVectors, ReferenceCellVolume,
                          ReferenceFacetVolume, ReferenceNormal,
-                         SingleValueRestricted, SpatialCoordinate)
+                         SpatialCoordinate)
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.domain import extract_unique_domain
@@ -180,10 +180,6 @@ class CoordinateMapping(PhysicalGeometry):
             expr = PositiveRestricted(expr)
         elif self.mt.restriction == '-':
             expr = NegativeRestricted(expr)
-        elif self.mt.restriction == '|':
-            expr = SingleValueRestricted(expr)
-        elif self.mt.restriction == '?':
-            raise RuntimeError("Not expecting '?' restriction at this stage")
         config = {"point_set": PointSingleton(point)}
         config.update(self.config)
         config.update(use_canonical_quadrature_point_ordering=False)  # quad point ordering not relevant.
@@ -197,10 +193,6 @@ class CoordinateMapping(PhysicalGeometry):
             expr = PositiveRestricted(expr)
         elif self.mt.restriction == '-':
             expr = NegativeRestricted(expr)
-        elif self.mt.restriction == '|':
-            expr = SingleValueRestricted(expr)
-        elif self.mt.restriction == '?':
-            raise RuntimeError("Not expecting '?' restriction at this stage")
         config = {"point_set": PointSingleton(point)}
         config.update(self.config)
         config.update(use_canonical_quadrature_point_ordering=False)  # quad point ordering not relevant.
@@ -245,10 +237,6 @@ class CoordinateMapping(PhysicalGeometry):
             expr = PositiveRestricted(expr)
         elif self.mt.restriction == '-':
             expr = NegativeRestricted(expr)
-        elif self.mt.restriction == '|':
-            expr = SingleValueRestricted(expr)
-        elif self.mt.restriction == '?':
-            raise RuntimeError("Not expecting '?' restriction at this stage")
 
         cell = self.interface.fiat_cell
         sd = cell.get_spatial_dimension()
@@ -274,10 +262,6 @@ class CoordinateMapping(PhysicalGeometry):
             expr = PositiveRestricted(expr)
         elif self.mt.restriction == '-':
             expr = NegativeRestricted(expr)
-        elif self.mt.restriction == '|':
-            expr = SingleValueRestricted(expr)
-        elif self.mt.restriction == '?':
-            raise RuntimeError("Not expecting '?' restriction at this stage")
         config = {"point_set": point_set}
         config.update(self.config)
         if entity is not None:
