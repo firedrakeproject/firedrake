@@ -1658,6 +1658,8 @@ run_pip(["install", "-U", "hatch"])
 run_pip(["install", "-U", "editables"])
 run_pip(["install", "-U", "pip"])
 run_pip(["install", "-U", "wheel"])
+run_pip(["install", "-U", "scikit-build-core"])
+run_pip(["install", "-U", "rtree>=1.2"])
 
 # Extra numpy dependendencies, see
 # https://github.com/numpy/numpy/blob/main/pyproject.toml
