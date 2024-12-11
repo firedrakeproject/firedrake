@@ -1,7 +1,7 @@
 import collections
 import operator
 import string
-from functools import reduce
+from functools import cached_property, reduce
 from itertools import chain, product
 
 import gem
@@ -13,7 +13,6 @@ from finat.quadrature import AbstractQuadratureRule, make_quadrature
 from gem.node import traversal
 from gem.optimise import constant_fold_zero
 from gem.optimise import remove_componenttensors as prune
-from gem.utils import cached_property
 from numpy import asarray
 from tsfc import fem, ufl_utils
 from tsfc.finatinterface import as_fiat_cell, create_element
