@@ -301,7 +301,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         problem_dms.append(solution_dm)
 
         for dbc in problem.dirichlet_bcs():
-            dbc.apply(problem.u_restrict)
+            if dbc.function_space_parent == problem.u_restrict.function_space():
+                dbc.apply(problem.u_restrict)
 
         if bounds is not None:
             lower, upper = bounds
