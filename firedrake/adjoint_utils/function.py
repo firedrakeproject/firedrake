@@ -220,14 +220,6 @@ class FunctionMixin(FloatingType):
         else:
             return self.copy(deepcopy=True)
 
-    def _ad_clear_checkpoint(self, checkpoint):
-        try:
-            if checkpoint._ad_type == "coordinates_function":
-                if checkpoint in get_working_tape().timesteps[0]._checkpoint.values():
-                    return checkpoint
-        except AttributeError:
-            return None
-
     def _ad_convert_riesz(self, value, options=None):
         from firedrake import Function, Cofunction
 
