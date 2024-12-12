@@ -11,15 +11,25 @@ class MeshGeometryMixin(OverloadedType):
             OverloadedType.__init__(self, *args, **kwargs)
             init(self, *args, **kwargs)
             self._ad_coordinate_space = None
+            self.coordinates._ad_type = "coordinates_function"
         return wrapper
 
     @no_annotations
     def _ad_create_checkpoint(self):
-        return self.coordinates.copy(deepcopy=True)
+        result = self.coordinates.copy(deepcopy=True)
+        result._ad_type = self.coordinates._ad_type
+        return result
+    
+    def _ad_clear_checkpoint(self, checkpoint):
+        if checkpoint.dat.dat_version == self.coordinates.dat.dat_version:
+            return checkpoint
+        else:
+            return None
 
     @no_annotations
     def _ad_restore_at_checkpoint(self, checkpoint):
-        self.coordinates.assign(checkpoint)
+        if not self.coordinates.dat.dat_version == checkpoint.dat.dat_version:
+            self.coordinates.assign(checkpoint)
         return self
 
     @staticmethod

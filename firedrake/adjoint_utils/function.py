@@ -121,7 +121,7 @@ class FunctionMixin(FloatingType):
                 block_var = self.create_block_variable()
                 block.add_output(block_var)
 
-                if isinstance(other, type(self)):
+                if isinstance(other, type(self)) and not tape._checkpoint_manager:
                     if self.function_space().mesh() == other.function_space().mesh():
                         block_var._checkpoint = DelegatedFunctionCheckpoint(other.block_variable)
 
@@ -219,6 +219,14 @@ class FunctionMixin(FloatingType):
             return CheckpointFunction(self)
         else:
             return self.copy(deepcopy=True)
+
+    def _ad_clear_checkpoint(self, checkpoint):
+        try:
+            if checkpoint._ad_type == "coordinates_function":
+                if checkpoint in get_working_tape().timesteps[0]._checkpoint.values():
+                    return checkpoint
+        except AttributeError:
+            return None
 
     def _ad_convert_riesz(self, value, options=None):
         from firedrake import Function, Cofunction

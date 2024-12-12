@@ -208,8 +208,13 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
                     raise NotImplementedError("Cofunction subset assignment "
                                               "annotation is not supported.")
                 self.block_variable = self.create_block_variable()
-                self.block_variable._checkpoint = DelegatedFunctionCheckpoint(
-                    expr.block_variable)
+                if not get_working_tape()._checkpoint_manager:
+                    self.block_variable._checkpoint = DelegatedFunctionCheckpoint(
+                        expr.block_variable)
+                else:
+                    self.block_variable.checkpoint = type(self)(
+                        self.function_space(), val=expr.dat)
+
                 get_working_tape().add_block(
                     CofunctionAssignBlock(
                         self, expr, rhs_from_assemble=expr_from_assemble)
