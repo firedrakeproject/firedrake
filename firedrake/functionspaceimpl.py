@@ -557,7 +557,10 @@ class FunctionSpace:
                 except KeyError:
                     ndofs = numpy.empty(mesh.flat_points.size, dtype=IntType)
                     for pt in range(mesh.flat_points.size):
-                        pt_renum = mesh._dm_renumbering.indices[pt]
+                        if mesh._dm_renumbering:
+                            pt_renum = mesh._dm_renumbering.indices[pt]
+                        else:
+                            pt_renum = pt
                         ndofs[pt] = self.local_section.getDof(pt_renum)
                     ndofs_dat = op3.Dat(mesh.flat_points, data=ndofs)
 
