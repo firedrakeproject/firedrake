@@ -225,8 +225,12 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             return self.assign(
                 assembled_expr, subset=subset,
                 expr_from_assemble=True)
-
-        raise ValueError('Cannot assign %s' % expr)
+        elif expr == 0:
+            self.dat.zero(subset=subset)
+        else:
+            from firedrake.assign import Assigner
+            Assigner(self, expr, subset).assign()
+        return self
 
     def riesz_representation(self, riesz_map='L2', **solver_options):
         """Return the Riesz representation of this :class:`Cofunction` with respect to the given Riesz map.
