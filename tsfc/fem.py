@@ -299,8 +299,8 @@ class PointSetContext(ContextBase):
 
     def make_basis_evaluation_key(self, finat_element, mt, entity_id):
         domain = extract_unique_domain(mt.terminal)
-        restriction = mt.restriction
-        return (self, finat_element, mt.local_derivatives, domain, restriction, entity_id)
+        coordinate_element = domain.ufl_coordinate_element()
+        return (self, finat_element, mt.local_derivatives, coordinate_element, mt.restriction, entity_id)
 
     @serial_cache(hashkey=make_basis_evaluation_key)
     def basis_evaluation(self, finat_element, mt, entity_id):
