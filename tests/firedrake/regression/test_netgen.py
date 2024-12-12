@@ -51,7 +51,7 @@ def poisson(h, degree=2):
 
     # Assembling matrix
     A = assemble(a, bcs=bc)
-    b = assemble(l, bcs=bc, zero_bc_nodes=True)
+    b = assemble(l, bcs=bc)
 
     # Solving the problem
     solve(A, u, b, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
@@ -94,7 +94,7 @@ def poisson3D(h, degree=2):
 
     # Assembling matrix
     A = assemble(a, bcs=bc)
-    b = assemble(l, bcs=bc, zero_bc_nodes=True)
+    b = assemble(l, bcs=bc)
 
     # Solving the problem
     solve(A, u, b, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})

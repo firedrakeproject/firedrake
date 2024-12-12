@@ -147,7 +147,7 @@ class ImplicitMatrixContext(object):
         self._assemble_action = get_assembler(self.action,
                                               bcs=self.bcs_action,
                                               form_compiler_parameters=self.fc_params,
-                                              zero_bc_nodes=True).assemble
+                                              ).assemble
 
         # For assembling action(adjoint(f), self._y)
         # Sorted list of equation bcs

@@ -83,7 +83,7 @@ def assemble(expr, *args, **kwargs):
     zero_bc_nodes : bool
         If `True`, set the boundary condition nodes in the
         output tensor to zero rather than to the values prescribed by the
-        boundary condition. Default is `False`.
+        boundary condition. Default is `True`.
     diagonal : bool
         If assembling a matrix is it diagonal?
     weight : float
@@ -156,7 +156,7 @@ def get_assembler(form, *args, **kwargs):
             return ZeroFormAssembler(form, form_compiler_parameters=fc_params)
         elif len(form.arguments()) == 1 or diagonal:
             return OneFormAssembler(form, *args, bcs=bcs, form_compiler_parameters=fc_params, needs_zeroing=kwargs.get('needs_zeroing', True),
-                                    zero_bc_nodes=kwargs.get('zero_bc_nodes', False), diagonal=diagonal)
+                                    zero_bc_nodes=kwargs.get('zero_bc_nodes', True), diagonal=diagonal)
         elif len(form.arguments()) == 2:
             return TwoFormAssembler(form, *args, **kwargs)
         else:
@@ -308,7 +308,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                  sub_mat_type=None,
                  options_prefix=None,
                  appctx=None,
-                 zero_bc_nodes=False,
+                 zero_bc_nodes=True,
                  diagonal=False,
                  weight=1.0,
                  allocation_integral_types=None):
@@ -1190,13 +1190,11 @@ class OneFormAssembler(ParloopFormAssembler):
             raise AssertionError
 
     def _apply_dirichlet_bc(self, tensor, bc):
-        if not self._zero_bc_nodes:
-            tensor_func = tensor.riesz_representation(riesz_map="l2")
-            if self._diagonal:
-                bc.set(tensor_func, 1)
-            else:
-                bc.apply(tensor_func)
-            tensor.assign(tensor_func.riesz_representation(riesz_map="l2"))
+        if self._diagonal:
+            bc.set(tensor, self._weight)
+        elif not self._zero_bc_nodes:
+            # We cannot set primal data on a dual Cofunction, this will throw an error
+            bc.apply(tensor)
         else:
             bc.zero(tensor)
 
