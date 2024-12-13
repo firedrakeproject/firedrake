@@ -148,13 +148,13 @@ dg_interval_variants = {
 @convert.register(finat.ufl.FiniteElement)
 def convert_finiteelement(element, **kwargs):
     cell = as_fiat_cell(element.cell)
-    if element.family() == "Quadrature":
+    if element.family() in ["Quadrature", "Boundary Quadrature"]:
         degree = element.degree()
         scheme = element.quadrature_scheme()
         if degree is None or scheme is None:
             raise ValueError("Quadrature scheme and degree must be specified!")
-
-        return finat.make_quadrature_element(cell, degree, scheme), set()
+        trace = element.family() == "Boundary Quadrature"
+        return finat.make_quadrature_element(cell, degree, scheme, trace), set()
     lmbda = supported_elements[element.family()]
     if element.family() == "Real" and element.cell.cellname() in {"quadrilateral", "hexahedron"}:
         lmbda = None
