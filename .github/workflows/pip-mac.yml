@@ -82,6 +82,7 @@ jobs:
           export CXX=/opt/homebrew/bin/mpicxx
           export MPICC="$CC"
           source pip_venv/bin/activate
+          python -m pip install 'rtree>=1.2'
           cd pip_venv/src
           python -m pip install \
             --log=firedrake-install.log \
