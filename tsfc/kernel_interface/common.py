@@ -9,7 +9,7 @@ import gem.impero_utils as impero_utils
 import numpy
 from FIAT.reference_element import TensorProductCell
 from finat.cell_tools import max_complex
-from finat.quadrature import AbstractQuadratureRule, make_quadrature
+from finat.quadrature import AbstractQuadratureRule
 from gem.node import traversal
 from gem.optimise import constant_fold_zero
 from gem.optimise import remove_componenttensors as prune
@@ -136,7 +136,7 @@ class KernelBuilderMixin(object):
             integrand = ufl_utils.split_coefficients(integrand, self.coefficient_split)
         # Compile: ufl -> gem
         info = self.integral_data_info
-        functions = list(info.arguments) + [self.coordinate(info.domain)] + list(info.coefficients)
+        functions = [*info.arguments, self.coordinate(info.domain), *info.coefficients]
         set_quad_rule(params, info.domain.ufl_cell(), info.integral_type, functions)
         quad_rule = params["quadrature_rule"]
         config = self.fem_config()
@@ -319,8 +319,7 @@ def set_quad_rule(params, cell, integral_type, functions):
         fiat_cell = max_complex(fiat_cells)
 
         integration_dim, _ = lower_integral_type(fiat_cell, integral_type)
-        integration_cell = fiat_cell.construct_subcomplex(integration_dim)
-        quad_rule = make_quadrature(integration_cell, quadrature_degree, scheme=scheme)
+        quad_rule = fem.get_quadrature_rule(fiat_cell, integration_dim, quadrature_degree, scheme)
         params["quadrature_rule"] = quad_rule
 
     if not isinstance(quad_rule, AbstractQuadratureRule):
@@ -329,8 +328,8 @@ def set_quad_rule(params, cell, integral_type, functions):
 
 
 def get_index_ordering(quadrature_indices, return_variables):
-    split_argument_indices = tuple(chain(*[var.index_ordering()
-                                           for var in return_variables]))
+    split_argument_indices = tuple(chain(*(var.index_ordering()
+                                           for var in return_variables)))
     return tuple(quadrature_indices) + split_argument_indices
 
 
