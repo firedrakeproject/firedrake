@@ -406,7 +406,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 assembler = ZeroFormAssembler(form, form_compiler_parameters=self._form_compiler_params)
             elif rank == 1 or (rank == 2 and self._diagonal):
                 assembler = OneFormAssembler(form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
-                                             zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal)
+                                             zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal, weight=self._weight)
             elif rank == 2:
                 assembler = TwoFormAssembler(form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
                                              mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
@@ -1149,14 +1149,15 @@ class OneFormAssembler(ParloopFormAssembler):
 
     @classmethod
     def _cache_key(cls, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
-                   zero_bc_nodes=False, diagonal=False):
+                   zero_bc_nodes=False, diagonal=False, weight=1.0):
         bcs = solving._extract_bcs(bcs)
         return tuple(bcs), tuplify(form_compiler_parameters), needs_zeroing, zero_bc_nodes, diagonal
 
     @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
-                 zero_bc_nodes=False, diagonal=False):
+                 zero_bc_nodes=False, diagonal=False, weight=1.0):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=needs_zeroing)
+        self._weight = weight
         self._diagonal = diagonal
         self._zero_bc_nodes = zero_bc_nodes
         if self._diagonal and any(isinstance(bc, EquationBCSplit) for bc in self._bcs):
@@ -1185,7 +1186,7 @@ class OneFormAssembler(ParloopFormAssembler):
         elif isinstance(bc, EquationBCSplit):
             bc.zero(tensor)
             type(self)(bc.f, bcs=bc.bcs, form_compiler_parameters=self._form_compiler_params, needs_zeroing=False,
-                       zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal).assemble(tensor=tensor)
+                       zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal, weight=self._weight).assemble(tensor=tensor)
         else:
             raise AssertionError
 
