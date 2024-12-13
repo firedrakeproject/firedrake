@@ -54,18 +54,26 @@ class EnsembleReducedFunctional(ReducedFunctional):
         A scaling factor applied to the functional and its gradient(with respect to the control).
     tape : pyadjoint.Tape
         A tape object that the reduced functional will use to evaluate the functional and
-        its gradient (or gradients).
-    eval_cb_pre : callable
+        its gradients (or derivatives).
+    eval_cb_pre : :func:
         Callback function before evaluating the functional. Input is a list of Controls.
-    derivative_cb_pre : callable
-        Callback function before evaluating derivatives. Input is a list of derivatives.
-        Should return a list of Controls (usually the same list as the input) to be passed
-        to :func:`pyadjoint.compute_gradient`.
-    derivative_cb_post : callable
-        Callback function after evaluating derivatives. Inputs are the functional, the derivative,
-        and the controls. All of them are the checkpointed versions. Should return a list of
-        derivatives (usually the same list as the input)to be returned from ``self.derivative``.
-
+    eval_cb_pos : :func:
+        Callback function after evaluating the functional. Inputs are the functional value
+        and a list of Controls.
+    derivative_cb_pre : :func:
+        Callback function before evaluating gradients (or derivatives). Input is a list of
+        gradients (or derivatives). Should return a list of Controls (usually the same list as
+        the input) to be passed to :func:`pyadjoint.compute_gradient`.
+    derivative_cb_post : :func:
+        Callback function after evaluating derivatives. Inputs are the functional, a list of
+        gradients (or derivatives), and controls. All of them are the checkpointed versions.
+        Should return a list of gradients (or derivatives) (usually the same list as the input)
+        to be returned from ``self.derivative``.
+    hessian_cb_pre : :func:
+        Callback function before evaluating the Hessian. Input is a list of Controls.
+    hessian_cb_post : :func:
+        Callback function after evaluating the Hessian. Inputs are the functional, a list of
+        Hessian, and controls.
 
     See Also
     --------
@@ -83,13 +91,15 @@ class EnsembleReducedFunctional(ReducedFunctional):
                  scale=1.0, tape=None, eval_cb_pre=lambda *args: None,
                  eval_cb_post=lambda *args: None,
                  derivative_cb_pre=lambda controls: controls,
-                 derivative_cb_post=lambda checkpoint, derivative_components, controls: derivative_components
-                 ):
+                 derivative_cb_post=lambda checkpoint, derivative_components, controls: derivative_components,
+                 hessian_cb_pre=lambda *args: None, hessian_cb_post=lambda *args: None):
         super(EnsembleReducedFunctional, self).__init__(
             J, control, derivative_components=derivative_components,
             scale=scale, tape=tape, eval_cb_pre=eval_cb_pre,
             eval_cb_post=eval_cb_post, derivative_cb_pre=derivative_cb_pre,
-            derivative_cb_post=derivative_cb_post)
+            derivative_cb_post=derivative_cb_post,
+            hessian_cb_pre=hessian_cb_pre, hessian_cb_post=hessian_cb_post)
+
         self.ensemble = ensemble
         self.scatter_control = scatter_control
         self.gather_functional = gather_functional
