@@ -1245,7 +1245,7 @@ class MeshTopology(AbstractMeshTopology):
         else:
             # No reordering
             reordering = None
-        return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, reordering)[0]
+        return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, reordering)
 
     @utils.cached_property
     def cell_closure(self):
@@ -1979,7 +1979,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             perm_is.setIndices(perm)
             return perm_is
         else:
-            return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, None)[0]
+            return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, None)
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_closure(self):
@@ -3061,6 +3061,8 @@ def Mesh(meshfile, **kwargs):
             from ngsPETSc import FiredrakeMesh
         except ImportError:
             raise ImportError("Unable to import ngsPETSc. Please ensure that ngsolve is installed and available to Firedrake.")
+        from firedrake_citations import Citations
+        Citations().register("Betteridge2024")
         netgen_flags = kwargs.get("netgen_flags", {"quad": False, "transform": None, "purify_to_tets": False})
         netgen_firedrake_mesh = FiredrakeMesh(meshfile, netgen_flags, user_comm)
         plex = netgen_firedrake_mesh.meshMap.petscPlex

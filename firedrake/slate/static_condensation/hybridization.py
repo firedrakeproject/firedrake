@@ -1,5 +1,4 @@
 import functools
-import numbers
 
 import numpy as np
 import ufl
@@ -11,7 +10,6 @@ from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.parloops import par_loop, READ, INC
 from firedrake.slate.slate import Tensor, AssembledVector
-from pyop2.utils import as_tuple
 from firedrake.slate.static_condensation.la_utils import SchurComplementBuilder
 from firedrake.ufl_expr import adjoint
 
@@ -153,11 +151,7 @@ class HybridizationPC(SCBase):
                 if bc.function_space().index != self.vidx:
                     raise NotImplementedError("Dirichlet bc set on unsupported space.")
                 # append the set of sub domains
-                subdom = bc.sub_domain
-                if isinstance(subdom, str):
-                    neumann_subdomains |= set([subdom])
-                else:
-                    neumann_subdomains |= set(as_tuple(subdom, numbers.Integral))
+                neumann_subdomains |= set(bc.sub_domain)
 
             # separate out the top and bottom bcs
             extruded_neumann_subdomains = neumann_subdomains & {"top", "bottom"}
