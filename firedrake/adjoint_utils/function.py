@@ -22,7 +22,8 @@ class FunctionMixin(FloatingType):
                                   output_block_class=kwargs.pop("output_block_class", None),
                                   _ad_output_args=kwargs.pop("_ad_output_args", None),
                                   _ad_outputs=kwargs.pop("_ad_outputs", None),
-                                  ad_block_tag=kwargs.pop("ad_block_tag", None), **kwargs)
+                                  ad_block_tag=kwargs.pop("ad_block_tag", None),
+                                  checkpoint_time_dependent=kwargs.pop("checkpoint_time_dependent", None), **kwargs)
             init(self, *args, **kwargs)
         return wrapper
 
@@ -218,7 +219,15 @@ class FunctionMixin(FloatingType):
         if disk_checkpointing():
             return CheckpointFunction(self)
         else:
-            return self.copy(deepcopy=True)
+            result = self.copy(deepcopy=True)
+            result.checkpoint_time_dependent = self.checkpoint_time_dependent
+            return result
+
+    def _ad_clear_checkpoint(self, checkpoint):
+        if self.checkpoint_time_dependent is False:
+            return checkpoint
+        else:
+            return None
 
     def _ad_convert_riesz(self, value, options=None):
         from firedrake import Function, Cofunction
