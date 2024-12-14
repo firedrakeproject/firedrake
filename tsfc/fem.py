@@ -3,7 +3,7 @@ geometric quantities into GEM expressions."""
 
 import collections
 import itertools
-from functools import singledispatch
+from functools import cached_property, singledispatch
 
 import gem
 import numpy
@@ -18,7 +18,6 @@ from finat.quadrature import make_quadrature
 from gem.node import traversal
 from gem.optimise import constant_fold_zero, ffc_rounding
 from gem.unconcatenate import unconcatenate
-from gem.utils import cached_property
 from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
                          CellFacetJacobian, CellOrientation, CellOrigin,
                          CellVertices, CellVolume, Coefficient, FacetArea,
@@ -41,6 +40,8 @@ from tsfc.parameters import is_complex
 from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
                             TSFCConstantMixin, entity_avg, one_times,
                             preprocess_expression, simplify_abs)
+
+from pyop2.caching import serial_cache
 
 
 class ContextBase(ProxyKernelInterface):
@@ -262,6 +263,18 @@ def needs_coordinate_mapping(element):
         return isinstance(create_element(element), NeedsCoordinateMappingElement)
 
 
+@serial_cache(hashkey=lambda *args: args)
+def get_quadrature_rule(fiat_cell, integration_dim, quadrature_degree, scheme):
+    integration_cell = fiat_cell.construct_subcomplex(integration_dim)
+    return make_quadrature(integration_cell, quadrature_degree, scheme=scheme)
+
+
+def make_basis_evaluation_key(ctx, finat_element, mt, entity_id):
+    domain = extract_unique_domain(mt.terminal)
+    coordinate_element = domain.ufl_coordinate_element()
+    return (finat_element, mt.local_derivatives, ctx.point_set, ctx.integration_dim, entity_id, coordinate_element, mt.restriction)
+
+
 class PointSetContext(ContextBase):
     """Context for compile-time known evaluation points."""
 
@@ -273,12 +286,8 @@ class PointSetContext(ContextBase):
     )
 
     @cached_property
-    def integration_cell(self):
-        return self.fiat_cell.construct_subelement(self.integration_dim)
-
-    @cached_property
     def quadrature_rule(self):
-        return make_quadrature(self.integration_cell, self.quadrature_degree)
+        return get_quadrature_rule(self.fiat_cell, self.integration_dim, self.quadrature_degree, "default")
 
     @cached_property
     def point_set(self):
@@ -296,6 +305,7 @@ class PointSetContext(ContextBase):
     def weight_expr(self):
         return self.quadrature_rule.weight_expression
 
+    @serial_cache(hashkey=make_basis_evaluation_key)
     def basis_evaluation(self, finat_element, mt, entity_id):
         return finat_element.basis_evaluation(mt.local_derivatives,
                                               self.point_set,
