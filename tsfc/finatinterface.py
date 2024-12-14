@@ -31,78 +31,15 @@ __all__ = ("as_fiat_cell", "create_base_element",
            "create_element", "supported_elements")
 
 
-supported_elements = {
-    # These all map directly to FInAT elements
-    "Bernstein": finat.Bernstein,
-    "Bernardi-Raugel": finat.BernardiRaugel,
-    "Bernardi-Raugel Bubble": finat.BernardiRaugelBubble,
-    "Brezzi-Douglas-Marini": finat.BrezziDouglasMarini,
-    "Brezzi-Douglas-Fortin-Marini": finat.BrezziDouglasFortinMarini,
-    "Bubble": finat.Bubble,
-    "FacetBubble": finat.FacetBubble,
-    "Crouzeix-Raviart": finat.CrouzeixRaviart,
-    "Discontinuous Lagrange": finat.DiscontinuousLagrange,
-    "Discontinuous Raviart-Thomas": lambda c, d: finat.DiscontinuousElement(finat.RaviartThomas(c, d)),
-    "Discontinuous Taylor": finat.DiscontinuousTaylor,
-    "Gauss-Legendre": finat.GaussLegendre,
-    "Gauss-Lobatto-Legendre": finat.GaussLobattoLegendre,
-    "HDiv Trace": finat.HDivTrace,
-    "Hellan-Herrmann-Johnson": finat.HellanHerrmannJohnson,
-    "Johnson-Mercier": finat.JohnsonMercier,
-    "Nonconforming Arnold-Winther": finat.ArnoldWintherNC,
-    "Conforming Arnold-Winther": finat.ArnoldWinther,
-    "Hu-Zhang": finat.HuZhang,
-    "Hermite": finat.Hermite,
-    "Kong-Mulder-Veldhuizen": finat.KongMulderVeldhuizen,
-    "Argyris": finat.Argyris,
-    "Hsieh-Clough-Tocher": finat.HsiehCloughTocher,
-    "QuadraticPowellSabin6": finat.QuadraticPowellSabin6,
-    "QuadraticPowellSabin12": finat.QuadraticPowellSabin12,
-    "Reduced-Hsieh-Clough-Tocher": finat.ReducedHsiehCloughTocher,
-    "Mardal-Tai-Winther": finat.MardalTaiWinther,
-    "Alfeld-Sorokina": finat.AlfeldSorokina,
-    "Arnold-Qin": finat.ArnoldQin,
-    "Reduced-Arnold-Qin": finat.ReducedArnoldQin,
-    "Christiansen-Hu": finat.ChristiansenHu,
-    "Guzman-Neilan 1st kind H1": finat.GuzmanNeilanFirstKindH1,
-    "Guzman-Neilan 2nd kind H1": finat.GuzmanNeilanSecondKindH1,
-    "Guzman-Neilan Bubble": finat.GuzmanNeilanBubble,
-    "Guzman-Neilan H1(div)": finat.GuzmanNeilanH1div,
-    "Morley": finat.Morley,
-    "Bell": finat.Bell,
-    "Lagrange": finat.Lagrange,
-    "Nedelec 1st kind H(curl)": finat.Nedelec,
-    "Nedelec 2nd kind H(curl)": finat.NedelecSecondKind,
-    "Raviart-Thomas": finat.RaviartThomas,
-    "Regge": finat.Regge,
-    "Gopalakrishnan-Lederer-Schoberl 1st kind": finat.GopalakrishnanLedererSchoberlFirstKind,
-    "Gopalakrishnan-Lederer-Schoberl 2nd kind": finat.GopalakrishnanLedererSchoberlSecondKind,
-    "BDMCE": finat.BrezziDouglasMariniCubeEdge,
-    "BDMCF": finat.BrezziDouglasMariniCubeFace,
-    # These require special treatment below
-    "DQ": None,
-    "Q": None,
-    "RTCE": None,
-    "RTCF": None,
-    "NCE": None,
-    "NCF": None,
-    "Real": finat.Real,
-    "DPC": finat.DPC,
-    "S": finat.Serendipity,
-    "SminusF": finat.TrimmedSerendipityFace,
-    "SminusDiv": finat.TrimmedSerendipityDiv,
-    "SminusE": finat.TrimmedSerendipityEdge,
-    "SminusCurl": finat.TrimmedSerendipityCurl,
-    "DPC L2": finat.DPC,
-    "Discontinuous Lagrange L2": finat.DiscontinuousLagrange,
-    "Gauss-Legendre L2": finat.GaussLegendre,
-    "DQ L2": None,
-    "Direct Serendipity": finat.DirectSerendipity,
-}
+supported_elements = finat.supported_elements.copy()
 """A :class:`.dict` mapping UFL element family names to their
 FInAT-equivalent constructors.  If the value is ``None``, the UFL
 element is supported, but must be handled specially because it doesn't
 have a direct FInAT equivalent."""
+
+# These require special treatment below
+for tp_family in ("Q", "DQ", "DQ L2", "RTCE", "RTCF", "NCE", "NCF"):
+    supported_elements[tp_family] = None
 
 
 def as_fiat_cell(cell):
