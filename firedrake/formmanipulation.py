@@ -154,7 +154,7 @@ class ExtractSubBlock(MultiFunction):
         # on a two-form then we return a zero form,
         # analogously to the off components of arguments.
         if len(self.blocks) == 2:
-            itest, itrial = self.blocks[0], self.blocks[1]
+            itest, itrial = self.blocks
             on_diag = (itest == itrial)
         else:
             on_diag = True
@@ -174,7 +174,7 @@ class ExtractSubBlock(MultiFunction):
                 from firedrake import MixedFunctionSpace
                 from pyop2 import MixedDat
                 W = MixedFunctionSpace([V_is[i] for i in indices])
-                c = Cofunction(W.dual(), val=MixedDat(o.subfunctions[i].dat
+                c = Cofunction(W.dual(), val=MixedDat(o.dat[i]
                                                       for i in indices))
         else:
             c = ZeroBaseForm(o.arguments())
