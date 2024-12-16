@@ -116,7 +116,7 @@ def functionspace_tests(vm):
     h.dat.data_wo_with_halos[:] = -1
     h.interpolate(g)
     # Exclude points which we know are missing - these should all be equal to -1
-    input_ordering_parent_cell_nums = vm.input_ordering.topology_dm.getField("parentcellnum")
+    input_ordering_parent_cell_nums = vm.input_ordering.topology_dm.getField("parentcellnum").ravel()
     vm.input_ordering.topology_dm.restoreField("parentcellnum")
     idxs_to_include = input_ordering_parent_cell_nums != -1
     assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
@@ -221,7 +221,7 @@ def vectorfunctionspace_tests(vm):
     h.dat.data_wo_with_halos[:] = -1
     h.interpolate(g)
     # Exclude points which we know are missing - these should all be equal to -1
-    input_ordering_parent_cell_nums = vm.input_ordering.topology_dm.getField("parentcellnum")
+    input_ordering_parent_cell_nums = vm.input_ordering.topology_dm.getField("parentcellnum").ravel()
     vm.input_ordering.topology_dm.restoreField("parentcellnum")
     idxs_to_include = input_ordering_parent_cell_nums != -1
     assert np.allclose(h.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])

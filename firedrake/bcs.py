@@ -41,7 +41,7 @@ class BCBase(object):
     def __init__(self, V, sub_domain):
 
         self._function_space = V
-        self.sub_domain = sub_domain
+        self.sub_domain = (sub_domain, ) if isinstance(sub_domain, str) else as_tuple(sub_domain)
         # If this BC is defined on a subspace (IndexedFunctionSpace or
         # ComponentFunctionSpace, possibly recursively), pull out the appropriate
         # indices.
@@ -289,9 +289,9 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 warnings.simplefilter('always', DeprecationWarning)
                 warnings.warn("Selecting a bcs method is deprecated. Only topological association is supported",
                               DeprecationWarning)
-        if len(V.boundary_set) and sub_domain not in V.boundary_set:
-            raise ValueError(f"Sub-domain {sub_domain} not in the boundary set of the restricted space.")
         super().__init__(V, sub_domain)
+        if len(V.boundary_set) and not set(self.sub_domain).issubset(V.boundary_set):
+            raise ValueError(f"Sub-domain {self.sub_domain} not in the boundary set of the restricted space {V.boundary_set}.")
         if len(V) > 1:
             raise ValueError("Cannot apply boundary conditions on mixed spaces directly.\n"
                              "Apply to the components by indexing the space with .sub(...)")
@@ -311,10 +311,12 @@ class DirichletBC(BCBase, DirichletBCMixin):
         return self._function_arg
 
     @PETSc.Log.EventDecorator()
-    def reconstruct(self, field=None, V=None, g=None, sub_domain=None, use_split=False):
+    def reconstruct(self, field=None, V=None, g=None, sub_domain=None, use_split=False, indices=()):
         fs = self.function_space()
         if V is None:
             V = fs
+        for index in indices:
+            V = V.sub(index)
         if g is None:
             g = self._original_arg
         if sub_domain is None:
@@ -686,3 +688,62 @@ def homogenize(bc):
         return DirichletBC(bc.function_space(), 0, bc.sub_domain)
     else:
         raise TypeError("homogenize only takes a DirichletBC or a list/tuple of DirichletBCs")
+
+
+def extract_subdomain_ids(bcs):
+    """Return a tuple of subdomain ids for each component of a MixedFunctionSpace.
+
+    Parameters
+    ----------
+    bcs :
+        A list of boundary conditions.
+
+    Returns
+    -------
+    A tuple of subdomain ids for each component of a MixedFunctionSpace.
+
+    """
+    if isinstance(bcs, DirichletBC):
+        bcs = (bcs,)
+    if len(bcs) == 0:
+        return None
+
+    V = bcs[0].function_space()
+    while V.parent:
+        V = V.parent
+
+    _chain = itertools.chain.from_iterable
+    _to_tuple = lambda s: (s,) if isinstance(s, (int, str)) else s
+    subdomain_ids = tuple(tuple(_chain(_to_tuple(bc.sub_domain)
+                                for bc in bcs if bc.function_space() == Vsub))
+                          for Vsub in V)
+    return subdomain_ids
+
+
+def restricted_function_space(V, ids):
+    """Create a :class:`.RestrictedFunctionSpace` from a tuple of subdomain ids.
+
+    Parameters
+    ----------
+    V :
+        FunctionSpace object to restrict
+    ids :
+        A tuple of subdomain ids.
+
+    Returns
+    -------
+    The RestrictedFunctionSpace.
+
+    """
+    if not ids:
+        return V
+
+    assert len(ids) == len(V)
+    spaces = [Vsub if len(boundary_set) == 0 else
+              firedrake.RestrictedFunctionSpace(Vsub, boundary_set=boundary_set)
+              for Vsub, boundary_set in zip(V, ids)]
+
+    if len(spaces) == 1:
+        return spaces[0]
+    else:
+        return firedrake.MixedFunctionSpace(spaces)
