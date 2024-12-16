@@ -215,7 +215,7 @@ def split_form(form, diagonal=False):
     stages.
     """
     from firedrake import Cofunction
-    from ufl import FormSum
+    from ufl import FormSum, Form
     splitter = ExtractSubBlock()
     args = form.arguments()
     shape = tuple(len(a.function_space()) for a in args)
@@ -231,6 +231,10 @@ def split_form(form, diagonal=False):
         elif isinstance(f, FormSum):
             flen = len(f.components())
         else:  # Form
+            if not isinstance(f, Form):
+                raise ValueError(
+                    "ExtractSubBlock.split should have returned an instance of "
+                    "either Form, FormSum, or Cofunction")
             flen = len(f.integrals())
 
         if flen > 0:
