@@ -168,12 +168,11 @@ class ExtractSubBlock(MultiFunction):
             if nidx == 1:
                 i = indices[0]
                 W = V_is[i]
-                W = FunctionSpace(W.mesh(), W.ufl_element())
+                W = FunctionSpace(W.mesh(), W.ufl_element())  # primal space
                 c = Cofunction(W.dual(), val=o.subfunctions[i].dat)
             else:
-                W = MixedFunctionSpace([V_is[i] for i in indices])
-                c = Cofunction(W.dual(), val=MixedDat(o.dat[i]
-                                                      for i in indices))
+                W = MixedFunctionSpace([V_is[i] for i in indices])  # dual space
+                c = Cofunction(W, val=MixedDat(o.dat[i] for i in indices))
         else:
             c = ZeroBaseForm(o.arguments())
 
