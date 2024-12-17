@@ -30,12 +30,12 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          # - [self-hosted, Linux]
+          - [self-hosted, Linux]
           - [self-hosted, macOS]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Add homebrew to PATH
-        # should be conditional on macos!
+        if: ${{ contains(matrix.os, 'macOS')  }}
         # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
         run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
       - name: Check out the repo
