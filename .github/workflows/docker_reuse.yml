@@ -34,6 +34,10 @@ jobs:
           - [self-hosted, macOS]
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Add homebrew to PATH
+        # should be conditional on macos!
+        # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
+        run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
       - name: Check out the repo
         uses: actions/checkout@v4
       - name: Log in to Docker Hub
