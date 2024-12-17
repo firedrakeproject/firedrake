@@ -129,7 +129,8 @@ class ExtractSubBlock(MultiFunction):
         return self._arg_cache.setdefault(o, as_vector(args))
 
     def cofunction(self, o):
-        from firedrake import Cofunction
+        from firedrake import Cofunction, FunctionSpace, MixedFunctionSpace
+        from pyop2 import MixedDat
         from ufl.classes import ZeroBaseForm
 
         V = o.function_space()
@@ -165,14 +166,11 @@ class ExtractSubBlock(MultiFunction):
         # of the fieldsplit problem will be correct.
         if on_diag:
             if nidx == 1:
-                from firedrake import FunctionSpace
                 i = indices[0]
                 W = V_is[i]
                 W = FunctionSpace(W.mesh(), W.ufl_element())
                 c = Cofunction(W.dual(), val=o.subfunctions[i].dat)
             else:
-                from firedrake import MixedFunctionSpace
-                from pyop2 import MixedDat
                 W = MixedFunctionSpace([V_is[i] for i in indices])
                 c = Cofunction(W.dual(), val=MixedDat(o.dat[i]
                                                       for i in indices))
@@ -230,12 +228,12 @@ def split_form(form, diagonal=False):
             flen = 1
         elif isinstance(f, FormSum):
             flen = len(f.components())
-        else:  # Form
-            if not isinstance(f, Form):
-                raise ValueError(
-                    "ExtractSubBlock.split should have returned an instance of "
-                    "either Form, FormSum, or Cofunction")
+        elif isinstance(f, Form):
             flen = len(f.integrals())
+        else:  # Form
+            raise ValueError(
+                "ExtractSubBlock.split should have returned an instance of "
+                "either Form, FormSum, or Cofunction")
 
         if flen > 0:
             if diagonal:
