@@ -926,16 +926,11 @@ class WeakObservationStage:
             dm_forward = self.forward_model.derivative(adj_input=dm_errors[0],
                                                        options=options)
 
-            sentinel = -12345
-            riesz_map = options.get('riesz_representation', sentinel)
             derivatives.append(dm_forward)
-            if riesz_map != sentinel:
-                if riesz_map is None:
-                    derivatives.append(dm_errors[1])
-                else:
-                    derivatives.append(dm_errors[1].riesz_representation(riesz_map))
-            else:
-                derivatives.append(dm_errors[1].riesz_representation())
+
+            # dm_errors is still in the dual space, so we need to convert it to the
+            # type that the user has requested - this will be the type of dm_forward.
+            derivatives.append(dm_forward._ad_convert_type(dm_errors[1], options))
 
         if (rftype is None) or (rftype == 'obs'):
             # derivative of reduction
