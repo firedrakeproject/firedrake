@@ -1002,7 +1002,6 @@ def test_cofunction_assign_functional():
     f.assign(2.0)
     assert np.allclose(Jhat(f), 2.0)
 
-
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_bdy_control():
     # Test for the case the boundary condition is a control for a
