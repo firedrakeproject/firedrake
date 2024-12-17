@@ -52,7 +52,7 @@ class DimChanger(IdentityMapper):
             flattened_index -= (int(stride) * ind)
             new_indices.append(simplify_via_aff(ind))
 
-        return expr.aggregate.index(tuple(new_indices))
+        return expr.aggregate[tuple(new_indices)]
 
 
 def _match_caller_callee_argument_dimension_for_single_kernel(

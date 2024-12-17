@@ -3,6 +3,7 @@ import contextlib
 import ctypes
 import itertools
 import operator
+from collections.abc import Sequence
 
 import loopy as lp
 import numpy as np
@@ -358,14 +359,14 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         _self = p.Variable("self")
         _ret = p.Variable("ret")
         i = p.Variable("i")
-        lhs = _ret.index(i)
+        lhs = _ret[i]
         if globalp:
-            rhs = _other.index(0)
+            rhs = _other[0]
             rshape = (1, )
         else:
-            rhs = _other.index(i)
+            rhs = _other[i]
             rshape = (self.cdim, )
-        insn = lp.Assignment(lhs, op(_self.index(i), rhs), within_inames=frozenset(["i"]))
+        insn = lp.Assignment(lhs, op(_self[i], rhs), within_inames=frozenset(["i"]))
         data = [lp.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,)),
                 lp.GlobalArg("other", dtype=dtype, shape=rshape),
                 lp.GlobalArg("ret", dtype=self.dtype, shape=(self.cdim,))]
@@ -405,15 +406,15 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         _other = p.Variable("other")
         _self = p.Variable("self")
         i = p.Variable("i")
-        lhs = _self.index(i)
+        lhs = _self[i]
         rshape = (self.cdim, )
         if globalp:
-            rhs = _other.index(0)
+            rhs = _other[0]
             rshape = (1, )
         elif other_is_self:
-            rhs = _self.index(i)
+            rhs = _self[i]
         else:
-            rhs = _other.index(i)
+            rhs = _other[i]
         insn = lp.Assignment(lhs, op(lhs, rhs), within_inames=frozenset(["i"]))
         data = [lp.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,))]
         if not other_is_self:
@@ -492,6 +493,41 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         from math import sqrt
         return sqrt(self.inner(self).real)
 
+    def maxpy(self, scalar: Sequence, x: Sequence) -> None:
+        """Compute a sequence of axpy operations.
+
+        This is equivalent to calling :meth:`axpy` for each pair of
+        scalars and :class:`Dat` in the input sequences.
+
+        Parameters
+        ----------
+        scalar :
+            A sequence of scalars.
+        x :
+            A sequence of :class:`Dat`.
+
+        """
+        if len(scalar) != len(x):
+            raise ValueError("scalar and x must have the same length")
+        for alpha_i, x_i in zip(scalar, x):
+            self.axpy(alpha_i, x_i)
+
+    def axpy(self, alpha: float, other: 'Dat') -> None:
+        """Compute the operation :math:`y = \\alpha x + y`.
+
+        In this case, ``self`` is ``y`` and ``other`` is ``x``.
+
+        """
+        self._check_shape(other)
+        if isinstance(other._data, np.ndarray):
+            if not np.isscalar(alpha):
+                raise TypeError("alpha must be a scalar")
+            np.add(
+                alpha * other.data_ro, self.data_ro,
+                out=self.data_wo)
+        else:
+            raise NotImplementedError("Not implemented for GPU")
+
     def __pos__(self):
         pos = Dat(self)
         return pos
@@ -518,7 +554,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         lvalue = p.Variable("other")
         rvalue = p.Variable("self")
         i = p.Variable("i")
-        insn = lp.Assignment(lvalue.index(i), -rvalue.index(i), within_inames=frozenset(["i"]))
+        insn = lp.Assignment(lvalue[i], -rvalue[i], within_inames=frozenset(["i"]))
         data = [lp.GlobalArg("other", dtype=self.dtype, shape=(self.cdim,)),
                 lp.GlobalArg("self", dtype=self.dtype, shape=(self.cdim,))]
         knl = lp.make_function([domain], [insn], data, name=name, target=conf.target, lang_version=(2018, 2))
@@ -771,15 +807,37 @@ class Dat(AbstractDat, VecAccessMixin):
         # But use getSizes to save an Allreduce in computing the
         # global size.
         size = self.dataset.layout_vec.getSizes()
-        data = self._data[:size[0]]
+        if self.dataset._apply_local_global_filter:
+            data = self._data_filtered
+        else:
+            data = self._data[:size[0]]
         return PETSc.Vec().createWithArray(data, size=size, bsize=self.cdim, comm=self.comm)
+
+    @utils.cached_property
+    def _data_filtered(self):
+        size, _ = self.dataset.layout_vec.getSizes()
+        size //= self.dataset.layout_vec.block_size
+        data = self._data[:size]
+        return np.empty_like(data)
+
+    @utils.cached_property
+    def _data_filter(self):
+        lgmap = self.dataset.lgmap
+        n = self.dataset.size
+        lgmap_owned = lgmap.block_indices[:n]
+        return lgmap_owned >= 0
 
     @contextlib.contextmanager
     def vec_context(self, access):
         r"""A context manager for a :class:`PETSc.Vec` from a :class:`Dat`.
 
         :param access: Access descriptor: READ, WRITE, or RW."""
+        size = self.dataset.size
+        if self.dataset._apply_local_global_filter and access is not Access.WRITE:
+            self._data_filtered[:] = self._data[:size][self._data_filter]
         yield self._vec
+        if self.dataset._apply_local_global_filter and access is not Access.READ:
+            self._data[:size][self._data_filter] = self._data_filtered[:]
         if access is not Access.READ:
             self.halo_valid = False
 
@@ -1021,6 +1079,23 @@ class MixedDat(AbstractDat, VecAccessMixin):
         for s, o in zip(self, other):
             ret += s.inner(o)
         return ret
+
+    def axpy(self, alpha: float, other: 'MixedDat') -> None:
+        """Compute the operation :math:`y = \\alpha x + y`.
+
+        In this case, ``self`` is ``y`` and ``other`` is ``x``.
+
+        """
+        self._check_shape(other)
+        for dat_result, dat_other in zip(self, other):
+            if isinstance(dat_result._data, np.ndarray):
+                if not np.isscalar(alpha):
+                    raise TypeError("alpha must be a scalar")
+                np.add(
+                    alpha * dat_other.data_ro, dat_result.data_ro,
+                    out=dat_result.data_wo)
+            else:
+                raise NotImplementedError("Not implemented for GPU")
 
     def _op(self, other, op):
         ret = []

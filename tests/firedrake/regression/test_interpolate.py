@@ -28,6 +28,47 @@ def test_function():
     assert np.allclose(g.dat.data, h.dat.data)
 
 
+def test_mixed_expression():
+    m = UnitTriangleMesh()
+    x = SpatialCoordinate(m)
+    V1 = FunctionSpace(m, 'P', 1)
+    V2 = FunctionSpace(m, 'P', 2)
+
+    V = V1 * V2
+    expressions = [x[0], x[0]*x[1]]
+    expr = as_vector(expressions)
+    fg = assemble(interpolate(expr, V))
+    f, g = fg.subfunctions
+
+    f1 = Function(V1).interpolate(expressions[0])
+    g1 = Function(V2).interpolate(expressions[1])
+    assert np.allclose(f.dat.data, f1.dat.data)
+    assert np.allclose(g.dat.data, g1.dat.data)
+
+
+def test_mixed_function():
+    m = UnitTriangleMesh()
+    x = SpatialCoordinate(m)
+    V1 = FunctionSpace(m, 'RT', 1)
+    V2 = FunctionSpace(m, 'DG', 0)
+    V = V1 * V2
+
+    expressions = [x[0], x[1], Constant(0.444)]
+    expr = as_vector(expressions)
+    v = assemble(interpolate(expr, V))
+
+    W1 = FunctionSpace(m, 'RT', 2)
+    W2 = FunctionSpace(m, 'DG', 1)
+    W = W1 * W2
+    w = assemble(interpolate(v, W))
+
+    f, g = w.subfunctions
+    f1 = Function(W1).interpolate(x)
+    g1 = Function(W2).interpolate(expressions[-1])
+    assert np.allclose(f.dat.data, f1.dat.data)
+    assert np.allclose(g.dat.data, g1.dat.data)
+
+
 def test_inner():
     m = UnitTriangleMesh()
     V1 = FunctionSpace(m, 'P', 1)

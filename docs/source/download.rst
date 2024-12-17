@@ -135,6 +135,7 @@ they have the system dependencies:
 * zlib
 * flex, bison
 * Ninja
+* pkg-config
 
 Firedrake has been successfully installed on Windows 10 using the
 Windows Subsystem for Linux. There are more detailed instructions for
@@ -229,10 +230,10 @@ type::
 
 You should now be able to run ``firedrake-update``.
 
-Installing Firedrake with pip (experimental, Linux only)
+Installing Firedrake with pip (experimental)
 --------------------------------------------------------
 
-Firedrake has experimental support for installing using ``pip``, avoiding the need for the ``firedrake-install`` script. At present only Linux is tested using this install method.
+Firedrake has experimental support for installing using ``pip``, avoiding the need for the ``firedrake-install`` script.
 
 Requirements
 ~~~~~~~~~~~~
