@@ -263,6 +263,22 @@ static void write(unsigned int* v) {
         d1.data_with_halos
         assert d1.dat_version == 1
 
+    def test_axpy(self, d1):
+        d2 = op2.Dat(d1.dataset)
+        d1.data[:] = 0
+        d2.data[:] = 2
+        d1.axpy(3, d2)
+        assert (d1.data_ro == 3 * 2).all()
+
+    def test_maxpy(self, d1):
+        d2 = op2.Dat(d1.dataset)
+        d3 = op2.Dat(d1.dataset)
+        d1.data[:] = 0
+        d2.data[:] = 2
+        d3.data[:] = 3
+        d1.maxpy((2, 3), (d2, d3))
+        assert (d1.data_ro == 2 * 2 + 3 * 3).all()
+
 
 class TestDatView():
 

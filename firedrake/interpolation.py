@@ -905,6 +905,8 @@ def make_interpolator(expr, V, subset, access, bcs=None):
     elif len(arguments) == 1:
         if isinstance(V, firedrake.Function):
             raise ValueError("Cannot interpolate an expression with an argument into a Function")
+        if len(V) > 1:
+            raise NotImplementedError("Interpolation of mixed expressions with arguments is not supported")
         argfs = arguments[0].function_space()
         source_mesh = argfs.mesh()
         argfs_map = argfs.cell_node_map()
@@ -992,10 +994,29 @@ def make_interpolator(expr, V, subset, access, bcs=None):
         if numpy.prod(expr.ufl_shape, dtype=int) != V.value_size:
             raise RuntimeError('Expression of length %d required, got length %d'
                                % (V.value_size, numpy.prod(expr.ufl_shape, dtype=int)))
-        if len(V) > 1:
-            raise NotImplementedError(
-                "UFL expressions for mixed functions are not yet supported.")
-        loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
+
+        if len(V) == 1:
+            loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
+        else:
+            if (hasattr(expr, "subfunctions") and len(expr.subfunctions) == len(V)
+                    and all(sub_expr.ufl_shape == Vsub.value_shape for Vsub, sub_expr in zip(V, expr.subfunctions))):
+                # Use subfunctions if they match the target shapes
+                expressions = expr.subfunctions
+            else:
+                # Unflatten the expression into the shapes of the mixed components
+                offset = 0
+                expressions = []
+                for Vsub in V:
+                    if len(Vsub.value_shape) == 0:
+                        expressions.append(expr[offset])
+                    else:
+                        components = [expr[offset + j] for j in range(Vsub.value_size)]
+                        expressions.append(ufl.as_tensor(numpy.reshape(components, Vsub.value_shape)))
+                    offset += Vsub.value_size
+            # Interpolate each sub expression into each function space
+            for Vsub, sub_tensor, sub_expr in zip(V, tensor, expressions):
+                loops.extend(_interpolator(Vsub, sub_tensor, sub_expr, subset, arguments, access, bcs=bcs))
+
         if bcs and len(arguments) == 0:
             loops.extend(partial(bc.apply, f) for bc in bcs)
 

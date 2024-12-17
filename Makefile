@@ -24,6 +24,8 @@ lint:
 	@python -m flake8 $(FLAKE8_FORMAT) pyop2
 	@echo "    Linting PyOP2 scripts"
 	@python -m flake8 $(FLAKE8_FORMAT) pyop2/scripts --filename=*
+	@echo "    Linting TSFC"
+	@python -m flake8 $(FLAKE8_FORMAT) tsfc
 
 actionlint:
 	@echo "    Pull latest actionlint image"

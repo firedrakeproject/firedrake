@@ -547,7 +547,7 @@ def check_source_hashes(compiler, jitmodule, extension, comm):
             output = Path(configuration["cache_dir"]).joinpath("mismatching-kernels")
             srcfile = output.joinpath(f"src-rank{icomm.rank}.{extension}")
             if icomm.rank == 0:
-                output.mkdir(exist_ok=True)
+                output.mkdir(parents=True, exist_ok=True)
             icomm.barrier()
             with open(srcfile, "w") as fh:
                 fh.write(jitmodule.code_to_compile)

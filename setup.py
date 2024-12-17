@@ -1,9 +1,5 @@
-from dataclasses import dataclass, field
-from setuptools import setup, find_packages, Extension
-from glob import glob
-from pathlib import Path
-from Cython.Build import cythonize
 import os
+import platform
 import sys
 import site
 import numpy as np
@@ -11,6 +7,11 @@ import pybind11
 import petsc4py
 import rtree
 import pkgconfig
+from dataclasses import dataclass, field
+from setuptools import setup, find_packages, Extension
+from glob import glob
+from pathlib import Path
+from Cython.Build import cythonize
 
 # Define the compilers to use if not already set
 if "CC" not in os.environ:
@@ -87,7 +88,14 @@ class ExternalDependency:
 # Pybind11
 # example:
 # gcc -I/pyind11/include ...
-pybind11_ = ExternalDependency(include_dirs=[pybind11.get_include()])
+pybind11_extra_compile_args = []
+if platform.uname().system == "Darwin":
+    # Clang needs to specify at least C++11
+    pybind11_extra_compile_args.append("-std=c++11")
+pybind11_ = ExternalDependency(
+    include_dirs=[pybind11.get_include()],
+    extra_compile_args=pybind11_extra_compile_args,
+)
 
 # numpy
 # example:
@@ -224,7 +232,6 @@ def extensions():
     ))
     ## PYBIND11 EXTENSIONS
     pybind11_list = []
-    # tinyasm/tinyasm.cpp: petsc, pybind11
     # tinyasm/tinyasm.cpp: petsc, pybind11
     pybind11_list.append(Extension(
         name="tinyasm._tinyasm",

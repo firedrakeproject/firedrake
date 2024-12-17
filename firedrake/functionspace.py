@@ -308,20 +308,21 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
 
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
-def RestrictedFunctionSpace(function_space, name=None, boundary_set=[]):
+def RestrictedFunctionSpace(function_space, boundary_set=[], name=None):
     """Create a :class:`.RestrictedFunctionSpace`.
 
     Parameters
     ----------
     function_space :
         FunctionSpace object to restrict
-    name :
-        An optional name for the function space.
     boundary_set :
         A set of subdomains of the mesh in which Dirichlet boundary conditions
         will be applied.
+    name :
+        An optional name for the function space.
 
     """
-    return impl.WithGeometry.create(impl.RestrictedFunctionSpace(function_space, name=name,
-                                                                 boundary_set=boundary_set),
+    return impl.WithGeometry.create(impl.RestrictedFunctionSpace(function_space,
+                                                                 boundary_set=boundary_set,
+                                                                 name=name),
                                     function_space.mesh())

@@ -21,8 +21,9 @@ class DataSet(caching.ObjectCached):
 
     @utils.validate_type(('iter_set', Set, ex.SetTypeError),
                          ('dim', (numbers.Integral, tuple, list), ex.DimTypeError),
-                         ('name', str, ex.NameTypeError))
-    def __init__(self, iter_set, dim=1, name=None):
+                         ('name', str, ex.NameTypeError),
+                         ('apply_local_global_filter', bool, ex.DataTypeError))
+    def __init__(self, iter_set, dim=1, name=None, apply_local_global_filter=False):
         if isinstance(iter_set, ExtrudedSet):
             raise NotImplementedError("Not allowed!")
         if self._initialized:
@@ -35,18 +36,19 @@ class DataSet(caching.ObjectCached):
         self._cdim = np.prod(self._dim).item()
         self._name = name or "dset_#x%x" % id(self)
         self._initialized = True
+        self._apply_local_global_filter = apply_local_global_filter
 
     @classmethod
     def _process_args(cls, *args, **kwargs):
         return (args[0], ) + args, kwargs
 
     @classmethod
-    def _cache_key(cls, iter_set, dim=1, name=None):
+    def _cache_key(cls, iter_set, dim=1, name=None, apply_local_global_filter=False):
         return (iter_set, utils.as_tuple(dim, numbers.Integral))
 
     @utils.cached_property
     def _wrapper_cache_key_(self):
-        return (type(self), self.dim, self._set._wrapper_cache_key_)
+        return (type(self), self.dim, self._set._wrapper_cache_key_, self._apply_local_global_filter)
 
     def __getstate__(self):
         """Extract state to pickle."""
@@ -97,11 +99,11 @@ class DataSet(caching.ObjectCached):
         return 1
 
     def __str__(self):
-        return "OP2 DataSet: %s on set %s, with dim %s" % \
-            (self._name, self._set, self._dim)
+        return "OP2 DataSet: %s on set %s, with dim %s, %s" % \
+            (self._name, self._set, self._dim, self._apply_local_global_filter)
 
     def __repr__(self):
-        return "DataSet(%r, %r, %r)" % (self._set, self._dim, self._name)
+        return "DataSet(%r, %r, %r, %r)" % (self._set, self._dim, self._name, self._apply_local_global_filter)
 
     def __contains__(self, dat):
         """Indicate whether a given Dat is compatible with this DataSet."""
@@ -501,6 +503,8 @@ class MixedDataSet(DataSet):
             tmp_indices = np.searchsorted(current_offsets, l2g, side="right") - 1
             idx[:] = l2g[:] - current_offsets[tmp_indices] + \
                 all_field_offsets[tmp_indices] + all_local_offsets[tmp_indices]
+            # Explicitly set -1 for constrained DoFs.
+            idx[l2g < 0] = -1
             self.comm.Allgather(owned_sz, current_offsets[1:])
             all_local_offsets += current_offsets[1:]
             start += s.total_size * s.cdim
