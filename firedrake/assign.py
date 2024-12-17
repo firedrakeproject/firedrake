@@ -100,6 +100,9 @@ class CoefficientCollector(MultiFunction):
     def coefficient(self, o):
         return ((o, 1),)
 
+    def cofunction(self, o):
+        return ((o, 1),)
+
     def constant_value(self, o):
         return ((o, 1),)
 
