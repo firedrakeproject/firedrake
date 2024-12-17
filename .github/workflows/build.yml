@@ -83,7 +83,6 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
-            --package-branch ufl dham/cofunction_is_terminal \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
