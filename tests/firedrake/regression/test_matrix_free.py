@@ -130,6 +130,7 @@ def test_matrixfree_action(a, V, bcs):
 
 @pytest.mark.parametrize("preassembled", [False, True],
                          ids=["variational", "preassembled"])
+@pytest.mark.parametrize("rhs", ["func_rhs", "cofunc_rhs"])
 @pytest.mark.parametrize("parameters",
                          [{"ksp_type": "preonly",
                            "pc_type": "python",
@@ -168,7 +169,7 @@ def test_matrixfree_action(a, V, bcs):
                            "fieldsplit_1_fieldsplit_1_pc_type": "python",
                            "fieldsplit_1_fieldsplit_1_pc_python_type": "firedrake.AssembledPC",
                            "fieldsplit_1_fieldsplit_1_assembled_pc_type": "lu"}])
-def test_fieldsplitting(mesh, preassembled, parameters):
+def test_fieldsplitting(mesh, preassembled, parameters, rhs):
     V = FunctionSpace(mesh, "CG", 1)
     P = FunctionSpace(mesh, "DG", 0)
     Q = VectorFunctionSpace(mesh, "DG", 1)
@@ -184,7 +185,12 @@ def test_fieldsplitting(mesh, preassembled, parameters):
 
     a = inner(u, v)*dx
 
-    L = inner(expect, v)*dx
+    if rhs == 'func_rhs':
+        L = inner(expect, v)*dx
+    elif rhs == 'cofunc_rhs':
+        L = expect.riesz_representation()
+    else:
+        raise ValueError("Unknown right hand side type")
 
     f = Function(W)
 
