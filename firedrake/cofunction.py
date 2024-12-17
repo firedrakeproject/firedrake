@@ -230,7 +230,8 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         raise ValueError('Cannot assign %s' % expr)
 
     def riesz_representation(self, riesz_map='L2', *, bcs=None,
-                             solver_options=None):
+                             solver_parameters=None,
+                             form_compiler_parameters=None):
         """Return the Riesz representation of this :class:`Cofunction`.
 
         Example: For a L2 Riesz map, the Riesz representation is obtained by
@@ -245,8 +246,11 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             callable.
         bcs: DirichletBC or list of DirichletBC
             Boundary conditions to apply to the Riesz map.
-        solver_options: dict
+        solver_parameters: dict
             A dictionary of PETSc options to be passed to the solver.
+        form_compiler_parameters: dict
+            A dictionary of form compiler parameters to be passed to the
+            variational problem that solves for the Riesz map.
 
         Returns
         -------
@@ -255,8 +259,11 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             the given Riesz map.
         """
         if not callable(riesz_map):
-            riesz_map = RieszMap(self.function_space(), riesz_map, bcs=bcs,
-                                 solver_options=solver_options)
+            riesz_map = RieszMap(
+                self.function_space(), riesz_map, bcs=bcs,
+                solver_parameters=solver_parameters,
+                form_compiler_parameters=form_compiler_parameters
+            )
 
         return riesz_map(self)
 
@@ -379,12 +386,16 @@ class RieszMap:
         Used to determine the inner product.
     bcs: DirichletBC or list of DirichletBC
         Boundary conditions to apply to the Riesz map.
-    solver_options: dict
+    solver_parameters: dict
         A dictionary of PETSc options to be passed to the solver.
+    form_compiler_parameters: dict
+        A dictionary of form compiler parameters to be passed to the
+        variational problem that solves for the Riesz map.
     """
 
     def __init__(self, function_space_or_inner_product=None,
-                 sobolev_space=ufl.L2, *, bcs=None, solver_options=None):
+                 sobolev_space=ufl.L2, *, bcs=None, solver_parameters=None,
+                 form_compiler_parameters=None):
         if isinstance(function_space_or_inner_product, ufl.Form):
             args = ufl.algorithms.extract_arguments(
                 function_space_or_inner_product
@@ -414,7 +425,8 @@ class RieszMap:
         self._function_space = function_space
         self._inner_product = inner_product
         self._bcs = bcs
-        self._solver_options = solver_options or {}
+        self._solver_parameters = solver_parameters or {}
+        self._form_compiler_parameters = form_compiler_parameters or {}
 
     @staticmethod
     def _inner_product_form(sobolev_space, u, v):
@@ -435,10 +447,11 @@ class RieszMap:
                                LinearVariationalProblem, Function, Cofunction)
         rhs = Cofunction(self._function_space.dual())
         soln = Function(self._function_space)
-        lvp = LinearVariationalProblem(self._inner_product, rhs, soln,
-                                       bcs=self._bcs)
+        lvp = LinearVariationalProblem(
+            self._inner_product, rhs, soln, bcs=self._bcs, restrict=True,
+            form_compiler_parameters=self._form_compiler_parameters)
         solver = LinearVariationalSolver(
-            lvp, solver_parameters=self._solver_options
+            lvp, solver_parameters=self._solver_parameters
         )
         return solver.solve, rhs, soln
 
