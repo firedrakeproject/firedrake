@@ -932,21 +932,27 @@ def test_riesz_representation_for_adjoints():
         dJdu_function_L2 = Function(space)
         solve(a == dJdu_cofunction, dJdu_function_L2)
 
-    dJdu_none = rf.derivative(options={"riesz_representation": None})
-    dJdu_l2 = rf.derivative(options={"riesz_representation": "l2"})
-    dJdu_H1 = rf.derivative(options={"riesz_representation": "H1"})
-    dJdu_L2 = rf.derivative(options={"riesz_representation": "L2"})
-    dJdu_default_L2 = rf.derivative()
-    assert (
-        isinstance(dJdu_none, Cofunction) and isinstance(dJdu_function_l2, Function)
-        and isinstance(dJdu_H1, Function) and isinstance(dJdu_default_L2, Function)
-        and isinstance(dJdu_L2, Function)
-        and np.allclose(dJdu_none.dat.data, dJdu_cofunction.dat.data)
-        and np.allclose(dJdu_l2.dat.data, dJdu_function_l2.dat.data)
-        and np.allclose(dJdu_H1.dat.data, dJdu_function_H1.dat.data)
-        and np.allclose(dJdu_default_L2.dat.data, dJdu_function_L2.dat.data)
-        and np.allclose(dJdu_L2.dat.data, dJdu_function_L2.dat.data)
+    dJdu_none = ReducedFunctional(J, Control(f)).derivative()
+    dJdu_l2 = ReducedFunctional(J, Control(f, riesz_map="l2")).derivative(
+        apply_riesz=True
     )
+    dJdu_H1 = ReducedFunctional(J, Control(f, riesz_map="H1")).derivative(
+        apply_riesz=True
+    )
+    dJdu_L2 = ReducedFunctional(J, Control(f, riesz_map="L2")).derivative(
+        apply_riesz=True
+    )
+    dJdu_default_L2 = ReducedFunctional(J, Control(f)).derivative(
+        apply_riesz=True
+    )
+    assert isinstance(dJdu_none, Cofunction) and isinstance(dJdu_function_l2, Function)
+    assert isinstance(dJdu_H1, Function) and isinstance(dJdu_default_L2, Function)
+    assert isinstance(dJdu_L2, Function)
+    assert np.allclose(dJdu_none.dat.data, dJdu_cofunction.dat.data)
+    assert np.allclose(dJdu_l2.dat.data, dJdu_function_l2.dat.data)
+    assert np.allclose(dJdu_H1.dat.data, dJdu_function_H1.dat.data)
+    assert np.allclose(dJdu_default_L2.dat.data, dJdu_function_L2.dat.data)
+    assert np.allclose(dJdu_L2.dat.data, dJdu_function_L2.dat.data)
 
 
 @pytest.mark.skipcomplex
@@ -998,7 +1004,7 @@ def test_cofunction_assign_functional():
     cof2.assign(cof)  # Test is checking that this is taped.
     J = assemble(action(cof2, f2))
     Jhat = ReducedFunctional(J, Control(f))
-    assert np.allclose(float(Jhat.derivative()), 1.0)
+    assert np.allclose(float(Jhat.derivative(apply_riesz=True)), 1.0)
     f.assign(2.0)
     assert np.allclose(Jhat(f), 2.0)
 
