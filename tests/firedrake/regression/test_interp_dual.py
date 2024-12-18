@@ -35,6 +35,13 @@ def f1(mesh, V1):
     return Function(V1).interpolate(expr)
 
 
+def test_interp_self(V1):
+    a = assemble(TestFunction(V1) * dx)
+    b = assemble(TestFunction(V1) * dx)
+    a.interpolate(a)
+    assert (a.dat.data_ro == b.dat.data_ro).all()
+
+
 def test_assemble_interp_operator(V2, f1):
     # Check type
     If1 = Interpolate(f1, V2)
