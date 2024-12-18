@@ -45,11 +45,12 @@ firedrake installer to use it, by running:
 
 .. code-block:: shell
 
-   python3 firedrake-install --mpiexec=mpiexec --mpicc=mpicc --mpicxx=mpicxx --mpif90=mpif90
+   python3 firedrake-install --mpiexec=mpiexec --mpicc=mpicc --mpicxx=mpicxx --mpif90=mpif90 --mpihome mpihome
 
 where ``mpiexec``, ``mpicc``, ``mpicxx``, and ``mpif90`` are the
 commands to run an MPI job and to compile C, C++, and Fortran 90 code,
-respectively.
+respectively. ``mpihome`` is an extra variable that must point to the
+root directory of the MPI installation (e.g. ``/usr`` or ``/opt/mpich``).
 
 Printing in parallel
 ====================

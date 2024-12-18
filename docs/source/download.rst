@@ -241,7 +241,6 @@ Requirements
 * An activated virtual environment.
 * All the system requirements listed in :ref:`system-requirements`.
 * A Firedrake-compatible PETSc installation (using our `fork of PETSc <https://github.com/firedrakeproject/petsc.git>`_). The set of flags passed to PETSc can be retrieved by passing the command ``--show-petsc-configure-options`` to ``firedrake-install``.
-* `libsupermesh <https://github.com/firedrakeproject/libsupermesh.git>`_ to be installed inside the virtual environment (see `here <https://github.com/firedrakeproject/firedrake/blob/master/.github/workflows/pip.yml>`_ for an example of how to do this).
 *  The following environment variables to be set:
 
   * ``PETSC_DIR`` and ``PETSC_ARCH`` to point to the correct location for the PETSc installation.
