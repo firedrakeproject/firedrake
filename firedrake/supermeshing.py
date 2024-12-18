@@ -429,7 +429,7 @@ each supermesh cell.
         "complex_mode": 1 if complex_mode else 0
     }
 
-    libsupermesh_dir = pathlib.Path(libsupermesh.get_include().parent).absolute()
+    libsupermesh_dir = pathlib.Path(libsupermesh.get_include()).parent.absolute()
     dirs = get_petsc_dir() + (libsupermesh_dir,)
     includes = ["-I%s/include" % d for d in dirs]
     libs = ["-L%s/lib" % d for d in dirs]
