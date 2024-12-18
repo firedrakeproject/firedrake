@@ -11,7 +11,7 @@ import pytools
 from petsc4py import PETSc
 
 from pyop2 import mpi
-from pyop2.compilation import load
+from pyop2.compilation import add_profiling_events, load
 from pyop2.configuration import configuration
 from pyop2.datatypes import IntType, as_ctypes
 from pyop2.types import IterationRegion, Constant, READ
@@ -366,8 +366,11 @@ class GlobalKernel:
         """Return the C/C++ source code as a string."""
         from pyop2.codegen.rep2loopy import generate
 
-        wrapper = generate(self.builder)
-        code = lp.generate_code_v2(wrapper)
+        with PETSc.Log.Event("GlobalKernel: generate loopy"):
+            wrapper = generate(self.builder)
+
+        with PETSc.Log.Event("GlobalKernel: generate device code"):
+            code = lp.generate_code_v2(wrapper)
 
         if self.local_kernel.cpp:
             from loopy.codegen.result import process_preambles
@@ -397,15 +400,12 @@ class GlobalKernel:
             + tuple(self.local_kernel.ldargs)
         )
 
-        return load(
-            self,
-            extension,
-            self.name,
-            cppargs=cppargs,
-            ldargs=ldargs,
-            restype=ctypes.c_int,
-            comm=comm
-        )
+        dll = load(self.code_to_compile, extension, cppargs=cppargs, ldargs=ldargs, comm=comm)
+        add_profiling_events(dll, self.local_kernel.events)
+        fn = getattr(dll, self.name)
+        fn.argtypes = self.argtypes
+        fn.restype = ctypes.c_int
+        return fn
 
     @cached_property
     def argtypes(self):
