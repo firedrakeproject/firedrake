@@ -221,55 +221,18 @@ class FunctionMixin(FloatingType):
             return self.copy(deepcopy=True)
 
     def _ad_convert_riesz(self, value, options=None):
-        from firedrake import Function, Cofunction
+        from firedrake import Function
 
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "L2")
         solver_options = options.get("solver_options", {})
-        V = options.get("function_space", self.function_space())
         if value == 0.:
             # In adjoint-based differentiation, value == 0. arises only when
             # the functional is independent on the control variable.
-            return Function(V)
+            return Function(self.function_space())
 
-        if not isinstance(value, (Cofunction, Function)):
-            raise TypeError("Expected a Cofunction or a Function")
-
-        if riesz_representation == "l2":
-            return Function(V, val=value.dat)
-
-        elif riesz_representation in ("L2", "H1"):
-            if not isinstance(value, Cofunction):
-                raise TypeError("Expected a Cofunction")
-
-            ret = Function(V)
-            a = self._define_riesz_map_form(riesz_representation, V)
-            firedrake.solve(a == value, ret, **solver_options)
-            return ret
-
-        elif callable(riesz_representation):
-            return riesz_representation(value)
-
-        else:
-            raise ValueError(
-                "Unknown Riesz representation %s" % riesz_representation)
-
-    def _define_riesz_map_form(self, riesz_representation, V):
-        from firedrake import TrialFunction, TestFunction
-
-        u = TrialFunction(V)
-        v = TestFunction(V)
-        if riesz_representation == "L2":
-            a = firedrake.inner(u, v)*firedrake.dx
-
-        elif riesz_representation == "H1":
-            a = firedrake.inner(u, v)*firedrake.dx \
-                + firedrake.inner(firedrake.grad(u), firedrake.grad(v))*firedrake.dx
-
-        else:
-            raise NotImplementedError(
-                "Unknown Riesz representation %s" % riesz_representation)
-        return a
+        return value.riesz_representation(riesz_map=riesz_representation,
+                                          solver_options=solver_options)
 
     @no_annotations
     def _ad_convert_type(self, value, options=None):
@@ -294,9 +257,7 @@ class FunctionMixin(FloatingType):
             return checkpoint
 
     def _ad_will_add_as_dependency(self):
-        """Method called when the object is added as a Block dependency.
-
-        """
+        """Method called when the object is added as a Block dependency."""
         with checkpoint_init_data():
             super()._ad_will_add_as_dependency()
 
@@ -304,7 +265,8 @@ class FunctionMixin(FloatingType):
         from firedrake import Function
 
         r = Function(self.function_space())
-        # `self` can be a Cofunction in which case only left multiplication with a scalar is allowed.
+        # `self` can be a Cofunction in which case only left multiplication
+        # with a scalar is allowed.
         r.assign(other * self)
         return r
 
@@ -316,7 +278,10 @@ class FunctionMixin(FloatingType):
         return r
 
     def _ad_dot(self, other, options=None):
-        from firedrake import assemble
+        from firedrake import assemble, action, Cofunction
+
+        if isinstance(other, Cofunction):
+            return assemble(action(other, self))
 
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "L2")
@@ -406,3 +371,9 @@ class FunctionMixin(FloatingType):
 
     def __deepcopy__(self, memodict={}):
         return self.copy(deepcopy=True)
+
+
+class CofunctionMixin(FunctionMixin):
+
+    def _ad_dot(self, other):
+        return firedrake.assemble(firedrake.action(self, other))
