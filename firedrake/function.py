@@ -478,7 +478,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             Assigner(self, expr, subset).assign()
         return self
 
-    def riesz_representation(self, riesz_map='L2', bcs=None):
+    def riesz_representation(self, riesz_map='L2'):
         """Return the Riesz representation of this :class:`Function`.
 
         Example: For a L2 Riesz map, the Riesz representation is obtained by
@@ -491,8 +491,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         collections.abc.Callable
             The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a
             callable which applies the Riesz map.
-        bcs: DirichletBC or list of DirichletBC
-            Boundary conditions to apply to the Riesz map.
 
         Returns
         -------
@@ -501,7 +499,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             given Riesz map.
         """
         if not callable(riesz_map):
-            riesz_map = RieszMap(self.function_space(), riesz_map, bcs=bcs)
+            riesz_map = RieszMap(self.function_space(), riesz_map)
 
         return riesz_map(self)
 
