@@ -83,8 +83,8 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
-            --package-branch fiat ksagiyam/merge_upstream \
             --package-branch ufl ksagiyam/merge_upstream \
+            --package-branch fiat ksagiyam/merge_upstream \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
