@@ -167,10 +167,9 @@ spatialindex_ = ExternalDependency(
 # gcc path/to/libsupermesh/libsupermesh.cpython-311-x86_64-linux-gnu.so \
 #    -lsupermesh \
 #    -Wl,-rpath,$ORIGIN/../../libsupermesh
-libsupermesh_dir = Path(libsupermesh.__path__._path[0]).absolute()
 libsupermesh_ = ExternalDependency(
-    include_dirs=[str(libsupermesh_dir.joinpath("include"))],
-    library_dirs=[str(libsupermesh_dir.joinpath("lib"))],
+    include_dirs=[libsupermesh.get_include()],
+    library_dirs=[str(Path(libsupermesh.get_library()).parent)],
     runtime_library_dirs=[os.path.join(site.getsitepackages()[0], "libsupermesh", "lib")],
     libraries=["supermesh"],
 )
