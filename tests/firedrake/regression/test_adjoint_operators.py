@@ -913,7 +913,6 @@ def test_riesz_representation_for_adjoints():
     space = FunctionSpace(mesh, "Lagrange", 1)
     f = Function(space).interpolate(SpatialCoordinate(mesh)[0])
     J = assemble((f ** 2) * dx)
-    rf = ReducedFunctional(J, Control(f))
     with stop_annotating():
         v = TestFunction(space)
         u = TrialFunction(space)
