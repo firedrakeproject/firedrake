@@ -785,7 +785,8 @@ def test_writing_large_so():
     if COMM_WORLD.rank == 1:
         os.remove("big.c")
 
-    fn = load(program, "c", "big", argtypes=(ctypes.c_voidp,), comm=COMM_WORLD)
+    dll = load(program, "c", comm=COMM_WORLD)
+    fn = getattr(dll, "big")
     assert fn is not None
 
 
@@ -800,7 +801,8 @@ def test_two_comms_compile_the_same_code():
         }
         """)
 
-    fn = load(code, "c", "noop", argtypes=(), comm=COMM_WORLD)
+    dll = load(code, "c", comm=COMM_WORLD)
+    fn = getattr(dll, "noop")
     assert fn is not None
 
 
