@@ -27,13 +27,13 @@ The conference will begin with a tutorial session on the morning of 28 February 
 Conference venue
 ----------------
 
-The conference will take place in the Bill Daniel Student Center in Room 202 in the heart of the Baylor campus.
+The conference will take place in the Bill Daniel Student Center in Room 202 in the heart of the Baylor campus.  A `campus map <https://map.baylor.edu/>`__ is available online, and both Apple Maps and Google Maps accurate locate the Bill Daniel Student Center.  
 
 
 Accommodation
 -------------
 
-We will be reserving a room block in a hotel near campus.  More information to follow.
+We have reserved a block of hotel rooms at SpringHill Suites Waco, about a 15 minute walk from the Bill Daniel Student Center.  Follow `this link <https://www.marriott.com/event-reservations/reservation-link.mi?id=1734040121673&key=GRP&guestreslink2=true&app=resvlink/>`__ to hold your room.  The group rate is only available until 20 January 2025.  
 
 
 Conference dinner
@@ -53,9 +53,9 @@ The registration fees are as follows:
    :widths: 25 50
    :header-rows: 0
 
-   * - Student
+   * - Student:
      - $50
-   * - Non-student
+   * - Non-student:
      - $200
 
 The `SIAM Texas-Louisiana Section <https://www.siam.org/get-involved/connect-with-a-community/sections/siam-texas-louisiana-section/>`__ is providing some support for students currently attending universities in Texas or Louisiana to attend.
@@ -79,17 +79,11 @@ The conference has been kindly supported by the SIAM TX-LA Section and EPSRC.
 Travel to Waco
 --------------
 
-* By air
+* By air:  Waco has a small airport.  There is daily service between Waco and Dallas/Fort Worth International Airport via American Airlines.  
 
-   Waco has a small airport.  There is daily service between Waco and Dallas/Fort Worth International Airport via American Airlines.  
+* By ground:  We are less than two hours by car from the Dallas and Austin airports, and just under three hours from Bush Intercontinental Airport in Houston.  Additionally, Waco is reachable by bus services such as Greyhound and FlixBus.
 
-* By ground
-
-  We are less than two hours by car from the Dallas and Austin airports, and just under three hours from Bush Intercontinental Airport in Houston.  Additionally, Waco is reachable by bus services such as Greyhound and FlixBus.
-
-* Parking on campus
-
-  Baylor has plenty of visitor parking for your personal or rental vehicle, but conslut `these instructions <https://dps.web.baylor.edu/parking-transportation/visitors>__` and make sure to `register your vehicle <https://dps.web.baylor.edu/parking-transportation/visitors/visitor-parking-permit>__`.
+* Parking on campus:  Baylor has plenty of visitor parking for your personal or rental vehicle, but conslut `these instructions <https://dps.web.baylor.edu/parking-transportation/visitors>__` and make sure to `register your vehicle <https://dps.web.baylor.edu/parking-transportation/visitors/visitor-parking-permit>`__.
 
 
 
