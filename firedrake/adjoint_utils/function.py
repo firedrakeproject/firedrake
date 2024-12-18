@@ -220,35 +220,15 @@ class FunctionMixin(FloatingType):
         else:
             return self.copy(deepcopy=True)
 
-    def _ad_convert_riesz(self, value, options=None):
-        from firedrake import Function
+    def _ad_convert_riesz(self, value, riesz_map=None):
+        return value.riesz_representation(riesz_map=riesz_map or "L2")
 
-        options = {} if options is None else options
-        riesz_representation = options.get("riesz_representation", "L2")
-        solver_options = options.get("solver_options", {})
-        if value == 0.:
-            # In adjoint-based differentiation, value == 0. arises only when
-            # the functional is independent on the control variable.
-            return Function(self.function_space())
-
-        return value.riesz_representation(riesz_map=riesz_representation,
-                                          solver_options=solver_options)
-
-    @no_annotations
-    def _ad_convert_type(self, value, options=None):
-        # `_ad_convert_type` is not annotated, unlike `_ad_convert_riesz`
-        options = {} if options is None else options.copy()
-        options.setdefault("riesz_representation", "L2")
-        if options["riesz_representation"] is None:
-            if value == 0.:
-                # In adjoint-based differentiation, value == 0. arises only when
-                # the functional is independent on the control variable.
-                V = options.get("function_space", self.function_space())
-                return firedrake.Cofunction(V.dual())
-            else:
-                return value
+    def _ad_init_zero(self, dual=False):
+        from firedrake import Function, Cofunction
+        if dual:
+            return Cofunction(self.function_space().dual())
         else:
-            return self._ad_convert_riesz(value, options=options)
+            return Function(self.function_space())
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         if isinstance(checkpoint, CheckpointBase):
