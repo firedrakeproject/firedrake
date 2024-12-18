@@ -2681,8 +2681,8 @@ values from f.)"""
 
             libspatialindex_so = Path(rtree.core.rt._name).absolute()
             lsi_runpath = f"-Wl,-rpath,{libspatialindex_so.parent}"
-            locator = compilation.load(
-                src, "c", "locator",
+            dll = compilation.load(
+                src, "c",
                 cppargs=[
                     f"-I{os.path.dirname(__file__)}",
                     f"-I{sys.prefix}/include",
@@ -2696,7 +2696,7 @@ values from f.)"""
                 ],
                 comm=self.comm
             )
-
+            locator = getattr(dll, "locator")
             locator.argtypes = [ctypes.POINTER(function._CFunction),
                                 ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_double),

@@ -56,7 +56,6 @@ from pyop2.configuration import configuration
 from pyop2.logger import warning, debug, progress, INFO
 from pyop2.exceptions import CompilationError
 from pyop2.utils import get_petsc_variables
-import pyop2.global_kernel
 from petsc4py import PETSc
 
 
@@ -424,38 +423,16 @@ def load_hashkey(*args, **kwargs):
 @mpi.collective
 @memory_cache(hashkey=load_hashkey)
 @PETSc.Log.EventDecorator()
-def load(jitmodule, extension, fn_name, cppargs=(), ldargs=(),
-         argtypes=None, restype=None, comm=None):
+def load(code, extension, cppargs=(), ldargs=(), comm=None):
     """Build a shared library and return a function pointer from it.
 
-    :arg jitmodule: The JIT Module which can generate the code to compile, or
-        the string representing the source code.
+    :arg code: The code to compile.
     :arg extension: extension of the source file (c, cpp)
-    :arg fn_name: The name of the function to return from the resulting library
     :arg cppargs: A tuple of arguments to the C compiler (optional)
     :arg ldargs: A tuple of arguments to the linker (optional)
-    :arg argtypes: A list of ctypes argument types matching the arguments of
-         the returned function (optional, pass ``None`` for ``void``). This is
-         only used when string is passed in instead of JITModule.
-    :arg restype: The return type of the function (optional, pass
-         ``None`` for ``void``).
     :kwarg comm: Optional communicator to compile the code on (only
         rank 0 compiles code) (defaults to pyop2.mpi.COMM_WORLD).
     """
-    if isinstance(jitmodule, str):
-        class StrCode(object):
-            def __init__(self, code, argtypes):
-                self.code_to_compile = code
-                self.cache_key = (None, code)  # We peel off the first
-                # entry, since for a jitmodule, it's a process-local
-                # cache key
-                self.argtypes = argtypes
-        code = StrCode(jitmodule, argtypes)
-    elif isinstance(jitmodule, pyop2.global_kernel.GlobalKernel):
-        code = jitmodule
-    else:
-        raise ValueError("Don't know how to compile code of type %r" % type(jitmodule))
-
     global _compiler
     if _compiler:
         # Use the global compiler if it has been set
@@ -475,15 +452,7 @@ def load(jitmodule, extension, fn_name, cppargs=(), ldargs=(),
     # This call is cached on disk
     so_name = make_so(compiler_instance, code, extension, comm)
     # This call might be cached in memory by the OS (system dependent)
-    dll = ctypes.CDLL(so_name)
-
-    if isinstance(jitmodule, pyop2.global_kernel.GlobalKernel):
-        _add_profiling_events(dll, code.local_kernel.events)
-
-    fn = getattr(dll, fn_name)
-    fn.argtypes = code.argtypes
-    fn.restype = restype
-    return fn
+    return ctypes.CDLL(so_name)
 
 
 def expandWl(ldflags):
@@ -519,27 +488,27 @@ class CompilerDiskAccess(DictLikeDiskAccess):
         return self[key]
 
 
-def _make_so_hashkey(compiler, jitmodule, extension, comm):
+def _make_so_hashkey(compiler, code, extension, comm):
     if extension == "cpp":
         exe = compiler.cxx
         compiler_flags = compiler.cxxflags
     else:
         exe = compiler.cc
         compiler_flags = compiler.cflags
-    return (compiler, exe, compiler_flags, compiler.ld, compiler.ldflags, jitmodule.cache_key)
+    return (compiler, code, exe, compiler_flags, compiler.ld, compiler.ldflags)
 
 
-def check_source_hashes(compiler, jitmodule, extension, comm):
+def check_source_hashes(compiler, code, extension, comm):
     """A check to see whether code generated on all ranks is identical.
 
     :arg compiler: The compiler to use to create the shared library.
-    :arg jitmodule: The JIT Module which can generate the code to compile.
+    :arg code: The code to compile.
     :arg filename: The filename of the library to create.
     :arg extension: extension of the source file (c, cpp).
     :arg comm: Communicator over which to perform compilation.
     """
     # Reconstruct hash from filename
-    hashval = _as_hexdigest(_make_so_hashkey(compiler, jitmodule, extension, comm))
+    hashval = _as_hexdigest(_make_so_hashkey(compiler, code, extension, comm))
     with mpi.temp_internal_comm(comm) as icomm:
         matching = icomm.allreduce(hashval, op=_check_op)
         if matching != hashval:
@@ -550,7 +519,7 @@ def check_source_hashes(compiler, jitmodule, extension, comm):
                 output.mkdir(parents=True, exist_ok=True)
             icomm.barrier()
             with open(srcfile, "w") as fh:
-                fh.write(jitmodule.code_to_compile)
+                fh.write(code)
             icomm.barrier()
             raise CompilationError(f"Generated code differs across ranks (see output in {output})")
 
@@ -561,11 +530,11 @@ def check_source_hashes(compiler, jitmodule, extension, comm):
     cache_factory=lambda: CompilerDiskAccess(configuration['cache_dir'], extension=".so")
 )
 @PETSc.Log.EventDecorator()
-def make_so(compiler, jitmodule, extension, comm, filename=None):
+def make_so(compiler, code, extension, comm, filename=None):
     """Build a shared library and load it
 
     :arg compiler: The compiler to use to create the shared library.
-    :arg jitmodule: The JIT Module which can generate the code to compile.
+    :arg code: The code to compile.
     :arg filename: The filename of the library to create.
     :arg extension: extension of the source file (c, cpp).
     :arg comm: Communicator over which to perform compilation.
@@ -605,7 +574,7 @@ def make_so(compiler, jitmodule, extension, comm, filename=None):
         with progress(INFO, 'Compiling wrapper'):
             # Write source code to disk
             with open(cname, "w") as fh:
-                fh.write(jitmodule.code_to_compile)
+                fh.write(code)
             os.close(descriptor)
 
             if not compiler.ld:
@@ -650,7 +619,7 @@ def _run(cc, logfile, errfile, step="Compilation", filemode="w"):
             """))
 
 
-def _add_profiling_events(dll, events):
+def add_profiling_events(dll, events):
     """
     If PyOP2 is in profiling mode, events are attached to dll to profile the local linear algebra calls.
     The event is generated here in python and then set in the shared library,
