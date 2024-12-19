@@ -42,6 +42,18 @@ def test_interp_self(V1):
     assert (a.dat.data_ro == b.dat.data_ro).all()
 
 
+def test_assemble_interp_adjoint_tensor(mesh, V1, f1):
+    a = assemble(TestFunction(V1) * dx)
+    assemble(action(adjoint(Interpolate(f1 * TestFunction(V1), V1)), a),
+             tensor=a)
+
+    x, y = SpatialCoordinate(mesh)
+    f2 = Function(V1, name="f2").interpolate(
+        exp(x) * y)
+
+    assert np.allclose(assemble(a(f2)), assemble(Function(V1).interpolate(f1 * f2) * dx))
+
+
 def test_assemble_interp_operator(V2, f1):
     # Check type
     If1 = Interpolate(f1, V2)
