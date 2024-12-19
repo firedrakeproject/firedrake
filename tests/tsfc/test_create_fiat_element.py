@@ -5,7 +5,7 @@ from FIAT.discontinuous_lagrange import DiscontinuousLagrange as FIAT_Discontinu
 
 import ufl
 import finat.ufl
-from tsfc.finatinterface import create_element as _create_element
+from finat.element_factory import create_element as _create_element
 
 
 supported_elements = {

@@ -14,7 +14,7 @@ from ufl.domain import as_domain, extract_unique_domain
 from pyop2 import op2
 from pyop2.caching import memory_and_disk_cache
 
-from tsfc.finatinterface import create_element, as_fiat_cell
+from finat.element_factory import create_element, as_fiat_cell
 from tsfc import compile_expression_dual_evaluation
 from tsfc.ufl_utils import extract_firedrake_constants
 

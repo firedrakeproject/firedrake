@@ -1,6 +1,6 @@
 from finat.ufl.elementlist import ufl_elements
 # ~ from ufl.finiteelement.elementlist import ufl_elements
-from tsfc.finatinterface import supported_elements
+from finat.element_factory import supported_elements
 import csv
 
 shape_names = {
