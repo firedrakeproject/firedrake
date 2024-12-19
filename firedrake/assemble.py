@@ -1192,7 +1192,7 @@ class OneFormAssembler(ParloopFormAssembler):
         if self._diagonal:
             bc.set(tensor, self._weight)
         elif not self._zero_bc_nodes:
-            # We cannot set primal data on a dual Cofunction, this will throw an error
+            # NOTE this will only work if tensor is a Function and not a Cofunction
             bc.apply(tensor)
         else:
             bc.zero(tensor)
