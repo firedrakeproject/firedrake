@@ -476,6 +476,28 @@ def test_boxmesh_kind(kind, num_cells):
     assert m.num_cells() == num_cells
 
 
+@pytest.mark.parallel(nprocs=2)
+def test_periodic_unit_cube_hex_cell():
+    mesh = PeriodicUnitCubeMesh(3, 3, 3, directions=[True, True, False], hexahedral=True)
+    x, y, z = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 3)
+    expr = (1 - x) * x + (1 - y) * y + z
+    f = Function(V).interpolate(expr)
+    error = assemble((f - expr) ** 2 * dx)
+    assert error < 1.e-30
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_periodic_unit_cube_hex_facet():
+    mesh = PeriodicUnitCubeMesh(3, 3, 3, directions=[True, False, False], hexahedral=True)
+    for subdomain_id in [1, 2]:
+        area = assemble(Constant(1.) * dS(domain=mesh, subdomain_id=subdomain_id))
+        assert abs(area - 1.0) < 1.e-15
+    for subdomain_id in [3, 4, 5, 6]:
+        area = assemble(Constant(1.) * ds(domain=mesh, subdomain_id=subdomain_id))
+        assert abs(area - 1.0) < 1.e-15
+
+
 @pytest.mark.parallel(nprocs=4)
 def test_split_comm_dm_mesh():
     nspace = 2
