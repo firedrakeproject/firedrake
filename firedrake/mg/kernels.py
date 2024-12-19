@@ -30,7 +30,7 @@ from tsfc import fem, ufl_utils, spectral
 from tsfc.driver import TSFCIntegralDataInfo
 from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.parameters import default_parameters
-from tsfc.finatinterface import create_element
+from finat.element_factory import create_element
 from finat.quadrature import make_quadrature
 from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, celldist_l1_c_expr
 from firedrake.pointquery_utils import to_reference_coords_newton_step as to_reference_coords_newton_step_body
@@ -45,7 +45,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
         parameters = _
 
     # Create FInAT element
-    element = tsfc.finatinterface.create_element(ufl_coordinate_element)
+    element = finat.element_factory.create_element(ufl_coordinate_element)
     gdim, = ufl_coordinate_element.reference_value_shape
     cell = ufl_coordinate_element.cell
 

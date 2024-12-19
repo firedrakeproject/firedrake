@@ -221,7 +221,7 @@ def compile_coordinate_element(mesh: MeshGeometry, contains_eps: float, paramete
 
     ufl_coordinate_element = mesh.ufl_coordinate_element()
     # Create FInAT element
-    element = tsfc.finatinterface.create_element(ufl_coordinate_element)
+    element = finat.element_factory.create_element(ufl_coordinate_element)
 
     code = {
         "geometric_dimension": mesh.geometric_dimension(),

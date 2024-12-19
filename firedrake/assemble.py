@@ -12,7 +12,7 @@ import firedrake
 import numpy
 from pyadjoint.tape import annotate_tape
 from tsfc import kernel_args
-from tsfc.finatinterface import create_element
+from finat.element_factory import create_element
 from tsfc.ufl_utils import extract_firedrake_constants
 import ufl
 import finat.ufl

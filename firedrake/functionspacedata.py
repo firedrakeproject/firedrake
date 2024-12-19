@@ -20,7 +20,7 @@ import finat
 from decorator import decorator
 from functools import partial
 
-from tsfc.finatinterface import create_element as _create_element
+from finat.element_factory import create_element as _create_element
 
 from pyop2 import op2
 from firedrake.utils import IntType

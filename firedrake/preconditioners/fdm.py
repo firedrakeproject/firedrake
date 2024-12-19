@@ -19,7 +19,7 @@ from firedrake.utils import cached_property
 from firedrake_citations import Citations
 from ufl.algorithms.ad import expand_derivatives
 from ufl.algorithms.expand_indices import expand_indices
-from tsfc.finatinterface import create_element
+from finat.element_factory import create_element
 from pyop2.compilation import load
 from pyop2.mpi import COMM_SELF
 from pyop2.sparsity import get_preallocation

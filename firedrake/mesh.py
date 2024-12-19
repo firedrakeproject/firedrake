@@ -45,7 +45,7 @@ except ImportError:
     ngsPETSc = None
 # Only for docstring
 import mpi4py  # noqa: F401
-from tsfc.finatinterface import as_fiat_cell
+from finat.element_factory import as_fiat_cell
 
 
 __all__ = [
