@@ -9,7 +9,7 @@ from FIAT.functional import PointEvaluation, IntegralMoment
 from FIAT.quadrature import make_quadrature
 from FIAT.polynomial_set import ONPolynomialSet
 from finat.fiat_elements import ScalarFiatElement
-from tsfc.finatinterface import convert, as_fiat_cell
+from finat.element_factory import convert, as_fiat_cell
 import finat.ufl
 
 ufcint = UFCInterval()
@@ -89,7 +89,7 @@ class FInAT_P3IntMoments(ScalarFiatElement):
         super().__init__(P3IntMoments(cell, degree))
 
 
-# Replace the old tsfc.finatinterface.convert dispatch with a new one that
+# Replace the old finat.element_factory.convert dispatch with a new one that
 # gives the the new FInAT element for P3 on an interval with variant
 # "interior-moment"
 old_convert = convert.dispatch(finat.ufl.FiniteElement)

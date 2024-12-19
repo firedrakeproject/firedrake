@@ -1,7 +1,7 @@
 import pytest
 import ufl
 import finat.ufl
-from tsfc.finatinterface import create_element
+from finat.element_factory import create_element
 from tsfc import compile_expression_dual_evaluation
 
 

@@ -12,7 +12,7 @@ from gem.flop_count import count_flops
 import loopy as lp
 
 from tsfc import kernel_args, fem
-from tsfc.finatinterface import create_element
+from finat.element_factory import create_element
 from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase, KernelBuilderMixin, get_index_names, check_requirements, prepare_coefficient, prepare_arguments, prepare_constant
 from tsfc.loopy import generate as generate_loopy
 
