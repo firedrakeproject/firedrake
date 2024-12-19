@@ -43,7 +43,8 @@ def backend(request):
     return request.param
 
 
-def test_linesmoother(mesh, S1family, expected, backend):
+@pytest.mark.parametrize("rhs", ["form_rhs", "cofunc_rhs"])
+def test_linesmoother(mesh, S1family, expected, backend, rhs):
     base_cell = mesh._base_mesh.ufl_cell()
     S2family = "DG" if base_cell.is_simplex() else "DQ"
     DGfamily = "DG" if mesh.ufl_cell().is_simplex() else "DQ"
@@ -86,6 +87,10 @@ def test_linesmoother(mesh, S1family, expected, backend):
         f = exp(-rsq)
 
         L = inner(f, q)*dx(degree=2*(degree+1))
+        if rhs == 'cofunc_rhs':
+            L = assemble(L)
+        elif rhs != 'form_rhs':
+            raise ValueError("Unknown right hand side type")
 
         w0 = Function(W)
         problem = LinearVariationalProblem(a, L, w0, bcs=bcs, aP=aP, form_compiler_parameters={"mode": "vanilla"})
