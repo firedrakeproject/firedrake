@@ -146,7 +146,8 @@ def test_poisson_inhomogeneous_bcs_2(j):
 
 
 @pytest.mark.parallel(nprocs=3)
-def test_poisson_inhomogeneous_bcs_high_level_interface():
+@pytest.mark.parametrize("assembled_rhs", [False, True], ids=("Form", "Cofunction"))
+def test_poisson_inhomogeneous_bcs_high_level_interface(assembled_rhs):
     mesh = UnitSquareMesh(8, 8)
     V = FunctionSpace(mesh, "CG", 2)
     bc1 = DirichletBC(V, 0., 1)
@@ -155,9 +156,11 @@ def test_poisson_inhomogeneous_bcs_high_level_interface():
     v = TestFunction(V)
     a = inner(grad(u), grad(v)) * dx
     u = Function(V)
-    L = inner(Constant(0), v) * dx
+    L = inner(Constant(-2), v) * dx
+    if assembled_rhs:
+        L = assemble(L)
     solve(a == L, u, bcs=[bc1, bc2], restrict=True)
-    assert errornorm(SpatialCoordinate(mesh)[0], u) < 1.e-12
+    assert errornorm(SpatialCoordinate(mesh)[0]**2, u) < 1.e-12
 
 
 @pytest.mark.parametrize("j", [1, 2, 5])

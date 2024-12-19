@@ -225,7 +225,7 @@ def test_one_form_assembler_cache(mesh):
     assert len(L._cache[_FORM_CACHE_KEY]) == 3
 
     # changing zero_bc_nodes should increase the cache size
-    assemble(L, zero_bc_nodes=True)
+    assemble(L, zero_bc_nodes=False)
     assert len(L._cache[_FORM_CACHE_KEY]) == 4
 
 
