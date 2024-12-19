@@ -130,7 +130,7 @@ def test_matrixfree_action(a, V, bcs):
 
 @pytest.mark.parametrize("preassembled", [False, True],
                          ids=["variational", "preassembled"])
-@pytest.mark.parametrize("rhs", ["func_rhs", "cofunc_rhs"])
+@pytest.mark.parametrize("rhs", ["form_rhs", "cofunc_rhs"])
 @pytest.mark.parametrize("parameters",
                          [{"ksp_type": "preonly",
                            "pc_type": "python",
@@ -185,11 +185,10 @@ def test_fieldsplitting(mesh, preassembled, parameters, rhs):
 
     a = inner(u, v)*dx
 
-    if rhs == 'func_rhs':
-        L = inner(expect, v)*dx
-    elif rhs == 'cofunc_rhs':
-        L = expect.riesz_representation()
-    else:
+    L = inner(expect, v)*dx
+    if rhs == 'cofunc_rhs':
+        L = assemble(L)
+    elif rhs != 'form_rhs':
         raise ValueError("Unknown right hand side type")
 
     f = Function(W)

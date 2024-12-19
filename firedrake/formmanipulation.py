@@ -2,13 +2,17 @@
 import numpy
 import collections
 
-from ufl import as_vector
-from ufl.classes import Zero, FixedIndex, ListTensor
+from ufl import as_vector, FormSum, Form
+from ufl.classes import Zero, FixedIndex, ListTensor, ZeroBaseForm
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
 
+from pyop2 import MixedDat
+
 from firedrake.petsc import PETSc
 from firedrake.ufl_expr import Argument
+from firedrake.cofunction import Cofunction
+from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 
 
 class ExtractSubBlock(MultiFunction):
@@ -129,10 +133,6 @@ class ExtractSubBlock(MultiFunction):
         return self._arg_cache.setdefault(o, as_vector(args))
 
     def cofunction(self, o):
-        from firedrake import Cofunction, FunctionSpace, MixedFunctionSpace
-        from pyop2 import MixedDat
-        from ufl.classes import ZeroBaseForm
-
         V = o.function_space()
 
         # Not on a mixed space, just return ourselves.
@@ -211,8 +211,6 @@ def split_form(form, diagonal=False):
     compiler will remove these in its more complex simplification
     stages.
     """
-    from firedrake import Cofunction
-    from ufl import FormSum, Form
     splitter = ExtractSubBlock()
     args = form.arguments()
     shape = tuple(len(a.function_space()) for a in args)
@@ -229,7 +227,7 @@ def split_form(form, diagonal=False):
             flen = len(f.components())
         elif isinstance(f, Form):
             flen = len(f.integrals())
-        else:  # Form
+        else:
             raise ValueError(
                 "ExtractSubBlock.split should have returned an instance of "
                 "either Form, FormSum, or Cofunction")
