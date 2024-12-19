@@ -68,25 +68,6 @@ jobs:
             --download-superlu_dist
           make
 
-      - name: Install libsupermesh
-        run: |
-          source pip_venv/bin/activate
-          python -m pip install 'rtree>=1.2'
-          cd pip_venv/src
-          git clone https://github.com/firedrakeproject/libsupermesh.git
-          mkdir -p libsupermesh/build
-          cd libsupermesh/build
-          cmake .. \
-            -DBUILD_SHARED_LIBS=ON \
-            -DCMAKE_INSTALL_PREFIX="$VIRTUAL_ENV" \
-            -DMPI_C_COMPILER=/opt/homebrew/bin/mpicc \
-            -DMPI_CXX_COMPILER=/opt/homebrew/bin/mpicxx \
-            -DMPI_Fortran_COMPILER=/opt/homebrew/bin/mpif90 \
-            -DCMAKE_Fortran_COMPILER=/opt/homebrew/bin/mpif90 \
-            -DMPIEXEC_EXECUTABLE=/opt/homebrew/bin/mpiexec
-          make
-          make install
-
       - uses: actions/checkout@v4
         with:
           path: pip_venv/src/firedrake
@@ -118,6 +99,9 @@ jobs:
           cd pip_venv/src/firedrake
           python -m pytest --timeout=1800 -v tests/firedrake/regression \
             -k "poisson_strong or stokes_mini or dg_advection"
+          # also test for 'problem libraries' (spatialindex and libsupermesh)
+          python -m pytest -v tests/firedrake/regression/test_locate_cell.py
+          python -m pytest -v tests/firedrake/supermesh/test_assemble_mixed_mass_matrix.py
         timeout-minutes: 30
 
       - name: Cleanup (post)

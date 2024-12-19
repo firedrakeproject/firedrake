@@ -76,7 +76,7 @@ class FiredrakeConfiguration(dict):
                     self["options"][o] = args.__dict__[o]
 
     _persistent_options = ["package_manager",
-                           "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "disable_ssh",
+                           "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "mpihome", "disable_ssh",
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
                            "opencascade", "torch", "jax",
@@ -306,6 +306,9 @@ honoured.""",
     parser.add_argument("--mpiexec", type=str,
                         action="store", default=None,
                         help="MPI launcher. If not set, MPICH will be downloaded and used.")
+    parser.add_argument("--mpihome", type=str,
+                        action="store", default=None,
+                        help="Location of MPI files. If not set, MPICH will be downloaded and used.")
     parser.add_argument("--mpi4py-version", help="Specify an exact version of mpi4py to install")
     parser.add_argument("--show-petsc-configure-options", action="store_true",
                         help="Print out the configure options passed to PETSc and exit")
@@ -339,9 +342,9 @@ honoured.""",
     args = parser.parse_args()
 
     # If the user has set any MPI info, they must set them all
-    if args.mpicc or args.mpicxx or args.mpif90 or args.mpiexec:
-        if not (args.mpicc and args.mpicxx and args.mpif90 and args.mpiexec):
-            log.error("If you set any MPI information, you must set all of {mpicc, mpicxx, mpif90, mpiexec}.")
+    if args.mpicc or args.mpicxx or args.mpif90 or args.mpiexec or args.mpihome:
+        if not (args.mpicc and args.mpicxx and args.mpif90 and args.mpiexec and args.mpihome):
+            log.error("If you set any MPI information, you must set all of {mpicc, mpicxx, mpif90, mpiexec, mpihome}.")
             sys.exit(1)
 
     if args.package_branch:
@@ -1252,36 +1255,6 @@ def build_and_install_h5py():
         log.info("No need to rebuild h5py")
 
 
-def build_and_install_libsupermesh(cc, cxx, f90, mpiexec):
-    log.info("Installing libsupermesh")
-    url = "git+https://github.com/firedrakeproject/libsupermesh.git"
-    if os.path.exists("libsupermesh"):
-        changed = git_update("libsupermesh", url)
-    else:
-        git_clone(url)
-        changed = True
-    if changed:
-        with directory("libsupermesh"):
-            check_call(["git", "reset", "--hard"])
-            check_call(["git", "clean", "-f", "-x", "-d"])
-            check_call(["mkdir", "-p", "build"])
-            with directory("build"):
-                cmd = [
-                    "cmake", "..", "-DBUILD_SHARED_LIBS=ON",
-                    "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
-                    "-DMPI_C_COMPILER=" + cc,
-                    "-DMPI_CXX_COMPILER=" + cxx,
-                    "-DMPI_Fortran_COMPILER=" + f90,
-                    "-DCMAKE_Fortran_COMPILER=" + f90,
-                    "-DMPIEXEC_EXECUTABLE=" + mpiexec,
-                ]
-                check_call(cmd)
-                check_call(["make"])
-                check_call(["make", "install"])
-    else:
-        log.info("No need to rebuild libsupermesh")
-
-
 def build_and_install_pythonocc():
     log.info("Installing pythonocc-core")
     url = "git+https://github.com/tpaviot/pythonocc-core.git@595b0a4e8e60e8d6011bea0cdb54ac878efcfcd2"
@@ -1420,7 +1393,7 @@ if args.rebuild_script:
     sys.exit(0)
 
 
-def create_compiler_env(cc, cxx, f90):
+def create_compiler_env(cc, cxx, f90, mpihome):
     env = dict()
     if cc:
         env["MPICC"] = cc
@@ -1439,8 +1412,10 @@ def create_compiler_env(cc, cxx, f90):
         env["CXX"] = cxx
     if f90:
         env["MPIF90"] = f90
-        env["MPI_C_COMPILER"] = f90
+        env["MPI_Fortran_COMPILER"] = f90
         env["F90"] = f90
+    if mpihome:
+        env["MPI_HOME"] = mpihome
 
     return env
 
@@ -1688,6 +1663,8 @@ run_pip(["install", "-U", "hatch"])
 run_pip(["install", "-U", "editables"])
 run_pip(["install", "-U", "pip"])
 run_pip(["install", "-U", "wheel"])
+run_pip(["install", "-U", "scikit-build-core"])
+run_pip(["install", "-U", "rtree>=1.2"])
 
 # Extra numpy dependendencies, see
 # https://github.com/numpy/numpy/blob/main/pyproject.toml
@@ -1733,7 +1710,18 @@ cc = options["mpicc"]
 cxx = options["mpicxx"]
 f90 = options["mpif90"]
 mpiexec = options["mpiexec"]
-compiler_env = create_compiler_env(cc, cxx, f90)
+try:
+    mpihome = options["mpihome"]
+except KeyError:
+    if cc:
+        try:
+            mpihome = os.environ["MPI_HOME"]
+        except KeyError:
+            raise InstallError("MPI compilers specified but mpihome is missing from "
+                               "configuration. Please set MPI_HOME to continue.")
+    else:
+        mpihome = None
+compiler_env = create_compiler_env(cc, cxx, f90, mpihome)
 os.chdir(firedrake_env)
 
 # Dict to store BLAS and OPENBLAS environment variables
@@ -1830,7 +1818,8 @@ if mode == "install":
         cxx = os.path.join(compilerbin, "mpicxx")
         f90 = os.path.join(compilerbin, "mpif90")
         mpiexec = os.path.join(compilerbin, "mpiexec")
-        compiler_env = create_compiler_env(cc, cxx, f90)
+        mpihome = os.path.join(compilerbin, "..")
+        compiler_env = create_compiler_env(cc, cxx, f90, mpihome)
 
     # Make sure that we link against the right MPI and PETSc shared libraries
     link_env = {
@@ -1876,9 +1865,6 @@ if mode == "install":
             else:
                 install(p+"/")
             sys.path.append(os.getcwd() + "/" + p)
-
-    with environment(**compiler_env):
-        build_and_install_libsupermesh(cc, cxx, f90, mpiexec)
 
     with pipargs("--no-deps"), environment(**compiler_env, **link_env):
         install("firedrake/")
@@ -1986,7 +1972,8 @@ else:
             cxx = os.path.join(compilerbin, "mpicxx")
             f90 = os.path.join(compilerbin, "mpif90")
             mpiexec = os.path.join(compilerbin, "mpiexec")
-            compiler_env = create_compiler_env(cc, cxx, f90)
+            mpihome = os.path.join(compilerbin, "..")
+            compiler_env = create_compiler_env(cc, cxx, f90, mpihome)
 
     # Make sure that we link against the right MPI and PETSc shared libraries
     link_env = {
@@ -2058,9 +2045,6 @@ Please consider updating your PETSc manually.
                     install(p+"/")
             else:
                 install(p+"/")
-
-        with environment(**compiler_env):
-            build_and_install_libsupermesh(cc, cxx, f90, mpiexec)
 
         with pipargs("--no-deps"), environment(**compiler_env, **link_env):
             install("firedrake/")
