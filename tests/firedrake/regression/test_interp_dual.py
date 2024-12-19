@@ -39,7 +39,7 @@ def test_interp_self(V1):
     a = assemble(TestFunction(V1) * dx)
     b = assemble(TestFunction(V1) * dx)
     a.interpolate(a)
-    assert (a.dat.data_ro == b.dat.data_ro).all()
+    assert np.allclose(a.dat.data_ro, b.dat.data_ro)
 
 
 def test_assemble_interp_adjoint_tensor(mesh, V1, f1):
