@@ -66,7 +66,7 @@ Conference registration is coming soon.
 Abstract submission
 -------------------
 
-Abstract submission will open soon via Easy Chair.
+Abstracts can be submitted `via EasyChair <https://easychair.org/conferences/?conf=firedrakeusa25>`.
 
 
 
