@@ -1835,13 +1835,17 @@ class SparseAssembler:
             return cache.setdefault(key, SparseAssembler.load_setSubMatCSR(comm, triu))
 
     @staticmethod
-    def load_c_code(code, name, **kwargs):
+    def load_c_code(code, name, comm, argtypes, restype):
         petsc_dir = get_petsc_dir()
         cppargs = [f"-I{d}/include" for d in petsc_dir]
         ldargs = ([f"-L{d}/lib" for d in petsc_dir]
                   + [f"-Wl,-rpath,{d}/lib" for d in petsc_dir]
                   + ["-lpetsc", "-lm"])
-        return load(code, "c", name, cppargs=cppargs, ldargs=ldargs, **kwargs)
+        dll = load(code, "c", cppargs=cppargs, ldargs=ldargs, comm=comm)
+        fn = getattr(dll, name)
+        fn.argtypes = argtypes
+        fn.restype = restype
+        return fn
 
     @staticmethod
     def load_setSubMatCSR(comm, triu=False):
