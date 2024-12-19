@@ -83,7 +83,7 @@ def assemble(expr, *args, **kwargs):
     zero_bc_nodes : bool
         If `True`, set the boundary condition nodes in the
         output tensor to zero rather than to the values prescribed by the
-        boundary condition. Default is `False`.
+        boundary condition. Default is `True`.
     diagonal : bool
         If assembling a matrix is it diagonal?
     weight : float
@@ -143,20 +143,18 @@ def get_assembler(form, *args, **kwargs):
 
     """
     is_base_form_preprocessed = kwargs.pop('is_base_form_preprocessed', False)
-    bcs = kwargs.get('bcs', None)
-    fc_params = kwargs.get('form_compiler_parameters', None)
     if isinstance(form, ufl.form.BaseForm) and not is_base_form_preprocessed:
         mat_type = kwargs.get('mat_type', None)
+        fc_params = kwargs.get('form_compiler_parameters', None)
         # Preprocess the DAG and restructure the DAG
         # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
         form = BaseFormAssembler.preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
     if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not BaseFormAssembler.base_form_operands(form):
         diagonal = kwargs.pop('diagonal', False)
         if len(form.arguments()) == 0:
-            return ZeroFormAssembler(form, form_compiler_parameters=fc_params)
+            return ZeroFormAssembler(form, **kwargs)
         elif len(form.arguments()) == 1 or diagonal:
-            return OneFormAssembler(form, *args, bcs=bcs, form_compiler_parameters=fc_params, needs_zeroing=kwargs.get('needs_zeroing', True),
-                                    zero_bc_nodes=kwargs.get('zero_bc_nodes', False), diagonal=diagonal)
+            return OneFormAssembler(form, *args, diagonal=diagonal, **kwargs)
         elif len(form.arguments()) == 2:
             return TwoFormAssembler(form, *args, **kwargs)
         else:
@@ -308,7 +306,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                  sub_mat_type=None,
                  options_prefix=None,
                  appctx=None,
-                 zero_bc_nodes=False,
+                 zero_bc_nodes=True,
                  diagonal=False,
                  weight=1.0,
                  allocation_integral_types=None):
@@ -406,7 +404,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 assembler = ZeroFormAssembler(form, form_compiler_parameters=self._form_compiler_params)
             elif rank == 1 or (rank == 2 and self._diagonal):
                 assembler = OneFormAssembler(form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
-                                             zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal)
+                                             zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal, weight=self._weight)
             elif rank == 2:
                 assembler = TwoFormAssembler(form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
                                              mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
@@ -1149,14 +1147,15 @@ class OneFormAssembler(ParloopFormAssembler):
 
     @classmethod
     def _cache_key(cls, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
-                   zero_bc_nodes=False, diagonal=False):
+                   zero_bc_nodes=True, diagonal=False, weight=1.0):
         bcs = solving._extract_bcs(bcs)
-        return tuple(bcs), tuplify(form_compiler_parameters), needs_zeroing, zero_bc_nodes, diagonal
+        return tuple(bcs), tuplify(form_compiler_parameters), needs_zeroing, zero_bc_nodes, diagonal, weight
 
     @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
-                 zero_bc_nodes=False, diagonal=False):
+                 zero_bc_nodes=True, diagonal=False, weight=1.0):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=needs_zeroing)
+        self._weight = weight
         self._diagonal = diagonal
         self._zero_bc_nodes = zero_bc_nodes
         if self._diagonal and any(isinstance(bc, EquationBCSplit) for bc in self._bcs):
@@ -1185,23 +1184,21 @@ class OneFormAssembler(ParloopFormAssembler):
         elif isinstance(bc, EquationBCSplit):
             bc.zero(tensor)
             type(self)(bc.f, bcs=bc.bcs, form_compiler_parameters=self._form_compiler_params, needs_zeroing=False,
-                       zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal).assemble(tensor=tensor)
+                       zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal, weight=self._weight).assemble(tensor=tensor)
         else:
             raise AssertionError
 
     def _apply_dirichlet_bc(self, tensor, bc):
-        if not self._zero_bc_nodes:
-            tensor_func = tensor.riesz_representation(riesz_map="l2")
-            if self._diagonal:
-                bc.set(tensor_func, 1)
-            else:
-                bc.apply(tensor_func)
-            tensor.assign(tensor_func.riesz_representation(riesz_map="l2"))
+        if self._diagonal:
+            bc.set(tensor, self._weight)
+        elif not self._zero_bc_nodes:
+            # NOTE this will only work if tensor is a Function and not a Cofunction
+            bc.apply(tensor)
         else:
             bc.zero(tensor)
 
     def _check_tensor(self, tensor):
-        if tensor.function_space() != self._form.arguments()[0].function_space():
+        if tensor.function_space() != self._form.arguments()[0].function_space().dual():
             raise ValueError("Form's argument does not match provided result tensor")
 
     @staticmethod

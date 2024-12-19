@@ -79,6 +79,7 @@ class FunctionAssignBlock(Block):
                 )
                 diff_expr_assembled = firedrake.Function(adj_input_func.function_space())
                 diff_expr_assembled.interpolate(ufl.conj(diff_expr))
+                diff_expr_assembled = diff_expr_assembled.riesz_representation(riesz_map="l2")
                 adj_output = firedrake.Function(
                     R, val=firedrake.assemble(ufl.Action(diff_expr_assembled, adj_input_func))
                 )
