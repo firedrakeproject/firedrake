@@ -3,7 +3,7 @@ import pytest
 import ufl
 import finat.ufl
 import finat
-from tsfc.finatinterface import create_element, supported_elements
+from finat.element_factory import create_element, supported_elements
 
 
 @pytest.fixture(params=["BDM",

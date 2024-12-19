@@ -7,7 +7,7 @@ from ufl import (Mesh, FunctionSpace, Coefficient,
 from finat.ufl import FiniteElement, VectorElement, TensorElement
 
 from tsfc import compile_expression_dual_evaluation
-from tsfc.finatinterface import create_element
+from finat.element_factory import create_element
 
 
 @pytest.fixture(params=[interval, quadrilateral, hexahedron],

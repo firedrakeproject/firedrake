@@ -15,6 +15,7 @@ from finat.physically_mapped import (NeedsCoordinateMappingElement,
                                      PhysicalGeometry)
 from finat.point_set import PointSet, PointSingleton
 from finat.quadrature import make_quadrature
+from finat.element_factory import as_fiat_cell, create_element
 from gem.node import traversal
 from gem.optimise import constant_fold_zero, ffc_rounding
 from gem.unconcatenate import unconcatenate
@@ -32,7 +33,6 @@ from ufl.corealg.multifunction import MultiFunction
 from ufl.domain import extract_unique_domain
 
 from tsfc import ufl2gem
-from tsfc.finatinterface import as_fiat_cell, create_element
 from tsfc.kernel_interface import ProxyKernelInterface
 from tsfc.modified_terminals import (analyse_modified_terminal,
                                      construct_modified_terminal)
@@ -270,9 +270,10 @@ def get_quadrature_rule(fiat_cell, integration_dim, quadrature_degree, scheme):
 
 
 def make_basis_evaluation_key(ctx, finat_element, mt, entity_id):
+    ufl_element = mt.terminal.ufl_element()
     domain = extract_unique_domain(mt.terminal)
     coordinate_element = domain.ufl_coordinate_element()
-    return (finat_element, mt.local_derivatives, ctx.point_set, ctx.integration_dim, entity_id, coordinate_element, mt.restriction)
+    return (ufl_element, mt.local_derivatives, ctx.point_set, ctx.integration_dim, entity_id, coordinate_element, mt.restriction)
 
 
 class PointSetContext(ContextBase):
@@ -697,8 +698,7 @@ def translate_coefficient(terminal, mt, ctx):
                           for alpha, tables in per_derivative.items()}
 
     # Coefficient evaluation
-    ctx.index_cache.setdefault(terminal.ufl_element(), element.get_indices())
-    beta = ctx.index_cache[terminal.ufl_element()]
+    beta = ctx.index_cache.setdefault(terminal.ufl_element(), element.get_indices())
     zeta = element.get_value_indices()
     vec_beta, = gem.optimise.remove_componenttensors([gem.Indexed(vec, beta)])
     value_dict = {}
