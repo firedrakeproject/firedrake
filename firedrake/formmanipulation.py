@@ -101,15 +101,11 @@ class ExtractSubBlock(MultiFunction):
         V_is = V.subfunctions
         indices = self.blocks[o.number()]
 
-        try:
-            indices = tuple(indices)
-            nidx = len(indices)
-        except TypeError:
-            # Only one index provided.
+        # Only one index provided.
+        if isinstance(indices, int):
             indices = (indices, )
-            nidx = 1
 
-        if nidx == 1:
+        if len(indices) == 1:
             W = V_is[indices[0]]
             W = FunctionSpace(W.mesh(), W.ufl_element())
             a = (Argument(W, o.number(), part=o.part()), )
@@ -141,12 +137,9 @@ class ExtractSubBlock(MultiFunction):
         indices = self.blocks[0]
         V_is = V.subfunctions
 
-        try:
-            indices = tuple(indices)
-            nidx = len(indices)
-        except TypeError:  # Only one index
+        # Only one index provided.
+        if isinstance(indices, int):
             indices = (indices, )
-            nidx = 1
 
         # for two-forms, the cofunction should only
         # be returned for the diagonal blocks, so
@@ -164,7 +157,7 @@ class ExtractSubBlock(MultiFunction):
         # the full space. This means that the right hand side
         # of the fieldsplit problem will be correct.
         if on_diag:
-            if nidx == 1:
+            if len(indices) == 1:
                 i = indices[0]
                 W = V_is[i]
                 W = DualSpace(W.mesh(), W.ufl_element())
