@@ -27,13 +27,13 @@ The conference will begin with a tutorial session on the morning of 28 February 
 Conference venue
 ----------------
 
-The conference will take place in the Bill Daniel Student Center in Room 202 in the heart of the Baylor campus.  A `campus map <https://map.baylor.edu/>`__ is available online, and both Apple Maps and Google Maps accurate locate the Bill Daniel Student Center.  
+The conference will take place in the Bill Daniel Student Center in Room 202 in the heart of the Baylor campus.  A `campus map <https://map.baylor.edu/>`__ is available online, and both Apple Maps and Google Maps accurately locate the Bill Daniel Student Center.  
 
 
 Accommodation
 -------------
 
-We have reserved a block of hotel rooms at SpringHill Suites Waco, about a 15 minute walk from the Bill Daniel Student Center.  Follow `this link <https://www.marriott.com/event-reservations/reservation-link.mi?id=1734040121673&key=GRP&guestreslink2=true&app=resvlink/>`__ to hold your room.  The group rate is only available until 20 January 2025.  
+We have reserved a block of hotel rooms at SpringHill Suites Waco, about a 15 minute walk from the Bill Daniel Student Center.  Follow `this link <https://www.marriott.com/event-reservations/reservation-link.mi?id=1734040121673&key=GRP&guestreslink2=true&app=resvlink/>`__ to hold your room.  The group rate is only available until 20 January 2025.
 
 
 Conference dinner
@@ -66,7 +66,7 @@ Conference registration is coming soon.
 Abstract submission
 -------------------
 
-Abstracts can be submitted `via EasyChair <https://easychair.org/conferences/?conf=firedrakeusa25>`.
+Abstracts can be submitted `via EasyChair <https://easychair.org/conferences/?conf=firedrakeusa25>`__.
 
 
 
@@ -83,7 +83,7 @@ Travel to Waco
 
 * By ground:  We are less than two hours by car from the Dallas and Austin airports, and just under three hours from Bush Intercontinental Airport in Houston.  Additionally, Waco is reachable by bus services such as Greyhound and FlixBus.
 
-* Parking on campus:  Baylor has plenty of visitor parking for your personal or rental vehicle, but conslut `these instructions <https://dps.web.baylor.edu/parking-transportation/visitors>__` and make sure to `register your vehicle <https://dps.web.baylor.edu/parking-transportation/visitors/visitor-parking-permit>`__.
+* Parking on campus:  Baylor has plenty of visitor parking for your personal or rental vehicle, but consult `these instructions <https://dps.web.baylor.edu/parking-transportation/visitors>`__ and make sure to `register your vehicle <https://dps.web.baylor.edu/parking-transportation/visitors/visitor-parking-permit>`__.
 
 
 
