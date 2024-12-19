@@ -1873,7 +1873,16 @@ def PeriodicBoxMesh(
     if hexahedral:
         if len(directions) != 3:
             raise ValueError(f"directions must have exactly dim (=3) elements : Got {directions}")
-        plex = PETSc.DMPlex().createBoxMesh((nx, ny, nz), lower=(0., 0., 0.), upper=(Lx, Ly, Lz), simplex=False, periodic=directions, interpolate=True, sparseLocalize=False, comm=comm)
+        plex = PETSc.DMPlex().createBoxMesh(
+            (nx, ny, nz),
+            lower=(0., 0., 0.),
+            upper=(Lx, Ly, Lz),
+            simplex=False,
+            periodic=directions,
+            interpolate=True,
+            sparseLocalize=False,
+            comm=comm,
+        )
         m = mesh.Mesh(
             plex,
             reorder=reorder,
