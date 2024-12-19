@@ -2,7 +2,7 @@
 import numpy
 import collections
 
-from ufl import as_vector, FormSum, Form
+from ufl import as_vector, FormSum, Form, split
 from ufl.classes import Zero, FixedIndex, ListTensor, ZeroBaseForm
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
@@ -12,7 +12,7 @@ from pyop2 import MixedDat
 from firedrake.petsc import PETSc
 from firedrake.ufl_expr import Argument
 from firedrake.cofunction import Cofunction
-from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
+from firedrake.functionspace import FunctionSpace, MixedFunctionSpace, DualSpace
 
 
 class ExtractSubBlock(MultiFunction):
@@ -89,8 +89,6 @@ class ExtractSubBlock(MultiFunction):
 
     @PETSc.Log.EventDecorator()
     def argument(self, o):
-        from ufl import split
-        from firedrake import MixedFunctionSpace, FunctionSpace
         V = o.function_space()
 
         if len(V) == 1:
@@ -150,10 +148,11 @@ class ExtractSubBlock(MultiFunction):
             indices = (indices, )
             nidx = 1
 
-        # the cofunction should only be returned on the
-        # diagonal elements, so if we are off-diagonal
-        # on a two-form then we return a zero form,
-        # analogously to the off components of arguments.
+        # for two-forms, the cofunction should only
+        # be returned for the diagonal blocks, so
+        # if we are asked for an off-diagonal block
+        # then we return a zero form, analogously to
+        # the off components of arguments.
         if len(self.blocks) == 2:
             itest, itrial = self.blocks
             on_diag = (itest == itrial)
@@ -168,10 +167,10 @@ class ExtractSubBlock(MultiFunction):
             if nidx == 1:
                 i = indices[0]
                 W = V_is[i]
-                W = FunctionSpace(W.mesh(), W.ufl_element())  # primal space
-                c = Cofunction(W.dual(), val=o.subfunctions[i].dat)
+                W = DualSpace(W.mesh(), W.ufl_element())
+                c = Cofunction(W, val=o.subfunctions[i].dat)
             else:
-                W = MixedFunctionSpace([V_is[i] for i in indices])  # dual space
+                W = MixedFunctionSpace([V_is[i] for i in indices])
                 c = Cofunction(W, val=MixedDat(o.dat[i] for i in indices))
         else:
             c = ZeroBaseForm(o.arguments())
