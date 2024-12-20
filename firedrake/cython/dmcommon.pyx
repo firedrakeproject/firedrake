@@ -3358,7 +3358,7 @@ def make_global_numbering(PETSc.Section lsec, PETSc.Section gsec):
     cdef:
         PetscInt c, cc, p, pStart, pEnd, dof, cdof, loff, goff
         np.ndarray val
-        PetscInt *dof_array = NULL
+        const PetscInt *dof_array = NULL
 
     val = np.empty(lsec.getStorageSize(), dtype=IntType)
     pStart, pEnd = lsec.getChart()
