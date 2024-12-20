@@ -1,6 +1,6 @@
 # DockerFile for Firedrake with a full set of capabilities and applications installed.
 
-FROM firedrakeproject/firedrake-vanilla:latest
+FROM firedrakeproject/firedrake-vanilla:testing
 
 USER firedrake
 WORKDIR /home/firedrake
