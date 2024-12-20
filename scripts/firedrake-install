@@ -16,10 +16,21 @@ from glob import iglob
 from itertools import chain
 import re
 import importlib
+
+
+class InstallError(Exception):
+    # Exception for generic install problems.
+    pass
+
+
 try:
     from pkg_resources.extern.packaging.version import Version, InvalidVersion
 except ModuleNotFoundError:
-    from packaging.version import Version, InvalidVersion
+    try:
+        from packaging.version import Version, InvalidVersion
+    except ModuleNotFoundError:
+        raise InstallError("Neither setuptools or packaging found. Please "
+                           "install one of these packages before trying again.")
 
 osname = platform.uname().system
 arch = platform.uname().machine
@@ -50,11 +61,6 @@ firedrake_apps = {
     "asQ": ("""ParaDiag parallel-in-time methods. http://firedrakeproject.org/asQ""",
             "git+ssh://github.com/firedrakeproject/asQ.git@master#egg=asQ"),
 }
-
-
-class InstallError(Exception):
-    # Exception for generic install problems.
-    pass
 
 
 class FiredrakeConfiguration(dict):
