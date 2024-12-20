@@ -311,7 +311,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
             integral_type = self.integral_data_info.domain_integral_type_map[domain]
             if integral_type in ['exterior_facet', 'exterior_facet_vert']:
                 facet = gem.Variable(f'facet_{i}', (1,), dtype=gem.uint_type)
-                self._entity_numbers[domain] = {None: gem.VariableIndex(gem.Indexed(facet, (0,))),}
+                self._entity_numbers[domain] = {None: gem.VariableIndex(gem.Indexed(facet, (0,))), }
             elif integral_type in ['interior_facet', 'interior_facet_vert']:
                 facet = gem.Variable(f'facet_{i}', (2,), dtype=gem.uint_type)
                 self._entity_numbers[domain] = {
@@ -335,7 +335,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
             integral_type = self.integral_data_info.domain_integral_type_map[domain]
             if integral_type in ['exterior_facet', 'exterior_facet_vert']:
                 facet_orientation = gem.Variable(f'facet_orientation_{i}', (1,), dtype=gem.uint_type)
-                self._entity_orientations[domain] = {None: gem.OrientationVariableIndex(gem.Indexed(facet_orientation, (0,))),}
+                self._entity_orientations[domain] = {None: gem.OrientationVariableIndex(gem.Indexed(facet_orientation, (0,))), }
             elif integral_type in ['interior_facet', 'interior_facet_vert']:
                 facet_orientation = gem.Variable(f'facet_orientation_{i}', (2,), dtype=gem.uint_type)
                 self._entity_orientations[domain] = {
