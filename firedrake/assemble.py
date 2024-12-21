@@ -817,8 +817,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             return ufl.action(expr, ustar)
 
         # -- Case (6) -- #
-        if isinstance(expr, ufl.FormSum) and all(not isinstance(c, ufl.form.BaseForm) for c in expr.components()):
-            # Return ufl.Sum
+        if isinstance(expr, ufl.FormSum) and all(ufl.duals.is_dual(a.function_space()) for a in expr.arguments()):
+            # Return ufl.Sum if we are assembling a FormSum with Coarguments (a primal expression)
             return sum(w*c for w, c in zip(expr.weights(), expr.components()))
         return expr
 
