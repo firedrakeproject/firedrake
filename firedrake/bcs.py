@@ -63,6 +63,7 @@ class BCBase(object):
             else:
                 # All done
                 break
+        self.function_space_parent = fs
         # Used for indexing functions passed in.
         self._indices = tuple(reversed(indices))
         # init bcs
