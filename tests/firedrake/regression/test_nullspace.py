@@ -291,7 +291,8 @@ def test_nullspace_mixed_multiple_components():
 
 @pytest.mark.parallel(nprocs=2)
 @pytest.mark.parametrize("aux_pc", [False, True], ids=["PC(mu)", "PC(DG0-mu)"])
-def test_near_nullspace_mixed(aux_pc):
+@pytest.mark.parametrize("rhs", ["form_rhs", "cofunc_rhs"])
+def test_near_nullspace_mixed(aux_pc, rhs):
     # test nullspace and nearnullspace for a mixed Stokes system
     # this is tested on the SINKER case of May and Moresi https://doi.org/10.1016/j.pepi.2008.07.036
     # fails in parallel if nullspace is copied to fieldsplit_1_Mp_ksp solve (see PR #3488)
@@ -323,6 +324,10 @@ def test_near_nullspace_mixed(aux_pc):
 
     f = as_vector((0, -9.8*conditional(inside_box, 2, 1)))
     L = inner(f, v)*dx
+    if rhs == 'cofunc_rhs':
+        L = assemble(L)
+    elif rhs != 'form_rhs':
+        raise ValueError("Unknown right hand side type")
 
     bcs = [DirichletBC(W[0].sub(0), 0, (1, 2)), DirichletBC(W[0].sub(1), 0, (3, 4))]
 
