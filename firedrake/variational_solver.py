@@ -10,10 +10,11 @@ from firedrake.petsc import (
     DEFAULT_SNES_PARAMETERS
 )
 from firedrake.function import Function
-from firedrake.ufl_expr import TrialFunction, TestFunction
+from firedrake.ufl_expr import TrialFunction, TestFunction, action
 from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
-from ufl import replace
+from firedrake.__future__ import interpolate
+from ufl import replace, Form
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -91,8 +92,11 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             bcs = [bc.reconstruct(V=V_res, indices=bc._indices) for bc in bcs]
             self.u_restrict = Function(V_res).interpolate(u)
             v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
-            F_arg, = F.arguments()
-            self.F = replace(F, {F_arg: v_res, self.u: self.u_restrict})
+            if isinstance(F, Form):
+                F_arg, = F.arguments()
+                self.F = replace(F, {F_arg: v_res, self.u: self.u_restrict})
+            else:
+                self.F = action(replace(F, {self.u: self.u_restrict}), interpolate(v_res, V))
             v_arg, u_arg = self.J.arguments()
             self.J = replace(self.J, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
             if self.Jp:
