@@ -385,6 +385,12 @@ class BaseFormAssembler(AbstractFormAssembler):
         visited = {}
         result = BaseFormAssembler.base_form_postorder_traversal(self._form, visitor, visited)
 
+        # Apply BCs after assembly
+        rank = len(self._form.arguments())
+        if rank == 1:
+            for bc in self._bcs:
+                bc.zero(result)
+
         if tensor:
             BaseFormAssembler.update_tensor(result, tensor)
             return tensor
@@ -409,7 +415,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             if rank == 0:
                 assembler = ZeroFormAssembler(form, form_compiler_parameters=self._form_compiler_params)
             elif rank == 1 or (rank == 2 and self._diagonal):
-                assembler = OneFormAssembler(form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
+                assembler = OneFormAssembler(form, form_compiler_parameters=self._form_compiler_params,
                                              zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal, weight=self._weight)
             elif rank == 2:
                 assembler = TwoFormAssembler(form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
@@ -811,9 +817,9 @@ class BaseFormAssembler(AbstractFormAssembler):
             return ufl.action(expr, ustar)
 
         # -- Case (6) -- #
-        if isinstance(expr, ufl.FormSum) and all(isinstance(c, ufl.core.base_form_operator.BaseFormOperator) for c in expr.components()):
+        if isinstance(expr, ufl.FormSum) and all(not isinstance(c, ufl.form.BaseForm) for c in expr.components()):
             # Return ufl.Sum
-            return sum([c for c in expr.components()])
+            return sum(w*c for w, c in zip(expr.weights(), expr.components()))
         return expr
 
     @staticmethod
