@@ -505,12 +505,13 @@ def load_c_function(code, name, comm):
     ldargs = (["-L%s/lib" % d for d in get_petsc_dir()]
               + ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()]
               + ["-lpetsc", "-lm"])
-    return load(code, "c", name,
-                argtypes=[ctypes.c_voidp, ctypes.c_int, ctypes.c_voidp,
-                          ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int,
-                          ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp],
-                restype=ctypes.c_int, cppargs=cppargs, ldargs=ldargs,
-                comm=comm)
+    dll = load(code, "c", cppargs=cppargs, ldargs=ldargs, comm=comm)
+    fn = getattr(dll, name)
+    fn.argtypes = [ctypes.c_voidp, ctypes.c_int, ctypes.c_voidp,
+                   ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int,
+                   ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp]
+    fn.restype = ctypes.c_int
+    return fn
 
 
 def make_c_arguments(form, kernel, state, get_map, require_state=False,
