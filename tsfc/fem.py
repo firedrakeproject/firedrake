@@ -297,7 +297,9 @@ def make_basis_evaluation_key(ctx, finat_element, mt, entity_id):
     ufl_element = mt.terminal.ufl_element()
     domain = extract_unique_domain(mt.terminal)
     coordinate_element = domain.ufl_coordinate_element()
-    return (ufl_element, mt.local_derivatives, ctx.point_set, ctx.integration_dim, entity_id, coordinate_element, mt.restriction)
+    # This way of caching is fragile.
+    # Should Implement _hash_key_() for ModifiedTerminal and use the entire mt as key.
+    return (ufl_element, mt.local_derivatives, ctx.point_set, ctx.integration_dim, entity_id, coordinate_element, mt.restriction, domain._ufl_hash_data_())
 
 
 class PointSetContext(ContextBase):
