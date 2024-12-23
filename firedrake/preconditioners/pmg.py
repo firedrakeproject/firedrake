@@ -9,7 +9,7 @@ from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
 from firedrake.solving_utils import _SNESContext
 from firedrake.tsfc_interface import extract_numbered_coefficients
 from firedrake.utils import ScalarType_c, IntType_c, cached_property
-from tsfc.finatinterface import create_element
+from finat.element_factory import create_element
 from tsfc import compile_expression_dual_evaluation
 from pyop2 import op2
 from pyop2.caching import serial_cache
