@@ -1,6 +1,9 @@
 from pyadjoint import ReducedFunctional, OverloadedType, Control, Tape, AdjFloat, \
     stop_annotating, get_working_tape, set_working_tape
 from pyadjoint.enlisting import Enlist
+from firedrake.function import Function
+from firedrake.ensemblefunction import EnsembleFunction, EnsembleCofunction
+
 from functools import wraps, cached_property
 from typing import Callable, Optional
 from contextlib import contextmanager
@@ -93,17 +96,14 @@ def _intermediate_options(final_options):
 class AllAtOnceReducedFunctional(ReducedFunctional):
     """ReducedFunctional for 4DVar data assimilation.
 
-    Creates either the strong constraint or weak constraint system incrementally
+    Creates either the strong constraint or weak constraint system
     by logging observations through the initial forward model run.
-
-    Warning: Weak constraint 4DVar not implemented yet.
 
     Parameters
     ----------
 
     control
-        The :class:`EnsembleFunction` for the control x_{i} at the initial
-        condition and at the end of each observation stage.
+        The :class:`EnsembleFunction` for the control x_{i} at the initial condition and at the end of each observation stage.
 
     background_iprod
         The inner product to calculate the background error functional
@@ -150,16 +150,21 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         self.weak_constraint = weak_constraint
         self.initial_observations = observation_err is not None
 
-        with stop_annotating():
-            if background:
-                self.background = background._ad_copy()
-            else:
-                self.background = control.control.subfunctions[0]._ad_copy()
-            _rename(self.background, "Background")
-
         if self.weak_constraint:
             self._annotate_accumulation = _annotate_accumulation
             self._accumulation_started = False
+
+            if not isinstance(control.control, EnsembleFunction):
+                raise TypeError(
+                    "Control for weak constraint 4DVar must be an EnsembleFunction"
+                )
+
+            with stop_annotating():
+                if background:
+                    self.background = background._ad_copy()
+                else:
+                    self.background = control.control.subfunctions[0]._ad_copy()
+                _rename(self.background, "Background")
 
             ensemble = control.ensemble
             self.ensemble = ensemble
@@ -225,10 +230,20 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             self._annotate_accumulation = True
             self._accumulation_started = False
 
+            if not isinstance(control.control, Function):
+                raise TypeError(
+                    "Control for strong constraint 4DVar must be a Function"
+                )
+
+            with stop_annotating():
+                if background:
+                    self.background = background._ad_copy()
+                else:
+                    self.background = control.control._ad_copy()
+                _rename(self.background, "Background")
+
             # initial conditions guess to be updated
             self.controls = Enlist(control)
-
-            self.tape = get_working_tape() if tape is None else tape
 
             # Strong constraint functional to be converted to ReducedFunctional later
 
@@ -249,10 +264,10 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         before all observations are recorded.
         """
         if self.weak_constraint:
-            msg = "Strong constraint ReducedFunctional not instantiated for weak constraint 4DVar"
+            msg = "Strong constraint ReducedFunctional cannot be instantiated for weak constraint 4DVar"
             raise AttributeError(msg)
         self._strong_reduced_functional = ReducedFunctional(
-            self._total_functional, self.controls, tape=self.tape)
+            self._total_functional, self.controls.delist(), tape=self.tape)
         return self._strong_reduced_functional
 
     def __getattr__(self, attr):
@@ -381,14 +396,12 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         # create the derivative in the right primal or dual space
         from ufl.duals import is_primal, is_dual
         if is_primal(sderiv0[0]):
-            from firedrake.ensemblefunction import EnsembleFunction
             derivatives = EnsembleFunction(
                 self.ensemble, self.control.local_function_spaces)
         else:
             if not is_dual(sderiv0[0]):
                 raise ValueError(
                     "Do not know how to handle stage derivative which is not primal or dual")
-            from firedrake.ensemblefunction import EnsembleCofunction
             derivatives = EnsembleCofunction(
                 self.ensemble, [V.dual() for V in self.control.local_function_spaces])
 
@@ -505,7 +518,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
             self._accumulation_started = True
 
     @contextmanager
-    def recording_stages(self, sequential=True, **stage_kwargs):
+    def recording_stages(self, sequential=True, nstages=None, **stage_kwargs):
         if not sequential:
             raise ValueError("Recording stages concurrently not yet implemented")
 
@@ -566,7 +579,9 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
         else:  # strong constraint
 
             yield ObservationStageSequence(
-                self.controls, self, stage_kwargs, sequential=True)
+                self.controls, self, global_index=-1,
+                observation_index=0 if self.initial_observations else -1,
+                stage_kwargs=stage_kwargs, nstages=nstages)
 
 
 class ObservationStageSequence:
@@ -575,28 +590,33 @@ class ObservationStageSequence:
                  global_index: int,
                  observation_index: int,
                  stage_kwargs: dict = None,
-                 sequential: bool = True):
+                 nstages: Optional[int] = None):
         self.controls = controls
-        self.nstages = len(controls) - 1
         self.aaorf = aaorf
         self.ctx = StageContext(**(stage_kwargs or {}))
         self.weak_constraint = aaorf.weak_constraint
         self.global_index = global_index
         self.observation_index = observation_index
         self.local_index = -1
+        self.nstages = (len(controls) - 1 if self.weak_constraint
+                        else nstages)
 
     def __iter__(self):
         return self
 
     def __next__(self):
 
+        # increment global indices
+        self.local_index += 1
+        self.global_index += 1
+        self.observation_index += 1
+
+        # stop after we've recorded all stages
+        if self.local_index >= self.nstages:
+            raise StopIteration
+
         if self.weak_constraint:
             stages = self.aaorf.stages
-
-            # increment global indices
-            self.local_index += 1
-            self.global_index += 1
-            self.observation_index += 1
 
             # start of the next stage
             next_control = self.controls[self.local_index]
@@ -607,10 +627,6 @@ class ObservationStageSequence:
                 with stop_annotating():
                     next_control.control.assign(state)
 
-            # stop after we've recorded all stages
-            if self.local_index >= self.nstages:
-                raise StopIteration
-
             stage = WeakObservationStage(next_control,
                                          local_index=self.local_index,
                                          global_index=self.global_index,
@@ -619,21 +635,15 @@ class ObservationStageSequence:
 
         else:  # strong constraint
 
-            # increment stage indices
-            self.local_index += 1
-            self.global_index += 1
-            self.observation_index += 1
-
-            # stop after we've recorded all stages
-            if self.index >= self.nstages:
-                raise StopIteration
-            self.index += 1
-
             # dummy control to "start" stage from
-            control = (self.aaorf.controls[0].control if self.index == 0
+            control = (self.aaorf.controls[0].control if self.local_index == 0
                        else self._prev_stage.state)
 
-            stage = StrongObservationStage(control, self.aaorf)
+            stage = StrongObservationStage(
+                control, self.aaorf,
+                index=self.local_index,
+                observation_index=self.observation_index)
+
             self._prev_stage = stage
 
         return stage, self.ctx
@@ -658,9 +668,13 @@ class StrongObservationStage:
     """
 
     def __init__(self, control: OverloadedType,
-                 aaorf: AllAtOnceReducedFunctional):
+                 aaorf: AllAtOnceReducedFunctional,
+                 index: Optional[int] = None,
+                 observation_index: Optional[int] = None):
         self.aaorf = aaorf
         self.control = control
+        self.index = index
+        self.observation_index = observation_index
 
     def set_observation(self, state: OverloadedType,
                         observation_err: Callable[[OverloadedType], OverloadedType],
@@ -691,6 +705,7 @@ class StrongObservationStage:
                              " constraint ReducedFunctional instantiated")
         self.aaorf._accumulate_functional(
             observation_iprod(observation_err(state)))
+        # save the user's state to hand back for beginning of next stage
         self.state = state
 
 

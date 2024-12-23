@@ -2,8 +2,15 @@ import pytest
 import firedrake as fd
 from firedrake.__future__ import interpolate
 from firedrake.adjoint import (
-    continue_annotation, pause_annotation, stop_annotating, set_working_tape,
-    Control, taylor_test, ReducedFunctional, AllAtOnceReducedFunctional)
+    continue_annotation, pause_annotation, stop_annotating,
+    set_working_tape, get_working_tape, Control, taylor_test,
+    ReducedFunctional, AllAtOnceReducedFunctional)
+
+
+@pytest.fixture(autouse=True)
+def clear_tape_teardown():
+    yield
+    get_working_tape().clear_tape()
 
 
 def function_space(comm):
@@ -159,8 +166,95 @@ def h(V, ensemble=None):
                            ensemble=ensemble)
 
 
-def fdvar_pyadjoint(V):
-    """Build a pyadjoint ReducedFunctional for the 4DVar system"""
+def strong_fdvar_pyadjoint(V):
+    """Build a pyadjoint ReducedFunctional for the strong constraint 4DVar system"""
+    qn, qn1, stepper = timestepper(V)
+
+    # prior data
+    bkg = background(V)
+    control = bkg.copy(deepcopy=True)
+
+    # generate ground truths
+    obs_errors = observation_errors(V)
+
+    continue_annotation()
+    set_working_tape()
+
+    # background functional
+    J = prodB(control - bkg)
+
+    # initial observation functional
+    J += prodR(obs_errors(0)(control))
+
+    qn.assign(control)
+
+    # record observation stages
+    for i in range(1, len(observation_times)):
+
+        for _ in range(observation_frequency):
+            qn1.assign(qn)
+            stepper.solve()
+            qn.assign(qn1)
+
+        # observation functional
+        J += prodR(obs_errors(i)(qn))
+
+    pause_annotation()
+
+    Jhat = ReducedFunctional(J, Control(control))
+
+    return Jhat
+
+
+def strong_fdvar_firedrake(V):
+    """Build an AllAtOnceReducedFunctional for the strong constraint 4DVar system"""
+    qn, qn1, stepper = timestepper(V)
+
+    # prior data
+    bkg = background(V)
+    control = bkg.copy(deepcopy=True)
+
+    # generate ground truths
+    obs_errors = observation_errors(V)
+
+    continue_annotation()
+    set_working_tape()
+
+    # create 4DVar reduced functional and record
+    # background and initial observation functionals
+
+    Jhat = AllAtOnceReducedFunctional(
+        Control(control),
+        background_iprod=prodB,
+        observation_iprod=prodR,
+        observation_err=obs_errors(0),
+        weak_constraint=False)
+
+    # record observation stages
+    with Jhat.recording_stages(nstages=len(observation_times)-1) as stages:
+        # loop over stages
+        for stage, ctx in stages:
+            # start forward model
+            qn.assign(stage.control)
+
+            # propogate
+            for _ in range(observation_frequency):
+                qn1.assign(qn)
+                stepper.solve()
+                qn.assign(qn1)
+
+            obs_index = stage.index + 1
+
+            # take observation
+            stage.set_observation(qn, obs_errors(obs_index),
+                                  observation_iprod=prodR)
+
+    pause_annotation()
+    return Jhat
+
+
+def weak_fdvar_pyadjoint(V):
+    """Build a pyadjoint ReducedFunctional for the weak constraint 4DVar system"""
     qn, qn1, stepper = timestepper(V)
 
     # One control for each observation time
@@ -217,8 +311,8 @@ def fdvar_pyadjoint(V):
     return Jhat
 
 
-def fdvar_firedrake(V, ensemble):
-    """Build an AllAtOnceReducedFunctional for the 4DVar system"""
+def weak_fdvar_firedrake(V, ensemble):
+    """Build an AllAtOnceReducedFunctional for the weak constraint 4DVar system"""
     qn, qn1, stepper = timestepper(V)
 
     # One control for each observation time
@@ -276,12 +370,34 @@ def fdvar_firedrake(V, ensemble):
     return Jhat
 
 
-@pytest.mark.parallel(nprocs=[1, 2, 3, 4])
-def test_advection():
-    main_test_advection()
+def main_test_strong_4dvar_advection():
+    V = function_space(fd.COMM_WORLD)
+
+    # setup the reference pyadjoint rf
+    Jhat_pyadj = strong_fdvar_pyadjoint(V)
+    mp = m(V)[0]
+    hp = h(V)[0]
+
+    # make sure we've set up the reference rf correctly
+    assert taylor_test(Jhat_pyadj, mp, hp) > 1.99
+
+    Jhat_aaorf = strong_fdvar_firedrake(V)
+
+    ma = m(V)[0]
+    ha = h(V)[0]
+
+    eps = 1e-12
+
+    # Does evaluating the functional match the reference rf?
+    assert abs(Jhat_pyadj(mp) - Jhat_aaorf(ma)) < eps
+    assert abs(Jhat_pyadj(hp) - Jhat_aaorf(ha)) < eps
+
+    # If we match the functional, then passing the taylor test
+    # should mean that we match the derivative too.
+    assert taylor_test(Jhat_aaorf, ma, ha) > 1.99
 
 
-def main_test_advection():
+def main_test_weak_4dvar_advection():
     global_comm = fd.COMM_WORLD
     if global_comm.size in (1, 2):  # time serial
         nspace = global_comm.size
@@ -297,7 +413,7 @@ def main_test_advection():
 
     # only setup the reference pyadjoint rf on the first ensemble member
     if erank == 0:
-        Jhat_pyadj = fdvar_pyadjoint(V)
+        Jhat_pyadj = weak_fdvar_pyadjoint(V)
         mp = m(V)
         hp = h(V)
         # make sure we've set up the reference rf correctly
@@ -306,7 +422,7 @@ def main_test_advection():
     Jpm = ensemble.ensemble_comm.bcast(Jhat_pyadj(mp) if erank == 0 else None)
     Jph = ensemble.ensemble_comm.bcast(Jhat_pyadj(hp) if erank == 0 else None)
 
-    Jhat_aaorf = fdvar_firedrake(V, ensemble)
+    Jhat_aaorf = weak_fdvar_firedrake(V, ensemble)
 
     ma = m(V, ensemble)
     ha = h(V, ensemble)
@@ -317,9 +433,19 @@ def main_test_advection():
     assert abs(Jph - Jhat_aaorf(ha)) < eps
 
     # If we match the functional, then passing the taylor test
-    # should mean we match the derivative too.
+    # should mean that we match the derivative too.
     assert taylor_test(Jhat_aaorf, ma, ha) > 1.99
 
 
+@pytest.mark.parallel(nprocs=[1, 2])
+def test_strong_4dvar_advection():
+    main_test_strong_4dvar_advection()
+
+
+@pytest.mark.parallel(nprocs=[1, 2, 3, 4])
+def test_weak_4dvar_advection():
+    main_test_weak_4dvar_advection()
+
+
 if __name__ == '__main__':
-    main_test_advection()
+    main_test_strong_4dvar_advection()

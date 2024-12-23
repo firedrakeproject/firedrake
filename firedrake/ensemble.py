@@ -291,12 +291,13 @@ class Ensemble(object):
     def sequential(self, **kwargs):
         """
         Context manager for executing code on each ensemble
-        member in turn.
+        member consecutively by `ensemble_comm.rank`.
 
         Any data in `kwargs` will be made available in the context
         and will be communicated forward after each ensemble member
-        exits. Firedrake Functions/Cofunctions will be send with the
+        exits. Firedrake Functions/Cofunctions will be sent with the
         corresponding Ensemble methods.
+        For example:
 
         with ensemble.sequential(index=0) as ctx:
             print(ensemble.ensemble_comm.rank, ctx.index)
