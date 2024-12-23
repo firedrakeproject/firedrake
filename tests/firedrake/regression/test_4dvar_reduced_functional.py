@@ -4,7 +4,7 @@ from firedrake.__future__ import interpolate
 from firedrake.adjoint import (
     continue_annotation, pause_annotation, stop_annotating,
     set_working_tape, get_working_tape, Control, taylor_test,
-    ReducedFunctional, AllAtOnceReducedFunctional)
+    ReducedFunctional, FourDVarReducedFunctional)
 
 
 @pytest.fixture(autouse=True)
@@ -207,7 +207,7 @@ def strong_fdvar_pyadjoint(V):
 
 
 def strong_fdvar_firedrake(V):
-    """Build an AllAtOnceReducedFunctional for the strong constraint 4DVar system"""
+    """Build an FourDVarReducedFunctional for the strong constraint 4DVar system"""
     qn, qn1, stepper = timestepper(V)
 
     # prior data
@@ -223,7 +223,7 @@ def strong_fdvar_firedrake(V):
     # create 4DVar reduced functional and record
     # background and initial observation functionals
 
-    Jhat = AllAtOnceReducedFunctional(
+    Jhat = FourDVarReducedFunctional(
         Control(control),
         background_iprod=prodB,
         observation_iprod=prodR,
@@ -243,9 +243,8 @@ def strong_fdvar_firedrake(V):
                 stepper.solve()
                 qn.assign(qn1)
 
-            obs_index = stage.index + 1
-
             # take observation
+            obs_index = stage.observation_index
             stage.set_observation(qn, obs_errors(obs_index),
                                   observation_iprod=prodR)
 
@@ -312,7 +311,7 @@ def weak_fdvar_pyadjoint(V):
 
 
 def weak_fdvar_firedrake(V, ensemble):
-    """Build an AllAtOnceReducedFunctional for the weak constraint 4DVar system"""
+    """Build an FourDVarReducedFunctional for the weak constraint 4DVar system"""
     qn, qn1, stepper = timestepper(V)
 
     # One control for each observation time
@@ -338,7 +337,7 @@ def weak_fdvar_firedrake(V, ensemble):
     # create 4DVar reduced functional and record
     # background and initial observation functionals
 
-    Jhat = AllAtOnceReducedFunctional(
+    Jhat = FourDVarReducedFunctional(
         Control(control),
         background_iprod=prodB,
         observation_iprod=prodR,

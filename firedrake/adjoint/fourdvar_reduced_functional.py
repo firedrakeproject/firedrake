@@ -9,7 +9,7 @@ from typing import Callable, Optional
 from contextlib import contextmanager
 from mpi4py import MPI
 
-__all__ = ['AllAtOnceReducedFunctional']
+__all__ = ['FourDVarReducedFunctional']
 
 
 # @set_working_tape()  # ends up using old_tape = None because evaluates when imported - need separate decorator
@@ -54,7 +54,7 @@ def sc_passthrough(func):
     is instantiated then passes args/kwargs through to the
     corresponding strong_reduced_functional method.
 
-    If using weak constraint, returns the AllAtOnceReducedFunctional
+    If using weak constraint, returns the FourDVarReducedFunctional
     method definition.
     """
     @wraps(func)
@@ -93,7 +93,7 @@ def _intermediate_options(final_options):
     }
 
 
-class AllAtOnceReducedFunctional(ReducedFunctional):
+class FourDVarReducedFunctional(ReducedFunctional):
     """ReducedFunctional for 4DVar data assimilation.
 
     Creates either the strong constraint or weak constraint system
@@ -586,7 +586,7 @@ class AllAtOnceReducedFunctional(ReducedFunctional):
 
 class ObservationStageSequence:
     def __init__(self, controls: Control,
-                 aaorf: AllAtOnceReducedFunctional,
+                 aaorf: FourDVarReducedFunctional,
                  global_index: int,
                  observation_index: int,
                  stage_kwargs: dict = None,
@@ -663,12 +663,12 @@ class StrongObservationStage:
     ----------
 
     aaorf
-        The strong constraint AllAtOnceReducedFunctional.
+        The strong constraint FourDVarReducedFunctional.
 
     """
 
     def __init__(self, control: OverloadedType,
-                 aaorf: AllAtOnceReducedFunctional,
+                 aaorf: FourDVarReducedFunctional,
                  index: Optional[int] = None,
                  observation_index: Optional[int] = None):
         self.aaorf = aaorf
