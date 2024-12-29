@@ -83,7 +83,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
-            --package-branch pyadjoint dham/abstract_reduced_functional
+            --package-branch pyadjoint dham/abstract_reduced_functional \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
