@@ -577,10 +577,15 @@ class BaseFormAssembler(AbstractFormAssembler):
     @staticmethod
     def update_tensor(assembled_base_form, tensor):
         if isinstance(tensor, (firedrake.Function, firedrake.Cofunction)):
-            assembled_base_form.dat.copy(tensor.dat)
+            if isinstance(assembled_base_form, ufl.ZeroBaseForm):
+                tensor.dat.zero()
+            else:
+                assembled_base_form.dat.copy(tensor.dat)
         elif isinstance(tensor, matrix.MatrixBase):
-            # Uses the PETSc copy method.
-            assembled_base_form.petscmat.copy(tensor.petscmat)
+            if isinstance(assembled_base_form, ufl.ZeroBaseForm):
+                tensor.petscmat.zero()
+            else:
+                assembled_base_form.petscmat.copy(tensor.petscmat)
         else:
             raise NotImplementedError("Cannot update tensor of type %s" % type(tensor))
 

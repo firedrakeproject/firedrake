@@ -2,6 +2,7 @@ import copy
 from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
 from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock
+from firedrake.ufl_expr import derivative, adjoint
 from ufl import replace
 
 
@@ -11,7 +12,6 @@ class NonlinearVariationalProblemMixin:
         @no_annotations
         @wraps(init)
         def wrapper(self, *args, **kwargs):
-            from firedrake import derivative, adjoint, TrialFunction
             init(self, *args, **kwargs)
             self._ad_F = self.F
             self._ad_u = self.u_restrict
@@ -20,10 +20,8 @@ class NonlinearVariationalProblemMixin:
             try:
                 # Some forms (e.g. SLATE tensors) are not currently
                 # differentiable.
-                dFdu = derivative(self.F,
-                                  self.u_restrict,
-                                  TrialFunction(self.u_restrict.function_space()))
-                self._ad_adj_F = adjoint(dFdu)
+                dFdu = derivative(self.F, self.u_restrict)
+                self._ad_adj_F = adjoint(dFdu, derivatives_expanded=True)
             except (TypeError, NotImplementedError):
                 self._ad_adj_F = None
             self._ad_kwargs = {'Jp': self.Jp, 'form_compiler_parameters': self.form_compiler_parameters, 'is_linear': self.is_linear}

@@ -2,13 +2,29 @@
 import numpy
 import collections
 
-from ufl import as_vector
+from ufl import as_vector, split, ZeroBaseForm
 from ufl.classes import Zero, FixedIndex, ListTensor
 from ufl.algorithms.map_integrands import map_integrand_dags
+from ufl.algorithms import expand_derivatives
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
 
 from firedrake.petsc import PETSc
 from firedrake.ufl_expr import Argument
+from firedrake.functionspace import MixedFunctionSpace, FunctionSpace
+
+
+def subspace(V, indices):
+    try:
+        indices = tuple(indices)
+    except TypeError:
+        # Only one index provided.
+        indices = (indices, )
+    if len(indices) == 1:
+        W = V[indices[0]]
+        W = FunctionSpace(W.mesh(), W.ufl_element())
+    else:
+        W = MixedFunctionSpace([V[i] for i in indices])
+    return W
 
 
 class ExtractSubBlock(MultiFunction):
@@ -26,9 +42,11 @@ class ExtractSubBlock(MultiFunction):
             indices = multiindex.indices()
             if isinstance(child, ListTensor) and all(isinstance(i, FixedIndex) for i in indices):
                 if len(indices) == 1:
-                    return child.ufl_operands[indices[0]._value]
+                    return child[indices[0]]
+                elif len(indices) == len(child.ufl_operands) and all(k == int(i) for k, i in enumerate(indices)):
+                    return child
                 else:
-                    return ListTensor(*(child.ufl_operands[i._value] for i in multiindex.indices()))
+                    return ListTensor(*(child[i] for i in indices))
             return self.expr(o, child, multiindex)
 
     index_inliner = IndexInliner()
@@ -57,6 +75,11 @@ class ExtractSubBlock(MultiFunction):
             assert (idx[0] == 0 for idx in self.blocks.values())
             return form
         f = map_integrand_dags(self, form)
+        f = expand_derivatives(f)
+        if f.empty():
+            f = ZeroBaseForm(tuple(Argument(subspace(arg.function_space(), indices),
+                                            arg.number(), part=arg.part())
+                                   for arg, indices in zip(form.arguments(), argument_indices)))
         return f
 
     expr = MultiFunction.reuse_if_untouched
@@ -85,8 +108,6 @@ class ExtractSubBlock(MultiFunction):
 
     @PETSc.Log.EventDecorator()
     def argument(self, o):
-        from ufl import split
-        from firedrake import MixedFunctionSpace, FunctionSpace
         V = o.function_space()
         if len(V) == 1:
             # Not on a mixed space, just return ourselves.
@@ -95,36 +116,29 @@ class ExtractSubBlock(MultiFunction):
         if o in self._arg_cache:
             return self._arg_cache[o]
 
-        V_is = V.subfunctions
         indices = self.blocks[o.number()]
 
         try:
             indices = tuple(indices)
-            nidx = len(indices)
         except TypeError:
             # Only one index provided.
             indices = (indices, )
-            nidx = 1
 
-        if nidx == 1:
-            W = V_is[indices[0]]
-            W = FunctionSpace(W.mesh(), W.ufl_element())
-            a = (Argument(W, o.number(), part=o.part()), )
-        else:
-            W = MixedFunctionSpace([V_is[i] for i in indices])
-            a = split(Argument(W, o.number(), part=o.part()))
+        W = subspace(V, indices)
+        a = Argument(W, o.number(), part=o.part())
+        a = (a, ) if len(W) == 1 else split(a)
+
         args = []
-        for i in range(len(V_is)):
+        for i in range(len(V)):
             if i in indices:
                 c = indices.index(i)
                 a_ = a[c]
                 if len(a_.ufl_shape) == 0:
-                    args += [a_]
+                    args.append(a_)
                 else:
-                    args += [a_[j] for j in numpy.ndindex(a_.ufl_shape)]
+                    args.extend(a_[j] for j in numpy.ndindex(a_.ufl_shape))
             else:
-                args += [Zero()
-                         for j in numpy.ndindex(V_is[i].value_shape)]
+                args.extend(Zero() for j in numpy.ndindex(V[i].value_shape))
         return self._arg_cache.setdefault(o, as_vector(args))
 
 
@@ -168,11 +182,10 @@ def split_form(form, diagonal=False):
         assert len(shape) == 2
     for idx in numpy.ndindex(shape):
         f = splitter.split(form, idx)
-        if len(f.integrals()) > 0:
-            if diagonal:
-                i, j = idx
-                if i != j:
-                    continue
-                idx = (i, )
-            forms.append(SplitForm(indices=idx, form=f))
+        if diagonal:
+            i, j = idx
+            if i != j:
+                continue
+            idx = (i, )
+        forms.append(SplitForm(indices=idx, form=f))
     return tuple(forms)

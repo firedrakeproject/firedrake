@@ -12,8 +12,8 @@ from firedrake.logging import warning
 
 
 def _make_reasons(reasons):
-    return dict([(getattr(reasons, r), r)
-                 for r in dir(reasons) if not r.startswith('_')])
+    return {getattr(reasons, r): r
+            for r in dir(reasons) if not r.startswith('_')}
 
 
 KSPReasons = _make_reasons(PETSc.KSP.ConvergedReason())
@@ -333,7 +333,7 @@ class _SNESContext(object):
                 # Split it apart to shove in the form.
                 subsplit = split(subu)
             # Permutation from field indexing to indexing of pieces
-            field_renumbering = dict([f, i] for i, f in enumerate(field))
+            field_renumbering = {f: i for i, f in enumerate(field)}
             vec = []
             for i, u in enumerate(us):
                 if i in field:
@@ -344,8 +344,7 @@ class _SNESContext(object):
                 if u.ufl_shape == ():
                     vec.append(u)
                 else:
-                    for idx in numpy.ndindex(u.ufl_shape):
-                        vec.append(u[idx])
+                    vec.extend(u[idx] for idx in numpy.ndindex(u.ufl_shape))
 
             # So now we have a new representation for the solution
             # vector in the old problem. For the fields we're going
