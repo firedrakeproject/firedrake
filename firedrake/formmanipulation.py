@@ -2,23 +2,22 @@
 import numpy
 import collections
 
-from ufl import as_vector, split, ZeroBaseForm
-from ufl.classes import Zero, FixedIndex, ListTensor
+from ufl import as_vector, split
+from ufl.classes import Zero, FixedIndex, ListTensor, ZeroBaseForm
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms import expand_derivatives
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
 
+from pyop2 import MixedDat
+from pyop2.utils import as_tuple
+
 from firedrake.petsc import PETSc
 from firedrake.ufl_expr import Argument
-from firedrake.functionspace import MixedFunctionSpace, FunctionSpace
+from firedrake.cofunction import Cofunction
+from firedrake.functionspace import FunctionSpace, MixedFunctionSpace, DualSpace
 
 
 def subspace(V, indices):
-    try:
-        indices = tuple(indices)
-    except TypeError:
-        # Only one index provided.
-        indices = (indices, )
     if len(indices) == 1:
         W = V[indices[0]]
         W = FunctionSpace(W.mesh(), W.ufl_element())
@@ -66,7 +65,7 @@ class ExtractSubBlock(MultiFunction):
         """
         args = form.arguments()
         self._arg_cache = {}
-        self.blocks = dict(enumerate(argument_indices))
+        self.blocks = dict(enumerate(map(as_tuple, argument_indices)))
         if len(args) == 0:
             # Functional can't be split
             return form
@@ -75,11 +74,13 @@ class ExtractSubBlock(MultiFunction):
             assert (idx[0] == 0 for idx in self.blocks.values())
             return form
         f = map_integrand_dags(self, form)
-        f = expand_derivatives(f)
-        if f.empty():
-            f = ZeroBaseForm(tuple(Argument(subspace(arg.function_space(), indices),
+        # TODO find a way to distinguish empty Forms avoiding expand_derivatives
+        if expand_derivatives(f).empty():
+            # Get ZeroBaseForm with the right shape
+            f = ZeroBaseForm(tuple(Argument(subspace(arg.function_space(),
+                                                     self.blocks[arg.number()]),
                                             arg.number(), part=arg.part())
-                                   for arg, indices in zip(form.arguments(), argument_indices)))
+                                   for arg in form.arguments()))
         return f
 
     expr = MultiFunction.reuse_if_untouched
@@ -109,6 +110,7 @@ class ExtractSubBlock(MultiFunction):
     @PETSc.Log.EventDecorator()
     def argument(self, o):
         V = o.function_space()
+
         if len(V) == 1:
             # Not on a mixed space, just return ourselves.
             return o
@@ -117,12 +119,6 @@ class ExtractSubBlock(MultiFunction):
             return self._arg_cache[o]
 
         indices = self.blocks[o.number()]
-
-        try:
-            indices = tuple(indices)
-        except TypeError:
-            # Only one index provided.
-            indices = (indices, )
 
         W = subspace(V, indices)
         a = Argument(W, o.number(), part=o.part())
@@ -140,6 +136,28 @@ class ExtractSubBlock(MultiFunction):
             else:
                 args.extend(Zero() for j in numpy.ndindex(V[i].value_shape))
         return self._arg_cache.setdefault(o, as_vector(args))
+
+    def cofunction(self, o):
+        V = o.function_space()
+
+        if len(V) == 1:
+            # Not on a mixed space, just return ourselves.
+            return o
+
+        try:
+            indices, = set(self.blocks.values())
+        except ValueError:
+            raise ValueError("Cofunction found on an off-diagonal block")
+
+        if len(indices) == 1:
+            i = indices[0]
+            W = V[i]
+            W = DualSpace(W.mesh(), W.ufl_element())
+            c = Cofunction(W, val=o.dat[i])
+        else:
+            W = MixedFunctionSpace([V[i] for i in indices])
+            c = Cofunction(W, val=MixedDat(o.dat[i] for i in indices))
+        return c
 
 
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
