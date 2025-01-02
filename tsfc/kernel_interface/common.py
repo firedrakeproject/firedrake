@@ -15,7 +15,7 @@ from gem.optimise import constant_fold_zero
 from gem.optimise import remove_componenttensors as prune
 from numpy import asarray
 from tsfc import fem, ufl_utils
-from tsfc.finatinterface import as_fiat_cell, create_element
+from finat.element_factory import as_fiat_cell, create_element
 from tsfc.kernel_interface import KernelInterface
 from tsfc.logging import logger
 from ufl.utils.sequences import max_degree
@@ -394,7 +394,7 @@ def lower_integral_type(fiat_cell, integral_type):
     elif integral_type == 'exterior_facet_top':
         entity_ids = [1]
     else:
-        entity_ids = list(range(len(fiat_cell.get_topology()[integration_dim])))
+        entity_ids = list(fiat_cell.get_topology()[integration_dim])
 
     return integration_dim, entity_ids
 

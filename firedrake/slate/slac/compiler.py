@@ -237,4 +237,4 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type):
 
     # Part B: impero_c to loopy
     output_arg = OutputKernelArg(output_loopy_arg)
-    return generate_loopy(impero_c, args, scalar_type, "slate_loopy", [], log=PETSc.Log.isActive()), output_arg
+    return generate_loopy(impero_c, args, scalar_type, "slate_loopy", []), output_arg
