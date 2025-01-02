@@ -104,7 +104,8 @@ class FourDVarReducedFunctional(ReducedFunctional):
     ----------
 
     control
-        The :class:`EnsembleFunction` for the control x_{i} at the initial condition and at the end of each observation stage.
+        The :class:`.EnsembleFunction` for the control x_{i} at the initial condition
+        and at the end of each observation stage.
 
     background_iprod
         The inner product to calculate the background error functional
@@ -113,8 +114,8 @@ class FourDVarReducedFunctional(ReducedFunctional):
 
     background
         The background (prior) data for the initial condition :math:`x_{b}`.
-        If not provided, the value of the first Function on the first ensemble
-        of the EnsembleFunction will be used.
+        If not provided, the value of the first subfunction on the first ensemble
+        member of the control :class:`.EnsembleFunction` will be used.
 
     observation_err
         Given a state :math:`x`, returns the observations error
