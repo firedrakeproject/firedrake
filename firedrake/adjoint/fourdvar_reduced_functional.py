@@ -171,6 +171,9 @@ class FourDVarReducedFunctional(ReducedFunctional):
             self.trank = ensemble.ensemble_comm.rank if ensemble else 0
             self.nchunks = ensemble.ensemble_comm.size if ensemble else 1
 
+            # because we need to manually evaluate the different bits
+            # of the functional, we need an internal set of controls
+            # to use for the stage ReducedFunctionals
             self._cbuf = control.copy()
             _x = self._cbuf.subfunctions
             self._x = _x
@@ -305,6 +308,7 @@ class FourDVarReducedFunctional(ReducedFunctional):
             raise ValueError(f"Value must be of type {type(self.control.control)} not type {type(value)}")
 
         self.control.update(value)
+        # put the new value into our internal set of controls to pass to each stage
         self._cbuf.assign(value)
 
         trank = self.trank
@@ -576,6 +580,10 @@ class FourDVarReducedFunctional(ReducedFunctional):
                     ectx.global_index = self.stages[-1].global_index
                     ectx.observation_index = self.stages[-1].observation_index
 
+                    # make sure that self.control now holds the
+                    # values of the initial timeseris
+                    self.control.assign(self._cbuf)
+
         else:  # strong constraint
 
             yield ObservationStageSequence(
@@ -606,26 +614,28 @@ class ObservationStageSequence:
 
     def __next__(self):
 
-        # increment global indices
+        # increment global indices.
         self.local_index += 1
         self.global_index += 1
         self.observation_index += 1
 
-        # stop after we've recorded all stages
-        if self.local_index >= self.nstages:
-            raise StopIteration
-
         if self.weak_constraint:
             stages = self.aaorf.stages
 
-            # start of the next stage
+            # control for the start of the next stage.
             next_control = self.controls[self.local_index]
 
-            # smuggle state forward and increment stage indices
+            # smuggle state forward into aaorf's next control.
             if self.local_index > 0:
                 state = stages[-1].controls[1].control
                 with stop_annotating():
                     next_control.control.assign(state)
+
+            # now we know that the aaorf's controls have
+            # been updated from the previous stage's controls,
+            # we can check if we need to exit.
+            if self.local_index >= self.nstages:
+                raise StopIteration
 
             stage = WeakObservationStage(next_control,
                                          local_index=self.local_index,
@@ -634,6 +644,10 @@ class ObservationStageSequence:
             stages.append(stage)
 
         else:  # strong constraint
+
+            # stop after we've recorded all stages
+            if self.local_index >= self.nstages:
+                raise StopIteration
 
             # dummy control to "start" stage from
             control = (self.aaorf.controls[0].control if self.local_index == 0
