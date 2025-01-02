@@ -775,8 +775,8 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     libspatialindex_so = Path(rtree.core.rt._name).absolute()
     lsi_runpath = f"-Wl,-rpath,{libspatialindex_so.parent}"
     ldargs += [str(libspatialindex_so), lsi_runpath]
-    return compilation.load(
-        src, "c", c_name,
+    dll = compilation.load(
+        src, "c",
         cppargs=[
             f"-I{path.dirname(__file__)}",
             f"-I{sys.prefix}/include",
@@ -785,3 +785,4 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
         ldargs=ldargs,
         comm=function.comm
     )
+    return getattr(dll, c_name)

@@ -434,14 +434,15 @@ each supermesh cell.
     includes = ["-I%s/include" % d for d in dirs]
     libs = ["-L%s/lib" % d for d in dirs]
     libs = libs + ["-Wl,-rpath,%s/lib" % d for d in dirs] + ["-lpetsc", "-lsupermesh"]
-    lib = load(
-        supermesh_kernel_str, "c", "supermesh_kernel",
+    dll = load(
+        supermesh_kernel_str, "c",
         cppargs=includes,
         ldargs=libs,
-        argtypes=[ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp],
-        restype=ctypes.c_int,
         comm=mesh_A._comm
     )
+    lib = getattr(dll, "supermesh_kernel")
+    lib.argtypes = [ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp]
+    lib.restype = ctypes.c_int
 
     ammm(V_A, V_B, likely, node_locations_A, node_locations_B, M_SS, ctypes.addressof(lib), mat)
     if orig_value_size == 1:
