@@ -6,6 +6,7 @@ from firedrake.ensemblefunction import EnsembleFunction, EnsembleCofunction
 
 from functools import wraps, cached_property
 from typing import Callable, Optional
+from types import SimpleNamespace
 from contextlib import contextmanager
 from mpi4py import MPI
 
@@ -601,7 +602,7 @@ class ObservationStageSequence:
                  nstages: Optional[int] = None):
         self.controls = controls
         self.aaorf = aaorf
-        self.ctx = StageContext(**(stage_kwargs or {}))
+        self.ctx = SimpleNamespace(**(stage_kwargs or {}))
         self.weak_constraint = aaorf.weak_constraint
         self.global_index = global_index
         self.observation_index = observation_index
@@ -661,12 +662,6 @@ class ObservationStageSequence:
             self._prev_stage = stage
 
         return stage, self.ctx
-
-
-class StageContext:
-    def __init__(self, **kwargs):
-        for k, v in kwargs.items():
-            setattr(self, k, v)
 
 
 class StrongObservationStage:

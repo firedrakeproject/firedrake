@@ -1,6 +1,7 @@
 import weakref
 from contextlib import contextmanager
 from itertools import zip_longest
+from types import SimpleNamespace
 
 from firedrake.petsc import PETSc
 from firedrake.function import Function
@@ -325,7 +326,7 @@ class Ensemble(object):
                     kwargs[k] = self.ensemble_comm.recv(
                         **recv_kwargs)
 
-        ctx = _EnsembleContext(**kwargs)
+        ctx = SimpleNamespace(**kwargs)
 
         yield ctx
 
@@ -338,9 +339,3 @@ class Ensemble(object):
                     self.send(v, **send_kwargs)
                 else:
                     self.ensemble_comm.send(v, **send_kwargs)
-
-
-class _EnsembleContext:
-    def __init__(self, **kwargs):
-        for k, v in kwargs.items():
-            setattr(self, k, v)
