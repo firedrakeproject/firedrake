@@ -196,14 +196,15 @@ def split_form(form, diagonal=False):
     args = form.arguments()
     shape = tuple(len(a.function_space()) for a in args)
     forms = []
+    arity = len(shape)
     if diagonal:
-        assert len(shape) == 2
+        assert arity == 2
+        arity = 1
     for idx in numpy.ndindex(shape):
-        f = splitter.split(form, idx)
         if diagonal:
             i, j = idx
             if i != j:
                 continue
-            idx = (i, )
-        forms.append(SplitForm(indices=idx, form=f))
+        f = splitter.split(form, idx)
+        forms.append(SplitForm(indices=idx[:arity], form=f))
     return tuple(forms)
