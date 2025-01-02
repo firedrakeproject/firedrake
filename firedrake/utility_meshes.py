@@ -24,6 +24,7 @@ from firedrake import (
     as_tensor,
     dot,
     And,
+    Or,
     sin,
     cos,
     real
@@ -1800,6 +1801,8 @@ def PeriodicBoxMesh(
     Lx,
     Ly,
     Lz,
+    directions=(True, True, True),
+    hexahedral=False,
     reorder=None,
     distribution_parameters=None,
     comm=COMM_WORLD,
@@ -1809,105 +1812,185 @@ def PeriodicBoxMesh(
 ):
     """Generate a periodic mesh of a 3D box.
 
-    :arg nx: The number of cells in the x direction
-    :arg ny: The number of cells in the y direction
-    :arg nz: The number of cells in the z direction
-    :arg Lx: The extent in the x direction
-    :arg Ly: The extent in the y direction
-    :arg Lz: The extent in the z direction
-    :kwarg reorder: (optional), should the mesh be reordered?
-    :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
-    :kwarg comm: Optional communicator to build the mesh on.
-    :kwarg name: Optional name of the mesh.
-    :kwarg distribution_name: the name of parallel distribution used
-           when checkpointing; if `None`, the name is automatically
-           generated.
-    :kwarg permutation_name: the name of entity permutation (reordering) used
-           when checkpointing; if `None`, the name is automatically
-           generated.
+    Parameters
+    ----------
+    nx : int
+        Number of cells in the x direction.
+    ny : int
+        Number of cells in the y direction.
+    nz : int
+        Number of cells in the z direction.
+    Lx : float
+        Extent in the x direction.
+    Ly : float
+        Extent in the y direction.
+    Lz : float
+        Extent in the z direction.
+    directions : list or tuple
+        Directions of periodicity.
+    hexahedral : bool
+        Whether to make hexahedral mesh or not.
+    reorder : bool or None
+        Whether to reorder the mesh.
+    distribution_parameters : dict or None
+        Options controlling mesh distribution, see :func:`.Mesh` for details.
+    comm :
+        Communicator to build the mesh on.
+    name : str
+        Name of the mesh.
+    distribution_name : str or None
+        Name of parallel distribution used when checkpointing;
+        if `None`, the name is automatically generated.
+    permutation_name : str or None
+        Name of entity permutation (reordering) used when checkpointing;
+        if `None`, the name is automatically generated.
+
+    Returns
+    -------
+    MeshGeometry
+        The mesh.
+
+    Notes
+    -----
+
+    The boundary surfaces are numbered as follows:
+
+    * 1: plane x == 0
+    * 2: plane x == 1
+    * 3: plane y == 0
+    * 4: plane y == 1
+    * 5: plane z == 0
+    * 6: plane z == 1
+
+    where periodic surfaces are regarded as interior, for which dS integral is to be used.
+
     """
     for n in (nx, ny, nz):
         if n < 3:
             raise ValueError(
                 "3D periodic meshes with fewer than 3 cells are not currently supported"
             )
+    if hexahedral:
+        if len(directions) != 3:
+            raise ValueError(f"directions must have exactly dim (=3) elements : Got {directions}")
+        plex = PETSc.DMPlex().createBoxMesh(
+            (nx, ny, nz),
+            lower=(0., 0., 0.),
+            upper=(Lx, Ly, Lz),
+            simplex=False,
+            periodic=directions,
+            interpolate=True,
+            sparseLocalize=False,
+            comm=comm,
+        )
+        m = mesh.Mesh(
+            plex,
+            reorder=reorder,
+            distribution_parameters=distribution_parameters,
+            name=name,
+            distribution_name=distribution_name,
+            permutation_name=permutation_name,
+            comm=comm)
+        x, y, z = SpatialCoordinate(m)
+        V = FunctionSpace(m, "Q", 2)
+        eps = min([Lx / nx, Ly / ny, Lz / nz]) / 1000.
+        if directions[0]:  # x
+            fx0 = Function(V).interpolate(conditional(Or(x < eps, x > Lx - eps), 1., 0.))
+            fx1 = fx0
+        else:
+            fx0 = Function(V).interpolate(conditional(x < eps, 1., 0.))
+            fx1 = Function(V).interpolate(conditional(x > Lx - eps, 1., 0.))
+        if directions[1]:  # y
+            fy0 = Function(V).interpolate(conditional(Or(y < eps, y > Ly - eps), 1., 0.))
+            fy1 = fy0
+        else:
+            fy0 = Function(V).interpolate(conditional(y < eps, 1., 0.))
+            fy1 = Function(V).interpolate(conditional(y > Ly - eps, 1., 0.))
+        if directions[2]:  # z
+            fz0 = Function(V).interpolate(conditional(Or(z < eps, z > Lz - eps), 1., 0.))
+            fz1 = fz0
+        else:
+            fz0 = Function(V).interpolate(conditional(z < eps, 1., 0.))
+            fz1 = Function(V).interpolate(conditional(z > Lz - eps, 1., 0.))
+        return mesh.RelabeledMesh(m, [fx0, fx1, fy0, fy1, fz0, fz1], [1, 2, 3, 4, 5, 6], name=name)
+    else:
+        if tuple(directions) != (True, True, True):
+            raise NotImplementedError("Can only specify directions with hexahedral = True")
+        xcoords = np.arange(0.0, Lx, Lx / nx, dtype=np.double)
+        ycoords = np.arange(0.0, Ly, Ly / ny, dtype=np.double)
+        zcoords = np.arange(0.0, Lz, Lz / nz, dtype=np.double)
+        coords = (
+            np.asarray(np.meshgrid(xcoords, ycoords, zcoords)).swapaxes(0, 3).reshape(-1, 3)
+        )
+        i, j, k = np.meshgrid(
+            np.arange(nx, dtype=np.int32),
+            np.arange(ny, dtype=np.int32),
+            np.arange(nz, dtype=np.int32),
+        )
+        v0 = k * nx * ny + j * nx + i
+        v1 = k * nx * ny + j * nx + (i + 1) % nx
+        v2 = k * nx * ny + ((j + 1) % ny) * nx + i
+        v3 = k * nx * ny + ((j + 1) % ny) * nx + (i + 1) % nx
+        v4 = ((k + 1) % nz) * nx * ny + j * nx + i
+        v5 = ((k + 1) % nz) * nx * ny + j * nx + (i + 1) % nx
+        v6 = ((k + 1) % nz) * nx * ny + ((j + 1) % ny) * nx + i
+        v7 = ((k + 1) % nz) * nx * ny + ((j + 1) % ny) * nx + (i + 1) % nx
 
-    xcoords = np.arange(0.0, Lx, Lx / nx, dtype=np.double)
-    ycoords = np.arange(0.0, Ly, Ly / ny, dtype=np.double)
-    zcoords = np.arange(0.0, Lz, Lz / nz, dtype=np.double)
-    coords = (
-        np.asarray(np.meshgrid(xcoords, ycoords, zcoords)).swapaxes(0, 3).reshape(-1, 3)
-    )
-    i, j, k = np.meshgrid(
-        np.arange(nx, dtype=np.int32),
-        np.arange(ny, dtype=np.int32),
-        np.arange(nz, dtype=np.int32),
-    )
-    v0 = k * nx * ny + j * nx + i
-    v1 = k * nx * ny + j * nx + (i + 1) % nx
-    v2 = k * nx * ny + ((j + 1) % ny) * nx + i
-    v3 = k * nx * ny + ((j + 1) % ny) * nx + (i + 1) % nx
-    v4 = ((k + 1) % nz) * nx * ny + j * nx + i
-    v5 = ((k + 1) % nz) * nx * ny + j * nx + (i + 1) % nx
-    v6 = ((k + 1) % nz) * nx * ny + ((j + 1) % ny) * nx + i
-    v7 = ((k + 1) % nz) * nx * ny + ((j + 1) % ny) * nx + (i + 1) % nx
+        cells = [
+            [v0, v1, v3, v7],
+            [v0, v1, v7, v5],
+            [v0, v5, v7, v4],
+            [v0, v3, v2, v7],
+            [v0, v6, v4, v7],
+            [v0, v2, v6, v7],
+        ]
+        cells = np.asarray(cells).reshape(-1, ny, nx, nz).swapaxes(0, 3).reshape(-1, 4)
+        plex = mesh.plex_from_cell_list(
+            3, cells, coords, comm, mesh._generate_default_mesh_topology_name(name)
+        )
+        m = mesh.Mesh(
+            plex,
+            reorder=reorder_noop,
+            distribution_parameters=distribution_parameters_no_overlap,
+            name=name,
+            distribution_name=distribution_name,
+            permutation_name=permutation_name,
+            comm=comm,
+        )
 
-    cells = [
-        [v0, v1, v3, v7],
-        [v0, v1, v7, v5],
-        [v0, v5, v7, v4],
-        [v0, v3, v2, v7],
-        [v0, v6, v4, v7],
-        [v0, v2, v6, v7],
-    ]
-    cells = np.asarray(cells).reshape(-1, ny, nx, nz).swapaxes(0, 3).reshape(-1, 4)
-    plex = mesh.plex_from_cell_list(
-        3, cells, coords, comm, mesh._generate_default_mesh_topology_name(name)
-    )
-    m = mesh.Mesh(
-        plex,
-        reorder=reorder_noop,
-        distribution_parameters=distribution_parameters_no_overlap,
-        name=name,
-        distribution_name=distribution_name,
-        permutation_name=permutation_name,
-        comm=comm,
-    )
+        new_coordinates = Function(
+            VectorFunctionSpace(
+                m, FiniteElement("DG", tetrahedron, 1, variant="equispaced")
+            ),
+            name=mesh._generate_default_mesh_coordinates_name(name),
+        )
+        new_coordinates.interpolate(m.coordinates)
 
-    new_coordinates = Function(
-        VectorFunctionSpace(
-            m, FiniteElement("DG", tetrahedron, 1, variant="equispaced")
-        ),
-        name=mesh._generate_default_mesh_coordinates_name(name),
-    )
-    new_coordinates.interpolate(m.coordinates)
+        coords_by_cell = new_coordinates.dat.data.reshape((-1, 4, 3)).transpose(1, 0, 2)
 
-    coords_by_cell = new_coordinates.dat.data.reshape((-1, 4, 3)).transpose(1, 0, 2)
+        # ensure we really got a view:
+        assert coords_by_cell.base is new_coordinates.dat.data.base
 
-    # ensure we really got a view:
-    assert coords_by_cell.base is new_coordinates.dat.data.base
+        # Find the cells that are too big in each direction because they are
+        # wrapped.
+        cell_is_wrapped = (
+            (coords_by_cell.max(axis=0) - coords_by_cell.min(axis=0))
+            / (Lx/nx, Ly/ny, Lz/nz) > 1.1
+        )
 
-    # Find the cells that are too big in each direction because they are
-    # wrapped.
-    cell_is_wrapped = (
-        (coords_by_cell.max(axis=0) - coords_by_cell.min(axis=0))
-        / (Lx/nx, Ly/ny, Lz/nz) > 1.1
-    )
+        # Move wrapped coordinates to the other end of the domain.
+        for i, extent in enumerate((Lx, Ly, Lz)):
+            coords = coords_by_cell[:, :, i]
+            coords[np.logical_and(cell_is_wrapped[:, i], np.isclose(coords, 0))] \
+                = extent
 
-    # Move wrapped coordinates to the other end of the domain.
-    for i, extent in enumerate((Lx, Ly, Lz)):
-        coords = coords_by_cell[:, :, i]
-        coords[np.logical_and(cell_is_wrapped[:, i], np.isclose(coords, 0))] \
-            = extent
-
-    return _postprocess_periodic_mesh(new_coordinates,
-                                      comm,
-                                      distribution_parameters,
-                                      reorder,
-                                      name,
-                                      distribution_name,
-                                      permutation_name)
+        return _postprocess_periodic_mesh(new_coordinates,
+                                          comm,
+                                          distribution_parameters,
+                                          reorder,
+                                          name,
+                                          distribution_name,
+                                          permutation_name)
 
 
 @PETSc.Log.EventDecorator()
@@ -1915,6 +1998,8 @@ def PeriodicUnitCubeMesh(
     nx,
     ny,
     nz,
+    directions=(True, True, True),
+    hexahedral=False,
     reorder=None,
     distribution_parameters=None,
     comm=COMM_WORLD,
@@ -1924,20 +2009,52 @@ def PeriodicUnitCubeMesh(
 ):
     """Generate a periodic mesh of a unit cube
 
-    :arg nx: The number of cells in the x direction
-    :arg ny: The number of cells in the y direction
-    :arg nz: The number of cells in the z direction
-    :kwarg reorder: (optional), should the mesh be reordered?
-    :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
-    :kwarg comm: Optional communicator to build the mesh on.
-    :kwarg name: Optional name of the mesh.
-    :kwarg distribution_name: the name of parallel distribution used
-           when checkpointing; if `None`, the name is automatically
-           generated.
-    :kwarg permutation_name: the name of entity permutation (reordering) used
-           when checkpointing; if `None`, the name is automatically
-           generated.
+    Parameters
+    ----------
+    nx : int
+        Number of cells in the x direction.
+    ny : int
+        Number of cells in the y direction.
+    nz : int
+        Number of cells in the z direction.
+    directions : list or tuple
+        Directions of periodicity.
+    hexahedral : bool
+        Whether to make hexahedral mesh or not.
+    reorder : bool or None
+        Should the mesh be reordered?
+    distribution_parameters : dict or None
+        Options controlling mesh distribution, see :func:`.Mesh` for details.
+    comm :
+        Communicator to build the mesh on.
+    name : str
+        Name of the mesh.
+    distribution_name : str or None
+        Name of parallel distribution used when checkpointing;
+        if `None`, the name is automatically generated.
+    permutation_name : str or None
+        Name of entity permutation (reordering) used when checkpointing;
+        if `None`, the name is automatically generated.
+
+    Returns
+    -------
+    MeshGeometry
+        The mesh.
+
+    Notes
+    -----
+
+    The boundary surfaces are numbered as follows:
+
+    * 1: plane x == 0
+    * 2: plane x == 1
+    * 3: plane y == 0
+    * 4: plane y == 1
+    * 5: plane z == 0
+    * 6: plane z == 1
+
+    where periodic surfaces are regarded as interior, for which dS integral is to be used.
+
     """
     return PeriodicBoxMesh(
         nx,
@@ -1946,6 +2063,8 @@ def PeriodicUnitCubeMesh(
         1.0,
         1.0,
         1.0,
+        directions=directions,
+        hexahedral=hexahedral,
         reorder=reorder,
         distribution_parameters=distribution_parameters,
         comm=comm,

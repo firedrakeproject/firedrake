@@ -53,8 +53,8 @@ _cachedir = environ.get(
 )
 
 
-def tsfc_compile_form_hashkey(form, prefix, parameters, interface, diagonal, log):
-    # Drop prefix as it's only used for naming and log
+def tsfc_compile_form_hashkey(form, prefix, parameters, interface, diagonal):
+    # Drop prefix as it's only used for naming
     return default_parallel_hashkey(form.signature(), prefix, parameters, interface, diagonal)
 
 
@@ -94,7 +94,7 @@ class TSFCKernel:
         """
         tree = tsfc_compile_form(form, prefix=name, parameters=parameters,
                                  interface=interface,
-                                 diagonal=diagonal, log=PETSc.Log.isActive())
+                                 diagonal=diagonal)
         kernels = []
         for kernel in tree:
             # Individual kernels do not have to use all of the coefficients
