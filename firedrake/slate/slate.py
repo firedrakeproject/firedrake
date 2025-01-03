@@ -32,7 +32,7 @@ from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import Zero
 from ufl.domain import join_domains, sort_domains
-from ufl.form import Form
+from ufl.form import Form, ZeroBaseForm
 import hashlib
 
 from firedrake.formmanipulation import ExtractSubBlock
@@ -237,7 +237,7 @@ class TensorBase(object, metaclass=ABCMeta):
                 coeff_map[m].update(c.indices[0])
             else:
                 m = self.coefficients().index(c)
-                split_map = tuple(range(len(c.subfunctions))) if isinstance(c, Function) or isinstance(c, Constant) or isinstance(c, Cofunction) else tuple(range(1))
+                split_map = tuple(range(len(c.subfunctions))) if isinstance(c, (Function, Constant, Cofunction)) else (0,)
                 coeff_map[m].update(split_map)
         return tuple((k, tuple(sorted(v)))for k, v in coeff_map.items())
 
@@ -382,6 +382,10 @@ class TensorBase(object, metaclass=ABCMeta):
         """Determines whether two TensorBase objects are equal using their
         associated keys.
         """
+        if isinstance(other, (int, float)) and other == 0:
+            if isinstance(self, Tensor):
+                return isinstance(self.form, ZeroBaseForm) or self.form.empty()
+            return False
         return self._key == other._key
 
     def __ne__(self, other):
@@ -650,7 +654,7 @@ class Block(TensorBase):
         """Constructor for the Block class."""
         super(Block, self).__init__()
         self.operands = (tensor,)
-        self._blocks = dict(enumerate(indices))
+        self._blocks = dict(enumerate(map(as_tuple, indices)))
         self._indices = indices
 
     @cached_property
@@ -671,14 +675,12 @@ class Block(TensorBase):
         nargs = []
         for i, arg in enumerate(tensor.arguments()):
             V = arg.function_space()
-            V_is = V.subfunctions
-            idx = as_tuple(self._blocks[i])
+            idx = self._blocks[i]
             if len(idx) == 1:
-                fidx, = idx
-                W = V_is[fidx]
+                W = V[idx[0]]
                 W = FunctionSpace(W.mesh(), W.ufl_element())
             else:
-                W = MixedFunctionSpace([V_is[fidx] for fidx in idx])
+                W = MixedFunctionSpace([V[fidx] for fidx in idx])
 
             nargs.append(Argument(W, arg.number(), part=arg.part()))
 
@@ -880,7 +882,7 @@ class Tensor(TensorBase):
 
     def __init__(self, form, diagonal=False):
         """Constructor for the Tensor class."""
-        if not isinstance(form, Form):
+        if not isinstance(form, (Form, ZeroBaseForm)):
             if isinstance(form, Function):
                 raise TypeError("Use AssembledVector instead of Tensor.")
             raise TypeError("Only UFL forms are acceptable inputs.")
@@ -1103,6 +1105,10 @@ class Inverse(UnaryOp):
 
 class Transpose(UnaryOp):
     """An abstract Slate class representing the transpose of a tensor."""
+    def __new__(cls, A):
+        if A == 0:
+            return Tensor(ZeroBaseForm(A.form.arguments()[::-1]))
+        return BinaryOp.__new__(cls)
 
     @cached_property
     def arg_function_spaces(self):
@@ -1127,6 +1133,10 @@ class Transpose(UnaryOp):
 
 class Negative(UnaryOp):
     """Abstract Slate class representing the negation of a tensor object."""
+    def __new__(cls, A):
+        if A == 0:
+            return A
+        return BinaryOp.__new__(cls)
 
     @cached_property
     def arg_function_spaces(self):
@@ -1197,6 +1207,12 @@ class Add(BinaryOp):
     :arg A: a :class:`~.firedrake.slate.TensorBase` object.
     :arg B: another :class:`~.firedrake.slate.TensorBase` object.
     """
+    def __new__(cls, A, B):
+        if A == 0:
+            return B
+        elif B == 0:
+            return A
+        return BinaryOp.__new__(cls)
 
     def __init__(self, A, B):
         """Constructor for the Add class."""
@@ -1238,6 +1254,10 @@ class Mul(BinaryOp):
     :arg A: a :class:`~.firedrake.slate.TensorBase` object.
     :arg B: another :class:`~.firedrake.slate.TensorBase` object.
     """
+    def __new__(cls, A, B):
+        if A == 0 or B == 0:
+            return Tensor(ZeroBaseForm(A.arguments()[:-1] + B.arguments()[1:]))
+        return BinaryOp.__new__(cls)
 
     def __init__(self, A, B):
         """Constructor for the Mul class."""
@@ -1295,7 +1315,7 @@ class Solve(BinaryOp):
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
 
-        fsA = A.arg_function_spaces[::-1][-1]
+        fsA = A.arg_function_spaces[0]
         fsB = B.arg_function_spaces[0]
 
         assert space_equivalence(fsA, fsB), (
@@ -1347,6 +1367,11 @@ class DiagonalTensor(UnaryOp):
        This class will raise an error if the tensor is not square.
     """
     diagonal = True
+
+    def __new__(cls, A):
+        if A == 0:
+            return Tensor(ZeroBaseForm(A.arguments()[:1]))
+        return BinaryOp.__new__(cls)
 
     def __init__(self, A):
         """Constructor for the Diagonal class."""
