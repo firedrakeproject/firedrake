@@ -4687,6 +4687,21 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
 class MixedMeshGeometry(ufl.MixedMesh):
     """A representation of mixed mesh geometry."""
 
+    _cache = {}
+
+    def __new__(cls, meshes, set_hierarchy=True):
+        key = tuple(m._ufl_hash_data_() for m in meshes)
+        try:
+            return cls._cache[key]
+        except KeyError:
+            pass
+        self = object.__new__(cls)
+        self._initialised = False
+        self.__init__(meshes, set_hierarchy=set_hierarchy)
+        self._initialised = True
+        cls._cache[key] = self
+        return self
+
     def __init__(self, meshes, set_hierarchy=True):
         """Initialise.
 
@@ -4698,6 +4713,8 @@ class MixedMeshGeometry(ufl.MixedMesh):
             Flag for making hierarchy.
 
         """
+        if self._initialised:
+            return
         for m in meshes:
             if not isinstance(m, MeshGeometry):
                 raise ValueError(f"Got {type(m)}")
