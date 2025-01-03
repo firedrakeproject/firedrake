@@ -311,7 +311,8 @@ class BaseFormAssembler(AbstractFormAssembler):
                  zero_bc_nodes=False,
                  diagonal=False,
                  weight=1.0,
-                 allocation_integral_types=None):
+                 allocation_integral_types=None,
+                 needs_zeroing=False):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
         self._mat_type = mat_type
         self._sub_mat_type = sub_mat_type
@@ -321,6 +322,7 @@ class BaseFormAssembler(AbstractFormAssembler):
         self._diagonal = diagonal
         self._weight = weight
         self._allocation_integral_types = allocation_integral_types
+        assert not needs_zeroing
 
     def allocate(self):
         rank = len(self._form.arguments())
@@ -1127,7 +1129,8 @@ class ZeroFormAssembler(ParloopFormAssembler):
         pass
 
     def _check_tensor(self, tensor):
-        pass
+        if not isinstance(tensor, op2.Global):
+            raise TypeError(f"Expecting a op2.Global, got {tensor!r}.")
 
     @staticmethod
     def _as_pyop2_type(tensor, indices=None):
@@ -1143,7 +1146,7 @@ class OneFormAssembler(ParloopFormAssembler):
 
     Parameters
     ----------
-    form : ufl.Form or slate.TensorBasehe
+    form : ufl.Form or slate.TensorBase
         1-form.
 
     Notes
@@ -1189,8 +1192,8 @@ class OneFormAssembler(ParloopFormAssembler):
             self._apply_dirichlet_bc(tensor, bc)
         elif isinstance(bc, EquationBCSplit):
             bc.zero(tensor)
-            type(self)(bc.f, bcs=bc.bcs, form_compiler_parameters=self._form_compiler_params, needs_zeroing=False,
-                       zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal).assemble(tensor=tensor)
+            get_assembler(bc.f, bcs=bc.bcs, form_compiler_parameters=self._form_compiler_params, needs_zeroing=False,
+                          zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal).assemble(tensor=tensor)
         else:
             raise AssertionError
 

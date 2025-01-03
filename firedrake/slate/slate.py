@@ -21,7 +21,10 @@ from collections import OrderedDict, namedtuple, defaultdict
 from ufl import Constant
 from ufl.coefficient import BaseCoefficient
 
+from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.function import Function, Cofunction
+from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
+from firedrake.ufl_expr import Argument, TestFunction
 from firedrake.utils import cached_property, unique
 
 from itertools import chain, count
@@ -34,8 +37,6 @@ from ufl.classes import Zero
 from ufl.domain import join_domains, sort_domains
 from ufl.form import Form, ZeroBaseForm
 import hashlib
-
-from firedrake.formmanipulation import ExtractSubBlock
 
 from tsfc.ufl_utils import extract_firedrake_constants
 
@@ -293,6 +294,10 @@ class TensorBase(object, metaclass=ABCMeta):
         """
         return Solve(self, B, decomposition=decomposition)
 
+    def empty(self):
+        """Returns whether the form associated with the tensor is empty."""
+        return False
+
     @cached_property
     def blocks(self):
         """Returns an object containing the blocks of the tensor defined
@@ -461,8 +466,6 @@ class AssembledVector(TensorBase):
     @cached_property
     def _argument(self):
         """Generates a 'test function' associated with this class."""
-        from firedrake.ufl_expr import TestFunction
-
         V, = self.arg_function_spaces
         return TestFunction(V)
 
@@ -543,7 +546,6 @@ class BlockAssembledVector(AssembledVector):
     @cached_property
     def _argument(self):
         """Generates a tuple of 'test function' associated with this class."""
-        from firedrake.ufl_expr import TestFunction
         return tuple(TestFunction(fs) for fs in self.arg_function_spaces)
 
     def arguments(self):
@@ -668,9 +670,6 @@ class Block(TensorBase):
         """Splits the function space and stores the component
         spaces determined by the indices.
         """
-        from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
-        from firedrake.ufl_expr import Argument
-
         tensor, = self.operands
         nargs = []
         for i, arg in enumerate(tensor.arguments()):
@@ -937,6 +936,10 @@ class Tensor(TensorBase):
         ``{domain:{integral_type: subdomain_data}}``.
         """
         return self.form.subdomain_data()
+
+    def empty(self):
+        """Returns whether the form associated with the tensor is empty."""
+        return self.form.empty()
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
