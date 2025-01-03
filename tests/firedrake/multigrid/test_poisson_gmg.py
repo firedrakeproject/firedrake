@@ -195,12 +195,11 @@ def test_baseform_coarsening(solver_type, mixed):
         a_terms.append(inner(grad(u), grad(v)) * dx)
     a = sum(a_terms)
 
-    assemble_bcs = lambda L: assemble(L, bcs=bcs, zero_bc_nodes=True)
     # These are equivalent right-hand sides
     sources = [sum(forms),  # purely symbolic linear form
-               assemble_bcs(sum(forms)),  # purely numerical cofunction
-               sum(assemble_bcs(form) for form in forms),  # symbolic combination of numerical cofunctions
-               forms[0] + assemble_bcs(sum(forms[1:])),  # symbolic plus numerical
+               assemble(sum(forms), bcs=bcs),  # purely numerical cofunction
+               sum(assemble(form, bcs=bcs) for form in forms),  # symbolic combination of numerical cofunctions
+               forms[0] + assemble(sum(forms[1:]), bcs=bcs),  # symbolic plus numerical
                ]
     solutions = []
     for L in sources:

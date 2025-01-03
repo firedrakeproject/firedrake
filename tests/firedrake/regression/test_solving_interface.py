@@ -222,22 +222,24 @@ def test_constant_jacobian_lvs():
 
 
 def test_solve_cofunction_rhs():
-    mesh = UnitSquareMesh(10, 10)
+    mesh = UnitIntervalMesh(10)
     V = FunctionSpace(mesh, "CG", 1)
+    x, = SpatialCoordinate(mesh)
 
     u = TrialFunction(V)
     v = TestFunction(V)
-    a = inner(u, v) * dx
-
+    a = inner(grad(u), grad(v)) * dx
     L = Cofunction(V.dual())
-    L.vector()[:] = 1.
+    bcs = [DirichletBC(V, x, "on_boundary")]
+    # Set the wrong BCs on the RHS
+    for bc in bcs:
+        bc.set(L, 888)
+    Lold = L.copy()
 
     w = Function(V)
-    solve(a == L, w)
-
-    Aw = assemble(action(a, w))
-    assert isinstance(Aw, Cofunction)
-    assert np.allclose(Aw.dat.data_ro, L.dat.data_ro)
+    solve(a == L, w, bcs=bcs)
+    assert errornorm(x, w) < 1E-10
+    assert np.allclose(L.dat.data, Lold.dat.data)
 
 
 def test_solve_empty_form_rhs():
