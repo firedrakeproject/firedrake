@@ -3094,6 +3094,7 @@ def Mesh(meshfile, **kwargs):
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
         netgen_firedrake_mesh.createFromTopology(topology, name=plex.getName(), comm=user_comm)
         mesh = netgen_firedrake_mesh.firedrakeMesh
+        mesh.name = name
     mesh._tolerance = tolerance
     return mesh
 
