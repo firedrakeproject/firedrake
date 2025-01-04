@@ -144,11 +144,8 @@ class ExtractSubBlock(MultiFunction):
             # Not on a mixed space, just return ourselves.
             return o
 
-        try:
-            indices, = set(self.blocks.values())
-        except ValueError:
-            raise ValueError("Cofunction found on an off-diagonal block")
-
+        # We only need the test space for Cofunction		￼
+        indices = self.blocks[0]
         if len(indices) == 1:
             i = indices[0]
             W = V[i]
@@ -196,15 +193,15 @@ def split_form(form, diagonal=False):
     args = form.arguments()
     shape = tuple(len(a.function_space()) for a in args)
     forms = []
-    arity = len(shape)
+    rank = len(shape)
     if diagonal:
-        assert arity == 2
-        arity = 1
+        assert rank == 2
+        rank = 1
     for idx in numpy.ndindex(shape):
         if diagonal:
             i, j = idx
             if i != j:
                 continue
         f = splitter.split(form, idx)
-        forms.append(SplitForm(indices=idx[:arity], form=f))
+        forms.append(SplitForm(indices=idx[:rank], form=f))
     return tuple(forms)
