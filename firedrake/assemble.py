@@ -585,7 +585,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 assembled_base_form.dat.copy(tensor.dat)
         elif isinstance(tensor, matrix.MatrixBase):
             if isinstance(assembled_base_form, ufl.ZeroBaseForm):
-                tensor.petscmat.zero()
+                tensor.petscmat.zeroEntries()
             else:
                 assembled_base_form.petscmat.copy(tensor.petscmat)
         else:
@@ -2135,14 +2135,13 @@ class _FormHandler:
 
     @staticmethod
     def iter_constants(form, kinfo):
-        """Yield the form constants"""
+        """Yield the form constants referenced in ``kinfo``."""
         if isinstance(form, slate.TensorBase):
-            for const in form.constants():
-                yield const
+            all_constants = form.constants()
         else:
             all_constants = extract_firedrake_constants(form)
-            for constant_index in kinfo.constant_numbers:
-                yield all_constants[constant_index]
+        for constant_index in kinfo.constant_numbers:
+            yield all_constants[constant_index]
 
     @staticmethod
     def index_function_spaces(form, indices):
