@@ -21,7 +21,12 @@ class NonlinearVariationalProblemMixin:
                 # Some forms (e.g. SLATE tensors) are not currently
                 # differentiable.
                 dFdu = derivative(self.F, self.u_restrict)
-                self._ad_adj_F = adjoint(dFdu, derivatives_expanded=True)
+                try:
+                    self._ad_adj_F = adjoint(dFdu)
+                except ValueError:
+                    # Try again without expanding derivatives,
+                    # as dFdu might have been simplied to an empty Form
+                    self._ad_adj_F = adjoint(dFdu, derivatives_expanded=True)
             except (TypeError, NotImplementedError):
                 self._ad_adj_F = None
             self._ad_kwargs = {'Jp': self.Jp, 'form_compiler_parameters': self.form_compiler_parameters, 'is_linear': self.is_linear}
