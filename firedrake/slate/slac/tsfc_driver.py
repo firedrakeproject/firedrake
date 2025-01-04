@@ -50,6 +50,7 @@ def compile_terminal_form(tensor, prefix, *, tsfc_parameters=None):
     assert tensor.terminal, (
         "Only terminal tensors have forms associated with them!"
     )
+
     # Sets a default name for the subkernel prefix.
     mapper = RemoveRestrictions()
     integrals = map(partial(map_integrand_dags, mapper),

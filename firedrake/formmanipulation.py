@@ -2,17 +2,28 @@
 import numpy
 import collections
 
-from ufl import as_vector, FormSum, Form, split
+from ufl import as_vector, split
 from ufl.classes import Zero, FixedIndex, ListTensor, ZeroBaseForm
 from ufl.algorithms.map_integrands import map_integrand_dags
+from ufl.algorithms import expand_derivatives
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
 
 from pyop2 import MixedDat
+from pyop2.utils import as_tuple
 
 from firedrake.petsc import PETSc
 from firedrake.ufl_expr import Argument
 from firedrake.cofunction import Cofunction
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace, DualSpace
+
+
+def subspace(V, indices):
+    if len(indices) == 1:
+        W = V[indices[0]]
+        W = FunctionSpace(W.mesh(), W.ufl_element())
+    else:
+        W = MixedFunctionSpace([V[i] for i in indices])
+    return W
 
 
 class ExtractSubBlock(MultiFunction):
@@ -30,9 +41,11 @@ class ExtractSubBlock(MultiFunction):
             indices = multiindex.indices()
             if isinstance(child, ListTensor) and all(isinstance(i, FixedIndex) for i in indices):
                 if len(indices) == 1:
-                    return child.ufl_operands[indices[0]._value]
+                    return child[indices[0]]
+                elif len(indices) == len(child.ufl_operands) and all(k == int(i) for k, i in enumerate(indices)):
+                    return child
                 else:
-                    return ListTensor(*(child.ufl_operands[i._value] for i in multiindex.indices()))
+                    return ListTensor(*(child[i] for i in indices))
             return self.expr(o, child, multiindex)
 
     index_inliner = IndexInliner()
@@ -52,7 +65,7 @@ class ExtractSubBlock(MultiFunction):
         """
         args = form.arguments()
         self._arg_cache = {}
-        self.blocks = dict(enumerate(argument_indices))
+        self.blocks = dict(enumerate(map(as_tuple, argument_indices)))
         if len(args) == 0:
             # Functional can't be split
             return form
@@ -61,6 +74,13 @@ class ExtractSubBlock(MultiFunction):
             assert (idx[0] == 0 for idx in self.blocks.values())
             return form
         f = map_integrand_dags(self, form)
+        # TODO find a way to distinguish empty Forms avoiding expand_derivatives
+        if expand_derivatives(f).empty():
+            # Get ZeroBaseForm with the right shape
+            f = ZeroBaseForm(tuple(Argument(subspace(arg.function_space(),
+                                                     self.blocks[arg.number()]),
+                                            arg.number(), part=arg.part())
+                                   for arg in form.arguments()))
         return f
 
     expr = MultiFunction.reuse_if_untouched
@@ -98,76 +118,45 @@ class ExtractSubBlock(MultiFunction):
         if o in self._arg_cache:
             return self._arg_cache[o]
 
-        V_is = V.subfunctions
         indices = self.blocks[o.number()]
 
-        # Only one index provided.
-        if isinstance(indices, int):
-            indices = (indices, )
+        W = subspace(V, indices)
+        a = Argument(W, o.number(), part=o.part())
+        a = (a, ) if len(W) == 1 else split(a)
 
-        if len(indices) == 1:
-            W = V_is[indices[0]]
-            W = FunctionSpace(W.mesh(), W.ufl_element())
-            a = (Argument(W, o.number(), part=o.part()), )
-        else:
-            W = MixedFunctionSpace([V_is[i] for i in indices])
-            a = split(Argument(W, o.number(), part=o.part()))
         args = []
-        for i in range(len(V_is)):
+        for i in range(len(V)):
             if i in indices:
                 c = indices.index(i)
                 a_ = a[c]
                 if len(a_.ufl_shape) == 0:
-                    args += [a_]
+                    args.append(a_)
                 else:
-                    args += [a_[j] for j in numpy.ndindex(a_.ufl_shape)]
+                    args.extend(a_[j] for j in numpy.ndindex(a_.ufl_shape))
             else:
-                args += [Zero()
-                         for j in numpy.ndindex(V_is[i].value_shape)]
+                args.extend(Zero() for j in numpy.ndindex(V[i].value_shape))
         return self._arg_cache.setdefault(o, as_vector(args))
 
     def cofunction(self, o):
         V = o.function_space()
 
-        # Not on a mixed space, just return ourselves.
         if len(V) == 1:
+            # Not on a mixed space, just return ourselves.
             return o
 
-        # We only need the test space for Cofunction
-        indices = self.blocks[0]
-        V_is = V.subfunctions
+        try:
+            indices, = set(self.blocks.values())
+        except ValueError:
+            raise ValueError("Cofunction found on an off-diagonal block")
 
-        # Only one index provided.
-        if isinstance(indices, int):
-            indices = (indices, )
-
-        # for two-forms, the cofunction should only
-        # be returned for the diagonal blocks, so
-        # if we are asked for an off-diagonal block
-        # then we return a zero form, analogously to
-        # the off components of arguments.
-        if len(self.blocks) == 2:
-            itest, itrial = self.blocks
-            on_diag = (itest == itrial)
+        if len(indices) == 1:
+            i = indices[0]
+            W = V[i]
+            W = DualSpace(W.mesh(), W.ufl_element())
+            c = Cofunction(W, val=o.dat[i])
         else:
-            on_diag = True
-
-        # if we are on the diagonal, then return a Cofunction
-        # in the relevant subspace that points to the data in
-        # the full space. This means that the right hand side
-        # of the fieldsplit problem will be correct.
-        if on_diag:
-            if len(indices) == 1:
-                i = indices[0]
-                W = V_is[i]
-                W = DualSpace(W.mesh(), W.ufl_element())
-                c = Cofunction(W, val=o.subfunctions[i].dat)
-            else:
-                W = MixedFunctionSpace([V_is[i] for i in indices])
-                c = Cofunction(W, val=MixedDat(o.dat[i] for i in indices))
-        else:
-            c = ZeroBaseForm(o.arguments())
-
+            W = MixedFunctionSpace([V[i] for i in indices])
+            c = Cofunction(W, val=MixedDat(o.dat[i] for i in indices))
         return c
 
 
@@ -207,28 +196,15 @@ def split_form(form, diagonal=False):
     args = form.arguments()
     shape = tuple(len(a.function_space()) for a in args)
     forms = []
+    arity = len(shape)
     if diagonal:
-        assert len(shape) == 2
+        assert arity == 2
+        arity = 1
     for idx in numpy.ndindex(shape):
+        if diagonal:
+            i, j = idx
+            if i != j:
+                continue
         f = splitter.split(form, idx)
-
-        # does f actually contain anything?
-        if isinstance(f, Cofunction):
-            flen = 1
-        elif isinstance(f, FormSum):
-            flen = len(f.components())
-        elif isinstance(f, Form):
-            flen = len(f.integrals())
-        else:
-            raise ValueError(
-                "ExtractSubBlock.split should have returned an instance of "
-                "either Form, FormSum, or Cofunction")
-
-        if flen > 0:
-            if diagonal:
-                i, j = idx
-                if i != j:
-                    continue
-                idx = (i, )
-            forms.append(SplitForm(indices=idx, form=f))
+        forms.append(SplitForm(indices=idx[:arity], form=f))
     return tuple(forms)

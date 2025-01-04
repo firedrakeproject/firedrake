@@ -20,7 +20,7 @@ class MassInvPC(AssembledPC):
     context, keyed on ``"mu"``.
     """
     def form(self, pc, test, trial):
-        _, bcs = super(MassInvPC, self).form(pc, test, trial)
+        _, bcs = super(MassInvPC, self).form(pc)
 
         appctx = self.get_appctx(pc)
         mu = appctx.get("mu", 1.0)

@@ -249,9 +249,13 @@ def test_matrix_subblocks(mesh):
     refs = dict(split_form(A.form))
     _A = A.blocks
     for x, y in indices:
-        ref = assemble(refs[x, y]).M.values
         block = _A[x, y]
-        assert np.allclose(assemble(block).M.values, ref, rtol=1e-14)
+        ref = refs[x, y]
+        if isinstance(ref, Form):
+            assert np.allclose(assemble(block).M.values,
+                               assemble(ref).M.values, rtol=1e-14)
+        elif isinstance(ref, ZeroBaseForm):
+            assert block.form == ref
 
     # Mixed blocks
     A0101 = _A[:2, :2]
@@ -280,9 +284,12 @@ def test_matrix_subblocks(mesh):
              (A1212_10, refs[(2, 1)])]
 
     # Test assembly of blocks of mixed blocks
-    for tensor, form in items:
-        ref = assemble(form).M.values
-        assert np.allclose(assemble(tensor).M.values, ref, rtol=1e-14)
+    for block, ref in items:
+        if isinstance(ref, Form):
+            assert np.allclose(assemble(block).M.values,
+                               assemble(ref).M.values, rtol=1e-14)
+        elif isinstance(ref, ZeroBaseForm):
+            assert block.form == ref
 
 
 def test_diagonal(mass, matrix_mixed_nofacet):
