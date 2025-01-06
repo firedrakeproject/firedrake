@@ -289,7 +289,7 @@ class Ensemble(object):
         return requests
 
     @contextmanager
-    def sequential(self, **kwargs):
+    def sequential(self, synchronise=False, **kwargs):
         """
         Context manager for executing code on each ensemble
         member consecutively by `ensemble_comm.rank`.
@@ -328,7 +328,12 @@ class Ensemble(object):
 
         ctx = SimpleNamespace(**kwargs)
 
-        yield ctx
+        if synchronise:
+            self.global_comm.Barrier()
+            yield ctx
+            self.global_comm.Barrier()
+        else:
+            yield ctx
 
         if not last_rank:
             dst = rank + 1

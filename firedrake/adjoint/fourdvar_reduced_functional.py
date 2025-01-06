@@ -3,6 +3,8 @@ from pyadjoint import ReducedFunctional, OverloadedType, Control, Tape, AdjFloat
 from pyadjoint.enlisting import Enlist
 from firedrake.function import Function
 from firedrake.ensemblefunction import EnsembleFunction, EnsembleCofunction
+from firedrake.adjoint.composite_reduced_functional import (
+    CompositeReducedFunctional, tlm, hessian, intermediate_options)
 
 from functools import wraps, cached_property
 from typing import Callable, Optional
@@ -21,26 +23,22 @@ def isolated_rf(operation, control,
     Return a ReducedFunctional where the functional is `operation` applied
     to a copy of `control`, and the tape contains only `operation`.
     """
-    with set_working_tape():
+    with stop_annotating():
         controls = Enlist(control)
-        control_names = Enlist(control_name)
+        control_copies = [control._ad_copy() for control in controls]
 
-        with stop_annotating():
-            control_copies = [control._ad_copy() for control in controls]
+        if control_name:
+            for control, name in zip(control_copies, Enlist(control_name)):
+                _rename(control, name)
 
-            if control_names:
-                for control, name in zip(control_copies, control_names):
-                    _rename(control, name)
-
-        if len(control_copies) == 1:
-            functional = operation(control_copies[0])
-            control = Control(control_copies[0])
-        else:
-            functional = operation(control_copies)
-            control = [Control(control) for control in control_copies]
+    with set_working_tape():
+        functional = operation(controls.delist(control_copies))
 
         if functional_name:
             _rename(functional, functional_name)
+
+        control = controls.delist([Control(control_copy)
+                                   for control_copy in control_copies])
 
         return ReducedFunctional(
             functional, control)
@@ -78,20 +76,6 @@ def _ad_sub(left, right):
     result._ad_imul(-1)
     result._ad_iadd(left)
     return result
-
-
-def _intermediate_options(final_options):
-    """
-    Options set for the intermediate stages of a chain of ReducedFunctionals
-
-    Takes all elements of the final_options except riesz_representation,
-    which is set to prevent returning derivatives to the primal space.
-    """
-    return {
-        'riesz_representation': None,
-        **{k: v for k, v in final_options.items()
-           if (k != 'riesz_representation')}
-    }
 
 
 class FourDVarReducedFunctional(ReducedFunctional):
@@ -176,7 +160,7 @@ class FourDVarReducedFunctional(ReducedFunctional):
             # because we need to manually evaluate the different bits
             # of the functional, we need an internal set of controls
             # to use for the stage ReducedFunctionals
-            self._cbuf = control.copy()
+            self._cbuf = control.copy_data()
             _x = self._cbuf.subfunctions
             self._x = _x
             self._controls = tuple(Control(xi) for xi in _x)
@@ -205,6 +189,10 @@ class FourDVarReducedFunctional(ReducedFunctional):
                     control=self.background_error.functional,
                     control_name="bkg_err_vec_copy")
 
+                # compose background reduced functionals to evaluate both together
+                self.background_rf = CompositeReducedFunctional(
+                    self.background_error, self.background_norm)
+
                 if self.initial_observations:
 
                     # RF to recalculate error vector (H(x_0) - y_0)
@@ -219,6 +207,10 @@ class FourDVarReducedFunctional(ReducedFunctional):
                         operation=observation_iprod,
                         control=self.initial_observation_error.functional,
                         functional_name="obs_err_vec_0_copy")
+
+                    # compose initial observation reduced functionals to evaluate both together
+                    self.initial_observation_rf = CompositeReducedFunctional(
+                        self.initial_observation_error, self.initial_observation_norm)
 
             # create halo for previous state
             if self.ensemble and self.trank != 0:
@@ -336,15 +328,11 @@ class FourDVarReducedFunctional(ReducedFunctional):
 
         # Initial condition functionals
         if trank == 0:
-            Jlocal = (
-                self.background_norm(
-                    self.background_error(x[0])))
+            Jlocal = self.background_rf(x[0])
 
             # observations at time 0
             if self.initial_observations:
-                Jlocal += (
-                    self.initial_observation_norm(
-                        self.initial_observation_error(x[0])))
+                Jlocal += self.initial_observation_rf(x[0])
         else:
             Jlocal = 0.
 
@@ -393,7 +381,6 @@ class FourDVarReducedFunctional(ReducedFunctional):
 
         # chaining ReducedFunctionals means we need to pass Cofunctions not Functions
         options = options or {}
-        intermediate_options = _intermediate_options(options)
 
         # evaluate first forward model, which contributes to previous chunk
         sderiv0 = self.stages[0].derivative(
@@ -444,19 +431,13 @@ class FourDVarReducedFunctional(ReducedFunctional):
 
         # initial condition derivatives
         if trank == 0:
-            bkg_deriv = self.background_norm.derivative(
-                adj_input=adj_input, options=intermediate_options)
-
-            derivs[0] += self.background_error.derivative(
-                adj_input=bkg_deriv, options=options)
+            derivs[0] += self.background_rf.derivative(
+                adj_input=adj_input, options=options)
 
             # observations at time 0
             if self.initial_observations:
-                obs_deriv = self.initial_observation_norm.derivative(
-                    adj_input=adj_input, options=intermediate_options)
-
-                derivs[0] += self.initial_observation_error.derivative(
-                    adj_input=obs_deriv, options=options)
+                derivs[0] += self.initial_observation_rf.derivative(
+                    adj_input=adj_input, options=options)
 
         # # evaluate all forward models on chunk except first while halo in flight
         for i in range(1, len(self.stages)):
@@ -505,7 +486,84 @@ class FourDVarReducedFunctional(ReducedFunctional):
             The action of the Hessian in the direction m_dot.
             Should be an instance of the same type as the control.
         """
-        raise ValueError("Not implemented yet")
+        trank = self.trank
+
+        hess = self.control.copy_data()
+        hess.zero()
+
+        # set up arrays including halos
+        if trank == 0:
+            hs = [*hess.subfunctions]
+            mdot = [*m_dot[0].subfunctions]
+        else:
+            hprev = hess.subfunctions[0].copy(deepcopy=True)
+            mprev = m_dot[0].subfunctions[0].copy(deepcopy=True)
+            hs = [hprev, *hess.subfunctions]
+            mdot = [mprev, *m_dot[0].subfunctions]
+
+        if trank != self.nchunks - 1:
+            hnext = hess.subfunctions[0].copy(deepcopy=True)
+
+        # send m_dot halo forward
+        if self.ensemble:
+            src = trank - 1
+            dst = trank + 1
+
+            if trank != self.nchunks - 1:
+                self.ensemble.isend(
+                    mdot[-1], dest=dst, tag=dst)
+
+            if trank != 0:
+                recv_reqs = self.ensemble.irecv(
+                    mdot[0], source=src, tag=trank)
+
+        # hessian actions at the initial condition
+        if trank == 0:
+            hs[0] += self.background_rf.hessian(
+                mdot[0], options=options)
+
+            if self.initial_observations:
+                hs[0] += self.initial_observation_rf.hessian(
+                    mdot[0], options=options)
+
+        # evaluate all stages on chunk except first
+        for i in range(1, len(self.stages)):
+            hms = self.stages[i].hessian(
+                mdot[i:i+2], options=options)
+
+            hs[i] += hms[0]
+            hs[i+1] += hms[1]
+
+        # wait for halo swap to finish
+        if trank != 0:
+            MPI.Request.Waitall(recv_reqs)
+
+        # evaluate first stage on chunk now we have the halo
+        hms = self.stages[0].hessian(
+            mdot[:2], options=options)
+
+        hs[0] += hms[0]
+        hs[1] += hms[1]
+
+        # send result halo backward
+        if self.ensemble:
+            src = trank + 1
+            dst = trank - 1
+
+            if trank != 0:
+                self.ensemble.isend(
+                    hs[0], dest=dst, tag=dst)
+
+            if trank != self.nchunks - 1:
+                recv_reqs = self.ensemble.irecv(
+                    hnext, source=src, tag=trank)
+
+        # finish the result halo
+        if trank != self.nchunks - 1:
+            MPI.Request.Waitall(recv_reqs)
+            hs[-1] += hnext
+
+        return hess
 
     @stop_annotating()
     def hessian_matrix(self):
@@ -836,6 +894,10 @@ class WeakObservationStage:
             control=self.model_error.functional,
             **names)
 
+        # compose model error reduced functionals to evaluate both together
+        self.model_error_rf = CompositeReducedFunctional(
+            self.model_error, self.model_norm)
+
         # Observations after tape cut because this is now a control, not a state
 
         # RF to recalculate error vector (H(x_i) - y_i)
@@ -857,6 +919,10 @@ class WeakObservationStage:
             operation=observation_iprod,
             control=self.observation_error.functional,
             **names)
+
+        # compose observation reduced functionals to evaluate both together
+        self.observation_rf = CompositeReducedFunctional(
+            self.observation_error, self.observation_norm)
 
         # remove the stage initial condition "control" now we've finished recording
         delattr(self, "control")
@@ -893,13 +959,13 @@ class WeakObservationStage:
         J = 0.0
 
         # evaluate model error
-        if (rftype is None) or (rftype == 'model'):
-            Mi = self.forward_model(values[0])
-            J += self.model_norm(self.model_error([Mi, values[1]]))
+        if rftype in (None, 'model'):
+            J += self.model_error_rf(
+                [self.forward_model(values[0]), values[1]])
 
         # evaluate observation errors
-        if (rftype is None) or (rftype == 'obs'):
-            J += self.observation_norm(self.observation_error(values[1]))
+        if rftype in (None, 'obs'):
+            J += self.observation_rf(values[1])
 
         return J
 
@@ -936,40 +1002,34 @@ class WeakObservationStage:
 
         # chaining ReducedFunctionals means we need to pass Cofunctions not Functions
         options = options or {}
-        intermediate_options = _intermediate_options(options)
+        ioptions = intermediate_options(options)
 
-        if (rftype is None) or (rftype == 'model'):
-            # derivative of reduction
-            dm_norm = self.model_norm.derivative(adj_input=adj_input,
-                                                 options=intermediate_options)
-
-            # derivative of difference splits into (Mi, xi)
-            dm_errors = self.model_error.derivative(adj_input=dm_norm,
-                                                    options=intermediate_options)
+        if rftype in (None, 'model'):
+            # derivative of reduction and difference
+            model_err_derivs = self.model_error_rf.derivative(
+                adj_input=adj_input, options=ioptions)
 
             # derivative through the forward model wrt to xprev
-            dm_forward = self.forward_model.derivative(adj_input=dm_errors[0],
-                                                       options=options)
+            model_forward_deriv = self.forward_model.derivative(
+                adj_input=model_err_derivs[0], options=options)
 
-            derivatives.append(dm_forward)
+            derivatives.append(model_forward_deriv)
 
-            # dm_errors is still in the dual space, so we need to convert it to the
-            # type that the user has requested - this will be the type of dm_forward.
-            derivatives.append(dm_forward._ad_convert_type(dm_errors[1], options))
+            # model_err_derivs is still in the dual space, so we need to convert it to the
+            # type that the user has requested - this will be the type of model_forward_deriv.
+            derivatives.append(
+                model_forward_deriv._ad_convert_type(
+                    model_err_derivs[1], options))
 
-        if (rftype is None) or (rftype == 'obs'):
-            # derivative of reduction
-            do_norm = self.observation_norm.derivative(adj_input=adj_input,
-                                                       options=intermediate_options)
-            # derivative of error
-            do_error = self.observation_error.derivative(adj_input=do_norm,
-                                                         options=options)
+        if rftype in (None, 'obs'):
+            obs_deriv = self.observation_rf.derivative(
+                adj_input=adj_input, options=options)
 
             if len(derivatives) == 0:
                 derivatives.append(None)
-                derivatives.append(do_error)
+                derivatives.append(obs_deriv)
             else:
-                derivatives[1] += do_error
+                derivatives[1] += obs_deriv
 
         return derivatives
 
@@ -1004,4 +1064,45 @@ class WeakObservationStage:
             The action of the Hessian in the direction m_dot.
             Should be an instance of the same type as the control.
         """
-        pass
+        hessian_value = []
+
+        if rftype in (None, 'model'):
+            hessian_value.extend(self._model_hessian(
+                m_dot, options=options))
+
+        if rftype in (None, 'obs'):
+            obs_hessian = self.observation_rf.hessian(
+                m_dot[1], options=options)
+            if len(hessian_value) == 0:
+                hessian_value.append(None)
+                hessian_value.append(obs_hessian)
+            else:
+                hessian_value[1] += obs_hessian
+
+        return hessian_value
+
+    def _model_hessian(self, m_dot, options):
+        iopts = intermediate_options(options)
+
+        # TLM for model from mdot[0]
+        forward_tlm = tlm(self.forward_model, m_dot[0],
+                          options=iopts)
+
+        # combine model TLM and mdot[1]
+        mdot_error = [forward_tlm, m_dot[1]]
+
+        # Hessian (dual) for error
+        error_hessian = self.model_error_rf.hessian(
+            mdot_error, options=iopts, evaluate_tlm=True)
+
+        # Hessian for model
+        model_hessian = hessian(
+            self.forward_model, options=options,
+            hessian_value=error_hessian[0])
+
+        # combine model Hessian and converted error Hessian
+        return [
+            model_hessian,
+            model_hessian._ad_convert_type(error_hessian[1],
+                                           options=options)
+        ]

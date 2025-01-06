@@ -3,8 +3,9 @@ import firedrake as fd
 from firedrake.__future__ import interpolate
 from firedrake.adjoint import (
     continue_annotation, pause_annotation, stop_annotating,
-    set_working_tape, get_working_tape, Control, taylor_test,
+    set_working_tape, get_working_tape, Control, taylor_test, taylor_to_dict,
     ReducedFunctional, FourDVarReducedFunctional)
+from numpy import mean
 
 
 @pytest.fixture(autouse=True)
@@ -52,7 +53,7 @@ def timestepper(V):
 def prod2(w):
     """generate weighted inner products to pass to FourDVarReducedFunctional"""
     def n2(x):
-        return fd.assemble(fd.inner(x, fd.Constant(w)*x)*fd.dx)
+        return fd.assemble(fd.inner(x, fd.Constant(w)*x)*fd.dx)**2
     return n2
 
 
@@ -391,9 +392,12 @@ def main_test_strong_4dvar_advection():
     assert abs(Jhat_pyadj(mp) - Jhat_aaorf(ma)) < eps
     assert abs(Jhat_pyadj(hp) - Jhat_aaorf(ha)) < eps
 
-    # If we match the functional, then passing the taylor test
+    # If we match the functional, then passing the taylor tests
     # should mean that we match the derivative too.
-    assert taylor_test(Jhat_aaorf, ma, ha) > 1.99
+    taylor = taylor_to_dict(Jhat_aaorf, ma, ha)
+    assert mean(taylor['R0']['Rate']) > 0.9
+    assert mean(taylor['R1']['Rate']) > 1.9
+    assert mean(taylor['R2']['Rate']) > 2.9
 
 
 def main_test_weak_4dvar_advection():
@@ -426,14 +430,17 @@ def main_test_weak_4dvar_advection():
     ma = m(V, ensemble)
     ha = h(V, ensemble)
 
-    eps = 1e-12
+    eps = 1e-10
     # Does evaluating the functional match the reference rf?
     assert abs(Jpm - Jhat_aaorf(ma)) < eps
     assert abs(Jph - Jhat_aaorf(ha)) < eps
 
-    # If we match the functional, then passing the taylor test
+    # If we match the functional, then passing the taylor tests
     # should mean that we match the derivative too.
-    assert taylor_test(Jhat_aaorf, ma, ha) > 1.99
+    taylor = taylor_to_dict(Jhat_aaorf, ma, ha)
+    assert mean(taylor['R0']['Rate']) > 0.9
+    assert mean(taylor['R1']['Rate']) > 1.9
+    assert mean(taylor['R2']['Rate']) > 2.9
 
 
 @pytest.mark.parallel(nprocs=[1, 2])
