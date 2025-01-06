@@ -73,8 +73,8 @@ class ExtractSubBlock(MultiFunction):
             assert (len(idx) == 1 for idx in self.blocks.values())
             assert (idx[0] == 0 for idx in self.blocks.values())
             return form
-        f = map_integrand_dags(self, form)
         # TODO find a way to distinguish empty Forms avoiding expand_derivatives
+        f = map_integrand_dags(self, form)
         if expand_derivatives(f).empty():
             # Get ZeroBaseForm with the right shape
             f = ZeroBaseForm(tuple(Argument(subspace(arg.function_space(),

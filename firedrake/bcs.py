@@ -635,7 +635,7 @@ class EquationBCSplit(BCBase):
             rank = len(self.f.arguments())
             splitter = ExtractSubBlock()
             form = splitter.split(self.f, argument_indices=(row_field, col_field)[:rank])
-            if form == 0:
+            if isinstance(form, ufl.ZeroBaseForm) or form.empty():
                 # form is empty, do nothing
                 return
             if u is not None:
