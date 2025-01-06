@@ -41,7 +41,7 @@ class BCBase(object):
     def __init__(self, V, sub_domain):
 
         self._function_space = V
-        self.sub_domain = sub_domain
+        self.sub_domain = (sub_domain, ) if isinstance(sub_domain, str) else as_tuple(sub_domain)
         # If this BC is defined on a subspace (IndexedFunctionSpace or
         # ComponentFunctionSpace, possibly recursively), pull out the appropriate
         # indices.
@@ -289,11 +289,9 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 warnings.simplefilter('always', DeprecationWarning)
                 warnings.warn("Selecting a bcs method is deprecated. Only topological association is supported",
                               DeprecationWarning)
-        if len(V.boundary_set):
-            subs = [sub_domain] if type(sub_domain) in {int, str} else sub_domain
-            if any(sub not in V.boundary_set for sub in subs):
-                raise ValueError(f"Sub-domain {sub_domain} not in the boundary set of the restricted space.")
         super().__init__(V, sub_domain)
+        if len(V.boundary_set) and not set(self.sub_domain).issubset(V.boundary_set):
+            raise ValueError(f"Sub-domain {self.sub_domain} not in the boundary set of the restricted space {V.boundary_set}.")
         if len(V) > 1:
             raise ValueError("Cannot apply boundary conditions on mixed spaces directly.\n"
                              "Apply to the components by indexing the space with .sub(...)")

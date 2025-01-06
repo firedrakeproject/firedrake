@@ -3,7 +3,7 @@ geometric quantities into GEM expressions."""
 
 import collections
 import itertools
-from functools import singledispatch
+from functools import cached_property, singledispatch
 
 import gem
 import numpy
@@ -15,10 +15,10 @@ from finat.physically_mapped import (NeedsCoordinateMappingElement,
                                      PhysicalGeometry)
 from finat.point_set import PointSet, PointSingleton
 from finat.quadrature import make_quadrature
+from finat.element_factory import as_fiat_cell, create_element
 from gem.node import traversal
 from gem.optimise import constant_fold_zero, ffc_rounding
 from gem.unconcatenate import unconcatenate
-from gem.utils import cached_property
 from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
                          CellFacetJacobian, CellOrientation, CellOrigin,
                          CellVertices, CellVolume, Coefficient, FacetArea,
@@ -33,7 +33,6 @@ from ufl.corealg.multifunction import MultiFunction
 from ufl.domain import extract_unique_domain
 
 from tsfc import ufl2gem
-from tsfc.finatinterface import as_fiat_cell, create_element
 from tsfc.kernel_interface import ProxyKernelInterface
 from tsfc.modified_terminals import (analyse_modified_terminal,
                                      construct_modified_terminal)
@@ -41,6 +40,8 @@ from tsfc.parameters import is_complex
 from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
                             TSFCConstantMixin, entity_avg, one_times,
                             preprocess_expression, simplify_abs)
+
+from pyop2.caching import serial_cache
 
 
 class ContextBase(ProxyKernelInterface):
@@ -262,6 +263,19 @@ def needs_coordinate_mapping(element):
         return isinstance(create_element(element), NeedsCoordinateMappingElement)
 
 
+@serial_cache(hashkey=lambda *args: args)
+def get_quadrature_rule(fiat_cell, integration_dim, quadrature_degree, scheme):
+    integration_cell = fiat_cell.construct_subcomplex(integration_dim)
+    return make_quadrature(integration_cell, quadrature_degree, scheme=scheme)
+
+
+def make_basis_evaluation_key(ctx, finat_element, mt, entity_id):
+    ufl_element = mt.terminal.ufl_element()
+    domain = extract_unique_domain(mt.terminal)
+    coordinate_element = domain.ufl_coordinate_element()
+    return (ufl_element, mt.local_derivatives, ctx.point_set, ctx.integration_dim, entity_id, coordinate_element, mt.restriction)
+
+
 class PointSetContext(ContextBase):
     """Context for compile-time known evaluation points."""
 
@@ -273,12 +287,8 @@ class PointSetContext(ContextBase):
     )
 
     @cached_property
-    def integration_cell(self):
-        return self.fiat_cell.construct_subelement(self.integration_dim)
-
-    @cached_property
     def quadrature_rule(self):
-        return make_quadrature(self.integration_cell, self.quadrature_degree)
+        return get_quadrature_rule(self.fiat_cell, self.integration_dim, self.quadrature_degree, "default")
 
     @cached_property
     def point_set(self):
@@ -296,6 +306,7 @@ class PointSetContext(ContextBase):
     def weight_expr(self):
         return self.quadrature_rule.weight_expression
 
+    @serial_cache(hashkey=make_basis_evaluation_key)
     def basis_evaluation(self, finat_element, mt, entity_id):
         return finat_element.basis_evaluation(mt.local_derivatives,
                                               self.point_set,
@@ -687,8 +698,7 @@ def translate_coefficient(terminal, mt, ctx):
                           for alpha, tables in per_derivative.items()}
 
     # Coefficient evaluation
-    ctx.index_cache.setdefault(terminal.ufl_element(), element.get_indices())
-    beta = ctx.index_cache[terminal.ufl_element()]
+    beta = ctx.index_cache.setdefault(terminal.ufl_element(), element.get_indices())
     zeta = element.get_value_indices()
     vec_beta, = gem.optimise.remove_componenttensors([gem.Indexed(vec, beta)])
     value_dict = {}

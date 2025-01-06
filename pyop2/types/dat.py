@@ -807,15 +807,37 @@ class Dat(AbstractDat, VecAccessMixin):
         # But use getSizes to save an Allreduce in computing the
         # global size.
         size = self.dataset.layout_vec.getSizes()
-        data = self._data[:size[0]]
+        if self.dataset._apply_local_global_filter:
+            data = self._data_filtered
+        else:
+            data = self._data[:size[0]]
         return PETSc.Vec().createWithArray(data, size=size, bsize=self.cdim, comm=self.comm)
+
+    @utils.cached_property
+    def _data_filtered(self):
+        size, _ = self.dataset.layout_vec.getSizes()
+        size //= self.dataset.layout_vec.block_size
+        data = self._data[:size]
+        return np.empty_like(data)
+
+    @utils.cached_property
+    def _data_filter(self):
+        lgmap = self.dataset.lgmap
+        n = self.dataset.size
+        lgmap_owned = lgmap.block_indices[:n]
+        return lgmap_owned >= 0
 
     @contextlib.contextmanager
     def vec_context(self, access):
         r"""A context manager for a :class:`PETSc.Vec` from a :class:`Dat`.
 
         :param access: Access descriptor: READ, WRITE, or RW."""
+        size = self.dataset.size
+        if self.dataset._apply_local_global_filter and access is not Access.WRITE:
+            self._data_filtered[:] = self._data[:size][self._data_filter]
         yield self._vec
+        if self.dataset._apply_local_global_filter and access is not Access.READ:
+            self._data[:size][self._data_filter] = self._data_filtered[:]
         if access is not Access.READ:
             self.halo_valid = False
 

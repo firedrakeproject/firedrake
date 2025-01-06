@@ -2,13 +2,17 @@
 import numpy
 import collections
 
-from ufl import as_vector
-from ufl.classes import Zero, FixedIndex, ListTensor
+from ufl import as_vector, FormSum, Form, split
+from ufl.classes import Zero, FixedIndex, ListTensor, ZeroBaseForm
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
 
+from pyop2 import MixedDat
+
 from firedrake.petsc import PETSc
 from firedrake.ufl_expr import Argument
+from firedrake.cofunction import Cofunction
+from firedrake.functionspace import FunctionSpace, MixedFunctionSpace, DualSpace
 
 
 class ExtractSubBlock(MultiFunction):
@@ -85,9 +89,8 @@ class ExtractSubBlock(MultiFunction):
 
     @PETSc.Log.EventDecorator()
     def argument(self, o):
-        from ufl import split
-        from firedrake import MixedFunctionSpace, FunctionSpace
         V = o.function_space()
+
         if len(V) == 1:
             # Not on a mixed space, just return ourselves.
             return o
@@ -98,15 +101,11 @@ class ExtractSubBlock(MultiFunction):
         V_is = V.subfunctions
         indices = self.blocks[o.number()]
 
-        try:
-            indices = tuple(indices)
-            nidx = len(indices)
-        except TypeError:
-            # Only one index provided.
+        # Only one index provided.
+        if isinstance(indices, int):
             indices = (indices, )
-            nidx = 1
 
-        if nidx == 1:
+        if len(indices) == 1:
             W = V_is[indices[0]]
             W = FunctionSpace(W.mesh(), W.ufl_element())
             a = (Argument(W, o.number(), part=o.part()), )
@@ -126,6 +125,50 @@ class ExtractSubBlock(MultiFunction):
                 args += [Zero()
                          for j in numpy.ndindex(V_is[i].value_shape)]
         return self._arg_cache.setdefault(o, as_vector(args))
+
+    def cofunction(self, o):
+        V = o.function_space()
+
+        # Not on a mixed space, just return ourselves.
+        if len(V) == 1:
+            return o
+
+        # We only need the test space for Cofunction
+        indices = self.blocks[0]
+        V_is = V.subfunctions
+
+        # Only one index provided.
+        if isinstance(indices, int):
+            indices = (indices, )
+
+        # for two-forms, the cofunction should only
+        # be returned for the diagonal blocks, so
+        # if we are asked for an off-diagonal block
+        # then we return a zero form, analogously to
+        # the off components of arguments.
+        if len(self.blocks) == 2:
+            itest, itrial = self.blocks
+            on_diag = (itest == itrial)
+        else:
+            on_diag = True
+
+        # if we are on the diagonal, then return a Cofunction
+        # in the relevant subspace that points to the data in
+        # the full space. This means that the right hand side
+        # of the fieldsplit problem will be correct.
+        if on_diag:
+            if len(indices) == 1:
+                i = indices[0]
+                W = V_is[i]
+                W = DualSpace(W.mesh(), W.ufl_element())
+                c = Cofunction(W, val=o.subfunctions[i].dat)
+            else:
+                W = MixedFunctionSpace([V_is[i] for i in indices])
+                c = Cofunction(W, val=MixedDat(o.dat[i] for i in indices))
+        else:
+            c = ZeroBaseForm(o.arguments())
+
+        return c
 
 
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
@@ -168,7 +211,20 @@ def split_form(form, diagonal=False):
         assert len(shape) == 2
     for idx in numpy.ndindex(shape):
         f = splitter.split(form, idx)
-        if len(f.integrals()) > 0:
+
+        # does f actually contain anything?
+        if isinstance(f, Cofunction):
+            flen = 1
+        elif isinstance(f, FormSum):
+            flen = len(f.components())
+        elif isinstance(f, Form):
+            flen = len(f.integrals())
+        else:
+            raise ValueError(
+                "ExtractSubBlock.split should have returned an instance of "
+                "either Form, FormSum, or Cofunction")
+
+        if flen > 0:
             if diagonal:
                 i, j = idx
                 if i != j:

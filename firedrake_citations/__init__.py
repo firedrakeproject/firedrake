@@ -359,3 +359,19 @@ Citations().add("Bouziani2024", """
   year = {2024}
 }
 """)
+
+Citations().add("Betteridge2024", """
+@article{Betteridge2024,
+  doi = {10.21105/joss.07359},
+  url = {https://doi.org/10.21105/joss.07359},
+  year = {2024},
+  publisher = {The Open Journal},
+  volume = {9},
+  number = {104},
+  pages = {7359},
+  author = {Jack Betteridge and Patrick E. Farrell and Matthias Hochsteger
+            and Christopher Lackner and Joachim Schöberl and Stefano Zampini
+            and Umberto Zerbinati},
+  title = {ngsPETSc: A coupling between NETGEN/NGSolve and PETSc},
+  journal = {Journal of Open Source Software} }
+""")

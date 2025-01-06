@@ -11,7 +11,7 @@ from mpi4py import MPI
 from firedrake.utils import IntType, ScalarType
 from libc.string cimport memset
 from libc.stdlib cimport qsort
-from tsfc.finatinterface import as_fiat_cell
+from finat.element_factory import as_fiat_cell
 
 cimport numpy as np
 cimport mpi4py.MPI as MPI
@@ -1205,7 +1205,7 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
         PETSc.DM dm
         PETSc.Section section
         PETSc.IS renumbering
-        PetscInt i, p, layers, pStart, pEnd, dof, j
+        PetscInt i, p, layers, offset_top, pStart, pEnd, dof, j, k
         PetscInt dimension, ndof
         PetscInt *dof_array = NULL
         const PetscInt *entity_point_map
@@ -1213,6 +1213,10 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
         np.ndarray layer_extents
         np.ndarray points
         bint variable, extruded, on_base_
+        PETSc.SF point_sf
+        PetscInt nleaves
+        const PetscInt *ilocal = NULL
+        PetscInt factor
 
     dm = mesh.topology_dm
     if isinstance(dm, PETSc.DMSwarm) and on_base:
@@ -1221,32 +1225,31 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
     extruded = mesh.cell_set._extruded
     extruded_periodic = mesh.cell_set._extruded_periodic
     on_base_ = on_base
+    dimension = get_topological_dimension(dm)
     nodes_per_entity = np.asarray(nodes_per_entity, dtype=IntType)
     if variable:
         layer_extents = mesh.layer_extents
+        nodes = nodes_per_entity.reshape(dimension + 1, -1)
     elif extruded:
         if on_base:
-            nodes_per_entity = sum(nodes_per_entity[:, i] for i in range(2))
+            nodes = sum(nodes_per_entity[:, i] for i in range(2)).reshape(dimension + 1, -1)
         else:
             if extruded_periodic:
-                nodes_per_entity = sum(nodes_per_entity[:, i]*(mesh.layers - 1) for i in range(2))
+                nodes = sum(nodes_per_entity[:, i]*(mesh.layers - 1) for i in range(2)).reshape(dimension + 1, -1)
             else:
-                nodes_per_entity = sum(nodes_per_entity[:, i]*(mesh.layers - i) for i in range(2))
+                nodes = sum(nodes_per_entity[:, i]*(mesh.layers - i) for i in range(2)).reshape(dimension + 1, -1)
+    else:
+        nodes = nodes_per_entity.reshape(dimension + 1, -1)
     section = PETSc.Section().create(comm=mesh._comm)
     get_chart(dm.dm, &pStart, &pEnd)
     section.setChart(pStart, pEnd)
 
-    if boundary_set:
-        renumbering, (constrainedStart, constrainedEnd) = plex_renumbering(dm,
-            mesh._entity_classes, reordering=mesh._default_reordering, boundary_set=boundary_set)
+    if boundary_set and not extruded:
+        renumbering = plex_renumbering(dm, mesh._entity_classes, reordering=mesh._default_reordering, boundary_set=boundary_set)
     else:
         renumbering = mesh._dm_renumbering
-        constrainedStart = -1
-        constrainedEnd = -1
 
     CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
-    dimension = get_topological_dimension(dm)
-    nodes = nodes_per_entity.reshape(dimension + 1, -1)
     for i in range(dimension + 1):
         get_depth_stratum(dm.dm, i, &pStart, &pEnd) # gets all points at dim i
         if not variable:
@@ -1260,9 +1263,27 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
                     ndof = layers*nodes[i, 0] + (layers - 1)*nodes[i, 1]
             CHKERR(PetscSectionSetDof(section.sec, p, block_size * ndof))
 
+    if boundary_set and extruded and variable:
+        raise NotImplementedError("Not implemented for variable layer extrusion")
     if boundary_set:
+        # Handle "bottom" and "top" first.
+        if "bottom" in boundary_set and "top" in boundary_set:
+            factor = 2
+        elif "bottom" in boundary_set or "top" in boundary_set:
+            factor = 1
+        else:
+            factor = 0
+        if factor > 0:
+            for i in range(dimension + 1):
+                get_depth_stratum(dm.dm, i, &pStart, &pEnd)
+                dof = nodes_per_entity[i, 0]
+                for p in range(pStart, pEnd):
+                    CHKERR(PetscSectionSetConstraintDof(section.sec, p, factor * dof))
+        # Potentially overwrite ds_t and dS_t constrained DoFs set in the {"bottom", "top"} cases.
         for marker in boundary_set:
-            if marker == "on_boundary":
+            if marker in ["bottom", "top"]:
+                continue
+            elif marker == "on_boundary":
                 label = "exterior_facets"
                 marker = 1
             else:
@@ -1276,11 +1297,36 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
                 CHKERR(PetscSectionGetDof(section.sec, p, &dof))
                 CHKERR(PetscSectionSetConstraintDof(section.sec, p, dof))
     section.setUp()
-
     if boundary_set:
         # have to loop again as we need to call section.setUp() first
+        CHKERR(PetscSectionGetMaxDof(section.sec, &dof))
+        CHKERR(PetscMalloc1(dof, &dof_array))
+        for i in range(dof):
+            dof_array[i] = -1
+        if "bottom" in boundary_set or "top" in boundary_set:
+            for i in range(dimension + 1):
+                get_depth_stratum(dm.dm, i, &pStart, &pEnd)
+                if pEnd == pStart:
+                    continue
+                dof = nodes_per_entity[i, 0]
+                j = 0
+                if "bottom" in boundary_set:
+                    for k in range(dof):
+                        dof_array[j] = k
+                        j += 1
+                if "top" in boundary_set:
+                    offset_top = (nodes_per_entity[i, 0] + nodes_per_entity[i, 1]) * (mesh.layers - 1)
+                    for k in range(dof):
+                        dof_array[j] = offset_top + k
+                        j += 1
+                for p in range(pStart, pEnd):
+                    # Potentially set wrong values for ds_t and dS_t constrained DoFs here,
+                    # but we will overwrite them in the below.
+                    CHKERR(PetscSectionSetConstraintIndices(section.sec, p, dof_array))
         for marker in boundary_set:
-            if marker == "on_boundary":
+            if marker in ["bottom", "top"]:
+                continue
+            elif marker == "on_boundary":
                 label = "exterior_facets"
                 marker = 1
             else:
@@ -1289,24 +1335,24 @@ def create_section(mesh, nodes_per_entity, on_base=False, block_size=1, boundary
             if n == 0:
                 continue
             points = dm.getStratumIS(label, marker).indices
-            CHKERR(PetscSectionGetMaxDof(section.sec, &dof))
-            CHKERR(PetscMalloc1(dof, &dof_array))
             for i in range(n):
                 p = points[i]
                 CHKERR(PetscSectionGetDof(section.sec, p, &dof))
                 for j in range(dof):
                     dof_array[j] = j
                 CHKERR(PetscSectionSetConstraintIndices(section.sec, p, dof_array))
-            CHKERR(PetscFree(dof_array))
-
+        CHKERR(PetscFree(dof_array))
     constrained_nodes = 0
-
-    CHKERR(ISGetIndices(renumbering.iset, &entity_point_map))
-    for entity in range(constrainedStart, constrainedEnd):
-        CHKERR(PetscSectionGetDof(section.sec, entity_point_map[entity], &dof))
+    get_chart(dm.dm, &pStart, &pEnd)
+    point_sf = dm.getPointSF()
+    CHKERR(PetscSFGetGraph(point_sf.sf, NULL, &nleaves, &ilocal, NULL))
+    for p in range(pStart, pEnd):
+        CHKERR(PetscSectionGetConstraintDof(section.sec, p, &dof))
         constrained_nodes += dof
-    CHKERR(ISRestoreIndices(renumbering.iset, &entity_point_map))
-
+    for i in range(nleaves):
+        p = ilocal[i] if ilocal else i
+        CHKERR(PetscSectionGetConstraintDof(section.sec, p, &dof))
+        constrained_nodes -= dof
     return section, constrained_nodes
 
 
@@ -2460,7 +2506,7 @@ def plex_renumbering(PETSc.DM plex,
     perm_is.setType("general")
     CHKERR(ISGeneralSetIndices(perm_is.iset, pEnd - pStart,
                                perm, PETSC_OWN_POINTER))
-    return perm_is, (lidx[1], lidx[3])
+    return perm_is
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -3310,23 +3356,31 @@ def make_global_numbering(PETSc.Section lsec, PETSc.Section gsec):
     :arg lsec: Section describing local dof layout and numbers.
     :arg gsec: Section describing global dof layout and numbers."""
     cdef:
-        PetscInt c, p, pStart, pEnd, dof, cdof, loff, goff
+        PetscInt c, cc, p, pStart, pEnd, dof, cdof, loff, goff
         np.ndarray val
+        const PetscInt *dof_array = NULL
 
     val = np.empty(lsec.getStorageSize(), dtype=IntType)
     pStart, pEnd = lsec.getChart()
-
     for p in range(pStart, pEnd):
         CHKERR(PetscSectionGetDof(lsec.sec, p, &dof))
         CHKERR(PetscSectionGetConstraintDof(lsec.sec, p, &cdof))
         if dof > 0:
             CHKERR(PetscSectionGetOffset(lsec.sec, p, &loff))
             CHKERR(PetscSectionGetOffset(gsec.sec, p, &goff))
+            goff = cabs(goff)
             if cdof > 0:
+                CHKERR(PetscSectionGetConstraintIndices(lsec.sec, p, &dof_array))
                 for c in range(dof):
-                    val[loff + c] = -1
+                    val[loff + c] = -2
+                for c in range(cdof):
+                    val[loff + dof_array[c]] = -1
+                cc = 0
+                for c in range(dof):
+                    if val[loff + c] < -1:
+                        val[loff + c] = goff + cc
+                        cc += 1
             else:
-                goff = cabs(goff)
                 for c in range(dof):
                     val[loff + c] = goff + c
     return val
