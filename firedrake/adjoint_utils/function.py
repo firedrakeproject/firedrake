@@ -233,14 +233,14 @@ class FunctionMixin(FloatingType):
             return Function(V)
 
         if not isinstance(value, (Cofunction, Function)):
-            raise TypeError("Expected a Cofunction or a Function")
+            raise TypeError(f"Expected a Cofunction or a Function not a {type(value)}")
 
         if riesz_representation == "l2":
             return Function(V, val=value.dat)
 
         elif riesz_representation in ("L2", "H1"):
             if not isinstance(value, Cofunction):
-                raise TypeError("Expected a Cofunction")
+                raise TypeError(f"Expected a Cofunction not a {type(value)}")
 
             ret = Function(V)
             a = self._define_riesz_map_form(riesz_representation, V)
