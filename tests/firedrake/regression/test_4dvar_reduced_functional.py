@@ -443,11 +443,13 @@ def main_test_weak_4dvar_advection():
     assert mean(taylor['R2']['Rate']) > 2.9
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 @pytest.mark.parallel(nprocs=[1, 2])
 def test_strong_4dvar_advection():
     main_test_strong_4dvar_advection()
 
 
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 @pytest.mark.parallel(nprocs=[1, 2, 3, 4])
 def test_weak_4dvar_advection():
     main_test_weak_4dvar_advection()
