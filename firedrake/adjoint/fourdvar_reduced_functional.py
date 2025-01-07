@@ -82,7 +82,7 @@ class FourDVarReducedFunctional(ReducedFunctional):
     """ReducedFunctional for 4DVar data assimilation.
 
     Creates either the strong constraint or weak constraint system
-    by logging observations through the initial forward model run.
+    by logging observations through the initial time propagator run.
 
     Parameters
     ----------
@@ -313,7 +313,7 @@ class FourDVarReducedFunctional(ReducedFunctional):
         else:
             x = [*self._x]
 
-        # post messages for control of forward model propogation on next chunk
+        # post messages for control of time propagator on next chunk
         if self.ensemble:
             src = trank - 1
             dst = trank + 1
@@ -382,7 +382,7 @@ class FourDVarReducedFunctional(ReducedFunctional):
         # chaining ReducedFunctionals means we need to pass Cofunctions not Functions
         options = options or {}
 
-        # evaluate first forward model, which contributes to previous chunk
+        # evaluate first time propagator, which contributes to previous chunk
         sderiv0 = self.stages[0].derivative(
             adj_input=adj_input, options=options)
 
@@ -439,7 +439,7 @@ class FourDVarReducedFunctional(ReducedFunctional):
                 derivs[0] += self.initial_observation_rf.derivative(
                     adj_input=adj_input, options=options)
 
-        # # evaluate all forward models on chunk except first while halo in flight
+        # # evaluate all time stages on chunk except first while halo in flight
         for i in range(1, len(self.stages)):
             sderiv = self.stages[i].derivative(
                 adj_input=adj_input, options=options)
@@ -781,7 +781,7 @@ class WeakObservationStage:
     """
     A single stage for weak constraint 4DVar at the time of `state`.
 
-    Records the forward model propogation from the control at the beginning
+    Records the time propagator from the control at the beginning
     of the stage, and the model and observation errors at the end of the stage.
 
     Parameters
@@ -1009,7 +1009,7 @@ class WeakObservationStage:
             model_err_derivs = self.model_error_rf.derivative(
                 adj_input=adj_input, options=ioptions)
 
-            # derivative through the forward model wrt to xprev
+            # derivative through the time propagator wrt to xprev
             model_forward_deriv = self.forward_model.derivative(
                 adj_input=model_err_derivs[0], options=options)
 
