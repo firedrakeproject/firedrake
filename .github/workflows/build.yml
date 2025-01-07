@@ -84,6 +84,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch pyadjoint JHopeCollins/mark_evaluate_tlm \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
