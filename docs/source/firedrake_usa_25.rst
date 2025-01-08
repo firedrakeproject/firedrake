@@ -45,7 +45,8 @@ The conference dinner will be held Friday night at the Baylor Club in McLane Sta
 Registration
 ------------
 
-Registration will be open soon.
+Register for the conference at
+`this link <https://pay.baylor.edu/C20024_ustores/web/product_detail.jsp?PRODUCTID=1097/>`__.  
 
 The registration fees are as follows:
 
@@ -59,8 +60,6 @@ The registration fees are as follows:
      - $200
 
 The `SIAM Texas-Louisiana Section <https://www.siam.org/get-involved/connect-with-a-community/sections/siam-texas-louisiana-section/>`__ is providing some support for students currently attending universities in Texas or Louisiana to attend.
-Conference registration is coming soon.
-
 
 
 Abstract submission
