@@ -2471,7 +2471,7 @@ values from f.)"""
 
         if (
             self._spatial_index
-            and self.coordinates.dat_version == self._saved_coordinate_dat_version
+            and self.coordinates.dat.dat_version == self._saved_coordinate_dat_version
         ):
             return self._spatial_index
 

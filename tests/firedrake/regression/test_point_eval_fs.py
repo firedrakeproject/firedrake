@@ -219,10 +219,6 @@ def test_changing_coordinates_invalidates_spatial_index():
     mesh = UnitSquareMesh(2, 2)
     mesh.init()
 
-    assert mesh._spatial_index is None
-
-    mesh.spatial_index
-    assert mesh._spatial_index is not None
-
+    saved_spatial_index = mesh.spatial_index
     mesh.coordinates.assign(mesh.coordinates * 2)
-    assert mesh._spatial_index is None
+    assert mesh.spatial_index != saved_spatial_index
