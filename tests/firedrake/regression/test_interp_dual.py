@@ -36,14 +36,14 @@ def f1(mesh, V1):
 
 
 def test_interp_self(V1):
-    a = assemble(TestFunction(V1) * dx)
-    b = assemble(TestFunction(V1) * dx)
+    a = assemble(conj(TestFunction(V1)) * dx)
+    b = assemble(conj(TestFunction(V1)) * dx)
     a.interpolate(a)
     assert np.allclose(a.dat.data_ro, b.dat.data_ro)
 
 
 def test_assemble_interp_adjoint_tensor(mesh, V1, f1):
-    a = assemble(TestFunction(V1) * dx)
+    a = assemble(conj(TestFunction(V1)) * dx)
     # We want tensor to be a dependency of the input expression for this test
     assemble(action(adjoint(Interpolate(f1 * TestFunction(V1), V1)), a),
              tensor=a)
