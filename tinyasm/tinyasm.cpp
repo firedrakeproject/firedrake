@@ -211,8 +211,8 @@ PetscErrorCode CreateCombinedSF(PC pc, const std::vector<PetscSF>& sf, const std
         }
         /* Offsets are the offsets on the current process of the
          * global dof numbering for the subspaces. */
-        MPI_Type_contiguous(n, MPIU_INT, &contig);
-        MPI_Type_commit(&contig);
+        PetscCallMPI(MPI_Type_contiguous(n, MPIU_INT, &contig));
+        PetscCallMPI(MPI_Type_commit(&contig));
 
 #if MY_PETSC_VERSION_LT(3, 14, 4)
         PetscCall(PetscSFBcastBegin(rankSF, contig, offsets, remoteOffsets));
@@ -221,7 +221,7 @@ PetscErrorCode CreateCombinedSF(PC pc, const std::vector<PetscSF>& sf, const std
         PetscCall(PetscSFBcastBegin(rankSF, contig, offsets, remoteOffsets, MPI_REPLACE));
         PetscCall(PetscSFBcastEnd(rankSF, contig, offsets, remoteOffsets, MPI_REPLACE));
 #endif
-        MPI_Type_free(&contig);
+        PetscCallMPI(MPI_Type_free(&contig));
         PetscCall(PetscFree(offsets));
         PetscCall(PetscSFDestroy(&rankSF));
         /* Now remoteOffsets contains the offsets on the remote
