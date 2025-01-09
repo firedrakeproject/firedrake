@@ -84,7 +84,8 @@ def _compile_expression_hashkey(slate_expr, compiler_parameters=None):
 
 def _compile_expression_comm(*args, **kwargs):
     # args[0] is a slate_expr
-    return args[0].ufl_domains()[0].comm
+    domain, = args[0].ufl_domains()
+    return domain.comm
 
 
 @memory_and_disk_cache(
@@ -238,4 +239,4 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type):
 
     # Part B: impero_c to loopy
     output_arg = OutputKernelArg(output_loopy_arg)
-    return generate_loopy(impero_c, args, scalar_type, "slate_loopy", [], log=PETSc.Log.isActive()), output_arg
+    return generate_loopy(impero_c, args, scalar_type, "slate_loopy", []), output_arg

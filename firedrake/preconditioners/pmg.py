@@ -9,7 +9,7 @@ from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
 from firedrake.solving_utils import _SNESContext
 from firedrake.tsfc_interface import extract_numbered_coefficients
 from firedrake.utils import ScalarType_c, IntType_c, cached_property
-from tsfc.finatinterface import create_element
+from finat.element_factory import create_element
 from tsfc import compile_expression_dual_evaluation
 from pyop2 import op2
 from pyop2.caching import serial_cache
@@ -131,9 +131,7 @@ class PMGBase(PCSNESBase):
         elements = [ele]
         while True:
             try:
-                ele_ = self.coarsen_element(ele)
-                assert ele_.value_shape == ele.value_shape
-                ele = ele_
+                ele = self.coarsen_element(ele)
             except ValueError:
                 break
             elements.append(ele)
@@ -532,7 +530,7 @@ class PMGSNES(SNESBase, PMGBase):
 
 def prolongation_transfer_kernel_action(Vf, expr):
     to_element = create_element(Vf.ufl_element())
-    kernel = compile_expression_dual_evaluation(expr, to_element, Vf.ufl_element(), log=PETSc.Log.isActive())
+    kernel = compile_expression_dual_evaluation(expr, to_element, Vf.ufl_element())
     coefficients = extract_numbered_coefficients(expr, kernel.coefficient_numbers)
     if kernel.needs_external_coords:
         coefficients = [Vf.mesh().coordinates] + coefficients
@@ -906,19 +904,19 @@ def make_kron_code(Vc, Vf, t_in, t_out, mat_name, scratch):
     shifts = fshifts
     in_place = False
     if len(felems) == len(celems):
-        in_place = all((len(fs)*Vf.value_size == len(cs)*Vc.value_size) for fs, cs in zip(fshifts, cshifts))
-        psize = Vf.value_size
+        in_place = all((len(fs)*Vf.block_size == len(cs)*Vc.block_size) for fs, cs in zip(fshifts, cshifts))
+        psize = Vf.block_size
 
     if not in_place:
         if len(celems) == 1:
-            psize = Vc.value_size
+            psize = Vc.block_size
             pelem = celems[0]
             perm_name = "perm_%s" % t_in
             celems = celems*len(felems)
 
         elif len(felems) == 1:
             shifts = cshifts
-            psize = Vf.value_size
+            psize = Vf.block_size
             pelem = felems[0]
             perm_name = "perm_%s" % t_out
             felems = felems*len(celems)
@@ -926,7 +924,7 @@ def make_kron_code(Vc, Vf, t_in, t_out, mat_name, scratch):
             raise ValueError("Cannot assign fine to coarse DOFs")
 
         if set(cshifts) == set(fshifts):
-            csize = Vc.value_size * Vc.finat_element.space_dimension()
+            csize = Vc.block_size * Vc.finat_element.space_dimension()
             prolong_code.append(f"""
             for({IntType_c} j=1; j<{len(fshifts)}; j++)
                 for({IntType_c} i=0; i<{csize}; i++)
@@ -940,8 +938,8 @@ def make_kron_code(Vc, Vf, t_in, t_out, mat_name, scratch):
 
         elif pelem == celems[0]:
             for k in range(len(shifts)):
-                if Vc.value_size*len(shifts[k]) < Vf.value_size:
-                    shifts[k] = shifts[k]*(Vf.value_size//Vc.value_size)
+                if Vc.block_size*len(shifts[k]) < Vf.block_size:
+                    shifts[k] = shifts[k]*(Vf.block_size//Vc.block_size)
 
             pshape = [e.space_dimension() for e in pelem]
             pargs = ", ".join(map(str, pshape+[1]*(3-len(pshape))))
@@ -1098,7 +1096,7 @@ def make_mapping_code(Q, cmapping, fmapping, t_in, t_out):
     if B:
         tensor = ufl.dot(B, tensor) if tensor else B
     if tensor is None:
-        tensor = ufl.Identity(Q.ufl_element().value_shape[0])
+        tensor = ufl.Identity(Q.value_shape[0])
 
     u = ufl.Coefficient(Q)
     expr = ufl.dot(tensor, u)
@@ -1117,7 +1115,7 @@ def make_mapping_code(Q, cmapping, fmapping, t_in, t_out):
 
     coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
     coef_decl = "".join([", PetscScalar const *restrict c%d" % i for i in range(len(coefficients))])
-    qlen = Q.value_size * Q.finat_element.space_dimension()
+    qlen = Q.block_size * Q.finat_element.space_dimension()
     prolong_code = f"""
             for({IntType_c} i=0; i<{qlen}; i++) {t_out}[i] = 0.0E0;
 
@@ -1223,7 +1221,7 @@ class StandaloneInterpolationMatrix(object):
     @cached_property
     def _weight(self):
         weight = firedrake.Function(self.Vf)
-        size = self.Vf.finat_element.space_dimension() * self.Vf.value_size
+        size = self.Vf.finat_element.space_dimension() * self.Vf.block_size
         kernel_code = f"""
         void weight(PetscScalar *restrict w){{
             for(PetscInt i=0; i<{size}; i++) w[i] += 1.0;
@@ -1347,12 +1345,12 @@ class StandaloneInterpolationMatrix(object):
                 in_place_mapping = True
             except Exception:
                 qelem = finat.ufl.FiniteElement("DQ", cell=felem.cell, degree=PMGBase.max_degree(felem))
-                if felem.value_shape:
-                    qelem = finat.ufl.TensorElement(qelem, shape=felem.value_shape, symmetry=felem.symmetry())
+                if Vf.value_shape:
+                    qelem = finat.ufl.TensorElement(qelem, shape=Vf.value_shape, symmetry=felem.symmetry())
                 Qf = firedrake.FunctionSpace(Vf.mesh(), qelem)
                 mapping_output = make_mapping_code(Qf, cmapping, fmapping, "t0", "t1")
 
-            qshape = (Qf.value_size, Qf.finat_element.space_dimension())
+            qshape = (Qf.block_size, Qf.finat_element.space_dimension())
             # interpolate to embedding fine space
             decl[0], prolong[0], restrict[0], shapes = make_kron_code(Vc, Qf, "t0", "t1", "J0", "t2")
 
@@ -1377,8 +1375,8 @@ class StandaloneInterpolationMatrix(object):
         # We could benefit from loop tiling for the transpose, but that makes the code
         # more complicated.
 
-        fshape = (Vf.value_size, Vf.finat_element.space_dimension())
-        cshape = (Vc.value_size, Vc.finat_element.space_dimension())
+        fshape = (Vf.block_size, Vf.finat_element.space_dimension())
+        cshape = (Vc.block_size, Vc.finat_element.space_dimension())
 
         lwork = numpy.prod([max(*dims) for dims in zip(*shapes)])
         lwork = max(lwork, max(numpy.prod(fshape), numpy.prod(cshape)))
@@ -1470,8 +1468,8 @@ class StandaloneInterpolationMatrix(object):
         element_kernel = element_kernel.replace("void expression_kernel", "static void expression_kernel")
         coef_args = "".join([", c%d" % i for i in range(len(coefficients))])
         coef_decl = "".join([", const %s *restrict c%d" % (ScalarType_c, i) for i in range(len(coefficients))])
-        dimc = Vc.finat_element.space_dimension() * Vc.value_size
-        dimf = Vf.finat_element.space_dimension() * Vf.value_size
+        dimc = Vc.finat_element.space_dimension() * Vc.block_size
+        dimf = Vf.finat_element.space_dimension() * Vf.block_size
         restrict_code = f"""
         {element_kernel}
 

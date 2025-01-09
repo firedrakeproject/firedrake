@@ -171,5 +171,5 @@ Don't forget to show the image::
     warning("Cannot show figure. Error msg '%s'" % e)
 
 This demo is based on the corresponding `DOLFIN mixed Poisson demo
-<http://fenicsproject.org/olddocs/dolfin/1.3.0/python/demo/documented/mixed-poisson/python/documentation.html>`__
+<https://olddocs.fenicsproject.org/dolfin/1.3.0/python/demo/documented/mixed-poisson/python/documentation.html>`__
 and can be found as a script in :demo:`poisson_mixed.py <poisson_mixed.py>`.

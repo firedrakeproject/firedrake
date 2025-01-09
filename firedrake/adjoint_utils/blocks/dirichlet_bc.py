@@ -60,7 +60,8 @@ class DirichletBCBlock(Block):
                     adj_value = firedrake.Function(self.collapsed_space, vec.dat)
 
                 if adj_value.ufl_shape == () or adj_value.ufl_shape[0] <= 1:
-                    r = adj_value.dat.data_ro.sum()
+                    R = firedrake.FunctionSpace(self.parent_space.mesh(), "R", 0)
+                    r = firedrake.Function(R.dual(), val=adj_value.dat.data_ro.sum())
                 else:
                     output = []
                     subindices = _extract_subindices(self.function_space)

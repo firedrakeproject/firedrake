@@ -452,14 +452,12 @@ class VTKFile(object):
     @no_annotations
     def _prepare_output(self, function, max_elem):
         from firedrake import FunctionSpace, VectorFunctionSpace, \
-            TensorFunctionSpace, Function
-        from tsfc.finatinterface import create_element as create_finat_element
+            TensorFunctionSpace, Function, Cofunction
 
         name = function.name()
         # Need to project/interpolate?
         # If space is not the max element, we must do so.
-        finat_elem = function.function_space().finat_element
-        if finat_elem == create_finat_element(max_elem):
+        if function.function_space().ufl_element() == max_elem:
             return OFunction(array=get_array(function),
                              name=name, function=function)
         #  OK, let's go and do it.
@@ -479,8 +477,15 @@ class VTKFile(object):
                                     shape=shape)
         else:
             raise ValueError("Unsupported shape %s" % (shape, ))
-        output = Function(V)
+        if isinstance(function, Function):
+            output = Function(V)
+        else:
+            assert isinstance(function, Cofunction)
+            output = Function(V.dual())
+
         if self.project:
+            if isinstance(function, Cofunction):
+                raise ValueError("Can not project Cofunctions")
             output.project(function)
         else:
             output.interpolate(function)
@@ -488,7 +493,7 @@ class VTKFile(object):
         return OFunction(array=get_array(output), name=name, function=output)
 
     def _write_vtu(self, *functions):
-        from firedrake.function import Function
+        from firedrake import Function, Cofunction
 
         # Check if the user has requested to write out a plain mesh
         if len(functions) == 1 and isinstance(functions[0], ufl.Mesh):
@@ -498,8 +503,8 @@ class VTKFile(object):
             functions = [Function(V)]
 
         for f in functions:
-            if not isinstance(f, Function):
-                raise ValueError("Can only output Functions or a single mesh, not %r" % type(f))
+            if not isinstance(f, (Function, Cofunction)):
+                raise ValueError(f"Can only output Functions, Cofunctions or a single mesh, not {type(f).__name__}")
         meshes = tuple(extract_unique_domain(f) for f in functions)
         if not all(m == meshes[0] for m in meshes):
             raise ValueError("All functions must be on same mesh")

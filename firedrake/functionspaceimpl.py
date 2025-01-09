@@ -14,6 +14,7 @@ import ufl
 import finat.ufl
 
 from pyop2 import op2, mpi
+from pyop2.utils import as_tuple
 
 from firedrake import dmhooks, utils
 from firedrake.functionspacedata import get_shared_data, create_element
@@ -176,19 +177,18 @@ class WithGeometryBase(object):
     def _components(self):
         if len(self) == 1:
             return tuple(type(self).create(self.topological.sub(i), self.mesh())
-                         for i in range(self.value_size))
+                         for i in range(self.block_size))
         else:
             return self.subfunctions
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
-        if len(self) == 1:
-            bound = self.value_size
-        else:
-            bound = len(self)
+        mixed = len(self) != 1
+        data = self.subfunctions if mixed else self._components
+        bound = len(data)
         if i < 0 or i >= bound:
-            raise IndexError("Invalid component %d, not in [0, %d)" % (i, bound))
-        return self._components[i]
+            raise IndexError(f"Invalid component {i}, not in [0, {bound})")
+        return data[i]
 
     @utils.cached_property
     def dm(self):
@@ -489,13 +489,16 @@ class FunctionSpace(object):
             shape_element = element
             if isinstance(element, finat.ufl.WithMapping):
                 shape_element = element.wrapee
-            sub = shape_element.sub_elements[0].value_shape
+            sub = shape_element.sub_elements[0].reference_value_shape
             self.shape = rvs[:len(rvs) - len(sub)]
         else:
             self.shape = ()
         self._label = ""
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element, label=self._label)
         self._mesh = mesh
+
+        self.value_size = self._ufl_function_space.value_size
+        r"""The number of scalar components of this :class:`FunctionSpace`."""
 
         self.rank = len(self.shape)
         r"""The rank of this :class:`FunctionSpace`.  Spaces where the
@@ -505,7 +508,7 @@ class FunctionSpace(object):
         the number of components of their
         :attr:`finat.ufl.finiteelementbase.FiniteElementBase.value_shape`."""
 
-        self.value_size = int(numpy.prod(self.shape, dtype=int))
+        self.block_size = int(numpy.prod(self.shape, dtype=int))
         r"""The total number of degrees of freedom at each function
         space node."""
         self.name = name
@@ -654,13 +657,16 @@ class FunctionSpace(object):
 
     @utils.cached_property
     def _components(self):
-        return tuple(ComponentFunctionSpace(self, i) for i in range(self.value_size))
+        if self.rank == 0:
+            return self.subfunctions
+        else:
+            return tuple(ComponentFunctionSpace(self, i) for i in range(self.block_size))
 
     def sub(self, i):
         r"""Return a view into the ith component."""
-        if self.rank == 0:
-            assert i == 0
-            return self
+        bound = len(self._components)
+        if i < 0 or i >= bound:
+            raise IndexError(f"Invalid component {i}, not in [0, {bound})")
         return self._components[i]
 
     def __mul__(self, other):
@@ -684,7 +690,7 @@ class FunctionSpace(object):
     def dof_count(self):
         r"""The number of degrees of freedom (includes halo dofs) of this
         function space on this process. Cf. :attr:`FunctionSpace.node_count` ."""
-        return self.node_count*self.value_size
+        return self.node_count*self.block_size
 
     def dim(self):
         r"""The global number of degrees of freedom for this function space.
@@ -821,7 +827,7 @@ class FunctionSpace(object):
             else:
                 indices = lgmap.block_indices.copy()
                 bsize = lgmap.getBlockSize()
-                assert bsize == self.value_size
+                assert bsize == self.block_size
         else:
             # MatBlock case, LGMap is already unrolled.
             indices = lgmap.block_indices.copy()
@@ -830,11 +836,11 @@ class FunctionSpace(object):
         nodes = []
         for bc in bcs:
             if bc.function_space().component is not None:
-                nodes.append(bc.nodes * self.value_size
+                nodes.append(bc.nodes * self.block_size
                              + bc.function_space().component)
             elif unblocked:
-                tmp = bc.nodes * self.value_size
-                for i in range(self.value_size):
+                tmp = bc.nodes * self.block_size
+                for i in range(self.block_size):
                     nodes.append(tmp + i)
             else:
                 nodes.append(bc.nodes)
@@ -843,8 +849,7 @@ class FunctionSpace(object):
         return PETSc.LGMap().create(indices, bsize=bsize, comm=lgmap.comm)
 
     def collapse(self):
-        from firedrake import FunctionSpace
-        return FunctionSpace(self.mesh(), self.ufl_element())
+        return type(self)(self.mesh(), self.ufl_element())
 
 
 class RestrictedFunctionSpace(FunctionSpace):
@@ -861,18 +866,27 @@ class RestrictedFunctionSpace(FunctionSpace):
     output of the solver.
 
     :arg function_space: The :class:`FunctionSpace` to restrict.
+    :kwarg boundary_set: A set of subdomains on which a DirichletBC will be applied.
     :kwarg name: An optional name for this :class:`RestrictedFunctionSpace`,
         useful for later identification.
-    :kwarg boundary_set: A set of subdomains on which a DirichletBC will be
-        applied.
 
     Notes
     -----
     If using this class to solve or similar, a list of DirichletBCs will still
     need to be specified on this space and passed into the function.
     """
-    def __init__(self, function_space, name=None, boundary_set=frozenset()):
+    def __init__(self, function_space, boundary_set=frozenset(), name=None):
         label = ""
+        boundary_set_ = []
+        for boundary_domain in boundary_set:
+            if isinstance(boundary_domain, str):
+                boundary_set_.append(boundary_domain)
+            else:
+                # Currently, can not handle intersection of boundaries;
+                # e.g., boundary_set = [(1, 2)], which is different from [1, 2].
+                bd, = as_tuple(boundary_domain)
+                boundary_set_.append(bd)
+        boundary_set = boundary_set_
         for boundary_domain in boundary_set:
             label += str(boundary_domain)
             label += "_"
@@ -885,8 +899,7 @@ class RestrictedFunctionSpace(FunctionSpace):
                                                      label=self._label)
         self.function_space = function_space
         self.name = name or (function_space.name or "Restricted" + "_"
-                             + "_".join(sorted(
-                                        [str(i) for i in self.boundary_set])))
+                             + "_".join(sorted(map(str, self.boundary_set))))
 
     def set_shared_data(self):
         sdata = get_shared_data(self._mesh, self.ufl_element(), self.boundary_set)
@@ -894,7 +907,8 @@ class RestrictedFunctionSpace(FunctionSpace):
         self.node_set = sdata.node_set
         r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
         self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
-                                    name="%s_nodes_dset" % self.name)
+                                    name="%s_nodes_dset" % self.name,
+                                    apply_local_global_filter=sdata.extruded)
         r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
         degrees of freedom."""
 
@@ -1161,8 +1175,7 @@ class MixedFunctionSpace(object):
         return self.dof_dset.field_ises
 
     def collapse(self):
-        from firedrake import MixedFunctionSpace
-        return MixedFunctionSpace([V_ for V_ in self])
+        return type(self)([V_ for V_ in self], self.mesh())
 
 
 class ProxyFunctionSpace(FunctionSpace):
@@ -1302,9 +1315,9 @@ def ComponentFunctionSpace(parent, component):
     """
     element = parent.ufl_element()
     assert type(element) in frozenset([finat.ufl.VectorElement, finat.ufl.TensorElement])
-    if not (0 <= component < parent.value_size):
+    if not (0 <= component < parent.block_size):
         raise IndexError("Invalid component %d. not in [0, %d)" %
-                         (component, parent.value_size))
+                         (component, parent.block_size))
     new = ProxyFunctionSpace(parent.mesh(), element.sub_elements[0], name=parent.name)
     new.identifier = "component"
     new.component = component
@@ -1348,7 +1361,7 @@ class RealFunctionSpace(FunctionSpace):
     def make_dat(self, val=None, valuetype=None, name=None):
         r"""Return a newly allocated :class:`pyop2.types.glob.Global` representing the
         data for a :class:`.Function` on this space."""
-        return op2.Global(self.value_size, val, valuetype, name, self._comm)
+        return op2.Global(self.block_size, val, valuetype, name, self._comm)
 
     def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
         return None

@@ -16,12 +16,19 @@ endif
 
 .PHONY: lint
 lint:
-	@echo "    Linting firedrake codebase"
+	@echo "    Linting firedrake"
 	@python -m flake8 $(FLAKE8_FORMAT) firedrake
-	@echo "    Linting firedrake test suite"
-	@python -m flake8 $(FLAKE8_FORMAT) tests
 	@echo "    Linting firedrake scripts"
+	@python -m flake8 $(FLAKE8_FORMAT) firedrake/scripts --filename=*
 	@python -m flake8 $(FLAKE8_FORMAT) scripts --filename=*
+	@echo "    Linting firedrake tests"
+	@python -m flake8 $(FLAKE8_FORMAT) tests
+	@echo "    Linting PyOP2"
+	@python -m flake8 $(FLAKE8_FORMAT) pyop2
+	@echo "    Linting PyOP2 scripts"
+	@python -m flake8 $(FLAKE8_FORMAT) pyop2/scripts --filename=*
+	@echo "    Linting TSFC"
+	@python -m flake8 $(FLAKE8_FORMAT) tsfc
 
 .PHONY: actionlint
 actionlint:
@@ -71,8 +78,10 @@ clean:
 	-@rm -f firedrake/cython/mg/impl.so > /dev/null 2>&1
 	@echo "    RM firedrake/cython/mg/impl.c"
 	-@rm -f firedrake/cython/mg/impl.c > /dev/null 2>&1
+	@echo "    RM pyop2/*.so"
+	-@rm -f pyop2/*.so > /dev/null 2>&1
 	@echo "    RM tinyasm/*.so"
-	-@rm -f tinyasm/*.so
+	-@rm -f tinyasm/*.so > /dev/null 2>&1
 
 # This is the minimum required to run the test suite
 NPROCS=8
