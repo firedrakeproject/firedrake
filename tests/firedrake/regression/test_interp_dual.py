@@ -52,7 +52,7 @@ def test_assemble_interp_adjoint_tensor(mesh, V1, f1):
     f2 = Function(V1, name="f2").interpolate(
         exp(x) * y)
 
-    assert np.allclose(assemble(a(f2)), assemble(Function(V1).interpolate(f1 * f2) * dx))
+    assert np.allclose(assemble(a(f2)), assemble(Function(V1).interpolate(conj(f1 * f2)) * dx))
 
 
 def test_assemble_interp_operator(V2, f1):
