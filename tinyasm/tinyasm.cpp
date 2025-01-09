@@ -419,6 +419,6 @@ PYBIND11_MODULE(_tinyasm, m) {
               auto blockjacobi = new BlockJacobi(dofsPerBlock, globalDofsPerBlock, localsize, newsf);
               pc->data = (void*)blockjacobi;
               PetscCall(PetscLogEventEnd(PC_tinyasm_SetASMLocalSubdomains, pc, 0, 0, 0));
-              PetscFunctionReturn(PETSC_SUCCESS);
+              return 0;
           });
 }
