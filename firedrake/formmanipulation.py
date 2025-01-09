@@ -12,18 +12,7 @@ from pyop2 import MixedDat
 from pyop2.utils import as_tuple
 
 from firedrake.petsc import PETSc
-from firedrake.ufl_expr import Argument
 from firedrake.cofunction import Cofunction
-from firedrake.functionspace import FunctionSpace, MixedFunctionSpace, DualSpace
-
-
-def subspace(V, indices):
-    if len(indices) == 1:
-        W = V[indices[0]]
-        W = FunctionSpace(W.mesh(), W.ufl_element())
-    else:
-        W = MixedFunctionSpace([V[i] for i in indices])
-    return W
 
 
 class ExtractSubBlock(MultiFunction):
@@ -49,6 +38,10 @@ class ExtractSubBlock(MultiFunction):
             return self.expr(o, child, multiindex)
 
     index_inliner = IndexInliner()
+
+    def _subspace_argument(self, a):
+        return type(a)(a.function_space()[self.blocks[a.number()]].collapse(),
+                       a.number(), part=a.part())
 
     @PETSc.Log.EventDecorator()
     def split(self, form, argument_indices):
@@ -77,10 +70,7 @@ class ExtractSubBlock(MultiFunction):
         f = map_integrand_dags(self, form)
         if expand_derivatives(f).empty():
             # Get ZeroBaseForm with the right shape
-            f = ZeroBaseForm(tuple(Argument(subspace(arg.function_space(),
-                                                     self.blocks[arg.number()]),
-                                            arg.number(), part=arg.part())
-                                   for arg in form.arguments()))
+            f = ZeroBaseForm(tuple(map(self._subspace_argument, form.arguments())))
         return f
 
     expr = MultiFunction.reuse_if_untouched
@@ -120,19 +110,14 @@ class ExtractSubBlock(MultiFunction):
 
         indices = self.blocks[o.number()]
 
-        W = subspace(V, indices)
-        a = Argument(W, o.number(), part=o.part())
-        a = (a, ) if len(W) == 1 else split(a)
+        a = self._subspace_argument(o)
+        asplit = (a, ) if len(indices) == 1 else split(a)
 
         args = []
         for i in range(len(V)):
             if i in indices:
-                c = indices.index(i)
-                a_ = a[c]
-                if len(a_.ufl_shape) == 0:
-                    args.append(a_)
-                else:
-                    args.extend(a_[j] for j in numpy.ndindex(a_.ufl_shape))
+                asub = asplit[indices.index(i)]
+                args.extend(asub[j] for j in numpy.ndindex(asub.ufl_shape))
             else:
                 args.extend(Zero() for j in numpy.ndindex(V[i].value_shape))
         return self._arg_cache.setdefault(o, as_vector(args))
@@ -144,17 +129,13 @@ class ExtractSubBlock(MultiFunction):
             # Not on a mixed space, just return ourselves.
             return o
 
-        # We only need the test space for Cofunction		￼
+        # We only need the test space for Cofunction
         indices = self.blocks[0]
-        if len(indices) == 1:
-            i = indices[0]
-            W = V[i]
-            W = DualSpace(W.mesh(), W.ufl_element())
-            c = Cofunction(W, val=o.dat[i])
+        W = V[indices].collapse()
+        if len(W) == 1:
+            return Cofunction(W, val=o.dat[indices[0]])
         else:
-            W = MixedFunctionSpace([V[i] for i in indices])
-            c = Cofunction(W, val=MixedDat(o.dat[i] for i in indices))
-        return c
+            return Cofunction(W, val=MixedDat(o.dat[i] for i in indices))
 
 
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])

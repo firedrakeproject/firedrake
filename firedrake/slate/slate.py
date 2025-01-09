@@ -23,8 +23,7 @@ from ufl.coefficient import BaseCoefficient
 
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.function import Function, Cofunction
-from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
-from firedrake.ufl_expr import Argument, TestFunction
+from firedrake.ufl_expr import TestFunction
 from firedrake.utils import cached_property, unique
 
 from itertools import chain, count
@@ -35,7 +34,7 @@ from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import Zero
 from ufl.domain import join_domains, sort_domains
-from ufl.form import Form, ZeroBaseForm
+from ufl.form import BaseForm, Form, ZeroBaseForm
 import hashlib
 
 from tsfc.ufl_utils import extract_firedrake_constants
@@ -461,7 +460,11 @@ class AssembledVector(TensorBase):
         """Returns a tuple of function spaces that the tensor
         is defined on.
         """
-        return (self._function.ufl_function_space(),)
+        tensor = self._function
+        if isinstance(tensor, BaseForm):
+            return tuple(a.function_space() for a in tensor.arguments())
+        else:
+            return (tensor.ufl_function_space(),)
 
     @cached_property
     def _argument(self):
@@ -671,19 +674,9 @@ class Block(TensorBase):
         spaces determined by the indices.
         """
         tensor, = self.operands
-        nargs = []
-        for i, arg in enumerate(tensor.arguments()):
-            V = arg.function_space()
-            idx = self._blocks[i]
-            if len(idx) == 1:
-                W = V[idx[0]]
-                W = FunctionSpace(W.mesh(), W.ufl_element())
-            else:
-                W = MixedFunctionSpace([V[fidx] for fidx in idx])
-
-            nargs.append(Argument(W, arg.number(), part=arg.part()))
-
-        return tuple(nargs)
+        return tuple(type(a)(a.function_space()[self._blocks[i]].collapse(),
+                             a.number(), part=a.part())
+                     for i, a in enumerate(tensor.arguments()))
 
     @cached_property
     def arg_function_spaces(self):
@@ -1110,7 +1103,10 @@ class Transpose(UnaryOp):
     """An abstract Slate class representing the transpose of a tensor."""
     def __new__(cls, A):
         if A == 0:
-            return Tensor(ZeroBaseForm(A.form.arguments()[::-1]))
+            return Tensor(ZeroBaseForm(A.arguments()[::-1]))
+        if isinstance(A, Transpose):
+            tensor, = A.operands
+            return tensor
         return BinaryOp.__new__(cls)
 
     @cached_property
@@ -1223,8 +1219,8 @@ class Add(BinaryOp):
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
 
-        assert all([space_equivalence(fsA, fsB) for fsA, fsB in
-                    zip(A.arg_function_spaces, B.arg_function_spaces)]), (
+        assert all(space_equivalence(fsA, fsB) for fsA, fsB in
+                   zip(A.arg_function_spaces, B.arg_function_spaces)), (
             "Function spaces associated with operands must match."
         )
 
@@ -1311,12 +1307,12 @@ class Solve(BinaryOp):
 
     def __new__(cls, A, B, decomposition=None):
         assert A.rank == 2, "Operator must be a matrix."
+        assert B.rank >= 1, "RHS must be a vector or matrix."
 
         # Same rules for performing multiplication on Slate tensors
         # applies here.
         if A.shape[1] != B.shape[0]:
-            raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
-                             % (A.shape, B.shape))
+            raise ValueError(f"Illegal op on a {A.shape}-tensor with a {B.shape}-tensor.")
 
         fsA = A.arg_function_spaces[0]
         fsB = B.arg_function_spaces[0]
