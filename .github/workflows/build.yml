@@ -84,8 +84,8 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
-            --package-branch fiat indiamai/union_different_coeff_size \
-            --package-branch redefining_fe indiamai/dual_sets \
+            --package-branch fiat indiamai/fuse_element \
+            --package-branch fuse indiamai/name_change \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
