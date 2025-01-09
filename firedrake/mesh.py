@@ -37,7 +37,7 @@ from firedrake.petsc import (
 from firedrake.adjoint_utils import MeshGeometryMixin
 from pyadjoint import stop_annotating
 import gem
-from redefining_fe import constructCellComplex
+from fuse import constructCellComplex
 
 try:
     import netgen
