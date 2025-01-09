@@ -328,7 +328,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
     @property
     def cell_set(self):
         r"""The :class:`pyop2.types.set.Set` of cells for the mesh on which this
-        :class:`Function` is defined."""
+        :class:`Cofunction` is defined."""
         return self.function_space()._mesh.cell_set
 
     @property
@@ -343,7 +343,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
     @property
     def dof_dset(self):
         r"""A :class:`pyop2.types.dataset.DataSet` containing the degrees of freedom of
-        this :class:`Function`."""
+        this :class:`Cofunction`."""
         return self.function_space().dof_dset
 
     def ufl_id(self):
