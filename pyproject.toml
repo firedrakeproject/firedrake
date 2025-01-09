@@ -39,6 +39,7 @@ dependencies = [
   "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint.git",
   "loopy @ git+https://github.com/firedrakeproject/loopy.git@main",
   "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git",
+  "fuse @ git+https://github.com/indiamai/fuse.git#egg=fuse",
 ]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
