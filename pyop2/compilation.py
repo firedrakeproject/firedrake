@@ -410,13 +410,7 @@ class AnonymousCompiler(Compiler):
 
 
 def load_hashkey(*args, **kwargs):
-    from pyop2.global_kernel import GlobalKernel
-    if isinstance(args[0], str):
-        code_hash = md5(args[0].encode()).hexdigest()
-    elif isinstance(args[0], GlobalKernel):
-        code_hash = md5(str(args[0].cache_key).encode()).hexdigest()
-    else:
-        pass  # This will raise an error in load
+    code_hash = md5(args[0].encode()).hexdigest()
     return default_parallel_hashkey(code_hash, *args[1:], **kwargs)
 
 
