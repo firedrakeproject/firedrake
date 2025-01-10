@@ -47,6 +47,8 @@ jobs:
       OPENBLAS_NUM_THREADS: 1
       COMPLEX: ${{ matrix.complex }}
       RDMAV_FORK_SAFE: 1
+    outputs:
+      scalar-type: ${{ matrix.scalar-type }}
     steps:
       - uses: actions/checkout@v4
       - name: Cleanup
@@ -125,15 +127,16 @@ jobs:
         with:
           report_paths: '/__w/firedrake/firedrake/firedrake*.xml'
           comment: true
-          check_name: "Firedrake ${{ matrix.scalar-type }}"
+          check_name: "Firedrake ${{ needs.build.outputs.scalar-type }}"
           updateComment: true
           flaky_summary: true
 
   test_pyadjoint:
     runs-on: [self-hosted, Linux]
     needs: build
+    steps:
       - name: Test pyadjoint
-        if: ${{ matrix.scalar-type == 'real' }}
+        if: ${{ needs.build.outputs.scalar-type == 'real' }}
         run: |
           . ../firedrake_venv/bin/activate
           cd ../firedrake_venv/src/pyadjoint
@@ -148,7 +151,8 @@ jobs:
 
   cleanup:
     runs-on: [self-hosted, Linux]
-    needs: test, test_pyadjoint
+    needs: [test, test_pyadjoint]
+    steps:
       - name: Cleanup
         # Belt and braces: clean up before and after the run.
         if: ${{ always() }}
