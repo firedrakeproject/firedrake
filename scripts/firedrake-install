@@ -792,6 +792,10 @@ def get_petsc_options(minimal=False):
                 # on macOS with parallel solvers. Its necessity is unclear, so a
                 # review in the future may be required.
                 petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-dead_strip_dylibs")
+            if Version(clt["version"]) >= Version("16"):
+                # Should revisit this flag when the the issue https://gitlab.com/petsc/petsc/-/issues/1692
+                # is resolved.
+                petsc_options.add("--with-cxx-dialect=17")
     elif options.get("with_blas") is not None:
         petsc_options.add("--with-blaslapack-dir={}".format(options["with_blas"]))
         if osname == "Darwin":
