@@ -21,7 +21,7 @@ from collections import OrderedDict, namedtuple, defaultdict
 from ufl import Constant
 from ufl.coefficient import BaseCoefficient
 
-from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.formmanipulation import ExtractSubBlock, subspace
 from firedrake.function import Function, Cofunction
 from firedrake.ufl_expr import TestFunction
 from firedrake.utils import cached_property, unique
@@ -674,7 +674,7 @@ class Block(TensorBase):
         spaces determined by the indices.
         """
         tensor, = self.operands
-        return tuple(type(a)(a.function_space()[self._blocks[i]].collapse(),
+        return tuple(type(a)(subspace(a.function_space(), self._blocks[i]),
                              a.number(), part=a.part())
                      for i, a in enumerate(tensor.arguments()))
 

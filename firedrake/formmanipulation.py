@@ -12,7 +12,17 @@ from pyop2 import MixedDat
 from pyop2.utils import as_tuple
 
 from firedrake.petsc import PETSc
+from firedrake.functionspace import MixedFunctionSpace
 from firedrake.cofunction import Cofunction
+
+
+def subspace(V, indices):
+    """Construct a collapsed subspace using components from V."""
+    if len(indices) == 1:
+        W = V[indices[0]]
+    else:
+        W = MixedFunctionSpace([V[i] for i in indices])
+    return W.collapse()
 
 
 class ExtractSubBlock(MultiFunction):
@@ -40,7 +50,7 @@ class ExtractSubBlock(MultiFunction):
     index_inliner = IndexInliner()
 
     def _subspace_argument(self, a):
-        return type(a)(a.function_space()[self.blocks[a.number()]].collapse(),
+        return type(a)(subspace(a.function_space(), self.blocks[a.number()]),
                        a.number(), part=a.part())
 
     @PETSc.Log.EventDecorator()
@@ -131,7 +141,7 @@ class ExtractSubBlock(MultiFunction):
 
         # We only need the test space for Cofunction
         indices = self.blocks[0]
-        W = V[indices].collapse()
+        W = subspace(V, indices)
         if len(W) == 1:
             return Cofunction(W, val=o.dat[indices[0]])
         else:

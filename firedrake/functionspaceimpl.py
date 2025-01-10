@@ -321,14 +321,6 @@ class WithGeometryBase(object):
         return iter(self.subfunctions)
 
     def __getitem__(self, i):
-        from firedrake.functionspace import MixedFunctionSpace
-        if isinstance(i, (tuple, list)):
-            # Return a subspace
-            if len(i) == 1:
-                return self[i[0]]
-            else:
-                return MixedFunctionSpace([self[isub] for isub in i])
-
         return self.subfunctions[i]
 
     def __mul__(self, other):

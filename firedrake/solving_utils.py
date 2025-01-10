@@ -332,15 +332,13 @@ class _SNESContext(object):
                 subu = function.Function(V, val=val)
                 # Split it apart to shove in the form.
                 subsplit = split(subu)
-            # Permutation from field indexing to indexing of pieces
-            field_renumbering = {f: i for i, f in enumerate(field)}
             vec = []
             for i, u in enumerate(us):
                 if i in field:
                     # If this is a field we're keeping, get it from
                     # the new function. Otherwise just point to the
                     # old data.
-                    u = subsplit[field_renumbering[i]]
+                    u = subsplit[field.index(i)]
                 if u.ufl_shape == ():
                     vec.append(u)
                 else:
