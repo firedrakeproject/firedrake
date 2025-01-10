@@ -18,9 +18,6 @@ def mesh(request):
 
 
 @pytest.mark.parametrize("degree", [1, 2, 3])
-@pytest.mark.markif_fixture(pytest.mark.slow, mesh="hex", degree=2)
-@pytest.mark.markif_fixture(pytest.mark.slow, mesh="hex", degree=3)
-@pytest.mark.markif_fixture(pytest.mark.slow, mesh="prism", degree=3)
 def test_facet_avg_extruded(mesh, degree):
 
     Vt = FunctionSpace(mesh, 'DGT', degree)

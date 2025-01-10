@@ -334,7 +334,7 @@ def test_projector_bcs(tensor, same_fspace):
 @pytest.mark.parametrize(('degree', 'family', 'expected_convergence'), [
     (0, 'DGT', 0.8),
     (1, 'DGT', 1.8),
-    pytest.param(2, 'DGT', 2.8, marks=pytest.mark.slow)])
+    (2, 'DGT', 2.8)])
 def test_DGT_convergence(degree, family, expected_convergence):
     l2_diff = np.array([run_trace_projection(x, degree, family) for x in range(2, 5)])
     conv = np.log2(l2_diff[:-1] / l2_diff[1:])

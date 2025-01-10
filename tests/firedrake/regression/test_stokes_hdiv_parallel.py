@@ -16,7 +16,6 @@ def element_pair(request):
 
 
 @pytest.mark.parallel(nprocs=3)
-@pytest.mark.markif_fixture(pytest.mark.slow, mat_type="aij", element_pair="RT3-DG2")
 def test_stokes_hdiv_parallel(mat_type, element_pair):
     err_u = []
     err_p = []

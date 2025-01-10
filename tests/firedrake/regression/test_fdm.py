@@ -149,7 +149,6 @@ def test_p_independence_hgrad(mesh, variant):
 
 @pytest.mark.skipmumps
 @pytest.mark.skipcomplex
-@pytest.mark.markif_fixture(pytest.mark.slow, mesh="Box")
 def test_p_independence_hcurl(mesh):
     family = "NCE" if mesh.topological_dimension() == 3 else "RTCE"
     expected = [13, 10] if mesh.topological_dimension() == 3 else [6, 6]
@@ -163,7 +162,6 @@ def test_p_independence_hcurl(mesh):
 
 @pytest.mark.skipmumps
 @pytest.mark.skipcomplex
-@pytest.mark.markif_fixture(pytest.mark.slow, mesh="Box")
 def test_p_independence_hdiv(mesh):
     family = "NCF" if mesh.topological_dimension() == 3 else "RTCF"
     expected = [6, 6]
@@ -226,7 +224,6 @@ def fs(request, mesh):
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.markif_fixture(pytest.mark.slow, fs="rt", mesh="Box")
 def test_ipdg_direct_solver(fs):
     mesh = fs.mesh()
     x = SpatialCoordinate(mesh)

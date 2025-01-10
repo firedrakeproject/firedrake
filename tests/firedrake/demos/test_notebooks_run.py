@@ -24,9 +24,6 @@ def ipynb_file(request):
 
 
 @pytest.mark.skipcomplex  # Will need to add a seperate case for a complex tutorial.
-@pytest.mark.markif_fixture(pytest.mark.slow, ipynb_file="09-hybridisation.ipynb")
-@pytest.mark.markif_fixture(pytest.mark.slow, ipynb_file="10-sum-factorisation.ipynb")
-@pytest.mark.markif_fixture(pytest.mark.slow, ipynb_file="12-HPC_demo.ipynb")
 def test_notebook_runs(ipynb_file, tmpdir, monkeypatch):
     import pytest  # Unclear why this needs to be imported again
 

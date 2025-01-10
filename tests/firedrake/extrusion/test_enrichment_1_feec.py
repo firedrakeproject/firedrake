@@ -39,7 +39,6 @@ def test_feec(extmesh, horiz_complex, vert_complex):
     run_feec(mesh, U0, U1, U2, V0, V1)
 
 
-@pytest.mark.slow
 @pytest.mark.parametrize(('horiz_complex', 'vert_complex'),
                          [((("CG", 1), ("RTCF", 1), ("DQ", 0)), (("CG", 3), ("DG", 2))),
                           ((("CG", 2), ("RTCF", 2), ("DQ", 1)), (("CG", 2), ("DG", 1))),

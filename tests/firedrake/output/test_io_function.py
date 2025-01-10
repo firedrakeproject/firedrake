@@ -164,13 +164,13 @@ def _load_check_save_functions(filename, func_name, comm, method, mesh_name, var
     ("triangle", "DP", 6),
     ("tetrahedra", "P", 6),
     ("tetrahedra", "N1E", 2),
-    pytest.param(("tetrahedra", "N1F", 5), marks=pytest.mark.slow),
+    ("tetrahedra", "N1F", 5),
     ("tetrahedra", "DP", 0),
     ("tetrahedra", "DP", 5),
     ("triangle", "BDME", 4),
     ("triangle", "BDMF", 4),
     ("tetrahedra", "N2E", 2),
-    pytest.param(("tetrahedra", "N2F", 5), marks=pytest.mark.slow),
+    ("tetrahedra", "N2F", 5),
     ("quadrilateral", "Q", 7),
     ("quadrilateral", "RTCE", 5),
     ("quadrilateral", "RTCF", 5),
@@ -368,7 +368,7 @@ def test_io_function_tensor(cell_family_degree_shape_symmetry, tmpdir):
 
 @pytest.mark.parallel(nprocs=2)
 @pytest.mark.parametrize('cell_type', [
-    pytest.param("tetrahedra", marks=pytest.mark.slow),
+    "tetrahedra",
     "quadrilateral"
 ])
 def test_io_function_mixed_vector(cell_type, tmpdir):
@@ -482,7 +482,7 @@ def test_io_function_vector_extrusion_real(cell_family_degree_dim, tmpdir):
 
 @pytest.mark.parallel(nprocs=3)
 @pytest.mark.parametrize('cell_family_degree_dim', [
-    pytest.param(("triangle", "P", 1, 2, "BDMF", 2, "DG", 2, 2), marks=pytest.mark.slow),
+    ("triangle", "P", 1, 2, "BDMF", 2, "DG", 2, 2),
     ("quadrilateral", "Q", 1, 2, "RTCF", 2, "DG", 0, 2)
 ])
 def test_io_function_mixed_vector_extrusion_real(cell_family_degree_dim, tmpdir):
@@ -587,7 +587,6 @@ def test_io_function_extrusion_variable_layer(cell_family_degree_vfamily_vdegree
         comm.Free()
 
 
-@pytest.mark.broken
 @pytest.mark.parallel(nprocs=3)
 def test_io_function_extrusion_periodic(tmpdir):
     filename = join(str(tmpdir), "test_io_function_extrusion_periodic_dump.h5")

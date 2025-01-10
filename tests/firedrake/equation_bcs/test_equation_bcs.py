@@ -231,7 +231,7 @@ def test_EquationBC_poisson_matrix(eq_type, with_bbc):
     assert abs(math.log2(err[0]) - math.log2(err[1]) - (porder+1)) < 0.05
 
 
-@pytest.mark.parametrize("with_bbc", [False, pytest.param(True, marks=pytest.mark.slow)])
+@pytest.mark.parametrize("with_bbc", [False, True])
 def test_EquationBC_poisson_matfree(with_bbc):
     eq_type = "linear"
     mat_type = "matfree"
@@ -321,7 +321,6 @@ def test_EquationBC_mixedpoisson_matrix_fieldsplit():
     assert abs(math.log2(err[0][0]) - math.log2(err[1][0]) - (porder+1)) < 0.05
 
 
-@pytest.mark.slow
 def test_EquationBC_mixedpoisson_matfree_fieldsplit():
     mat_type = "matfree"
     eq_type = "linear"

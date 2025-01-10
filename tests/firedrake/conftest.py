@@ -105,25 +105,6 @@ def pytest_collection_modifyitems(session, config, items):
         vtk_installed = False
 
     for item in items:
-        markif_fixtures = [m for m in item.own_markers if m.name == "markif_fixture"]
-        for mark in markif_fixtures:
-            '''@pytest.mark.markif_fixture(*marks, **conditions)
-            marks: str | pytest.mark.structures.Mark
-                marks to apply if conditions are met
-            conditions: dict
-                dictionary of conditions; consisting of function argument keys
-                and fixture values or ids
-            '''
-            # (function argument names, fixture ids) in a list
-            fixtures = [(name, id_) for name, id_ in zip(item.callspec.params.keys(), item.callspec._idlist)]
-            # If all the fixtures are in the dictionary of conditions apply all of the marks
-            if all((k, str(v)) in fixtures for k, v in mark.kwargs.items()):
-                for label in mark.args:
-                    if isinstance(label, str):
-                        item.add_marker(getattr(pytest.mark, label)())
-                    else:
-                        item.add_marker(label())
-
         if complex_mode:
             if item.get_closest_marker("skipcomplex") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense in complex mode"))
