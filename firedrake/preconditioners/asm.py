@@ -6,6 +6,7 @@ from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space
 from firedrake.logging import warning
 from tinyasm import _tinyasm as tinyasm
+from mpi4py import MPI
 import numpy
 
 
@@ -90,6 +91,16 @@ class ASMPatchPC(PCBase):
         asmpc.setFromOptions()
         self.asmpc = asmpc
 
+        self._patch_statistics = []
+        if opts.getBool("print_patch_statistics", default=False):
+            # Compute and stash patch statistics
+            max_local_patch = max(is_.getSize() for is_ in ises)
+            min_local_patch = min(is_.getSize() for is_ in ises)
+            max_global_patch = pc.comm.tompi4py().allreduce(max_local_patch, op=MPI.MAX)
+            min_global_patch = pc.comm.tompi4py().allreduce(min_local_patch, op=MPI.MIN)
+            msg = f"Minimum / maximum patch sizes: {min_global_patch} / {max_global_patch}\n"
+            self._patch_statistics.append(msg)
+
     @abc.abstractmethod
     def get_patches(self, V):
         ''' Get the patches used for PETSc PCASM
@@ -103,30 +114,9 @@ class ASMPatchPC(PCBase):
 
     def view(self, pc, viewer=None):
         self.asmpc.view(viewer=viewer)
-        self.prefix = pc.getOptionsPrefix() + self._prefix
-
         if viewer is not None:
-            opts = PETSc.Options(self.prefix)
-            print_statistics = opts.getBool("print_patch_statistics", default=False)
-
-            if print_statistics:
-                from mpi4py import MPI
-
-                dm = pc.getDM()
-                V = get_function_space(dm)
-
-                # Obtain patches from user defined function
-                ises = self.get_patches(V)
-                # PCASM expects at least one patch, so we define an empty one on idle processes
-                if len(ises) == 0:
-                    ises = [PETSc.IS().createGeneral(numpy.empty(0, dtype=IntType), comm=PETSc.COMM_SELF)]
-
-                max_local_patch = max(is_.getSize() for is_ in ises)
-                min_local_patch = min(is_.getSize() for is_ in ises)
-                max_global_patch = pc.comm.tompi4py().allreduce(max_local_patch, op=MPI.MAX)
-                min_global_patch = pc.comm.tompi4py().allreduce(min_local_patch, op=MPI.MIN)
-
-                viewer.printfASCII(f"Minimum / maximum patch sizes: {min_global_patch} / {max_global_patch}\n")
+            for msg in self._patch_statistics:
+                viewer.printfASCII(msg)
 
     def update(self, pc):
         # This is required to update an inplace ILU factorization
