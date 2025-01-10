@@ -3,7 +3,6 @@ from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 
-@pytest.mark.slow
 @pytest.mark.parametrize('quad', [False, True])
 def test_hybrid_extr_helmholtz(quad):
     """Hybridize the lowest order HDiv conforming method using
