@@ -45,7 +45,7 @@ except ImportError:
     ngsPETSc = None
 # Only for docstring
 import mpi4py  # noqa: F401
-from tsfc.finatinterface import as_fiat_cell
+from finat.element_factory import as_fiat_cell
 
 
 __all__ = [
@@ -66,10 +66,10 @@ _cells = {
 }
 
 
-_supported_embedded_cell_types_and_gdims = [(ufl.Cell('interval'), 2),
-                                            (ufl.Cell('triangle'), 3),
-                                            (ufl.Cell("quadrilateral"), 3),
-                                            (ufl.TensorProductCell(ufl.Cell('interval'), ufl.Cell('interval')), 3)]
+_supported_embedded_cell_types_and_gdims = [('interval', 2),
+                                            ('triangle', 3),
+                                            ("quadrilateral", 3),
+                                            ("interval * interval", 3)]
 
 
 unmarked = -1
@@ -1245,7 +1245,7 @@ class MeshTopology(AbstractMeshTopology):
         else:
             # No reordering
             reordering = None
-        return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, reordering)[0]
+        return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, reordering)
 
     @utils.cached_property
     def cell_closure(self):
@@ -1966,7 +1966,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         if reorder:
             swarm = self.topology_dm
             parent = self._parent_mesh.topology_dm
-            swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid")
+            swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid").ravel()
             parent_renum = self._parent_mesh._dm_renumbering.getIndices()
             pStart, _ = parent.getChart()
             parent_renum_inv = np.empty_like(parent_renum)
@@ -1979,7 +1979,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             perm_is.setIndices(perm)
             return perm_is
         else:
-            return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, None)[0]
+            return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, None)
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_closure(self):
@@ -2063,7 +2063,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """Return a list of parent mesh cells numbers in vertex only
         mesh cell order.
         """
-        cell_parent_cell_list = np.copy(self.topology_dm.getField("parentcellnum"))
+        cell_parent_cell_list = np.copy(self.topology_dm.getField("parentcellnum").ravel())
         self.topology_dm.restoreField("parentcellnum")
         return cell_parent_cell_list[self.cell_closure[:, -1]]
 
@@ -2082,7 +2082,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
         if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
             raise AttributeError("Parent mesh is not extruded")
-        cell_parent_base_cell_list = np.copy(self.topology_dm.getField("parentcellbasenum"))
+        cell_parent_base_cell_list = np.copy(self.topology_dm.getField("parentcellbasenum").ravel())
         self.topology_dm.restoreField("parentcellbasenum")
         return cell_parent_base_cell_list[self.cell_closure[:, -1]]
 
@@ -2103,7 +2103,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
         if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
             raise AttributeError("Parent mesh is not extruded.")
-        cell_parent_extrusion_height_list = np.copy(self.topology_dm.getField("parentcellextrusionheight"))
+        cell_parent_extrusion_height_list = np.copy(self.topology_dm.getField("parentcellextrusionheight").ravel())
         self.topology_dm.restoreField("parentcellextrusionheight")
         return cell_parent_extrusion_height_list[self.cell_closure[:, -1]]
 
@@ -2123,7 +2123,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_global_index(self):
         """Return a list of unique cell IDs in vertex only mesh cell order."""
-        cell_global_index = np.copy(self.topology_dm.getField("globalindex"))
+        cell_global_index = np.copy(self.topology_dm.getField("globalindex").ravel())
         self.topology_dm.restoreField("globalindex")
         return cell_global_index
 
@@ -2158,8 +2158,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # ilocal = None -> leaves are swarm points [0, 1, 2, ...).
         # ilocal can also be Firedrake cell numbers.
         sf = PETSc.SF().create(comm=swarm.comm)
-        input_ranks = swarm.getField("inputrank")
-        input_indices = swarm.getField("inputindex")
+        input_ranks = swarm.getField("inputrank").ravel()
+        input_indices = swarm.getField("inputindex").ravel()
         nleaves = len(input_ranks)
         if ilocal is not None and nleaves != len(ilocal):
             swarm.restoreField("inputrank")
@@ -2268,6 +2268,9 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         # submesh
         self.submesh_parent = None
+
+        self._spatial_index = None
+        self._saved_coordinate_dat_version = coordinates.dat.dat_version
 
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.extruded, self.variable_layers,
@@ -2448,12 +2451,9 @@ values from f.)"""
 
         Use this if you move the mesh (for example by reassigning to
         the coordinate field)."""
-        try:
-            del self.spatial_index
-        except AttributeError:
-            pass
+        self._spatial_index = None
 
-    @utils.cached_property
+    @property
     def spatial_index(self):
         """Spatial index to quickly find which cell contains a given point.
 
@@ -2466,9 +2466,14 @@ values from f.)"""
         can be found.
 
         """
-
         from firedrake import function, functionspace
         from firedrake.parloops import par_loop, READ, MIN, MAX
+
+        if (
+            self._spatial_index
+            and self.coordinates.dat.dat_version == self._saved_coordinate_dat_version
+        ):
+            return self._spatial_index
 
         gdim = self.geometric_dimension()
         if gdim <= 1:
@@ -2531,7 +2536,9 @@ values from f.)"""
         coords_max = coords_mid + (tolerance + 0.5)*d
 
         # Build spatial index
-        return spatialindex.from_regions(coords_min, coords_max)
+        self._spatial_index = spatialindex.from_regions(coords_min, coords_max)
+        self._saved_coordinate_dat_version = self.coordinates.dat.dat_version
+        return self._spatial_index
 
     @PETSc.Log.EventDecorator()
     def locate_cell(self, x, tolerance=None, cell_ignore=None):
@@ -2681,8 +2688,8 @@ values from f.)"""
 
             libspatialindex_so = Path(rtree.core.rt._name).absolute()
             lsi_runpath = f"-Wl,-rpath,{libspatialindex_so.parent}"
-            locator = compilation.load(
-                src, "c", "locator",
+            dll = compilation.load(
+                src, "c",
                 cppargs=[
                     f"-I{os.path.dirname(__file__)}",
                     f"-I{sys.prefix}/include",
@@ -2696,7 +2703,7 @@ values from f.)"""
                 ],
                 comm=self.comm
             )
-
+            locator = getattr(dll, "locator")
             locator.argtypes = [ctypes.POINTER(function._CFunction),
                                 ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_double),
@@ -2765,7 +2772,7 @@ values from f.)"""
         import firedrake.function as function
         import firedrake.functionspace as functionspace
 
-        if (self.ufl_cell(), self.geometric_dimension()) not in _supported_embedded_cell_types_and_gdims:
+        if (self.ufl_cell().cellname(), self.geometric_dimension()) not in _supported_embedded_cell_types_and_gdims:
             raise NotImplementedError('Only implemented for intervals embedded in 2d and triangles and quadrilaterals embedded in 3d')
 
         if hasattr(self, '_cell_orientations'):
@@ -3061,6 +3068,8 @@ def Mesh(meshfile, **kwargs):
             from ngsPETSc import FiredrakeMesh
         except ImportError:
             raise ImportError("Unable to import ngsPETSc. Please ensure that ngsolve is installed and available to Firedrake.")
+        from firedrake_citations import Citations
+        Citations().register("Betteridge2024")
         netgen_flags = kwargs.get("netgen_flags", {"quad": False, "transform": None, "purify_to_tets": False})
         netgen_firedrake_mesh = FiredrakeMesh(meshfile, netgen_flags, user_comm)
         plex = netgen_firedrake_mesh.meshMap.petscPlex
@@ -3652,7 +3661,7 @@ def _pic_swarm_in_mesh(
     # local_points[halo_indices] (it also updates local_points[~halo_indices]`, not changing any values there).
     # If some index of local_points_reduced corresponds to a missing point, local_points_reduced[index] is not updated
     # when we reduce and it does not update any leaf data, i.e., local_points, when we bcast.
-    owners = swarm.getField("DMSwarm_rank")
+    owners = swarm.getField("DMSwarm_rank").ravel()
     halo_indices, = np.where(owners != parent_mesh.comm.rank)
     halo_indices = halo_indices.astype(IntType)
     n = coords.shape[0]
@@ -3868,13 +3877,13 @@ def _dmswarm_create(
 
     # NOTE ensure that swarm.restoreField is called for each field too!
     swarm_coords = swarm.getField("DMSwarmPIC_coor").reshape((num_vertices, gdim))
-    swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid")
-    field_parent_cell_nums = swarm.getField("parentcellnum")
+    swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid").ravel()
+    field_parent_cell_nums = swarm.getField("parentcellnum").ravel()
     field_reference_coords = swarm.getField("refcoord").reshape((num_vertices, tdim))
-    field_global_index = swarm.getField("globalindex")
-    field_rank = swarm.getField("DMSwarm_rank")
-    field_input_rank = swarm.getField("inputrank")
-    field_input_index = swarm.getField("inputindex")
+    field_global_index = swarm.getField("globalindex").ravel()
+    field_rank = swarm.getField("DMSwarm_rank").ravel()
+    field_input_rank = swarm.getField("inputrank").ravel()
+    field_input_index = swarm.getField("inputindex").ravel()
     swarm_coords[...] = coords
     swarm_parent_cell_nums[...] = plex_parent_cell_nums
     field_parent_cell_nums[...] = parent_cell_nums
@@ -3895,8 +3904,8 @@ def _dmswarm_create(
     swarm.restoreField("DMSwarm_cellid")
 
     if extruded:
-        field_base_parent_cell_nums = swarm.getField("parentcellbasenum")
-        field_extrusion_heights = swarm.getField("parentcellextrusionheight")
+        field_base_parent_cell_nums = swarm.getField("parentcellbasenum").ravel()
+        field_extrusion_heights = swarm.getField("parentcellextrusionheight").ravel()
         field_base_parent_cell_nums[...] = base_parent_cell_nums
         field_extrusion_heights[...] = extrusion_heights
         swarm.restoreField("parentcellbasenum")

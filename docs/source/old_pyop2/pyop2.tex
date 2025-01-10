@@ -1,0 +1,114 @@
+\documentclass[a4paper]{article}
+
+\usepackage{fullpage}
+
+\author{Graham Markall}
+\title{PyOP2 Draft Proposal}
+
+
+\begin{document}
+
+\maketitle
+
+\section{Motivation}
+
+This is part of an attempt at defining an implementation of OP2 that generates code at runtime (later referred to as PyOP2, for reasons which will be explained later). Coarsely, the compile-time translator iterates over \verb|op_par_loop| calls in the source code and performs the following operations:
+
+\begin{itemize}
+\item Generates a host stub for the kernel that is called.
+\item Generates a wrapper around the OP2 kernel, that, for example, stages data into and out of shared memory.
+\item Inserts a call to the original OP2 kernel inline in the generated wrapper, but leaves the kernel untouched.
+\end{itemize}
+
+\noindent The OP2 runtime manages:
+
+\begin{itemize}
+\item Transfer of data to/from the device.
+\item Planning parallel execution.
+\item Invoking the host stubs for kernels.
+\end{itemize}
+
+The question of which parts of the ROSE-based translator should be used arises. The position outlined in this document is that:
+
+\begin{itemize}
+\item The code that performs the generation of the host stub should be replaced by support in the runtime that calls the plan function and executes the kernel for each colour according to the plan.
+\item The plan function from OP2 should be re-used as-is.
+\item Since this leaves effectively no source-to-source transformation to perform (only inserting an essentially unmodified kernel into generated code) it should be possible to avoid the use of ROSE altogether. Should transformation need to be performed on OP2 kernels in future, this functionality may be added, either by integrating ROSE or using a simpler framework, since the operations performed in a kernel are limited to a fairly restricted subset of C/CUDA.
+\item In order to speed development, maintainability and integration with MCFC and Fluidity, a sensible choice of language for the re-implementation is Python (hence PyOP2).
+\end{itemize}
+
+The remainder of this document describes the PyOP2 API, and how this API may be implemented. One may also refer to the implementation folder in the same repository as this document, for a skeleton API implementation and a complete (though non-functioning without an API implementation) version of the Airfoil code written using PyOP2.
+
+\section{API}
+
+\subsection{Declaring data}
+
+Each data item is an instance of an object of one of the types \verb|Set|, \verb|Dat|, \verb|Mat|, \verb|Map|, \verb|Global| or \verb|Const|. Each of these objects may be constructed as follows:
+
+\begin{description}
+  \item[\texttt{Set(size, name)}] Construct a set with \verb|size| elements named \verb|name|. The name is for debugging purposes.
+  \item[\texttt{Dat(set, dim, type, data, name)}] Construct a dat that holds a data item of type \verb|type| and dimension \verb|dim| for each element of the set \verb|set|. The data specifies the data to initialise the dat with, and may be a list or tuple. The name is for debugging purposes.
+  \item[\texttt{Mat(row\_set, col\_set, dim, type, name)}] Construct a matrix which has entries that are the product of the two sets. The elements are of dimension \verb|dim| and type \verb|type|. The name is for debugging purposes.
+  \item[\texttt{Map(from, to, dim, values, name)}] Construct a mapping from one set to another. The \verb|dim| of the map indicates how many different relations between the two sets the map holds. \verb|values| is used to initialise the mapping, and may be a list or tuple. The name is used for debugging.
+  \item[\texttt{Global(name, val)}] Constructs a global value. The name is used for debugging purposes. \verb|val| is used to specify an initial value and may be a scalar, a list or a tuple.
+  \item[\texttt{Const(dim, type, value, name)}] Construct a constant value of dimension \verb|dim|, type \verb|type|, and value \verb|value|. The name is used for debugging purposes.
+\end{description}
+
+\subsection{Declaring kernels}
+
+To construct a kernel object with name \verb|name|, that implements the code string \verb|code|:
+
+\begin{verbatim}
+Kernel(name, code)
+\end{verbatim}
+
+The name is used only for debugging purposes. The code is an OP2 kernel, with the same semantics as are used in the current implementations of OP2.
+
+\subsection{Invoking a parallel loop}
+
+A parallel loop object is constructed with the following syntax:
+
+\begin{verbatim}
+ParLoop(kernel, iteration_space, *args)
+\end{verbatim}
+
+The arguments to the kernel are as follows:
+
+\begin{description}
+  \item[\texttt{kernel}] is a \verb|Kernel| object.
+  \item[\texttt{iteration\_space}] is an \verb|IterationSpace| object or a \verb|Set| object.
+  \item[\texttt{args}] is any number of \verb|Arg| objects.
+\end{description}
+
+At the time of construction, the \verb|ParLoop| object proceeds with compiling the kernel if it is in the uncompiled state, and then checks if a plan has already been constructed for the given iteration space and access descriptors. If there is no suitable plan, then the planner is called. Once a plan has been obtained, the ParLoop object calls the kernel for each colour in the plan.
+
+The \verb|IterationSpace| object is used to declare an iteration space that consists of a set as well as extra indices over a local matrix or vector. For example, one may pass \verb|IterationSpace(elements, 3, 3)| when assembling a matrix over elements, or \verb|IterationSpace(elements, 3)| when assembling a vector.
+
+The \verb|Arg| class should not be used directly, but instead one of the subclasses of \verb|Arg| should be used:
+
+\begin{description}
+  \item[\texttt{ArgDat(dat, index, map, access)}] is used to pass a \verb|Dat| argument. The \verb|index| parameter selects which of the relations in the \verb|map| should be used to access the data indirectly. If the runtime system is to gather together all the values of the dat that are pointed to by all the different relations in the mapping, then \verb|idx_all| may be passed as the \verb|index| argument. If the dataset is to be accessed directly, then \verb|None| should be passed as int \verb|index| and \verb|map| parameters. \verb|access| is one of \verb|read|, \verb|write|, \verb|inc| or \verb|rw|, with similar meaning to in the current OP2 implementation.
+  \item[\texttt{ArgMat(mat, row\_idx, row\_map, col\_idx, col\_map, access)}] is used to pass a \verb|Mat| argument. The index and map arguments are used similarly into the \verb|ArgDat|, with the exception that the \verb|row_map| is used to index into the rows of the matrix and the \verb|col_map| is used to index into the columns of the matrix. The \verb|access| parameter works as for the \verb|ArgDat| case.
+  \item[\texttt{ArgGbl(var, access)}] is for passing a \verb|Global| argument. \verb|var| is an instance of a \verb|Global|, and \verb|access| specifies the access method in the same way as for the previous two cases.
+\end{description}
+
+\section{Implementation considerations and issues}
+
+This is a list of notes for now:
+
+\begin{itemize}
+  \item All classes must be designed so that their representation uniquely describes an object with its particular state, in order for caching of compiled code to work.
+  \item There are several possibilities for implementing compilation and dynamic linking of code:
+  \begin{itemize}
+    \item Instant, from the FEniCS Project for compilation, caching and linking of CPU code
+    \item PyCUDA/PyOpenCL from Andreas Kl\"ockner for GPU/accelerator code
+    \item CodePy, also from Andreas Kl\"ockner for C/C++ code compilation and dynamic linking into the Python interpreter.
+  \end{itemize}
+  \item The possibilities for an interface allowing different OP2 backends to be implemented include:
+  \begin{itemize}
+    \item Each backend overrides the classes in \verb|op2.py| so that they implement the functionality required to run on their target.
+    \item We define a ``backend API'' that is used to implement a backend. The implementation of classes in \verb|op2.py| don't change, but instead it contains code to drive the backend. This appears more preferable since I believe it will allow a cleaner separation between the user-facing API and the backend implementation.
+  \end{itemize}
+\end{itemize}
+
+\end{document}

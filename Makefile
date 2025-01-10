@@ -13,12 +13,19 @@ else
 endif
 
 lint:
-	@echo "    Linting firedrake codebase"
+	@echo "    Linting firedrake"
 	@python -m flake8 $(FLAKE8_FORMAT) firedrake
-	@echo "    Linting firedrake test suite"
-	@python -m flake8 $(FLAKE8_FORMAT) tests
 	@echo "    Linting firedrake scripts"
+	@python -m flake8 $(FLAKE8_FORMAT) firedrake/scripts --filename=*
 	@python -m flake8 $(FLAKE8_FORMAT) scripts --filename=*
+	@echo "    Linting firedrake tests"
+	@python -m flake8 $(FLAKE8_FORMAT) tests
+	@echo "    Linting PyOP2"
+	@python -m flake8 $(FLAKE8_FORMAT) pyop2
+	@echo "    Linting PyOP2 scripts"
+	@python -m flake8 $(FLAKE8_FORMAT) pyop2/scripts --filename=*
+	@echo "    Linting TSFC"
+	@python -m flake8 $(FLAKE8_FORMAT) tsfc
 
 actionlint:
 	@echo "    Pull latest actionlint image"
@@ -65,6 +72,10 @@ clean:
 	-@rm -f firedrake/cython/mg/impl.so > /dev/null 2>&1
 	@echo "    RM firedrake/cython/mg/impl.c"
 	-@rm -f firedrake/cython/mg/impl.c > /dev/null 2>&1
+	@echo "    RM pyop2/*.so"
+	-@rm -f pyop2/*.so > /dev/null 2>&1
+	@echo "    RM tinyasm/*.so"
+	-@rm -f tinyasm/*.so > /dev/null 2>&1
 
 
 THREADS=1
@@ -76,15 +87,15 @@ endif
 
 test_regression: modules
 	@echo "    Running non-extruded regression tests"
-	@python -m pytest tests/regression $(PYTEST_ARGS)
+	@python -m pytest tests/firedrake/regression $(PYTEST_ARGS)
 
 test_extrusion: modules
 	@echo "    Running extruded regression tests"
-	@python -m pytest tests/extrusion $(PYTEST_ARGS)
+	@python -m pytest tests/firedrake/extrusion $(PYTEST_ARGS)
 
 test_demos: modules
 	@echo "    Running test of demos"
-	@python -m pytest tests/demos $(PYTEST_ARGS)
+	@python -m pytest tests/firedrake/demos $(PYTEST_ARGS)
 
 test: modules
 	@echo "    Running all regression tests"
@@ -94,4 +105,4 @@ alltest: modules lint test
 
 shorttest: modules lint
 	@echo "    Running short regression tests"
-	@python -m pytest --short tests $(PYTEST_ARGS)
+	@python -m pytest --short tests/firedrake $(PYTEST_ARGS)

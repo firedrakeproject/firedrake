@@ -14,7 +14,7 @@ from ufl.domain import as_domain, extract_unique_domain
 from pyop2 import op2
 from pyop2.caching import memory_and_disk_cache
 
-from tsfc.finatinterface import create_element, as_fiat_cell
+from finat.element_factory import create_element, as_fiat_cell
 from tsfc import compile_expression_dual_evaluation
 from tsfc.ufl_utils import extract_firedrake_constants
 
@@ -905,6 +905,8 @@ def make_interpolator(expr, V, subset, access, bcs=None):
     elif len(arguments) == 1:
         if isinstance(V, firedrake.Function):
             raise ValueError("Cannot interpolate an expression with an argument into a Function")
+        if len(V) > 1:
+            raise NotImplementedError("Interpolation of mixed expressions with arguments is not supported")
         argfs = arguments[0].function_space()
         source_mesh = argfs.mesh()
         argfs_map = argfs.cell_node_map()
@@ -992,10 +994,29 @@ def make_interpolator(expr, V, subset, access, bcs=None):
         if numpy.prod(expr.ufl_shape, dtype=int) != V.value_size:
             raise RuntimeError('Expression of length %d required, got length %d'
                                % (V.value_size, numpy.prod(expr.ufl_shape, dtype=int)))
-        if len(V) > 1:
-            raise NotImplementedError(
-                "UFL expressions for mixed functions are not yet supported.")
-        loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
+
+        if len(V) == 1:
+            loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
+        else:
+            if (hasattr(expr, "subfunctions") and len(expr.subfunctions) == len(V)
+                    and all(sub_expr.ufl_shape == Vsub.value_shape for Vsub, sub_expr in zip(V, expr.subfunctions))):
+                # Use subfunctions if they match the target shapes
+                expressions = expr.subfunctions
+            else:
+                # Unflatten the expression into the shapes of the mixed components
+                offset = 0
+                expressions = []
+                for Vsub in V:
+                    if len(Vsub.value_shape) == 0:
+                        expressions.append(expr[offset])
+                    else:
+                        components = [expr[offset + j] for j in range(Vsub.value_size)]
+                        expressions.append(ufl.as_tensor(numpy.reshape(components, Vsub.value_shape)))
+                    offset += Vsub.value_size
+            # Interpolate each sub expression into each function space
+            for Vsub, sub_tensor, sub_expr in zip(V, tensor, expressions):
+                loops.extend(_interpolator(Vsub, sub_tensor, sub_expr, subset, arguments, access, bcs=bcs))
+
         if bcs and len(arguments) == 0:
             loops.extend(partial(bc.apply, f) for bc in bcs)
 
@@ -1071,8 +1092,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     # interpolation) we have to pass the finat element we construct
     # here. Ideally we would only pass the UFL element through.
     kernel = compile_expression(cell_set.comm, expr, to_element, V.ufl_element(),
-                                domain=source_mesh, parameters=parameters,
-                                log=PETSc.Log.isActive())
+                                domain=source_mesh, parameters=parameters)
     ast = kernel.ast
     oriented = kernel.oriented
     needs_cell_sizes = kernel.needs_cell_sizes
@@ -1200,10 +1220,9 @@ except KeyError:
                                   f"firedrake-tsfc-expression-kernel-cache-uid{os.getuid()}")
 
 
-def _compile_expression_key(comm, expr, to_element, ufl_element, domain, parameters, log):
+def _compile_expression_key(comm, expr, to_element, ufl_element, domain, parameters):
     """Generate a cache key suitable for :func:`tsfc.compile_expression_dual_evaluation`."""
-    key = hash_expr(expr), hash(ufl_element), utils.tuplify(parameters), log
-    return key
+    return (hash_expr(expr), hash(ufl_element), utils.tuplify(parameters))
 
 
 @memory_and_disk_cache(

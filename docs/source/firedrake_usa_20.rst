@@ -60,9 +60,7 @@ Organising Committee
   University of Washington.
 * `David Ham <https://www.imperial.ac.uk/people/david.ham>`_, Imperial
   College London.
-* `Lawrence Mitchell
-  <https://www.dur.ac.uk/computer.science/staff/profile/?id=17243>`_,
-  Durham University.
+* Lawrence Mitchell, Durham University.
 
 
 Further details

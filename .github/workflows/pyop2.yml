@@ -1,0 +1,93 @@
+name: Test PyOP2 and TSFC
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      # Don't immediately kill all if one Python version fails
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13']
+    env:
+      CC: mpicc
+      PETSC_DIR: ${{ github.workspace }}/petsc
+      PETSC_ARCH: default
+      RDMAV_FORK_SAFE: 1
+      PYOP2_CI_TESTS: 1
+    timeout-minutes: 60
+
+    steps:
+      - name: Install system dependencies
+        shell: bash
+        run: |
+          sudo apt update
+          sudo apt install build-essential libopenmpi-dev \
+            libblas-dev liblapack-dev gfortran libhwloc-dev libfabric-dev
+
+      - name: Set correct Python version
+        uses: actions/setup-python@v5
+        id: setup-python
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Clone PETSc
+        uses: actions/checkout@v4
+        with:
+          repository: firedrakeproject/petsc
+          path: ${{ env.PETSC_DIR }}
+
+      - name: Build and install PETSc
+        shell: bash
+        working-directory: ${{ env.PETSC_DIR }}
+        run: |
+          ./configure \
+            --download-hdf5 \
+            --with-debugging=1 \
+            --with-shared-libraries=1 \
+            --with-c2html=0 \
+            --with-strict-petscerrorcode \
+            --with-fortran-bindings=0
+          make
+
+      - name: Checkout Firedrake
+        uses: actions/checkout@v4
+        with:
+          path: firedrake
+
+      - name: Install PyOP2 dependencies
+        shell: bash
+        working-directory: firedrake
+        run: |
+          python -m pip install -U pip
+          python -m pip install -U pytest-timeout
+
+      - name: Install PyOP2
+        shell: bash
+        working-directory: firedrake
+        run: |
+          export CC=mpicc
+          export HDF5_DIR="$PETSC_DIR/$PETSC_ARCH"
+          export HDF5_MPI=ON
+          python -m pip install --no-binary h5py -v ".[test]"
+
+      - name: Run TSFC tests
+        shell: bash
+        working-directory: firedrake
+        run: |
+          pytest --tb=native --timeout=480 --timeout-method=thread -o faulthandler_timeout=540 -v tests/tsfc
+        timeout-minutes: 10
+
+      - name: Run PyOP2 tests
+        shell: bash
+        working-directory: firedrake
+        run: |
+          pytest -m "not parallel" --tb=native --timeout=480 --timeout-method=thread -o faulthandler_timeout=540 -v tests/pyop2
+          mpiexec -n 2 --oversubscribe pytest -m "parallel[2]" --tb=native --timeout=480 --timeout-method=thread -o faulthandler_timeout=540 -v tests/pyop2
+          mpiexec -n 3 --oversubscribe pytest -m "parallel[3]" --tb=native --timeout=480 --timeout-method=thread -o faulthandler_timeout=540 -v tests/pyop2
+        timeout-minutes: 10

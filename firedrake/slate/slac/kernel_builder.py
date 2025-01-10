@@ -14,7 +14,7 @@ import firedrake.slate.slate as slate
 from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
 from tsfc import kernel_args
-from tsfc.finatinterface import create_element
+from finat.element_factory import create_element
 from tsfc.loopy import create_domains, assign_dtypes
 
 from pytools import UniqueNameGenerator
