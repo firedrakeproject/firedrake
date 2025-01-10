@@ -299,7 +299,7 @@ class Interpolator(abc.ABC):
                                               part=v.part())})
         self.expr_renumbered = expr
 
-    def _interpolate_future(self, *function, transpose=None, adjoint=None, default_missing_val=None):
+    def _interpolate_future(self, *function, transpose=None, adjoint=False, default_missing_val=None):
         """Define the :class:`Interpolate` object corresponding to the interpolation operation of interest.
 
         Parameters
