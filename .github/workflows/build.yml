@@ -21,14 +21,12 @@ env:
   RELEASE_TAG: latest
 
 jobs:
-  build:
-    name: "Build Firedrake (Linux)"
-    # Run on our self-hosted machines
+  test:
+    name: "Run Firedrake tests (Linux)"
     runs-on: [self-hosted, Linux]
     container:
       image: firedrakeproject/firedrake-env:latest
     strategy:
-      # Don't immediately kill real if complex fails and vice versa.
       fail-fast: false
       matrix:
         include:
@@ -98,45 +96,49 @@ jobs:
             pytest-split \
             git+https://github.com/JDBetteridge/mpispawn
           python -m pip list
-
-  test:
-    name: Run tests (Linux)
-    runs-on: [self-hosted, Linux]
-    needs: build
-    strategy:
-      matrix:
-        nprocs: [1, 2, 3, 4, 6, 7, 8]
-    steps:
-      - name: Run tests (nprocs=${{ matrix.nprocs }})
-        run: |
-          . ../firedrake_venv/bin/activate
-          mpispawn -nU 12 -nW 2 --propagate-errcodes pytest \
-            --splitting-algorithm least_duration \
-            --splits \$MPISPAWN_NUM_TASKS \
-            --group \$MPISPAWN_TASK_ID1 \
-            --timeout=1800 \
-            --timeout-method=thread \
-            -o faulthandler_timeout=1860 \
-            --junit-xml=firedrake${{ matrix.nprocs }}_\$MPISPAWN_TASK_ID1.xml \
-            -m "parallel[\$MPISPAWN_WORLD_SIZE] and not broken" \
-            -v tests/firedrake
-        timeout-minutes: 60
+      - name: Run tests (nprocs = 1)
+        uses: ./.github/actions/test
+        with:
+          nprocs: 1
+      - name: Run tests (nprocs = 2)
+        uses: ./.github/actions/test_firedrake
+        with:
+          nprocs: 2
+      - name: Run tests (nprocs = 3)
+        uses: ./.github/actions/test_firedrake
+        with:
+          nprocs: 3
+      - name: Run tests (nprocs = 4)
+        uses: ./.github/actions/test_firedrake
+        with:
+          nprocs: 4
+      - name: Run tests (nprocs = 5)
+        uses: ./.github/actions/test_firedrake
+        with:
+          nprocs: 5
+      - name: Run tests (nprocs = 6)
+        uses: ./.github/actions/test_firedrake
+        with:
+          nprocs: 6
+      - name: Run tests (nprocs = 7)
+        uses: ./.github/actions/test_firedrake
+        with:
+          nprocs: 7
+      - name: Run tests (nprocs = 8)
+        uses: ./.github/actions/test_firedrake
+        with:
+          nprocs: 8
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@v5.0.0-a02
         if: ${{ always() && ( github.ref != 'refs/heads/master') }}
         with:
           report_paths: '/__w/firedrake/firedrake/firedrake*.xml'
           comment: true
-          check_name: "Firedrake ${{ needs.build.outputs.scalar-type }}"
+          check_name: "Firedrake ${{ matrix.scalar-type }}"
           updateComment: true
           flaky_summary: true
-
-  test_pyadjoint:
-    runs-on: [self-hosted, Linux]
-    needs: build
-    steps:
       - name: Test pyadjoint
-        if: ${{ needs.build.outputs.scalar-type == 'real' }}
+        if: ${{ matrix.scalar-type == 'real' }}
         run: |
           . ../firedrake_venv/bin/activate
           cd ../firedrake_venv/src/pyadjoint
@@ -149,11 +151,6 @@ jobs:
             -n 12 --dist worksteal \
             -sv tests/firedrake_adjoint
         timeout-minutes: 30
-
-  cleanup:
-    runs-on: [self-hosted, Linux]
-    needs: [test, test_pyadjoint]
-    steps:
       - name: Cleanup
         # Belt and braces: clean up before and after the run.
         if: ${{ always() }}
@@ -183,9 +180,9 @@ jobs:
     # Only run on master, but always generate firedrake-env image,
     # even if build fails (see docker.yml)
     if: ${{ (github.ref == 'refs/heads/master') && always() }}
-    needs: [build, docker_tag]
+    needs: [test, docker_tag]
     uses: ./.github/workflows/docker.yml
     with:
       tag: ${{ needs.docker_tag.outputs.tag }}
-      status: ${{ needs.build.result }}
+      status: ${{ needs.test.result }}
     secrets: inherit
