@@ -726,6 +726,7 @@ def get_petsc_options(minimal=False):
                      "--with-debugging=0",
                      "--with-shared-libraries=1",
                      "--with-c2html=0",
+                     "--with-strict-petscerrorcode",
                      # Parser generator
                      "--download-bison"}
     for pkg in get_minimal_petsc_packages():
