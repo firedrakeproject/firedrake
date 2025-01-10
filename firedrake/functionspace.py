@@ -259,7 +259,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
         :class:`finat.ufl.mixedelement.MixedElement`, ignored otherwise.
 
     """
-    from firedrake.mesh import MixedMeshGeometry
+    from firedrake.mesh import MeshSequenceGeometry
 
     if isinstance(spaces, finat.ufl.FiniteElementBase):
         # Build the spaces if we got a mixed element
@@ -275,7 +275,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
                     sub_elements.append(ele)
         rec(spaces.sub_elements)
         spaces = [FunctionSpace(mesh, element) for element in sub_elements]
-    # Flatten MixedMeshes.
+    # Flatten MeshSequences.
     meshes = list(itertools.chain(*[space.mesh() for space in spaces]))
     try:
         cls, = set(type(s) for s in spaces)
@@ -297,7 +297,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
         else:
             raise ValueError("Can't make mixed space with %s" % type(space))
 
-    mixed_mesh_geometry = MixedMeshGeometry(meshes)
+    mixed_mesh_geometry = MeshSequenceGeometry(meshes)
     new = impl.MixedFunctionSpace(spaces, mixed_mesh_geometry.topology, name=name)
     return cls.create(new, mixed_mesh_geometry)
 

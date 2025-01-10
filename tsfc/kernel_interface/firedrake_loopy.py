@@ -2,7 +2,7 @@ import numpy
 from collections import namedtuple, OrderedDict
 
 from ufl import Coefficient, FunctionSpace
-from ufl.domain import MixedMesh
+from ufl.domain import MeshSequence
 from finat.ufl import MixedElement as ufl_MixedElement, FiniteElement
 
 import gem
@@ -360,8 +360,8 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         """
         # Create a fake coordinate coefficient for a domain.
         for i, domain in enumerate(domains):
-            if isinstance(domain, MixedMesh):
-                raise RuntimeError("Found a MixedMesh")
+            if isinstance(domain, MeshSequence):
+                raise RuntimeError("Found a MeshSequence")
             f = Coefficient(FunctionSpace(domain, domain.ufl_coordinate_element()))
             self.domain_coordinate[domain] = f
             self._coefficient(f, f"coords_{i}")
