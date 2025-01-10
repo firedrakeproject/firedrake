@@ -8,23 +8,7 @@ def pytest_configure(config):
     """Register an additional marker."""
     config.addinivalue_line(
         "markers",
-        "markif_fixture: conditional marker"
-    )
-    config.addinivalue_line(
-        "markers",
-        "slow: mark a test that takes a while to run"
-    )
-    config.addinivalue_line(
-        "markers",
-        "broken: mark a test that is broken"
-    )
-    config.addinivalue_line(
-        "markers",
         "skipmumps: mark as skipped unless MUMPS is installed"
-    )
-    config.addinivalue_line(
-        "markers",
-        "skipcomplexnoslate: mark as skipped in complex mode due to lack of Slate"
     )
     config.addinivalue_line(
         "markers",
@@ -37,10 +21,6 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "skipcomplexnoslate: mark as skipped in complex mode due to lack of Slate"
-    )
-    config.addinivalue_line(
-        "markers",
-        "skipnetgen: mark as skipped if netgen and ngsPETSc is not installed"
     )
     config.addinivalue_line(
         "markers",

@@ -141,6 +141,7 @@ jobs:
           . ../firedrake_venv/bin/activate
           cd ../firedrake_venv/src/pyadjoint
           python -m pytest \
+            --strict-markers \
             --durations=200 \
             --timeout=600 \
             --timeout-method=thread \
