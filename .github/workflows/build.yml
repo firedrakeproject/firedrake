@@ -88,6 +88,8 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch fiat ksagiyam/introduce_mixed_map_0 \
+            --package-branch ufl ksagiyam/introduce_mixed_map_0 \
             || (cat firedrake-install.log && /bin/false)
 
       - name: Install test dependencies
