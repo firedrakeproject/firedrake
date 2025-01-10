@@ -18,7 +18,7 @@ from pyop2 import op2, mpi
 from pyop2.utils import as_tuple
 
 from firedrake import dmhooks, utils
-from firedrake.mesh import MeshGeometry, MixedMeshTopology, MixedMeshGeometry
+from firedrake.mesh import MeshGeometry, MeshSequenceTopology, MeshSequenceGeometry
 from firedrake.functionspacedata import get_shared_data, create_element
 from firedrake.petsc import PETSc
 
@@ -96,8 +96,8 @@ class WithGeometryBase(object):
     """
     def __init__(self, mesh, element, component=None, cargo=None):
         if type(element) is finat.ufl.MixedElement:
-            if not isinstance(mesh, MixedMeshGeometry):
-                raise TypeError(f"Can only use MixedElement with MixedMeshGeometry: got {type(mesh)}")
+            if not isinstance(mesh, MeshSequenceGeometry):
+                raise TypeError(f"Can only use MixedElement with MeshSequenceGeometry: got {type(mesh)}")
         assert component is None or isinstance(component, int)
         assert cargo is None or isinstance(cargo, FunctionSpaceCargo)
         super().__init__(mesh, element, label=cargo.topological._label or "")
@@ -121,8 +121,8 @@ class WithGeometryBase(object):
 
         """
         if isinstance(function_space, MixedFunctionSpace):
-            if not isinstance(mesh, MixedMeshGeometry):
-                raise TypeError(f"Can only use MixedFunctionSpace with MixedMeshGeometry: got {type(mesh)}")
+            if not isinstance(mesh, MeshSequenceGeometry):
+                raise TypeError(f"Can only use MixedFunctionSpace with MeshSequenceGeometry: got {type(mesh)}")
         function_space = function_space.topological
         assert mesh.topology is function_space.mesh()
         assert mesh.topology is not mesh
@@ -376,16 +376,16 @@ class WithGeometryBase(object):
         # Create a new abstract (Mixed/Real)FunctionSpace, these are neither primal nor dual.
         if type(element) is finat.ufl.MixedElement:
             if isinstance(mesh, MeshGeometry):
-                mesh = MixedMeshGeometry([mesh for _ in element.sub_elements])
+                mesh = MeshSequenceGeometry([mesh for _ in element.sub_elements])
                 topology = mesh.topology
             else:
-                if not isinstance(mesh, MixedMeshGeometry):
-                    raise TypeError(f"mesh must be MixedMeshGeometry: got {mesh}")
+                if not isinstance(mesh, MeshSequenceGeometry):
+                    raise TypeError(f"mesh must be MeshSequenceGeometry: got {mesh}")
             spaces = [cls.make_function_space(topo, e) for topo, e in zip(topology, element.sub_elements, strict=True)]
             new = MixedFunctionSpace(spaces, topology, name=name)
         else:
-            if isinstance(mesh, MixedMeshGeometry):
-                raise TypeError(f"mesh must not be MixedMeshGeometry: got {mesh}")
+            if isinstance(mesh, MeshSequenceGeometry):
+                raise TypeError(f"mesh must not be MeshSequenceGeometry: got {mesh}")
             # Check that any Vector/Tensor/Mixed modifiers are outermost.
             check_element(element)
             if element.family() == "Real":
@@ -986,8 +986,8 @@ class MixedFunctionSpace(object):
     """
     def __init__(self, spaces, mesh, name=None):
         super(MixedFunctionSpace, self).__init__()
-        if not isinstance(mesh, MixedMeshTopology):
-            raise TypeError(f"mesh must be MixedMeshTopology: got {mesh}")
+        if not isinstance(mesh, MeshSequenceTopology):
+            raise TypeError(f"mesh must be MeshSequenceTopology: got {mesh}")
         if len(mesh) != len(spaces):
             raise RuntimeError(f"len(mesh) ({len(mesh)}) != len(spaces) ({len(spaces)})")
         self._spaces = tuple(IndexedFunctionSpace(i, s, self)

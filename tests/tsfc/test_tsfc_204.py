@@ -1,13 +1,13 @@
 from tsfc import compile_form
 from ufl import (Coefficient, FacetNormal,
-                 FunctionSpace, Mesh, MixedMesh, as_matrix,
+                 FunctionSpace, Mesh, MeshSequence, as_matrix,
                  dot, dS, ds, dx, facet, grad, inner, outer, split, triangle)
 from finat.ufl import BrokenElement, FiniteElement, MixedElement, VectorElement
 
 
 def test_physically_mapped_facet():
     mesh = Mesh(VectorElement("P", triangle, 1))
-    meshes = MixedMesh([mesh, mesh, mesh, mesh, mesh])
+    meshes = MeshSequence([mesh, mesh, mesh, mesh, mesh])
 
     # set up variational problem
     U = FiniteElement("Morley", mesh.ufl_cell(), 2)
