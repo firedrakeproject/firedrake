@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.__future__ import *
+from firedrake.utils import complex_mode
 import ufl
 
 
@@ -98,6 +99,20 @@ def test_assemble_interp_adjoint_model(V1, V2):
     # Action(Adjoint(I(v1, v2)), fstar) <=> I(v, fstar)
     res = assemble(action(adjoint(Iv1), fstar))
     assert np.allclose(res.dat.data, Ivfstar.dat.data)
+
+
+def test_assemble_interp_adjoint_complex(mesh, V1, f1):
+    if complex_mode:
+        f1 = Constant(3 - 5.j) * f1
+
+    a = assemble(conj(TestFunction(V1)) * dx)
+    b = assemble(action(adjoint(Interpolate(f1 * TestFunction(V1), V1)), a))
+
+    x, y = SpatialCoordinate(mesh)
+    f2 = Function(V1, name="f2").interpolate(
+        exp(x) * y)
+
+    assert np.allclose(assemble(b(f2)), assemble(Function(V1).interpolate(conj(f1 * f2)) * dx))
 
 
 def test_assemble_interp_rank0(V1, V2, f1):
