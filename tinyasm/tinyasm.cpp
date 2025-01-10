@@ -87,7 +87,7 @@ class BlockJacobi {
             PetscCallVoid(PetscSFDestroy(&sf));
         }
 
-        PetscInt updateValuesPerBlock(Mat P) {
+        PetscErrorCode updateValuesPerBlock(Mat P) {
             PetscBLASInt dof, info;
             int numBlocks = dofsPerBlock.size();
             PetscCall(MatCreateSubMatrices(P, numBlocks, dofis.data(), dofis.data(), localmats_aij ? MAT_REUSE_MATRIX : MAT_INITIAL_MATRIX, &localmats_aij));
@@ -96,14 +96,14 @@ class BlockJacobi {
                 PetscCall(MatConvert(localmats_aij[p], MATDENSE, localmats[p] ? MAT_REUSE_MATRIX : MAT_INITIAL_MATRIX,&localmats[p]));
                 PetscCall(PetscBLASIntCast(dofsPerBlock[p].size(), &dof));
                 PetscCall(MatDenseGetArrayWrite(localmats[p],&vv));
-                if (dof) mymatinvert(&dof, vv, piv.data(), &info, fwork.data());
+                if (dof) PetscCall(mymatinvert(&dof, vv, piv.data(), &info, fwork.data()));
                 PetscCall(MatDenseRestoreArrayWrite(localmats[p],&vv));
             }
-            return 0;
+            PetscFunctionReturn(PETSC_SUCCESS);
         }
 
 
-        PetscInt solve(const PetscScalar* __restrict b, PetscScalar* __restrict x) {
+        PetscErrorCode solve(const PetscScalar* __restrict b, PetscScalar* __restrict x) {
             PetscScalar dOne = 1.0;
             PetscBLASInt dof, one = 1;
             PetscScalar dZero = 0.0;
@@ -126,13 +126,12 @@ class BlockJacobi {
                 }
                 PetscCall(MatDenseRestoreArrayRead(localmats[p],&matvalues));
             }
-            return 0;
+            PetscFunctionReturn(PETSC_SUCCESS);
         }
 };
 
 PetscErrorCode CreateCombinedSF(PC pc, const std::vector<PetscSF>& sf, const std::vector<PetscInt>& bs, PetscSF *newsf)
 {
-    PetscInt       i;
     auto n = sf.size();
 
     PetscFunctionBegin;
@@ -159,7 +158,7 @@ PetscErrorCode CreateCombinedSF(PC pc, const std::vector<PetscSF>& sf, const std
          * allRoots: number of owned global dofs;
          * allLeaves: number of visible dofs (global + ghosted).
          */
-        for (i = 0; i < n; ++i) {
+        for (size_t i = 0; i < n; ++i) {
             PetscInt nroots, nleaves;
 
             PetscCall(PetscSFGetGraph(sf[i], &nroots, &nleaves, NULL, NULL));
@@ -170,7 +169,7 @@ PetscErrorCode CreateCombinedSF(PC pc, const std::vector<PetscSF>& sf, const std
         PetscCall(PetscMalloc1(allLeaves, &iremote));
         // Now build an SF that just contains process connectivity.
         PetscCall(PetscHSetICreate(&ranksUniq));
-        for (i = 0; i < n; ++i) {
+        for (size_t i = 0; i < n; ++i) {
             const PetscMPIInt *ranks = NULL;
             PetscMPIInt        nranks, j;
 
@@ -187,7 +186,7 @@ PetscErrorCode CreateCombinedSF(PC pc, const std::vector<PetscSF>& sf, const std
         PetscCall(PetscHSetIGetElems(ranksUniq, &index, ranks));
 
         PetscCall(PetscHMapICreate(&rankToIndex));
-        for (i = 0; i < numRanks; ++i) {
+        for (PetscInt i = 0; i < numRanks; ++i) {
             remote[i].rank  = ranks[i];
             remote[i].index = 0;
             PetscCall(PetscHMapISet(rankToIndex, ranks[i], i));
@@ -203,7 +202,7 @@ PetscErrorCode CreateCombinedSF(PC pc, const std::vector<PetscSF>& sf, const std
         PetscCall(PetscMalloc1(n*numRanks, &remoteOffsets));
 
         offsets[0] = 0;
-        for (i = 1; i < n; ++i) {
+        for (size_t i = 1; i < n; ++i) {
             PetscInt nroots;
 
             PetscCall(PetscSFGetGraph(sf[i-1], &nroots, NULL, NULL, NULL));
@@ -228,7 +227,7 @@ PetscErrorCode CreateCombinedSF(PC pc, const std::vector<PetscSF>& sf, const std
          * processes who communicate with me.  So now we can
          * concatenate the list of SFs into a single one. */
         index = 0;
-        for (i = 0; i < n; ++i) {
+        for (size_t i = 0; i < n; ++i) {
             const PetscSFNode *remote = NULL;
             const PetscInt    *local  = NULL;
             PetscInt           nroots, nleaves, j;
@@ -385,12 +384,15 @@ PYBIND11_MODULE(_tinyasm, m) {
     PetscLogEventRegister("PCTinyASMApply", PC_CLASSID, &PC_tinyasm_apply);
     m.def("SetASMLocalSubdomains",
           [](PC pc, std::vector<IS> ises, std::vector<PetscSF> sfs, std::vector<PetscInt> blocksizes, int localsize) {
-              PetscInt i, p, numDofs;
-              PetscCall(PetscLogEventBegin(PC_tinyasm_SetASMLocalSubdomains, pc, 0, 0, 0));
+              PetscInt p, numDofs;
+
+              MPI_Comm comm = PetscObjectComm((PetscObject) pc);
+
+              PetscCallAbort(comm, PetscLogEventBegin(PC_tinyasm_SetASMLocalSubdomains, pc, 0, 0, 0));
               auto P = pc->pmat;
               ISLocalToGlobalMapping lgr;
               ISLocalToGlobalMapping lgc;
-              MatGetLocalToGlobalMapping(P, &lgr, &lgc);
+              PetscCallAbort(comm, MatGetLocalToGlobalMapping(P, &lgr, &lgc));
 
               int numBlocks = ises.size();
               vector<vector<PetscInt>> dofsPerBlock(numBlocks);
@@ -398,27 +400,27 @@ PYBIND11_MODULE(_tinyasm, m) {
               const PetscInt* isarray;
 
               for (p = 0; p < numBlocks; p++) {
-                  PetscCall(ISGetSize(ises[p], &numDofs));
-                  PetscCall(ISGetIndices(ises[p], &isarray));
+                  PetscCallAbort(comm, ISGetSize(ises[p], &numDofs));
+                  PetscCallAbort(comm, ISGetIndices(ises[p], &isarray));
 
                   dofsPerBlock[p] = vector<PetscInt>();
                   dofsPerBlock[p].reserve(numDofs);
                   globalDofsPerBlock[p] = vector<PetscInt>(numDofs, 0);
 
-                  for (i = 0; i < numDofs; i++) {
+                  for (PetscInt i = 0; i < numDofs; i++) {
                       dofsPerBlock[p].push_back(isarray[i]);
                   }
-                  PetscCall(ISRestoreIndices(ises[p], &isarray));
-                  ISLocalToGlobalMappingApply(lgr, numDofs, &dofsPerBlock[p][0], &globalDofsPerBlock[p][0]);
+                  PetscCallAbort(comm, ISRestoreIndices(ises[p], &isarray));
+                  PetscCallAbort(comm, ISLocalToGlobalMappingApply(lgr, numDofs, &dofsPerBlock[p][0], &globalDofsPerBlock[p][0]));
               }
               DM dm;
-              PetscCall(PCGetDM(pc, &dm));
+              PetscCallAbort(comm, PCGetDM(pc, &dm));
 
               PetscSF newsf;
-              PetscCall(CreateCombinedSF(pc, sfs, blocksizes, &newsf));
+              PetscCallAbort(comm, CreateCombinedSF(pc, sfs, blocksizes, &newsf));
               auto blockjacobi = new BlockJacobi(dofsPerBlock, globalDofsPerBlock, localsize, newsf);
               pc->data = (void*)blockjacobi;
-              PetscCall(PetscLogEventEnd(PC_tinyasm_SetASMLocalSubdomains, pc, 0, 0, 0));
+              PetscCallAbort(comm, PetscLogEventEnd(PC_tinyasm_SetASMLocalSubdomains, pc, 0, 0, 0));
               return 0;
           });
 }
