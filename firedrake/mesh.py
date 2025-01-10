@@ -4693,7 +4693,7 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
     return submesh
 
 
-class MixedMeshGeometry(ufl.MixedMesh):
+class MeshSequenceGeometry(ufl.MeshSequence):
     """A representation of mixed mesh geometry."""
 
     def __init__(self, meshes, set_hierarchy=True):
@@ -4702,7 +4702,7 @@ class MixedMeshGeometry(ufl.MixedMesh):
         Parameters
         ----------
         meshes : tuple or list
-            `MeshGeometry`s to make `MixedMeshGeometry` with.
+            `MeshGeometry`s to make `MeshSequenceGeometry` with.
         set_hierarchy : bool
             Flag for making hierarchy.
 
@@ -4719,7 +4719,7 @@ class MixedMeshGeometry(ufl.MixedMesh):
 
     @utils.cached_property
     def topology(self):
-        return MixedMeshTopology([m.topology for m in self._meshes])
+        return MeshSequenceTopology([m.topology for m in self._meshes])
 
     @property
     def topological(self):
@@ -4792,13 +4792,13 @@ class MixedMeshGeometry(ufl.MixedMesh):
             if ilevel == level:
                 result.append(self)
             else:
-                result.append(MixedMeshGeometry([hierarchy[ilevel] for hierarchy in hierarchy_list], set_hierarchy=False))
+                result.append(MeshSequenceGeometry([hierarchy[ilevel] for hierarchy in hierarchy_list], set_hierarchy=False))
         result = tuple(result)
         for i, m in enumerate(result):
             set_level(m, result, i)
 
 
-class MixedMeshTopology(object):
+class MeshSequenceTopology(object):
     """A representation of mixed mesh topology."""
 
     def __init__(self, meshes):
@@ -4807,7 +4807,7 @@ class MixedMeshTopology(object):
         Parameters
         ----------
         meshes : tuple or list
-            `MeshTopology`s to make `MixedMeshTopology` with.
+            `MeshTopology`s to make `MeshSequenceTopology` with.
 
         """
         for m in meshes:
@@ -4839,8 +4839,8 @@ class MixedMeshTopology(object):
 
     def ufl_mesh(self):
         cell = self.ufl_cell()
-        return ufl.MixedMesh([ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
-                              for _ in self._meshes])
+        return ufl.MeshSequence([ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
+                                 for _ in self._meshes])
 
     def __eq__(self, other):
         if type(other) != type(self):
