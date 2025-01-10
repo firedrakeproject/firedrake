@@ -242,11 +242,13 @@ class FunctionMergeBlock(Block):
         else:
             return adj_inputs[0]
 
-    def evaluate_tlm(self):
+    def evaluate_tlm(self, markings=False):
         tlm_input = self.get_dependencies()[0].tlm_value
         if tlm_input is None:
             return
         output = self.get_outputs()[0]
+        if markings and not output.marked_in_path:
+            return
         fs = output.output.function_space()
         f = type(output.output)(fs)
         output.add_tlm_output(

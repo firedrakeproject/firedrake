@@ -45,7 +45,7 @@ except ImportError:
     ngsPETSc = None
 # Only for docstring
 import mpi4py  # noqa: F401
-from tsfc.finatinterface import as_fiat_cell
+from finat.element_factory import as_fiat_cell
 
 
 __all__ = [
@@ -2269,6 +2269,9 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         # submesh
         self.submesh_parent = None
 
+        self._spatial_index = None
+        self._saved_coordinate_dat_version = coordinates.dat.dat_version
+
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.extruded, self.variable_layers,
                 super()._ufl_signature_data_(*args, **kwargs))
@@ -2448,12 +2451,9 @@ values from f.)"""
 
         Use this if you move the mesh (for example by reassigning to
         the coordinate field)."""
-        try:
-            del self.spatial_index
-        except AttributeError:
-            pass
+        self._spatial_index = None
 
-    @utils.cached_property
+    @property
     def spatial_index(self):
         """Spatial index to quickly find which cell contains a given point.
 
@@ -2466,9 +2466,14 @@ values from f.)"""
         can be found.
 
         """
-
         from firedrake import function, functionspace
         from firedrake.parloops import par_loop, READ, MIN, MAX
+
+        if (
+            self._spatial_index
+            and self.coordinates.dat.dat_version == self._saved_coordinate_dat_version
+        ):
+            return self._spatial_index
 
         gdim = self.geometric_dimension()
         if gdim <= 1:
@@ -2531,7 +2536,9 @@ values from f.)"""
         coords_max = coords_mid + (tolerance + 0.5)*d
 
         # Build spatial index
-        return spatialindex.from_regions(coords_min, coords_max)
+        self._spatial_index = spatialindex.from_regions(coords_min, coords_max)
+        self._saved_coordinate_dat_version = self.coordinates.dat.dat_version
+        return self._spatial_index
 
     @PETSc.Log.EventDecorator()
     def locate_cell(self, x, tolerance=None, cell_ignore=None):

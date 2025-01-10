@@ -1,7 +1,8 @@
 # Code for projections and other fun stuff involving supermeshes.
 import firedrake
 import ctypes
-import sys
+import pathlib
+import libsupermesh
 from firedrake.cython.supermeshimpl import assemble_mixed_mass_matrix as ammm, intersection_finder
 from firedrake.mg.utils import get_level
 from firedrake.petsc import PETSc
@@ -428,7 +429,8 @@ each supermesh cell.
         "complex_mode": 1 if complex_mode else 0
     }
 
-    dirs = get_petsc_dir() + (sys.prefix, )
+    libsupermesh_dir = pathlib.Path(libsupermesh.get_include()).parent.absolute()
+    dirs = get_petsc_dir() + (libsupermesh_dir,)
     includes = ["-I%s/include" % d for d in dirs]
     libs = ["-L%s/lib" % d for d in dirs]
     libs = libs + ["-Wl,-rpath,%s/lib" % d for d in dirs] + ["-lpetsc", "-lsupermesh"]
