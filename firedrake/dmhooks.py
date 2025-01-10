@@ -43,7 +43,7 @@ from functools import partial
 
 import firedrake
 from firedrake.petsc import PETSc
-from firedrake.mesh import MixedMeshGeometry
+from firedrake.mesh import MeshSequenceGeometry
 
 
 @PETSc.Log.EventDecorator()
@@ -58,7 +58,7 @@ def get_function_space(dm):
     if len(meshref_tuple) == 1:
         mesh = meshref_tuple[0]()
     else:
-        mesh = MixedMeshGeometry([meshref() for meshref in meshref_tuple])
+        mesh = MeshSequenceGeometry([meshref() for meshref in meshref_tuple])
     if mesh is None:
         raise RuntimeError("Somehow your mesh was collected, this should never happen")
     V = firedrake.FunctionSpace(mesh, element, name=name)
