@@ -4,3 +4,4 @@ git+https://github.com/dolfin-adjoint/pyadjoint.git#egg=pyadjoint-ad
 git+https://github.com/firedrakeproject/loopy.git@main#egg=loopy
 git+https://github.com/firedrakeproject/petsc.git@firedrake#egg=petsc
 git+https://github.com/firedrakeproject/libsupermesh.git#egg=libsupermesh
+git+https://github.com/indiamai/fuse.git#egg=fuse
