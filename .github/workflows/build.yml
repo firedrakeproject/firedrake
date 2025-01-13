@@ -55,6 +55,7 @@ jobs:
           cd ..
           rm -rf firedrake_venv
       - name: Build Firedrake
+        id: build
         run: |
           cd ..
           # Linting should ignore unquoted shell variable $COMPLEX
@@ -101,30 +102,38 @@ jobs:
         with:
           nprocs: 1
       - name: Run tests (nprocs = 2)
+        # Run even if earlier tests failed
+        if: ${{ success() || steps.build.conclusion == 'success' }}
         uses: ./.github/actions/test_firedrake
         with:
           nprocs: 2
       - name: Run tests (nprocs = 3)
+        if: ${{ success() || steps.build.conclusion == 'success' }}
         uses: ./.github/actions/test_firedrake
         with:
           nprocs: 3
       - name: Run tests (nprocs = 4)
+        if: ${{ success() || steps.build.conclusion == 'success' }}
         uses: ./.github/actions/test_firedrake
         with:
           nprocs: 4
       - name: Run tests (nprocs = 5)
+        if: ${{ success() || steps.build.conclusion == 'success' }}
         uses: ./.github/actions/test_firedrake
         with:
           nprocs: 5
       - name: Run tests (nprocs = 6)
+        if: ${{ success() || steps.build.conclusion == 'success' }}
         uses: ./.github/actions/test_firedrake
         with:
           nprocs: 6
       - name: Run tests (nprocs = 7)
+        if: ${{ success() || steps.build.conclusion == 'success' }}
         uses: ./.github/actions/test_firedrake
         with:
           nprocs: 7
       - name: Run tests (nprocs = 8)
+        if: ${{ success() || steps.build.conclusion == 'success' }}
         uses: ./.github/actions/test_firedrake
         with:
           nprocs: 8
