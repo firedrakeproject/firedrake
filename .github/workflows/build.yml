@@ -97,7 +97,7 @@ jobs:
             git+https://github.com/JDBetteridge/mpispawn
           python -m pip list
       - name: Run tests (nprocs = 1)
-        uses: ./.github/actions/test
+        uses: ./.github/actions/test_firedrake
         with:
           nprocs: 1
       - name: Run tests (nprocs = 2)
