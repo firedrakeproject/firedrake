@@ -46,7 +46,7 @@ Registration
 ------------
 
 Register for the conference at
-`this link <https://pay.baylor.edu/C20024_ustores/web/product_detail.jsp?PRODUCTID=1097/>`__.  
+`this link <https://pay.baylor.edu/C20024_ustores/web/product_detail.jsp?PRODUCTID=1097>`__.  
 
 The registration fees are as follows:
 
