@@ -1224,6 +1224,7 @@ class MeshTopology(AbstractMeshTopology):
         # represent a mesh topology (as here) have geometric dimension
         # equal their topological dimension. This is reflected in the
         # corresponding UFL mesh.
+        # return ufl.Cell(_cells[tdim][nfacets])
         return constructCellComplex(_cells[tdim][nfacets])
 
     @utils.cached_property
