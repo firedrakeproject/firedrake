@@ -1,4 +1,3 @@
-import pytest
 import os
 from firedrake import *
 from pathlib import Path
