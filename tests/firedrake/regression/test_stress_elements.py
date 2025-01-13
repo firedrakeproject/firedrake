@@ -29,7 +29,6 @@ def mesh_hierarchy(request):
     return mh
 
 
-@pytest.mark.markif_fixture(pytest.mark.slow, stress_element="conforming")
 def test_stress_displacement_convergence(stress_element, mesh_hierarchy):
     mesh = mesh_hierarchy[0]
     V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
