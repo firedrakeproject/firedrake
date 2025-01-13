@@ -8,7 +8,7 @@ runs:
     - name: Run tests (nprocs = ${{ inputs.nprocs }})
       run: |
         . ../firedrake_venv/bin/activate
-        mpispawn -nU 12 -nW 2 --propagate-errcodes pytest \
+        mpispawn -nU 12 -nW ${{ inputs.nprocs }} --propagate-errcodes pytest \
           --splitting-algorithm least_duration \
           --splits \$MPISPAWN_NUM_TASKS \
           --group \$MPISPAWN_TASK_ID1 \
