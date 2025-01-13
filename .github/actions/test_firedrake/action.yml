@@ -1,4 +1,5 @@
 name: Run Firedrake tests
+description: Run Firedrake test suite for a given amount of parallelism.
 inputs:
   nprocs:
 
@@ -6,6 +7,7 @@ runs:
   using: "composite"
   steps:
     - name: Run tests (nprocs = ${{ inputs.nprocs }})
+      shell: bash
       run: |
         . ../firedrake_venv/bin/activate
         mpispawn -nU 12 -nW ${{ inputs.nprocs }} --propagate-errcodes pytest \
