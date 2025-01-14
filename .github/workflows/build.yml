@@ -84,6 +84,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch fiat pbrubeck/finat-boundary-quadrature \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
