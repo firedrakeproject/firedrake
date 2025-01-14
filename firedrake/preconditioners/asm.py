@@ -92,13 +92,17 @@ class ASMPatchPC(PCBase):
         self.asmpc = asmpc
 
         self._patch_statistics = []
-        if opts.getBool("print_patch_statistics", default=False):
+        if opts.getBool("view_patch_sizes", default=False):
             # Compute and stash patch statistics
+            mpi_comm = pc.comm.tompi4py()
             max_local_patch = max(is_.getSize() for is_ in ises)
             min_local_patch = min(is_.getSize() for is_ in ises)
-            max_global_patch = pc.comm.tompi4py().allreduce(max_local_patch, op=MPI.MAX)
-            min_global_patch = pc.comm.tompi4py().allreduce(min_local_patch, op=MPI.MIN)
-            msg = f"Minimum / maximum patch sizes: {min_global_patch} / {max_global_patch}\n"
+            sum_local_patch = sum(is_.getSize() for is_ in ises)
+            max_global_patch = mpi_comm.allreduce(max_local_patch, op=MPI.MAX)
+            min_global_patch = mpi_comm.allreduce(min_local_patch, op=MPI.MIN)
+            sum_global_patch = mpi_comm.allreduce(sum_local_patch, op=MPI.SUM)
+            avg_global_patch = sum_global_patch / mpi_comm.allreduce(len(ises) if sum_local_patch > 0 else 0, op=MPI.SUM)
+            msg = f"Minimum / average / maximum patch sizes : {min_global_patch} / {avg_global_patch} / {max_global_patch}\n"
             self._patch_statistics.append(msg)
 
     @abc.abstractmethod
