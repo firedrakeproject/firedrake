@@ -49,7 +49,7 @@ jobs:
         --splitting-algorithm least_duration \
         --splits \$MPISPAWN_NUM_TASKS \
         --group \$MPISPAWN_TASK_ID1 \
-        --timeout=1800 \
+        --timeout=500 \
         --timeout-method=thread \
         -o faulthandler_timeout=1860
     outputs:
