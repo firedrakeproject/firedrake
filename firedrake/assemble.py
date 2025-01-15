@@ -387,7 +387,7 @@ class BaseFormAssembler(AbstractFormAssembler):
 
         # Apply BCs after assembly
         rank = len(self._form.arguments())
-        if rank == 1:
+        if rank == 1 and not isinstance(result, ufl.ZeroBaseForm):
             for bc in self._bcs:
                 bc.zero(result)
 
