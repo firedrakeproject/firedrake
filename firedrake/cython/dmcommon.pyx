@@ -2357,6 +2357,8 @@ def compute_dm_renumbering(
         PETSc.IS renumbering_is
         PETSc.DM dm
 
+        PetscInt pStart_c, pEnd_c, nPoints_c
+        PetscInt nOwned_c, nGhost_c
         PetscInt dim, cStart, cEnd, nfacets, nclosure, c, ci, l, p, f
         PetscInt *facets = NULL
         PetscInt *closure = NULL
@@ -2368,12 +2370,13 @@ def compute_dm_renumbering(
 
     dm = mesh.topology_dm
 
-    p_start, p_end = 0, mesh.num_points
+    DMPlexGetChart(dm.dm, &pStart_c, &pEnd_c)
+    nPoints_c = pEnd_c - pStart_c
 
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
 
-    CHKERR(PetscMalloc1(p_end - p_start, &renumbering))
-    CHKERR(PetscBTCreate(p_end - p_start, &seen_points))
+    CHKERR(PetscMalloc1(nPoints_c, &renumbering))
+    CHKERR(PetscBTCreate(nPoints_c, &seen_points))
 
     # if boundary_set:
     #     CHKERR(PetscBTCreate(pEnd - pStart, &seen_boundary))
@@ -2387,6 +2390,8 @@ def compute_dm_renumbering(
     #     CHKERR(DMLabelCreateIndex(labels[idx], pStart, pEnd))
     # TODO: Make a constant somewhere
     CHKERR(DMGetLabel(dm.dm, b"firedrake_is_ghost", &clabel))
+    DMLabelGetStratumSize(clabel, 1, &nGhost_c)
+    nOwned_c = nPoints_c - nGhost_c
 
     # Get boundary points (if the boundary_set exists) and count each type
     # constrained_core = 0
@@ -2415,10 +2420,9 @@ def compute_dm_renumbering(
     #                             constrained_core += 1
     #                         break
 
-    owned_ptr = 0
-    ghost_ptr = mesh.num_owned_points
+    ptr = 0
 
-    for cell in range(mesh.num_cells):
+    for cell in range(cStart, cEnd):
         if reorder:
             cell = reordering[cell]
 
@@ -2430,16 +2434,10 @@ def compute_dm_renumbering(
                 continue
             else:
                 PetscBTSet(seen_points, point)
-                CHKERR(DMLabelGetValue(clabel, point, &is_ghost))
-                if is_ghost == 1:
-                    renumbering[ghost_ptr] = point
-                    ghost_ptr += 1
-                else:
-                    renumbering[owned_ptr] = point
-                    owned_ptr += 1
+                renumbering[ptr] = point
+                ptr += 1
 
-    assert owned_ptr == mesh.num_owned_points
-    assert ghost_ptr == mesh.num_points
+    assert ptr == nPoints_c
 
     if closure != NULL:
         restore_transitive_closure(dm.dm, 0, PETSC_TRUE, &nclosure, &closure)
@@ -2457,6 +2455,54 @@ def compute_dm_renumbering(
         )
     )
     return renumbering_is
+
+
+def partition_renumbering(PETSc.DM dm, PETSc.IS serial_renumbering) -> PETSc.IS:
+    """Partition a serial point renumbering into owned and ghost points."""
+    cdef:
+        PETSc.IS       parallel_renumbering
+
+        DMLabel        ghostLabel_c
+        PetscInt       nPoints_c, nOwned_c, nGhost_c, isGhost_c, ownedPtr_c, ghostPtr_c, i_c, p_c
+        const PetscInt *serial_renumbering_c = NULL
+        PetscInt       *parallel_renumbering_c = NULL
+
+    CHKERR(ISGetIndices(serial_renumbering.iset, &serial_renumbering_c))
+    CHKERR(ISGetLocalSize(serial_renumbering.iset, &nPoints_c))
+    CHKERR(PetscMalloc1(nPoints_c, &parallel_renumbering_c))
+
+    CHKERR(DMGetLabel(dm.dm, b"firedrake_is_ghost", &ghostLabel_c))
+    CHKERR(DMLabelGetStratumSize(ghostLabel_c, 1, &nGhost_c))
+    nOwned_c = nPoints_c - nGhost_c
+
+    ownedPtr_c = 0
+    ghostPtr_c = nOwned_c
+
+    for i_c in range(nPoints_c):
+        p_c = serial_renumbering_c[i_c]
+        CHKERR(DMLabelGetValue(ghostLabel_c, p_c, &isGhost_c))
+        if isGhost_c == 1:
+            parallel_renumbering_c[ghostPtr_c] = p_c
+            ghostPtr_c += 1
+        else:
+            parallel_renumbering_c[ownedPtr_c] = p_c
+            ownedPtr_c += 1
+
+    assert ownedPtr_c == nOwned_c
+    assert ghostPtr_c == nPoints_c
+
+    parallel_renumbering = PETSc.IS().create(comm=dm.comm)
+    parallel_renumbering.setType("general")
+    CHKERR(
+        ISGeneralSetIndices(
+            parallel_renumbering.iset,
+            nPoints_c,
+            parallel_renumbering_c,
+            PETSC_OWN_POINTER,
+        )
+    )
+    return parallel_renumbering
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)

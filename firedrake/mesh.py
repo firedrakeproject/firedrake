@@ -713,20 +713,32 @@ class AbstractMeshTopology(abc.ABC):
                 with PETSc.Log.Event("Renumber mesh topology"):
                     rcm_ordering_is = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM)
                     cell_ordering = rcm_ordering_is.indices[:self.num_cells]
-
                     dm_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
 
+                # debug: save old numbering for comparison
+                serial_renumbering = dm_renumbering
+
+                # Now take this renumbering and partition owned and ghost points, this
+                # is the part that pyop3 should ultimately be able to handle.
+                dm_renumbering = dmcommon.partition_renumbering(self.topology_dm, dm_renumbering)
             else:
                 dm_renumbering = None
+
             self._dm_renumbering = dm_renumbering
 
             p_start, p_end = topology_dm.getChart()
             n_points = p_end - p_start
-            flat_points = op3.Axis({"mylabel": n_points}, label=f"{self.name}_flat")
 
-            if self.comm.size > 1:
-                raise NotImplementedError
-                points = op3.Axis.from_serial(points, self.topology_dm.getPointSF())
+            # point_sf = ???
+
+            # TODO: Allow the label here to be None
+            flat_points = op3.Axis(
+                [op3.AxisComponent(n_points, "mylabel", sf=point_sf)],
+                label=f"{self.name}_flat",
+            )
+
+            print(flat_points._all_regions)
+            breakpoint()
 
             # TODO: AxisForest?
             self.flat_points = flat_points
@@ -2143,10 +2155,11 @@ class MeshTopology(AbstractMeshTopology):
 
     @property
     def num_owned_points(self) -> int:
-        if self.comm.size > 1:
-            raise NotImplementedError("Should be retrievable from the is_ghost label")
+        return self.num_points - self.num_ghost_points
 
-        return self.num_points
+    @property
+    def num_ghost_points(self) -> int:
+        return self.topology_dm.getLabel("firedrake_is_ghost").getStratumSize(1)
 
     @property
     def num_cells(self) -> int:

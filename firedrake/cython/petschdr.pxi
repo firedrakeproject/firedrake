@@ -106,6 +106,7 @@ cdef extern from "petscis.h" nogil:
     int PetscSectionSetPermutation(PETSc.PetscSection,PETSc.PetscIS)
     int ISGetIndices(PETSc.PetscIS,PetscInt*[])
     int ISGetSize(PETSc.PetscIS,PetscInt*)
+    int ISGetLocalSize(PETSc.PetscIS,PetscInt*)
     int ISRestoreIndices(PETSc.PetscIS,PetscInt*[])
     int ISGeneralSetIndices(PETSc.PetscIS,PetscInt,PetscInt[],PetscCopyMode)
     int ISLocalToGlobalMappingCreateIS(PETSc.PetscIS,PETSc.PetscLGMap*)
