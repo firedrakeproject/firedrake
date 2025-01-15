@@ -51,6 +51,7 @@ jobs:
             --with-debugging=1 \
             --with-shared-libraries=1 \
             --with-c2html=0 \
+            --with-strict-petscerrorcode \
             --with-fortran-bindings=0
           make
 
