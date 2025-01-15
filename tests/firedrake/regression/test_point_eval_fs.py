@@ -213,3 +213,12 @@ def test_point_reset_works():
     f.assign(1)
     m.clear_spatial_index()
     assert np.allclose([1.0], f.at((0.3, 0.3)))
+
+
+def test_changing_coordinates_invalidates_spatial_index():
+    mesh = UnitSquareMesh(2, 2)
+    mesh.init()
+
+    saved_spatial_index = mesh.spatial_index
+    mesh.coordinates.assign(mesh.coordinates * 2)
+    assert mesh.spatial_index != saved_spatial_index

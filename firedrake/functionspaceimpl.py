@@ -184,11 +184,8 @@ class WithGeometryBase(object):
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
-        mixed = len(self) != 1
+        mixed = type(self.ufl_element()) is finat.ufl.MixedElement
         data = self.subfunctions if mixed else self._components
-        bound = len(data)
-        if i < 0 or i >= bound:
-            raise IndexError(f"Invalid component {i}, not in [0, {bound})")
         return data[i]
 
     @utils.cached_property
@@ -668,9 +665,6 @@ class FunctionSpace(object):
 
     def sub(self, i):
         r"""Return a view into the ith component."""
-        bound = len(self._components)
-        if i < 0 or i >= bound:
-            raise IndexError(f"Invalid component {i}, not in [0, {bound})")
         return self._components[i]
 
     def __mul__(self, other):
