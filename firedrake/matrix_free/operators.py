@@ -154,7 +154,7 @@ class ImplicitMatrixContext(object):
         self._assemble_action = get_assembler(self.action,
                                               bcs=self.bcs_action,
                                               form_compiler_parameters=self.fc_params,
-                                              zero_bc_nodes=True).assemble
+                                              ).assemble
 
         # For assembling action(adjoint(f), self._y)
         # Sorted list of equation bcs
@@ -189,11 +189,9 @@ class ImplicitMatrixContext(object):
 
     def getDiagonal(self, mat, vec):
         self._assemble_diagonal(tensor=self._diagonal)
-        diagonal_func = self._diagonal.riesz_representation(riesz_map="l2")
         for bc in self.bcs:
             # Operator is identity on boundary nodes
-            bc.set(diagonal_func, 1)
-        self._diagonal.assign(diagonal_func.riesz_representation(riesz_map="l2"))
+            bc.set(self._diagonal, 1)
         with self._diagonal.dat.vec_ro as v:
             v.copy(vec)
 

@@ -13,6 +13,7 @@ import numpy
 import ufl
 import finat.ufl
 
+from ufl.duals import is_dual, is_primal
 from pyop2 import op2, mpi
 from pyop2.utils import as_tuple
 
@@ -293,6 +294,9 @@ class WithGeometryBase(object):
         cache[function] = False
 
     def __eq__(self, other):
+        if is_primal(self) != is_primal(other) or \
+                is_dual(self) != is_dual(other):
+            return False
         try:
             return self.topological == other.topological and \
                 self.mesh() is other.mesh()

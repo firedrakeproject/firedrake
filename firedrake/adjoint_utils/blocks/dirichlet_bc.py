@@ -51,7 +51,7 @@ class DirichletBCBlock(Block):
         adj_output = None
         for adj_input in adj_inputs:
             if isconstant(c):
-                adj_value = firedrake.Function(self.parent_space.dual())
+                adj_value = firedrake.Function(self.parent_space)
                 adj_input.apply(adj_value)
                 if self.function_space != self.parent_space:
                     vec = extract_bc_subvector(
@@ -88,11 +88,11 @@ class DirichletBCBlock(Block):
                 #       you can even use the Function outside its domain.
                 # For now we will just assume the FunctionSpace is the same for
                 # the BC and the Function.
-                adj_value = firedrake.Function(self.parent_space.dual())
+                adj_value = firedrake.Function(self.parent_space)
                 adj_input.apply(adj_value)
                 r = extract_bc_subvector(
                     adj_value, c.function_space(), bc
-                )
+                ).riesz_representation("l2")
             if adj_output is None:
                 adj_output = r
             else:

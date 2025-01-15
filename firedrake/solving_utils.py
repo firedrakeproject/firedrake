@@ -221,7 +221,7 @@ class _SNESContext(object):
 
         self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
                                                 form_compiler_parameters=self.fcp,
-                                                zero_bc_nodes=True).assemble
+                                                ).assemble
 
         self._jacobian_assembled = False
         self._splits = {}
