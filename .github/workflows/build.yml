@@ -47,13 +47,14 @@ jobs:
       OPENBLAS_NUM_THREADS: 1
       COMPLEX: ${{ matrix.complex }}
       RDMAV_FORK_SAFE: 1
+      XDG_CACHE_HOME: ${{ github.workspace }}/.cache
     steps:
       - uses: actions/checkout@v4
       - name: Cleanup
         if: ${{ always() }}
         run: |
           cd ..
-          rm -rf firedrake_venv
+          rm -rf firedrake_venv "$XDG_CACHE_HOME"
       - name: Build Firedrake
         run: |
           cd ..
@@ -134,7 +135,7 @@ jobs:
         if: ${{ always() }}
         run: |
           cd ..
-          rm -rf firedrake_venv
+          rm -rf firedrake_venv "$XDG_CACHE_HOME"
   docker_tag:
     name: "Set the Docker release tag"
     runs-on: [self-hosted, Linux]

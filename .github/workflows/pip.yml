@@ -42,10 +42,11 @@ jobs:
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
       RDMAV_FORK_SAFE: 1
+      XDG_CACHE_HOME: ${{ github.workspace }}/.cache
     steps:
       - name: Cleanup
         if: ${{ always() }}
-        run: rm -rf pip_venv
+        run: rm -rf pip_venv "$XDG_CACHE_HOME"
 
       - name: Create a venv
         run: |
@@ -107,4 +108,4 @@ jobs:
       - name: Cleanup
         # Belt and braces: clean up before and after the run.
         if: ${{ always() }}
-        run: rm -rf pip_venv
+        run: rm -rf pip_venv "$XDG_CACHE_HOME"

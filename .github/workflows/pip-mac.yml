@@ -25,6 +25,7 @@ jobs:
     env:
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
+      XDG_CACHE_HOME: ${{ github.workspace }}/.cache
     steps:
       - name: Add homebrew to PATH
         # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
@@ -36,7 +37,7 @@ jobs:
       - name: Cleanup (pre)
         if: ${{ always() }}
         run: |
-          rm -rf pip_venv
+          rm -rf pip_venv "$XDG_CACHE_HOME"
           "$(brew --prefix)/bin/python3" -m pip cache purge
 
       - name: Create a virtual environment
@@ -108,5 +109,5 @@ jobs:
       - name: Cleanup (post)
         if: ${{ always() }}
         run: |
-          rm -rf pip_venv
+          rm -rf pip_venv "$XDG_CACHE_HOME"
           "$(brew --prefix)/bin/python3" -m pip cache purge

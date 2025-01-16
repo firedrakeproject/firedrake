@@ -26,6 +26,7 @@ jobs:
       FIREDRAKE_CI_TESTS: 1  # needed to symlink the checked out branch into the venv
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
+      XDG_CACHE_HOME: ${{ github.workspace }}/.cache
     steps:
       - name: Add homebrew to PATH
         # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
@@ -35,7 +36,7 @@ jobs:
         if: ${{ always() }}
         run: |
           cd ..
-          rm -rf firedrake_venv
+          rm -rf firedrake_venv "$XDG_CACHE_HOME"
       - name: Install Python
         run: brew install python python-setuptools
       - name: Build Firedrake
@@ -58,4 +59,4 @@ jobs:
         if: ${{ always() }}
         run: |
           cd ..
-          rm -rf firedrake_venv
+          rm -rf firedrake_venv "$XDG_CACHE_HOME"
