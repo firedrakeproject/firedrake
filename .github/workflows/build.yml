@@ -55,8 +55,11 @@ jobs:
         run: |
           cd ..
           rm -rf firedrake_venv
+      - name: MOVE THIS TO LATER install parallel
+        run: |
+          sudo apt update
+          sudo apt install parallel
       - name: Build Firedrake
-        id: build
         run: |
           cd ..
           # Linting should ignore unquoted shell variable $COMPLEX
@@ -88,8 +91,8 @@ jobs:
             --install asQ \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
+        id: build
         run: |
-          sudo apt install parallel
           . ../firedrake_venv/bin/activate
           python "$(which firedrake-clean)"
           python -m pip install \
