@@ -89,7 +89,7 @@ jobs:
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
-          apt-get -y install parallel
+          sudo apt install parallel
           . ../firedrake_venv/bin/activate
           python "$(which firedrake-clean)"
           python -m pip install \
