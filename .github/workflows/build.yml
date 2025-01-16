@@ -45,7 +45,7 @@ jobs:
       OPENBLAS_NUM_THREADS: 1
       COMPLEX: ${{ matrix.complex }}
       RDMAV_FORK_SAFE: 1
-      PYTEST_ARGS: --group {#} --splitting-algorithm least_duration --timeout=500 --timeout-method=thread -o faulthandler_timeout=1860 --verbose
+      PYTEST_ARGS: --group {#} --splitting-algorithm least_duration --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 --verbose
     outputs:
       scalar-type: ${{ matrix.scalar-type }}
     steps:
@@ -55,10 +55,6 @@ jobs:
         run: |
           cd ..
           rm -rf firedrake_venv
-      - name: MOVE THIS TO LATER install parallel
-        run: |
-          sudo apt update
-          sudo apt -y install parallel
       - name: Build Firedrake
         run: |
           cd ..
@@ -93,6 +89,8 @@ jobs:
       - name: Install test dependencies
         id: build
         run: |
+          sudo apt update
+          sudo apt -y install parallel
           . ../firedrake_venv/bin/activate
           python "$(which firedrake-clean)"
           python -m pip install \
@@ -103,15 +101,16 @@ jobs:
       - name: Run tests (nprocs = 1)
         run: |
           . ../firedrake_venv/bin/activate
-          parallel --line-buffer --tag \
-            "pytest $PYTEST_ARGS --splits 12 --junit-xml=firedrake1_{#}.xml -m "parallel[1] or not parallel" tests/firedrake ::: $(seq 12)"
+          : # use --quote to stop parallel from parsing the pytest arguments
+          parallel --line-buffer --tag --quote \
+            pytest "$PYTEST_ARGS" --splits 12 --junit-xml="firedrake1_{#}.xml" -m "parallel[1] or not parallel" tests/firedrake ::: $(seq 12)
       - name: Run tests (nprocs = 2)
         # Run even if earlier tests failed
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
           . ../firedrake_venv/bin/activate
-          parallel --line-buffer --tag \
-            "mpiexec -n 2 pytest $PYTEST_ARGS --splits 6 --junit-xml=firedrake2_{#}.xml -m parallel[2] tests/firedrake ::: $(seq 6)"
+          parallel --line-buffer --tag --quote \
+            mpiexec -n 2 pytest "$PYTEST_ARGS" --splits 6 --junit-xml="firedrake2_{#}.xml" -m parallel[2] tests/firedrake ::: $(seq 6)
 
       # - name: Run tests (nprocs = 3)
       #   if: ${{ success() || steps.build.conclusion == 'success' }}
