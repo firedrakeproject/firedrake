@@ -33,13 +33,32 @@ def mesh(ensemble):
     return fd.UnitSquareMesh(2, 2, comm=ensemble.comm)
 
 
+scalar_elements = {
+    'CG': fd.FiniteElement('CG', cell=fd.triangle, degree=1),
+    'BDM': fd.FiniteElement('BDM', cell=fd.triangle, degree=2),
+    'V-RT': fd.VectorElement('RT', cell=fd.triangle, degree=1, dim=2),
+    'T-DG': fd.TensorElement('DG', cell=fd.triangle, degree=1, shape=(2, 3))
+}
+
+# Test an EnsembleFunction with 8 subfunctions with the elements below, distributed over 1 or more processors.
+# This element sequence below hits a variety of cases:
+# - scalar, vector-valued, vector, tensor, mixed elements
+# - mixed elements with scalar, vector-valued, vector and tensor components
+# - repeated adjacent components (6, 7)
+# - repeated non-adjacent components (2, 6)
+# - mixed element with a single component (8)
+# - mixed element with repeated component (5)
+# - mixed element where the first component matches the previous element (2, 3)
+
 elements = [
-    fd.FiniteElement('CG', cell=fd.triangle, degree=1),
-    fd.FiniteElement('BDM', cell=fd.triangle, degree=2),
-    fd.FiniteElement('DG', cell=fd.triangle, degree=0),
-    fd.VectorElement('RT', cell=fd.triangle, degree=1, dim=2),
-    fd.FiniteElement('CG', cell=fd.triangle, degree=1),
-    fd.TensorElement('DG', cell=fd.triangle, degree=1, shape=(2, 3))
+    scalar_elements['CG'],  # 1
+    scalar_elements['BDM'],  # 2
+    fd.MixedElement([scalar_elements[e] for e in ('BDM', 'CG')]),  # 3
+    scalar_elements['T-DG'],  # 4
+    fd.MixedElement([scalar_elements[e] for e in ('V-RT', 'CG', 'CG')]),  # 5
+    scalar_elements['BDM'],  # 6
+    scalar_elements['BDM'],  # 7
+    fd.MixedElement([scalar_elements[e] for e in ('T-DG',)])  # 8
 ]
 
 
@@ -69,7 +88,7 @@ def ensemblefunc(request, ensemble, Wlocal):
         raise ValueError(f"Unknown ensemblefunc type {request.param}")
 
 
-@pytest.mark.parallel(nprocs=[1, 2, 6])
+@pytest.mark.parallel(nprocs=[1, 2, 4, 8])
 def test_zero(ensemblefunc):
     """
     Test setting all components to zero.
@@ -87,7 +106,7 @@ def test_zero(ensemblefunc):
         assert norm(u) < 1e-14, "EnsembleFunction.zero should zero all components"
 
 
-@pytest.mark.parallel(nprocs=[1, 2, 6])
+@pytest.mark.parallel(nprocs=[1, 2, 4, 8])
 def test_zero_with_subset(ensemblefunc):
     """
     Test setting a subset of all components to zero.
