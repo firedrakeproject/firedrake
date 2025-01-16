@@ -53,6 +53,7 @@ jobs:
             --with-shared-libraries=1 \
             --with-mpi-dir=/opt/homebrew \
             --with-zlib \
+            --with-strict-petscerrorcode \
             --download-bison \
             --download-hdf5 \
             --download-hwloc \

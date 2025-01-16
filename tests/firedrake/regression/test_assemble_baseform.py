@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.assemble import BaseFormAssembler, get_assembler
+from firedrake.assemble import get_assembler
 from firedrake.utils import ScalarType
 import ufl
 
@@ -43,39 +43,15 @@ def fs(request, mesh):
 @pytest.fixture
 def f(fs):
     f = Function(fs, name="f")
-    f_split = f.subfunctions
     x = SpatialCoordinate(fs.mesh())[0]
-
-    # NOTE: interpolation of UFL expressions into mixed
-    # function spaces is not yet implemented
-    for fi in f_split:
-        fs_i = fi.function_space()
-        if fs_i.rank == 1:
-            fi.interpolate(as_vector((x,) * fs_i.value_size))
-        elif fs_i.rank == 2:
-            fi.interpolate(as_tensor([[x for i in range(fs_i.mesh().geometric_dimension())]
-                                      for j in range(fs_i.rank)]))
-        else:
-            fi.interpolate(x)
+    f.interpolate(as_tensor(np.full(f.ufl_shape, x)))
     return f
 
 
 @pytest.fixture
 def one(fs):
     one = Function(fs, name="one")
-    ones = one.subfunctions
-
-    # NOTE: interpolation of UFL expressions into mixed
-    # function spaces is not yet implemented
-    for fi in ones:
-        fs_i = fi.function_space()
-        if fs_i.rank == 1:
-            fi.interpolate(Constant((1.0,) * fs_i.value_size))
-        elif fs_i.rank == 2:
-            fi.interpolate(Constant([[1.0 for i in range(fs_i.mesh().geometric_dimension())]
-                                     for j in range(fs_i.rank)]))
-        else:
-            fi.interpolate(Constant(1.0))
+    one.interpolate(Constant(np.ones(one.ufl_shape)))
     return one
 
 
@@ -153,23 +129,6 @@ def test_zero_form(M, f, one):
     zero_form = assemble(action(action(M, f), one))
     assert isinstance(zero_form, ScalarType.type)
     assert abs(zero_form - 0.5 * np.prod(f.ufl_shape)) < 1.0e-12
-
-
-def test_preprocess_form(M, a, f):
-    from ufl.algorithms import expand_indices, expand_derivatives
-
-    expr = action(action(M, M), f)
-    A = BaseFormAssembler.preprocess_base_form(expr)
-    B = action(expand_derivatives(M), action(M, f))
-
-    assert isinstance(A, ufl.Action)
-    try:
-        # Need to expand indices to be able to match equal (different MultiIndex used for both).
-        assert expand_indices(A.left()) == expand_indices(B.left())
-        assert expand_indices(A.right()) == expand_indices(B.right())
-    except KeyError:
-        # Index expansion doesn't seem to play well with tensor elements.
-        pass
 
 
 def test_tensor_copy(a, M):

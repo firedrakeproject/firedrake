@@ -101,14 +101,14 @@ jobs:
         run: |
           . ../firedrake_venv/bin/activate
           parallel --line-buffer --tag \
-            pytest "$PYTEST_ARGS" --splits 12 --junit-xml=firedrake1_{#}.xml -m "parallel[1] or not parallel" tests/firedrake ::: $(seq 12)
+            "pytest $PYTEST_ARGS --splits 12 --junit-xml=firedrake1_{#}.xml -m "parallel[1] or not parallel" tests/firedrake ::: $(seq 12)"
       - name: Run tests (nprocs = 2)
         # Run even if earlier tests failed
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
           . ../firedrake_venv/bin/activate
           parallel --line-buffer --tag \
-            mpiexec -n 2 pytest "$PYTEST_ARGS" --splits 6 --junit-xml=firedrake2_{#}.xml -m parallel[2] tests/firedrake ::: $(seq 6)
+            "mpiexec -n 2 pytest $PYTEST_ARGS --splits 6 --junit-xml=firedrake2_{#}.xml -m parallel[2] tests/firedrake ::: $(seq 6)"
 
       # - name: Run tests (nprocs = 3)
       #   if: ${{ success() || steps.build.conclusion == 'success' }}
