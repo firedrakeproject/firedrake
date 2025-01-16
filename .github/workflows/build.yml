@@ -98,7 +98,7 @@ jobs:
           python -m pip install \
             pytest-timeout \
             ipympl \
-            pytest-split \
+            pytest-split
           python -m pip list
       - name: Run tests (nprocs = 1)
         run: |
