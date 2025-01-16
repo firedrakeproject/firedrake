@@ -58,7 +58,7 @@ jobs:
       - name: MOVE THIS TO LATER install parallel
         run: |
           sudo apt update
-          sudo apt install parallel
+          sudo apt -y install parallel
       - name: Build Firedrake
         run: |
           cd ..
