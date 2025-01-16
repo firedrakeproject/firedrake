@@ -2504,6 +2504,50 @@ def partition_renumbering(PETSc.DM dm, PETSc.IS serial_renumbering) -> PETSc.IS:
     return parallel_renumbering
 
 
+def renumber_sf(PETSc.SF sf, PETSc.IS renumbering) -> PETSc.SF:
+    """Renumber an SF.
+
+    Parameters
+    ----------
+    sf :
+        The input SF.
+    renumbering :
+        The renumbering to apply.
+
+    Returns
+    -------
+    PETSc.SF :
+        The renumbered SF.
+
+    Notes
+    -----
+    To renumber the SF we create a Section containing 1 DoF per point, set
+    its permutation, and then call ``PetscSFCreateSectionSF()``.
+
+    """
+    cdef:
+        PETSc.SF      sf_renum
+        PETSc.Section section
+
+        PetscInt      nPoints_c, p_c
+        PetscInt      *remoteOffsets_c = NULL
+
+    nPoints_c = renumbering.getLocalSize()
+
+    section = PETSc.Section().create(sf.comm)
+    section.setChart(0, nPoints_c)
+    for p_c in range(nPoints_c):
+        CHKERR(PetscSectionSetDof(section.sec, p_c, 1))
+    section.setPermutation(renumbering)
+    section.setUp()
+
+    CHKERR(PetscSFCreateRemoteOffsets(sf.sf, section.sec, section.sec, &remoteOffsets_c))
+
+    sf_renum = PETSc.SF()
+    CHKERR(PetscSFCreateSectionSF(sf.sf, section.sec, remoteOffsets_c, section.sec, &sf_renum.sf))
+    return sf_renum
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def get_cell_remote_ranks(PETSc.DM plex):

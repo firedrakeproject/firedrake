@@ -94,6 +94,7 @@ cdef extern from "petscvec.h" nogil:
     int VecRestoreArrayRead(PETSc.PetscVec,const PetscScalar**)
 
 cdef extern from "petscis.h" nogil:
+    int PetscSectionSetPermutation(PETSc.PetscSection,PETSc.PetscIS)
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
     int PetscSectionGetDof(PETSc.PetscSection,PetscInt,PetscInt*)
     int PetscSectionSetDof(PETSc.PetscSection,PetscInt,PetscInt)
@@ -103,7 +104,6 @@ cdef extern from "petscis.h" nogil:
     int PetscSectionSetConstraintDof(PETSc.PetscSection,PetscInt,PetscInt)
     int PetscSectionSetConstraintIndices(PETSc.PetscSection,PetscInt, PetscInt[])
     int PetscSectionGetMaxDof(PETSc.PetscSection,PetscInt*)
-    int PetscSectionSetPermutation(PETSc.PetscSection,PETSc.PetscIS)
     int ISGetIndices(PETSc.PetscIS,PetscInt*[])
     int ISGetSize(PETSc.PetscIS,PetscInt*)
     int ISGetLocalSize(PETSc.PetscIS,PetscInt*)
@@ -127,6 +127,8 @@ cdef extern from "petscsf.h" nogil:
     int PetscSFBcastEnd(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*)
     int PetscSFReduceBegin(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*,MPI.MPI_Op)
     int PetscSFReduceEnd(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*,MPI.MPI_Op)
+    int PetscSFCreateSectionSF(PETSc.PetscSF,PETSc.PetscSection,PetscInt*,PETSc.PetscSection,PETSc.PetscSF*)
+    int PetscSFCreateRemoteOffsets(PETSc.PetscSF,PETSc.PetscSection,PETSc.PetscSection,PetscInt**)
 
 ctypedef int (*PetscPCPatchComputeFunction)(PETSc.PetscPC,
                                             PetscInt,

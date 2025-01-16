@@ -715,9 +715,6 @@ class AbstractMeshTopology(abc.ABC):
                     cell_ordering = rcm_ordering_is.indices[:self.num_cells]
                     dm_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
 
-                # debug: save old numbering for comparison
-                serial_renumbering = dm_renumbering
-
                 # Now take this renumbering and partition owned and ghost points, this
                 # is the part that pyop3 should ultimately be able to handle.
                 dm_renumbering = dmcommon.partition_renumbering(self.topology_dm, dm_renumbering)
@@ -729,15 +726,19 @@ class AbstractMeshTopology(abc.ABC):
             p_start, p_end = topology_dm.getChart()
             n_points = p_end - p_start
 
-            # point_sf = ???
+            # TODO: Make a cython function
+            # NEXT: need to renumber the SF (using a section, https://petsc.org/release/src/dm/impls/plex/tutorials/ex14.c.html) so that it is correctly ordered.
+
+            point_sf = self.topology_dm.getPointSF()
+            point_sf_renum = dmcommon.renumber_sf(point_sf, dm_renumbering)
 
             # TODO: Allow the label here to be None
             flat_points = op3.Axis(
-                [op3.AxisComponent(n_points, "mylabel", sf=point_sf)],
+                [op3.AxisComponent(n_points, "mylabel", sf=point_sf_renum)],
                 label=f"{self.name}_flat",
             )
 
-            print(flat_points._all_regions)
+            print(flat_points.component._all_regions)
             breakpoint()
 
             # TODO: AxisForest?
