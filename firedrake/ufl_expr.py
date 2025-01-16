@@ -7,7 +7,6 @@ from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.domain import as_domain
 import firedrake
 from firedrake import utils, function, cofunction
-from firedrake.mesh import MeshSequenceGeometry
 from firedrake.constant import Constant
 from firedrake.petsc import PETSc
 
@@ -380,6 +379,8 @@ def extract_domains(f):
     list of firedrake.mesh.MeshGeometry
         Extracted domains.
     """
+    from firedrake.mesh import MeshSequenceGeometry
+
     if isinstance(f, firedrake.slate.TensorBase):
         return f.ufl_domains()
     elif isinstance(f, cofunction.Cofunction):

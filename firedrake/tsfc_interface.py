@@ -12,7 +12,6 @@ import cachetools
 import ufl
 import finat.ufl
 from ufl import conj, Form, ZeroBaseForm
->>>>>>> 40d114f88 (introduce MixedMesh)
 from .ufl_expr import TestFunction, extract_domains
 
 from tsfc import compile_form as original_tsfc_compile_form
