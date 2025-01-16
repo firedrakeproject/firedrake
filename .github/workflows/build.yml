@@ -45,13 +45,7 @@ jobs:
       OPENBLAS_NUM_THREADS: 1
       COMPLEX: ${{ matrix.complex }}
       RDMAV_FORK_SAFE: 1
-      PYTEST_ARGS: |
-        --splitting-algorithm least_duration \
-        --splits \$MPISPAWN_NUM_TASKS \
-        --group \$MPISPAWN_TASK_ID1 \
-        --timeout=500 \
-        --timeout-method=thread \
-        -o faulthandler_timeout=1860
+      PYTEST_ARGS: --group {#} --splitting-algorithm least_duration --timeout=500 --timeout-method=thread -o faulthandler_timeout=1860 --verbose
     outputs:
       scalar-type: ${{ matrix.scalar-type }}
     steps:
@@ -95,64 +89,63 @@ jobs:
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
+          apt-get -y install parallel
           . ../firedrake_venv/bin/activate
           python "$(which firedrake-clean)"
           python -m pip install \
-            pytest-xdist \
             pytest-timeout \
             ipympl \
             pytest-split \
-            git+https://github.com/JDBetteridge/mpispawn
           python -m pip list
       - name: Run tests (nprocs = 1)
         run: |
           . ../firedrake_venv/bin/activate
-          mpispawn -nU 12 -nW 1 --propagate-errcodes \
-          pytest "$PYTEST_ARGS" --junit-xml=firedrake1.xml -m "parallel[1] or not parallel" -v tests/firedrake
+          parallel --line-buffer --tag \
+            pytest "$PYTEST_ARGS" --splits 12 --junit-xml=firedrake1_{#}.xml -m "parallel[1] or not parallel" tests/firedrake ::: $(seq 12)
       - name: Run tests (nprocs = 2)
         # Run even if earlier tests failed
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
           . ../firedrake_venv/bin/activate
-          mpispawn -nU 12 -nW 2 --propagate-errcodes \
-            pytest "$PYTEST_ARGS" --junit-xml=firedrake2_\$MPISPAWN_TASK_ID1.xml -m parallel[2] -v tests/firedrake
+          parallel --line-buffer --tag \
+            mpiexec -n 2 pytest "$PYTEST_ARGS" --splits 6 --junit-xml=firedrake2_{#}.xml -m parallel[2] tests/firedrake ::: $(seq 6)
 
-      - name: Run tests (nprocs = 3)
-        if: ${{ success() || steps.build.conclusion == 'success' }}
-        run: |
-          . ../firedrake_venv/bin/activate
-          mpispawn -nU 12 -nW 3 --propagate-errcodes \
-            pytest "$PYTEST_ARGS" --junit-xml=firedrake3_\$MPISPAWN_TASK_ID1.xml -m parallel[3] -v tests/firedrake
-      - name: Run tests (nprocs = 4)
-        if: ${{ success() || steps.build.conclusion == 'success' }}
-        run: |
-          . ../firedrake_venv/bin/activate
-          mpispawn -nU 12 -nW 4 --propagate-errcodes \
-            pytest "$PYTEST_ARGS" --junit-xml=firedrake4_\$MPISPAWN_TASK_ID1.xml -m parallel[4] -v tests/firedrake
-      - name: Run tests (nprocs = 5)
-        if: ${{ success() || steps.build.conclusion == 'success' }}
-        run: |
-          . ../firedrake_venv/bin/activate
-          mpispawn -nU 12 -nW 5 --propagate-errcodes \
-            pytest "$PYTEST_ARGS" --junit-xml=firedrake5_\$MPISPAWN_TASK_ID1.xml -m parallel[5] -v tests/firedrake
-      - name: Run tests (nprocs = 6)
-        if: ${{ success() || steps.build.conclusion == 'success' }}
-        run: |
-          . ../firedrake_venv/bin/activate
-          mpispawn -nU 12 -nW 6 --propagate-errcodes \
-            pytest "$PYTEST_ARGS" --junit-xml=firedrake6_\$MPISPAWN_TASK_ID1.xml -m parallel[6] -v tests/firedrake
-      - name: Run tests (nprocs = 7)
-        if: ${{ success() || steps.build.conclusion == 'success' }}
-        run: |
-          . ../firedrake_venv/bin/activate
-          mpispawn -nU 12 -nW 7 --propagate-errcodes \
-            pytest "$PYTEST_ARGS" --junit-xml=firedrake7_\$MPISPAWN_TASK_ID1.xml -m parallel[7] -v tests/firedrake
-      - name: Run tests (nprocs = 8)
-        if: ${{ success() || steps.build.conclusion == 'success' }}
-        run: |
-          . ../firedrake_venv/bin/activate
-          mpispawn -nU 12 -nW 8 --propagate-errcodes \
-            pytest "$PYTEST_ARGS" --junit-xml=firedrake8_\$MPISPAWN_TASK_ID1.xml -m parallel[8] -v tests/firedrake
+      # - name: Run tests (nprocs = 3)
+      #   if: ${{ success() || steps.build.conclusion == 'success' }}
+      #   run: |
+      #     . ../firedrake_venv/bin/activate
+      #     mpispawn -nU 12 -nW 3 --propagate-errcodes \
+      #       pytest "$PYTEST_ARGS" --junit-xml=firedrake3_\$MPISPAWN_TASK_ID1.xml -m parallel[3] -v tests/firedrake
+      # - name: Run tests (nprocs = 4)
+      #   if: ${{ success() || steps.build.conclusion == 'success' }}
+      #   run: |
+      #     . ../firedrake_venv/bin/activate
+      #     mpispawn -nU 12 -nW 4 --propagate-errcodes \
+      #       pytest "$PYTEST_ARGS" --junit-xml=firedrake4_\$MPISPAWN_TASK_ID1.xml -m parallel[4] -v tests/firedrake
+      # - name: Run tests (nprocs = 5)
+      #   if: ${{ success() || steps.build.conclusion == 'success' }}
+      #   run: |
+      #     . ../firedrake_venv/bin/activate
+      #     mpispawn -nU 12 -nW 5 --propagate-errcodes \
+      #       pytest "$PYTEST_ARGS" --junit-xml=firedrake5_\$MPISPAWN_TASK_ID1.xml -m parallel[5] -v tests/firedrake
+      # - name: Run tests (nprocs = 6)
+      #   if: ${{ success() || steps.build.conclusion == 'success' }}
+      #   run: |
+      #     . ../firedrake_venv/bin/activate
+      #     mpispawn -nU 12 -nW 6 --propagate-errcodes \
+      #       pytest "$PYTEST_ARGS" --junit-xml=firedrake6_\$MPISPAWN_TASK_ID1.xml -m parallel[6] -v tests/firedrake
+      # - name: Run tests (nprocs = 7)
+      #   if: ${{ success() || steps.build.conclusion == 'success' }}
+      #   run: |
+      #     . ../firedrake_venv/bin/activate
+      #     mpispawn -nU 12 -nW 7 --propagate-errcodes \
+      #       pytest "$PYTEST_ARGS" --junit-xml=firedrake7_\$MPISPAWN_TASK_ID1.xml -m parallel[7] -v tests/firedrake
+      # - name: Run tests (nprocs = 8)
+      #   if: ${{ success() || steps.build.conclusion == 'success' }}
+      #   run: |
+      #     . ../firedrake_venv/bin/activate
+      #     mpispawn -nU 12 -nW 8 --propagate-errcodes \
+      #       pytest "$PYTEST_ARGS" --junit-xml=firedrake8_\$MPISPAWN_TASK_ID1.xml -m parallel[8] -v tests/firedrake
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@v5.0.0-a02
         if: ${{ always() && ( github.ref != 'refs/heads/master') }}
