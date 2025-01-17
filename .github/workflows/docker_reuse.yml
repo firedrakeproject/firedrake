@@ -30,19 +30,19 @@ jobs:
       fail-fast: false
       # see https://docs.docker.com/build/ci/github-actions/multi-platform/
       matrix:
-        os: [Linux, macOS]
+        os: ["[self-hosted, Linux]", "[self-hosted, macOS]"]
         include:
-          - os: Linux
+          - os: [self-hosted, Linux]
             platform: linux/amd64
-          - os: macOS
+          - os: [self-hosted, macOS]
             platform: linux/arm64
-    runs-on: "[self-hosted, ${{ matrix.os }}]"
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
 
       - name: Add homebrew to PATH
-        if: ${{ matrix.os == 'macOS' }}
+        if: ${{ matrix.os == '[self-hosted, macOS]' }}
         # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
         run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
 
