@@ -16,7 +16,6 @@ import abc
 import rtree
 from textwrap import dedent
 from pathlib import Path
-from firedrake.petsc import PETSc
 
 from pyop2 import op2
 from pyop2.mpi import (
@@ -1264,7 +1263,7 @@ class MeshTopology(AbstractMeshTopology):
 
         cell = self.ufl_cell()
         assert tdim == cell.topological_dimension()
-        
+
         if self.submesh_parent is not None:
             return dmcommon.submesh_create_cell_closure_cell_submesh(plex,
                                                                      self.submesh_parent.topology_dm,
@@ -1316,7 +1315,6 @@ class MeshTopology(AbstractMeshTopology):
 
     @utils.cached_property
     def entity_orientations(self):
-        plex = self.topology_dm
         return dmcommon.entity_orientations(self, self.cell_closure)
 
     @PETSc.Log.EventDecorator()
