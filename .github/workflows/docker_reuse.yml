@@ -24,25 +24,25 @@ on:
         required: true
 
 jobs:
-  build:
+  docker_build:
     name: "Build the ${{ inputs.target }} container"
     strategy:
       fail-fast: false
       # see https://docs.docker.com/build/ci/github-actions/multi-platform/
       matrix:
-        os: ["[self-hosted, Linux]", "[self-hosted, macOS]"]
+        os: [Linux, macOS]
         include:
-          - os: [self-hosted, Linux]
+          - os: Linux
             platform: linux/amd64
-          - os: [self-hosted, macOS]
+          - os: macOS
             platform: linux/arm64
-    runs-on: ${{ matrix.os }}
+    runs-on: "[self-hosted, ${{ matrix.os }}]"
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
 
       - name: Add homebrew to PATH
-        if: ${{ matrix.os == '[self-hosted, macOS]' }}
+        if: ${{ matrix.os == 'macOS' }}
         # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
         run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
 
@@ -82,10 +82,10 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  merge:
+  docker_merge:
     runs-on: [self-hosted, Linux]
     needs:
-      - build
+      - docker_build
     steps:
       - name: Download digests
         uses: actions/download-artifact@v4
