@@ -30,16 +30,21 @@ jobs:
       fail-fast: false
       # see https://docs.docker.com/build/ci/github-actions/multi-platform/
       matrix:
-        os: ["[self-hosted, Linux]", "[self-hosted, macOS]"]
+        os: [Linux, macOS]
         include:
-          - os: [self-hosted, Linux]
+          - os: Linux
             platform: linux/amd64
-          - os: [self-hosted, macOS]
+          - os: macOS
             platform: linux/arm64
-    runs-on: ${{ matrix.os }}
+    runs-on: "[self-hosted, ${{ matrix.os }}]"
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
+
+      - name: Add homebrew to PATH
+        if: ${{ matrix.os == macOS }}
+        # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
+        run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
 
       - name: Prepare environment
         run: |
@@ -61,7 +66,6 @@ jobs:
         with:
           platforms: ${{ matrix.platform }}
           file: ${{ inputs.dockerfile }}
-          tags: firedrakeproject/${{ inputs.target }}:${{ inputs.tag }}
           outputs: type=image,"name=${{ env.DOCKERHUB_REPO }}",push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
