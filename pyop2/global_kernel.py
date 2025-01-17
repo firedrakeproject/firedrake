@@ -329,7 +329,7 @@ class GlobalKernel:
         :arg comm: Communicator the execution is collective over.
         :*args: Arguments to pass to the compiled kernel.
         """
-        func = _compile_global_kernel(self, comm)
+        func = compile_global_kernel(self, comm)
         func(*args)
 
     @property
@@ -423,7 +423,7 @@ def _generate_code_from_global_kernel(kernel):
 
 @parallel_cache(hashkey=lambda knl, _: knl.cache_key)
 @mpi.collective
-def _compile_global_kernel(kernel, comm):
+def compile_global_kernel(kernel, comm):
     """Compile the kernel.
 
     Parameters
