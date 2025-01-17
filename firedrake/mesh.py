@@ -16,6 +16,7 @@ import abc
 import rtree
 from textwrap import dedent
 from pathlib import Path
+from firedrake.petsc import PETSc
 
 from pyop2 import op2
 from pyop2.mpi import (
@@ -1263,6 +1264,7 @@ class MeshTopology(AbstractMeshTopology):
 
         cell = self.ufl_cell()
         assert tdim == cell.topological_dimension()
+        
         if self.submesh_parent is not None:
             return dmcommon.submesh_create_cell_closure_cell_submesh(plex,
                                                                      self.submesh_parent.topology_dm,
@@ -1274,10 +1276,16 @@ class MeshTopology(AbstractMeshTopology):
             entity_per_cell = np.zeros(len(topology), dtype=IntType)
             for d, ents in topology.items():
                 entity_per_cell[d] = len(ents)
-
             return dmcommon.closure_ordering(plex, vertex_numbering,
                                              cell_numbering, entity_per_cell)
-
+        # elif hasattr(cell, "to_fiat"):
+        #       TODO
+        #     topology = cell.to_fiat().topology
+        #     entity_per_cell = np.zeros(len(topology), dtype=IntType)
+        #     for d, ents in topology.items():
+        #         entity_per_cell[d] = len(ents)
+        #     return dmcommon.closure_ordering(plex, vertex_numbering,
+        #                                      cell_numbering, entity_per_cell)
         elif cell.cellname() == "quadrilateral":
             from firedrake_citations import Citations
             Citations().register("Homolya2016")
@@ -1308,6 +1316,7 @@ class MeshTopology(AbstractMeshTopology):
 
     @utils.cached_property
     def entity_orientations(self):
+        plex = self.topology_dm
         return dmcommon.entity_orientations(self, self.cell_closure)
 
     @PETSc.Log.EventDecorator()
@@ -1333,7 +1342,6 @@ class MeshTopology(AbstractMeshTopology):
             op.Free()
         else:
             unique_markers = None
-
         local_facet_number, facet_cell = \
             dmcommon.facet_numbering(dm, kind, facets,
                                      self._cell_numbering,
