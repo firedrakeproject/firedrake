@@ -66,6 +66,7 @@ jobs:
             --mpicxx="$MPICH_DIR"/mpicxx \
             --mpif90="$MPICH_DIR"/mpif90 \
             --mpiexec="$MPICH_DIR"/mpiexec \
+            --mpihome="$MPICH_DIR"/.. \
             --venv-name firedrake_venv \
             --no-package-manager \
             --disable-ssh \

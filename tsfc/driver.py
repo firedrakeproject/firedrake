@@ -47,14 +47,13 @@ TSFCIntegralDataInfo.__doc__ = """
     """
 
 
-def compile_form(form, prefix="form", parameters=None, interface=None, diagonal=False, log=False):
+def compile_form(form, prefix="form", parameters=None, interface=None, diagonal=False):
     """Compiles a UFL form into a set of assembly kernels.
 
     :arg form: UFL form
     :arg prefix: kernel name will start with this string
     :arg parameters: parameters object
     :arg diagonal: Are we building a kernel for the diagonal of a rank-2 element tensor?
-    :arg log: bool if the Kernel should be profiled with Log events
     :returns: list of kernels
     """
     cpu_time = time.time()
@@ -71,7 +70,7 @@ def compile_form(form, prefix="form", parameters=None, interface=None, diagonal=
     kernels = []
     for integral_data in fd.integral_data:
         start = time.time()
-        kernel = compile_integral(integral_data, fd, prefix, parameters, interface=interface, diagonal=diagonal, log=log)
+        kernel = compile_integral(integral_data, fd, prefix, parameters, interface=interface, diagonal=diagonal)
         if kernel is not None:
             kernels.append(kernel)
         logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
@@ -80,7 +79,7 @@ def compile_form(form, prefix="form", parameters=None, interface=None, diagonal=
     return kernels
 
 
-def compile_integral(integral_data, form_data, prefix, parameters, interface, *, diagonal=False, log=False):
+def compile_integral(integral_data, form_data, prefix, parameters, interface, *, diagonal=False):
     """Compiles a UFL integral into an assembly kernel.
 
     :arg integral_data: UFL integral data
@@ -89,7 +88,6 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, *,
     :arg parameters: parameters object
     :arg interface: backend module for the kernel interface
     :arg diagonal: Are we building a kernel for the diagonal of a rank-2 element tensor?
-    :arg log: bool if the Kernel should be profiled with Log events
     :returns: a kernel constructed by the kernel interface
     """
     parameters = preprocess_parameters(parameters)
@@ -137,7 +135,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, *,
         integrand_exprs = builder.compile_integrand(integrand, params, ctx)
         integral_exprs = builder.construct_integrals(integrand_exprs, params)
         builder.stash_integrals(integral_exprs, params, ctx)
-    return builder.construct_kernel(kernel_name, ctx, log)
+    return builder.construct_kernel(kernel_name, ctx, parameters["add_petsc_events"])
 
 
 def preprocess_parameters(parameters):
@@ -157,7 +155,7 @@ def preprocess_parameters(parameters):
 
 def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
                                        domain=None, interface=None,
-                                       parameters=None, log=False):
+                                       parameters=None):
     """Compile a UFL expression to be evaluated against a compile-time known reference element's dual basis.
 
     Useful for interpolating UFL expressions into e.g. N1curl spaces.
@@ -168,7 +166,6 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     :arg domain: optional UFL domain the expression is defined on (required when expression contains no domain).
     :arg interface: backend module for the kernel interface
     :arg parameters: parameters object
-    :arg log: bool if the Kernel should be profiled with Log events
     :returns: Loopy-based ExpressionKernel object.
     """
     if parameters is None:
@@ -267,7 +264,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     builder.register_requirements([evaluation])
     builder.set_output(return_var)
     # Build kernel tuple
-    return builder.construct_kernel(impero_c, index_names, needs_external_coords, log=log)
+    return builder.construct_kernel(impero_c, index_names, needs_external_coords, parameters["add_petsc_events"])
 
 
 class DualEvaluationCallable(object):

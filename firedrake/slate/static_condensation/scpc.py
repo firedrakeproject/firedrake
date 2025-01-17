@@ -102,7 +102,7 @@ class SCPC(SCBase):
         r_expr = reduced_sys.rhs
 
         # Construct the condensed right-hand side
-        self._assemble_Srhs = get_assembler(r_expr, bcs=bcs, zero_bc_nodes=True, form_compiler_parameters=self.cxt.fc_params).assemble
+        self._assemble_Srhs = get_assembler(r_expr, bcs=bcs, form_compiler_parameters=self.cxt.fc_params).assemble
 
         # Allocate and set the condensed operator
         form_assembler = get_assembler(S_expr, bcs=bcs, form_compiler_parameters=self.cxt.fc_params, mat_type=mat_type, options_prefix=prefix, appctx=self.get_appctx(pc))

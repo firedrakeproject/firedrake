@@ -17,15 +17,13 @@ def nonlinear_poisson(solver_parameters, mesh_num, porder):
     u = Function(V)
     v = TestFunction(V)
 
-    f = Function(V)
     x, y = SpatialCoordinate(mesh)
-    f.interpolate(- 8.0 * pi * pi * cos(x * pi * 2) * cos(y * pi * 2))
+    f = - 8.0 * pi * pi * cos(x * pi * 2) * cos(y * pi * 2)
 
     a = - inner(grad(u), grad(v)) * dx
     L = inner(f, v) * dx
 
-    g = Function(V)
-    g.interpolate(cos(2 * pi * x) * cos(2 * pi * y))
+    g = cos(2 * pi * x) * cos(2 * pi * y)
 
     # Equivalent to bc1 = EquationBC(v * (u - g1) * ds(1) == 0, u, 1)
     e2 = as_vector([0., 1.])
@@ -33,7 +31,7 @@ def nonlinear_poisson(solver_parameters, mesh_num, porder):
 
     solve(a - L == 0, u, bcs=[bc1], solver_parameters=solver_parameters)
 
-    f.interpolate(cos(x * pi * 2) * cos(y * pi * 2))
+    f = cos(x * pi * 2) * cos(y * pi * 2)
     return sqrt(assemble(inner(u - f, u - f) * dx))
 
 
@@ -46,15 +44,13 @@ def linear_poisson(solver_parameters, mesh_num, porder):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    f = Function(V)
     x, y = SpatialCoordinate(mesh)
-    f.interpolate(- 8.0 * pi * pi * cos(x * pi * 2) * cos(y * pi * 2))
+    f = - 8.0 * pi * pi * cos(x * pi * 2) * cos(y * pi * 2)
 
     a = - inner(grad(u), grad(v)) * dx
     L = inner(f, v) * dx
 
-    g = Function(V)
-    g.interpolate(cos(2 * pi * x) * cos(2 * pi * y))
+    g = cos(2 * pi * x) * cos(2 * pi * y)
 
     u_ = Function(V)
 
@@ -62,7 +58,7 @@ def linear_poisson(solver_parameters, mesh_num, porder):
 
     solve(a == L, u_, bcs=[bc1], solver_parameters=solver_parameters)
 
-    f.interpolate(cos(x * pi * 2) * cos(y * pi * 2))
+    f = cos(x * pi * 2) * cos(y * pi * 2)
     return sqrt(assemble(inner(u_ - f, u_ - f) * dx))
 
 
@@ -75,9 +71,8 @@ def nonlinear_poisson_bbc(solver_parameters, mesh_num, porder):
     u = Function(V)
     v = TestFunction(V)
 
-    f = Function(V)
     x, y = SpatialCoordinate(mesh)
-    f.interpolate(- 8.0 * pi * pi * cos(x * pi * 2)*cos(y * pi * 2))
+    f = - 8.0 * pi * pi * cos(x * pi * 2)*cos(y * pi * 2)
 
     a = - inner(grad(u), grad(v)) * dx
     L = inner(f, v) * dx
@@ -85,13 +80,13 @@ def nonlinear_poisson_bbc(solver_parameters, mesh_num, porder):
     e2 = as_vector([0., 1.])
     a1 = (-inner(dot(grad(u), e2), dot(grad(v), e2)) + 4 * pi * pi * inner(u, v)) * ds(1)
 
-    g = Function(V).interpolate(cos(2 * pi * x) * cos(2 * pi * y))
+    g = cos(2 * pi * x) * cos(2 * pi * y)
     bbc = DirichletBC(V, g, ((1, 3), (1, 4)))
     bc1 = EquationBC(a1 == 0, u, 1, bcs=[bbc])
 
     solve(a - L == 0, u, bcs=[bc1], solver_parameters=solver_parameters)
 
-    f.interpolate(cos(x * pi * 2) * cos(y * pi * 2))
+    f = cos(x * pi * 2) * cos(y * pi * 2)
     return sqrt(assemble(inner(u - f, u - f) * dx))
 
 
@@ -104,9 +99,8 @@ def linear_poisson_bbc(solver_parameters, mesh_num, porder):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    f = Function(V)
     x, y = SpatialCoordinate(mesh)
-    f.interpolate(- 8.0 * pi * pi * cos(x * pi * 2)*cos(y * pi * 2))
+    f = - 8.0 * pi * pi * cos(x * pi * 2)*cos(y * pi * 2)
 
     a = - inner(grad(u), grad(v)) * dx
     L = inner(f, v) * dx
@@ -117,13 +111,13 @@ def linear_poisson_bbc(solver_parameters, mesh_num, porder):
 
     u = Function(V)
 
-    g = Function(V).interpolate(cos(2 * pi * x) * cos(2 * pi * y))
+    g = cos(2 * pi * x) * cos(2 * pi * y)
     bbc = DirichletBC(V, g, ((1, 3), (1, 4)))
     bc1 = EquationBC(a1 == L1, u, 1, bcs=[bbc])
 
     solve(a == L, u, bcs=[bc1], solver_parameters=solver_parameters)
 
-    f.interpolate(cos(x * pi * 2)*cos(y * pi * 2))
+    f = cos(x * pi * 2)*cos(y * pi * 2)
     return sqrt(assemble(inner(u - f, u - f) * dx))
 
 
@@ -141,22 +135,25 @@ def nonlinear_poisson_mixed(solver_parameters, mesh_num, porder):
     n = FacetNormal(mesh)
 
     x, y = SpatialCoordinate(mesh)
-    f = Function(DG).interpolate(-8 * pi * pi * cos(2 * pi * x + pi / 3) * cos(2 * pi * y))
-    u1 = Function(DG).interpolate(cos(2 * pi * y) / 2)
+    f = -8 * pi * pi * cos(2 * pi * x + pi / 3) * cos(2 * pi * y)
+    u1 = cos(2 * pi * y) / 2
 
-    a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
+    a = inner(sigma, tau) * dx + inner(u, div(tau)) * dx + inner(div(sigma), v) * dx
     L = inner(u1, dot(tau, n)) * ds(1) + inner(f, v) * dx
 
-    g = Function(BDM).project(as_vector([-2 * pi * sin(2 * pi * x + pi / 3) * cos(2 * pi * y), -2 * pi * cos(2 * pi * x + pi / 3) * sin(2 * pi * y)]))
+    g = as_vector([-2 * pi * sin(2 * pi * x + pi / 3) * cos(2 * pi * y), -2 * pi * cos(2 * pi * x + pi / 3) * sin(2 * pi * y)])
 
-    bc2 = EquationBC(inner((dot(sigma, n) - dot(g, n)), dot(tau, n)) * ds(2) == 0, w, 2, V=W.sub(0))
-    bc3 = EquationBC(inner((dot(sigma, n) - dot(g, n)), dot(tau, n)) * ds(3) == 0, w, 3, V=W.sub(0))
+    tau_n = dot(tau, n)
+    sig_n = dot(sigma, n)
+    g_n = dot(g, n)
+    bc2 = EquationBC(inner(sig_n - g_n, tau_n) * ds(2) == 0, w, 2, V=W.sub(0))
+    bc3 = EquationBC(inner(sig_n - g_n, tau_n) * ds(3) == 0, w, 3, V=W.sub(0))
     bc4 = DirichletBC(W.sub(0), g, 4)
 
     solve(a - L == 0, w, bcs=[bc2, bc3, bc4], solver_parameters=solver_parameters)
 
-    f.interpolate(cos(2 * pi * x + pi / 3) * cos(2 * pi * y))
-    g = Function(BDM).project(as_vector([-2 * pi * sin(2 * pi * x + pi / 3) * cos(2 * pi * y), -2 * pi * cos(2 * pi * x + pi / 3) * sin(2 * pi * y)]))
+    f = cos(2 * pi * x + pi / 3) * cos(2 * pi * y)
+    g = as_vector([-2 * pi * sin(2 * pi * x + pi / 3) * cos(2 * pi * y), -2 * pi * cos(2 * pi * x + pi / 3) * sin(2 * pi * y)])
 
     return sqrt(assemble(inner(u - f, u - f) * dx)), sqrt(assemble(inner(sigma - g, sigma - g) * dx))
 
@@ -173,28 +170,30 @@ def linear_poisson_mixed(solver_parameters, mesh_num, porder):
     tau, v = TestFunctions(W)
 
     x, y = SpatialCoordinate(mesh)
-    f = Function(DG).interpolate(-8 * pi * pi * cos(2 * pi * x + pi / 3) * cos(2 * pi * y))
-    u1 = Function(DG).interpolate(cos(2 * pi * y) / 2)
+    f = -8 * pi * pi * cos(2 * pi * x + pi / 3) * cos(2 * pi * y)
+    u1 = cos(2 * pi * y) / 2
     n = FacetNormal(mesh)
 
     a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
     L = inner(u1, dot(tau, n)) * ds(1) + inner(f, v) * dx
 
-    g = Function(BDM).project(as_vector([-2 * pi * sin(2 * pi * x + pi / 3) * cos(2 * pi * y), -2 * pi * cos(2 * pi * x + pi / 3) * sin(2 * pi * y)]))
+    g = as_vector([-2 * pi * sin(2 * pi * x + pi / 3) * cos(2 * pi * y), -2 * pi * cos(2 * pi * x + pi / 3) * sin(2 * pi * y)])
 
     w = Function(W)
 
-    bc2 = EquationBC(inner(n, tau) * inner(sigma, n) * ds(2) == inner(n, tau) * inner(g, n) * ds(2), w, 2, V=W.sub(0))
-    bc3 = EquationBC(inner(n, tau) * inner(sigma, n) * ds(3) == inner(n, tau) * inner(g, n) * ds(3), w, 3, V=W.sub(0))
+    tau_n = dot(tau, n)
+    sig_n = dot(sigma, n)
+    g_n = dot(g, n)
+    bc2 = EquationBC(inner(sig_n, tau_n) * ds(2) == inner(g_n, tau_n) * ds(2), w, 2, V=W.sub(0))
+    bc3 = EquationBC(inner(sig_n, tau_n) * ds(3) == inner(g_n, tau_n) * ds(3), w, 3, V=W.sub(0))
     bc4 = DirichletBC(W.sub(0), g, 4)
 
     solve(a == L, w, bcs=[bc2, bc3, bc4], solver_parameters=solver_parameters)
 
+    f = cos(2 * pi * x + pi / 3) * cos(2 * pi * y)
+    g = as_vector([-2 * pi * sin(2 * pi * x + pi / 3) * cos(2 * pi * y), -2 * pi * cos(2 * pi * x + pi / 3) * sin(2 * pi * y)])
+
     sigma, u = w.subfunctions
-
-    f.interpolate(cos(2 * pi * x + pi / 3) * cos(2 * pi * y))
-    g = Function(BDM).project(as_vector([-2 * pi * sin(2 * pi * x + pi / 3) * cos(2 * pi * y), -2 * pi * cos(2 * pi * x + pi / 3) * sin(2 * pi * y)]))
-
     return sqrt(assemble(inner(u - f, u - f) * dx)), sqrt(assemble(inner(sigma - g, sigma - g) * dx))
 
 
@@ -202,7 +201,7 @@ def linear_poisson_mixed(solver_parameters, mesh_num, porder):
 @pytest.mark.parametrize("with_bbc", [False, True])
 def test_EquationBC_poisson_matrix(eq_type, with_bbc):
     mat_type = "aij"
-    porder = 3
+    porder = 2
     # Test standard poisson with EquationBCs
     # aij
 
@@ -235,7 +234,7 @@ def test_EquationBC_poisson_matrix(eq_type, with_bbc):
 def test_EquationBC_poisson_matfree(with_bbc):
     eq_type = "linear"
     mat_type = "matfree"
-    porder = 3
+    porder = 2
     # Test standard poisson with EquationBCs
     # matfree
 
@@ -271,7 +270,7 @@ def test_EquationBC_poisson_matfree(with_bbc):
 @pytest.mark.parametrize("eq_type", ["linear", "nonlinear"])
 def test_EquationBC_mixedpoisson_matrix(eq_type):
     mat_type = "aij"
-    porder = 2
+    porder = 0
     # Mixed poisson with EquationBCs
     # aij
 
@@ -294,7 +293,7 @@ def test_EquationBC_mixedpoisson_matrix(eq_type):
 def test_EquationBC_mixedpoisson_matrix_fieldsplit():
     mat_type = "aij"
     eq_type = "linear"
-    porder = 2
+    porder = 0
     # Mixed poisson with EquationBCs
     # aij with fieldsplit pc
 
@@ -324,7 +323,7 @@ def test_EquationBC_mixedpoisson_matrix_fieldsplit():
 def test_EquationBC_mixedpoisson_matfree_fieldsplit():
     mat_type = "matfree"
     eq_type = "linear"
-    porder = 2
+    porder = 0
     # Mixed poisson with EquationBCs
     # matfree with fieldsplit pc
 
@@ -366,7 +365,7 @@ def test_equation_bcs_pc():
     v, w = split(TestFunction(V))
     x, y = SpatialCoordinate(mesh)
     exact = cos(2 * pi * x) * cos(2 * pi * y)
-    g = Function(CG).interpolate(8 * pi**2 * exact)
+    g = 8 * pi**2 * exact
     F = inner(grad(u), grad(v)) * dx + inner(l, w) * dx - inner(g, v) * dx
     bc = EquationBC(inner((u - exact), v) * ds == 0, f, (1, 2, 3, 4), V=V.sub(0))
     params = {

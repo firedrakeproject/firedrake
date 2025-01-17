@@ -11,7 +11,7 @@ from mpi4py import MPI
 from firedrake.utils import IntType, ScalarType
 from libc.string cimport memset
 from libc.stdlib cimport qsort
-from tsfc.finatinterface import as_fiat_cell
+from finat.element_factory import as_fiat_cell
 
 cimport numpy as np
 cimport mpi4py.MPI as MPI
@@ -3358,7 +3358,7 @@ def make_global_numbering(PETSc.Section lsec, PETSc.Section gsec):
     cdef:
         PetscInt c, cc, p, pStart, pEnd, dof, cdof, loff, goff
         np.ndarray val
-        PetscInt *dof_array = NULL
+        const PetscInt *dof_array = NULL
 
     val = np.empty(lsec.getStorageSize(), dtype=IntType)
     pStart, pEnd = lsec.getChart()

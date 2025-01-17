@@ -11,7 +11,7 @@ import cachetools
 
 import ufl
 import finat.ufl
-from ufl import Form, conj
+from ufl import conj, Form, ZeroBaseForm
 from .ufl_expr import TestFunction
 
 from tsfc import compile_form as original_tsfc_compile_form
@@ -53,8 +53,8 @@ _cachedir = environ.get(
 )
 
 
-def tsfc_compile_form_hashkey(form, prefix, parameters, interface, diagonal, log):
-    # Drop prefix as it's only used for naming and log
+def tsfc_compile_form_hashkey(form, prefix, parameters, interface, diagonal):
+    # Drop prefix as it's only used for naming
     return default_parallel_hashkey(form.signature(), prefix, parameters, interface, diagonal)
 
 
@@ -94,7 +94,7 @@ class TSFCKernel:
         """
         tree = tsfc_compile_form(form, prefix=name, parameters=parameters,
                                  interface=interface,
-                                 diagonal=diagonal, log=PETSc.Log.isActive())
+                                 diagonal=diagonal)
         kernels = []
         for kernel in tree:
             # Individual kernels do not have to use all of the coefficients
@@ -203,7 +203,7 @@ def compile_form(form, name, parameters=None, split=True, interface=None, diagon
         iterable = ([(None, )*nargs, form], )
     for idx, f in iterable:
         f = _real_mangle(f)
-        if not f.integrals():
+        if isinstance(f, ZeroBaseForm) or f.empty():
             # If we're assembling the R space component of a mixed argument,
             # and that component doesn't actually appear in the form then we
             # have an empty form, which we should not attempt to assemble.
