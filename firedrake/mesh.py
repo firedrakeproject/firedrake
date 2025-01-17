@@ -726,9 +726,6 @@ class AbstractMeshTopology(abc.ABC):
             p_start, p_end = topology_dm.getChart()
             n_points = p_end - p_start
 
-            # TODO: Make a cython function
-            # NEXT: need to renumber the SF (using a section, https://petsc.org/release/src/dm/impls/plex/tutorials/ex14.c.html) so that it is correctly ordered.
-
             point_sf = self.topology_dm.getPointSF()
             point_sf_renum = dmcommon.renumber_sf(point_sf, dm_renumbering)
 
@@ -738,12 +735,8 @@ class AbstractMeshTopology(abc.ABC):
                 label=f"{self.name}_flat",
             )
 
-            print(flat_points.component._all_regions)
-            breakpoint()
-
             # TODO: AxisForest?
             self.flat_points = flat_points
-
             self.points = flat_points[self._strata_slice]  # or strata_axis?
 
         self._callback = callback
@@ -957,7 +950,7 @@ class AbstractMeshTopology(abc.ABC):
             for dim in self._plex_strata_ordering:
                 indices = self._entity_indices[dim]
                 subset_axes = op3.Axis({str(dim): indices.size}, self.name)
-                subset_array = op3.Dat(subset_axes, data=indices)
+                subset_array = op3.Dat(subset_axes, data=indices, ordered=True)
                 subset = op3.Subset("mylabel", subset_array, label=str(dim))
                 subsets.append(subset)
 
