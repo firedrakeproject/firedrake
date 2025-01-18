@@ -84,7 +84,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
-            --package-branch ufl pbrubeck/fix/contraction \
+            --package-branch ufl pbrubeck/remove-component-tensors \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
