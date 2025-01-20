@@ -66,7 +66,7 @@ jobs:
         with:
           platforms: ${{ matrix.platform }}
           file: ${{ inputs.dockerfile }}
-          outputs: type=image,"name=${{ env.DOCKERHUB_REPO }}",push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=firedrakeproject/${{ inputs.target }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
         run: |
@@ -107,8 +107,8 @@ jobs:
         working-directory: ${{ runner.temp }}/digests
         run: |
           docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.DOCKERHUB_REPO }}@sha256:%s ' *)
+            $(printf 'firedrakeproject/${{ inputs.target }}@sha256:%s ' *)
 
       - name: Inspect image
         run: |
-          docker buildx imagetools inspect ${{ env.DOCKERHUB_REPO }}:firedrakeproject/${{ inputs.target }}:${{ inputs.tag }}
+          docker buildx imagetools inspect firedrakeproject/${{ inputs.target }}:${{ inputs.tag }}
