@@ -87,6 +87,8 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch ufl ksagiyam/add_coefficient_split \
+            --package-branch fiat ksagiyam/add_coefficient_split \
             || (cat firedrake-install.log && /bin/false)
 
       - name: Install test dependencies
