@@ -19,19 +19,17 @@ from ufl.algorithms.remove_complex_nodes import remove_complex_nodes
 from ufl.corealg.multifunction import MultiFunction
 from ufl.geometry import QuadratureWeight
 from ufl.geometry import Jacobian, JacobianDeterminant, JacobianInverse
-from ufl.classes import (Abs, Argument, CellOrientation, Coefficient,
-                         ComponentTensor, Expr, FloatValue, Division,
-                         MultiIndex, Product,
+from ufl.classes import (Abs, Argument, CellOrientation,
+                         Expr, FloatValue, Division,
+                         Product,
                          ScalarValue, Sqrt, Zero, CellVolume, FacetArea)
 from ufl.domain import extract_unique_domain
-from finat.ufl import MixedElement
 from ufl.utils.sorting import sorted_by_count
 
 from gem.node import MemoizerArg
 
 from tsfc.modified_terminals import (is_modified_terminal,
-                                     analyse_modified_terminal,
-                                     construct_modified_terminal)
+                                     analyse_modified_terminal)
 
 
 preserve_geometry_types = (CellVolume, FacetArea)
