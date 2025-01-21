@@ -726,8 +726,13 @@ class AbstractMeshTopology(abc.ABC):
             p_start, p_end = topology_dm.getChart()
             n_points = p_end - p_start
 
-            point_sf = self.topology_dm.getPointSF()
-            point_sf_renum = dmcommon.renumber_sf(point_sf, dm_renumbering)
+            # NOTE: In serial the point SF isn't set up in a valid state so we do this. It
+            # would be nice to avoid this branch.
+            if self.comm.size > 1:
+                point_sf = self.topology_dm.getPointSF()
+                point_sf_renum = dmcommon.renumber_sf(point_sf, dm_renumbering)
+            else:
+                point_sf_renum = None
 
             # TODO: Allow the label here to be None
             flat_points = op3.Axis(
