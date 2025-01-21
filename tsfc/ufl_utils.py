@@ -16,7 +16,6 @@ from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
 from ufl.algorithms.apply_restrictions import apply_restrictions
 from ufl.algorithms.comparison_checker import do_comparison_check
 from ufl.algorithms.remove_complex_nodes import remove_complex_nodes
-from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
 from ufl.geometry import QuadratureWeight
 from ufl.geometry import Jacobian, JacobianDeterminant, JacobianInverse
@@ -171,59 +170,6 @@ class ModifiedTerminalMixin(object):
     reference_value = _modified_terminal
 
     terminal = _modified_terminal
-
-
-class CoefficientSplitter(MultiFunction, ModifiedTerminalMixin):
-    def __init__(self, split):
-        MultiFunction.__init__(self)
-        self._split = split
-
-    expr = MultiFunction.reuse_if_untouched
-
-    def modified_terminal(self, o):
-        mt = analyse_modified_terminal(o)
-        terminal = mt.terminal
-
-        if not isinstance(terminal, Coefficient):
-            # Only split coefficients
-            return o
-
-        if type(terminal.ufl_element()) != MixedElement:
-            # Only split mixed coefficients
-            return o
-
-        # Reference value expected
-        assert mt.reference_value
-
-        # Derivative indices
-        beta = indices(mt.local_derivatives)
-
-        components = []
-        for subcoeff in self._split[terminal]:
-            # Apply terminal modifiers onto the subcoefficient
-            component = construct_modified_terminal(mt, subcoeff)
-            # Collect components of the subcoefficient
-            for alpha in numpy.ndindex(subcoeff.ufl_element().reference_value_shape):
-                # New modified terminal: component[alpha + beta]
-                components.append(component[alpha + beta])
-        # Repack derivative indices to shape
-        c, = indices(1)
-        return ComponentTensor(as_tensor(components)[c], MultiIndex((c,) + beta))
-
-
-def split_coefficients(expression, split):
-    """Split mixed coefficients, so mixed elements need not be
-    implemented.
-
-    :arg split: A :py:class:`dict` mapping each mixed coefficient to a
-                sequence of subcoefficients.  If None, calling this
-                function is a no-op.
-    """
-    if split is None:
-        return expression
-
-    splitter = CoefficientSplitter(split)
-    return map_expr_dag(splitter, expression)
 
 
 class PickRestriction(MultiFunction, ModifiedTerminalMixin):
