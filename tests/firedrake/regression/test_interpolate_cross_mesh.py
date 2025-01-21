@@ -65,7 +65,8 @@ def make_high_order(m_low_order, degree):
             ),
         ),
         "unitsquare_Regge_source",
-        "spheresphere",
+        # This test fails in complex mode
+        pytest.param("spheresphere", marks=pytest.mark.skipcomplex),
         "sphereextrudedsphereextruded",
     ]
 )

@@ -122,9 +122,13 @@ def pytest_collection_modifyitems(session, config, items):
 @pytest.fixture(scope="module", autouse=True)
 def check_empty_tape(request):
     """Check that the tape is empty at the end of each module"""
-    from pyadjoint.tape import get_working_tape
+    from pyadjoint.tape import annotate_tape, get_working_tape
 
     def fin():
+        # make sure taping is switched off
+        assert not annotate_tape()
+
+        # make sure the tape is empty
         tape = get_working_tape()
         if tape is not None:
             assert len(tape.get_blocks()) == 0

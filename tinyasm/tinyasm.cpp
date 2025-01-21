@@ -63,31 +63,31 @@ class BlockJacobi {
                 fwork = vector<PetscScalar>(biggestBlock, 0.);
                 localmats_aij = NULL;
                 dofis = vector<IS>(numBlocks);
-                PetscMalloc1(numBlocks, &localmats);
+                PetscCallVoid(PetscMalloc1(numBlocks, &localmats));
                 for(int p=0; p<numBlocks; p++) {
                     localmats[p] = NULL;
-                    ISCreateGeneral(MPI_COMM_SELF, globalDofsPerBlock[p].size(), globalDofsPerBlock[p].data(), PETSC_USE_POINTER, dofis.data() + p);
+                    PetscCallVoid(ISCreateGeneral(MPI_COMM_SELF, globalDofsPerBlock[p].size(), globalDofsPerBlock[p].data(), PETSC_USE_POINTER, dofis.data() + p));
                 }
             }
 
         ~BlockJacobi() {
             int numBlocks = dofsPerBlock.size();
             for(int p=0; p<numBlocks; p++) {
-                ISDestroy(&dofis[p]);
+                PetscCallVoid(ISDestroy(&dofis[p]));
             }
             if(localmats_aij) {
-                MatDestroySubMatrices(numBlocks, &localmats_aij);
+                PetscCallVoid(MatDestroySubMatrices(numBlocks, &localmats_aij));
             }
             if (localmats) {
                 for (int p=0; p<numBlocks; p++) {
-                    MatDestroy(&localmats[p]);
+                    PetscCallVoid(MatDestroy(&localmats[p]));
                 }
-                PetscFree(localmats);
+                PetscCallVoid(PetscFree(localmats));
             }
-            PetscSFDestroy(&sf);
+            PetscCallVoid(PetscSFDestroy(&sf));
         }
 
-        PetscInt updateValuesPerBlock(Mat P) {
+        PetscErrorCode updateValuesPerBlock(Mat P) {
             PetscBLASInt dof, info;
             int numBlocks = dofsPerBlock.size();
             PetscCall(MatCreateSubMatrices(P, numBlocks, dofis.data(), dofis.data(), localmats_aij ? MAT_REUSE_MATRIX : MAT_INITIAL_MATRIX, &localmats_aij));
@@ -96,14 +96,14 @@ class BlockJacobi {
                 PetscCall(MatConvert(localmats_aij[p], MATDENSE, localmats[p] ? MAT_REUSE_MATRIX : MAT_INITIAL_MATRIX,&localmats[p]));
                 PetscCall(PetscBLASIntCast(dofsPerBlock[p].size(), &dof));
                 PetscCall(MatDenseGetArrayWrite(localmats[p],&vv));
-                if (dof) mymatinvert(&dof, vv, piv.data(), &info, fwork.data());
+                if (dof) PetscCall(mymatinvert(&dof, vv, piv.data(), &info, fwork.data()));
                 PetscCall(MatDenseRestoreArrayWrite(localmats[p],&vv));
             }
-            return 0;
+            PetscFunctionReturn(PETSC_SUCCESS);
         }
 
 
-        PetscInt solve(const PetscScalar* __restrict b, PetscScalar* __restrict x) {
+        PetscErrorCode solve(const PetscScalar* __restrict b, PetscScalar* __restrict x) {
             PetscScalar dOne = 1.0;
             PetscBLASInt dof, one = 1;
             PetscScalar dZero = 0.0;
@@ -126,13 +126,12 @@ class BlockJacobi {
                 }
                 PetscCall(MatDenseRestoreArrayRead(localmats[p],&matvalues));
             }
-            return 0;
+            PetscFunctionReturn(PETSC_SUCCESS);
         }
 };
 
 PetscErrorCode CreateCombinedSF(PC pc, const std::vector<PetscSF>& sf, const std::vector<PetscInt>& bs, PetscSF *newsf)
 {
-    PetscInt       i;
     auto n = sf.size();
 
     PetscFunctionBegin;
@@ -159,7 +158,7 @@ PetscErrorCode CreateCombinedSF(PC pc, const std::vector<PetscSF>& sf, const std
          * allRoots: number of owned global dofs;
          * allLeaves: number of visible dofs (global + ghosted).
          */
-        for (i = 0; i < n; ++i) {
+        for (size_t i = 0; i < n; ++i) {
             PetscInt nroots, nleaves;
 
             PetscCall(PetscSFGetGraph(sf[i], &nroots, &nleaves, NULL, NULL));
@@ -170,7 +169,7 @@ PetscErrorCode CreateCombinedSF(PC pc, const std::vector<PetscSF>& sf, const std
         PetscCall(PetscMalloc1(allLeaves, &iremote));
         // Now build an SF that just contains process connectivity.
         PetscCall(PetscHSetICreate(&ranksUniq));
-        for (i = 0; i < n; ++i) {
+        for (size_t i = 0; i < n; ++i) {
             const PetscMPIInt *ranks = NULL;
             PetscMPIInt        nranks, j;
 
@@ -187,7 +186,7 @@ PetscErrorCode CreateCombinedSF(PC pc, const std::vector<PetscSF>& sf, const std
         PetscCall(PetscHSetIGetElems(ranksUniq, &index, ranks));
 
         PetscCall(PetscHMapICreate(&rankToIndex));
-        for (i = 0; i < numRanks; ++i) {
+        for (PetscInt i = 0; i < numRanks; ++i) {
             remote[i].rank  = ranks[i];
             remote[i].index = 0;
             PetscCall(PetscHMapISet(rankToIndex, ranks[i], i));
@@ -203,7 +202,7 @@ PetscErrorCode CreateCombinedSF(PC pc, const std::vector<PetscSF>& sf, const std
         PetscCall(PetscMalloc1(n*numRanks, &remoteOffsets));
 
         offsets[0] = 0;
-        for (i = 1; i < n; ++i) {
+        for (size_t i = 1; i < n; ++i) {
             PetscInt nroots;
 
             PetscCall(PetscSFGetGraph(sf[i-1], &nroots, NULL, NULL, NULL));
@@ -211,8 +210,8 @@ PetscErrorCode CreateCombinedSF(PC pc, const std::vector<PetscSF>& sf, const std
         }
         /* Offsets are the offsets on the current process of the
          * global dof numbering for the subspaces. */
-        PetscCall(MPI_Type_contiguous(n, MPIU_INT, &contig));
-        PetscCall(MPI_Type_commit(&contig));
+        PetscCallMPI(MPI_Type_contiguous(n, MPIU_INT, &contig));
+        PetscCallMPI(MPI_Type_commit(&contig));
 
 #if MY_PETSC_VERSION_LT(3, 14, 4)
         PetscCall(PetscSFBcastBegin(rankSF, contig, offsets, remoteOffsets));
@@ -221,14 +220,14 @@ PetscErrorCode CreateCombinedSF(PC pc, const std::vector<PetscSF>& sf, const std
         PetscCall(PetscSFBcastBegin(rankSF, contig, offsets, remoteOffsets, MPI_REPLACE));
         PetscCall(PetscSFBcastEnd(rankSF, contig, offsets, remoteOffsets, MPI_REPLACE));
 #endif
-        PetscCall(MPI_Type_free(&contig));
+        PetscCallMPI(MPI_Type_free(&contig));
         PetscCall(PetscFree(offsets));
         PetscCall(PetscSFDestroy(&rankSF));
         /* Now remoteOffsets contains the offsets on the remote
          * processes who communicate with me.  So now we can
          * concatenate the list of SFs into a single one. */
         index = 0;
-        for (i = 0; i < n; ++i) {
+        for (size_t i = 0; i < n; ++i) {
             const PetscSFNode *remote = NULL;
             const PetscInt    *local  = NULL;
             PetscInt           nroots, nleaves, j;
@@ -256,7 +255,7 @@ PetscErrorCode CreateCombinedSF(PC pc, const std::vector<PetscSF>& sf, const std
         PetscCall(PetscSFCreate(PetscObjectComm((PetscObject)pc), newsf));
         PetscCall(PetscSFSetGraph(*newsf, allRoots, allLeaves, ilocal, PETSC_OWN_POINTER, iremote, PETSC_OWN_POINTER));
     }
-    PetscFunctionReturn(0);
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 
@@ -266,7 +265,7 @@ PetscErrorCode PCSetup_TinyASM(PC pc) {
     auto blockjacobi = (BlockJacobi *)pc->data;
     blockjacobi -> updateValuesPerBlock(P);
     PetscCall(PetscLogEventEnd(PC_tinyasm_setup, pc, 0, 0, 0));
-    return 0;
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 PetscErrorCode PCApply_TinyASM(PC pc, Vec b, Vec x) {
@@ -295,13 +294,13 @@ PetscErrorCode PCApply_TinyASM(PC pc, Vec b, Vec x) {
     PetscCall(PetscSFReduceEnd(blockjacobi->sf, MPIU_SCALAR, &(blockjacobi->localx[0]), globalx, MPI_SUM));
     PetscCall(VecRestoreArray(x, &globalx));
     PetscCall(PetscLogEventEnd(PC_tinyasm_apply, pc, 0, 0, 0));
-    return 0;
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 PetscErrorCode PCDestroy_TinyASM(PC pc) {
     if(pc->data)
         delete (BlockJacobi *)pc->data;
-    return 0;
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 PetscErrorCode PCView_TinyASM(PC pc, PetscViewer viewer) {
@@ -320,7 +319,7 @@ PetscErrorCode PCView_TinyASM(PC pc, PetscViewer viewer) {
         PetscCall(PetscViewerASCIIPrintf(viewer, "Largest block size %" PetscInt_FMT " \n", biggestblock));
         PetscCall(PetscViewerASCIIPopTab(viewer));
     }
-    return 0;
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
 PetscErrorCode PCCreate_TinyASM(PC pc) {
@@ -329,7 +328,7 @@ PetscErrorCode PCCreate_TinyASM(PC pc) {
     pc->ops->setup = PCSetup_TinyASM;
     pc->ops->destroy = PCDestroy_TinyASM;
     pc->ops->view = PCView_TinyASM;
-    return 0;
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 // pybind11 casters for PETSc/petsc4py objects, copied from dolfinx repo
 // Import petsc4py on demand
@@ -385,12 +384,15 @@ PYBIND11_MODULE(_tinyasm, m) {
     PetscLogEventRegister("PCTinyASMApply", PC_CLASSID, &PC_tinyasm_apply);
     m.def("SetASMLocalSubdomains",
           [](PC pc, std::vector<IS> ises, std::vector<PetscSF> sfs, std::vector<PetscInt> blocksizes, int localsize) {
-              PetscInt i, p, numDofs;
-              PetscCall(PetscLogEventBegin(PC_tinyasm_SetASMLocalSubdomains, pc, 0, 0, 0));
+              PetscInt p, numDofs;
+
+              MPI_Comm comm = PetscObjectComm((PetscObject) pc);
+
+              PetscCallAbort(comm, PetscLogEventBegin(PC_tinyasm_SetASMLocalSubdomains, pc, 0, 0, 0));
               auto P = pc->pmat;
               ISLocalToGlobalMapping lgr;
               ISLocalToGlobalMapping lgc;
-              MatGetLocalToGlobalMapping(P, &lgr, &lgc);
+              PetscCallAbort(comm, MatGetLocalToGlobalMapping(P, &lgr, &lgc));
 
               int numBlocks = ises.size();
               vector<vector<PetscInt>> dofsPerBlock(numBlocks);
@@ -398,27 +400,27 @@ PYBIND11_MODULE(_tinyasm, m) {
               const PetscInt* isarray;
 
               for (p = 0; p < numBlocks; p++) {
-                  PetscCall(ISGetSize(ises[p], &numDofs));
-                  PetscCall(ISGetIndices(ises[p], &isarray));
+                  PetscCallAbort(comm, ISGetSize(ises[p], &numDofs));
+                  PetscCallAbort(comm, ISGetIndices(ises[p], &isarray));
 
                   dofsPerBlock[p] = vector<PetscInt>();
                   dofsPerBlock[p].reserve(numDofs);
                   globalDofsPerBlock[p] = vector<PetscInt>(numDofs, 0);
 
-                  for (i = 0; i < numDofs; i++) {
+                  for (PetscInt i = 0; i < numDofs; i++) {
                       dofsPerBlock[p].push_back(isarray[i]);
                   }
-                  PetscCall(ISRestoreIndices(ises[p], &isarray));
-                  ISLocalToGlobalMappingApply(lgr, numDofs, &dofsPerBlock[p][0], &globalDofsPerBlock[p][0]);
+                  PetscCallAbort(comm, ISRestoreIndices(ises[p], &isarray));
+                  PetscCallAbort(comm, ISLocalToGlobalMappingApply(lgr, numDofs, &dofsPerBlock[p][0], &globalDofsPerBlock[p][0]));
               }
               DM dm;
-              PetscCall(PCGetDM(pc, &dm));
+              PetscCallAbort(comm, PCGetDM(pc, &dm));
 
               PetscSF newsf;
-              PetscCall(CreateCombinedSF(pc, sfs, blocksizes, &newsf));
+              PetscCallAbort(comm, CreateCombinedSF(pc, sfs, blocksizes, &newsf));
               auto blockjacobi = new BlockJacobi(dofsPerBlock, globalDofsPerBlock, localsize, newsf);
               pc->data = (void*)blockjacobi;
-              PetscCall(PetscLogEventEnd(PC_tinyasm_SetASMLocalSubdomains, pc, 0, 0, 0));
+              PetscCallAbort(comm, PetscLogEventEnd(PC_tinyasm_SetASMLocalSubdomains, pc, 0, 0, 0));
               return 0;
           });
 }
