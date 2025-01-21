@@ -89,6 +89,10 @@ jobs:
     needs:
       - docker_build
     steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get -y install docker.io jq
       - name: Download digests
         uses: actions/download-artifact@v4
         with:
