@@ -49,7 +49,7 @@ def helmholtz(r, quadrilateral=False, degree=2, mesh=None):
     assemble(L)
     sol = Function(V)
     solve(a == L, sol, solver_parameters={'ksp_type': 'cg'})
-    # Analytical solution
+    # Error norm
     return sqrt(assemble(inner(sol - expect, sol - expect) * dx)), sol, expect
 
 
