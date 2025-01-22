@@ -48,8 +48,6 @@ jobs:
       COMPLEX: ${{ matrix.complex }}
       RDMAV_FORK_SAFE: 1
       EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 tests/firedrake
-    outputs:
-      scalar-type: ${{ matrix.scalar-type }}
     steps:
       - uses: actions/checkout@v4
 
@@ -125,7 +123,11 @@ jobs:
           . ../firedrake_venv/bin/activate
           firedrake-run-split-tests 4 3 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake4_{#}.xml"
 
-      # NOTE: We do not have any tests that run with 5 processes
+      - name: Run tests (nprocs = 5)
+        if: ${{ success() || steps.build.conclusion == 'success' }}
+        run: |
+          . ../firedrake_venv/bin/activate
+          firedrake-run-split-tests 5 2 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake5_{#}.xml"
 
       - name: Run tests (nprocs = 6)
         if: ${{ success() || steps.build.conclusion == 'success' }}
