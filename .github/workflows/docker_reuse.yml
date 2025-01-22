@@ -78,10 +78,15 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
-          name: digests-${{ matrix.os }}
+          name: digests-${{ inputs.target }}-${{ matrix.os }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
           retention-days: 1
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf ${{ runner.temp }}/digests
 
   docker_merge:
     runs-on: [self-hosted, Linux]
@@ -119,3 +124,8 @@ jobs:
       - name: Inspect image
         run: |
           docker buildx imagetools inspect firedrakeproject/${{ inputs.target }}:${{ inputs.tag }}
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf ${{ runner.temp }}/digests
