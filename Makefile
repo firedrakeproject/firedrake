@@ -83,16 +83,24 @@ clean:
 	@echo "    RM tinyasm/*.so"
 	-@rm -f tinyasm/*.so > /dev/null 2>&1
 
+# Do verbose checking if running on CI
+check_flags =
+ifeq ($(FIREDRAKE_CI_TESTS), 1)
+	check_flags = --verbose
+else
+	check_flags = --quiet --no-summary
+endif
+
 .PHONY: check
 check:
 	@echo "    Running serial smoke tests"
-	@python -m pytest --quiet --no-summary \
+	@python -m pytest $(check_flags) \
 		tests/firedrake/regression/test_stokes_mini.py::test_stokes_mini \
 		tests/firedrake/regression/test_locate_cell.py `# spatialindex` \
 		tests/firedrake/supermesh/test_assemble_mixed_mass_matrix.py::test_assemble_mixed_mass_matrix[2-CG-CG-0-0]  `# supermesh`
 	@echo "    Serial tests passed"
 	@echo "    Running parallel smoke tests"
-	@mpiexec -n 3 python -m pytest --quiet --no-summary -m parallel[3] \
+	@mpiexec -n 3 python -m pytest $(check_flags) -m parallel[3] \
 		tests/firedrake/regression/test_dg_advection.py::test_dg_advection_icosahedral_sphere
 	@echo "    Parallel tests passed"
 
