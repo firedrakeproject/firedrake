@@ -2,7 +2,7 @@
 
 # Script for running a pytest test suite in parallel across multiple jobs.
 #
-# The test suite is partitioned between the jobs and each job outputs its own log file.
+# Only the tests that use the given number of processors are selected from the suite. This list of tests is distributed between multiple jobs and each job outputs its own log file.
 #
 # Usage:
 #
@@ -14,8 +14,6 @@
 #     * <pytest_args...> are additional arguments that are passed to pytest
 #
 # Example:
-#
-#   To give an example,
 #
 #     firedrake-run-split-tests 3 4 tests/unit --verbose
 #
@@ -69,7 +67,5 @@ for i in $(seq 1 ${num_jobs}); do
 done
 
 echo Cleaning up
-for i in $(seq 1 ${num_jobs}); do
-    rm job${i}.errcode
-done
+rm job*.errcode
 echo Done
