@@ -147,7 +147,7 @@ jobs:
         uses: mikepenz/action-junit-report@v5.0.0-a02
         if: ${{ always() && ( github.ref != 'refs/heads/master') }}
         with:
-          report_paths: '/__w/firedrake/firedrake/firedrake*.xml'
+          report_paths: 'firedrake*.xml'
           comment: true
           check_name: "Firedrake ${{ matrix.scalar-type }}"
           updateComment: true
