@@ -86,13 +86,13 @@ clean:
 .PHONY: check
 check:
 	@echo "    Running serial smoke tests"
-	@python -m pytest \
+	@python -m pytest --quiet --no-summary \
 		tests/firedrake/regression/test_stokes_mini.py::test_stokes_mini \
 		tests/firedrake/regression/test_locate_cell.py `# spatialindex` \
 		tests/firedrake/supermesh/test_assemble_mixed_mass_matrix.py::test_assemble_mixed_mass_matrix[2-CG-CG-0-0]  `# supermesh`
 	@echo "    Serial tests passed"
 	@echo "    Running parallel smoke tests"
-	@mpiexec -n 3 python -m pytest -m parallel[3] \
+	@mpiexec -n 3 python -m pytest --quiet --no-summary -m parallel[3] \
 		tests/firedrake/regression/test_dg_advection.py::test_dg_advection_icosahedral_sphere
 	@echo "    Parallel tests passed"
 

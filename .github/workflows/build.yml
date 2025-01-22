@@ -45,7 +45,7 @@ jobs:
       OPENBLAS_NUM_THREADS: 1
       COMPLEX: ${{ matrix.complex }}
       RDMAV_FORK_SAFE: 1
-      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860
+      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 tests/firedrake
     outputs:
       scalar-type: ${{ matrix.scalar-type }}
     steps:
@@ -102,26 +102,26 @@ jobs:
       - name: Run tests (nprocs = 1)
         run: |
           . ../firedrake_venv/bin/activate
-          firedrake-run-split-tests tests/firedrake 1 12 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake1_{#}.xml"
+          firedrake-run-split-tests 1 12 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake1_{#}.xml"
 
       - name: Run tests (nprocs = 2)
         # Run even if earlier tests failed
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
           . ../firedrake_venv/bin/activate
-          firedrake-run-split-tests tests/firedrake 2 6 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake2_{#}.xml"
+          firedrake-run-split-tests 2 6 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake2_{#}.xml"
 
       - name: Run tests (nprocs = 3)
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
           . ../firedrake_venv/bin/activate
-          firedrake-run-split-tests tests/firedrake 3 4 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake3_{#}.xml"
+          firedrake-run-split-tests 3 4 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake3_{#}.xml"
 
       - name: Run tests (nprocs = 4)
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
           . ../firedrake_venv/bin/activate
-          firedrake-run-split-tests tests/firedrake 4 3 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake4_{#}.xml"
+          firedrake-run-split-tests 4 3 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake4_{#}.xml"
 
       # NOTE: We do not have any tests that run with 5 processes
 
@@ -129,19 +129,19 @@ jobs:
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
           . ../firedrake_venv/bin/activate
-          firedrake-run-split-tests tests/firedrake 6 2 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake6_{#}.xml"
+          firedrake-run-split-tests 6 2 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake6_{#}.xml"
 
       - name: Run tests (nprocs = 7)
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
           . ../firedrake_venv/bin/activate
-          firedrake-run-split-tests tests/firedrake 7 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake7_{#}.xml"
+          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake7_{#}.xml"
 
       - name: Run tests (nprocs = 8)
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
           . ../firedrake_venv/bin/activate
-          firedrake-run-split-tests tests/firedrake 8 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake8_{#}.xml"
+          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake8_{#}.xml"
 
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@v5.0.0-a02
