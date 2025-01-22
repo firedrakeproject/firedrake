@@ -547,7 +547,8 @@ else:
                     value = local_cache.get(key, CACHE_MISS)
 
                 if value is CACHE_MISS:
-                    value = func(*args, **kwargs)
+                    with PETSc.Log.Event("pyop2: handle cache miss"):
+                        value = func(*args, **kwargs)
                 return local_cache.setdefault(key, value)
 
             return wrapper
