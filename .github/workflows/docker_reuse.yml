@@ -70,6 +70,7 @@ jobs:
       - name: Export digest
         run: |
           : # Create a file in <tempdir>/digests with name matching the pushed image hash
+          rm -rf ${{ runner.temp }}/digests
           mkdir -p ${{ runner.temp }}/digests
           digest="${{ steps.build.outputs.imageid }}"
           touch "${{ runner.temp }}/digests/${digest#sha256:}"
