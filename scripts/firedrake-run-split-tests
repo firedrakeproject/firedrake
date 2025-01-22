@@ -45,21 +45,25 @@ pytest_cmd="${pytest_exec} -v \
             --splits ${num_jobs} --group {#} \
             -m ${marker_spec} ${extra_args}"
 
+# Print the command
+set -x
+
 # This incantation:
 # * Runs pytest under GNU parallel using the right number of jobs
 # * Uses tee to pipe stdout+stderr to both stdout and a log file
 # * Writes pytest's exit code to a file called jobN.errcode (for later inspection)
-insn="parallel --line-buffer --tag \
-      ${pytest_cmd} |& tee ${log_file_prefix}{#}.log; \
-      echo \${PIPESTATUS[0]} > job{#}.errcode \
-      ::: $(seq ${num_jobs})"
+parallel --line-buffer --tag \
+    ${pytest_cmd} |& tee ${log_file_prefix}{#}.log; \
+    echo \${PIPESTATUS[0]} > job{#}.errcode \
+    ::: $(seq ${num_jobs})
 
-echo Running: ${insn}
-${insn}
+set +x
 
 for i in $(seq 1 ${num_jobs}); do
     error_code=$(cat job${i}.errcode)
-    if [ ${error_code} = "0" ]; then
+    # pytest uses exit code 5 if no tests were found, which we also treat that as a success
+    # (see https://docs.pytest.org/en/7.1.x/reference/exit-codes.html)
+    if [ ${error_code} = "0" ] || [ ${error_code} = "5" ]; then
         echo Job ${i} passed
     else
         echo Job ${i} failed, inspect the logs in ${log_file_prefix}${i}.log

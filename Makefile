@@ -88,19 +88,24 @@ check_flags =
 ifeq ($(FIREDRAKE_CI_TESTS), 1)
 	check_flags = --verbose
 else
-	check_flags = --quiet --no-summary
+	check_flags = --quiet
+endif
+
+timeout_expr =
+ifdef TIMEOUT
+	timeout_expr = --timeout $(TIMEOUT)
 endif
 
 .PHONY: check
 check:
 	@echo "    Running serial smoke tests"
-	@python -m pytest $(check_flags) \
+	@python -m pytest $(check_flags) $(timeout_expr) \
 		tests/firedrake/regression/test_stokes_mini.py::test_stokes_mini \
 		tests/firedrake/regression/test_locate_cell.py `# spatialindex` \
 		tests/firedrake/supermesh/test_assemble_mixed_mass_matrix.py::test_assemble_mixed_mass_matrix[2-CG-CG-0-0]  `# supermesh`
 	@echo "    Serial tests passed"
 	@echo "    Running parallel smoke tests"
-	@mpiexec -n 3 python -m pytest $(check_flags) -m parallel[3] \
+	@mpiexec -n 3 python -m pytest $(check_flags) $(timeout_expr) -m parallel[3] \
 		tests/firedrake/regression/test_dg_advection.py::test_dg_advection_icosahedral_sphere
 	@echo "    Parallel tests passed"
 
@@ -109,6 +114,7 @@ durations:
 	@echo "    Generate timings to optimise pytest-split"
 	python -m pytest --store-durations -m "parallel[1] or not parallel" tests/
 	for nprocs in 2 3 4 6 7 8; do
+		# use ':' to ensure that only rank 0 writes to the durations file
 		mpiexec -n 1 \
 			python -m pytest --store-durations -m parallel[$${nprocs}] tests/ : \
 			-n $$(( $${nprocs} - 1 )) pytest -m parallel[$${nprocs}] -q tests/

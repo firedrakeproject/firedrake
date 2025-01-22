@@ -27,6 +27,8 @@ jobs:
     container:
       image: firedrakeproject/firedrake-env:latest
     strategy:
+      # We want to know all of the tests which fail, so don't kill real if
+      # complex fails and vice-versa
       fail-fast: false
       matrix:
         include:

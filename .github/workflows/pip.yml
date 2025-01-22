@@ -83,8 +83,8 @@ jobs:
         run: |
           source pip_venv/bin/activate
           cd pip_venv/src/firedrake
-          make check
-        timeout-minutes: 120
+          make check TIMEOUT=60
+        timeout-minutes: 10
 
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@v5.0.0-a02

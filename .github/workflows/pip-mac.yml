@@ -99,8 +99,8 @@ jobs:
         run: |
           source pip_venv/bin/activate
           cd pip_venv/src/firedrake
-          make check
-        timeout-minutes: 30
+          make check TIMEOUT=60
+        timeout-minutes: 10
 
       - name: Cleanup (post)
         if: ${{ always() }}
