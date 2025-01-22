@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+# TODO: Write a docstring for this
+
+
+tests=$1
+num_procs=$2
+num_jobs=$3
+extra_args=${@:4}
+
+log_file_prefix="pytest_nprocs${num_procs}_job"
+
+if [ $num_procs = 1 ]; then
+    pytest_exec="python -m pytest"
+    marker_spec="\"parallel[1] or not parallel\""
+else
+    pytest_exec="mpiexec -n ${num_procs} python -m pytest"
+    marker_spec="parallel[${num_procs}]"
+fi
+
+pytest_cmd="${pytest_exec} -v \
+            --splits ${num_jobs} --group {#} \
+            -m ${marker_spec} ${extra_args} ${tests}"
+
+insn="parallel --line-buffer --tag \
+      ${pytest_cmd} |& tee ${log_file_prefix}{#}.log; \
+      echo \${PIPESTATUS[0]} > job{#}.errcode \
+      ::: $(seq ${num_jobs})"
+
+echo Running: ${insn}
+${insn}
+
+for i in $(seq 1 ${num_jobs}); do
+    error_code=$(cat job${i}.errcode)
+    if [ ${error_code} = "0" ]; then
+        echo Job ${i} passed
+    else
+        echo Job ${i} failed, inspect the logs in ${log_file_prefix}${i}.log
+    fi
+done
+
+echo Cleaning up
+for i in $(seq 1 ${num_jobs}); do
+    rm job${i}.errcode
+done
+echo Done

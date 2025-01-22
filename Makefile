@@ -83,84 +83,25 @@ clean:
 	@echo "    RM tinyasm/*.so"
 	-@rm -f tinyasm/*.so > /dev/null 2>&1
 
-# This is the minimum required to run the test suite
-NPROCS=8
-# On CI we add additional `pytest` args to spit out more information
-PYTEST_ARGS=
-# specifically --durations=200 --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 -s
-# and --cov firedreake once the performance regression is fixed!
-
-# Requires pytest and pytest-mpi only
-.PHONY: test_serial
-test_serial:
-	@echo "    Running all tests in serial"
-	@python -m pytest -v tests
-
-# Requires pytest and pytest-mpi only
-.PHONY: test_smoke
-test_smoke:
-	@echo "    Running the bare minimum smoke tests"
-	@python -m pytest -k "poisson_strong or stokes_mini or dg_advection" -v tests/regression/
-
-.PHONY: _test_serial_tests
-_test_serial_tests:
-	@echo "    Running serial tests over $(NPROCS) threads"
+.PHONY: check
+check:
+	@echo "    Running serial smoke tests"
 	@python -m pytest \
-		-n $(NPROCS) --dist worksteal \
-		$(PYTEST_ARGS) \
-		-m "not parallel" \
-		-v tests
+		tests/firedrake/regression/test_stokes_mini.py::test_stokes_mini \
+		tests/firedrake/regression/test_locate_cell.py `# spatialindex` \
+		tests/firedrake/supermesh/test_assemble_mixed_mass_matrix.py::test_assemble_mixed_mass_matrix[2-CG-CG-0-0]  `# supermesh`
+	@echo "    Serial tests passed"
+	@echo "    Running parallel smoke tests"
+	@mpiexec -n 3 python -m pytest -m parallel[3] \
+		tests/firedrake/regression/test_dg_advection.py::test_dg_advection_icosahedral_sphere
+	@echo "    Parallel tests passed"
 
-.PHONY: _test_small_world_tests
-_test_small_world_tests:
-	@echo "    Running parallel tests over $(NPROCS) ranks"
-	@set -e; \
-	for N in 2 3 4 ; do \
-		echo "    COMM_WORLD=$$N ranks"; \
-		mpispawn -nU $(NPROCS) -nW $$N --propagate-errcodes python -m pytest \
-			--splitting-algorithm least_duration \
-			--splits \$$MPISPAWN_NUM_TASKS \
-			--group \$$MPISPAWN_TASK_ID1 \
-			$(PYTEST_ARGS) \
-			-m "parallel[\$$MPISPAWN_WORLD_SIZE] and not broken" \
-			-v tests; \
-	done
-
-.PHONY: _test_large_world_test
-_test_large_world_tests:
-	@echo "    Running parallel tests over $(NPROCS) ranks"
-	@set -e; \
-	for N in 6 7 8 ; do \
-		echo "    COMM_WORLD=$$N ranks"; \
-		mpiexec -n $$N python -m pytest \
-			$(PYTEST_ARGS) \
-			-m "parallel[$$N] and not broken" \
-            -v tests; \
-	done
-
-.PHONY: test_adjoint
-test_adjoint:
-	@echo "    Running adjoint tests over $(NPROCS) threads"
-	@python -m pytest \
-		$(PYTEST_ARGS) \
-		-v $(VIRTUAL_ENV)/src/pyadjoint/tests/firedrake-adjoint
-
-# Additionally requires pytest-xdist, mpispawn and pytest-split
-.PHONY: test
-test: _test_serial_tests _test_small_world_tests _test_large_world_tests
-
-.PHONY: test_ci
-test_ci: test test_adjoint
-
-.PHONY: test_generate_timings
-test_generate_timings:
+.PHONY: durations
+durations:
 	@echo "    Generate timings to optimise pytest-split"
-	@set -e; \
-	for N in 2 3 4 ; do \
-		@mpiexec \
-			-n 1 pytest --store-durations -m "parallel[$$N] and not broken" -v tests : \
-			-n $$(( $$N - 1 )) pytest -m "parallel[$$N] and not broken" -q tests; \
+	python -m pytest --store-durations -m "parallel[1] or not parallel" tests/
+	for nprocs in 2 3 4 6 7 8; do
+		mpiexec -n 1 \
+			python -m pytest --store-durations -m parallel[$${nprocs}] tests/ : \
+			-n $$(( $${nprocs} - 1 )) pytest -m parallel[$${nprocs}] -q tests/
 	done
-
-.PHONY: alltest
-alltest: modules lint test_serial

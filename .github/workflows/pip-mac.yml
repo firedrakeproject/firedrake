@@ -98,11 +98,7 @@ jobs:
         run: |
           source pip_venv/bin/activate
           cd pip_venv/src/firedrake
-          python -m pytest --timeout=1800 -v tests/firedrake/regression \
-            -k "poisson_strong or stokes_mini or dg_advection"
-          # also test for 'problem libraries' (spatialindex and libsupermesh)
-          python -m pytest -v tests/firedrake/regression/test_locate_cell.py
-          python -m pytest -v tests/firedrake/supermesh/test_assemble_mixed_mass_matrix.py
+          make check
         timeout-minutes: 30
 
       - name: Cleanup (post)

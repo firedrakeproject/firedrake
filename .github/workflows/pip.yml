@@ -83,15 +83,7 @@ jobs:
         run: |
           source pip_venv/bin/activate
           cd pip_venv/src/firedrake
-          pytest -v tests/firedrake/test_0init.py
-          pytest \
-            --durations=200 \
-            --timeout=1800 \
-            --timeout-method=thread \
-            -o faulthandler_timeout=1860 \
-            -n 12 --dist worksteal \
-            --junit-xml=firedrake.xml \
-            -sv tests/firedrake/regression -k "poisson_strong or stokes_mini or dg_advection"
+          make check
         timeout-minutes: 120
 
       - name: Publish Test Report

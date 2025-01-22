@@ -45,6 +45,7 @@ jobs:
       OPENBLAS_NUM_THREADS: 1
       COMPLEX: ${{ matrix.complex }}
       RDMAV_FORK_SAFE: 1
+      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860
     outputs:
       scalar-type: ${{ matrix.scalar-type }}
     steps:
@@ -101,43 +102,26 @@ jobs:
       - name: Run tests (nprocs = 1)
         run: |
           . ../firedrake_venv/bin/activate
-          : # use --quote to stop parallel from parsing the pytest arguments
-          parallel --line-buffer --tag --quote \
-            pytest -v --splits 12 --group {#} --splitting-algorithm least_duration \
-            --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 \
-            --junit-xml=firedrake1_{#}.xml \
-            -m "parallel[1] or not parallel" tests/firedrake ::: $(seq 12)
+          firedrake-run-split-tests tests/firedrake 1 12 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake1_{#}.xml"
 
       - name: Run tests (nprocs = 2)
         # Run even if earlier tests failed
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
           . ../firedrake_venv/bin/activate
-          parallel --line-buffer --tag --quote \
-            mpiexec -n 2 pytest -v --splits 6 --group {#} --splitting-algorithm least_duration \
-            --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 \
-            --junit-xml=firedrake2_{#}.xml \
-            -m parallel[2] tests/firedrake ::: $(seq 6)
+          firedrake-run-split-tests tests/firedrake 2 6 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake2_{#}.xml"
 
       - name: Run tests (nprocs = 3)
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
           . ../firedrake_venv/bin/activate
-          parallel --line-buffer --tag --quote \
-            mpiexec -n 3 pytest -v --splits 4 --group {#} --splitting-algorithm least_duration \
-            --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 \
-            --junit-xml=firedrake3_{#}.xml \
-            -m parallel[3] tests/firedrake ::: $(seq 4)
+          firedrake-run-split-tests tests/firedrake 3 4 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake3_{#}.xml"
 
       - name: Run tests (nprocs = 4)
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
           . ../firedrake_venv/bin/activate
-          parallel --line-buffer --tag --quote \
-            mpiexec -n 4 pytest -v --splits 3 --group {#} --splitting-algorithm least_duration \
-            --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 \
-            --junit-xml=firedrake4_{#}.xml \
-            -m parallel[4] tests/firedrake ::: $(seq 3)
+          firedrake-run-split-tests tests/firedrake 4 3 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake4_{#}.xml"
 
       # NOTE: We do not have any tests that run with 5 processes
 
@@ -145,29 +129,19 @@ jobs:
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
           . ../firedrake_venv/bin/activate
-          parallel --line-buffer --tag --quote \
-            mpiexec -n 6 pytest -v --splits 2 --group {#} --splitting-algorithm least_duration \
-            --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 \
-            --junit-xml=firedrake6_{#}.xml \
-            -m parallel[6] tests/firedrake ::: $(seq 2)
+          firedrake-run-split-tests tests/firedrake 6 2 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake6_{#}.xml"
 
       - name: Run tests (nprocs = 7)
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
           . ../firedrake_venv/bin/activate
-          mpiexec -n 7 pytest -v \
-            --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 \
-            --junit-xml=firedrake7.xml \
-            -m parallel[7] tests/firedrake
+          firedrake-run-split-tests tests/firedrake 7 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake7_{#}.xml"
 
       - name: Run tests (nprocs = 8)
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
           . ../firedrake_venv/bin/activate
-          mpiexec -n 8 pytest -v \
-            --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 \
-            --junit-xml=firedrake8.xml \
-            -m parallel[8] tests/firedrake
+          firedrake-run-split-tests tests/firedrake 8 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake8_{#}.xml"
 
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@v5.0.0-a02
@@ -178,6 +152,13 @@ jobs:
           check_name: "Firedrake ${{ matrix.scalar-type }}"
           updateComment: true
           flaky_summary: true
+
+      - name: Upload log files
+        uses: actions/upload-artifact@v4
+        # if: failure(), for debugging
+        with:
+          name: firedrake-logs-${{ matrix.scalar-type }}
+          path: pytest_*.log
 
       - name: Test pyadjoint
         if: ${{ matrix.scalar-type == 'real' }}

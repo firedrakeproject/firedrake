@@ -49,10 +49,7 @@ jobs:
       - name: Run smoke tests
         run: |
           . ../firedrake_venv/bin/activate
-          python -m pytest -v tests/firedrake/regression/ -k "poisson_strong or stokes_mini or dg_advection"
-          # also test for 'problem libraries' (spatialindex and libsupermesh)
-          python -m pytest -v tests/firedrake/regression/test_locate_cell.py
-          python -m pytest -v tests/firedrake/supermesh/test_assemble_mixed_mass_matrix.py
+          make check
         timeout-minutes: 30
       - name: Post-run cleanup
         if: ${{ always() }}
