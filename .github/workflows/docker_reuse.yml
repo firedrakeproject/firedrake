@@ -113,7 +113,7 @@ jobs:
       - name: Merge and push the per-platform images
         working-directory: ${{ runner.temp }}/digests
         run: |
-          docker buildx imagetools create -t ${{ inputs.tag }} $(printf 'firedrakeproject/${{ inputs.target }}@sha256:%s ' *)
+          docker buildx imagetools create -t firedrakeproject/${{ inputs.target }}:${{ inputs.tag }} $(printf 'firedrakeproject/${{ inputs.target }}@sha256:%s ' *)
 
       - name: Inspect image
         run: |
