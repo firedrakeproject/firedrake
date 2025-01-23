@@ -126,7 +126,7 @@ def test_assemble_interp_adjoint_complex(mesh, V1, V2, f1):
         f1 = Constant(3 - 5.j) * f1
 
     a = assemble(conj(TestFunction(V1)) * dx)
-    b = Interpolator(f1 * TestFunction(V2), V1).interpolate(a, adjoint=True)
+    b = assemble(Interpolator(f1 * TestFunction(V2), V1).interpolate(a, adjoint=True))
 
     x, y = SpatialCoordinate(mesh)
     f2 = Function(V2, name="f2").interpolate(
