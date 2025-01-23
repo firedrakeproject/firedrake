@@ -38,9 +38,14 @@ jobs:
           - os: Linux
             platform: linux/amd64
           - os: macOS
-            platform: linux/arm64
+            platform: darwin
     runs-on: [self-hosted, "${{ matrix.os }}"]
     steps:
+      - name: Pre-cleanup
+        if: always()
+        run: |
+          rm -rf ${{ runner.temp }}/digests
+
       - name: Add homebrew to PATH
         if: matrix.os == 'macOS'
         run: |
@@ -83,22 +88,20 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Cleanup
+      - name: Post-cleanup
         if: always()
         run: |
           rm -rf ${{ runner.temp }}/digests
 
   docker_merge:
     runs-on: [self-hosted, Linux]
-    container:
-      image: ubuntu:latest
     needs:
       - docker_build
     steps:
-      - name: Install system dependencies
+      - name: Pre-cleanup
+        if: always()
         run: |
-          apt-get update
-          apt-get -y install docker.io jq
+          rm -rf ${{ runner.temp }}/digests
 
       - name: Download digests
         uses: actions/download-artifact@v4
@@ -125,7 +128,7 @@ jobs:
         run: |
           docker buildx imagetools inspect firedrakeproject/${{ inputs.target }}:${{ inputs.tag }}
 
-      - name: Cleanup
+      - name: Post-cleanup
         if: always()
         run: |
           rm -rf ${{ runner.temp }}/digests
