@@ -7,6 +7,12 @@ WORKDIR /home/firedrake
 
 ENV PETSC_ARCH default
 
+# This is needed so we can pass '--no-vtk' for ARM builds
+# (see https://gitlab.kitware.com/vtk/vtk/-/issues/18648).
+# This can probably go away when we move away from firedrake-install as
+# we can install VTK from source manually.
+ARG EXTRA_INSTALL_FLAGS=""
+
 # Now install Firedrake.
 RUN curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
 RUN bash -c "python3 firedrake-install \
@@ -17,4 +23,5 @@ RUN bash -c "python3 firedrake-install \
     --mpicxx=$MPICH_DIR/mpicxx \
     --mpif90=$MPICH_DIR/mpif90 \
     --mpiexec=$MPICH_DIR/mpiexec \
-    --mpihome=$MPICH_DIR/.."
+    --mpihome=$MPICH_DIR/.." \
+    ${EXTRA_INSTALL_FLAGS}

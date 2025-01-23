@@ -70,6 +70,9 @@ jobs:
         with:
           platforms: ${{ matrix.platform }}
           file: ${{ inputs.dockerfile }}
+          # ternary operator, see
+          # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/evaluate-expressions-in-workflows-and-actions#example
+          build-args: EXTRA_INSTALL_FLAGS=${{ matrix.os == 'macOS' && '--no-vtk' || '' }}
           outputs: type=image,name=firedrakeproject/${{ inputs.target }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
