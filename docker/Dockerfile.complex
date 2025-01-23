@@ -26,5 +26,5 @@ RUN bash -c "python3 firedrake-install \
     --mpiexec=$MPICH_DIR/mpiexec \
     --mpihome=$MPICH_DIR/.. \
     --slepc \
-    --documentation-dependencies" \
-    ${EXTRA_INSTALL_FLAGS}
+    --documentation-dependencies \
+    ${EXTRA_INSTALL_FLAGS}"
