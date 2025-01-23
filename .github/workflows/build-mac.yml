@@ -46,6 +46,11 @@ jobs:
             --venv-name firedrake_venv \
             --disable-ssh \
             || (cat firedrake-install.log && /bin/false)
+      - name: Install test dependencies
+        run: |
+          . ../firedrake_venv/bin/activate
+          python -m pip install pytest-timeout
+
       - name: Run smoke tests
         run: |
           . ../firedrake_venv/bin/activate
