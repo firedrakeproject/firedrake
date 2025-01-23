@@ -552,7 +552,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # Assembling the action of the Jacobian adjoint.
                 if is_adjoint:
                     output = tensor or firedrake.Cofunction(arg_expression[0].function_space().dual())
-                    return interpolator._interpolate(v, output=output, transpose=True, default_missing_val=default_missing_val)
+                    return interpolator._interpolate(v, output=output, adjoint=True, default_missing_val=default_missing_val)
                 # Assembling the Jacobian action.
                 if interpolator.nargs:
                     return interpolator._interpolate(expression, output=tensor, default_missing_val=default_missing_val)
