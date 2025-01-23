@@ -341,7 +341,7 @@ class Interpolator(abc.ABC):
                              access=self.access,
                              allow_missing_dofs=self._allow_missing_dofs,
                              default_missing_val=default_missing_val)
-        if transpose:
+        if transpose is not None:
             warnings.warn("'transpose' argument is deprecated, use 'adjoint' instead", FutureWarning)
             adjoint = transpose or adjoint
         if adjoint:
@@ -409,7 +409,7 @@ assemble(interpolate(expr, V))
 Alternatively, you can also perform other symbolic operations on the interpolation operator, such as taking
 the derivative, and then assemble the resulting form.
 """, FutureWarning)
-        if transpose:
+        if transpose is not None:
             warnings.warn("'transpose' argument is deprecated, use 'adjoint' instead", FutureWarning)
             adjoint = transpose or adjoint
 
