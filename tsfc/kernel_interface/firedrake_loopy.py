@@ -452,37 +452,45 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         for domain, expr in self._entity_numbers.items():
             integral_type = info.domain_integral_type_map[domain]
             ext_dict[domain] = expr[None].expression if integral_type in ["exterior_facet", "exterior_facet_vert"] else None
-        active_domain_numbers_exterior_facets, args_ = self.make_active_domain_numbers(ext_dict,
-                                                                                       active_variables,
-                                                                                       kernel_args.ExteriorFacetKernelArg,
-                                                                                       dtype=numpy.uint32)
+        active_domain_numbers_exterior_facets, args_ = self.make_active_domain_numbers(
+            ext_dict,
+            active_variables,
+            kernel_args.ExteriorFacetKernelArg,
+            dtype=numpy.uint32,
+        )
         args.extend(args_)
         int_dict = {}
         for domain, expr in self._entity_numbers.items():
             integral_type = info.domain_integral_type_map[domain]
             int_dict[domain] = expr['+'].expression if integral_type in ["interior_facet", "interior_facet_vert"] else None
-        active_domain_numbers_interior_facets, args_ = self.make_active_domain_numbers(int_dict,
-                                                                                       active_variables,
-                                                                                       kernel_args.InteriorFacetKernelArg,
-                                                                                       dtype=numpy.uint32)
+        active_domain_numbers_interior_facets, args_ = self.make_active_domain_numbers(
+            int_dict,
+            active_variables,
+            kernel_args.InteriorFacetKernelArg,
+            dtype=numpy.uint32,
+        )
         args.extend(args_)
         ext_dict = {}
         for domain, expr in self._entity_orientations.items():
             integral_type = info.domain_integral_type_map[domain]
             ext_dict[domain] = expr[None].expression if integral_type in ["exterior_facet", "exterior_facet_vert"] else None
-        active_domain_numbers_exterior_facet_orientations, args_ = self.make_active_domain_numbers(ext_dict,
-                                                                                                   active_variables,
-                                                                                                   kernel_args.ExteriorFacetOrientationKernelArg,
-                                                                                                   dtype=gem.uint_type)
+        active_domain_numbers_exterior_facet_orientations, args_ = self.make_active_domain_numbers(
+            ext_dict,
+            active_variables,
+            kernel_args.ExteriorFacetOrientationKernelArg,
+            dtype=gem.uint_type,
+        )
         args.extend(args_)
         int_dict = {}
         for domain, expr in self._entity_orientations.items():
             integral_type = info.domain_integral_type_map[domain]
             int_dict[domain] = expr['+'].expression if integral_type in ["interior_facet", "interior_facet_vert", "interior_facet_horiz"] else None
-        active_domain_numbers_interior_facet_orientations, args_ = self.make_active_domain_numbers(int_dict,
-                                                                                                   active_variables,
-                                                                                                   kernel_args.InteriorFacetOrientationKernelArg,
-                                                                                                   dtype=gem.uint_type)
+        active_domain_numbers_interior_facet_orientations, args_ = self.make_active_domain_numbers(
+            int_dict,
+            active_variables,
+            kernel_args.InteriorFacetOrientationKernelArg,
+            dtype=gem.uint_type,
+        )
         args.extend(args_)
         for name_, shape in tabulations:
             tab_loopy_arg = lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape)
@@ -496,13 +504,15 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
                       integral_type=info.integral_type,
                       subdomain_id=info.subdomain_id,
                       domain_number=info.domain_number,
-                      active_domain_numbers=ActiveDomainNumbers(coordinates=tuple(active_domain_numbers_coordinates),
-                                                                cell_orientations=tuple(active_domain_numbers_cell_orientations),
-                                                                cell_sizes=tuple(active_domain_numbers_cell_sizes),
-                                                                exterior_facets=tuple(active_domain_numbers_exterior_facets),
-                                                                interior_facets=tuple(active_domain_numbers_interior_facets),
-                                                                exterior_facet_orientations=tuple(active_domain_numbers_exterior_facet_orientations),
-                                                                interior_facet_orientations=tuple(active_domain_numbers_interior_facet_orientations),),
+                      active_domain_numbers=ActiveDomainNumbers(
+                          coordinates=tuple(active_domain_numbers_coordinates),
+                          cell_orientations=tuple(active_domain_numbers_cell_orientations),
+                          cell_sizes=tuple(active_domain_numbers_cell_sizes),
+                          exterior_facets=tuple(active_domain_numbers_exterior_facets),
+                          interior_facets=tuple(active_domain_numbers_interior_facets),
+                          exterior_facet_orientations=tuple(active_domain_numbers_exterior_facet_orientations),
+                          interior_facet_orientations=tuple(active_domain_numbers_interior_facet_orientations),
+                      ),
                       coefficient_numbers=tuple(zip(info.coefficient_numbers, coefficient_indices)),
                       tabulations=tabulations,
                       flop_count=flop_count,
