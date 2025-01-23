@@ -25,6 +25,7 @@ from pyop2.compilation import load
 from pyop2.codegen.builder import Pack, MatPack, DatPack
 from pyop2.codegen.representation import Comparison, Literal
 from pyop2.codegen.rep2loopy import register_petsc_function
+from pyop2.global_kernel import compile_global_kernel
 from pyop2.mpi import COMM_SELF
 from pyop2.utils import get_petsc_dir
 
@@ -222,7 +223,7 @@ def matrix_funptr(form, state):
 
         wrapper_knl_args = tuple(a.global_kernel_arg for a in args)
         mod = op2.GlobalKernel(kinfo.kernel, wrapper_knl_args, subset=True)
-        kernels.append(CompiledKernel(mod.compile(iterset.comm), kinfo))
+        kernels.append(CompiledKernel(compile_global_kernel(mod, iterset.comm), kinfo))
     return cell_kernels, int_facet_kernels
 
 
@@ -316,7 +317,7 @@ def residual_funptr(form, state):
 
         wrapper_knl_args = tuple(a.global_kernel_arg for a in args)
         mod = op2.GlobalKernel(kinfo.kernel, wrapper_knl_args, subset=True)
-        kernels.append(CompiledKernel(mod.compile(iterset.comm), kinfo))
+        kernels.append(CompiledKernel(compile_global_kernel(mod, iterset.comm), kinfo))
     return cell_kernels, int_facet_kernels
 
 
