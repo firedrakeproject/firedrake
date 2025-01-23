@@ -77,6 +77,8 @@ def _compile_expression_hashkey(slate_expr, compiler_parameters=None):
         params["slate_compiler"].update(compiler_parameters.pop("slate_compiler"))
     if compiler_parameters:
         params["form_compiler"].update(compiler_parameters)
+    # The getattr here is to defer validation to the `compile_expression` call
+    # as the test suite checks the correct exceptions are raised on invalid input.
     return getattr(slate_expr, "expression_hash", "ERROR") + str(sorted(params.items()))
 
 

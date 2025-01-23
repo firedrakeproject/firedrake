@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+
+# Script for running a pytest test suite in parallel across multiple jobs.
+#
+# Only the tests that use the given number of processors are selected from the suite. This list of tests is distributed between multiple jobs and each job outputs its own log file.
+#
+# Usage:
+#
+#     firedrake-run-split-tests <nprocs> <njobs> <pytest_args...>
+#
+#   where:
+#     * <nprocs> is the number of ranks used in each test
+#     * <njobs> is the number of different jobs
+#     * <pytest_args...> are additional arguments that are passed to pytest
+#
+# Example:
+#
+#     firedrake-run-split-tests 3 4 tests/unit --verbose
+#
+#   will run all of the parallel[3] tests inside tests/unit verbosely
+#   and split between 4 different jobs.
+#
+# Requires:
+#
+#   * pytest
+#   * pytest-split
+#   * pytest-mpi (https://github.com/firedrakeproject/pytest-mpi)
+#   * GNU parallel
+
+num_procs=$1
+num_jobs=$2
+extra_args=${@:3}
+
+log_file_prefix="pytest_nprocs${num_procs}_job"
+
+if [ $num_procs = 1 ]; then
+    pytest_exec="python -m pytest"
+    marker_spec="\"parallel[1] or not parallel\""
+else
+    pytest_exec="mpiexec -n ${num_procs} python -m pytest"
+    marker_spec="parallel[${num_procs}]"
+fi
+
+pytest_cmd="${pytest_exec} -v \
+            --splits ${num_jobs} --group {#} \
+            -m ${marker_spec} ${extra_args}"
+
+# Print the command
+set -x
+
+# This incantation:
+# * Runs pytest under GNU parallel using the right number of jobs
+# * Uses tee to pipe stdout+stderr to both stdout and a log file
+# * Writes pytest's exit code to a file called jobN.errcode (for later inspection)
+parallel --line-buffer --tag \
+    "${pytest_cmd} |& tee ${log_file_prefix}{#}.log; \
+    echo \${PIPESTATUS[0]} > job{#}.errcode" \
+    ::: $(seq ${num_jobs})
+
+set +x
+
+pass=true
+for i in $(seq 1 ${num_jobs}); do
+    error_code=$(cat job${i}.errcode)
+    # pytest uses exit code 5 if no tests were found, which we also treat that as a success
+    # (see https://docs.pytest.org/en/7.1.x/reference/exit-codes.html)
+    if [ ${error_code} = "0" ] || [ ${error_code} = "5" ]; then
+        echo Job ${i} passed
+    else
+        echo Job ${i} failed, inspect the logs in ${log_file_prefix}${i}.log
+        pass=false
+    fi
+done
+
+echo Cleaning up
+rm job*.errcode
+echo Done
+
+if $pass; then
+    exit 0
+else
+    exit 1
+fi

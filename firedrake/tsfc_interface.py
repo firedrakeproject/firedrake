@@ -58,7 +58,7 @@ def tsfc_compile_form_hashkey(form, prefix, parameters, interface, diagonal):
     return default_parallel_hashkey(form.signature(), prefix, parameters, interface, diagonal)
 
 
-def tsfc_compile_form_comm_fetcher(*args, **kwargs):
+def _compile_form_comm(*args, **kwargs):
     # args[0] is a form
     return args[0].ufl_domains()[0].comm
 
@@ -66,7 +66,7 @@ def tsfc_compile_form_comm_fetcher(*args, **kwargs):
 # Decorate the original tsfc.compile_form with a cache
 tsfc_compile_form = memory_and_disk_cache(
     hashkey=tsfc_compile_form_hashkey,
-    comm_fetcher=tsfc_compile_form_comm_fetcher,
+    comm_fetcher=_compile_form_comm,
     cachedir=_cachedir
 )(original_tsfc_compile_form)
 
@@ -146,10 +146,7 @@ def _compile_form_hashkey(*args, **kwargs):
     return key
 
 
-def _compile_form_comm(*args, **kwargs):
-    return args[0].ufl_domains()[0].comm
-
-
+@PETSc.Log.EventDecorator()
 @memory_and_disk_cache(
     hashkey=_compile_form_hashkey,
     comm_fetcher=_compile_form_comm,

@@ -30,7 +30,6 @@ def mesh_hierarchy(request):
 
 
 def test_stress_displacement_convergence(stress_element, mesh_hierarchy):
-
     mesh = mesh_hierarchy[0]
     V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
 
