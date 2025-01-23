@@ -38,7 +38,7 @@ jobs:
           - os: Linux
             platform: linux/amd64
           - os: macOS
-            platform: darwin
+            platform: linux/arm64
     runs-on: [self-hosted, "${{ matrix.os }}"]
     steps:
       - name: Pre-cleanup

@@ -309,6 +309,13 @@ class TestGeneratedCodeCache:
             int_comm.Set_attr(comm_cache_keyval, _cache_collection)
         return _cache_collection[default_cache_name]
 
+    def code_cache_len_equals(self, expected):
+        # We need to do this check because different things also get
+        # put into self.cache
+        return sum(
+            1 for key in self.cache if key[1] == "compile_global_kernel"
+        ) == expected
+
     @pytest.fixture
     def a(cls, diterset):
         return op2.Dat(diterset, list(range(nelems)), numpy.uint32, "a")
@@ -328,14 +335,14 @@ class TestGeneratedCodeCache:
                      a(op2.WRITE),
                      x(op2.READ, iter2ind1))
 
-        assert len(self.cache) == 1
+        assert self.code_cache_len_equals(1)
 
         op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
                      iterset,
                      a(op2.WRITE),
                      x(op2.READ, iter2ind1))
 
-        assert len(self.cache) == 1
+        assert self.code_cache_len_equals(1)
 
     def test_diff_kernel(self, iterset, iter2ind1, x, a):
         self.cache.clear()
@@ -348,7 +355,7 @@ class TestGeneratedCodeCache:
                      a(op2.WRITE),
                      x(op2.READ, iter2ind1))
 
-        assert len(self.cache) == 1
+        assert self.code_cache_len_equals(1)
 
         kernel_cpy = "static void cpy(unsigned int* DST, unsigned int* SRC) { *DST = *SRC; }"
 
@@ -357,7 +364,7 @@ class TestGeneratedCodeCache:
                      a(op2.WRITE),
                      x(op2.READ, iter2ind1))
 
-        assert len(self.cache) == 2
+        assert self.code_cache_len_equals(2)
 
     def test_invert_arg_similar_shape(self, iterset, iter2ind1, x, y):
         self.cache.clear()
@@ -377,14 +384,14 @@ static void swap(unsigned int* x, unsigned int* y)
                      x(op2.RW, iter2ind1),
                      y(op2.RW, iter2ind1))
 
-        assert len(self.cache) == 1
+        assert self.code_cache_len_equals(1)
 
         op2.par_loop(op2.Kernel(kernel_swap, "swap"),
                      iterset,
                      y(op2.RW, iter2ind1),
                      x(op2.RW, iter2ind1))
 
-        assert len(self.cache) == 1
+        assert self.code_cache_len_equals(1)
 
     def test_dloop_ignore_scalar(self, iterset, a, b):
         self.cache.clear()
@@ -404,14 +411,14 @@ static void swap(unsigned int* x, unsigned int* y)
                      a(op2.RW),
                      b(op2.RW))
 
-        assert len(self.cache) == 1
+        assert self.code_cache_len_equals(1)
 
         op2.par_loop(op2.Kernel(kernel_swap, "swap"),
                      iterset,
                      b(op2.RW),
                      a(op2.RW))
 
-        assert len(self.cache) == 1
+        assert self.code_cache_len_equals(1)
 
     def test_vector_map(self, iterset, x2, iter2ind2):
         self.cache.clear()
@@ -431,13 +438,13 @@ static void swap(unsigned int* x)
                      iterset,
                      x2(op2.RW, iter2ind2))
 
-        assert len(self.cache) == 1
+        assert self.code_cache_len_equals(1)
 
         op2.par_loop(op2.Kernel(kernel_swap, "swap"),
                      iterset,
                      x2(op2.RW, iter2ind2))
 
-        assert len(self.cache) == 1
+        assert self.code_cache_len_equals(1)
 
     def test_same_iteration_space_works(self, iterset, x2, iter2ind2):
         self.cache.clear()
@@ -447,12 +454,12 @@ static void swap(unsigned int* x)
         op2.par_loop(k, iterset,
                      x2(op2.INC, iter2ind2))
 
-        assert len(self.cache) == 1
+        assert self.code_cache_len_equals(1)
 
         op2.par_loop(k, iterset,
                      x2(op2.INC, iter2ind2))
 
-        assert len(self.cache) == 1
+        assert self.code_cache_len_equals(1)
 
     def test_change_dat_dtype_matters(self, iterset, diterset):
         d = op2.Dat(diterset, list(range(nelems)), numpy.uint32)
@@ -463,12 +470,12 @@ static void swap(unsigned int* x)
 
         op2.par_loop(k, iterset, d(op2.WRITE))
 
-        assert len(self.cache) == 1
+        assert self.code_cache_len_equals(1)
 
         d = op2.Dat(diterset, list(range(nelems)), numpy.int32)
         op2.par_loop(k, iterset, d(op2.WRITE))
 
-        assert len(self.cache) == 2
+        assert self.code_cache_len_equals(2)
 
     def test_change_global_dtype_matters(self, iterset, diterset):
         g = op2.Global(1, 0, dtype=numpy.uint32, comm=COMM_WORLD)
@@ -479,12 +486,12 @@ static void swap(unsigned int* x)
 
         op2.par_loop(k, iterset, g(op2.INC))
 
-        assert len(self.cache) == 1
+        assert self.code_cache_len_equals(1)
 
         g = op2.Global(1, 0, dtype=numpy.float64, comm=COMM_WORLD)
         op2.par_loop(k, iterset, g(op2.INC))
 
-        assert len(self.cache) == 2
+        assert self.code_cache_len_equals(2)
 
 
 class TestSparsityCache:
