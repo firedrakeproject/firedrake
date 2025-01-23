@@ -84,6 +84,8 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch fiat indiamai/integrate_fuse \
+            --package-branch fuse main \
             || (cat firedrake-install.log && /bin/false)
       - name: Install test dependencies
         run: |
