@@ -101,15 +101,15 @@ def test_assemble_interp_adjoint_model(V1, V2):
     assert np.allclose(res.dat.data, Ivfstar.dat.data)
 
 
-def test_assemble_interp_adjoint_complex(mesh, V1, f1):
+def test_assemble_interp_adjoint_complex(mesh, V1, V2, f1):
     if complex_mode:
         f1 = Constant(3 - 5.j) * f1
 
     a = assemble(conj(TestFunction(V1)) * dx)
-    b = Interpolator(f1 * TestFunction(V1), V1).interpolate(a, adjoint=True)
+    b = Interpolator(f1 * TestFunction(V2), V1).interpolate(a, adjoint=True)
 
     x, y = SpatialCoordinate(mesh)
-    f2 = Function(V1, name="f2").interpolate(
+    f2 = Function(V2, name="f2").interpolate(
         exp(x) * y)
 
     assert np.allclose(assemble(b(f2)), assemble(Function(V1).interpolate(conj(f1 * f2)) * dx))
