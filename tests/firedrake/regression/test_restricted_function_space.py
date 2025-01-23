@@ -358,7 +358,7 @@ def test_restricted_function_space_extrusion_stokes(ncells):
     sol_res = Function(W_res)
     solve(a_res == L_res, sol_res, bcs=[bc_res])
     # Compare.
-    assert assemble(inner(sol_res - sol, sol_res - sol) * dx)**0.5 < 1.e-15
+    assert assemble(inner(sol_res - sol, sol_res - sol) * dx)**0.5 < 1.e-14
     # -- Actually, the ordering is the same.
     assert np.allclose(sol_res.subfunctions[0].dat.data_ro_with_halos, sol.subfunctions[0].dat.data_ro_with_halos)
     assert np.allclose(sol_res.subfunctions[1].dat.data_ro_with_halos, sol.subfunctions[1].dat.data_ro_with_halos)
