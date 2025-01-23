@@ -83,7 +83,7 @@ jobs:
         run: |
           source pip_venv/bin/activate
           cd pip_venv/src/firedrake
-          make check TIMEOUT=60
+          make check CHECK_PYTEST_ARGS="--timeout 60"
         timeout-minutes: 10
 
       - name: Publish Test Report

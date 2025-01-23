@@ -91,31 +91,30 @@ else
 	check_flags = --quiet
 endif
 
-timeout_expr =
-ifdef TIMEOUT
-	timeout_expr = --timeout $(TIMEOUT)
-endif
+CHECK_PYTEST_ARGS =
 
 .PHONY: check
 check:
 	@echo "    Running serial smoke tests"
-	@python -m pytest $(check_flags) $(timeout_expr) \
+	@python -m pytest $(check_flags) $(CHECK_PYTEST_ARGS) \
 		tests/firedrake/regression/test_stokes_mini.py::test_stokes_mini \
-		tests/firedrake/regression/test_locate_cell.py `# spatialindex` \
-		tests/firedrake/supermesh/test_assemble_mixed_mass_matrix.py::test_assemble_mixed_mass_matrix[2-CG-CG-0-0]  `# supermesh`
+		tests/firedrake/regression/test_locate_cell.py  `# spatialindex` \
+		tests/firedrake/supermesh/test_assemble_mixed_mass_matrix.py::test_assemble_mixed_mass_matrix[2-CG-CG-0-0]  `# supermesh` \
+		tests/firedrake/regression/test_matrix_free.py::test_fieldsplitting[parameters3-cofunc_rhs-variational]  `# fieldsplit` \
+		tests/firedrake/regression/test_nullspace.py::test_near_nullspace  `# near nullspace`
 	@echo "    Serial tests passed"
 	@echo "    Running parallel smoke tests"
-	@mpiexec -n 3 python -m pytest $(check_flags) $(timeout_expr) -m parallel[3] \
-		tests/firedrake/regression/test_dg_advection.py::test_dg_advection_icosahedral_sphere
+	@mpiexec -n 3 python -m pytest $(check_flags) $(CHECK_PYTEST_ARGS) -m parallel[3] \
+		tests/firedrake/regression/test_dg_advection.py::test_dg_advection_icosahedral_sphere \
+		tests/firedrake/regression/test_interpolate_cross_mesh.py::test_interpolate_cross_mesh_parallel[extrudedcube]  `# vertex-only mesh`
 	@echo "    Parallel tests passed"
 
 .PHONY: durations
 durations:
 	@echo "    Generate timings to optimise pytest-split"
 	python -m pytest --store-durations -m "parallel[1] or not parallel" tests/
-	for nprocs in 2 3 4 6 7 8; do
-		# use ':' to ensure that only rank 0 writes to the durations file
-		mpiexec -n 1 \
-			python -m pytest --store-durations -m parallel[$${nprocs}] tests/ : \
-			-n $$(( $${nprocs} - 1 )) pytest -m parallel[$${nprocs}] -q tests/
+	# use ':' to ensure that only rank 0 writes to the durations file
+	for nprocs in 2 3 4 6 7 8; do \
+		mpiexec -n 1 python -m pytest --store-durations -m parallel[$${nprocs}] tests/ : \
+			-n $$(( $${nprocs} - 1 )) pytest -m parallel[$${nprocs}] -q tests/ ; \
 	done

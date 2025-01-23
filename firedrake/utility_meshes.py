@@ -2836,7 +2836,7 @@ def AnnulusMesh(
     x, y = ufl.SpatialCoordinate(bar)
     V = bar.coordinates.function_space()
     coord = Function(V).interpolate(ufl.as_vector([x * ufl.cos(y), x * ufl.sin(y)]))
-    annulus = mesh.make_mesh_from_coordinates(coord.topological, name, comm=comm)
+    annulus = mesh.make_mesh_from_coordinates(coord.topological, name)
     annulus.topology.name = mesh._generate_default_mesh_topology_name(name)
     annulus._base_mesh = base
     return annulus
@@ -2885,14 +2885,14 @@ def SolidTorusMesh(
     x, y = ufl.SpatialCoordinate(unit)
     V = unit.coordinates.function_space()
     coord = Function(V).interpolate(ufl.as_vector([r * x + R, r * y]))
-    disk = mesh.make_mesh_from_coordinates(coord.topological, base_name, comm=comm)
+    disk = mesh.make_mesh_from_coordinates(coord.topological, base_name)
     disk.topology.name = mesh._generate_default_mesh_topology_name(base_name)
     disk.topology.topology_dm.setName(disk.topology.name)
     bar = mesh.ExtrudedMesh(disk, layers=nR, layer_height=2 * np.pi / nR, extrusion_type="uniform", periodic=True)
     x, y, z = ufl.SpatialCoordinate(bar)
     V = bar.coordinates.function_space()
     coord = Function(V).interpolate(ufl.as_vector([x * ufl.cos(z), x * ufl.sin(z), -y]))
-    torus = mesh.make_mesh_from_coordinates(coord.topological, name, comm=comm)
+    torus = mesh.make_mesh_from_coordinates(coord.topological, name)
     torus.topology.name = mesh._generate_default_mesh_topology_name(name)
     torus._base_mesh = disk
     return torus

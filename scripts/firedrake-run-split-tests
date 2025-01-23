@@ -53,12 +53,13 @@ set -x
 # * Uses tee to pipe stdout+stderr to both stdout and a log file
 # * Writes pytest's exit code to a file called jobN.errcode (for later inspection)
 parallel --line-buffer --tag \
-    ${pytest_cmd} |& tee ${log_file_prefix}{#}.log; \
-    echo \${PIPESTATUS[0]} > job{#}.errcode \
+    "${pytest_cmd} |& tee ${log_file_prefix}{#}.log; \
+    echo \${PIPESTATUS[0]} > job{#}.errcode" \
     ::: $(seq ${num_jobs})
 
 set +x
 
+pass=true
 for i in $(seq 1 ${num_jobs}); do
     error_code=$(cat job${i}.errcode)
     # pytest uses exit code 5 if no tests were found, which we also treat that as a success
@@ -67,9 +68,16 @@ for i in $(seq 1 ${num_jobs}); do
         echo Job ${i} passed
     else
         echo Job ${i} failed, inspect the logs in ${log_file_prefix}${i}.log
+        pass=false
     fi
 done
 
 echo Cleaning up
 rm job*.errcode
 echo Done
+
+if $pass; then
+    exit 0
+else
+    exit 1
+fi
