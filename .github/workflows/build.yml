@@ -89,8 +89,9 @@ jobs:
         run: |
           . ../firedrake_venv/bin/activate
           python "$(which firedrake-clean)"
+          python --version
           python -m pip install \
-            pytest-xdist pytest-timeout ipympl
+            pytest-cov pytest-xdist pytest-timeout ipympl
           python -m pip list
       - name: Test Firedrake
         run: |
@@ -100,6 +101,7 @@ jobs:
           python -m pytest -v tests/firedrake/test_0init.py
           python -m pytest \
             --durations=200 \
+            --cov firedrake \
             --timeout=1800 \
             --timeout-method=thread \
             -o faulthandler_timeout=1860 \
