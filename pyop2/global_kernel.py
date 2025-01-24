@@ -12,7 +12,7 @@ from loopy.codegen.result import process_preambles
 from petsc4py import PETSc
 
 from pyop2 import mpi
-from pyop2.caching import parallel_cache, serial_cache
+from pyop2.caching import memory_and_disk_cache, parallel_cache
 from pyop2.compilation import add_profiling_events, load
 from pyop2.configuration import configuration
 from pyop2.datatypes import IntType, as_ctypes
@@ -366,7 +366,7 @@ class GlobalKernel:
     @cached_property
     def code_to_compile(self):
         """Return the C/C++ source code as a string."""
-        return _generate_code_from_global_kernel(self)
+        return _generate_code_from_global_kernel(self, mpi.COMM_SELF)
 
     @cached_property
     def argtypes(self):
@@ -405,20 +405,26 @@ class GlobalKernel:
         return tuple(ldargs)
 
 
-@serial_cache(hashkey=lambda knl: knl.cache_key)
-def _generate_code_from_global_kernel(kernel):
-    with PETSc.Log.Event("GlobalKernel: generate loopy"):
-        wrapper = generate(kernel.builder)
+@memory_and_disk_cache(hashkey=lambda knl, _: knl.cache_key)
+@mpi.collective
+def _generate_code_from_global_kernel(kernel, comm):
+    if comm.rank == 0:
+        with PETSc.Log.Event("GlobalKernel: generate loopy"):
+            wrapper = generate(kernel.builder)
 
-    with PETSc.Log.Event("GlobalKernel: generate device code"):
-        code = lp.generate_code_v2(wrapper)
+        with PETSc.Log.Event("GlobalKernel: generate device code"):
+            code = lp.generate_code_v2(wrapper)
 
-    if kernel.local_kernel.cpp:
-        preamble = "".join(process_preambles(getattr(code, "device_preambles", [])))
-        device_code = "\n\n".join(str(dp.ast) for dp in code.device_programs)
-        return preamble + "\nextern \"C\" {\n" + device_code + "\n}\n"
+        if kernel.local_kernel.cpp:
+            preamble = "".join(process_preambles(getattr(code, "device_preambles", [])))
+            device_code = "\n\n".join(str(dp.ast) for dp in code.device_programs)
+            code = preamble + "\nextern \"C\" {\n" + device_code + "\n}\n"
+        else:
+            code = code.device_code()
+    else:
+        code = None
 
-    return code.device_code()
+    return comm.bcast(code, root=0)
 
 
 @parallel_cache(hashkey=lambda knl, _: knl.cache_key)
@@ -438,8 +444,10 @@ def compile_global_kernel(kernel, comm):
     A ctypes function pointer for the compiled function.
 
     """
+    code = _generate_code_from_global_kernel(kernel, comm)
+
     dll = load(
-        kernel.code_to_compile,
+        code,
         "cpp" if kernel.local_kernel.cpp else "c",
         cppargs=kernel._cppargs,
         ldargs=kernel._ldargs,
