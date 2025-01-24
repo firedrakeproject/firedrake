@@ -84,7 +84,7 @@ jobs:
           source pip_venv/bin/activate
           firedrake-clean
           cd pip_venv/src/firedrake
-          make check CHECK_PYTEST_ARGS="--timeout 60"
+          make check CHECK_PYTEST_ARGS="--timeout 60 --timeout-method=thread"
         timeout-minutes: 10
 
       - name: Publish Test Report
