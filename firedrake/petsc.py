@@ -288,12 +288,15 @@ class OptionsManager(object):
     def inserted_options(self):
         """Context manager inside which the petsc options database
     contains the parameters from this object."""
+        from firedrake.logging import warning
         try:
             for k, v in self.parameters.items():
                 self.options_object[self.options_prefix + k] = v
             yield
         finally:
             for k in self.to_delete:
+                if not self.options_object.used(self.options_prefix + k):
+                    warning(f"Solver option {self.options_prefix + k} unused.")
                 del self.options_object[self.options_prefix + k]
 
 
