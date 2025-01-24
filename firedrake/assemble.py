@@ -1034,7 +1034,7 @@ class ParloopFormAssembler(FormAssembler):
                     self._bcs,
                     local_kernel,
                     subdomain_id,
-                    self.all_integer_subdomain_ids,
+                    self.all_integer_subdomain_ids[local_kernel.indices],
                     diagonal=self.diagonal,
                 )
                 pyop2_tensor = self._as_pyop2_type(tensor, local_kernel.indices)
@@ -1088,9 +1088,13 @@ class ParloopFormAssembler(FormAssembler):
 
     @cached_property
     def all_integer_subdomain_ids(self):
-        return tsfc_interface.gather_integer_subdomain_ids(
-            {k for k, _ in self.local_kernels}
-        )
+        all_indices = {k.indices for k, _ in self.local_kernels}
+        return {
+            index: tsfc_interface.gather_integer_subdomain_ids(
+                {k for k, _ in self.local_kernels if k.indices == index}
+            )
+            for index in all_indices
+        }
 
     @abc.abstractmethod
     def result(self, tensor):
