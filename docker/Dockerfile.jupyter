@@ -1,6 +1,6 @@
 # DockerFile for a firedrake + jupyter container
 
-FROM firedrakeproject/firedrake:latest
+FROM firedrakeproject/firedrake:testing
 
 USER firedrake
 WORKDIR /home/firedrake

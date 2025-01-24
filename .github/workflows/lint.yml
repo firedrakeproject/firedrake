@@ -39,6 +39,10 @@ jobs:
     # https://github.com/rhysd/actionlint/blob/main/docs/usage.md
     # #example-error-annotation-on-github-actions
     runs-on: ubuntu-latest
+    # Exclude SC2046 so it doesn't complain about unquoted $ characters (the
+    # quoting can prevent proper parsing)
+    env:
+      SHELLCHECK_OPTS: --exclude=SC2046
     steps:
       - uses: actions/checkout@v4
       - name: Check workflow files
