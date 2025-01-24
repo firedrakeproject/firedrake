@@ -1088,12 +1088,13 @@ class ParloopFormAssembler(FormAssembler):
 
     @cached_property
     def all_integer_subdomain_ids(self):
+        """Return a dict mapping local_kernel.indices to all integer subdomain ids."""
         all_indices = {k.indices for k, _ in self.local_kernels}
         return {
-            index: tsfc_interface.gather_integer_subdomain_ids(
-                {k for k, _ in self.local_kernels if k.indices == index}
+            i: tsfc_interface.gather_integer_subdomain_ids(
+                {k for k, _ in self.local_kernels if k.indices == i}
             )
-            for index in all_indices
+            for i in all_indices
         }
 
     @abc.abstractmethod
@@ -1375,7 +1376,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     i, j = local_kernel.indices
                     mesh = all_meshes[local_kernel.kinfo.domain_number]  # integration domain
                     integral_type = local_kernel.kinfo.integral_type
-                    all_subdomain_ids = assembler.all_integer_subdomain_ids
+                    all_subdomain_ids = assembler.all_integer_subdomain_ids[local_kernel.index]
                     # Make Sparsity independent of the subdomain of integration for better reusability;
                     # subdomain_id is passed here only to determine the integration_type on the target domain
                     # (see ``entity_node_map``).

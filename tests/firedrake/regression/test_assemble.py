@@ -356,8 +356,8 @@ def test_split_subdomain_ids():
     Z = V * V
     v0, v1 = TestFunctions(Z)
 
-    a = assemble(inner(1, v0)*dx + inner(1, v1)*dx)
-    b = assemble(inner(1, v0)*dx + inner(1, v1)*dx(1))
+    a = assemble(conj(v0)*dx + conj(v1)*dx)
+    b = assemble(conj(v0)*dx + conj(v1)*dx(1))
 
     assert (a.dat[0].data == b.dat[0].data).all()
     assert b.dat[1].data[0] == 0.0
