@@ -47,14 +47,14 @@ jobs:
         if: ${{ always() }}
         run: rm -rf pip_venv
 
-      - uses: actions/checkout@v4
-        with:
-          path: src/firedrake
-
       - name: Create a venv
         run: |
           python3 -m venv pip_venv
-          ln -s ${{ github.workspace }}/src pip_venv/
+          ln -s /__w/firedrake/firedrake/src pip_venv/
+
+      - uses: actions/checkout@v4
+        with:
+          path: src/firedrake
 
       - name: Pip install
         run: |
