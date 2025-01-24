@@ -225,7 +225,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     builder.set_constants(constants)
 
     # Split mixed coefficients
-    expression = ufl_utils.split_coefficients(expression, builder.coefficient_split)
+    expression = expression.traverse_dag_apply_coefficient_split(builder.coefficient_split, cache={})
 
     # Set up kernel config for translation of UFL expression to gem
     kernel_cfg = dict(interface=builder,
