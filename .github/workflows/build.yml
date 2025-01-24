@@ -95,7 +95,7 @@ jobs:
           sudo apt update
           sudo apt -y install parallel
           . ../firedrake_venv/bin/activate
-          python "$(which firedrake-clean)"
+          firedrake-clean
           python -m pip install pytest-timeout ipympl pytest-split pytest-xdist
           python -m pip list
 
