@@ -57,15 +57,15 @@ jobs:
         include:
           - os: Linux
             platform: linux/amd64
-            extra-install-args: ""
+            extra-install-flags: ""
           - os: macOS
             platform: linux/arm64
-            extra-install-args: "--no-vtk"
+            extra-install-flags: "--no-vtk"
     uses: ./.github/workflows/docker_build.yml
     with:
       os: ${{ matrix.os }}
       platform: ${{ matrix.platform }}
-      extra-install-args: ${{ matrix.extra-install-args }}
+      extra-install-flags: ${{ matrix.extra-install-flags }}
       target: firedrake-vanilla
       tag: ${{ inputs.tag }}
       dockerfile: docker/Dockerfile.vanilla
@@ -89,15 +89,15 @@ jobs:
         include:
           - os: Linux
             platform: linux/amd64
-            extra-install-args: ""
+            extra-install-flags: ""
           - os: macOS
             platform: linux/arm64
-            extra-install-args: "--no-vtk"  # no ARM wheel for VTK
+            extra-install-flags: "--no-vtk"  # no ARM wheel for VTK
     uses: ./.github/workflows/docker_build.yml
     with:
       os: ${{ matrix.os }}
       platform: ${{ matrix.platform }}
-      extra-install-args: ${{ matrix.extra-install-args }}
+      extra-install-flags: ${{ matrix.extra-install-flags }}
       target: firedrake-complex
       tag: ${{ inputs.tag }}
       dockerfile: docker/Dockerfile.complex
@@ -122,15 +122,15 @@ jobs:
         include:
           - os: Linux
             platform: linux/amd64
-            extra-install-args: "--netgen"
+            extra-install-flags: "--netgen"
           - os: macOS
             platform: linux/arm64
-            extra-install-args: ""  # no ARM wheel for netgen-mesher
+            extra-install-flags: ""  # no ARM wheel for netgen-mesher
     uses: ./.github/workflows/docker_build.yml
     with:
       os: ${{ matrix.os }}
       platform: ${{ matrix.platform }}
-      extra-install-args: ${{ matrix.extra-install-args }}
+      extra-install-flags: ${{ matrix.extra-install-flags }}
       target: firedrake
       tag: ${{ inputs.tag }}
       dockerfile: docker/Dockerfile.firedrake
