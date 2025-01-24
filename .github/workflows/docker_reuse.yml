@@ -41,6 +41,11 @@ jobs:
             platform: linux/arm64
     runs-on: [self-hosted, "${{ matrix.os }}"]
     steps:
+      - name: Maybe abort
+        # We cannot currently build the other macOS containers 
+        if: matrix.os == 'macOS' && inputs.target != 'firedrake-env' && inputs.target != 'firedrake-vanilla' && inputs.target != 'firedrake-complex'
+        run: exit 0
+
       - name: Pre-cleanup
         if: always()
         run: |
