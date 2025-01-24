@@ -47,14 +47,14 @@ jobs:
         if: ${{ always() }}
         run: rm -rf pip_venv
 
-      - name: Create a venv
-        run: |
-          python3 -m venv pip_venv
-          ln -s /__w/firedrake/firedrake/src pip_venv/
-
       - uses: actions/checkout@v4
         with:
           path: src/firedrake
+
+      - name: Create a venv
+        run: |
+          python3 -m venv pip_venv
+          ln -s ${{ github.workspace }}/src pip_venv/
 
       - name: Pip install
         run: |
@@ -82,6 +82,7 @@ jobs:
       - name: Run Firedrake smoke tests
         run: |
           source pip_venv/bin/activate
+          firedrake-clean
           cd pip_venv/src/firedrake
           make check CHECK_PYTEST_ARGS="--timeout 60"
         timeout-minutes: 10
