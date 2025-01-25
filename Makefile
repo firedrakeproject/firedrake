@@ -1,5 +1,7 @@
+.PHONY: all
 all: modules
 
+.PHONY: modules
 modules:
 	@echo "    Building extension modules"
 	@python setup.py build_ext --inplace > build.log 2>&1 || cat build.log
@@ -12,6 +14,7 @@ else
 	FLAKE8_FORMAT=
 endif
 
+.PHONY: lint
 lint:
 	@echo "    Linting firedrake"
 	@python -m flake8 $(FLAKE8_FORMAT) firedrake
@@ -27,11 +30,13 @@ lint:
 	@echo "    Linting TSFC"
 	@python -m flake8 $(FLAKE8_FORMAT) tsfc
 
+.PHONY: actionlint
 actionlint:
 	@echo "    Pull latest actionlint image"
 	@docker pull rhysd/actionlint:latest
 	@docker run --rm -v $$(pwd):/repo --workdir /repo rhysd/actionlint -color
 
+.PHONY: dockerlint
 dockerlint:
 	@echo "    Pull latest hadolint image"
 	@docker pull hadolint/hadolint:latest
@@ -45,6 +50,7 @@ dockerlint:
 			|| exit 1; \
 	done
 
+.PHONY: clean
 clean:
 	@echo "    Cleaning extension modules"
 	@python setup.py clean > /dev/null 2>&1
@@ -77,32 +83,38 @@ clean:
 	@echo "    RM tinyasm/*.so"
 	-@rm -f tinyasm/*.so > /dev/null 2>&1
 
-
-THREADS=1
-ifeq ($(THREADS), 1)
-	PYTEST_ARGS=
+# Do verbose checking if running on CI
+check_flags =
+ifeq ($(FIREDRAKE_CI_TESTS), 1)
+	check_flags = --verbose
 else
-	PYTEST_ARGS=-n $(THREADS)
+	check_flags = --quiet
 endif
 
-test_regression: modules
-	@echo "    Running non-extruded regression tests"
-	@python -m pytest tests/firedrake/regression $(PYTEST_ARGS)
+CHECK_PYTEST_ARGS =
 
-test_extrusion: modules
-	@echo "    Running extruded regression tests"
-	@python -m pytest tests/firedrake/extrusion $(PYTEST_ARGS)
+.PHONY: check
+check:
+	@echo "    Running serial smoke tests"
+	@python -m pytest $(check_flags) $(CHECK_PYTEST_ARGS) \
+		tests/firedrake/regression/test_stokes_mini.py::test_stokes_mini \
+		tests/firedrake/regression/test_locate_cell.py  `# spatialindex` \
+		tests/firedrake/supermesh/test_assemble_mixed_mass_matrix.py::test_assemble_mixed_mass_matrix[2-CG-CG-0-0]  `# supermesh` \
+		tests/firedrake/regression/test_matrix_free.py::test_fieldsplitting[parameters3-cofunc_rhs-variational]  `# fieldsplit` \
+		tests/firedrake/regression/test_nullspace.py::test_near_nullspace  `# near nullspace`
+	@echo "    Serial tests passed"
+	@echo "    Running parallel smoke tests"
+	@mpiexec -n 3 python -m pytest $(check_flags) $(CHECK_PYTEST_ARGS) -m parallel[3] \
+		tests/firedrake/regression/test_dg_advection.py::test_dg_advection_icosahedral_sphere \
+		tests/firedrake/regression/test_interpolate_cross_mesh.py::test_interpolate_cross_mesh_parallel[extrudedcube]  `# vertex-only mesh`
+	@echo "    Parallel tests passed"
 
-test_demos: modules
-	@echo "    Running test of demos"
-	@python -m pytest tests/firedrake/demos $(PYTEST_ARGS)
-
-test: modules
-	@echo "    Running all regression tests"
-	@python -m pytest tests $(PYTEST_ARGS)
-
-alltest: modules lint test
-
-shorttest: modules lint
-	@echo "    Running short regression tests"
-	@python -m pytest --short tests/firedrake $(PYTEST_ARGS)
+.PHONY: durations
+durations:
+	@echo "    Generate timings to optimise pytest-split"
+	python -m pytest --store-durations -m "parallel[1] or not parallel" tests/
+	# use ':' to ensure that only rank 0 writes to the durations file
+	for nprocs in 2 3 4 6 7 8; do \
+		mpiexec -n 1 python -m pytest --store-durations -m parallel[$${nprocs}] tests/ : \
+			-n $$(( $${nprocs} - 1 )) pytest -m parallel[$${nprocs}] -q tests/ ; \
+	done
