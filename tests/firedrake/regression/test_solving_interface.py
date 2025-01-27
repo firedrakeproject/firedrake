@@ -221,8 +221,12 @@ def test_constant_jacobian_lvs():
     assert not (norm(assemble(out*5 - f)) < 2e-7)
 
 
-def test_solve_cofunction_rhs():
-    mesh = UnitIntervalMesh(10)
+@pytest.fixture
+def mesh(request):
+    return UnitIntervalMesh(10)
+
+
+def test_solve_cofunction_rhs(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     x, = SpatialCoordinate(mesh)
 
@@ -242,8 +246,7 @@ def test_solve_cofunction_rhs():
     assert np.allclose(L.dat.data, Lold.dat.data)
 
 
-def test_solve_empty_form_rhs():
-    mesh = UnitIntervalMesh(10)
+def test_solve_empty_form_rhs(mesh):
     V = FunctionSpace(mesh, "CG", 1)
 
     u = TrialFunction(V)
@@ -257,3 +260,28 @@ def test_solve_empty_form_rhs():
     w = Function(V)
     solve(a == L, w, bcs)
     assert errornorm(x, w) < 1E-10
+
+
+def test_solve_pre_apply_bcs(mesh):
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    x = SpatialCoordinate(mesh)
+
+    eps = Constant(0.1)
+    g = -eps*x
+
+    bc = DirichletBC(V, g, "on_boundary")
+
+    u = Function(V)
+
+    lam = Constant(1E0)
+    dim = mesh.geometric_dimension()
+    F = grad(u) + Identity(dim)
+    J = det(F)
+    logJ = 0.5*ln(J*conj(J))
+
+    W = (1/2)*(inner(F, F) - dim - 2*logJ + lam*logJ**2) * dx
+
+    F = derivative(W, u)
+    # Raises nans if pre_apply_bcs=True
+    solve(F == 0, u, bc, pre_apply_bcs=False)
+    assert errornorm(g, u) < 1E-10

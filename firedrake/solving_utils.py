@@ -3,7 +3,9 @@ from itertools import chain
 import numpy
 
 from pyop2 import op2
-from firedrake import function, cofunction, dmhooks
+from firedrake import dmhooks
+from firedrake.function import Function
+from firedrake.cofunction import Cofunction
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS
 from firedrake.formmanipulation import ExtractSubBlock
@@ -219,8 +221,15 @@ class _SNESContext(object):
         self.bcs_J = tuple(bc.extract_form('J') for bc in problem.bcs)
         self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in problem.bcs)
 
+        self._bc_residual = None
+        if not problem.pre_apply_bcs:
+            # Delayed lifting of DirichletBCs
+            self._bc_residual = Function(self._x.function_space())
+            self.F -= self.J * self._bc_residual
+
         self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
                                                 form_compiler_parameters=self.fcp,
+                                                zero_bc_nodes=problem.pre_apply_bcs,
                                                 ).assemble
 
         self._jacobian_assembled = False
@@ -325,11 +334,11 @@ class _SNESContext(object):
             pieces = [us[i].dat for i in field]
             if len(pieces) == 1:
                 val, = pieces
-                subu = function.Function(V, val=val)
+                subu = Function(V, val=val)
                 subsplit = (subu, )
             else:
                 val = op2.MixedDat(pieces)
-                subu = function.Function(V, val=val)
+                subu = Function(V, val=val)
                 # Split it apart to shove in the form.
                 subsplit = split(subu)
             vec = []
@@ -395,7 +404,11 @@ class _SNESContext(object):
         if ctx._pre_function_callback is not None:
             ctx._pre_function_callback(X)
 
-        ctx._assemble_residual(tensor=ctx._F)
+        if ctx._bc_residual is not None:
+            # Delayed lifting of DirichletBC
+            for bc in ctx.bcs_F:
+                bc.apply(ctx._bc_residual, u=ctx._x)
+        ctx._assemble_residual(tensor=ctx._F, current_state=ctx._x)
 
         if ctx._post_function_callback is not None:
             with ctx._F.dat.vec as F_:
@@ -471,9 +484,10 @@ class _SNESContext(object):
             manager = dmhooks.get_transfer_manager(fine._x.function_space().dm)
             manager.inject(fine._x, ctx._x)
 
-            for bc in chain(*ctx._problem.bcs):
-                if isinstance(bc, DirichletBC):
-                    bc.apply(ctx._x)
+            if ctx._problem.pre_apply_bcs:
+                for bc in chain(*ctx._problem.bcs):
+                    if isinstance(bc, DirichletBC):
+                        bc.apply(ctx._x)
 
         ctx._assemble_jac(ctx._jac)
         if ctx.Jp is not None:
@@ -518,4 +532,4 @@ class _SNESContext(object):
 
     @cached_property
     def _F(self):
-        return cofunction.Cofunction(self.F.arguments()[0].function_space().dual())
+        return Cofunction(self.F.arguments()[0].function_space().dual())

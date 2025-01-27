@@ -133,6 +133,9 @@ def solve(*args, **kwargs):
     To exclude Dirichlet boundary condition nodes through the use of a
     :class`.RestrictedFunctionSpace`, set the ``restrict`` keyword
     argument to be True.
+
+    To linearise around the initial guess before imposing boundary
+    conditions, set the ``pre_apply_bcs`` keyword argument to be False.
     """
 
     assert len(args) > 0
@@ -151,7 +154,7 @@ def _solve_varproblem(*args, **kwargs):
     eq, u, bcs, J, Jp, M, form_compiler_parameters, \
         solver_parameters, nullspace, nullspace_T, \
         near_nullspace, \
-        options_prefix, restrict = _extract_args(*args, **kwargs)
+        options_prefix, restrict, pre_apply_bcs = _extract_args(*args, **kwargs)
 
     # Check whether solution is valid
     if not isinstance(u, (function.Function, vector.Vector)):
@@ -184,7 +187,7 @@ def _solve_varproblem(*args, **kwargs):
         # Create problem
         problem = vs.NonlinearVariationalProblem(eq.lhs, u, bcs, J, Jp,
                                                  form_compiler_parameters=form_compiler_parameters,
-                                                 restrict=restrict)
+                                                 restrict=restrict, pre_apply_bcs=pre_apply_bcs)
         # Create solver and call solve
         solver = vs.NonlinearVariationalSolver(problem, solver_parameters=solver_parameters,
                                                nullspace=nullspace,
@@ -297,7 +300,7 @@ def _extract_args(*args, **kwargs):
     valid_kwargs = ["bcs", "J", "Jp", "M",
                     "form_compiler_parameters", "solver_parameters",
                     "nullspace", "transpose_nullspace", "near_nullspace",
-                    "options_prefix", "appctx", "restrict"]
+                    "options_prefix", "appctx", "restrict", "pre_apply_bcs"]
     for kwarg in kwargs.keys():
         if kwarg not in valid_kwargs:
             raise RuntimeError("Illegal keyword argument '%s'; valid keywords \
@@ -341,10 +344,11 @@ def _extract_args(*args, **kwargs):
     solver_parameters = kwargs.get("solver_parameters", {})
     options_prefix = kwargs.get("options_prefix", None)
     restrict = kwargs.get("restrict", False)
+    pre_apply_bcs = kwargs.get("pre_apply_bcs", True)
 
     return eq, u, bcs, J, Jp, M, form_compiler_parameters, \
         solver_parameters, nullspace, nullspace_T, near_nullspace, \
-        options_prefix, restrict
+        options_prefix, restrict, pre_apply_bcs
 
 
 def _extract_bcs(bcs):
