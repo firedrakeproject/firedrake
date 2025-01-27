@@ -18,6 +18,7 @@ from tsfc import fem
 from finat.element_factory import as_fiat_cell, create_element
 from tsfc.kernel_interface import KernelInterface
 from tsfc.logging import logger
+from ufl.algorithms.apply_coefficient_split import apply_coefficient_split
 from ufl.utils.sequences import max_degree
 
 
@@ -133,7 +134,7 @@ class KernelBuilderMixin(object):
         """
         # Split Coefficients
         if self.coefficient_split:
-            integrand = integrand.traverse_dag_apply_coefficient_split(self.coefficient_split, cache={})
+            integrand = apply_coefficient_split(integrand, self.coefficient_split)
         # Compile: ufl -> gem
         info = self.integral_data_info
         functions = [*info.arguments, self.coordinate(info.domain), *info.coefficients]

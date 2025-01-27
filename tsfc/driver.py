@@ -7,6 +7,7 @@ from finat.physically_mapped import DirectlyDefinedElement, PhysicallyMappedElem
 import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
+from ufl.algorithms.apply_coefficient_split import apply_coefficient_split
 from ufl.classes import Form, GeometricQuantity
 from ufl.domain import extract_unique_domain
 
@@ -225,7 +226,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     builder.set_constants(constants)
 
     # Split mixed coefficients
-    expression = expression.traverse_dag_apply_coefficient_split(builder.coefficient_split, cache={})
+    expression = apply_coefficient_split(expression, builder.coefficient_split)
 
     # Set up kernel config for translation of UFL expression to gem
     kernel_cfg = dict(interface=builder,

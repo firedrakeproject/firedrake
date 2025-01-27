@@ -61,7 +61,7 @@ def compile_element(expression, coordinates, parameters=None):
     f_arg = builder.generate_arg_from_expression(builder.coefficient_map[coefficient])
 
     # TODO: restore this for expression evaluation!
-    # expression = expression.traverse_dag_apply_coefficient_split(builder.coefficient_split, cache={})
+    # expression = apply_coefficient_split(expression, builder.coefficient_split)
 
     # Translate to GEM
     cell = domain.ufl_cell()
