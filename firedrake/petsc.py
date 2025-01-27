@@ -295,7 +295,8 @@ class OptionsManager(object):
             yield
         finally:
             for k in self.to_delete:
-                if not self.options_object.used(self.options_prefix + k):
+                if not self.options_object.used(self.options_prefix + k) and \
+                    k not in _DEFAULT_PARAMETERS:
                     warning(f"Solver option {self.options_prefix + k} unused.")
                 del self.options_object[self.options_prefix + k]
 
@@ -453,3 +454,6 @@ _DEFAULT_SNES_PARAMETERS = {
 DEFAULT_DIRECT_SOLVER_PARAMETERS = MappingProxyType(deepcopy(_DEFAULT_DIRECT_SOLVER_PARAMETERS))
 DEFAULT_KSP_PARAMETERS = MappingProxyType(deepcopy(_DEFAULT_KSP_PARAMETERS))
 DEFAULT_SNES_PARAMETERS = MappingProxyType(deepcopy(_DEFAULT_SNES_PARAMETERS))
+
+_DEFAULT_PARAMETERS = set(_DEFAULT_DIRECT_SOLVER_PARAMETERS) \
+    | set(_DEFAULT_KSP_PARAMETERS) | set(_DEFAULT_SNES_PARAMETERS)
