@@ -77,7 +77,6 @@ jobs:
             --torch \
             --jax \
             --netgen \
-            --slepc \
             --install thetis \
             --install gusto \
             --install icepack \
