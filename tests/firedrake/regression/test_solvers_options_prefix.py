@@ -213,6 +213,7 @@ def test_same_options_prefix_different_solve():
 
 
 def test_unused_options(caplog):
+    """Check that unused solver options result in a warning in the log."""
     m = UnitIntervalMesh(5)
     fs = FunctionSpace(m, "CG", 1)
     f = Function(fs)
