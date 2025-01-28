@@ -106,8 +106,7 @@ jobs:
           . ../firedrake_venv/bin/activate
           python -m pytest -n 12 -v -m "parallel[1] or not parallel" \
             --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 \
-            tests/firedrake --junit-xml=firedrake1.xml \
-          |& tee pytest_nprocs1.log;
+            tests/firedrake --junit-xml=firedrake1.xml 2>&1 | tee pytest_nprocs1.log;
           : # Fail if pytest failed
           exit "${PIPESTATUS[0]}"
 
