@@ -31,9 +31,6 @@ num_procs=$1
 num_jobs=$2
 extra_args=${@:3}
 
-# Set a unique cache directory for each runner to avoid race conditions
-cache_cmd="FIREDRAKE_TSFC_KERNEL_CACHE_DIR=\$VIRTUAL_ENV/.cache/tsfc/job{#} \
-           PYOP2_CACHE_DIR=\$VIRTUAL_ENV/.cache/pyop2/job{#}"
 
 if [ $num_procs = 1 ]; then
     pytest_exec="python -m pytest"
@@ -57,7 +54,7 @@ set -x
 # * Uses tee to pipe stdout+stderr to both stdout and a log file
 # * Writes pytest's exit code to a file called jobN.errcode (for later inspection)
 parallel --line-buffer --tag \
-    "${cache_cmd}; ${pytest_cmd} |& tee ${log_file_prefix}{#}.log; \
+    "${pytest_cmd} |& tee ${log_file_prefix}{#}.log; \
     echo \${PIPESTATUS[0]} > job{#}.errcode" \
     ::: $(seq ${num_jobs})
 
