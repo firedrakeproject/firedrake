@@ -53,6 +53,7 @@ from pyop2.logger import debug
 from pyop2.mpi import (
     MPI, COMM_WORLD, comm_cache_keyval, temp_internal_comm
 )
+import pytools
 from petsc4py import PETSc
 
 
@@ -490,9 +491,7 @@ def parallel_cache(
                     debug(debug_string + "hit")
                     cache_hit = True
 
-                # If not present in the cache of all ranks we force re-evaluation on all ranks.
-                # This is essential to avoid deadlocks.
-                if not comm.allreduce(cache_hit, op=operator.and_):
+                if not pytools.is_single_valued(comm.allgather(cache_hit)):
                     raise ValueError("Inconsistent hit/miss! This should not happen")
 
             if value is CACHE_MISS:
