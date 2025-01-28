@@ -108,7 +108,7 @@ jobs:
             --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 \
             tests/firedrake --junit-xml=firedrake1.xml 2>&1 | tee pytest_nprocs1.log;
           : # Fail if pytest failed
-          exit "${PIPESTATUS[0]}"
+          exit ${PIPESTATUS[0]}
 
       - name: Run tests (nprocs = 2)
         # Run even if earlier tests failed
