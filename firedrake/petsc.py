@@ -301,7 +301,7 @@ class OptionsManager(object):
                 del self.options_object[self.options_prefix + k]
 
     def warn_unused_options(self):
-        """Raise a warning for any unused options."""
+        """Log a warning for any unused options."""
         from firedrake.logging import warning
 
         unused_options = self.to_delete - (self._used_options
