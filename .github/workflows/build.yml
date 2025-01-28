@@ -101,14 +101,14 @@ jobs:
 
       - name: Run tests (nprocs = 1)
         run: |
+          : # Set this to fail if pytest failed (tee will always pass)
+          set -o pipefail
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
           . ../firedrake_venv/bin/activate
           python -m pytest -n 12 -v -m "parallel[1] or not parallel" \
             --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 \
-            tests/firedrake --junit-xml=firedrake1.xml 2>&1 | tee pytest_nprocs1.log;
-          : # Fail if pytest failed
-          exit ${PIPESTATUS[0]}
+            tests/firedrake --junit-xml=firedrake1.xml 2>&1 | tee pytest_nprocs1.log
 
       - name: Run tests (nprocs = 2)
         # Run even if earlier tests failed
