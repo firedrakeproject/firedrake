@@ -364,11 +364,6 @@ class GlobalKernel:
         return builder
 
     @cached_property
-    def code_to_compile(self):
-        """Return the C/C++ source code as a string."""
-        return _generate_code_from_global_kernel(self, mpi.COMM_SELF)
-
-    @cached_property
     def argtypes(self):
         """Return the ctypes datatypes of the compiled function."""
         # The first two arguments to the global kernel are the 'start' and 'stop'
