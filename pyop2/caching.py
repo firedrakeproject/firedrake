@@ -53,6 +53,7 @@ from pyop2.mpi import (
     MPI, COMM_WORLD, comm_cache_keyval, temp_internal_comm
 )
 from petsc4py import PETSc
+import pytools
 
 
 # Caches created here are registered as a tuple of
@@ -494,9 +495,8 @@ if configuration["spmd_strict"]:
                         cache_hit = True
                     all_present = comm.allgather(cache_hit)
 
-                    # If not present in the cache of all ranks we force re-evaluation on all ranks
-                    if not min(all_present):
-                        value = CACHE_MISS
+                    if not pytools.is_single_valued(all_present):
+                        raise ValueError("Cache hits on some ranks and misses on others")
 
                 if value is CACHE_MISS:
                     value = func(*args, **kwargs)

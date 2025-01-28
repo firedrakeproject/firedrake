@@ -38,6 +38,7 @@ jobs:
       # PETSC_DIR, HDF5_DIR and MPICH_DIR are set inside the docker image
       FIREDRAKE_CI_TESTS: 1
       PYOP2_CI_TESTS: 1
+      PYOP2_SPMD_STRICT: 1
       PETSC_ARCH: ${{ matrix.petsc_arch }}
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
