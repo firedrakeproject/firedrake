@@ -51,6 +51,7 @@ jobs:
   docker_build_vanilla:
     # Only run if "Build Firedrake" succeeds
     # if: ${{ inputs.status == 'success' }}
+    needs: docker_merge_env
     strategy:
       matrix:
         os: [Linux, macOS]
@@ -81,6 +82,7 @@ jobs:
 
   # Complex Firedrake container (just Firedrake)
   docker_build_complex:
+    needs: docker_merge_env
     # Only run if "Build Firedrake" succeeds
     # if: ${{ inputs.status == 'success' }}
     strategy:
