@@ -493,7 +493,7 @@ def parallel_cache(
                 # If not present in the cache of all ranks we force re-evaluation on all ranks.
                 # This is essential to avoid deadlocks.
                 if not comm.allreduce(cache_hit, op=operator.and_):
-                    value = CACHE_MISS
+                    raise ValueError("Inconsistent hit/miss! This should not happen")
 
             if value is CACHE_MISS:
                 value = func(*args, **kwargs)
