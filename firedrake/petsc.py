@@ -253,6 +253,8 @@ class OptionsManager(object):
                 if k.startswith(self.options_prefix):
                     self.parameters[k[len(self.options_prefix):]] = v
         self._setfromoptions = False
+        # Keep track of options used between invocations of inserted_options().
+        self._used_options = set()
 
     def set_default_parameter(self, key, val):
         """Set a default parameter value.
@@ -288,17 +290,26 @@ class OptionsManager(object):
     def inserted_options(self):
         """Context manager inside which the petsc options database
     contains the parameters from this object."""
-        from firedrake.logging import warning
         try:
             for k, v in self.parameters.items():
                 self.options_object[self.options_prefix + k] = v
             yield
         finally:
             for k in self.to_delete:
-                if not self.options_object.used(self.options_prefix + k) and \
-                    k not in _DEFAULT_PARAMETERS:
-                    warning(f"Solver option {self.options_prefix + k} unused.")
+                if self.options_object.used(self.options_prefix + k):
+                    self._used_options.add(k)
                 del self.options_object[self.options_prefix + k]
+
+    def warn_unused_options(self):
+        """Raise a warning for any unused options."""
+        from firedrake.logging import warning
+
+        unused_options = self.to_delete - (self._used_options
+                                           | _DEFAULT_PARAMETERS)
+        for option in unused_options:
+            warning(
+                f"Solver: {self.options_prefix} has unused option: {option}"
+            )
 
 
 def _extract_comm(obj: Any) -> MPI.Comm:

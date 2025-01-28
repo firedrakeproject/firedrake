@@ -210,3 +210,19 @@ def test_same_options_prefix_different_solve():
                                              options_prefix="foo_")
     # Unknown KSP type
     assert excinfo.value.ierr == 86
+
+
+def test_unused_options(caplog):
+    m = UnitIntervalMesh(5)
+    fs = FunctionSpace(m, "CG", 1)
+    f = Function(fs)
+    x, = SpatialCoordinate(m)
+    v = TestFunction(fs)
+    solve(inner(f, v)*dx - (inner(x**2, v)*dx) == 0, f,
+          solver_parameters={"not_an_option": "not_a_value",
+                             "ksp_type": "cg",
+                             "ksp_atol": 1.e-16})
+
+    assert len(caplog.records) == 1
+    assert "not_an_option" in caplog.records[0].message
+    assert "ksp_atol" not in caplog.records[0].message

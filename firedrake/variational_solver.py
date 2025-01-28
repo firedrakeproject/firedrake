@@ -323,6 +323,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                  self._transfer_operators):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
+            self.warn_unused_options()
             work.copy(u)
         self._setup = True
         if problem.restrict:
