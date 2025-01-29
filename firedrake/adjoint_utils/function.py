@@ -22,8 +22,7 @@ class FunctionMixin(FloatingType):
                                   output_block_class=kwargs.pop("output_block_class", None),
                                   _ad_output_args=kwargs.pop("_ad_output_args", None),
                                   _ad_outputs=kwargs.pop("_ad_outputs", None),
-                                  ad_block_tag=kwargs.pop("ad_block_tag", None),
-                                  checkpoint_time_dependent=kwargs.pop("checkpoint_time_dependent", None), **kwargs)
+                                  ad_block_tag=kwargs.pop("ad_block_tag", None), **kwargs)
             init(self, *args, **kwargs)
         return wrapper
 
@@ -122,7 +121,7 @@ class FunctionMixin(FloatingType):
                 block_var = self.create_block_variable()
                 block.add_output(block_var)
 
-                if isinstance(other, type(self)) and not tape._checkpoint_manager:
+                if isinstance(other, type(self)):
                     if self.function_space().mesh() == other.function_space().mesh():
                         block_var._checkpoint = DelegatedFunctionCheckpoint(other.block_variable)
 
@@ -219,9 +218,7 @@ class FunctionMixin(FloatingType):
         if disk_checkpointing():
             return CheckpointFunction(self)
         else:
-            result = self.copy(deepcopy=True)
-            result.checkpoint_time_dependent = self.checkpoint_time_dependent
-            return result
+            return self.copy(deepcopy=True)
 
     def _ad_clear_checkpoint(self, checkpoint):
         if self.checkpoint_time_dependent is False:

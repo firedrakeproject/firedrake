@@ -36,7 +36,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
-                 count=None, **kwargs):
+                 count=None):
         r"""
         :param function_space: the :class:`.FunctionSpace`,
             or :class:`.MixedFunctionSpace` on which to build this :class:`Cofunction`.
@@ -48,8 +48,6 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         :param name: user-defined name for this :class:`Cofunction` (optional).
         :param dtype: optional data type for this :class:`Cofunction`
                (defaults to ``ScalarType``).
-        :param count: optional integer count for this :class:`Cofunction`.
-        :param kwargs: additional keyword arguments to pass to the :meth:`FunctionMixin.annotated_init` method.
         """
 
         V = function_space
@@ -214,12 +212,8 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
                     raise NotImplementedError("Cofunction subset assignment "
                                               "annotation is not supported.")
                 self.block_variable = self.create_block_variable()
-                if not get_working_tape()._checkpoint_manager:
-                    self.block_variable._checkpoint = DelegatedFunctionCheckpoint(
-                        expr.block_variable)
-                else:
-                    self.block_variable._checkpoint = type(self)(
-                        expr.function_space(), val=expr.dat)
+                self.block_variable._checkpoint = DelegatedFunctionCheckpoint(
+                    expr.block_variable)
                 get_working_tape().add_block(
                     CofunctionAssignBlock(
                         self, expr, rhs_from_assemble=expr_from_assemble)

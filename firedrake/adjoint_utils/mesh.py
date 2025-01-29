@@ -15,20 +15,11 @@ class MeshGeometryMixin(OverloadedType):
 
     @no_annotations
     def _ad_create_checkpoint(self):
-        result = self.coordinates.copy(deepcopy=True)
-        result.checkpoint_time_dependent = self.coordinates.checkpoint_time_dependent
-        return result
-
-    def _ad_clear_checkpoint(self, checkpoint):
-        if self.coordinates.checkpoint_time_dependent is False:
-            return checkpoint
-        else:
-            return None
+        return self.coordinates.copy(deepcopy=True)
 
     @no_annotations
     def _ad_restore_at_checkpoint(self, checkpoint):
-        if checkpoint.checkpoint_time_dependent is not False:
-            self.coordinates.assign(checkpoint)
+        self.coordinates.assign(checkpoint)
         return self
 
     @staticmethod
