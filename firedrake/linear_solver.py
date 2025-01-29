@@ -147,6 +147,13 @@ class LinearSolver(OptionsManager):
         if not isinstance(b, (function.Function, cofunction.Cofunction)):
             raise TypeError("Provided RHS is a '%s', not a Function or Cofunction" % type(b).__name__)
 
+        # When solving `Ax = b`, with A: V x U -> R, or equivalently A: V -> U*,
+        # we need to make sure that x and b belong to V and U*, respectively.
+        if x.function_space() != self.trial_space:
+            raise ValueError(f"x must be a Function in {self.trial_space}.")
+        if b.function_space() != self.test_space.dual():
+            raise ValueError(f"b must be a Cofunction in {self.test_space.dual()}.")
+
         if len(self.trial_space) > 1 and self.nullspace is not None:
             self.nullspace._apply(self.trial_space.dof_dset.field_ises)
         if len(self.test_space) > 1 and self.transpose_nullspace is not None:

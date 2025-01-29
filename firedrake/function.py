@@ -15,6 +15,7 @@ from pathlib import Path
 from pyop2 import op2, mpi
 from pyop2.exceptions import DataTypeError, DataValueError
 
+from finat.ufl import MixedElement
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
 from firedrake import functionspaceimpl
@@ -147,11 +148,8 @@ class CoordinatelessFunction(ufl.Coefficient):
         rank-n :class:`~.FunctionSpace`, this returns a proxy object
         indexing the ith component of the space, suitable for use in
         boundary condition application."""
-        mixed = len(self.function_space()) != 1
+        mixed = type(self.function_space().ufl_element()) is MixedElement
         data = self.subfunctions if mixed else self._components
-        bound = len(data)
-        if i < 0 or i >= bound:
-            raise IndexError(f"Invalid component {i}, not in [0, {bound})")
         return data[i]
 
     @property
@@ -352,11 +350,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         :func:`~.VectorFunctionSpace` or :func:`~.TensorFunctionSpace` this returns a proxy object
         indexing the ith component of the space, suitable for use in
         boundary condition application."""
-        mixed = len(self.function_space()) != 1
+        mixed = type(self.function_space().ufl_element()) is MixedElement
         data = self.subfunctions if mixed else self._components
-        bound = len(data)
-        if i < 0 or i >= bound:
-            raise IndexError(f"Invalid component {i}, not in [0, {bound})")
         return data[i]
 
     @PETSc.Log.EventDecorator()
@@ -662,7 +657,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         value_shape = self.ufl_shape
 
         subfunctions = self.subfunctions
-        mixed = len(subfunctions) != 1
+        mixed = type(self.function_space().ufl_element()) is MixedElement
 
         # Local evaluation
         l_result = []
@@ -765,8 +760,8 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     libspatialindex_so = Path(rtree.core.rt._name).absolute()
     lsi_runpath = f"-Wl,-rpath,{libspatialindex_so.parent}"
     ldargs += [str(libspatialindex_so), lsi_runpath]
-    return compilation.load(
-        src, "c", c_name,
+    dll = compilation.load(
+        src, "c",
         cppargs=[
             f"-I{path.dirname(__file__)}",
             f"-I{sys.prefix}/include",
@@ -775,3 +770,4 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
         ldargs=ldargs,
         comm=function.comm
     )
+    return getattr(dll, c_name)

@@ -13,6 +13,7 @@ import numpy
 import ufl
 import finat.ufl
 
+from ufl.duals import is_dual, is_primal
 from pyop2 import op2, mpi
 from pyop2.utils import as_tuple
 
@@ -183,11 +184,8 @@ class WithGeometryBase(object):
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
-        mixed = len(self) != 1
+        mixed = type(self.ufl_element()) is finat.ufl.MixedElement
         data = self.subfunctions if mixed else self._components
-        bound = len(data)
-        if i < 0 or i >= bound:
-            raise IndexError(f"Invalid component {i}, not in [0, {bound})")
         return data[i]
 
     @utils.cached_property
@@ -296,6 +294,9 @@ class WithGeometryBase(object):
         cache[function] = False
 
     def __eq__(self, other):
+        if is_primal(self) != is_primal(other) or \
+                is_dual(self) != is_dual(other):
+            return False
         try:
             return self.topological == other.topological and \
                 self.mesh() is other.mesh()
@@ -664,9 +665,6 @@ class FunctionSpace(object):
 
     def sub(self, i):
         r"""Return a view into the ith component."""
-        bound = len(self._components)
-        if i < 0 or i >= bound:
-            raise IndexError(f"Invalid component {i}, not in [0, {bound})")
         return self._components[i]
 
     def __mul__(self, other):
@@ -943,6 +941,9 @@ class RestrictedFunctionSpace(FunctionSpace):
 
     def local_to_global_map(self, bcs, lgmap=None):
         return lgmap or self.dof_dset.lgmap
+
+    def collapse(self):
+        return type(self)(self.function_space.collapse(), boundary_set=self.boundary_set)
 
 
 class MixedFunctionSpace(object):
@@ -1236,16 +1237,16 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
     r"""A :class:`RestrictedFunctionSpace` that one can attach extra properties to.
 
     :arg function_space: The function space to be restricted.
-    :kwarg name: The name of the restricted function space.
     :kwarg boundary_set: The boundary domains on which boundary conditions will
        be specified
+    :kwarg name: The name of the restricted function space.
 
     .. warning::
 
        Users should not build a :class:`ProxyRestrictedFunctionSpace` directly,
        it is mostly used as an internal implementation detail.
     """
-    def __new__(cls, function_space, name=None, boundary_set=frozenset()):
+    def __new__(cls, function_space, boundary_set=frozenset(), name=None):
         topology = function_space._mesh.topology
         self = super(ProxyRestrictedFunctionSpace, cls).__new__(cls)
         if function_space._mesh is not topology:

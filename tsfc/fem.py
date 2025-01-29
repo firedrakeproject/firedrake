@@ -15,6 +15,7 @@ from finat.physically_mapped import (NeedsCoordinateMappingElement,
                                      PhysicalGeometry)
 from finat.point_set import PointSet, PointSingleton
 from finat.quadrature import make_quadrature
+from finat.element_factory import as_fiat_cell, create_element
 from gem.node import traversal
 from gem.optimise import constant_fold_zero, ffc_rounding
 from gem.unconcatenate import unconcatenate
@@ -32,7 +33,6 @@ from ufl.corealg.multifunction import MultiFunction
 from ufl.domain import extract_unique_domain
 
 from tsfc import ufl2gem
-from tsfc.finatinterface import as_fiat_cell, create_element
 from tsfc.kernel_interface import ProxyKernelInterface
 from tsfc.modified_terminals import (analyse_modified_terminal,
                                      construct_modified_terminal)
@@ -47,15 +47,18 @@ from pyop2.caching import serial_cache
 class ContextBase(ProxyKernelInterface):
     """Common UFL -> GEM translation context."""
 
-    keywords = ('ufl_cell',
-                'fiat_cell',
-                'integral_type',
-                'integration_dim',
-                'entity_ids',
-                'argument_multiindices',
-                'facetarea',
-                'index_cache',
-                'scalar_type')
+    keywords = (
+        'ufl_cell',
+        'fiat_cell',
+        'integral_type',
+        'integration_dim',
+        'entity_ids',
+        'argument_multiindices',
+        'facetarea',
+        'index_cache',
+        'scalar_type',
+        'use_canonical_quadrature_point_ordering',
+    )
 
     def __init__(self, interface, **kwargs):
         ProxyKernelInterface.__init__(self, interface)
@@ -113,6 +116,9 @@ class ContextBase(ProxyKernelInterface):
 
     @cached_property
     def use_canonical_quadrature_point_ordering(self):
+        # Directly set use_canonical_quadrature_point_ordering = False in context
+        # for translation of special nodes, e.g., CellVolume, FacetArea, CellOrigin, and CellVertices,
+        # as quadrature point ordering is not relevant for those node types.
         return isinstance(self.fiat_cell, UFCHexahedron) and self.integral_type in ['exterior_facet', 'interior_facet']
 
 
@@ -162,6 +168,7 @@ class CoordinateMapping(PhysicalGeometry):
             expr = NegativeRestricted(expr)
         config = {"point_set": PointSingleton(point)}
         config.update(self.config)
+        config.update(use_canonical_quadrature_point_ordering=False)  # quad point ordering not relevant.
         context = PointSetContext(**config)
         expr = self.preprocess(expr, context)
         return map_expr_dag(context.translator, expr)
@@ -174,6 +181,7 @@ class CoordinateMapping(PhysicalGeometry):
             expr = NegativeRestricted(expr)
         config = {"point_set": PointSingleton(point)}
         config.update(self.config)
+        config.update(use_canonical_quadrature_point_ordering=False)  # quad point ordering not relevant.
         context = PointSetContext(**config)
         expr = self.preprocess(expr, context)
         return map_expr_dag(context.translator, expr)
@@ -222,6 +230,7 @@ class CoordinateMapping(PhysicalGeometry):
         expr = ufl.as_vector([ufl.sqrt(ufl.dot(expr[i, :], expr[i, :])) for i in range(num_edges)])
         config = {"point_set": PointSingleton(cell.make_points(sd, 0, sd+1)[0])}
         config.update(self.config)
+        config.update(use_canonical_quadrature_point_ordering=False)  # quad point ordering not relevant.
         context = PointSetContext(**config)
         expr = self.preprocess(expr, context)
         return map_expr_dag(context.translator, expr)
@@ -244,6 +253,7 @@ class CoordinateMapping(PhysicalGeometry):
         if entity is not None:
             config.update({name: getattr(self.interface, name)
                            for name in ["integration_dim", "entity_ids"]})
+        config.update(use_canonical_quadrature_point_ordering=False)  # quad point ordering not relevant.
         context = PointSetContext(**config)
         expr = self.preprocess(expr, context)
         mapped = map_expr_dag(context.translator, expr)
@@ -270,9 +280,10 @@ def get_quadrature_rule(fiat_cell, integration_dim, quadrature_degree, scheme):
 
 
 def make_basis_evaluation_key(ctx, finat_element, mt, entity_id):
+    ufl_element = mt.terminal.ufl_element()
     domain = extract_unique_domain(mt.terminal)
     coordinate_element = domain.ufl_coordinate_element()
-    return (finat_element, mt.local_derivatives, ctx.point_set, ctx.integration_dim, entity_id, coordinate_element, mt.restriction)
+    return (ufl_element, mt.local_derivatives, ctx.point_set, ctx.integration_dim, entity_id, coordinate_element, mt.restriction)
 
 
 class PointSetContext(ContextBase):
@@ -538,7 +549,7 @@ def translate_cellvolume(terminal, mt, ctx):
 
     config = {name: getattr(ctx, name)
               for name in ["ufl_cell", "index_cache", "scalar_type"]}
-    config.update(interface=interface, quadrature_degree=degree)
+    config.update(interface=interface, quadrature_degree=degree, use_canonical_quadrature_point_ordering=False)
     expr, = compile_ufl(integrand, PointSetContext(**config), point_sum=True)
     return expr
 
@@ -552,7 +563,7 @@ def translate_facetarea(terminal, mt, ctx):
     config = {name: getattr(ctx, name)
               for name in ["ufl_cell", "integration_dim", "scalar_type",
                            "entity_ids", "index_cache"]}
-    config.update(interface=ctx, quadrature_degree=degree)
+    config.update(interface=ctx, quadrature_degree=degree, use_canonical_quadrature_point_ordering=False)
     expr, = compile_ufl(integrand, PointSetContext(**config), point_sum=True)
     return expr
 
@@ -566,7 +577,7 @@ def translate_cellorigin(terminal, mt, ctx):
 
     config = {name: getattr(ctx, name)
               for name in ["ufl_cell", "index_cache", "scalar_type"]}
-    config.update(interface=ctx, point_set=point_set)
+    config.update(interface=ctx, point_set=point_set, use_canonical_quadrature_point_ordering=False)
     context = PointSetContext(**config)
     return context.translator(expression)
 
@@ -579,7 +590,7 @@ def translate_cell_vertices(terminal, mt, ctx):
 
     config = {name: getattr(ctx, name)
               for name in ["ufl_cell", "index_cache", "scalar_type"]}
-    config.update(interface=ctx, point_set=ps)
+    config.update(interface=ctx, point_set=ps, use_canonical_quadrature_point_ordering=False)
     context = PointSetContext(**config)
     expr = context.translator(ufl_expr)
 
@@ -697,8 +708,7 @@ def translate_coefficient(terminal, mt, ctx):
                           for alpha, tables in per_derivative.items()}
 
     # Coefficient evaluation
-    ctx.index_cache.setdefault(terminal.ufl_element(), element.get_indices())
-    beta = ctx.index_cache[terminal.ufl_element()]
+    beta = ctx.index_cache.setdefault(terminal.ufl_element(), element.get_indices())
     zeta = element.get_value_indices()
     vec_beta, = gem.optimise.remove_componenttensors([gem.Indexed(vec, beta)])
     value_dict = {}

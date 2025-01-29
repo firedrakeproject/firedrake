@@ -23,6 +23,7 @@ jobs:
     # Only run this action if we are pushing to master or the PR is labelled "macOS"
     if: ${{ (github.ref == 'refs/heads/master') || contains(github.event.pull_request.labels.*.name, 'macOS') }}
     env:
+      FIREDRAKE_CI_TESTS: 1
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
     steps:
@@ -53,6 +54,7 @@ jobs:
             --with-shared-libraries=1 \
             --with-mpi-dir=/opt/homebrew \
             --with-zlib \
+            --with-strict-petscerrorcode \
             --download-bison \
             --download-hdf5 \
             --download-hwloc \
@@ -67,25 +69,6 @@ jobs:
             --download-suitesparse \
             --download-superlu_dist
           make
-
-      - name: Install libsupermesh
-        run: |
-          source pip_venv/bin/activate
-          python -m pip install 'rtree>=1.2'
-          cd pip_venv/src
-          git clone https://github.com/firedrakeproject/libsupermesh.git
-          mkdir -p libsupermesh/build
-          cd libsupermesh/build
-          cmake .. \
-            -DBUILD_SHARED_LIBS=ON \
-            -DCMAKE_INSTALL_PREFIX="$VIRTUAL_ENV" \
-            -DMPI_C_COMPILER=/opt/homebrew/bin/mpicc \
-            -DMPI_CXX_COMPILER=/opt/homebrew/bin/mpicxx \
-            -DMPI_Fortran_COMPILER=/opt/homebrew/bin/mpif90 \
-            -DCMAKE_Fortran_COMPILER=/opt/homebrew/bin/mpif90 \
-            -DMPIEXEC_EXECUTABLE=/opt/homebrew/bin/mpiexec
-          make
-          make install
 
       - uses: actions/checkout@v4
         with:
@@ -116,9 +99,8 @@ jobs:
         run: |
           source pip_venv/bin/activate
           cd pip_venv/src/firedrake
-          python -m pytest --timeout=1800 -v tests/firedrake/regression \
-            -k "poisson_strong or stokes_mini or dg_advection"
-        timeout-minutes: 30
+          make check CHECK_PYTEST_ARGS="--timeout 60"
+        timeout-minutes: 10
 
       - name: Cleanup (post)
         if: ${{ always() }}
