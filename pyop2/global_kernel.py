@@ -8,12 +8,15 @@ import itertools
 import loopy as lp
 import numpy as np
 import pytools
+from loopy.codegen.result import process_preambles
 from petsc4py import PETSc
 
 from pyop2 import mpi
-from pyop2.compilation import load
+from pyop2.caching import parallel_cache, serial_cache
+from pyop2.compilation import add_profiling_events, load
 from pyop2.configuration import configuration
 from pyop2.datatypes import IntType, as_ctypes
+from pyop2.codegen.rep2loopy import generate
 from pyop2.types import IterationRegion, Constant, READ
 from pyop2.utils import cached_property, get_petsc_dir
 
@@ -326,8 +329,7 @@ class GlobalKernel:
         :arg comm: Communicator the execution is collective over.
         :*args: Arguments to pass to the compiled kernel.
         """
-        # It is unnecessary to cache this call as it is cached in pyop2/compilation.py
-        func = self.compile(comm)
+        func = compile_global_kernel(self, comm)
         func(*args)
 
     @property
@@ -364,48 +366,7 @@ class GlobalKernel:
     @cached_property
     def code_to_compile(self):
         """Return the C/C++ source code as a string."""
-        from pyop2.codegen.rep2loopy import generate
-
-        wrapper = generate(self.builder)
-        code = lp.generate_code_v2(wrapper)
-
-        if self.local_kernel.cpp:
-            from loopy.codegen.result import process_preambles
-            preamble = "".join(process_preambles(getattr(code, "device_preambles", [])))
-            device_code = "\n\n".join(str(dp.ast) for dp in code.device_programs)
-            return preamble + "\nextern \"C\" {\n" + device_code + "\n}\n"
-        return code.device_code()
-
-    @PETSc.Log.EventDecorator()
-    @mpi.collective
-    def compile(self, comm):
-        """Compile the kernel.
-
-        :arg comm: The communicator the compilation is collective over.
-        :returns: A ctypes function pointer for the compiled function.
-        """
-        extension = "cpp" if self.local_kernel.cpp else "c"
-        cppargs = (
-            tuple("-I%s/include" % d for d in get_petsc_dir())
-            + tuple("-I%s" % d for d in self.local_kernel.include_dirs)
-            + ("-I%s" % os.path.abspath(os.path.dirname(__file__)),)
-        )
-        ldargs = (
-            tuple("-L%s/lib" % d for d in get_petsc_dir())
-            + tuple("-Wl,-rpath,%s/lib" % d for d in get_petsc_dir())
-            + ("-lpetsc", "-lm")
-            + tuple(self.local_kernel.ldargs)
-        )
-
-        return load(
-            self,
-            extension,
-            self.name,
-            cppargs=cppargs,
-            ldargs=ldargs,
-            restype=ctypes.c_int,
-            comm=comm
-        )
+        return _generate_code_from_global_kernel(self)
 
     @cached_property
     def argtypes(self):
@@ -427,3 +388,65 @@ class GlobalKernel:
             elif region not in {IterationRegion.TOP, IterationRegion.BOTTOM}:
                 size = layers - 1
         return size * self.local_kernel.num_flops
+
+    @cached_property
+    def _cppargs(self):
+        cppargs = [f"-I{d}/include" for d in get_petsc_dir()]
+        cppargs.extend(f"-I{d}" for d in self.local_kernel.include_dirs)
+        cppargs.append(f"-I{os.path.abspath(os.path.dirname(__file__))}")
+        return tuple(cppargs)
+
+    @cached_property
+    def _ldargs(self):
+        ldargs = [f"-L{d}/lib" for d in get_petsc_dir()]
+        ldargs.extend(f"-Wl,-rpath,{d}/lib" for d in get_petsc_dir())
+        ldargs.extend(["-lpetsc", "-lm"])
+        ldargs.extend(self.local_kernel.ldargs)
+        return tuple(ldargs)
+
+
+@serial_cache(hashkey=lambda knl: knl.cache_key)
+def _generate_code_from_global_kernel(kernel):
+    with PETSc.Log.Event("GlobalKernel: generate loopy"):
+        wrapper = generate(kernel.builder)
+
+    with PETSc.Log.Event("GlobalKernel: generate device code"):
+        code = lp.generate_code_v2(wrapper)
+
+    if kernel.local_kernel.cpp:
+        preamble = "".join(process_preambles(getattr(code, "device_preambles", [])))
+        device_code = "\n\n".join(str(dp.ast) for dp in code.device_programs)
+        return preamble + "\nextern \"C\" {\n" + device_code + "\n}\n"
+
+    return code.device_code()
+
+
+@parallel_cache(hashkey=lambda knl, _: knl.cache_key)
+@mpi.collective
+def compile_global_kernel(kernel, comm):
+    """Compile the kernel.
+
+    Parameters
+    ----------
+    kernel :
+        The global kernel to generate code for.
+    comm :
+        The communicator the compilation is collective over.
+
+    Returns
+    -------
+    A ctypes function pointer for the compiled function.
+
+    """
+    dll = load(
+        kernel.code_to_compile,
+        "cpp" if kernel.local_kernel.cpp else "c",
+        cppargs=kernel._cppargs,
+        ldargs=kernel._ldargs,
+        comm=comm,
+    )
+    add_profiling_events(dll, kernel.local_kernel.events)
+    fn = getattr(dll, kernel.name)
+    fn.argtypes = kernel.argtypes
+    fn.restype = ctypes.c_int
+    return fn

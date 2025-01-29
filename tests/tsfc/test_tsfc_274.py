@@ -2,7 +2,7 @@ import gem
 import numpy
 from finat.point_set import PointSet
 from gem.interpreter import evaluate
-from tsfc.finatinterface import create_element
+from finat.element_factory import create_element
 from ufl import quadrilateral
 from finat.ufl import FiniteElement, RestrictedElement
 

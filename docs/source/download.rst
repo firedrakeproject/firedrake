@@ -56,19 +56,17 @@ configure MPI for the installation process are `found here
 Testing the installation
 ------------------------
 
-We recommend that you run the test suite after installation to check
+We recommend that you run some simple tests after installation to check
 that Firedrake is fully functional. Activate the venv_ as above and
 then run::
 
   cd $VIRTUAL_ENV/src/firedrake
-  pytest tests/firedrake/regression/ -k "poisson_strong or stokes_mini or dg_advection"
+  make check
 
 This command will run a few of the unit tests, which exercise a good
 chunk of the functionality of the library. These tests should take a
 minute or less. If they fail to run for any reason, please see the
-section below on how to diagnose and debug a failed installation. If
-you want to run the entire test suite you can do ``make alltest``
-instead, but this takes several hours.
+section below on how to diagnose and debug a failed installation.
 
 .. note::
 
@@ -241,7 +239,6 @@ Requirements
 * An activated virtual environment.
 * All the system requirements listed in :ref:`system-requirements`.
 * A Firedrake-compatible PETSc installation (using our `fork of PETSc <https://github.com/firedrakeproject/petsc.git>`_). The set of flags passed to PETSc can be retrieved by passing the command ``--show-petsc-configure-options`` to ``firedrake-install``.
-* `libsupermesh <https://github.com/firedrakeproject/libsupermesh.git>`_ to be installed inside the virtual environment (see `here <https://github.com/firedrakeproject/firedrake/blob/master/.github/workflows/pip.yml>`_ for an example of how to do this).
 *  The following environment variables to be set:
 
   * ``PETSC_DIR`` and ``PETSC_ARCH`` to point to the correct location for the PETSc installation.

@@ -1,4 +1,4 @@
-from tsfc.finatinterface import create_base_element
+from finat.element_factory import create_base_element
 import numpy as np
 from pyop2.utils import as_tuple
 

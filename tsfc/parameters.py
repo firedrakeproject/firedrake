@@ -20,6 +20,9 @@ PARAMETERS = {
 
     # So that tests pass (needs to match scalar_type)
     "scalar_type_c": "double",
+
+    # Whether to wrap the generated kernels in a PETSc event
+    "add_petsc_events": False,
 }
 
 

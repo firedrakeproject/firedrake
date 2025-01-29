@@ -46,11 +46,16 @@ jobs:
             --venv-name firedrake_venv \
             --disable-ssh \
             || (cat firedrake-install.log && /bin/false)
+      - name: Install test dependencies
+        run: |
+          . ../firedrake_venv/bin/activate
+          python -m pip install pytest-timeout
+
       - name: Run smoke tests
         run: |
           . ../firedrake_venv/bin/activate
-          python -m pytest -v tests/firedrake/regression/ -k "poisson_strong or stokes_mini or dg_advection"
-        timeout-minutes: 30
+          make check CHECK_PYTEST_ARGS="--timeout 60"
+        timeout-minutes: 10
       - name: Post-run cleanup
         if: ${{ always() }}
         run: |
