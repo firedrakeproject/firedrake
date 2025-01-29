@@ -492,6 +492,7 @@ def parallel_cache(
                     cache_hit = True
 
                 if not pytools.is_single_valued(comm.allgather(cache_hit)):
+                    print(f"rank {comm.rank} has key {key}")
                     raise ValueError("Inconsistent hit/miss! This should not happen")
 
             if value is CACHE_MISS:

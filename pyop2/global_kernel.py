@@ -400,7 +400,7 @@ class GlobalKernel:
         return tuple(ldargs)
 
 
-@parallel_cache(hashkey=lambda knl, _: knl.cache_key)
+@memory_and_disk_cache(hashkey=lambda knl, _: knl.cache_key)
 @mpi.collective
 def _generate_code_from_global_kernel(kernel, comm):
     if comm.rank == 0:
