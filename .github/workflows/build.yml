@@ -211,7 +211,7 @@ jobs:
     # even if build fails (see docker.yml)
     # if: ${{ (github.ref == 'refs/heads/master') && always() }}
     if: ${{ always() }}
-    needs: [test, docker_tag]
+    # needs: [test, docker_tag]
     uses: ./.github/workflows/docker.yml
     with:
       tag: testing
