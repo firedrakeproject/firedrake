@@ -2096,6 +2096,53 @@ class _FormHandler:
         else:
             raise AssertionError
 
+def fuse_orientations(fs):
+    if hasattr(fs.ufl_element(), "triple"):
+        os = fs.ufl_element().triple.matrices
+        t_dim = fs.ufl_element().cell._tdim
+        mats = [(f"mat{i}", os[t_dim][0][i]) for i in os[t_dim][0].keys()]
+        print(construct_assign(os[fs.ufl_element().cell._tdim][0]))
+        # construct_string(os[t_dim][0], [4, 5, 6], 0)
+    else:
+        raise NotImplementatedError("Dense orientations only needed for FUSE elements")
+
+def construct_assign(os, string=""):
+    # hand coded matmul
+    string += "double* matmul(int m, double a[][m], double b[m], double res[m]) {\nint i, j;\nfor(i=0;i<m;i++){\nfor(j=0;j<m;j++){\nres[j] += a[i][j]*b[i];\n}}\nreturn (double *)res;}\n"
+    
+    string += "void assign(int c, double b[], double res[]){\n"
+    dim = os[0].shape[0]
+    # remaining consideration - how to ensure dof ordering is as it is in the matrices
+    # matrix defs (expect to handled by loopy)"
+    for val in os.keys():
+            array_vals = ",".join(["0" if numpy.isclose(0, x) else str(x) for x in list(os[val].flatten())])
+            string += f"double mat{val}[{dim}][{dim}] = {{ {array_vals} }};\n"
+    # start of switch statement
+    string += f"int m={dim};\nswitch (c) {{ \n"
+    
+    for val in os.keys():
+            string += f"case {val}:\n matmul(m, mat{val}, b, res);break;\n"
+    string += "default:\nbreak;\n }\n}"
+    return string
+        
+def construct_string(os, dofs, c):
+    dim = os[0].shape[0]
+    string = "#include <stdio.h> \n#include <stdlib.h>\n"
+   
+    string = construct_assign(os, string)
+    
+    string += "int main(void){\n"
+    zeros = ",".join(["0" for i in range(dim)])
+    dof_vals = ",".join([str(d) for d in dofs])
+    string += f"double b[{dim}] = {{ {dof_vals} }};\n"
+    string += f"int i,j;int m = {dim};\ndouble res[{dim}] = {{ {zeros} }};\nassign(5, b, res);\n"
+    
+    string += "for(i=0;i<m;i++){\n\nprintf(\"%lf \", res[i]);\nprintf(\"\\n\");}\nreturn 0;\n"
+    string += "}\n"
+
+    print(string)
+
+
 
 def _is_real_space(space):
     return space.ufl_element().family() == "Real"

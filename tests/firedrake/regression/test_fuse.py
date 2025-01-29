@@ -2,7 +2,9 @@ from test_helmholtz import helmholtz
 from test_poisson_strong_bcs import run_test
 import pytest
 import numpy as np
-
+from firedrake import *
+from fuse import *
+from firedrake.assemble import fuse_orientations
 
 
 @pytest.mark.parametrize(['params', 'degree', 'quadrilateral'],
@@ -22,3 +24,43 @@ def test_helmholtz(conv_num, degree):
     conv = np.log2(diff[:-1] / diff[1:])
     print("convergence order:", conv)
     assert (np.array(conv) > conv_num).all()
+
+
+def construct_cg3(tri=None):
+    # [test_cg3 0]
+    tri = polygon(3)
+    edge = tri.edges()[0]
+    vert = tri.vertices()[0]
+
+    xs = [DOF(DeltaPairing(), PointKernel(()))]
+    dg0 = ElementTriple(vert, (P0, CellL2, C0), DOFGenerator(xs, S1, S1))
+
+    v_xs = [immerse(tri, dg0, TrH1)]
+    v_dofs = DOFGenerator(v_xs, C3, S1)
+
+    xs = [DOF(DeltaPairing(), PointKernel((-1/3)))]
+    dg0_int = ElementTriple(edge, (P1, CellH1, C0), DOFGenerator(xs, S2, S1))
+
+    e_xs = [immerse(tri, dg0_int, TrH1)]
+    e_dofs = DOFGenerator(e_xs, C3, S1)
+
+    i_xs = [DOF(DeltaPairing(), PointKernel((0, 0)))]
+    i_dofs = DOFGenerator(i_xs, S1, S1)
+
+    cg3 = ElementTriple(tri, (P3, CellH1, C0), [v_dofs, e_dofs, i_dofs])
+    # [test_cg3 1]
+    return cg3
+
+def construct_dg1_tri():
+    # [test_dg1_tri 0]
+    tri = polygon(3)
+    xs = [DOF(DeltaPairing(), PointKernel((-1, -np.sqrt(3)/3)))]
+    dg1 = ElementTriple(tri, (P1, CellL2, C0), DOFGenerator(xs, S3/S2, S1))
+    # [test_dg1_tri 1]
+    return dg1
+
+def test_orientation_string():
+    dg1 = construct_dg1_tri()
+    mesh = UnitTriangleMesh()
+    U = FunctionSpace(mesh, dg1.to_ufl())
+    fuse_orientations(U)
