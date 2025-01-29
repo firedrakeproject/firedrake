@@ -220,12 +220,6 @@ class FunctionMixin(FloatingType):
         else:
             return self.copy(deepcopy=True)
 
-    def _ad_clear_checkpoint(self, checkpoint):
-        if self.checkpoint_time_dependent is False:
-            return checkpoint
-        else:
-            return None
-
     def _ad_convert_riesz(self, value, options=None):
         from firedrake import Function, Cofunction
 
