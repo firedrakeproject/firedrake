@@ -262,26 +262,54 @@ def test_solve_empty_form_rhs(mesh):
     assert errornorm(x, w) < 1E-10
 
 
-def test_solve_pre_apply_bcs(mesh):
+@pytest.mark.skipif(utils.complex_mode, reason="Differentiation of energy not defined in Complex.")
+@pytest.mark.parametrize("mixed", (False, True), ids=("primal", "mixed"))
+def test_solve_pre_apply_bcs(mesh, mixed):
+    """Solve a 1D hyperelasticity problem with linear exact solution.
+       The default DirichletBC treatment would raise NaNs if the problem is
+       linearised around an initial guess that satisfies the bcs and is zero on the interior.
+       Here we test that we can linearise around an initial guess that
+       does not satisfy the DirichletBCs by passing pre_apply_bcs=True."""
+
     V = VectorFunctionSpace(mesh, "CG", 1)
-    x = SpatialCoordinate(mesh)
+    if mixed:
+        Q = FunctionSpace(mesh, "DG", 0)
+        Z = V * Q
+        V = Z.sub(0)
+        z = Function(Z)
+        u, p = split(z)
+    else:
+        u = Function(V)
+        z = u
+        p = None
 
+    # Boundary conditions
     eps = Constant(0.1)
-    g = -eps*x
+    x = SpatialCoordinate(mesh)
+    g = -eps * x
+    bcs = [DirichletBC(V, g, "on_boundary")]
 
-    bc = DirichletBC(V, g, "on_boundary")
-
-    u = Function(V)
-
-    lam = Constant(1E0)
+    # Hyperelastic energy functional
+    lam = Constant(1E3)
     dim = mesh.geometric_dimension()
     F = grad(u) + Identity(dim)
     J = det(F)
-    logJ = 0.5*ln(J*conj(J))
+    logJ = 0.5*ln(J**2)
+    if p is None:
+        p = lam*logJ
 
-    W = (1/2)*(inner(F, F) - dim - 2*logJ + lam*logJ**2) * dx
+    W = (1/2)*(inner(F, F) - dim - 2*logJ) * dx + (inner(p, logJ - (1/(2*lam))*p)) * dx
+    uh = z.subfunctions[0]
 
-    F = derivative(W, u)
-    # Raises nans if pre_apply_bcs=True
-    solve(F == 0, u, bc, pre_apply_bcs=False)
-    assert errornorm(g, u) < 1E-10
+    # Raises NaNs if pre_apply_bcs=True
+    F = derivative(W, z)
+    z.zero()
+    solve(F == 0, z, bcs, pre_apply_bcs=False)
+    assert errornorm(g, uh) < 1E-10
+
+    # Test that pre_apply_bcs=False works with a linear problem
+    a = derivative(F, z)
+    L = Form([])
+    z.zero()
+    solve(a == L, z, bcs, pre_apply_bcs=False)
+    assert errornorm(g, uh) < 1E-10

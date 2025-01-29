@@ -171,14 +171,7 @@ def _solve_varproblem(*args, **kwargs):
         problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
                                               form_compiler_parameters=form_compiler_parameters,
                                               restrict=restrict)
-        # Create solver and call solve
-        solver = vs.LinearVariationalSolver(problem, solver_parameters=solver_parameters,
-                                            nullspace=nullspace,
-                                            transpose_nullspace=nullspace_T,
-                                            near_nullspace=near_nullspace,
-                                            options_prefix=options_prefix,
-                                            appctx=appctx)
-        solver.solve()
+        create_solver = vs.LinearVariationalSolver
 
     # Solve nonlinear variational problem
     else:
@@ -187,15 +180,18 @@ def _solve_varproblem(*args, **kwargs):
         # Create problem
         problem = vs.NonlinearVariationalProblem(eq.lhs, u, bcs, J, Jp,
                                                  form_compiler_parameters=form_compiler_parameters,
-                                                 restrict=restrict, pre_apply_bcs=pre_apply_bcs)
-        # Create solver and call solve
-        solver = vs.NonlinearVariationalSolver(problem, solver_parameters=solver_parameters,
-                                               nullspace=nullspace,
-                                               transpose_nullspace=nullspace_T,
-                                               near_nullspace=near_nullspace,
-                                               options_prefix=options_prefix,
-                                               appctx=appctx)
-        solver.solve()
+                                                 restrict=restrict)
+        create_solver = vs.NonlinearVariationalSolver
+
+    # Create solver and call solve
+    solver = create_solver(problem, solver_parameters=solver_parameters,
+                           nullspace=nullspace,
+                           transpose_nullspace=nullspace_T,
+                           near_nullspace=near_nullspace,
+                           options_prefix=options_prefix,
+                           appctx=appctx,
+                           pre_apply_bcs=pre_apply_bcs)
+    solver.solve()
 
 
 def _la_solve(A, x, b, **kwargs):

@@ -52,7 +52,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
                  form_compiler_parameters=None,
-                 is_linear=False, restrict=False, pre_apply_bcs=True):
+                 is_linear=False, restrict=False):
         r"""
         :param F: the nonlinear form
         :param u: the :class:`.Function` to solve for
@@ -68,8 +68,6 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         :param restrict: (optional) If `True`, use restricted function spaces,
             that exclude Dirichlet boundary condition nodes,  internally for
             the test and trial spaces.
-        :param pre_apply_bcs: (optional) If `False`, the problem is linearised
-            around the initial guess before imposing the boundary conditions.
         """
         V = u.function_space()
         self.output_space = V
@@ -88,7 +86,6 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
                 if isinstance(bc, EquationBC):
                     restrict = False
         self.restrict = restrict
-        self.pre_apply_bcs = pre_apply_bcs
 
         if restrict and bcs:
             V_res = restricted_function_space(V, extract_subdomain_ids(bcs))
@@ -156,7 +153,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                  pre_jacobian_callback=None,
                  post_jacobian_callback=None,
                  pre_function_callback=None,
-                 post_function_callback=None):
+                 post_function_callback=None,
+                 pre_apply_bcs=True):
         r"""
         :arg problem: A :class:`NonlinearVariationalProblem` to solve.
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
@@ -185,6 +183,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                before residual assembly.
         :kwarg post_function_callback: As above, but called immediately
                after residual assembly.
+        :kwarg pre_apply_bcs: If `False`, the problem is linearised
+               around the initial guess before imposing the boundary conditions.
 
         Example usage of the ``solver_parameters`` option: to set the
         nonlinear solver type to just use a linear solver, use
@@ -236,7 +236,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                          pre_function_callback=pre_function_callback,
                                          post_jacobian_callback=post_jacobian_callback,
                                          post_function_callback=post_function_callback,
-                                         options_prefix=self.options_prefix)
+                                         options_prefix=self.options_prefix,
+                                         pre_apply_bcs=pre_apply_bcs)
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
 
@@ -307,9 +308,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         problem_dms = [V.dm for V in utils.unique(chain.from_iterable(c.function_space() for c in coefficients)) if V.dm != solution_dm]
         problem_dms.append(solution_dm)
 
-        if problem.pre_apply_bcs:
-            for dbc in problem.dirichlet_bcs():
-                dbc.apply(problem.u_restrict)
+        if self._ctx.pre_apply_bcs:
+            for bc in problem.dirichlet_bcs():
+                bc.apply(problem.u_restrict)
 
         if bounds is not None:
             lower, upper = bounds
@@ -344,7 +345,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
     @PETSc.Log.EventDecorator()
     def __init__(self, a, L, u, bcs=None, aP=None,
                  form_compiler_parameters=None,
-                 constant_jacobian=False, restrict=False, pre_apply_bcs=True):
+                 constant_jacobian=False, restrict=False):
         r"""
         :param a: the bilinear form
         :param L: the linear form
@@ -362,8 +363,6 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         :param restrict: (optional) If `True`, use restricted function spaces,
             that exclude Dirichlet boundary condition nodes,  internally for
             the test and trial spaces.
-        :param pre_apply_bcs: (optional) If `False`, the problem is linearised
-            around the initial guess before imposing the boundary conditions.
         """
         # In the linear case, the Jacobian is the equation LHS.
         J = a
@@ -379,7 +378,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
                                                        form_compiler_parameters=form_compiler_parameters,
-                                                       is_linear=True, restrict=restrict, pre_apply_bcs=pre_apply_bcs)
+                                                       is_linear=True, restrict=restrict)
         self._constant_jacobian = constant_jacobian
 
 
