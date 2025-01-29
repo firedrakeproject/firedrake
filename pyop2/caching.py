@@ -35,7 +35,6 @@
 import atexit
 import cachetools
 import hashlib
-import operator
 import os
 import pickle
 import weakref
@@ -367,7 +366,7 @@ class DictLikeDiskAccess(MutableMapping):
         pickle.dump(value, filehandle)
 
 
-def default_comm_fetcher(*args, **kwargs):
+def default_comm_getter(*args, **kwargs):
     """ A sensible default comm fetcher for use with `parallel_cache`.
     """
     comms = filter(
@@ -444,10 +443,28 @@ if configuration["print_cache_info"] or _running_on_ci:
 
 def parallel_cache(
     hashkey=default_parallel_hashkey,
-    comm_fetcher=default_comm_fetcher,
+    comm_getter=default_comm_getter,
     cache_factory=lambda: DEFAULT_CACHE(),
+    bcast=False,
 ):
-    """Parallel cache decorator."""
+    """Parallel cache decorator.
+
+    Parameters
+    ----------
+    hashkey :
+        Callable taking ``*args`` and ``**kwargs`` and returning a hash.
+    comm_getter :
+        Callable taking ``*args`` and ``**kwargs`` and returning the
+        appropriate communicator.
+    cache_factory :
+        Callable that will build a new cache (if one does not exist).
+    bcast :
+        If `True`, then generate the new cache value on one rank and broadcast
+        to the others. If `False` then values are generated on all ranks.
+        This option can only be `True` if the operation can be executed in
+        serial; else it will deadlock.
+
+    """
     def decorator(func):
         @PETSc.Log.EventDecorator("pyop2: cache wrapper")
         @wraps(func)
@@ -458,7 +475,7 @@ def parallel_cache(
             key = _as_hexdigest(*k), func.__qualname__
 
             # Create a PyOP2 comm associated with the key, so it is decrefed when the wrapper exits
-            with temp_internal_comm(comm_fetcher(*args, **kwargs)) as comm:
+            with temp_internal_comm(comm_getter(*args, **kwargs)) as comm:
                 # Fetch the per-comm cache_collection or set it up if not present
                 # A collection is required since different types of cache can be set up on the same comm
                 cache_collection = comm.Get_attr(comm_cache_keyval)
@@ -491,16 +508,15 @@ def parallel_cache(
                     debug(debug_string + "hit")
                     cache_hit = True
 
-                if not pytools.is_single_valued(comm.allgather(cache_hit)):
-                    print(f"rank {comm.rank} has key {key}")
-                    try:
-                        print(f"cachedir: {local_cache.cachedir}")
-                    except:
-                        pass
+                if configuration["spmd_strict"] and not pytools.is_single_valued(comm.allgather(cache_hit)):
                     raise ValueError("Inconsistent hit/miss! This should not happen")
 
             if value is CACHE_MISS:
-                value = func(*args, **kwargs)
+                if bcast:
+                    value = func(*args, **kwargs) if comm.rank == 0 else None
+                    value = comm.bcast(value, root=0)
+                else:
+                    value = func(*args, **kwargs)
 
             return local_cache.setdefault(key, value)
         return wrapper

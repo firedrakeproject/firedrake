@@ -12,7 +12,7 @@ from loopy.codegen.result import process_preambles
 from petsc4py import PETSc
 
 from pyop2 import mpi
-from pyop2.caching import memory_and_disk_cache, parallel_cache
+from pyop2.caching import memory_cache, disk_only_cache
 from pyop2.compilation import add_profiling_events, load
 from pyop2.configuration import configuration
 from pyop2.datatypes import IntType, as_ctypes
@@ -400,29 +400,25 @@ class GlobalKernel:
         return tuple(ldargs)
 
 
-@memory_and_disk_cache(hashkey=lambda knl, _: knl.cache_key)
-@mpi.collective
+@memory_cache(hashkey=lambda knl, _: knl.cache_key)
+@disk_only_cache(hashkey=lambda knl, _: knl.cache_key, bcast=True)
 def _generate_code_from_global_kernel(kernel, comm):
-    if comm.rank == 0:
-        with PETSc.Log.Event("GlobalKernel: generate loopy"):
-            wrapper = generate(kernel.builder)
+    with PETSc.Log.Event("GlobalKernel: generate loopy"):
+        wrapper = generate(kernel.builder)
 
-        with PETSc.Log.Event("GlobalKernel: generate device code"):
-            code = lp.generate_code_v2(wrapper)
+    with PETSc.Log.Event("GlobalKernel: generate device code"):
+        code = lp.generate_code_v2(wrapper)
 
-        if kernel.local_kernel.cpp:
-            preamble = "".join(process_preambles(getattr(code, "device_preambles", [])))
-            device_code = "\n\n".join(str(dp.ast) for dp in code.device_programs)
-            code = preamble + "\nextern \"C\" {\n" + device_code + "\n}\n"
-        else:
-            code = code.device_code()
+    if kernel.local_kernel.cpp:
+        preamble = "".join(process_preambles(getattr(code, "device_preambles", [])))
+        device_code = "\n\n".join(str(dp.ast) for dp in code.device_programs)
+        code = preamble + "\nextern \"C\" {\n" + device_code + "\n}\n"
     else:
-        code = None
+        code = code.device_code()
+    return code
 
-    return comm.bcast(code, root=0)
 
-
-@parallel_cache(hashkey=lambda knl, _: knl.cache_key)
+@memory_cache(hashkey=lambda knl, _: knl.cache_key)
 @mpi.collective
 def compile_global_kernel(kernel, comm):
     """Compile the kernel.

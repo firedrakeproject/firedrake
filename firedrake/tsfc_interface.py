@@ -66,7 +66,7 @@ def _compile_form_comm(*args, **kwargs):
 # Decorate the original tsfc.compile_form with a cache
 tsfc_compile_form = memory_and_disk_cache(
     hashkey=tsfc_compile_form_hashkey,
-    comm_fetcher=_compile_form_comm,
+    comm_getter=_compile_form_comm,
     cachedir=_cachedir
 )(original_tsfc_compile_form)
 
@@ -149,7 +149,7 @@ def _compile_form_hashkey(*args, **kwargs):
 @PETSc.Log.EventDecorator()
 @memory_and_disk_cache(
     hashkey=_compile_form_hashkey,
-    comm_fetcher=_compile_form_comm,
+    comm_getter=_compile_form_comm,
     cachedir=_cachedir
 )
 @PETSc.Log.EventDecorator()
