@@ -60,7 +60,11 @@ def construct_dg1_tri():
     return dg1
 
 def test_orientation_string():
-    dg1 = construct_dg1_tri()
+    dg1 = construct_cg3()
     mesh = UnitTriangleMesh()
     U = FunctionSpace(mesh, dg1.to_ufl())
     fuse_orientations(U)
+
+    # mesh = UnitTriangleMesh()
+    # U = FunctionSpace(mesh, "DG", 1)
+    # fuse_orientations(U)

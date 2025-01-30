@@ -2104,7 +2104,7 @@ def fuse_orientations(fs):
         print(construct_assign(os[fs.ufl_element().cell._tdim][0]))
         # construct_string(os[t_dim][0], [4, 5, 6], 0)
     else:
-        raise NotImplementatedError("Dense orientations only needed for FUSE elements")
+        raise NotImplementedError("Dense orientations only needed for FUSE elements")
 
 def construct_assign(os, string=""):
     # hand coded matmul
@@ -2113,7 +2113,7 @@ def construct_assign(os, string=""):
     string += "void assign(int c, double b[], double res[]){\n"
     dim = os[0].shape[0]
     # remaining consideration - how to ensure dof ordering is as it is in the matrices
-    # matrix defs (expect to handled by loopy)"
+    # matrix defs (expect to handled by loopy)
     for val in os.keys():
             array_vals = ",".join(["0" if numpy.isclose(0, x) else str(x) for x in list(os[val].flatten())])
             string += f"double mat{val}[{dim}][{dim}] = {{ {array_vals} }};\n"
@@ -2126,6 +2126,7 @@ def construct_assign(os, string=""):
     return string
         
 def construct_string(os, dofs, c):
+    # for testing - makes it into a full c program
     dim = os[0].shape[0]
     string = "#include <stdio.h> \n#include <stdlib.h>\n"
    
