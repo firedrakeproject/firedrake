@@ -2101,12 +2101,12 @@ def fuse_orientations(fs):
         os = fs.ufl_element().triple.matrices
         t_dim = fs.ufl_element().cell._tdim
         mats = [(f"mat{i}", os[t_dim][0][i]) for i in os[t_dim][0].keys()]
-        print(construct_assign(os[fs.ufl_element().cell._tdim][0]))
-        # construct_string(os[t_dim][0], [4, 5, 6], 0)
+        # print(construct_assign(os[fs.ufl_element().cell._tdim][0]))
+        construct_string(os[t_dim][0], [4, 5, 6], 0)
     else:
         raise NotImplementedError("Dense orientations only needed for FUSE elements")
 
-def construct_assign(os, string=""):
+def construct_assign(os, string=[]):
     # hand coded matmul
     string += "double* matmul(int m, double a[][m], double b[m], double res[m]) {\nint i, j;\nfor(i=0;i<m;i++){\nfor(j=0;j<m;j++){\nres[j] += a[i][j]*b[i];\n}}\nreturn (double *)res;}\n"
     
@@ -2123,14 +2123,15 @@ def construct_assign(os, string=""):
     for val in os.keys():
             string += f"case {val}:\n matmul(m, mat{val}, b, res);break;\n"
     string += "default:\nbreak;\n }\n}"
-    return string
+
+    return "".join(string)
         
 def construct_string(os, dofs, c):
     # for testing - makes it into a full c program
     dim = os[0].shape[0]
-    string = "#include <stdio.h> \n#include <stdlib.h>\n"
+    string = ["#include <stdio.h> \n#include <stdlib.h>\n"]
    
-    string = construct_assign(os, string)
+    string += construct_assign(os, string)
     
     string += "int main(void){\n"
     zeros = ",".join(["0" for i in range(dim)])
@@ -2141,7 +2142,7 @@ def construct_string(os, dofs, c):
     string += "for(i=0;i<m;i++){\n\nprintf(\"%lf \", res[i]);\nprintf(\"\\n\");}\nreturn 0;\n"
     string += "}\n"
 
-    print(string)
+    print("".join(string))
 
 
 
