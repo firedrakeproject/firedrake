@@ -87,6 +87,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch loopy fix-callable-warnings \
             || (cat firedrake-install.log && /bin/false)
 
       - name: Install test dependencies
