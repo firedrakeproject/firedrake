@@ -2276,6 +2276,9 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         # submesh
         self.submesh_parent = None
 
+        self._spatial_index = None
+        self._saved_coordinate_dat_version = coordinates.dat.dat_version
+
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.extruded, self.variable_layers,
                 super()._ufl_signature_data_(*args, **kwargs))
@@ -2455,12 +2458,9 @@ values from f.)"""
 
         Use this if you move the mesh (for example by reassigning to
         the coordinate field)."""
-        try:
-            del self.spatial_index
-        except AttributeError:
-            pass
+        self._spatial_index = None
 
-    @utils.cached_property
+    @property
     def spatial_index(self):
         """Spatial index to quickly find which cell contains a given point.
 
@@ -2473,9 +2473,14 @@ values from f.)"""
         can be found.
 
         """
-
         from firedrake import function, functionspace
         from firedrake.parloops import par_loop, READ, MIN, MAX
+
+        if (
+            self._spatial_index
+            and self.coordinates.dat.dat_version == self._saved_coordinate_dat_version
+        ):
+            return self._spatial_index
 
         gdim = self.geometric_dimension()
         if gdim <= 1:
@@ -2538,7 +2543,9 @@ values from f.)"""
         coords_max = coords_mid + (tolerance + 0.5)*d
 
         # Build spatial index
-        return spatialindex.from_regions(coords_min, coords_max)
+        self._spatial_index = spatialindex.from_regions(coords_min, coords_max)
+        self._saved_coordinate_dat_version = self.coordinates.dat.dat_version
+        return self._spatial_index
 
     @PETSc.Log.EventDecorator()
     def locate_cell(self, x, tolerance=None, cell_ignore=None):
@@ -2688,8 +2695,8 @@ values from f.)"""
 
             libspatialindex_so = Path(rtree.core.rt._name).absolute()
             lsi_runpath = f"-Wl,-rpath,{libspatialindex_so.parent}"
-            locator = compilation.load(
-                src, "c", "locator",
+            dll = compilation.load(
+                src, "c",
                 cppargs=[
                     f"-I{os.path.dirname(__file__)}",
                     f"-I{sys.prefix}/include",
@@ -2703,7 +2710,7 @@ values from f.)"""
                 ],
                 comm=self.comm
             )
-
+            locator = getattr(dll, "locator")
             locator.argtypes = [ctypes.POINTER(function._CFunction),
                                 ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_double),
@@ -3073,6 +3080,7 @@ def Mesh(meshfile, **kwargs):
         netgen_flags = kwargs.get("netgen_flags", {"quad": False, "transform": None, "purify_to_tets": False})
         netgen_firedrake_mesh = FiredrakeMesh(meshfile, netgen_flags, user_comm)
         plex = netgen_firedrake_mesh.meshMap.petscPlex
+        plex.setName(_generate_default_mesh_topology_name(name))
     else:
         basename, ext = os.path.splitext(meshfile)
         if ext.lower() in ['.e', '.exo']:
@@ -3099,10 +3107,11 @@ def Mesh(meshfile, **kwargs):
                             distribution_name=kwargs.get("distribution_name"),
                             permutation_name=kwargs.get("permutation_name"),
                             comm=user_comm)
-    mesh = make_mesh_from_mesh_topology(topology, name)
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
-        netgen_firedrake_mesh.createFromTopology(topology, name=plex.getName(), comm=user_comm)
+        netgen_firedrake_mesh.createFromTopology(topology, name=name, comm=user_comm)
         mesh = netgen_firedrake_mesh.firedrakeMesh
+    else:
+        mesh = make_mesh_from_mesh_topology(topology, name)
     mesh._tolerance = tolerance
     return mesh
 

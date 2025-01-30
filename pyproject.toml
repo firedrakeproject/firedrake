@@ -106,4 +106,7 @@ build-backend = "setuptools.build_meta"
 
 # TODO: Convert firedrake-zenodo to a proper entrypoint script.
 [tool.setuptools]
-script-files = ["firedrake/scripts/firedrake-zenodo"]
+script-files = [
+  "firedrake/scripts/firedrake-zenodo",
+  "scripts/firedrake-run-split-tests",
+]

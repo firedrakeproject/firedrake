@@ -81,7 +81,9 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
         UP = Function(W)
         # Cannot set the nullspace with constant=True for non-Lagrange pressure elements
         nsp_basis = Function(Q).interpolate(Constant(1))
-        nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis([nsp_basis])])
+        subnullspace = VectorSpaceBasis([nsp_basis])
+        subnullspace.orthonormalize()
+        nullspace = MixedVectorSpaceBasis(W, [W.sub(0), subnullspace])
 
         parameters = {
             "mat_type": mat_type,
