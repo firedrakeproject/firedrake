@@ -258,7 +258,7 @@ def get_restriction_indices(V, W):
         eperm = numpy.concatenate((eperm, numpy.setdiff1d(numpy.arange(vsize, dtype=PETSc.IntType), eperm)))
     pmap = PermutedMap(V.cell_node_map(), eperm)
 
-    wsize = sum(Vsub.finat_element.space_dimension() * Vsub.value_size for Vsub in W)
+    wsize = sum(Vsub.finat_element.space_dimension() * Vsub.block_size for Vsub in W)
     kernel_code = f"""
     void copy(PetscInt *restrict w, const PetscInt *restrict v) {{
         for (PetscInt i=0; i<{wsize}; i++) w[i] = v[i];

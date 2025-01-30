@@ -6,6 +6,7 @@ import pyop3 as op3
 from pyadjoint.tape import stop_annotating, annotate_tape, get_working_tape
 from pyop2 import mpi
 from ufl.form import BaseForm
+from finat.ufl import MixedElement
 
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
@@ -194,9 +195,9 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         :func:`~.VectorFunctionSpace` or :func:`~.TensorFunctionSpace`
         this returns a proxy object indexing the ith component of the space,
         suitable for use in boundary condition application."""
-        if len(self.function_space()) == 1:
-            return self._components[i]
-        return self.subfunctions[i]
+        mixed = type(self.function_space().ufl_element()) is MixedElement
+        data = self.subfunctions if mixed else self._components
+        return data[i]
 
     def function_space(self):
         r"""Return the :class:`.FunctionSpace`, or :class:`.MixedFunctionSpace`
@@ -282,8 +283,10 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             return self.assign(
                 assembled_expr, subset=subset,
                 expr_from_assemble=True)
-
-        raise ValueError('Cannot assign %s' % expr)
+        else:
+            from firedrake.assign import Assigner
+            Assigner(self, expr, subset).assign()
+        return self
 
     def riesz_representation(self, riesz_map='L2', **solver_options):
         """Return the Riesz representation of this :class:`Cofunction` with respect to the given Riesz map.
@@ -379,6 +382,12 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         return vector.Vector(self)
 
     @property
+    def cell_set(self):
+        r"""The :class:`pyop2.types.set.Set` of cells for the mesh on which this
+        :class:`Cofunction` is defined."""
+        return self.function_space()._mesh.cell_set
+
+    @property
     def node_set(self):
         r"""A :class:`pyop2.types.set.Set` containing the nodes of this
         :class:`Cofunction`. One or (for rank-1 and 2
@@ -386,6 +395,12 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         at each node.
         """
         return self.function_space().node_set
+
+    @property
+    def dof_dset(self):
+        r"""A :class:`pyop2.types.dataset.DataSet` containing the degrees of freedom of
+        this :class:`Cofunction`."""
+        return self.function_space().dof_dset
 
     def ufl_id(self):
         return self.uid

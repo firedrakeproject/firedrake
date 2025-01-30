@@ -1,0 +1,109 @@
+name: Pip install Firedrake (macOS)
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    # By default this workflow is run on the "opened", "synchronize" and
+    # "reopened" events. We add "labelled" so it will run if the PR is given a label.
+    types: [opened, synchronize, reopened, labeled]
+
+concurrency:
+  # Cancels jobs running if new commits are pushed
+  group: >
+    ${{ github.workflow }}-
+    ${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: "Build Firedrake using pip (macOS)"
+    runs-on: [self-hosted, macOS]
+    # Only run this action if we are pushing to master or the PR is labelled "macOS"
+    if: ${{ (github.ref == 'refs/heads/master') || contains(github.event.pull_request.labels.*.name, 'macOS') }}
+    env:
+      FIREDRAKE_CI_TESTS: 1
+      OMP_NUM_THREADS: 1
+      OPENBLAS_NUM_THREADS: 1
+    steps:
+      - name: Add homebrew to PATH
+        # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
+        run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+
+      - name: Install homebrew packages
+        run: brew install gcc autoconf pkg-config make automake cmake ninja libtool boost openblas python python-setuptools mpich
+
+      - name: Cleanup (pre)
+        if: ${{ always() }}
+        run: |
+          rm -rf pip_venv
+          "$(brew --prefix)/bin/python3" -m pip cache purge
+
+      - name: Create a virtual environment
+        run: |
+          "$(brew --prefix)/bin/python3" -m venv pip_venv
+          mkdir pip_venv/src
+
+      - name: Install PETSc
+        run: |
+          cd pip_venv/src
+          git clone https://github.com/firedrakeproject/petsc.git
+          cd petsc
+          ./configure PETSC_DIR="$PWD" PETSC_ARCH=default \
+            --with-shared-libraries=1 \
+            --with-mpi-dir=/opt/homebrew \
+            --with-zlib \
+            --with-strict-petscerrorcode \
+            --download-bison \
+            --download-hdf5 \
+            --download-hwloc \
+            --download-hypre \
+            --download-metis \
+            --download-mumps \
+            --download-netcdf \
+            --download-pastix \
+            --download-pnetcdf \
+            --download-ptscotch \
+            --download-scalapack \
+            --download-suitesparse \
+            --download-superlu_dist
+          make
+
+      - uses: actions/checkout@v4
+        with:
+          path: pip_venv/src/firedrake
+
+      - name: Pip install
+        run: |
+          export PETSC_DIR="$PWD/pip_venv/src/petsc"
+          export PETSC_ARCH=default
+          export HDF5_DIR="$PETSC_DIR/$PETSC_ARCH"
+          export HDF5_MPI=ON
+          export CC=/opt/homebrew/bin/mpicc
+          export CXX=/opt/homebrew/bin/mpicxx
+          export MPICC="$CC"
+          source pip_venv/bin/activate
+          cd pip_venv/src
+          python -m pip install \
+            --log=firedrake-install.log \
+            --no-binary h5py \
+            -v -e './firedrake[test]'
+
+      - name: Install CI-specific test dependencies
+        run: |
+          source pip_venv/bin/activate
+          python -m pip install -U pytest-timeout
+
+      - name: Run Firedrake smoke tests
+        run: |
+          source pip_venv/bin/activate
+          cd pip_venv/src/firedrake
+          make check CHECK_PYTEST_ARGS="--timeout 60"
+        timeout-minutes: 10
+
+      - name: Cleanup (post)
+        if: ${{ always() }}
+        run: |
+          rm -rf pip_venv
+          "$(brew --prefix)/bin/python3" -m pip cache purge

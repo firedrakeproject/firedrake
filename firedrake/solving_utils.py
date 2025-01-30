@@ -14,8 +14,8 @@ from firedrake.logging import warning
 
 
 def _make_reasons(reasons):
-    return dict([(getattr(reasons, r), r)
-                 for r in dir(reasons) if not r.startswith('_')])
+    return {getattr(reasons, r): r
+            for r in dir(reasons) if not r.startswith('_')}
 
 
 KSPReasons = _make_reasons(PETSc.KSP.ConvergedReason())
@@ -223,7 +223,7 @@ class _SNESContext(object):
 
         self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
                                                 form_compiler_parameters=self.fcp,
-                                                zero_bc_nodes=True).assemble
+                                                ).assemble
 
         self._jacobian_assembled = False
         self._splits = {}
@@ -339,20 +339,17 @@ class _SNESContext(object):
                 subu = function.Function(V, val=val)
                 # Split it apart to shove in the form.
                 subsplit = split(subu)
-            # Permutation from field indexing to indexing of pieces
-            field_renumbering = dict([f, i] for i, f in enumerate(field))
             vec = []
             for i, u in enumerate(problem.u.subfunctions):
                 if i in field:
                     # If this is a field we're keeping, get it from
                     # the new function. Otherwise just point to the
                     # old data.
-                    u = subsplit[field_renumbering[i]]
+                    u = subsplit[field.index(i)]
                 if u.ufl_shape == ():
                     vec.append(u)
                 else:
-                    for idx in numpy.ndindex(u.ufl_shape):
-                        vec.append(u[idx])
+                    vec.extend(u[idx] for idx in numpy.ndindex(u.ufl_shape))
 
             # So now we have a new representation for the solution
             # vector in the old problem. For the fields we're going
@@ -376,7 +373,7 @@ class _SNESContext(object):
                 if isinstance(bc, DirichletBC):
                     bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain)
                 elif isinstance(bc, EquationBC):
-                    bc_temp = bc.reconstruct(field, V, subu, u)
+                    bc_temp = bc.reconstruct(V, subu, u, field, False)
                 if bc_temp is not None:
                     bcs.append(bc_temp)
             new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp,

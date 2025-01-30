@@ -71,6 +71,7 @@ def compile_element(expression, coordinates, parameters=None):
 
     config = dict(interface=builder,
                   ufl_cell=extract_unique_domain(coordinates).ufl_cell(),
+                  integral_type="cell",
                   point_indices=(),
                   point_expr=point,
                   scalar_type=utils.ScalarType)
@@ -115,7 +116,7 @@ def compile_element(expression, coordinates, parameters=None):
     extruded = isinstance(cell, TensorProductCell)
 
     code = {
-        "geometric_dimension": cell.geometric_dimension(),
+        "geometric_dimension": domain.geometric_dimension(),
         "layers_arg": ", int const *__restrict__ layers" if extruded else "",
         "layers": ", layers" if extruded else "",
         "extruded_define": "1" if extruded else "0",
@@ -140,7 +141,8 @@ int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
     /* The type definitions and arguments used here are defined as statics in pointquery_utils.py */
     double found_ref_cell_dist_l1 = DBL_MAX;
     struct ReferenceCoords temp_reference_coords, found_reference_coords;
-    %(IntType)s cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &found_ref_cell_dist_l1);
+    int cells_ignore[1] = {-1};
+    %(IntType)s cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &found_ref_cell_dist_l1, 1, cells_ignore);
     if (cell == -1) {
         return -1;
     }

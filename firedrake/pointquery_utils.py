@@ -9,6 +9,7 @@ import pyop3 as op3
 from pyop2 import op2
 from pyop2.parloop import generate_single_cell_wrapper
 
+from firedrake.mesh import MeshGeometry
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c, RealType
 
@@ -48,24 +49,29 @@ def make_wrapper(function, **kwargs):
 
 def src_locate_cell(mesh, tolerance=None):
     src = ['#include <evaluate.h>']
-    to_reference_coords_kernel, more_src = compile_coordinate_element(
-        mesh.ufl_coordinate_element(), tolerance
-    )
-    src.append(more_src)
-
-    # generate packing code for a single cell
-    plex = mesh.topology
-    expr = to_reference_coords_kernel(
-        op3.DummyKernelArgument(),  # result_
-        op3.DummyKernelArgument(),  # x
-        op3.DummyKernelArgument(),  # cell_dist_l1
-        mesh.coordinates.dat[plex.closure(plex.cells.index(), "fiat")],  # C
-    )
-    # NOTE: we can name the arguments whatever we like, only the order matters
-    pack_ir = op3.ir.lower.compile(expr, name="wrap_to_reference_coords")
-    pack_src = lp.generate_code_v2(pack_ir.ir).device_code()
-
-    src.append(pack_src)
+    # to_reference_coords_kernel, more_src = compile_coordinate_element(
+    #     mesh.ufl_coordinate_element(), tolerance
+    # )
+    # src.append(more_src)
+    #
+    # # generate packing code for a single cell
+    # plex = mesh.topology
+    # expr = to_reference_coords_kernel(
+    #     op3.DummyKernelArgument(),  # result_
+    #     op3.DummyKernelArgument(),  # x
+    #     op3.DummyKernelArgument(),  # cell_dist_l1
+    #     mesh.coordinates.dat[plex.closure(plex.cells.index(), "fiat")],  # C
+    # )
+    # # NOTE: we can name the arguments whatever we like, only the order matters
+    # pack_ir = op3.ir.lower.compile(expr, name="wrap_to_reference_coords")
+    # pack_src = lp.generate_code_v2(pack_ir.ir).device_code()
+    #
+    # src.append(pack_src)
+    src.append(compile_coordinate_element(mesh, tolerance))
+    src.append(make_wrapper(mesh.coordinates,
+                            forward_args=["void*", "double*", RealType_c+"*"],
+                            kernel_name="to_reference_coords_kernel",
+                            wrapper_name="wrap_to_reference_coords"))
     with open(path.join(path.dirname(__file__), "locate.c")) as f:
         src.append(f.read())
 
@@ -155,9 +161,10 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype
     # Set up UFL form
     cell = ufl_coordinate_element.cell
     domain = ufl.Mesh(ufl_coordinate_element)
+    gdim = domain.geometric_dimension()
     K = ufl.JacobianInverse(domain)
     x = ufl.SpatialCoordinate(domain)
-    x0_element = finat.ufl.VectorElement("Real", cell, 0)
+    x0_element = finat.ufl.VectorElement("Real", cell, 0, dim=gdim)
     x0 = ufl.Coefficient(ufl.FunctionSpace(domain, x0_element))
     expr = ufl.dot(K, x - x0)
 
@@ -186,6 +193,7 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype
     context = tsfc.fem.GemPointContext(
         interface=builder,
         ufl_cell=cell,
+        integral_type="cell",
         point_indices=(),
         point_expr=point,
         scalar_type=parameters["scalar_type"]
@@ -217,11 +225,23 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype
 
 
 @PETSc.Log.EventDecorator()
-def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=None):
+def compile_coordinate_element(mesh: MeshGeometry, contains_eps: float, parameters: dict | None = None):
     """Generates C code for changing to reference coordinates.
 
-    :arg ufl_coordinate_element: UFL element of the coordinates
-    :returns: C code as string
+    Parameters
+    ----------
+    mesh :
+        The mesh.
+
+    contains_eps :
+        The tolerance used to verify that a point is contained by a cell.
+    parameters :
+        Form compiler parameters, defaults to whatever TSFC defaults to.
+
+    Returns
+    -------
+    str
+        A string of C code.
     """
     if parameters is None:
         parameters = tsfc.default_parameters()
@@ -229,25 +249,24 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
         _ = tsfc.default_parameters()
         _.update(parameters)
         parameters = _
-    # Create FInAT element
-    element = tsfc.finatinterface.create_element(ufl_coordinate_element)
 
-    cell = ufl_coordinate_element.cell
-    extruded = isinstance(cell, ufl.TensorProductCell)
+    ufl_coordinate_element = mesh.ufl_coordinate_element()
+    # Create FInAT element
+    element = finat.element_factory.create_element(ufl_coordinate_element)
 
     code = {
-        "geometric_dimension": cell.geometric_dimension(),
-        "topological_dimension": cell.topological_dimension(),
+        "geometric_dimension": mesh.geometric_dimension(),
+        "topological_dimension": mesh.topological_dimension(),
         "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, "X"),
         "to_reference_coords_newton_step": to_reference_coords_newton_step(ufl_coordinate_element, parameters),
         "init_X": init_X(element.cell, parameters),
         "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 16,
         "convergence_epsilon": 1e-12,
-        "dX_norm_square": dX_norm_square(cell.topological_dimension()),
-        "X_isub_dX": X_isub_dX(cell.topological_dimension()),
-        "extruded_arg": ", int const *__restrict__ layers" if extruded else "",
-        "extr_comment_out": "//" if extruded else "",
-        "non_extr_comment_out": "//" if not extruded else "",
+        "dX_norm_square": dX_norm_square(mesh.topological_dimension()),
+        "X_isub_dX": X_isub_dX(mesh.topological_dimension()),
+        "extruded_arg": ", int const *__restrict__ layers" if mesh.extruded else "",
+        "extr_comment_out": "//" if mesh.extruded else "",
+        "non_extr_comment_out": "//" if not mesh.extruded else "",
         "IntType": as_cstr(IntType),
         "ScalarType": ScalarType_c,
         "RealType": RealType_c,

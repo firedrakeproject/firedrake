@@ -1,0 +1,63 @@
+name: Install and test Firedrake (macOS)
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    # By default this workflow is run on the "opened", "synchronize" and
+    # "reopened" events. We add "labelled" so it will run if the PR is given a label.
+    types: [opened, synchronize, reopened, labeled]
+
+concurrency:
+  # Cancels jobs running if new commits are pushed
+  group: >
+    ${{ github.workflow }}-
+    ${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Firedrake (macOS)
+    runs-on: [self-hosted, macOS]
+    # Only run this action if we are pushing to master or the PR is labelled "macOS"
+    if: ${{ (github.ref == 'refs/heads/master') || contains(github.event.pull_request.labels.*.name, 'macOS') }}
+    env:
+      FIREDRAKE_CI_TESTS: 1  # needed to symlink the checked out branch into the venv
+      OMP_NUM_THREADS: 1
+      OPENBLAS_NUM_THREADS: 1
+    steps:
+      - name: Add homebrew to PATH
+        # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
+        run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+      - uses: actions/checkout@v4
+      - name: Pre-run cleanup
+        if: ${{ always() }}
+        run: |
+          cd ..
+          rm -rf firedrake_venv
+      - name: Install Python
+        run: brew install python python-setuptools
+      - name: Build Firedrake
+        run: |
+          cd ..
+          "$(brew --prefix)/bin/python3" \
+            firedrake/scripts/firedrake-install \
+            --venv-name firedrake_venv \
+            --disable-ssh \
+            || (cat firedrake-install.log && /bin/false)
+      - name: Install test dependencies
+        run: |
+          . ../firedrake_venv/bin/activate
+          python -m pip install pytest-timeout
+
+      - name: Run smoke tests
+        run: |
+          . ../firedrake_venv/bin/activate
+          make check CHECK_PYTEST_ARGS="--timeout 60"
+        timeout-minutes: 10
+      - name: Post-run cleanup
+        if: ${{ always() }}
+        run: |
+          cd ..
+          rm -rf firedrake_venv

@@ -8,7 +8,7 @@ from pyop2 import op2
 from pyop2.caching import serial_cache
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType, RealType, ScalarType
-from tsfc.finatinterface import create_element
+from finat.element_factory import create_element
 import loopy as lp
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 from firedrake.parameters import target

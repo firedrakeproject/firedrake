@@ -1,0 +1,104 @@
+name: Pip install Firedrake
+
+on:
+  # Push to master or PR
+  push:
+    branches:
+      - master
+  pull_request:
+
+concurrency:
+  # Cancels jobs running if new commits are pushed
+  group: >
+    ${{ github.workflow }}-
+    ${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: "Build Firedrake using pip"
+    runs-on: ubuntu-latest
+    container:
+      image: firedrakeproject/firedrake-env:latest
+      options: --user root
+    defaults:
+      run:
+        shell: bash
+        working-directory: /home/firedrake
+    strategy:
+      # Don't immediately kill real if complex fails and vice versa.
+      fail-fast: false
+      matrix:
+        include:
+          - scalar-type: real
+            petsc_arch: default
+          - scalar-type: complex
+            petsc_arch: complex
+    env:
+      # PETSC_DIR, HDF5_DIR and MPICH_DIR are set inside the docker image
+      FIREDRAKE_CI_TESTS: 1
+      PYOP2_CI_TESTS: 1
+      PETSC_ARCH: ${{ matrix.petsc_arch }}
+      OMP_NUM_THREADS: 1
+      OPENBLAS_NUM_THREADS: 1
+      RDMAV_FORK_SAFE: 1
+    steps:
+      - name: Cleanup
+        if: ${{ always() }}
+        run: rm -rf pip_venv
+
+      - name: Create a venv
+        run: |
+          python3 -m venv pip_venv
+          ln -s /__w/firedrake/firedrake/src pip_venv/
+
+      - uses: actions/checkout@v4
+        with:
+          path: src/firedrake
+
+      - name: Pip install
+        run: |
+          source pip_venv/bin/activate
+          cd pip_venv/src
+          export CC="$MPICH_DIR/mpicc"
+          export CXX="$MPICH_DIR/mpicxx"
+          export MPICC="$MPICH_DIR/mpicc"
+          export MPI_HOME="$PETSC_DIR/packages"
+          pip install \
+            --log=firedrake-install.log \
+            --no-binary mpi4py,h5py \
+            -v -e './firedrake[test]'
+
+      - name: Add mpiexec to the venv and install timeout
+        run: |
+          source pip_venv/bin/activate
+          cat << EOF > "$VIRTUAL_ENV/bin/mpiexec"
+          #!/bin/bash
+          "$MPICH_DIR"/mpiexec "\$@"
+          EOF
+          chmod +x "$VIRTUAL_ENV"/bin/mpiexec
+          pip install -U pytest-timeout
+
+      - name: Run Firedrake smoke tests
+        run: |
+          source pip_venv/bin/activate
+          cd pip_venv/src/firedrake
+          make check CHECK_PYTEST_ARGS="--timeout 60"
+        timeout-minutes: 10
+
+      - name: Publish Test Report
+        uses: mikepenz/action-junit-report@v5.0.0-a02
+        # To avoid permissions issues do not run with forked repos
+        # (see https://github.com/mikepenz/action-junit-report/issues/23)
+        if: ${{ always() && (github.ref != 'refs/heads/master') && (github.event.pull_request.head.repo.full_name == github.repository) }}
+        with:
+          report_paths: '/home/firedrake/pip_venv/src/firedrake/firedrake.xml'
+          comment: true
+          check_name: "Firedrake ${{ matrix.scalar-type }}"
+          updateComment: true
+          flaky_summary: true
+
+      - name: Cleanup
+        # Belt and braces: clean up before and after the run.
+        if: ${{ always() }}
+        run: rm -rf pip_venv

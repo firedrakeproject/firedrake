@@ -5,6 +5,7 @@ import finat.ufl
 from tsfc.ufl_utils import TSFCConstantMixin
 import pyop3 as op3
 from pyop3.exceptions import DataValueError
+from pyop2.mpi import collective
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
 from ufl.classes import all_ufl_classes, ufl_classes, terminal_classes
@@ -80,7 +81,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
 
             if not isinstance(domain, ufl.AbstractDomain):
                 cell = ufl.as_cell(domain)
-                coordinate_element = finat.ufl.VectorElement("Lagrange", cell, 1, gdim=cell.geometric_dimension)
+                coordinate_element = finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension())
                 domain = ufl.Mesh(coordinate_element)
 
             cell = domain.ufl_cell()
@@ -96,6 +97,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         else:
             return object.__new__(cls)
 
+    @collective
     @ConstantMixin._ad_annotate_init
     def __init__(self, value, domain=None, name=None, count=None):
         """"""
