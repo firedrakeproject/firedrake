@@ -419,32 +419,6 @@ def _(
 
     return indexed
 
-    tensor_axes, ttarget_paths, tindex_exprs = _tensorify_axes(V.finat_element.product)
-    tensor_axes, ttarget_paths, tindex_exprs = _with_shape_axes(V, tensor_axes, ttarget_paths, tindex_exprs, integral_type)
-
-    # This should be cleaned up - basically we need to accumulate the target_paths
-    # and index_exprs along the nodes. This is done inside index_axes in pyop3.
-    from pyop3.itree.tree import _acc_target_paths
-    ttarget_paths = _acc_target_paths(tensor_axes, ttarget_paths)
-    tindex_exprs = _acc_target_paths(tensor_axes, tindex_exprs)
-
-    tensor_axes = op3.IndexedAxisTree(
-        tensor_axes.node_map,
-        indexed.axes.unindexed,
-        target_paths=ttarget_paths,
-        index_exprs=tindex_exprs,
-        layout_exprs={},
-        outer_loops=indexed.axes.outer_loops,
-    )
-    composed_axes = compose_axes(tensor_axes, indexed.axes)
-
-    return op3.Dat(
-        composed_axes,
-        data=indexed.buffer,
-        max_value=indexed.max_value,
-        name=indexed.name,
-    )
-
 
 @pack_pyop3_tensor.register
 def _(
