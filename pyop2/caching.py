@@ -476,6 +476,9 @@ def parallel_cache(
 
             # Create a PyOP2 comm associated with the key, so it is decrefed when the wrapper exits
             with temp_internal_comm(comm_getter(*args, **kwargs)) as comm:
+                if configuration["spmd_strict"] and not pytools.is_single_valued(comm.allgather(key)):
+                    raise ValueError("Cache keys differ between ranks")
+
                 # Fetch the per-comm cache_collection or set it up if not present
                 # A collection is required since different types of cache can be set up on the same comm
                 cache_collection = comm.Get_attr(comm_cache_keyval)
@@ -509,7 +512,7 @@ def parallel_cache(
                     cache_hit = True
 
                 if configuration["spmd_strict"] and not pytools.is_single_valued(comm.allgather(cache_hit)):
-                    raise ValueError("Inconsistent hit/miss! This should not happen")
+                    raise ValueError("Cache hit on some ranks but missed on others")
 
             if value is CACHE_MISS:
                 if bcast:
