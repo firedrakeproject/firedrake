@@ -369,7 +369,7 @@ def pack_pyop3_tensor(tensor: Any, *args, **kwargs):
     raise TypeError(f"No handler defined for {type(tensor).__name__}")
 
 
-@pack_pyop3_tensor.register
+@pack_pyop3_tensor.register(op3.Dat)
 def _(
     array: op3.Dat,
     V: WithGeometry,

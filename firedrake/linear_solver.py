@@ -8,7 +8,7 @@ from firedrake import dmhooks
 from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
 from firedrake.utils import cached_property
 from firedrake.ufl_expr import action
-from pyop3.mpi import internal_comm
+from pyop2.mpi import internal_comm
 
 __all__ = ["LinearSolver"]
 

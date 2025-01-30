@@ -5,7 +5,7 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 from pyop3.dtypes import get_mpi_dtype
-from pyop3.mpi import internal_comm
+from pyop2.mpi import internal_comm
 from pyop3.utils import just_one
 
 

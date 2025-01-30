@@ -64,6 +64,37 @@ _KNOWN_CACHES = []
 _running_on_ci = bool(os.environ.get('PYOP2_CI_TESTS'))
 
 
+def cached_on(obj, key=cachetools.keys.hashkey):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            cache = obj(*args, **kwargs)
+            assert isinstance(cache, CacheMixin)
+
+            k = key(*args, **kwargs)
+            try:
+                return cache.cache_get(k)
+            except KeyError:
+                value = func(*args, **kwargs)
+                cache.cache_set(k, value)
+                return value
+        return wrapper
+    return decorator
+
+class CacheMixin:
+    """Mixin class for objects that may be treated as a cache."""
+    def __init__(self):
+        self._cache = {}
+
+    def cache_get(self, key):
+        return self._cache[key]
+
+    def cache_set(self, key, value):
+        self._cache[key] = value
+
+
+
+
+
 # FIXME: (Later) Remove ObjectCached
 class ObjectCached(object):
     """Base class for objects that should be cached on another object.

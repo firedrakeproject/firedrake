@@ -29,7 +29,7 @@ from pyop2.mpi import (
 from pyop2.utils import as_tuple, tuplify
 import pyop3 as op3
 from pyop3.utils import pairwise, steps, checked_zip, debug_assert, just_one, single_valued, readonly
-from tsfc.finatinterface import as_fiat_cell
+from finat.element_factory import as_fiat_cell
 
 import firedrake.cython.dmcommon as dmcommon
 import firedrake.cython.extrusion_numbering as extnum

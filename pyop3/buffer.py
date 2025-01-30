@@ -12,7 +12,7 @@ from pyrsistent import freeze, pmap
 
 from pyop3.dtypes import ScalarType
 from pyop3.lang import KernelArgument
-from pyop3.mpi import COMM_SELF
+from pyop2.mpi import COMM_SELF
 from pyop3.sf import StarForest, serial_forest
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, readonly
 
@@ -29,17 +29,24 @@ class BadOrderingException(Exception):
     pass
 
 
-def not_in_flight(fn):
+def not_in_flight(func):
     """Ensure that a method cannot be called when a transfer is in progress."""
 
     def wrapper(self, *args, **kwargs):
         if self._transfer_in_flight:
             raise DataTransferInFlightException(
-                f"Not valid to call {fn.__name__} with messages in-flight, "
+                f"Not valid to call {func.__name__} with messages in-flight, "
                 f"please call {self._finalizer.__name__} first"
             )
-        return fn(self, *args, **kwargs)
+        return func(self, *args, **kwargs)
 
+    return wrapper
+
+
+def record_modified(func):
+    def wrapper(self, *args, **kwargs):
+        self.state += 1
+        return func(self, *args, **kwargs)
     return wrapper
 
 
@@ -166,10 +173,9 @@ class DistributedBuffer(Buffer):
         return self.data_rw
 
     @property
+    @record_modified
     @not_in_flight
     def data_rw(self):
-        self.state += 1
-
         if not self._roots_valid:
             self._reduce_leaves_to_roots()
 
@@ -185,6 +191,7 @@ class DistributedBuffer(Buffer):
         return readonly(self._owned_data)
 
     @property
+    @record_modified
     @not_in_flight
     def data_wo(self):
         """
@@ -194,8 +201,6 @@ class DistributedBuffer(Buffer):
         When this is called we set roots_valid, claiming that any (lazy) 'in-flight' writes
         can be dropped.
         """
-        self.state += 1
-
         # pending writes can be dropped
         self._pending_reduction = None
         self._leaves_valid = False
@@ -208,10 +213,9 @@ class DistributedBuffer(Buffer):
         return self.data_rw_with_halos
 
     @property
+    @record_modified
     @not_in_flight
     def data_rw_with_halos(self):
-        self.state += 1
-
         if not self._roots_valid:
             self._reduce_leaves_to_roots()
         if not self._leaves_valid:
@@ -231,6 +235,7 @@ class DistributedBuffer(Buffer):
         return readonly(self._data)
 
     @property
+    @record_modified
     @not_in_flight
     def data_wo_with_halos(self):
         """
@@ -240,8 +245,6 @@ class DistributedBuffer(Buffer):
         When this is called we set roots_valid, claiming that any (lazy) 'in-flight' writes
         can be dropped.
         """
-        self.state += 1
-
         # pending writes can be dropped
         self._pending_reduction = None
         self._leaves_valid = False

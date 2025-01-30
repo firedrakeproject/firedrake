@@ -402,6 +402,11 @@ class Dat(_Dat):
         self._check_no_copy_access(include_ghost_points=True)
         return self.buffer.data_wo_with_halos[self.axes._buffer_indices_ghost]
 
+    @property
+    @deprecated(".buffer.state")
+    def dat_version(self):
+        return self.buffer.state
+
     def _check_no_copy_access(self, *, include_ghost_points=False):
         if include_ghost_points:
             buffer_indices = self.axes._buffer_indices_ghost

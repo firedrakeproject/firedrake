@@ -992,11 +992,14 @@ class ParloopFormAssembler(FormAssembler):
         Should ``tensor`` be zeroed before assembling?
 
     """
+    # NOTE: I think it would be nice to pass the tensor in here as we need it for codegen. But
+    # that is difficult to achieve.
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True, pyop3_compiler_parameters=None):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
         self._needs_zeroing = needs_zeroing
         self._pyop3_compiler_parameters = pyop3_compiler_parameters or {}
 
+    # NOTE: We could have an 'already zeroed' kwarg here to avoid zeroing newly allocated tensors
     def assemble(self, tensor=None):
         """Assemble the form.
 
@@ -1025,9 +1028,9 @@ class ParloopFormAssembler(FormAssembler):
         else:
             self._check_tensor(tensor)
             if self._needs_zeroing:
-                self._as_pyop3_type(tensor).zero()
+                self._as_pyop3_type(tensor).zero(eager=True)
 
-        for (lknl, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
+        for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
 
             if isinstance(self, ExplicitMatrixAssembler):
@@ -1055,44 +1058,23 @@ class ParloopFormAssembler(FormAssembler):
         """Cast a Firedrake tensor into a PyOP2 data structure, optionally indexing it."""
 
     def parloops(self, tensor):
-        loops = []
         if hasattr(self, "_parloops"):
             assert hasattr(self, "_tensor_name")
-            for (lknl, _), (parloop, lgmaps) in zip(self.local_kernels, self._parloops):
-                data = self._as_pyop2_type(tensor, lknl.indices)
-                loop = (functools.partial(parloop, **{self._tensor_name: data}), lgmaps)
-                loops.append(loop)
         else:
-            # Make parloops for one concrete output tensor and cache them.
-            self._parloops = tuple(
-                (parloop_builder.build(tensor), parloop_builder.collect_lgmaps(tensor))
-                for parloop_builder in self.parloop_builders
-            )
-            loops = self._parloops
-
-            # Save the original tensor name because this will be used to replace
-            # the argument in subsequent calls.
-            self._tensor_name = self._as_pyop3_type(tensor).name
-        return loops
-
-    @cached_property
-    def parloop_builders(self):
-        out = []
-        for local_kernel, subdomain_id in self.local_kernels:
-            out.append(
-                ParloopBuilder(
+            parloops_ = []
+            for local_kernel, subdomain_id in self.local_kernels:
+                parloop_builder = ParloopBuilder(
                     self._form,
+                    tensor,
                     self._bcs,
                     local_kernel,
                     subdomain_id,
                     self.all_integer_subdomain_ids[local_kernel.indices],
                     diagonal=self.diagonal,
                 )
-                pyop2_tensor = self._as_pyop2_type(tensor, local_kernel.indices)
-                parloop = parloop_builder.build(pyop2_tensor)
-                parloops_.append(parloop)
-            self._parloops = tuple(parloops_)
-
+                parloops_.append((parloop_builder.build(), parloop_builder.collect_lgmaps(tensor)))
+            self._parloops = parloops_
+            self._tensor_name = self._as_pyop3_type(tensor).name
         return self._parloops
 
     @cached_property
@@ -1685,7 +1667,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         dat = op2tensor[i, j].handle.getPythonContext().dat
         if component is not None:
             dat = op2.DatView(dat, component)
-        dat.zero(subset=node_set)
+        dat.zero(subset=node_set, eager=True)
 
     def _check_tensor(self, tensor):
         if tensor.a.arguments() != self._form.arguments():
@@ -1777,9 +1759,10 @@ class ParloopBuilder:
         Are we assembling the diagonal of a 2-form?
 
     """
-    def __init__(self, form, bcs, local_knl, subdomain_id,
+    def __init__(self, form, tensor, bcs, local_knl, subdomain_id,
                  all_integer_subdomain_ids, diagonal):
         self._form = form
+        self._tensor = tensor
         self._local_knl = local_knl
         self._subdomain_id = subdomain_id
         self._all_integer_subdomain_ids = all_integer_subdomain_ids
@@ -1789,16 +1772,8 @@ class ParloopBuilder:
         self._active_coefficients = _FormHandler.iter_active_coefficients(form, local_knl.kinfo)
         self._constants = _FormHandler.iter_constants(form, local_knl.kinfo)
 
-    def build(self, tensor: op2.Global | op2.Dat | op2.Mat) -> op2.Parloop:
-        """Construct the parloop.
-
-        Parameters
-        ----------
-        tensor :
-            The output tensor.
-
-        """
-        self._tensor = tensor
+    def build(self) -> op3.Loop:
+        """Construct the parloop."""
         p = self._iterset.index()
         args = []
         for tsfc_arg in self._kinfo.arguments:
@@ -1970,7 +1945,7 @@ class ParloopBuilder:
     @_as_parloop_arg.register(kernel_args.OutputKernelArg)
     def _as_parloop_arg_output(self, _, index):
         rank = len(self._form.arguments())
-        tensor = self._indexed_tensor
+        tensor = self._tensor
         Vs = self._indexed_function_spaces
 
         if rank == 0:
@@ -1978,7 +1953,7 @@ class ParloopBuilder:
         elif rank == 1 or rank == 2 and self._diagonal:
             V, = Vs
 
-            return pack_pyop3_tensor(tensor, V, index, self._integral_type)
+            return pack_pyop3_tensor(tensor.dat, V, index, self._integral_type)
         elif rank == 2:
             if all(_is_real_space(V) for V in Vs):
                 just_one = op3.utils.just_one
@@ -2004,7 +1979,7 @@ class ParloopBuilder:
                 dat = submat.getPythonContext().dat
                 return pack_pyop3_tensor(dat, V, index, self._integral_type)
             else:
-                return pack_pyop3_tensor(tensor, *Vs, index, self._integral_type)
+                return pack_pyop3_tensor(tensor.M, *Vs, index, self._integral_type)
         else:
             raise AssertionError
 

@@ -29,11 +29,11 @@ from petsc4py import PETSc
 from pyrsistent import freeze, pmap, thaw, PMap
 
 from pyop3.axtree.parallel import partition_ghost_points
-from pyop3.cache import cached_on, CacheMixin
+from pyop2.caching import cached_on, CacheMixin
 from pyop3.exceptions import Pyop3Exception
 from pyop3.dtypes import IntType
 from pyop3.sf import StarForest, serial_forest
-from pyop3.mpi import COMM_SELF
+from pyop2.mpi import COMM_SELF
 from pyop3.tree import (
     LabelledNodeComponent,
     LabelledTree,

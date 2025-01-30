@@ -3,7 +3,6 @@ from itertools import chain
 import numpy
 import pyop3 as op3
 
-from firedrake_configuration import get_config
 from pyop2 import op2
 from firedrake import function, cofunction, dmhooks
 from firedrake.exceptions import ConvergenceError

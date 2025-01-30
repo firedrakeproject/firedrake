@@ -20,6 +20,8 @@ import numpy as np
 import pymbolic as pym
 from pyrsistent import freeze, pmap, PMap
 
+import pyop2
+
 from pyop3.array import Dat, _Dat, _ExpressionDat, _ConcretizedDat, _ConcretizedMat
 from pyop3.array.base import Array
 from pyop3.array.petsc import Mat, AbstractMat
@@ -54,7 +56,6 @@ from pyop3.lang import (
     ArrayAccessType,
 )
 from pyop3.log import logger
-from pyop3.target import compile_loopy
 from pyop3.utils import (
     KeyAlreadyExistsException,
     PrettyTuple,
@@ -1174,3 +1175,67 @@ def _(array: AbstractMat):
 @_as_pointer.register(PETSc.Mat)
 def _(mat):
     return mat.handle
+
+
+# FIXME: We assume COMM_SELF here, this is maybe OK if we make sure to use a
+# compilation comm at a higher point.
+# NOTE: A lot of this is more generic than just loopy, try to refactor
+def compile_loopy(translation_unit, *, pyop3_compiler_parameters):
+    """Build a shared library and return a function pointer from it.
+
+    :arg jitmodule: The JIT Module which can generate the code to compile, or
+        the string representing the source code.
+    :arg extension: extension of the source file (c, cpp)
+    :arg fn_name: The name of the function to return from the resulting library
+    :arg cppargs: A tuple of arguments to the C compiler (optional)
+    :arg ldargs: A tuple of arguments to the linker (optional)
+    :arg argtypes: A list of ctypes argument types matching the arguments of
+         the returned function (optional, pass ``None`` for ``void``). This is
+         only used when string is passed in instead of JITModule.
+    :arg restype: The return type of the function (optional, pass
+         ``None`` for ``void``).
+    :kwarg comm: Optional communicator to compile the code on (only
+        rank 0 compiles code) (defaults to pyop2.mpi.COMM_WORLD).
+    """
+    import ctypes, os
+    from pyop2.utils import get_petsc_dir
+    from pyop2.compilation import load
+
+    code = lp.generate_code_v2(translation_unit).device_code()
+    argtypes = [ctypes.c_voidp for _ in translation_unit.default_entrypoint.args]
+    restype = None
+
+    # ideally move this logic somewhere else
+    cppargs = (
+        tuple("-I%s/include" % d for d in get_petsc_dir())
+        # + tuple("-I%s" % d for d in self.local_kernel.include_dirs)
+        # + ("-I%s" % os.path.abspath(os.path.dirname(__file__)),)
+    )
+    ldargs = (
+        tuple("-L%s/lib" % d for d in get_petsc_dir())
+        + tuple("-Wl,-rpath,%s/lib" % d for d in get_petsc_dir())
+        + ("-lpetsc", "-lm")
+        # + tuple(self.local_kernel.ldargs)
+    )
+
+    # NOTE: no - instead of this inspect the compiler parameters!!!
+    # TODO: Make some sort of function in config.py
+    if "LIKWID_MODE" in os.environ:
+        cppargs += ("-DLIKWID_PERFMON",)
+        ldargs += ("-llikwid",)
+
+    # TODO: needs a comm
+    dll = load(code, "c", cppargs, ldargs, pyop2.mpi.COMM_SELF)
+
+    if pyop3_compiler_parameters.add_petsc_event:
+        # Create the event in python and then set in the shared library to avoid
+        # allocating memory over and over again in the C kernel.
+        event_name = translation_unit.default_entrypoint.name
+        ctypes.c_int.in_dll(dll, f"id_{event_name}").value = PETSc.Log.Event(event_name).id
+
+    func = getattr(dll, translation_unit.default_entrypoint.name)
+    func.argtypes = argtypes
+    func.restype = restype
+    return func
+
+
