@@ -88,6 +88,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch fiat connorjward/fix-quadrature-hash \
             || (cat firedrake-install.log && /bin/false)
 
       - name: Install test dependencies
