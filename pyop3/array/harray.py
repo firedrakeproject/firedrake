@@ -25,7 +25,7 @@ from pyop3.axtree.tree import ContextFree, ContextSensitiveAxisTree, subst_layou
 from pyop3.buffer import Buffer, DistributedBuffer
 from pyop3.dtypes import ScalarType
 from pyop3.exceptions import Pyop3Exception
-from pyop3.lang import KernelArgument, Assignment
+from pyop3.lang import KernelArgument, BufferAssignment
 from pyop3.log import warning
 from pyop3.utils import (
     Record,
@@ -171,7 +171,7 @@ class _Dat(Array, KernelArgument, Record, abc.ABC):
         if subset is None:
             subset = Ellipsis
 
-        expr = Assignment(self[subset], 0, "write")
+        expr = BufferAssignment(self[subset], 0, "write")
         return expr() if eager else expr
 
 

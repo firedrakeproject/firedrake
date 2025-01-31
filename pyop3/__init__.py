@@ -75,7 +75,7 @@ from pyop3.lang import (  # noqa: F401
     Function,
     Loop,
     OpaqueKernelArgument,
-    Assignment,
+    BufferAssignment,
     do_loop,
     _loop as loop,
 )

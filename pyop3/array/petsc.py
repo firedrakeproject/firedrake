@@ -23,7 +23,7 @@ from pyop3.axtree.tree import (
 )
 from pyop3.buffer import DistributedBuffer
 from pyop3.dtypes import IntType, ScalarType
-from pyop3.lang import Loop, Assignment
+from pyop3.lang import Loop, BufferAssignment
 from pyop3.utils import (
     Record,
     deprecated,
@@ -270,7 +270,7 @@ class AbstractMat(Array, Record):
     # NOTE: if this returns a 2-tuple then Dats should return a 1-tuple
     @property
     def leaf_layouts(self):
-        from pyop3.insn_visitors import _CompositeDat, materialize_composite_dat
+        from pyop3.insn_visitors import CompositeDat, materialize_composite_dat
 
         # NOTE: I don't think we need this any more... now that we have ConcretizedMat
         # replaced by candidate_layouts()
@@ -279,7 +279,7 @@ class AbstractMat(Array, Record):
             layout_expr = axes.subst_layouts()[pmap()]
             visited_axes = {}  # guess, might be the full path
             loop_axes = {loop.id: loop.iterset for loop in axes.outer_loops}
-            composite_dat = _CompositeDat(layout_expr, visited_axes, loop_axes)
+            composite_dat = CompositeDat(layout_expr, visited_axes, loop_axes)
 
             materialized_dat = materialize_composite_dat(composite_dat)
             return materialized_dat
@@ -293,7 +293,7 @@ class AbstractMat(Array, Record):
 
     # TODO: Make this generic to all 'Array's and implement for 'Dat'
     def candidate_layouts(self, loop_axes):
-        from pyop3.expr_visitors import _CompositeDat, extract_axes
+        from pyop3.expr_visitors import CompositeDat, extract_axes
         from pyop3.insn_visitors import materialize_composite_dat
 
         # temporaries do not have indexed axes so we don't care, don't expect to have
@@ -308,8 +308,13 @@ class AbstractMat(Array, Record):
 
         def add_candidate(axes, row_or_col):
             for leaf_path, orig_layout in axes.leaf_subst_layouts.items():
+
+                if leaf_path not in axes.pruned.leaf_paths:
+                    # zero-sized, do nothing
+                    continue
+
                 visited_axes = axes.path_with_nodes(axes._node_from_path(leaf_path), and_components=True)
-                compressed_expr = _CompositeDat(orig_layout, visited_axes, loop_axes)
+                compressed_expr = CompositeDat(orig_layout, visited_axes, loop_axes)
 
                 # FIXME: do not do this here as we want to keep thinking about more global optimisations
                 # (ie the same expression may be used by a Dat)

@@ -1964,7 +1964,7 @@ def partition_iterset(index: LoopIndex, arrays):
     for data in [core, root, leaf]:
         # Constant? no, rank_equal=False
         size = Dat(
-            AxisTree(), data=np.asarray([len(data)]), dtype=IntType
+            AxisTree(Axis(1)), data=np.asarray([len(data)]), dtype=IntType
         )
         subset = Dat(
             Axis([AxisComponent(size, parcpt.label)], paraxis.label), data=data

@@ -20,7 +20,7 @@ from cachetools import cachedmethod
 from petsc4py import PETSc
 from pyrsistent import PMap, pmap
 
-from pyop3.axtree import Axis
+from pyop3.axtree import AxisTree
 from pyop3.axtree.tree import ContextFree, ContextSensitive
 from pyop3.dtypes import dtype_limits
 from pyop3.exceptions import Pyop3Exception
@@ -192,7 +192,7 @@ class Instruction(UniqueRecord, abc.ABC):
             prepare_petsc_calls,
             compress_indirection_maps,
             concretize_arrays,
-            drop_zero_sized_instructions
+            drop_zero_sized_paths,
         )
 
         insn = self
@@ -200,11 +200,11 @@ class Instruction(UniqueRecord, abc.ABC):
         if isinstance(insn, NullInstruction):
             raise NotImplementedError("crash gracefully, nothing to do")
 
+
         insn = expand_loop_contexts(insn)
         insn = expand_implicit_pack_unpack(insn)
         insn = expand_assignments(insn)  # specifically reshape bits
-
-        insn = drop_zero_sized_instructions(insn)
+        insn = drop_zero_sized_paths(insn)
 
         if isinstance(insn, NullInstruction):
             raise NotImplementedError("crash gracefully, nothing to do")
@@ -653,9 +653,7 @@ class Function:
         return self.code.default_entrypoint.name
 
 
-class CalledFunction(Terminal):
-    fields = Terminal.fields | {"function", "arguments"}
-
+class AbstractCalledFunction(Terminal, metaclass=abc.ABCMeta):
     def __init__(
         self, function: Function, arguments: Iterable[FunctionArgument], **kwargs
     ) -> None:
@@ -663,9 +661,14 @@ class CalledFunction(Terminal):
         self.function = function
         self.arguments = arguments
 
+    def __str__(self) -> str:
+        return f"{self.name}({', '.join(arg.name for arg in self.arguments)})"
+
     @property
     def name(self):
         return self.function.name
+
+    fields = Terminal.fields | {"function", "arguments"}
 
     @property
     def argspec(self):
@@ -690,8 +693,16 @@ class CalledFunction(Terminal):
             for arg in self.function.code.default_entrypoint.args
         )
 
+
+
+
+class CalledFunction(AbstractCalledFunction):
     def with_arguments(self, arguments):
         return self.copy(arguments=arguments)
+
+
+class DirectCalledFunction(AbstractCalledFunction):
+    """A `CalledFunction` whose arguments do not need packing/unpacking."""
 
 
 class NullInstruction(Terminal):
@@ -749,11 +760,11 @@ class AbstractAssignment(Terminal):
                 return f"{just_one(assignee_strs)} {operator} {just_one(expression_strs)}"
 
 
+class AbstractBufferAssignment(AbstractAssignment, metaclass=abc.ABCMeta):
+    pass
 
-# TODO: This is the 'user facing' Assignment type. Internally we can parse this
-# into more specific things. Therefore, inherit from an abstract _Assignment type
-# and also have specific (underscored) classes for internal use.
-class Assignment(AbstractAssignment):
+
+class BufferAssignment(AbstractBufferAssignment):
     fields = Terminal.fields | {"assignee", "expression", "assignment_type"}
 
     # not really important any more
@@ -811,8 +822,11 @@ class Assignment(AbstractAssignment):
                 args.add(array.mat)
         return tuple(args)
 
+    def with_axes(self, axes: AxisTree) -> NonEmptyAssignmentMixin:
+        return NonEmptyBufferAssignment(self.assignee, self.expression, self.assignment_type, axes)
 
-class PetscMatAssign(AbstractAssignment):
+
+class AbstractPetscMatAssignment(AbstractAssignment, metaclass=abc.ABCMeta):
     def __init__(self, mat, values, access_type):
         if access_type == ArrayAccessType.READ:
             assignment_type = AssignmentType.WRITE
@@ -832,6 +846,47 @@ class PetscMatAssign(AbstractAssignment):
         self.mat = mat
         self.values = values
         self.access_type = access_type
+
+
+class PetscMatAssignment(AbstractPetscMatAssignment):
+    pass
+
+
+# NOTE: These are internal classes, can be moved elsewhere
+class NonEmptyAssignmentMixin(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def axis_trees(self) -> AxisTree:
+        pass
+
+
+class NonEmptyBufferAssignment(AbstractBufferAssignment, NonEmptyAssignmentMixin):
+    fields = Terminal.fields | {"assignee", "expression", "assignment_type", "axis_trees"}
+
+    def __init__(self, assignee, expression, assignment_type, axis_trees, **kwargs):
+        super().__init__(assignee, expression, assignment_type, **kwargs)
+        self._axis_trees = tuple(axis_trees)
+
+    @property
+    def axis_trees(self) -> tuple[AxisTree]:
+        return self._axis_trees
+
+    @property
+    def axis_tree(self) -> AxisTree:
+        return just_one(self.axis_trees)
+
+
+class NonEmptyPetscMatAssignment(AbstractPetscMatAssignment, NonEmptyAssignmentMixin):
+    def __init__(self, mat, values, access_type, axes, **kwargs):
+        super().__init__(mat, values, access_type, **kwargs)
+        # self._axis_trees = (row_axes, col_axes)
+        self._axis_trees = axes
+
+    @property
+    def axis_trees(self) -> tuple[AxisTree, AxisTree]:
+        return self._axis_trees
+    pass
+
 
 # TODO: With Python 3.11 can be made a StrEnum
 class ArrayAccessType(enum.Enum):

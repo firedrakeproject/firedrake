@@ -9,7 +9,7 @@ from pyrsistent import PMap, pmap
 
 from pyop3.array.harray import Dat
 from pyop3.axtree import AxisTree
-from pyop3.axtree.tree import BaseAxisTree
+from pyop3.axtree.tree import AbstractAxisTree
 from pyop3.exceptions import Pyop3Exception
 from pyop3.itree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map
 from pyop3.utils import OrderedSet, expand_collection_of_iterables, strictly_all, strict_zip, single_valued, just_one
@@ -22,7 +22,7 @@ class IncompletelyIndexedException(Pyop3Exception):
 # NOTE: Now really should be plural: 'forests'
 # NOTE: Is this definitely the case? I think at the moment I always return just a single
 # tree per context.
-def as_index_forests(forest: Any, /, axes: BaseAxisTree | None = None, *, strict: bool = False) -> PMap:
+def as_index_forests(forest: Any, /, axes: AbstractAxisTree | None = None, *, strict: bool = False) -> PMap:
     """Return a collection of index trees, split by loop context.
 
     Parameters
@@ -128,7 +128,7 @@ def _(index_tree: IndexTree, /) -> OrderedSet:
 
 @collect_loop_contexts.register(LoopIndex)
 def _(loop_index: LoopIndex, /) -> OrderedSet:
-    if not isinstance(loop_index.iterset, BaseAxisTree):
+    if not isinstance(loop_index.iterset, AbstractAxisTree):
         raise NotImplementedError("Need to think about context-sensitive itersets and add them here")
 
     return OrderedSet({

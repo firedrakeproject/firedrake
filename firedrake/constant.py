@@ -31,7 +31,7 @@ def _create_const(value, comm):
     rank = len(shape)
 
     if rank == 0:
-        axes = op3.AxisTree()
+        axes = op3.AxisTree(op3.Axis(1))
     else:
         axes = op3.AxisTree(op3.Axis({"XXX": shape[0]}, label="dim0"))
         for i, s in enumerate(shape[1:]):

@@ -831,8 +831,7 @@ class LoopIndexVar(Terminal):
 ExpressionT = Union[Expression, numbers.Number]
 
 
-# NOTE: More consistent to be AbstractAxisTree I think
-class BaseAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
+class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         CacheMixin.__init__(self)
@@ -866,6 +865,10 @@ class BaseAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     @property
     def axes(self):
         return self.nodes
+
+    @cached_property
+    def pruned(self) -> AxisTree:
+        return prune_zero_sized_branches(self)
 
     @property
     @abc.abstractmethod
@@ -1051,6 +1054,7 @@ class BaseAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
             # target_indices = merge_dicts(idx.target_exprs for idx in idxs)
             # this is a hack
             if self.is_empty:
+                breakpoint()
                 mysize += 1
             else:
                 mysize += _axis_size(self, self.root, loop_indices=loop_exprs)
@@ -1254,6 +1258,7 @@ class BaseAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     def _alloc_size(self, axis=None):
         if self.is_empty:
+            breakpoint()
             return 1
         axis = axis or self.root
         return sum(cpt.alloc_size(self, axis) for cpt in axis.components)
@@ -1269,7 +1274,7 @@ class BaseAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         return frozenset(region_labels)
 
 
-class AxisTree(MutableLabelledTreeMixin, BaseAxisTree):
+class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     @classmethod
     def from_iterable(cls, subaxes):
         tree = AxisTree()
@@ -1460,7 +1465,7 @@ class AxisTree(MutableLabelledTreeMixin, BaseAxisTree):
         return slice(None)
 
 
-class IndexedAxisTree(BaseAxisTree):
+class IndexedAxisTree(AbstractAxisTree):
     # NOTE: It is OK for unindexed to be None, then we just have a map-like thing
     def __init__(
         self,
@@ -1785,7 +1790,7 @@ class AxisForest:
     the right index expressions).
 
     """
-    def __init__(self, trees: Sequence[BaseAxisTree]) -> None:
+    def __init__(self, trees: Sequence[AbstractAxisTree]) -> None:
         self.trees = tuple(trees)
 
     def __repr__(self) -> str:
@@ -2159,3 +2164,37 @@ def subst_layouts(
                     )
                 )
     return freeze(layouts_subst)
+
+
+def prune_zero_sized_branches(axis_tree: AbstractAxisTree, *, _axis=None) -> AxisTree:
+    if axis_tree.is_empty:
+        return AxisTree()
+
+    if _axis is None:
+        _axis = axis_tree.root
+
+    new_components = []
+    subtrees = []
+    for component in _axis.components:
+        if component.size == 0:
+            continue
+
+        if subaxis := axis_tree.child(_axis, component):
+            subtree = prune_zero_sized_branches(axis_tree, _axis=subaxis)
+            if subtree.size == 0:
+                continue
+        else:
+            subtree = None
+
+        new_components.append(component)
+        subtrees.append(subtree)
+
+    if not new_components:
+        return AxisTree()
+
+    new_axis = Axis(new_components, _axis.label)
+    new_axis_tree = AxisTree(new_axis)
+    for new_component, subtree in strict_zip(new_components, subtrees):
+        if subtree is not None:
+            new_axis_tree = new_axis_tree.add_subtree(subtree, (new_axis, new_component))
+    return new_axis_tree

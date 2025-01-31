@@ -44,10 +44,10 @@ from pyop3.lang import (
     parse_compiler_parameters,
     WRITE,
     AssignmentType,
-    Assignment,
+    NonEmptyBufferAssignment,
     ContextAwareLoop,  # TODO: remove this class
-    CalledFunction,
-    PetscMatAssign,
+    DirectCalledFunction,
+    NonEmptyPetscMatAssignment,
     PreprocessedExpression,
     UnprocessedExpressionException,
     DummyKernelArgument,
@@ -396,7 +396,8 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
 
     compiler_parameters = parse_compiler_parameters(compiler_parameters)
 
-    function_name = insn.name
+    # function_name = insn.name
+    function_name = "pyop3_loop"  # TODO: Provide as kwarg
 
     if isinstance(insn, InstructionList):
         cs_expr = insn.instructions
@@ -524,7 +525,7 @@ def _(assignment: AbstractAssignment, /) -> PMap:
 
 
 @_collect_temporary_shapes.register
-def _(call: CalledFunction):
+def _(call: DirectCalledFunction):
     return freeze(
         {
             arg.name: lp_arg.shape
@@ -622,7 +623,7 @@ def parse_loop_properly_this_time(
 
 
 @_compile.register
-def _(call: CalledFunction, loop_indices, ctx: LoopyCodegenContext) -> None:
+def _(call: DirectCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> None:
     temporaries = []
     subarrayrefs = {}
     extents = {}
@@ -695,7 +696,7 @@ def _(call: CalledFunction, loop_indices, ctx: LoopyCodegenContext) -> None:
 
 
 # FIXME this is practically identical to what we do in build_loop
-@_compile.register(Assignment)
+@_compile.register(NonEmptyBufferAssignment)
 def parse_assignment(
     assignment,
     loop_indices,
@@ -708,7 +709,7 @@ def parse_assignment(
     )
 
 
-@_compile.register(PetscMatAssign)
+@_compile.register(NonEmptyPetscMatAssignment)
 def _compile_petscmat(assignment, loop_indices, codegen_context):
     mat = assignment.mat
     array = assignment.values
@@ -743,10 +744,6 @@ def _compile_petscmat(assignment, loop_indices, codegen_context):
             # old aliases
             rmap = row_layout
             cmap = col_layout
-
-            if rmap == -1 or cmap == -1:
-                # zero sized, do nothing
-                continue
 
             codegen_context.add_array(rmap)
             codegen_context.add_array(cmap)
@@ -863,7 +860,7 @@ def parse_assignment_properly_this_time(
     axis=None,
     path=None,
 ):
-    axes = assignment.assignee.axes
+    axes = assignment.axis_tree
 
     if strictly_all(x is None for x in [axis, path]):
         # for array in assignment.arrays:
