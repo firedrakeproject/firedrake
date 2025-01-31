@@ -54,13 +54,17 @@ _cachedir = environ.get(
 
 
 def tsfc_compile_form_hashkey(form, prefix, parameters, interface, diagonal):
-    # Drop prefix as it's only used for naming
-    return default_parallel_hashkey(form.signature(), prefix, parameters, interface, diagonal)
+    return default_parallel_hashkey(
+        form.signature(),
+        prefix,
+        utils.tuplify(parameters),
+        type(interface).__name__,
+        diagonal,
+    )
 
 
-def _compile_form_comm(*args, **kwargs):
-    # args[0] is a form
-    return args[0].ufl_domains()[0].comm
+def _compile_form_comm(form, *args, **kwargs):
+    return form.ufl_domains()[0].comm
 
 
 # Decorate the original tsfc.compile_form with a cache
@@ -133,17 +137,15 @@ class TSFCKernel:
 SplitKernel = collections.namedtuple("SplitKernel", ["indices", "kinfo"])
 
 
-def _compile_form_hashkey(*args, **kwargs):
-    # form, name, parameters, split, diagonal
-    parameters = kwargs.pop("parameters", None)
-    key = cachetools.keys.hashkey(
-        args[0].signature(),
-        *args[1:],
+def _compile_form_hashkey(form, name, parameters=None, split=True, interface=None, diagonal=False):
+    return (
+        form.signature(),
+        name,
         utils.tuplify(parameters),
-        **kwargs
+        split,
+        type(interface).__name__,
+        diagonal,
     )
-    kwargs.setdefault("parameters", parameters)
-    return key
 
 
 @PETSc.Log.EventDecorator()
