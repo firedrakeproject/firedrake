@@ -7,7 +7,6 @@ passing to the backends.
 from os import path, environ, getuid, makedirs
 import tempfile
 import collections
-import cachetools
 
 import ufl
 import finat.ufl
