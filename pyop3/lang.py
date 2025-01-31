@@ -192,14 +192,24 @@ class Instruction(UniqueRecord, abc.ABC):
             prepare_petsc_calls,
             compress_indirection_maps,
             concretize_arrays,
+            drop_zero_sized_instructions
         )
 
         insn = self
+
+        if isinstance(insn, NullInstruction):
+            raise NotImplementedError("crash gracefully, nothing to do")
+
         insn = expand_loop_contexts(insn)
         insn = expand_implicit_pack_unpack(insn)
         insn = expand_assignments(insn)  # specifically reshape bits
-        insn = prepare_petsc_calls(insn)
 
+        insn = drop_zero_sized_instructions(insn)
+
+        if isinstance(insn, NullInstruction):
+            raise NotImplementedError("crash gracefully, nothing to do")
+
+        insn = prepare_petsc_calls(insn)
 
         if compiler_parameters.compress_indirection_maps:
             insn = compress_indirection_maps(insn)
@@ -544,6 +554,10 @@ def maybe_enlist(instructions) -> Instruction:
         return InstructionList(flattened_insns)
     else:
         return just_one(flattened_insns)
+
+
+def non_null(instruction: Instruction) -> bool:
+    return not isinstance(instruction, NullInstruction)
 
 
 # TODO singledispatch

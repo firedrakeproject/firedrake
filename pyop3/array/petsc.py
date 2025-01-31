@@ -58,6 +58,7 @@ class AbstractMat(Array, Record):
     DEFAULT_MAT_TYPE = PETSc.Mat.Type.AIJ
 
     prefix = "mat"
+    _prefix = "mat"
     dtype = PETSc.ScalarType
 
     # Make abstract property of some parent class?

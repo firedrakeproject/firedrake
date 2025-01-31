@@ -183,6 +183,8 @@ class Dat(_Dat):
 
     """
 
+    _prefix = "dat"
+
     def __init__(
         self,
         axes,
@@ -570,6 +572,7 @@ class _ConcretizedDat2(_Dat, ContextFree, abc.ABC):
 
 
 # NOTE: I think that having dat.dat is a bad design pattern, instead pass the buffer or similar
+# NOTE: Should not be underscored, that would suggest module-only scope
 class _ConcretizedDat(_ConcretizedDat2):
     """A dat with fixed layouts.
 
@@ -582,6 +585,12 @@ class _ConcretizedDat(_ConcretizedDat2):
         super().__init__(name=dat.name)
         self.dat = dat
         self.layouts = pmap(layouts)
+
+    def __str__(self) -> str:
+        return "\n".join(
+            f"{self.name}[{layout}]"
+            for layout in self.layouts.values()
+        )
 
     # TODO: redo now that we have Record?
     def __hash__(self) -> int:
@@ -614,13 +623,20 @@ class _ConcretizedMat(_ConcretizedDat2):
         # fix this properly
         self.parent = mat.parent
 
-    @property
-    def axes(self):
-        return self.mat.axes
+    def __str__(self) -> str:
+        return "\n".join(
+            f"{self.name}[{row_layout}, {col_layout}]"
+            for row_layout in self.row_layouts.values()
+            for col_layout in self.col_layouts.values()
+        )
 
     # TODO: redo now that we have Record?
     def __hash__(self) -> int:
         return hash((type(self), self.dat, self.row_layouts, self.col_layouts))
+
+    @property
+    def axes(self):
+        return self.mat.axes
 
     # @property
     # def axes(self):
