@@ -48,6 +48,7 @@ jobs:
       COMPLEX: ${{ matrix.complex }}
       RDMAV_FORK_SAFE: 1
       EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 tests/firedrake
+      PETSC_CONFIGURE_OPTIONS: --with-precision=single
     steps:
       - uses: actions/checkout@v4
 
@@ -59,12 +60,12 @@ jobs:
 
       - name: Build Firedrake
         run: |
+          unset PETSC_DIR PETSC_ARCH SLEPC_DIR
           cd ..
           # Linting should ignore unquoted shell variable $COMPLEX
           # shellcheck disable=SC2086
           ./firedrake/scripts/firedrake-install \
             $COMPLEX \
-            --honour-petsc-dir \
             --mpicc="$MPICH_DIR"/mpicc \
             --mpicxx="$MPICH_DIR"/mpicxx \
             --mpif90="$MPICH_DIR"/mpif90 \
@@ -92,6 +93,7 @@ jobs:
       - name: Install test dependencies
         id: build
         run: |
+          unset PETSC_DIR PETSC_ARCH SLEPC_DIR
           sudo apt update
           sudo apt -y install parallel
           . ../firedrake_venv/bin/activate
@@ -101,6 +103,7 @@ jobs:
 
       - name: Run tests (nprocs = 1)
         run: |
+          unset PETSC_DIR PETSC_ARCH SLEPC_DIR
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
           . ../firedrake_venv/bin/activate
@@ -110,42 +113,49 @@ jobs:
         # Run even if earlier tests failed
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
+          unset PETSC_DIR PETSC_ARCH SLEPC_DIR
           . ../firedrake_venv/bin/activate
           firedrake-run-split-tests 2 6 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake2_{#}.xml"
 
       - name: Run tests (nprocs = 3)
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
+          unset PETSC_DIR PETSC_ARCH SLEPC_DIR
           . ../firedrake_venv/bin/activate
           firedrake-run-split-tests 3 4 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake3_{#}.xml"
 
       - name: Run tests (nprocs = 4)
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
+          unset PETSC_DIR PETSC_ARCH SLEPC_DIR
           . ../firedrake_venv/bin/activate
           firedrake-run-split-tests 4 3 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake4_{#}.xml"
 
       - name: Run tests (nprocs = 5)
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
+          unset PETSC_DIR PETSC_ARCH SLEPC_DIR
           . ../firedrake_venv/bin/activate
           firedrake-run-split-tests 5 2 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake5_{#}.xml"
 
       - name: Run tests (nprocs = 6)
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
+          unset PETSC_DIR PETSC_ARCH SLEPC_DIR
           . ../firedrake_venv/bin/activate
           firedrake-run-split-tests 6 2 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake6_{#}.xml"
 
       - name: Run tests (nprocs = 7)
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
+          unset PETSC_DIR PETSC_ARCH SLEPC_DIR
           . ../firedrake_venv/bin/activate
           firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake7_{#}.xml"
 
       - name: Run tests (nprocs = 8)
         if: ${{ success() || steps.build.conclusion == 'success' }}
         run: |
+          unset PETSC_DIR PETSC_ARCH SLEPC_DIR
           . ../firedrake_venv/bin/activate
           firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake8_{#}.xml"
 
@@ -171,6 +181,7 @@ jobs:
       - name: Test pyadjoint
         if: ${{ matrix.scalar-type == 'real' }}
         run: |
+          unset PETSC_DIR PETSC_ARCH SLEPC_DIR
           . ../firedrake_venv/bin/activate
           cd ../firedrake_venv/src/pyadjoint
           python -m pytest \
