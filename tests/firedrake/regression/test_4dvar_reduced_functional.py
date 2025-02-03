@@ -50,16 +50,20 @@ def timestepper(V):
     return qn, qn1, stepper
 
 
-def prod2(w):
-    """generate weighted inner products to pass to FourDVarReducedFunctional"""
+def covariance_norm(covariance):
+    """generate weighted inner products to pass to FourDVarReducedFunctional.
+    Use the quadratic norm so Hessian is not linear."""
+    cov, power = covariance
+    weight = fd.Constant(1/cov)
+
     def n2(x):
-        return fd.assemble(fd.inner(x, fd.Constant(w)*x)*fd.dx)**2
+        return fd.assemble(fd.inner(x, weight*x)*fd.dx)**power
     return n2
 
 
-prodB = prod2(0.1)  # background error
-prodR = prod2(10.)  # observation error
-prodQ = prod2(1.0)  # model error
+B = (fd.Constant(10.), 2)  # background error covariance
+R = (fd.Constant(0.1), 2)  # observation error covariance
+Q = (fd.Constant(0.5), 2)  # model error covariance
 
 
 """Advecting velocity"""
@@ -182,10 +186,10 @@ def strong_fdvar_pyadjoint(V):
     set_working_tape()
 
     # background functional
-    J = prodB(control - bkg)
+    J = covariance_norm(B)(control - bkg)
 
     # initial observation functional
-    J += prodR(obs_errors(0)(control))
+    J += covariance_norm(R)(obs_errors(0)(control))
 
     qn.assign(control)
 
@@ -198,7 +202,7 @@ def strong_fdvar_pyadjoint(V):
             qn.assign(qn1)
 
         # observation functional
-        J += prodR(obs_errors(i)(qn))
+        J += covariance_norm(R)(obs_errors(i)(qn))
 
     pause_annotation()
 
@@ -226,9 +230,9 @@ def strong_fdvar_firedrake(V):
 
     Jhat = FourDVarReducedFunctional(
         Control(control),
-        background_iprod=prodB,
-        observation_iprod=prodR,
-        observation_err=obs_errors(0),
+        background_covariance=B,
+        observation_covariance=R,
+        observation_error=obs_errors(0),
         weak_constraint=False)
 
     # record observation stages
@@ -247,7 +251,7 @@ def strong_fdvar_firedrake(V):
             # take observation
             obs_index = stage.observation_index
             stage.set_observation(qn, obs_errors(obs_index),
-                                  observation_iprod=prodR)
+                                  observation_covariance=R)
 
     pause_annotation()
     return Jhat
@@ -274,10 +278,10 @@ def weak_fdvar_pyadjoint(V):
     set_working_tape()
 
     # background error
-    J = prodB(controls[0] - bkg)
+    J = covariance_norm(B)(controls[0] - bkg)
 
     # initial observation error
-    J += prodR(obs_errors(0)(controls[0]))
+    J += covariance_norm(R)(obs_errors(0)(controls[0]))
 
     # record observation stages
     for i in range(1, len(controls)):
@@ -298,10 +302,10 @@ def weak_fdvar_pyadjoint(V):
             controls[i].assign(qn)
 
         # model error for this stage
-        J += prodQ(qn - controls[i])
+        J += covariance_norm(Q)(qn - controls[i])
 
         # observation error
-        J += prodR(obs_errors(i)(controls[i]))
+        J += covariance_norm(R)(obs_errors(i)(controls[i]))
 
     pause_annotation()
 
@@ -340,9 +344,9 @@ def weak_fdvar_firedrake(V, ensemble):
 
     Jhat = FourDVarReducedFunctional(
         Control(control),
-        background_iprod=prodB,
-        observation_iprod=prodR,
-        observation_err=obs_errors(0),
+        background_covariance=B,
+        observation_covariance=R,
+        observation_error=obs_errors(0),
         weak_constraint=True)
 
     # record observation stages
@@ -362,8 +366,8 @@ def weak_fdvar_firedrake(V, ensemble):
             # take observation
             obs_err = obs_errors(stage.observation_index)
             stage.set_observation(qn, obs_err,
-                                  observation_iprod=prodR,
-                                  forward_model_iprod=prodQ)
+                                  observation_covariance=R,
+                                  forward_model_covariance=Q)
 
     pause_annotation()
 
