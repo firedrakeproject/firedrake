@@ -750,9 +750,6 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--download-pnetcdf")
         # Sparse direct solvers
         petsc_options.add("--download-suitesparse")
-        petsc_options.add("--download-pastix")
-        # Required by pastix
-        petsc_options.update({"--download-hwloc", "--download-netlib-lapack", "--with-netlib-lapack-c-bindings"})
         if osname == "Darwin":
             petsc_options.add("--download-hwloc-configure-arguments=--disable-opencl")
         # Serial mesh partitioner
