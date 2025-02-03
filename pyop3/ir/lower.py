@@ -47,7 +47,7 @@ from pyop3.lang import (
     NonEmptyBufferAssignment,
     ContextAwareLoop,  # TODO: remove this class
     DirectCalledFunction,
-    NonEmptyPetscMatAssignment,
+    PetscMatAssignment,
     PreprocessedExpression,
     UnprocessedExpressionException,
     DummyKernelArgument,
@@ -709,7 +709,7 @@ def parse_assignment(
     )
 
 
-@_compile.register(NonEmptyPetscMatAssignment)
+@_compile.register(PetscMatAssignment)
 def _compile_petscmat(assignment, loop_indices, codegen_context):
     mat = assignment.mat
     array = assignment.values

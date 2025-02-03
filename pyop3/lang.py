@@ -203,13 +203,16 @@ class Instruction(UniqueRecord, abc.ABC):
 
         insn = expand_loop_contexts(insn)
         insn = expand_implicit_pack_unpack(insn)
+
         insn = expand_assignments(insn)  # specifically reshape bits
+
+        # do this as early as possible because we don't like dealing with mats
+        insn = prepare_petsc_calls(insn)
+
         insn = drop_zero_sized_paths(insn)
 
         if isinstance(insn, NullInstruction):
             raise NotImplementedError("crash gracefully, nothing to do")
-
-        insn = prepare_petsc_calls(insn)
 
         if compiler_parameters.compress_indirection_maps:
             insn = compress_indirection_maps(insn)
@@ -769,6 +772,11 @@ class BufferAssignment(AbstractBufferAssignment):
 
     # not really important any more
     name = "pyop3_assignment"
+
+    # def __init__(self, assignee, *args, **kwargs):
+    #     if assignee.name == "t_5": # deebug
+    #         breakpoint()
+    #     super().__init__(assignee, *args, **kwargs)
 
     @property
     def arguments(self):

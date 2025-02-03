@@ -181,51 +181,51 @@ class ImplicitPackUnpackExpander(Transformer):
         # I think this is fine...
         return assignment
 
-        # same as for CalledFunction
-        gathers = []
-        # NOTE: scatters are executed in LIFO order
-        scatters = []
-        arguments = []
-
-        # lazy coding, tidy up
-        if isinstance(assignment, ReplaceAssignment):
-            access = WRITE
-        else:
-            assert isinstance(assignment, AddAssignment)
-            access = INC
-        for arg, intent in [
-            (assignment.assignee, access),
-            (assignment.expression, READ),
-        ]:
-            if isinstance(arg, numbers.Number):
-                arguments.append(arg)
-                continue
-
-            # emit function calls for PetscMat
-            if isinstance(arg, Mat):
-                axes = AxisTree(arg.axes.node_map)
-                new_arg = Dat(
-                    axes,
-                    data=NullBuffer(arg.dtype),  # does this need a size?
-                    prefix="t",
-                )
-
-                if intent == READ:
-                    gathers.append(PetscMatLoad(arg, new_arg))
-                elif intent == WRITE:
-                    scatters.insert(0, PetscMatStore(arg, new_arg))
-                elif intent == RW:
-                    gathers.append(PetscMatLoad(arg, new_arg))
-                    scatters.insert(0, PetscMatStore(arg, new_arg))
-                else:
-                    assert intent == INC
-                    scatters.insert(0, PetscMatAdd(arg, new_arg))
-
-                arguments.append(new_arg)
-            else:
-                arguments.append(arg)
-
-        return maybe_enlist((*gathers, assignment.with_arguments(arguments), *scatters))
+        # # same as for CalledFunction
+        # gathers = []
+        # # NOTE: scatters are executed in LIFO order
+        # scatters = []
+        # arguments = []
+        #
+        # # lazy coding, tidy up
+        # if isinstance(assignment, ReplaceAssignment):
+        #     access = WRITE
+        # else:
+        #     assert isinstance(assignment, AddAssignment)
+        #     access = INC
+        # for arg, intent in [
+        #     (assignment.assignee, access),
+        #     (assignment.expression, READ),
+        # ]:
+        #     if isinstance(arg, numbers.Number):
+        #         arguments.append(arg)
+        #         continue
+        #
+        #     # emit function calls for PetscMat
+        #     if isinstance(arg, Mat):
+        #         axes = AxisTree(arg.axes.node_map)
+        #         new_arg = Dat(
+        #             axes,
+        #             data=NullBuffer(arg.dtype),  # does this need a size?
+        #             prefix="t",
+        #         )
+        #
+        #         if intent == READ:
+        #             gathers.append(PetscMatLoad(arg, new_arg))
+        #         elif intent == WRITE:
+        #             scatters.insert(0, PetscMatStore(arg, new_arg))
+        #         elif intent == RW:
+        #             gathers.append(PetscMatLoad(arg, new_arg))
+        #             scatters.insert(0, PetscMatStore(arg, new_arg))
+        #         else:
+        #             assert intent == INC
+        #             scatters.insert(0, PetscMatAdd(arg, new_arg))
+        #
+        #         arguments.append(new_arg)
+        #     else:
+        #         arguments.append(arg)
+        #
+        # return maybe_enlist((*gathers, assignment.with_arguments(arguments), *scatters))
 
     @_apply.register
     def _(self, terminal: CalledFunction):
@@ -362,6 +362,7 @@ def _(loop: Loop, /) -> Loop:
 
 
 @expand_assignments.register(DirectCalledFunction)
+@expand_assignments.register(PetscMatAssignment)
 def _(func: DirectCalledFunction, /) -> DirectCalledFunction:
     return func
 
@@ -489,8 +490,8 @@ def _(func: DirectCalledFunction, /) -> DirectCalledFunction:
 
 # NOTE: At present we assume that matrices are never part of the expression, only
 # the assignee. Ideally we should traverse the expression and emit extra READ instructions.
-@prepare_petsc_calls.register(NonEmptyBufferAssignment)
-def _(assignment: NonEmptyBufferAssignment, /) -> InstructionList:
+@prepare_petsc_calls.register(BufferAssignment)
+def _(assignment: BufferAssignment, /) -> InstructionList:
     if isinstance(assignment.assignee.buffer, PETSc.Mat):
         mat = assignment.assignee
 
@@ -505,7 +506,7 @@ def _(assignment: NonEmptyBufferAssignment, /) -> InstructionList:
         # for MatSetValues to work.
         if isinstance(assignment.expression, numbers.Number):
             # TODO: There must be a more elegant way of doing this
-            expression = Dat(AxisTree(mat.axes.node_map), data=np.full(mat.alloc_size, assignment.expression, dtype=mat.dtype), prefix="t", constant=True)
+            expression = Mat(AxisTree(mat.raxes.node_map), AxisTree(mat.caxes.node_map), mat=np.full(mat.alloc_size, assignment.expression, dtype=mat.dtype), prefix="t", constant=True)
         else:
             assert (
                 isinstance(assignment.expression, (Mat, _ConcretizedMat))
@@ -519,14 +520,16 @@ def _(assignment: NonEmptyBufferAssignment, /) -> InstructionList:
             assert assignment.assignment_type == AssignmentType.INC
             access_type = ArrayAccessType.INC
 
-        assignment = NonEmptyPetscMatAssignment(mat, expression, access_type, assignment.axis_trees)
+        assignment = PetscMatAssignment(mat, expression, access_type)
 
-    # If we are doing a non-PETSc matrix assignment then we cast the buffer to a 'Dat'
-    elif isinstance(assignment.assignee, (Sparsity, Mat)):
-        assert isinstance(assignment.assignee.buffer, NullBuffer), "Must be a temporary"
-        mat = assignment.assignee
-        dat = Dat(mat.axes, data=mat.buffer, name=mat.name)
-        assignment = NonEmptyBufferAssignment(dat, assignment.expression, assignment.assignment_type, assignment.axis_trees)
+    # NO! Do not do this here. If we have Mats on the RHS (which we get at high-order) then
+    # we get a Mat -> Dat which does not work because the axes are not the same.
+    # ~If we are doing a non-PETSc matrix assignment then we cast the buffer to a 'Dat'~
+    # elif isinstance(assignment.assignee, (Sparsity, Mat)):
+    #     assert isinstance(assignment.assignee.buffer, NullBuffer), "Must be a temporary"
+    #     mat = assignment.assignee
+    #     dat = Dat(mat.axes, data=mat.buffer, name=mat.name)
+    #     assignment = BufferAssignment(dat, assignment.expression, assignment.assignment_type)
 
     return assignment
 
@@ -790,13 +793,13 @@ def _(assignment: NonEmptyBufferAssignment, /, layouts) -> NonEmptyBufferAssignm
     )
 
 
-@_replace_with_real_dats.register(NonEmptyPetscMatAssignment)
-def _(assignment: NonEmptyPetscMatAssignment, /, layouts) -> NonEmptyPetscMatAssignment:
+@_replace_with_real_dats.register(PetscMatAssignment)
+def _(assignment: PetscMatAssignment, /, layouts) -> PetscMatAssignment:
     return type(assignment)(
         _compress_array_indirection_maps(assignment.mat, layouts, (assignment.id, 0)),
         _compress_array_indirection_maps(assignment.values, layouts, (assignment.id, 1)),
         assignment.access_type,
-        assignment.axis_trees,
+        # assignment.axis_trees,
     )
 
 
@@ -834,7 +837,7 @@ def _(mat, layouts, outer_key):
     # If we have a temporary then things are easy and we do not need to substitute anything
     # (at least for now)
     if strictly_all(isinstance(ax, AxisTree) for ax in {mat.raxes, mat.caxes}):
-        return _ConcretizedMat(mat, mat.raxes.layouts, mat.caxes.layouts)
+        return _ConcretizedMat(mat, mat.raxes.layouts, mat.caxes.layouts, parent=mat.parent)
 
     def collect(axes, newlayouts, counter):
         for leaf_path in axes.leaf_paths:
@@ -851,7 +854,7 @@ def _(mat, layouts, outer_key):
     collect(mat.raxes.pruned, row_layouts, 0)
     collect(mat.caxes.pruned, col_layouts, 1)
 
-    return _ConcretizedMat(mat, row_layouts, col_layouts)
+    return _ConcretizedMat(mat, row_layouts, col_layouts, parent=mat.parent)
 
 
 def concretize_arrays(insn: Instruction, /) -> Instruction:
@@ -884,13 +887,13 @@ def _(assignment: NonEmptyBufferAssignment, /, loop_axes_acc) -> NonEmptyBufferA
     )
 
 
-@_concretize_arrays_rec.register(NonEmptyPetscMatAssignment)
-def _(assignment: NonEmptyPetscMatAssignment, /, loop_axes_acc) -> NonEmptyPetscMatAssignment:
+@_concretize_arrays_rec.register(PetscMatAssignment)
+def _(assignment: PetscMatAssignment, /, loop_axes_acc) -> PetscMatAssignment:
     return type(assignment)(
         expr_concretize_arrays(assignment.mat, loop_axes_acc),
         expr_concretize_arrays(assignment.values, loop_axes_acc),
         assignment.access_type,
-        assignment.axis_trees,
+        # assignment.axis_trees,
     )
 
 
@@ -919,20 +922,22 @@ def _(loop: Loop, /) -> Loop | NullInstruction:
 
 @drop_zero_sized_paths.register(BufferAssignment)
 def _(assignment: BufferAssignment, /) -> NonEmptyBufferAssignment | NullInstruction:
+    # NOTE: This will now fail because assignee.axes won't exist for mats, instead have multiple trees
     axes = prune_zero_sized_branches(assignment.assignee.axes)
     return assignment.with_axes([axes]) if axes.size > 0 else NullInstruction()
 
 
 @drop_zero_sized_paths.register(PetscMatAssignment)
 def _(assignment: PetscMatAssignment, /) -> NonEmptyPetscMatAssignment | NullInstruction:
-    pruned_trees = []
-    for tree in (assignment.assignee.row_axes, assignment.assignee.col_axes):
-        pruned_tree = prune_zero_sized_branches(tree)
-        if pruned_tree.size == 0:
-            return NullInstruction()
-        else:
-            pruned_trees.append(pruned_tree)
-    return assignment.with_axes(pruned_trees)
+    return assignment
+    # pruned_trees = []
+    # for tree in (assignment.assignee.raxes, assignment.assignee.caxes):
+    #     pruned_tree = prune_zero_sized_branches(tree)
+    #     if pruned_tree.size == 0:
+    #         return NullInstruction()
+    #     else:
+    #         pruned_trees.append(pruned_tree)
+    # return assignment.with_axes(pruned_trees)
 
 
 @drop_zero_sized_paths.register(DirectCalledFunction)

@@ -411,12 +411,12 @@ def concretize_arrays(obj: Any, /, *args, **kwargs) -> Expression:
 
 @concretize_arrays.register(Dat)
 def _(dat: Dat, /, loop_axes) -> _ConcretizedDat:
-    candidate_layouts = dat.candidate_layouts(loop_axes)
-    selected_layouts = {}
-    for leaf_path in dat.axes.leaf_paths:
-        possible_layouts = candidate_layouts[(dat, leaf_path)]
-        selected_layout, _ = min(possible_layouts, key=lambda item: item[1])
-        selected_layouts[leaf_path] = selected_layout
+    selected_layouts = dat.default_candidate_layouts(loop_axes)
+    # selected_layouts = {}
+    # for leaf_path in dat.axes.leaf_paths:
+    #     possible_layouts = candidate_layouts[(dat, leaf_path)]
+    #     selected_layout, _ = min(possible_layouts, key=lambda item: item[1])
+    #     selected_layouts[leaf_path] = selected_layout
 
     return _ConcretizedDat(dat, selected_layouts)
 
@@ -425,11 +425,13 @@ def _(dat: Dat, /, loop_axes) -> _ConcretizedDat:
 def _(mat: Mat, /, loop_axes) -> _ConcretizedDat:
     from pyop3.insn_visitors import materialize_composite_dat
 
-    layouts = mat.candidate_layouts(loop_axes)
+    # NOTE: default_candidate_layouts shouldn't return any cost because it doesn't matter here
+
+    layouts = mat.default_candidate_layouts(loop_axes)
     row_layouts = {}
     for leaf_path in mat.raxes.pruned.leaf_paths:
         possible_row_layouts = layouts[(mat, leaf_path, 0)]
-        selected_layout, _ = min(possible_row_layouts, key=lambda item: item[1])
+        selected_layout, _ = just_one(possible_row_layouts)
 
         if isinstance(selected_layout, CompositeDat):
             selected_layout = materialize_composite_dat(selected_layout)
@@ -439,14 +441,14 @@ def _(mat: Mat, /, loop_axes) -> _ConcretizedDat:
     col_layouts = {}
     for leaf_path in mat.caxes.pruned.leaf_paths:
         possible_col_layouts = layouts[(mat, leaf_path, 1)]
-        selected_layout, _ = min(possible_col_layouts, key=lambda item: item[1])
+        selected_layout, _ = just_one(possible_col_layouts)
 
         if isinstance(selected_layout, CompositeDat):
             selected_layout = materialize_composite_dat(selected_layout)
 
         col_layouts[leaf_path] = selected_layout
 
-    return _ConcretizedMat(mat, row_layouts, col_layouts)
+    return _ConcretizedMat(mat, row_layouts, col_layouts, parent=mat.parent)
 
 
 @concretize_arrays.register(numbers.Number)

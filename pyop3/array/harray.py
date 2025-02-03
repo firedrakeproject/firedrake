@@ -338,6 +338,9 @@ class Dat(_Dat):
 
         return ImmutableOrderedDict(candidatess)
 
+    def default_candidate_layouts(self, loop_axes):
+        return self.axes.leaf_subst_layouts
+
     @property
     def dtype(self):
         return self.buffer.dtype
@@ -613,15 +616,13 @@ class _ConcretizedMat(_ConcretizedDat2):
     Unlike `_ExpressionDat` a `_ConcretizedDat` is permitted to be multi-component.
 
     """
-    def __init__(self, mat, row_layouts, col_layouts):
+    def __init__(self, mat, row_layouts, col_layouts, parent):
         super().__init__(name=mat.name)
         self.dat = mat  # only because I need to clean this up
         self.mat = mat
         self.row_layouts = pmap(row_layouts)
         self.col_layouts = pmap(col_layouts)
-
-        # fix this properly
-        self.parent = mat.parent
+        self.parent = parent
 
     def __str__(self) -> str:
         return "\n".join(
@@ -664,6 +665,10 @@ class _ExpressionDat(_ConcretizedDat2):
     """
     def __init__(self, dat, layout):
         super().__init__(name=dat.name, parent=None)
+
+        # debug
+        # if self.name == "dat_15":
+        #     breakpoint()
 
         self.dat = dat
         self.layout = layout

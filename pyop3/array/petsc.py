@@ -21,7 +21,7 @@ from pyop3.axtree.tree import (
     IndexedAxisTree,
     as_axis_tree,
 )
-from pyop3.buffer import DistributedBuffer
+from pyop3.buffer import DistributedBuffer, NullBuffer
 from pyop3.dtypes import IntType, ScalarType
 from pyop3.lang import Loop, BufferAssignment
 from pyop3.utils import (
@@ -293,22 +293,31 @@ class AbstractMat(Array, Record):
 
     # TODO: Make this generic to all 'Array's and implement for 'Dat'
     def candidate_layouts(self, loop_axes):
+        # temporaries do not have indexed axes so we don't care, don't expect to have
+        # rows or cols indexed but not the other
+        if isinstance(self.buffer, NullBuffer):
+            candidatess = {}
+            for leaf_path, orig_layout in self.raxes.leaf_subst_layouts.items():
+                candidatess[(self, leaf_path, 0)] = ((orig_layout, 666),)
+            for leaf_path, orig_layout in self.caxes.leaf_subst_layouts.items():
+                candidatess[(self, leaf_path, 1)] = ((orig_layout, 666),)
+            return ImmutableOrderedDict(candidatess)
+
+        assert isinstance(self.buffer, PETSc.Mat)
+
+        return self.default_candidate_layouts(loop_axes)
+
+    def default_candidate_layouts(self, loop_axes):
+        # NOTE: Needn't really return the cost here as no evaluation happens
         from pyop3.expr_visitors import CompositeDat, extract_axes
         from pyop3.insn_visitors import materialize_composite_dat
 
-        # temporaries do not have indexed axes so we don't care, don't expect to have
-        # rows or cols indexed but not the other
-        if strictly_all(isinstance(ax, AxisTree) for ax in {self.raxes, self.caxes}):
-            return ImmutableOrderedDict()
-
         candidatess = {}
-
-        if not isinstance(self.buffer, PETSc.Mat):
-            raise NotImplementedError
 
         def add_candidate(axes, row_or_col):
             for leaf_path, orig_layout in axes.leaf_subst_layouts.items():
 
+                # NOTE: unsure if this is needed here
                 if leaf_path not in axes.pruned.leaf_paths:
                     # zero-sized, do nothing
                     continue
@@ -316,16 +325,12 @@ class AbstractMat(Array, Record):
                 visited_axes = axes.path_with_nodes(axes._node_from_path(leaf_path), and_components=True)
                 compressed_expr = CompositeDat(orig_layout, visited_axes, loop_axes)
 
-                # FIXME: do not do this here as we want to keep thinking about more global optimisations
-                # (ie the same expression may be used by a Dat)
-                # materialized_dat = materialize_composite_dat(compressed_expr)
-
                 # NOTE: Probably retrievable from the materialized_dat
                 myaxes = extract_axes(compressed_expr, visited_axes, loop_axes, {})
+
                 compressed_cost = myaxes.size
 
-                if myaxes.size == 0:
-                    continue
+                assert myaxes.size > 0
 
                 candidatess[(self, leaf_path, row_or_col)] = ((compressed_expr, compressed_cost),)
 
@@ -336,7 +341,7 @@ class AbstractMat(Array, Record):
 
     @cached_property
     def size(self) -> Any:
-        return self.axes.size
+        return self.raxes.size * self.caxes.size
 
     @cached_property
     def alloc_size(self) -> int:
@@ -572,6 +577,7 @@ class AbstractMat(Array, Record):
 
     @cached_property
     def axes(self):
+        raise RuntimeError("do not use this any more")
         def is_context_sensitive(_axes):
             return isinstance(_axes, ContextSensitiveAxisTree)
 
