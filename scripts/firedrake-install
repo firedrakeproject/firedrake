@@ -743,6 +743,7 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--download-cmake")
 
     if (not options["minimal_petsc"]) and (not minimal):
+        petsc_options.add("--with-zlib")
         # File formats
         petsc_options.add("--download-netcdf")
         petsc_options.add("--download-pnetcdf")
