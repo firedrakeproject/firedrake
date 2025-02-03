@@ -727,6 +727,7 @@ def get_petsc_options(minimal=False):
                      "--with-shared-libraries=1",
                      "--with-c2html=0",
                      "--with-strict-petscerrorcode",
+                     "--with-precision=single",
                      # Parser generator
                      "--download-bison"}
     for pkg in get_minimal_petsc_packages():
@@ -742,16 +743,9 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--download-cmake")
 
     if (not options["minimal_petsc"]) and (not minimal):
-        # Another sparse direct solver
-        petsc_options.add("--download-superlu_dist")
-        petsc_options.add("--with-zlib")
         # File formats
         petsc_options.add("--download-netcdf")
         petsc_options.add("--download-pnetcdf")
-        # Sparse direct solvers
-        petsc_options.add("--download-suitesparse")
-        if osname == "Darwin":
-            petsc_options.add("--download-hwloc-configure-arguments=--disable-opencl")
         # Serial mesh partitioner
         petsc_options.add("--download-metis")
         if options.get("with_parmetis", None):

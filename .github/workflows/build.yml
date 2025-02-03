@@ -48,7 +48,6 @@ jobs:
       COMPLEX: ${{ matrix.complex }}
       RDMAV_FORK_SAFE: 1
       EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 tests/firedrake
-      PETSC_CONFIGURE_OPTIONS: --with-precision=single
     steps:
       - uses: actions/checkout@v4
 
