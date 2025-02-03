@@ -20,7 +20,8 @@ class LinearSolver(OptionsManager):
     @PETSc.Log.EventDecorator()
     def __init__(self, A, *, P=None, solver_parameters=None,
                  nullspace=None, transpose_nullspace=None,
-                 near_nullspace=None, options_prefix=None):
+                 near_nullspace=None, options_prefix=None,
+                 pre_apply_bcs=True):
         """A linear solver for assembled systems (Ax = b).
 
         :arg A: a :class:`~.MatrixBase` (the operator).
@@ -40,6 +41,7 @@ class LinearSolver(OptionsManager):
                created.  Use this option if you want to pass options
                to the solver from the command line in addition to
                through the ``solver_parameters`` dict.
+        :kwarg pre_apply_bcs: Ignored by this class.
 
         .. note::
 
@@ -116,36 +118,27 @@ class LinearSolver(OptionsManager):
 
         u = function.Function(self.trial_space)
         b = cofunction.Cofunction(self.test_space.dual())
-        expr = -action(self.A.a, u)
-        return u, get_assembler(expr).assemble, b
+        expr = b - action(self.A.a, u)
+        return u, get_assembler(expr, bcs=self.A.bcs, zero_bc_nodes=False).assemble, b
 
     def _lifted(self, b):
         u, update, blift = self._rhs
         u.dat.zero()
         for bc in self.A.bcs:
             bc.apply(u)
+        blift.assign(b)
         update(tensor=blift)
-        # blift contains -A u_bc
-        blift += b
-        if isinstance(blift, cofunction.Cofunction):
-            blift_func = blift.riesz_representation(riesz_map="l2")
-            for bc in self.A.bcs:
-                bc.apply(blift_func)
-            blift.assign(blift_func.riesz_representation(riesz_map="l2"))
-        else:
-            for bc in self.A.bcs:
-                bc.apply(blift)
         # blift is now b - A u_bc, and satisfies the boundary conditions
         return blift
 
     @PETSc.Log.EventDecorator()
     def solve(self, x, b):
-        if not isinstance(x, (function.Function, vector.Vector, cofunction.Cofunction)):
-            raise TypeError("Provided solution is a '%s', not a Function, Vector or Cofunction" % type(x).__name__)
+        if not isinstance(x, (function.Function, vector.Vector)):
+            raise TypeError("Provided solution is a '%s', not a Function or Vector" % type(x).__name__)
         if isinstance(b, vector.Vector):
             b = b.function
-        if not isinstance(b, (function.Function, cofunction.Cofunction)):
-            raise TypeError("Provided RHS is a '%s', not a Function or Cofunction" % type(b).__name__)
+        if not isinstance(b, (cofunction.Cofunction)):
+            raise TypeError("Provided RHS is a '%s', not a Cofunction" % type(b).__name__)
 
         # When solving `Ax = b`, with A: V x U -> R, or equivalently A: V -> U*,
         # we need to make sure that x and b belong to V and U*, respectively.

@@ -232,7 +232,8 @@ class _SNESContext(object):
             # Delayed lifting of DirichletBCs
             self._bc_residual = Function(self._x.function_space())
             if problem.is_linear:
-                # Drop the existing BC lifting term in the residual
+                # Drop existing lifting term from the resiudal
+                assert isinstance(self.F, ufl.BaseForm)
                 self.F = ufl.replace(self.F, {self._x: ufl.zero(self._x.ufl_shape)})
             self.F -= action(self.J, self._bc_residual)
 

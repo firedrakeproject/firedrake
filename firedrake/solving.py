@@ -236,7 +236,7 @@ def _la_solve(A, x, b, **kwargs):
         _la_solve(A, x, b, solver_parameters=parameters_dict)."""
 
     P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, \
-        options_prefix = _extract_linear_solver_args(A, x, b, **kwargs)
+        options_prefix, pre_apply_bcs = _extract_linear_solver_args(A, x, b, **kwargs)
 
     # Check whether solution is valid
     if not isinstance(x, (function.Function, vector.Vector)):
@@ -253,14 +253,18 @@ def _la_solve(A, x, b, **kwargs):
     if isinstance(x, firedrake.Vector):
         x = x.function
     # linear MG doesn't need RHS, supply zero.
-    lvp = vs.LinearVariationalProblem(a=A.a, L=0, u=x, bcs=A.bcs)
+    L = 0
+    aP = None if P is None else P.a
+    lvp = vs.LinearVariationalProblem(A.a, L, x, bcs=A.bcs, aP=aP)
     mat_type = A.mat_type
+    pmat_type = mat_type if P is None else P.mat_type
     appctx = solver_parameters.get("appctx", {})
     ctx = solving_utils._SNESContext(lvp,
                                      mat_type=mat_type,
-                                     pmat_type=mat_type,
+                                     pmat_type=pmat_type,
                                      appctx=appctx,
-                                     options_prefix=options_prefix)
+                                     options_prefix=options_prefix,
+                                     pre_apply_bcs=pre_apply_bcs)
     dm = solver.ksp.dm
 
     with dmhooks.add_hooks(dm, solver, appctx=ctx):
@@ -269,7 +273,7 @@ def _la_solve(A, x, b, **kwargs):
 
 def _extract_linear_solver_args(*args, **kwargs):
     valid_kwargs = ["P", "bcs", "solver_parameters", "nullspace",
-                    "transpose_nullspace", "near_nullspace", "options_prefix"]
+                    "transpose_nullspace", "near_nullspace", "options_prefix", "pre_apply_bcs"]
     if len(args) != 3:
         raise RuntimeError("Missing required arguments, expecting solve(A, x, b, **kwargs)")
 
@@ -285,8 +289,9 @@ def _extract_linear_solver_args(*args, **kwargs):
     nullspace_T = kwargs.get("transpose_nullspace", None)
     near_nullspace = kwargs.get("near_nullspace", None)
     options_prefix = kwargs.get("options_prefix", None)
+    pre_apply_bcs = kwargs.get("pre_apply_bcs", True)
 
-    return P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, options_prefix
+    return P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, options_prefix, pre_apply_bcs
 
 
 def _extract_args(*args, **kwargs):
