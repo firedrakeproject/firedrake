@@ -1116,16 +1116,21 @@ def covariance_norm(x, covariance):
     if isinstance(covariance, Collection):
         covariance, power = covariance
     else:
-        power = 1
+        power = None
     weight = Constant(1/covariance)
-    return assemble(inner(x, weight*x)*dx)**power
+    val = assemble(inner(x, weight*x)*dx)
+    return val if power is None else val**power
 
 
 class CovarianceNormReducedFunctional(ReducedFunctional):
     def __init__(self, x, covariance,
                  functional_name=None,
                  control_name=None):
-        self.covariance = covariance
+        if isinstance(covariance, Collection):
+            self.covariance, self.power = covariance
+        else:
+            self.covariance = covariance
+            self.power = None
         cov_norm = partial(covariance_norm, covariance=covariance)
         rf = isolated_rf(cov_norm, x,
                          functional_name=functional_name,
