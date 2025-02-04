@@ -363,10 +363,20 @@ cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
         #                         0       2
         #                         |       |
         #                         +---1---+
+        # FUSE                    +---1---+
+        #                         |       |
+        #                         0       2
+        #                         |       |
+        #                         +---3---+
+        # plex_cone_new[0] = plex_cone_old[0]
+        # plex_cone_new[1] = plex_cone_old[2]
+        # plex_cone_new[2] = plex_cone_old[1]
+        # plex_cone_new[3] = plex_cone_old[3]
+        print("SWITCHING")
         plex_cone_new[0] = plex_cone_old[0]
-        plex_cone_new[1] = plex_cone_old[2]
-        plex_cone_new[2] = plex_cone_old[1]
-        plex_cone_new[3] = plex_cone_old[3]
+        plex_cone_new[1] = plex_cone_old[3]
+        plex_cone_new[2] = plex_cone_old[2]
+        plex_cone_new[3] = plex_cone_old[1]
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.HEXAHEDRON:
         # UFCHexahedron:            +-------+     +-------+
         #                          /.       |    /   5   /|
@@ -466,7 +476,22 @@ cdef inline PetscInt _reorder_plex_closure(PETSc.DM dm,
         #                         1   0   3
         #                         |       |
         #                         6---2---7
-        raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
+        #
+        # FUSE                    1---5---3
+        #                         |       |
+        #                         4   8   6
+        #                         |       |
+        #                         0---7---2
+        fiat_closure[0] = plex_closure[2 * 6]
+        fiat_closure[1] = plex_closure[2 * 5]
+        fiat_closure[2] = plex_closure[2 * 7]
+        fiat_closure[3] = plex_closure[2 * 8]
+        fiat_closure[4] = plex_closure[2 * 1]
+        fiat_closure[5] = plex_closure[2 * 4]
+        fiat_closure[6] = plex_closure[2 * 3]
+        fiat_closure[7] = plex_closure[2 * 2]
+        fiat_closure[8] = plex_closure[2 * 0]
+        # raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.HEXAHEDRON:
         # UFCHexahedron:            3--19---7     3--19---7
         #                         13.       |   13  25  15|
@@ -953,11 +978,15 @@ cdef inline PetscInt _compute_orientation_simplex(PetscInt *fiat_cone,
 
     CHKERR(PetscMalloc1(coneSize, &cone1))
     CHKERR(PetscMalloc1(coneSize, &inds))
+    print("plex")
     for k in range(coneSize1):
         cone1[k] = plex_cone[k]
+        print(plex_cone[k])
     n = 0
+    print("fiat")
     for e in range(coneSize):
         q = fiat_cone[e]
+        print(q)
         for k in range(coneSize1):
             if q == cone1[k]:
                 inds[n] = k
@@ -1011,8 +1040,13 @@ cdef inline PetscInt _compute_orientation_interval_tensor_product(PetscInt *fiat
     #         0---1  1---0  2---3  3---2
     #
     dim1 = dim
+    print("plex")
     for i in range(2 * dim):
+        print(plex_cone[i])
         plex_cone_copy[i] = plex_cone[i]
+    print("fiat")
+    for i in range(2 * dim):
+        print(fiat_cone[i])
     for i in range(dim):
         for j in range(dim1):
             if plex_cone_copy[2 * j] == fiat_cone[2 * i] or plex_cone_copy[2 * j + 1] == fiat_cone[2 * i]:
