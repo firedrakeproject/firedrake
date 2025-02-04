@@ -922,9 +922,18 @@ def _(loop: Loop, /) -> Loop | NullInstruction:
 
 @drop_zero_sized_paths.register(BufferAssignment)
 def _(assignment: BufferAssignment, /) -> NonEmptyBufferAssignment | NullInstruction:
-    # NOTE: This will now fail because assignee.axes won't exist for mats, instead have multiple trees
-    axes = prune_zero_sized_branches(assignment.assignee.axes)
-    return assignment.with_axes([axes]) if axes.size > 0 else NullInstruction()
+    assignee = assignment.assignee
+    if isinstance(assignee, Dat):
+        axis_trees = (assignee.axes,)
+    else:
+        assert isinstance(assignee, Mat)
+        axis_trees = (assignee.raxes, assignee.caxes)
+
+    nonzero_axis_trees = tuple(map(prune_zero_sized_branches, axis_trees))
+    if any(axis_tree.size == 0 for axis_tree in nonzero_axis_trees):
+        return NullInstruction()
+    else:
+        return assignment.with_axes(nonzero_axis_trees)
 
 
 @drop_zero_sized_paths.register(PetscMatAssignment)

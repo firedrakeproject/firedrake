@@ -879,10 +879,6 @@ class NonEmptyBufferAssignment(AbstractBufferAssignment, NonEmptyAssignmentMixin
     def axis_trees(self) -> tuple[AxisTree]:
         return self._axis_trees
 
-    @property
-    def axis_tree(self) -> AxisTree:
-        return just_one(self.axis_trees)
-
 
 class NonEmptyPetscMatAssignment(AbstractPetscMatAssignment, NonEmptyAssignmentMixin):
     def __init__(self, mat, values, access_type, axes, **kwargs):

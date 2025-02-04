@@ -706,6 +706,7 @@ def parse_assignment(
         assignment,
         loop_indices,
         codegen_ctx,
+        assignment.axis_trees,
     )
 
 
@@ -854,68 +855,88 @@ def parse_assignment_properly_this_time(
     assignment,
     loop_indices,
     codegen_context,
+    axis_trees,
     *,
-    iname_replace_map=pmap(),
+    iname_replace_maps=None,
     # TODO document these under "Other Parameters"
+    axis_tree=None,
     axis=None,
-    path=None,
+    paths=None,
 ):
-    axes = assignment.axis_tree
+    if paths is None:
+        paths = []
+    if iname_replace_maps is None:
+        iname_replace_maps = []
 
-    if strictly_all(x is None for x in [axis, path]):
-        # for array in assignment.arrays:
-        #     codegen_context.add_argument(array)
+    if axis_tree is None:
+        axis_tree, *axis_trees = axis_trees
+        axis = axis_tree.root
+        paths += [pmap()]
+        iname_replace_maps += [pmap()]
 
-        axis = axes.root
-        path = pmap()
-
-    if axes.is_empty:
+    if axis_tree.is_empty:
+        assert not axis_trees
+        # my_iname_replace_map = iname_replace_map[-1] | loop_indices,
         add_leaf_assignment(
             assignment,
-            path,
-            iname_replace_map | loop_indices,
+            paths,
+            # my_iname_replace_map,
+            iname_replace_maps,
             codegen_context,
             loop_indices,
         )
         return
 
     for component in axis.components:
-        if component._collective_count == 0:
-            # NOTE: Should trim these earlier
-            return
-        elif component._collective_count != 1:
+        if component._collective_count != 1:
             iname = codegen_context.unique_name("i")
 
+            # my_iname_replace_map = iname_replace_map[-1] | loop_indices,
             extent_var = register_extent(
                 component._collective_count,
-                iname_replace_map | loop_indices,
+                iname_replace_maps[-1] | loop_indices,
                 codegen_context,
             )
             codegen_context.add_domain(iname, extent_var)
-            new_iname_replace_map = iname_replace_map | {axis.label: pym.var(iname)}
+            new_iname_replace_maps = iname_replace_maps.copy()
+            new_iname_replace_maps[-1] = iname_replace_maps[-1] | {axis.label: pym.var(iname)}
             within_inames = {iname}
         else:
-            new_iname_replace_map = iname_replace_map | {axis.label: 0}
+            new_iname_replace_maps = iname_replace_maps.copy()
+            new_iname_replace_maps[-1] = iname_replace_maps[-1] | {axis.label: 0}
             within_inames = set()
 
-        path_ = path | {axis.label: component.label}
+        new_paths = paths.copy()
+        new_paths[-1] = paths[-1] | {axis.label: component.label}
 
         with codegen_context.within_inames(within_inames):
-            if subaxis := axes.child(axis, component):
+            if subaxis := axis_tree.child(axis, component):
                 parse_assignment_properly_this_time(
                     assignment,
                     loop_indices,
                     codegen_context,
-                    iname_replace_map=new_iname_replace_map,
+                    axis_trees,
+                    iname_replace_maps=new_iname_replace_maps,
+                    axis_tree=axis_tree,
                     axis=subaxis,
-                    path=path_,
+                    paths=new_paths,
                 )
-
+            elif axis_trees:
+                parse_assignment_properly_this_time(
+                    assignment,
+                    loop_indices,
+                    codegen_context,
+                    axis_trees,
+                    iname_replace_maps=new_iname_replace_maps,
+                    axis_tree=None,
+                    axis=None,
+                    paths=new_paths,
+                )
             else:
                 add_leaf_assignment(
                     assignment,
-                    path_,
-                    new_iname_replace_map | loop_indices,
+                    new_paths,
+                    new_iname_replace_maps,
                     codegen_context,
                     loop_indices,
                 )
@@ -923,11 +944,14 @@ def parse_assignment_properly_this_time(
 
 def add_leaf_assignment(
     assignment,
-    path,
+    paths,
     iname_replace_map,
     codegen_context,
     loop_indices,
 ):
+    # for now, will break for matrices
+    path = just_one(paths)
+    iname_replace_map = just_one(iname_replace_map)
 
     lexpr = lower_expr(assignment.assignee, iname_replace_map, codegen_context, path=path)
     rexpr = lower_expr(assignment.expression, iname_replace_map, codegen_context, path=path)
