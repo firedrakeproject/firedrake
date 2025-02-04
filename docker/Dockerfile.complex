@@ -1,6 +1,6 @@
 # DockerFile for Firedrake in complex mode with a full set of capabilities.
 
-FROM firedrakeproject/firedrake-env:testing
+FROM firedrakeproject/firedrake-env:latest
 
 USER firedrake
 WORKDIR /home/firedrake

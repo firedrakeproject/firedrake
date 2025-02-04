@@ -50,7 +50,7 @@ jobs:
   # Firedrake container (just Firedrake)
   docker_build_vanilla:
     # Only run if "Build Firedrake" succeeds
-    # if: ${{ inputs.status == 'success' }}
+    if: ${{ inputs.status == 'success' }}
     needs: docker_merge_env
     strategy:
       matrix:
@@ -61,6 +61,7 @@ jobs:
             extra-install-flags: ""
           - os: macOS
             platform: linux/arm64
+            # VTK does not have Linux ARM wheels (https://gitlab.kitware.com/vtk/vtk/-/issues/18772)
             extra-install-flags: "--no-vtk"
     uses: ./.github/workflows/docker_build.yml
     with:
@@ -116,7 +117,7 @@ jobs:
   # # Firedrake container (Firedrake and friends)
   docker_build_firedrake:
     # Only run if "Build Firedrake" succeeds
-    # if: ${{ inputs.status == 'success' }}
+    if: ${{ inputs.status == 'success' }}
     needs: docker_merge_vanilla
     strategy:
       matrix:
@@ -149,7 +150,7 @@ jobs:
   # # Firedrake container with documentation dependencies and TeX
   docker_build_docdeps:
     # Only run if "Build Firedrake" succeeds
-    # if: ${{ inputs.status == 'success' }}
+    if: ${{ inputs.status == 'success' }}
     needs: docker_merge_vanilla
     strategy:
       matrix:
@@ -179,7 +180,7 @@ jobs:
   # # Firedrake container with Jupyter notebooks
   docker_build_jupyter:
     # Only run if "Build Firedrake" succeeds
-    # if: ${{ inputs.status == 'success' }}
+    if: ${{ inputs.status == 'success' }}
     needs: docker_merge_firedrake
     strategy:
       matrix:

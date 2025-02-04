@@ -1,8 +1,7 @@
 name: Reusable Docker workflow
 
-# This workflow creates both Linux and macOS images and then merges and pushes them
-# in a separate step. See https://docs.docker.com/build/ci/github-actions/multi-platform/
-# for more information.
+# This workflow merges Linux and macOS images and pushes them to Docker.
+# See https://docs.docker.com/build/ci/github-actions/multi-platform/ for more information.
 
 on:
   workflow_call:
