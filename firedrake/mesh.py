@@ -830,8 +830,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         :arg entity_permutations: FInAT element entity permutations
         :arg offsets: layer offsets for each entity dof (may be None).
         """
-        return dmcommon.get_cell_nodes(self, global_numbering,
-                                       entity_dofs, entity_permutations, offsets)
+        return dmcommon.get_cell_nodes(self, global_numbering, entity_dofs, entity_permutations, offsets)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
@@ -1224,6 +1223,12 @@ class MeshTopology(AbstractMeshTopology):
         # represent a mesh topology (as here) have geometric dimension
         # equal their topological dimension. This is reflected in the
         # corresponding UFL mesh.
+        cell1 = ufl.Cell(_cells[tdim][nfacets])
+        cell2 = constructCellComplex(_cells[tdim][nfacets])
+        print(as_fiat_cell(cell1).topology)
+        print(as_fiat_cell(cell1).vertices)
+        print(as_fiat_cell(cell2).topology)
+        print(as_fiat_cell(cell2).vertices)
         # return ufl.Cell(_cells[tdim][nfacets])
         return constructCellComplex(_cells[tdim][nfacets])
 
@@ -1263,7 +1268,9 @@ class MeshTopology(AbstractMeshTopology):
 
         cell = self.ufl_cell()
         assert tdim == cell.topological_dimension()
-
+        # plex.viewFromOptions("-dm_view")
+        closure, _ = plex.getTransitiveClosure(0)
+        print("plex", closure)
         if self.submesh_parent is not None:
             return dmcommon.submesh_create_cell_closure_cell_submesh(plex,
                                                                      self.submesh_parent.topology_dm,
@@ -1271,40 +1278,47 @@ class MeshTopology(AbstractMeshTopology):
                                                                      self.submesh_parent._cell_numbering,
                                                                      self.submesh_parent.cell_closure)
         elif cell.is_simplex():
+            print("simplex case")
             topology = FIAT.ufc_cell(cell).get_topology()
             entity_per_cell = np.zeros(len(topology), dtype=IntType)
             for d, ents in topology.items():
                 entity_per_cell[d] = len(ents)
             return dmcommon.closure_ordering(plex, vertex_numbering,
                                              cell_numbering, entity_per_cell)
-        # elif hasattr(cell, "to_fiat"):
-        #       TODO
-        #     topology = cell.to_fiat().topology
-        #     entity_per_cell = np.zeros(len(topology), dtype=IntType)
-        #     for d, ents in topology.items():
-        #         entity_per_cell[d] = len(ents)
-        #     return dmcommon.closure_ordering(plex, vertex_numbering,
-        #                                      cell_numbering, entity_per_cell)
+        elif hasattr(cell, "to_fiat"):
+            #   TODO
+            topology = cell.to_fiat().topology
+            # entity_per_cell = np.zeros(len(topology), dtype=IntType)
+            # for d, ents in topology.items():
+            #     entity_per_cell[d] = len(ents)
+            # return dmcommon.closure_ordering(plex, vertex_numbering,
+            #  cell_numbering, entity_per_cell)
+            topology = FIAT.ufc_cell(cell).get_topology()
+            closureSize = sum([len(ents) for _, ents in topology.items()])
+            return dmcommon.create_cell_closure(plex, cell_numbering, closureSize)
         elif cell.cellname() == "quadrilateral":
+            print("quadcase")
             from firedrake_citations import Citations
             Citations().register("Homolya2016")
             Citations().register("McRae2016")
             # Quadrilateral mesh
             cell_ranks = dmcommon.get_cell_remote_ranks(plex)
-
+            print(plex.getTransitiveClosure(0))
             facet_orientations = dmcommon.quadrilateral_facet_orientations(
                 plex, vertex_numbering, cell_ranks)
-
+            print(facet_orientations)
             cell_orientations = dmcommon.orientations_facet2cell(
                 plex, vertex_numbering, cell_ranks,
                 facet_orientations, cell_numbering)
-
+            print(cell_orientations)
             dmcommon.exchange_cell_orientations(plex,
                                                 cell_numbering,
                                                 cell_orientations)
 
-            return dmcommon.quadrilateral_closure_ordering(
+            res = dmcommon.quadrilateral_closure_ordering(
                 plex, vertex_numbering, cell_numbering, cell_orientations)
+            print(res)
+            return res
         elif cell.cellname() == "hexahedron":
             # TODO: Should change and use create_cell_closure() for all cell types.
             topology = FIAT.ufc_cell(cell).get_topology()
