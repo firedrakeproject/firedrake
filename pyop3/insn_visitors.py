@@ -793,13 +793,14 @@ def _(assignment: NonEmptyBufferAssignment, /, layouts) -> NonEmptyBufferAssignm
     )
 
 
-@_replace_with_real_dats.register(PetscMatAssignment)
-def _(assignment: PetscMatAssignment, /, layouts) -> PetscMatAssignment:
+@_replace_with_real_dats.register(NonEmptyPetscMatAssignment)
+def _(assignment: NonEmptyPetscMatAssignment, /, layouts) -> NonEmptyPetscMatAssignment:
     return type(assignment)(
         _compress_array_indirection_maps(assignment.mat, layouts, (assignment.id, 0)),
         _compress_array_indirection_maps(assignment.values, layouts, (assignment.id, 1)),
         assignment.access_type,
-        # assignment.axis_trees,
+        assignment.row_axis_tree,
+        assignment.col_axis_tree,
     )
 
 
@@ -887,13 +888,14 @@ def _(assignment: NonEmptyBufferAssignment, /, loop_axes_acc) -> NonEmptyBufferA
     )
 
 
-@_concretize_arrays_rec.register(PetscMatAssignment)
-def _(assignment: PetscMatAssignment, /, loop_axes_acc) -> PetscMatAssignment:
+@_concretize_arrays_rec.register(NonEmptyPetscMatAssignment)
+def _(assignment: NonEmptyPetscMatAssignment, /, loop_axes_acc) -> NonEmptyPetscMatAssignment:
     return type(assignment)(
         expr_concretize_arrays(assignment.mat, loop_axes_acc),
         expr_concretize_arrays(assignment.values, loop_axes_acc),
         assignment.access_type,
-        # assignment.axis_trees,
+        assignment.row_axis_tree,
+        assignment.col_axis_tree,
     )
 
 
@@ -938,15 +940,14 @@ def _(assignment: BufferAssignment, /) -> NonEmptyBufferAssignment | NullInstruc
 
 @drop_zero_sized_paths.register(PetscMatAssignment)
 def _(assignment: PetscMatAssignment, /) -> NonEmptyPetscMatAssignment | NullInstruction:
-    return assignment
-    # pruned_trees = []
-    # for tree in (assignment.assignee.raxes, assignment.assignee.caxes):
-    #     pruned_tree = prune_zero_sized_branches(tree)
-    #     if pruned_tree.size == 0:
-    #         return NullInstruction()
-    #     else:
-    #         pruned_trees.append(pruned_tree)
-    # return assignment.with_axes(pruned_trees)
+    pruned_trees = []
+    for tree in (assignment.assignee.raxes, assignment.assignee.caxes):
+        pruned_tree = prune_zero_sized_branches(tree)
+        if pruned_tree.size == 0:
+            return NullInstruction()
+        else:
+            pruned_trees.append(pruned_tree)
+    return assignment.with_axes(*pruned_trees)
 
 
 @drop_zero_sized_paths.register(DirectCalledFunction)

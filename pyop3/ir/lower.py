@@ -47,7 +47,7 @@ from pyop3.lang import (
     NonEmptyBufferAssignment,
     ContextAwareLoop,  # TODO: remove this class
     DirectCalledFunction,
-    PetscMatAssignment,
+    NonEmptyPetscMatAssignment,
     PreprocessedExpression,
     UnprocessedExpressionException,
     DummyKernelArgument,
@@ -710,7 +710,7 @@ def parse_assignment(
     )
 
 
-@_compile.register(PetscMatAssignment)
+@_compile.register(NonEmptyPetscMatAssignment)
 def _compile_petscmat(assignment, loop_indices, codegen_context):
     mat = assignment.mat
     array = assignment.values
@@ -740,18 +740,15 @@ def _compile_petscmat(assignment, loop_indices, codegen_context):
     mat_name = codegen_context.actual_to_kernel_rename_map[mat.name]
     array_name = codegen_context.actual_to_kernel_rename_map[array.name]
 
-    # FIXME: Must be deterministically ordered! Traverse leaf paths instead!
-    for row_layout in mat.row_layouts.values():
-        for col_layout in mat.col_layouts.values():
-            # old aliases
-            rmap = row_layout
-            cmap = col_layout
+    for row_path in assignment.row_axis_tree.leaf_paths:
+        for col_path in assignment.col_axis_tree.leaf_paths:
+            row_layout = mat.row_layouts[row_path]
+            codegen_context.add_array(row_layout)
+            rmap_name = codegen_context.actual_to_kernel_rename_map[row_layout.name]
 
-            codegen_context.add_array(rmap)
-            codegen_context.add_array(cmap)
-
-            rmap_name = codegen_context.actual_to_kernel_rename_map[rmap.name]
-            cmap_name = codegen_context.actual_to_kernel_rename_map[cmap.name]
+            col_layout = mat.col_layouts[col_path]
+            codegen_context.add_array(col_layout)
+            cmap_name = codegen_context.actual_to_kernel_rename_map[col_layout.name]
 
             blocked = mat.mat.block_shape > 1
     # if mat.nested:
@@ -785,11 +782,11 @@ def _compile_petscmat(assignment, loop_indices, codegen_context):
 
     # TODO: The following code should be done in a loop per submat.
 
-            raxes = rmap.dat.axes
+            raxes = row_layout.dat.axes
             row_subtree = raxes.subtree(raxes.child(raxes.root))
             rsize = row_subtree.size
 
-            caxes = cmap.dat.axes
+            caxes = col_layout.dat.axes
             col_subtree = caxes.subtree(caxes.child(caxes.root))
             csize = col_subtree.size
 
@@ -815,15 +812,23 @@ def _compile_petscmat(assignment, loop_indices, codegen_context):
                 csize_var = csize
 
             # replace inner bits with zeros
-            zeros = {axis.label: 0 for axis in rmap.dat.axes.nodes if axis is not rmap.dat.axes.root}
-            irow = str(lower_expr(rmap, [zeros], loop_indices, codegen_context))
+            rzeros = {axis.label: 0 for axis in row_layout.dat.axes.nodes if axis is not row_layout.dat.axes.root}
+            irow = str(lower_expr(row_layout, [rzeros], loop_indices, codegen_context))
 
-            zeros = {axis.label: 0 for axis in cmap.dat.axes.nodes if axis is not cmap.dat.axes.root}
-            icol = str(lower_expr(cmap, [zeros], loop_indices, codegen_context))
+            czeros = {axis.label: 0 for axis in col_layout.dat.axes.nodes if axis is not col_layout.dat.axes.root}
+            icol = str(lower_expr(col_layout, [czeros], loop_indices, codegen_context))
+
+            array_row_layout = assignment.values.row_layouts[row_path]
+            array_row_expr = lower_expr(array_row_layout, [rzeros], loop_indices, codegen_context)
+            array_col_layout = assignment.values.col_layouts[col_path]
+            array_col_expr = lower_expr(array_col_layout, [czeros], loop_indices, codegen_context)
+
+            array_indices = array_row_expr * csize + array_col_expr
+            array_expr = str(pym.subscript(pym.var(array_name), array_indices))
 
             # hacky
             myargs = [
-                assignment, mat_name, array_name, rsize_var, csize_var, irow, icol, blocked
+                assignment, mat_name, array_expr, rsize_var, csize_var, irow, icol, blocked
             ]
             access_type = assignment.access_type
             if access_type == ArrayAccessType.READ:
@@ -839,23 +844,23 @@ def _compile_petscmat(assignment, loop_indices, codegen_context):
 
 def _petsc_mat_load(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
     if blocked:
-        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]));"
+        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}));"
     else:
-        return f"MatGetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]));"
+        return f"MatGetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}));"
 
 
 def _petsc_mat_store(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
     if blocked:
-        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), INSERT_VALUES);"
+        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}), INSERT_VALUES);"
     else:
-        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), INSERT_VALUES);"
+        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}), INSERT_VALUES);"
 
 
 def _petsc_mat_add(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
     if blocked:
-        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), ADD_VALUES);"
+        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}), ADD_VALUES);"
     else:
-        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), ADD_VALUES);"
+        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}), ADD_VALUES);"
 
 # TODO now I attach a lot of info to the context-free array, do I need to pass axes around?
 def parse_assignment_properly_this_time(

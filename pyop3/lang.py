@@ -857,7 +857,8 @@ class AbstractPetscMatAssignment(AbstractAssignment, metaclass=abc.ABCMeta):
 
 
 class PetscMatAssignment(AbstractPetscMatAssignment):
-    pass
+    def with_axes(self, row_axis_tree, col_axis_tree):
+        return NonEmptyPetscMatAssignment(self.mat, self.values, self.access_type, row_axis_tree, col_axis_tree)
 
 
 # NOTE: These are internal classes, can be moved elsewhere
@@ -881,15 +882,15 @@ class NonEmptyBufferAssignment(AbstractBufferAssignment, NonEmptyAssignmentMixin
 
 
 class NonEmptyPetscMatAssignment(AbstractPetscMatAssignment, NonEmptyAssignmentMixin):
-    def __init__(self, mat, values, access_type, axes, **kwargs):
+    def __init__(self, mat, values, access_type, row_axis_tree, col_axis_tree, **kwargs):
         super().__init__(mat, values, access_type, **kwargs)
         # self._axis_trees = (row_axes, col_axes)
-        self._axis_trees = axes
+        self.row_axis_tree = row_axis_tree
+        self.col_axis_tree = col_axis_tree
 
     @property
     def axis_trees(self) -> tuple[AxisTree, AxisTree]:
         return self._axis_trees
-    pass
 
 
 # TODO: With Python 3.11 can be made a StrEnum
