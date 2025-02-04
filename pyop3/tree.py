@@ -311,9 +311,12 @@ class LabelledTree(AbstractTree):
 
     # NOTE: It might be nicer if this were to take a 2-tuple (or None). Though this
     # would break *so much*...
-    def child(self, parent, component):
+    def child(self, parent, component=None):
         if parent is None and component is None:
             return self.root
+
+        if component is None:
+            component = just_one(parent.components)
 
         children = self.node_map[parent.id]
 

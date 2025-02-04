@@ -71,7 +71,10 @@ _compiler = None
 # Directory must be unique per VENV for multiple installs
 # _and_ per user for shared machines
 _EXE_HASH = md5(sys.executable.encode()).hexdigest()[-6:]
-MEM_TMP_DIR = Path(gettempdir()).joinpath(f"pyop2-tempcache-uid{os.getuid()}").joinpath(_EXE_HASH)
+
+_scratch_dir = configuration["scratch_dir"] or gettempdir()
+MEM_TMP_DIR = Path(_scratch_dir).joinpath(f"pyop2-tempcache-uid{os.getuid()}").joinpath(_EXE_HASH)
+
 # PETSc Configuration
 petsc_variables = get_petsc_variables()
 

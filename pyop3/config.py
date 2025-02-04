@@ -49,26 +49,8 @@ class Configuration(dict):
 
     """
     # name, env variable, type, default, write once
-    cache_dir = os.path.join(gettempdir(), "pyop2-cache-uid%s" % os.getuid())
     DEFAULTS = {
-        "cc": ("PYOP3_CC", str, "mpicc"),
-        "cxx": ("PYOP3_CXX", str, "mpicxx"),
-        "ld": ("PYOP3_LD", str, ""),
-        "cflags": ("PYOP3_CFLAGS", str, ""),
-        "cxxflags": ("PYOP3_CXXFLAGS", str, ""),
-        "ldflags": ("PYOP3_LDFLAGS", str, ""),
-        "simd_width": ("PYOP3_SIMD_WIDTH", int, 4),
         "debug": ("PYOP3_DEBUG", bool, False),
-        "compute_kernel_flops": ("PYOP3_COMPUTE_KERNEL_FLOPS", bool, False),
-        "type_check": ("PYOP3_TYPE_CHECK", bool, True),
-        "check_src_hashes": ("PYOP3_CHECK_SRC_HASHES", bool, True),
-        "log_level": ("PYOP3_LOG_LEVEL", (str, int), "WARNING"),
-        "cache_dir": ("PYOP3_CACHE_DIR", str, cache_dir),
-        "node_local_compilation": ("PYOP3_NODE_LOCAL_COMPILATION", bool, True),
-        "no_fork_available": ("PYOP3_NO_FORK_AVAILABLE", bool, False),
-        "print_cache_size": ("PYOP3_PRINT_CACHE_SIZE", bool, False),
-        "matnest": ("PYOP3_MATNEST", bool, True),
-        "block_sparsity": ("PYOP3_BLOCK_SPARSITY", bool, True),
         "max_static_array_size": ("PYOP3_MAX_STATIC_ARRAY_SIZE", int, 100),
     }
     """Default values for PyOP2 configuration parameters"""

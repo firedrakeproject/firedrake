@@ -611,7 +611,7 @@ def parse_loop_properly_this_time(
                 axis_key = (axis.id, component.label)
                 for index_exprs in axes.index_exprs:
                     for axis_label, index_expr in index_exprs.get(axis_key).items():
-                        loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, iname_map, codegen_context, path=path_)
+                        loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, [iname_map], loop_indices, codegen_context, paths=[path_])
                 loop_exprs = pmap(loop_exprs)
 
                 for stmt in loop.statements:
@@ -740,6 +740,7 @@ def _compile_petscmat(assignment, loop_indices, codegen_context):
     mat_name = codegen_context.actual_to_kernel_rename_map[mat.name]
     array_name = codegen_context.actual_to_kernel_rename_map[array.name]
 
+    # FIXME: Must be deterministically ordered! Traverse leaf paths instead!
     for row_layout in mat.row_layouts.values():
         for col_layout in mat.col_layouts.values():
             # old aliases
@@ -784,9 +785,15 @@ def _compile_petscmat(assignment, loop_indices, codegen_context):
 
     # TODO: The following code should be done in a loop per submat.
 
-            # these sizes can be expressions that need evaluating
-            rsize, csize = mat.mat.shape
+            raxes = rmap.dat.axes
+            row_subtree = raxes.subtree(raxes.child(raxes.root))
+            rsize = row_subtree.size
 
+            caxes = cmap.dat.axes
+            col_subtree = caxes.subtree(caxes.child(caxes.root))
+            csize = col_subtree.size
+
+            # these sizes can be expressions that need evaluating
             if not isinstance(rsize, numbers.Integral):
                 raise NotImplementedError
                 rsize_var = register_extent(
@@ -809,10 +816,10 @@ def _compile_petscmat(assignment, loop_indices, codegen_context):
 
             # replace inner bits with zeros
             zeros = {axis.label: 0 for axis in rmap.dat.axes.nodes if axis is not rmap.dat.axes.root}
-            irow = str(lower_expr(rmap, loop_indices | zeros, codegen_context))
+            irow = str(lower_expr(rmap, [zeros], loop_indices, codegen_context))
 
             zeros = {axis.label: 0 for axis in cmap.dat.axes.nodes if axis is not cmap.dat.axes.root}
-            icol = str(lower_expr(cmap, loop_indices | zeros, codegen_context))
+            icol = str(lower_expr(cmap, [zeros], loop_indices, codegen_context))
 
             # hacky
             myargs = [
@@ -945,16 +952,12 @@ def parse_assignment_properly_this_time(
 def add_leaf_assignment(
     assignment,
     paths,
-    iname_replace_map,
+    iname_replace_maps,
     codegen_context,
     loop_indices,
 ):
-    # for now, will break for matrices
-    path = just_one(paths)
-    iname_replace_map = just_one(iname_replace_map)
-
-    lexpr = lower_expr(assignment.assignee, iname_replace_map, codegen_context, path=path)
-    rexpr = lower_expr(assignment.expression, iname_replace_map, codegen_context, path=path)
+    lexpr = lower_expr(assignment.assignee, iname_replace_maps, loop_indices, codegen_context, paths=paths)
+    rexpr = lower_expr(assignment.expression, iname_replace_maps, loop_indices, codegen_context, paths=paths)
 
     if assignment.assignment_type == AssignmentType.WRITE:
         pass
@@ -1002,6 +1005,7 @@ def make_array_expr(array, path, inames, ctx):
     return pym.subscript(pym.var(name), indices)
 
 
+# NOTE: There is a difference here between `lower_expr` and `lower_expr_linear` (where paths are not relevant)
 @functools.singledispatch
 def lower_expr(obj: Any, /, *args, **kwargs):
     raise TypeError(f"No handler defined for {type(obj).__name__}")
@@ -1023,13 +1027,17 @@ def _(num: numbers.Number, /, *args, **kwargs):
 
 
 @lower_expr.register(AxisVar)
-def _(axis_var: AxisVar, /, iname_map, context, path=None):
+def _(axis_var: AxisVar, /, iname_maps, loop_indices, context, paths=None):
+    if len(iname_maps) > 1:
+        raise NotImplementedError("not sure")
+    else:
+        iname_map = just_one(iname_maps)
     return iname_map[axis_var.axis_label]
 
 
 @lower_expr.register
-def _(loop_var: LoopIndexVar, iname_map, context, path=None):
-    return iname_map[(loop_var.loop_id, loop_var.axis_label)]
+def _(loop_var: LoopIndexVar, iname_maps, loop_indices, context, paths=None):
+    return loop_indices[(loop_var.loop_id, loop_var.axis_label)]
 
 
 def maybe_multiindex(dat, offset_expr, context):
@@ -1053,80 +1061,55 @@ def maybe_multiindex(dat, offset_expr, context):
     return indices
 
 
-# NOTE: Here should not accept Dat because we need to have special layouts!!!
-# aka `Array`
-@lower_expr.register(Dat)
-@lower_expr.register(Mat)
-def _(dat: Dat, /, iname_map, context, path=None):
-    # assert not dat.parent, "Should be handled in preprocessing"
-
-    context.add_array(dat)
-
-    new_name = context.actual_to_kernel_rename_map[dat.name]
-
-    if path is None:
-        assert dat.axes.is_linear
-        path = dat.axes.path(dat.axes.leaf)
-
-    layout_expr = dat.axes.subst_layouts()[path]
-    offset_expr = lower_expr(layout_expr, iname_map, context)
-
-    indices = maybe_multiindex(dat, offset_expr, context)
-
-    rexpr = pym.subscript(pym.var(new_name), indices)
-    return rexpr
-
-
 @lower_expr.register(_ConcretizedDat)
-def _(dat: _ConcretizedDat, /, iname_map, context, path=None):
+def _(dat: _ConcretizedDat, /, iname_maps, loop_indices, context, paths):
+    iname_map = just_one(iname_maps)
+    path = just_one(paths)
+
     context.add_array(dat)
 
     new_name = context.actual_to_kernel_rename_map[dat.name]
-
-    if path is None:
-        assert False, "do not use?"
-        assert dat.axes.is_linear
-        path = dat.axes.path(dat.axes.leaf)
 
     layout_expr = dat.layouts[path]
-    offset_expr = lower_expr(layout_expr, iname_map, context)
+    offset_expr = lower_expr(layout_expr, [iname_map], loop_indices, context)
     indices = maybe_multiindex(dat, offset_expr, context)
 
     return pym.subscript(pym.var(new_name), indices)
 
 
 @lower_expr.register(_ConcretizedMat)
-def _(mat: _ConcretizedMat, /, iname_map, context, path=None):
+def _(mat: _ConcretizedMat, /, iname_maps, loop_indices, context, paths):
     context.add_array(mat)
 
     new_name = context.actual_to_kernel_rename_map[mat.name]
 
-    if path is None:
-        assert False, "do not use?"
-        assert mat.row_axes.is_linear
-        path = mat.row_axes.path(dat.axes.leaf)
+    row_iname_map, col_iname_map = iname_maps
+    row_path, col_path = paths
 
-    breakpoint()
-    row_layout_expr = mat.row_layouts[path]
-    col_layout_expr = mat.col_layouts[path]
+    row_layout_expr = mat.row_layouts[row_path]
+    col_layout_expr = mat.col_layouts[col_path]
 
-    row_offset_expr = lower_expr(row_layout_expr, iname_map, context)
-    col_offset_expr = lower_expr(col_layout_expr, iname_map, context)
+    row_offset_expr = lower_expr(row_layout_expr, [row_iname_map], loop_indices, context)
+    col_offset_expr = lower_expr(col_layout_expr, [col_iname_map], loop_indices, context)
 
-    offset_expr = row_offset_expr * mat.mat.col_axes.size + col_offset_expr
+    offset_expr = row_offset_expr * mat.mat.caxes.size + col_offset_expr
+    indices = maybe_multiindex(mat, offset_expr, context)
 
-    rexpr = pym.subscript(pym.var(new_name), (offset_expr,))
+    rexpr = pym.subscript(pym.var(new_name), indices)
     return rexpr
 
 
 @lower_expr.register(_ExpressionDat)
-def _(dat: _ExpressionDat, /, iname_map, context, path=None):
+def _(dat: _ExpressionDat, /, iname_maps, loop_indices, context, paths=None):
+    iname_map = just_one(iname_maps)
+
     context.add_array(dat)
 
     new_name = context.actual_to_kernel_rename_map[dat.name]
 
-    offset_expr = lower_expr(dat.layout, iname_map, context)
-    rexpr = pym.subscript(pym.var(new_name), (offset_expr,))
+    offset_expr = lower_expr(dat.layout, [iname_map], loop_indices, context)
+    indices = maybe_multiindex(dat, offset_expr, context)
+    rexpr = pym.subscript(pym.var(new_name), indices)
     return rexpr
 
 
@@ -1143,14 +1126,6 @@ def register_extent(extent, iname_replace_map, ctx):
     ctx.add_temporary(varname)
     ctx.add_assignment(pym.var(varname), expr)
     return varname
-
-
-class VariableReplacer(pym.mapper.IdentityMapper):
-    def __init__(self, replace_map):
-        self._replace_map = replace_map
-
-    def map_variable(self, expr):
-        return self._replace_map.get(expr.name, expr)
 
 
 # lives here??
