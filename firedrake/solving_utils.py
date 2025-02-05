@@ -7,6 +7,7 @@ from pyop2 import op2
 from firedrake import dmhooks
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
+from firedrake.matrix import MatrixBase
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS
 from firedrake.formmanipulation import ExtractSubBlock
@@ -228,14 +229,18 @@ class _SNESContext(object):
         self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in problem.bcs)
 
         self._bc_residual = None
-        if not pre_apply_bcs:
+        if not pre_apply_bcs and len(self.bcs_F) > 0:
             # Delayed lifting of DirichletBCs
             self._bc_residual = Function(self._x.function_space())
             if problem.is_linear:
                 # Drop existing lifting term from the resiudal
                 assert isinstance(self.F, ufl.BaseForm)
                 self.F = ufl.replace(self.F, {self._x: ufl.zero(self._x.ufl_shape)})
-            self.F -= action(self.J, self._bc_residual)
+
+            A = self.J
+            if isinstance(A, MatrixBase):
+                A = A.a
+            self.F -= action(A, self._bc_residual)
 
         self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
                                                 form_compiler_parameters=self.fcp,

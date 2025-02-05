@@ -4,12 +4,12 @@ from contextlib import ExitStack
 from types import MappingProxyType
 
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
-from firedrake import function
 from firedrake.petsc import (
     PETSc, OptionsManager, flatten_parameters, DEFAULT_KSP_PARAMETERS,
     DEFAULT_SNES_PARAMETERS
 )
 from firedrake.function import Function
+from firedrake.matrix import MatrixBase
 from firedrake.ufl_expr import TrialFunction, TestFunction, action
 from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
@@ -73,7 +73,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         self.output_space = V
         self.u = u
 
-        if not isinstance(self.u, function.Function):
+        if not isinstance(self.u, Function):
             raise TypeError("Provided solution is a '%s', not a Function" % type(self.u).__name__)
 
         # Use the user-provided Jacobian. If none is provided, derive
@@ -374,7 +374,10 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
                 raise TypeError("Provided RHS is a '%s', not a Form or Slate Tensor" % type(L).__name__)
             if len(L.arguments()) != 1 and not L.empty():
                 raise ValueError("Provided RHS is not a linear form")
-            F = ufl_expr.action(J, u) - L
+            A = J
+            if isinstance(A, MatrixBase):
+                A = A.a
+            F = ufl_expr.action(A, u) - L
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
                                                        form_compiler_parameters=form_compiler_parameters,
