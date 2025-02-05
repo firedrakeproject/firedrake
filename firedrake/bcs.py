@@ -500,7 +500,8 @@ class EquationBC(object):
 
             # linear
             if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
-                J, L = eq.lhs, eq.rhs
+                J = eq.lhs
+                L = eq.rhs
                 Jp = Jp or J
                 if L == 0 or L.empty():
                     F = ufl_expr.action(J, u)
@@ -663,8 +664,9 @@ class EquationBCSplit(BCBase):
         Vrow = self._function_space
         sub_domain = self.sub_domain
         bcs = tuple(bc._as_nonlinear_variational_problem_arg(is_linear=is_linear) for bc in self.bcs)
-        equation = J == ufl.Form([]) if is_linear else ufl_expr.action(J, u) == 0
-        return EquationBC(equation, u, sub_domain, bcs=bcs, J=J, V=Vrow)
+        lhs = J if is_linear else ufl_expr.action(J, u)
+        rhs = ufl.Form([]) if is_linear else 0
+        return EquationBC(lhs == rhs, u, sub_domain, bcs=bcs, J=J, V=Vrow)
 
 
 @PETSc.Log.EventDecorator()

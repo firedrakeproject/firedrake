@@ -97,7 +97,8 @@ def assemble(expr, *args, **kwargs):
         If `True`, skip preprocessing of the form.
     current_state : firedrake.function.Function or None
         If provided and ``zero_bc_nodes == False``, the boundary condition
-        nodes of the output are set to the residual of the boundary conditions.
+        nodes of the output are set to the residual of the boundary conditions
+        computed as ``current_state`` minus the boundary condition value.
 
     Returns
     -------
@@ -293,7 +294,8 @@ class AbstractFormAssembler(abc.ABC):
         tensor : firedrake.cofunction.Cofunction or firedrake.function.Function or matrix.MatrixBase
             Output tensor to contain the result of assembly; if `None`, a tensor of appropriate type is created.
         current_state : firedrake.function.Function or None
-            If provided, the boundary condition nodes are set to the boundary condition residual.
+            If provided, the boundary condition nodes are set to the boundary condition residual
+            computed as ``current_state`` minus the boundary condition value.
 
         Returns
         -------
@@ -379,7 +381,8 @@ class BaseFormAssembler(AbstractFormAssembler):
         tensor : firedrake.cofunction.Cofunction or firedrake.function.Function or matrix.MatrixBase
             Output tensor to contain the result of assembly.
         current_state : firedrake.function.Function or None
-            If provided, the boundary condition nodes are set to the boundary condition residual.
+            If provided, the boundary condition nodes are set to the boundary condition residual
+            computed as ``current_state`` minus the boundary condition value.
 
         Returns
         -------
@@ -991,7 +994,8 @@ class ParloopFormAssembler(FormAssembler):
         tensor : firedrake.cofunction.Cofunction or matrix.MatrixBase
             Output tensor to contain the result of assembly; if `None`, a tensor of appropriate type is created.
         current_state : firedrake.function.Function or None
-            If provided, the boundary condition nodes are set to the boundary condition residual.
+            If provided, the boundary condition nodes are set to the boundary condition residual
+            computed as ``current_state`` minus the boundary condition value.
 
         Returns
         -------
