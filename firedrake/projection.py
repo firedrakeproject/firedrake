@@ -163,6 +163,8 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
             is_variable_layers = True
         self.use_slate_for_inverse = (use_slate_for_inverse and is_dg and not is_variable_layers
                                       and (not complex_mode or SLATE_SUPPORTS_COMPLEX))
+        if form_compiler_parameters is not None:
+            quadrature_degree = form_compiler_parameters.get("quadrature_degree", quadrature_degree)
         self.quadrature_degree = quadrature_degree
 
     @cached_property

@@ -1,7 +1,8 @@
-import firedrake.function as function
-import firedrake.cofunction as cofunction
-import firedrake.vector as vector
-import firedrake.matrix as matrix
+from firedrake.function import Function
+from firedrake.cofunction import Cofunction
+from firedrake.vector import Vector
+from firedrake.matrix import MatrixBase
+from firedrake.slate import slate
 from firedrake.petsc import PETSc
 from pyop2.mpi import internal_comm
 from firedrake.variational_solver import LinearVariationalProblem, LinearVariationalSolver
@@ -40,18 +41,22 @@ class LinearSolver:
           Any boundary conditions for this solve *must* have been
           applied when assembling the operator.
         """
-        if not isinstance(A, matrix.MatrixBase):
+        if not isinstance(A, MatrixBase):
             raise TypeError("Provided operator is a '%s', not a MatrixBase" % type(A).__name__)
-        if P is not None and not isinstance(P, matrix.MatrixBase):
+        if P is not None and not isinstance(P, MatrixBase):
             raise TypeError("Provided preconditioner is a '%s', not a MatrixBase" % type(P).__name__)
 
         test, trial = A.a.arguments()
-        L = cofunction.Cofunction(test.function_space().dual())
-        u = function.Function(trial.function_space())
-        problem = LinearVariationalProblem(A, L, u, bcs=A.bcs, aP=P)
+        x = Function(trial.function_space())
+        b = Cofunction(test.function_space().dual())
+        L = b
+        if isinstance(A.a, slate.TensorBase):
+            L = slate.AssembledVector(b)
+
+        problem = LinearVariationalProblem(A, L, x, bcs=A.bcs, aP=P)
         solver = LinearVariationalSolver(problem, **kwargs)
-        self.b = L
-        self.x = u
+        self.b = b
+        self.x = x
         self.solver = solver
 
         self.A = A
@@ -73,13 +78,13 @@ class LinearSolver:
         b : firedrake.cofunction.Cofunction or firedrake.vector.Vector
             A Cofunction or Vector with the right-hand side of the linear system.
         """
-        if not isinstance(x, (function.Function, vector.Vector)):
+        if not isinstance(x, (Function, Vector)):
             raise TypeError(f"Provided solution is a '{type(x).__name__}', not a Function or Vector")
-        if isinstance(x, vector.Vector):
+        if isinstance(x, Vector):
             x = x.function
-        if not isinstance(b, (cofunction.Cofunction, vector.Vector)):
+        if not isinstance(b, (Cofunction, Vector)):
             raise TypeError(f"Provided RHS is a '{type(b).__name__}', not a Cofunction or Vector")
-        if isinstance(b, vector.Vector):
+        if isinstance(b, Vector):
             b = b.function
 
         # When solving `Ax = b`, with A: V x U -> R, or equivalently A: V -> U*,

@@ -344,7 +344,9 @@ class BaseFormAssembler(AbstractFormAssembler):
     def allocate(self):
         rank = len(self._form.arguments())
         if rank == 2 and not self._diagonal:
-            if self._mat_type == "matfree":
+            if isinstance(self._form, matrix.MatrixBase):
+                return self._form
+            elif self._mat_type == "matfree":
                 return MatrixFreeAssembler(self._form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
                                            options_prefix=self._options_prefix,
                                            appctx=self._appctx).allocate()

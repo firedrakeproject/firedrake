@@ -875,7 +875,7 @@ class Tensor(TensorBase):
     def __init__(self, form, diagonal=False):
         """Constructor for the Tensor class."""
         if not isinstance(form, (Form, ZeroBaseForm)):
-            if isinstance(form, Function):
+            if isinstance(form, (Function, Cofunction)):
                 raise TypeError("Use AssembledVector instead of Tensor.")
             raise TypeError("Only UFL forms are acceptable inputs.")
 
