@@ -39,7 +39,7 @@ if package_manager == "apt":
         "fftw-dev",
         "git",
         "hwloc",
-        "libhdf5-openmpi-dev",
+        "libhdf5-mpi-dev",
         "libhypre-dev",
         "libmumps-dev",
         "libopenmpi-dev",

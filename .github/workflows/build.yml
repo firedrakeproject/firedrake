@@ -77,7 +77,8 @@ jobs:
             --with-debugging=0 \
             --with-fftw \
             --with-fortran-bindings=0 \
-            --with-hdf5 \
+            --with-hdf5-include=/usr/include/hdf5/openmpi/ \
+            --with-hdf5-lib=/usr/lib/x86_64-linux-gnu/hdf5/openmpi/libhdf5.so \
             --with-hwloc \
             --with-make-np=12 \
             --with-shared-libraries=1 \
