@@ -4,7 +4,7 @@ import numpy
 import ufl
 
 from pyop2 import op2
-from firedrake import dmhooks
+from firedrake import dmhooks, slate
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.matrix import MatrixBase
@@ -240,6 +240,8 @@ class _SNESContext(object):
             A = self.J
             if isinstance(A, MatrixBase):
                 A = A.a
+            if isinstance(A, slate.slate.TensorBase):
+                self.F = slate.slate.as_slate(self.F)
             self.F -= action(A, self._bc_residual)
 
         self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,

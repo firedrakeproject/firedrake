@@ -377,6 +377,8 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
             A = J
             if isinstance(A, MatrixBase):
                 A = A.a
+            if isinstance(A, slate.slate.TensorBase):
+                L = slate.slate.as_slate(L)
             F = ufl_expr.action(A, u) - L
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,

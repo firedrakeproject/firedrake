@@ -1413,6 +1413,28 @@ def space_equivalence(A, B):
     return A.mesh() == B.mesh() and A.ufl_element() == B.ufl_element()
 
 
+def as_slate(F):
+    """Convert an assembled or unassembled expression into a Slate Tensor.
+
+    Parameters
+    ----------
+    F : ufl.BaseForm or TensorBase
+        The expression to convert into Slate.
+
+    Returns
+    -------
+    The slate.Tensor equivalent expression.
+    """
+    if isinstance(F, TensorBase):
+        return F
+    elif isinstance(F, Form):
+        return Tensor(F)
+    elif isinstance(F, (Function, Cofunction)):
+        return AssembledVector(F)
+    else:
+        raise TypeError(f"Cannot convert {type(F).__name__} into a slate.Tensor")
+
+
 # Establishes levels of precedence for Slate tensors
 precedences = [
     [AssembledVector, Block, Factorization, Tensor, DiagonalTensor, Reciprocal],

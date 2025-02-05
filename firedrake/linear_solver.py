@@ -2,7 +2,6 @@ from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.vector import Vector
 from firedrake.matrix import MatrixBase
-from firedrake.slate import slate
 from firedrake.petsc import PETSc
 from pyop2.mpi import internal_comm
 from firedrake.variational_solver import LinearVariationalProblem, LinearVariationalSolver
@@ -49,11 +48,8 @@ class LinearSolver:
         test, trial = A.a.arguments()
         x = Function(trial.function_space())
         b = Cofunction(test.function_space().dual())
-        L = b
-        if isinstance(A.a, slate.TensorBase):
-            L = slate.AssembledVector(b)
 
-        problem = LinearVariationalProblem(A, L, x, bcs=A.bcs, aP=P)
+        problem = LinearVariationalProblem(A, b, x, bcs=A.bcs, aP=P)
         solver = LinearVariationalSolver(problem, **kwargs)
         self.b = b
         self.x = x
