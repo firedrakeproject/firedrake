@@ -85,9 +85,12 @@ if package_manager == "apt":
         else:
             configure_options.append(f"--download-{external_package}")
 
-else:
-    assert package_mangager == "homebrew"
+elif package_mangager == "homebrew"
     ...
+else:
+    assert package_manager is None
+    for external_package in EXTERNAL_PACKAGES:
+        configure_options.append(f"--download-{external_package}")
 
 
 print(configure_options)
