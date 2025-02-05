@@ -43,7 +43,7 @@ help:
 
 TARGETS = html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex latexpdf text man changes linkcheck doctest gettext
 
-GENERATED_FILES = source/team.rst source/demos source/element_list.csv source/firedrake_citations.rst
+GENERATED_FILES = source/team.rst source/demos source/element_list.csv source/firedrake_citations.rst source/apt_deps.txt source/homebrew_deps.txt
 
 publishpdf:
 	env FIREDRAKE_MANUAL_RELEASE=`date +%Y-%m` $(MAKE) latexpdf
@@ -88,6 +88,12 @@ source/firedrake_citations.rst:
 	sphinx-apidoc -f -T -o source/ ../firedrake_citations
 	echo -e ":orphan:\n\n" | cat - source/firedrake_citations.rst > source/firedrake_citations.tmp
 	mv source/firedrake_citations.tmp source/firedrake_citations.rst
+
+source/apt_deps.txt:
+	python ../scripts/firedrake-system-deps --package-manager apt > source/apt_deps.txt
+
+source/homebrew_deps.txt:
+	python ../scripts/firedrake-system-deps --package-manager homebrew > source/homebrew_deps.txt
 
 apidoc: $(GENERATED_FILES) copy_demos
 	sphinx-apidoc -f -T -o source/ ../firedrake ../firedrake/cython/*.so

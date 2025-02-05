@@ -107,6 +107,11 @@ packages can be installed into an existing Firedrake installation using
 System requirements
 -------------------
 
+.. literalinclude:: apt_deps.txt
+
+.. literalinclude:: homebrew_deps.txt
+
+
 Firedrake requires Python 3.10 to 3.13. The installation script is
 tested by CI on Ubuntu 24.04 LTS. On Ubuntu 22.04 or later, the system
 installed Python 3 is supported. On MacOS, the homebrew_ installed
