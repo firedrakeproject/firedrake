@@ -53,18 +53,19 @@ jobs:
       MPICC: mpicc
       # MPI_HOME: /usr (not sure if needed)
     steps:
+      - uses: actions/checkout@v4
+        with:
+          path: firedrake
+
+      - uses: actions/setup-python@v5
+        with:
+          # Test using the oldest supported version of Python
+          python-version: '3.10'
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get -y install "$(python3 firedrake/scripts/firedrake-system-deps)"
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - uses: actions/checkout@v4
-        with:
-          path: firedrake
 
       - name: Install PETSc
         run: |
