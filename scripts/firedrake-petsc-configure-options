@@ -31,20 +31,20 @@ EXTERNAL_PACKAGES = (
 )
 
 APT_INSTALLED_EXTERNAL_PACKAGES = {
-    "fftw": ("fftw-dev", "fftw.h", "libfftw.so"),
-    "hdf5": ("libhdf5-openmpi-dev", "hdf5.h", "libhdf5.so"),
-    "hwloc": ("libhwloc-dev", "hwloc.h", "libhwloc.so"),
-    "hypre": ("libhypre-dev", "HYPRE.h", "libHYPRE.so"),
-    "metis": ("libmetis-dev", "metis.h", "libmetis.so"),
+    "fftw": ("fftw-dev", "*/fftw.h", "*/libfftw.so"),
+    "hdf5": ("libhdf5-openmpi-dev", "*/hdf5.h", "*/libhdf5.so"),
+    "hwloc": ("libhwloc-dev", "*/hwloc.h", "*/libhwloc.so"),
+    "hypre": ("libhypre-dev", "*/HYPRE.h", "*/libHYPRE.so"),
+    "metis": ("libmetis-dev", "*/metis.h", "*/libmetis.so"),
     # libmumps-dev does not include header files, that needs libmumps-headers-dev
-    "mumps": ("libmumps-dev", None, "libcmumps.so"),
-    "netcdf": ("libnetcdf-mpi-dev", "netcdf.h", "libnetcdf_mpi.so"),
-    "pnetcdf": ("libpnetcdf-dev", "pnetcdf.h", "libpnetcdf.so"),
-    "ptscotch": ("libptscotch-dev", "*/scotch/ptscotch.h", "libptscotch.so"),
-    "scalapack": ("libscalapack-openmpi-dev", None, "libscalapack-openmpi.so"),  # no header files
+    "mumps": ("libmumps-dev", None, "*/libcmumps.so"),
+    "netcdf": ("libnetcdf-mpi-dev", "*/netcdf.h", "*/libnetcdf_mpi.so"),
+    "pnetcdf": ("libpnetcdf-dev", "*/pnetcdf.h", "*/libpnetcdf.so"),
+    "ptscotch": ("libptscotch-dev", "*/scotch/ptscotch.h", "*/libptscotch.so"),
+    "scalapack": ("libscalapack-openmpi-dev", None, "*/libscalapack-openmpi.so"),  # no header files
     "suitesparse": ("libsuitesparse-dev", None, None),  # unclear
-    "superlu_dist": ("libsuperlu-dist-dev", "superlu_defs.h", "libsuperlu_dist.so"),
-    "zlib": ("zlib1g-dev", "zlib.h", "libz.so"),
+    "superlu_dist": ("libsuperlu-dist-dev", "*/superlu_defs.h", "*/libsuperlu_dist.so"),
+    "zlib": ("zlib1g-dev", "*/zlib.h", "*/libz.so"),
 }
 
 
