@@ -85,7 +85,7 @@ jobs:
   docker_build_complex:
     needs: docker_merge_env
     # Only run if "Build Firedrake" succeeds
-    # if: ${{ inputs.status == 'success' }}
+    if: ${{ inputs.status == 'success' }}
     strategy:
       matrix:
         os: [Linux, macOS]
@@ -95,7 +95,8 @@ jobs:
             extra-install-flags: ""
           - os: macOS
             platform: linux/arm64
-            extra-install-flags: "--no-vtk"  # no ARM wheel for VTK
+            # VTK does not have Linux ARM wheels (https://gitlab.kitware.com/vtk/vtk/-/issues/18772)
+            extra-install-flags: "--no-vtk"
     uses: ./.github/workflows/docker_build.yml
     with:
       os: ${{ matrix.os }}

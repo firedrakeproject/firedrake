@@ -1,14 +1,14 @@
 name: Reusable Docker workflow
 
-# This workflow creates both Linux and macOS images and then merges and pushes them
-# in a separate step. See https://docs.docker.com/build/ci/github-actions/multi-platform/
-# for more information.
+# This workflow creates x86 or ARM images and then pushes them by digest. These
+# are then combined in a separate step. See
+# https://docs.docker.com/build/ci/github-actions/multi-platform/ for more information.
 
 on:
   workflow_call:
     inputs:
       os:
-        description: 'Which machine to run on'
+        description: 'Self-hosted machine to run on'
         required: true
         type: string
       platform:
@@ -16,7 +16,7 @@ on:
         required: true
         type: string
       target:
-        description: 'Target docker image name to upload to'
+        description: 'Target Docker image name'
         required: true
         type: string
       tag:
@@ -25,7 +25,7 @@ on:
         default: 'latest'
         type: string
       dockerfile:
-        description: 'Path to the dockerfile required to build image'
+        description: 'Path to the Dockerfile required to build image'
         required: true
         type: string
       extra-install-flags:
