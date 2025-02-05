@@ -118,8 +118,8 @@ class LinearSolver(OptionsManager):
 
         u = function.Function(self.trial_space)
         b = cofunction.Cofunction(self.test_space.dual())
-        expr = b - action(self.A.a, u)
-        return u, get_assembler(expr, bcs=self.A.bcs, zero_bc_nodes=False).assemble, b
+        expr = - action(self.A.a, u)
+        return u, get_assembler(expr, bcs=self.A.bcs, zero_bc_nodes=False, needs_zeroing=False).assemble, b
 
     def _lifted(self, b):
         u, update, blift = self._rhs
@@ -137,7 +137,7 @@ class LinearSolver(OptionsManager):
             raise TypeError("Provided solution is a '%s', not a Function or Vector" % type(x).__name__)
         if isinstance(b, vector.Vector):
             b = b.function
-        if not isinstance(b, (cofunction.Cofunction)):
+        if not isinstance(b, cofunction.Cofunction):
             raise TypeError("Provided RHS is a '%s', not a Cofunction" % type(b).__name__)
 
         # When solving `Ax = b`, with A: V x U -> R, or equivalently A: V -> U*,
