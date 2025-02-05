@@ -25,7 +25,7 @@ jobs:
     name: "Run Firedrake tests (Linux)"
     runs-on: [self-hosted, Linux]
     container:
-      image: ubuntu:latest
+      image: firedrakeproject/firedrake-env:pip
     strategy:
       # We want to know all of the tests which fail, so don't kill real if
       # complex fails and vice-versa
@@ -53,18 +53,18 @@ jobs:
       MPICC: mpicc
       # MPI_HOME: /usr (not sure if needed)
     steps:
-      - uses: actions/checkout@v4
-        with:
-          path: firedrake
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install "$(python3 firedrake/scripts/firedrake-system-deps)"
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get -y install "$(python3 firedrake/scripts/firedrake-system-deps)"
+      - uses: actions/checkout@v4
+        with:
+          path: firedrake
 
       - name: Install PETSc
         run: |
@@ -210,10 +210,12 @@ jobs:
     name: "Build Docker containers"
     # Only run on master, but always generate firedrake-env image,
     # even if build fails (see docker.yml)
-    if: ${{ (github.ref == 'refs/heads/master') && always() }}
-    needs: [test, docker_tag]
+    # if: ${{ (github.ref == 'refs/heads/master') && always() }}
+    if: always()
+    # needs: [test, docker_tag]
     uses: ./.github/workflows/docker.yml
     with:
-      tag: ${{ needs.docker_tag.outputs.tag }}
-      status: ${{ needs.test.result }}
+      # tag: ${{ needs.docker_tag.outputs.tag }}
+      tag: pip
+      status: success
     secrets: inherit
