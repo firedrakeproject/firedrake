@@ -87,7 +87,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
-            --package-branch loopy merge-upstream \
+            --package-branch loopy connorjward/merge-upstream \
             || (cat firedrake-install.log && /bin/false)
 
       - name: Install test dependencies
