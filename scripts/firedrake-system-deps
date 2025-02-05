@@ -15,7 +15,7 @@ if args.package_manager is None:
     system = platform.system()
     if system == "Linux":
         try:
-            subprocess.run(["apt", "--version"])
+            subprocess.run(["apt", "--version"], capture_output=True)
             package_manager = "apt"
         except FileNotFoundError:
             raise RuntimeError(
