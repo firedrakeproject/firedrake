@@ -96,7 +96,7 @@ def assemble(expr, *args, **kwargs):
     is_base_form_preprocessed : bool
         If `True`, skip preprocessing of the form.
     current_state : firedrake.function.Function or None
-        If provided and ``zero_bc_nodes == True``, the boundary condition
+        If provided and ``zero_bc_nodes == False``, the boundary condition
         nodes of the output are set to the residual of the boundary conditions.
 
     Returns
