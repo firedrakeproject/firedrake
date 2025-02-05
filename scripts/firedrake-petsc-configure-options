@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
+import fnmatch
 import pathlib
-import re
 import subprocess
 
 
@@ -37,23 +37,21 @@ APT_INSTALLED_EXTERNAL_PACKAGES = {
     "hypre": ("libhypre-dev", "HYPRE.h", "libHYPRE.so"),
     "metis": ("libmetis-dev", "metis.h", "libmetis.so"),
     # libmumps-dev does not include header files, that needs libmumps-headers-dev
-    "mumps": ("libmumps-dev", None, "*/libcmumps.so"),
-    "netcdf": ("libnetcdf-mpi-dev", "*/netcdf.h", "libnetcdf_mpi.so"),
-    "pnetcdf": ("libpnetcdf-dev", "*/pnetcdf.h", "libpnetcdf.so"),
+    "mumps": ("libmumps-dev", None, "libcmumps.so"),
+    "netcdf": ("libnetcdf-mpi-dev", "netcdf.h", "libnetcdf_mpi.so"),
+    "pnetcdf": ("libpnetcdf-dev", "pnetcdf.h", "libpnetcdf.so"),
     "ptscotch": ("libptscotch-dev", "*/scotch/ptscotch.h", "libptscotch.so"),
     "scalapack": ("libscalapack-openmpi-dev", None, "libscalapack-openmpi.so"),  # no header files
     "suitesparse": ("libsuitesparse-dev", None, None),  # unclear
     "superlu_dist": ("libsuperlu-dist-dev", "superlu_defs.h", "libsuperlu_dist.so"),
-    "zlib": ("zlib1g-dev", "zlib.h", "libz.s?o"),
+    "zlib": ("zlib1g-dev", "zlib.h", "libz.so"),
 }
 
 
 def sniff_package_file(package, pattern):
     result = subprocess.run(f"dpkg -L {package}".split(), capture_output=True, text=True)
 
-    matching_files = tuple(filter(
-        lambda line: re.match(pattern, line), result.stdout.splitlines()
-    ))
+    matching_files = fnmatch.filter(result.stdout.splitlines(), pattern) 
 
     if not matching_files:
         raise ValueError("No match found")
