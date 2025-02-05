@@ -95,6 +95,7 @@ jobs:
             --with-strict-petscerrorcode \
             --with-zlib
           make
+        # NOTE: Make sure to pass --with-make-np=12
 
       - name: Install Firedrake
         run: pip install --no-binary h5py ./firedrake[test]

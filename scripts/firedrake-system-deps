@@ -42,6 +42,7 @@ if package_manager == "apt":
         "libhdf5-mpi-dev",
         "libhypre-dev",
         "libmumps-dev",
+        "libnetcdf-mpi-dev",
         "libopenmpi-dev",
         "libpnetcdf-dev",
         "libscalapack-mpi-dev",

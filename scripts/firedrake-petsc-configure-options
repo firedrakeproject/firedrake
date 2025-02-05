@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+
+import pathlib
+import subprocess
+
+
+DEFAULT_CONFIGURE_OPTIONS = (
+    "--with-c2html=0",
+    "--with-debugging=0",
+    "--with-fortran-bindings=0",
+    "--with-shared-libraries=1",
+    "--with-strict-petscerrorcode",
+)
+
+
+EXTERNAL_PACKAGES = (
+    "fftw",
+    "hdf5",
+    "hwloc",
+    "ptscotch",
+    "scalapack",
+    "hypre",
+    "metis",
+    "mumps",
+    "netcdf",
+    "pnetcdf",
+    "pastix",  # download
+    "suitesparse",
+    "superlu_dist",
+    "zlib",  # ???
+)
+
+
+APT_INSTALLED_EXTERNAL_PACKAGES = {
+    "fftw": ("fftw-dev", "fftw.h", "libfftw.so"),
+    "hdf5": ("libdf5-mpi-dev", "hdf5.h", "libhdf5.so"),
+    # "hwloc": "hwloc",
+    # "hypre": "libhypre-dev",
+    # "metis": "metis",
+    # "netcdf": "libnetcdf-mpi-dev",
+    # "pnetcdf": "libpnetcdf-dev",
+}
+
+
+def sniff_package_file(package, filename):
+    result = subprocess.run(f"dpkg -L {package}".split(), capture_output=True, text=True)
+
+    matching_files = tuple(filter(
+        lambda line: line.endswith(filename), result.stdout.splitlines()
+    ))
+
+    if not matching_files:
+        raise ValueError("No match found")
+    if len(matching_files) > 1:
+        raise ValueError("Multiple matches found")
+
+    return pathlib.Path(matching_files[0])
+
+
+package_manager = "apt"
+
+
+configure_options = list(DEFAULT_CONFIGURE_OPTIONS)
+
+if package_manager == "apt":
+    for petsc_package, apt_info in APT_INSTALLED_EXTERNAL_PACKAGES.items():
+        (apt_package, header, lib) = apt_info
+        configure_options.append(
+            f"--with-{petsc_package}-include={sniff_package_file(apt_package, header).parent}"
+        )
+        configure_options.append(
+            f"--with-{petsc_package}-lib={sniff_package_file(apt_package, lib)}"
+        )
+
+else:
+    assert package_mangager == "homebrew"
+    ...
+
+
+print(configure_options)
