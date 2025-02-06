@@ -74,14 +74,10 @@ class LinearSolver:
         b : firedrake.cofunction.Cofunction or firedrake.vector.Vector
             A Cofunction or Vector with the right-hand side of the linear system.
         """
-        if not isinstance(x, (Function, Vector)):
-            raise TypeError(f"Provided solution is a '{type(x).__name__}', not a Function or Vector")
-        if isinstance(x, Vector):
-            x = x.function
-        if not isinstance(b, (Cofunction, Vector)):
-            raise TypeError(f"Provided RHS is a '{type(b).__name__}', not a Cofunction or Vector")
-        if isinstance(b, Vector):
-            b = b.function
+        if not isinstance(x, Function):
+            raise TypeError(f"Provided solution is a '{type(x).__name__}', not a Function")
+        if not isinstance(b, Cofunction):
+            raise TypeError(f"Provided RHS is a '{type(b).__name__}', not a Cofunction")
 
         # When solving `Ax = b`, with A: V x U -> R, or equivalently A: V -> U*,
         # we need to make sure that x and b belong to V and U*, respectively.
