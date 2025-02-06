@@ -107,8 +107,8 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         }[type(self)]
         Vdual = [V.dual() for V in self.local_function_spaces]
         riesz = DualType(self.ensemble, Vdual)
-        for u in riesz.subfunctions:
-            u.assign(u.riesz_representation(riesz_map=riesz_map, **kwargs))
+        for uself, uriesz in zip(self.subfunctions, riesz.subfunctions):
+            uriesz.assign(uself.riesz_representation(riesz_map=riesz_map, **kwargs))
         return riesz
 
     @PETSc.Log.EventDecorator()
