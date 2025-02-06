@@ -9,7 +9,6 @@ import FIAT
 import ufl
 import finat.ufl
 from ufl.algorithms import extract_arguments, extract_coefficients, replace
-from ufl.algorithms.signature import compute_expression_signature
 from ufl.domain import as_domain, extract_unique_domain
 
 from pyop2 import op2
@@ -17,7 +16,7 @@ from pyop2.caching import memory_and_disk_cache
 
 from finat.element_factory import create_element, as_fiat_cell
 from tsfc import compile_expression_dual_evaluation
-from tsfc.ufl_utils import extract_firedrake_constants
+from tsfc.ufl_utils import extract_firedrake_constants, hash_expr
 
 import gem
 import finat
@@ -1455,20 +1454,6 @@ class GlobalWrapper(object):
         self.dat = glob
         self.cell_node_map = lambda *arguments: None
         self.ufl_domain = lambda: None
-
-
-def hash_expr(expr):
-    """Return a numbering-invariant hash of a UFL expression.
-
-    :arg expr: A UFL expression.
-    :returns: A numbering-invariant hash for the expression.
-    """
-    domain_numbering = {d: i for i, d in enumerate(ufl.domain.extract_domains(expr))}
-    coefficient_numbering = {c: i for i, c in enumerate(extract_coefficients(expr))}
-    constant_numbering = {c: i for i, c in enumerate(extract_firedrake_constants(expr))}
-    return compute_expression_signature(
-        expr, {**domain_numbering, **coefficient_numbering, **constant_numbering}
-    )
 
 
 class VomOntoVomWrapper(object):

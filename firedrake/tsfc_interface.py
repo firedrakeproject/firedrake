@@ -7,7 +7,9 @@ passing to the backends.
 from os import path, environ, getuid, makedirs
 import tempfile
 import collections
+import functools
 
+from tsfc.kernel_interface.firedrake_loopy import KernelBuilder
 import ufl
 import finat.ufl
 from ufl import conj, Form, ZeroBaseForm
@@ -15,7 +17,7 @@ from .ufl_expr import TestFunction
 
 from tsfc import compile_form as original_tsfc_compile_form
 from tsfc.parameters import PARAMETERS as tsfc_default_parameters
-from tsfc.ufl_utils import extract_firedrake_constants
+from tsfc.ufl_utils import extract_firedrake_constants, hash_expr
 
 from pyop2 import op2
 from pyop2.caching import memory_and_disk_cache, default_parallel_hashkey
@@ -57,7 +59,7 @@ def tsfc_compile_form_hashkey(form, prefix, parameters, interface, diagonal):
         form.signature(),
         prefix,
         utils.tuplify(parameters),
-        type(interface).__name__,
+        _make_interface_key(interface),
         diagonal,
     )
 
@@ -142,7 +144,7 @@ def _compile_form_hashkey(form, name, parameters=None, split=True, interface=Non
         name,
         utils.tuplify(parameters),
         split,
-        type(interface).__name__,
+        _make_interface_key(interface),
         diagonal,
     )
 
@@ -311,3 +313,14 @@ def extract_numbered_coefficients(expr, numbers):
         else:
             coefficients.append(coeff)
     return coefficients
+
+
+def _make_interface_key(interface):
+    if interface:
+        # Passing interface here is a small hack done in patch.py. What
+        # really matters for caching is what is used in the 'dont_split' kwarg.
+        assert isinstance(interface, functools.partial)
+        assert interface.func is KernelBuilder
+        return tuple(map(hash_expr, interface.keywords["dont_split"]))
+    else:
+        return None
