@@ -509,7 +509,7 @@ class FunctionSpace(object):
         the number of components of their
         :attr:`finat.ufl.finiteelementbase.FiniteElementBase.value_shape`."""
 
-        self.block_size = int(numpy.prod(self.shape, dtype=int))
+        self.block_size = int(numpy.prod(self.shape, dtype=PETSc.IntType))
         r"""The total number of degrees of freedom at each function
         space node."""
         self.name = name

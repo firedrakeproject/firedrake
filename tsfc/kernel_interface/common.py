@@ -453,7 +453,7 @@ def prepare_constant(constant, number):
     :returns: (funarg, expression)
          expression - GEM expression referring to the Constant value(s)
     """
-    value_size = numpy.prod(constant.ufl_shape, dtype=int)
+    value_size = numpy.prod(constant.ufl_shape, dtype=constant.dat.dtype)
     return gem.reshape(gem.Variable(f"c_{number}", (value_size,)),
                        constant.ufl_shape)
 

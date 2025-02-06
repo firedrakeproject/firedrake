@@ -422,7 +422,7 @@ def _from_triangle(filename, dim, comm):
                 nodecount = header[0]
                 nodedim = header[1]
                 assert nodedim == dim
-                coordinates = np.loadtxt(nodefile, usecols=list(range(1, dim+1)), skiprows=1, dtype=np.double)
+                coordinates = np.loadtxt(nodefile, usecols=list(range(1, dim+1)), skiprows=1, dtype=PETSc.RealType)
                 assert nodecount == coordinates.shape[0]
 
             with open(basename+".ele") as elefile:
@@ -477,7 +477,7 @@ def plex_from_cell_list(dim, cells, coords, comm, name=None):
         # and double (not PetscInt, PetscReal).
         if comm.rank == 0:
             cells = np.asarray(cells, dtype=np.int32)
-            coords = np.asarray(coords, dtype=np.double)
+            coords = np.asarray(coords, dtype=PETSc.RealType)
             comm.bcast(cells.shape, root=0)
             comm.bcast(coords.shape, root=0)
             # Provide the actual data on rank 0.
@@ -491,7 +491,7 @@ def plex_from_cell_list(dim, cells, coords, comm, name=None):
             # A subsequent call to plex.distribute() takes care of parallel partitioning
             plex = PETSc.DMPlex().createFromCellList(dim,
                                                      np.zeros(cell_shape, dtype=np.int32),
-                                                     np.zeros(coord_shape, dtype=np.double),
+                                                     np.zeros(coord_shape, dtype=PETSc.RealType),
                                                      comm=icomm)
     if name is not None:
         plex.setName(name)
@@ -522,7 +522,7 @@ def _from_cell_list(dim, cells, coords, comm, name=None):
     # and double (not PetscInt, PetscReal).
     if comm.rank == 0:
         cells = np.asarray(cells, dtype=np.int32)
-        coords = np.asarray(coords, dtype=np.double)
+        coords = np.asarray(coords, dtype=PETSc.RealType)
         comm.bcast(cells.shape, root=0)
         comm.bcast(coords.shape, root=0)
         # Provide the actual data on rank 0.
@@ -536,7 +536,7 @@ def _from_cell_list(dim, cells, coords, comm, name=None):
         # A subsequent call to plex.distribute() takes care of parallel partitioning
         plex = PETSc.DMPlex().createFromCellList(dim,
                                                  np.zeros(cell_shape, dtype=np.int32),
-                                                 np.zeros(coord_shape, dtype=np.double),
+                                                 np.zeros(coord_shape, dtype=PETSc.RealType),
                                                  comm=comm)
     if name is not None:
         plex.setName(name)
@@ -619,7 +619,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             # Mark OP2 entities and derive the resulting Plex renumbering
             with PETSc.Log.Event("Mesh: numbering"):
                 self._mark_entity_classes()
-                self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
+                self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(IntType)
                 if perm_is:
                     self._dm_renumbering = perm_is
                 else:
@@ -1816,13 +1816,13 @@ class ExtrudedMeshTopology(MeshTopology):
         :returns: the number of nodes in each of core, owned, and ghost classes.
         """
         if real_tensorproduct:
-            nodes = np.asarray(nodes_per_entity)
+            nodes = np.asarray(nodes_per_entity, dtype=IntType)
             nodes_per_entity = sum(nodes[:, i] for i in range(2))
             return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
         elif self.variable_layers:
             return extnum.node_classes(self, nodes_per_entity)
         else:
-            nodes = np.asarray(nodes_per_entity)
+            nodes = np.asarray(nodes_per_entity, dtype=IntType)
             if self.extruded_periodic:
                 nodes_per_entity = sum(nodes[:, i]*(self.layers - 1) for i in range(2))
             else:
@@ -2482,8 +2482,8 @@ values from f.)"""
 
         # Calculate the bounding boxes for all cells by running a kernel
         V = functionspace.VectorFunctionSpace(self, "DG", 0, dim=gdim)
-        coords_min = function.Function(V, dtype=RealType)
-        coords_max = function.Function(V, dtype=RealType)
+        coords_min = function.Function(V, dtype=PETSc.RealType)
+        coords_max = function.Function(V, dtype=PETSc.RealType)
 
         coords_min.dat.data.fill(np.inf)
         coords_max.dat.data.fill(-np.inf)
@@ -2493,7 +2493,7 @@ values from f.)"""
                 raise ValueError("Coordinate field has non-zero imaginary part")
             coords = function.Function(self.coordinates.function_space(),
                                        val=self.coordinates.dat.data_ro_with_halos.real.copy(),
-                                       dtype=RealType)
+                                       dtype=PETSc.RealType)
         else:
             coords = self.coordinates
 
@@ -2584,7 +2584,7 @@ values from f.)"""
             (cell number, reference coordinates) of type (int, numpy array),
             or, when point is not in the domain, (None, None).
         """
-        x = np.asarray(x)
+        x = np.asarray(x, dtype=PETSc.RealType)
         if x.size != self.geometric_dimension():
             raise ValueError("Point must have the same geometric dimension as the mesh")
         x = x.reshape((1, self.geometric_dimension()))
@@ -2621,7 +2621,7 @@ values from f.)"""
             tolerance = self.tolerance
         else:
             self.tolerance = tolerance
-        xs = np.asarray(xs, dtype=utils.ScalarType)
+        xs = np.asarray(xs, dtype=PETSc.RealType)
         xs = xs.real.copy()
         if xs.shape[1] != self.geometric_dimension():
             raise ValueError("Point coordinate dimension does not match mesh geometric dimension")
@@ -3349,7 +3349,7 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     else:
         mesh.tolerance = tolerance
     mesh.init()
-    vertexcoords = np.asarray(vertexcoords, dtype=RealType)
+    vertexcoords = np.asarray(vertexcoords, dtype=PETSc.RealType)
     if reorder is None:
         reorder = parameters["reorder_meshes"]
     gdim = mesh.geometric_dimension()
@@ -3578,7 +3578,7 @@ def _pic_swarm_in_mesh(
         parent_mesh.tolerance = tolerance
 
     # Check coords
-    coords = np.asarray(coords, dtype=RealType)
+    coords = np.asarray(coords, dtype=PETSc.RealType)
 
     plex = parent_mesh.topology.topology_dm
     tdim = parent_mesh.topological_dimension()
@@ -4094,10 +4094,10 @@ def _parent_mesh_embedding(
         ncoords_local = coords_local.shape[0]
         coords_global = coords_local
         ncoords_global = coords_global.shape[0]
-        global_idxs_global = np.arange(coords_global.shape[0])
+        global_idxs_global = np.arange(coords_global.shape[0], dtype=IntType)
         input_coords_idxs_local = np.arange(ncoords_local)
         input_coords_idxs_global = input_coords_idxs_local
-        input_ranks_local = np.zeros(ncoords_local, dtype=int)
+        input_ranks_local = np.zeros(ncoords_local, dtype=IntType)
         input_ranks_global = input_ranks_local
     else:
         # Here, we have to assume that all points we can see are unique.
@@ -4113,7 +4113,7 @@ def _parent_mesh_embedding(
         # The below code looks complicated but it's just an allgather of the
         # (variable length) coords_local array such that they are concatenated.
         coords_local_size = np.array(coords_local.size)
-        coords_local_sizes = np.empty(parent_mesh._comm.size, dtype=int)
+        coords_local_sizes = np.empty(parent_mesh._comm.size, dtype=IntType)
         parent_mesh._comm.Allgatherv(coords_local_size, coords_local_sizes)
         coords_global = np.empty(
             (ncoords_global, coords.shape[1]), dtype=coords_local.dtype
@@ -4127,12 +4127,12 @@ def _parent_mesh_embedding(
         # global_idxs_global = np.arange(startidx, endidx)
         global_idxs_global = np.arange(coords_global.shape[0])
         input_coords_idxs_local = np.arange(ncoords_local)
-        input_coords_idxs_global = np.empty(ncoords_global, dtype=int)
+        input_coords_idxs_global = np.empty(ncoords_global, dtype=IntType)
         parent_mesh._comm.Allgatherv(
             input_coords_idxs_local, (input_coords_idxs_global, ncoords_local_allranks)
         )
-        input_ranks_local = np.full(ncoords_local, parent_mesh._comm.rank, dtype=int)
-        input_ranks_global = np.empty(ncoords_global, dtype=int)
+        input_ranks_local = np.full(ncoords_local, parent_mesh._comm.rank, dtype=IntType)
+        input_ranks_global = np.empty(ncoords_global, dtype=IntType)
         parent_mesh._comm.Allgatherv(
             input_ranks_local, (input_ranks_global, ncoords_local_allranks)
         )
@@ -4222,7 +4222,7 @@ def _parent_mesh_embedding(
     # point.
     changed_ranks_tied = changed_ranks & ~changed_ref_cell_dists_l1
     if any(changed_ranks_tied):
-        cells_ignore_T = np.asarray([np.copy(parent_cell_nums)])
+        cells_ignore_T = np.asarray([np.copy(parent_cell_nums)], dtype=IntType)
         while any(changed_ranks_tied):
             (
                 parent_cell_nums[changed_ranks_tied],
@@ -4347,8 +4347,8 @@ def _swarm_original_ordering_preserve(
         (plex_parent_cell_nums_global, ncoords_local_allranks),
     )
 
-    reference_coords_local_size = np.array(reference_coords_local.size)
-    reference_coords_local_sizes = np.empty(comm.size, dtype=int)
+    reference_coords_local_size = np.array(reference_coords_local.size, dtype=IntType)
+    reference_coords_local_sizes = np.empty(comm.size, dtype=IntType)
     comm.Allgatherv(reference_coords_local_size, reference_coords_local_sizes)
     reference_coords_global = np.empty(
         (ncoords_global, reference_coords_local.shape[1]),

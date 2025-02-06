@@ -160,8 +160,8 @@ def intersection_finder(mesh_A, mesh_B):
 
     libsupermesh_tree_intersection_finder_query_output(&nindices)
 
-    indices = numpy.empty((nindices,), dtype=int)
-    indptr  = numpy.empty((mesh_A.num_cells() + 1,), dtype=int)
+    indices = numpy.empty((nindices,), dtype=IntType)
+    indptr  = numpy.empty((mesh_A.num_cells() + 1,), dtype=IntType)
 
     libsupermesh_tree_intersection_finder_get_output(&ncells_A, &nindices, <long*>indices.data, <long*>indptr.data)
 
