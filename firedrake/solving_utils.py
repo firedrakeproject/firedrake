@@ -236,7 +236,6 @@ class _SNESContext(object):
                 # Drop existing lifting term from the residual
                 assert isinstance(self.F, ufl.BaseForm)
                 self.F = ufl.replace(self.F, {self._x: ufl.zero(self._x.ufl_shape)})
-
             A = self.J
             if isinstance(A, MatrixBase) and A.has_bcs:
                 A = A.a
@@ -325,7 +324,7 @@ class _SNESContext(object):
 
     @PETSc.Log.EventDecorator()
     def split(self, fields):
-        from firedrake import replace, as_vector, split
+        from firedrake import replace, as_vector, split, zero
         from firedrake import NonlinearVariationalProblem as NLVP
         from firedrake.bcs import DirichletBC, EquationBC
         fields = tuple(tuple(f) for f in fields)
@@ -381,10 +380,13 @@ class _SNESContext(object):
             # coefficients in the new form.
             u = as_vector(vec)
             J = replace(J, {problem.u_restrict: u})
-            if problem.is_linear:
-                # Drop existing lifting term from the residual
-                F = replace(F, {problem.u_restrict: ufl.zero(problem.u_restrict.ufl_shape)})
-                F = F - action(J, subu)
+            if problem.is_linear and isinstance(J, MatrixBase):
+                # The BC lifting term is action(MatrixBase, u).
+                # We cannot replace u with the split solution, as action expects a Function.
+                # We drop the existing lifting term from the residual
+                # and compute a fully decoupled lifting term with the split J.
+                F = replace(F, {problem.u_restrict: zero(problem.u_restrict.ufl_shape)})
+                F += action(J, subu)
             else:
                 F = replace(F, {problem.u_restrict: u})
             if problem.Jp is not None:
