@@ -375,7 +375,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
             if len(L.arguments()) != 1 and not L.empty():
                 raise ValueError("Provided RHS is not a linear form")
             A = J
-            if isinstance(A, MatrixBase):
+            if isinstance(A, MatrixBase) and A.has_bcs:
                 A = A.a
             if isinstance(A, slate.slate.TensorBase):
                 L = slate.slate.as_slate(L)

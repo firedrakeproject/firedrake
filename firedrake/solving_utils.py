@@ -238,7 +238,7 @@ class _SNESContext(object):
                 self.F = ufl.replace(self.F, {self._x: ufl.zero(self._x.ufl_shape)})
 
             A = self.J
-            if isinstance(A, MatrixBase):
+            if isinstance(A, MatrixBase) and A.has_bcs:
                 A = A.a
             if isinstance(A, slate.slate.TensorBase):
                 self.F = slate.slate.as_slate(self.F)
