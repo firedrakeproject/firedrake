@@ -609,14 +609,14 @@ def closure_ordering(mesh, closure_data):
     CHKERR(PetscMalloc1(nverts_per_cell, &facet_verts))
 
     # Must call this before loop collectively.
-    mesh._global_vertex_numbering
+    mesh._global_numbering
 
     closure_data_reord = np.empty_like(closure_data)
     for cell in range(*dm.getHeightStratum(0)):
         # 1. Order vertices
         for vi, vert in enumerate(closure_data[cell, vert_offset:]):
             verts[vi] = vert
-            global_verts[vi] = mesh._global_vertex_numbering.getOffset(vert)
+            global_verts[vi] = mesh._global_numbering[vert]
 
         # Sort vertices by their global number
         CHKERR(PetscSortIntWithArray(nverts_per_cell, global_verts, verts))

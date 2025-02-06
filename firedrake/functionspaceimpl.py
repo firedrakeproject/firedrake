@@ -673,10 +673,9 @@ class FunctionSpace:
         dm.setGlobalVector(self.template_vec)
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level,
-                             sf=self.mesh().topology_dm.getPointSF(),
-                             section=dm.getGlobalSection())
+                             sf=self.mesh().topology_dm.getPointSF())
         # Remember the function space so we can get from DM back to FunctionSpace.
-        dmhooks.set_function_space(dm, self)
+        # dmhooks.set_function_space(dm, self)
         return dm
 
     @utils.cached_property
@@ -754,6 +753,7 @@ class FunctionSpace:
             for pt in range(*dm.getDepthStratum(dim)):
                 section.setDof(pt, ndofs)
         section.setUp()
+
         return section
 
     # TODO: This is identical to value_size, remove
@@ -1400,7 +1400,8 @@ class MixedFunctionSpace(object):
         from firedrake.mg.utils import get_level
 
         dm = PETSc.DMShell().create(comm=self.comm)
-        # dm.setLocalSection(self.local_section)
+        breakpoint()
+        dm.setLocalSection(self.local_section)
         dm.setGlobalVector(self.template_vec)
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level)
