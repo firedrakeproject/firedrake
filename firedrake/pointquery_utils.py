@@ -149,10 +149,10 @@ def to_reference_coords_newton_step(ufl_coordinate_element, parameters, x0_dtype
     x0_expr = builder._coefficient(x0, "x0")
     loopy_args = [
         lp.GlobalArg(
-            "C", dtype=ScalarType, shape=(numpy.prod(Cexpr.shape, dtype=int),)
+            "C", dtype=ScalarType, shape=(numpy.prod(Cexpr.shape, dtype=IntType),)
         ),
         lp.GlobalArg(
-            "x0", dtype=x0_dtype, shape=(numpy.prod(x0_expr.shape, dtype=int),)
+            "x0", dtype=x0_dtype, shape=(numpy.prod(x0_expr.shape, dtype=IntType),)
         ),
     ]
 
