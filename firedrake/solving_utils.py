@@ -233,7 +233,7 @@ class _SNESContext(object):
             # Delayed lifting of DirichletBCs
             self._bc_residual = Function(self._x.function_space())
             if problem.is_linear:
-                # Drop existing lifting term from the resiudal
+                # Drop existing lifting term from the residual
                 assert isinstance(self.F, ufl.BaseForm)
                 self.F = ufl.replace(self.F, {self._x: ufl.zero(self._x.ufl_shape)})
 
@@ -380,8 +380,13 @@ class _SNESContext(object):
             # solving for, and some spaces that have just become
             # coefficients in the new form.
             u = as_vector(vec)
-            F = replace(F, {problem.u_restrict: u})
             J = replace(J, {problem.u_restrict: u})
+            if problem.is_linear:
+                # Drop existing lifting term from the residual
+                F = replace(F, {problem.u_restrict: ufl.zero(problem.u_restrict.ufl_shape)})
+                F = F - action(J, subu)
+            else:
+                F = replace(F, {problem.u_restrict: u})
             if problem.Jp is not None:
                 Jp = splitter.split(problem.Jp, argument_indices=(field, field))
                 Jp = replace(Jp, {problem.u_restrict: u})
