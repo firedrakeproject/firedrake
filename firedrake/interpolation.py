@@ -877,7 +877,12 @@ class SameMeshInterpolator(Interpolator):
                 V = self.V
             result = output or firedrake.Function(V)
             with function.dat.vec_ro as x, result.dat.vec_wo as out:
-                mul(x, out)
+                if x is not out:
+                    mul(x, out)
+                else:
+                    out_ = out.duplicate()
+                    mul(x, out_)
+                    out_.copy(result=out)
             return result
 
         else:
@@ -1009,9 +1014,9 @@ def make_interpolator(expr, V, subset, access, bcs=None):
         # Make sure we have an expression of the right length i.e. a value for
         # each component in the value shape of each function space
         loops = []
-        if numpy.prod(expr.ufl_shape, dtype=int) != V.value_size:
+        if numpy.prod(expr.ufl_shape, dtype=PETSc.IntType) != V.value_size:
             raise RuntimeError('Expression of length %d required, got length %d'
-                               % (V.value_size, numpy.prod(expr.ufl_shape, dtype=int)))
+                               % (V.value_size, numpy.prod(expr.ufl_shape, dtype=PETSc.intType)))
 
         if len(V) == 1:
             loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))

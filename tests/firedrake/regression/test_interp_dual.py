@@ -35,6 +35,26 @@ def f1(mesh, V1):
     return Function(V1).interpolate(expr)
 
 
+def test_interp_self(V1):
+    a = assemble(conj(TestFunction(V1)) * dx)
+    b = assemble(conj(TestFunction(V1)) * dx)
+    a.interpolate(a)
+    assert np.allclose(a.dat.data_ro, b.dat.data_ro)
+
+
+def test_assemble_interp_adjoint_tensor(mesh, V1, f1):
+    a = assemble(conj(TestFunction(V1)) * dx)
+    # We want tensor to be a dependency of the input expression for this test
+    assemble(Interpolator(f1 * TestFunction(V1), V1).interpolate(a, adjoint=True),
+             tensor=a)
+
+    x, y = SpatialCoordinate(mesh)
+    f2 = Function(V1, name="f2").interpolate(
+        exp(x) * y)
+
+    assert np.allclose(assemble(a(f2)), assemble(Function(V1).interpolate(conj(f1 * f2)) * dx))
+
+
 def test_assemble_interp_operator(V2, f1):
     # Check type
     If1 = Interpolate(f1, V2)
@@ -106,7 +126,7 @@ def test_assemble_interp_adjoint_complex(mesh, V1, V2, f1):
         f1 = Constant(3 - 5.j) * f1
 
     a = assemble(conj(TestFunction(V1)) * dx)
-    b = Interpolator(f1 * TestFunction(V2), V1).interpolate(a, adjoint=True)
+    b = assemble(Interpolator(f1 * TestFunction(V2), V1).interpolate(a, adjoint=True))
 
     x, y = SpatialCoordinate(mesh)
     f2 = Function(V2, name="f2").interpolate(
