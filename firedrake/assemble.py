@@ -83,7 +83,7 @@ def assemble(expr, *args, **kwargs):
     zero_bc_nodes : bool
         If `True`, set the boundary condition nodes in the
         output tensor to zero rather than to the values prescribed by the
-        boundary condition. Default is `False`.
+        boundary condition. Default is `True`.
     diagonal : bool
         If assembling a matrix is it diagonal?
     weight : float
@@ -143,7 +143,6 @@ def get_assembler(form, *args, **kwargs):
 
     """
     is_base_form_preprocessed = kwargs.pop('is_base_form_preprocessed', False)
-    bcs = kwargs.get('bcs', None)
     fc_params = kwargs.get('form_compiler_parameters', None)
     if isinstance(form, ufl.form.BaseForm) and not is_base_form_preprocessed:
         mat_type = kwargs.get('mat_type', None)
@@ -155,8 +154,13 @@ def get_assembler(form, *args, **kwargs):
         if len(form.arguments()) == 0:
             return ZeroFormAssembler(form, form_compiler_parameters=fc_params)
         elif len(form.arguments()) == 1 or diagonal:
-            return OneFormAssembler(form, *args, bcs=bcs, form_compiler_parameters=fc_params, needs_zeroing=kwargs.get('needs_zeroing', True),
-                                    zero_bc_nodes=kwargs.get('zero_bc_nodes', False), diagonal=diagonal)
+            return OneFormAssembler(form, *args,
+                                    bcs=kwargs.get("bcs", None),
+                                    form_compiler_parameters=fc_params,
+                                    needs_zeroing=kwargs.get("needs_zeroing", True),
+                                    zero_bc_nodes=kwargs.get("zero_bc_nodes", True),
+                                    diagonal=diagonal,
+                                    weight=kwargs.get("weight", 1.0))
         elif len(form.arguments()) == 2:
             return TwoFormAssembler(form, *args, **kwargs)
         else:
@@ -308,7 +312,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                  sub_mat_type=None,
                  options_prefix=None,
                  appctx=None,
-                 zero_bc_nodes=False,
+                 zero_bc_nodes=True,
                  diagonal=False,
                  weight=1.0,
                  allocation_integral_types=None):
@@ -381,6 +385,12 @@ class BaseFormAssembler(AbstractFormAssembler):
         visited = {}
         result = BaseFormAssembler.base_form_postorder_traversal(self._form, visitor, visited)
 
+        # Apply BCs after assembly
+        rank = len(self._form.arguments())
+        if rank == 1 and not isinstance(result, ufl.ZeroBaseForm):
+            for bc in self._bcs:
+                bc.zero(result)
+
         if tensor:
             BaseFormAssembler.update_tensor(result, tensor)
             return tensor
@@ -405,8 +415,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             if rank == 0:
                 assembler = ZeroFormAssembler(form, form_compiler_parameters=self._form_compiler_params)
             elif rank == 1 or (rank == 2 and self._diagonal):
-                assembler = OneFormAssembler(form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
-                                             zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal)
+                assembler = OneFormAssembler(form, form_compiler_parameters=self._form_compiler_params,
+                                             zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal, weight=self._weight)
             elif rank == 2:
                 assembler = TwoFormAssembler(form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
                                              mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
@@ -542,7 +552,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # Assembling the action of the Jacobian adjoint.
                 if is_adjoint:
                     output = tensor or firedrake.Cofunction(arg_expression[0].function_space().dual())
-                    return interpolator._interpolate(v, output=output, transpose=True, default_missing_val=default_missing_val)
+                    return interpolator._interpolate(v, output=output, adjoint=True, default_missing_val=default_missing_val)
                 # Assembling the Jacobian action.
                 if interpolator.nargs:
                     return interpolator._interpolate(expression, output=tensor, default_missing_val=default_missing_val)
@@ -577,10 +587,15 @@ class BaseFormAssembler(AbstractFormAssembler):
     @staticmethod
     def update_tensor(assembled_base_form, tensor):
         if isinstance(tensor, (firedrake.Function, firedrake.Cofunction)):
-            assembled_base_form.dat.copy(tensor.dat)
+            if isinstance(assembled_base_form, ufl.ZeroBaseForm):
+                tensor.dat.zero()
+            else:
+                assembled_base_form.dat.copy(tensor.dat)
         elif isinstance(tensor, matrix.MatrixBase):
-            # Uses the PETSc copy method.
-            assembled_base_form.petscmat.copy(tensor.petscmat)
+            if isinstance(assembled_base_form, ufl.ZeroBaseForm):
+                tensor.petscmat.zeroEntries()
+            else:
+                assembled_base_form.petscmat.copy(tensor.petscmat)
         else:
             raise NotImplementedError("Cannot update tensor of type %s" % type(tensor))
 
@@ -807,9 +822,9 @@ class BaseFormAssembler(AbstractFormAssembler):
             return ufl.action(expr, ustar)
 
         # -- Case (6) -- #
-        if isinstance(expr, ufl.FormSum) and all(isinstance(c, ufl.core.base_form_operator.BaseFormOperator) for c in expr.components()):
-            # Return ufl.Sum
-            return sum([c for c in expr.components()])
+        if isinstance(expr, ufl.FormSum) and all(ufl.duals.is_dual(a.function_space()) for a in expr.arguments()):
+            # Return ufl.Sum if we are assembling a FormSum with Coarguments (a primal expression)
+            return sum(w*c for w, c in zip(expr.weights(), expr.components()))
         return expr
 
     @staticmethod
@@ -1019,7 +1034,7 @@ class ParloopFormAssembler(FormAssembler):
                     self._bcs,
                     local_kernel,
                     subdomain_id,
-                    self.all_integer_subdomain_ids,
+                    self.all_integer_subdomain_ids[local_kernel.indices],
                     diagonal=self.diagonal,
                 )
                 pyop2_tensor = self._as_pyop2_type(tensor, local_kernel.indices)
@@ -1073,9 +1088,14 @@ class ParloopFormAssembler(FormAssembler):
 
     @cached_property
     def all_integer_subdomain_ids(self):
-        return tsfc_interface.gather_integer_subdomain_ids(
-            {k for k, _ in self.local_kernels}
-        )
+        """Return a dict mapping local_kernel.indices to all integer subdomain ids."""
+        all_indices = {k.indices for k, _ in self.local_kernels}
+        return {
+            i: tsfc_interface.gather_integer_subdomain_ids(
+                {k for k, _ in self.local_kernels if k.indices == i}
+            )
+            for i in all_indices
+        }
 
     @abc.abstractmethod
     def result(self, tensor):
@@ -1138,7 +1158,7 @@ class OneFormAssembler(ParloopFormAssembler):
 
     Parameters
     ----------
-    form : ufl.Form or slate.TensorBasehe
+    form : ufl.Form or slate.TensorBase
         1-form.
 
     Notes
@@ -1149,14 +1169,15 @@ class OneFormAssembler(ParloopFormAssembler):
 
     @classmethod
     def _cache_key(cls, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
-                   zero_bc_nodes=False, diagonal=False):
+                   zero_bc_nodes=True, diagonal=False, weight=1.0):
         bcs = solving._extract_bcs(bcs)
-        return tuple(bcs), tuplify(form_compiler_parameters), needs_zeroing, zero_bc_nodes, diagonal
+        return tuple(bcs), tuplify(form_compiler_parameters), needs_zeroing, zero_bc_nodes, diagonal, weight
 
     @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
-                 zero_bc_nodes=False, diagonal=False):
+                 zero_bc_nodes=True, diagonal=False, weight=1.0):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=needs_zeroing)
+        self._weight = weight
         self._diagonal = diagonal
         self._zero_bc_nodes = zero_bc_nodes
         if self._diagonal and any(isinstance(bc, EquationBCSplit) for bc in self._bcs):
@@ -1185,23 +1206,21 @@ class OneFormAssembler(ParloopFormAssembler):
         elif isinstance(bc, EquationBCSplit):
             bc.zero(tensor)
             type(self)(bc.f, bcs=bc.bcs, form_compiler_parameters=self._form_compiler_params, needs_zeroing=False,
-                       zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal).assemble(tensor=tensor)
+                       zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal, weight=self._weight).assemble(tensor=tensor)
         else:
             raise AssertionError
 
     def _apply_dirichlet_bc(self, tensor, bc):
-        if not self._zero_bc_nodes:
-            tensor_func = tensor.riesz_representation(riesz_map="l2")
-            if self._diagonal:
-                bc.set(tensor_func, 1)
-            else:
-                bc.apply(tensor_func)
-            tensor.assign(tensor_func.riesz_representation(riesz_map="l2"))
+        if self._diagonal:
+            bc.set(tensor, self._weight)
+        elif not self._zero_bc_nodes:
+            # NOTE this only works if tensor is a Function and not a Cofunction
+            bc.apply(tensor)
         else:
             bc.zero(tensor)
 
     def _check_tensor(self, tensor):
-        if tensor.function_space() != self._form.arguments()[0].function_space():
+        if tensor.function_space() != self._form.arguments()[0].function_space().dual():
             raise ValueError("Form's argument does not match provided result tensor")
 
     @staticmethod
@@ -1357,7 +1376,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     i, j = local_kernel.indices
                     mesh = all_meshes[local_kernel.kinfo.domain_number]  # integration domain
                     integral_type = local_kernel.kinfo.integral_type
-                    all_subdomain_ids = assembler.all_integer_subdomain_ids
+                    all_subdomain_ids = assembler.all_integer_subdomain_ids[local_kernel.indices]
                     # Make Sparsity independent of the subdomain of integration for better reusability;
                     # subdomain_id is passed here only to determine the integration_type on the target domain
                     # (see ``entity_node_map``).
@@ -2127,14 +2146,13 @@ class _FormHandler:
 
     @staticmethod
     def iter_constants(form, kinfo):
-        """Yield the form constants"""
+        """Yield the form constants referenced in ``kinfo``."""
         if isinstance(form, slate.TensorBase):
-            for const in form.constants():
-                yield const
+            all_constants = form.constants()
         else:
             all_constants = extract_firedrake_constants(form)
-            for constant_index in kinfo.constant_numbers:
-                yield all_constants[constant_index]
+        for constant_index in kinfo.constant_numbers:
+            yield all_constants[constant_index]
 
     @staticmethod
     def index_function_spaces(form, indices):

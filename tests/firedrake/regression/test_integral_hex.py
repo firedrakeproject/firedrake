@@ -53,3 +53,42 @@ def test_integral_hex_interior_facet_solve(mesh_from_file):
     solve(a == L, sol, bcs=[bc])
     err = assemble((sol - f)**2 * dx)**0.5
     assert err < 1.e-14
+
+
+def make_nonuniform_box_mesh():
+    mesh = BoxMesh(2, 1, 1, 2., 1., 1., hexahedral=True)
+    coordV = mesh.coordinates.function_space()
+    coords = Function(coordV).assign(mesh.coordinates)
+    bc = DirichletBC(coordV.sub(0), 3., 2)
+    bc.apply(coords)
+    return Mesh(coords)
+
+
+@pytest.mark.parametrize('GQ_expected', [(CellSize, sqrt(6.)),
+                                         (CellVolume, 2.),
+                                         (FacetArea, 1.)])
+def test_integral_hex_interior_facet_geometric_quantities(GQ_expected):
+    GQ, expected = GQ_expected
+    mesh = make_nonuniform_box_mesh()
+    x, y, z = SpatialCoordinate(mesh)
+    e = y('+') * z('-')**2
+    E = assemble(e * dS)
+    assert abs(E - 1. / 6.) < 1.e-14
+    a = GQ(mesh)('-')
+    A = assemble(a * dS)
+    assert abs(A - expected) < 1.e-14
+    EA = assemble(e * a * dS)
+    assert abs(EA - E * A) < 1.e-14
+
+
+def test_integral_hex_interior_facet_facet_avg():
+    mesh = make_nonuniform_box_mesh()
+    x, y, z = SpatialCoordinate(mesh)
+    e = y('+') * z('-')**2
+    E = assemble(e * dS)
+    assert abs(E - 1. / 6.) < 1.e-14
+    a = facet_avg(y('-')**3 * z('+')**4)
+    A = assemble(a * dS)
+    assert abs(A - 1. / 20.) < 1.e-14
+    EA = assemble(e * a * dS)
+    assert abs(EA - E * A) < 1.e-14
