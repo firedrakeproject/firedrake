@@ -213,10 +213,10 @@ jobs:
     name: "Build Docker containers"
     # Only run on master, but always generate firedrake-env image,
     # even if build fails (see docker.yml)
-    if: always() && (github.ref == 'refs/heads/master')
-    needs: [test, docker_tag]
+    # if: always() && (github.ref == 'refs/heads/master')
+    # needs: [test, docker_tag]
     uses: ./.github/workflows/docker.yml
     with:
-      tag: ${{ needs.docker_tag.outputs.tag }}
-      status: ${{ needs.test.result }}
+      tag: pip
+      status: failure
     secrets: inherit

@@ -6,11 +6,15 @@ import subprocess
 
 
 DEFAULT_CONFIGURE_OPTIONS = (
+    "PETSC_ARCH=firedrake",
     "--with-c2html=0",
     "--with-debugging=0",
     "--with-fortran-bindings=0",
     "--with-shared-libraries=1",
     "--with-strict-petscerrorcode",
+    "--COPTFLAGS=-O3 -march=native -mtune=native",
+    "--CXXOPTFLAGS=-O3 -march=native -mtune=native",
+    "--FOPTFLAGS=-O3 -march=native -mtune=native",
 )
 
 EXTERNAL_PACKAGES = (
@@ -30,67 +34,41 @@ EXTERNAL_PACKAGES = (
     "zlib",
 )
 
+# NOTE: Only for amd64 architecture
 APT_INSTALLED_EXTERNAL_PACKAGES = {
-    "fftw": ("fftw-dev", "*/fftw.h", "*/libfftw.so"),
-    "hdf5": ("libhdf5-openmpi-dev", "*/hdf5.h", "*/libhdf5.so"),
-    "hwloc": ("libhwloc-dev", "*/hwloc.h", "*/libhwloc.so"),
-    "hypre": ("libhypre-dev", "*/HYPRE.h", "*/libHYPRE.so"),
-    "metis": ("libmetis-dev", "*/metis.h", "*/libmetis.so"),
-    # libmumps-dev does not include header files, that needs libmumps-headers-dev
-    "mumps": ("libmumps-dev", None, "*/libcmumps.so"),
-    "netcdf": ("libnetcdf-mpi-dev", "*/netcdf.h", "*/libnetcdf_mpi.so"),
-    "pnetcdf": ("libpnetcdf-dev", "*/pnetcdf.h", "*/libpnetcdf.so"),
-    "ptscotch": ("libptscotch-dev", "*/scotch/ptscotch.h", "*/libptscotch.so"),
-    "scalapack": ("libscalapack-openmpi-dev", None, "*/libscalapack-openmpi.so"),  # no header files
-    "suitesparse": ("libsuitesparse-dev", None, None),  # unclear
-    "superlu_dist": ("libsuperlu-dist-dev", "*/superlu_defs.h", "*/libsuperlu_dist.so"),
-    "zlib": ("zlib1g-dev", "*/zlib.h", "*/libz.so"),
+    "fftw": None,
+    "hdf5": ("/usr/include/hdf5/openmpi", "/usr/lib/x86_64-linux-gnu/hdf5/openmpi/libhdf5.a"),
+    "hwloc": None,
+    "hypre": ("/usr/include/hypre", "/usr/lib/x86_64-linux-gnu/libHYPRE.a"),
+    "zlib": None,
 }
 
 
-def sniff_package_file(package, pattern):
-    result = subprocess.run(f"dpkg -L {package}".split(), capture_output=True, text=True)
-
-    matching_files = fnmatch.filter(result.stdout.splitlines(), pattern) 
-
-    if not matching_files:
-        raise ValueError("No match found")
-    if len(matching_files) > 1:
-        raise ValueError("Multiple matches found")
-
-    return pathlib.Path(matching_files[0])
-
-
 package_manager = "apt"
-
 
 configure_options = list(DEFAULT_CONFIGURE_OPTIONS)
 
 if package_manager == "apt":
     for external_package in EXTERNAL_PACKAGES:
         if external_package in APT_INSTALLED_EXTERNAL_PACKAGES:
-            (apt_package, header, lib) = APT_INSTALLED_EXTERNAL_PACKAGES[external_package]
-
-            if header is None and lib is None:
-                # nothing to go, hope PETSc can figure it out
+            package_spec = APT_INSTALLED_EXTERNAL_PACKAGES[external_package]
+            if package_spec is None:
+                # PETSc will find the package for us
                 configure_options.append(f"--with-{external_package}")
             else:
-                if header is not None:
-                    header_path = sniff_package_file(apt_package, header)
-                    configure_options.append(f"--with-{external_package}-include={header_path.parent}")
-
-                if lib is not None:
-                    lib_path = sniff_package_file(apt_package, lib)
-                    configure_options.append(f"--with-{external_package}-lib={lib_path}")
+                # Have to provide paths for headers and libraries
+                (include_dir, lib) = package_spec
+                configure_options.append(f"--with-{external_package}-include={include_dir}")
+                configure_options.append(f"--with-{external_package}-lib={lib}")
         else:
+            # Package not provided by package manager, download it instead
             configure_options.append(f"--download-{external_package}")
 
-elif package_mangager == "homebrew"
-    ...
+elif package_manager == "homebrew":
+    raise NotImplementedError("TODO")
 else:
     assert package_manager is None
     for external_package in EXTERNAL_PACKAGES:
         configure_options.append(f"--download-{external_package}")
 
-
-print(configure_options)
+print(" ".join(configure_options), end="")
