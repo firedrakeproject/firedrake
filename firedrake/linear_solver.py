@@ -1,6 +1,5 @@
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
-from firedrake.vector import Vector
 from firedrake.matrix import MatrixBase
 from firedrake.petsc import PETSc
 from pyop2.mpi import internal_comm
