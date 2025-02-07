@@ -20,9 +20,9 @@ class MatrixBase(ufl.Matrix):
         :class:`MatrixBase`.  May be `None` if there are no boundary
         conditions to apply.
     :arg mat_type: matrix type of assembled matrix, or 'matfree' for matrix-free
-    :arg fc_params: a dict of form compiler parameters of this matrix
+    :kwarg fc_params: a dict of form compiler parameters of this matrix
     """
-    def __init__(self, a, bcs, mat_type, fc_params):
+    def __init__(self, a, bcs, mat_type, fc_params=None):
         if isinstance(a, tuple):
             self.a = None
             test, trial = a
@@ -127,7 +127,7 @@ class Matrix(MatrixBase):
     def __init__(self, a, bcs, mat_type, *args, **kwargs):
         # sets self.a, self.bcs, self.mat_type, and self.fc_params
         fc_params = kwargs.pop("fc_params", None)
-        MatrixBase.__init__(self, a, bcs, mat_type, fc_params)
+        MatrixBase.__init__(self, a, bcs, mat_type, fc_params=fc_params)
         options_prefix = kwargs.pop("options_prefix")
         self.M = op2.Mat(*args, mat_type=mat_type, **kwargs)
         self.petscmat = self.M.handle
@@ -203,7 +203,7 @@ class AssembledMatrix(MatrixBase):
     :arg petscmat: the already constructed petsc matrix this object represents.
     """
     def __init__(self, a, bcs, petscmat, *args, **kwargs):
-        super(AssembledMatrix, self).__init__(a, bcs, "assembled", None)
+        super(AssembledMatrix, self).__init__(a, bcs, "assembled")
 
         self.petscmat = petscmat
 

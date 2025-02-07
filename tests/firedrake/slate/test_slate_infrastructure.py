@@ -330,7 +330,7 @@ def test_ops_NotImplementedError():
     V = FunctionSpace(mesh, "DG", 0)
     u = TrialFunction(V)
     v = TestFunction(V)
-    f = Function(V)
+    f = Constant(1)
     A = Tensor(u * v * dx)
 
     with pytest.raises(NotImplementedError):
