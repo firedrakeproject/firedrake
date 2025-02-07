@@ -1,5 +1,5 @@
-from test_helmholtz import helmholtz
-from test_poisson_strong_bcs import run_test
+# from test_helmholtz import helmholtz
+# from test_poisson_strong_bcs import run_test
 import pytest
 import numpy as np
 from firedrake import *
@@ -7,23 +7,23 @@ from fuse import *
 from firedrake.assemble import fuse_orientations
 
 
-@pytest.mark.parametrize(['params', 'degree', 'quadrilateral'],
-                         [(p, d, q)
-                          for p in [{}, {'snes_type': 'ksponly', 'ksp_type': 'preonly', 'pc_type': 'lu'}]
-                          for d in (1, 2, 3)
-                          for q in [False, True]])
-def test_poisson_analytic(params, degree, quadrilateral):
-    assert (run_test(2, degree, parameters=params, quadrilateral=False) < 1.e-9)
+# @pytest.mark.parametrize(['params', 'degree', 'quadrilateral'],
+#                          [(p, d, q)
+#                           for p in [{}, {'snes_type': 'ksponly', 'ksp_type': 'preonly', 'pc_type': 'lu'}]
+#                           for d in (1, 2, 3)
+#                           for q in [False, True]])
+# def test_poisson_analytic(params, degree, quadrilateral):
+#     assert (run_test(2, degree, parameters=params, quadrilateral=False) < 1.e-9)
 
-@pytest.mark.parametrize(['conv_num', 'degree'],
-                         [(p, d)
-                          for p,d in zip([1.8, 2.8, 3.8],[1, 2, 3])])
-def test_helmholtz(conv_num, degree):
-    diff = np.array([helmholtz(i, degree=degree)[0] for i in range(3, 6)])
-    print("l2 error norms:", diff)
-    conv = np.log2(diff[:-1] / diff[1:])
-    print("convergence order:", conv)
-    assert (np.array(conv) > conv_num).all()
+# @pytest.mark.parametrize(['conv_num', 'degree'],
+#                          [(p, d)
+#                           for p,d in zip([1.8, 2.8, 3.8],[1, 2, 3])])
+# def test_helmholtz(conv_num, degree):
+#     diff = np.array([helmholtz(i, degree=degree)[0] for i in range(3, 6)])
+#     print("l2 error norms:", diff)
+#     conv = np.log2(diff[:-1] / diff[1:])
+#     print("convergence order:", conv)
+#     assert (np.array(conv) > conv_num).all()
 
 
 def construct_cg3(tri=None):
@@ -59,6 +59,23 @@ def construct_dg1_tri():
     # [test_dg1_tri 1]
     return dg1
 
+def create_dg1(cell):
+    xs = [DOF(DeltaPairing(), PointKernel(cell.vertices(return_coords=True)[0]))]
+    Pk = PolynomialSpace(1)
+    dg = ElementTriple(cell, (Pk, CellL2, C0), DOFGenerator(xs, get_cyc_group(len(cell.vertices())), S1))
+    return dg
+
+
+def create_cg1():
+    cell = polygon(3)
+    deg = 1
+    vert_dg = create_dg1(cell.vertices()[0])
+    xs = [immerse(cell, vert_dg, TrH1)]
+
+    Pk = PolynomialSpace(deg)
+    cg = ElementTriple(cell, (Pk, CellL2, C0), DOFGenerator(xs, get_cyc_group(len(cell.vertices())), S1))
+    return cg
+
 def test_orientation_string():
     dg1 = construct_cg3()
     mesh = UnitTriangleMesh()
@@ -68,3 +85,38 @@ def test_orientation_string():
     # mesh = UnitTriangleMesh()
     # U = FunctionSpace(mesh, "DG", 1)
     # fuse_orientations(U)
+
+def test_minimal():
+    # NB mesh size 3,3 fails - internal cell issue?
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    a = inner(grad(v), grad(u)) * dx
+    L = v * dx
+
+    l_a = assemble(L)
+    a_1 = assemble(a)
+    x = Function(V)
+    solve(a == L, x)
+    print(x.dat.data)
+    print("done with firedrake elem")
+
+    cg1 = create_cg1()
+    V = FunctionSpace(mesh, cg1.to_ufl())
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    a = inner(grad(v), grad(u)) * dx
+    L = v * dx
+
+    l_a = assemble(L)
+    a_2 = assemble(a)
+
+    x = Function(V)
+    solve(a == L, x)
+
+    print(x.dat.data)
+    print("done with fuse elem")

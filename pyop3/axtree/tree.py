@@ -1331,7 +1331,7 @@ class AxisTree(MutableLabelledTreeMixin, BaseAxisTree):
     @cached_property
     def sf(self) -> StarForest:
         from pyop3.axtree.parallel import collect_sf_graphs
-        breakpoint()
+        # breakpoint()
 
         # for now
         # NOTE: what is global_size used for? very confusing name

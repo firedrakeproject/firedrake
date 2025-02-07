@@ -2098,11 +2098,13 @@ class _FormHandler:
 
 def fuse_orientations(fs):
     if hasattr(fs.ufl_element(), "triple"):
+        print(type(fs.ufl_element().triple))
         os = fs.ufl_element().triple.matrices
         t_dim = fs.ufl_element().cell._tdim
         mats = [(f"mat{i}", os[t_dim][0][i]) for i in os[t_dim][0].keys()]
         # print(construct_assign(os[fs.ufl_element().cell._tdim][0]))
-        construct_string(os[t_dim][0], [4, 5, 6], 0)
+        # construct_string(os[t_dim][0], [4, 5, 6], 0)
+        construct_assign_loopy(os[t_dim][0])
     else:
         raise NotImplementedError("Dense orientations only needed for FUSE elements")
 
@@ -2118,13 +2120,67 @@ def construct_assign(os, string=[]):
             array_vals = ",".join(["0" if numpy.isclose(0, x) else str(x) for x in list(os[val].flatten())])
             string += f"double mat{val}[{dim}][{dim}] = {{ {array_vals} }};\n"
     # start of switch statement
-    string += f"int m={dim};\nswitch (c) {{ \n"
-    
+    string += matrix_switch_statement(os)
+
+    return "".join(string)
+
+def matrix_switch_statement(os):
+    string = []
+    dim = os[0].shape[0]
+    string += f"int m={dim};\nswitch (orientation) {{ \n"
     for val in os.keys():
-            string += f"case {val}:\n matmul(m, mat{val}, b, res);break;\n"
+            # string += f"case {val}:\n matmul(m, mat{val}, input, output);break;\n"
+            string += f"case {val}:\n output[:] = gemv(mat{val}[:, :], input[:]);break;\n"
     string += "default:\nbreak;\n }\n}"
 
     return "".join(string)
+
+class CBLASGEMV(lp.ScalarCallable):
+
+    def emit_call_insn(self, insn, target, expression_to_code_mapper):
+        from pymbolic import var
+        mat_descr = self.arg_id_to_descr[0]
+        m, n = mat_descr.shape
+        ecm = expression_to_code_mapper
+        mat, vec = insn.expression.parameters
+        result, = insn.assignees
+
+        c_parameters = [var("CblasRowMajor"),
+                        var("CblasNoTrans"),
+                        m, n,
+                        1,
+                        ecm(mat).expr,
+                        m,
+                        ecm(vec).expr,
+                        1,
+                        1,
+                        ecm(result).expr,
+                        1]
+        return (var(self.name_in_target)(*c_parameters),
+                False  # cblas_gemv does not return anything
+                )
+
+    def generate_preambles(self, target):
+        assert isinstance(target, CTarget)
+        yield ("99_cblas", "#include <cblas.h>")
+        return
+
+def construct_assign_loopy(os):
+        transform_insn = lp.CInstruction(tuple(), matrix_switch_statement(os))
+        dim = os[0].shape[0]
+        args = [lp.GlobalArg("input", dtype=numpy.float32, shape=(dim, )), lp.GlobalArg("output", dtype=numpy.dtype(numpy.float32)),
+                lp.GlobalArg("orientation", dtype=numpy.uint8)]
+        for val in os.keys():
+            args += [lp.TemporaryVariable(f"mat{val}", initializer=os[val], read_only=True)]
+        loopy_knl = lp.make_kernel(
+            domains = "{:}",
+            instructions = [transform_insn],
+            kernel_data=args,
+            target=lp.CTarget())
+        loopy_knl = lp.register_callable(loopy_knl, "gemv", CBLASGEMV(name="gemv"))
+        # breakpoint()
+        print(lp.generate_code_v2(loopy_knl).device_code())
+        print(loopy_knl)
         
 def construct_string(os, dofs, c):
     # for testing - makes it into a full c program
