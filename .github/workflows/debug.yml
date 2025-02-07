@@ -1,0 +1,15 @@
+name: DEBUGGING
+
+on:
+  pull_request:
+
+jobs:
+  debug:
+    name: "DEBUGGING"
+    runs-on: [self-hosted, Linux]
+    container:
+      image: firedrakeproject/firedrake-env:latest
+    steps:
+      - name: Check UID/GID
+        run: id
+      - uses: actions/checkout@v4
