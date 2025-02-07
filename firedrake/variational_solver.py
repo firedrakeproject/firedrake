@@ -191,8 +191,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                before residual assembly.
         :kwarg post_function_callback: As above, but called immediately
                after residual assembly.
-        :kwarg pre_apply_bcs: If `False`, the problem is linearised
-               around the initial guess before imposing the boundary conditions.
+        :kwarg pre_apply_bcs: If `True`, the bcs are applied before the solve.
+               Otherwise, the problem is linearised around the initial guess
+               before imposing bcs, and the bcs are appended to the nonlinear system.
 
         Example usage of the ``solver_parameters`` option: to set the
         nonlinear solver type to just use a linear solver, use
@@ -418,6 +419,8 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
            before residual assembly.
     :kwarg post_function_callback: As above, but called immediately
            after residual assembly.
+    :kwarg pre_apply_bcs: If `True`, the bcs are applied before the solve.
+           Otherwise, the bcs are included as part of the linear system.
 
     See also :class:`NonlinearVariationalSolver` for nonlinear problems.
     """

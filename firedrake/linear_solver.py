@@ -8,7 +8,7 @@ from firedrake.variational_solver import LinearVariationalProblem, LinearVariati
 __all__ = ["LinearSolver"]
 
 
-class LinearSolver:
+class LinearSolver(LinearVariationalSolver):
 
     @PETSc.Log.EventDecorator()
     def __init__(self, A, *, P=None, **kwargs):
@@ -18,7 +18,7 @@ class LinearSolver:
         :arg P: an optional :class:`~.MatrixBase` to construct any
              preconditioner from; if none is supplied ``A`` is
              used to construct the preconditioner.
-        :kwarg parameters: (optional) dict of solver parameters.
+        :kwarg solver_parameters: (optional) dict of solver parameters.
         :kwarg nullspace: an optional :class:`~.VectorSpaceBasis` (or
             :class:`~.MixedVectorSpaceBasis` spanning the null space
             of the operator.
@@ -31,8 +31,8 @@ class LinearSolver:
                created.  Use this option if you want to pass options
                to the solver from the command line in addition to
                through the ``solver_parameters`` dict.
-        :kwarg pre_apply_bcs: If `False`, the problem is linearised
-               around the initial guess before imposing the boundary conditions.
+        :kwarg pre_apply_bcs: If `True`, the bcs are applied before the solve.
+               Otherwise, the bcs are included as part of the linear system.
 
         .. note::
 
@@ -44,23 +44,19 @@ class LinearSolver:
         if P is not None and not isinstance(P, MatrixBase):
             raise TypeError("Provided preconditioner is a '%s', not a MatrixBase" % type(P).__name__)
 
-        test, trial = A.a.arguments()
-        x = Function(trial.function_space())
-        b = Cofunction(test.function_space().dual())
+        test, trial = A.arguments()
+        self.x = Function(trial.function_space())
+        self.b = Cofunction(test.function_space().dual())
 
-        problem = LinearVariationalProblem(A, b, x, bcs=A.bcs, aP=P)
-        solver = LinearVariationalSolver(problem, **kwargs)
-        self.b = b
-        self.x = x
-        self.solver = solver
+        problem = LinearVariationalProblem(A, self.b, self.x, bcs=A.bcs, aP=P)
+        LinearVariationalSolver.__init__(self, problem, **kwargs)
 
         self.A = A
         self.comm = A.comm
         self._comm = internal_comm(self.comm, self)
         self.P = P if P is not None else A
 
-        self.ksp = self.solver.snes.ksp
-        self.parameters = self.solver.parameters
+        self.ksp = self.snes.ksp
 
     @PETSc.Log.EventDecorator()
     def solve(self, x, b):
@@ -87,5 +83,5 @@ class LinearSolver:
 
         self.x.assign(x)
         self.b.assign(b)
-        self.solver.solve()
+        super().solve()
         x.assign(self.x)

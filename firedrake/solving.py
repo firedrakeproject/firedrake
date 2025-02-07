@@ -157,7 +157,7 @@ def _solve_varproblem(*args, **kwargs):
         options_prefix, restrict, pre_apply_bcs = _extract_args(*args, **kwargs)
 
     # Check whether solution is valid
-    if not isinstance(u, (function.Function, vector.Vector)):
+    if not isinstance(u, function.Function):
         raise TypeError(f"Provided solution is a '{type(u).__name__}', not a Function")
 
     if form_compiler_parameters is None:
@@ -238,10 +238,6 @@ def _la_solve(A, x, b, **kwargs):
     P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, \
         options_prefix, pre_apply_bcs = _extract_linear_solver_args(A, x, b, **kwargs)
 
-    # Check whether solution is valid
-    if not isinstance(x, (function.Function, vector.Vector)):
-        raise TypeError(f"Provided solution is a '{type(x).__name__}', not a Function")
-
     if bcs is not None:
         raise RuntimeError("It is no longer possible to apply or change boundary conditions after assembling the matrix `A`; pass any necessary boundary conditions to `assemble` when assembling `A`.")
 
@@ -250,25 +246,7 @@ def _la_solve(A, x, b, **kwargs):
                              transpose_nullspace=nullspace_T,
                              near_nullspace=near_nullspace,
                              options_prefix=options_prefix)
-    if isinstance(x, firedrake.Vector):
-        x = x.function
-    # linear MG doesn't need RHS, supply zero.
-    L = 0
-    aP = None if P is None else P.a
-    lvp = vs.LinearVariationalProblem(A.a, L, x, bcs=A.bcs, aP=aP)
-    mat_type = A.mat_type
-    pmat_type = mat_type if P is None else P.mat_type
-    appctx = solver_parameters.get("appctx", {})
-    ctx = solving_utils._SNESContext(lvp,
-                                     mat_type=mat_type,
-                                     pmat_type=pmat_type,
-                                     appctx=appctx,
-                                     options_prefix=options_prefix,
-                                     pre_apply_bcs=pre_apply_bcs)
-    dm = solver.ksp.dm
-
-    with dmhooks.add_hooks(dm, solver, appctx=ctx):
-        solver.solve(x, b)
+    solver.solve(x, b)
 
 
 def _extract_linear_solver_args(*args, **kwargs):

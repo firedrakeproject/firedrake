@@ -136,7 +136,7 @@ def test_linear_solves_equivalent():
 
     f = Function(V)
     f.assign(1)
-    f.vector()[:] = 1.
+    f.dat.data_wo[:] = 1.
     t = TestFunction(V)
     q = TrialFunction(V)
 
@@ -150,17 +150,12 @@ def test_linear_solves_equivalent():
     # And again
     sol2 = Function(V)
     solve(a == L, sol2)
-    assert np_norm(sol.vector()[:] - sol2.vector()[:]) == 0
+    assert np_norm(sol.dat.data_ro - sol2.dat.data_ro) == 0
 
     # Solve the system using preassembled objects
     sol3 = Function(V)
     solve(assemble(a), sol3, assemble(L))
-    assert np_norm(sol.vector()[:] - sol3.vector()[:]) < 5e-14
-
-    # Same, solving into vector
-    sol4 = sol3.vector()
-    solve(assemble(a), sol4, assemble(L))
-    assert np_norm(sol.vector()[:] - sol4[:]) < 5e-14
+    assert np_norm(sol.dat.data_ro - sol3.dat.data_ro) < 5e-14
 
 
 def test_linear_solver_flattens_params(a_L_out):
