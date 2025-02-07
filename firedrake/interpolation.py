@@ -877,7 +877,12 @@ class SameMeshInterpolator(Interpolator):
                 V = self.V
             result = output or firedrake.Function(V)
             with function.dat.vec_ro as x, result.dat.vec_wo as out:
-                mul(x, out)
+                if x is not out:
+                    mul(x, out)
+                else:
+                    out_ = out.duplicate()
+                    mul(x, out_)
+                    out_.copy(result=out)
             return result
 
         else:
