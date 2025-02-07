@@ -74,18 +74,22 @@ def Wlocal(ensemble, mesh):
             for i in range(offset, offset+nlocals)]
 
 
-function_type = ["EnsembleFunction", "EnsembleCofunction"]
+space_type = ["primal", "dual"]
 
 
-@pytest.fixture(params=function_type)
-def ensemblefunc(request, ensemble, Wlocal):
-    if request.param == 'EnsembleFunction':
-        return fd.EnsembleFunction(ensemble, Wlocal)
-    elif request.param == 'EnsembleCofunction':
-        Wduals = [W.dual() for W in Wlocal]
-        return fd.EnsembleCofunction(ensemble, Wduals)
+@pytest.fixture(params=space_type)
+def ensemblespace(request, ensemble, Wlocal):
+    if request.param == 'primal':
+        return fd.EnsembleFunctionSpace(Wlocal, ensemble)
+    elif request.param == 'dual':
+        return fd.EnsembleDualSpace([V.dual() for V in Wlocal], ensemble)
     else:
-        raise ValueError(f"Unknown ensemblefunc type {request.param}")
+        raise ValueError(f"Unknown function space type {request.param}")
+
+
+@pytest.fixture
+def ensemblefunc(ensemblespace):
+    return fd.EnsembleFunction(ensemblespace)
 
 
 @pytest.mark.parallel(nprocs=[1, 2, 4, 8])
@@ -117,11 +121,13 @@ def test_zero_with_subset(ensemblefunc):
     nonzero = 1
     assign_scalar(ensemblefunc, nonzero)
 
-    subsets = [Subset(functionspace.node_set, [0, 1])
-               for functionspace in ensemblefunc.local_function_spaces]
+    subsets = [None if type(V.ufl_element()) is fd.MixedElement else Subset(V.node_set, [0, 1])
+               for V in ensemblefunc.function_space().local_spaces]
 
     ensemblefunc.zero(subsets)
 
     for u, subset in zip(ensemblefunc.subfunctions, subsets):
+        if subset is None:
+            continue
         assert np.allclose(u.dat.data_ro[:2], 0), "EnsembleFunction.zero(subset) should zero the subset"
         assert np.allclose(u.dat.data_ro[2:], nonzero), "EnsembleFunction.zero(subset) should only modify the subset"
