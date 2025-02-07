@@ -150,7 +150,7 @@ jobs:
           firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake8_{#}.xml"
 
       - name: Test pyadjoint
-        if: matrix.scalar-type == 'real' && steps.build.conclusion == 'success'
+        if: (success() || steps.build.conclusion == 'success') && matrix.scalar-type == 'real'
         run: |
           . ../firedrake_venv/bin/activate
           cd ../firedrake_venv/src/pyadjoint
@@ -166,7 +166,7 @@ jobs:
 
       - name: Run Gusto smoke tests
         # NOTE: Unsure if Gusto is expected to work in complex mode
-        if: matrix.scalar-type == 'real' && steps.build.conclusion == 'success'
+        if: (success() || steps.build.conclusion == 'success') && matrix.scalar-type == 'real'
         run: |
           . ../firedrake_venv/bin/activate
           cd ../firedrake_venv/src/gusto
