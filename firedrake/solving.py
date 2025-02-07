@@ -22,10 +22,9 @@ __all__ = ["solve"]
 import ufl
 
 import firedrake.linear_solver as ls
-from firedrake.matrix import AssembledMatrix
+from firedrake.matrix import MatrixBase
 import firedrake.variational_solver as vs
-from firedrake import dmhooks, function, solving_utils, vector
-import firedrake
+from firedrake.function import Function
 from firedrake.adjoint_utils import annotate_solve
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
@@ -157,7 +156,7 @@ def _solve_varproblem(*args, **kwargs):
         options_prefix, restrict, pre_apply_bcs = _extract_args(*args, **kwargs)
 
     # Check whether solution is valid
-    if not isinstance(u, function.Function):
+    if not isinstance(u, Function):
         raise TypeError(f"Provided solution is a '{type(u).__name__}', not a Function")
 
     if form_compiler_parameters is None:
@@ -166,7 +165,7 @@ def _solve_varproblem(*args, **kwargs):
 
     appctx = kwargs.get("appctx", {})
     # Solve linear variational problem
-    if isinstance(eq.lhs, (ufl.Form, AssembledMatrix)) and isinstance(eq.rhs, ufl.BaseForm):
+    if isinstance(eq.lhs, (ufl.Form, MatrixBase)) and isinstance(eq.rhs, ufl.BaseForm):
         # Create problem
         problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
                                               form_compiler_parameters=form_compiler_parameters,
@@ -235,8 +234,9 @@ def _la_solve(A, x, b, **kwargs):
 
         _la_solve(A, x, b, solver_parameters=parameters_dict)."""
 
-    P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, \
-        options_prefix, pre_apply_bcs = _extract_linear_solver_args(A, x, b, **kwargs)
+    (P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace,
+     options_prefix, pre_apply_bcs, form_compiler_parameters,
+     ) = _extract_linear_solver_args(A, x, b, **kwargs)
 
     if bcs is not None:
         raise RuntimeError("It is no longer possible to apply or change boundary conditions after assembling the matrix `A`; pass any necessary boundary conditions to `assemble` when assembling `A`.")
@@ -245,13 +245,16 @@ def _la_solve(A, x, b, **kwargs):
                              nullspace=nullspace,
                              transpose_nullspace=nullspace_T,
                              near_nullspace=near_nullspace,
-                             options_prefix=options_prefix)
+                             options_prefix=options_prefix,
+                             pre_apply_bcs=pre_apply_bcs,
+                             form_compiler_parameters=form_compiler_parameters)
     solver.solve(x, b)
 
 
 def _extract_linear_solver_args(*args, **kwargs):
     valid_kwargs = ["P", "bcs", "solver_parameters", "nullspace",
-                    "transpose_nullspace", "near_nullspace", "options_prefix", "pre_apply_bcs"]
+                    "transpose_nullspace", "near_nullspace", "options_prefix",
+                    "pre_apply_bcs", "form_compiler_parameters"]
     if len(args) != 3:
         raise RuntimeError("Missing required arguments, expecting solve(A, x, b, **kwargs)")
 
@@ -268,8 +271,9 @@ def _extract_linear_solver_args(*args, **kwargs):
     near_nullspace = kwargs.get("near_nullspace", None)
     options_prefix = kwargs.get("options_prefix", None)
     pre_apply_bcs = kwargs.get("pre_apply_bcs", True)
+    form_compiler_parameters = kwargs.get("form_compiler_parameters", {})
 
-    return P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, options_prefix, pre_apply_bcs
+    return P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, options_prefix, pre_apply_bcs, form_compiler_parameters
 
 
 def _extract_args(*args, **kwargs):

@@ -33,6 +33,8 @@ class LinearSolver(LinearVariationalSolver):
                through the ``solver_parameters`` dict.
         :kwarg pre_apply_bcs: If `True`, the bcs are applied before the solve.
                Otherwise, the bcs are included as part of the linear system.
+        :kwarg form_compiler_parameters: (optional) dict of form compiler
+               parameters, only used to assemble the lifted residual.
 
         .. note::
 
@@ -48,8 +50,12 @@ class LinearSolver(LinearVariationalSolver):
         self.x = Function(trial.function_space())
         self.b = Cofunction(test.function_space().dual())
 
-        problem = LinearVariationalProblem(A, self.b, self.x, bcs=A.bcs, aP=P)
-        LinearVariationalSolver.__init__(self, problem, **kwargs)
+        fc_params = kwargs.pop("form_compiler_parameters", None)
+        problem = LinearVariationalProblem(A, self.b, self.x, bcs=A.bcs, aP=P,
+                                           form_compiler_parameters=fc_params,
+                                           constant_jacobian=True)
+
+        super().__init__(problem, **kwargs)
 
         self.A = A
         self.comm = A.comm
@@ -64,10 +70,10 @@ class LinearSolver(LinearVariationalSolver):
 
         Parameters
         ----------
-        x : firedrake.function.Function or firedrake.vector.Vector
-            Existing Function or Vector to place the solution to the linear system in.
-        b : firedrake.cofunction.Cofunction or firedrake.vector.Vector
-            A Cofunction or Vector with the right-hand side of the linear system.
+        x : firedrake.function.Function
+            Existing Function to place the solution to the linear system in.
+        b : firedrake.cofunction.Cofunction
+            A Cofunction with the right-hand side of the linear system.
         """
         if not isinstance(x, Function):
             raise TypeError(f"Provided solution is a '{type(x).__name__}', not a Function")

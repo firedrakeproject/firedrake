@@ -373,19 +373,18 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
             that exclude Dirichlet boundary condition nodes,  internally for
             the test and trial spaces.
         """
-        # In the linear case, the Jacobian is the equation LHS.
-        J = a
+        # In the linear case, the Jacobian is the equation LHS (J=a).
         # Jacobian is checked in superclass, but let's check L here.
         if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)) and L == 0:
-            F = self.compute_bc_lifting(J, u)
+            F = self.compute_bc_lifting(a, u)
         else:
             if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)):
                 raise TypeError("Provided RHS is a '%s', not a Form or Slate Tensor" % type(L).__name__)
             if len(L.arguments()) != 1 and not L.empty():
                 raise ValueError("Provided RHS is not a linear form")
-            F = self.compute_bc_lifting(J, u) - L
+            F = self.compute_bc_lifting(a, u) - L
 
-        super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
+        super(LinearVariationalProblem, self).__init__(F, u, bcs=bcs, J=a, Jp=aP,
                                                        form_compiler_parameters=form_compiler_parameters,
                                                        is_linear=True, restrict=restrict)
         self._constant_jacobian = constant_jacobian
