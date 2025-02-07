@@ -20,8 +20,9 @@ class MatrixBase(ufl.Matrix):
         :class:`MatrixBase`.  May be `None` if there are no boundary
         conditions to apply.
     :arg mat_type: matrix type of assembled matrix, or 'matfree' for matrix-free
+    :arg fc_params: a dict of form compiler parameters of this matrix
     """
-    def __init__(self, a, bcs, mat_type):
+    def __init__(self, a, bcs, mat_type, fc_params):
         if isinstance(a, tuple):
             self.a = None
             test, trial = a
@@ -52,6 +53,7 @@ class MatrixBase(ufl.Matrix):
 
         Matrix type used in the assembly of the PETSc matrix: 'aij', 'baij', 'dense' or 'nest',
         or 'matfree' for matrix-free."""
+        self.fc_params = fc_params
 
     def arguments(self):
         if self.a:
@@ -109,6 +111,8 @@ class Matrix(MatrixBase):
 
     :arg mat_type: matrix type of assembled matrix.
 
+    :kwarg fc_params: a dict of form compiler parameters for this matrix.
+
     A ``pyop2.types.mat.Mat`` will be built from the remaining
     arguments, for valid values, see ``pyop2.types.mat.Mat`` source code.
 
@@ -121,8 +125,9 @@ class Matrix(MatrixBase):
     """
 
     def __init__(self, a, bcs, mat_type, *args, **kwargs):
-        # sets self._a, self._bcs, and self._mat_type
-        MatrixBase.__init__(self, a, bcs, mat_type)
+        # sets self.a, self.bcs, self.mat_type, and self.fc_params
+        fc_params = kwargs.pop("fc_params", None)
+        MatrixBase.__init__(self, a, bcs, mat_type, fc_params)
         options_prefix = kwargs.pop("options_prefix")
         self.M = op2.Mat(*args, mat_type=mat_type, **kwargs)
         self.petscmat = self.M.handle
@@ -146,6 +151,7 @@ class ImplicitMatrix(MatrixBase):
         :class:`Matrix`.  May be `None` if there are no boundary
         conditions to apply.
 
+    :kwarg fc_params: a dict of form compiler parameters for this matrix.
 
     .. note::
 
@@ -155,8 +161,9 @@ class ImplicitMatrix(MatrixBase):
 
     """
     def __init__(self, a, bcs, *args, **kwargs):
-        # sets self._a, self._bcs, and self._mat_type
-        super(ImplicitMatrix, self).__init__(a, bcs, "matfree")
+        # sets self.a, self.bcs, self.mat_type, and self.fc_params
+        fc_params = kwargs["fc_params"]
+        super(ImplicitMatrix, self).__init__(a, bcs, "matfree", fc_params)
 
         options_prefix = kwargs.pop("options_prefix")
         appctx = kwargs.get("appctx", {})
@@ -165,7 +172,7 @@ class ImplicitMatrix(MatrixBase):
         ctx = ImplicitMatrixContext(a,
                                     row_bcs=self.bcs,
                                     col_bcs=self.bcs,
-                                    fc_params=kwargs["fc_params"],
+                                    fc_params=fc_params,
                                     appctx=appctx)
         self.petscmat = PETSc.Mat().create(comm=self._comm)
         self.petscmat.setType("python")
@@ -196,7 +203,7 @@ class AssembledMatrix(MatrixBase):
     :arg petscmat: the already constructed petsc matrix this object represents.
     """
     def __init__(self, a, bcs, petscmat, *args, **kwargs):
-        super(AssembledMatrix, self).__init__(a, bcs, "assembled")
+        super(AssembledMatrix, self).__init__(a, bcs, "assembled", None)
 
         self.petscmat = petscmat
 

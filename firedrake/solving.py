@@ -235,7 +235,7 @@ def _la_solve(A, x, b, **kwargs):
         _la_solve(A, x, b, solver_parameters=parameters_dict)."""
 
     (P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace,
-     options_prefix, pre_apply_bcs, form_compiler_parameters,
+     options_prefix, pre_apply_bcs,
      ) = _extract_linear_solver_args(A, x, b, **kwargs)
 
     if bcs is not None:
@@ -246,15 +246,14 @@ def _la_solve(A, x, b, **kwargs):
                              transpose_nullspace=nullspace_T,
                              near_nullspace=near_nullspace,
                              options_prefix=options_prefix,
-                             pre_apply_bcs=pre_apply_bcs,
-                             form_compiler_parameters=form_compiler_parameters)
+                             pre_apply_bcs=pre_apply_bcs)
     solver.solve(x, b)
 
 
 def _extract_linear_solver_args(*args, **kwargs):
     valid_kwargs = ["P", "bcs", "solver_parameters", "nullspace",
                     "transpose_nullspace", "near_nullspace", "options_prefix",
-                    "pre_apply_bcs", "form_compiler_parameters"]
+                    "pre_apply_bcs"]
     if len(args) != 3:
         raise RuntimeError("Missing required arguments, expecting solve(A, x, b, **kwargs)")
 
@@ -271,9 +270,8 @@ def _extract_linear_solver_args(*args, **kwargs):
     near_nullspace = kwargs.get("near_nullspace", None)
     options_prefix = kwargs.get("options_prefix", None)
     pre_apply_bcs = kwargs.get("pre_apply_bcs", True)
-    form_compiler_parameters = kwargs.get("form_compiler_parameters", {})
 
-    return P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, options_prefix, pre_apply_bcs, form_compiler_parameters
+    return P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, options_prefix, pre_apply_bcs
 
 
 def _extract_args(*args, **kwargs):

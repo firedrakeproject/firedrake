@@ -33,8 +33,6 @@ class LinearSolver(LinearVariationalSolver):
                through the ``solver_parameters`` dict.
         :kwarg pre_apply_bcs: If `True`, the bcs are applied before the solve.
                Otherwise, the bcs are included as part of the linear system.
-        :kwarg form_compiler_parameters: (optional) dict of form compiler
-               parameters, only used to assemble the lifted residual.
 
         .. note::
 
@@ -50,11 +48,9 @@ class LinearSolver(LinearVariationalSolver):
         self.x = Function(trial.function_space())
         self.b = Cofunction(test.function_space().dual())
 
-        fc_params = kwargs.pop("form_compiler_parameters", None)
         problem = LinearVariationalProblem(A, self.b, self.x, bcs=A.bcs, aP=P,
-                                           form_compiler_parameters=fc_params,
+                                           form_compiler_parameters=A.fc_params,
                                            constant_jacobian=True)
-
         super().__init__(problem, **kwargs)
 
         self.A = A

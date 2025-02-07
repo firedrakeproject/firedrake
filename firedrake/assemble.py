@@ -1360,7 +1360,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                                                           self._sub_mat_type,
                                                           self._make_maps_and_regions())
         return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType,
-                             options_prefix=self._options_prefix)
+                             options_prefix=self._options_prefix,
+                             fc_params=self._form_compiler_params)
 
     @staticmethod
     def _make_sparsity(test, trial, mat_type, sub_mat_type, maps_and_regions):
