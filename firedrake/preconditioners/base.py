@@ -111,7 +111,7 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
     @staticmethod
     def new_snes_ctx(pc, op, bcs, mat_type, fcp=None, options_prefix=None, pre_apply_bcs=True):
         """Create a new `_SNESContext` for nested (linear) preconditioning
-        
+
         Parameters
         ----------
         pc : PETSc.PC
@@ -125,9 +125,9 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         options_prefix : str
              The PETSc options prefix for the new `_SNESContext`.
         pre_apply_bcs : bool
-             If ``True``, the ``bcs`` are pre applied on the solution before the solve, 
+             If ``True``, the ``bcs`` are pre applied on the solution before the solve,
              otherwise the residual of the ``bcs`` is included in the linear system.
-        
+
         Returns
         -------
         A new `_SNESContext`
