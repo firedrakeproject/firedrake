@@ -17,7 +17,7 @@ from .ufl_expr import TestFunction
 
 from tsfc import compile_form as original_tsfc_compile_form
 from tsfc.parameters import PARAMETERS as tsfc_default_parameters
-from tsfc.ufl_utils import extract_firedrake_constants, hash_expr
+from tsfc.ufl_utils import extract_firedrake_constants
 
 from pyop2 import op2
 from pyop2.caching import memory_and_disk_cache, default_parallel_hashkey
@@ -59,7 +59,7 @@ def tsfc_compile_form_hashkey(form, prefix, parameters, interface, diagonal):
         form.signature(),
         prefix,
         utils.tuplify(parameters),
-        _make_interface_key(interface),
+        _make_interface_key(interface, form),
         diagonal,
     )
 
@@ -144,7 +144,7 @@ def _compile_form_hashkey(form, name, parameters=None, split=True, interface=Non
         name,
         utils.tuplify(parameters),
         split,
-        _make_interface_key(interface),
+        _make_interface_key(interface, form),
         diagonal,
     )
 
@@ -315,12 +315,14 @@ def extract_numbered_coefficients(expr, numbers):
     return coefficients
 
 
-def _make_interface_key(interface):
+def _make_interface_key(interface, form):
     if interface:
-        # Passing interface here is a small hack done in patch.py. What
-        # really matters for caching is what is used in the 'dont_split' kwarg.
+        # The 'interface' argument is a small hack done in patch.py. When
+        # specified, what really matters for caching is which coeffients
+        # are passed to the 'dont_split' kwarg.
         assert isinstance(interface, functools.partial)
         assert interface.func is KernelBuilder
-        return tuple(map(hash_expr, interface.keywords["dont_split"]))
+        coefficients = form.coefficients()
+        return tuple(coefficients.index(f) for f in interface.keywords["dont_split"])
     else:
         return None
