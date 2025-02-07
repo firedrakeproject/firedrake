@@ -492,7 +492,7 @@ class RieszMap:
                 output = Function(self._function_space)
                 output.assign(soln)
         elif ufl.duals.is_primal(value):
-            if value.function_space().dual() != self._function_space:
+            if value.function_space() != self._function_space:
                 raise ValueError("Function space mismatch in RieszMap.")
 
             if self._inner_product == "l2":
