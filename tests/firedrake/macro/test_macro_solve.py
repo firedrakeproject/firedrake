@@ -133,7 +133,8 @@ def errornormL2_0(pexact, ph):
     msh = ph.function_space().mesh()
     vol = assemble(1*dx(domain=msh))
     err = pexact - ph
-    return sqrt(abs(assemble(inner(err, err)*dx) - (1/vol)*abs(assemble(err*dx))**2))
+    err -= Constant(assemble(err * dx)/vol)
+    return sqrt(abs(assemble(inner(err, err)*dx)))
 
 
 def test_stokes(mh, variant, mixed_element, convergence_test):
@@ -161,7 +162,10 @@ def test_stokes(mh, variant, mixed_element, convergence_test):
             Z,
             [Z.sub(0), VectorSpaceBasis(constant=True, comm=COMM_WORLD)]
         )
-        solve(a == L, zh, bcs=bcs, nullspace=nullspace, solver_parameters={"ksp_type": "gmres"})
+        solve(a == L, zh, bcs=bcs,
+              nullspace=nullspace,
+              transpose_nullspace=nullspace,
+              solver_parameters={"ksp_type": "gmres"})
         uh, ph = zh.subfunctions
         u_err.append(errornorm(as_vector(zexact[:dim]), uh))
         p_err.append(errornormL2_0(zexact[-1], ph))
