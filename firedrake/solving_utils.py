@@ -4,14 +4,13 @@ import numpy
 import ufl
 
 from pyop2 import op2
-from firedrake import dmhooks, slate
+from firedrake import dmhooks
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.matrix import MatrixBase
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS
 from firedrake.formmanipulation import ExtractSubBlock
-from firedrake.ufl_expr import action
 from firedrake.utils import cached_property
 from firedrake.logging import warning
 
@@ -236,12 +235,8 @@ class _SNESContext(object):
                 # Drop existing lifting term from the residual
                 assert isinstance(self.F, ufl.BaseForm)
                 self.F = ufl.replace(self.F, {self._x: ufl.zero(self._x.ufl_shape)})
-            A = self.J
-            if isinstance(A, MatrixBase) and A.has_bcs:
-                A = A.a
-            if isinstance(A, slate.slate.TensorBase):
-                self.F = slate.slate.as_slate(self.F)
-            self.F -= action(A, self._bc_residual)
+
+            self.F -= problem.compute_bc_lifting(self.J, self._bc_residual)
 
         self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
                                                 form_compiler_parameters=self.fcp,
@@ -386,7 +381,7 @@ class _SNESContext(object):
                 # We drop the existing lifting term from the residual
                 # and compute a fully decoupled lifting term with the split J.
                 F = replace(F, {problem.u_restrict: zero(problem.u_restrict.ufl_shape)})
-                F += action(J, subu)
+                F += problem.compute_bc_lifting(J, subu)
             else:
                 F = replace(F, {problem.u_restrict: u})
             if problem.Jp is not None:

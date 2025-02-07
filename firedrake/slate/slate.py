@@ -332,52 +332,58 @@ class TensorBase(object, metaclass=ABCMeta):
         return BlockIndexer(self)
 
     def __add__(self, other):
-        if isinstance(other, TensorBase):
+        try:
+            other = as_slate(other)
             return Add(self, other)
-        else:
+        except TypeError:
             raise NotImplementedError("Type(s) for + not supported: '%s' '%s'"
                                       % (type(self), type(other)))
 
     def __radd__(self, other):
-        # If other is not a TensorBase, raise NotImplementedError. Otherwise,
-        # delegate action to other.
-        if not isinstance(other, TensorBase):
+        # If other cannot be converted into a TensorBase, raise NotImplementedError.
+        # Otherwise, delegate action to other.
+        try:
+            other = as_slate(other)
+            return other.__add__(self)
+        except TypeError:
             raise NotImplementedError("Type(s) for + not supported: '%s' '%s'"
                                       % (type(other), type(self)))
-        else:
-            other.__add__(self)
 
     def __sub__(self, other):
-        if isinstance(other, TensorBase):
+        try:
+            other = as_slate(other)
             return Add(self, Negative(other))
-        else:
+        except TypeError:
             raise NotImplementedError("Type(s) for - not supported: '%s' '%s'"
                                       % (type(self), type(other)))
 
     def __rsub__(self, other):
-        # If other is not a TensorBase, raise NotImplementedError. Otherwise,
-        # delegate action to other.
-        if not isinstance(other, TensorBase):
+        # If other cannot be converted into a TensorBase, raise NotImplementedError.
+        # Otherwise, delegate action to other.
+        try:
+            other = as_slate(other)
+            return other.__sub__(self)
+        except TypeError:
             raise NotImplementedError("Type(s) for - not supported: '%s' '%s'"
                                       % (type(other), type(self)))
-        else:
-            other.__sub__(self)
 
     def __mul__(self, other):
-        if isinstance(other, TensorBase):
+        try:
+            other = as_slate(other)
             return Mul(self, other)
-        else:
+        except TypeError:
             raise NotImplementedError("Type(s) for * not supported: '%s' '%s'"
                                       % (type(self), type(other)))
 
     def __rmul__(self, other):
-        # If other is not a TensorBase, raise NotImplementedError. Otherwise,
-        # delegate action to other.
-        if not isinstance(other, TensorBase):
+        # If other cannot be converted into a TensorBase, raise NotImplementedError.
+        # Otherwise, delegate action to other.
+        try:
+            other = as_slate(other)
+            return other.__mul__(self)
+        except TypeError:
             raise NotImplementedError("Type(s) for * not supported: '%s' '%s'"
                                       % (type(other), type(self)))
-        else:
-            other.__mul__(self)
 
     def __neg__(self):
         return Negative(self)
@@ -1418,12 +1424,12 @@ def as_slate(F):
 
     Parameters
     ----------
-    F : ufl.BaseForm or TensorBase
+    F : ufl.BaseForm, ufl.Coefficient, or TensorBase
         The expression to convert into Slate.
 
     Returns
     -------
-    The slate.Tensor equivalent expression.
+    The slate.TensorBase equivalent expression.
     """
     if isinstance(F, TensorBase):
         return F

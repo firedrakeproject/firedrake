@@ -127,6 +127,14 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     def dm(self):
         return self.u_restrict.function_space().dm
 
+    @staticmethod
+    def compute_bc_lifting(J, u):
+        """Return the action of the bilinear form J (without bcs) on a Function u."""
+        if isinstance(J, MatrixBase) and J.has_bcs:
+            # Extract the full form without bcs
+            J = J.a
+        return ufl_expr.action(J, u)
+
 
 class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
     r"""Solves a :class:`NonlinearVariationalProblem`."""
@@ -368,18 +376,13 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         J = a
         # Jacobian is checked in superclass, but let's check L here.
         if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)) and L == 0:
-            F = ufl_expr.action(J, u)
+            F = self.compute_bc_lifting(J, u)
         else:
             if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)):
                 raise TypeError("Provided RHS is a '%s', not a Form or Slate Tensor" % type(L).__name__)
             if len(L.arguments()) != 1 and not L.empty():
                 raise ValueError("Provided RHS is not a linear form")
-            A = J
-            if isinstance(A, MatrixBase) and A.has_bcs:
-                A = A.a
-            if isinstance(A, slate.slate.TensorBase):
-                L = slate.slate.as_slate(L)
-            F = ufl_expr.action(A, u) - L
+            F = self.compute_bc_lifting(J, u) - L
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
                                                        form_compiler_parameters=form_compiler_parameters,
