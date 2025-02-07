@@ -14,13 +14,29 @@ __all__ = ("EnsembleFunction", "EnsembleCofunction")
 
 class EnsembleFunctionBase(EnsembleFunctionMixin):
     """
-    A mixed finite element (co)function distributed over an ensemble.
+    A mixed (co)function defined on a :class:`firedrake.Ensemble`.
+    The subcomponents are distributed over the ensemble members, and
+    are specified locally in a :class:`firedrake.EnsembleFunctionSpace`.
 
     Parameters
     ----------
 
-    function_space : :class:`EnsembleDualSpace`
-        The function space of the cofunction.
+    function_space : :class:`firedrake.EnsembleFunctionSpace`.
+        The function space of the (co)function.
+
+    Notes
+    -----
+    Passing a :class:`firedrake.EnsembleDualSpace` to :class:`firedrake.EnsembleFunction`
+    will return an instance of :class:`firedrake.EnsembleCofunction`.
+
+    This class does not carry UFL symbolic information, unlike a
+    :class:`firedrake.Function`. UFL expressions can only be defined
+    locally on each ensemble member using a `firedrake.Function`
+    from `EnsembleFunction.subfunctions`.
+
+    See also:
+    - Primal ensemble objects: :class:`firedrake.EnsembleFunctionSpace` and :class:`firedrake.EnsembleFunction`.
+    - Dual ensemble objects: :class:`firedrake.EnsembleDualSpace` and :class:`firedrake.EnsembleCofunction`.
     """
 
     @PETSc.Log.EventDecorator()
@@ -36,7 +52,7 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         # is valid then the data in the EnsembleFunction Vec is valid.
 
         with self._fbuf.dat.vec as fvec:
-            n = function_space.nlocal_dofs
+            n = function_space.nlocal_rank_dofs
             N = function_space.nglobal_dofs
             sizes = (n, N)
             self._vec = PETSc.Vec().createWithArray(

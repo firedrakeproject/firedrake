@@ -23,9 +23,8 @@ def norm(u):
 
 @pytest.fixture
 def ensemble():
-    if fd.COMM_WORLD.size == 1:
-        return fd.Ensemble(fd.COMM_WORLD, 1)
-    return fd.Ensemble(fd.COMM_WORLD, 2)
+    nspace = 2 if fd.COMM_WORLD.size == 4 else 1
+    return fd.Ensemble(fd.COMM_WORLD, nspace)
 
 
 @pytest.fixture
@@ -40,38 +39,59 @@ scalar_elements = {
     'T-DG': fd.TensorElement('DG', cell=fd.triangle, degree=1, shape=(2, 3))
 }
 
-# Test an EnsembleFunction with 8 subfunctions with the elements below, distributed over 1 or more processors.
-# This element sequence below hits a variety of cases:
+# Test EnsembleFunction with 6 subfunctions with the elements below, distributed over 1 or more processors.
+# This element sequence hits a variety of cases:
 # - scalar, vector-valued, vector, tensor, mixed elements
-# - mixed elements with scalar, vector-valued, vector and tensor components
-# - repeated adjacent components (6, 7)
-# - repeated non-adjacent components (2, 6)
-# - mixed element with a single component (8)
-# - mixed element with repeated component (5)
-# - mixed element where the first component matches the previous element (2, 3)
+# - mixed elements with non-scalar, components
+# - identical adjacent components (4, 5)
+# - mixed element with a single component (2)
+# - mixed element with repeated component (6)
+# - mixed element where the first component matches the previous element (5, 6)
 
 elements = [
     scalar_elements['CG'],  # 1
-    scalar_elements['BDM'],  # 2
-    fd.MixedElement([scalar_elements[e] for e in ('BDM', 'CG')]),  # 3
-    scalar_elements['T-DG'],  # 4
-    fd.MixedElement([scalar_elements[e] for e in ('V-RT', 'CG', 'CG')]),  # 5
-    scalar_elements['BDM'],  # 6
-    scalar_elements['BDM'],  # 7
-    fd.MixedElement([scalar_elements[e] for e in ('T-DG',)])  # 8
+    fd.MixedElement([scalar_elements[e] for e in ('T-DG',)]),  # 2
+    scalar_elements['T-DG'],  # 3
+    scalar_elements['BDM'],  # 4
+    scalar_elements['BDM'],  # 5
+    fd.MixedElement([scalar_elements[e] for e in ('BDM', 'V-RT', 'V-RT')])  # 6
 ]
+
+# Test with four time partitions:
+# time partitions - serial
+# time partitions - parallel with P<N
+# time partitions - parallel with P=N
+# Also test with spatial parallelism to check that we don't mix up comms accidentally somewhere.
+#
+#       time      space      partition
+# P1 : serial   | serial   | 6
+# P2 : parallel | serial   | 2, 4
+# P4 : parallel | parallel | 3, 3
+# P6 : parallel | serial   | 1 per rank
 
 
 @pytest.fixture
 def Wlocal(ensemble, mesh):
-    ensemble_size = ensemble.ensemble_comm.size
-    ensemble_rank = ensemble.ensemble_comm.rank
-    nelems = len(elements)
-    assert nelems % ensemble_size == 0
-    nlocals = nelems // ensemble_size
-    offset = ensemble_rank*nlocals
-    return [fd.FunctionSpace(mesh, elements[i])
-            for i in range(offset, offset+nlocals)]
+    gcomm = ensemble.global_comm
+    erank = ensemble.ensemble_rank
+    esize = ensemble.ensemble_size
+    if gcomm.size == 1:
+        elems = elements
+    elif gcomm.size == 2:
+        if erank == 0:
+            elems = elements[:2]
+        if erank == 1:
+            elems = elements[2:]
+    elif gcomm.size == 4:
+        nelem = len(elements)//esize
+        offset = erank*nelem
+        elems = elements[offset:offset+nelem]
+    elif gcomm.size == 6:
+        elems = [elements[erank]]
+    else:
+        raise ValueError("Invalid number of ranks")
+
+    return [fd.FunctionSpace(mesh, e) for e in elems]
 
 
 space_type = ["primal", "dual"]
@@ -92,7 +112,7 @@ def ensemblefunc(ensemblespace):
     return fd.EnsembleFunction(ensemblespace)
 
 
-@pytest.mark.parallel(nprocs=[1, 2, 4, 8])
+@pytest.mark.parallel(nprocs=[1, 2, 4, 6])
 def test_zero(ensemblefunc):
     """
     Test setting all components to zero.
@@ -110,7 +130,7 @@ def test_zero(ensemblefunc):
         assert norm(u) < 1e-14, "EnsembleFunction.zero should zero all components"
 
 
-@pytest.mark.parallel(nprocs=[1, 2, 4, 8])
+@pytest.mark.parallel(nprocs=[1, 2, 4, 6])
 def test_zero_with_subset(ensemblefunc):
     """
     Test setting a subset of all components to zero.

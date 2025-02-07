@@ -59,7 +59,7 @@ class EnsembleFunctionSpaceBase:
     """
     A mixed function space defined on an :class:`firedrake.Ensemble`.
     The subcomponents are distributed over the ensemble members, and
-    are specified locally. Used to create `EnsembleFunction`.
+    are specified locally.
 
     Parameters
     ----------
@@ -70,9 +70,16 @@ class EnsembleFunctionSpaceBase:
 
     Notes
     -----
-    This class does not carry UFL symbolic information, unlike the usual
-    firedrake FunctionSpaces. UFL expressions can only be defined on each
-    ensemble member, using FunctionSpaces in the `local_spaces` attribute.
+    Passing a list of dual local_spaces to :class:`firedrake.EnsembleFunctionSpace`
+    will return an instance of :class:`firedrake.EnsembleDualSpace`.
+
+    This class does not carry UFL symbolic information, unlike a
+    :function:`firedrake.FunctionSpace`. UFL expressions can only be
+    defined locally on each ensemble member using a :function:`firedrake.FunctionSpace` from `EnsembleFunctionSpace.local_spaces`.
+
+    See also:
+    - Primal ensemble objects: :class:`firedrake.EnsembleFunctionSpace` and :class:`firedrake.EnsembleFunction`.
+    - Dual ensemble objects: :class:`firedrake.EnsembleDualSpace` and :class:`firedrake.EnsembleCofunction`.
     """
     def __init__(self, local_spaces, ensemble):
         meshes = set(V.mesh() for V in local_spaces)
@@ -149,16 +156,22 @@ class EnsembleFunctionSpaceBase:
         return self.ensemble_comm.allreduce(len(self.local_spaces))
 
     @property
-    def nlocal_dofs(self):
+    def nlocal_rank_dofs(self):
         """The total number of dofs across all subspaces on the local MPI rank.
         """
         return self._full_local_space.node_set.size
 
     @property
+    def nlocal_comm_dofs(self):
+        """The total number of dofs across all subspaces on the local ensemble.comm.
+        """
+        return self._full_local_space.dim()
+
+    @property
     def nglobal_dofs(self):
         """The total number of dofs across all subspaces on all ensemble ranks.
         """
-        return self.ensemble_comm.allreduce(self.nlocal_dofs)
+        return self.ensemble_comm.allreduce(self.nlocal_rank_dofs)
 
     def _component_indices(self, i):
         """
@@ -181,12 +194,20 @@ class EnsembleFunctionSpaceBase:
         pass
 
     def __eq__(self, other):
-        locally_equal = all(
-            lspace == rspace
-            for lspace, rspace in zip(self.local_spaces, other.local_spaces)
-        )
-        all_equal = self.ensemble.ensemble_comm.allgather(locally_equal)
-        return all(all_equal)
+        if not isinstance(other, type(self)):
+            local_eq = False
+        elif other.ensemble is not self.ensemble:
+            # TODO: should we relax this to allow congruent ensembles?
+            local_eq = False
+        elif len(other.subfunctions) != len(self.subfunctions):
+            local_eq = False
+        else:
+            local_eq = all(
+                lspace == rspace
+                for lspace, rspace in zip(self.local_spaces,
+                                          other.local_spaces)
+            )
+        return all(self.ensemble.ensemble_comm.allgather(local_eq))
 
     def __neq__(self, other):
         return not self.__eq__(other)
