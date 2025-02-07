@@ -458,6 +458,8 @@ def parallel_cache(
         appropriate communicator.
     cache_factory :
         Callable that will build a new cache (if one does not exist).
+        This will be called every time the decorated function is called, and must return an instance
+        of the same type every time it is called.
     bcast :
         If `True`, then generate the new cache value on one rank and broadcast
         to the others. If `False` then values are generated on all ranks.

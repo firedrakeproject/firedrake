@@ -31,7 +31,7 @@ num_procs=$1
 num_jobs=$2
 extra_args=${@:3}
 
-# Set per-job cache directories to avoid race conditions
+# Set per-job cache directories to avoid race conditions when multiple jobs attempt to compile the same form.
 cache_cmd="PYOP2_CACHE_DIR=\$VIRTUAL_ENV/.cache/pyop2/job{#} \
            FIREDRAKE_TSFC_KERNEL_CACHE_DIR=\$VIRTUAL_ENV/.cache/tsfc/job{#}"
 
