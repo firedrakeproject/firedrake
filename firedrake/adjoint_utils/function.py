@@ -216,7 +216,7 @@ class FunctionMixin(FloatingType):
 
     def _ad_create_checkpoint(self):
         if disk_checkpointing():
-            return CheckpointFunction(self)
+            return CheckpointFunction(self, self.function_space())
         else:
             return self.copy(deepcopy=True)
 

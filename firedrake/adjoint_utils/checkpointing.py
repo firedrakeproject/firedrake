@@ -277,10 +277,10 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
     _checkpoint_index = 0
     _checkpoint_indices = {}
 
-    def __init__(self, function):
+    def __init__(self, function, function_space):
         from firedrake.checkpointing import CheckpointFile
         self.name = copy.deepcopy(function.name())
-        self.mesh = function.function_space().mesh()
+        self.mesh = function_space.mesh()
         self.file = current_checkpoint_file()
 
         if not self.file:
@@ -295,8 +295,7 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
         self.count = copy.deepcopy(function.count())
         with CheckpointFile(self.file.name, 'a') as outfile:
             self.stored_name = outfile._generate_function_space_name(
-                function.function_space()
-            )
+                function_space)
             indices = stored_names[self.file.name]
             indices.setdefault(self.stored_name, 0)
             indices[self.stored_name] += 1
@@ -311,15 +310,15 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
             function = infile.load_function(self.mesh, self.stored_name,
                                             idx=self.stored_index)
         return type(function)(function.function_space(),
-                              function.dat, name=self.name(), count=self.count)
+                              function.dat, name=self.name, count=self.count)
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         return checkpoint.restore()
 
 
-def maybe_disk_checkpoint(function):
+def maybe_disk_checkpoint(function, function_space):
     """Checkpoint a Function to disk if disk checkpointing is active."""
-    return CheckpointFunction(function) if disk_checkpointing() else function
+    return CheckpointFunction(function, function_space) if disk_checkpointing() else function
 
 
 class DelegatedFunctionCheckpoint(CheckpointBase, OverloadedType):

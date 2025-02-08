@@ -26,7 +26,8 @@ class MeshInputBlock(Block):
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
         mesh = self.get_dependencies()[0].saved_output
-        return maybe_disk_checkpoint(mesh.coordinates)
+        return maybe_disk_checkpoint(
+            mesh.coordinates, block_variable.output.function_space())
 
 
 class MeshOutputBlock(Block):

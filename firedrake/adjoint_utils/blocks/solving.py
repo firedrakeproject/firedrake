@@ -541,7 +541,8 @@ class GenericSolveBlock(Block):
         result = self._forward_solve(lhs, rhs, func, bcs)
         if isinstance(block_variable.checkpoint, firedrake.Function):
             result = block_variable.checkpoint.assign(result)
-        return maybe_disk_checkpoint(result)
+        return maybe_disk_checkpoint(
+            result, block_variable.output.function_space())
 
 
 def solve_init_params(self, args, kwargs, varform):
@@ -887,7 +888,7 @@ class SupermeshProjectBlock(Block):
         target = firedrake.Function(self.target_space)
         rhs = self.apply_mixedmass(inputs[0])      # Step 1
         self.projector.apply_massinv(target, rhs)  # Step 2
-        return maybe_disk_checkpoint(target)
+        return maybe_disk_checkpoint(target, self.target_space)
 
     def _recompute_component_transpose(self, inputs):
         if not isinstance(inputs[0], firedrake.Cofunction):
