@@ -54,7 +54,7 @@ def adjoint_example(mesh):
 
     assert np.allclose(J, Jnew)
 
-    grad_Jnew = Jhat.derivative()
+    grad_Jnew = Jhat.derivative(apply_riesz=True)
 
     return Jnew, grad_Jnew
 

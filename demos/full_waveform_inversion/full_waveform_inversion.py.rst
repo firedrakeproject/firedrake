@@ -280,7 +280,9 @@ To have the step 4, we need first to tape the forward problem. That is done by c
 
 We now instantiate :class:`~.EnsembleReducedFunctional`::
 
-    J_hat = EnsembleReducedFunctional(J_val, Control(c_guess), my_ensemble)
+    J_hat = EnsembleReducedFunctional(J_val,
+                                      Control(c_guess, riesz_map="l2"),
+                                      my_ensemble)
 
 which enables us to recompute :math:`J` and its gradient :math:`\nabla_{\mathtt{c\_guess}} J`,
 where the :math:`J_s` and its gradients :math:`\nabla_{\mathtt{c\_guess}} J_s` are computed in parallel
@@ -291,8 +293,7 @@ based on the ``my_ensemble`` configuration.
 is then passed as an argument to the ``minimize`` function::
 
     c_optimised = minimize(J_hat, method="L-BFGS-B", options={"disp": True, "maxiter": 1},
-                            bounds=(1.5, 2.0), derivative_options={"riesz_representation": 'l2'}
-                            )
+                           bounds=(1.5, 2.0))
 
 The ``minimize`` function executes the optimisation algorithm until the stopping criterion (``maxiter``) is met.
 For 20 iterations, the predicted velocity model is shown in the following figure.
