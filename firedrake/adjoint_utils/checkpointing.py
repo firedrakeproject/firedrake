@@ -5,6 +5,7 @@ from pyop2.mpi import COMM_WORLD
 import tempfile
 import os
 import shutil
+import copy
 import atexit
 from abc import ABC, abstractmethod
 from numbers import Number
@@ -278,7 +279,7 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
 
     def __init__(self, function):
         from firedrake.checkpointing import CheckpointFile
-        self.name = function.name
+        self.name = copy.deepcopy(function.name())
         self.mesh = function.function_space().mesh()
         self.file = current_checkpoint_file()
 
@@ -291,7 +292,7 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
         if self.file.name not in stored_names:
             stored_names[self.file.name] = {}
 
-        self.count = function.count()
+        self.count = copy.deepcopy(function.count())
         with CheckpointFile(self.file.name, 'a') as outfile:
             self.stored_name = outfile._generate_function_space_name(
                 function.function_space()
