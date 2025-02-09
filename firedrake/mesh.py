@@ -3852,7 +3852,6 @@ def _dmswarm_create(
     if not isinstance(plex, PETSc.DMSwarm):
         swarm.setType(PETSc.DMSwarm.Type.PIC)
 
-
     # Register any fields
     for name, size, dtype in swarm.default_extra_fields + swarm.other_fields:
         swarm.registerField(name, size, dtype=dtype)
