@@ -319,11 +319,11 @@ def test_simple_inversion_riesz_representation(tao_type):
         x = solver.solve()
         assert_allclose(x.dat.data, source_ref.dat.data, rtol=1e-2)
 
-
         get_working_tape().clear_tape()
         source_transform = transform(Function(V), TransformType.DUAL,
-                                    riesz_representation,
-                                    mfn_parameters=mfn_parameters)
+                                     riesz_representation,
+                                     mfn_parameters=mfn_parameters)
+
     def forward_transform(source):
         c = Control(source)
         source = transform(source, TransformType.PRIMAL,
@@ -335,7 +335,7 @@ def test_simple_inversion_riesz_representation(tao_type):
         rf = ReducedFunctional(J, c)
         return rf
     rf_transform = forward_transform(source_transform)
-    
+
     with stop_annotating():
         solver_transform = TAOSolver(
             MinimizationProblem(rf_transform), tao_parameters,
