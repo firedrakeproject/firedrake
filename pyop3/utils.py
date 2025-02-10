@@ -79,6 +79,17 @@ class UniqueRecord(pytools.ImmutableRecord, Identified):
         Identified.__init__(self, id)
 
 
+class Parameter(Identified):
+    """Wrapper class for a scalar value that differs between ranks."""
+    def __init__(self, value):
+        super().__init__(id=None)  # generate a fresh ID
+        self.box = np.array([value])
+
+    @property
+    def value(self):
+        return just_one(self.box)
+
+
 class KeyAlreadyExistsException(Pyop3Exception):
     pass
 

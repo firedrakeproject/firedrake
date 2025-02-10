@@ -47,6 +47,7 @@ from pyop3.utils import (
     has_unique_entries,
     unique_comm,
     strict_zip,
+    Parameter,
     debug_assert,
     deprecated,
     invert,
@@ -352,18 +353,19 @@ class AxisComponent(LabelledNodeComponent):
         # Cast to an int as numpy integers cause loopy to break
         return strict_int(size)
 
-    # NOTE: I prefer `size` to `count`
     @cached_property
-    def _collective_count(self):
-        """Return the size of the axis component in a format consistent over ranks."""
-        from pyop3 import Dat
-
-        # if isinstance(self.count, numbers.Integral) and not self.rank_equal:
+    def _collective_size(self):
+        """Return the size of an axis component in a format consistent over ranks."""
+        local_size = self.size
         if self.sf is not None:
-            # TODO: Should be a Global here
-            return Dat(AxisTree(), data=np.asarray([self.count], dtype=IntType), prefix="size")
+            if not isinstance(local_size, numbers.Integral):
+                raise NotImplementedError(
+                    "Unsure what to do with non-integral sizes in parallel"
+                )
+            return Parameter(local_size)
         else:
-            return self.count
+            # can be an integer or a Dat
+            return local_size
 
     @cached_property
     def count(self) -> Any:

@@ -25,7 +25,7 @@ import pyop2
 from pyop3.array import Dat, _Dat, _ExpressionDat, _ConcretizedDat, _ConcretizedMat
 from pyop3.array.base import Array
 from pyop3.array.petsc import Mat, AbstractMat
-from pyop3.axtree.tree import Add, AxisVar, Mul
+from pyop3.axtree.tree import Add, AxisVar, Mul, AxisComponent
 from pyop3.buffer import DistributedBuffer, NullBuffer, PackedBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
@@ -58,6 +58,7 @@ from pyop3.lang import (
 from pyop3.log import logger
 from pyop3.utils import (
     KeyAlreadyExistsException,
+    Parameter,
     PrettyTuple,
     StrictlyUniqueDict,
     UniqueNameGenerator,
@@ -67,6 +68,7 @@ from pyop3.utils import (
     merge_dicts,
     single_valued,
     strictly_all,
+    Identified,
 )
 
 # FIXME this needs to be synchronised with TSFC, tricky
@@ -78,18 +80,6 @@ LOOPY_LANG_VERSION = (2018, 2)
 class OpaqueType(lp.types.OpaqueType):
     def __repr__(self) -> str:
         return f"OpaqueType('{self.name}')"
-
-
-class Renamer(pym.mapper.IdentityMapper):
-    def __init__(self, replace_map):
-        super().__init__()
-        self._replace_map = replace_map
-
-    def map_variable(self, var):
-        try:
-            return pym.var(self._replace_map[var.name])
-        except KeyError:
-            return var
 
 
 class CodegenContext(abc.ABC):
@@ -243,6 +233,17 @@ class LoopyCodegenContext(CodegenContext):
         temp = lp.TemporaryVariable(name, dtype=dtype, shape=shape)
         self._args.append(temp)
 
+    def add_parameter(self, parameter: Parameter) -> str:
+        self.datamap[parameter.id] = parameter
+
+        name = self.unique_name("p")
+        self.actual_to_kernel_rename_map[parameter.id] = name
+
+        loopy_arg = lp.ValueArg(name, dtype=parameter.box.dtype)
+        self._args.append(loopy_arg)
+
+        return name
+
     def add_subkernel(self, subkernel):
         self._subkernels.append(subkernel)
 
@@ -328,7 +329,7 @@ class CodegenResult:
         for kernel_arg in self.ir.default_entrypoint.args:
             actual_arg_name = self.arg_replace_map[kernel_arg.name]
             array = kwargs.get(actual_arg_name, self.datamap[actual_arg_name])
-            data_args.append(_as_pointer(array))
+            data_args.append(as_kernel_arg(array))
 
         if len(data_args) > 0:
             executable = self._compile()
@@ -580,10 +581,10 @@ def parse_loop_properly_this_time(
     for component in axis.components:
         path_ = path | {axis.label: component.label}
 
-        if component._collective_count != 1:
+        if component._collective_size != 1:
             iname = codegen_context.unique_name("i")
             domain_var = register_extent(
-                component._collective_count,
+                component._collective_size,
                 iname_map | loop_indices,
                 codegen_context,
             )
@@ -900,12 +901,12 @@ def parse_assignment_properly_this_time(
         return
 
     for component in axis.components:
-        if component._collective_count != 1:
+        if component._collective_size != 1:
             iname = codegen_context.unique_name("i")
 
             # my_iname_replace_map = iname_replace_map[-1] | loop_indices,
             extent_var = register_extent(
-                component._collective_count,
+                component._collective_size,
                 iname_replace_maps[-1] | loop_indices,
                 codegen_context,
             )
@@ -1118,14 +1119,23 @@ def _(dat: _ExpressionDat, /, iname_maps, loop_indices, context, paths=None):
     return rexpr
 
 
-def register_extent(extent, iname_replace_map, ctx):
-    if isinstance(extent, numbers.Integral):
-        return extent
+@functools.singledispatch
+def register_extent(obj: Any, *args, **kwargs):
+    raise TypeError(f"No handler defined for {type(extent).__name__}")
 
-    # actually a pymbolic expression
-    if not isinstance(extent, (Dat, _ExpressionDat)):
-        raise NotImplementedError("need to tidy up assignment logic")
 
+@register_extent.register(numbers.Integral)
+def _(num: numbers.Integral, *args, **kwargs):
+    return num
+
+
+@register_extent.register(Parameter)
+def _(param: Parameter, inames, context):
+    return context.add_parameter(param)
+
+@register_extent.register(Dat)
+@register_extent.register(_ExpressionDat)
+def _(extent, iname_replace_map, ctx):
     expr = lower_expr(extent, iname_replace_map, ctx)
     varname = ctx.unique_name("p")
     ctx.add_temporary(varname)
@@ -1135,45 +1145,49 @@ def register_extent(extent, iname_replace_map, ctx):
 
 # lives here??
 @functools.singledispatch
-def _as_pointer(array) -> int:
-    raise NotImplementedError
+def as_kernel_arg(obj: Any) -> int:
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-# bad name now, "as_kernel_arg"?
-@_as_pointer.register
-def _(arg: int):
-    return arg
+@as_kernel_arg.register(numbers.Integral)
+def _(num: numbers.Integral) -> int:
+    return int(num)
 
 
-@_as_pointer.register
-def _(arg: np.ndarray):
-    return arg.ctypes.data
+@as_kernel_arg.register(Parameter)
+def _(param: Parameter) -> int:
+    return as_kernel_arg(param.value)
 
 
-@_as_pointer.register
+@as_kernel_arg.register(np.ndarray)
+def _(array: np.ndarray) -> int:
+    return array.ctypes.data
+
+
+@as_kernel_arg.register
 def _(arg: _Dat):
     # TODO if we use the right accessor here we modify the state appropriately
-    return _as_pointer(arg.buffer)
+    return as_kernel_arg(arg.buffer)
 
 
-@_as_pointer.register
+@as_kernel_arg.register
 def _(arg: DistributedBuffer):
     # TODO if we use the right accessor here we modify the state appropriately
     # NOTE: Do not use .data_rw accessor here since this would trigger a halo exchange
-    return _as_pointer(arg._data)
+    return as_kernel_arg(arg._data)
 
 
-@_as_pointer.register
+@as_kernel_arg.register
 def _(arg: PackedBuffer):
-    return _as_pointer(arg.array)
+    return as_kernel_arg(arg.array)
 
 
-@_as_pointer.register
+@as_kernel_arg.register
 def _(array: AbstractMat):
     return array.mat.handle
 
 
-@_as_pointer.register(PETSc.Mat)
+@as_kernel_arg.register(PETSc.Mat)
 def _(mat):
     return mat.handle
 
@@ -1238,5 +1252,3 @@ def compile_loopy(translation_unit, *, pyop3_compiler_parameters):
     func.argtypes = argtypes
     func.restype = restype
     return func
-
-
