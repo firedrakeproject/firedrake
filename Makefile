@@ -34,7 +34,9 @@ lint:
 actionlint:
 	@echo "    Pull latest actionlint image"
 	@docker pull rhysd/actionlint:latest
-	@docker run --rm -v $$(pwd):/repo --workdir /repo rhysd/actionlint -color
+	@# Exclude SC2046 so it doesn't complain about unquoted $ characters (the
+	@# quoting can prevent proper parsing)
+	@docker run -e SHELLCHECK_OPTS='--exclude=SC2046' --rm -v $$(pwd):/repo --workdir /repo rhysd/actionlint -color
 
 .PHONY: dockerlint
 dockerlint:
