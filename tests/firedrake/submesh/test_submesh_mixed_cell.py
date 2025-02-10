@@ -8,8 +8,7 @@ from petsc4py import PETSc
 cwd = abspath(dirname(__file__))
 
 
-@pytest.mark.parallel(nprocs=2)
-def test_submesh_mixed_cell_base():
+def _test_submesh_mixed_cell_base():
     dim = 2
     mesh = Mesh(join(cwd, "..", "meshes", "mixed_cell_unit_square.msh"))
     mesh_t = Submesh(mesh, dim, PETSc.DM.PolytopeType.TRIANGLE, label_name="celltype", name="mesh_tri")
@@ -52,3 +51,17 @@ def test_submesh_mixed_cell_base():
     assert abs(v) < 1.e-30
     v = assemble(dot(n_q + n_t, n_q + n_t) * ds_q(0))
     assert abs(v) < 1.e-30
+
+
+def test_submesh_mixed_cell_base_one_process():
+    _test_submesh_mixed_cell_base()
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_submesh_mixed_cell_base_two_processes():
+    _test_submesh_mixed_cell_base()
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_submesh_mixed_cell_base_three_processes():
+    _test_submesh_mixed_cell_base()
