@@ -281,7 +281,7 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
 
     def __init__(self, function):
         from firedrake.checkpointing import CheckpointFile
-        self.name = copy.deepcopy(function.name())
+        self.name = function.name()
         self.mesh = function.function_space().mesh()
         self.file = current_checkpoint_file()
 
@@ -294,7 +294,7 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
         if self.file.name not in stored_names:
             stored_names[self.file.name] = {}
 
-        self.count = copy.deepcopy(function.count())
+        self.count = function.count()
         with CheckpointFile(self.file.name, 'a') as outfile:
             self.stored_name = outfile._generate_function_space_name(
                 function.function_space())
