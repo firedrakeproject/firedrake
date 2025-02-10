@@ -865,12 +865,15 @@ class AbstractMeshTopology(abc.ABC):
         # Start with a local numbering
         numbering = self._dm_renumbering.indices.copy()
 
-        # Then offset by the number of owned points on preceding ranks
-        offset = self._comm.exscan(self.num_owned_points) or 0
-        numbering += offset
+        if self.comm.size > 1:
+            # Then offset by the number of owned points on preceding ranks
+            # offset = self._comm.exscan(self.num_owned_points) or 0
+            offset = self._comm.exscan(self.points.owned.size) or 0
+            numbering += offset
 
-        # And finally send ghost points their actual global number
-        self.point_sf.broadcast(numbering, MPI.REPLACE)
+            # And finally send ghost points their actual global number
+            self.point_sf.broadcast(numbering, MPI.REPLACE)
+
         return readonly(numbering)
 
     @property

@@ -243,7 +243,7 @@ def _(sf: PETSc.SF, regions) -> StarForest:
     return StarForest(sf, size)
 
 
-def _expand_regions(regions: Sequence[AxisComponentRegion], sf: StarForest) -> tuple[AxisComponentRegion, ...]:
+def _partition_regions(regions: Sequence[AxisComponentRegion], sf: StarForest) -> tuple[AxisComponentRegion, ...]:
     """
     examples:
 
@@ -298,7 +298,7 @@ class AxisComponent(LabelledNodeComponent):
         #     )
 
         super().__init__(label=label)
-        self._regions = regions
+        self.regions = regions
         self.unit = unit
         self.sf = sf
 
@@ -376,11 +376,10 @@ class AxisComponent(LabelledNodeComponent):
     def size(self):
         return self.count
 
-    # NOTE: Unsure if this should be kept separate like this... just turn into component.regions?
     @cached_property
-    def regions(self) -> tuple[AxisComponentRegion]:
+    def _all_regions(self) -> tuple[AxisComponentRegion]:
         """Return axis component regions having expanded star forests into owned and ghost."""
-        return _expand_regions(self._regions, self.sf) if self.sf else self._regions
+        return _partition_regions(self.regions, self.sf) if self.sf else self.regions
 
     @property
     def comm(self) -> MPI.Comm | None:
@@ -388,7 +387,7 @@ class AxisComponent(LabelledNodeComponent):
 
     @cached_property
     def _all_region_labels(self) -> tuple[str]:
-        return tuple(region.label for region in self.regions)
+        return tuple(region.label for region in self._all_regions)
 
 
 class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
@@ -1097,7 +1096,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         for component in axis.components:
             if region_label in component._all_region_labels:
                 region_index = component._all_region_labels.index(region_label)
-                steps = steps_func([r.size for r in component.regions])
+                steps = steps_func([r.size for r in component._all_regions])
                 start, stop = steps[region_index:region_index+2]
 
                 # NOTE: I think slices and components should *always* preserve the axis labels
@@ -1265,7 +1264,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         region_labels = set()
         for axis in self.axes:
             for component in axis.components:
-                for region in component.regions:
+                for region in component._all_regions:
                     if region.label is not None:
                         region_labels.add(region.label)
         return frozenset(region_labels)

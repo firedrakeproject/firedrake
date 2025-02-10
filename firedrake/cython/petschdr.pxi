@@ -93,6 +93,7 @@ cdef extern from "petscis.h" nogil:
     int PetscSectionSetPermutation(PETSc.PetscSection,PETSc.PetscIS)
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
     int PetscSectionGetDof(PETSc.PetscSection,PetscInt,PetscInt*)
+    int PetscSectionSetOffset(PETSc.PetscSection,PetscInt,PetscInt)
     int PetscSectionSetDof(PETSc.PetscSection,PetscInt,PetscInt)
     int PetscSectionSetFieldDof(PETSc.PetscSection,PetscInt,PetscInt,PetscInt)
     int PetscSectionGetFieldDof(PETSc.PetscSection,PetscInt,PetscInt,PetscInt*)

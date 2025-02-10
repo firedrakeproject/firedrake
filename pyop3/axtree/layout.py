@@ -162,7 +162,7 @@ def tabulate_again_inner(axes, region_map, offset, layouts, *, axis=None, parent
 
     # NOTE: If this fails then I think it means we have a sub-component without a matching region.
     # This simply means that the size here is zero/nothing happens.
-    region = just_one(r for c in axis.components for r in c.regions if r.label == region_map[axis.label])
+    region = just_one(r for c in axis.components for r in c._all_regions if r.label == region_map[axis.label])
 
     for component in axis.components:
         layout_key = (axis.id, component.label)
@@ -226,7 +226,7 @@ def _collect_regions(axes: AxisTree, *, axis: Axis | None = None):
 
     merged_regions = []  # NOTE: Could be an ordered set
     for component in axis.components:
-        for region in component.regions:
+        for region in component._all_regions:
             merged_region = {axis.label: region.label}
 
             if subaxis := axes.child(axis, component):
@@ -437,7 +437,7 @@ def _collect_offset_subaxes(axes, axis, component, *, visited):
 
 
 def has_constant_step(axes: AxisTree, axis, cpt, inner_loop_vars, path=pmap()):
-    if len(axis.components) > 1 and len(cpt.regions) > 1:
+    if len(axis.components) > 1 and len(cpt._all_regions) > 1:
         # must interleave
         return False
 
@@ -517,7 +517,7 @@ def _tabulation_needs_subaxes(axes, axis, component, free_axes: tuple) -> bool:
 
 def _axis_needs_outer_index(axes, axis, visited) -> bool:
     for component in axis.components:
-        if any(_region_size_needs_outer_index(r, visited) for r in component.regions):
+        if any(_region_size_needs_outer_index(r, visited) for r in component._all_regions):
             return True
 
         if subaxis := axes.child(axis, component):
@@ -529,7 +529,7 @@ def _axis_needs_outer_index(axes, axis, visited) -> bool:
 
 def _axis_contains_multiple_regions(axes, axis) -> bool:
     for component in axis.components:
-        if len(component.regions) > 1:
+        if len(component._all_regions) > 1:
             return True
 
         if subaxis := axes.child(axis, component):
@@ -544,7 +544,7 @@ def has_fixed_size(axes, axis, component, inner_loop_vars):
 
 
 def _axis_component_has_fixed_size(component: AxisComponent) -> bool:
-    return all(_axis_component_region_has_fixed_size(r) for r in component.regions)
+    return all(_axis_component_region_has_fixed_size(r) for r in component._all_regions)
 
 
 def _axis_component_region_has_fixed_size(region: AxisComponentRegion) -> bool:
@@ -815,7 +815,7 @@ def _axis_component_size(
 ):
     return sum(
         _axis_component_size_region(axes, axis, component, region, indices, loop_indices=loop_indices)
-        for region in component.regions
+        for region in component._all_regions
     )
 
 

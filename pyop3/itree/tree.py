@@ -1056,6 +1056,10 @@ def _(slice_: Slice, *, prev_axes, **_):
 
         indexed_regions = _index_regions(slice_component, regions)
 
+        if target_component.sf is not None:
+            breakpoint()
+            # renumber_sf with a new thing..
+
         if is_full:
             component_label = slice_component.component
         else:

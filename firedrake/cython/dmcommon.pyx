@@ -2514,37 +2514,43 @@ def renumber_sf(PETSc.SF sf, PETSc.IS renumbering) -> PETSc.SF:
     sf :
         The input SF.
     renumbering :
-        The renumbering to apply.
+        The renumbering to apply. Negative entries are discarded in the
+        resultant SF.
 
     Returns
     -------
     PETSc.SF :
         The renumbered SF.
 
-    Notes
-    -----
-    To renumber the SF we create a Section containing 1 DoF per point, set
-    its permutation, and then call ``PetscSFCreateSectionSF()``.
-
     """
     cdef:
-        PETSc.SF      sf_renum
-        PETSc.Section section
+        PETSc.SF       sf_renum
+        PETSc.Section  section
 
-        PetscInt      nPoints_c, p_c
-        PetscInt      *remoteOffsets_c = NULL
+        PetscInt       nPoints_c, p_c, pRenum_c, offset_c
+        PetscInt       *remoteOffsets_c = NULL
+        const PetscInt *indices_c = NULL, 
 
     nPoints_c = renumbering.getLocalSize()
+    CHKERR(ISGetIndices(renumbering.iset, &indices_c))
 
     section = PETSc.Section().create(sf.comm)
     section.setChart(0, nPoints_c)
+
+    offset_c = 0
     for p_c in range(nPoints_c):
-        CHKERR(PetscSectionSetDof(section.sec, p_c, 1))
-    section.setPermutation(renumbering)
-    section.setUp()
+        pRenum_c = indices_c[p_c]
+        if pRenum_c >= 0:
+            CHKERR(PetscSectionSetDof(section.sec, pRenum_c, 1))
+            CHKERR(PetscSectionSetOffset(section.sec, pRenum_c, offset_c))
+            offset_c += 1
+        else:
+            CHKERR(PetscSectionSetDof(section.sec, pRenum_c, 0))
+            CHKERR(PetscSectionSetOffset(section.sec, pRenum_c, -1))
+
+    CHKERR(ISRestoreIndices(renumbering.iset, &indices_c))
 
     CHKERR(PetscSFCreateRemoteOffsets(sf.sf, section.sec, section.sec, &remoteOffsets_c))
-
     sf_renum = PETSc.SF()
     CHKERR(PetscSFCreateSectionSF(sf.sf, section.sec, remoteOffsets_c, section.sec, &sf_renum.sf))
     return sf_renum
