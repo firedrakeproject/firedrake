@@ -40,6 +40,7 @@ jobs:
             petsc_arch: complex
     env:
       # PETSC_DIR and MPICH_DIR are set inside the docker image
+      PETSC_ARCH: firedrake
       FIREDRAKE_CI_TESTS: 1
       PYOP2_CI_TESTS: 1
       PETSC_ARCH: ${{ matrix.petsc_arch }}
@@ -71,14 +72,10 @@ jobs:
           sudo apt-get -y install parallel
           pip install ipympl pytest-split pytest-timeout pytest-xdist
 
-      # just for now, I think in general we don't need this and can use cached things
-      - name: Clear pip cache (DO NOT MERGE)
-        run: pip cache purge
-
       - name: Install Firedrake
         id: install
         run: |
-          pip install --no-binary h5py ./firedrake[test]
+          pip install --no-cache-dir --no-binary h5py ./firedrake[test]
           firedrake-clean
 
       - name: Run tests (nprocs = 1)

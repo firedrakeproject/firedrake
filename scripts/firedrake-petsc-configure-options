@@ -22,15 +22,15 @@ class Arch(enum.Enum):
 def sniff_platform() -> tuple[System, Arch]:
     system = None
     arch = None
-    if platform.system == "Linux":
+    if platform.system() == "Linux":
         system = System.LINUX
-        if platform.machine == "x86_64":
+        if platform.machine() == "x86_64":
             arch = Arch.X86_64
-        elif platform.machine == "aarch64":
+        elif platform.machine() == "aarch64":
             arch = Arch.ARM64
-    elif platform.system == "Darwin":
+    elif platform.system() == "Darwin":
         system = System.MACOS
-        if platform.machine == "arm64":
+        if platform.machine() == "arm64":
             arch = Arch.ARM64
 
     if system is None:
