@@ -97,7 +97,7 @@ requires = [
   "numpy",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
-  "petsc4py",
+  "petsc4py==3.22.2",
   "rtree>=1.2",
   "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git",
 ]

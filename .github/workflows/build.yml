@@ -61,6 +61,10 @@ jobs:
           # Test using the oldest supported version of Python
           python-version: '3.10'
 
+      - name: DO NOT MERGE Purge caches
+        run: |
+          pip cache purge
+
       - name: Prepare environment
         # Otherwise entrypoints like 'firedrake-clean' cannot be found
         run: echo "/github/home/.local/bin" >> "$GITHUB_PATH"
@@ -74,8 +78,7 @@ jobs:
       - name: Install Firedrake
         id: install
         run: |
-          pip cache purge
-          pip install --no-cache-dir --no-binary h5py ./firedrake[test]
+          pip install --no-binary h5py ./firedrake[test]
           firedrake-clean
 
       - name: Run tests (nprocs = 1)

@@ -36,6 +36,7 @@ if package_manager == "apt":
     sys_deps = [
         "bison",
         "build-essential",
+        "cmake",
         "fftw-dev",
         "flex",
         "git",
