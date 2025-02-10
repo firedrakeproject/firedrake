@@ -25,7 +25,7 @@ def handle_annotation():
     # Ensure annotation is paused when we finish.
     if annotate_tape():
         pause_annotation()
-    
+
     if disk_checkpointing():
         pause_disk_checkpointing()
 
