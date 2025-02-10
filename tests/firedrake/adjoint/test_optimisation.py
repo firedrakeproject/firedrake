@@ -79,7 +79,8 @@ def minimize_tao_nls(rf, *, convert_options=None):
 
 @pytest.mark.parametrize("minimize", [minimize,
                                       minimize_tao_lmvm,
-                                      minimize_tao_nls])@pytest.mark.skipcomplex
+                                      minimize_tao_nls])
+@pytest.mark.skipcomplex
 def test_optimisation_constant_control(minimize):
     """This tests a list of controls in a minimisation"""
     mesh = UnitSquareMesh(1, 1)
