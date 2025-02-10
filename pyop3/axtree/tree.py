@@ -977,11 +977,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
             loop_exprs=loop_exprs,
         )
 
-    # @cached_property
-    # def owned_size(self):
-    #     nghost = self.sf.nleaves if self.sf is not None else 0
-    #     return self.size - nghost
-
     @cached_property
     def global_numbering(self):
         if not self.comm or self.comm.size == 1:
