@@ -324,18 +324,23 @@ class _Facets(object):
         map_from_cell_to_facet_orientations = self.mesh.entity_orientations[:, local_facet_start:local_facet_end]
         # Make output data;
         # this is a map from an exterior/interior facet to the corresponding local facet orientation/orientations.
-        # Halo data are required by design, but not actually used.
-        # -- Reshape as (-1, self._rank) to uniformly handle exterior and interior facets.
-        data = np.empty_like(self.local_facet_dat.data_ro_with_halos).reshape((-1, self._rank))
-        data.fill(np.iinfo(dtype).max)
-        # Set local facet orientations on the block corresponding to the owned facets; i.e., data[:shape[0], :] below.
-        local_facets = self.local_facet_dat.data_ro  # do not need halos.
+        # local facet orientation/orientations of a halo facet is/are required for mixed cell problems solved
+        # using submesh.
+        #
+        #  Example:
+        #
+        #  +-----+         quad      : rank 0
+        #  |     | \       tri       : rank 1
+        #  |     |   \     interface : rank 1
+        #  +-----+----+    form = FacetNormal(quad)[0] * ds_tri(interface)
+        #
+        # Set local facet orientations.
+        local_facets = self.local_facet_dat.data_ro_with_halos
         # -- Reshape as (-1, self._rank) to uniformly handle exterior and interior facets.
         local_facets = local_facets.reshape((-1, self._rank))
         shape = local_facets.shape
-        map_from_owned_facet_to_cells = self.facet_cell[:shape[0], :]
-        data[:shape[0], :] = np.take_along_axis(
-            map_from_cell_to_facet_orientations[map_from_owned_facet_to_cells],
+        data = np.take_along_axis(
+            map_from_cell_to_facet_orientations[self.facet_cell],
             local_facets.reshape(shape + (1, )),  # reshape as required by take_along_axis.
             axis=2,
         ).reshape(shape)
