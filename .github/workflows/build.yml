@@ -74,6 +74,7 @@ jobs:
       - name: Install Firedrake
         id: install
         run: |
+          pip cache purge
           pip install --no-cache-dir --no-binary h5py ./firedrake[test]
           firedrake-clean
 
