@@ -5,7 +5,6 @@ from pyop2.mpi import COMM_WORLD
 import tempfile
 import os
 import shutil
-import copy
 import atexit
 from abc import ABC, abstractmethod
 from numbers import Number
