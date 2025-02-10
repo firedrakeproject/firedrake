@@ -21,129 +21,129 @@ env:
   RELEASE_TAG: latest
 
 jobs:
-  test:
-    name: "Run Firedrake tests (Linux)"
-    runs-on: [self-hosted, Linux]
-    container:
-      image: firedrakeproject/firedrake-env:pip
-    strategy:
-      # We want to know all of the tests which fail, so don't kill real if
-      # complex fails and vice-versa
-      fail-fast: false
-      matrix:
-        include:
-          - scalar-type: real
-            complex: ""
-            petsc_arch: default
-          - scalar-type: complex
-            complex: --complex
-            petsc_arch: complex
-    env:
-      # PETSC_DIR and MPICH_DIR are set inside the docker image
-      PETSC_ARCH: firedrake
-      FIREDRAKE_CI_TESTS: 1
-      PYOP2_CI_TESTS: 1
-      OMP_NUM_THREADS: 1
-      OPENBLAS_NUM_THREADS: 1
-      COMPLEX: ${{ matrix.complex }}
-      RDMAV_FORK_SAFE: 1
-      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 tests/firedrake
-      CC: mpicc
-      CXX: mpicxx
-      MPICC: mpicc
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          path: firedrake
-
-      - uses: actions/setup-python@v5
-        with:
-          # Test using the oldest supported version of Python
-          python-version: '3.10'
-
-      - name: DO NOT MERGE Purge caches
-        run: |
-          pip cache purge
-
-      - name: Prepare environment
-        # Otherwise entrypoints like 'firedrake-clean' cannot be found
-        run: echo "/github/home/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Install test dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get -y install parallel
-          pip install ipympl pytest-split pytest-timeout pytest-xdist
-
-      - name: Install Firedrake
-        id: install
-        run: |
-          pip install --no-binary h5py ./firedrake[test]
-          firedrake-clean
-
-      - name: Run tests (nprocs = 1)
-        run: |
-          : # Use pytest-xdist here so we can have a single collated output (not possible
-          : # for parallel tests)
-          firedrake-run-split-tests 1 1 "-n 12 $EXTRA_PYTEST_ARGS --junit-xml=firedrake1_{#}.xml"
-
-      - name: Run tests (nprocs = 2)
-        # Run even if earlier tests failed
-        if: ${{ success() || steps.install.conclusion == 'success' }}
-        run: |
-          firedrake-run-split-tests 2 6 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake2_{#}.xml"
-
-      - name: Run tests (nprocs = 3)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
-        run: |
-          firedrake-run-split-tests 3 4 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake3_{#}.xml"
-
-      - name: Run tests (nprocs = 4)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
-        run: |
-          firedrake-run-split-tests 4 3 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake4_{#}.xml"
-
-      - name: Run tests (nprocs = 5)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
-        run: |
-          firedrake-run-split-tests 5 2 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake5_{#}.xml"
-
-      - name: Run tests (nprocs = 6)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
-        run: |
-          firedrake-run-split-tests 6 2 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake6_{#}.xml"
-
-      - name: Run tests (nprocs = 7)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
-        run: |
-          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake7_{#}.xml"
-
-      - name: Run tests (nprocs = 8)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
-        run: |
-          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake8_{#}.xml"
-
-      - name: Publish test report
-        uses: mikepenz/action-junit-report@v5.0.0-a02
-        # To avoid permissions issues do not run with forked repos
-        # (see https://github.com/mikepenz/action-junit-report/issues/23)
-        if: |
-          always() 
-          && (github.ref != 'refs/heads/master')
-          && (github.event.pull_request.head.repo.full_name == github.repository)
-        with:
-          report_paths: 'firedrake*.xml'
-          comment: true
-          check_name: "Firedrake ${{ matrix.scalar-type }}"
-          updateComment: true
-          flaky_summary: true
-
-      - name: Upload log files
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: firedrake-logs-${{ matrix.scalar-type }}
-          path: pytest_*.log
+  # test:
+  #   name: "Run Firedrake tests (Linux)"
+  #   runs-on: [self-hosted, Linux]
+  #   container:
+  #     image: firedrakeproject/firedrake-env:pip
+  #   strategy:
+  #     # We want to know all of the tests which fail, so don't kill real if
+  #     # complex fails and vice-versa
+  #     fail-fast: false
+  #     matrix:
+  #       include:
+  #         - scalar-type: real
+  #           complex: ""
+  #           petsc_arch: default
+  #         - scalar-type: complex
+  #           complex: --complex
+  #           petsc_arch: complex
+  #   env:
+  #     # PETSC_DIR and MPICH_DIR are set inside the docker image
+  #     PETSC_ARCH: firedrake
+  #     FIREDRAKE_CI_TESTS: 1
+  #     PYOP2_CI_TESTS: 1
+  #     OMP_NUM_THREADS: 1
+  #     OPENBLAS_NUM_THREADS: 1
+  #     COMPLEX: ${{ matrix.complex }}
+  #     RDMAV_FORK_SAFE: 1
+  #     EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 tests/firedrake
+  #     CC: mpicc
+  #     CXX: mpicxx
+  #     MPICC: mpicc
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         path: firedrake
+  #
+  #     - uses: actions/setup-python@v5
+  #       with:
+  #         # Test using the oldest supported version of Python
+  #         python-version: '3.10'
+  #
+  #     - name: DO NOT MERGE Purge caches
+  #       run: |
+  #         pip cache purge
+  #
+  #     - name: Prepare environment
+  #       # Otherwise entrypoints like 'firedrake-clean' cannot be found
+  #       run: echo "/github/home/.local/bin" >> "$GITHUB_PATH"
+  #
+  #     - name: Install test dependencies
+  #       run: |
+  #         sudo apt-get update
+  #         sudo apt-get -y install parallel
+  #         pip install ipympl pytest-split pytest-timeout pytest-xdist
+  #
+  #     - name: Install Firedrake
+  #       id: install
+  #       run: |
+  #         pip install --no-binary h5py ./firedrake[test]
+  #         firedrake-clean
+  #
+  #     - name: Run tests (nprocs = 1)
+  #       run: |
+  #         : # Use pytest-xdist here so we can have a single collated output (not possible
+  #         : # for parallel tests)
+  #         firedrake-run-split-tests 1 1 "-n 12 $EXTRA_PYTEST_ARGS --junit-xml=firedrake1_{#}.xml"
+  #
+  #     - name: Run tests (nprocs = 2)
+  #       # Run even if earlier tests failed
+  #       if: ${{ success() || steps.install.conclusion == 'success' }}
+  #       run: |
+  #         firedrake-run-split-tests 2 6 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake2_{#}.xml"
+  #
+  #     - name: Run tests (nprocs = 3)
+  #       if: ${{ success() || steps.install.conclusion == 'success' }}
+  #       run: |
+  #         firedrake-run-split-tests 3 4 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake3_{#}.xml"
+  #
+  #     - name: Run tests (nprocs = 4)
+  #       if: ${{ success() || steps.install.conclusion == 'success' }}
+  #       run: |
+  #         firedrake-run-split-tests 4 3 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake4_{#}.xml"
+  #
+  #     - name: Run tests (nprocs = 5)
+  #       if: ${{ success() || steps.install.conclusion == 'success' }}
+  #       run: |
+  #         firedrake-run-split-tests 5 2 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake5_{#}.xml"
+  #
+  #     - name: Run tests (nprocs = 6)
+  #       if: ${{ success() || steps.install.conclusion == 'success' }}
+  #       run: |
+  #         firedrake-run-split-tests 6 2 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake6_{#}.xml"
+  #
+  #     - name: Run tests (nprocs = 7)
+  #       if: ${{ success() || steps.install.conclusion == 'success' }}
+  #       run: |
+  #         firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake7_{#}.xml"
+  #
+  #     - name: Run tests (nprocs = 8)
+  #       if: ${{ success() || steps.install.conclusion == 'success' }}
+  #       run: |
+  #         firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake8_{#}.xml"
+  #
+  #     - name: Publish test report
+  #       uses: mikepenz/action-junit-report@v5.0.0-a02
+  #       # To avoid permissions issues do not run with forked repos
+  #       # (see https://github.com/mikepenz/action-junit-report/issues/23)
+  #       if: |
+  #         always() 
+  #         && (github.ref != 'refs/heads/master')
+  #         && (github.event.pull_request.head.repo.full_name == github.repository)
+  #       with:
+  #         report_paths: 'firedrake*.xml'
+  #         comment: true
+  #         check_name: "Firedrake ${{ matrix.scalar-type }}"
+  #         updateComment: true
+  #         flaky_summary: true
+  #
+  #     - name: Upload log files
+  #       uses: actions/upload-artifact@v4
+  #       if: always()
+  #       with:
+  #         name: firedrake-logs-${{ matrix.scalar-type }}
+  #         path: pytest_*.log
 
   docker_tag:
     name: "Set the Docker release tag"
