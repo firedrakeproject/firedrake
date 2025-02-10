@@ -574,7 +574,7 @@ class CrossMeshInterpolator(Interpolator):
                     # with arguments, as opposed to just being the argument.
                     expr_subfunctions = [
                         firedrake.TestFunction(V_src_sub_func)
-                        for V_src_sub_func in self.expr.function_space().subfunctions
+                        for V_src_sub_func in self.expr.function_space().subspaces
                     ]
                 elif self.nargs > 1:
                     raise NotImplementedError(
@@ -582,16 +582,16 @@ class CrossMeshInterpolator(Interpolator):
                     )
                 else:
                     expr_subfunctions = self.expr.subfunctions
-                if len(expr_subfunctions) != len(V_dest.subfunctions):
+                if len(expr_subfunctions) != len(V_dest.subspaces):
                     raise NotImplementedError(
                         "Can't interpolate from a non-mixed function space into a mixed function space."
                     )
-                for input_sub_func, target_sub_func in zip(
-                    expr_subfunctions, V_dest.subfunctions
+                for input_sub_func, target_subspace in zip(
+                    expr_subfunctions, V_dest.subspaces
                 ):
                     sub_interpolator = type(self)(
                         input_sub_func,
-                        target_sub_func,
+                        target_subspace,
                         subset=subset,
                         freeze_expr=freeze_expr,
                         access=access,
