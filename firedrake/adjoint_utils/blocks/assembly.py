@@ -210,7 +210,6 @@ class AssembleBlock(Block):
         output = firedrake.assemble(form)
         output = create_overloaded_object(output)
         if isinstance(output, firedrake.Function):
-            return maybe_disk_checkpoint(
-                output, block_variable.output.function_space())
+            return maybe_disk_checkpoint(output)
         else:
             return output

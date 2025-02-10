@@ -68,11 +68,13 @@ def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True):
         If set to False, checkpoint files will not be deleted when no longer
         required. This is usually only useful for debugging.
     """
+    from checkpoint_schedules import SingleDiskStorageSchedule
     tape = get_working_tape()
     if "firedrake" not in tape._package_data:
         tape._package_data["firedrake"] = DiskCheckpointer(dirname, comm, cleanup)
     if not disk_checkpointing():
         continue_disk_checkpointing()
+    tape.enable_checkpointing(SingleDiskStorageSchedule())
 
 
 def disk_checkpointing():
@@ -277,10 +279,10 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
     _checkpoint_index = 0
     _checkpoint_indices = {}
 
-    def __init__(self, function, function_space):
+    def __init__(self, function):
         from firedrake.checkpointing import CheckpointFile
         self.name = copy.deepcopy(function.name())
-        self.mesh = function_space.mesh()
+        self.mesh = function.function_space().mesh()
         self.file = current_checkpoint_file()
 
         if not self.file:
@@ -295,7 +297,7 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
         self.count = copy.deepcopy(function.count())
         with CheckpointFile(self.file.name, 'a') as outfile:
             self.stored_name = outfile._generate_function_space_name(
-                function_space)
+                function.function_space())
             indices = stored_names[self.file.name]
             indices.setdefault(self.stored_name, 0)
             indices[self.stored_name] += 1
@@ -316,9 +318,9 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
         return checkpoint.restore()
 
 
-def maybe_disk_checkpoint(function, function_space):
+def maybe_disk_checkpoint(function):
     """Checkpoint a Function to disk if disk checkpointing is active."""
-    return CheckpointFunction(function, function_space) if disk_checkpointing() else function
+    return CheckpointFunction(function) if disk_checkpointing() else function
 
 
 class DelegatedFunctionCheckpoint(CheckpointBase, OverloadedType):

@@ -178,10 +178,11 @@ class FunctionAssignBlock(Block):
         else:
             if self.expr is None:
                 prepared = inputs[0]
-            V = block_variable.output.function_space()
-            output = firedrake.Function(V)
+            output = firedrake.Function(
+                block_variable.output.function_space()
+            )
             output.assign(prepared)
-            return maybe_disk_checkpoint(output, V)
+            return maybe_disk_checkpoint(output)
 
     def __str__(self):
         rhs = self.expr or self.other or self.get_dependencies()[0].output
@@ -220,8 +221,8 @@ class SubfunctionBlock(Block):
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
         return maybe_disk_checkpoint(
-            firedrake.Function.sub(inputs[0], self.idx),
-            block_variable.output.function_space())
+            firedrake.Function.sub(inputs[0], self.idx)
+        )
 
     def __str__(self):
         return f"{self.get_dependencies()[0]}[{self.idx}]"
@@ -265,8 +266,7 @@ class FunctionMergeBlock(Block):
         parent_in = inputs[1]
         parent_out = type(parent_in)(parent_in)
         parent_out.sub(self.idx).assign(sub_func)
-        return maybe_disk_checkpoint(
-            parent_out, block_variable.output.function_space())
+        return maybe_disk_checkpoint(parent_out)
 
     def __str__(self):
         deps = self.get_dependencies()
@@ -336,10 +336,11 @@ class CofunctionAssignBlock(Block):
         if isinstance(block_variable.checkpoint, DelegatedFunctionCheckpoint):
             return block_variable.checkpoint
         else:
-            V_dual = block_variable.output.function_space()
-            output = firedrake.Cofunction(V_dual)
+            output = firedrake.Cofunction(
+                block_variable.output.function_space()
+            )
             output.assign(inputs[0])
-            return maybe_disk_checkpoint(output, V_dual)
+            return maybe_disk_checkpoint(output)
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
