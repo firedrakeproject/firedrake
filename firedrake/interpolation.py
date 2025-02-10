@@ -518,7 +518,6 @@ class CrossMeshInterpolator(Interpolator):
 
         # setup
         V_dest = V.function_space() if isinstance(V, firedrake.Function) else V
-
         src_mesh = extract_unique_domain(expr)
         dest_mesh = as_domain(V_dest)
         src_mesh_gdim = src_mesh.geometric_dimension()
