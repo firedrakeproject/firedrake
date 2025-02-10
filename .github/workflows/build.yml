@@ -62,106 +62,72 @@ jobs:
           # Test using the oldest supported version of Python
           python-version: '3.10'
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get -y install $(python3 firedrake/scripts/firedrake-system-deps)
-
-      - name: Install PETSc
-        run: |
-          git clone https://github.com/firedrakeproject/petsc.git
-          cd petsc
-          : # TODO: Use a script to generate these options
-          ./configure \
-            --with-c2html=0 \
-            --with-debugging=0 \
-            --with-fftw \
-            --with-fortran-bindings=0 \
-            --with-hdf5-include=/usr/include/hdf5/openmpi/ \
-            --with-hdf5-lib=/usr/lib/x86_64-linux-gnu/hdf5/openmpi/libhdf5.so \
-            --with-hwloc \
-            --with-make-np=12 \
-            --with-shared-libraries=1 \
-            --with-ptscotch \
-            --with-scalapack \
-            --with-hypre \
-            --with-metis \
-            --with-mumps \
-            --with-netcdf \
-            --with-pnetcdf \
-            --download-pastix \
-            --with-suitesparse \
-            --with-superlu_dist \
-            --with-strict-petscerrorcode \
-            --with-zlib
-          make
-        # NOTE: Make sure to pass --with-make-np=12
-
-      - name: Install Firedrake
-        run: pip install --no-binary h5py ./firedrake[test]
-
       - name: Install test dependencies
         id: install
         run: |
-          sudo apt -y install parallel
+          sudo apt-get update
+          sudo apt-get -y install parallel
           pip install ipympl pytest-split pytest-timeout pytest-xdist
+
+      # just for now, I think in general we don't need this and can use cached things
+      - name: Clear pip cache (DO NOT MERGE)
+        run: pip cache purge
+
+      - name: Install Firedrake
+        run: |
+          pip install --no-binary h5py ./firedrake[test]
           firedrake-clean
 
       - name: Run tests (nprocs = 1)
         run: |
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
-          . ../firedrake_venv/bin/activate
           firedrake-run-split-tests 1 1 "-n 12 $EXTRA_PYTEST_ARGS --junit-xml=firedrake1_{#}.xml"
 
       - name: Run tests (nprocs = 2)
         # Run even if earlier tests failed
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          . ../firedrake_venv/bin/activate
           firedrake-run-split-tests 2 6 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake2_{#}.xml"
 
       - name: Run tests (nprocs = 3)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          . ../firedrake_venv/bin/activate
           firedrake-run-split-tests 3 4 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake3_{#}.xml"
 
       - name: Run tests (nprocs = 4)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          . ../firedrake_venv/bin/activate
           firedrake-run-split-tests 4 3 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake4_{#}.xml"
 
       - name: Run tests (nprocs = 5)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          . ../firedrake_venv/bin/activate
           firedrake-run-split-tests 5 2 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake5_{#}.xml"
 
       - name: Run tests (nprocs = 6)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          . ../firedrake_venv/bin/activate
           firedrake-run-split-tests 6 2 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake6_{#}.xml"
 
       - name: Run tests (nprocs = 7)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          . ../firedrake_venv/bin/activate
           firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake7_{#}.xml"
 
       - name: Run tests (nprocs = 8)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          . ../firedrake_venv/bin/activate
           firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake8_{#}.xml"
 
-      - name: Publish Test Report
+      - name: Publish test report
         uses: mikepenz/action-junit-report@v5.0.0-a02
         # To avoid permissions issues do not run with forked repos
         # (see https://github.com/mikepenz/action-junit-report/issues/23)
-        if: ${{ always() && (github.ref != 'refs/heads/master') && (github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: |
+          always() 
+          && (github.ref != 'refs/heads/master')
+          && (github.event.pull_request.head.repo.full_name == github.repository)
         with:
           report_paths: 'firedrake*.xml'
           comment: true
@@ -175,22 +141,6 @@ jobs:
         with:
           name: firedrake-logs-${{ matrix.scalar-type }}
           path: pytest_*.log
-
-      - name: Test pyadjoint
-        if: ${{ matrix.scalar-type == 'real' }}
-        run: |
-          cd ../firedrake_venv/src/pyadjoint
-          git clone https://github.com/dolfin-adjoint/pyadjoint.git
-          cd pyadjoint
-          pytest -n 12 -v tests/firedrake_adjoint
-        timeout-minutes: 30
-
-      - name: Cleanup
-        # Belt and braces: clean up before and after the run.
-        if: ${{ always() }}
-        run: |
-          cd ..
-          rm -rf firedrake_venv
 
   docker_tag:
     name: "Set the Docker release tag"
