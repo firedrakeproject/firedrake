@@ -47,8 +47,6 @@ def test_sin_weak_spatial():
 
 @pytest.mark.skipcomplex
 def test_tlm_assemble():
-    tape = get_working_tape()
-    tape.clear_tape()
     mesh = UnitCubeMesh(4, 4, 4)
     x = SpatialCoordinate(mesh)
     S = mesh.coordinates.function_space()
@@ -82,9 +80,6 @@ def test_tlm_assemble():
 
 @pytest.mark.skipcomplex
 def test_shape_hessian():
-    tape = get_working_tape()
-    tape.clear_tape()
-
     mesh = UnitIcosahedralSphereMesh(3)
     x = SpatialCoordinate(mesh)
     mesh.init_cell_orientations(x)
@@ -113,9 +108,6 @@ def test_shape_hessian():
 
 @pytest.mark.skipcomplex
 def test_PDE_hessian_neumann():
-    tape = get_working_tape()
-    tape.clear_tape()
-
     mesh = UnitOctahedralSphereMesh(refinement_level=2)
 
     x = SpatialCoordinate(mesh)
@@ -167,8 +159,6 @@ def test_PDE_hessian_neumann():
 
 @pytest.mark.skipcomplex
 def test_PDE_hessian_dirichlet():
-    tape = get_working_tape()
-    tape.clear_tape()
 
     mesh = UnitTetrahedronMesh()
 
@@ -222,8 +212,6 @@ def test_PDE_hessian_dirichlet():
 
 @pytest.mark.skipcomplex
 def test_multiple_assignments():
-    tape = get_working_tape()
-    tape.clear_tape()
 
     mesh = UnitSquareMesh(5, 5)
     S = mesh.coordinates.function_space()
