@@ -1262,7 +1262,8 @@ class MeshTopology(AbstractMeshTopology):
 
         cell = self.ufl_cell()
         assert tdim == cell.topological_dimension()
-        if False:#self.submesh_parent is not None:
+        if self.submesh_parent is not None and \
+           not dmcommon.is_mixed_cell_type(self.submesh_parent.topology_dm):
             return dmcommon.submesh_create_cell_closure_cell_submesh(plex,
                                                                      self.submesh_parent.topology_dm,
                                                                      cell_numbering,
