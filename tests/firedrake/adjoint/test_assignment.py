@@ -7,6 +7,7 @@ from firedrake.adjoint import *
 from numpy.random import rand
 from numpy.testing import assert_approx_equal, assert_allclose
 
+
 @pytest.fixture(autouse=True)
 def handle_taping():
     yield

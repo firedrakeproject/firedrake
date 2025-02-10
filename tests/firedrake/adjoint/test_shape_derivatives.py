@@ -196,18 +196,21 @@ def test_PDE_hessian_dirichlet():
     h = Function(S, name="V")
     h.interpolate(as_vector((A*x[2], A*cos(x[1]), A*x[0])))
 
-    Jhat(s)
     # Finite difference
-    assert (taylor_test(Jhat, s, h, dJdm=0) > 0.95)
-
+    r0 = taylor_test(Jhat, s, h, dJdm=0)
     Jhat(s)
-    assert (taylor_test(Jhat, s, h) > 1.95)
+    assert (r0 > 0.95)
+
+    r1 = taylor_test(Jhat, s, h)
+    Jhat(s)
+    assert (r1 > 1.95)
 
     # First order taylor
     s.block_variable.tlm_value = h
     tape = get_working_tape()
     tape.evaluate_tlm()
-    assert (taylor_test(Jhat, s, h, dJdm=J.block_variable.tlm_value) > 1.95)
+    r1 = taylor_test(Jhat, s, h, dJdm=J.block_variable.tlm_value)
+    assert (r1 > 1.95)
     Jhat(s)
 
     # # Second order taylor

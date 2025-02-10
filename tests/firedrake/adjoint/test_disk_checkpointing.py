@@ -14,6 +14,7 @@ def handle_taping():
     yield
     tape = get_working_tape()
     tape.clear_tape()
+    tape._package_data = {}
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -24,6 +25,9 @@ def handle_annotation():
     # Ensure annotation is paused when we finish.
     if annotate_tape():
         pause_annotation()
+    
+    if disk_checkpointing():
+        pause_disk_checkpointing()
 
 
 def adjoint_example(fine, coarse):
@@ -96,7 +100,6 @@ def test_disk_checkpointing(checkpoint_schedule):
 
     assert np.allclose(J_disk, J_mem)
     assert np.allclose(assemble((grad_J_disk - grad_J_mem)**2*dx), 0.0)
-    tape.clear_tape()
 
 
 @pytest.mark.skipcomplex

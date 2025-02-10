@@ -24,6 +24,7 @@ def handle_annotation():
 
 @pytest.mark.skipcomplex
 def test_linear_problem():
+    assert len(get_working_tape()._blocks) == 0
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
     R = FunctionSpace(mesh, "R", 0)
