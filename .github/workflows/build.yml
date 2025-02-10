@@ -87,7 +87,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
-            --package-branch pyadjoint dolci/remove_firedrake_tests
+            --package-branch pyadjoint dolci/remove_firedrake_tests \
             || (cat firedrake-install.log && /bin/false)
 
       - name: Install test dependencies
