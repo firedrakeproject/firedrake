@@ -77,8 +77,7 @@ def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True, sched
         documentation
         <https://www.firedrakeproject.org/checkpoint_schedules/>.
     """
-
-    from checkpoint_schedules import SingleDiskStorageSchedule, CheckpointSchedule, StorageType
+    from checkpoint_schedules import SingleDiskStorageSchedule, StorageType
     tape = get_working_tape()
     if "firedrake" not in tape._package_data:
         tape._package_data["firedrake"] = DiskCheckpointer(dirname, comm, cleanup)
