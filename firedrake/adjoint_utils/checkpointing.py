@@ -49,7 +49,7 @@ class checkpoint_init_data:
         _checkpoint_init_data = self._init
 
 
-def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True):
+def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True, schedule=None):
     """Add a DiskCheckpointer to the current tape and switch on
     disk checkpointing.
 
@@ -66,14 +66,33 @@ def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True):
     cleanup : bool
         If set to False, checkpoint files will not be deleted when no longer
         required. This is usually only useful for debugging.
+    schedule : CheckpointSchedule or None
+        The schedule for disk checkpointing. If ``None``, the ``SingleDiskStorageSchedule``
+        schedule is used. If a schedule is provided, it must use disk storage.
+
+    Notes
+    -----
+        The disk checkpointing schedule is available in the `checkpoint_schedules` package.
+        For more details on the available schedules, refer to the `checkpoint_schedules`
+        documentation
+        <https://www.firedrakeproject.org/checkpoint_schedules/>.
     """
-    from checkpoint_schedules import SingleDiskStorageSchedule
+
+    from checkpoint_schedules import SingleDiskStorageSchedule, CheckpointSchedule, StorageType
     tape = get_working_tape()
     if "firedrake" not in tape._package_data:
         tape._package_data["firedrake"] = DiskCheckpointer(dirname, comm, cleanup)
+    if schedule:
+        # Checking if the schedule uses disk storage.
+        if not schedule.uses_storage_type(StorageType.DISK):
+            raise ValueError("The schedule must use disk storage.")
+    else:
+        schedule = SingleDiskStorageSchedule()
+
     if not disk_checkpointing():
         continue_disk_checkpointing()
-    tape.enable_checkpointing(SingleDiskStorageSchedule())
+
+    tape.enable_checkpointing(schedule)
 
 
 def disk_checkpointing():
