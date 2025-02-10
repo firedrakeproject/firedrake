@@ -1,11 +1,27 @@
 import pytest
-pytest.importorskip("firedrake")
 
 import numpy as np
 from firedrake import *
 from firedrake.__future__ import *
 from firedrake.adjoint import *
 from pyadjoint import taylor_to_dict
+
+
+@pytest.fixture(autouse=True)
+def handle_taping():
+    yield
+    tape = get_working_tape()
+    tape.clear_tape()
+
+
+@pytest.fixture(autouse=True, scope="module")
+def handle_annotation():
+    if not annotate_tape():
+        continue_annotation()
+    yield
+    # Ensure annotation is paused when we finish.
+    if annotate_tape():
+        pause_annotation()
 
 
 @pytest.mark.skipcomplex

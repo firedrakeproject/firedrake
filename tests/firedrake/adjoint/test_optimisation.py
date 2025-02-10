@@ -1,5 +1,4 @@
 import pytest
-pytest.importorskip("firedrake")
 
 from enum import Enum, auto
 from numpy.testing import assert_allclose
@@ -14,8 +13,25 @@ except ModuleNotFoundError:
     SLEPc = None
 from firedrake import *
 from firedrake.adjoint import *
-from pyadjoint import Block, MinimizationProblem, TAOSolver
+from pyadjoint import Block, MinimizationProblem, TAOSolver, get_working_tape
 from pyadjoint.optimization.tao_solver import OptionsManager, PETScVecInterface
+
+
+@pytest.fixture(autouse=True)
+def handle_taping():
+    yield
+    tape = get_working_tape()
+    tape.clear_tape()
+
+
+@pytest.fixture(autouse=True, scope="module")
+def handle_annotation():
+    if not annotate_tape():
+        continue_annotation()
+    yield
+    # Ensure annotation is paused when we finish.
+    if annotate_tape():
+        pause_annotation()
 
 
 @pytest.mark.skipcomplex
@@ -277,14 +293,13 @@ def test_simple_inversion_riesz_representation(tao_type):
                       "tao_gttol": 0.0,
                       "tao_monitor": None}
 
-    pause_annotation()
-
-    mesh = UnitIntervalMesh(10)
-    V = FunctionSpace(mesh, "CG", 1)
-    source_ref = Function(V)
-    x = SpatialCoordinate(mesh)
-    source_ref.interpolate(cos(pi*x**2))
-    u_ref = _simple_helmholz_model(V, source_ref)
+    with stop_annotating():
+        mesh = UnitIntervalMesh(10)
+        V = FunctionSpace(mesh, "CG", 1)
+        source_ref = Function(V)
+        x = SpatialCoordinate(mesh)
+        source_ref.interpolate(cos(pi*x**2))
+        u_ref = _simple_helmholz_model(V, source_ref)
 
     def forward(source):
         c = Control(source)
@@ -294,18 +309,21 @@ def test_simple_inversion_riesz_representation(tao_type):
         rf = ReducedFunctional(J, c)
         return rf
 
-    get_working_tape().clear_tape()
+    assert len(get_working_tape()._blocks) == 0
     source = Function(V)
-    continue_annotation()
     rf = forward(source)
-    pause_annotation()
+    with stop_annotating():
+        solver = TAOSolver(
+            MinimizationProblem(rf), tao_parameters,
+            convert_options={"riesz_representation": riesz_representation})
+        x = solver.solve()
+        assert_allclose(x.dat.data, source_ref.dat.data, rtol=1e-2)
 
-    solver = TAOSolver(
-        MinimizationProblem(rf), tao_parameters,
-        convert_options={"riesz_representation": riesz_representation})
-    x = solver.solve()
-    assert_allclose(x.dat.data, source_ref.dat.data, rtol=1e-2)
 
+        get_working_tape().clear_tape()
+        source_transform = transform(Function(V), TransformType.DUAL,
+                                    riesz_representation,
+                                    mfn_parameters=mfn_parameters)
     def forward_transform(source):
         c = Control(source)
         source = transform(source, TransformType.PRIMAL,
@@ -316,24 +334,18 @@ def test_simple_inversion_riesz_representation(tao_type):
         J = assemble(1e6 * (u - u_ref)**2*dx)
         rf = ReducedFunctional(J, c)
         return rf
-
-    get_working_tape().clear_tape()
-    source_transform = transform(Function(V), TransformType.DUAL,
-                                 riesz_representation,
-                                 mfn_parameters=mfn_parameters)
-    continue_annotation()
     rf_transform = forward_transform(source_transform)
-    pause_annotation()
+    
+    with stop_annotating():
+        solver_transform = TAOSolver(
+            MinimizationProblem(rf_transform), tao_parameters,
+            convert_options={"riesz_representation": "l2"})
+        x_transform = transform(solver_transform.solve(), TransformType.PRIMAL,
+                                riesz_representation,
+                                mfn_parameters=mfn_parameters)
+        assert_allclose(x_transform.dat.data, source_ref.dat.data, rtol=1e-2)
 
-    solver_transform = TAOSolver(
-        MinimizationProblem(rf_transform), tao_parameters,
-        convert_options={"riesz_representation": "l2"})
-    x_transform = transform(solver_transform.solve(), TransformType.PRIMAL,
-                            riesz_representation,
-                            mfn_parameters=mfn_parameters)
-    assert_allclose(x_transform.dat.data, source_ref.dat.data, rtol=1e-2)
-
-    assert solver.tao.getIterationNumber() <= solver_transform.tao.getIterationNumber()
+        assert solver.tao.getIterationNumber() <= solver_transform.tao.getIterationNumber()
 
 
 @pytest.mark.skipcomplex
