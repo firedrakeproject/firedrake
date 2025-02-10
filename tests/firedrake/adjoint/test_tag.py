@@ -29,7 +29,7 @@ def test_tags(tag):
         V = FunctionSpace(mesh, "CG", 1)
         f1 = Function(V)
         if "supermesh" in tag:
-            mesh2 = UnitSquareMesh(1, 1, diagonal='right')
+            # mesh2 = UnitSquareMesh(1, 1, diagonal='right')
             f2 = Function(FunctionSpace(mesh, "CG", 1))
         else:
             f2 = Function(V)

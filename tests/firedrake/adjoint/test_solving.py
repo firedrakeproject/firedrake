@@ -157,7 +157,7 @@ def xtest_wrt_function_dirichlet_boundary():
 
         return assemble(u_**2*dx)
 
-    _test_adjoint_function_boundary(J, bc1, bc_func)
+    _test_adjoint_function_boundary(J(bc), bc1, bc_func)
 
 
 @pytest.mark.skipcomplex
