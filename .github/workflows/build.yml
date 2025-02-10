@@ -51,7 +51,6 @@ jobs:
       CC: mpicc
       CXX: mpicxx
       MPICC: mpicc
-      # MPI_HOME: /usr (not sure if needed)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -62,8 +61,11 @@ jobs:
           # Test using the oldest supported version of Python
           python-version: '3.10'
 
+      - name: Prepare environment
+        : # Otherwise entrypoints like 'firedrake-clean' cannot be found
+        run: echo "/github/home/.local/bin" >> "$GITHUB_PATH"
+
       - name: Install test dependencies
-        id: install
         run: |
           sudo apt-get update
           sudo apt-get -y install parallel
@@ -74,9 +76,8 @@ jobs:
         run: pip cache purge
 
       - name: Install Firedrake
+        id: install
         run: |
-          : # until container rebuilt, note that we still need to set HDF5_MPI=ON!
-          unset HDF5_DIR
           pip install --no-binary h5py ./firedrake[test]
           firedrake-clean
 
