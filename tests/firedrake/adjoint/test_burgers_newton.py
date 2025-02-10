@@ -3,7 +3,6 @@ Implementation of Burger's equation with nonlinear solve in each
 timestep
 """
 import pytest
-pytest.importorskip("firedrake")
 
 from firedrake import *
 from firedrake.adjoint import *
@@ -11,7 +10,23 @@ from checkpoint_schedules import Revolve, SingleMemoryStorageSchedule, MixedChec
     NoneCheckpointSchedule, StorageType
 import numpy as np
 set_log_level(CRITICAL)
-continue_annotation()
+
+
+@pytest.fixture(autouse=True)
+def handle_taping():
+    yield
+    tape = get_working_tape()
+    tape.clear_tape()
+
+
+@pytest.fixture(autouse=True, scope="module")
+def handle_annotation():
+    if not annotate_tape():
+        continue_annotation()
+    yield
+    # Ensure annotation is paused when we finish.
+    if annotate_tape():
+        pause_annotation()
 
 
 def basics():

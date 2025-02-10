@@ -1,14 +1,31 @@
 import pytest
-pytest.importorskip("firedrake")
 
 from firedrake import *
 from firedrake.adjoint import *
-from tests.firedrake_adjoint.test_burgers_newton import _check_forward, \
+from .test_burgers_newton import _check_forward, \
     _check_recompute, _check_reverse
 from checkpoint_schedules import MixedCheckpointSchedule, StorageType
 import numpy as np
 from collections import deque
-continue_annotation()
+
+
+@pytest.fixture(autouse=True)
+def handle_taping():
+    yield
+    tape = get_working_tape()
+    tape.clear_tape()
+
+
+@pytest.fixture(autouse=True, scope="module")
+def handle_annotation():
+    if not annotate_tape():
+        continue_annotation()
+    yield
+    # Ensure annotation is paused when we finish.
+    if annotate_tape():
+        pause_annotation()
+
+
 total_steps = 20
 dt = 0.01
 mesh = UnitIntervalMesh(1)
