@@ -43,7 +43,6 @@ jobs:
       PETSC_ARCH: firedrake
       FIREDRAKE_CI_TESTS: 1
       PYOP2_CI_TESTS: 1
-      PETSC_ARCH: ${{ matrix.petsc_arch }}
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
       COMPLEX: ${{ matrix.complex }}
