@@ -75,6 +75,8 @@ jobs:
 
       - name: Install Firedrake
         run: |
+          : # until container rebuilt, note that we still need to set HDF5_MPI=ON!
+          unset HDF5_DIR
           pip install --no-binary h5py ./firedrake[test]
           firedrake-clean
 
