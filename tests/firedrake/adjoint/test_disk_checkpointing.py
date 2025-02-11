@@ -77,24 +77,19 @@ def adjoint_example(fine, coarse):
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.parametrize("checkpoint_schedule", [True, False])
-def test_disk_checkpointing(checkpoint_schedule):
+def test_disk_checkpointing():
     # Use a Firedrake Tape subclass that supports disk checkpointing.
     set_working_tape(Tape())
     tape = get_working_tape()
     tape.clear_tape()
     enable_disk_checkpointing()
-    if checkpoint_schedule:
-        tape.enable_checkpointing(SingleDiskStorageSchedule())
     fine = checkpointable_mesh(UnitSquareMesh(10, 10, name="fine"))
     coarse = checkpointable_mesh(UnitSquareMesh(4, 4, name="coarse"))
     J_disk, grad_J_disk = adjoint_example(fine, coarse)
 
-    if checkpoint_schedule:
-        assert disk_checkpointing() is False
+    assert disk_checkpointing() is False
+
     tape.clear_tape()
-    if not checkpoint_schedule:
-        pause_disk_checkpointing()
 
     J_mem, grad_J_mem = adjoint_example(fine, coarse)
 

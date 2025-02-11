@@ -1,5 +1,6 @@
 from firedrake import *
 from firedrake.__future__ import *
+from firedrake.adjoint_utils.checkpointing import disk_checkpointing
 from pyadjoint import (ReducedFunctional, get_working_tape, stop_annotating,
                        pause_annotation, Control)
 import numpy as np
@@ -84,7 +85,7 @@ def test_disk_checkpointing():
 @pytest.mark.skipcomplex
 def test_disk_checkpointing_successive_writes():
     from firedrake.adjoint import enable_disk_checkpointing, \
-        checkpointable_mesh, pause_disk_checkpointing
+        checkpointable_mesh
     tape = get_working_tape()
     tape.clear_tape()
     enable_disk_checkpointing()
@@ -102,5 +103,5 @@ def test_disk_checkpointing_successive_writes():
     J = assemble(v*dx)
     Jhat = ReducedFunctional(J, Control(u))
     assert np.allclose(J, Jhat(Function(cg_space).interpolate(1.)))
-    pause_disk_checkpointing()
+    assert disk_checkpointing() is False
     tape.clear_tape()
