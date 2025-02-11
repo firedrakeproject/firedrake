@@ -16,6 +16,7 @@ from glob import iglob
 from itertools import chain
 import re
 import importlib
+import time
 
 
 class InstallError(Exception):
@@ -1201,7 +1202,10 @@ def build_and_install_x4py(package="petsc4py"):
                 shutil.copytree(x4py_dir, x4py_copy, dirs_exist_ok=True)
             pipargs = ["-vvv", "--ignore-installed", x4py_copy]
             try:
+                start = time.time()
                 check_output(pipinstall + pipargs)
+                duration = time.time() - start
+                print(f"Installing petsc4py took {duration} seconds, sheesh")
             except subprocess.CalledProcessError:
                 with open(os.path.join(x4py_copy, "README.md")) as fh:
                     fh.write("# Unable to install {}\n".format(package))
