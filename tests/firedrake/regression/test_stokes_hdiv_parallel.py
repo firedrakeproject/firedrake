@@ -101,10 +101,8 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
                 "ksp_type": "preonly",
                 "pc_type": "python",
                 "pc_python_type": "firedrake.AssembledPC",
-                # Avoid MUMPS segfaults
-                "assembled_pc_type": "redundant",
-                "assembled_redundant_pc_type": "cholesky",
-                "assembled_redundant_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
+                "assembled_pc_type": "lu",
+                "assembled_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
             },
             "fieldsplit_1": {
                 "ksp_type": "preonly",
