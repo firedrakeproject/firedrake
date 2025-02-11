@@ -1,44 +1,50 @@
 #!/usr/bin/env python3
 
 import enum
-import fnmatch
-import pathlib
 import platform
 import subprocess
+from typing import Optional
 
 
-class System(enum.Enum):
-    LINUX = enum.auto()
-    MACOS = enum.auto()
-    UNKNOWN = enum.auto()
+class PackageManager(enum.Enum):
+    LINUX_APT_X86_64 = enum.auto()
+    LINUX_APT_AARCH64 = enum.auto()
+    MACOS_HOMEBREW_ARM64 = enum.auto()
 
 
-class Arch(enum.Enum):
-    X86_64 = enum.auto()
-    ARM64 = enum.auto()
-    UNKNOWN = enum.auto()
+LINUX_APT_X86_64 = PackageManager.LINUX_APT_X86_64
+LINUX_APT_AARCH64 = PackageManager.LINUX_APT_AARCH64
+MACOS_HOMEBREW_ARM64 = PackageManager.MACOS_HOMEBREW_ARM64
 
 
-def sniff_platform() -> tuple[System, Arch]:
-    system = None
-    arch = None
+def sniff_package_manager() -> Optional[PackageManager]:
     if platform.system() == "Linux":
-        system = System.LINUX
-        if platform.machine() == "x86_64":
-            arch = Arch.X86_64
-        elif platform.machine() == "aarch64":
-            arch = Arch.ARM64
+        if has_apt():
+            if platform.machine() == "x86_64":
+                return LINUX_APT_X86_64
+            elif platform.machine() == "aarch64":
+                return LINUX_APT_AARCH64
     elif platform.system() == "Darwin":
-        system = System.MACOS
-        if platform.machine() == "arm64":
-            arch = Arch.ARM64
+        if has_homebrew():
+            if platform.machine() == "arm64":
+                return MACOS_HOMEBREW_ARM64
+    return None
 
-    if system is None:
-        system = System.UNKNOWN
-    if arch is None:
-        arch = Arch.UNKNOWN
 
-    return (system, arch)
+def has_apt() -> bool:
+    try:
+        subprocess.run(["apt", "--version"], capture_output=True)
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def has_homebrew() -> bool:
+    try:
+        subprocess.run(["brew", "--version"], capture_output=True)
+        return True
+    except FileNotFoundError:
+        return False
 
 
 DEFAULT_CONFIGURE_OPTIONS = (
@@ -53,78 +59,96 @@ DEFAULT_CONFIGURE_OPTIONS = (
     "--FOPTFLAGS=-O3 -march=native -mtune=native",
 )
 
-EXTERNAL_PACKAGES = (
-    "fftw",
-    "hdf5",
-    "hwloc",
-    "hypre",
-    "metis",
-    "mumps",
-    "netcdf",
-    "pastix",
-    "pnetcdf",
-    "ptscotch",
-    "scalapack",
-    "suitesparse",
-    "superlu_dist",
-    "zlib",
-)
+PETSC_AUTODETECT = 333
+"""Placeholder value to use when we want PETSc to autodetect the package."""
 
-APT_INSTALLED_EXTERNAL_PACKAGES = {
-    "fftw": None,
-    "hdf5": (
-        # amd64
-        ("/usr/include/hdf5/openmpi", "/usr/lib/x86_64-linux-gnu/hdf5/openmpi/libhdf5.a"),
-        # arm64
-        ("/usr/include/hdf5/openmpi", "/usr/lib/aarch64-linux-gnu/hdf5/openmpi/libhdf5.a"),
-    ),
-    "hwloc": None,
-    "hypre": (
-        # amd64
-        ("/usr/include/hypre", "/usr/lib/x86_64-linux-gnu/libHYPRE.a"),
-        # arm64
-        ("/usr/include/hypre", "/usr/lib/aarch64-linux-gnu/libHYPRE.a"),
-    ),
-    "zlib": None,
+PETSC_DOWNLOAD = 666
+"""Placeholder value to use when we want PETSc to download the package."""
+
+EXTERNAL_PACKAGES = {
+    "fftw": {
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
+    },
+    "hdf5": {
+        LINUX_APT_X86_64: (
+            "/usr/include/hdf5/openmpi", ["/usr/lib/x86_64-linux-gnu/hdf5/openmpi/libhdf5.a"]
+        ),
+        LINUX_APT_AARCH64: (
+            "/usr/include/hdf5/openmpi", ["/usr/lib/aarch64-linux-gnu/hdf5/openmpi/libhdf5.a"]
+        ),
+    },
+    "hwloc": {
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
+    },
+    "hypre": {
+        LINUX_APT_X86_64: ("/usr/include/hypre", ["/usr/lib/x86_64-linux-gnu/libHYPRE.a"]),
+        LINUX_APT_AARCH64: ("/usr/include/hypre", ["/usr/lib/aarch64-linux-gnu/libHYPRE.a"]),
+    },
+    "metis": {
+        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+    },
+    "mumps": {
+        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+    },
+    "netcdf": {
+        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+    },
+    "pastix": {
+        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+    },
+    "pnetcdf": {
+        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+    },
+    "ptscotch": {
+        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+    },
+    "scalapack": {
+        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+    },
+    "suitesparse": {
+        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+    },
+    "superlu_dist": {
+        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+    },
+    "zlib": {
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
+    },
 }
 
 
-package_manager = "apt"
+# def main():
+
+package_manager = sniff_package_manager()
 
 configure_options = list(DEFAULT_CONFIGURE_OPTIONS)
 
-# NOTE: Need to think about interface, when to sniff this or make it configurable, fallbacks?
-system, arch = sniff_platform()
+for external_package, package_specs in EXTERNAL_PACKAGES.items():
+    package_spec = package_specs[package_manager]
 
-if package_manager == "apt":
-    assert system == System.LINUX
-
-    for external_package in EXTERNAL_PACKAGES:
-        if external_package in APT_INSTALLED_EXTERNAL_PACKAGES:
-            package_spec = APT_INSTALLED_EXTERNAL_PACKAGES[external_package]
-            if package_spec is None:
-                # PETSc will find the package for us
-                configure_options.append(f"--with-{external_package}")
-            else:
-                if arch == Arch.X86_64:
-                    package_spec = package_spec[0]
-                else:
-                    assert arch == Arch.ARM64
-                    package_spec = package_spec[1]
-
-                # Have to provide paths for headers and libraries
-                (include_dir, lib) = package_spec
-                configure_options.append(f"--with-{external_package}-include={include_dir}")
-                configure_options.append(f"--with-{external_package}-lib={lib}")
-        else:
-            # Package not provided by package manager, download it instead
-            configure_options.append(f"--download-{external_package}")
-
-elif package_manager == "homebrew":
-    raise NotImplementedError("TODO")
-else:
-    assert package_manager is None
-    for external_package in EXTERNAL_PACKAGES:
+    if package_spec == PETSC_AUTODETECT:
+        # PETSc will find the package for us
+        configure_options.append(f"--with-{external_package}")
+    elif package_spec == PETSC_DOWNLOAD:
+        # Package not provided by package manager, download it instead
         configure_options.append(f"--download-{external_package}")
+    else:
+        # Package is installed but not findable, have to provide paths
+        # to headers and libraries
+        (include_dir, libs) = package_spec
+        configure_options.append(f"--with-{external_package}-include={include_dir}")
+        configure_options.append(f"--with-{external_package}-lib={','.join(libs)}")
 
 print(" ".join(configure_options), end="")
