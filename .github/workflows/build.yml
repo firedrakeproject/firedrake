@@ -88,6 +88,10 @@ jobs:
       - name: Install Firedrake
         id: install
         run: |
+          PETSC_DIR=${{ github.workspace }}/petsc PETSC_ARCH=firedrake
+          HDF5_MPI=ON
+          CC=mpicc CXX=mpicxx
+          MPICC=$CC
           pip install --no-binary h5py ./firedrake[test]
           firedrake-clean
 
