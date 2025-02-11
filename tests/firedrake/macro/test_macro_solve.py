@@ -148,16 +148,10 @@ def test_stokes(mh, variant, mixed_element, convergence_test):
         a, L = stokes_mms(Z, as_vector(zexact))
         bcs = DirichletBC(Z[0], as_vector(zexact[:dim]), "on_boundary")
 
+        zh = Function(Z)
         pconst = VectorSpaceBasis(constant=True, comm=Z.comm)
         nullspace = MixedVectorSpaceBasis(Z, [Z.sub(0), pconst])
-        zh = Function(Z)
-        solve(a == L, zh, bcs=bcs,
-              nullspace=nullspace,
-              solver_parameters={
-                  "mat_type": "nest",
-                  "ksp_type": "gmres",
-                  "ksp_pc_side": "right",
-                  "pc_type": "lu"})
+        solve(a == L, zh, bcs=bcs, nullspace=nullspace)
 
         uh, ph = zh.subfunctions
         u_err.append(errornorm(as_vector(zexact[:dim]), uh))
