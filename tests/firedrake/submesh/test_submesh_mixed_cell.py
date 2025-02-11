@@ -22,7 +22,6 @@ def _test_submesh_mixed_cell_base():
     dx_q = Measure("dx", mesh_q)
     ds_t = Measure("ds", mesh_t)
     ds_q = Measure("ds", mesh_q)
-    # domain size
     A_t = assemble(Constant(1) * dx_t)
     A_q = assemble(Constant(1) * dx_q)
     assert abs(A_t + A_q -1.0) < 1.e-13
