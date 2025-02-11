@@ -68,9 +68,8 @@ def enable_disk_checkpointing(
     cleanup : bool
         If set to False, checkpoint files will not be deleted when no longer
         required. This is usually only useful for debugging.
-    schedule : checkpoint_schedules.CheckpointSchedule or None
-        The schedule for disk checkpointing. If ``None``, the ``SingleDiskStorageSchedule``
-        schedule is used. If a schedule is provided, it must use disk storage.
+    schedule : CheckpointSchedule
+        The schedule for disk checkpointing.
 
     Notes
     -----
