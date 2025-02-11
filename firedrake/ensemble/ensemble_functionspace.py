@@ -183,7 +183,7 @@ class EnsembleFunctionSpaceBase:
         corresponding to the i-th local function space.
         """
         offset = sum(len(V) for V in self.local_spaces[:i])
-        return tuple(offset + i for i in range(len(self.local_spaces[i])))
+        return tuple(offset + j for j in range(len(self.local_spaces[i])))
 
     def create_vec(self):
         """Return a PETSc Vec on the global_comm with the same layout as a :class:`firedrake.EnsembleFunction` or :class:`firedrake.EnsembleCofunction` in this function space.
