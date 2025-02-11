@@ -44,7 +44,7 @@ class EnsembleFunctionMixin(OverloadedType):
             begin, end = vec.owner_range
             vec.array[:] = src[offset + begin: offset + end]
             offset += vec.size
-            return dst, offset
+        return dst, offset
 
     def _ad_dot(self, other, options=None):
         local_dot = sum(uself._ad_dot(uother, options=options)
@@ -53,7 +53,7 @@ class EnsembleFunctionMixin(OverloadedType):
         return self.ensemble.ensemble_comm.allreduce(local_dot)
 
     def _ad_convert_riesz(self, value, options=None):
-        raise ValueError("NotImplementedYet")
+        raise NotImplementedError
 
     def _ad_create_checkpoint(self):
         if disk_checkpointing():
@@ -63,10 +63,10 @@ class EnsembleFunctionMixin(OverloadedType):
             return self.copy()
 
     def _ad_restore_at_checkpoint(self, checkpoint):
-        if isinstance(checkpoint, type(self)):
+        if type(checkpoint) is type(self):
             return checkpoint
         raise NotImplementedError(
-            "Checkpointing not implemented for EnsembleFunctions")
+            "Disk checkpointing not implemented for EnsembleFunctions")
 
     def _ad_from_petsc(self, vec):
         with self.vec_wo as self_v:

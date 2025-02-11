@@ -157,7 +157,7 @@ class EnsembleFunctionSpaceBase:
     def nglobal_spaces(self):
         """The total number of subspaces across all ensemble ranks.
         """
-        return self.ensemble_comm.allreduce(len(self.local_spaces))
+        return self.ensemble_comm.allreduce(self.nlocal_spaces)
 
     @cached_property
     def nlocal_rank_dofs(self):
@@ -186,7 +186,8 @@ class EnsembleFunctionSpaceBase:
         return tuple(offset + j for j in range(len(self.local_spaces[i])))
 
     def create_vec(self):
-        """Return a PETSc Vec on the global_comm with the same layout as a :class:`firedrake.EnsembleFunction` or :class:`firedrake.EnsembleCofunction` in this function space.
+        """Return a PETSc Vec on the `ensemble.global_comm` with the same layout as a
+        `firedrake.EnsembleFunction` or `firedrake.EnsembleCofunction` in this function space.
         """
         vec = PETSc.Vec().create(comm=self.global_comm)
         vec.setSizes((self.nlocal_dofs, self.nglobal_dofs))

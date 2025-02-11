@@ -26,7 +26,7 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
     Notes
     -----
-    Passing a :class:`firedrake.EnsembleDualSpace` to :class:`firedrake.EnsembleFunction`
+    Passing an `EnsembleDualSpace` to `EnsembleFunction`
     will return an instance of :class:`firedrake.EnsembleCofunction`.
 
     This class does not carry UFL symbolic information, unlike a
@@ -99,7 +99,6 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
         Parameters
         ----------
-
         riesz_map
             The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a callable.
 
@@ -130,8 +129,8 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
             only be assigned on the nodes on the corresponding subset.
         """
         if type(other) is not type(self):
-            raise ValueError(
-                f"Cannot assign {type(self)} from {type(other)}")
+            raise TypeError(
+                f"Cannot assign {type(self).__name__} from {type(other).__name__}")
         for i in range(self._fs.nlocal_spaces):
             self.subfunctions[i].assign(
                 other.subfunctions[i],
@@ -263,16 +262,9 @@ class EnsembleFunction(EnsembleFunctionBase):
         super().__init__(function_space)
 
     def norm(self, *args, **kwargs):
-        """
-        Compute the norm of the function.
-        Any arguments are forwarded to :function:`firedrake.norm`.
-
-        Parameters
-        ----------
-
-        norm_type : str
-            The type of norm to compute.
-            See :function:`firedrake.norm` for options.
+        """Compute the norm of the function.
+        
+        Any arguments are forwarded to `firedrake.norm`.
         """
         return self._fs.ensemble_comm.allreduce(
             sum(norm(u, *args, **kwargs) for u in self.subfunctions))
