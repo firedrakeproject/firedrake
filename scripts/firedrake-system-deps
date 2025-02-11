@@ -43,6 +43,7 @@ if package_manager == "apt":
         "libfftw3-mpi-dev",
         "libhwloc-dev",
         "libhdf5-mpi-dev",
+        "libopenblas-dev",
         "libopenmpi-dev",
         "ninja-build",
         "pkg-config",
