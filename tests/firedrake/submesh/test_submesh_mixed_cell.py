@@ -64,3 +64,28 @@ def test_submesh_mixed_cell_base_two_processes():
 @pytest.mark.parallel(nprocs=3)
 def test_submesh_mixed_cell_base_three_processes():
     _test_submesh_mixed_cell_base()
+
+
+def test_submesh_mixed_cell_assemble():
+    dim = 2
+    mesh = Mesh(join(cwd, "..", "meshes", "mixed_cell_unit_square.msh"))
+    mesh_t = Submesh(mesh, dim, PETSc.DM.PolytopeType.TRIANGLE, label_name="celltype", name="mesh_tri")
+    x_t, y_t = SpatialCoordinate(mesh_t)
+    n_t = FacetNormal(mesh_t)
+    mesh_q = Submesh(mesh, dim, PETSc.DM.PolytopeType.QUADRILATERAL, label_name="celltype", name="mesh_quad")
+    x_q, y_q = SpatialCoordinate(mesh_q)
+    n_q = FacetNormal(mesh_q)
+    V_t = FunctionSpace(mesh_t, "P", 4)
+    V_q = FunctionSpace(mesh_q, "Q", 3)
+    V = V_t * V_q
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    u_t, u_q = split(u)
+    v_t, v_q = split(v)
+    dx_t = Measure("dx", mesh_t)
+    dx_q = Measure("dx", mesh_q)
+    ds_t = Measure("ds", mesh_t)
+    ds_q = Measure("ds", mesh_q)
+    a = inner(u_t, v_q) * ds_t
+    A = assemble(a)
+    raise ValueError

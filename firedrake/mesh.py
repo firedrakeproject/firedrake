@@ -9,6 +9,7 @@ import weakref
 from collections import OrderedDict, defaultdict
 from collections.abc import Sequence
 from ufl.classes import ReferenceGrad
+from ufl.cell import CellSequence
 from ufl.domain import extract_unique_domain
 import enum
 import numbers
@@ -4869,13 +4870,14 @@ class MeshSequenceTopology(object):
         return self
 
     def ufl_cell(self):
-        cell, = set(m.ufl_cell() for m in self._meshes)
-        return cell
+        return CellSequence([m.ufl_cell() for m in self._meshes])
 
     def ufl_mesh(self):
         cell = self.ufl_cell()
-        return ufl.MeshSequence([ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
-                                 for _ in self._meshes])
+        return ufl.MeshSequence(
+            [ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
+             for cell in self.ufl_cell().cells]
+        )
 
     def __eq__(self, other):
         if type(other) != type(self):
