@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 import pytest
 import numpy
 
@@ -103,6 +104,7 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
                 # Avoid MUMPS segfaults
                 "assembled_pc_type": "redundant",
                 "assembled_redundant_pc_type": "cholesky",
+                "assembled_redundant_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
             },
             "fieldsplit_1": {
                 "ksp_type": "preonly",
@@ -132,6 +134,6 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
     err_p = numpy.asarray(err_p)
     err_div = numpy.asarray(err_div)
 
-    assert numpy.allclose(err_div, 0, atol=2e-7, rtol=1e-5)
+    assert numpy.allclose(err_div, 0, atol=1e-7, rtol=1e-5)
     assert (numpy.log2(err_u[:-1] / err_u[1:]) > 2.8).all()
     assert (numpy.log2(err_p[:-1] / err_p[1:]) > 1.8).all()
