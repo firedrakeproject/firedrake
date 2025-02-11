@@ -1,7 +1,6 @@
 """A module providing support for disk checkpointing of the adjoint tape."""
 from pyadjoint import get_working_tape, OverloadedType, disk_checkpointing_callback
 from pyadjoint.tape import TapePackageData
-from checkpoint_schedules import SingleDiskStorageSchedule, StorageType
 from pyop2.mpi import COMM_WORLD
 import tempfile
 import os
@@ -51,7 +50,7 @@ class checkpoint_init_data:
 
 
 def enable_disk_checkpointing(
-        dirname=None, comm=COMM_WORLD, cleanup=True, schedule=SingleDiskStorageSchedule()):
+        dirname=None, comm=COMM_WORLD, cleanup=True, schedule=None):
     """Add a DiskCheckpointer to the current tape and switch on
     disk checkpointing.
 
@@ -68,8 +67,9 @@ def enable_disk_checkpointing(
     cleanup : bool
         If set to False, checkpoint files will not be deleted when no longer
         required. This is usually only useful for debugging.
-    schedule : CheckpointSchedule
-        The schedule for disk checkpointing.
+    schedule : checkpoint_schedules.CheckpointSchedule or None
+        The schedule for disk checkpointing. If ``None``, the ``SingleDiskStorageSchedule``
+        schedule is used. If a schedule is provided, it must use disk storage.
 
     Notes
     -----
@@ -78,13 +78,12 @@ def enable_disk_checkpointing(
         documentation
         <https://www.firedrakeproject.org/checkpoint_schedules/>`_.
     """
+    from checkpoint_schedules import SingleDiskStorageSchedule
+    if not schedule:
+        schedule = SingleDiskStorageSchedule()
     tape = get_working_tape()
     if "firedrake" not in tape._package_data:
         tape._package_data["firedrake"] = DiskCheckpointer(dirname, comm, cleanup)
-    if not isinstance(schedule, SingleDiskStorageSchedule):
-        # Checking if the schedule uses disk storage.
-        if not schedule.uses_storage_type(StorageType.DISK):
-            raise ValueError("The schedule must use disk storage.")
 
     tape.enable_checkpointing(schedule)
 
