@@ -2506,6 +2506,7 @@ def partition_renumbering(PETSc.DM dm, PETSc.IS serial_renumbering) -> PETSc.IS:
     return parallel_renumbering
 
 
+# TODO: Just int array not IS
 def renumber_sf(PETSc.SF sf, PETSc.IS renumbering) -> PETSc.SF:
     """Renumber an SF.
 
@@ -2514,46 +2515,77 @@ def renumber_sf(PETSc.SF sf, PETSc.IS renumbering) -> PETSc.SF:
     sf :
         The input SF.
     renumbering :
-        The renumbering to apply. Negative entries are discarded in the
-        resultant SF.
+        The renumbering to apply.
 
     Returns
     -------
     PETSc.SF :
         The renumbered SF.
 
+    Notes
+    -----
+    To renumber the SF we create a Section containing 1 DoF per point, set
+    its permutation, and then call ``PetscSFCreateSectionSF()``.
+
     """
     cdef:
-        PETSc.SF       sf_renum
-        PETSc.Section  section
+        PETSc.SF      sf_renum
+        PETSc.Section section
 
-        PetscInt       nPoints_c, p_c, pRenum_c, offset_c
-        PetscInt       *remoteOffsets_c = NULL
-        const PetscInt *indices_c = NULL, 
+        PetscInt      nPoints_c, p_c
+        PetscInt      *remoteOffsets_c = NULL
 
     nPoints_c = renumbering.getLocalSize()
-    CHKERR(ISGetIndices(renumbering.iset, &indices_c))
 
     section = PETSc.Section().create(sf.comm)
     section.setChart(0, nPoints_c)
-
-    offset_c = 0
     for p_c in range(nPoints_c):
-        pRenum_c = indices_c[p_c]
-        if pRenum_c >= 0:
-            CHKERR(PetscSectionSetDof(section.sec, pRenum_c, 1))
-            CHKERR(PetscSectionSetOffset(section.sec, pRenum_c, offset_c))
-            offset_c += 1
-        else:
-            CHKERR(PetscSectionSetDof(section.sec, pRenum_c, 0))
-            CHKERR(PetscSectionSetOffset(section.sec, pRenum_c, -1))
+        CHKERR(PetscSectionSetDof(section.sec, p_c, 1))
+    section.setPermutation(renumbering)
+    section.setUp()
 
-    CHKERR(ISRestoreIndices(renumbering.iset, &indices_c))
+    return create_section_sf(sf, section)
 
+
+def filter_sf(
+    sf: PETSc.SF,
+    selected_points: np.ndarray[IntType],
+    p_start: IntType,
+    p_end: IntType,
+) -> PETSc.SF:
+    """
+    neednt be ordered
+
+    """
+    cdef:
+        PETSc.SF      sf_filtered
+        PETSc.Section section
+
+        PetscInt      nPoints_c, p_c
+        PetscInt      *remoteOffsets_c = NULL
+
+    nPoints_c = len(selected_points)
+
+    section = PETSc.Section().create(comm=sf.comm)
+    section.setChart(p_start, p_end)
+    for p_c in selected_points:
+        CHKERR(PetscSectionSetDof(section.sec, p_c, 1))
+    section.setUp()
+
+    return create_section_sf(sf, section)
+
+
+def create_section_sf(sf: PETSc.SF, section: PETSc.Section) -> PETSc.SF:
+    """Create an SF from an existing SF and section."""
+    cdef:
+        PETSc.SF sf_new
+        PetscInt *remoteOffsets_c = NULL
+
+    sf_new = PETSc.SF()
     CHKERR(PetscSFCreateRemoteOffsets(sf.sf, section.sec, section.sec, &remoteOffsets_c))
-    sf_renum = PETSc.SF()
-    CHKERR(PetscSFCreateSectionSF(sf.sf, section.sec, remoteOffsets_c, section.sec, &sf_renum.sf))
-    return sf_renum
+    CHKERR(PetscSFCreateSectionSF(sf.sf, section.sec, remoteOffsets_c, section.sec, &sf_new.sf))
+    return sf_new
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
