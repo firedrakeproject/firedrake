@@ -1,16 +1,16 @@
+import os
 import pytest
-from os.path import abspath, dirname, join
 import numpy as np
 from firedrake import *
 from petsc4py import PETSc
 
 
-cwd = abspath(dirname(__file__))
+cwd = os.path.abspath(os.path.dirname(__file__))
 
 
 def _test_submesh_mixed_cell_base():
     dim = 2
-    mesh = Mesh(join(cwd, "..", "meshes", "mixed_cell_unit_square.msh"))
+    mesh = Mesh(os.path.join(cwd, "..", "meshes", "mixed_cell_unit_square.msh"))
     mesh_t = Submesh(mesh, dim, PETSc.DM.PolytopeType.TRIANGLE, label_name="celltype", name="mesh_tri")
     x_t, y_t = SpatialCoordinate(mesh_t)
     n_t = FacetNormal(mesh_t)
@@ -68,7 +68,8 @@ def test_submesh_mixed_cell_base_three_processes():
 
 def test_submesh_mixed_cell_assemble():
     dim = 2
-    mesh = Mesh(join(cwd, "..", "meshes", "mixed_cell_unit_square.msh"))
+    label_interf = 0
+    mesh = Mesh(os.path.join(cwd, "..", "meshes", "mixed_cell_unit_square.msh"))
     mesh_t = Submesh(mesh, dim, PETSc.DM.PolytopeType.TRIANGLE, label_name="celltype", name="mesh_tri")
     x_t, y_t = SpatialCoordinate(mesh_t)
     n_t = FacetNormal(mesh_t)
@@ -86,6 +87,32 @@ def test_submesh_mixed_cell_assemble():
     dx_q = Measure("dx", mesh_q)
     ds_t = Measure("ds", mesh_t)
     ds_q = Measure("ds", mesh_q)
-    a = inner(u_t, v_q) * ds_t
+    # Test against the base cases.
+    c = x_t**2 * y_t**2
+    a = c * inner(u_t, v_q) * ds_t(label_interf)
     A = assemble(a)
-    raise ValueError
+    c_ref = x_q**2 * y_q**2
+    a_ref = c_ref * inner(TrialFunction(V_t), TestFunction(V_q)) * ds_t(label_interf)
+    A_ref = assemble(a_ref)
+    assert np.allclose(A.M[1][0].values, A_ref.M.values)
+    c = x_t**2 * y_q**2
+    a = c * inner(u_q, v_t) * ds_t(label_interf)
+    A = assemble(a)
+    c_ref = x_q**2 * y_t**2
+    a_ref = c_ref * inner(TrialFunction(V_q), TestFunction(V_t)) * ds_t(label_interf)
+    A_ref = assemble(a_ref)
+    assert np.allclose(A.M[0][1].values, A_ref.M.values)
+    c = dot(n_t, n_t)
+    a = c * inner(u_t, v_q) * ds_q(label_interf)
+    A = assemble(a)
+    c_ref = dot(n_q, n_q)
+    a_ref = c_ref * inner(TrialFunction(V_t), TestFunction(V_q)) * ds_q(label_interf)
+    A_ref = assemble(a_ref)
+    assert np.allclose(A.M[1][0].values, A_ref.M.values)
+    c = dot(n_t, n_q)
+    a = c * inner(u_q, v_t) * ds_q(label_interf)
+    A = assemble(a)
+    c_ref = dot(n_q, n_t)
+    a_ref = c_ref * inner(TrialFunction(V_q), TestFunction(V_t)) * ds_q(label_interf)
+    A_ref = assemble(a_ref)
+    assert np.allclose(A.M[0][1].values, A_ref.M.values)
