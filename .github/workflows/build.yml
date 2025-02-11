@@ -40,16 +40,11 @@ jobs:
             petsc_arch: complex
     env:
       # NOTE: Do not set a lot of vars here, single source of truth
-      # PETSC_DIR and MPICH_DIR are set inside the docker image
-      # PETSC_ARCH: firedrake
       FIREDRAKE_CI_TESTS: 1
       PYOP2_CI_TESTS: 1
       COMPLEX: ${{ matrix.complex }}
       RDMAV_FORK_SAFE: 1
-      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 tests/firedrake
-      # CC: mpicc
-      # CXX: mpicxx
-      # MPICC: mpicc
+      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 firedrake/tests/firedrake
     steps:
       - name: Pre-run cleanup
         run: find . -delete
