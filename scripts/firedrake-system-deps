@@ -39,6 +39,7 @@ if package_manager == "apt":
         "cmake",
         "flex",
         "git",
+        "libfftw3-dev",
         "libfftw3-mpi-dev",
         "libhwloc-dev",
         "libhdf5-mpi-dev",
