@@ -91,7 +91,7 @@ jobs:
       - name: Install Firedrake
         id: install
         run: |
-          export PETSC_DIR=${{ github.workspace }}/petsc PETSC_ARCH=firedrake
+          export PETSC_DIR=$PWD/petsc PETSC_ARCH=firedrake
           export HDF5_MPI=ON
           export CC=mpicc CXX=mpicxx
           export MPICC=$CC
