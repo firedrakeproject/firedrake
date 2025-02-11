@@ -50,7 +50,8 @@ class checkpoint_init_data:
         _checkpoint_init_data = self._init
 
 
-def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True, schedule=None):
+def enable_disk_checkpointing(
+        dirname=None, comm=COMM_WORLD, cleanup=True, schedule=SingleDiskStorageSchedule()):
     """Add a DiskCheckpointer to the current tape and switch on
     disk checkpointing.
 
@@ -81,15 +82,10 @@ def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True, sched
     tape = get_working_tape()
     if "firedrake" not in tape._package_data:
         tape._package_data["firedrake"] = DiskCheckpointer(dirname, comm, cleanup)
-    if schedule:
+    if not isinstance(schedule, SingleDiskStorageSchedule):
         # Checking if the schedule uses disk storage.
         if not schedule.uses_storage_type(StorageType.DISK):
             raise ValueError("The schedule must use disk storage.")
-    else:
-        schedule = SingleDiskStorageSchedule()
-
-    if not disk_checkpointing():
-        continue_disk_checkpointing()
 
     tape.enable_checkpointing(schedule)
 
@@ -314,7 +310,8 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
         self.count = function.count()
         with CheckpointFile(self.file.name, 'a') as outfile:
             self.stored_name = outfile._generate_function_space_name(
-                function.function_space())
+                function.function_space()
+            )
             indices = stored_names[self.file.name]
             indices.setdefault(self.stored_name, 0)
             indices[self.stored_name] += 1
