@@ -82,9 +82,9 @@ EXTERNAL_PACKAGES = {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_AUTODETECT,
     },
-    "hypre": {
-        LINUX_APT_X86_64: ("/usr/include/hypre", ["/usr/lib/x86_64-linux-gnu/libHYPRE.a"]),
-        LINUX_APT_AARCH64: ("/usr/include/hypre", ["/usr/lib/aarch64-linux-gnu/libHYPRE.a"]),
+    "hypre": {  # apt-installed hypre is too old
+        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
     },
     "metis": {
         LINUX_APT_X86_64: PETSC_DOWNLOAD,
