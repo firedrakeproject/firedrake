@@ -2561,14 +2561,15 @@ def filter_sf(
         PETSc.SF      sf_filtered
         PETSc.Section section
 
-        PetscInt      nPoints_c, p_c
+        PetscInt      nPoints_c, i_c, p_c
         PetscInt      *remoteOffsets_c = NULL
 
     nPoints_c = len(selected_points)
 
     section = PETSc.Section().create(comm=sf.comm)
     section.setChart(p_start, p_end)
-    for p_c in selected_points:
+    for i_c in range(nPoints_c):
+        p_c = selected_points[i_c]
         CHKERR(PetscSectionSetDof(section.sec, p_c, 1))
     section.setUp()
 

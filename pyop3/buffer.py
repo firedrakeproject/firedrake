@@ -141,6 +141,9 @@ class DistributedBuffer(Buffer):
         self._lazy_data = data
         self.sf = sf
 
+        if self._dtype == np.int64:
+            breakpoint()
+
         self.name = name or self._name_generator(prefix or self._prefix)
 
         # counter used to keep track of modifications

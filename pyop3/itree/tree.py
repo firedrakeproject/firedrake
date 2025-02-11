@@ -17,6 +17,7 @@ import pymbolic as pym
 from pyop3.exceptions import Pyop3Exception
 import pytools
 from immutabledict import ImmutableOrderedDict
+from petsc4py import PETSc
 from pyrsistent import PMap, freeze, pmap, thaw
 
 from pyop3.array import Dat
@@ -39,6 +40,7 @@ from pyop3.axtree.tree import (
 from pyop3.dtypes import IntType
 from pyop3.expr_visitors import replace_terminals
 from pyop3.lang import KernelArgument
+from pyop3.sf import StarForest
 from pyop3.tree import (
     LabelledNodeComponent,
     LabelledTree,
@@ -56,6 +58,10 @@ from pyop3.utils import (
     merge_dicts,
     strictly_all,
 )
+
+
+# FIXME: Import cycle
+from firedrake.cython.dmcommon import filter_sf
 
 bsearch = pym.var("mybsearch")
 
@@ -105,7 +111,16 @@ class AffineSliceComponent(SliceComponent):
     fields = SliceComponent.fields | {"start", "stop", "step", "label_was_none"}
 
     # use None for the default args here since that agrees with Python slices
-    def __init__(self, component, start=None, stop=None, step=None, *, label=None, **kwargs):
+    def __init__(
+        self,
+        component,
+        start: IntType | None = None,
+        stop: IntType | None = None,
+        step: IntType | None = None,
+        *,
+        label=None,
+        **kwargs
+    ):
         label_was_none = label is None
 
         super().__init__(component, label=label, **kwargs)
@@ -126,6 +141,9 @@ class AffineSliceComponent(SliceComponent):
     def is_full(self):
         return self.start == 0 and self.stop is None and self.step == 1
 
+    # as_range?
+    # to_range?
+    # should imply the returned type is different!
     def with_size(self, size: numbers.Integral | Dat | None = None) -> tuple:
         if size is None and self.stop is None:
             raise ValueError()
@@ -1053,12 +1071,22 @@ def _(slice_: Slice, *, prev_axes, **_):
         # this information.
         orig_regions = target_component.regions
         regions = _prepare_regions_for_slice_component(slice_component, orig_regions)
-
         indexed_regions = _index_regions(slice_component, regions)
 
+        orig_size = sum(r.size for r in orig_regions)
+        indexed_size = sum(r.size for r in indexed_regions)
+
         if target_component.sf is not None:
-            breakpoint()
-            # renumber_sf with a new thing..
+            if isinstance(slice_component, AffineSliceComponent):
+                indices = np.arange(*slice_component.with_size(orig_size), dtype=IntType)
+            else:
+                assert isinstance(slice_component, SubsetSliceComponent)
+                indices = slice_component.array.buffer.data_ro
+
+            petsc_sf = filter_sf(target_component.sf.sf, indices, 0, orig_size)
+            sf = StarForest(petsc_sf, indexed_size)
+        else:
+            sf = None
 
         if is_full:
             component_label = slice_component.component
@@ -1069,7 +1097,7 @@ def _(slice_: Slice, *, prev_axes, **_):
             # and labelling the resultant axis component.
             component_label = slice_component.label
 
-        cpt = AxisComponent(indexed_regions, label=component_label, unit=target_component.unit)
+        cpt = AxisComponent(indexed_regions, label=component_label, unit=target_component.unit, sf=sf)
         components.append(cpt)
 
     axis = Axis(components, label=axis_label)

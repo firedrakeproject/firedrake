@@ -28,7 +28,6 @@ from immutabledict import ImmutableOrderedDict
 from petsc4py import PETSc
 from pyrsistent import freeze, pmap, thaw, PMap
 
-from pyop3.axtree.parallel import partition_ghost_points
 from pyop2.caching import cached_on, CacheMixin
 from pyop3.exceptions import Pyop3Exception
 from pyop3.dtypes import IntType
@@ -218,6 +217,7 @@ def _(regions: Sequence[AxisComponentRegion]) -> tuple[AxisComponentRegion, ...]
 
 @_parse_regions.register(numbers.Integral)
 def _(num: numbers.Integral) -> tuple[AxisComponentRegion, ...]:
+    num = IntType(num)
     return (AxisComponentRegion(num),)
 
 
@@ -1070,6 +1070,64 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         return self._alloc_size()
 
     @cached_property
+    def sf(self) -> StarForest:
+        from pyop3.axtree.parallel import collect_sf_graphs
+
+        # for now
+        # # NOTE: what is global_size used for? very confusing name
+        # return serial_forest(self.global_size)
+        #
+        # if self.is_empty:
+        #     # no, this is probably not right. Could have a global
+        #     return serial_forest(self.global_size)
+
+        sfs = collect_sf_graphs(self)
+        if len(sfs) != 1:
+            raise NotImplementedError("TODO")
+        else:
+            return just_one(sfs)
+
+        # if len(graphs) == 0:
+        #     breakpoint()
+        #     return serial_forest(self.global_size)
+        # else:
+        #     # merge the graphs
+        #     nroots = 0
+        #     ilocals = []
+        #     iremotes = []
+        #     for graph in graphs:
+        #         nr, ilocal, iremote = graph
+        #         nroots += nr
+        #         ilocals.append(ilocal)
+        #         iremotes.append(iremote)
+        #     ilocal = np.concatenate(ilocals)
+        #     iremote = np.concatenate(iremotes)
+        #     return StarForest.from_graph(self.size, nroots, ilocal, iremote, self.comm)
+
+    def component_section(self, component_spec) -> PETSc.Section:
+        from pyop3.array import Dat
+        from pyop3.axtree.layout import _axis_tree_size_rec
+
+        axis, component = component_spec
+        root = self.child(axis, component)
+        size_expr = _axis_tree_size_rec(self, root)
+        size_dat = Dat(Axis(component.count), dtype=IntType)
+        size_dat.assign(size_expr, eager=True)
+
+        sizes = size_dat.buffer.data_ro
+
+        section = PETSc.Section().create(comm=self.comm)
+        section.setChart(0, component.count)
+        for point in range(component.count):
+            section.setDof(point, sizes[point])
+        section.setUp()
+        return section
+
+    @property
+    def comm(self) -> MPI.Comm | None:
+        return unique_comm(self.nodes)
+
+    @cached_property
     def owned(self):
         """Return the owned portion of the axis tree."""
         if not self.comm or self.comm.size == 1:
@@ -1328,40 +1386,6 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     @property
     def outer_loops(self):
         return ()
-
-    @cached_property
-    def sf(self) -> StarForest:
-        from pyop3.axtree.parallel import collect_sf_graphs
-        breakpoint()
-
-        # for now
-        # NOTE: what is global_size used for? very confusing name
-        return serial_forest(self.global_size)
-
-        if self.is_empty:
-            # no, this is probably not right. Could have a global
-            return serial_forest(self.global_size)
-
-        graphs = collect_sf_graphs(self)
-        if len(graphs) == 0:
-            return serial_forest(self.global_size)
-        else:
-            # merge the graphs
-            nroots = 0
-            ilocals = []
-            iremotes = []
-            for graph in graphs:
-                nr, ilocal, iremote = graph
-                nroots += nr
-                ilocals.append(ilocal)
-                iremotes.append(iremote)
-            ilocal = np.concatenate(ilocals)
-            iremote = np.concatenate(iremotes)
-            return StarForest.from_graph(self.size, nroots, ilocal, iremote, self.comm)
-
-    @property
-    def comm(self) -> MPI.Comm | None:
-        return unique_comm(self.nodes)
 
     @cached_property
     def datamap(self):

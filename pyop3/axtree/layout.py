@@ -60,7 +60,6 @@ def make_layouts(axes: AxisTree, loop_vars) -> PMap:
 
     component_layouts = tabulate_again(axes.layout_axes)
     return component_layouts
-    # return _accumulate_axis_component_layouts(axes, component_layouts)
 
 
 def tabulate_again(axes):
@@ -153,41 +152,6 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
             assert not free_axes_
 
     return pmap(layouts), to_tabulate
-
-
-def tabulate_again_inner(axes, region_map, offset, layouts, *, axis=None, parent_axes_acc=None):
-    if axis is None:
-        axis = axes.root
-        parent_axes_acc = ()
-
-    # NOTE: If this fails then I think it means we have a sub-component without a matching region.
-    # This simply means that the size here is zero/nothing happens.
-    region = just_one(r for c in axis.components for r in c._all_regions if r.label == region_map[axis.label])
-
-    for component in axis.components:
-        layout_key = (axis.id, component.label)
-        assert layout_key in layouts
-
-        # parent_axes_acc_ = parent_axes_acc + (axis.copy(components=[component]),)
-
-        # if isinstance(lay
-
-        if (axis.id, component) in layouts:
-            # means we are coming around again (parallel)
-            raise NotImplementedError("TODO")
-        layouts[(axis.id, component)] = mystep * component_layout + offset
-
-        # TODO: should also do this for ragged but this breaks things currently
-        if not ragged:
-            offset += _axis_component_size(axes, axis, component)
-
-        # Now traverse subaxes
-        if subaxis := axes.child(axis, component):
-            # make the offset zero as that is only needed outermost
-            # tabulate_again_inner(axes, region, offset, layouts, axis=subaxis, parent_axes_acc=parent_axes_acc_)
-            tabulate_again_inner(axes, region_map, 0, layouts, axis=subaxis, parent_axes_acc=parent_axes_acc_)
-
-    return offset
 
 
 def _collect_regions(axes: AxisTree, *, axis: Axis | None = None):
@@ -677,74 +641,6 @@ def has_halo(axes, axis):
     return axis.sf is not None or has_halo(axes, subaxis)
 
 
-def _accumulate_axis_component_layouts(
-    axes: AxisTree,
-    component_layouts: PMap,
-    *,
-    layout_axis: Optional[Axis] = None,
-    layout_path: PMap=pmap(),
-    path: PMap=pmap(),
-    layout_expr=0,
-):
-    """Accumulate component-wise layouts to give a complete layout function per node.
-
-    Parameters
-    ----------
-    axes
-        The axis tree whose layout functions are being tabulated.
-    component_layouts
-        Mapping from ``(axis id, component label)`` 2-tuples to a layout expression
-        for that specific node in the tree.
-
-    Other Parameters
-    ----------------
-    layout_axis
-        The current axis in the traversal.
-    layout_path
-        The current path through the layout axes (see `AxisTree.layout_axes`).
-    path
-        The current path through ``axes``.
-    layout_expr
-        The current accumulated layout expression.
-
-    Returns
-    -------
-    PMap
-        The accumulated layout functions per ``(axis id, component label)`` present
-        in ``axes``.
-
-    """
-    if layout_axis is None:
-        layout_axis = axes.layout_axes.root
-
-    if layout_axis == axes.root:
-        layouts = {pmap(): layout_expr}
-    else:
-        layouts = {}
-
-    for component in layout_axis.components:
-        # better not as a path here
-        # layout_path_ = layout_path | {layout_axis.label: component.label}
-        layout_path_ = (layout_axis.id, component)
-        layout_expr_ = layout_expr + component_layouts.get(layout_path_, 0)
-
-        if layout_axis in axes.nodes:
-            path_ = path | {layout_axis.label: component.label}
-            layouts[path_] = layout_expr_
-        else:
-            path_ = path
-
-        if subaxis := axes.layout_axes.child(layout_axis, component):
-            sublayouts = _accumulate_axis_component_layouts(
-                axes,
-                component_layouts,
-                layout_axis=subaxis, layout_path=layout_path_, path=path_, layout_expr=layout_expr_
-            )
-            layouts.update(sublayouts)
-
-    return freeze(layouts)
-
-
 @PETSc.Log.EventDecorator()
 def axis_tree_size(axes: AxisTree) -> int:
     """Return the size of an axis tree.
@@ -861,18 +757,6 @@ def _as_int(arg: Any, indices, path=None, *, loop_indices=pmap()):
 @_as_int.register
 def _(arg: numbers.Real, *args, **kwargs):
     return strict_int(arg)
-
-
-class LoopExpressionReplacer(pym.mapper.IdentityMapper):
-    def __init__(self, loop_exprs):
-        self._loop_exprs = loop_exprs
-
-    def map_multi_array(self, array):
-        index_exprs = {ax: self.rec(expr) for ax, expr in array.index_exprs.items()}
-        return type(array)(array.array, array.target_path, index_exprs)
-
-    def map_loop_index(self, index):
-        return self._loop_exprs[index.id][index.axis]
 
 
 def eval_offset(
