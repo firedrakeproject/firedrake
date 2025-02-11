@@ -1,6 +1,6 @@
 from firedrake.petsc import PETSc
 from firedrake.ensemble.ensemble_functionspace import (
-    EnsembleFunctionSpace, EnsembleDualSpace)
+    EnsembleFunctionSpaceBase, EnsembleFunctionSpace, EnsembleDualSpace)
 from firedrake.adjoint_utils import EnsembleFunctionMixin
 from firedrake.function import Function
 from firedrake.norms import norm
@@ -21,7 +21,7 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
     Parameters
     ----------
 
-    function_space : :class:`firedrake.EnsembleFunctionSpace`.
+    function_space : `firedrake.EnsembleFunctionSpace`.
         The function space of the (co)function.
 
     Notes
@@ -34,24 +34,27 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
     locally on each ensemble member using a `firedrake.Function`
     from `EnsembleFunction.subfunctions`.
 
-    See also:
+    See Also
+    --------
     - Primal ensemble objects: :class:`firedrake.EnsembleFunctionSpace` and :class:`firedrake.EnsembleFunction`.
     - Dual ensemble objects: :class:`firedrake.EnsembleDualSpace` and :class:`firedrake.EnsembleCofunction`.
     """
 
     @PETSc.Log.EventDecorator()
     @EnsembleFunctionMixin._ad_annotate_init
-    def __init__(self, function_space):
+    def __init__(self, function_space: EnsembleFunctionSpaceBase):
         self._fs = function_space
 
-        self._fbuf = Function(function_space._full_local_space)
+        # we hold all subcomponents on the local
+        # ensemble member in one big mixed function.
+        self._full_local_function = Function(function_space._full_local_space)
 
-        # create a Vec containing the data for all functions on all
+        # create a Vec containing the data for all subcomponents on all
         # ensemble members. Because we use the Vec of each local mixed
         # function as the storage, if the data in the Function Vec
         # is valid then the data in the EnsembleFunction Vec is valid.
 
-        with self._fbuf.dat.vec as fvec:
+        with self._full_local_function.dat.vec as fvec:
             n = function_space.nlocal_rank_dofs
             N = function_space.nglobal_dofs
             sizes = (n, N)
@@ -85,7 +88,7 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         Return the subfunctions of the local mixed function storage
         corresponding to the i-th local function.
         """
-        return tuple(self._fbuf.subfunctions[j]
+        return tuple(self._full_local_function.subfunctions[j]
                      for j in self._fs._component_indices(i))
 
     @PETSc.Log.EventDecorator()
@@ -201,12 +204,12 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
         It is invalid to access the Vec outside of a context manager.
         """
-        # _fbuf.vec shares the same storage as _vec, so we need this
+        # _full_local_function.vec shares the same storage as _vec, so we need this
         # nested context manager so that the data gets copied to/from
         # the Function.dat storage and _vec.
         # However, this copy is done without _vec knowing, so we have
         # to manually increment the state.
-        with self._fbuf.dat.vec:
+        with self._full_local_function.dat.vec:
             self._vec.stateIncrease()
             yield self._vec
 
@@ -217,10 +220,10 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
         It is invalid to access the Vec outside of a context manager.
         """
-        # _fbuf.vec shares the same storage as _vec, so we need this
+        # _full_local_function.vec shares the same storage as _vec, so we need this
         # nested context manager to make sure that the data gets copied
         # to the Function.dat storage and _vec.
-        with self._fbuf.dat.vec_ro:
+        with self._full_local_function.dat.vec_ro:
             self._vec.stateIncrease()
             yield self._vec
 
@@ -231,10 +234,10 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
         It is invalid to access the Vec outside of a context manager.
         """
-        # _fbuf.vec shares the same storage as _vec, so we need this
+        # _full_local_function.vec shares the same storage as _vec, so we need this
         # nested context manager to make sure that the data gets copied
         # from the Function.dat storage and _vec.
-        with self._fbuf.dat.vec_wo:
+        with self._full_local_function.dat.vec_wo:
             yield self._vec
 
 
@@ -245,15 +248,15 @@ class EnsembleFunction(EnsembleFunctionBase):
     Parameters
     ----------
 
-    function_space : :class:`EnsembleFunctionSpace`
+    function_space : `EnsembleFunctionSpace`
         The function space of the function.
     """
-    def __new__(cls, function_space):
+    def __new__(cls, function_space: EnsembleFunctionSpaceBase):
         if isinstance(function_space, EnsembleDualSpace):
             return EnsembleCofunction(function_space)
         return super().__new__(cls)
 
-    def __init__(self, function_space):
+    def __init__(self, function_space: EnsembleFunctionSpace):
         if not isinstance(function_space, EnsembleFunctionSpace):
             raise TypeError(
                 "EnsembleFunction must be created using an EnsembleFunctionSpace")
@@ -282,10 +285,10 @@ class EnsembleCofunction(EnsembleFunctionBase):
     Parameters
     ----------
 
-    function_space : :class:`EnsembleDualSpace`
+    function_space : `EnsembleDualSpace`
         The function space of the cofunction.
     """
-    def __init__(self, function_space):
+    def __init__(self, function_space: EnsembleDualSpace):
         if not isinstance(function_space, EnsembleDualSpace):
             raise TypeError(
                 "EnsembleCofunction must be created using an EnsembleDualSpace")

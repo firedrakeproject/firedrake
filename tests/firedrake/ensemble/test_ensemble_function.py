@@ -1,4 +1,5 @@
 import firedrake as fd
+from pyop2 import Subset
 import pytest
 import numpy as np
 
@@ -15,12 +16,6 @@ def assign_scalar(u, s):
     return u
 
 
-def norm(u):
-    return sum(np.sum(np.abs(usubdat.data))
-               for usub in u.subfunctions
-               for usubdat in usub.dat)
-
-
 @pytest.fixture
 def ensemble():
     nspace = 2 if fd.COMM_WORLD.size == 4 else 1
@@ -29,7 +24,9 @@ def ensemble():
 
 @pytest.fixture
 def mesh(ensemble):
-    return fd.UnitSquareMesh(2, 2, comm=ensemble.comm)
+    return fd.UnitSquareMesh(
+        2, 2, comm=ensemble.comm,
+        distribution_parameters={"partitioner_type": "simple"})
 
 
 scalar_elements = {
@@ -39,14 +36,16 @@ scalar_elements = {
     'T-DG': fd.TensorElement('DG', cell=fd.triangle, degree=1, shape=(2, 3))
 }
 
-# Test EnsembleFunction with 6 subfunctions with the elements below, distributed over 1 or more processors.
+# Test EnsembleFunction with 6 subfunctions with the
+# elements below, distributed over 1 or more processors.
+#
 # This element sequence hits a variety of cases:
-# - scalar, vector-valued, vector, tensor, mixed elements
-# - mixed elements with non-scalar, components
-# - identical adjacent components (4, 5)
-# - mixed element with a single component (2)
-# - mixed element with repeated component (6)
-# - mixed element where the first component matches the previous element (5, 6)
+# 1. scalar, vector-valued, vector, tensor, mixed elements
+# 2. mixed elements with non-scalar, components
+# 3. identical adjacent components (4, 5)
+# 4. mixed element with a single component (2)
+# 5. mixed element with repeated component (6)
+# 6. mixed element where the first component matches the previous element (5, 6)
 
 elements = [
     scalar_elements['CG'],  # 1
@@ -94,10 +93,7 @@ def Wlocal(ensemble, mesh):
     return [fd.FunctionSpace(mesh, e) for e in elems]
 
 
-space_type = ["primal", "dual"]
-
-
-@pytest.fixture(params=space_type)
+@pytest.fixture(params=["primal", "dual"])
 def ensemblespace(request, ensemble, Wlocal):
     if request.param == 'primal':
         return fd.EnsembleFunctionSpace(Wlocal, ensemble)
@@ -122,12 +118,14 @@ def test_zero(ensemblefunc):
 
     # check the norm is nonzero
     for u in ensemblefunc.subfunctions:
-        assert norm(u) > 1e-14, "This test needs a nonzero initial value."
+        with u.dat.vec_ro as uvec:
+            assert uvec.norm() > 1e-14, "This test needs a nonzero initial value."
 
     ensemblefunc.zero()
 
     for u in ensemblefunc.subfunctions:
-        assert norm(u) < 1e-14, "EnsembleFunction.zero should zero all components"
+        with u.dat.vec_ro as uvec:
+            assert uvec.norm() < 1e-14, "EnsembleFunction.zero should zero all components"
 
 
 @pytest.mark.parallel(nprocs=[1, 2, 4, 6])
@@ -135,12 +133,14 @@ def test_zero_with_subset(ensemblefunc):
     """
     Test setting a subset of all components to zero.
     """
-    from pyop2 import Subset
 
     # assign some nonzero value
     nonzero = 1
     assign_scalar(ensemblefunc, nonzero)
 
+    # Functions on mixed function spaces don't accept the
+    # subset argument, so we pass None in those slots to
+    # have the subset argument ignored for those subcomponents.
     subsets = [None if type(V.ufl_element()) is fd.MixedElement else Subset(V.node_set, [0, 1])
                for V in ensemblefunc.function_space().local_spaces]
 
@@ -148,6 +148,8 @@ def test_zero_with_subset(ensemblefunc):
 
     for u, subset in zip(ensemblefunc.subfunctions, subsets):
         if subset is None:
-            continue
-        assert np.allclose(u.dat.data_ro[:2], 0), "EnsembleFunction.zero(subset) should zero the subset"
-        assert np.allclose(u.dat.data_ro[2:], nonzero), "EnsembleFunction.zero(subset) should only modify the subset"
+            with u.dat.vec_ro as uvec:
+                assert uvec.norm() < 1e-14, "EnsembleFunction.zero() should zero the function"
+        else:
+            assert np.allclose(u.dat.data_ro[:2], 0), "EnsembleFunction.zero(subset) should zero the subset"
+            assert np.allclose(u.dat.data_ro[2:], nonzero), "EnsembleFunction.zero(subset) should only modify the subset"

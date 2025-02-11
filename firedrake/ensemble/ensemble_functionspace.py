@@ -1,9 +1,11 @@
 from firedrake.petsc import PETSc
+from firedrake.ensemble.ensemble import Ensemble
 from firedrake.functionspace import MixedFunctionSpace
 from ufl.duals import is_primal, is_dual
-from pyop2.mpi import internal_comm
+from pyop2.mpi import internal_comm, MPI
 from functools import cached_property
 from itertools import chain
+from typing import Collection
 
 
 def _is_primal_or_dual(local_spaces, ensemble):
@@ -57,7 +59,7 @@ def _is_primal_or_dual(local_spaces, ensemble):
 
 class EnsembleFunctionSpaceBase:
     """
-    A mixed function space defined on an :class:`firedrake.Ensemble`.
+    Base class for mixed function spaces defined on an :class:`firedrake.Ensemble`.
     The subcomponents are distributed over the ensemble members, and
     are specified locally.
 
@@ -65,7 +67,7 @@ class EnsembleFunctionSpaceBase:
     ----------
     local_spaces : Collection
         The list of function spaces on the local ensemble.comm.
-    ensemble : :class:`firedrake.Ensemble`
+    ensemble : `firedrake.Ensemble`
         The communicator that the function space is defined over.
 
     Notes
@@ -81,9 +83,12 @@ class EnsembleFunctionSpaceBase:
     - Primal ensemble objects: :class:`firedrake.EnsembleFunctionSpace` and :class:`firedrake.EnsembleFunction`.
     - Dual ensemble objects: :class:`firedrake.EnsembleDualSpace` and :class:`firedrake.EnsembleCofunction`.
     """
-    def __init__(self, local_spaces, ensemble):
+    def __init__(self, local_spaces: Collection, ensemble: Ensemble):
+
         meshes = set(V.mesh() for V in local_spaces)
-        if len(meshes) != 1:
+        nlocal_meshes = len(meshes)
+        max_local_meshes = ensemble.ensemble_comm.allreduce(nlocal_meshes, MPI.MAX)
+        if max_local_meshes > 1:
             raise ValueError(
                 f"{self.__class__.__name__} local_spaces must all be defined on the same mesh.")
         self._mesh = meshes.pop()
@@ -135,7 +140,6 @@ class EnsembleFunctionSpaceBase:
         """
         return self._mesh
 
-    @cached_property
     def dual(self):
         """The dual to this function space.
         A :class:`firedrake.EnsembleDualSpace` if self is a :class:`firedrake.EnsembleFunctionSpace`, and vice-versa.
@@ -155,11 +159,11 @@ class EnsembleFunctionSpaceBase:
         """
         return self.ensemble_comm.allreduce(len(self.local_spaces))
 
-    @property
+    @cached_property
     def nlocal_rank_dofs(self):
         """The total number of dofs across all subspaces on the local MPI rank.
         """
-        return self._full_local_space.node_set.size
+        return sum(self._full_local_space.dof_count)
 
     @property
     def nlocal_comm_dofs(self):
@@ -167,11 +171,11 @@ class EnsembleFunctionSpaceBase:
         """
         return self._full_local_space.dim()
 
-    @property
+    @cached_property
     def nglobal_dofs(self):
         """The total number of dofs across all subspaces on all ensemble ranks.
         """
-        return self.ensemble_comm.allreduce(self.nlocal_rank_dofs)
+        return self.ensemble_comm.allreduce(self.nlocal_comm_dofs)
 
     def _component_indices(self, i):
         """
@@ -199,7 +203,7 @@ class EnsembleFunctionSpaceBase:
         elif other.ensemble is not self.ensemble:
             # TODO: should we relax this to allow congruent ensembles?
             local_eq = False
-        elif len(other.subfunctions) != len(self.subfunctions):
+        elif self.nlocal_spaces != other.nlocal_spaces:
             local_eq = False
         else:
             local_eq = all(
@@ -210,11 +214,39 @@ class EnsembleFunctionSpaceBase:
         return all(self.ensemble.ensemble_comm.allgather(local_eq))
 
     def __neq__(self, other):
-        return not self.__eq__(other)
+        return not self == other
 
 
 class EnsembleFunctionSpace(EnsembleFunctionSpaceBase):
-    def __new__(cls, local_spaces, ensemble):
+    """
+    A mixed primal function space defined on an :class:`firedrake.Ensemble`.
+    The subcomponents are distributed over the ensemble members, but
+    are specified locally on each ensemble member.
+
+    Parameters
+    ----------
+    local_spaces : Collection
+        The list of primal function spaces on the local ensemble.comm.
+    ensemble : `firedrake.Ensemble`
+        The communicator that the function space is defined over.
+
+    Notes
+    -----
+    Passing a list of dual local_spaces to :class:`firedrake.EnsembleFunctionSpace`
+    will return an instance of :class:`firedrake.EnsembleDualSpace`.
+
+    This class does not carry UFL symbolic information, unlike a
+    :function:`firedrake.FunctionSpace`. UFL expressions can only be
+    defined locally on each ensemble member using a :function:`firedrake.FunctionSpace` from `EnsembleFunctionSpace.local_spaces`.
+
+    See Also
+    --------
+    :class:`firedrake.EnsembleFunctionSpace`
+    :class:`firedrake.EnsembleFunction`
+    :class:`firedrake.EnsembleDualSpace`
+    :class:`firedrake.EnsembleCofunction`
+    """
+    def __new__(cls, local_spaces: Collection, ensemble: Ensemble):
         # Should be collective
         space_type = _is_primal_or_dual(local_spaces, ensemble)
         if space_type == 'primal':
@@ -225,7 +257,7 @@ class EnsembleFunctionSpace(EnsembleFunctionSpaceBase):
             raise ValueError(
                 "All local_spaces must be either primal or dual")
 
-    def __init__(self, local_spaces, ensemble):
+    def __init__(self, local_spaces: Collection, ensemble: Ensemble):
         space_type = _is_primal_or_dual(local_spaces, ensemble)
         if space_type != 'primal':
             raise ValueError(
@@ -234,7 +266,33 @@ class EnsembleFunctionSpace(EnsembleFunctionSpaceBase):
 
 
 class EnsembleDualSpace(EnsembleFunctionSpaceBase):
-    def __init__(self, local_spaces, ensemble):
+    """
+    A mixed dual function space defined on an :class:`firedrake.Ensemble`.
+    The subcomponents are distributed over the ensemble members, but
+    are specified locally on each ensemble member.
+
+    Parameters
+    ----------
+    local_spaces : Collection
+        The list of dual function spaces on the local ensemble.comm.
+    ensemble : `firedrake.Ensemble`
+        The communicator that the function space is defined over.
+
+    Notes
+    -----
+    This class does not carry UFL symbolic information, unlike a
+    :function:`firedrake.FiredrakeDualSpace`. UFL expressions can only be
+    defined locally on each ensemble member using a :function:`firedrake.FiredrakeDualSpace`
+    from `EnsembleDualSpace.local_spaces`.
+
+    See Also
+    --------
+    :class:`firedrake.EnsembleFunctionSpace`
+    :class:`firedrake.EnsembleFunction`
+    :class:`firedrake.EnsembleDualSpace`
+    :class:`firedrake.EnsembleCofunction`
+    """
+    def __init__(self, local_spaces: Collection, ensemble: Ensemble):
         space_type = _is_primal_or_dual(local_spaces, ensemble)
         if space_type != 'dual':
             raise ValueError(
