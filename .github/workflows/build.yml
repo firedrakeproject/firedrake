@@ -51,6 +51,9 @@ jobs:
       # CXX: mpicxx
       # MPICC: mpicc
     steps:
+      - name: Pre-run cleanup
+        run: rm -rf ./* ./.*
+
       - uses: actions/checkout@v4
         with:
           path: firedrake
@@ -142,7 +145,7 @@ jobs:
         # To avoid permissions issues do not run with forked repos
         # (see https://github.com/mikepenz/action-junit-report/issues/23)
         if: |
-          always() 
+          (success() || steps.install.conclusion == 'success')
           && (github.ref != 'refs/heads/master')
           && (github.event.pull_request.head.repo.full_name == github.repository)
         with:
@@ -154,10 +157,14 @@ jobs:
 
       - name: Upload log files
         uses: actions/upload-artifact@v4
-        if: always()
+        if: success() || steps.install.conclusion == 'success'
         with:
           name: firedrake-logs-${{ matrix.scalar-type }}
           path: pytest_*.log
+
+      - name: Post-run cleanup
+        if: always()
+        run: rm -rf ./* ./.*
 
   docker_tag:
     name: "Set the Docker release tag"
