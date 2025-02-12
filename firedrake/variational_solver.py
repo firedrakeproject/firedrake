@@ -81,10 +81,14 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         self.J = J or ufl_expr.derivative(F, u)
         self.F = F
         self.Jp = Jp
-        if bcs:
-            for bc in bcs:
-                if isinstance(bc, EquationBC):
-                    restrict = False
+        if isinstance(J, MatrixBase):
+            if bcs:
+                raise RuntimeError("It is not possible to apply or change boundary conditions to an already assembled Jacobian; pass any necessary boundary conditions to `assemble` when assembling the Jacobian.")
+            if J.has_bcs:
+                # Use the bcs from the assembled Jacobian
+                bcs = J.bcs
+        if bcs and any(isinstance(bc, EquationBC) for bc in bcs):
+            restrict = False
         self.restrict = restrict
 
         if restrict and bcs:

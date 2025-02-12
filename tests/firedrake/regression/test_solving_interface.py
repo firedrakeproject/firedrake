@@ -257,6 +257,35 @@ def test_solve_empty_form_rhs(mesh):
     assert errornorm(x, w) < 1E-10
 
 
+def test_solve_assembled_lhs(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    x, = SpatialCoordinate(mesh)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v)) * dx
+    bcs = [DirichletBC(V, x, "on_boundary")]
+
+    # Assemble the matrix with bcs
+    A = assemble(a, bcs=bcs)
+    w = Function(V)
+
+    # Test four different RHS types
+    form = inner(Constant(0), v) * dx
+    cofun = Cofunction(V.dual())
+    empty = Form([])
+    zbf = ZeroBaseForm([v])
+
+    for L in (form, cofun, empty, zbf):
+        w.zero()
+        solve(A == L, w)
+        assert errornorm(x, w) < 1E-10
+
+    # Test that we raise an error when passing bcs twice
+    with pytest.raises(RuntimeError):
+        solve(A == form, w, bcs=bcs)
+
+
 @pytest.mark.skipif(utils.complex_mode, reason="Differentiation of energy not defined in Complex.")
 @pytest.mark.parametrize("mixed", (False, True), ids=("primal", "mixed"))
 def test_solve_pre_apply_bcs(mesh, mixed):

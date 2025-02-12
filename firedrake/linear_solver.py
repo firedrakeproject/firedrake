@@ -48,7 +48,7 @@ class LinearSolver(LinearVariationalSolver):
         self.x = Function(trial.function_space())
         self.b = Cofunction(test.function_space().dual())
 
-        problem = LinearVariationalProblem(A, self.b, self.x, bcs=A.bcs, aP=P,
+        problem = LinearVariationalProblem(A, self.b, self.x, aP=P,
                                            form_compiler_parameters=A.fc_params,
                                            constant_jacobian=True)
         super().__init__(problem, **kwargs)
