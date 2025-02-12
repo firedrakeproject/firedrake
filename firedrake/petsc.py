@@ -253,6 +253,8 @@ class OptionsManager(object):
                 if k.startswith(self.options_prefix):
                     self.parameters[k[len(self.options_prefix):]] = v
         self._setfromoptions = False
+        # Keep track of options used between invocations of inserted_options().
+        self._used_options = set()
 
     def set_default_parameter(self, key, val):
         """Set a default parameter value.
@@ -294,7 +296,20 @@ class OptionsManager(object):
             yield
         finally:
             for k in self.to_delete:
+                if self.options_object.used(self.options_prefix + k):
+                    self._used_options.add(k)
                 del self.options_object[self.options_prefix + k]
+
+    def warn_unused_options(self):
+        """Log a warning for any unused options."""
+        from firedrake.logging import warning
+
+        unused_options = self.to_delete - (self._used_options
+                                           | _DEFAULT_PARAMETERS)
+        for option in unused_options:
+            warning(
+                f"Solver: {self.options_prefix} has unused option: {option}"
+            )
 
 
 def _extract_comm(obj: Any) -> MPI.Comm:
@@ -450,3 +465,6 @@ _DEFAULT_SNES_PARAMETERS = {
 DEFAULT_DIRECT_SOLVER_PARAMETERS = MappingProxyType(deepcopy(_DEFAULT_DIRECT_SOLVER_PARAMETERS))
 DEFAULT_KSP_PARAMETERS = MappingProxyType(deepcopy(_DEFAULT_KSP_PARAMETERS))
 DEFAULT_SNES_PARAMETERS = MappingProxyType(deepcopy(_DEFAULT_SNES_PARAMETERS))
+
+_DEFAULT_PARAMETERS = set(_DEFAULT_DIRECT_SOLVER_PARAMETERS) \
+    | set(_DEFAULT_KSP_PARAMETERS) | set(_DEFAULT_SNES_PARAMETERS)
