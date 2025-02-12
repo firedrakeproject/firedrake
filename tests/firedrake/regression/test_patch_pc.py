@@ -53,7 +53,7 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
         a = (inner(f[i], f[i]) * inner(grad(u), grad(v)))*dx
         L = inner(Constant(rhs), v)*dx
         bcs = [DirichletBC(Q, 0, "on_boundary")
-               for Q in V.subfunctions]
+               for Q in V.subspaces]
     else:
         a = inner(grad(u), grad(v))*dx
         L = inner(Constant(rhs), v)*dx

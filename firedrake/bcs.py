@@ -229,7 +229,7 @@ class BCBase(object):
             if len(field) == 1:
                 W = V
             else:
-                W = V.subfunctions[field_renumbering[index]] if use_split else V.sub(field_renumbering[index])
+                W = V.subspaces[field_renumbering[index]] if use_split else V.sub(field_renumbering[index])
             if cmpt is not None:
                 W = W.sub(cmpt)
             return W
