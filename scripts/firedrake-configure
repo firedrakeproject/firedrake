@@ -1,0 +1,321 @@
+#!/usr/bin/env python3
+
+"""Script for preparing an environment to install Firedrake into."""
+
+# To avoid the pitfalls inherent in having executable configuration files
+# this script is intentionally extremely dumb. All configure options are computed
+# statically (at import) and the only run-time logic that happens is dispatching
+# on the right package manager and arch.
+
+import argparse
+import enum
+import platform
+import subprocess
+import warnings
+from typing import Optional
+
+
+class PackageManager(enum.Enum):
+    LINUX_APT_X86_64 = "apt-x86_64"
+    LINUX_APT_AARCH64 = "apt-aarch64"
+    MACOS_HOMEBREW_ARM64 = "brew-arm64"
+
+
+LINUX_APT_X86_64 = PackageManager.LINUX_APT_X86_64
+LINUX_APT_AARCH64 = PackageManager.LINUX_APT_AARCH64
+MACOS_HOMEBREW_ARM64 = PackageManager.MACOS_HOMEBREW_ARM64
+
+
+class FiredrakeArch(enum.Enum):
+    DEFAULT = "default"
+    COMPLEX = "complex"
+
+
+ARCH_DEFAULT = FiredrakeArch.DEFAULT
+ARCH_COMPLEX = FiredrakeArch.COMPLEX
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--package-manager",
+        choices=[pm.value for pm in PackageManager],
+        required=False,
+        help="TODO",
+    )
+    parser.add_argument(
+        "--arch",
+        choices=[arch.value for arch in FiredrakeArch],
+        default=ARCH_DEFAULT,
+        help="TODO",
+    )
+    subparsers = parser.add_subparsers(required=True)
+
+    sysdeps_parser = subparsers.add_parser("system-dependencies", help="TODO")
+    sysdeps_parser.set_defaults(func=print_system_dependencies)
+
+    petscopts_parser = subparsers.add_parser("petsc-configure-options", help="TODO")
+    petscopts_parser.set_defaults(func=print_petsc_configure_options)
+
+    args = parser.parse_args()
+    args.func(args)
+
+
+def print_system_dependencies(args: argparse.Namespace) -> None:
+    # TODO: Handle different arch's
+    package_manager = get_package_manager(args.package_manager)
+    if package_manager is None:
+        raise RuntimeError(
+            "Cannot identify a package manager, please install Firedrake "
+            "dependencies manually"
+        )
+
+    print(" ".join(SYSTEM_PACKAGES[package_manager]), end="")
+
+
+def print_petsc_configure_options(args: argparse.Namespace) -> None:
+    package_manager = get_package_manager(args.package_manager)
+    if package_manager is None:
+        warnings.warn(
+            "Cannot identify a package manager, PETSc will naively download all "
+            "external packages",
+            UserWarning
+        )
+
+    configure_options = CONFIGURE_OPTIONS[package_manager][args.arch]
+    print(" ".join(configure_options), end="")
+
+
+def get_package_manager(package_manager: Optional[str]) -> Optional[PackageManager]:
+    if package_manager is None:
+        return sniff_package_manager()
+    else:
+        return PackageManager(package_manager)
+
+
+def sniff_package_manager() -> Optional[PackageManager]:
+    if platform.system() == "Linux":
+        if has_apt():
+            if platform.machine() == "x86_64":
+                return LINUX_APT_X86_64
+            elif platform.machine() == "aarch64":
+                return LINUX_APT_AARCH64
+    elif platform.system() == "Darwin":
+        if has_homebrew():
+            if platform.machine() == "arm64":
+                return MACOS_HOMEBREW_ARM64
+    return None
+
+
+def has_apt() -> bool:
+    try:
+        subprocess.run(["apt", "--version"], capture_output=True)
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def has_homebrew() -> bool:
+    try:
+        subprocess.run(["brew", "--version"], capture_output=True)
+        return True
+    except FileNotFoundError:
+        return False
+
+
+COMMON_LINUX_APT_PACKAGES = (
+    "bison",
+    "build-essential",
+    "cmake",
+    "flex",
+    "git",
+    "libfftw3-dev",
+    "libhwloc-dev",
+    "libhdf5-mpi-dev",
+    "libhypre-dev",
+    "libopenmpi-dev",
+    "ninja-build",
+    "pkg-config",
+    "python3-dev",
+    "python3-pip",
+    "zlib1g-dev",
+)
+
+# NOTE: This will need tweaking for different arch's
+SYSTEM_PACKAGES = {
+    LINUX_APT_X86_64: COMMON_LINUX_APT_PACKAGES,
+    LINUX_APT_AARCH64: COMMON_LINUX_APT_PACKAGES,
+    # TODO: Missing a lot of packages here
+    MACOS_HOMEBREW_ARM64: (
+        "autoconf",
+        "automake",
+        "boost",
+        "gcc",
+        "libtool",
+        "make",
+        "pkg-config",
+        "cmake",
+        "ninja",
+        "openblas",
+        "python",
+        "python-setuptools"
+    ),
+}
+
+COMMON_CONFIGURE_OPTIONS = (
+    "--with-c2html=0",
+    "--with-debugging=0",
+    "--with-fortran-bindings=0",
+    "--with-shared-libraries=1",
+    "--with-strict-petscerrorcode",
+    "--COPTFLAGS=-O3 -march=native -mtune=native",
+    "--CXXOPTFLAGS=-O3 -march=native -mtune=native",
+    "--FOPTFLAGS=-O3 -march=native -mtune=native",
+)
+
+# Placeholder value to use when we want PETSc to autodetect the package
+PETSC_AUTODETECT = 333
+
+# Placeholder value to use when we want PETSc to download the package
+PETSC_DOWNLOAD = 666
+
+# NOTE: Might want to reorder the nesting here to move package manager outwards, since
+# some package managers may not install certain external packages. In fact, this should
+# be combined with where we declare which packages we want.
+EXTERNAL_PACKAGES = {
+    "fftw": {
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
+        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+    },
+    "hdf5": {
+        LINUX_APT_X86_64: (
+            "/usr/include/hdf5/openmpi", ["/usr/lib/x86_64-linux-gnu/hdf5/openmpi/libhdf5.a"]
+        ),
+        LINUX_APT_AARCH64: (
+            "/usr/include/hdf5/openmpi", ["/usr/lib/aarch64-linux-gnu/hdf5/openmpi/libhdf5.a"]
+        ),
+        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+    },
+    "hwloc": {
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
+        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+    },
+    "hypre": {
+        LINUX_APT_X86_64: ("/usr/include/hypre", ["/usr/lib/x86_64-linux-gnu/libHYPRE.a"]),
+        LINUX_APT_AARCH64: ("/usr/include/hypre", ["/usr/lib/aarch64-linux-gnu/libHYPRE.a"]),
+        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+    },
+    "metis": {
+        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+    },
+    "mumps": {
+        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+    },
+    "netcdf": {
+        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+    },
+    "pastix": {
+        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+    },
+    "pnetcdf": {
+        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+    },
+    "ptscotch": {
+        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+    },
+    "scalapack": {
+        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+    },
+    "suitesparse": {
+        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+    },
+    "superlu_dist": {
+        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+    },
+    "zlib": {
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
+        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+    },
+}
+
+
+def prepare_external_package_configure_options(
+    package_manager: Optional[PackageManager],
+) -> tuple[str, ...]:
+    configure_options = []
+    for external_package, package_specs in EXTERNAL_PACKAGES.items():
+        if package_manager is None:
+            # Don't know anything about the system, download everything
+            package_spec = PETSC_DOWNLOAD
+        else:
+            package_spec = package_specs[package_manager]
+
+        if package_spec == PETSC_AUTODETECT:
+            # PETSc will find the package for us
+            configure_options.append(f"--with-{external_package}")
+        elif package_spec == PETSC_DOWNLOAD:
+            # Package not provided by package manager, download it instead
+            configure_options.append(f"--download-{external_package}")
+        else:
+            # Package is installed but not findable, have to provide paths
+            # to headers and libraries
+            (include_dir, libs) = package_spec
+            configure_options.append(f"--with-{external_package}-include={include_dir}")
+            configure_options.append(f"--with-{external_package}-lib={','.join(libs)}")
+    return tuple(configure_options)
+
+
+def prepare_configure_options(
+    package_manager: Optional[PackageManager],
+    arch: FiredrakeArch
+) -> tuple[str, ...]:
+    return (
+        COMMON_CONFIGURE_OPTIONS
+        + (f"PETSC_ARCH=arch-firedrake-{arch.value}",)
+        + prepare_external_package_configure_options(package_manager)
+    )
+
+
+CONFIGURE_OPTIONS = {
+    LINUX_APT_X86_64: {
+        ARCH_DEFAULT: prepare_configure_options(LINUX_APT_X86_64, ARCH_DEFAULT),
+        ARCH_COMPLEX: prepare_configure_options(LINUX_APT_X86_64, ARCH_COMPLEX),
+    },
+    LINUX_APT_AARCH64: {
+        ARCH_DEFAULT: prepare_configure_options(LINUX_APT_AARCH64, ARCH_DEFAULT),
+        ARCH_COMPLEX: prepare_configure_options(LINUX_APT_AARCH64, ARCH_COMPLEX),
+    },
+    MACOS_HOMEBREW_ARM64: {
+        ARCH_DEFAULT: prepare_configure_options(MACOS_HOMEBREW_ARM64, ARCH_DEFAULT),
+        ARCH_COMPLEX: prepare_configure_options(MACOS_HOMEBREW_ARM64, ARCH_COMPLEX),
+    },
+    None: {
+        ARCH_DEFAULT: prepare_configure_options(None, ARCH_DEFAULT),
+        ARCH_COMPLEX: prepare_configure_options(None, ARCH_COMPLEX),
+    }
+}
+
+
+if __name__ == "__main__":
+    main()
