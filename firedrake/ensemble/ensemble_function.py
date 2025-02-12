@@ -263,7 +263,7 @@ class EnsembleFunction(EnsembleFunctionBase):
 
     def norm(self, *args, **kwargs):
         """Compute the norm of the function.
-        
+
         Any arguments are forwarded to `firedrake.norm`.
         """
         return self._fs.ensemble_comm.allreduce(

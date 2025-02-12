@@ -218,15 +218,16 @@ def test_ensemble_local_spaces_correct(ensemblespace, Wlocal):
 @pytest.mark.parallel(nprocs=[1, 2, 4, 6])
 def test_ensemble_dofsizes_correct(ensemblespace):
     """
-    The local_spaces of EnsembleFunctionSpace should
-    match the ones provided at instantiation.
+    The number of dofs of an EnsembleFunctionSpace
+    is the sum of the dofs of the local_spaces.
     """
     efs = ensemblespace
     ensemble = efs.ensemble
     rank = ensemble.global_comm.rank
 
-    nlocal_rank_dofs = sum(fd.MixedFunctionSpace(efs.local_spaces).dof_count)
-    nlocal_comm_dofs = sum(fs.dim() for fs in efs.local_spaces)
+    nlocal_rank_dofs = sum(fs.dof_dset.layout_vec.getLocalSize()
+                           for fs in efs.local_spaces)
+    nlocal_comm_dofs = ensemble.comm.allreduce(nlocal_rank_dofs)
     nglobal_dofs = ensemble.ensemble_comm.allreduce(nlocal_comm_dofs)
 
     parallel_assert(

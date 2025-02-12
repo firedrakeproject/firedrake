@@ -7,6 +7,8 @@ from functools import cached_property
 from itertools import chain
 from typing import Collection
 
+__all__ = ("EnsembleFunctionSpace", "EnsembleDualSpace")
+
 
 def _is_primal_or_dual(local_spaces, ensemble):
     """
@@ -84,7 +86,6 @@ class EnsembleFunctionSpaceBase:
     - Dual ensemble objects: :class:`firedrake.EnsembleDualSpace` and :class:`firedrake.EnsembleCofunction`.
     """
     def __init__(self, local_spaces: Collection, ensemble: Ensemble):
-
         meshes = set(V.mesh() for V in local_spaces)
         nlocal_meshes = len(meshes)
         max_local_meshes = ensemble.ensemble_comm.allreduce(nlocal_meshes, MPI.MAX)
@@ -163,13 +164,13 @@ class EnsembleFunctionSpaceBase:
     def nlocal_rank_dofs(self):
         """The total number of dofs across all subspaces on the local MPI rank.
         """
-        return sum(self._full_local_space.dof_count)
+        return self._full_local_space.dof_dset.layout_vec.getLocalSize()
 
-    @property
+    @cached_property
     def nlocal_comm_dofs(self):
         """The total number of dofs across all subspaces on the local ensemble.comm.
         """
-        return self._full_local_space.dim()
+        return self._full_local_space.dof_dset.layout_vec.getSize()
 
     @cached_property
     def nglobal_dofs(self):

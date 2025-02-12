@@ -153,3 +153,18 @@ def test_zero_with_subset(ensemblefunc):
         else:
             assert np.allclose(u.dat.data_ro[:2], 0), "EnsembleFunction.zero(subset) should zero the subset"
             assert np.allclose(u.dat.data_ro[2:], nonzero), "EnsembleFunction.zero(subset) should only modify the subset"
+
+
+# test subfunctions
+
+# test riesz_representation
+
+# test assign
+
+# test copy
+
+# test arithmetic operators
+
+# test vec
+
+# test norm
