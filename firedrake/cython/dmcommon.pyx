@@ -2582,7 +2582,7 @@ def create_section_sf(sf: PETSc.SF, section: PETSc.Section) -> PETSc.SF:
         PETSc.SF sf_new
         PetscInt *remoteOffsets_c = NULL
 
-    sf_new = PETSc.SF()
+    sf_new = PETSc.SF().create(comm=sf.comm)
     CHKERR(PetscSFCreateRemoteOffsets(sf.sf, section.sec, section.sec, &remoteOffsets_c))
     CHKERR(PetscSFCreateSectionSF(sf.sf, section.sec, remoteOffsets_c, section.sec, &sf_new.sf))
     return sf_new

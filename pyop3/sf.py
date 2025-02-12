@@ -4,9 +4,9 @@ import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 
-from pyop3.dtypes import get_mpi_dtype
+from pyop3.dtypes import get_mpi_dtype, IntType
 from pyop2.mpi import internal_comm
-from pyop3.utils import just_one
+from pyop3.utils import just_one, strict_int
 
 
 class BufferSizeMismatchException(Exception):
@@ -16,24 +16,26 @@ class BufferSizeMismatchException(Exception):
 class StarForest:
     """Convenience wrapper for a `petsc4py.SF`."""
 
-    def __init__(self, sf, size: int):
+    def __init__(self, sf, size: IntType):
         self.sf = sf
-        self.size = size
+        self.size = strict_int(size)
 
-        # don't like this pattern
-        self._comm = internal_comm(sf.comm, self)
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self.sf}, {self.size})"
 
     @classmethod
-    def from_graph(cls, size: int, nroots: int, ilocal, iremote, comm):
-        # from pyop3.extras.debug import print_with_rank
-        # print_with_rank(nroots, ilocal, iremote)
+    def from_graph(cls, size: IntType, nroots: IntType, ilocal, iremote, comm):
+        size = strict_int(size)
+        ilocal = ilocal.astype(IntType, casting="safe")
+        iremote = iremote.astype(IntType, casting="safe")
+
         sf = PETSc.SF().create(comm)
         sf.setGraph(nroots, ilocal, iremote)
         return cls(sf, size)
 
     @property
-    def comm(self):
-        return self.sf.comm
+    def comm(self) -> MPI.Comm:
+        return self.sf.comm.tompi4py()
 
     @cached_property
     def iroot(self):
@@ -61,7 +63,7 @@ class StarForest:
 
     @property
     def nroots(self):
-        return self._graph[0]
+        return self.graph[0]
 
     @property
     def nowned(self):
@@ -83,11 +85,15 @@ class StarForest:
 
     @property
     def ilocal(self):
-        return self._graph[1]
+        return self.graph[1]
 
     @property
     def iremote(self):
-        return self._graph[2]
+        return self.graph[2]
+
+    @property
+    def graph(self):
+        return self.sf.getGraph()
 
     def broadcast(self, *args):
         self.broadcast_begin(*args)
@@ -112,10 +118,6 @@ class StarForest:
     def reduce_end(self, *args):
         reduce_args = self._prepare_args(*args)
         self.sf.reduceEnd(*reduce_args)
-
-    @cached_property
-    def _graph(self):
-        return self.sf.getGraph()
 
     def _prepare_args(self, *args):
         if len(args) == 3:
@@ -154,8 +156,8 @@ def single_star(comm, size=1, root=0):
     return StarForest.from_graph(size, nroots, ilocal, iremote, comm)
 
 
-def serial_forest(size: int) -> StarForest:
-    nroots = 0
-    ilocal = []
-    iremote = []
+def serial_forest(size: IntType) -> StarForest:
+    nroots = IntType(0)
+    ilocal = np.empty(0, dtype=IntType)
+    iremote = np.empty(0, dtype=IntType)
     return StarForest.from_graph(size, nroots, ilocal, iremote, MPI.COMM_SELF)

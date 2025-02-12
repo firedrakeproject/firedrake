@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import abc
 import collections
+import functools
 import itertools
+import numbers
 import warnings
 from collections.abc import Mapping
 from typing import Any, Collection, Hashable, Optional
@@ -14,6 +16,7 @@ from pyrsistent import pmap
 
 from pyop3.config import config
 from pyop3.exceptions import Pyop3Exception
+from pyop3.dtypes import IntType
 
 from mpi4py import MPI
 
@@ -348,15 +351,29 @@ def invert(p):
     return s
 
 
-def strict_cast(obj, cast):
-    new_obj = cast(obj)
-    if new_obj != obj:
-        raise TypeError(f"Invalid cast from {obj} to {new_obj}")
-    return new_obj
+@functools.singledispatch
+def strict_cast(obj: Any, dtype: type | np.dtype) -> Any:
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-def strict_int(num):
-    return strict_cast(num, int)
+@strict_cast.register(numbers.Integral)
+def _(num: numbers.Integral, dtype: type | np.dtype) -> np.number:
+    if not isinstance(dtype, np.dtype):
+        dtype = np.dtype(dtype)
+
+    iinfo = np.iinfo(dtype)
+    if not (iinfo.min <= num <= iinfo.max):
+        raise TypeError(f"{num} exceeds the limits of {dtype}")
+    return dtype.type(num)
+
+
+@strict_cast.register(np.ndarray)
+def _(array: np.ndarray, dtype: type) -> np.ndarray:
+    return array.astype(dtype, casting="safe")
+
+
+def strict_int(num) -> IntType:
+    return strict_cast(num, IntType)
 
 
 def apply_at(func, iterable, index):
@@ -513,7 +530,6 @@ def unique_comm(iterable) -> MPI.Comm | None:
 
         if comm is None:
             comm = item.comm
-        elif item.comm is not comm:
-            raise ValueError("Comm mismatch")
-
+        elif item.comm != comm:
+            raise ValueError("More than a single comm provided")
     return comm

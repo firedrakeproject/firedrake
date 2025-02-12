@@ -186,7 +186,7 @@ class UnrecognisedAxisException(ValueError):
 
 @dataclasses.dataclass(frozen=True)
 class AxisComponentRegion:
-    size: Any
+    size: Any  # IntType or Dat
     label: str | None = None
 
     def __str__(self) -> str:
@@ -1071,7 +1071,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     @cached_property
     def sf(self) -> StarForest:
-        from pyop3.axtree.parallel import collect_sf_graphs
+        from pyop3.axtree.parallel import collect_star_forests, concatenate_star_forests
 
         # for now
         # # NOTE: what is global_size used for? very confusing name
@@ -1081,28 +1081,8 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         #     # no, this is probably not right. Could have a global
         #     return serial_forest(self.global_size)
 
-        sfs = collect_sf_graphs(self)
-        if len(sfs) != 1:
-            raise NotImplementedError("TODO")
-        else:
-            return just_one(sfs)
-
-        # if len(graphs) == 0:
-        #     breakpoint()
-        #     return serial_forest(self.global_size)
-        # else:
-        #     # merge the graphs
-        #     nroots = 0
-        #     ilocals = []
-        #     iremotes = []
-        #     for graph in graphs:
-        #         nr, ilocal, iremote = graph
-        #         nroots += nr
-        #         ilocals.append(ilocal)
-        #         iremotes.append(iremote)
-        #     ilocal = np.concatenate(ilocals)
-        #     iremote = np.concatenate(iremotes)
-        #     return StarForest.from_graph(self.size, nroots, ilocal, iremote, self.comm)
+        sfs = collect_star_forests(self)
+        return concatenate_star_forests(sfs)
 
     def component_section(self, component_spec) -> PETSc.Section:
         from pyop3.array import Dat

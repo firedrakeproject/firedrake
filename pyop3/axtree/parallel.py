@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+from collections.abc import Sequence
 
 import numpy as np
 from mpi4py import MPI
@@ -8,7 +9,8 @@ from pyop3.axtree.tree import AbstractAxisTree
 from pyrsistent import pmap
 
 from pyop3.dtypes import IntType, as_numpy_dtype
-from pyop3.utils import checked_zip
+from pyop3.sf import StarForest
+from pyop3.utils import checked_zip, unique_comm
 
 
 def reduction_op(op, invec, inoutvec, datatype):
@@ -52,29 +54,29 @@ def partition_ghost_points(axis, sf):
     return component_owned_sizes, numbering
 
 
-def collect_sf_graphs(axis_tree: AbstractAxisTree) -> tuple:
+def collect_star_forests(axis_tree: AbstractAxisTree) -> tuple[StarForest, ...]:
     return _collect_sf_graphs_rec(axis_tree, axis_tree.root)
 
 
 # NOTE: This function does not check for nested SFs (which should error)
-def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, axis: Axis) -> tuple:
+def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, axis: Axis) -> tuple[StarForest, ...]:
     # TODO: not in firedrake
     from firedrake.cython.dmcommon import create_section_sf
     from pyop3.axtree.layout import _axis_tree_size_rec
-
 
     sfs = []
     for component in axis.components:
         if component.sf is not None:
             # do not recurse further
             section = axis_tree.component_section((axis, component))
-            sf = create_section_sf(component.sf.sf, section)
+            petsc_sf = create_section_sf(component.sf.sf, section)
 
             size = component.size
             if subaxis := axis_tree.child(axis, component):
                 size *= _axis_tree_size_rec(axis_tree, subaxis)
 
-            sfs.append((sf, size))
+            sf = StarForest(petsc_sf, size)
+            sfs.append(sf)
         elif subaxis := axis_tree.child(axis, component):
             raise NotImplementedError("TODO")
 
@@ -86,6 +88,24 @@ def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, axis: Axis) -> tuple:
                     _collect_sf_graphs_rec(axis_tree, subaxis)
                 )
     return tuple(sfs)
+
+
+def concatenate_star_forests(star_forests: Sequence[StarForest]) -> StarForest:
+    # merge the graphs
+    size = 0
+    num_roots = 0
+    ilocals = []
+    iremotes = []
+    for sf in star_forests:
+        nr, ilocal, iremote = sf.graph
+        num_roots += nr
+        ilocals.append(ilocal+size)
+        iremotes.append(iremote+size)
+        size += sf.size
+    ilocal = np.concatenate(ilocals)
+    iremote = np.concatenate(iremotes)
+    comm = unique_comm(star_forests)
+    return StarForest.from_graph(size, num_roots, ilocal, iremote, comm)
 
 
 # perhaps I can defer renumbering the SF to here?

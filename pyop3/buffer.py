@@ -10,7 +10,7 @@ from mpi4py import MPI
 from petsc4py import PETSc
 from pyrsistent import freeze, pmap
 
-from pyop3.dtypes import ScalarType
+from pyop3.dtypes import IntType, ScalarType
 from pyop3.lang import KernelArgument
 from pyop2.mpi import COMM_SELF
 from pyop3.sf import StarForest, serial_forest
@@ -133,16 +133,13 @@ class DistributedBuffer(Buffer):
                 raise ValueError
 
         if sf is None:
-            size = np.prod(shape, dtype=int)  # should be more obvious
+            size = np.prod(shape, dtype=IntType)  # should be more obvious
             sf = serial_forest(size)
 
         self.shape = shape
         self._dtype = dtype
         self._lazy_data = data
         self.sf = sf
-
-        if self._dtype == np.int64:
-            breakpoint()
 
         self.name = name or self._name_generator(prefix or self._prefix)
 
