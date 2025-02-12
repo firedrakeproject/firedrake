@@ -157,7 +157,7 @@ class WithGeometryBase(object):
     @property
     def subfunctions(self):
         import warnings
-        warnings.warn("The 'subfunctions' property is deprecated, please use the "
+        warnings.warn("The 'subfunctions' property is deprecated for function spaces, please use the "
                       "'subspaces' property instead", category=FutureWarning)
         return self.subspaces
 
@@ -649,7 +649,7 @@ class FunctionSpace(object):
     @property
     def subfunctions(self):
         import warnings
-        warnings.warn("The 'subfunctions' property is deprecated, please use the "
+        warnings.warn("The 'subfunctions' property is deprecated for function spaces, please use the "
                       "'subspaces' property instead", category=FutureWarning)
         return self.subspaces
 
@@ -1024,7 +1024,7 @@ class MixedFunctionSpace(object):
     @property
     def subfunctions(self):
         import warnings
-        warnings.warn("The 'subfunctions' property is deprecated, please use the "
+        warnings.warn("The 'subfunctions' property is deprecated for function spaces, please use the "
                       "'subspaces' property instead", category=FutureWarning)
         return self.subspaces
 
