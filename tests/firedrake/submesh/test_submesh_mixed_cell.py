@@ -124,11 +124,13 @@ def test_submesh_mixed_cell_assemble():
     assert np.allclose(A.M[0][1].values, A_ref.M.values)
 
 
+@pytest.mark.parallel(nprocs=3)
 def test_submesh_mixed_cell_solve():
     dim = 2
     label_ext = 1
     label_interf = 2
     mesh = Mesh(os.path.join(cwd, "..", "meshes", "mixed_cell_unit_square.msh"))
+    h = 0.1  # roughly
     mesh.topology_dm.markBoundaryFaces(dmcommon.FACE_SETS_LABEL, label_ext)
     mesh_t = Submesh(mesh, dim, PETSc.DM.PolytopeType.TRIANGLE, label_name="celltype", name="mesh_tri")
     x_t, y_t = SpatialCoordinate(mesh_t)
@@ -136,8 +138,8 @@ def test_submesh_mixed_cell_solve():
     mesh_q = Submesh(mesh, dim, PETSc.DM.PolytopeType.QUADRILATERAL, label_name="celltype", name="mesh_quad")
     x_q, y_q = SpatialCoordinate(mesh_q)
     n_q = FacetNormal(mesh_q)
-    V_t = FunctionSpace(mesh_t, "P", 4)
-    V_q = FunctionSpace(mesh_q, "Q", 4)
+    V_t = FunctionSpace(mesh_t, "P", 8)
+    V_q = FunctionSpace(mesh_q, "Q", 7)
     V = V_t * V_q
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -154,18 +156,27 @@ def test_submesh_mixed_cell_solve():
     a = (
         inner(grad(u_t), grad(v_t)) * dx_t +
         inner(grad(u_q), grad(v_q)) * dx_q
+        -inner(
+            (grad(u_q) + grad(u_t)) / 2,
+            (v_q * n_q + v_t * n_t)
+        ) * ds_t(label_interf)
+        -inner(
+            (u_q * n_q + u_t * n_t),
+            (grad(v_q) + grad(v_t)) / 2
+        ) * ds_t(label_interf)
+        + 100 / h * inner(u_q - u_t, v_q - v_t) * ds_t(label_interf)
     )
     L = (
         inner(f_t, v_t) * dx_t +
         inner(f_q, v_q) * dx_q
     )
     sol = Function(V)
-    bc_t = DirichletBC(V.sub(0), g_t, [label_interf])
-    bc_q = DirichletBC(V.sub(1), g_q, [label_ext, label_interf])
-    solve(a == L, sol, bcs=[bc_t, bc_q])
+    bc_q = DirichletBC(V.sub(1), g_q, label_ext)
+    solve(a == L, sol, bcs=[bc_q])
     sol_t, sol_q = split(sol)
-    error = assemble(inner(sol_t - g_t, sol_t - g_t) * dx_t)
-    print(error)
-    pgfplot(sol.subfunctions[0], "mesh_tri.txt", degree=2)
-    pgfplot(sol.subfunctions[1], "mesh_quad.txt", degree=2)
+    error_t = assemble(inner(sol_t - g_t, sol_t - g_t) * dx_t)
+    error_q = assemble(inner(sol_q - g_q, sol_q - g_q) * dx_q)
+    assert sqrt(error_t + error_q) < 1.e-10
+    pgfplot(Function(V_t).interpolate(sol.subfunctions[0] - g_t), "mesh_tri.txt", degree=2)
+    pgfplot(Function(V_q).interpolate(sol.subfunctions[1] - g_q), "mesh_quad.txt", degree=2)
     
