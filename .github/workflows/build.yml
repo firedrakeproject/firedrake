@@ -61,7 +61,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get -y install \
-            $(${{ steps.setup-python.outputs.python-path }} ./repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-dependencies) \
+            $(${{ steps.setup-python.outputs.python-path }} ./repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-dependencies)
           : # Extra test dependencies
           sudo apt-get -y install parallel
 
