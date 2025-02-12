@@ -31,28 +31,14 @@ jobs:
       # complex fails and vice-versa
       fail-fast: false
       matrix:
-        include:
-          - scalar-type: real
-            complex: ""
-            arch: default
-          - scalar-type: complex
-            complex: --complex
-            arch: complex
+        arch: [default, complex]
     env:
       # NOTE: Do not set a lot of vars here, single source of truth
       FIREDRAKE_CI_TESTS: 1
       PYOP2_CI_TESTS: 1
-      COMPLEX: ${{ matrix.complex }}
       RDMAV_FORK_SAFE: 1
       EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 firedrake/tests/firedrake
     steps:
-      - name: Pre-run cleanup
-        run: find . -delete
-
-      - uses: actions/checkout@v4
-        with:
-          path: firedrake
-
       - uses: actions/setup-python@v5
         with:
           # Test using the oldest supported version of Python
@@ -61,6 +47,20 @@ jobs:
       - name: Prepare environment
         # Otherwise entrypoints like 'firedrake-clean' cannot be found
         run: echo "/github/home/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Pre-run cleanup
+        run: |
+          : # Make sure the current directory is empty
+          find . -delete
+          : # Force a rebuild of petsc4py as the cached one will not link to the fresh install
+          : # NOTE: A similar trick may be needed for compiled dependencies like h5py or
+          : # mpi4py if changing the HDF5/MPI in use.
+          pip uninstall -y petsc4py
+          pip cache remove petsc4py
+
+      - uses: actions/checkout@v4
+        with:
+          path: firedrake
 
       - name: Install system dependencies
         run: |
@@ -147,7 +147,7 @@ jobs:
         with:
           report_paths: 'firedrake*.xml'
           comment: true
-          check_name: "Firedrake ${{ matrix.scalar-type }}"
+          check_name: "Firedrake ${{ matrix.arch }}"
           updateComment: true
           flaky_summary: true
 
@@ -155,7 +155,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: success() || steps.install.conclusion == 'success'
         with:
-          name: firedrake-logs-${{ matrix.scalar-type }}
+          name: firedrake-logs-${{ matrix.arch }}
           path: pytest_*.log
 
       - name: Post-run cleanup
