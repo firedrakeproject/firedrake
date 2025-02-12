@@ -326,7 +326,7 @@ def loop_nesting(instructions, deps, outer_inames, kernel_name):
         s = set(_deps)
         while s:
             d = s.pop()
-            nesting[insn] = nesting[insn] | nesting[name_to_insn[d]]
+            nesting[insn] = nesting[name_to_insn[d]] | nesting[insn]
             s = s | set(deps[name_to_insn[d]][1]) - set([name])
 
     # boost inames, if one instruction is inside inner inames (free indices),
