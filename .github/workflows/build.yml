@@ -165,7 +165,7 @@ jobs:
         timeout-minutes: 5
 
       - name: Run Gusto smoke tests
-        # NOTE: Unsure if Gusto is expected to work in complex mode
+        # Only test Gusto in real mode
         if: (success() || steps.build.conclusion == 'success') && matrix.scalar-type == 'real'
         run: |
           . ../firedrake_venv/bin/activate
