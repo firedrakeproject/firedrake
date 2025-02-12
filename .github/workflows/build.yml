@@ -66,7 +66,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get -y install \
-            $(python3 ./firedrake/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-dependencies)
+            $(python3 ./repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-dependencies)
 
       - name: Install test dependencies
         run: |
@@ -80,7 +80,7 @@ jobs:
           git clone https://github.com/firedrakeproject/petsc.git
           cd petsc
           ./configure \
-            $(python3 ../firedrake/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-petsc-configure-options) \
+            $(python3 ../repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-petsc-configure-options) \
             --with-make-np=12
           make
 
@@ -145,7 +145,7 @@ jobs:
           && (github.ref != 'refs/heads/master')
           && (github.event.pull_request.head.repo.full_name == github.repository)
         with:
-          report_paths: 'firedrake/firedrake*.xml'
+          report_paths: 'firedrake*.xml'
           comment: true
           check_name: "Firedrake ${{ matrix.arch }}"
           updateComment: true
@@ -156,7 +156,7 @@ jobs:
         if: success() || steps.install.conclusion == 'success'
         with:
           name: firedrake-logs-${{ matrix.arch }}
-          path: firedrake/pytest_*.log
+          path: pytest_*.log
 
       - name: Post-run cleanup
         if: always()
