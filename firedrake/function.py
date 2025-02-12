@@ -84,7 +84,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
 
-    @utils.cached_property
+    @property
     def topological(self):
         r"""The underlying coordinateless function."""
         return self
