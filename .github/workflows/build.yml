@@ -34,10 +34,10 @@ jobs:
         include:
           - scalar-type: real
             complex: ""
-            petsc_arch: default
+            arch: default
           - scalar-type: complex
             complex: --complex
-            petsc_arch: complex
+            arch: complex
     env:
       # NOTE: Do not set a lot of vars here, single source of truth
       FIREDRAKE_CI_TESTS: 1
@@ -65,7 +65,8 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get -y install $(python3 ./firedrake/scripts/firedrake-system-deps)
+          sudo apt-get -y install \
+            $(python3 ./firedrake/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-dependencies)
 
       - name: Install test dependencies
         run: |
@@ -79,14 +80,14 @@ jobs:
           git clone https://github.com/firedrakeproject/petsc.git
           cd petsc
           ./configure \
-            $(python3 ../firedrake/scripts/firedrake-petsc-configure-options) \
+            $(python3 ../firedrake/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-petsc-configure-options) \
             --with-make-np=12
           make
 
       - name: Install Firedrake
         id: install
         run: |
-          export PETSC_DIR=$PWD/petsc PETSC_ARCH=firedrake
+          export PETSC_DIR=$PWD/petsc PETSC_ARCH=arch-firedrake-${{ matrix.arch }}
           export HDF5_MPI=ON
           export CC=mpicc CXX=mpicxx
           export MPICC=$CC
