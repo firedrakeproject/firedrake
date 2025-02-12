@@ -48,6 +48,7 @@ jobs:
       COMPLEX: ${{ matrix.complex }}
       RDMAV_FORK_SAFE: 1
       EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 tests/firedrake
+      PYOP2_SPMD_STRICT: 1
     steps:
       - uses: actions/checkout@v4
 
@@ -95,7 +96,7 @@ jobs:
           sudo apt update
           sudo apt -y install parallel
           . ../firedrake_venv/bin/activate
-          python "$(which firedrake-clean)"
+          firedrake-clean
           python -m pip install pytest-timeout ipympl pytest-split pytest-xdist
           python -m pip list
 

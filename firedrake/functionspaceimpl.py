@@ -876,7 +876,9 @@ class RestrictedFunctionSpace(FunctionSpace):
     def __init__(self, function_space, boundary_set=frozenset(), name=None):
         label = ""
         boundary_set_ = []
-        for boundary_domain in boundary_set:
+        # NOTE: boundary_set must be deterministically ordered here to ensure
+        # that the label is consistent between ranks.
+        for boundary_domain in sorted(boundary_set, key=str):
             if isinstance(boundary_domain, str):
                 boundary_set_.append(boundary_domain)
             else:
