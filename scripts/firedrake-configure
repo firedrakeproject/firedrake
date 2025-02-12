@@ -49,16 +49,29 @@ def main():
         default=ARCH_DEFAULT,
         help="TODO",
     )
-    subparsers = parser.add_subparsers(required=True)
-
-    sysdeps_parser = subparsers.add_parser("system-dependencies", help="TODO")
-    sysdeps_parser.set_defaults(func=print_system_dependencies)
-
-    petscopts_parser = subparsers.add_parser("petsc-configure-options", help="TODO")
-    petscopts_parser.set_defaults(func=print_petsc_configure_options)
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--show-system-dependencies",
+        "--sysdeps",  # alias
+        action="store_true",
+        help="TODO",
+    )
+    group.add_argument(
+        "--show-petsc-configure-options",
+        "--petscconf",  # alias
+        action="store_true",
+        help="TODO",
+    )
 
     args = parser.parse_args()
-    args.func(args)
+
+    # Do the parsing of package manager and arch here
+
+    if args.show_system_dependencies:
+        print_system_dependencies(args)
+    else:
+        assert args.show_petsc_configure_options
+        print_petsc_configure_options(args)
 
 
 def print_system_dependencies(args: argparse.Namespace) -> None:
@@ -130,9 +143,10 @@ COMMON_LINUX_APT_PACKAGES = (
     "flex",
     "git",
     "libfftw3-dev",
+    "libfftw3-mpi-dev",
     "libhwloc-dev",
     "libhdf5-mpi-dev",
-    "libhypre-dev",
+    "libopenblas-dev",
     "libopenmpi-dev",
     "ninja-build",
     "pkg-config",
@@ -203,8 +217,8 @@ EXTERNAL_PACKAGES = {
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "hypre": {
-        LINUX_APT_X86_64: ("/usr/include/hypre", ["/usr/lib/x86_64-linux-gnu/libHYPRE.a"]),
-        LINUX_APT_AARCH64: ("/usr/include/hypre", ["/usr/lib/aarch64-linux-gnu/libHYPRE.a"]),
+        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "metis": {
