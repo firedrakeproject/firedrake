@@ -2147,10 +2147,6 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
     for ilabel, op2class in enumerate([b"pyop2_core", b"pyop2_owned", b"pyop2_ghost"]):
         CHKERR(DMCreateLabel(swarm.dm, op2class))
         CHKERR(DMGetLabel(swarm.dm, op2class, &swarm_labels[ilabel]))
-    # pycellid = <bytes> swarm.getCellDMActive().getCellID()
-    # cdef char*pycellid = <bytes> swarm.getCellDMActive().getCellID()
-    # swarmParentCells = swarm.getField(pycellid)
-
     CHKERR(DMSwarmGetCellDMActive(swarm.dm, &celldm))
     CHKERR(DMSwarmCellDMGetCellID(celldm, &cellid))
     CHKERR(DMSwarmGetField(swarm.dm, cellid, &blocksize, &ctype, <void**> &swarmParentCells))
