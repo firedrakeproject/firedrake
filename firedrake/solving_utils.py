@@ -163,13 +163,15 @@ class _SNESContext(object):
                  pre_jacobian_callback=None, pre_function_callback=None,
                  post_jacobian_callback=None, post_function_callback=None,
                  options_prefix=None,
-                 transfer_manager=None):
+                 transfer_manager=None,
+                 sub_mat_type=None):
         from firedrake.assemble import get_assembler
 
         if pmat_type is None:
             pmat_type = mat_type
         self.mat_type = mat_type
         self.pmat_type = pmat_type
+        self.sub_mat_type = sub_mat_type
         self.options_prefix = options_prefix
 
         matfree = mat_type == 'matfree'
@@ -483,7 +485,9 @@ class _SNESContext(object):
     @cached_property
     def _assembler_jac(self):
         from firedrake.assemble import get_assembler
-        return get_assembler(self.J, bcs=self.bcs_J, form_compiler_parameters=self.fcp, mat_type=self.mat_type, options_prefix=self.options_prefix, appctx=self.appctx)
+        return get_assembler(self.J, bcs=self.bcs_J, form_compiler_parameters=self.fcp,
+                             mat_type=self.mat_type, sub_mat_type=self.sub_mat_type,
+                             options_prefix=self.options_prefix, appctx=self.appctx)
 
     @cached_property
     def _jac(self):
