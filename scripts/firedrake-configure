@@ -64,19 +64,21 @@ def main():
     )
 
     args = parser.parse_args()
-
-    # Do the parsing of package manager and arch here
+    package_manager = get_package_manager(args.package_manager)
+    arch = FiredrakeArch(args.arch)
 
     if args.show_system_dependencies:
-        print_system_dependencies(args)
+        print_system_dependencies(package_manager, arch)
     else:
         assert args.show_petsc_configure_options
-        print_petsc_configure_options(args)
+        print_petsc_configure_options(package_manager, arch)
 
 
-def print_system_dependencies(args: argparse.Namespace) -> None:
+def print_system_dependencies(
+    package_manager: Optional[PackageManager],
+    arch: FiredrakeArch,
+) -> None:
     # TODO: Handle different arch's
-    package_manager = get_package_manager(args.package_manager)
     if package_manager is None:
         raise RuntimeError(
             "Cannot identify a package manager, please install Firedrake "
@@ -86,8 +88,10 @@ def print_system_dependencies(args: argparse.Namespace) -> None:
     print(" ".join(SYSTEM_PACKAGES[package_manager]), end="")
 
 
-def print_petsc_configure_options(args: argparse.Namespace) -> None:
-    package_manager = get_package_manager(args.package_manager)
+def print_petsc_configure_options(
+    package_manager: Optional[PackageManager],
+    arch: FiredrakeArch,
+) -> None:
     if package_manager is None:
         warnings.warn(
             "Cannot identify a package manager, PETSc will naively download all "
@@ -95,7 +99,7 @@ def print_petsc_configure_options(args: argparse.Namespace) -> None:
             UserWarning
         )
 
-    configure_options = CONFIGURE_OPTIONS[package_manager][args.arch]
+    configure_options = CONFIGURE_OPTIONS[package_manager][arch]
     print(" ".join(configure_options), end="")
 
 
