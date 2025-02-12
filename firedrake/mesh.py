@@ -862,6 +862,8 @@ class AbstractMeshTopology(abc.ABC):
 
     @cached_property
     def _global_numbering(self):
+        # NOTE: We do exactly the same thing inside pyop3, grep for 'exscan'
+
         # Start with a local numbering
         numbering = self._dm_renumbering.indices.copy()
 

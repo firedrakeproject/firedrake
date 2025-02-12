@@ -977,19 +977,20 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         )
 
     @cached_property
-    def global_numbering(self):
-        if not self.comm or self.comm.size == 1:
+    def global_numbering(self) -> np.ndarray[IntType]:
+        # NOTE: Identical code is used elsewhere
+        if not self.comm:  # maybe goes away if we disallow comm=None
             numbering = np.arange(self.size, dtype=IntType)
         else:
-            nowned = self.owned.size
-            start = self.sf.comm.tompi4py().exscan(nowned) or 0
+            start = self.sf.comm.exscan(self.owned.size) or 0
             numbering = np.arange(start, start + self.size, dtype=IntType)
 
-            numbering[nowned:] = -1
+            # set ghost entries to -1 to make sure they are overwritten
+            # TODO: if config.debug:
+            numbering[self.owned.size:] = -1
             self.sf.broadcast(numbering, MPI.REPLACE)
             debug_assert(lambda: (numbering >= 0).all())
-
-        return numbering[self._buffer_indices_ghost]
+        return numbering
 
     @cached_property
     def leaf_target_paths(self):
@@ -1103,6 +1104,9 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         section.setUp()
         return section
 
+    # TODO: In serial should this be COMM_SELF, COMM_WORLD or None?
+    # It is valid for bits of an axis tree to have no comm but I think
+    # that the tree overall should have one...
     @property
     def comm(self) -> MPI.Comm | None:
         return unique_comm(self.nodes)
