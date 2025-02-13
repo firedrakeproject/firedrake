@@ -137,6 +137,7 @@ def J(ic, solve_type, timestep, steps, V):
                           ("solve", None),
                           ("NLVS", None),
                           ])
+@pytest.mark.skipcomplex
 def test_burgers_newton(solve_type, checkpointing):
     """Adjoint-based gradient tests with and without checkpointing.
     """
@@ -205,6 +206,7 @@ def test_burgers_newton(solve_type, checkpointing):
                           ("solve", "SingleDisk"),
                           ("NLVS", "SingleDisk"),
                           ])
+@pytest.mark.skipcomplex
 def test_checkpointing_validity(solve_type, checkpointing):
     """Compare forward and backward results with and without checkpointing.
     """
