@@ -136,7 +136,7 @@ jobs:
 
       - name: Run Gusto smoke tests
         # Only test Gusto in real mode
-        if: (success() || steps.build.conclusion == 'success') && matrix.scalar-type == 'real'
+        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
         run: |
           . ../firedrake_venv/bin/activate
           cd ../firedrake_venv/src/gusto

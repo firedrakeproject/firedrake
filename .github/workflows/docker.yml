@@ -99,15 +99,15 @@ jobs:
         include:
           - os: Linux
             platform: linux/amd64
-            extra-install-flags: "--netgen"
+            # extra-install-flags: "--netgen"
           - os: macOS
             platform: linux/arm64
-            extra-install-flags: ""  # no ARM wheel for netgen-mesher
+            # extra-install-flags: ""  # no ARM wheel for netgen-mesher
     uses: ./.github/workflows/docker_build.yml
     with:
       os: ${{ matrix.os }}
       platform: ${{ matrix.platform }}
-      extra-install-flags: ${{ matrix.extra-install-flags }}
+      # extra-install-flags: ${{ matrix.extra-install-flags }}
       target: firedrake
       tag: ${{ inputs.tag }}
       dockerfile: docker/Dockerfile.firedrake

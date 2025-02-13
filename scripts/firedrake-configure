@@ -209,13 +209,12 @@ PETSC_EXTERNAL_PACKAGES = {
         LINUX_APT_AARCH64: (
             "/usr/include/hdf5/openmpi", ["/usr/lib/aarch64-linux-gnu/hdf5/openmpi/libhdf5.a"]
         ),
-        # TODO: lives in /opt/hombrew/??? do we need to specify?
-        MACOS_HOMEBREW_ARM64: PETSC_AUTODETECT,
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
     "hwloc": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_AUTODETECT,
-        MACOS_HOMEBREW_ARM64: PETSC_AUTODETECT,
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
     "hypre": {
         LINUX_APT_X86_64: PETSC_DOWNLOAD,
@@ -293,6 +292,10 @@ def prepare_external_package_configure_options(
         elif package_spec == PETSC_DOWNLOAD:
             # Package not provided by package manager, download it instead
             configure_options.append(f"--download-{external_package}")
+        elif isinstance(package_spec, str):
+            # Package is installed in a 'sensible' way to <prefix>/include and
+            # <prefix>/lib but PETSc does not know <prefix> so we have to provide it
+            configure_options.append(f"--with-{external_package}-dir={package_spec}")
         else:
             # Package is installed but not findable, have to provide paths
             # to headers and libraries
