@@ -462,3 +462,30 @@ def test_mixed_poisson_approximated_schur_jacobi_prec(setup_poisson):
 
     assert sigma_err < 1e-8
     assert u_err < 1e-8
+
+
+@pytest.mark.parametrize('counts', [(10001, 10002), (10002, 10001)])
+def test_slate_hybridization_count_safe(counts):
+    g_count, c_count = counts
+    mesh = UnitTriangleMesh()
+    BDM = FunctionSpace(mesh, "BDM", 2)
+    DG = FunctionSpace(mesh, "DG", 1)
+    V = BDM * DG
+    VectorDG = VectorFunctionSpace(mesh, 'DG', 0)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    g = Function(VectorDG, count=g_count)
+    c = Function(DG, count=c_count)
+    a = (
+        inner(u, v) * dx
+        + inner(g[0] * u[0], v[0]) * dx
+        + inner(c * grad(u[0]), grad(v[0])) * dx
+    )
+    sol = Function(V)
+    solver_parameters = {
+        'mat_type': 'matfree',
+        'ksp_type': 'preonly',
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.HybridizationPC',
+    }
+    solve(lhs(a) == rhs(a), sol, solver_parameters=solver_parameters)

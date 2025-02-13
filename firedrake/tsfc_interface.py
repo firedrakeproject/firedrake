@@ -7,8 +7,9 @@ passing to the backends.
 from os import path, environ, getuid, makedirs
 import tempfile
 import collections
-import cachetools
+import functools
 
+from tsfc.kernel_interface.firedrake_loopy import KernelBuilder
 import ufl
 import finat.ufl
 from ufl import conj, Form, ZeroBaseForm
@@ -54,19 +55,23 @@ _cachedir = environ.get(
 
 
 def tsfc_compile_form_hashkey(form, prefix, parameters, interface, diagonal):
-    # Drop prefix as it's only used for naming
-    return default_parallel_hashkey(form.signature(), prefix, parameters, interface, diagonal)
+    return default_parallel_hashkey(
+        form.signature(),
+        prefix,
+        utils.tuplify(parameters),
+        _make_interface_key(interface, form),
+        diagonal,
+    )
 
 
-def tsfc_compile_form_comm_fetcher(*args, **kwargs):
-    # args[0] is a form
-    return args[0].ufl_domains()[0].comm
+def _compile_form_comm(form, *args, **kwargs):
+    return form.ufl_domains()[0].comm
 
 
 # Decorate the original tsfc.compile_form with a cache
 tsfc_compile_form = memory_and_disk_cache(
     hashkey=tsfc_compile_form_hashkey,
-    comm_fetcher=tsfc_compile_form_comm_fetcher,
+    comm_getter=_compile_form_comm,
     cachedir=_cachedir
 )(original_tsfc_compile_form)
 
@@ -133,26 +138,21 @@ class TSFCKernel:
 SplitKernel = collections.namedtuple("SplitKernel", ["indices", "kinfo"])
 
 
-def _compile_form_hashkey(*args, **kwargs):
-    # form, name, parameters, split, diagonal
-    parameters = kwargs.pop("parameters", None)
-    key = cachetools.keys.hashkey(
-        args[0].signature(),
-        *args[1:],
+def _compile_form_hashkey(form, name, parameters=None, split=True, interface=None, diagonal=False):
+    return (
+        form.signature(),
+        name,
         utils.tuplify(parameters),
-        **kwargs
+        split,
+        _make_interface_key(interface, form),
+        diagonal,
     )
-    kwargs.setdefault("parameters", parameters)
-    return key
 
 
-def _compile_form_comm(*args, **kwargs):
-    return args[0].ufl_domains()[0].comm
-
-
+@PETSc.Log.EventDecorator()
 @memory_and_disk_cache(
     hashkey=_compile_form_hashkey,
-    comm_fetcher=_compile_form_comm,
+    comm_getter=_compile_form_comm,
     cachedir=_cachedir
 )
 @PETSc.Log.EventDecorator()
@@ -313,3 +313,16 @@ def extract_numbered_coefficients(expr, numbers):
         else:
             coefficients.append(coeff)
     return coefficients
+
+
+def _make_interface_key(interface, form):
+    if interface:
+        # The 'interface' argument is a small hack done in patch.py. When
+        # specified, what really matters for caching is which coeffients
+        # are passed to the 'dont_split' kwarg.
+        assert isinstance(interface, functools.partial)
+        assert interface.func is KernelBuilder
+        coefficients = form.coefficients()
+        return tuple(coefficients.index(f) for f in interface.keywords["dont_split"])
+    else:
+        return None
