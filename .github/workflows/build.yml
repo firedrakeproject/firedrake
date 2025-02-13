@@ -45,14 +45,6 @@ jobs:
           : # Make sure the current directory is empty
           find . -delete
 
-      - uses: actions/setup-python@v5
-        id: setup-python
-        with:
-          # Use the oldest supported Python version
-          python-version: '3.10'
-          # Do this to minimise the 'magic' that setup-python does behind the scenes
-          update-environment: false
-
       - uses: actions/checkout@v4
         with:
           path: repo
@@ -61,7 +53,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get -y install \
-            $(${{ steps.setup-python.outputs.python-path }} ./repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-dependencies)
+            $(python3 ./repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-dependencies)
           : # Extra test dependencies
           sudo apt-get -y install parallel
 
@@ -71,7 +63,7 @@ jobs:
           git clone https://github.com/firedrakeproject/petsc.git
           cd petsc
           ./configure \
-            $(${{ steps.setup-python.outputs.python-path }} ../repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-petsc-configure-options) \
+            $(python3 ../repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-petsc-configure-options) \
             --with-make-np=12
           make
 
@@ -82,7 +74,7 @@ jobs:
           export HDF5_MPI=ON
           export CC=mpicc CXX=mpicxx
           export MPICC=$CC
-          ${{ steps.setup-python.outputs.python-path }} -m venv venv
+          python3 -m venv venv
           source venv/bin/activate
           : # Force a rebuild of petsc4py as the cached one will not link to the fresh
           : # install of PETSc. A similar trick may be needed for compiled dependencies
