@@ -16,6 +16,7 @@ from glob import iglob
 from itertools import chain
 import re
 import importlib
+import time
 import warnings
 
 
@@ -25,6 +26,8 @@ warnings.warn(
     "to do this please visit https://www.firedrakeproject.org/download.html.",
     FutureWarning
 )
+# Give users time to see the warning
+time.sleep(5)
 
 
 class InstallError(Exception):
