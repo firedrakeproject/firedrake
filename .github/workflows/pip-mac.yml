@@ -24,6 +24,7 @@ jobs:
     if: ${{ (github.ref == 'refs/heads/master') || contains(github.event.pull_request.labels.*.name, 'macOS') }}
     env:
       FIREDRAKE_CI_TESTS: 1
+      PYOP2_SPMD_STRICT: 1
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
     steps:
@@ -98,8 +99,9 @@ jobs:
       - name: Run Firedrake smoke tests
         run: |
           source pip_venv/bin/activate
+          firedrake-clean
           cd pip_venv/src/firedrake
-          make check CHECK_PYTEST_ARGS="--timeout 60"
+          make check CHECK_PYTEST_ARGS="--timeout 60 --timeout-method=thread"
         timeout-minutes: 10
 
       - name: Cleanup (post)
