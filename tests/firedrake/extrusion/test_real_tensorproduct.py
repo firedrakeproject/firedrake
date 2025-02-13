@@ -167,7 +167,7 @@ def test_real_tensorproduct_mixed(V):
     Q = FunctionSpace(mesh, "P", 2)
 
     W = V*Q
-    for (s_, s) in zip(W.subfunctions, (V, Q)):
+    for (s_, s) in zip(W.subspaces, (V, Q)):
         assert s_.node_set is s.node_set
         assert s_.dof_dset is s.dof_dset
 

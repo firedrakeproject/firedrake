@@ -117,12 +117,6 @@ class CoordinatelessFunction(ufl.Coefficient):
                      for i, (fs, dat) in
                      enumerate(zip(self.function_space(), self.dat)))
 
-    @PETSc.Log.EventDecorator()
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
-
     @utils.cached_property
     def _components(self):
         if self.function_space().rank == 0:
@@ -323,12 +317,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
         return tuple(type(self)(V, val)
                      for (V, val) in zip(self.function_space(), self.topological.subfunctions))
-
-    @FunctionMixin._ad_annotate_subfunctions
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
 
     @utils.cached_property
     def _components(self):
