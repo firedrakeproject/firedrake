@@ -14,6 +14,7 @@ import argparse
 import enum
 import platform
 import subprocess
+from collections.abc import Sequence
 from typing import Optional
 
 
@@ -182,9 +183,9 @@ COMMON_PETSC_CONFIGURE_OPTIONS = (
     "--with-fortran-bindings=0",
     "--with-shared-libraries=1",
     "--with-strict-petscerrorcode",
-    "--COPTFLAGS=-O3 -march=native -mtune=native",
-    "--CXXOPTFLAGS=-O3 -march=native -mtune=native",
-    "--FOPTFLAGS=-O3 -march=native -mtune=native",
+    "--COPTFLAGS=\"-O3 -march=native -mtune=native\"",
+    "--CXXOPTFLAGS=\"-O3 -march=native -mtune=native\"",
+    "--FOPTFLAGS=\"-O3 -march=native -mtune=native\"",
 )
 
 # Placeholder value to use when we want PETSc to autodetect the package
@@ -193,10 +194,12 @@ PETSC_AUTODETECT = 333
 # Placeholder value to use when we want PETSc to download the package
 PETSC_DOWNLOAD = 666
 
-# NOTE: Might want to reorder the nesting here to move package manager outwards, since
-# some package managers may not install certain external packages. In fact, this should
-# be combined with where we declare which packages we want.
-PETSC_EXTERNAL_PACKAGES = {
+PETSC_EXTERNAL_PACKAGE_SPECS = {
+    "bison": {
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew",
+    },
     "fftw": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_AUTODETECT,
@@ -273,18 +276,35 @@ PETSC_EXTERNAL_PACKAGES = {
     },
 }
 
+COMMON_PETSC_EXTERNAL_PACKAGES = (
+    "bison",
+    "fftw",
+    "hdf5",
+    "hwloc",
+    "metis",
+    "mumps",
+    "netcdf",
+    "pastix",
+    "pnetcdf",
+    "ptscotch",
+    "scalapack",
+    "suitesparse",
+    "superlu_dist",
+    "zlib",
+)
+
 
 def prepare_external_package_configure_options(
+    external_packages: Sequence[str],
     package_manager: Optional[PackageManager],
-    arch: FiredrakeArch,
 ) -> tuple[str, ...]:
     configure_options = []
-    for external_package, package_specs in PETSC_EXTERNAL_PACKAGES.items():
+    for external_package in external_packages:
         if package_manager is None:
             # Don't know anything about the system, download everything
             package_spec = PETSC_DOWNLOAD
         else:
-            package_spec = package_specs[package_manager]
+            package_spec = PETSC_EXTERNAL_PACKAGE_SPECS[external_package][package_manager]
 
         if package_spec == PETSC_AUTODETECT:
             # PETSc will find the package for us
@@ -305,7 +325,6 @@ def prepare_external_package_configure_options(
     return tuple(configure_options)
 
 
-# TODO: hypre may not work in complex mode, verify
 def prepare_configure_options(
     package_manager: Optional[PackageManager],
     arch: FiredrakeArch,
@@ -316,8 +335,11 @@ def prepare_configure_options(
     if arch == ARCH_COMPLEX:
         configure_options.append("--with-scalar-type=complex")
 
+    external_packages = list(COMMON_PETSC_EXTERNAL_PACKAGES)
+    if arch != ARCH_COMPLEX:
+        external_packages.append("hypre")
     configure_options.extend(
-        prepare_external_package_configure_options(package_manager, arch)
+        prepare_external_package_configure_options(external_packages, package_manager)
     )
     return tuple(configure_options)
 
