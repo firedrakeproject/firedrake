@@ -67,13 +67,14 @@ def enable_disk_checkpointing(
     cleanup : bool
         If set to False, checkpoint files will not be deleted when no longer
         required. This is usually only useful for debugging.
-    schedule : checkpoint_schedules.CheckpointSchedule or None
-        The schedule for disk checkpointing. If ``None``, the ``SingleDiskStorageSchedule``
+    schedule : checkpoint_schedules.schedule.CheckpointSchedule or None
+        The schedule for disk checkpointing. If ``None``, the
+        :class:`checkpoint_schedules.basic_schedules.SingleDiskStorageSchedule`
         schedule is used. If a schedule is provided, it must use disk storage.
 
     Notes
     -----
-        The disk checkpointing schedule is available in the `checkpoint_schedules` package.
+        The disk checkpointing schedule is available in the ``checkpoint_schedules`` package.
         For more details on the available schedules, refer to the `checkpoint_schedules
         documentation
         <https://www.firedrakeproject.org/checkpoint_schedules/>`_.
