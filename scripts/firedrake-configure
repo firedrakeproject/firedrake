@@ -4,14 +4,16 @@
 
 # To avoid the pitfalls inherent in having executable configuration files
 # this script is intentionally extremely dumb. All configure options are computed
-# statically (at import) and the only run-time logic that happens is dispatching
+# 'statically' (at import) and the only run-time logic that happens is dispatching
 # on the right package manager and arch.
+
+# As a matter of policy, new package managers and archs should only be added to
+# this file if they are *tested in CI*.
 
 import argparse
 import enum
 import platform
 import subprocess
-import warnings
 from typing import Optional
 
 
@@ -37,9 +39,16 @@ ARCH_COMPLEX = FiredrakeArch.COMPLEX
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
+    package_manager_group = parser.add_mutually_exclusive_group()
+    package_manager_group.add_argument(
         "--package-manager",
         choices=[pm.value for pm in PackageManager],
+        required=False,
+        help="TODO",
+    )
+    package_manager_group.add_argument(
+        "--no-package-manager",
+        action="store_true",
         required=False,
         help="TODO",
     )
@@ -49,14 +58,14 @@ def main():
         default=ARCH_DEFAULT,
         help="TODO",
     )
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument(
+    cmd_group = parser.add_mutually_exclusive_group(required=True)
+    cmd_group.add_argument(
         "--show-system-dependencies",
         "--sysdeps",  # alias
         action="store_true",
         help="TODO",
     )
-    group.add_argument(
+    cmd_group.add_argument(
         "--show-petsc-configure-options",
         "--petscconf",  # alias
         action="store_true",
@@ -64,50 +73,25 @@ def main():
     )
 
     args = parser.parse_args()
-    package_manager = get_package_manager(args.package_manager)
+    if args.package_manager is not None:
+        assert not args.no_package_manager
+        package_manager = PackageManager(args.package_manager)
+    elif args.no_package_manager:
+        package_manager = None
+    else:
+        package_manager = sniff_package_manager()
     arch = FiredrakeArch(args.arch)
 
     if args.show_system_dependencies:
-        print_system_dependencies(package_manager, arch)
+        if package_manager is None:
+            raise RuntimeError(
+                "Cannot identify a package manager, please install Firedrake "
+                "dependencies manually"
+            )
+        print(" ".join(SYSTEM_PACKAGES[package_manager, arch]), end="")
     else:
         assert args.show_petsc_configure_options
-        print_petsc_configure_options(package_manager, arch)
-
-
-def print_system_dependencies(
-    package_manager: Optional[PackageManager],
-    arch: FiredrakeArch,
-) -> None:
-    # TODO: Handle different arch's
-    if package_manager is None:
-        raise RuntimeError(
-            "Cannot identify a package manager, please install Firedrake "
-            "dependencies manually"
-        )
-
-    print(" ".join(SYSTEM_PACKAGES[package_manager]), end="")
-
-
-def print_petsc_configure_options(
-    package_manager: Optional[PackageManager],
-    arch: FiredrakeArch,
-) -> None:
-    if package_manager is None:
-        warnings.warn(
-            "Cannot identify a package manager, PETSc will naively download all "
-            "external packages",
-            UserWarning
-        )
-
-    configure_options = CONFIGURE_OPTIONS[package_manager][arch]
-    print(" ".join(configure_options), end="")
-
-
-def get_package_manager(package_manager: Optional[str]) -> Optional[PackageManager]:
-    if package_manager is None:
-        return sniff_package_manager()
-    else:
-        return PackageManager(package_manager)
+        print(" ".join(PETSC_CONFIGURE_OPTIONS[package_manager, arch]), end="")
 
 
 def sniff_package_manager() -> Optional[PackageManager]:
@@ -130,6 +114,8 @@ def has_apt() -> bool:
         return True
     except FileNotFoundError:
         return False
+    except:
+        raise RuntimeError("Unexpected error occurred searching for apt")
 
 
 def has_homebrew() -> bool:
@@ -138,6 +124,8 @@ def has_homebrew() -> bool:
         return True
     except FileNotFoundError:
         return False
+    except:
+        raise RuntimeError("Unexpected error occurred searching for homebrew")
 
 
 COMMON_LINUX_APT_PACKAGES = (
@@ -156,31 +144,39 @@ COMMON_LINUX_APT_PACKAGES = (
     "pkg-config",
     "python3-dev",
     "python3-pip",
-    "zlib1g-dev",
+    # needed???
+    # "zlib1g-dev",
 )
 
-# NOTE: This will need tweaking for different arch's
+COMMON_MACOS_HOMEBREW_PACKAGES = (
+    "autoconf",
+    "automake",
+    "bison",
+    "boost",
+    "gcc",
+    "hdf5-mpi",
+    "hwloc",
+    "libtool",
+    "make",
+    "pkg-config",
+    "cmake",
+    "ninja",
+    "openblas",
+    "openmpi",
+    "python",
+    "python-setuptools"
+)
+
 SYSTEM_PACKAGES = {
-    LINUX_APT_X86_64: COMMON_LINUX_APT_PACKAGES,
-    LINUX_APT_AARCH64: COMMON_LINUX_APT_PACKAGES,
-    # TODO: Missing a lot of packages here
-    MACOS_HOMEBREW_ARM64: (
-        "autoconf",
-        "automake",
-        "boost",
-        "gcc",
-        "libtool",
-        "make",
-        "pkg-config",
-        "cmake",
-        "ninja",
-        "openblas",
-        "python",
-        "python-setuptools"
-    ),
+    (LINUX_APT_X86_64, ARCH_DEFAULT): COMMON_LINUX_APT_PACKAGES,
+    (LINUX_APT_X86_64, ARCH_COMPLEX): COMMON_LINUX_APT_PACKAGES,
+    (LINUX_APT_AARCH64, ARCH_DEFAULT): COMMON_LINUX_APT_PACKAGES,
+    (LINUX_APT_AARCH64, ARCH_COMPLEX): COMMON_LINUX_APT_PACKAGES,
+    (MACOS_HOMEBREW_ARM64, ARCH_DEFAULT): COMMON_MACOS_HOMEBREW_PACKAGES,
+    (MACOS_HOMEBREW_ARM64, ARCH_COMPLEX): COMMON_MACOS_HOMEBREW_PACKAGES,
 }
 
-COMMON_CONFIGURE_OPTIONS = (
+COMMON_PETSC_CONFIGURE_OPTIONS = (
     "--with-c2html=0",
     "--with-debugging=0",
     "--with-fortran-bindings=0",
@@ -200,7 +196,7 @@ PETSC_DOWNLOAD = 666
 # NOTE: Might want to reorder the nesting here to move package manager outwards, since
 # some package managers may not install certain external packages. In fact, this should
 # be combined with where we declare which packages we want.
-EXTERNAL_PACKAGES = {
+PETSC_EXTERNAL_PACKAGES = {
     "fftw": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_AUTODETECT,
@@ -213,12 +209,13 @@ EXTERNAL_PACKAGES = {
         LINUX_APT_AARCH64: (
             "/usr/include/hdf5/openmpi", ["/usr/lib/aarch64-linux-gnu/hdf5/openmpi/libhdf5.a"]
         ),
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+        # TODO: lives in /opt/hombrew/??? do we need to specify?
+        MACOS_HOMEBREW_ARM64: PETSC_AUTODETECT,
     },
     "hwloc": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_AUTODETECT,
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: PETSC_AUTODETECT,
     },
     "hypre": {
         LINUX_APT_X86_64: PETSC_DOWNLOAD,
@@ -273,16 +270,17 @@ EXTERNAL_PACKAGES = {
     "zlib": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_AUTODETECT,
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: PETSC_AUTODETECT,
     },
 }
 
 
 def prepare_external_package_configure_options(
     package_manager: Optional[PackageManager],
+    arch: FiredrakeArch,
 ) -> tuple[str, ...]:
     configure_options = []
-    for external_package, package_specs in EXTERNAL_PACKAGES.items():
+    for external_package, package_specs in PETSC_EXTERNAL_PACKAGES.items():
         if package_manager is None:
             # Don't know anything about the system, download everything
             package_spec = PETSC_DOWNLOAD
@@ -304,34 +302,35 @@ def prepare_external_package_configure_options(
     return tuple(configure_options)
 
 
+# TODO: hypre may not work in complex mode, verify
 def prepare_configure_options(
     package_manager: Optional[PackageManager],
-    arch: FiredrakeArch
+    arch: FiredrakeArch,
 ) -> tuple[str, ...]:
-    return (
-        COMMON_CONFIGURE_OPTIONS
-        + (f"PETSC_ARCH=arch-firedrake-{arch.value}",)
-        + prepare_external_package_configure_options(package_manager)
+    configure_options = list(COMMON_PETSC_CONFIGURE_OPTIONS)
+    configure_options.append(f"PETSC_ARCH=arch-firedrake-{arch.value}")
+
+    if arch == ARCH_COMPLEX:
+        configure_options.append("--with-scalar-type=complex")
+
+    configure_options.extend(
+        prepare_external_package_configure_options(package_manager, arch)
     )
+    return tuple(configure_options)
 
 
-CONFIGURE_OPTIONS = {
-    LINUX_APT_X86_64: {
-        ARCH_DEFAULT: prepare_configure_options(LINUX_APT_X86_64, ARCH_DEFAULT),
-        ARCH_COMPLEX: prepare_configure_options(LINUX_APT_X86_64, ARCH_COMPLEX),
-    },
-    LINUX_APT_AARCH64: {
-        ARCH_DEFAULT: prepare_configure_options(LINUX_APT_AARCH64, ARCH_DEFAULT),
-        ARCH_COMPLEX: prepare_configure_options(LINUX_APT_AARCH64, ARCH_COMPLEX),
-    },
-    MACOS_HOMEBREW_ARM64: {
-        ARCH_DEFAULT: prepare_configure_options(MACOS_HOMEBREW_ARM64, ARCH_DEFAULT),
-        ARCH_COMPLEX: prepare_configure_options(MACOS_HOMEBREW_ARM64, ARCH_COMPLEX),
-    },
-    None: {
-        ARCH_DEFAULT: prepare_configure_options(None, ARCH_DEFAULT),
-        ARCH_COMPLEX: prepare_configure_options(None, ARCH_COMPLEX),
-    }
+PETSC_CONFIGURE_OPTIONS = {
+    (package_manager, arch): prepare_configure_options(package_manager, arch)
+    for (package_manager, arch) in (
+        (LINUX_APT_X86_64, ARCH_DEFAULT),
+        (LINUX_APT_X86_64, ARCH_COMPLEX),
+        (LINUX_APT_AARCH64, ARCH_DEFAULT),
+        (LINUX_APT_AARCH64, ARCH_COMPLEX),
+        (MACOS_HOMEBREW_ARM64, ARCH_DEFAULT),
+        (MACOS_HOMEBREW_ARM64, ARCH_COMPLEX),
+        (None, ARCH_DEFAULT),
+        (None, ARCH_COMPLEX),
+    )
 }
 
 

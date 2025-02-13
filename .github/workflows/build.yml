@@ -1,7 +1,6 @@
-name: Install and Test Firedrake
+name: CI
 
 on:
-  # Push to master or PR
   push:
     branches:
       - master
@@ -11,7 +10,7 @@ on:
     - cron: '0 0 1 * *'  # Monthly release
 
 concurrency:
-  # Cancels jobs running if new commits are pushed
+  # Cancel running jobs if new commits are pushed
   group: >
     ${{ github.workflow }}-
     ${{ github.event.pull_request.number || github.ref }}
@@ -22,22 +21,21 @@ env:
 
 jobs:
   test:
-    name: "Run Firedrake tests (Linux)"
-    runs-on: [self-hosted, Linux]
-    container:
-      image: firedrakeproject/firedrake-env:pip
+    name: Install and test Firedrake (Linux)
     strategy:
       # We want to know all of the tests which fail, so don't kill real if
       # complex fails and vice-versa
       fail-fast: false
       matrix:
         arch: [default, complex]
+    runs-on: [self-hosted, Linux]
+    container:
+      image: firedrakeproject/firedrake-env:pip
     env:
       # NOTE: Do not set a lot of vars here, single source of truth
       FIREDRAKE_CI_TESTS: 1
       PYOP2_CI_TESTS: 1
       PYOP2_SPMD_STRICT: 1
-      # RDMAV_FORK_SAFE: 1  # why here?
       EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 repo/tests/firedrake
     steps:
       - name: Pre-run cleanup
@@ -57,7 +55,6 @@ jobs:
           : # Extra test dependencies
           sudo apt-get -y install parallel
 
-      # TODO: Ideally we should use more system packages
       - name: Install PETSc
         run: |
           git clone https://github.com/firedrakeproject/petsc.git
@@ -66,6 +63,7 @@ jobs:
             $(python3 ../repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-petsc-configure-options) \
             --with-make-np=12
           make
+          make check
 
       - name: Install Firedrake
         id: install

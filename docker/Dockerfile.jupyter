@@ -1,11 +1,6 @@
-# DockerFile for a firedrake + jupyter container
+# Dockerfile for a firedrake + jupyter container
 
-FROM firedrakeproject/firedrake:latest
-
-USER firedrake
-WORKDIR /home/firedrake
-
-# PETSC_ARCH inherited from firedrakeproject/firedrake
+FROM firedrakeproject/firedrake:pip
 
 # Install an iPython kernel for firedrake
 RUN bash -c ". /home/firedrake/firedrake/bin/activate && pip install nbclassic nbformat nbconvert ipympl"

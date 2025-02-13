@@ -1,11 +1,8 @@
-# DockerFile for Firedrake with a full set of capabilities and applications installed.
+# Dockerfile for Firedrake with a full set of capabilities and applications installed.
 
-FROM firedrakeproject/firedrake-vanilla:latest
+FROM firedrakeproject/firedrake-vanilla-default:pip
 
-USER firedrake
-WORKDIR /home/firedrake
-
-# PETSC_ARCH inherited from firedrakeproject/firedrake-vanilla
+# TODO: This is expected to fail currently
 
 ARG EXTRA_INSTALL_FLAGS=""
 

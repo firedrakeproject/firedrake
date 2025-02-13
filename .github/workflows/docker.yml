@@ -49,69 +49,42 @@ jobs:
 
   # Firedrake container (just Firedrake)
   docker_build_vanilla:
-    # Only run if "Build Firedrake" succeeds
+    # Only run if Firedrake tests pass
     if: ${{ inputs.status == 'success' }}
     needs: docker_merge_env
     strategy:
       matrix:
         os: [Linux, macOS]
+        arch: [default, complex]
         include:
           - os: Linux
             platform: linux/amd64
-            extra-install-flags: ""
+            # FIXME
+            # extra-install-flags: ""
           - os: macOS
             platform: linux/arm64
             # VTK does not have Linux ARM wheels (https://gitlab.kitware.com/vtk/vtk/-/issues/18772)
-            extra-install-flags: "--no-vtk"
+            # FIXME
+            # extra-install-flags: "--no-vtk"
     uses: ./.github/workflows/docker_build.yml
     with:
       os: ${{ matrix.os }}
       platform: ${{ matrix.platform }}
-      extra-install-flags: ${{ matrix.extra-install-flags }}
-      target: firedrake-vanilla
+      arch: ${{ matrix.arch }}
+      # extra-install-flags: ${{ matrix.extra-install-flags }}
+      target: firedrake-vanilla-${{ matrix.arch }}
       tag: ${{ inputs.tag }}
       dockerfile: docker/Dockerfile.vanilla
     secrets: inherit
 
   docker_merge_vanilla:
-    uses: ./.github/workflows/docker_merge.yml
     needs: docker_build_vanilla
-    with:
-      target: firedrake-vanilla
-      tag: ${{ inputs.tag }}
-    secrets: inherit
-
-  # Complex Firedrake container (just Firedrake)
-  docker_build_complex:
-    needs: docker_merge_env
-    # Only run if "Build Firedrake" succeeds
-    if: ${{ inputs.status == 'success' }}
     strategy:
       matrix:
-        os: [Linux, macOS]
-        include:
-          - os: Linux
-            platform: linux/amd64
-            extra-install-flags: ""
-          - os: macOS
-            platform: linux/arm64
-            # VTK does not have Linux ARM wheels (https://gitlab.kitware.com/vtk/vtk/-/issues/18772)
-            extra-install-flags: "--no-vtk"
-    uses: ./.github/workflows/docker_build.yml
-    with:
-      os: ${{ matrix.os }}
-      platform: ${{ matrix.platform }}
-      extra-install-flags: ${{ matrix.extra-install-flags }}
-      target: firedrake-complex
-      tag: ${{ inputs.tag }}
-      dockerfile: docker/Dockerfile.complex
-    secrets: inherit
-
-  docker_merge_complex:
+        arch: [default, complex]
     uses: ./.github/workflows/docker_merge.yml
-    needs: docker_build_complex
     with:
-      target: firedrake-complex
+      target: firedrake-vanilla-${{ matrix.arch }}
       tag: ${{ inputs.tag }}
     secrets: inherit
 
