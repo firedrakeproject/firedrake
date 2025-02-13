@@ -75,7 +75,7 @@ jobs:
           export CC=mpicc CXX=mpicxx
           export MPICC=$CC
           python3 -m venv venv
-          source venv/bin/activate
+          . venv/bin/activate
           : # Force a rebuild of petsc4py as the cached one will not link to the fresh
           : # install of PETSc. A similar trick may be needed for compiled dependencies
           : # like h5py or mpi4py if changing HDF5/MPI libraries.
@@ -88,7 +88,7 @@ jobs:
 
       - name: Run tests (nprocs = 1)
         run: |
-          source venv/bin/activate
+          . venv/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
           firedrake-run-split-tests 1 1 "-n 12 $EXTRA_PYTEST_ARGS --junit-xml=firedrake1_{#}.xml"
@@ -97,43 +97,43 @@ jobs:
         # Run even if earlier tests failed
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          source venv/bin/activate
+          . venv/bin/activate
           firedrake-run-split-tests 2 6 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake2_{#}.xml"
 
       - name: Run tests (nprocs = 3)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          source venv/bin/activate
+          . venv/bin/activate
           firedrake-run-split-tests 3 4 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake3_{#}.xml"
 
       - name: Run tests (nprocs = 4)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          source venv/bin/activate
+          . venv/bin/activate
           firedrake-run-split-tests 4 3 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake4_{#}.xml"
 
       - name: Run tests (nprocs = 5)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          source venv/bin/activate
+          . venv/bin/activate
           firedrake-run-split-tests 5 2 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake5_{#}.xml"
 
       - name: Run tests (nprocs = 6)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          source venv/bin/activate
+          . venv/bin/activate
           firedrake-run-split-tests 6 2 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake6_{#}.xml"
 
       - name: Run tests (nprocs = 7)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          source venv/bin/activate
+          . venv/bin/activate
           firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake7_{#}.xml"
 
       - name: Run tests (nprocs = 8)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          source venv/bin/activate
+          . venv/bin/activate
           firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake8_{#}.xml"
 
       - name: Run Gusto smoke tests
