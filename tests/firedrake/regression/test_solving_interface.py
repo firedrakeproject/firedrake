@@ -221,8 +221,12 @@ def test_constant_jacobian_lvs():
     assert not (norm(assemble(out*5 - f)) < 2e-7)
 
 
-def test_solve_cofunction_rhs():
-    mesh = UnitIntervalMesh(10)
+@pytest.fixture
+def mesh(request):
+    return UnitIntervalMesh(10)
+
+
+def test_solve_cofunction_rhs(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     x, = SpatialCoordinate(mesh)
 
@@ -242,8 +246,7 @@ def test_solve_cofunction_rhs():
     assert np.allclose(L.dat.data, Lold.dat.data)
 
 
-def test_solve_empty_form_rhs():
-    mesh = UnitIntervalMesh(10)
+def test_solve_empty_form_rhs(mesh):
     V = FunctionSpace(mesh, "CG", 1)
 
     u = TrialFunction(V)
@@ -257,3 +260,56 @@ def test_solve_empty_form_rhs():
     w = Function(V)
     solve(a == L, w, bcs)
     assert errornorm(x, w) < 1E-10
+
+
+@pytest.mark.skipif(utils.complex_mode, reason="Differentiation of energy not defined in Complex.")
+@pytest.mark.parametrize("mixed", (False, True), ids=("primal", "mixed"))
+def test_solve_pre_apply_bcs(mesh, mixed):
+    """Solve a 1D hyperelasticity problem with linear exact solution.
+       The default DirichletBC treatment would raise NaNs if the problem is
+       linearised around an initial guess that satisfies the bcs and is zero on the interior.
+       Here we test that we can linearise around an initial guess that
+       does not satisfy the DirichletBCs by passing pre_apply_bcs=True."""
+
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    if mixed:
+        Q = FunctionSpace(mesh, "DG", 0)
+        Z = V * Q
+        V = Z.sub(0)
+        z = Function(Z)
+        u, p = split(z)
+    else:
+        u = Function(V)
+        z = u
+        p = None
+
+    # Boundary conditions
+    eps = Constant(0.1)
+    x = SpatialCoordinate(mesh)
+    g = -eps * x
+    bcs = [DirichletBC(V, g, "on_boundary")]
+
+    # Hyperelastic energy functional
+    lam = Constant(1E3)
+    dim = mesh.geometric_dimension()
+    F = grad(u) + Identity(dim)
+    J = det(F)
+    logJ = 0.5*ln(J**2)
+    if p is None:
+        p = lam*logJ
+
+    W = (1/2)*(inner(F, F) - dim - 2*logJ) * dx + (inner(p, logJ - (1/(2*lam))*p)) * dx
+    uh = z.subfunctions[0]
+
+    # Raises NaNs if pre_apply_bcs=True
+    F = derivative(W, z)
+    z.zero()
+    solve(F == 0, z, bcs, pre_apply_bcs=False)
+    assert errornorm(g, uh) < 1E-10
+
+    # Test that pre_apply_bcs=False works with a linear problem
+    a = derivative(F, z)
+    L = Form([])
+    z.zero()
+    solve(a == L, z, bcs, pre_apply_bcs=False)
+    assert errornorm(g, uh) < 1E-10
