@@ -23,6 +23,7 @@ jobs:
     # Only run this action if we are pushing to master or the PR is labelled "macOS"
     if: ${{ (github.ref == 'refs/heads/master') || contains(github.event.pull_request.labels.*.name, 'macOS') }}
     env:
+      # TODO: Are these needed any more?
       FIREDRAKE_CI_TESTS: 1  # needed to symlink the checked out branch into the venv
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
@@ -32,12 +33,15 @@ jobs:
         run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
 
       - name: Pre-run cleanup
-        if: always()
-        run: |
-          : # Make sure the current directory is empty
-          find . -delete
-          : # Uninstall existing packages so there are no conflicts (e.g. OpenMPI vs MPICH)
-          brew remove --formula --force $(brew list --formula)
+        # Make sure the current directory is empty
+        run: find . -delete
+
+      # Uninstall existing packages so there are no conflicts (e.g. OpenMPI vs MPICH)
+      - name: Remove all existing homebrew packages
+        # If there are no homebrew packages installed then this command will fail even
+        # though nothing is wrong.
+        continue-on-error: true
+        run: brew remove --formula --force $(brew list --formula)
 
       - uses: actions/checkout@v4
         with:
@@ -88,4 +92,3 @@ jobs:
         if: always()
         run: |
           find . -delete
-          brew remove --formula --force $(brew list --formula)
