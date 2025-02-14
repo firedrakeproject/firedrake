@@ -696,6 +696,7 @@ class MutableLabelledTreeMixin:
         subtree,
         parent=None,
         component=None,
+        *,
         uniquify: bool = False,
         uniquify_ids=False,
     ):

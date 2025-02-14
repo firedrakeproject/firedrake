@@ -228,10 +228,14 @@ class Dat(_Dat):
         return frozenset({"axes", "buffer", "max_value", "name", "constant", "ordered", "parent"})
 
     def __str__(self) -> str:
-        return "\n".join(
-            f"{self.name}[{self.axes.subst_layouts()[self.axes.path(leaf)]}]"
-            for leaf in self.axes.leaves
-        )
+        try:
+            return "\n".join(
+                f"{self.name}[{self.axes.subst_layouts()[self.axes.path(leaf)]}]"
+                for leaf in self.axes.leaves
+            )
+        # FIXME: lazy fallback because failures make debugging annoying
+        except:
+            return repr(self)
 
     @PETSc.Log.EventDecorator()
     def __getitem__(self, indices):
@@ -285,16 +289,21 @@ class Dat(_Dat):
                 indexed_axes = just_one(indexed_axess)
                 dat = self.reconstruct(axes=indexed_axes)
         else:
-            raise NotImplementedError
-            context_sensitive_axes = {}
-            for loop_context, index_tree in index_forest.items():
-                indexed_axes = index_axes(index_tree, loop_context, self.axes)
-                breakpoint()
-                axes = compose_axes(indexed_axes, self.axes)
-                context_sensitive_axes[loop_context] = axes
-            context_sensitive_axes = ContextSensitiveAxisTree(context_sensitive_axes)
+            # TODO: This is identical to what happens above, refactor
+            axis_tree_context_map = {}
+            for loop_context, index_trees in index_forest.items():
+                indexed_axess = []
+                for index_tree in index_trees:
+                    indexed_axes = index_axes(index_tree, pmap(), self.axes)
+                    indexed_axess.append(indexed_axes)
 
-            dat = self.reconstruct(axes=context_sensitive_axes)
+                if len(indexed_axess) > 1:
+                    raise NotImplementedError("Need axis forests")
+                else:
+                    indexed_axes = just_one(indexed_axess)
+                    axis_tree_context_map[loop_context] = indexed_axes
+            context_sensitive_axis_tree = ContextSensitiveAxisTree(axis_tree_context_map)
+            dat = self.reconstruct(axes=context_sensitive_axis_tree)
         # self._cache[key] = dat
         return dat
 
@@ -353,16 +362,16 @@ class Dat(_Dat):
     @property
     def data_rw(self):
         self._check_no_copy_access()
-        return self.buffer.data_rw[self.axes._buffer_indices]
+        return self.buffer.data_rw[self.axes.owned._buffer_slice]
 
     @property
     def data_ro(self):
-        if not isinstance(self.axes._buffer_indices, slice):
+        if not isinstance(self.axes._buffer_slice, slice):
             warning(
                 "Read-only access to the array is provided with a copy, "
                 "consider avoiding if possible."
             )
-        return self.buffer.data_ro[self.axes._buffer_indices]
+        return self.buffer.data_ro[self.axes.owned._buffer_slice]
 
     @property
     def data_wo(self):
@@ -374,7 +383,7 @@ class Dat(_Dat):
         can be dropped.
         """
         self._check_no_copy_access()
-        return self.buffer.data_wo[self.axes._buffer_indices]
+        return self.buffer.data_wo[self.axes.owned._buffer_slice]
 
     @property
     @deprecated(".data_rw_with_halos")
@@ -384,16 +393,16 @@ class Dat(_Dat):
     @property
     def data_rw_with_halos(self):
         self._check_no_copy_access(include_ghost_points=True)
-        return self.buffer.data_rw_with_halos[self.axes._buffer_indices_ghost]
+        return self.buffer.data_rw_with_halos[self.axes._buffer_slice]
 
     @property
     def data_ro_with_halos(self):
-        if not isinstance(self.axes._buffer_indices_ghost, slice):
+        if not isinstance(self.axes._buffer_slice, slice):
             warning(
                 "Read-only access to the array is provided with a copy, "
                 "consider avoiding if possible."
             )
-        return self.buffer.data_ro_with_halos[self.axes._buffer_indices_ghost]
+        return self.buffer.data_ro_with_halos[self.axes._buffer_slice]
 
     @property
     def data_wo_with_halos(self):
@@ -405,7 +414,7 @@ class Dat(_Dat):
         can be dropped.
         """
         self._check_no_copy_access(include_ghost_points=True)
-        return self.buffer.data_wo_with_halos[self.axes._buffer_indices_ghost]
+        return self.buffer.data_wo_with_halos[self.axes._buffer_slice]
 
     @property
     @deprecated(".buffer.state")
@@ -414,9 +423,9 @@ class Dat(_Dat):
 
     def _check_no_copy_access(self, *, include_ghost_points=False):
         if include_ghost_points:
-            buffer_indices = self.axes._buffer_indices_ghost
+            buffer_indices = self.axes._buffer_slice
         else:
-            buffer_indices = self.axes._buffer_indices
+            buffer_indices = self.axes.owned._buffer_slice
 
         if not isinstance(buffer_indices, slice):
             raise FancyIndexWriteException(

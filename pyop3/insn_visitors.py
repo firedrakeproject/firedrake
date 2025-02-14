@@ -88,18 +88,19 @@ def _expand_loop_contexts_rec(obj: Any, /, *, loop_context_acc) -> InstructionLi
 
 
 @_expand_loop_contexts_rec.register(InstructionList)
-def _(insn_list: InstructionList, /, **kwargs) -> InstructionList:
+def _(insn_list: InstructionList, /, **kwargs) -> Instruction:
     return maybe_enlist([_expand_loop_contexts_rec(insn, **kwargs) for insn in insn_list])
 
 
 @_expand_loop_contexts_rec.register(Loop)
-def _(loop: Loop, /, *, loop_context_acc) -> InstructionList:
+def _(loop: Loop, /, *, loop_context_acc) -> Loop | InstructionList:
     expanded_loops = []
     for axis, component_label in loop.index.iterset.leaves:
-        # NOTE: I think that this should always just be the axis tree!? indexed bits
-        # can be discarded by this point
-        path = loop.index.iterset.source_path[axis.id, component_label]
-        loop_context = {loop.index.id: path}
+        paths = tuple(
+            target_acc[axis.id, component_label][0]
+            for target_acc in loop.index.iterset.targets_acc
+        )
+        loop_context = {loop.index.id: paths}
 
         restricted_loop_index = just_one(_as_context_free_indices(loop.index, loop_context))
 

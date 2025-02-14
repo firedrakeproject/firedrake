@@ -32,9 +32,11 @@ from pyop3.axtree import (
 )
 from pyop3.axtree.layout import _as_int
 from pyop3.axtree.tree import (
+    UNIT_AXIS_TREE,
     ContextSensitiveLoopIterable,
     AxisComponentRegion,
     IndexedAxisTree,
+    UnitIndexedAxisTree,
     LoopIndexVar,
 )
 from pyop3.dtypes import IntType
@@ -940,7 +942,7 @@ def _(
     #   {key: (path1, expr1), ...}
     # ]
 
-    axes = AxisTree()
+    axes = UNIT_AXIS_TREE
     # target_paths = freeze({None: cf_loop_index.leaf_target_paths})
 
     # Example:
@@ -983,7 +985,7 @@ def _(index: ScalarIndex, **_):
     # index_exprs = pmap({None: (,)})
     layout_exprs = pmap({None: 0})
     return (
-        AxisTree(),
+        AxisTree(Axis(1)),
         target_path_and_exprs,
         layout_exprs,
         (),
@@ -1190,7 +1192,7 @@ def _(
         leaf_key = (leaf_axis.id, leaf_component_label)
         compressed_targets[leaf_key] = tuple(t[leaf_key] for t in called_map.axes.targets)
 
-    return called_map.axes, compressed_targets, {}, called_map.outer_loops, {}
+    return AxisTree(called_map.axes.node_map), compressed_targets, {}, called_map.outer_loops, {}
 
 
 def _make_leaf_axis_from_called_map_new(map_, map_name, output_spec, linear_input_axes, input_paths_and_exprs):
@@ -1282,13 +1284,21 @@ def index_axes(
 
     # If the original axis tree is unindexed then no composition is required.
     if axes is None or isinstance(axes, AxisTree):
-        return IndexedAxisTree(
-            indexed_axes.node_map,
-            axes,
-            targets=indexed_target_paths_and_exprs + (indexed_axes._source_path_and_exprs,),
-            layout_exprs={},
-            outer_loops=outer_loops,
-        )
+        if indexed_axes is UNIT_AXIS_TREE:
+            return UnitIndexedAxisTree(
+                axes,
+                targets=indexed_target_paths_and_exprs,
+                layout_exprs={},
+                outer_loops=outer_loops,
+            )
+        else:
+            return IndexedAxisTree(
+                indexed_axes.node_map,
+                axes,
+                targets=indexed_target_paths_and_exprs + (indexed_axes._source_path_and_exprs,),
+                layout_exprs={},
+                outer_loops=outer_loops,
+            )
 
     if axes is None:
         raise NotImplementedError("Need to think about this case")
@@ -1344,12 +1354,14 @@ def _index_axes(
         loop_indices=loop_indices,
         prev_axes=prev_axes,
     )
+    assert axes_per_index is UNIT_AXIS_TREE or isinstance(axes_per_index, AxisTree)
 
     target_path_per_cpt_per_index = dict(target_path_per_cpt_per_index)
 
     if axes_per_index:
         leafkeys = axes_per_index.leaves
     else:
+        assert False, "old code path"
         leafkeys = [None]
 
     subaxes = {}
@@ -1413,14 +1425,14 @@ def _index_axes(
 
     target_path_per_component = ImmutableOrderedDict(target_path_per_cpt_per_index)
 
-    # This this is no longer necessary
-    axes = AxisTree(axes_per_index.node_map)
+    axes = axes_per_index
     for k, subax in subaxes.items():
-        if subax is not None:
-            if axes:
-                axes = axes.add_subtree(subax, *k)
-            else:
-                axes = AxisTree(subax.node_map)
+        # if subax is not None:
+        #     if axes:
+        #         axes = axes.add_subtree(subax, *k)
+        #     else:
+        #         axes = AxisTree(subax.node_map)
+        axes = axes.add_subtree(subax, k)
 
     return (
         axes,

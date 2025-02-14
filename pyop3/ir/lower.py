@@ -25,7 +25,7 @@ import pyop2
 from pyop3.array import Dat, _Dat, _ExpressionDat, _ConcretizedDat, _ConcretizedMat
 from pyop3.array.base import Array
 from pyop3.array.petsc import Mat, AbstractMat
-from pyop3.axtree.tree import Add, AxisVar, Mul, AxisComponent
+from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent
 from pyop3.buffer import DistributedBuffer, NullBuffer, PackedBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
@@ -596,25 +596,25 @@ def parse_loop_properly_this_time(
             within_inames = set()
 
         with codegen_context.within_inames(within_inames):
+            loop_exprs = StrictlyUniqueDict()
+            iname_map = iname_replace_map_ | loop_indices
+            axis_key = (axis.id, component.label)
+            for index_exprs in axes.index_exprs:
+                for axis_label, index_expr in index_exprs.get(axis_key).items():
+                    loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, [iname_map], loop_indices, codegen_context, paths=[path_])
+            loop_exprs = pmap(loop_exprs)
+
             if subaxis := axes.child(axis, component):
                 parse_loop_properly_this_time(
                     loop,
                     axes,
-                    loop_indices,
+                    loop_indices | dict(loop_exprs),
                     codegen_context,
                     axis=subaxis,
                     path=path_,
                     iname_map=iname_replace_map_,
                 )
             else:
-                loop_exprs = StrictlyUniqueDict()
-                iname_map = iname_replace_map_ | loop_indices
-                axis_key = (axis.id, component.label)
-                for index_exprs in axes.index_exprs:
-                    for axis_label, index_expr in index_exprs.get(axis_key).items():
-                        loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, [iname_map], loop_indices, codegen_context, paths=[path_])
-                loop_exprs = pmap(loop_exprs)
-
                 for stmt in loop.statements:
                     _compile(
                         stmt,
@@ -883,22 +883,24 @@ def parse_assignment_properly_this_time(
 
     if axis_tree is None:
         axis_tree, *axis_trees = axis_trees
-        axis = axis_tree.root
+
         paths += [pmap()]
         iname_replace_maps += [pmap()]
 
-    if axis_tree.is_empty:
-        assert not axis_trees
-        # my_iname_replace_map = iname_replace_map[-1] | loop_indices,
-        add_leaf_assignment(
-            assignment,
-            paths,
-            # my_iname_replace_map,
-            iname_replace_maps,
-            codegen_context,
-            loop_indices,
-        )
-        return
+        if axis_tree.is_empty or axis_tree is UNIT_AXIS_TREE or isinstance(axis, IndexedAxisTree):
+            if axis_trees:
+                raise NotImplementedError("need to refactor code here")
+
+            add_leaf_assignment(
+                assignment,
+                paths,
+                iname_replace_maps,
+                codegen_context,
+                loop_indices,
+            )
+            return
+
+        axis = axis_tree.root
 
     for component in axis.components:
         if component._collective_size != 1:

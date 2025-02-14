@@ -200,7 +200,6 @@ class Instruction(UniqueRecord, abc.ABC):
         if isinstance(insn, NullInstruction):
             raise NotImplementedError("crash gracefully, nothing to do")
 
-
         insn = expand_loop_contexts(insn)
         insn = expand_implicit_pack_unpack(insn)
 
@@ -526,6 +525,9 @@ class InstructionList(Instruction):
     def __iter__(self):
         return iter(self.instructions)
 
+    def __str__(self) -> str:
+        return "\n".join(map(str, self.instructions))
+
     @cached_property
     def datamap(self):
         return merge_dicts(insn.datamap for insn in self.instructions)
@@ -708,6 +710,7 @@ class DirectCalledFunction(AbstractCalledFunction):
     """A `CalledFunction` whose arguments do not need packing/unpacking."""
 
 
+# TODO: Make this a singleton like UNIT_AXIS_TREE
 class NullInstruction(Terminal):
     """An instruction that does nothing."""
 

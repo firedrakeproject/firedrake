@@ -184,9 +184,45 @@ class UnrecognisedAxisException(ValueError):
     pass
 
 
+# TODO: This is going to need some (trivial) tree manipulation routines
+class _UnitAxisTree:
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}()"
+
+    def __str__(self) -> str:
+        return "<UNIT>"
+
+    @property
+    def size(self) -> int:
+        return 1
+
+    @property
+    def leaves(self):
+        return (None,)
+
+    @property
+    def is_empty(self) -> bool:
+        return False
+
+    def add_subtree(self, subtree, key):
+        assert key is None
+        return subtree
+
+
+
+UNIT_AXIS_TREE = _UnitAxisTree()
+"""Placeholder value for an axis tree that is guaranteed to have a single entry.
+
+It is useful when handling scalar indices that 'consume' axes because we need a way
+to express a tree containing a single entry that does not need to be addressed using
+labels.
+
+"""
+
+
 @dataclasses.dataclass(frozen=True)
 class AxisComponentRegion:
-    size: Any  # IntType or Dat
+    size: Any  # IntType or Dat or UNIT
     label: str | None = None
 
     def __str__(self) -> str:
@@ -935,7 +971,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
         return LoopIndex(self)
 
-    def iter(self, outer_loops=(), loop_index=None, include=False, **kwargs):
+    def iter(self, eagerouter_loops=(), loop_index=None, include=False, **kwargs):
         from pyop3.itree.tree import iter_axis_tree
 
         return iter_axis_tree(
@@ -1286,12 +1322,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     @property
     @abc.abstractmethod
-    def _buffer_indices(self):
-        pass
-
-    @property
-    @abc.abstractmethod
-    def _buffer_indices_ghost(self):
+    def _buffer_slice(self) -> slice | np.ndarray[IntType]:
         pass
 
     def _alloc_size(self, axis=None):
@@ -1461,12 +1492,8 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         return self._source_path_and_exprs
 
     @cached_property
-    def _buffer_indices(self):
-        return slice(self.sf.nowned)
-
-    @cached_property
-    def _buffer_indices_ghost(self):
-        return slice(None)
+    def _buffer_slice(self) -> slice:
+        return slice(self.size)
 
 
 class IndexedAxisTree(AbstractAxisTree):
@@ -1687,103 +1714,118 @@ class IndexedAxisTree(AbstractAxisTree):
 
     @cached_property
     def _matching_target(self) -> PMap:
-        matching_targets = []
-        for target in self.targets:
-            all_leaves_match = True
-            for leaf in self.leaves:
-                leaf_path = self.path_with_nodes(leaf)
+        return find_matching_target(self)
 
-                target_path = {}
-                target_path_, _ = target.get(None, (pmap(), pmap()))
-                target_path.update(target_path_)
+    @cached_property
+    def _buffer_slice(self) -> np.ndarray[IntType]:
+        from pyop3 import Dat, do_loop
 
-                for axis, component_label in leaf_path.items():
-                    target_path_, _ = target.get((axis.id, component_label), (pmap(), pmap()))
-                    target_path.update(target_path_)
+        mask_dat = Dat(self.unindexed, dtype=bool, prefix="mask")
+        do_loop(p := self.index(), mask_dat[p].assign(1))
+        indices = just_one(np.nonzero(mask_dat.data_ro))
 
-                # NOTE: We assume that if we get an empty target path then something has
-                # gone wrong. This is needed because of .get() calls which are needed
-                # because sometimes targets are incomplete.
-                if not target_path or not self.unindexed.is_valid_path(target_path):
-                    all_leaves_match = False
+        # then convert to a slice if possible, do in Cython!!!
+        slice_ = None
+        n = len(indices)
+
+        assert n > 0
+        if n == 1:
+            slice_ = slice(None)
+        else:
+            step = indices[1] - indices[0]
+            for i in range(1, n-1):
+                new_step = indices[i+1] - indices[i]
+                if new_step != step:
+                    # non-const step, abort and use indices
+                    slice_ = indices
                     break
+            slice_ = slice(indices[0], indices[-1]+1, step)
 
-            if all_leaves_match:
-                matching_targets.append(target)
+        assert slice_ is not None
+        return slice_
 
-        return just_one(matching_targets)
+
+# TODO: Choose a suitable base class
+class UnitIndexedAxisTree:
+    """An indexed axis tree representing something indexed down to a scalar."""
+    def __init__(
+        self,
+        unindexed,  # allowed to be None
+        *,
+        targets,
+        layout_exprs=None,  # not used
+        outer_loops=(),  # not used?
+    ):
+        self.unindexed = unindexed
+        self.targets = targets
+        self.outer_loops = outer_loops
+
+    def __str__(self) -> str:
+        return "<UNIT>"
 
     @property
-    def _buffer_indices(self):
-        return self._collect_buffer_indices(include_ghost_points=False)
+    def size(self) -> int:
+        return 1
+
+    @property
+    def is_empty(self) -> bool:
+        return False
 
     @cached_property
-    def _buffer_indices_ghost(self):
-        return self._collect_buffer_indices(include_ghost_points=True)
+    def _subst_layouts_default(self):
+        return subst_layouts(self, self._matching_target, self.layouts)
 
-    def _collect_buffer_indices(self, *, include_ghost_points: bool):
-        from pyop3.expr_visitors import evaluate
-
-        # TODO: This method is inefficient as for affine things we still tabulate
-        # everything first. It would be best to inspect index_exprs to determine
-        # if a slice is sufficient, but this is hard.
-
-        size = self.size if include_ghost_points else self.owned.size
-        assert size > 0
-
-        indices = np.full(size, -1, dtype=IntType)
-        # TODO: Handle any outer loops.
-        # TODO: Generate code for this.
-        for i, p in enumerate(self.iter()):
-            layout_expr = self.subst_layouts()[p.source_path]
-            indices[i] = evaluate(layout_expr, p.source_exprs)
-        debug_assert(lambda: (indices >= 0).all())
-        debug_assert(lambda: max(indices) < size)
-
-        # The packed indices are collected component-by-component so, for
-        # numbered multi-component axes, they are not in ascending order.
-        # We sort them so we can test for "affine-ness".
-        indices.sort()
-
-        # See if we can represent these indices as a slice. This is important
-        # because slices enable no-copy access to the array.
-        steps = np.unique(indices[1:] - indices[:-1])
-        if len(steps) == 0:
-            start = just_one(indices)
-            return slice(start, start + 1, 1)
-        elif len(steps) == 1:
-            start = indices[0]
-            stop = indices[-1] + 1
-            (step,) = steps
-            assert step != 0
-            return slice(start, stop, step)
-        else:
-            return indices
+    @property
+    def leaf_subst_layouts(self) -> PMap:
+        return pmap({leaf_path: self._subst_layouts_default[leaf_path] for leaf_path in self.leaf_paths})
 
     @cached_property
-    def tabulated_offsets(self):
-        from pyop3.array import Dat
+    def _matching_target(self):
+        return find_matching_target(self)
 
-        loop_index = just_one(self.outer_loops)
-        iterset = AxisTree(loop_index.iterset.node_map)
-        rmap_axes = iterset.add_subtree(self, *iterset.leaf)
-        rmap = Dat(rmap_axes, dtype=IntType)
-        rmap = rmap[loop_index.local_index]
-        # for idx in loop_index.iter(include_ghost_points=True):
-        for idx in loop_index.iter():
-            target_indices = idx.replace_map
-            # for p in self.iter(idxs):
-            for p in self.iter([idx]):  # seems to fix thing
-                offset = self.axes.unindexed.offset(
-                    p.target_exprs, p.target_path, loop_exprs=target_indices
-                )
-                rmap.set_value(
-                    p.source_exprs,
-                    offset,
-                    p.source_path,
-                    loop_exprs=target_indices,
-                )
-        return rmap
+    @property
+    def leaf_paths(self):
+        return (pmap(),)
+
+    @property
+    def leaves(self):
+        return (None,)
+
+    def path_with_nodes(self, leaf):
+        assert leaf is None
+        return pmap()
+
+    @property
+    def layouts(self):
+        return self.unindexed.layouts
+
+
+def find_matching_target(self):
+    matching_targets = []
+    for target in self.targets:
+        all_leaves_match = True
+        for leaf in self.leaves:
+            leaf_path = self.path_with_nodes(leaf)
+
+            target_path = {}
+            target_path_, _ = target.get(None, (pmap(), pmap()))
+            target_path.update(target_path_)
+
+            for axis, component_label in leaf_path.items():
+                target_path_, _ = target.get((axis.id, component_label), (pmap(), pmap()))
+                target_path.update(target_path_)
+
+            # NOTE: We assume that if we get an empty target path then something has
+            # gone wrong. This is needed because of .get() calls which are needed
+            # because sometimes targets are incomplete.
+            if not target_path or not self.unindexed.is_valid_path(target_path):
+                all_leaves_match = False
+                break
+
+        if all_leaves_match:
+            matching_targets.append(target)
+
+    return just_one(matching_targets)
 
 
 class AxisForest:
@@ -1802,6 +1844,14 @@ class AxisForest:
 
 
 class ContextSensitiveAxisTree(ContextSensitiveLoopIterable):
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self.context_map!r})"
+
+    def __str__(self) -> str:
+        return "\n".join(
+            f"{context}\n{tree}" for context, tree in self.context_map.items()
+        )
+
     def __getitem__(self, indices) -> ContextSensitiveAxisTree:
         raise NotImplementedError
         # TODO think harder about composing context maps
@@ -2122,7 +2172,7 @@ def subst_layouts(
         if accumulated_path in layouts:
             layouts_subst[path] = replace_terminals(layouts[accumulated_path], replace_map)
 
-        if not axes.is_empty:
+        if not (axes.is_empty or axes is UNIT_AXIS_TREE or isinstance(axes, UnitIndexedAxisTree)):
             layouts_subst.update(
                 subst_layouts(
                     axes,
@@ -2171,8 +2221,11 @@ def subst_layouts(
 
 
 def prune_zero_sized_branches(axis_tree: AbstractAxisTree, *, _axis=None) -> AxisTree:
-    if axis_tree.is_empty:
-        return AxisTree()
+    # needed now we have unit trees?
+    # if axis_tree.is_empty:
+    #     return AxisTree()
+    if axis_tree is UNIT_AXIS_TREE or isinstance(axis_tree, UnitIndexedAxisTree):
+        return UNIT_AXIS_TREE
 
     if _axis is None:
         _axis = axis_tree.root
