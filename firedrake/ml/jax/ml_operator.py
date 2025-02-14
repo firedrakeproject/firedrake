@@ -90,7 +90,10 @@ class JaxOperator(MLOperator):
 
     def _post_forward_callback(self, y_P: "jax.Array") -> Union[Function, Cofunction]:
         """Callback function to convert the JAX output of the ML model to a Firedrake function."""
-        space = self.ufl_function_space()
+        if isinstance(self._argument_slots[0], Cofunction):
+            space = self.ufl_operands[0].function_space().dual()
+        else:
+            space = self.ufl_function_space()
         return from_jax(y_P, space)
 
     # -- JAX routines for computing AD-based quantities -- #
