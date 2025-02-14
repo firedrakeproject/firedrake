@@ -853,19 +853,27 @@ class AbstractMeshTopology(abc.ABC):
     def _entity_numbering(self, dim):
         # NOTE: If we do not renumber then just return a range...
         p_start, p_end = self.topology_dm.getDepthStratum(dim)
-        numbering = self._dm_renumbering.indices[p_start:p_end]
-        # use argsort to convert a point numbering into an entity-wise one
-        # for example, we might renumber point 3/vertex 5 into point 9/vertex 4.
-        # Previously we would return the mapping point 3 -> vertex 4 whereas now
-        # we return vertex 5 -> vertex 4
-        return np.argsort(numbering)
+
+        if self._dm_renumbering:
+            numbering = self._dm_renumbering.indices[p_start:p_end]
+            # use argsort to convert a point numbering into an entity-wise one
+            # for example, we might renumber point 3/vertex 5 into point 9/vertex 4.
+            # Previously we would return the mapping point 3 -> vertex 4 whereas now
+            # we return vertex 5 -> vertex 4
+            return np.argsort(numbering)
+        else:
+            return np.arange(0, p_end-p_start, dtype=IntType)
 
     @cached_property
     def _global_numbering(self):
         # NOTE: We do exactly the same thing inside pyop3, grep for 'exscan'
 
         # Start with a local numbering
-        numbering = self._dm_renumbering.indices.copy()
+        if self._dm_renumbering:
+            numbering = self._dm_renumbering.indices.copy()
+        else:
+            numbering = np.arange(self.points.size, dtype=IntType)
+
 
         if self.comm.size > 1:
             # Then offset by the number of owned points on preceding ranks
