@@ -39,7 +39,7 @@ class JaxOperator(MLOperator):
             *operands: Union[ufl.core.expr.Expr, ufl.form.BaseForm],
             function_space: WithGeometryBase,
             derivatives: Optional[tuple] = None,
-            argument_slots: Optional[tuple[Union[ufl.coefficient.BaseCoefficient, ufl.argument.BaseArgument]]],
+            argument_slots: Optional[tuple[Union[ufl.coefficient.BaseCoefficient, ufl.argument.BaseArgument]]] = (),
             operator_data: Optional[dict] = {}
     ):
         """External operator class representing machine learning models implemented in JAX.
