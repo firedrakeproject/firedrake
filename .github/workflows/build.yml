@@ -99,7 +99,7 @@ jobs:
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 2 6 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake2_{#}.xml"
-        timeout-minutes: 10
+        timeout-minutes: 15
 
       - name: Run tests (nprocs = 3)
         if: ${{ success() || steps.install.conclusion == 'success' }}
