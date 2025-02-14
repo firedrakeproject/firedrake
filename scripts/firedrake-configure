@@ -115,7 +115,7 @@ def has_apt() -> bool:
         return True
     except FileNotFoundError:
         return False
-    except:
+    except:  # noqa: E722
         raise RuntimeError("Unexpected error occurred searching for apt")
 
 
@@ -125,7 +125,7 @@ def has_homebrew() -> bool:
         return True
     except FileNotFoundError:
         return False
-    except:
+    except:  # noqa: E722
         raise RuntimeError("Unexpected error occurred searching for homebrew")
 
 
