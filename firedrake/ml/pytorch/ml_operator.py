@@ -98,7 +98,11 @@ class PytorchOperator(MLOperator):
 
     def _post_forward_callback(self, y_P):
         """Callback function to convert the PyTorch output of the ML model to a Firedrake function."""
-        space = self.ufl_function_space()
+        from firedrake import Cofunction
+        if isinstance(self._argument_slots[0], Cofunction):
+            space = self.ufl_function_space().dual()
+        else:
+            space = self.ufl_function_space()
         return from_torch(y_P, space)
 
     # -- PyTorch routines for computing AD based quantities via `torch.autograd.functional` -- #
