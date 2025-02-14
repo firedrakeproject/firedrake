@@ -91,6 +91,7 @@ jobs:
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
           firedrake-run-split-tests 1 1 "-n 12 $EXTRA_PYTEST_ARGS --junit-xml=firedrake1_{#}.xml"
+        timeout-minutes: 45
 
       - name: Run tests (nprocs = 2)
         # Run even if earlier tests failed
@@ -98,42 +99,49 @@ jobs:
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 2 6 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake2_{#}.xml"
+        timeout-minutes: 10
 
       - name: Run tests (nprocs = 3)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 3 4 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake3_{#}.xml"
+        timeout-minutes: 30
 
       - name: Run tests (nprocs = 4)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 4 3 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake4_{#}.xml"
+        timeout-minutes: 10
 
       - name: Run tests (nprocs = 5)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 5 2 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake5_{#}.xml"
+        timeout-minutes: 10
 
       - name: Run tests (nprocs = 6)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 6 2 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake6_{#}.xml"
+        timeout-minutes: 10
 
       - name: Run tests (nprocs = 7)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake7_{#}.xml"
+        timeout-minutes: 10
 
       - name: Run tests (nprocs = 8)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake8_{#}.xml"
+        timeout-minutes: 10
 
       - name: Run Gusto smoke tests
         # Only test Gusto in real mode
@@ -145,7 +153,7 @@ jobs:
             integration-tests/balance/test_saturated_balance.py \
             integration-tests/equations/test_thermal_sw.py \
             integration-tests/transport/test_embedded_dg_advection.py
-        timeout-minutes: 5
+        timeout-minutes: 10
 
       - name: Publish test report
         uses: mikepenz/action-junit-report@v5.0.0-a02
