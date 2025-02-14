@@ -530,7 +530,7 @@ def parallel_cache(
                         # Since broadcasting is non-blocking for the sending rank (rank 0)
                         # it is possible for it to have written to disk before other ranks
                         # begin the cache lookup. These ranks register a cache hit.
-                        # 
+                        #
                         # If ranks disagree on whether it was a hit or miss then some ranks
                         # will do a broadcast and others will not, ruining MPI synchronisation.
                         # To fix this we make sure that in 'bcast' mode the hit/miss is

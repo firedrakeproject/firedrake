@@ -841,6 +841,7 @@ def test_no_spmd_strict_disk_cache_obeys_spmd(bcast, tmpdir):
             pass
 
         expected = "OBJECT TO CACHE ON DISK"
+
         def func():
             return expected
 
@@ -887,6 +888,7 @@ def test_no_spmd_strict_disk_cache_race_condition(bcast, tmpdir):
             pass
 
         expected = "OBJECT TO CACHE ON DISK"
+
         def func():
             return expected
 
