@@ -829,7 +829,8 @@ class spmd_strict:
 
 @pytest.mark.parallel(2)
 @pytest.mark.parametrize("bcast", [False, True])
-def test_no_spmd_strict_disk_cache_obeys_spmd(bcast, tmpdir):
+@pytest.mark.parametrize("slow_rank", [0, 1])
+def test_no_spmd_strict_disk_cache_obeys_spmd(bcast, slow_rank, tmpdir):
     with spmd_strict(False):
         comm = COMM_WORLD
         # make sure the same tmpdir is used by all ranks
@@ -855,15 +856,15 @@ def test_no_spmd_strict_disk_cache_obeys_spmd(bcast, tmpdir):
         # Ensure ranks are synchronised at the start (so we can force them to not be)
         comm.barrier()
 
-        # Delay rank 1 such that, before it searches the cache, rank 0 has the chance
-        # to populate it (but it should wait!).
-        if comm.rank == 1:
+        # Delay one rank such that, before it searches the cache, the other rank has
+        # the chance to populate it (but it should wait!).
+        if comm.rank == slow_rank:
             time.sleep(1)
 
         result = cached_func()
-        assert result == expected
+        parallel_assert(lambda: result == expected)
 
-        # make sure that rank 1 has not 'skipped' a bcast from rank 0
+        # make sure that the slow rank has not missed a bcast from the other rank
         sent = "my message"
         with temp_internal_comm(comm) as tcomm:
             received = tcomm.bcast(sent, root=0)
@@ -872,7 +873,8 @@ def test_no_spmd_strict_disk_cache_obeys_spmd(bcast, tmpdir):
 
 @pytest.mark.parallel(4)
 @pytest.mark.parametrize("bcast", [False, True])
-def test_no_spmd_strict_disk_cache_race_condition(bcast, tmpdir):
+@pytest.mark.parametrize("slow_rank", [0, 1])
+def test_no_spmd_strict_disk_cache_race_condition(bcast, slow_rank, tmpdir):
     with spmd_strict(False):
         comm = COMM_WORLD
         # make sure the same tmpdir is used by all ranks
@@ -902,13 +904,25 @@ def test_no_spmd_strict_disk_cache_race_condition(bcast, tmpdir):
         # Ensure ranks are synchronised at the start (so we can force them to not be)
         comm.barrier()
 
-        # Force rank 0 of subcomm 0 to wait, and hence to register a cache hit
-        # whilst rank 1 of subcomm 0 will register a cache miss.
-        if color == 0 and subcomm.rank == 0:
+        # Force a hit on one rank of subcomm 0 and a miss on the other
+        if color == 0 and subcomm.rank != slow_rank:
+            # first to run, will miss the cache and should wait for the other rank
+            pass
+        elif color == 1:
+            # will populate the disk cache
+            time.sleep(0.5)
+        else:
+            # last to run, will have a cache hit
             time.sleep(1)
 
         result = cached_func()
-        assert result == expected
+        parallel_assert(lambda: result == expected)
+
+        # make sure that the slow rank has not missed a bcast from the other rank
+        sent = "my message"
+        with temp_internal_comm(subcomm) as tcomm:
+            received = tcomm.bcast(sent, root=0)
+        parallel_assert(lambda: received == sent)
 
 
 if __name__ == '__main__':
