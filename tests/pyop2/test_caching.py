@@ -858,7 +858,7 @@ def test_no_spmd_strict_disk_cache_obeys_spmd(bcast, tmpdir):
         # Delay rank 1 such that, before it searches the cache, rank 0 has the chance
         # to populate it (but it should wait!).
         if comm.rank == 1:
-            time.sleep(3)
+            time.sleep(1)
 
         result = cached_func()
         assert result == expected

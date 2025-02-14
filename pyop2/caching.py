@@ -533,9 +533,17 @@ def parallel_cache(
                         #
                         # If ranks disagree on whether it was a hit or miss then some ranks
                         # will do a broadcast and others will not, ruining MPI synchronisation.
-                        # To fix this we make sure that in 'bcast' mode the hit/miss is
-                        # decided by rank 0.
-                        cache_hit = comm.bcast(cache_hit, root=0)
+                        # To fix this we check to see if any ranks have hit cache and, if so,
+                        # nominate that rank as the root of the subsequent broadcast.
+                        root = comm.rank if cache_hit else -1
+                        root = comm.allreduce(root, op=MPI.MAX)
+                        if root >= 0:
+                            # Found a rank with a cache hit, broadcast 'value' from it
+                            value = comm.bcast(value, root=root)
+                            cache_hit = True
+                        else:
+                            # Cache miss on all ranks, recompute below
+                            cache_hit = False
                 else:
                     # In-memory caches are stashed on the comm and so must always agree
                     # on their contents.
