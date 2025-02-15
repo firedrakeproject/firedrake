@@ -59,6 +59,8 @@ The registration fees are as follows:
    * - Non-student:
      - $200
 
+Registration deadline is 13 February 2025.
+
 The `SIAM Texas-Louisiana Section <https://www.siam.org/get-involved/connect-with-a-community/sections/siam-texas-louisiana-section/>`__ is providing some support for students currently attending universities in Texas or Louisiana to attend.
 Students may submit an application to be considered for funding `here <https://docs.google.com/forms/d/e/1FAIpQLSdXKsGE3D18BhvRpfcGD_gSdDmmXGRQ4l47k4Aj4SKJ2c6DZg/viewform?usp=sharing>`__.
 
@@ -68,6 +70,8 @@ Abstract submission
 -------------------
 
 Abstracts can be submitted `via EasyChair <https://easychair.org/conferences/?conf=firedrakeusa25>`__.
+
+The deadline for abstract submission is 17 February 2025.
 
 
 
