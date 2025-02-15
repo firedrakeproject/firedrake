@@ -2,7 +2,7 @@ import pytest
 from firedrake import *
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def hierarchy():
     N = 10
     distribution_parameters = {"partition": True, "overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}

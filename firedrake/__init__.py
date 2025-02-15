@@ -89,7 +89,6 @@ from firedrake.mg.embedded import *
 from firedrake.mg.opencascade_mh import *
 from firedrake.norms import *
 from firedrake.nullspace import *
-from firedrake.optimizer import *
 from firedrake.parameters import *
 from firedrake.parloops import *
 from firedrake.projection import *
@@ -103,7 +102,6 @@ from firedrake.eigensolver import *
 from firedrake.vector import *
 from firedrake.version import __version__ as ver, __version_info__, check  # noqa: F401
 from firedrake.ensemble import *
-from firedrake.ensemblefunction import *
 from firedrake.randomfunctiongen import *
 from firedrake.external_operators import *
 from firedrake.progress_bar import ProgressBar  # noqa: F401

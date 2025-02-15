@@ -115,8 +115,9 @@ def analytic_series(V, tshift=0.0, mag=1.0, phase=0.0, ensemble=None):
         rank = ensemble.ensemble_comm.rank
         offset = (0 if rank == 0 else rank*nlocal_obs + 1)
 
-        efunc = fd.EnsembleFunction(
-            ensemble, [V for _ in range(nlocal_obs)])
+        W = fd.EnsembleFunctionSpace(
+            [V for _ in range(nlocal_obs)], ensemble)
+        efunc = fd.EnsembleFunction(W)
 
         for e, s in zip(efunc.subfunctions,
                         series[offset:offset+nlocal_obs]):
@@ -323,8 +324,9 @@ def weak_fdvar_firedrake(V, ensemble):
 
     nlocal_obs = nlocal_observations(ensemble)
 
-    control = fd.EnsembleFunction(
-        ensemble, [V for _ in range(nlocal_obs)])
+    W = fd.EnsembleFunctionSpace(
+        [V for _ in range(nlocal_obs)], ensemble)
+    control = fd.EnsembleFunction(W)
 
     # Prior
     bkg = background(V)

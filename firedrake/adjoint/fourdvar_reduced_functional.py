@@ -2,10 +2,11 @@ from pyadjoint import ReducedFunctional, OverloadedType, Control, Tape, AdjFloat
     stop_annotating, get_working_tape, set_working_tape
 from pyadjoint.enlisting import Enlist
 from firedrake.function import Function
-from firedrake.ensemblefunction import EnsembleFunction, EnsembleCofunction
+from firedrake.ensemble import EnsembleFunction
 from firedrake import assemble, inner, dx, Constant
 from firedrake.adjoint.composite_reduced_functional import (
     CompositeReducedFunctional, tlm, hessian, intermediate_options)
+from ufl.duals import is_primal, is_dual
 from functools import wraps, cached_property, partial
 from typing import Callable, Optional, Collection, Union
 from types import SimpleNamespace
@@ -152,7 +153,8 @@ class FourDVarReducedFunctional(ReducedFunctional):
                     self.background = control.control.subfunctions[0]._ad_copy()
                 _rename(self.background, "Background")
 
-            ensemble = control.ensemble
+            self.control_space = control.function_space()
+            ensemble = self.control_space.ensemble
             self.ensemble = ensemble
             self.trank = ensemble.ensemble_comm.rank if ensemble else 0
             self.nchunks = ensemble.ensemble_comm.size if ensemble else 1
@@ -389,16 +391,14 @@ class FourDVarReducedFunctional(ReducedFunctional):
             adj_input=adj_input, options=options)
 
         # create the derivative in the right primal or dual space
-        from ufl.duals import is_primal, is_dual
         if is_primal(sderiv0[0]):
-            derivatives = EnsembleFunction(
-                self.ensemble, self.control.local_function_spaces)
+            derivative_space = self.control_space
         else:
             if not is_dual(sderiv0[0]):
                 raise ValueError(
                     "Do not know how to handle stage derivative which is not primal or dual")
-            derivatives = EnsembleCofunction(
-                self.ensemble, [V.dual() for V in self.control.local_function_spaces])
+            derivative_space = self.control_space.dual()
+        derivatives = EnsembleFunction(derivative_space)
 
         derivatives.zero()
 
