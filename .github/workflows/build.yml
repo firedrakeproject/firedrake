@@ -148,7 +148,7 @@ jobs:
         if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
         run: |
           . venv/bin/activate
-          git clone --depth 1 https://github.com/firedrakeproject/gusto.git gusto-repo
+          git clone --depth 1 https://github.com/firedrakeproject/gusto.git gusto-repo --branch connorjward/pyproject-fixup
           pip install --verbose ./gusto-repo
           python -m pytest -n 12 --verbose \
             gusto-repo/integration-tests/balance/test_saturated_balance.py \
