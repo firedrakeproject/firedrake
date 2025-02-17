@@ -64,7 +64,7 @@ class JaxOperator(MLOperator):
             can contain only ``ufl.argument.BaseArgument`` objects, as a result of differentiation,
             or both ``ufl.coefficient.BaseCoefficient`` and ``ufl.argument.BaseArgument`` objects,
             as a result of taking the action on a given function. If argument slots are not provided,
-            the :class:`MLOperator` is going to write them.
+            the :class:`firedrake.external_operators.ml_operator.MLOperator` is going to write them.
         operator_data
             Dictionary to stash external data specific to the ML operator. This dictionary must
             contain the following:
