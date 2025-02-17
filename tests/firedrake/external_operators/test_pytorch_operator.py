@@ -118,6 +118,8 @@ def test_jvp(u, nn):
     # Assemble
     dN = assemble(dN)
 
+    assert isinstance(dN, Function)
+
     # Convert from Firedrake to PyTorch
     delta_u_P = to_torch(delta_u)
     u_P = to_torch(u)
@@ -145,6 +147,8 @@ def test_vjp(u, nn):
     dNdu = action(adjoint(dNdu), delta_N)
     # Assemble
     dN_adj = assemble(dNdu)
+
+    assert isinstance(dN_adj, Cofunction)
 
     # Convert from Firedrake to PyTorch
     delta_N_P = to_torch(delta_N)
