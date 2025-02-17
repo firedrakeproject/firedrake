@@ -33,5 +33,6 @@ ENV MPICC=$CC
 
 # Install Firedrake, pass --break-system-packages because we don't want the
 # container to need a venv.
-RUN pip install --break-system-packages --verbose --no-binary h5py \
+RUN pip install --break-system-packages --verbose --editable --src . \
+        --no-binary h5py \
         git+https://github.com/firedrakeproject/firedrake.git@connorjward/pip-install

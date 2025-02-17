@@ -2,24 +2,44 @@
 
 FROM firedrakeproject/firedrake-vanilla-default:pip
 
-# TODO: This is expected to fail currently
+# Some packages are not available on all platforms (i.e. ARM) so we can
+# optionally avoid installing them.
+# (Relevant VTK issue: https://gitlab.kitware.com/vtk/vtk/-/issues/18772)
+ARG INSTALL_NGSPETSC=1
+ARG INSTALL_VTK=1
 
-ARG EXTRA_INSTALL_FLAGS=""
+# Install SLEPc
+RUN git clone https://github.com/firedrakeproject/slepc.git; \
+    cd slepc; \
+    ./configure; \
+    make; \
+    cd ..
 
-# Now install extra Firedrake components.
-RUN bash -c "source firedrake/bin/activate; \
-    firedrake-update \
-        --documentation-dependencies \
-        --jax \
-        --slepc \
-        --torch \
-        --install asQ \
-        --install defcon \
-        --install fascd \
-        --install femlium \
-        --install gadopt \
-        --install gusto \
-        --install icepack \
-        --install irksome \
-        --install thetis \
-        ${EXTRA_INSTALL_FLAGS}"
+ENV SLEPC_DIR=/home/firedrake/slepc
+
+# Install optional dependencies
+RUN pip install --break-system-packages --verbose \
+        --extra-index-url https://download.pytorch.org/whl/cpu \
+        jax torch
+
+# Install VTK (conditional)
+RUN if [ "$INSTALL_VTK" = 1 ]; then \
+        pip install --break-system-packages --verbose vtk; \
+    fi
+
+# Install ngsPETSc (conditional)
+RUN if [ "$INSTALL_NGSPETSC" = 1 ]; then \
+        pip install --break-system-packages --verbose ngsPETSc; \
+    fi
+
+# Install Firedrake apps
+RUN pip install --break-system-packages --verbose --editable --src .\
+        git+https://github.com/firedrakeproject/asQ.git#egg=asQ \
+        git+https://bitbucket.org/pefarrell/defcon.git#egg=defon \
+        git+https://bitbucket.org/pefarrell/fascd.git#egg=fascd \
+        git+https://github.com/FEMlium/FEMlium.git#egg=FEMlium \
+        git+https://github.com/g-adopt/g-adopt.git#egg=gadopt \
+        git+https://github.com/firedrakeproject/gusto.git#egg=gusto \
+        git+https://github.com/thetisproject/thetis.git#egg=thetis \
+        git+https://github.com/icepack/icepack.git#egg=icepack \
+        git+https://github.com/firedrakeproject/Irksome.git#egg=Irksome

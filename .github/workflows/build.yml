@@ -147,12 +147,13 @@ jobs:
         # Only test Gusto in real mode
         if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
         run: |
-          . ../firedrake_venv/bin/activate
-          cd ../firedrake_venv/src/gusto
-          python -m pytest -n 12 -v \
-            integration-tests/balance/test_saturated_balance.py \
-            integration-tests/equations/test_thermal_sw.py \
-            integration-tests/transport/test_embedded_dg_advection.py
+          . venv/bin/activate
+          git clone --depth 1 https://github.com/firedrakeproject/gusto.git gusto-repo
+          pip install --verbose ./gusto-repo
+          python -m pytest -n 12 --verbose \
+            gusto-repo/integration-tests/balance/test_saturated_balance.py \
+            gusto-repo/integration-tests/equations/test_thermal_sw.py \
+            gusto-repo/integration-tests/transport/test_embedded_dg_advection.py
         timeout-minutes: 10
 
       - name: Publish test report

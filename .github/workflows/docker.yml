@@ -59,19 +59,13 @@ jobs:
         include:
           - os: Linux
             platform: linux/amd64
-            # FIXME
-            # extra-install-flags: ""
           - os: macOS
             platform: linux/arm64
-            # VTK does not have Linux ARM wheels (https://gitlab.kitware.com/vtk/vtk/-/issues/18772)
-            # FIXME
-            # extra-install-flags: "--no-vtk"
     uses: ./.github/workflows/docker_build.yml
     with:
       os: ${{ matrix.os }}
       platform: ${{ matrix.platform }}
       arch: ${{ matrix.arch }}
-      # extra-install-flags: ${{ matrix.extra-install-flags }}
       target: firedrake-vanilla-${{ matrix.arch }}
       tag: ${{ inputs.tag }}
       dockerfile: docker/Dockerfile.vanilla
@@ -99,18 +93,20 @@ jobs:
         include:
           - os: Linux
             platform: linux/amd64
-            # extra-install-flags: "--netgen"
           - os: macOS
             platform: linux/arm64
-            # extra-install-flags: ""  # no ARM wheel for netgen-mesher
+            # ngsPETSc and VTK do not have wheels for ARM
+            install-ngsPETSc: false
+            install-vtk: false
     uses: ./.github/workflows/docker_build.yml
     with:
       os: ${{ matrix.os }}
       platform: ${{ matrix.platform }}
-      # extra-install-flags: ${{ matrix.extra-install-flags }}
       target: firedrake
       tag: ${{ inputs.tag }}
       dockerfile: docker/Dockerfile.firedrake
+      install-ngsPETSc: ${{ matrix.install-ngsPETSc }}
+      install-vtk: ${{ matrix.install-vtk }}
     secrets: inherit
 
   docker_merge_firedrake:
