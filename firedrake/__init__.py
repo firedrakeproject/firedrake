@@ -89,7 +89,6 @@ from firedrake.mg.embedded import *
 from firedrake.mg.opencascade_mh import *
 from firedrake.norms import *
 from firedrake.nullspace import *
-from firedrake.optimizer import *
 from firedrake.parameters import *
 from firedrake.parloops import *
 from firedrake.projection import *

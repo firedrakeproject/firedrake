@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import ScalarType_c
 from firedrake.__future__ import *
 
 
@@ -292,6 +293,6 @@ def test_mixed_dat_performs_halo_exchange():
     mdat[0].data_wo[...] = 1
     assert not mdat.halo_valid
 
-    kernel = """static void k(double *x) { }"""
+    kernel = f"""static void k({ScalarType_c} *x) {{ }}"""
     op2.par_loop(op2.Kernel(kernel, "k"), iterset, mdat(op2.READ, mmap))
     assert mdat.halo_valid

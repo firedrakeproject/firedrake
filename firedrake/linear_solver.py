@@ -20,7 +20,8 @@ class LinearSolver(OptionsManager):
     @PETSc.Log.EventDecorator()
     def __init__(self, A, *, P=None, solver_parameters=None,
                  nullspace=None, transpose_nullspace=None,
-                 near_nullspace=None, options_prefix=None):
+                 near_nullspace=None, options_prefix=None,
+                 pre_apply_bcs=True):
         """A linear solver for assembled systems (Ax = b).
 
         :arg A: a :class:`~.MatrixBase` (the operator).
@@ -40,6 +41,7 @@ class LinearSolver(OptionsManager):
                created.  Use this option if you want to pass options
                to the solver from the command line in addition to
                through the ``solver_parameters`` dict.
+        :kwarg pre_apply_bcs: Ignored by this class.
 
         .. note::
 
@@ -111,41 +113,57 @@ class LinearSolver(OptionsManager):
         return self.A.arguments()[1].function_space()
 
     @cached_property
-    def _rhs(self):
-        from firedrake.assemble import get_assembler
+    def _ulift(self):
+        return function.Function(self.trial_space)
 
-        u = function.Function(self.trial_space)
-        b = cofunction.Cofunction(self.test_space.dual())
-        expr = -action(self.A.a, u)
-        return u, get_assembler(expr).assemble, b
+    @cached_property
+    def _blift(self):
+        return cofunction.Cofunction(self.test_space.dual())
+
+    @cached_property
+    def _update_rhs(self):
+        from firedrake.assemble import get_assembler
+        expr = -action(self.A.a, self._ulift)
+        # needs_zeroing = False adds -A * ulift to the exisiting value of the output tensor
+        # zero_bc_nodes = True writes the BC data on the boundary nodes of the output tensor
+        return get_assembler(expr, bcs=self.A.bcs, zero_bc_nodes=False, needs_zeroing=False).assemble
 
     def _lifted(self, b):
-        u, update, blift = self._rhs
-        u.dat.zero()
+        self._ulift.dat.zero()
         for bc in self.A.bcs:
-            bc.apply(u)
-        update(tensor=blift)
-        # blift contains -A u_bc
-        blift += b
-        if isinstance(blift, cofunction.Cofunction):
-            blift_func = blift.riesz_representation(riesz_map="l2")
-            for bc in self.A.bcs:
-                bc.apply(blift_func)
-            blift.assign(blift_func.riesz_representation(riesz_map="l2"))
-        else:
-            for bc in self.A.bcs:
-                bc.apply(blift)
-        # blift is now b - A u_bc, and satisfies the boundary conditions
-        return blift
+            bc.apply(self._ulift)
+        # Copy the input to the internal Cofunction so we do not modify the input
+        self._blift.assign(b)
+        self._update_rhs(tensor=self._blift)
+        # self._blift is now b - A u_bc, and satisfies the boundary conditions
+        return self._blift
 
     @PETSc.Log.EventDecorator()
     def solve(self, x, b):
-        if not isinstance(x, (function.Function, vector.Vector, cofunction.Cofunction)):
-            raise TypeError("Provided solution is a '%s', not a Function, Vector or Cofunction" % type(x).__name__)
+        """Solve the linear system with RHS ``b`` and store the solution in ``x``.
+
+        Parameters
+        ----------
+        x : firedrake.function.Function or firedrake.vector.Vector
+            Existing Function or Vector to place the solution to the linear system in.
+        b : firedrake.cofunction.Cofunction or firedrake.vector.Vector
+            A Cofunction or Vector with the right-hand side of the linear system.
+        """
+        if not isinstance(x, (function.Function, vector.Vector)):
+            raise TypeError(f"Provided solution is a '{type(x).__name__}', not a Function or Vector")
+        if isinstance(x, vector.Vector):
+            x = x.function
+        if not isinstance(b, (cofunction.Cofunction, vector.Vector)):
+            raise TypeError(f"Provided RHS is a '{type(b).__name__}', not a Cofunction or Vector")
         if isinstance(b, vector.Vector):
             b = b.function
-        if not isinstance(b, (function.Function, cofunction.Cofunction)):
-            raise TypeError("Provided RHS is a '%s', not a Function or Cofunction" % type(b).__name__)
+
+        # When solving `Ax = b`, with A: V x U -> R, or equivalently A: V -> U*,
+        # we need to make sure that x and b belong to V and U*, respectively.
+        if x.function_space() != self.trial_space:
+            raise ValueError(f"x must be a Function in {self.trial_space}.")
+        if b.function_space() != self.test_space.dual():
+            raise ValueError(f"b must be a Cofunction in {self.test_space.dual()}.")
 
         if len(self.trial_space) > 1 and self.nullspace is not None:
             self.nullspace._apply(self.trial_space.dof_dset.field_ises)

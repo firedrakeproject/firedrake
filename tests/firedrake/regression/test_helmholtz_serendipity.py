@@ -35,7 +35,7 @@ def helmholtz(r, quadrilateral=True, degree=2, mesh=None):
     uex = cos(x*pi*2)*cos(y*pi*2)
     f = -div(grad(uex)) + uex
 
-    a = (inner(grad(u), grad(v)) + inner(u, v))*dx(degree=12)
+    a = (inner(grad(u), grad(v)) + inner(u, v))*dx
     L = inner(f, v)*dx(degree=12)
 
     params = {"snes_type": "ksponly",
@@ -45,10 +45,7 @@ def helmholtz(r, quadrilateral=True, degree=2, mesh=None):
     # Compute solution
     sol = Function(V)
     solve(a == L, sol, solver_parameters=params)
-
-    # Analytical solution
-    f = Function(V)
-    f.project(cos(x*pi*2)*cos(y*pi*2))
+    # Error norm
     return sqrt(assemble(dot(sol - uex, sol - uex) * dx)), sol, uex
 
 

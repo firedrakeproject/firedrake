@@ -8,32 +8,40 @@ def pytest_configure(config):
     """Register an additional marker."""
     config.addinivalue_line(
         "markers",
-        "skipcomplex: mark as skipped in complex mode")
-    config.addinivalue_line(
-        "markers",
-        "skipreal: mark as skipped unless in complex mode")
-    config.addinivalue_line(
-        "markers",
         "skipmumps: mark as skipped unless MUMPS is installed"
     )
     config.addinivalue_line(
         "markers",
-        "skipcomplexnoslate: mark as skipped in complex mode due to lack of Slate")
+        "skipcomplex: mark as skipped in complex mode"
+    )
     config.addinivalue_line(
         "markers",
-        "skiptorch: mark as skipped if PyTorch is not installed")
+        "skipreal: mark as skipped unless in complex mode"
+    )
     config.addinivalue_line(
         "markers",
-        "skipjax: mark as skipped if JAX is not installed")
+        "skipcomplexnoslate: mark as skipped in complex mode due to lack of Slate"
+    )
     config.addinivalue_line(
         "markers",
-        "skipplot: mark as skipped if matplotlib is not installed")
+        "skipvtk: mark as skipped if vtk is not installed"
+    )
     config.addinivalue_line(
         "markers",
-        "skipnetgen: mark as skipped if netgen and ngsPETSc is not installed")
+        "skiptorch: mark as skipped if PyTorch is not installed"
+    )
     config.addinivalue_line(
         "markers",
-        "skipvtk: mark as skipped if vtk is not installed")
+        "skipjax: mark as skipped if JAX is not installed"
+    )
+    config.addinivalue_line(
+        "markers",
+        "skipplot: mark as skipped if matplotlib is not installed"
+    )
+    config.addinivalue_line(
+        "markers",
+        "skipnetgen: mark as skipped if netgen and ngsPETSc is not installed"
+    )
 
 
 def pytest_collection_modifyitems(session, config, items):
@@ -114,9 +122,13 @@ def pytest_collection_modifyitems(session, config, items):
 @pytest.fixture(scope="module", autouse=True)
 def check_empty_tape(request):
     """Check that the tape is empty at the end of each module"""
-    from pyadjoint.tape import get_working_tape
+    from pyadjoint.tape import annotate_tape, get_working_tape
 
     def fin():
+        # make sure taping is switched off
+        assert not annotate_tape()
+
+        # make sure the tape is empty
         tape = get_working_tape()
         if tape is not None:
             assert len(tape.get_blocks()) == 0
