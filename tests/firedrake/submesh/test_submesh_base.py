@@ -51,17 +51,17 @@ def test_submesh_base_cell_integral_quad_2_processes(family_degree, nelem):
     _test_submesh_base_cell_integral_quad(family_degree, nelem)
 
 
-@pytest.mark.parallel(nprocs=3)
-@pytest.mark.parametrize('family_degree', [("Q", 4), ])
-@pytest.mark.parametrize('nelem', [2, 4, 8, 16])
-def test_submesh_base_cell_integral_quad_3_processes(family_degree, nelem):
-    _test_submesh_base_cell_integral_quad(family_degree, nelem)
-
-
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.parametrize('family_degree', [("Q", 4), ])
 @pytest.mark.parametrize('nelem', [2, 4, 8, 16])
 def test_submesh_base_cell_integral_quad_4_processes(family_degree, nelem):
+    _test_submesh_base_cell_integral_quad(family_degree, nelem)
+
+
+@pytest.mark.parallel(nprocs=6)
+@pytest.mark.parametrize('family_degree', [("Q", 4), ])
+@pytest.mark.parametrize('nelem', [2, 4, 8, 16])
+def test_submesh_base_cell_integral_quad_6_processes(family_degree, nelem):
     _test_submesh_base_cell_integral_quad(family_degree, nelem)
 
 
@@ -101,17 +101,17 @@ def test_submesh_base_facet_integral_quad_2_processes(family_degree, nelem):
     _test_submesh_base_facet_integral_quad(family_degree, nelem)
 
 
-@pytest.mark.parallel(nprocs=3)
-@pytest.mark.parametrize('family_degree', [("Q", 3), ])
-@pytest.mark.parametrize('nelem', [2, 4, 8, 16])
-def test_submesh_base_facet_integral_quad_3_processes(family_degree, nelem):
-    _test_submesh_base_facet_integral_quad(family_degree, nelem)
-
-
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.parametrize('family_degree', [("Q", 3), ])
 @pytest.mark.parametrize('nelem', [2, 4, 8, 16])
 def test_submesh_base_facet_integral_quad_4_processes(family_degree, nelem):
+    _test_submesh_base_facet_integral_quad(family_degree, nelem)
+
+
+@pytest.mark.parallel(nprocs=6)
+@pytest.mark.parametrize('family_degree', [("Q", 3), ])
+@pytest.mark.parametrize('nelem', [2, 4, 8, 16])
+def test_submesh_base_facet_integral_quad_6_processes(family_degree, nelem):
     _test_submesh_base_facet_integral_quad(family_degree, nelem)
 
 
@@ -150,17 +150,17 @@ def test_submesh_base_cell_integral_hex_2_processes(family_degree, nelem):
     _test_submesh_base_cell_integral_hex(family_degree, nelem)
 
 
-@pytest.mark.parallel(nprocs=3)
-@pytest.mark.parametrize('family_degree', [("Q", 4), ])
-@pytest.mark.parametrize('nelem', [2, 4, 8])
-def test_submesh_base_cell_integral_hex_3_processes(family_degree, nelem):
-    _test_submesh_base_cell_integral_hex(family_degree, nelem)
-
-
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.parametrize('family_degree', [("Q", 4), ])
 @pytest.mark.parametrize('nelem', [2, 4, 8])
 def test_submesh_base_cell_integral_hex_4_processes(family_degree, nelem):
+    _test_submesh_base_cell_integral_hex(family_degree, nelem)
+
+
+@pytest.mark.parallel(nprocs=6)
+@pytest.mark.parametrize('family_degree', [("Q", 4), ])
+@pytest.mark.parametrize('nelem', [2, 4, 8])
+def test_submesh_base_cell_integral_hex_6_processes(family_degree, nelem):
     _test_submesh_base_cell_integral_hex(family_degree, nelem)
 
 
@@ -202,17 +202,17 @@ def test_submesh_base_facet_integral_hex_2_processes(family_degree, nelem):
     _test_submesh_base_facet_integral_hex(family_degree, nelem)
 
 
-@pytest.mark.parallel(nprocs=3)
-@pytest.mark.parametrize('family_degree', [("Q", 3), ])
-@pytest.mark.parametrize('nelem', [2, 4, 8])
-def test_submesh_base_facet_integral_hex_3_processes(family_degree, nelem):
-    _test_submesh_base_facet_integral_hex(family_degree, nelem)
-
-
 @pytest.mark.parallel(nprocs=4)
 @pytest.mark.parametrize('family_degree', [("Q", 3), ])
 @pytest.mark.parametrize('nelem', [2, 4, 8])
 def test_submesh_base_facet_integral_hex_4_processes(family_degree, nelem):
+    _test_submesh_base_facet_integral_hex(family_degree, nelem)
+
+
+@pytest.mark.parallel(nprocs=6)
+@pytest.mark.parametrize('family_degree', [("Q", 3), ])
+@pytest.mark.parametrize('nelem', [2, 4, 8])
+def test_submesh_base_facet_integral_hex_6_processes(family_degree, nelem):
     _test_submesh_base_facet_integral_hex(family_degree, nelem)
 
 
