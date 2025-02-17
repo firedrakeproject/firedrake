@@ -82,6 +82,8 @@ jobs:
           pip install --verbose --no-binary h5py ./repo[test]
           firedrake-clean
           : # Extra test dependencies
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu \
+            jax matplotlib ngsPETSc torch vtk
           pip install ipympl pytest-split pytest-timeout pytest-xdist
           pip list
 

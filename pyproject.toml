@@ -66,17 +66,7 @@ pyop2-clean = "pyop2.compilation:clear_compiler_disk_cache"
 spydump = "pyop2.scripts.spydump:main"
 
 [project.optional-dependencies]
-test = [
-  "pylit",
-  "nbval",
-  "pytest",
-  "pytest-xdist",
-  "pytest-mpi @ git+https://github.com/firedrakeproject/pytest-mpi.git@main",
-]
-dev = [
-  "flake8",
-  "pylint",
-]
+dev = ["flake8", "pylint"]
 docs = [
   "sphinx",
   "sphinx-autobuild",
@@ -86,6 +76,12 @@ docs = [
   "bibtexparser",
   "sphinxcontrib-youtube",
   "numpydoc",
+]
+test = [
+  "pylit",
+  "nbval",
+  "pytest",
+  "pytest-mpi @ git+https://github.com/firedrakeproject/pytest-mpi.git@main",
 ]
 
 [build-system]

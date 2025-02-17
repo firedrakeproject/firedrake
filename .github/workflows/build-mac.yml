@@ -59,7 +59,7 @@ jobs:
         id: install
         run: |
           export PETSC_DIR=$PWD/petsc PETSC_ARCH=arch-firedrake-default
-          export HDF5_MPI=ON
+          export HDF5_DIR=/opt/homebrew HDF5_MPI=ON
           export CC=mpicc CXX=mpicxx
           export MPICC=$CC
           python3 -m venv venv
