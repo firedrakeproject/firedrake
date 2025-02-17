@@ -2,12 +2,13 @@ from pyadjoint import ReducedFunctional, OverloadedType, Control, Tape, AdjFloat
     stop_annotating, get_working_tape, set_working_tape
 from pyadjoint.enlisting import Enlist
 from firedrake.function import Function
-from firedrake.ensemblefunction import EnsembleFunction, EnsembleCofunction
+from firedrake.ensemble import EnsembleFunction
+from firedrake import assemble, inner, dx, Constant
 from firedrake.adjoint.composite_reduced_functional import (
     CompositeReducedFunctional, tlm, hessian, intermediate_options)
-
-from functools import wraps, cached_property
-from typing import Callable, Optional
+from ufl.duals import is_primal, is_dual
+from functools import wraps, cached_property, partial
+from typing import Callable, Optional, Collection, Union
 from types import SimpleNamespace
 from contextlib import contextmanager
 from mpi4py import MPI
@@ -91,7 +92,7 @@ class FourDVarReducedFunctional(ReducedFunctional):
         The :class:`.EnsembleFunction` for the control x_{i} at the initial condition
         and at the end of each observation stage.
 
-    background_iprod
+    background_covariance
         The inner product to calculate the background error functional
         from the background error :math:`x_{0} - x_{b}`. Can include the
         error covariance matrix. Only used on ensemble rank 0.
@@ -101,18 +102,18 @@ class FourDVarReducedFunctional(ReducedFunctional):
         If not provided, the value of the first subfunction on the first ensemble
         member of the control :class:`.EnsembleFunction` will be used.
 
-    observation_err
+    observation_error
         Given a state :math:`x`, returns the observations error
         :math:`y_{0} - \\mathcal{H}_{0}(x)` where :math:`y_{0}` are the
         observations at the initial time and :math:`\\mathcal{H}_{0}` is
         the observation operator for the initial time. Only used on
         ensemble rank 0. Optional.
 
-    observation_iprod
+    observation_covariance
         The inner product to calculate the observation error functional
         from the observation error :math:`y_{0} - \\mathcal{H}_{0}(x)`.
         Can include the error covariance matrix. Must be provided if
-        observation_err is provided. Only used on ensemble rank 0
+        observation_error is provided. Only used on ensemble rank 0
 
     weak_constraint
         Whether to use the weak or strong constraint 4DVar formulation.
@@ -123,10 +124,10 @@ class FourDVarReducedFunctional(ReducedFunctional):
     """
 
     def __init__(self, control: Control,
-                 background_iprod: Optional[Callable[[OverloadedType], AdjFloat]],
+                 background_covariance: Union[Constant, tuple],
                  background: Optional[OverloadedType] = None,
-                 observation_err: Optional[Callable[[OverloadedType], OverloadedType]] = None,
-                 observation_iprod: Optional[Callable[[OverloadedType], AdjFloat]] = None,
+                 observation_error: Optional[Callable[[OverloadedType], OverloadedType]] = None,
+                 observation_covariance: Optional[Callable[[OverloadedType], AdjFloat]] = None,
                  weak_constraint: bool = True,
                  tape: Optional[Tape] = None,
                  _annotate_accumulation: bool = False):
@@ -134,7 +135,7 @@ class FourDVarReducedFunctional(ReducedFunctional):
         self.tape = get_working_tape() if tape is None else tape
 
         self.weak_constraint = weak_constraint
-        self.initial_observations = observation_err is not None
+        self.initial_observations = observation_error is not None
 
         if self.weak_constraint:
             self._annotate_accumulation = _annotate_accumulation
@@ -152,7 +153,8 @@ class FourDVarReducedFunctional(ReducedFunctional):
                     self.background = control.control.subfunctions[0]._ad_copy()
                 _rename(self.background, "Background")
 
-            ensemble = control.ensemble
+            self.control_space = control.function_space()
+            ensemble = self.control_space.ensemble
             self.ensemble = ensemble
             self.trank = ensemble.ensemble_comm.rank if ensemble else 0
             self.nchunks = ensemble.ensemble_comm.size if ensemble else 1
@@ -184,9 +186,9 @@ class FourDVarReducedFunctional(ReducedFunctional):
                     control_name="Control_0_bkg_copy")
 
                 # RF to recalculate inner product |x_0 - x_b|_B
-                self.background_norm = isolated_rf(
-                    operation=background_iprod,
-                    control=self.background_error.functional,
+                self.background_norm = CovarianceNormReducedFunctional(
+                    self.background_error.functional,
+                    background_covariance,
                     control_name="bkg_err_vec_copy")
 
                 # compose background reduced functionals to evaluate both together
@@ -197,16 +199,16 @@ class FourDVarReducedFunctional(ReducedFunctional):
 
                     # RF to recalculate error vector (H(x_0) - y_0)
                     self.initial_observation_error = isolated_rf(
-                        operation=observation_err,
+                        operation=observation_error,
                         control=_x[0],
                         functional_name="obs_err_vec_0",
                         control_name="Control_0_obs_copy")
 
                     # RF to recalculate inner product |H(x_0) - y_0|_R
-                    self.initial_observation_norm = isolated_rf(
-                        operation=observation_iprod,
-                        control=self.initial_observation_error.functional,
-                        functional_name="obs_err_vec_0_copy")
+                    self.initial_observation_norm = CovarianceNormReducedFunctional(
+                        self.initial_observation_error.functional,
+                        observation_covariance,
+                        control_name="obs_err_vec_0_copy")
 
                     # compose initial observation reduced functionals to evaluate both together
                     self.initial_observation_rf = CompositeReducedFunctional(
@@ -246,12 +248,14 @@ class FourDVarReducedFunctional(ReducedFunctional):
 
             # penalty for straying from prior
             self._accumulate_functional(
-                background_iprod(control.control - self.background))
+                covariance_norm(control.control - self.background,
+                                background_covariance))
 
             # penalty for not hitting observations at initial time
             if self.initial_observations:
                 self._accumulate_functional(
-                    observation_iprod(observation_err(control.control)))
+                    covariance_norm(observation_error(control.control),
+                                    observation_covariance))
 
     @cached_property
     def strong_reduced_functional(self):
@@ -387,16 +391,14 @@ class FourDVarReducedFunctional(ReducedFunctional):
             adj_input=adj_input, options=options)
 
         # create the derivative in the right primal or dual space
-        from ufl.duals import is_primal, is_dual
         if is_primal(sderiv0[0]):
-            derivatives = EnsembleFunction(
-                self.ensemble, self.control.local_function_spaces)
+            derivative_space = self.control_space
         else:
             if not is_dual(sderiv0[0]):
                 raise ValueError(
                     "Do not know how to handle stage derivative which is not primal or dual")
-            derivatives = EnsembleCofunction(
-                self.ensemble, [V.dual() for V in self.control.local_function_spaces])
+            derivative_space = self.control_space.dual()
+        derivatives = EnsembleFunction(derivative_space)
 
         derivatives.zero()
 
@@ -745,8 +747,8 @@ class StrongObservationStage:
         self.observation_index = observation_index
 
     def set_observation(self, state: OverloadedType,
-                        observation_err: Callable[[OverloadedType], OverloadedType],
-                        observation_iprod: Callable[[OverloadedType], AdjFloat]):
+                        observation_error: Callable[[OverloadedType], OverloadedType],
+                        observation_covariance: Callable[[OverloadedType], AdjFloat]):
         """
         Record an observation at the time of `state`.
 
@@ -756,14 +758,14 @@ class StrongObservationStage:
         state
             The state at the current observation time.
 
-        observation_err
+        observation_error
             Given a state :math:`x`, returns the observations error
             :math:`y_{i} - \\mathcal{H}_{i}(x)` where :math:`y_{i}` are
             the observations at the current observation time and
             :math:`\\mathcal{H}_{i}` is the observation operator for the
             current observation time.
 
-        observation_iprod
+        observation_covariance
             The inner product to calculate the observation error functional
             from the observation error :math:`y_{i} - \\mathcal{H}_{i}(x)`.
             Can include the error covariance matrix.
@@ -772,7 +774,9 @@ class StrongObservationStage:
             raise ValueError("Cannot add observations once strong"
                              " constraint ReducedFunctional instantiated")
         self.aaorf._accumulate_functional(
-            observation_iprod(observation_err(state)))
+            covariance_norm(observation_error(state),
+                            observation_covariance))
+
         # save the user's state to hand back for beginning of next stage
         self.state = state
 
@@ -819,9 +823,9 @@ class WeakObservationStage:
         self._stage_tape = get_working_tape()
 
     def set_observation(self, state: OverloadedType,
-                        observation_err: Callable[[OverloadedType], OverloadedType],
-                        observation_iprod: Callable[[OverloadedType], AdjFloat],
-                        forward_model_iprod: Callable[[OverloadedType], AdjFloat]):
+                        observation_error: Callable[[OverloadedType], OverloadedType],
+                        observation_covariance: Callable[[OverloadedType], AdjFloat],
+                        forward_model_covariance: Callable[[OverloadedType], AdjFloat]):
         """
         Record an observation at the time of `state`.
 
@@ -831,19 +835,19 @@ class WeakObservationStage:
         state
             The state at the current observation time.
 
-        observation_err
+        observation_error
             Given a state :math:`x`, returns the observations error
             :math:`y_{i} - \\mathcal{H}_{i}(x)` where :math:`y_{i}` are
             the observations at the current observation time and
             :math:`\\mathcal{H}_{i}` is the observation operator for the
             current observation time.
 
-        observation_iprod
+        observation_covariance
             The inner product to calculate the observation error functional
             from the observation error :math:`y_{i} - \\mathcal{H}_{i}(x)`.
             Can include the error covariance matrix.
 
-        forward_model_iprod
+        forward_model_covariance
             The inner product to calculate the model error functional from
             the model error :math:`x_{i} - \\mathcal{M}_{i}(x_{i-1})`. Can
             include the error covariance matrix.
@@ -889,9 +893,9 @@ class WeakObservationStage:
             'control_name': f"model_err_vec_{self.global_index}_copy"
         } if self.global_index else {}
 
-        self.model_norm = isolated_rf(
-            operation=forward_model_iprod,
-            control=self.model_error.functional,
+        self.model_norm = CovarianceNormReducedFunctional(
+            self.model_error.functional,
+            forward_model_covariance,
             **names)
 
         # compose model error reduced functionals to evaluate both together
@@ -907,17 +911,17 @@ class WeakObservationStage:
         } if self.global_index else {}
 
         self.observation_error = isolated_rf(
-            operation=observation_err,
+            operation=observation_error,
             control=self.controls[-1],
             **names)
 
         # RF to recalculate inner product |H(x_i) - y_i|_R
         names = {
-            'functional_name': "obs_err_vec_{self.global_index}_copy"
+            'control_name': "obs_err_vec_{self.global_index}_copy"
         } if self.global_index else {}
-        self.observation_norm = isolated_rf(
-            operation=observation_iprod,
-            control=self.observation_error.functional,
+        self.observation_norm = CovarianceNormReducedFunctional(
+            self.observation_error.functional,
+            observation_covariance,
             **names)
 
         # compose observation reduced functionals to evaluate both together
@@ -1106,3 +1110,31 @@ class WeakObservationStage:
             model_hessian._ad_convert_type(error_hessian[1],
                                            options=options)
         ]
+
+
+def covariance_norm(x, covariance):
+    if isinstance(covariance, Collection):
+        covariance, power = covariance
+    else:
+        power = None
+    weight = Constant(1/covariance)
+    val = assemble(inner(x, weight*x)*dx)
+    return val if power is None else val**power
+
+
+class CovarianceNormReducedFunctional(ReducedFunctional):
+    def __init__(self, x, covariance,
+                 functional_name=None,
+                 control_name=None):
+        if isinstance(covariance, Collection):
+            self.covariance, self.power = covariance
+        else:
+            self.covariance = covariance
+            self.power = None
+        cov_norm = partial(covariance_norm, covariance=covariance)
+        rf = isolated_rf(cov_norm, x,
+                         functional_name=functional_name,
+                         control_name=control_name)
+        super().__init__(rf.functional,
+                         rf.controls.delist(rf.controls),
+                         tape=rf.tape)
