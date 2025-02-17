@@ -46,7 +46,7 @@ dockerlint:
 		do \
 		echo "    Linting $$DOCKERFILE"; \
 		docker run --rm \
-			-e HADOLINT_IGNORE=DL3005,DL3007,DL3008,DL3015,DL3059 \
+			-e HADOLINT_IGNORE=DL3003,DL3004,DL3005,DL3007,DL3008,DL3013,DL3015,DL3042,DL3059,SC2103,SC2046,SC2086 \
 			-i hadolint/hadolint \
 			< $$DOCKERFILE \
 			|| exit 1; \

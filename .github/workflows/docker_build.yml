@@ -36,12 +36,12 @@ on:
         description: 'Whether or not to install ngsPETSc (firedrake container only)'
         default: true
         required: false
-        type: bool
+        type: boolean
       install-vtk:
         description: 'Whether or not to install VTK (firedrake container only)'
         default: true
         required: false
-        type: bool
+        type: boolean
     secrets:
       # Docker login information
       DOCKERHUB_USER:
