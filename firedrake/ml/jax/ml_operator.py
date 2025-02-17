@@ -63,12 +63,13 @@ class JaxOperator(MLOperator):
             i.e., the arguments with respect to which the ML operator is linear. These arguments
             can contain only ``ufl.argument.BaseArgument`` objects, as a result of differentiation,
             or both ``ufl.coefficient.BaseCoefficient`` and ``ufl.argument.BaseArgument`` objects,
-            as a result of taking the action on a given function.
+            as a result of taking the action on a given function. If argument slots are not provided,
+            the :class:`MLOperator` is going to write them.
         operator_data
             Dictionary to stash external data specific to the ML operator. This dictionary must
             contain the following:
             (i) ``'model'`` : The machine learning model implemented in JaX.
-            (ii) ``'inputs_format'`` : The format of the inputs to the ML model: ``0`` for models acting
+            (ii) ``'model'`` : The format of the inputs to the ML model: ``0`` for models acting
             globally on the inputs. ``1`` for models acting locally/pointwise on the inputs.
             Other strategies can also be considered by subclassing the :class:`.JaxOperator` class.
         """
