@@ -5,7 +5,7 @@ from firedrake.function import Function
 from firedrake.ensemble import EnsembleFunction
 from firedrake import assemble, inner, dx, Constant
 from firedrake.adjoint.composite_reduced_functional import (
-    CompositeReducedFunctional, tlm, hessian, intermediate_options)
+    CompositeReducedFunctional, intermediate_options)
 from ufl.duals import is_primal, is_dual
 from functools import wraps, cached_property, partial
 from typing import Callable, Optional, Collection, Union
@@ -1089,8 +1089,7 @@ class WeakObservationStage:
         iopts = intermediate_options(options)
 
         # TLM for model from mdot[0]
-        forward_tlm = tlm(self.forward_model, m_dot[0],
-                          options=iopts)
+        forward_tlm = self.forward_model.tlm(m_dot[0], options=iopts)
 
         # combine model TLM and mdot[1]
         mdot_error = [forward_tlm, m_dot[1]]
@@ -1100,9 +1099,10 @@ class WeakObservationStage:
             mdot_error, options=iopts, evaluate_tlm=True)
 
         # Hessian for model
-        model_hessian = hessian(
-            self.forward_model, options=options,
-            hessian_value=error_hessian[0])
+        model_hessian = self.forward_model.hessian(
+            None, options=options,
+            hessian_input=error_hessian[0],
+            evaluate_tlm=False)
 
         # combine model Hessian and converted error Hessian
         return [
