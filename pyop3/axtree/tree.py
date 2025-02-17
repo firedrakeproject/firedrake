@@ -1756,6 +1756,9 @@ class UnitIndexedAxisTree:
         layout_exprs=None,  # not used
         outer_loops=(),  # not used?
     ):
+        # debug
+        assert has_unique_entries(targets)
+
         self.unindexed = unindexed
         self.targets = targets
         self.outer_loops = outer_loops
@@ -1798,6 +1801,9 @@ class UnitIndexedAxisTree:
     @property
     def layouts(self):
         return self.unindexed.layouts
+
+    def with_context(self, context):
+        return self
 
 
 def find_matching_target(self):
