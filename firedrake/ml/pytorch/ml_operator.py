@@ -52,7 +52,7 @@ class PytorchOperator(MLOperator):
             ``ufl.argument.BaseArgument`` objects, as a result of differentiation, or both
             ``ufl.coefficient.BaseCoefficient`` and ``ufl.argument.BaseArgument`` object, as a result
             of taking the action on a given function. If argument slots are not provided, the
-            :class:`MLOperator` is going to write them.
+            :class:`firedrake.external_operators.ml_operator.MLOperator` is going to write them.
         operator_data : dict
             Dictionary to stash external data specific to the ML operator. This dictionary must
             at least contain the following:
