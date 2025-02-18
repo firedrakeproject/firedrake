@@ -3,6 +3,7 @@ from firedrake.petsc import DEFAULT_PARTITIONER
 import pytest
 import numpy as np
 from mpi4py import MPI
+from pytest_mpi import parallel_assert
 
 
 # Utility Functions
@@ -153,12 +154,12 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
             # This assertion needs to happen in parallel!
             assertion = (max(ref_cell_dists_l1) > 0.5*m.tolerance)
             skip_in_bounds_checks = True
+            participating = True
         else:
-            assertion = True
+            participating = False
     else:
-        assertion = True
-    # FIXME: Replace with parallel assert when it's merged into pytest-mpi
-    assert min(MPI.COMM_WORLD.allgather([assertion]))
+        participating = False
+    parallel_assert(lambda: assertion, participating=participating)
 
     # Correct local coordinates (though not guaranteed to be in same order)
     if not skip_in_bounds_checks:
