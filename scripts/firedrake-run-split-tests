@@ -24,7 +24,7 @@
 #
 #   * pytest
 #   * pytest-split
-#   * pytest-mpi (https://github.com/firedrakeproject/pytest-mpi)
+#   * mpi-pytest
 #   * GNU parallel
 
 num_procs=$1
