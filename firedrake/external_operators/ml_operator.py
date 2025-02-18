@@ -25,9 +25,8 @@ class MLOperator(AbstractExternalOperator):
             i.e. the arguments with respect to which the ML operator is linear. Those arguments can
             be ``ufl.argument.BaseArgument`` objects, as a result of differentiation, or both
             ``ufl.coefficient.BaseCoefficient`` and ``ufl.argument.BaseArgument`` object, as a result
-            of taking the action on a given function. If argument slots are not provided,
-            the :class:`firedrake.external_operators.abstract_external_operators.AbstractExternalOperator`
-            is going to write them.
+            of taking the action on a given function. If argument slots are not provided, then they will
+            be generated.
         operator_data : dict
             Dictionary to stash external data specific to the ML operator. This dictionary must
             at least contain the following:
