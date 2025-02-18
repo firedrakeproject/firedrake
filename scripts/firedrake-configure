@@ -12,6 +12,7 @@
 
 import argparse
 import enum
+import os
 import platform
 import subprocess
 from collections.abc import Sequence
@@ -39,38 +40,47 @@ ARCH_COMPLEX = FiredrakeArch.COMPLEX
 
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Print out configuration options needed to install Firedrake",
+    )
     package_manager_group = parser.add_mutually_exclusive_group()
     package_manager_group.add_argument(
         "--package-manager",
         choices=[pm.value for pm in PackageManager],
         required=False,
-        help="TODO",
+        help="The system package manager, if not provided firedrake-configure "
+        "will attempt to guess it.",
     )
     package_manager_group.add_argument(
         "--no-package-manager",
         action="store_true",
         required=False,
-        help="TODO",
+        help="Do not attempt to use a system package manager.",
     )
     parser.add_argument(
         "--arch",
         choices=[arch.value for arch in FiredrakeArch],
         default=ARCH_DEFAULT,
-        help="TODO",
+        help="The target 'arch' to install.",
     )
     cmd_group = parser.add_mutually_exclusive_group(required=True)
     cmd_group.add_argument(
         "--show-system-dependencies",
         "--sysdeps",  # alias
         action="store_true",
-        help="TODO",
+        help="Print out the system packages Firedrake needs.",
     )
     cmd_group.add_argument(
         "--show-petsc-configure-options",
         "--petscconf",  # alias
         action="store_true",
-        help="TODO",
+        help="Print out arguments to pass to PETSc configure.",
+    )
+    cmd_group.add_argument(
+        "--show-env",
+        action="store_true",
+        help="Print out the environment variables that need to be exported to "
+        "install Firedrake.",
     )
 
     args = parser.parse_args()
@@ -86,13 +96,15 @@ def main():
     if args.show_system_dependencies:
         if package_manager is None:
             raise RuntimeError(
-                "Cannot identify a package manager, please install Firedrake "
-                "dependencies manually"
+                "Cannot install Firedrake dependencies without a package manager, "
+                "please install them manually"
             )
         print(" ".join(SYSTEM_PACKAGES[package_manager, arch]), end="")
-    else:
-        assert args.show_petsc_configure_options
+    elif args.show_petsc_configure_options:
         print(" ".join(PETSC_CONFIGURE_OPTIONS[package_manager, arch]), end="")
+    else:
+        assert args.show_env
+        print(" ".join(ENVIRONMENT_VARS[package_manager, arch]), end="")
 
 
 def sniff_package_manager() -> Optional[PackageManager]:
@@ -106,7 +118,10 @@ def sniff_package_manager() -> Optional[PackageManager]:
         if has_homebrew():
             if platform.machine() == "arm64":
                 return MACOS_HOMEBREW_ARM64
-    return None
+    raise RuntimeError(
+        "No package manager detected, if you want to configure Firedrake without "
+        "any system packages please pass '--no-package-manager'"
+    )
 
 
 def has_apt() -> bool:
@@ -129,16 +144,12 @@ def has_homebrew() -> bool:
         raise RuntimeError("Unexpected error occurred searching for homebrew")
 
 
-COMMON_LINUX_APT_PACKAGES = (
+BASE_LINUX_APT_PACKAGES = (
     "bison",
     "build-essential",
     "cmake",
     "flex",
     "git",
-    "libfftw3-dev",
-    "libfftw3-mpi-dev",
-    "libhwloc-dev",
-    "libhdf5-mpi-dev",
     "libopenblas-dev",
     "libopenmpi-dev",
     "ninja-build",
@@ -147,22 +158,34 @@ COMMON_LINUX_APT_PACKAGES = (
     "python3-pip",
 )
 
-COMMON_MACOS_HOMEBREW_PACKAGES = (
+PETSC_EXTRAS_LINUX_APT_PACKAGES = (
+    "libfftw3-dev",
+    "libfftw3-mpi-dev",
+    "libhwloc-dev",
+    "libhdf5-mpi-dev",
+)
+
+COMMON_LINUX_APT_PACKAGES = BASE_LINUX_APT_PACKAGES + PETSC_EXTRAS_LINUX_APT_PACKAGES
+
+BASE_MACOS_HOMEBREW_PACKAGES = (
     "autoconf",
     "automake",
     "boost",
+    "cmake",
     "gcc",
-    "hdf5-mpi",
-    "hwloc",
     "libtool",
     "make",
-    "pkg-config",
-    "cmake",
     "ninja",
     "openblas",
     "openmpi",
+    "pkg-config",
     "python",
-    "python-setuptools"
+)
+
+PETSC_EXTRAS_MACOS_HOMEBREW_PACKAGES = ("hwloc", "hdf5-mpi")
+
+COMMON_MACOS_HOMEBREW_PACKAGES = (
+    BASE_MACOS_HOMEBREW_PACKAGES + PETSC_EXTRAS_MACOS_HOMEBREW_PACKAGES
 )
 
 SYSTEM_PACKAGES = {
@@ -191,6 +214,14 @@ PETSC_AUTODETECT = 333
 # Placeholder value to use when we want PETSc to download the package
 PETSC_DOWNLOAD = 666
 
+# For each package and architecture there are a number of different types of input:
+# 1. PETSC_AUTODETECT - PETSc will be able to find the package itself
+# 2. PETSC_DOWNLOAD - a suitable system package is not available, PETSc configure
+#      will download and install it
+# 3. str - the location of the package root directory (containing 'include' and
+#      'lib' subdirectories)
+# 4. tuple[str, tuple[str, ...]] - a 2-tuple consisting of the includes directory
+#      (location of the header files) and a collection of library files that PETSc needs.
 PETSC_EXTERNAL_PACKAGE_SPECS = {
     "bison": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
@@ -204,10 +235,10 @@ PETSC_EXTERNAL_PACKAGE_SPECS = {
     },
     "hdf5": {
         LINUX_APT_X86_64: (
-            "/usr/include/hdf5/openmpi", ["/usr/lib/x86_64-linux-gnu/hdf5/openmpi/libhdf5.a"]
+            "/usr/include/hdf5/openmpi", ("/usr/lib/x86_64-linux-gnu/hdf5/openmpi/libhdf5.a",)
         ),
         LINUX_APT_AARCH64: (
-            "/usr/include/hdf5/openmpi", ["/usr/lib/aarch64-linux-gnu/hdf5/openmpi/libhdf5.a"]
+            "/usr/include/hdf5/openmpi", ("/usr/lib/aarch64-linux-gnu/hdf5/openmpi/libhdf5.a",)
         ),
         MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
@@ -343,6 +374,42 @@ def prepare_configure_options(
 
 PETSC_CONFIGURE_OPTIONS = {
     (package_manager, arch): prepare_configure_options(package_manager, arch)
+    for (package_manager, arch) in (
+        (LINUX_APT_X86_64, ARCH_DEFAULT),
+        (LINUX_APT_X86_64, ARCH_COMPLEX),
+        (LINUX_APT_AARCH64, ARCH_DEFAULT),
+        (LINUX_APT_AARCH64, ARCH_COMPLEX),
+        (MACOS_HOMEBREW_ARM64, ARCH_DEFAULT),
+        (MACOS_HOMEBREW_ARM64, ARCH_COMPLEX),
+        (None, ARCH_DEFAULT),
+        (None, ARCH_COMPLEX),
+    )
+}
+
+
+def prepare_environment_vars(
+    package_manager: Optional[PackageManager],
+    arch: FiredrakeArch,
+) -> tuple[str, ...]:
+    vars = {
+        "PETSC_DIR": f"{os.getcwd()}/petsc",
+        "PETSC_ARCH": f"arch-firedrake-{arch.value}",
+        "HDF5_MPI": "ON",
+    }
+
+    if package_manager is None:
+        # HDF5 will have been downloaded by PETSc
+        vars["HDF5_DIR"] = f"{vars['PETSC_DIR']}/{vars['PETSC_ARCH']}"
+
+    if package_manager == MACOS_HOMEBREW_ARM64:
+        # h5py cannot find the HDF5 library without help
+        vars["HDF5_DIR"] = "/opt/homebrew"
+
+    return tuple(f"{var}={value}" for var, value in vars.items())
+
+
+ENVIRONMENT_VARS = {
+    (package_manager, arch): prepare_environment_vars(package_manager, arch)
     for (package_manager, arch) in (
         (LINUX_APT_X86_64, ARCH_DEFAULT),
         (LINUX_APT_X86_64, ARCH_COMPLEX),

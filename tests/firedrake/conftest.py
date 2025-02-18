@@ -86,8 +86,6 @@ def pytest_collection_modifyitems(session, config, items):
     except ImportError:
         vtk_installed = False
 
-    running_on_ci = os.getenv("FIREDRAKE_CI_TESTS") == "1"
-
     for item in items:
         if complex_mode:
             if item.get_closest_marker("skipcomplex") is not None:
@@ -98,7 +96,7 @@ def pytest_collection_modifyitems(session, config, items):
             if item.get_closest_marker("skipreal") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense unless in complex mode"))
 
-        if not running_on_ci:  # we shouldn't be skipping any tests in CI
+        if os.getenv("FIREDRAKE_CI") != "1":  # we shouldn't be skipping any tests in CI
             if "mumps" not in get_external_packages():
                 if item.get_closest_marker("skipmumps") is not None:
                     item.add_marker(pytest.mark.skip("MUMPS not installed with PETSc"))

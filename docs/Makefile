@@ -90,10 +90,16 @@ source/firedrake_citations.rst:
 	mv source/firedrake_citations.tmp source/firedrake_citations.rst
 
 source/apt_deps.txt:
-	python ../scripts/firedrake-system-deps --package-manager apt > source/apt_deps.txt
+	python ../scripts/firedrake-configure \
+		--package-manager apt-x86_64 \
+		--show-system-dependencies > source/apt_deps.tmp
+	mv source/apt_deps.tmp source/apt_deps.txt
 
 source/homebrew_deps.txt:
-	python ../scripts/firedrake-system-deps --package-manager homebrew > source/homebrew_deps.txt
+	python ../scripts/firedrake-configure \
+		--package-manager brew-arm64 \
+		--show-system-dependencies > source/homebrew_deps.tmp
+	mv source/homebrew_deps.tmp source/homebrew_deps.txt
 
 apidoc: $(GENERATED_FILES) copy_demos
 	sphinx-apidoc -f -T -o source/ ../firedrake ../firedrake/cython/*.so

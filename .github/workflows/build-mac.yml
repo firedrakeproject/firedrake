@@ -23,8 +23,7 @@ jobs:
     # Only run this action if we are pushing to master or the PR is labelled "macOS"
     if: ${{ (github.ref == 'refs/heads/master') || contains(github.event.pull_request.labels.*.name, 'macOS') }}
     env:
-      # TODO: Are these needed any more?
-      FIREDRAKE_CI_TESTS: 1  # needed to symlink the checked out branch into the venv
+      FIREDRAKE_CI: 1
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
     steps:
@@ -38,37 +37,33 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          path: repo
+          path: firedrake-repo
 
       - name: Install system dependencies
         run: |
-          brew install $(python3 ./repo/scripts/firedrake-configure --arch default --show-system-dependencies)
+          brew install $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --show-system-dependencies)
 
       - name: Install PETSc
         run: |
           git clone https://github.com/firedrakeproject/petsc.git
           cd petsc
           ./configure \
-            $(python3 ../repo/scripts/firedrake-configure --arch default --show-petsc-configure-options) \
+            $(python3 ../firedrake-repo/scripts/firedrake-configure --arch default --show-petsc-configure-options) \
             --with-make-np=4
           make
-          # TODO: Does this pass?
-          # make check
+          make check
 
       - name: Install Firedrake
         id: install
         run: |
-          export PETSC_DIR=$PWD/petsc PETSC_ARCH=arch-firedrake-default
-          export HDF5_DIR=/opt/homebrew HDF5_MPI=ON
-          export CC=mpicc CXX=mpicxx
-          export MPICC=$CC
+          export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --show-env)
           python3 -m venv venv
           . venv/bin/activate
           : # Force a rebuild of petsc4py as the cached one will not link to the fresh
           : # install of PETSc. A similar trick may be needed for compiled dependencies
           : # like h5py or mpi4py if changing HDF5/MPI libraries.
           pip cache remove petsc4py
-          pip install --verbose --no-binary h5py ./repo[test]
+          pip install --verbose --no-binary h5py ./firedrake-repo[test]
           firedrake-clean
           : # Extra test dependencies
           pip install pytest-timeout
