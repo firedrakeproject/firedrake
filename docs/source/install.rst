@@ -211,7 +211,26 @@ section below on how to :ref:`get help<getting_help>`.
 Updating Firedrake
 ------------------
 
-TODO
+Updating Firedrake involves following the same steps as above when
+:ref:`installing Firedrake<install_firedrake>`. First, use ``firedrake-configure``
+to set the right environment variables and then run::
+
+     $ pip install --no-binary h5py --upgrade git+https://github.com/firedrakeproject/firedrake.git
+
+Updating PETSc
+~~~~~~~~~~~~~~
+
+To update PETSc you simply need to run::
+
+   $ cd petsc
+   $ git pull
+   $ make
+
+This will only recompile PETSc's source code, not that of the external
+packages, and so should be relatively quick. If your PETSc is sufficiently
+out-of-date you may also need to rebuild the external packages by running::
+
+   $ make reconfigure
 
 
 .. _alternative_install:
