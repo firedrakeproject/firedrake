@@ -55,7 +55,7 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
         *argument_slots : ufl.coefficient.BaseCoefficient or ufl.argument.BaseArgument
             Tuple containing the arguments of the linear form associated with the external operator,
             i.e. the arguments with respect to which the external operator is linear. Those arguments can
-            retain only ``ufl.argument.BaseArgument`` objects, as a result of differentiation, or both
+            be ``ufl.argument.BaseArgument`` objects, as a result of differentiation, or both
             ``ufl.coefficient.BaseCoefficient`` and ``ufl.argument.BaseArgument`` object, as a result
             of taking the action on a given function.
         operator_data : dict
