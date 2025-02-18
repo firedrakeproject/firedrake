@@ -38,6 +38,7 @@ jobs:
       # PETSC_DIR, HDF5_DIR and MPICH_DIR are set inside the docker image
       FIREDRAKE_CI_TESTS: 1
       PYOP2_CI_TESTS: 1
+      PYOP2_SPMD_STRICT: 1
       PETSC_ARCH: ${{ matrix.petsc_arch }}
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
@@ -82,21 +83,16 @@ jobs:
       - name: Run Firedrake smoke tests
         run: |
           source pip_venv/bin/activate
+          firedrake-clean
           cd pip_venv/src/firedrake
-          pytest -v tests/firedrake/test_0init.py
-          pytest \
-            --durations=200 \
-            --timeout=1800 \
-            --timeout-method=thread \
-            -o faulthandler_timeout=1860 \
-            -n 12 --dist worksteal \
-            --junit-xml=firedrake.xml \
-            -sv tests/firedrake/regression -k "poisson_strong or stokes_mini or dg_advection"
-        timeout-minutes: 120
+          make check CHECK_PYTEST_ARGS="--timeout 60 --timeout-method=thread"
+        timeout-minutes: 10
 
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@v5.0.0-a02
-        if: ${{ always() && ( github.ref != 'refs/heads/master') }}
+        # To avoid permissions issues do not run with forked repos
+        # (see https://github.com/mikepenz/action-junit-report/issues/23)
+        if: ${{ always() && (github.ref != 'refs/heads/master') && (github.event.pull_request.head.repo.full_name == github.repository) }}
         with:
           report_paths: '/home/firedrake/pip_venv/src/firedrake/firedrake.xml'
           comment: true

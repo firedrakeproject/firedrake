@@ -20,13 +20,14 @@ import weakref
 
 import ctypes
 from pyop2 import op2
-from pyop2.mpi import COMM_SELF
 import pyop2.types
 from pyop2.compilation import load
-from pyop2.utils import get_petsc_dir
 from pyop2.codegen.builder import Pack, MatPack, DatPack
 from pyop2.codegen.representation import Comparison, Literal
 from pyop2.codegen.rep2loopy import register_petsc_function
+from pyop2.global_kernel import compile_global_kernel
+from pyop2.mpi import COMM_SELF
+from pyop2.utils import get_petsc_dir
 
 __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
 
@@ -222,7 +223,7 @@ def matrix_funptr(form, state):
 
         wrapper_knl_args = tuple(a.global_kernel_arg for a in args)
         mod = op2.GlobalKernel(kinfo.kernel, wrapper_knl_args, subset=True)
-        kernels.append(CompiledKernel(mod.compile(iterset.comm), kinfo))
+        kernels.append(CompiledKernel(compile_global_kernel(mod, iterset.comm), kinfo))
     return cell_kernels, int_facet_kernels
 
 
@@ -316,7 +317,7 @@ def residual_funptr(form, state):
 
         wrapper_knl_args = tuple(a.global_kernel_arg for a in args)
         mod = op2.GlobalKernel(kinfo.kernel, wrapper_knl_args, subset=True)
-        kernels.append(CompiledKernel(mod.compile(iterset.comm), kinfo))
+        kernels.append(CompiledKernel(compile_global_kernel(mod, iterset.comm), kinfo))
     return cell_kernels, int_facet_kernels
 
 
@@ -505,12 +506,13 @@ def load_c_function(code, name, comm):
     ldargs = (["-L%s/lib" % d for d in get_petsc_dir()]
               + ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()]
               + ["-lpetsc", "-lm"])
-    return load(code, "c", name,
-                argtypes=[ctypes.c_voidp, ctypes.c_int, ctypes.c_voidp,
-                          ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int,
-                          ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp],
-                restype=ctypes.c_int, cppargs=cppargs, ldargs=ldargs,
-                comm=comm)
+    dll = load(code, "c", cppargs=cppargs, ldargs=ldargs, comm=comm)
+    fn = getattr(dll, name)
+    fn.argtypes = [ctypes.c_voidp, ctypes.c_int, ctypes.c_voidp,
+                   ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int,
+                   ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp]
+    fn.restype = ctypes.c_int
+    return fn
 
 
 def make_c_arguments(form, kernel, state, get_map, require_state=False,

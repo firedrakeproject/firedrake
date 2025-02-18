@@ -23,6 +23,8 @@ jobs:
     # Only run this action if we are pushing to master or the PR is labelled "macOS"
     if: ${{ (github.ref == 'refs/heads/master') || contains(github.event.pull_request.labels.*.name, 'macOS') }}
     env:
+      FIREDRAKE_CI_TESTS: 1
+      PYOP2_SPMD_STRICT: 1
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
     steps:
@@ -53,6 +55,7 @@ jobs:
             --with-shared-libraries=1 \
             --with-mpi-dir=/opt/homebrew \
             --with-zlib \
+            --with-strict-petscerrorcode \
             --download-bison \
             --download-hdf5 \
             --download-hwloc \
@@ -96,13 +99,10 @@ jobs:
       - name: Run Firedrake smoke tests
         run: |
           source pip_venv/bin/activate
+          firedrake-clean
           cd pip_venv/src/firedrake
-          python -m pytest --timeout=1800 -v tests/firedrake/regression \
-            -k "poisson_strong or stokes_mini or dg_advection"
-          # also test for 'problem libraries' (spatialindex and libsupermesh)
-          python -m pytest -v tests/firedrake/regression/test_locate_cell.py
-          python -m pytest -v tests/firedrake/supermesh/test_assemble_mixed_mass_matrix.py
-        timeout-minutes: 30
+          make check CHECK_PYTEST_ARGS="--timeout 60 --timeout-method=thread"
+        timeout-minutes: 10
 
       - name: Cleanup (post)
         if: ${{ always() }}

@@ -149,7 +149,7 @@ def test_cant_integrate_subscripted_VFS(V):
 
 
 @pytest.mark.parametrize("cmpt",
-                         [-1, 2])
+                         [-3, 2])
 def test_cant_subscript_outside_components(V, cmpt):
     with pytest.raises(IndexError):
         return V.sub(cmpt)

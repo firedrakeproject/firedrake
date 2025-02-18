@@ -10,6 +10,9 @@ from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.bcs import DirichletBC, EquationBCSplit
 from firedrake.petsc import PETSc
 from firedrake.utils import cached_property
+from firedrake.function import Function
+from firedrake.cofunction import Cofunction
+from ufl.form import ZeroBaseForm
 
 
 __all__ = ("ImplicitMatrixContext", )
@@ -107,23 +110,22 @@ class ImplicitMatrixContext(object):
 
         # create functions from test and trial space to help
         # with 1-form assembly
-        test_space, trial_space = [
-            a.arguments()[i].function_space() for i in (0, 1)
-        ]
-        from firedrake import function, cofunction
+        test_space, trial_space = (
+            arg.function_space() for arg in a.arguments()
+        )
         # Need a cofunction since y receives the assembled result of Ax
-        self._ystar = cofunction.Cofunction(test_space.dual())
-        self._y = function.Function(test_space)
-        self._x = function.Function(trial_space)
-        self._xstar = cofunction.Cofunction(trial_space.dual())
+        self._ystar = Cofunction(test_space.dual())
+        self._y = Function(test_space)
+        self._x = Function(trial_space)
+        self._xstar = Cofunction(trial_space.dual())
 
         # These are temporary storage for holding the BC
         # values during matvec application.  _xbc is for
         # the action and ._ybc is for transpose.
         if len(self.bcs) > 0:
-            self._xbc = cofunction.Cofunction(trial_space.dual())
+            self._xbc = Cofunction(trial_space.dual())
         if len(self.col_bcs) > 0:
-            self._ybc = cofunction.Cofunction(test_space.dual())
+            self._ybc = Cofunction(test_space.dual())
 
         # Get size information from template vecs on test and trial spaces
         trial_vec = trial_space.dof_dset.layout_vec
@@ -135,6 +137,11 @@ class ImplicitMatrixContext(object):
 
         self.action = action(self.a, self._x)
         self.actionT = action(self.aT, self._y)
+        # TODO prevent action from returning empty Forms
+        if self.action.empty():
+            self.action = ZeroBaseForm(self.a.arguments()[:-1])
+        if self.actionT.empty():
+            self.actionT = ZeroBaseForm(self.aT.arguments()[:-1])
 
         # For assembling action(f, self._x)
         self.bcs_action = []
@@ -147,7 +154,7 @@ class ImplicitMatrixContext(object):
         self._assemble_action = get_assembler(self.action,
                                               bcs=self.bcs_action,
                                               form_compiler_parameters=self.fc_params,
-                                              zero_bc_nodes=True).assemble
+                                              ).assemble
 
         # For assembling action(adjoint(f), self._y)
         # Sorted list of equation bcs
@@ -170,7 +177,6 @@ class ImplicitMatrixContext(object):
 
     @cached_property
     def _diagonal(self):
-        from firedrake import Cofunction
         assert self.on_diag
         return Cofunction(self._x.function_space().dual())
 
@@ -183,11 +189,9 @@ class ImplicitMatrixContext(object):
 
     def getDiagonal(self, mat, vec):
         self._assemble_diagonal(tensor=self._diagonal)
-        diagonal_func = self._diagonal.riesz_representation(riesz_map="l2")
         for bc in self.bcs:
             # Operator is identity on boundary nodes
-            bc.set(diagonal_func, 1)
-        self._diagonal.assign(diagonal_func.riesz_representation(riesz_map="l2"))
+            bc.set(self._diagonal, 1)
         with self._diagonal.dat.vec_ro as v:
             v.copy(vec)
 

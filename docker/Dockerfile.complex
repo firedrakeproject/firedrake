@@ -7,6 +7,8 @@ WORKDIR /home/firedrake
 
 ENV PETSC_ARCH complex
 
+ARG EXTRA_INSTALL_FLAGS=""
+
 # Now install Firedrake.
 RUN curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
 RUN bash -c "python3 firedrake-install \
@@ -20,4 +22,5 @@ RUN bash -c "python3 firedrake-install \
     --mpiexec=$MPICH_DIR/mpiexec \
     --mpihome=$MPICH_DIR/.. \
     --slepc \
-    --documentation-dependencies"
+    --documentation-dependencies \
+    ${EXTRA_INSTALL_FLAGS}"

@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 import pytest
 import numpy
 
@@ -81,7 +82,9 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
         UP = Function(W)
         # Cannot set the nullspace with constant=True for non-Lagrange pressure elements
         nsp_basis = Function(Q).interpolate(Constant(1))
-        nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis([nsp_basis])])
+        subnullspace = VectorSpaceBasis([nsp_basis])
+        subnullspace.orthonormalize()
+        nullspace = MixedVectorSpaceBasis(W, [W.sub(0), subnullspace])
 
         parameters = {
             "mat_type": mat_type,
@@ -98,9 +101,8 @@ def test_stokes_hdiv_parallel(mat_type, element_pair):
                 "ksp_type": "preonly",
                 "pc_type": "python",
                 "pc_python_type": "firedrake.AssembledPC",
-                # Avoid MUMPS segfaults
-                "assembled_pc_type": "redundant",
-                "assembled_redundant_pc_type": "cholesky",
+                "assembled_pc_type": "lu",
+                "assembled_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
             },
             "fieldsplit_1": {
                 "ksp_type": "preonly",

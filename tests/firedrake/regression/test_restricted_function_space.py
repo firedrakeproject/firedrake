@@ -146,7 +146,8 @@ def test_poisson_inhomogeneous_bcs_2(j):
 
 
 @pytest.mark.parallel(nprocs=3)
-def test_poisson_inhomogeneous_bcs_high_level_interface():
+@pytest.mark.parametrize("assembled_rhs", [False, True], ids=("Form", "Cofunction"))
+def test_poisson_inhomogeneous_bcs_high_level_interface(assembled_rhs):
     mesh = UnitSquareMesh(8, 8)
     V = FunctionSpace(mesh, "CG", 2)
     bc1 = DirichletBC(V, 0., 1)
@@ -155,9 +156,11 @@ def test_poisson_inhomogeneous_bcs_high_level_interface():
     v = TestFunction(V)
     a = inner(grad(u), grad(v)) * dx
     u = Function(V)
-    L = inner(Constant(0), v) * dx
+    L = inner(Constant(-2), v) * dx
+    if assembled_rhs:
+        L = assemble(L)
     solve(a == L, u, bcs=[bc1, bc2], restrict=True)
-    assert errornorm(SpatialCoordinate(mesh)[0], u) < 1.e-12
+    assert errornorm(SpatialCoordinate(mesh)[0]**2, u) < 1.e-12
 
 
 @pytest.mark.parametrize("j", [1, 2, 5])
@@ -355,7 +358,7 @@ def test_restricted_function_space_extrusion_stokes(ncells):
     sol_res = Function(W_res)
     solve(a_res == L_res, sol_res, bcs=[bc_res])
     # Compare.
-    assert assemble(inner(sol_res - sol, sol_res - sol) * dx)**0.5 < 1.e-15
+    assert assemble(inner(sol_res - sol, sol_res - sol) * dx)**0.5 < 1.e-14
     # -- Actually, the ordering is the same.
     assert np.allclose(sol_res.subfunctions[0].dat.data_ro_with_halos, sol.subfunctions[0].dat.data_ro_with_halos)
     assert np.allclose(sol_res.subfunctions[1].dat.data_ro_with_halos, sol.subfunctions[1].dat.data_ro_with_halos)

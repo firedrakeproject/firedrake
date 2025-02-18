@@ -50,31 +50,6 @@ def conv_rates(x, h):
     return np.log2(x[:-1] / x[1:]) / np.log2(h[:-1] / h[1:])
 
 
-@pytest.fixture
-def convergence_test(variant):
-    if variant == "iso":
-        def check(uerr, perr, h):
-            return (conv_rates(uerr, h)[-1] >= 1.9
-                    and np.allclose(perr, 0, atol=1.e-8))
-    elif variant == "alfeld":
-        def check(uerr, perr, h):
-            return (np.allclose(uerr, 0, atol=5.e-9)
-                    and np.allclose(perr, 0, atol=5.e-7))
-    elif variant == "th":
-        def check(uerr, perr, h):
-            return (np.allclose(uerr, 0, atol=1.e-10)
-                    and np.allclose(perr, 0, atol=1.e-8))
-    return check
-
-
-@pytest.fixture
-def div_test(variant):
-    if variant == "alfeld":
-        return lambda x: norm(div(x)) <= 1.e-10
-    else:
-        return lambda x: norm(div(x)) > 1.e-5
-
-
 def riesz_map(Z, gamma=None):
     v, q = TestFunctions(Z)
     u, p = TrialFunctions(Z)
@@ -87,7 +62,7 @@ def riesz_map(Z, gamma=None):
     return a
 
 
-def test_riesz(mh, variant, mixed_element, convergence_test):
+def test_riesz(mh, variant, mixed_element):
     dim = mh[0].geometric_dimension()
     u_err = []
     p_err = []
@@ -107,12 +82,22 @@ def test_riesz(mh, variant, mixed_element, convergence_test):
 
         zh = Function(Z)
         solve(a == L, zh, bcs=bcs)
-
         uh, ph = zh.subfunctions
         u_err.append(errornorm(as_vector(zexact[:dim]), uh))
         p_err.append(errornorm(zexact[-1], ph))
 
-    assert convergence_test(u_err, p_err, mesh_sizes(mh))
+    # Here u is quadratic and p is linear,
+    # all spaces should recover u and p exactly except iso
+    if variant == "iso":
+        h = mesh_sizes(mh)
+        assert conv_rates(u_err, h)[-1] >= 1.9
+        assert np.allclose(p_err, 0, atol=1E-10)
+    elif variant == "alfeld":
+        assert np.allclose(u_err, 0, atol=5E-9)
+        assert np.allclose(p_err, 0, atol=5E-7)
+    elif variant == "th":
+        assert np.allclose(u_err, 0, atol=1E-10)
+        assert np.allclose(p_err, 0, atol=1E-8)
 
 
 def stokes_mms(Z, zexact):
@@ -131,21 +116,26 @@ def stokes_mms(Z, zexact):
 
 def errornormL2_0(pexact, ph):
     msh = ph.function_space().mesh()
-    vol = assemble(1*dx(domain=msh))
-    err = pexact - ph
-    return sqrt(abs(assemble(inner(err, err)*dx) - (1/vol)*abs(assemble(err*dx))**2))
+    p0 = assemble((pexact - ph) * dx) / assemble(1*dx(domain=msh))
+    return errornorm(pexact - Constant(p0), ph)
 
 
-def test_stokes(mh, variant, mixed_element, convergence_test):
+def test_stokes(mh, variant, mixed_element):
     dim = mh[0].geometric_dimension()
-    if variant == "iso" and dim == 3:
-        pytest.xfail("P2:P1 iso x P1 is not inf-sup stable in 3D")
     u_err = []
     p_err = []
+    div_err = []
     el1, el2 = mixed_element
     for msh in mh:
+        # Construct a stream-function
         x = SpatialCoordinate(msh)
-        uexact = (sum(x),) + tuple(x[i]**2 for i in range(dim-1))
+        psi0 = lambda i, j: x[i] * (1-x[i]) * x[j] * (1-x[j])
+        if dim == 3:
+            psi = as_vector([psi0(1, 2), psi0(2, 0), psi0(0, 1)])
+        else:
+            psi = psi0(0, 1)
+        # Divergence-free exact solution
+        uexact = curl(psi)
         pexact = x[dim-1] - Constant(0.5)
         zexact = (*uexact, pexact)
 
@@ -161,33 +151,32 @@ def test_stokes(mh, variant, mixed_element, convergence_test):
             Z,
             [Z.sub(0), VectorSpaceBasis(constant=True, comm=COMM_WORLD)]
         )
-        solve(a == L, zh, bcs=bcs, nullspace=nullspace, solver_parameters={"ksp_type": "gmres"})
+        solve(a == L, zh, bcs=bcs, nullspace=nullspace)
+
         uh, ph = zh.subfunctions
-        u_err.append(errornorm(as_vector(zexact[:dim]), uh))
-        p_err.append(errornormL2_0(zexact[-1], ph))
+        u_err.append(errornorm(as_vector(uexact), uh))
+        p_err.append(errornormL2_0(pexact, ph))
+        div_err.append(sqrt(abs(assemble(inner(div(uh), div(uh))*dx))))
 
-    assert convergence_test(u_err, p_err, mesh_sizes(mh))
-
-
-def test_div_free(mh, variant, mixed_element, div_test):
-    dim = mh[0].geometric_dimension()
-    if variant == "iso" and dim == 3:
-        pytest.xfail("P2:P1 iso x P1 is not inf-sup stable in 3D")
-    el1, el2 = mixed_element
-    for msh in mh:
-        x = SpatialCoordinate(msh)
-        V = VectorFunctionSpace(msh, el1)
-        Q = FunctionSpace(msh, el2)
-        Z = V * Q
-        a, L = stokes_mms(Z, Constant([0] * (dim+1)))
-
-        f = as_vector([1] + [0] * (dim-1))
-        for k in range(1, dim):
-            f = f * (x[k]*(1-x[k]))**2
-
-        sub = tuple(range(1, 2*dim+1))
-        bcs = [DirichletBC(Z[0], f, sub)]
-        zh = Function(Z)
-        solve(a == L, zh, bcs=bcs)
-        uh, _ = zh.subfunctions
-        assert div_test(uh)
+    # Here u is cubic and p is linear.
+    # Only 3D alfeld can recover u and p exactly.
+    # 2D and 3D alfeld should be divergence-free.
+    h = mesh_sizes(mh)
+    if variant == "iso":
+        assert conv_rates(u_err, h)[-1] >= 1.9
+        assert conv_rates(p_err, h)[-1] >= 0.9
+        assert conv_rates(div_err, h)[-1] >= 0.9
+    elif variant == "alfeld":
+        if dim == 3:
+            assert np.allclose(u_err, 0, atol=1E-9)
+            assert np.allclose(p_err, 0, atol=1E-9)
+        else:
+            assert conv_rates(u_err, h)[-1] >= dim + 0.9
+            assert conv_rates(p_err, h)[-1] >= dim-1 + 0.9
+        # Test div-free
+        assert np.allclose(div_err, 0, atol=1E-10)
+    elif variant == "th":
+        assert conv_rates(u_err, h)[-1] >= 2.9
+        assert (conv_rates(p_err, h)[-1] >= 1.9
+                or np.allclose(p_err, 0, atol=1E-10))
+        assert conv_rates(div_err, h)[-1] >= 1.9

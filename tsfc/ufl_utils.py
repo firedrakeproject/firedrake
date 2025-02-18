@@ -8,7 +8,7 @@ import ufl
 from ufl import as_tensor, indices, replace
 from ufl.algorithms import compute_form_data as ufl_compute_form_data
 from ufl.algorithms import estimate_total_polynomial_degree
-from ufl.algorithms.analysis import extract_arguments, extract_type
+from ufl.algorithms.analysis import extract_arguments, extract_coefficients, extract_type
 from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
 from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
 from ufl.algorithms.apply_derivatives import apply_derivatives
@@ -16,6 +16,7 @@ from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
 from ufl.algorithms.apply_restrictions import apply_restrictions
 from ufl.algorithms.comparison_checker import do_comparison_check
 from ufl.algorithms.remove_complex_nodes import remove_complex_nodes
+from ufl.algorithms.signature import compute_expression_signature
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
 from ufl.geometry import QuadratureWeight
@@ -495,3 +496,24 @@ class TSFCConstantMixin:
 
     def __init__(self):
         pass
+
+
+def hash_expr(expr: ufl.core.expr.Expr) -> str:
+    """Return a numbering-invariant hash of a UFL expression.
+
+    Parameters
+    ----------
+    expr :
+        A UFL expression.
+
+    Returns
+    -------
+    str :
+        A numbering-invariant hash for the expression.
+    """
+    domain_numbering = {d: i for i, d in enumerate(ufl.domain.extract_domains(expr))}
+    coefficient_numbering = {c: i for i, c in enumerate(extract_coefficients(expr))}
+    constant_numbering = {c: i for i, c in enumerate(extract_firedrake_constants(expr))}
+    return compute_expression_signature(
+        expr, {**domain_numbering, **coefficient_numbering, **constant_numbering}
+    )

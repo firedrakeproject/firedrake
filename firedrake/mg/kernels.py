@@ -720,7 +720,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     kernel = lp.make_kernel(
         domains, instructions, kernel_data, name=kernel_name,
         target=tsfc.parameters.target, lang_version=(2018, 2))
-    kernel = lp.merge([kernel, *subkernels])
+    kernel = lp.merge([kernel, *subkernels]).with_entrypoints({kernel_name})
     return op2.Kernel(
         kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
         headers=Ainv.headers, events=Ainv.events)

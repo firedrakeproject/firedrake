@@ -180,7 +180,8 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
         # Apply bcs and also inject them
         for bc in chain(*finectx._problem.bcs):
             if isinstance(bc, DirichletBC):
-                bc.apply(finectx._x)
+                if finectx.pre_apply_bcs:
+                    bc.apply(finectx._x)
                 g = bc.function_arg
                 if isinstance(g, firedrake.Function) and hasattr(g, "_child"):
                     manager.inject(g, g._child)
@@ -208,7 +209,7 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
     F = self(problem.F, self, coefficient_mapping=coefficient_mapping)
 
     fine = problem
-    problem = firedrake.NonlinearVariationalProblem(F, u, bcs=bcs, J=J, Jp=Jp,
+    problem = firedrake.NonlinearVariationalProblem(F, u, bcs=bcs, J=J, Jp=Jp, is_linear=problem.is_linear,
                                                     form_compiler_parameters=problem.form_compiler_parameters)
     fine._coarse = problem
     return problem
@@ -264,7 +265,8 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
                            mat_type=context.mat_type,
                            pmat_type=context.pmat_type,
                            appctx=new_appctx,
-                           transfer_manager=context.transfer_manager)
+                           transfer_manager=context.transfer_manager,
+                           pre_apply_bcs=context.pre_apply_bcs)
     coarse._fine = context
     context._coarse = coarse
 
@@ -401,9 +403,8 @@ def create_injection(dmc, dmf):
 
     cfn = firedrake.Function(V_c)
     ffn = firedrake.Function(V_f)
-    cbcs = cctx._problem.bcs
 
-    ctx = Injection(cfn, ffn, manager, cbcs)
+    ctx = Injection(cfn, ffn, manager)
     mat = PETSc.Mat().create(comm=dmc.comm)
     mat.setSizes((row_size, col_size))
     mat.setType(mat.Type.PYTHON)

@@ -21,61 +21,189 @@ on:
 
 jobs:
   # Firedrake environment container
-  docker_env:
-    uses: ./.github/workflows/docker_reuse.yml
+  docker_build_env:
+    strategy:
+      matrix:
+        os: [Linux, macOS]
+        include:
+          - os: Linux
+            platform: linux/amd64
+          - os: macOS
+            platform: linux/arm64
+    uses: ./.github/workflows/docker_build.yml
     with:
+      os: ${{ matrix.os }}
+      platform: ${{ matrix.platform }}
       target: firedrake-env
       tag: ${{ inputs.tag }}
       dockerfile: docker/Dockerfile.env
     secrets: inherit
+
+  docker_merge_env:
+    uses: ./.github/workflows/docker_merge.yml
+    needs: docker_build_env
+    with:
+      target: firedrake-env
+      tag: ${{ inputs.tag }}
+    secrets: inherit
+
   # Firedrake container (just Firedrake)
-  docker_vanilla:
-    needs: docker_env
+  docker_build_vanilla:
     # Only run if "Build Firedrake" succeeds
     if: ${{ inputs.status == 'success' }}
-    uses: ./.github/workflows/docker_reuse.yml
+    needs: docker_merge_env
+    strategy:
+      matrix:
+        os: [Linux, macOS]
+        include:
+          - os: Linux
+            platform: linux/amd64
+            extra-install-flags: ""
+          - os: macOS
+            platform: linux/arm64
+            # VTK does not have Linux ARM wheels (https://gitlab.kitware.com/vtk/vtk/-/issues/18772)
+            extra-install-flags: "--no-vtk"
+    uses: ./.github/workflows/docker_build.yml
     with:
+      os: ${{ matrix.os }}
+      platform: ${{ matrix.platform }}
+      extra-install-flags: ${{ matrix.extra-install-flags }}
       target: firedrake-vanilla
       tag: ${{ inputs.tag }}
       dockerfile: docker/Dockerfile.vanilla
     secrets: inherit
-  # Firedrake container (Firedrake and friends)
-  docker_firedrake:
-    # Artificial dependency on docker_complex due to CI race condition
-    needs: [docker_vanilla, docker_complex]
-    uses: ./.github/workflows/docker_reuse.yml
+
+  docker_merge_vanilla:
+    uses: ./.github/workflows/docker_merge.yml
+    needs: docker_build_vanilla
     with:
-      target: firedrake
+      target: firedrake-vanilla
       tag: ${{ inputs.tag }}
-      dockerfile: docker/Dockerfile.firedrake
     secrets: inherit
-  # Firedrake container with documentation dependencies and TeX
-  docker_docdeps:
-    # Artificial dependency on docker_complex due to CI race condition
-    needs: [docker_vanilla, docker_complex]
-    uses: ./.github/workflows/docker_reuse.yml
-    with:
-      target: firedrake-docdeps
-      tag: ${{ inputs.tag }}
-      dockerfile: docker/Dockerfile.docdeps
-    secrets: inherit
-  # Firedrake complex container
-  docker_complex:
-    needs: docker_env
+
+  # Complex Firedrake container (just Firedrake)
+  docker_build_complex:
+    needs: docker_merge_env
     # Only run if "Build Firedrake" succeeds
     if: ${{ inputs.status == 'success' }}
-    uses: ./.github/workflows/docker_reuse.yml
+    strategy:
+      matrix:
+        os: [Linux, macOS]
+        include:
+          - os: Linux
+            platform: linux/amd64
+            extra-install-flags: ""
+          - os: macOS
+            platform: linux/arm64
+            # VTK does not have Linux ARM wheels (https://gitlab.kitware.com/vtk/vtk/-/issues/18772)
+            extra-install-flags: "--no-vtk"
+    uses: ./.github/workflows/docker_build.yml
     with:
+      os: ${{ matrix.os }}
+      platform: ${{ matrix.platform }}
+      extra-install-flags: ${{ matrix.extra-install-flags }}
       target: firedrake-complex
       tag: ${{ inputs.tag }}
       dockerfile: docker/Dockerfile.complex
     secrets: inherit
-  # Firedrake container with Jupyter notebooks
-  docker_jupyter:
-    needs: docker_firedrake
-    uses: ./.github/workflows/docker_reuse.yml
+
+  docker_merge_complex:
+    uses: ./.github/workflows/docker_merge.yml
+    needs: docker_build_complex
     with:
+      target: firedrake-complex
+      tag: ${{ inputs.tag }}
+    secrets: inherit
+
+  # # Firedrake container (Firedrake and friends)
+  docker_build_firedrake:
+    # Only run if "Build Firedrake" succeeds
+    if: ${{ inputs.status == 'success' }}
+    needs: docker_merge_vanilla
+    strategy:
+      matrix:
+        os: [Linux, macOS]
+        include:
+          - os: Linux
+            platform: linux/amd64
+            extra-install-flags: "--netgen"
+          - os: macOS
+            platform: linux/arm64
+            extra-install-flags: ""  # no ARM wheel for netgen-mesher
+    uses: ./.github/workflows/docker_build.yml
+    with:
+      os: ${{ matrix.os }}
+      platform: ${{ matrix.platform }}
+      extra-install-flags: ${{ matrix.extra-install-flags }}
+      target: firedrake
+      tag: ${{ inputs.tag }}
+      dockerfile: docker/Dockerfile.firedrake
+    secrets: inherit
+
+  docker_merge_firedrake:
+    uses: ./.github/workflows/docker_merge.yml
+    needs: docker_build_firedrake
+    with:
+      target: firedrake
+      tag: ${{ inputs.tag }}
+    secrets: inherit
+
+  # # Firedrake container with documentation dependencies and TeX
+  docker_build_docdeps:
+    # Only run if "Build Firedrake" succeeds
+    if: ${{ inputs.status == 'success' }}
+    needs: docker_merge_vanilla
+    strategy:
+      matrix:
+        os: [Linux, macOS]
+        include:
+          - os: Linux
+            platform: linux/amd64
+          - os: macOS
+            platform: linux/arm64
+    uses: ./.github/workflows/docker_build.yml
+    with:
+      os: ${{ matrix.os }}
+      platform: ${{ matrix.platform }}
+      target: firedrake-docdeps
+      tag: ${{ inputs.tag }}
+      dockerfile: docker/Dockerfile.docdeps
+    secrets: inherit
+
+  docker_merge_docdeps:
+    uses: ./.github/workflows/docker_merge.yml
+    needs: docker_build_docdeps
+    with:
+      target: firedrake-docdeps
+      tag: ${{ inputs.tag }}
+    secrets: inherit
+
+  # # Firedrake container with Jupyter notebooks
+  docker_build_jupyter:
+    # Only run if "Build Firedrake" succeeds
+    if: ${{ inputs.status == 'success' }}
+    needs: docker_merge_firedrake
+    strategy:
+      matrix:
+        os: [Linux, macOS]
+        include:
+          - os: Linux
+            platform: linux/amd64
+          - os: macOS
+            platform: linux/arm64
+    uses: ./.github/workflows/docker_build.yml
+    with:
+      os: ${{ matrix.os }}
+      platform: ${{ matrix.platform }}
       target: firedrake-jupyter
       tag: ${{ inputs.tag }}
       dockerfile: docker/Dockerfile.jupyter
+    secrets: inherit
+
+  docker_merge_jupyter:
+    uses: ./.github/workflows/docker_merge.yml
+    needs: docker_build_jupyter
+    with:
+      target: firedrake-jupyter
+      tag: ${{ inputs.tag }}
     secrets: inherit

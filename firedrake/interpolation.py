@@ -3,12 +3,12 @@ from functools import partial, singledispatch
 import os
 import tempfile
 import abc
+import warnings
 
 import FIAT
 import ufl
 import finat.ufl
 from ufl.algorithms import extract_arguments, extract_coefficients, replace
-from ufl.algorithms.signature import compute_expression_signature
 from ufl.domain import as_domain, extract_unique_domain
 
 from pyop2 import op2
@@ -16,14 +16,14 @@ from pyop2.caching import memory_and_disk_cache
 
 from finat.element_factory import create_element, as_fiat_cell
 from tsfc import compile_expression_dual_evaluation
-from tsfc.ufl_utils import extract_firedrake_constants
+from tsfc.ufl_utils import extract_firedrake_constants, hash_expr
 
 import gem
 import finat
 
 import firedrake
 from firedrake import tsfc_interface, utils, functionspaceimpl
-from firedrake.ufl_expr import Argument, action, adjoint
+from firedrake.ufl_expr import Argument, action, adjoint as expr_adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype as get_dat_mpi_type
@@ -75,7 +75,7 @@ class Interpolate(ufl.Interpolate):
                              (a) unchanged if some ``output`` is given to the :meth:`interpolate` method
                              or (b) set to zero.
                              Can be overwritten with the ``default_missing_val`` kwarg of :meth:`interpolate`.
-                             This does not affect transpose interpolation. Ignored if interpolating within
+                             This does not affect adjoint interpolation. Ignored if interpolating within
                              the same mesh or onto a :func:`.VertexOnlyMesh` (the behaviour of a
                              :func:`.VertexOnlyMesh` in this scenario is, at present, set when it is created).
         default_missing_val : float
@@ -139,7 +139,7 @@ class Interpolate(ufl.Interpolate):
 #   - v is a function in V (NOT an expression).
 #   - w is a function in W.
 #   - Maths: v = Bw
-# - v_star = B.interpolate(w_star, transpose = True)
+# - v_star = B.interpolate(w_star, adjoint=True)
 #   - w_star is a cofunction in W^* (such as an assembled 1-form).
 #   - v_star is a cofunction in V^*.
 #   - Maths: v^* = B^* w^*
@@ -175,7 +175,7 @@ def interpolate(
         ``True`` the corresponding values are either (a) unchanged if
         some ``output`` is given to the :meth:`interpolate` method or (b) set
         to zero. In either case, if ``default_missing_val`` is specified, that
-        value is used. This does not affect transpose interpolation. Ignored if
+        value is used. This does not affect adjoint interpolation. Ignored if
         interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`
         (the behaviour of a :func:`.VertexOnlyMesh` in this scenario is, at
         present, set when it is created).
@@ -242,7 +242,7 @@ class Interpolator(abc.ABC):
         ``True`` the corresponding values are either (a) unchanged if
         some ``output`` is given to the :meth:`interpolate` method or (b) set
         to zero. Can be overwritten with the ``default_missing_val`` kwarg
-        of :meth:`interpolate`. This does not affect transpose interpolation.
+        of :meth:`interpolate`. This does not affect adjoint interpolation.
         Ignored if interpolating within the same mesh or onto a
         :func:`.VertexOnlyMesh` (the behaviour of a :func:`.VertexOnlyMesh` in
         this scenario is, at present, set when it is created).
@@ -298,7 +298,7 @@ class Interpolator(abc.ABC):
                                               part=v.part())})
         self.expr_renumbered = expr
 
-    def _interpolate_future(self, *function, transpose=False, default_missing_val=None):
+    def _interpolate_future(self, *function, transpose=None, adjoint=False, default_missing_val=None):
         """Define the :class:`Interpolate` object corresponding to the interpolation operation of interest.
 
         Parameters
@@ -306,16 +306,18 @@ class Interpolator(abc.ABC):
         *function: firedrake.function.Function or firedrake.cofunction.Cofunction
                    If the expression being interpolated contains an argument,
                    then the function value to interpolate.
-        transpose: bool
-                   Set to true to apply the transpose (adjoint) of the
-                   interpolation operator.
+        transpose : bool
+                   Deprecated, use adjoint instead.
+        adjoint: bool
+                   Set to true to apply the adjoint of the interpolation
+                   operator.
         default_missing_val: bool
                              For interpolation across meshes: the
                              optional value to assign to DoFs in the target mesh that are
                              outside the source mesh. If this is not set then the values are
                              either (a) unchanged if some ``output`` is specified to the
                              :meth:`interpolate` method or (b) set to zero. This does not affect
-                             transpose interpolation. Ignored if interpolating within the same
+                             adjoint interpolation. Ignored if interpolating within the same
                              mesh or onto a :func:`.VertexOnlyMesh`.
 
         Returns
@@ -338,8 +340,11 @@ class Interpolator(abc.ABC):
                              access=self.access,
                              allow_missing_dofs=self._allow_missing_dofs,
                              default_missing_val=default_missing_val)
-        if transpose:
-            interp = adjoint(interp)
+        if transpose is not None:
+            warnings.warn("'transpose' argument is deprecated, use 'adjoint' instead", FutureWarning)
+            adjoint = transpose or adjoint
+        if adjoint:
+            interp = expr_adjoint(interp)
 
         if function:
             f, = function
@@ -349,7 +354,7 @@ class Interpolator(abc.ABC):
         return interp
 
     @PETSc.Log.EventDecorator()
-    def interpolate(self, *function, output=None, transpose=False, default_missing_val=None,
+    def interpolate(self, *function, output=None, transpose=None, adjoint=False, default_missing_val=None,
                     ad_block_tag=None):
         """Compute the interpolation by assembling the appropriate :class:`Interpolate` object.
 
@@ -360,16 +365,18 @@ class Interpolator(abc.ABC):
                    then the function value to interpolate.
         output: firedrake.function.Function or firedrake.cofunction.Cofunction
                 A function to contain the output.
-        transpose: bool
-                   Set to true to apply the transpose (adjoint) of the
-                   interpolation operator.
+        transpose : bool
+                   Deprecated, use adjoint instead.
+        adjoint: bool
+                   Set to true to apply the adjoint of the interpolation
+                   operator.
         default_missing_val: bool
                              For interpolation across meshes: the
                              optional value to assign to DoFs in the target mesh that are
                              outside the source mesh. If this is not set then the values are
                              either (a) unchanged if some ``output`` is specified to the
                              :meth:`interpolate` method or (b) set to zero. This does not affect
-                             transpose interpolation. Ignored if interpolating within the same
+                             adjoint interpolation. Ignored if interpolating within the same
                              mesh or onto a :func:`.VertexOnlyMesh`.
         ad_block_tag: str
                       An optional string for tagging the resulting assemble block on the Pyadjoint tape.
@@ -379,7 +386,6 @@ class Interpolator(abc.ABC):
         firedrake.function.Function or firedrake.cofunction.Cofunction
             The resulting interpolated function.
         """
-        import warnings
         from firedrake.assemble import assemble
 
         warnings.warn("""The use of `interpolate` to perform the numerical interpolation is deprecated.
@@ -402,9 +408,12 @@ assemble(interpolate(expr, V))
 Alternatively, you can also perform other symbolic operations on the interpolation operator, such as taking
 the derivative, and then assemble the resulting form.
 """, FutureWarning)
+        if transpose is not None:
+            warnings.warn("'transpose' argument is deprecated, use 'adjoint' instead", FutureWarning)
+            adjoint = transpose or adjoint
 
         # Get the Interpolate object
-        interp = self._interpolate_future(*function, transpose=transpose,
+        interp = self._interpolate_future(*function, adjoint=adjoint,
                                           default_missing_val=default_missing_val)
 
         if isinstance(self.V, firedrake.Function) and not output:
@@ -507,7 +516,7 @@ class CrossMeshInterpolator(Interpolator):
             missing_points_behaviour = MissingPointsBehaviour.ERROR
 
         # setup
-        V_dest = V
+        V_dest = V.function_space() if isinstance(V, firedrake.Function) else V
         src_mesh = extract_unique_domain(expr)
         dest_mesh = as_domain(V_dest)
         src_mesh_gdim = src_mesh.geometric_dimension()
@@ -564,7 +573,7 @@ class CrossMeshInterpolator(Interpolator):
                     # with arguments, as opposed to just being the argument.
                     expr_subfunctions = [
                         firedrake.TestFunction(V_src_sub_func)
-                        for V_src_sub_func in self.expr.function_space().subfunctions
+                        for V_src_sub_func in self.expr.function_space().subspaces
                     ]
                 elif self.nargs > 1:
                     raise NotImplementedError(
@@ -572,16 +581,16 @@ class CrossMeshInterpolator(Interpolator):
                     )
                 else:
                     expr_subfunctions = self.expr.subfunctions
-                if len(expr_subfunctions) != len(V_dest.subfunctions):
+                if len(expr_subfunctions) != len(V_dest.subspaces):
                     raise NotImplementedError(
                         "Can't interpolate from a non-mixed function space into a mixed function space."
                     )
-                for input_sub_func, target_sub_func in zip(
-                    expr_subfunctions, V_dest.subfunctions
+                for input_sub_func, target_subspace in zip(
+                    expr_subfunctions, V_dest.subspaces
                 ):
                     sub_interpolator = type(self)(
                         input_sub_func,
-                        target_sub_func,
+                        target_subspace,
                         subset=subset,
                         freeze_expr=freeze_expr,
                         access=access,
@@ -643,7 +652,8 @@ class CrossMeshInterpolator(Interpolator):
         self,
         *function,
         output=None,
-        transpose=False,
+        transpose=None,
+        adjoint=False,
         default_missing_val=None,
         **kwargs,
     ):
@@ -653,9 +663,12 @@ class CrossMeshInterpolator(Interpolator):
         """
         from firedrake.assemble import assemble
 
-        if transpose and not self.nargs:
+        if transpose is not None:
+            warnings.warn("'transpose' argument is deprecated, use 'adjoint' instead", FutureWarning)
+            adjoint = transpose or adjoint
+        if adjoint and not self.nargs:
             raise ValueError(
-                "Can currently only apply transpose interpolation with arguments."
+                "Can currently only apply adjoint interpolation with arguments."
             )
         if self.nargs != len(function):
             raise ValueError(
@@ -672,7 +685,7 @@ class CrossMeshInterpolator(Interpolator):
         else:
             f_src = self.expr
 
-        if transpose:
+        if adjoint:
             try:
                 V_dest = self.expr.function_space().dual()
             except AttributeError:
@@ -684,7 +697,7 @@ class CrossMeshInterpolator(Interpolator):
                         V_dest = coeffs[0].function_space().dual()
                     else:
                         raise ValueError(
-                            "Can't transpose interpolate an expression with no coefficients or arguments."
+                            "Can't adjoint interpolate an expression with no coefficients or arguments."
                         )
         else:
             if isinstance(self.V, (firedrake.Function, firedrake.Cofunction)):
@@ -710,14 +723,14 @@ class CrossMeshInterpolator(Interpolator):
                     # so the sub_interpolators are already prepared to interpolate
                     # without needing to be given a Function
                     assert not self.nargs
-                    interp = sub_interpolator._interpolate_future(transpose=transpose, **kwargs)
+                    interp = sub_interpolator._interpolate_future(adjoint=adjoint, **kwargs)
                     assemble(interp, tensor=output_sub_func)
                 else:
-                    interp = sub_interpolator._interpolate_future(transpose=transpose, **kwargs)
+                    interp = sub_interpolator._interpolate_future(adjoint=adjoint, **kwargs)
                     assemble(action(interp, f_src_sub_func), tensor=output_sub_func)
             return output
 
-        if not transpose:
+        if not adjoint:
             if f_src is self.expr:
                 # f_src is already contained in self.point_eval_interpolate
                 assert not self.nargs
@@ -764,7 +777,7 @@ class CrossMeshInterpolator(Interpolator):
                 ] = f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_ro[:]
 
         else:
-            # adjoint/transpose interpolation
+            # adjoint interpolation
 
             # f_src is a cofunction on V_dest.dual as originally specified when
             # creating the interpolator. Our first adjoint operation is to
@@ -780,25 +793,25 @@ class CrossMeshInterpolator(Interpolator):
                 :
             ] = f_src.dat.data_ro[:]
 
-            # The rest of the transpose interpolation is merely the composition
-            # of the transpose interpolators in the reverse direction. NOTE: I
+            # The rest of the adjoint interpolation is merely the composition
+            # of the adjoint interpolators in the reverse direction. NOTE: I
             # don't have to worry about skipping over missing points here
             # because I'm going from the input ordering VOM to the original VOM
             # and all points from the input ordering VOM are in the original.
-            interp = action(adjoint(self.to_input_ordering_interpolate), f_src_at_dest_node_coords_dest_mesh_decomp)
+            interp = action(expr_adjoint(self.to_input_ordering_interpolate), f_src_at_dest_node_coords_dest_mesh_decomp)
             f_src_at_src_node_coords = assemble(interp)
             # NOTE: if I wanted the default missing value to be applied to
-            # transpose interpolation I would have to do it here. However,
+            # adjoint interpolation I would have to do it here. However,
             # this would require me to implement default missing values for
-            # transpose interpolation from a point evaluation interpolator
+            # adjoint interpolation from a point evaluation interpolator
             # which I haven't done. I wonder if it is necessary - perhaps the
             # adjoint operator always sets all the values of the resulting
             # cofunction? My initial attempt to insert setting the dat values
-            # prior to performing the multTranspose operation in
+            # prior to performing the multHermitian operation in
             # SameMeshInterpolator.interpolate did not effect the result. For
             # now, I say in the docstring that it only applies to forward
             # interpolation.
-            interp = action(adjoint(self.point_eval_interpolate), f_src_at_src_node_coords)
+            interp = action(expr_adjoint(self.point_eval_interpolate), f_src_at_src_node_coords)
             assemble(interp, tensor=output)
 
         return output
@@ -823,13 +836,17 @@ class SameMeshInterpolator(Interpolator):
         self.nargs = len(arguments)
 
     @PETSc.Log.EventDecorator()
-    def _interpolate(self, *function, output=None, transpose=False, **kwargs):
+    def _interpolate(self, *function, output=None, transpose=None, adjoint=False, **kwargs):
         """Compute the interpolation.
 
         For arguments, see :class:`.Interpolator`.
         """
-        if transpose and not self.nargs:
-            raise ValueError("Can currently only apply transpose interpolation with arguments.")
+
+        if transpose is not None:
+            warnings.warn("'transpose' argument is deprecated, use 'adjoint' instead", FutureWarning)
+            adjoint = transpose or adjoint
+        if adjoint and not self.nargs:
+            raise ValueError("Can currently only apply adjoint interpolation with arguments.")
         if self.nargs != len(function):
             raise ValueError("Passed %d Functions to interpolate, expected %d"
                              % (len(function), self.nargs))
@@ -851,15 +868,20 @@ class SameMeshInterpolator(Interpolator):
             function, = function
             if not hasattr(function, "dat"):
                 raise ValueError("The expression had arguments: we therefore need to be given a Function (not an expression) to interpolate!")
-            if transpose:
-                mul = assembled_interpolator.handle.multTranspose
+            if adjoint:
+                mul = assembled_interpolator.handle.multHermitian
                 V = self.arguments[0].function_space()
             else:
                 mul = assembled_interpolator.handle.mult
                 V = self.V
             result = output or firedrake.Function(V)
             with function.dat.vec_ro as x, result.dat.vec_wo as out:
-                mul(x, out)
+                if x is not out:
+                    mul(x, out)
+                else:
+                    out_ = out.duplicate()
+                    mul(x, out_)
+                    out_.copy(result=out)
             return result
 
         else:
@@ -1434,20 +1456,6 @@ class GlobalWrapper(object):
         self.ufl_domain = lambda: None
 
 
-def hash_expr(expr):
-    """Return a numbering-invariant hash of a UFL expression.
-
-    :arg expr: A UFL expression.
-    :returns: A numbering-invariant hash for the expression.
-    """
-    domain_numbering = {d: i for i, d in enumerate(ufl.domain.extract_domains(expr))}
-    coefficient_numbering = {c: i for i, c in enumerate(extract_coefficients(expr))}
-    constant_numbering = {c: i for i, c in enumerate(extract_firedrake_constants(expr))}
-    return compute_expression_signature(
-        expr, {**domain_numbering, **coefficient_numbering, **constant_numbering}
-    )
-
-
 class VomOntoVomWrapper(object):
     """Utility class for interpolating from one ``VertexOnlyMesh`` to it's
     intput ordering ``VertexOnlyMesh``, or vice versa.
@@ -1520,7 +1528,7 @@ class VomOntoVomDummyMat(object):
     forward_reduce : bool
         If ``True``, the action of the operator (accessed via the `mult`
         method) is to perform a SF reduce from the source vec to the target
-        vec, whilst the adjoint action (accessed via the `multTranspose`
+        vec, whilst the adjoint action (accessed via the `multHermitian`
         method) is to perform a SF broadcast from the source vec to the target
         vec. If ``False``, the opposite is true.
     V : `.FunctionSpace`
@@ -1630,23 +1638,23 @@ class VomOntoVomDummyMat(object):
             else:
                 self.broadcast(coeff_vec, target_vec)
 
-    def multTranspose(self, source_vec, target_vec):
-        # can only do transpose if our expression exclusively contains a
+    def multHermitian(self, source_vec, target_vec):
+        # can only do adjoint if our expression exclusively contains a
         # single argument, making the application of the adjoint operator
         # straightforward (haven't worked out how to do this otherwise!)
         if not len(self.arguments) == 1:
             raise NotImplementedError(
-                "Can only apply transpose to expressions with one argument!"
+                "Can only apply adjoint to expressions with one argument!"
             )
         if self.arguments[0] is not self.expr:
             raise NotImplementedError(
-                "Can only apply transpose to expressions consisting of a single argument at the moment."
+                "Can only apply adjoint to expressions consisting of a single argument at the moment."
             )
         if self.forward_reduce:
             self.broadcast(source_vec, target_vec)
         else:
             # We need to ensure the target vec is zeroed for SF Reduce to
-            # represent multTranspose in case the interpolation matrix is not
+            # represent multHermitian in case the interpolation matrix is not
             # square (in which case it will have columns which are zero). This
             # happens when we interpolate from an input-ordering vertex-only
             # mesh to an immersed vertex-only mesh where the input ordering

@@ -39,8 +39,8 @@ class CrossMeshInterpolator(Interpolator, CrossMeshInterpolatorOld):
 def interpolate(expr, V, *args, **kwargs):
     default_missing_val = kwargs.pop("default_missing_val", None)
     if isinstance(V, Cofunction):
-        transpose = bool(extract_arguments(expr))
+        adjoint = bool(extract_arguments(expr))
         return Interpolator(
             expr, V.function_space().dual(), *args, **kwargs
-        ).interpolate(V, transpose=transpose, default_missing_val=default_missing_val)
+        ).interpolate(V, adjoint=adjoint, default_missing_val=default_missing_val)
     return Interpolator(expr, V, *args, **kwargs).interpolate(default_missing_val=default_missing_val)

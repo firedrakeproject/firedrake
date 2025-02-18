@@ -152,6 +152,7 @@ def test_serial_demo(demo, env, monkeypatch, tmpdir):
     _exec_file(py_file)
 
     if "adjoint" in demo.requirements:
+        pyadjoint.pause_annotation()
         pyadjoint.get_working_tape().clear_tape()
 
 
@@ -164,4 +165,5 @@ def test_parallel_demo(demo, env, monkeypatch, tmpdir):
     _exec_file(py_file)
 
     if "adjoint" in demo.requirements:
+        pyadjoint.pause_annotation()
         pyadjoint.get_working_tape().clear_tape()
