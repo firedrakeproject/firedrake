@@ -233,7 +233,7 @@ def compile_coordinate_element(mesh: MeshGeometry, contains_eps: float, paramete
         "convergence_epsilon": 1e-12,
         "dX_norm_square": dX_norm_square(mesh.topological_dimension()),
         "X_isub_dX": X_isub_dX(mesh.topological_dimension()),
-        "extruded_arg": ", int const *__restrict__ layers" if mesh.extruded else "",
+        "extruded_arg": f", {as_cstr(IntType)} const *__restrict__ layers" if mesh.extruded else "",
         "extr_comment_out": "//" if mesh.extruded else "",
         "non_extr_comment_out": "//" if not mesh.extruded else "",
         "IntType": as_cstr(IntType),
@@ -291,7 +291,7 @@ static inline void wrap_to_reference_coords(
 %(RealType)s to_reference_coords_xtr(void *result_, struct Function *f, int cell, int layer, double *x)
 {
     %(RealType)s cell_dist_l1 = 0.0;
-    %(non_extr_comment_out)sint layers[2] = {0, layer+2};  // +2 because the layer loop goes to layers[1]-1, which is nlayers-1
+    %(non_extr_comment_out)s%(IntType)s layers[2] = {0, layer+2};  // +2 because the layer loop goes to layers[1]-1, which is nlayers-1
     %(non_extr_comment_out)swrap_to_reference_coords(result_, x, &cell_dist_l1, cell, cell+1, layers, f->coords, f->coords_map);
     return cell_dist_l1;
 }
