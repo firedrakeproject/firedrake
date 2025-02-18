@@ -9,6 +9,7 @@ Installing Firedrake
 ====================
 
 
+.. _supported_systems:
 Supported systems
 =================
 
@@ -18,7 +19,7 @@ distribution. Windows users are encouraged to use WSL_ or one of Firedrake's
 :ref:`alternative installation mechanisms<alternative_install>`.
 
 
-.. _pip_install_firedrake
+.. _pip_install_firedrake:
 Installing Firedrake using pip
 ==============================
 
@@ -29,7 +30,7 @@ A native installation of Firedrake is accomplished in 3 steps:
 #. :ref:`Install Firedrake<install_firedrake>`
 
 
-.. _prerequisites
+.. _prerequisites:
 Prerequisites
 -------------
 
@@ -38,7 +39,7 @@ of Python (3.10 or greater). On macOS it is important that homebrew_ is installe
 and that the homebrew-installed Python is used instead of the system one.
 
 
-.. _firedrake_configure
+.. _firedrake_configure:
 firedrake-configure
 -------------------
 
@@ -48,7 +49,7 @@ To simplify the installation process, Firedrake provides a utility script called
   $ curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-configure
 
 
-.. _firedrake_archs
+.. _firedrake_archs:
 Prepared configurations
 ~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -97,7 +98,6 @@ be installed manually.
 
 
 .. _install_petsc:
-
 Installing PETSc
 ----------------
 
@@ -147,18 +147,22 @@ to make changes to the options passed to PETSc ``configure``. You can either:
 
 
 .. _install_firedrake:
-
 Installing Firedrake
 --------------------
 
-**env
+Now that the right system packages are installed and PETSc is built we can now
+install Firedrake. To do this perform the following steps:
 
-With these environment variables set, Firedrake can now simply be installed with
-the command::
+#. Set any necessary environment variables. This can be achieved through
+   ``firedrake-configure``::
 
-pip install --no-binary h5py git+https://github.com/firedrakeproject/firedrake.git
+     $ export $(python3 firedrake-configure --show-env)
 
-*** note petsc4py cache, also mpi4py and h5py
+#. Install Firedrake::
+
+     $ pip install --no-binary h5py git+https://github.com/firedrakeproject/firedrake.git
+
+#. Firedrake is now installed and ready for use!
 
 .. note::
    During the installation Firedrake will compile and install petsc4py_. If
@@ -172,21 +176,36 @@ pip install --no-binary h5py git+https://github.com/firedrakeproject/firedrake.g
    Equivalent commands may also be necessary for mpi4py and h5py if you are
    changing the MPI and/or HDF5 libraries in use.
 
+.. note::
+   If you are using an MPI installed into a nonstandard location it may be
+   necessary to set some additional environment variables before installation:
+
+   * ``CC`` and ``MPICC`` to the location of ``mpicc``
+   * ``CXX`` to the location of ``mpicxx``
+   * ``MPI_HOME`` to the base directory of the MPI installation (e.g. ``/usr``
+     or ``/opt/mpich``)
+
 
 Checking the installation
 -------------------------
 
 We recommend that you run some simple tests after installation to check
-that Firedrake is fully functional. Activate the venv_ as above and
-then run::
+that Firedrake is fully functional. After the installation run::
 
-  cd $VIRTUAL_ENV/src/firedrake
-  make check
+  $ make -C $VIRTUAL_ENV/src/firedrake check
 
 This command will run a few of the unit tests, which exercise a good
 chunk of the functionality of the library. These tests should take a
 minute or less. If they fail to run for any reason, please see the
-section below on how to diagnose and debug a failed installation.
+section below on how to :ref:`get help<getting_help>`.
+
+.. note::
+   ``make check`` can only be run for Firedrake installed in *editable mode*
+   and with its test dependencies. This can be done by running::
+
+     $ pip install --no-binary h5py --editable git+https://github.com/firedrakeproject/firedrake.git#egg=firedrake[test]
+
+   which will install Firedrake into ``$VIRTUAL_ENV/src/firedrake``.
 
 
 Updating Firedrake
@@ -195,24 +214,33 @@ Updating Firedrake
 TODO
 
 
-.. _alternative_install
+.. _alternative_install:
 Alternative installation methods
 ================================
 
 As well as being installable through ``pip``, Firedrake also provides
-`Docker containers<https://hub.docker.com/u/firedrakeproject>`_ and
-Jupyter notebooks running on :ref:`Google Colab<google_colab>`.
+`Docker containers <https://hub.docker.com/u/firedrakeproject>`_ and
+Jupyter notebooks running on :doc:`Google Colab</notebooks>`.
 
 
+.. _getting_help:
 Having trouble?
 ===============
 
-:doc:`Slack channel </contact>`.
+If you struggling to install Firedrake for any reason please
+:doc:`get in touch</contact>` either on our Slack channel or create a GitHub
+discussion_.
 
-us on Slack or create a post on github discussions_.
+To make debugging easier please make sure to share as much information as you
+can including:
+
+* The operating system you are using
+* The command you ran and the error that was produced
+* Any install logs that are produced (e.g. if PETSc ``configure`` fails please
+  make sure to share the ``configure.log`` file)
 
 
-.. _discussions: https://github.com/firedrakeproject/firedrake/discussions
+.. _discussion: https://github.com/firedrakeproject/firedrake/discussions
 .. _issue: https://github.com/firedrakeproject/firedrake/issues
 .. _homebrew: https://brew.sh/
 .. _PETSc: https://www.mcs.anl.gov/petsc/
