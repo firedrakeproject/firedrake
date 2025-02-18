@@ -86,6 +86,8 @@ with::
 
   firedrake-zenodo -h
 
+FIXME: ZENODO DOES NOT WORK
+
 Installing an archived release
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
