@@ -2,7 +2,7 @@ from pyadjoint import ReducedFunctional, OverloadedType, Control, Tape, AdjFloat
     stop_annotating, get_working_tape, set_working_tape
 from pyadjoint.enlisting import Enlist
 from firedrake.function import Function
-from firedrake.ensemble import EnsembleFunction
+from firedrake.ensemble import EnsembleFunction, EnsembleFunctionSpace
 from firedrake import assemble, inner, dx, Constant
 from firedrake.adjoint.composite_reduced_functional import (
     CompositeReducedFunctional, intermediate_options)
@@ -153,8 +153,8 @@ class FourDVarReducedFunctional(ReducedFunctional):
                     self.background = control.control.subfunctions[0]._ad_copy()
                 _rename(self.background, "Background")
 
-            self.control_space = control.function_space()
-            ensemble = self.control_space.ensemble
+            self.solution_space = control.function_space()
+            ensemble = self.solution_space.ensemble
             self.ensemble = ensemble
             self.trank = ensemble.ensemble_comm.rank if ensemble else 0
             self.nchunks = ensemble.ensemble_comm.size if ensemble else 1
@@ -174,6 +174,12 @@ class FourDVarReducedFunctional(ReducedFunctional):
             self.nlocal_stages = len(_x) - (1 if self.trank == 0 else 0)
 
             self.stages = []    # The record of each observation stage
+
+            self.observation_rfs = []
+            self.observation_norms = []
+
+            self.model_rfs = []
+            self.model_norms = []
 
             # first rank sets up functionals for background initial observations
             if self.trank == 0:
@@ -209,6 +215,9 @@ class FourDVarReducedFunctional(ReducedFunctional):
                         self.initial_observation_error.functional,
                         observation_covariance,
                         control_name="obs_err_vec_0_copy")
+
+                    self.observation_rfs.append(self.initial_observation_error)
+                    self.observation_norms.append(self.initial_observation_norm)
 
                     # compose initial observation reduced functionals to evaluate both together
                     self.initial_observation_rf = CompositeReducedFunctional(
@@ -392,12 +401,12 @@ class FourDVarReducedFunctional(ReducedFunctional):
 
         # create the derivative in the right primal or dual space
         if is_primal(sderiv0[0]):
-            derivative_space = self.control_space
+            derivative_space = self.solution_space
         else:
             if not is_dual(sderiv0[0]):
                 raise ValueError(
                     "Do not know how to handle stage derivative which is not primal or dual")
-            derivative_space = self.control_space.dual()
+            derivative_space = self.solution_space.dual()
         derivatives = EnsembleFunction(derivative_space)
 
         derivatives.zero()
@@ -631,6 +640,12 @@ class FourDVarReducedFunctional(ReducedFunctional):
                 # let the user record the local stages
                 yield stage_sequence
 
+                for stage in self.stages:
+                    self.observation_rfs.append(stage.observation_error)
+                    self.observation_norms.append(stage.observation_norm)
+                    self.model_rfs.append(stage.forward_model)
+                    self.model_norms.append(stage.model_norm)
+
                 # send the state forward
                 with stop_annotating():
                     state = self.stages[-1].controls[1].control
@@ -645,6 +660,10 @@ class FourDVarReducedFunctional(ReducedFunctional):
                     # make sure that self.control now holds the
                     # values of the initial timeseris
                     self.control.assign(self._cbuf)
+
+                    self.observation_space = EnsembleFunctionSpace(
+                        [Jo.functional.function_space() for Jo in self.observation_rfs],
+                        self.ensemble)
 
         else:  # strong constraint
 
