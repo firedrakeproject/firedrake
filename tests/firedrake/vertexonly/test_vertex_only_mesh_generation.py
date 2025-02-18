@@ -154,12 +154,11 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
             # This assertion needs to happen in parallel!
             assertion = (max(ref_cell_dists_l1) > 0.5*m.tolerance)
             skip_in_bounds_checks = True
-            participating = True
         else:
-            participating = False
+            assertion = True
     else:
-        participating = False
-    parallel_assert(lambda: assertion, participating=participating)
+        assertion = True
+    parallel_assert(lambda: assertion)
 
     # Correct local coordinates (though not guaranteed to be in same order)
     if not skip_in_bounds_checks:
