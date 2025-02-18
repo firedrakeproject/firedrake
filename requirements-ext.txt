@@ -3,6 +3,7 @@ Cython>=3.0
 decorator<=4.4.2
 flake8
 mpi4py
+mpi-pytest
 nbval
 numpy
 packaging
