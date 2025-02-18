@@ -67,11 +67,11 @@ spydump = "pyop2.scripts.spydump:main"
 
 [project.optional-dependencies]
 test = [
-  "pylit",
+  "mpi-pytest",
   "nbval",
+  "pylit",
   "pytest",
   "pytest-xdist",
-  "pytest-mpi @ git+https://github.com/firedrakeproject/pytest-mpi.git@main",
 ]
 dev = [
   "flake8",
