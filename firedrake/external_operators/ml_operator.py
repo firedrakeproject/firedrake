@@ -23,7 +23,7 @@ class MLOperator(AbstractExternalOperator):
         *argument_slots : ufl.coefficient.BaseCoefficient or ufl.argument.BaseArgument
             Tuple containing the arguments of the linear form associated with the ML operator,
             i.e. the arguments with respect to which the ML operator is linear. Those arguments can
-            retain only ``ufl.argument.BaseArgument`` objects, as a result of differentiation, or both
+            be ``ufl.argument.BaseArgument`` objects, as a result of differentiation, or both
             ``ufl.coefficient.BaseCoefficient`` and ``ufl.argument.BaseArgument`` object, as a result
             of taking the action on a given function. If argument slots are not provided,
             the :class:`firedrake.external_operators.abstract_external_operators.AbstractExternalOperator`
