@@ -88,6 +88,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch ufl pbrubeck/fix/base-form-operator \
             || (cat firedrake-install.log && /bin/false)
 
       - name: Install test dependencies
