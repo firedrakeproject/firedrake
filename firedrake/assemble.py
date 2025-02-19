@@ -514,14 +514,14 @@ class BaseFormAssembler(AbstractFormAssembler):
                 result.dat.maxpy(expr.weights(), [a.dat for a in args])
                 return result
             elif all(isinstance(op, ufl.Matrix) for op in args):
-                res = tensor.petscmat if tensor else None
+                res = tensor.petscmat if tensor else PETSc.Mat()
                 for (op, w) in zip(args, expr.weights()):
-                    if res is None:
+                    if res:
+                        res.axpy(w, op.petscmat)
+                    else:
                         # Make a copy to avoid in-place scaling
                         res = op.petscmat.copy()
                         res.scale(w)
-                    else:
-                        res.axpy(w, op)
                 return matrix.AssembledMatrix(expr, self._bcs, res,
                                               appctx=self._appctx,
                                               options_prefix=self._options_prefix)
