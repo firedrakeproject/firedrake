@@ -1303,7 +1303,7 @@ def build_and_install_jax():
     """Install JAX for a CPU or CUDA backend."""
     log.info("Installing JAX (backend: %s)" % args.jax)
     # version_name = "jax" if args.jax == "cpu" else "jax[cuda12]"
-    run_pip_install(["jax jaxlib"])
+    run_pip_install(["jax", "jaxlib"])
     # Test if jaxlib is installed correctly
     try:
         import jaxlib
