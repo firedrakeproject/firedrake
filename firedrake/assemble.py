@@ -409,7 +409,10 @@ class BaseFormAssembler(AbstractFormAssembler):
         if tensor is not None:
             self._check_tensor(tensor)
             if self._needs_zeroing:
-                tensor.zero()
+                if isinstance(tensor, matrix.MatrixBase):
+                    tensor.petscmat.zeroEntries()
+                else:
+                    tensor.zero()
 
         def visitor(e, *operands):
             t = tensor if e is self._form else None
@@ -425,11 +428,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             for bc in self._bcs:
                 OneFormAssembler._apply_bc(self, result, bc, u=current_state)
 
-        if tensor:
-            BaseFormAssembler.update_tensor(result, tensor)
-            return tensor
-        else:
-            return result
+        return result
 
     def base_form_assembly_visitor(self, expr, tensor, *args):
         r"""Assemble a :class:`~ufl.classes.BaseForm` object given its assembled operands.
@@ -611,27 +610,10 @@ class BaseFormAssembler(AbstractFormAssembler):
             else:
                 # The case rank == 0 is handled via the DAG restructuring
                 raise ValueError("Incompatible number of arguments.")
-        elif isinstance(expr, (ufl.Cofunction, ufl.Coargument, ufl.Argument, ufl.Matrix, ufl.ZeroBaseForm)):
-            return expr
-        elif isinstance(expr, ufl.Coefficient):
+        elif isinstance(expr, (ufl.Coefficient, ufl.Cofunction, ufl.Argument, ufl.Coargument, ufl.Matrix, ufl.ZeroBaseForm)):
             return expr
         else:
             raise TypeError(f"Unrecognised BaseForm instance: {expr}")
-
-    @staticmethod
-    def update_tensor(assembled_base_form, tensor):
-        if isinstance(tensor, (firedrake.Function, firedrake.Cofunction)):
-            if isinstance(assembled_base_form, ufl.ZeroBaseForm):
-                tensor.dat.zero()
-            else:
-                assembled_base_form.dat.copy(tensor.dat)
-        elif isinstance(tensor, matrix.MatrixBase):
-            if isinstance(assembled_base_form, ufl.ZeroBaseForm):
-                tensor.petscmat.zeroEntries()
-            else:
-                assembled_base_form.petscmat.copy(tensor.petscmat)
-        else:
-            raise NotImplementedError("Cannot update tensor of type %s" % type(tensor))
 
     @staticmethod
     def base_form_postorder_traversal(expr, visitor, visited={}):
