@@ -66,7 +66,7 @@ jobs:
           # TODO: We currently have to do an editable install because
           # 'make -C firedrake-repo check' looks inside the firedrake subfolder
           # for the compiled code, when it would in fact be inside $VIRTUAL_ENV/lib.
-          pip install --verbose --no-binary h5py --editable ./firedrake-repo[test]
+          pip install --verbose --no-binary h5py --editable './firedrake-repo[test]'
           firedrake-clean
           : # Extra test dependencies
           pip install pytest-timeout
