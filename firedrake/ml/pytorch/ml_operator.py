@@ -17,7 +17,6 @@ except ImportError:
     else:
         raise ImportError("PyTorch is not installed and is required to use the FiredrakeTorchOperator.")
 
-import ufl
 
 from functools import partial
 
@@ -102,13 +101,7 @@ class PytorchOperator(MLOperator):
 
     def _post_forward_callback(self, y_P):
         """Callback function to convert the PyTorch output of the ML model to a Firedrake function."""
-        # At this point, ``len(self._argument_slots)`` must be greater than 0.
-        if isinstance(self._argument_slots[0], ufl.coefficient.BaseCoefficient):
-            space = self._argument_slots[0].function_space()
-        else:
-            # When ``self._argument_slots[0]`` is an ``ufl.argument.BaseArgument``.
-            space = self._argument_slots[0].arguments()[0].function_space()
-        return from_torch(y_P, space)
+        return from_torch(y_P, self.ufl_function_space())
 
     # -- PyTorch routines for computing AD based quantities via `torch.autograd.functional` -- #
 
