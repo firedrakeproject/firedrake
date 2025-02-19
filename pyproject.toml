@@ -66,6 +66,9 @@ pyop2-clean = "pyop2.compilation:clear_compiler_disk_cache"
 spydump = "pyop2.scripts.spydump:main"
 
 [project.optional-dependencies]
+ci = [
+  "pytest-timeout", "pytest-xdist", {include-group = "test"}
+]
 docs = [
   "sphinx",
   "sphinx-autobuild",
@@ -81,6 +84,7 @@ test = [
   "nbval",
   "pylit",
   "pytest",
+  "pytest-split",  # needed for firedrake-run-split-tests
 ]
 
 [build-system]

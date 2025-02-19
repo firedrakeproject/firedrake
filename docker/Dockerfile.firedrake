@@ -43,3 +43,8 @@ RUN pip install --break-system-packages --verbose --src .\
         -e git+https://github.com/thetisproject/thetis.git#egg=thetis \
         -e git+https://github.com/icepack/icepack.git#egg=icepack \
         -e git+https://github.com/firedrakeproject/Irksome.git#egg=Irksome
+
+# Install some other niceties
+RUN sudo apt-get update; \
+    sudo apt-get -y install nano vim; \
+    sudo rm -rf /var/lib/apt/lists/*
