@@ -375,6 +375,15 @@ class BaseFormAssembler(AbstractFormAssembler):
         else:
             return self._allocation_integral_types
 
+    def _check_tensor(self, tensor):
+        rank = len(self._form.arguments())
+        if rank == 1:
+            if tensor.function_space() != self._form.arguments()[0].function_space().dual():
+                raise ValueError("Form's argument does not match provided result tensor")
+        else:
+            if tensor.arguments() != self._form.arguments():
+                raise ValueError("Form's argument does not match provided result tensor")
+
     def assemble(self, tensor=None, current_state=None):
         """Assemble the form.
 
@@ -397,8 +406,10 @@ class BaseFormAssembler(AbstractFormAssembler):
         in a post-order fashion and evaluating the nodes on the fly.
 
         """
-        if tensor is not None and self._needs_zeroing:
-            tensor.zero()
+        if tensor is not None:
+            self._check_tensor(tensor)
+            if self._needs_zeroing:
+                tensor.zero()
 
         def visitor(e, *operands):
             t = tensor if e is self._form else None
@@ -469,7 +480,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                     petsc_mat = lhs.petscmat
                     (row, col) = lhs.arguments()
                     # The matrix-vector product lives in the dual of the test space.
-                    res = firedrake.Function(row.function_space().dual())
+                    res = tensor if tensor else firedrake.Cofunction(row.function_space().dual())
                     with rhs.dat.vec_ro as v_vec:
                         with res.dat.vec as res_vec:
                             petsc_mat.mult(v_vec, res_vec)
