@@ -136,6 +136,8 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         """Return the action of the bilinear form J (without bcs) on a Function u."""
         if isinstance(J, MatrixBase) and J.has_bcs:
             # Extract the full form without bcs
+            if not isinstance(J.a, (ufl.BaseForm, slate.slate.TensorBase)):
+                raise TypeError(f"Could not remove bcs from {type(J).__name__}.")
             J = J.a
         return ufl_expr.action(J, u)
 

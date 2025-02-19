@@ -336,54 +336,48 @@ class TensorBase(object, metaclass=ABCMeta):
             other = as_slate(other)
             return Add(self, other)
         except TypeError:
-            raise NotImplementedError("Type(s) for + not supported: '%s' '%s'"
-                                      % (type(self), type(other)))
+            return NotImplemented
 
     def __radd__(self, other):
         # If other cannot be converted into a TensorBase, raise NotImplementedError.
         # Otherwise, delegate action to other.
         try:
             other = as_slate(other)
-            return other.__add__(self)
+            return other + self
         except TypeError:
-            raise NotImplementedError("Type(s) for + not supported: '%s' '%s'"
-                                      % (type(other), type(self)))
+            return NotImplemented
 
     def __sub__(self, other):
         try:
             other = as_slate(other)
             return Add(self, Negative(other))
         except TypeError:
-            raise NotImplementedError("Type(s) for - not supported: '%s' '%s'"
-                                      % (type(self), type(other)))
+            return NotImplemented
 
     def __rsub__(self, other):
         # If other cannot be converted into a TensorBase, raise NotImplementedError.
         # Otherwise, delegate action to other.
         try:
             other = as_slate(other)
-            return other.__sub__(self)
+            return other - self
         except TypeError:
-            raise NotImplementedError("Type(s) for - not supported: '%s' '%s'"
-                                      % (type(other), type(self)))
+            return NotImplemented
 
     def __mul__(self, other):
         try:
             other = as_slate(other)
             return Mul(self, other)
         except TypeError:
-            raise NotImplementedError("Type(s) for * not supported: '%s' '%s'"
-                                      % (type(self), type(other)))
+            return NotImplemented
 
     def __rmul__(self, other):
         # If other cannot be converted into a TensorBase, raise NotImplementedError.
         # Otherwise, delegate action to other.
         try:
             other = as_slate(other)
-            return other.__mul__(self)
+            return other * self
         except TypeError:
-            raise NotImplementedError("Type(s) for * not supported: '%s' '%s'"
-                                      % (type(other), type(self)))
+            return NotImplemented
 
     def __neg__(self):
         return Negative(self)
