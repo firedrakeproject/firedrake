@@ -78,6 +78,7 @@ def main():
     )
     cmd_group.add_argument(
         "--show-env",
+        "--env",  # alias
         action="store_true",
         help="Print out the environment variables that need to be exported to "
         "install Firedrake.",
@@ -396,10 +397,6 @@ def prepare_environment_vars(
         "PETSC_ARCH": f"arch-firedrake-{arch.value}",
         "HDF5_MPI": "ON",
     }
-
-    if package_manager is None:
-        # HDF5 will have been downloaded by PETSc
-        vars["HDF5_DIR"] = f"{vars['PETSC_DIR']}/{vars['PETSC_ARCH']}"
 
     if package_manager == MACOS_HOMEBREW_ARM64:
         # h5py cannot find the HDF5 library without help

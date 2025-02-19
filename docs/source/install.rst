@@ -10,6 +10,7 @@ Installing Firedrake
 
 
 .. _supported_systems:
+
 Supported systems
 =================
 
@@ -20,6 +21,7 @@ distribution. Windows users are encouraged to use WSL_ or one of Firedrake's
 
 
 .. _pip_install_firedrake:
+
 Installing Firedrake using pip
 ==============================
 
@@ -31,6 +33,7 @@ A native installation of Firedrake is accomplished in 3 steps:
 
 
 .. _prerequisites:
+
 Prerequisites
 -------------
 
@@ -40,6 +43,7 @@ and that the homebrew-installed Python is used instead of the system one.
 
 
 .. _firedrake_configure:
+
 firedrake-configure
 -------------------
 
@@ -50,6 +54,7 @@ To simplify the installation process, Firedrake provides a utility script called
 
 
 .. _firedrake_archs:
+
 Prepared configurations
 ~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -65,8 +70,11 @@ The different configurations can be selected by passing the flag ``--arch`` to
 
   $ python3 firedrake-configure --show-system-packages --arch complex
 
+If ``--arch`` is not specified then ``default`` is used.
+
 
 .. _install_system_dependencies:
+
 Installing system dependencies
 ------------------------------
 
@@ -78,6 +86,7 @@ If on Ubuntu or macOS, system dependencies can be installed with
 which will install the following packages:
 
 .. literalinclude:: apt_deps.txt
+   :language: text
 
 If on macOS you should instead run::
 
@@ -86,6 +95,7 @@ If on macOS you should instead run::
 which will install the following packages:
 
 .. literalinclude:: homebrew_deps.txt
+   :language: text
 
 If you do not have one of these systems then these dependencies will need to
 be installed manually.
@@ -93,11 +103,12 @@ be installed manually.
 .. note::
    Not all the system dependencies declared by ``firedrake-configure`` have to
    be installed at this stage. Some (e.g. HDF5, hwloc) can also be installed
-   from source by PETSc during the ``configure`` :ref:`step<install_petsc>` by passing
-   ``--download-hdf5`` or similar.
+   from source by PETSc during the ``configure`` :ref:`step<install_petsc>` by
+   passing additional flags (e.g. ``--download-hdf5``, ``--download-hwloc``).
 
 
 .. _install_petsc:
+
 Installing PETSc
 ----------------
 
@@ -121,12 +132,18 @@ do the following steps:
 If you are using one of the
 :ref:`officially supported distributions<supported_systems>` then these configure
 options will include paths to system packages so PETSc can correctly find and
-link against them. If you are not, then you should pass the ``--no-package-manager``
+link against them. If you are not then you should pass the ``--no-package-manager``
 flag to obtain a set of configure options where ``firedrake-configure``
 pessimistically assumes that no external packages are available, and hence need
 to be downloaded and compiled from source::
 
    $ ./configure $(python3 ../firedrake-configure --no-package-manager --show-petsc-configure-options)
+
+For the ``default`` ARCH, running ``firedrake-configure`` with
+``--no-package-manager`` will produce the flags:
+
+.. literalinclude:: petsc_configure_options.txt
+   :language: text
 
 
 Customising the PETSc installation
@@ -147,16 +164,23 @@ to make changes to the options passed to PETSc ``configure``. You can either:
 
 
 .. _install_firedrake:
+
 Installing Firedrake
 --------------------
 
 Now that the right system packages are installed and PETSc is built we can now
 install Firedrake. To do this perform the following steps:
 
-#. Set any necessary environment variables. This can be achieved through
+#. Set any necessary environment variables. This can be achieved using
    ``firedrake-configure``::
 
      $ export $(python3 firedrake-configure --show-env)
+
+   At a minimum this will set the following variables:
+
+   .. code-block:: text
+
+      PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-{default,complex} HDF5_MPI=ON
 
 #. Install Firedrake::
 
@@ -234,6 +258,7 @@ out-of-date you may also need to rebuild the external packages by running::
 
 
 .. _alternative_install:
+
 Alternative installation methods
 ================================
 
@@ -243,6 +268,7 @@ Jupyter notebooks running on :doc:`Google Colab</notebooks>`.
 
 
 .. _getting_help:
+
 Having trouble?
 ===============
 

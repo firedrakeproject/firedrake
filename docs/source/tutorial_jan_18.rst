@@ -33,7 +33,7 @@ Installing Firedrake
 
 You'll need to bring along a laptop with Firedrake installed. If you
 have a Mac or Linux laptop, :doc:`follow the instructions here
-<download>` to install Firedrake. If you run into any difficulty,
+<install>` to install Firedrake. If you run into any difficulty,
 please :doc:`contact us <contact>`. Alternatively, if you have trouble
 installing Firedrake, we'll hold an installation clinic 1200-1300
 before the tutorial. If you'll be using a Windows laptop, come to the

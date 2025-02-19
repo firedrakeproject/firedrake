@@ -424,7 +424,7 @@ You can install Firedrake using exactly this set of component versions using:
 <pre>firedrake-install --doi {doi}</pre>
 </p>
 <p>
-See <a href="https://www.firedrakeproject.org/download.html">firedrakeproject.org/download.html</a> for more information.
+See <a href="https://www.firedrakeproject.org/install.html">firedrakeproject.org/install.html</a> for more information.
 </p>
     """.format(title=title, links=links, doi=doi)
     if additional_dois:
