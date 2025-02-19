@@ -136,7 +136,7 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
             return assemble
         return decorator
 
-    def assemble(self, assembly_opts=None):
+    def assemble(self, assembly_opts=None, tensor=None):
         """External operator assembly
 
         Parameters
@@ -145,6 +145,8 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
                        Dictionary containing assembly options of the finite element assembly, which may
                        be of interest for the assembly methods of the external operator subclass.
                        These options are passed on to the assembly methods of the external operator subclass.
+        tensor: firedrake.function.Function or firedrake.cofunction.Cofunction or matrix.MatrixBase or None
+                Existing tensor object to place the result in.
 
         Returns
         -------
@@ -196,6 +198,14 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
         elif len(self.arguments()) == 2:
             if not isinstance(result, MatrixBase):
                 raise ValueError('External operators with two arguments must result in a firedrake.MatrixBase object!')
+
+        # -- Update tensor -- #
+        if tensor is not None:
+            if isinstance(tensor, (Function, Cofunction)):
+                result.dat.copy(tensor.dat)
+            elif isinstance(tensor, MatrixBase):
+                result.petscmat.copy(tensor.petscmat)
+            result = tensor
         return result
 
     def _matrix_builder(self, bcs, opts, integral_types):
