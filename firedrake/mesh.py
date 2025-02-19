@@ -1966,14 +1966,15 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         if reorder:
             swarm = self.topology_dm
             parent = self._parent_mesh.topology_dm
-            swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid").ravel()
+            cell_id_name = swarm.getCellDMActive().getCellID()
+            swarm_parent_cell_nums = swarm.getField(cell_id_name).ravel()
             parent_renum = self._parent_mesh._dm_renumbering.getIndices()
             pStart, _ = parent.getChart()
             parent_renum_inv = np.empty_like(parent_renum)
             parent_renum_inv[parent_renum - pStart] = np.arange(len(parent_renum))
             # Use kind = 'stable' to make the ordering deterministic.
             perm = np.argsort(parent_renum_inv[swarm_parent_cell_nums - pStart], kind='stable').astype(IntType)
-            swarm.restoreField("DMSwarm_cellid")
+            swarm.restoreField(cell_id_name)
             perm_is = PETSc.IS().create(comm=swarm.comm)
             perm_is.setType("general")
             perm_is.setIndices(perm)
@@ -3557,11 +3558,9 @@ def _pic_swarm_in_mesh(
         #. ``parentcellextrusionheight`` which contains the extrusion height of
             the immersed vertex in the parent mesh cell.
 
-        Another three are required for proper functioning of the DMSwarm:
+        Another two are required for proper functioning of the DMSwarm:
 
         #. ``DMSwarmPIC_coor`` which contains the coordinates of the point.
-        #. ``DMSwarm_cellid`` the DMPlex cell within which the DMSwarm point is
-           located.
         #. ``DMSwarm_rank``: the MPI rank which owns the DMSwarm point.
 
     .. note::
@@ -3794,7 +3793,6 @@ def _dmswarm_create(
     # These are created by default for a PIC DMSwarm
     default_fields = [
         ("DMSwarmPIC_coor", gdim, RealType),
-        ("DMSwarm_cellid", 1, IntType),
         ("DMSwarm_rank", 1, IntType),
     ]
 
@@ -3853,12 +3851,6 @@ def _dmswarm_create(
     # Set to Particle In Cell (PIC) type
     if not isinstance(plex, PETSc.DMSwarm):
         swarm.setType(PETSc.DMSwarm.Type.PIC)
-    else:
-        # This doesn't work where we embed a DMSwarm in a DMSwarm, instead
-        # we register some default fields manually
-        for name, size, dtype in default_fields:
-            if name == "DMSwarmPIC_coor" or name == "DMSwarm_cellid":
-                swarm.registerField(name, size, dtype=dtype)
 
     # Register any fields
     for name, size, dtype in swarm.default_extra_fields + swarm.other_fields:
@@ -3872,14 +3864,15 @@ def _dmswarm_create(
     # Add point coordinates. This amounts to our own implementation of
     # DMSwarmSetPointCoordinates because Firedrake's mesh coordinate model
     # doesn't always exactly coincide with that of DMPlex: in most cases the
-    # plex_parent_cell_nums (DMSwarm_cellid field) and parent_cell_nums
-    # (parentcellnum field), the latter being the numbering used by firedrake,
-    # refer fundamentally to the same cells. For extruded meshes the DMPlex
-    # dimension is based on the topological dimension of the base mesh.
+    # plex_parent_cell_nums and parent_cell_nums (parentcellnum field), the
+    # latter being the numbering used by firedrake, refer fundamentally to the
+    # same cells. For extruded meshes the DMPlex dimension is based on the
+    # topological dimension of the base mesh.
 
     # NOTE ensure that swarm.restoreField is called for each field too!
     swarm_coords = swarm.getField("DMSwarmPIC_coor").reshape((num_vertices, gdim))
-    swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid").ravel()
+    cell_id_name = swarm.getCellDMActive().getCellID()
+    swarm_parent_cell_nums = swarm.getField(cell_id_name).ravel()
     field_parent_cell_nums = swarm.getField("parentcellnum").ravel()
     field_reference_coords = swarm.getField("refcoord").reshape((num_vertices, tdim))
     field_global_index = swarm.getField("globalindex").ravel()
@@ -3903,7 +3896,7 @@ def _dmswarm_create(
     swarm.restoreField("refcoord")
     swarm.restoreField("parentcellnum")
     swarm.restoreField("DMSwarmPIC_coor")
-    swarm.restoreField("DMSwarm_cellid")
+    swarm.restoreField(cell_id_name)
 
     if extruded:
         field_base_parent_cell_nums = swarm.getField("parentcellbasenum").ravel()
