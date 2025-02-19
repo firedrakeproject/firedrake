@@ -6,7 +6,6 @@ on:
     branches:
       - master
   # And all pull requests
-  pull_request:
 
 concurrency:
   # Cancels jobs running if new commits are pushed
