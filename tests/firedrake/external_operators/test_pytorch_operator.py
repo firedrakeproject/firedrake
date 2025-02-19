@@ -90,6 +90,8 @@ def test_forward(u, nn):
     # Assemble NeuralNet operator
     assembled_N = assemble(N)
 
+    assert isinstance(assembled_N, Function)
+
     # Convert from Firedrake to PyTorch
     x_P = to_torch(u)
     # Forward pass
