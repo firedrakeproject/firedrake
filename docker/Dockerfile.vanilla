@@ -32,6 +32,7 @@ ENV PETSC_DIR=/home/firedrake/petsc PETSC_ARCH=arch-firedrake-$ARCH
 ENV HDF5_MPI=ON
 ENV CC=mpicc CXX=mpicxx
 ENV MPICC=$CC
+ENV PATH="/home/firedrake/.local/bin:$PETSC_DIR/$PETSC_ARCH/bin:$PATH" 
 
 # Install Firedrake, pass --break-system-packages because we don't want the
 # container to need a venv.
