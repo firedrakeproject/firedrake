@@ -188,6 +188,16 @@ install Firedrake. To do this perform the following steps:
 
 #. Firedrake is now installed and ready for use!
 
+.. important::
+   Until Firedrake has versioned releases (slated for April/May 2025),
+   :doc:```firedrake-zenodo``</zenodo>` will only work with *editable* installations of
+   Firedrake and its components. To install Firedrake in editable mode you
+   should replace the installation command above with::
+
+     $ pip install --no-binary h5py --editable git+https://github.com/firedrakeproject/firedrake.git#egg=firedrake
+
+   which will install Firedrake into ``$VIRTUAL_ENV/src/firedrake``, or ``./src/firedrake`` if not using a virtual environment.
+
 .. note::
    During the installation Firedrake will compile and install petsc4py_. If
    you have previously installed petsc4py on your computer with a different
@@ -227,7 +237,7 @@ section below on how to :ref:`get help<getting_help>`.
    ``make check`` can only be run for Firedrake installed in *editable mode*
    and with its test dependencies. This can be done by running::
 
-     $ pip install --no-binary h5py --editable firedrake@git+https://github.com/firedrakeproject/firedrake.git[test]
+     $ pip install --no-binary h5py --editable git+https://github.com/firedrakeproject/firedrake.git#egg=firedrake[test]
 
    which will install Firedrake into ``$VIRTUAL_ENV/src/firedrake``.
 
@@ -239,7 +249,7 @@ Updating Firedrake involves following the same steps as above when
 :ref:`installing Firedrake<install_firedrake>`. First, use ``firedrake-configure``
 to set the right environment variables and then run::
 
-     $ pip install --no-binary h5py --upgrade git+https://github.com/firedrakeproject/firedrake.git
+     $ pip install --upgrade git+https://github.com/firedrakeproject/firedrake.git
 
 Updating PETSc
 ~~~~~~~~~~~~~~
