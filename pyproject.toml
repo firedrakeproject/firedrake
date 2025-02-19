@@ -67,17 +67,24 @@ spydump = "pyop2.scripts.spydump:main"
 
 [project.optional-dependencies]
 ci = [
-  "pytest-timeout", "pytest-xdist", {include-group = "test"}
+  "mpi-pytest",
+  "nbval",
+  "pylit",
+  "pytest",
+  "pytest-split",  # needed for firedrake-run-split-tests
+  "pytest-timeout",
+  "pytest-xdist",
 ]
 docs = [
+  "bibtexparser",
+  "numpydoc",
   "sphinx",
   "sphinx-autobuild",
+  "sphinx-reredirects",
   "sphinxcontrib-bibtex",
-  "sphinxcontrib-svg2pdfconverter",
   "sphinxcontrib-jquery",
-  "bibtexparser",
+  "sphinxcontrib-svg2pdfconverter",
   "sphinxcontrib-youtube",
-  "numpydoc",
 ]
 test = [
   "mpi-pytest",

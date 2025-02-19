@@ -227,7 +227,7 @@ section below on how to :ref:`get help<getting_help>`.
    ``make check`` can only be run for Firedrake installed in *editable mode*
    and with its test dependencies. This can be done by running::
 
-     $ pip install --no-binary h5py --editable git+https://github.com/firedrakeproject/firedrake.git#egg=firedrake[test]
+     $ pip install --no-binary h5py --editable firedrake@git+https://github.com/firedrakeproject/firedrake.git[test]
 
    which will install Firedrake into ``$VIRTUAL_ENV/src/firedrake``.
 
