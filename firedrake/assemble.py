@@ -409,10 +409,7 @@ class BaseFormAssembler(AbstractFormAssembler):
         if tensor is not None:
             self._check_tensor(tensor)
             if self._needs_zeroing:
-                if isinstance(tensor, matrix.MatrixBase):
-                    tensor.petscmat.zeroEntries()
-                else:
-                    tensor.zero()
+                tensor.zero()
 
         def visitor(e, *operands):
             t = tensor if e is self._form else None
@@ -487,7 +484,8 @@ class BaseFormAssembler(AbstractFormAssembler):
                 elif isinstance(rhs, matrix.MatrixBase):
                     petsc_mat = lhs.petscmat
                     (row, col) = lhs.arguments()
-                    res = petsc_mat.matMult(rhs.petscmat)
+                    res = tensor.petscmat if tensor else PETSc.Mat()
+                    petsc_mat.matMult(rhs.petscmat, result=res)
                     return matrix.AssembledMatrix(expr, self._bcs, res,
                                                   appctx=self._appctx,
                                                   options_prefix=self._options_prefix)
@@ -516,19 +514,14 @@ class BaseFormAssembler(AbstractFormAssembler):
                 result.dat.maxpy(expr.weights(), [a.dat for a in args])
                 return result
             elif all(isinstance(op, ufl.Matrix) for op in args):
-                res = tensor.petscmat if tensor else PETSc.Mat()
-                is_set = False
+                res = tensor.petscmat if tensor else None
                 for (op, w) in zip(args, expr.weights()):
-                    # Make a copy to avoid in-place scaling
-                    petsc_mat = op.petscmat.copy()
-                    petsc_mat.scale(w)
-                    if is_set:
-                        # Modify output tensor in-place
-                        res += petsc_mat
+                    if res is None:
+                        # Make a copy to avoid in-place scaling
+                        res = op.petscmat.copy()
+                        res.scale(w)
                     else:
-                        # Copy to output tensor
-                        petsc_mat.copy(result=res)
-                        is_set = True
+                        res.axpy(w, op)
                 return matrix.AssembledMatrix(expr, self._bcs, res,
                                               appctx=self._appctx,
                                               options_prefix=self._options_prefix)
@@ -552,7 +545,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # It is also convenient when we have a Form in that slot since Forms don't play well with `ufl.replace`
                 expr = expr._ufl_expr_reconstruct_(*expr.ufl_operands, argument_slots=(v,) + expr.argument_slots()[1:])
             # Call the external operator assembly
-            return expr.assemble(assembly_opts=opts)
+            return expr.assemble(assembly_opts=opts, tensor=tensor)
         elif isinstance(expr, ufl.Interpolate):
             # Replace assembled children
             _, expression = expr.argument_slots()
@@ -610,7 +603,10 @@ class BaseFormAssembler(AbstractFormAssembler):
             else:
                 # The case rank == 0 is handled via the DAG restructuring
                 raise ValueError("Incompatible number of arguments.")
-        elif isinstance(expr, (ufl.Coefficient, ufl.Cofunction, ufl.Argument, ufl.Coargument, ufl.Matrix, ufl.ZeroBaseForm)):
+        elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
+            tensor.assign(expr)
+            return tensor
+        elif isinstance(expr, (ufl.Coefficient, ufl.Cofunction, ufl.Matrix, ufl.Argument, ufl.Coargument, ufl.ZeroBaseForm)):
             return expr
         else:
             raise TypeError(f"Unrecognised BaseForm instance: {expr}")

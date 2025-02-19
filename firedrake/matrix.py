@@ -134,6 +134,16 @@ class Matrix(MatrixBase):
                                   has been removed.  Use 'assemble(a, bcs=bcs)', which\
                                   now returns an assembled matrix.")
 
+    def assign(self, mat):
+        """Set the :class:`MatrixBase` entries to those of mat."""
+        mat.petscmat.copy(self.petscmat)
+        return self
+
+    def zero(self):
+        """Set all matrix entries to zero."""
+        self.petscmat.zeroEntries()
+        return self
+
 
 class ImplicitMatrix(MatrixBase):
     """A representation of the action of bilinear form operating

@@ -201,10 +201,7 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
 
         # -- Update tensor -- #
         if tensor is not None:
-            if isinstance(tensor, (Function, Cofunction)):
-                result.dat.copy(tensor.dat)
-            elif isinstance(tensor, MatrixBase):
-                result.petscmat.copy(tensor.petscmat)
+            tensor.assign(result)
             result = tensor
         return result
 
