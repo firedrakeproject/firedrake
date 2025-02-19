@@ -533,3 +533,5 @@ def test_immerse_mesh():
     new_coord = assemble(interpolate(as_vector([x, y, sin(2*pi*x)]), coord_fs))
     new_mesh = Mesh(new_coord)
     # end_immerse
+
+    new_mesh  # Variable reference to silence linter.
