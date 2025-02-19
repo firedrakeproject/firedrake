@@ -479,7 +479,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                     petsc_mat = lhs.petscmat
                     (row, col) = lhs.arguments()
                     # The matrix-vector product lives in the dual of the test space.
-                    res = tensor if tensor else firedrake.Cofunction(row.function_space().dual())
+                    res = tensor if tensor else firedrake.Function(row.function_space().dual())
                     with rhs.dat.vec_ro as v_vec:
                         with res.dat.vec as res_vec:
                             petsc_mat.mult(v_vec, res_vec)
