@@ -5,54 +5,54 @@ from ufl.algorithms.ad import expand_derivatives
 
 from firedrake import *
 
-try:
-    from firedrake.ml.jax import *
-    import jax
-    import jax.numpy as jnp
+# try:
+from firedrake.ml.jax import *
+import jax
+import jax.numpy as jnp
 
-    # Enable 64-bit precision
-    jax.config.update("jax_enable_x64", True)
+# Enable 64-bit precision
+jax.config.update("jax_enable_x64", True)
 
-    key = jax.random.PRNGKey(0)
+key = jax.random.PRNGKey(0)
 
-    # -- Construct standard models using native JAX -- #
+# -- Construct standard models using native JAX -- #
 
-    class Linear():
-        """Linear layer: y = Wx + b"""
-        def __init__(self, n):
-            # Randomly initialise weights and biases
-            w_key, b_key = jax.random.split(key)
-            self.weight = jax.random.normal(w_key, (n, n))
-            self.bias = jax.random.normal(b_key, (n,))
+class Linear():
+    """Linear layer: y = Wx + b"""
+    def __init__(self, n):
+        # Randomly initialise weights and biases
+        w_key, b_key = jax.random.split(key)
+        self.weight = jax.random.normal(w_key, (n, n))
+        self.bias = jax.random.normal(b_key, (n,))
 
-        def __call__(self, x):
-            return jnp.dot(self.weight, x) + self.bias
+    def __call__(self, x):
+        return jnp.dot(self.weight, x) + self.bias
 
-    class MLP():
-        """Simple multi-layer perceptron (MLP) model with ReLU activation."""
-        def __init__(self, n):
-            # Define layer sizes
-            sizes = [n, n // 2, n // 2, n]
-            # Initialize all layers for a fully-connected neural network with 3 layers
-            nlayers = len(sizes) - 1
-            keys = jax.random.split(key, nlayers)
-            params = []
-            for i, k in enumerate(keys):
-                w_key, b_key = jax.random.split(k)
-                W = jax.random.normal(w_key, (sizes[i+1], sizes[i]))
-                b = jax.random.normal(b_key, (sizes[i+1],))
-                params.append((W, b))
-            self.params = params
+class MLP():
+    """Simple multi-layer perceptron (MLP) model with ReLU activation."""
+    def __init__(self, n):
+        # Define layer sizes
+        sizes = [n, n // 2, n // 2, n]
+        # Initialize all layers for a fully-connected neural network with 3 layers
+        nlayers = len(sizes) - 1
+        keys = jax.random.split(key, nlayers)
+        params = []
+        for i, k in enumerate(keys):
+            w_key, b_key = jax.random.split(k)
+            W = jax.random.normal(w_key, (sizes[i+1], sizes[i]))
+            b = jax.random.normal(b_key, (sizes[i+1],))
+            params.append((W, b))
+        self.params = params
 
-        def __call__(self, x):
-            activations = x
-            for W, b in self.params:
-                outputs = jnp.dot(W, activations) + b
-                activations = jax.nn.relu(outputs)
-            return activations
-except ImportError:
-    # JAX is not installed
-    pass
+    def __call__(self, x):
+        activations = x
+        for W, b in self.params:
+            outputs = jnp.dot(W, activations) + b
+            activations = jax.nn.relu(outputs)
+        return activations
+# except ImportError:
+#     # JAX is not installed
+#     pass
 
 
 @pytest.fixture(scope='module')
