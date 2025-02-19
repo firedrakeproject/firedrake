@@ -330,7 +330,8 @@ class BaseFormAssembler(AbstractFormAssembler):
                  zero_bc_nodes=True,
                  diagonal=False,
                  weight=1.0,
-                 allocation_integral_types=None):
+                 allocation_integral_types=None,
+                 needs_zeroing=True):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
         self._mat_type = mat_type
         self._sub_mat_type = sub_mat_type
@@ -340,6 +341,7 @@ class BaseFormAssembler(AbstractFormAssembler):
         self._diagonal = diagonal
         self._weight = weight
         self._allocation_integral_types = allocation_integral_types
+        self._needs_zeroing = needs_zeroing
 
     def allocate(self):
         rank = len(self._form.arguments())
@@ -395,6 +397,9 @@ class BaseFormAssembler(AbstractFormAssembler):
         in a post-order fashion and evaluating the nodes on the fly.
 
         """
+        if tensor is not None and self._needs_zeroing:
+            tensor.zero()
+
         def visitor(e, *operands):
             t = tensor if e is self._form else None
             return self.base_form_assembly_visitor(e, t, *operands)
