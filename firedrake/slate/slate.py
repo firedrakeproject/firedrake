@@ -339,7 +339,7 @@ class TensorBase(object, metaclass=ABCMeta):
             return NotImplemented
 
     def __radd__(self, other):
-        # If other cannot be converted into a TensorBase, raise NotImplementedError.
+        # If other cannot be converted into a TensorBase, return NotImplemented.
         # Otherwise, delegate action to other.
         try:
             other = as_slate(other)
@@ -355,7 +355,7 @@ class TensorBase(object, metaclass=ABCMeta):
             return NotImplemented
 
     def __rsub__(self, other):
-        # If other cannot be converted into a TensorBase, raise NotImplementedError.
+        # If other cannot be converted into a TensorBase, return NotImplemented.
         # Otherwise, delegate action to other.
         try:
             other = as_slate(other)
@@ -371,7 +371,7 @@ class TensorBase(object, metaclass=ABCMeta):
             return NotImplemented
 
     def __rmul__(self, other):
-        # If other cannot be converted into a TensorBase, raise NotImplementedError.
+        # If other cannot be converted into a TensorBase, return NotImplemented.
         # Otherwise, delegate action to other.
         try:
             other = as_slate(other)
