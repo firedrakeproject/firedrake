@@ -369,7 +369,7 @@ def test_illegal_add_sub():
         A - s
 
 
-def test_ops_NotImplementedError():
+def test_ops_TypeError():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "DG", 0)
     u = TrialFunction(V)
@@ -377,19 +377,19 @@ def test_ops_NotImplementedError():
     f = Constant(1)
     A = Tensor(u * v * dx)
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(TypeError):
         A + f
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(TypeError):
         f + A
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(TypeError):
         A - f
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(TypeError):
         f - A
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(TypeError):
         f * A
 
 
