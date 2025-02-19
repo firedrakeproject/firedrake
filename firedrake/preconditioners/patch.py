@@ -127,6 +127,9 @@ class LocalDat(pyop2.types.AbstractDat):
     def __call__(self, access, map_=None):
         return LocalDatLegacyArg(self, map_, access)
 
+    def increment_dat_version(self):
+        pass
+
 
 register_petsc_function("MatSetValues")
 
