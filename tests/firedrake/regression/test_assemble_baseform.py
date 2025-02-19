@@ -111,7 +111,13 @@ def test_vector_formsum(a):
     assert isinstance(res2, Cofunction)
     assert isinstance(preassemble, Cofunction)
     for f, f2 in zip(preassemble.subfunctions, res2.subfunctions):
-        assert abs(f.dat.data.sum() - f2.dat.data.sum()) < 1.0e-12
+        assert np.allclose(f.dat.data, f2.dat.data, atol=1e-12)
+
+    res3 = Cofunction(res.function_space())
+    out = assemble(formsum, tensor=res3)
+    assert out is res3
+    for f, f3 in zip(preassemble.subfunctions, res3.subfunctions):
+        assert np.allclose(f.dat.data, f3.dat.data, atol=1e-12)
 
 
 def test_matrix_formsum(M):

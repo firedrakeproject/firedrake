@@ -497,7 +497,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 return sum(weight * arg for weight, arg in zip(expr.weights(), args))
             elif all(isinstance(op, firedrake.Cofunction) for op in args):
                 V, = set(a.function_space() for a in args)
-                result = firedrake.Cofunction(V)
+                result = tensor if tensor else firedrake.Cofunction(V)
                 result.dat.maxpy(expr.weights(), [a.dat for a in args])
                 return result
             elif all(isinstance(op, ufl.Matrix) for op in args):
