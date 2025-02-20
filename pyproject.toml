@@ -114,6 +114,5 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 script-files = [
   "firedrake/scripts/firedrake-zenodo",
-  "scripts/firedrake-check",
   "scripts/firedrake-run-split-tests",
 ]
