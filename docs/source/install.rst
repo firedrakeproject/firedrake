@@ -152,9 +152,10 @@ Customising the PETSc installation
 Since ``firedrake-configure`` only outputs a string of options it is straightforward
 to make changes to the options passed to PETSc ``configure``. You can either:
 
-* Append additional options when ``configure`` is invoked::
+* Append additional options when ``configure`` is invoked. For example, to compile
+  PETSc with 64 bit indices you should run::
 
-   $ ./configure $(python3 ../firedrake-configure --show-petsc-configure-options) --download-exotic-package
+   $ ./configure $(python3 ../firedrake-configure --show-petsc-configure-options) --with-64-bit-indices
 
 * Write the output of ``firedrake-configure`` to a file than can be modified::
 
@@ -194,9 +195,8 @@ install Firedrake. To do this perform the following steps:
    Firedrake and its components. To install Firedrake in editable mode you
    should replace the installation command above with::
 
-     $ pip install --no-binary h5py --editable git+https://github.com/firedrakeproject/firedrake.git#egg=firedrake
-
-   which will install Firedrake into ``$VIRTUAL_ENV/src/firedrake``, or ``./src/firedrake`` if not using a virtual environment.
+     $ git clone https://github.com/firedrakeproject/firedrake.git
+     $ pip install --no-binary h5py --editable ./firedrake
 
 .. note::
    During the installation Firedrake will compile and install petsc4py_. If
