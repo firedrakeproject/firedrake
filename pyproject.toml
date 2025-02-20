@@ -77,6 +77,7 @@ ci = [
 ]
 docs = [
   "bibtexparser",
+  "matplotlib",  # needed to resolve API
   "numpydoc",
   "pylit",
   "sphinx",
@@ -86,6 +87,7 @@ docs = [
   "sphinxcontrib-jquery",
   "sphinxcontrib-svg2pdfconverter",
   "sphinxcontrib-youtube",
+  "vtk",  # needed to resolve API
 ]
 test = [
   "ipympl",  # needed for notebook testing
