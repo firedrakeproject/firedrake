@@ -21,7 +21,7 @@ jobs:
     # Run on the Github hosted runner
     runs-on: ubuntu-latest
     container:
-      image: firedrakeproject/firedrake-vanilla:pip
+      image: firedrakeproject/firedrake-vanilla-default:pip
       # Github hosted runners require running as root user:
       # https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners/about-github-hosted-runners#docker-container-filesystem
       options: --user root
