@@ -195,10 +195,6 @@ class ImplicitMatrix(MatrixBase):
         # updated if necessary.
         self.petscmat.assemble()
 
-    def zero(self):
-        """Set all matrix entries to zero."""
-        return self
-
 
 class AssembledMatrix(MatrixBase):
     """A representation of a matrix that doesn't require knowing the underlying form.
