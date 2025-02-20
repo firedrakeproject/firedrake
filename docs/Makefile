@@ -92,13 +92,13 @@ source/firedrake_citations.rst:
 source/apt_deps.txt:
 	python ../scripts/firedrake-configure \
 		--package-manager apt-x86_64 \
-		--show-system-dependencies > source/apt_deps.tmp
+		--show-system-packages > source/apt_deps.tmp
 	mv source/apt_deps.tmp source/apt_deps.txt
 
 source/homebrew_deps.txt:
 	python ../scripts/firedrake-configure \
 		--package-manager brew-arm64 \
-		--show-system-dependencies > source/homebrew_deps.tmp
+		--show-system-packages > source/homebrew_deps.tmp
 	mv source/homebrew_deps.tmp source/homebrew_deps.txt
 
 source/petsc_configure_options.txt:

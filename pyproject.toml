@@ -78,6 +78,7 @@ ci = [
 docs = [
   "bibtexparser",
   "numpydoc",
+  "pylit",
   "sphinx",
   "sphinx-autobuild",
   "sphinx-reredirects",
@@ -98,6 +99,7 @@ test = [
 [build-system]
 requires = [
   "setuptools>61.2",
+  "setuptools_scm>=8",  # automatically put git tracked files into the sdist
   "Cython>=3.0",
   "pybind11",
   "pkgconfig",

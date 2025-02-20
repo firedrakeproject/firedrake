@@ -76,7 +76,7 @@ Please see https://firedrakeproject.org/install for more information."""
     )
     cmd_group = parser.add_mutually_exclusive_group(required=True)
     cmd_group.add_argument(
-        "--show-system-dependencies",
+        "--show-system-packages",
         "--sysdeps",  # alias
         action="store_true",
         help="Print out the system packages Firedrake needs. The user must install these.",
@@ -104,7 +104,7 @@ Please see https://firedrakeproject.org/install for more information."""
         package_manager = sniff_package_manager()
     arch = FiredrakeArch(args.arch)
 
-    if args.show_system_dependencies:
+    if args.show_system_packages:
         if package_manager is None:
             raise RuntimeError(
                 "Cannot install Firedrake dependencies without a package manager, "

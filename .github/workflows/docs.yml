@@ -21,7 +21,7 @@ jobs:
     # Run on the Github hosted runner
     runs-on: ubuntu-latest
     container:
-      image: firedrakeproject/firedrake-docdeps:pip
+      image: firedrakeproject/firedrake-vanilla:pip
       # Github hosted runners require running as root user:
       # https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners/about-github-hosted-runners#docker-container-filesystem
       options: --user root
@@ -37,6 +37,7 @@ jobs:
           : # Pass '--system-site-packages' so already installed packages can be found
           python3 -m venv --system-site-packages venv
           . venv/bin/activate
+          pip uninstall -y firedrake
           pip install --verbose './firedrake-repo[docs]'
 
       - name: Check bibtex
