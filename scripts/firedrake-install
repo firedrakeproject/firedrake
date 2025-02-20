@@ -1315,13 +1315,8 @@ def build_and_install_jax():
     """Install JAX for a CPU or CUDA backend."""
     log.info("Installing JAX (backend: %s)" % args.jax)
     # version_name = "jax" if args.jax == "cpu" else "jax[cuda12]"
-    run_pip_install(["jax", "jaxlib"])
+    run_pip_install(["jax"] + ["jaxlib"] + ["ml_dtypes"] + ["opt_einsum"])
     # Test if jaxlib is installed correctly
-    try:
-        import jaxlib
-    except ImportError:
-        print("Failed to install jaxlib")
-        raise InstallError("Failed to install jaxlib")
     try:
         import jax
     except ImportError:
