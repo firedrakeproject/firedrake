@@ -84,7 +84,7 @@ def test_assemble_adjoint(M):
     res2 = assemble(adjoint(assembledM))
     assert isinstance(res, ufl.Matrix)
     assert res.M.handle == res.petscmat
-    assert np.allclose(res.M.handle[:, :], res2.M.handle[:, :], rtol=1e-14)
+    assert res.petscmat.equal(res2.petscmat)
 
 
 def test_assemble_action(M, f):

@@ -330,8 +330,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                  zero_bc_nodes=True,
                  diagonal=False,
                  weight=1.0,
-                 allocation_integral_types=None,
-                 needs_zeroing=True):
+                 allocation_integral_types=None):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
         self._mat_type = mat_type
         self._sub_mat_type = sub_mat_type
@@ -341,7 +340,6 @@ class BaseFormAssembler(AbstractFormAssembler):
         self._diagonal = diagonal
         self._weight = weight
         self._allocation_integral_types = allocation_integral_types
-        self._needs_zeroing = needs_zeroing
 
     def allocate(self):
         rank = len(self._form.arguments())
@@ -375,15 +373,6 @@ class BaseFormAssembler(AbstractFormAssembler):
         else:
             return self._allocation_integral_types
 
-    def _check_tensor(self, tensor):
-        rank = len(self._form.arguments())
-        if rank == 1:
-            if tensor.function_space() != self._form.arguments()[0].function_space().dual():
-                raise ValueError("Form's argument does not match provided result tensor")
-        else:
-            if tensor.arguments() != self._form.arguments():
-                raise ValueError("Form's argument does not match provided result tensor")
-
     def assemble(self, tensor=None, current_state=None):
         """Assemble the form.
 
@@ -406,11 +395,6 @@ class BaseFormAssembler(AbstractFormAssembler):
         in a post-order fashion and evaluating the nodes on the fly.
 
         """
-        if tensor is not None:
-            self._check_tensor(tensor)
-            if self._needs_zeroing:
-                tensor.zero()
-
         def visitor(e, *operands):
             t = tensor if e is self._form else None
             return self.base_form_assembly_visitor(e, t, *operands)
@@ -425,7 +409,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             for bc in self._bcs:
                 OneFormAssembler._apply_bc(self, result, bc, u=current_state)
 
-        return result
+        return tensor if tensor else result
 
     def base_form_assembly_visitor(self, expr, tensor, *args):
         r"""Assemble a :class:`~ufl.classes.BaseForm` object given its assembled operands.
@@ -506,8 +490,11 @@ class BaseFormAssembler(AbstractFormAssembler):
                 raise TypeError("Mismatching weights and operands in FormSum")
             if len(args) == 0:
                 raise TypeError("Empty FormSum")
+            if tensor:
+                tensor.zero()
             if all(isinstance(op, numbers.Complex) for op in args):
-                return sum(weight * arg for weight, arg in zip(expr.weights(), args))
+                result = sum(weight * arg for weight, arg in zip(expr.weights(), args))
+                return tensor.assign(result) if tensor else result
             elif all(isinstance(op, firedrake.Cofunction) for op in args):
                 V, = set(a.function_space() for a in args)
                 result = tensor if tensor else firedrake.Cofunction(V)
@@ -545,7 +532,8 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # It is also convenient when we have a Form in that slot since Forms don't play well with `ufl.replace`
                 expr = expr._ufl_expr_reconstruct_(*expr.ufl_operands, argument_slots=(v,) + expr.argument_slots()[1:])
             # Call the external operator assembly
-            return expr.assemble(assembly_opts=opts, tensor=tensor)
+            result = expr.assemble(assembly_opts=opts)
+            return tensor.assign(result) if tensor else result
         elif isinstance(expr, ufl.Interpolate):
             # Replace assembled children
             _, expression = expr.argument_slots()
@@ -604,8 +592,9 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # The case rank == 0 is handled via the DAG restructuring
                 raise ValueError("Incompatible number of arguments.")
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
-            tensor.assign(expr)
-            return tensor
+            return tensor.assign(expr)
+        elif tensor and isinstance(expr, ufl.ZeroBaseForm):
+            return tensor.zero()
         elif isinstance(expr, (ufl.Coefficient, ufl.Cofunction, ufl.Matrix, ufl.Argument, ufl.Coargument, ufl.ZeroBaseForm)):
             return expr
         else:

@@ -32,7 +32,7 @@ def test_python_pc_valueerror():
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    A = assemble(inner(u, v) * dx).M.handle
+    A = assemble(inner(u, v) * dx).petscmat
     pc = PETSc.PC().create(comm=mesh.comm)
     pc.setType(pc.Type.PYTHON)
     pc.setOperators(A, A)
