@@ -41,14 +41,25 @@ ARCH_COMPLEX = FiredrakeArch.COMPLEX
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Print out configuration options needed to install Firedrake",
+        description="""Print out the configuration options needed to install Firedrake
+
+This script takes in arguments declaring the operating system, target
+configuration (termed 'ARCH') and install step (installing system packages,
+PETSc 'configure', or preparing the environment for 'pip install') and simply
+prints options to the screen so they can be passed to the external command.
+
+If a supported operating system (Ubuntu or macOS with homebrew) is detected
+then 'firedrake-configure' will specify additional system packages to install
+that are used inside PETSc 'configure' instead of building from source.
+
+Please see https://firedrakeproject.org/install for more information."""
     )
     package_manager_group = parser.add_mutually_exclusive_group()
     package_manager_group.add_argument(
         "--package-manager",
         choices=[pm.value for pm in PackageManager],
         required=False,
-        help="The system package manager, if not provided firedrake-configure "
+        help="The system package manager, if not provided 'firedrake-configure' "
         "will attempt to guess it.",
     )
     package_manager_group.add_argument(
@@ -61,14 +72,14 @@ def main():
         "--arch",
         choices=[arch.value for arch in FiredrakeArch],
         default=ARCH_DEFAULT,
-        help="The target 'arch' to install.",
+        help="The target configuration to install.",
     )
     cmd_group = parser.add_mutually_exclusive_group(required=True)
     cmd_group.add_argument(
         "--show-system-dependencies",
         "--sysdeps",  # alias
         action="store_true",
-        help="Print out the system packages Firedrake needs.",
+        help="Print out the system packages Firedrake needs. The user must install these.",
     )
     cmd_group.add_argument(
         "--show-petsc-configure-options",
@@ -80,8 +91,7 @@ def main():
         "--show-env",
         "--env",  # alias
         action="store_true",
-        help="Print out the environment variables that need to be exported to "
-        "install Firedrake.",
+        help="Print out the environment variables that need to be exported to install Firedrake.",
     )
 
     args = parser.parse_args()

@@ -172,6 +172,14 @@ Installing Firedrake
 Now that the right system packages are installed and PETSc is built we can now
 install Firedrake. To do this perform the following steps:
 
+#. Create a `virtual environment <https://docs.python.org/3/tutorial/venv.html>`_::
+
+      $ python3 -m venv venv-firedrake
+      $ . venv-firedrake/bin/activate
+
+   This is optional but strongly recommended to avoid polluting your system Python
+   environment.
+
 #. Set any necessary environment variables. This can be achieved using
    ``firedrake-configure``::
 
@@ -189,9 +197,9 @@ install Firedrake. To do this perform the following steps:
 
 #. Firedrake is now installed and ready for use!
 
-.. important::
+.. warning::
    Until Firedrake has versioned releases (slated for April/May 2025),
-   :doc:```firedrake-zenodo``</zenodo>` will only work with *editable* installations of
+   :doc:`firedrake-zenodo</zenodo>` will only work with *editable* installations of
    Firedrake and its components. To install Firedrake in editable mode you
    should replace the installation command above with::
 
