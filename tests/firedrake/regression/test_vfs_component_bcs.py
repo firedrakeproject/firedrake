@@ -219,7 +219,7 @@ def test_component_full_bcs(V):
     A_mixed = assemble(a, bcs=bcs_mixed, mat_type="aij")
 
     assert A_full.petscmat.equal(A_cmp.petscmat)
-    assert A_mixed.equal(A_full)
+    assert A_mixed.petscmat.equal(A_full.petscmat)
 
 
 def test_component_full_bcs_overlap(V):
