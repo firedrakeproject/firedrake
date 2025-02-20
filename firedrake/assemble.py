@@ -509,7 +509,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                         # Make a copy to avoid in-place scaling
                         res = op.petscmat.copy()
                         res.scale(w)
-                return matrix.AssembledMatrix(expr, self._bcs, res,
+                return tensor if tensor else matrix.AssembledMatrix(expr, self._bcs, res,
                                               appctx=self._appctx,
                                               options_prefix=self._options_prefix)
             else:
