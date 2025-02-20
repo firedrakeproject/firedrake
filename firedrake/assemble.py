@@ -471,8 +471,8 @@ class BaseFormAssembler(AbstractFormAssembler):
                     res = tensor.petscmat if tensor else PETSc.Mat()
                     petsc_mat.matMult(rhs.petscmat, result=res)
                     return tensor if tensor else matrix.AssembledMatrix(expr, self._bcs, res,
-                                                  appctx=self._appctx,
-                                                  options_prefix=self._options_prefix)
+                                                                        appctx=self._appctx,
+                                                                        options_prefix=self._options_prefix)
                 else:
                     raise TypeError("Incompatible RHS for Action.")
             elif isinstance(lhs, (firedrake.Cofunction, firedrake.Function)):
@@ -510,8 +510,8 @@ class BaseFormAssembler(AbstractFormAssembler):
                         res = op.petscmat.copy()
                         res.scale(w)
                 return tensor if tensor else matrix.AssembledMatrix(expr, self._bcs, res,
-                                              appctx=self._appctx,
-                                              options_prefix=self._options_prefix)
+                                                                    appctx=self._appctx,
+                                                                    options_prefix=self._options_prefix)
             else:
                 raise TypeError("Mismatching FormSum shapes")
         elif isinstance(expr, ufl.ExternalOperator):
