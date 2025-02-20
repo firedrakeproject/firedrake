@@ -115,7 +115,7 @@ def J(ic, nu, solve_type, timestep, steps, V, nu_time_dependent=False):
 
     tape = get_working_tape()
     J = 0.0
-    for j in tape.timestepper(iter(range(steps))):
+    for j in tape.timestepper(range(steps)):
         if nu_time_dependent and j > 4:
             nu.assign(nu*(1.0 + j/1000))
         if solve_type == "NLVS":
@@ -195,12 +195,8 @@ def test_burgers_newton(solve_type, checkpointing, basics):
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.parametrize("solve_type, checkpointing",
-                         [("solve", "Revolve"),
-                          ("NLVS", "Revolve"),
-                          ("solve", "Mixed"),
-                          ("NLVS", "Mixed"),
-                          ])
+@pytest.mark.parametrize("solve_type", ["solve", "NLVS"])
+@pytest.mark.parametrize("checkpointing", ["Revolve", "SingleMemory", "NoneAdjoint", "Mixed", None])
 def test_checkpointing_validity(solve_type, checkpointing, basics):
     """Compare forward and backward results with and without checkpointing."""
     mesh, timestep, steps = basics
@@ -243,6 +239,9 @@ def test_global_deps(nu_time_dependent, basics):
     Jhat = ReducedFunctional(val0, Control(ic))
 
     if nu_time_dependent:
+        # Verify that the global dependencies are correctly built when
+        # an equation parameter (such as ``nu``) starts depending on time
+        # after a certain number of timesteps.
         assert len(tape._checkpoint_manager._global_deps) == 1
         assert mesh.block_variable in tape._checkpoint_manager._global_deps
     else:
