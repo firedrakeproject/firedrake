@@ -409,7 +409,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             for bc in self._bcs:
                 OneFormAssembler._apply_bc(self, result, bc, u=current_state)
 
-        return tensor if tensor else result
+        return result
 
     def base_form_assembly_visitor(self, expr, tensor, *args):
         r"""Assemble a :class:`~ufl.classes.BaseForm` object given its assembled operands.

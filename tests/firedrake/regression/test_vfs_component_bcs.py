@@ -240,4 +240,4 @@ def test_component_full_bcs_overlap(V):
     A_1 = assemble(a, bcs=bcs_1, mat_type="aij")
     A_2 = assemble(a, bcs=bcs_2, mat_type="aij")
 
-    assert A_1.equal(A_2)
+    assert A_1.petscmat.equal(A_2.petscmat)
