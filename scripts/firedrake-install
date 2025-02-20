@@ -1314,8 +1314,8 @@ def build_and_install_torch():
 def build_and_install_jax():
     """Install JAX for a CPU or CUDA backend."""
     log.info("Installing JAX (backend: %s)" % args.jax)
-    # version_name = "jax" if args.jax == "cpu" else "jax[cuda12]"
-    run_pip_install(["jax"] + ["jaxlib"] + ["ml_dtypes"] + ["opt_einsum"])
+    version_name = "jax" if args.jax == "cpu" else "jax[cuda12]"
+    run_pip_install(version_name + ["jaxlib"] + ["ml_dtypes"] + ["opt_einsum"])
 
 
 def build_and_install_slepc():
