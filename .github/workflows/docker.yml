@@ -50,7 +50,7 @@ jobs:
   # Firedrake container (just Firedrake)
   docker_build_vanilla:
     # Only run if Firedrake tests pass
-    if: ${{ inputs.status == 'success' }}
+    if: inputs.status == 'success'
     needs: docker_merge_env
     strategy:
       matrix:
@@ -85,7 +85,7 @@ jobs:
   # # Firedrake container (Firedrake and friends)
   docker_build_firedrake:
     # Only run if "Build Firedrake" succeeds
-    if: ${{ inputs.status == 'success' }}
+    if: inputs.status == 'success'
     needs: docker_merge_vanilla
     strategy:
       matrix:
@@ -93,6 +93,8 @@ jobs:
         include:
           - os: Linux
             platform: linux/amd64
+            install-ngsPETSc: true
+            install-vtk: true
           - os: macOS
             platform: linux/arm64
             # ngsPETSc and VTK do not have wheels for ARM
@@ -120,7 +122,7 @@ jobs:
   # # Firedrake container with documentation dependencies and TeX
   docker_build_docdeps:
     # Only run if "Build Firedrake" succeeds
-    if: ${{ inputs.status == 'success' }}
+    if: inputs.status == 'success'
     needs: docker_merge_vanilla
     strategy:
       matrix:
@@ -150,7 +152,7 @@ jobs:
   # # Firedrake container with Jupyter notebooks
   docker_build_jupyter:
     # Only run if "Build Firedrake" succeeds
-    if: ${{ inputs.status == 'success' }}
+    if: inputs.status == 'success'
     needs: docker_merge_firedrake
     strategy:
       matrix:

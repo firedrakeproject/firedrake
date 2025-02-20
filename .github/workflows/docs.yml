@@ -34,10 +34,10 @@ jobs:
 
       - name: Install Firedrake
         run: |
-          export $(python3 ./firedrake-repo/scripts/firedrake-configure --show-env)
-          python3 -m venv venv
+          : # Pass '--system-site-packages' so already installed packages can be found
+          python3 -m venv --system-site-packages venv
           . venv/bin/activate
-          pip install --verbose ./firedrake-repo
+          pip install --verbose './firedrake-repo[docs]'
 
       - name: Check bibtex
         run: |
