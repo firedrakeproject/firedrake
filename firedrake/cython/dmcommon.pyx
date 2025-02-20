@@ -368,10 +368,10 @@ cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
         #                         0       2
         #                         |       |
         #                         +---3---+
-        # plex_cone_new[0] = plex_cone_old[0]
-        # plex_cone_new[1] = plex_cone_old[2]
-        # plex_cone_new[2] = plex_cone_old[1]
-        # plex_cone_new[3] = plex_cone_old[3]
+        #plex_cone_new[0] = plex_cone_old[0]
+        #plex_cone_new[1] = plex_cone_old[2]
+        #plex_cone_new[2] = plex_cone_old[1]
+        #plex_cone_new[3] = plex_cone_old[3]
         print("SWITCHING")
         plex_cone_new[0] = plex_cone_old[0]
         plex_cone_new[1] = plex_cone_old[3]
@@ -978,15 +978,15 @@ cdef inline PetscInt _compute_orientation_simplex(PetscInt *fiat_cone,
 
     CHKERR(PetscMalloc1(coneSize, &cone1))
     CHKERR(PetscMalloc1(coneSize, &inds))
-    print("plex")
+    #print("plex")
     for k in range(coneSize1):
         cone1[k] = plex_cone[k]
-        print(plex_cone[k])
+        #print(plex_cone[k])
     n = 0
-    print("fiat")
+    #print("fiat")
     for e in range(coneSize):
         q = fiat_cone[e]
-        print(q)
+        #print(q)
         for k in range(coneSize1):
             if q == cone1[k]:
                 inds[n] = k
@@ -1040,13 +1040,8 @@ cdef inline PetscInt _compute_orientation_interval_tensor_product(PetscInt *fiat
     #         0---1  1---0  2---3  3---2
     #
     dim1 = dim
-    print("plex")
     for i in range(2 * dim):
-        print(plex_cone[i])
         plex_cone_copy[i] = plex_cone[i]
-    print("fiat")
-    for i in range(2 * dim):
-        print(fiat_cone[i])
     for i in range(dim):
         for j in range(dim1):
             if plex_cone_copy[2 * j] == fiat_cone[2 * i] or plex_cone_copy[2 * j + 1] == fiat_cone[2 * i]:
