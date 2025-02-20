@@ -97,6 +97,19 @@ class MatrixBase(ufl.Matrix):
         return "assembled %s(a=%s, bcs=%s)" % (type(self).__name__,
                                                self.a, self.bcs)
 
+    def assign(self, val):
+        """Set matrix entries."""
+        if isinstance(val, MatrixBase):
+            val.petscmat.copy(self.petscmat)
+        else:
+            raise ValueError(f"Cannot assign a {type(val).__name__} to a {type(self).__name__}.")
+        return self
+
+    def zero(self):
+        """Set all matrix entries to zero."""
+        self.petscmat.zeroEntries()
+        return self
+
 
 class Matrix(MatrixBase):
     """A representation of an assembled bilinear form.
@@ -133,16 +146,6 @@ class Matrix(MatrixBase):
         raise NotImplementedError("API compatibility to apply bcs after 'assemble(a)'\
                                   has been removed.  Use 'assemble(a, bcs=bcs)', which\
                                   now returns an assembled matrix.")
-
-    def assign(self, mat):
-        """Set the :class:`MatrixBase` entries to those of mat."""
-        mat.petscmat.copy(self.petscmat)
-        return self
-
-    def zero(self):
-        """Set all matrix entries to zero."""
-        self.petscmat.zeroEntries()
-        return self
 
 
 class ImplicitMatrix(MatrixBase):
@@ -192,6 +195,10 @@ class ImplicitMatrix(MatrixBase):
         # updated if necessary.
         self.petscmat.assemble()
 
+    def zero(self):
+        """Set all matrix entries to zero."""
+        return self
+
 
 class AssembledMatrix(MatrixBase):
     """A representation of a matrix that doesn't require knowing the underlying form.
@@ -217,8 +224,7 @@ class AssembledMatrix(MatrixBase):
         return self.petscmat
 
     def __add__(self, other):
-        if isinstance(other, AssembledMatrix):
+        if isinstance(other, MatrixBase):
             return self.petscmat + other.petscmat
         else:
-            raise TypeError("Unable to add %s to AssembledMatrix"
-                            % (type(other)))
+            return NotImplemented
