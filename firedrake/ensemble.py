@@ -1,8 +1,12 @@
 import weakref
+from contextlib import contextmanager
+from itertools import zip_longest
+from types import SimpleNamespace
 
 from firedrake.petsc import PETSc
+from firedrake.function import Function
+from firedrake.cofunction import Cofunction
 from pyop2.mpi import MPI, internal_comm
-from itertools import zip_longest
 
 __all__ = ("Ensemble", )
 
@@ -283,3 +287,60 @@ class Ensemble(object):
         requests.extend([self._ensemble_comm.Irecv(dat.data, source=source, tag=recvtag)
                          for dat in frecv.dat])
         return requests
+
+    @contextmanager
+    def sequential(self, synchronise=False, **kwargs):
+        """
+        Context manager for executing code on each ensemble
+        member consecutively by `ensemble_comm.rank`.
+
+        Any data in `kwargs` will be made available in the context
+        and will be communicated forward after each ensemble member
+        exits. Firedrake Functions/Cofunctions will be sent with the
+        corresponding Ensemble methods.
+        For example:
+
+        with ensemble.sequential(index=0) as ctx:
+            print(ensemble.ensemble_comm.rank, ctx.index)
+            ctx.index += 2
+
+        Would print:
+        0 0
+        1 2
+        2 4
+        3 6
+        ... etc ...
+
+        """
+        rank = self.ensemble_comm.rank
+        first_rank = (rank == 0)
+        last_rank = (rank == self.ensemble_comm.size - 1)
+
+        if not first_rank:
+            src = rank - 1
+            for i, (k, v) in enumerate(kwargs.items()):
+                recv_kwargs = {'source': src, 'tag': rank+i*100}
+                if isinstance(v, (Function, Cofunction)):
+                    self.recv(kwargs[k], **recv_kwargs)
+                else:
+                    kwargs[k] = self.ensemble_comm.recv(
+                        **recv_kwargs)
+
+        ctx = SimpleNamespace(**kwargs)
+
+        if synchronise:
+            self.global_comm.Barrier()
+            yield ctx
+            self.global_comm.Barrier()
+        else:
+            yield ctx
+
+        if not last_rank:
+            dst = rank + 1
+            for i, v in enumerate((getattr(ctx, k)
+                                   for k in kwargs.keys())):
+                send_kwargs = {'dest': dst, 'tag': dst+i*100}
+                if isinstance(v, (Function, Cofunction)):
+                    self.send(v, **send_kwargs)
+                else:
+                    self.ensemble_comm.send(v, **send_kwargs)
