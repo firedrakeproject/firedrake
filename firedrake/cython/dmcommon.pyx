@@ -2120,6 +2120,8 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
         PetscInt nswarmCells, swarmCell, blocksize
         PetscInt *swarmParentCells = NULL
         PetscDataType ctype = PETSC_DATATYPE_UNKNOWN
+        const char *cellid = NULL
+        PETSc.PetscDMSwarmCellDM celldm
 
     plex = swarm.getCellDM()
     get_height_stratum(plex.dm, 0, &cStart, &cEnd)
@@ -2145,14 +2147,16 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
     for ilabel, op2class in enumerate([b"pyop2_core", b"pyop2_owned", b"pyop2_ghost"]):
         CHKERR(DMCreateLabel(swarm.dm, op2class))
         CHKERR(DMGetLabel(swarm.dm, op2class, &swarm_labels[ilabel]))
-    CHKERR(DMSwarmGetField(swarm.dm, b"DMSwarm_cellid", &blocksize, &ctype, <void**>&swarmParentCells))
+    CHKERR(DMSwarmGetCellDMActive(swarm.dm, &celldm))
+    CHKERR(DMSwarmCellDMGetCellID(celldm, &cellid))
+    CHKERR(DMSwarmGetField(swarm.dm, cellid, &blocksize, &ctype, <void**> &swarmParentCells))
     assert ctype == PETSC_INT
     assert blocksize == 1
     CHKERR(DMSwarmGetLocalSize(swarm.dm, &nswarmCells))
     for swarmCell in range(nswarmCells):
         plex_cell_class = plex_cell_classes[swarmParentCells[swarmCell] - cStart]
         CHKERR(DMLabelSetValue(swarm_labels[plex_cell_class], swarmCell, label_value))
-    CHKERR(DMSwarmRestoreField(swarm.dm, b"DMSwarm_cellid", &blocksize, &ctype, <void**>&swarmParentCells))
+    CHKERR(DMSwarmRestoreField(swarm.dm, cellid, &blocksize, &ctype, <void**> &swarmParentCells))
     CHKERR(PetscFree(plex_cell_classes))
 
 
