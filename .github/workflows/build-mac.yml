@@ -41,7 +41,7 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          brew install $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --show-system-dependencies)
+          brew install $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --show-system-packages)
 
       - name: Install PETSc
         run: |
