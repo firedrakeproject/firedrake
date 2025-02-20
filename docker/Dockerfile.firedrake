@@ -38,7 +38,7 @@ RUN if [ "$INSTALL_NGSPETSC" = 1 ]; then \
 RUN pip install --break-system-packages --verbose setuptools versioneer; \
     pip install --break-system-packages --verbose --src . \
         -e git+https://github.com/firedrakeproject/asQ.git#egg=asQ \
-        -e git+https://bitbucket.org/pefarrell/defcon.git#egg=defon \
+        -e git+https://bitbucket.org/pefarrell/defcon.git#egg=defcon \
         -e git+https://bitbucket.org/pefarrell/fascd.git#egg=fascd \
         -e git+https://github.com/FEMlium/FEMlium.git#egg=FEMlium \
         -e git+https://github.com/g-adopt/g-adopt.git#egg=gadopt \

@@ -5,6 +5,3 @@ FROM firedrakeproject/firedrake-vanilla-default:pip
 RUN sudo apt-get update; \
     sudo apt-get -y install inkscape texlive-full; \
     sudo rm -rf /var/lib/apt/lists/*
-
-# Install documentation dependencies
-RUN pip install --break-system-packages --verbose --editable ./firedrake[docs]
