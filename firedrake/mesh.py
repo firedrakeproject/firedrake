@@ -47,6 +47,7 @@ except ImportError:
 # Only for docstring
 import mpi4py  # noqa: F401
 from finat.element_factory import as_fiat_cell
+from ufl.cell import as_cell
 
 
 __all__ = [
@@ -1223,14 +1224,7 @@ class MeshTopology(AbstractMeshTopology):
         # represent a mesh topology (as here) have geometric dimension
         # equal their topological dimension. This is reflected in the
         # corresponding UFL mesh.
-        cell1 = ufl.Cell(_cells[tdim][nfacets])
-        cell2 = constructCellComplex(_cells[tdim][nfacets])
-        print(as_fiat_cell(cell1).topology)
-        print(as_fiat_cell(cell1).vertices)
-        print(as_fiat_cell(cell2).topology)
-        print(as_fiat_cell(cell2).vertices)
-        # return ufl.Cell(_cells[tdim][nfacets])
-        return constructCellComplex(_cells[tdim][nfacets])
+        return as_cell(_cells[tdim][nfacets])
 
     @utils.cached_property
     def _ufl_mesh(self):
@@ -1270,7 +1264,7 @@ class MeshTopology(AbstractMeshTopology):
         assert tdim == cell.topological_dimension()
         # plex.viewFromOptions("-dm_view")
         closure, _ = plex.getTransitiveClosure(0)
-        print("plex", closure)
+        # print("plex", closure)
         if self.submesh_parent is not None:
             return dmcommon.submesh_create_cell_closure_cell_submesh(plex,
                                                                      self.submesh_parent.topology_dm,
@@ -1278,7 +1272,7 @@ class MeshTopology(AbstractMeshTopology):
                                                                      self.submesh_parent._cell_numbering,
                                                                      self.submesh_parent.cell_closure)
         elif cell.is_simplex():
-            print("simplex case")
+            # print("simplex case")
             topology = FIAT.ufc_cell(cell).get_topology()
             entity_per_cell = np.zeros(len(topology), dtype=IntType)
             for d, ents in topology.items():
@@ -1297,27 +1291,27 @@ class MeshTopology(AbstractMeshTopology):
             closureSize = sum([len(ents) for _, ents in topology.items()])
             return dmcommon.create_cell_closure(plex, cell_numbering, closureSize)
         elif cell.cellname() == "quadrilateral":
-            print("quadcase")
+            # print("quadcase")
             from firedrake_citations import Citations
             Citations().register("Homolya2016")
             Citations().register("McRae2016")
             # Quadrilateral mesh
             cell_ranks = dmcommon.get_cell_remote_ranks(plex)
-            print(plex.getTransitiveClosure(0))
+            # print(plex.getTransitiveClosure(0))
             facet_orientations = dmcommon.quadrilateral_facet_orientations(
                 plex, vertex_numbering, cell_ranks)
-            print(facet_orientations)
+            # print(facet_orientations)
             cell_orientations = dmcommon.orientations_facet2cell(
                 plex, vertex_numbering, cell_ranks,
                 facet_orientations, cell_numbering)
-            print(cell_orientations)
+            # print(cell_orientations)
             dmcommon.exchange_cell_orientations(plex,
                                                 cell_numbering,
                                                 cell_orientations)
 
             res = dmcommon.quadrilateral_closure_ordering(
                 plex, vertex_numbering, cell_numbering, cell_orientations)
-            print(res)
+            # print(res)
             return res
         elif cell.cellname() == "hexahedron":
             # TODO: Should change and use create_cell_closure() for all cell types.
@@ -1758,7 +1752,7 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @utils.cached_property
     def _ufl_cell(self):
-        return ufl.TensorProductCell(self._base_mesh.ufl_cell(), ufl.interval)
+        return ufl.TensorProductCell(self._base_mesh.ufl_cell(), as_cell("interval"))
 
     @utils.cached_property
     def _ufl_mesh(self):
@@ -3256,9 +3250,9 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     if extrusion_type == 'radial_hedgehog':
         helement = helement.reconstruct(family="DG", variant="equispaced")
     if periodic:
-        velement = finat.ufl.FiniteElement("DP", ufl.interval, 1, variant="equispaced")
+        velement = finat.ufl.FiniteElement("DP", as_cell("interval"), 1, variant="equispaced")
     else:
-        velement = finat.ufl.FiniteElement("Lagrange", ufl.interval, 1)
+        velement = finat.ufl.FiniteElement("Lagrange", as_cell("interval"), 1)
     element = finat.ufl.TensorProductElement(helement, velement)
 
     if gdim is None:
