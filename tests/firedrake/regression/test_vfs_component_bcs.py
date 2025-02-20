@@ -218,7 +218,7 @@ def test_component_full_bcs(V):
     A_cmp = assemble(a, bcs=bcs_cmp, mat_type="aij")
     A_mixed = assemble(a, bcs=bcs_mixed, mat_type="aij")
 
-    assert A_full.equal(A_cmp)
+    assert A_full.petscmat.equal(A_cmp.petscmat)
     assert A_mixed.equal(A_full)
 
 
