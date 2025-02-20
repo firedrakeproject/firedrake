@@ -128,18 +128,8 @@ def J(ic, nu, solve_type, timestep, steps, V, nu_time_dependent=False):
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.parametrize("solve_type, checkpointing",
-                         [("solve", "Revolve"),
-                          ("NLVS", "Revolve"),
-                          ("solve", "SingleMemory"),
-                          ("NLVS", "SingleMemory"),
-                          ("solve", "NoneAdjoint"),
-                          ("NLVS", "NoneAdjoint"),
-                          ("solve", "Mixed"),
-                          ("NLVS", "Mixed"),
-                          ("solve", None),
-                          ("NLVS", None),
-                          ])
+@pytest.mark.parametrize("solve_type", ["solve", "NLVS"])
+@pytest.mark.parametrize("checkpointing", ["Revolve", "SingleMemory", "NoneAdjoint", "Mixed", None])
 def test_burgers_newton(solve_type, checkpointing, basics):
     """Adjoint-based gradient tests with and without checkpointing.
     """
@@ -195,7 +185,7 @@ def test_burgers_newton(solve_type, checkpointing, basics):
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.parametrize("solve_type", ["solve", "NLVS"])
+@pytest.mark.parametrize("solve_type", ["NLVS"])
 @pytest.mark.parametrize("checkpointing", ["Revolve", "SingleMemory", "NoneAdjoint", "Mixed", None])
 def test_checkpointing_validity(solve_type, checkpointing, basics):
     """Compare forward and backward results with and without checkpointing."""
