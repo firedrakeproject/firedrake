@@ -470,7 +470,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                     (row, col) = lhs.arguments()
                     res = tensor.petscmat if tensor else PETSc.Mat()
                     petsc_mat.matMult(rhs.petscmat, result=res)
-                    return matrix.AssembledMatrix(expr, self._bcs, res,
+                    return tensor if tensor else matrix.AssembledMatrix(expr, self._bcs, res,
                                                   appctx=self._appctx,
                                                   options_prefix=self._options_prefix)
                 else:
