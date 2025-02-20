@@ -99,7 +99,8 @@ test = [
 [build-system]
 requires = [
   "setuptools>61.2",
-  "setuptools_scm>=8",  # automatically put git tracked files into the sdist
+  # install all git-tracked files (otherwise non-Python files are ignored)
+  "setuptools_scm>=8",
   "Cython>=3.0",
   "pybind11",
   "pkgconfig",
@@ -118,3 +119,7 @@ script-files = [
   "firedrake/scripts/firedrake-zenodo",
   "scripts/firedrake-run-split-tests",
 ]
+
+[tool.setuptools_scm]
+# Need this empty section to enable setuptools-scm
+# (https://setuptools-scm.readthedocs.io/en/latest/usage/)

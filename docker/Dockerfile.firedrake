@@ -35,7 +35,7 @@ RUN if [ "$INSTALL_NGSPETSC" = 1 ]; then \
 # Install Firedrake apps
 # TODO: Some downstream packages do not specify build dependencies correctly
 # so they must be installed here
-RUN pip install --break-system-packages --verbose setuptools; \
+RUN pip install --break-system-packages --verbose setuptools versioneer; \
     pip install --break-system-packages --verbose --src . \
         -e git+https://github.com/firedrakeproject/asQ.git#egg=asQ \
         -e git+https://bitbucket.org/pefarrell/defcon.git#egg=defon \
