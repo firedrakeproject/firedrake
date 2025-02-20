@@ -101,8 +101,6 @@ test = [
 [build-system]
 requires = [
   "setuptools>61.2",
-  # install all git-tracked files (otherwise non-Python files are ignored)
-  "setuptools_scm>=8",
   "Cython>=3.0",
   "pybind11",
   "pkgconfig",
@@ -122,6 +120,8 @@ script-files = [
   "scripts/firedrake-run-split-tests",
 ]
 
-[tool.setuptools_scm]
-# Need this empty section to enable setuptools-scm
-# (https://setuptools-scm.readthedocs.io/en/latest/usage/)
+[tool.setuptools.package-data]
+# Unless specified these files will not be installed along with the
+# rest of the package
+firedrake = ["evaluate.h", "locate.c", "icons/*.png"]
+pyop2 = ["assets/*", "*.h", "*.pxd", "*.pyx", "codegen/c/*.c"]
