@@ -234,7 +234,7 @@ install Firedrake. To do this perform the following steps:
      or ``/opt/mpich``)
 
 
-.. firedrake_check::
+.. _firedrake_check:
 
 Checking the installation
 -------------------------
