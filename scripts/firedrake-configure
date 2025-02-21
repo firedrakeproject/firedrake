@@ -403,18 +403,12 @@ def prepare_environment_vars(
     arch: FiredrakeArch,
 ) -> tuple[str, ...]:
     vars = {
+        "CC": "mpicc",
+        "CXX": "mpicxx",
         "PETSC_DIR": f"{os.getcwd()}/petsc",
         "PETSC_ARCH": f"arch-firedrake-{arch.value}",
         "HDF5_MPI": "ON",
     }
-
-    # Set the right compilers
-    if package_manager in {LINUX_APT_X86_64, LINUX_APT_AARCH64}:
-        vars["CC"] = "/usr/bin/mpicc"
-        vars["CXX"] = "/usr/bin/mpicxx"
-    elif package_manager == MACOS_HOMEBREW_ARM64:
-        vars["CC"] = "/opt/homebrew/bin/mpicc"
-        vars["CXX"] = "/opt/homebrew/bin/mpicxx"
 
     # On macOS h5py cannot find the HDF5 library without help
     if package_manager == MACOS_HOMEBREW_ARM64:

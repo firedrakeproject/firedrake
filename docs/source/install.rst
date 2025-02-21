@@ -125,9 +125,10 @@ do the following steps:
 
    $ ./configure $(python3 ../firedrake-configure --show-petsc-configure-options)
 
-#. Compile PETSc::
+#. Compile PETSc (and return to the parent directory)::
 
    $ make
+   $ cd ..
 
 If you are using one of the
 :ref:`officially supported distributions<supported_systems>` then these configure
@@ -190,6 +191,13 @@ install Firedrake. To do this perform the following steps:
    .. code-block:: text
 
       CC=/path/to/mpicc CXX=/path/to/mpicxx PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-{default,complex} HDF5_MPI=ON
+
+   .. note::
+      This command will only work if you have the right starting directory.
+      Specifically it is assumed that PETSc was cloned into a *subdirectory
+      of the current working directory* (i.e. ``<cwd>/petsc``). If
+      you have exactly followed the instructions up to this point this should
+      already be the case.
 
 #. Install Firedrake::
 

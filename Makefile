@@ -104,7 +104,7 @@ check:
 	@# not the current ./firedrake subdirectory
 	@# (https://docs.python.org/3/using/cmdline.html#cmdoption-P)
 	@echo "    Running serial smoke tests"
-	@python -P -m pytest $(check_flags) $(CHECK_PYTEST_ARGS) \
+	@python3 -P -m pytest $(check_flags) $(CHECK_PYTEST_ARGS) \
 		tests/firedrake/regression/test_stokes_mini.py::test_stokes_mini \
 		tests/firedrake/regression/test_locate_cell.py  `# spatialindex` \
 		tests/firedrake/supermesh/test_assemble_mixed_mass_matrix.py::test_assemble_mixed_mass_matrix[2-CG-CG-0-0]  `# supermesh` \
@@ -112,7 +112,7 @@ check:
 		tests/firedrake/regression/test_nullspace.py::test_near_nullspace  `# near nullspace`
 	@echo "    Serial tests passed"
 	@echo "    Running parallel smoke tests"
-	@mpiexec -n 3 python -P -m pytest $(check_flags) $(CHECK_PYTEST_ARGS) -m parallel[3] \
+	@mpiexec -n 3 python3 -P -m pytest $(check_flags) $(CHECK_PYTEST_ARGS) -m parallel[3] \
 		tests/firedrake/regression/test_dg_advection.py::test_dg_advection_icosahedral_sphere \
 		tests/firedrake/regression/test_interpolate_cross_mesh.py::test_interpolate_cross_mesh_parallel[extrudedcube]  `# vertex-only mesh`
 	@echo "    Parallel tests passed"
