@@ -59,11 +59,13 @@ Repository = "https://github.com/firedrakeproject/firedrake"
 Issues = "https://github.com/firedrakeproject/firedrake/issues/new/choose"
 
 [project.scripts]
+firedrake-check = "firedrake_check:main"
 firedrake-clean = "firedrake.scripts.firedrake_clean:main"
 firedrake-preprocess-bibtex = "firedrake.scripts.firedrake_preprocess_bibtex:main"
 firedrake-status = "firedrake.scripts.firedrake_status:main"
 pyop2-clean = "pyop2.compilation:clear_compiler_disk_cache"
 spydump = "pyop2.scripts.spydump:main"
+
 
 [project.optional-dependencies]
 ci = [
@@ -124,4 +126,5 @@ script-files = [
 # Unless specified these files will not be installed along with the
 # rest of the package
 firedrake = ["evaluate.h", "locate.c", "icons/*.png"]
-pyop2 = ["assets/*", "*.h", "*.pxd", "*.pyx", "codegen/c/*.c"]
+firedrake_check = ["Makefile", "tests/*/*/*.py"]
+pyop2 = ["*.h", "*.pxd", "*.pyx", "codegen/c/*.c"]

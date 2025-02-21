@@ -193,7 +193,13 @@ install Firedrake. To do this perform the following steps:
 
 #. Install Firedrake::
 
-     $ pip install --no-binary h5py git+https://github.com/firedrakeproject/firedrake.git
+     $ pip install --no-binary h5py 'git+https://github.com/firedrakeproject/firedrake.git[test]'
+
+   .. note::
+      Though not strictly necessary to install Firedrake's optional test
+      dependencies with ``[test]`` it is recommended because it allows you
+      to check that the install was successful (see
+      :ref:`below<firedrake_check>`).
 
 #. Firedrake is now installed and ready for use!
 
@@ -228,26 +234,24 @@ install Firedrake. To do this perform the following steps:
      or ``/opt/mpich``)
 
 
+.. firedrake_check::
+
 Checking the installation
 -------------------------
 
 We recommend that you run some simple tests after installation to check
-that Firedrake is fully functional. After the installation run::
+that Firedrake is fully functional. To do this, after the installation run::
 
-  $ make -C $VIRTUAL_ENV/src/firedrake check
+  $ firedrake-check
 
 This command will run a few of the unit tests, which exercise a good
 chunk of the functionality of the library. These tests should take a
 minute or less. If they fail to run for any reason, please see the
 section below on how to :ref:`get help<getting_help>`.
 
-.. note::
-   ``make check`` can only be run for Firedrake installed in *editable mode*
-   and with its test dependencies. This can be done by running::
-
-     $ pip install --no-binary h5py --editable git+https://github.com/firedrakeproject/firedrake.git#egg=firedrake[test]
-
-   which will install Firedrake into ``$VIRTUAL_ENV/src/firedrake``.
+Note that for you to be able to run the tests you need to have installed
+Firedrake with its optional test dependencies by specifying the ``[test]``
+dependency group as shown above.
 
 
 Updating Firedrake

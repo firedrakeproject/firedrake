@@ -100,11 +100,11 @@ CHECK_PYTEST_ARGS =
 
 .PHONY: check
 check:
-	# Pass '-P' to make sure that we use the installed version of firedrake,
-	# not the current ./firedrake subdirectory
-	# (https://docs.python.org/3/using/cmdline.html#cmdoption-P)
+	@# Pass '-P' to make sure that we use the installed version of firedrake,
+	@# not the current ./firedrake subdirectory
+	@# (https://docs.python.org/3/using/cmdline.html#cmdoption-P)
 	@echo "    Running serial smoke tests"
-	@python -P -m pytest --import-mode=importlib $(check_flags) $(CHECK_PYTEST_ARGS) \
+	@python -P -m pytest $(check_flags) $(CHECK_PYTEST_ARGS) \
 		tests/firedrake/regression/test_stokes_mini.py::test_stokes_mini \
 		tests/firedrake/regression/test_locate_cell.py  `# spatialindex` \
 		tests/firedrake/supermesh/test_assemble_mixed_mass_matrix.py::test_assemble_mixed_mass_matrix[2-CG-CG-0-0]  `# supermesh` \
