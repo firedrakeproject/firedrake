@@ -51,7 +51,7 @@ different.  For a bilinear form, the matrix is obtained with:
 
 .. code-block:: python3
 
-   petsc_mat = assemble(bilinear_form).M.handle
+   petsc_mat = assemble(bilinear_form).petscmat
 
 For a linear form, we need to use a context manager.  There are two
 options available here, depending on whether we want read-only or
@@ -136,7 +136,7 @@ newly defined class to compute the matrix action:
 
    # Assemble the bilinear form that defines A and get the concrete
    # PETSc matrix
-   A = assemble(bilinear_form).M.handle
+   A = assemble(bilinear_form).petscmat
 
    # Now do the same for the linear forms for u and v, making a copy
 

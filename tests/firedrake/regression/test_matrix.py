@@ -22,7 +22,7 @@ def trial(V):
 
 @pytest.fixture
 def a(test, trial):
-    return inner(trial, test)*dx
+    return inner(trial, test) * dx
 
 
 @pytest.fixture(params=["nest", "aij", "matfree"])
@@ -36,17 +36,13 @@ def test_assemble_returns_matrix(a):
     assert isinstance(A, matrix.Matrix)
 
 
-def test_solve_with_assembled_matrix():
-    mesh = UnitIntervalMesh(3)
-    V = FunctionSpace(mesh, "CG", 1)
-
-    u = TrialFunction(V)
-    v = TestFunction(V)
-    x, = SpatialCoordinate(mesh)
+def test_solve_with_assembled_matrix(a):
+    (v, u) = a.arguments()
+    V = v.function_space()
+    x, = SpatialCoordinate(V.mesh())
     f = Function(V).interpolate(x)
 
-    a = inner(u, v) * dx
-    A = AssembledMatrix((v, u), bcs=(), petscmat=assemble(a).M.handle)
+    A = AssembledMatrix((v, u), bcs=(), petscmat=assemble(a).petscmat)
     L = inner(f, v) * dx
 
     solution = Function(V)
