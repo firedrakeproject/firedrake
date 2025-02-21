@@ -99,7 +99,7 @@ def pytest_collection_modifyitems(session, config, items):
                 item.add_marker(pytest.mark.skip("MUMPS not installed with PETSc"))
 
         import os
-        if os.getenv("FIREDRAKE_CI_TESTS") != "1":
+        if os.getenv("FIREDRAKE_CI") != "1":
             if not torch_backend:
                 if item.get_closest_marker("skiptorch") is not None:
                     item.add_marker(pytest.mark.skip(reason="Test makes no sense if PyTorch is not installed"))
