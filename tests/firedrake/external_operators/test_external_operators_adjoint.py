@@ -77,6 +77,6 @@ def test_translation_operator_inverse_problem():
     c = Control(f)
     Jhat = ReducedFunctional(J(f), c)
 
-    f_opt = minimize(Jhat, tol=1e-6, method="BFGS")
+    f_opt = minimize(Jhat, tol=1e-4, method="BFGS")
 
     assert assemble((f_exact - f_opt)**2 * dx) / assemble(f_exact**2 * dx) < 1e-5
