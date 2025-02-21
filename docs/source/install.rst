@@ -189,7 +189,7 @@ install Firedrake. To do this perform the following steps:
 
    .. code-block:: text
 
-      PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-{default,complex} HDF5_MPI=ON
+      CC=/path/to/mpicc CXX=/path/to/mpicxx PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-{default,complex} HDF5_MPI=ON
 
 #. Install Firedrake::
 
