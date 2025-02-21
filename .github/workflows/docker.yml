@@ -87,28 +87,17 @@ jobs:
     # Only run if "Build Firedrake" succeeds
     if: inputs.status == 'success'
     needs: docker_merge_vanilla
-    strategy:
-      matrix:
-        os: [Linux, macOS]
-        include:
-          - os: Linux
-            platform: linux/amd64
-            install-ngsPETSc: true
-            install-vtk: true
-          - os: macOS
-            platform: linux/arm64
-            # ngsPETSc and VTK do not have wheels for ARM
-            install-ngsPETSc: false
-            install-vtk: false
     uses: ./.github/workflows/docker_build.yml
+    # Only build the 'firedrake' container for 'linux/amd64' because
+    # VTK (https://gitlab.kitware.com/vtk/vtk/-/issues/18772) and
+    # netgen-mesher do not have ARM wheels so many Firedrake apps cannot
+    # be installed.
     with:
-      os: ${{ matrix.os }}
-      platform: ${{ matrix.platform }}
+      os: Linux
+      platform: linux/amd64
       target: firedrake
       tag: ${{ inputs.tag }}
       dockerfile: docker/Dockerfile.firedrake
-      install-ngsPETSc: ${{ matrix.install-ngsPETSc }}
-      install-vtk: ${{ matrix.install-vtk }}
     secrets: inherit
 
   docker_merge_firedrake:

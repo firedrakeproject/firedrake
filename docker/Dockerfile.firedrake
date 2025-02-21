@@ -2,12 +2,6 @@
 
 FROM firedrakeproject/firedrake-vanilla-default:pip
 
-# Some packages are not available on all platforms (i.e. ARM) so we can
-# optionally avoid installing them.
-# (Relevant VTK issue: https://gitlab.kitware.com/vtk/vtk/-/issues/18772)
-ARG INSTALL_NGSPETSC=1
-ARG INSTALL_VTK=1
-
 # Install SLEPc
 RUN git clone https://github.com/firedrakeproject/slepc.git \
     && cd slepc \
@@ -20,17 +14,7 @@ ENV SLEPC_DIR=/home/firedrake/slepc
 # Install optional dependencies
 RUN pip install --break-system-packages --verbose \
         --extra-index-url https://download.pytorch.org/whl/cpu \
-        jax torch
-
-# Install VTK (conditional)
-RUN if [ "$INSTALL_VTK" = 1 ]; then \
-        pip install --break-system-packages --verbose vtk; \
-    fi
-
-# Install ngsPETSc (conditional)
-RUN if [ "$INSTALL_NGSPETSC" = 1 ]; then \
-        pip install --break-system-packages --verbose ngsPETSc; \
-    fi
+        jax ngsPETSc torch vtk
 
 # Install Firedrake apps
 # TODO: Thetis does not specify build dependencies correctly so they must 

@@ -32,16 +32,6 @@ on:
         description: 'Firedrake arch to build'
         required: false
         type: string
-      install-ngsPETSc:
-        description: 'Whether or not to install ngsPETSc (firedrake container only)'
-        default: true
-        required: false
-        type: boolean
-      install-vtk:
-        description: 'Whether or not to install VTK (firedrake container only)'
-        default: true
-        required: false
-        type: boolean
     secrets:
       # Docker login information
       DOCKERHUB_USER:
@@ -87,8 +77,6 @@ jobs:
           file: ${{ inputs.dockerfile }}
           build-args: |
             ARCH=${{ inputs.arch }}
-            INSTALL_NGSPETSC=${{ inputs.install-ngsPETSc }}
-            INSTALL_VTK=${{ inputs.install-vtk }}
           outputs: type=image,name=firedrakeproject/${{ inputs.target }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
