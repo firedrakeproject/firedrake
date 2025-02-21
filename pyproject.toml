@@ -68,7 +68,14 @@ spydump = "pyop2.scripts.spydump:main"
 
 
 [project.optional-dependencies]
+# Dependencies needed to run firedrake-check
+test = [
+  "mpi-pytest",
+  "pytest",
+]
+# Dependencies needed to run the full test suite
 ci = [
+  "ipympl",  # needed for notebook testing
   "mpi-pytest",
   "nbval",
   "pylit",
@@ -77,12 +84,13 @@ ci = [
   "pytest-timeout",
   "pytest-xdist",
 ]
+# Dependencies needed to build the docs
 docs = [
   "bibtexparser",
   "matplotlib",  # needed to resolve API
   "numpydoc",
   "pylit",
-  "sphinx",
+  "sphinx<8.2.0",  # https://github.com/firedrakeproject/firedrake/issues/4059
   "sphinx-autobuild",
   "sphinx-reredirects",
   "sphinxcontrib-bibtex",
@@ -91,27 +99,25 @@ docs = [
   "sphinxcontrib-youtube",
   "vtk",  # needed to resolve API
 ]
-test = [
-  "ipympl",  # needed for notebook testing
-  "mpi-pytest",
-  "nbval",
-  "pylit",
-  "pytest",
-  "pytest-split",  # needed for firedrake-run-split-tests
+# Developer dependencies. In particular the build dependencies that are needed to run 'make'.
+dev = [
+  "Cython",
+  "pybind11",
+  "setuptools",
 ]
 
 [build-system]
 requires = [
-  "setuptools>61.2",
   "Cython>=3.0",
-  "pybind11",
-  "pkgconfig",
-  "numpy",
+  "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
+  "numpy",
+  "pkgconfig",
+  "pybind11",
+  "setuptools>61.2",
   "petsc4py==3.22.2",
   "rtree>=1.2",
-  "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git",
 ]
 build-backend = "setuptools.build_meta"
 

@@ -9,11 +9,11 @@ ARG INSTALL_NGSPETSC=1
 ARG INSTALL_VTK=1
 
 # Install SLEPc
-RUN git clone https://github.com/firedrakeproject/slepc.git; \
-    cd slepc; \
-    ./configure; \
-    make; \
-    cd ..
+RUN git clone https://github.com/firedrakeproject/slepc.git \
+    && cd slepc \
+    && ./configure \
+    && make \
+    && cd ..
 
 ENV SLEPC_DIR=/home/firedrake/slepc
 
@@ -35,8 +35,8 @@ RUN if [ "$INSTALL_NGSPETSC" = 1 ]; then \
 # Install Firedrake apps
 # TODO: Some downstream packages do not specify build dependencies correctly
 # so they must be installed here
-RUN pip install --break-system-packages --verbose setuptools versioneer; \
-    pip install --break-system-packages --verbose --src . \
+RUN pip install --break-system-packages --verbose setuptools versioneer \
+    && pip install --break-system-packages --verbose --src . \
         -e git+https://github.com/firedrakeproject/asQ.git#egg=asQ \
         -e git+https://bitbucket.org/pefarrell/defcon.git#egg=defcon \
         -e git+https://bitbucket.org/pefarrell/fascd.git#egg=fascd \
@@ -48,6 +48,6 @@ RUN pip install --break-system-packages --verbose setuptools versioneer; \
         -e git+https://github.com/firedrakeproject/Irksome.git#egg=Irksome
 
 # Install some other niceties
-RUN sudo apt-get update; \
-    sudo apt-get -y install nano vim; \
-    sudo rm -rf /var/lib/apt/lists/*
+RUN sudo apt-get update \
+    && sudo apt-get -y install nano vim \
+    && sudo rm -rf /var/lib/apt/lists/*
