@@ -63,8 +63,7 @@ class JaxOperator(MLOperator):
             i.e., the arguments with respect to which the ML operator is linear. These arguments
             can be ``ufl.argument.BaseArgument`` objects, as a result of differentiation,
             or both ``ufl.coefficient.BaseCoefficient`` and ``ufl.argument.BaseArgument`` objects,
-            as a result of taking the action on a given function. If argument slots are not provided,
-            then they will be generated.
+            as a result of taking the action on a given function.
         operator_data
             Dictionary to stash external data specific to the ML operator. This dictionary must
             contain the following:
