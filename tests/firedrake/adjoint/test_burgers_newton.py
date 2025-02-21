@@ -123,6 +123,7 @@ def J(ic, solve_type, timestep, steps, V):
     return J
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parametrize("solve_type, checkpointing",
                          [("solve", "Revolve"),
                           ("NLVS", "Revolve"),
@@ -137,7 +138,6 @@ def J(ic, solve_type, timestep, steps, V):
                           ("solve", None),
                           ("NLVS", None),
                           ])
-@pytest.mark.skipcomplex
 def test_burgers_newton(solve_type, checkpointing):
     """Adjoint-based gradient tests with and without checkpointing.
     """
@@ -147,21 +147,24 @@ def test_burgers_newton(solve_type, checkpointing):
     if checkpointing:
         if checkpointing == "Revolve":
             schedule = Revolve(steps, steps//3)
+
         if checkpointing == "SingleMemory":
             schedule = SingleMemoryStorageSchedule()
+
         if checkpointing == "SingleDisk":
             schedule = SingleDiskStorageSchedule()
-            enable_disk_checkpointing(schedule=schedule)
+            enable_disk_checkpointing()
+
         if checkpointing == "Mixed":
             schedule = MixedCheckpointSchedule(steps, steps//3, storage=StorageType.DISK)
-            enable_disk_checkpointing(schedule=schedule)
+            enable_disk_checkpointing()
+
         if checkpointing == "NoneAdjoint":
             schedule = NoneCheckpointSchedule()
 
+        tape.enable_checkpointing(schedule)
         if schedule.uses_storage_type(StorageType.DISK):
             mesh = checkpointable_mesh(mesh)
-        else:
-            tape.enable_checkpointing(schedule)
     x, = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", 2)
     ic = project(sin(2. * pi * x), V, name="ic")
@@ -198,6 +201,7 @@ def test_burgers_newton(solve_type, checkpointing):
         assert taylor_test(Jhat, ic, Function(V).assign(1, annotate=False)) > 1.9
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parametrize("solve_type, checkpointing",
                          [("solve", "Revolve"),
                           ("NLVS", "Revolve"),
@@ -206,7 +210,6 @@ def test_burgers_newton(solve_type, checkpointing):
                           ("solve", "SingleDisk"),
                           ("NLVS", "SingleDisk"),
                           ])
-@pytest.mark.skipcomplex
 def test_checkpointing_validity(solve_type, checkpointing):
     """Compare forward and backward results with and without checkpointing.
     """
@@ -226,14 +229,21 @@ def test_checkpointing_validity(solve_type, checkpointing):
     # With checkpointing
     tape.progress_bar = ProgressBar
     if checkpointing == "Revolve":
-        tape.enable_checkpointing(Revolve(steps, steps//3))
+        schedule = Revolve(steps, steps//3)
+
     if checkpointing == "Mixed":
         schedule = MixedCheckpointSchedule(steps, steps//3, storage=StorageType.DISK)
-        enable_disk_checkpointing(schedule=schedule)
-        mesh = checkpointable_mesh(mesh)
-    if checkpointing == "SingleDisk":
         enable_disk_checkpointing()
+
+    if checkpointing == "SingleDisk":
+        schedule = SingleDiskStorageSchedule()
+        enable_disk_checkpointing()
+
+    tape.enable_checkpointing(schedule)
+
+    if schedule.uses_storage_type(StorageType.DISK):
         mesh = checkpointable_mesh(mesh)
+
     V = FunctionSpace(mesh, "CG", 2)
     x, = SpatialCoordinate(mesh)
     ic = project(sin(2.*pi*x), V)

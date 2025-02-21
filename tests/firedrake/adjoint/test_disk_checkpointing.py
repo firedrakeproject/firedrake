@@ -4,6 +4,7 @@ from firedrake import *
 from firedrake.__future__ import *
 from firedrake.adjoint import *
 from firedrake.adjoint_utils.checkpointing import disk_checkpointing
+from checkpoint_schedules import SingleDiskStorageSchedule
 import numpy as np
 import os
 
@@ -84,6 +85,7 @@ def test_disk_checkpointing():
     tape = get_working_tape()
     tape.clear_tape()
     enable_disk_checkpointing()
+    tape.enable_checkpointing(SingleDiskStorageSchedule())
     fine = checkpointable_mesh(UnitSquareMesh(10, 10, name="fine"))
     coarse = checkpointable_mesh(UnitSquareMesh(6, 6, name="coarse"))
     J_disk, grad_J_disk = adjoint_example(fine, coarse=coarse)
@@ -108,6 +110,7 @@ def test_disk_checkpointing_parallel():
     tape.clear_tape()
     continue_annotation()
     enable_disk_checkpointing()
+    tape.enable_checkpointing(SingleDiskStorageSchedule())
     mesh = checkpointable_mesh(UnitSquareMesh(10, 10))
     J_disk, grad_J_disk = adjoint_example(mesh)
 
@@ -124,6 +127,7 @@ def test_disk_checkpointing_successive_writes():
     tape = get_working_tape()
     tape.clear_tape()
     enable_disk_checkpointing()
+    tape.enable_checkpointing(SingleDiskStorageSchedule())
 
     mesh = checkpointable_mesh(UnitSquareMesh(1, 1))
 

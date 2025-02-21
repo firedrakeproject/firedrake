@@ -49,10 +49,24 @@ class checkpoint_init_data:
         _checkpoint_init_data = self._init
 
 
-def enable_disk_checkpointing(
-        dirname=None, comm=COMM_WORLD, cleanup=True, schedule=None):
-    """Add a DiskCheckpointer to the current tape and switch on
-    disk checkpointing.
+def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True):
+    """Add a DiskCheckpointer to the current tape.
+
+    Disk checkpointing is fully enabled by calling::
+
+        enable_disk_checkpointing()
+        tape = get_working_tape()
+        tape.enable_checkpointing(schedule)
+
+    Here, ``schedule`` is a checkpointing schedule from the `checkpoint_schedules
+    package <https://www.firedrakeproject.org/checkpoint_schedules/>`_. For example,
+    to checkpoint every timestep on disk, use::
+
+        from checkpoint_schedules import SingleDiskStorageSchedule
+        schedule = SingleDiskStorageSchedule()
+
+    `checkpoint_schedules` provides other schedules for checkpointing to memory, disk,
+    or a combination of both.
 
     Parameters
     ----------
@@ -67,26 +81,10 @@ def enable_disk_checkpointing(
     cleanup : bool
         If set to False, checkpoint files will not be deleted when no longer
         required. This is usually only useful for debugging.
-    schedule : checkpoint_schedules.schedule.CheckpointSchedule or None
-        The schedule for disk checkpointing. If ``None``, the
-        :class:`checkpoint_schedules.basic_schedules.SingleDiskStorageSchedule`
-        schedule is used. If a schedule is provided, it must use disk storage.
-
-    Notes
-    -----
-        The disk checkpointing schedule is available in the ``checkpoint_schedules`` package.
-        For more details on the available schedules, refer to the `checkpoint_schedules
-        documentation
-        <https://www.firedrakeproject.org/checkpoint_schedules/>`_.
     """
-    from checkpoint_schedules import SingleDiskStorageSchedule
-    if not schedule:
-        schedule = SingleDiskStorageSchedule()
     tape = get_working_tape()
     if "firedrake" not in tape._package_data:
         tape._package_data["firedrake"] = DiskCheckpointer(dirname, comm, cleanup)
-
-    tape.enable_checkpointing(schedule)
 
 
 def disk_checkpointing():
@@ -133,7 +131,7 @@ class CheckPointFileReference:
 
 
 class DiskCheckpointer(TapePackageData):
-    """Manger for the disk checkpointing process.
+    """Manager for the disk checkpointing process.
 
     Parameters
     ----------

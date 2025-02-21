@@ -19,4 +19,3 @@ requests
 rtree>=1.2
 scipy
 sympy
-checkpoint_schedules
