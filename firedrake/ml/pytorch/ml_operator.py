@@ -50,8 +50,7 @@ class PytorchOperator(MLOperator):
             arguments with respect to which the ML operator is linear. Those arguments can be
             ``ufl.argument.BaseArgument`` objects, as a result of differentiation, or both
             ``ufl.coefficient.BaseCoefficient`` and ``ufl.argument.BaseArgument`` object, as a result
-            of taking the action on a given function. If argument slots are not provided, then they will
-            be generated.
+            of taking the action on a given function.
         operator_data : dict
             Dictionary to stash external data specific to the ML operator. This dictionary must
             at least contain the following:
