@@ -102,7 +102,7 @@ class MatrixBase(ufl.Matrix):
         if isinstance(val, MatrixBase):
             val.petscmat.copy(self.petscmat)
         else:
-            raise ValueError(f"Cannot assign a {type(val).__name__} to a {type(self).__name__}.")
+            raise TypeError(f"Cannot assign a {type(val).__name__} to a {type(self).__name__}.")
         return self
 
     def zero(self):

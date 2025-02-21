@@ -187,6 +187,10 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         except (DataTypeError, DataValueError) as e:
             raise ValueError(e)
 
+    def zero(self):
+        """Set the value of this constant to zero."""
+        return self.assign(0)
+
     def __iadd__(self, o):
         raise NotImplementedError("Augmented assignment to Constant not implemented")
 
