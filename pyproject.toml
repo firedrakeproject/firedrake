@@ -102,7 +102,9 @@ docs = [
 # Developer dependencies. In particular the build dependencies that are needed to run 'make'.
 dev = [
   "Cython",
+  "mpi-pytest",
   "pybind11",
+  "pytest",
   "setuptools",
 ]
 

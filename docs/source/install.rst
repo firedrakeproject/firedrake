@@ -194,7 +194,7 @@ install Firedrake. To do this perform the following steps:
 
    .. code-block:: text
 
-      CC=/path/to/mpicc CXX=/path/to/mpicxx PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-{default,complex} HDF5_MPI=ON
+      CC=mpicc CXX=mpicxx PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-{default,complex} HDF5_MPI=ON
 
    .. note::
       This command will only work if you have the right starting directory.
@@ -219,10 +219,7 @@ install Firedrake. To do this perform the following steps:
    Until Firedrake has versioned releases (slated for April/May 2025),
    :doc:`firedrake-zenodo</zenodo>` will only work with *editable* installations of
    Firedrake and its components. To install Firedrake in editable mode you
-   should replace the installation command above with::
-
-     $ git clone https://github.com/firedrakeproject/firedrake.git
-     $ pip install --no-binary h5py --editable ./firedrake
+   should follow the instructions :ref:`below<dev_install>`.
 
 .. note::
    During the installation Firedrake will compile and install petsc4py_. If
@@ -238,10 +235,9 @@ install Firedrake. To do this perform the following steps:
 
 .. note::
    If you are using an MPI installed into a nonstandard location it may be
-   necessary to set some additional environment variables before installation:
+   necessary to set some additional environment variables before installation including:
 
-   * ``CC`` and ``MPICC`` to the location of ``mpicc``
-   * ``CXX`` to the location of ``mpicxx``
+   * ``MPICC`` to the location of ``mpicc``
    * ``MPI_HOME`` to the base directory of the MPI installation (e.g. ``/usr``
      or ``/opt/mpich``)
 
@@ -249,7 +245,7 @@ install Firedrake. To do this perform the following steps:
 .. _firedrake_check:
 
 Checking the installation
--------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
 We recommend that you run some simple tests after installation to check
 that Firedrake is fully functional. To do this, after the installation run::
@@ -264,6 +260,20 @@ section below on how to :ref:`get help<getting_help>`.
 Note that for you to be able to run the tests you need to have installed
 Firedrake with its optional test dependencies by specifying the ``[test]``
 dependency group as shown above.
+
+
+.. _dev_install:
+
+Developer install
+~~~~~~~~~~~~~~~~~
+
+By default Firedrake is installed just like any other Python package into
+your environment. If you want to be able to edit Firedrake itself then
+an *editable* installation is needed. To install Firedrake in editable
+mode you should run::
+
+     $ git clone https://github.com/firedrakeproject/firedrake.git
+     $ pip install --no-binary h5py --editable ./firedrake[dev]
 
 
 Updating Firedrake
