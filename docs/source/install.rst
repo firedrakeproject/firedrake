@@ -125,9 +125,13 @@ do the following steps:
 
    $ ./configure $(python3 ../firedrake-configure --show-petsc-configure-options)
 
-#. Compile PETSc (and return to the parent directory)::
+#. Compile PETSc::
 
    $ make
+
+#. Test the installation (optional) and return to the parent directory::
+
+   $ make check
    $ cd ..
 
 If you are using one of the
