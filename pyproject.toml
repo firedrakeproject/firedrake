@@ -23,7 +23,7 @@ dependencies = [
   # newer than 3.12.1 is released we can revert to simply using "h5py".
   "h5py @ git+https://github.com/firedrakeproject/h5py.git ; python_version >= '3.13'",
   "h5py; python_version < '3.13'",
-  "petsc4py",
+  "petsc4py==3.22.2",
   "numpy",
   "packaging",
   "pkgconfig",
