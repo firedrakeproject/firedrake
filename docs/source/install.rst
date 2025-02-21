@@ -259,7 +259,7 @@ section below on how to :ref:`get help<getting_help>`.
 
 Note that for you to be able to run the tests you need to have installed
 Firedrake with its optional test dependencies by specifying the ``[test]``
-dependency group as shown above.
+dependency group as shown :ref:`above<install_firedrake>`.
 
 
 .. _dev_install:
@@ -272,8 +272,20 @@ your environment. If you want to be able to edit Firedrake itself then
 an *editable* installation is needed. To install Firedrake in editable
 mode you should run::
 
-     $ git clone https://github.com/firedrakeproject/firedrake.git
-     $ pip install --no-binary h5py --editable ./firedrake[dev]
+   $ git clone https://github.com/firedrakeproject/firedrake.git
+   $ pip install --no-binary h5py --editable './firedrake[dev]'
+
+The same process applies for Firedrake's dependencies. For example, to install
+`FIAT <https://github.com/firedrakeproject/fiat.git>`_ in editable mode you
+should run::
+
+   $ git clone https://github.com/firedrakeproject/fiat.git
+   $ pip install --editable ./fiat
+
+.. note::
+   Editable versions of Firedrake's dependencies should be installed *after*
+   Firedrake is installed. Otherwise installing Firedrake will overwrite
+   whatever packages you just installed.
 
 
 Updating Firedrake
