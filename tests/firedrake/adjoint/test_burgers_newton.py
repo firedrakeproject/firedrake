@@ -6,8 +6,9 @@ import pytest
 
 from firedrake import *
 from firedrake.adjoint import *
+from firedrake.adjoint_utils.checkpointing import disk_checkpointing
 from checkpoint_schedules import Revolve, SingleMemoryStorageSchedule, MixedCheckpointSchedule, \
-    NoneCheckpointSchedule, StorageType
+    NoneCheckpointSchedule, StorageType, SingleDiskStorageSchedule
 import numpy as np
 set_log_level(CRITICAL)
 
@@ -17,6 +18,7 @@ def handle_taping():
     yield
     tape = get_working_tape()
     tape.clear_tape()
+    tape._package_data = {}
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -123,11 +125,19 @@ def J(ic, solve_type, timestep, steps, V):
 
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("solve_type, checkpointing",
-                         [("solve", "Revolve"), ("NLVS", "Revolve"),
-                          ("solve", "SingleMemory"), ("NLVS", "SingleMemory"),
-                          ("solve", "NoneAdjoint"), ("NLVS", "NoneAdjoint"),
-                          ("solve", "Mixed"), ("NLVS", "Mixed"),
-                          ("solve", None), ("NLVS", None)])
+                         [("solve", "Revolve"),
+                          ("NLVS", "Revolve"),
+                          ("solve", "SingleMemory"),
+                          ("NLVS", "SingleMemory"),
+                          ("solve", "SingleDisk"),
+                          ("NLVS", "SingleDisk"),
+                          ("solve", "NoneAdjoint"),
+                          ("NLVS", "NoneAdjoint"),
+                          ("solve", "Mixed"),
+                          ("NLVS", "Mixed"),
+                          ("solve", None),
+                          ("NLVS", None),
+                          ])
 def test_burgers_newton(solve_type, checkpointing):
     """Adjoint-based gradient tests with and without checkpointing.
     """
@@ -137,13 +147,21 @@ def test_burgers_newton(solve_type, checkpointing):
     if checkpointing:
         if checkpointing == "Revolve":
             schedule = Revolve(steps, steps//3)
+
         if checkpointing == "SingleMemory":
             schedule = SingleMemoryStorageSchedule()
-        if checkpointing == "Mixed":
+
+        if checkpointing == "SingleDisk":
+            schedule = SingleDiskStorageSchedule()
             enable_disk_checkpointing()
+
+        if checkpointing == "Mixed":
             schedule = MixedCheckpointSchedule(steps, steps//3, storage=StorageType.DISK)
+            enable_disk_checkpointing()
+
         if checkpointing == "NoneAdjoint":
             schedule = NoneCheckpointSchedule()
+
         tape.enable_checkpointing(schedule)
         if schedule.uses_storage_type(StorageType.DISK):
             mesh = checkpointable_mesh(mesh)
@@ -157,6 +175,7 @@ def test_burgers_newton(solve_type, checkpointing):
             _check_forward(tape)
 
     Jhat = ReducedFunctional(val, Control(ic))
+    assert np.allclose(val, Jhat(ic))
     if checkpointing != "NoneAdjoint":
         dJ = Jhat.derivative()
         if checkpointing is not None:
@@ -188,6 +207,8 @@ def test_burgers_newton(solve_type, checkpointing):
                           ("NLVS", "Revolve"),
                           ("solve", "Mixed"),
                           ("NLVS", "Mixed"),
+                          ("solve", "SingleDisk"),
+                          ("NLVS", "SingleDisk"),
                           ])
 def test_checkpointing_validity(solve_type, checkpointing):
     """Compare forward and backward results with and without checkpointing.
@@ -208,11 +229,21 @@ def test_checkpointing_validity(solve_type, checkpointing):
     # With checkpointing
     tape.progress_bar = ProgressBar
     if checkpointing == "Revolve":
-        tape.enable_checkpointing(Revolve(steps, steps//3))
+        schedule = Revolve(steps, steps//3)
+
     if checkpointing == "Mixed":
+        schedule = MixedCheckpointSchedule(steps, steps//3, storage=StorageType.DISK)
         enable_disk_checkpointing()
-        tape.enable_checkpointing(MixedCheckpointSchedule(steps, steps//3, storage=StorageType.DISK))
+
+    if checkpointing == "SingleDisk":
+        schedule = SingleDiskStorageSchedule()
+        enable_disk_checkpointing()
+
+    tape.enable_checkpointing(schedule)
+
+    if schedule.uses_storage_type(StorageType.DISK):
         mesh = checkpointable_mesh(mesh)
+
     V = FunctionSpace(mesh, "CG", 2)
     x, = SpatialCoordinate(mesh)
     ic = project(sin(2.*pi*x), V)
@@ -221,3 +252,4 @@ def test_checkpointing_validity(solve_type, checkpointing):
     assert len(tape.timesteps) == steps
     assert np.allclose(val0, val1)
     assert np.allclose(dJ0.dat.data_ro[:], Jhat.derivative().dat.data_ro[:])
+    assert disk_checkpointing() is False

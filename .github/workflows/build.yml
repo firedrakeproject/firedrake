@@ -88,6 +88,7 @@ jobs:
             --install defcon \
             --install gadopt \
             --install asQ \
+            --package-branch pyadjoint dolci/small_fixing_for_SingleDisk \
             || (cat firedrake-install.log && /bin/false)
 
       - name: Install test dependencies
