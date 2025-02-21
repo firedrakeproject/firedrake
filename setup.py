@@ -261,12 +261,14 @@ def make_firedrake_check_package():
 
     os.mkdir(package_dir)
     with open(f"{package_dir}/__init__.py", "w") as f:
+        # set 'errors=True' to make sure that we propagate failures to the
+        # outer process
         f.write("""import pathlib
 import subprocess
 
 def main():
     dir = pathlib.Path(__file__).parent
-    subprocess.run(f'make -C {dir} check'.split())
+    subprocess.run(f'make -C {dir} check'.split(), errors=True)
 """)
 
     # copy Makefile and tests into dummy package
