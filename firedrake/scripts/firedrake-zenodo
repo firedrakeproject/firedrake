@@ -1,7 +1,9 @@
 #! /usr/bin/env python3
 import hashlib
 import re
+import importlib
 import logging
+import pathlib
 import sys
 import os
 import subprocess
@@ -23,10 +25,6 @@ descriptions = OrderedDict([
     ("petsc", "Portable, Extensible Toolkit for Scientific Computation"),
     ("loopy", "Transformation-Based Generation of High-Performance CPU/GPU Code"),
     ("slepc", "Scalable Library for Eigenvalue Problem Computations"),
-    # removed components, left so old Firedrake versions are archivable
-    ("PyOP2", "Framework for performance-portable parallel computations on unstructured meshes"),
-    ("tsfc", "The Two Stage Form Compiler"),
-    ("FInAT", "a smarter library of finite elements"),
 ])
 
 projects = dict([
@@ -36,15 +34,11 @@ projects = dict([
     ("petsc", "firedrakeproject"),
     ("loopy", "firedrakeproject"),
     ("slepc", "firedrakeproject"),
-    # removed components, left so old Firedrake versions are archivable
-    ("PyOP2", "OP2"),
-    ("tsfc", "firedrakeproject"),
-    ("FInAT", "FInAT"),
 ])
 
 components = list(descriptions.keys())
 
-optional_components = ("slepc", "PyOP2", "tsfc", "FInAT")
+optional_components = ("slepc",)
 
 parser = ArgumentParser(description="""Create Zenodo DOIs for specific versions of Firedrake components.
 
@@ -111,9 +105,6 @@ parser.add_argument("--additional-dois", action="store", nargs='+',
                     help="""DOIs of additional components that should be recorded in the Zenodo meta-record (use this to archive and then link to additional packages you used).""")
 parser.add_argument("--new-version-of", action="store", nargs=1,
                     help="Is this release a new version of a previous release (e.g. round two of a paper). If so, provide the DOI of the meta-release this is a new version of.")
-parser.add_argument("--honour-petsc-dir", action="store_true",
-                    help="Does your firedrake use a self-built PETSc?")
-
 parser.add_argument("--ignore-existing-records", action="store_true",
                     help="When creating Zenodo meta-record, ignore any existing records which match the tag")
 parser.add_argument("--skip-missing", action="store_true",
@@ -160,11 +151,6 @@ else:
 log = logging.getLogger()
 
 cwd = os.getcwd()
-try:
-    src = os.environ["VIRTUAL_ENV"] + "/src"
-except KeyError:
-    log.error("VIRTUAL_ENV environment variable not set. Please activate virtualenv before running firedrake-zenodo.")
-    sys.exit(1)
 
 
 def check_call(arguments):
@@ -201,28 +187,66 @@ class directory(object):
 
 def collect_repo_shas():
     shas = {}
-
     for component in components:
-        try:
-            with directory(os.path.join(src, component)):
-                try:
-                    check_call(["git", "diff-index", "--quiet", "HEAD"])
-                except subprocess.CalledProcessError:
-                    log.error("Component %s has uncommitted changes, cannot create release" % component)
-                    sys.exit(0)
-                shas[component] = check_output(["git", "rev-parse", "HEAD"]).strip()
-        except (subprocess.CalledProcessError, OSError):
-            if component in optional_components:
-                log.warning("Failed to retrieve git hash for optional "
-                            "component '%s', continuing without it" % component)
+        log.info(f"Retrieving git information for {component}")
+
+        repo = None
+        # handle non-Python components separately
+        if component in {"petsc", "slepc"}:
+            repo_root_var = "PETSC_DIR"if component == "petsc" else "SLEPC_DIR"
+            if repo_root_var in os.environ:
+                repo = os.environ[repo_root_var]
+            elif "VIRTUAL_ENV" in os.environ:
+                venv_path = os.path.join(os.getenv("VIRTUAL_ENV"), "src", component)
+                if os.path.exists(venv_path):
+                    repo = venv_path
+        else:
+            # handle the fact that the fiat Python package is called FIAT
+            if component == "fiat":
+                python_package_name = "FIAT"
             else:
-                if component == "petsc" and args.honour_petsc_dir:
-                    log.warning("Cannot retrieve git hash for PETSc, if you want a release "
-                                "you will have to provide it manually")
-                else:
-                    log.error("Failed to retrieve git hash for %s" % component)
-                    raise
+                python_package_name = component
+            try:
+                package = importlib.import_module(python_package_name)
+                repo = pathlib.Path(package.__file__).parent.parent
+            except ImportError:
+                pass
+
+        if repo:
+            try:
+                shas[component] = get_git_commit_info(component, repo)
+            except RepositoryNotFoundException:
+                log.warning("Cannot retrieve git information for component "
+                            f"'{component}' so it will not be included in the "
+                            "release. This may be because the package is not "
+                            "installed in 'editable' mode.")
+        elif component in optional_components:
+            log.warning(f"Failed to find optional component '{component}', "
+                        "continuing without it")
+        else:
+            log.error(f"Mandatory component '{component}' could not be found.")
+            sys.exit(1)
     return shas
+
+
+class RepositoryNotFoundException(RuntimeError):
+    pass
+
+
+def get_git_commit_info(component, repo):
+    with directory(repo):
+        try:
+            check_call(["git", "status"])
+        except subprocess.CalledProcessError:
+            raise RepositoryNotFoundException
+
+        try:
+            check_call(["git", "diff-index", "--quiet", "HEAD"])
+        except subprocess.CalledProcessError:
+            log.error(f"Component {component} has uncommitted changes, cannot create release")
+            sys.exit(1)
+
+        return check_output(["git", "rev-parse", "HEAD"]).strip()
 
 
 def check_github_token_scope(token):
@@ -424,7 +448,7 @@ You can install Firedrake using exactly this set of component versions using:
 <pre>firedrake-install --doi {doi}</pre>
 </p>
 <p>
-See <a href="https://www.firedrakeproject.org/download.html">firedrakeproject.org/download.html</a> for more information.
+See <a href="https://www.firedrakeproject.org/install.html">firedrakeproject.org/install.html</a> for more information.
 </p>
     """.format(title=title, links=links, doi=doi)
     if additional_dois:

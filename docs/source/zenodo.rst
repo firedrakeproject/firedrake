@@ -86,22 +86,6 @@ with::
 
   firedrake-zenodo -h
 
-Installing an archived release
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-:doc:`firedrake-install <download>` has support for installing a
-Zenodo-archived release.  If you have a DOI for a particular Zenodo
-release, you can install the matching set of components with::
-
-  firedrake-install --doi MY_ZENODO_DOI
-
-.. note::
-
-   ``firedrake-update`` will not work out of the box in this scenario,
-   because the components are checked out in a `detached head
-   <https://www.git-tower.com/learn/git/faq/detached-head-when-checkout-commit>`_
-   state.
-
 What else do you need to do?
 ----------------------------
 

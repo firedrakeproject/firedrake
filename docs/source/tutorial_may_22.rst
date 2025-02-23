@@ -27,7 +27,7 @@ the scope of the course. We won't assume you're familiar with the
 notebooks in advance of the tutorial.
 
 Attendees will need to bring a laptop. Installing Firedrake (see the
-:doc:`download page <download>` for details) is optional, as it will be
+:doc:`download page <install>` for details) is optional, as it will be
 also be possible to join the tutorial using the cloud.
 
 Where and when

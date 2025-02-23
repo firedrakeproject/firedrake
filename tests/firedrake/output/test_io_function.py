@@ -25,12 +25,13 @@ def _initialise_function(f, _f, method):
 
 def _get_mesh(cell_type, comm):
     if cell_type == "triangle":
-        mesh = Mesh("./docs/notebooks/stokes-control.msh", name=mesh_name, comm=comm)
+        mesh_file = join(cwd, "..", "..", "..", "docs", "notebooks/stokes-control.msh")
+        mesh = Mesh(mesh_file, name=mesh_name, comm=comm)
     elif cell_type == "tetrahedra":
         # TODO: Prepare more interesting mesh.
         mesh = UnitCubeMesh(16, 16, 16, name=mesh_name, comm=comm)
     elif cell_type == "tetrahedra_large":
-        mesh = Mesh(join(os.environ.get("PETSC_DIR"), "share/petsc/datafiles/meshes/mesh-3d-box-innersphere.msh"),
+        mesh = Mesh(join(os.environ["PETSC_DIR"], "share/petsc/datafiles/meshes/mesh-3d-box-innersphere.msh"),
                     name=mesh_name, comm=comm)
     elif cell_type == "quadrilateral":
         mesh = Mesh(join(cwd, "..", "meshes", "unitsquare_unstructured_quadrilaterals.msh"),
