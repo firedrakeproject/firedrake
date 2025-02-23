@@ -143,18 +143,10 @@ jobs:
     # Only run if "Build Firedrake" succeeds
     if: inputs.status == 'success'
     needs: docker_merge_firedrake
-    strategy:
-      matrix:
-        os: [Linux, macOS]
-        include:
-          - os: Linux
-            platform: linux/amd64
-          - os: macOS
-            platform: linux/arm64
     uses: ./.github/workflows/docker_build.yml
     with:
-      os: ${{ matrix.os }}
-      platform: ${{ matrix.platform }}
+      os: Linux
+      platform: linux/amd64
       target: firedrake-jupyter
       tag: ${{ inputs.tag }}
       dockerfile: docker/Dockerfile.jupyter

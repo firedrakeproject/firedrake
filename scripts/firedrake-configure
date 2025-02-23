@@ -410,9 +410,12 @@ def prepare_environment_vars(
         "HDF5_MPI": "ON",
     }
 
-    # On macOS h5py cannot find the HDF5 library without help
     if package_manager == MACOS_HOMEBREW_ARM64:
+        # On macOS h5py cannot find the HDF5 library without help
         vars["HDF5_DIR"] = "/opt/homebrew"
+    elif package_manager is None:
+        # If package manager is 'None' then we expect PETSc to build HDF5
+        vars["HDF5_DIR"] = f"{vars['PETSC_DIR']}/{vars['PETSC_ARCH']}"
 
     return tuple(f"{var}={value}" for var, value in vars.items())
 
