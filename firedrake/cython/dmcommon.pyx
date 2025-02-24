@@ -3921,47 +3921,32 @@ def submesh_create_cell_closure_cell_submesh(PETSc.DM subdm,
     return subcell_closure
 
 
-def set_coordinate_section_and_such(coordinates):
+def set_coordinate_section_and_such(mesh, coordinates):
     cdef:
         PETSc.DM plex
         PETSc.Section vector_section
         PetscInt gdim
 
-    plex = coordinates.function_space().mesh().topology_dm
+    plex = mesh.topology_dm
     coordinate_element = coordinates.ufl_element()
     gdim = plex.getCoordinateDim()
-    print(gdim)
     if coordinate_element.family() == "Lagrange":
         # the existing section has the correct numbering but is scalar, expand to gdim
         scalar_dm = coordinates.function_space().dm
         scalar_section = scalar_dm.getLocalSection()
-        # p_start, p_end = scalar_section.getChart()
-        v_start, v_end = plex.getDepthStratum(0)
-
-        print(v_start, v_end)
+        p_start, p_end = scalar_section.getChart()
 
         vector_section = PETSc.Section().create(comm=scalar_section.comm)
-        vector_section.setChart(v_start, v_end)
-        # vector_section.setNumFields(1)
-        # vector_section.setFieldComponents(0, gdim)
+        vector_section.setNumFields(1)
+        vector_section.setFieldComponents(0, gdim)
+        vector_section.setChart(p_start, p_end)
+        vector_section.setPermutation(scalar_section.getPermutation())
 
-        # FIXME, for now
-        # vector_section.setPermutation(scalar_section.getPermutation())
-
-        # vector_section.view()
-
-        for v in range(v_start, v_end):
-            scalar_ndof = scalar_section.getDof(v)
-            print(v)
-            print(scalar_ndof)
-            print(scalar_ndof*gdim)
-            CHKERR(PetscSectionSetDof(vector_section.sec, v, scalar_ndof*gdim))
-            # CHKERR(PetscSectionSetFieldDof(vector_section.sec, v, 0, scalar_ndof*gdim))
-            # vector_section.setDof(v, scalar_ndof*gdim)
-            # vector_section.setFieldDof(v, 0, scalar_ndof*gdim)
+        for p in range(p_start, p_end):
+            scalar_ndof = scalar_section.getDof(p)
+            CHKERR(PetscSectionSetDof(vector_section.sec, p, scalar_ndof*gdim))
+            CHKERR(PetscSectionSetFieldDof(vector_section.sec, p, 0, scalar_ndof*gdim))
         vector_section.setUp()
-
-        vector_section.view()
 
         # set coordinates
         # apparently gdim ignored in this call and set explicitly below

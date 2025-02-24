@@ -2274,7 +2274,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         # NOTE: This is only ever called with a fully distributed, overlapping
         # mesh
-        dmcommon.set_coordinate_section_and_such(coordinates)
+        dmcommon.set_coordinate_section_and_such(self, coordinates)
 
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.extruded, self.variable_layers,
