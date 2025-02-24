@@ -2098,32 +2098,31 @@ class _FormHandler:
 
 def fuse_orientations(fs):
     if hasattr(fs.ufl_element(), "triple"):
-        print(type(fs.ufl_element().triple))
         os = fs.ufl_element().triple.matrices
         t_dim = fs.ufl_element().cell._tdim
-        construct_assign_loopy(os[t_dim][0])
+        construct_assign_loopy(os[t_dim][0], fs)
     else:
         raise NotImplementedError("Dense orientations only needed for FUSE elements")
 
-def construct_assign_loopy(os):
+def construct_assign_loopy(os, fs):
     n = os[next(iter(os.keys()))].shape[0]
     child_knl = lp.make_function(
             f"{{[i, j]:0<=i, j < {n}}}",
             """
             res[j] =  res[j] + a[i, j]*b[i]
-            """, name="matmul",target=lp.CTarget())
-    args = [lp.GlobalArg("b", dtype=numpy.float32, shape=(n, )),
-            lp.GlobalArg("res", dtype=numpy.float32, shape =(n,)),
-            lp.ValueArg("o", dtype=numpy.int8),
-            lp.GlobalArg("a", dtype=numpy.float32, shape =(n, n))]
+            """, name="matmul",target=lp.CWithGNULibcTarget())
+    args = [lp.GlobalArg("o", dtype=utils.IntType, shape=(1,)),
+            lp.GlobalArg("b", dtype=ScalarType, shape=(n, )),
+            lp.GlobalArg("res", dtype=ScalarType, shape =(n,)),
+            lp.GlobalArg("a", dtype=ScalarType, shape =(n, n))]
 
     var_list = ["o"]
     string = [f"\nswitch (o) {{ \n"]
     for val in sorted(os.keys()):
         string += f"case {val}:\n a = mat{val};break;\n"
         var_list += [f"mat{val}"]
-        mat = numpy.array(os[val], dtype=numpy.float32)
-        args += [lp.TemporaryVariable(f"mat{val}", initializer=mat, dtype=numpy.float32, read_only=True, address_space=lp.AddressSpace(1))]
+        mat = numpy.array(os[val], dtype=ScalarType)
+        args += [lp.TemporaryVariable(f"mat{val}", initializer=mat, dtype=ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
     string += "default:\nbreak;\n }"
     transform_insn = lp.CInstruction(tuple(), "".join(string), assignees=("a"), read_variables=frozenset(var_list), id="assign")
 
@@ -2131,10 +2130,27 @@ def construct_assign_loopy(os):
             "{:}",
             [transform_insn, "res[:] = matmul(a, b, res) {dep=assign}"],
             kernel_data=args
-            ,target=lp.CTarget())
+            ,target=lp.CWithGNULibcTarget())
     knl = lp.merge([parent_knl, child_knl])
     print(lp.generate_code_v2(knl).device_code())
     print(knl)
+    transform = op3.Function(knl, [op3.READ, op3.READ, op3.WRITE, op3.WRITE])
+    iter_list = fs.mesh()._topology.measure_set("cell","otherwise",dict())
+    orientation = op3.Dat(op3.AxisTree(),data=numpy.zeros(1))
+    axes = op3.AxisTree.from_nest({op3.Axis(10): op3.Axis(10)})
+    a = op3.Dat(
+        axes, name="a", data=numpy.zeros(axes.size), dtype=op3.ScalarType
+    )
+    b = op3.Dat(
+        axes, name="a", data=numpy.zeros(axes.size), dtype=op3.ScalarType
+    )
+    res = op3.Dat(
+        axes, name="res", data=numpy.zeros(axes.size), dtype=op3.ScalarType
+    )
+    # breakpoint()
+    # need to think about the b argument and how to get the orientation argument
+    loop = op3.loop(cell := iter_list.index(), transform(orientation, b[cell], a, res))
+    loop()
         
 def construct_string(os, dofs, c):
     # for testing - makes it into a full c program
