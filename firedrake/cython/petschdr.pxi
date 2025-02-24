@@ -56,6 +56,8 @@ cdef extern from "petscdmplex.h" nogil:
     int DMPlexGetSubpointMap(PETSc.PetscDM,PETSc.PetscDMLabel*)
     int DMPlexSetSubpointMap(PETSc.PetscDM,PETSc.PetscDMLabel)
 
+    int DMSetCoordinateSection(PETSc.PetscDM,PetscInt,PETSc.PetscSection)
+
 cdef extern from "petscdmlabel.h" nogil:
     struct _n_DMLabel
     ctypedef _n_DMLabel* DMLabel "DMLabel"

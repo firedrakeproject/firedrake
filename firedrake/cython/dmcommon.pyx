@@ -3919,3 +3919,38 @@ def submesh_create_cell_closure_cell_submesh(PETSc.DM subdm,
     CHKERR(PetscFree(subpoint_indices_inv))
     CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
     return subcell_closure
+
+
+def set_coordinate_section_and_such(coordinates):
+    cdef:
+        PETSc.DM plex
+        PETSc.Section vector_section
+        PetscInt gdim
+
+    plex = coordinates.function_space().mesh().topology_dm
+    coordinate_element = coordinates.ufl_element()
+    gdim = plex.getCoordinateDim()
+    if coordinate_element.family() == "Lagrange":
+        # the existing section has the correct numbering but is scalar, expand to gdim
+        scalar_dm = coordinates.function_space().dm
+        scalar_section = scalar_dm.getLocalSection()
+        vector_section = PETSc.Section().create(comm=scalar_section.comm)
+        vector_section.setNumFields(1)
+        vector_section.setFieldComponents(0, gdim)
+        vector_section.setPermutation(scalar_section.getPermutation())
+
+        p_start, p_end = scalar_section.getChart()
+        vector_section.setChart(p_start, p_end)
+        for p in range(p_start, p_end):
+            scalar_ndof = scalar_section.getDof(p)
+            vector_section.setFieldDof(p, 0, scalar_ndof*gdim)
+        vector_section.setUp()
+
+        # set coordinates
+        # apparently gdim ignored in this call and set explicitly below
+        CHKERR(DMSetCoordinateSection(plex.dm, gdim, vector_section.sec))
+        plex.setCoordinateDim(gdim)
+
+        plex.setCoordinatesLocal(coordinates.dat._vec)
+    else:
+        raise NotImplementedError("Need to do DG")

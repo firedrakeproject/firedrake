@@ -2272,6 +2272,10 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         self._spatial_index = None
         self._saved_coordinate_dat_version = coordinates.dat.dat_version
 
+        # NOTE: This is only ever called with a fully distributed, overlapping
+        # mesh
+        dmcommon.set_coordinate_section_and_such(coordinates)
+
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.extruded, self.variable_layers,
                 super()._ufl_signature_data_(*args, **kwargs))
