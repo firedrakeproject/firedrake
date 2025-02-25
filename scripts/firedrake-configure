@@ -214,9 +214,6 @@ COMMON_PETSC_CONFIGURE_OPTIONS = (
     "--with-fortran-bindings=0",
     "--with-shared-libraries=1",
     "--with-strict-petscerrorcode",
-    "--COPTFLAGS='-O3 -march=native -mtune=native'",
-    "--CXXOPTFLAGS='-O3 -march=native -mtune=native'",
-    "--FOPTFLAGS='-O3 -mtune=native'",
 )
 
 # Placeholder value to use when we want PETSc to autodetect the package
@@ -364,6 +361,16 @@ def prepare_configure_options(
 ) -> tuple[str, ...]:
     configure_options = list(COMMON_PETSC_CONFIGURE_OPTIONS)
     configure_options.append(f"PETSC_ARCH=arch-firedrake-{arch.value}")
+
+    configure_options.extend([
+        "--COPTFLAGS='-O3 -march=native -mtune=native'",
+        "--CXXOPTFLAGS='-O3 -march=native -mtune=native'",
+    ])
+    # -march=native not available for FOPTFLAGS on macOS
+    if package_manager == MACOS_HOMEBREW_ARM64:
+        configure_options.append("--FOPTFLAGS='-O3 -mtune=native'")
+    else:
+        configure_options.append("--FOPTFLAGS='-O3 -march=native -mtune=native'")
 
     if arch == ARCH_COMPLEX:
         configure_options.append("--with-scalar-type=complex")

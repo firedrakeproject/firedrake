@@ -18,9 +18,8 @@ RUN sudo apt-get update \
 # Install PETSc
 RUN git clone https://github.com/firedrakeproject/petsc.git \
     && cd petsc \
-    && eval ./configure \
-        $(python3 ../firedrake-configure --arch $ARCH --show-petsc-configure-options) \
-        --with-make-np=12 \
+    && python3 ../firedrake-configure --arch $ARCH --show-petsc-configure-options) | \
+        xargs -L1 ./configure --with-make-np=12 \
     && make \
     && make check \
     && rm -rf ./**/externalpackages \
