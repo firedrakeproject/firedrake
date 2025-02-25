@@ -80,11 +80,10 @@ def test_orientation_string():
     dg1 = construct_cg3()
     mesh = UnitTriangleMesh()
     U = FunctionSpace(mesh, dg1.to_ufl())
-    fuse_orientations(U)
 
-    # mesh = UnitTriangleMesh()
-    # U = FunctionSpace(mesh, "DG", 1)
-    # fuse_orientations(U)
+    v = TestFunction(U)
+    L = v * dx
+    l_a = assemble(L)
 
 def test_minimal():
     # NB mesh size 3,3 fails - internal cell issue?

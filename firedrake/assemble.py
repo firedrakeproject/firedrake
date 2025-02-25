@@ -1779,11 +1779,24 @@ class ParloopBuilder:
         for tsfc_arg in self._kinfo.arguments:
             arg = self._as_parloop_arg(tsfc_arg, p)
             args.append(arg)
+        
+        # transform_kernels = self.fuse_orientations()
+        # breakpoint()
+        # orientation = op3.Dat(op3.AxisTree(),data=numpy.zeros(1))
+        # axes = op3.AxisTree.from_nest({op3.Axis(10): op3.Axis(10)})
+        # a = op3.Dat(axes, name="a", data=numpy.zeros(axes.size), dtype=op3.ScalarType)
+        # b = op3.Dat(axes, name="b", data=numpy.zeros(axes.size), dtype=op3.ScalarType)
+        # res = op3.Dat(axes, name="res", data=numpy.zeros(axes.size), dtype=op3.ScalarType)
+        # # # breakpoint()
+        # # # need to think about the b argument and how to get the orientation argument
+        # loop = op3.loop(p, transform(orientation, b[cell], a, res))
         self._kinfo.kernel.code = self._kinfo.kernel.code.with_entrypoints({self._kinfo.kernel.name})
         kernel = op3.Function(
             self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]]
         )
-        return op3.loop(p, kernel(*args))
+        loop = op3.loop(p, kernel(*args))
+        print(loop.loopy_code.ir)
+        return loop
 
     @property
     def test_function_space(self):
@@ -1934,6 +1947,50 @@ class ParloopBuilder:
                 self._subdomain_id,
                 self._all_integer_subdomain_ids
             )
+    
+
+    def fuse_orientations(self):
+        Vs = self._indexed_function_spaces
+        transform_kernels = []
+        for fs in Vs:
+            if hasattr(fs.ufl_element(), "triple"):
+                os = fs.ufl_element().triple.matrices
+                t_dim = fs.ufl_element().cell._tdim
+                os = os[t_dim][0]
+                n = os[next(iter(os.keys()))].shape[0]
+                child_knl = lp.make_function(
+                        f"{{[i, j]:0<=i, j < {n}}}",
+                        """
+                        res[j] =  res[j] + a[i, j]*b[i]
+                        """, name="matmul",target=lp.CWithGNULibcTarget())
+                args = [lp.GlobalArg("o", dtype=utils.IntType, shape=(1,)),
+                        lp.GlobalArg("b", dtype=ScalarType, shape=(n, )),
+                        lp.GlobalArg("res", dtype=ScalarType, shape =(n,)),
+                        lp.GlobalArg("a", dtype=ScalarType, shape =(n, n))]
+
+                var_list = ["o"]
+                string = [f"\nswitch (o) {{ \n"]
+                for val in sorted(os.keys()):
+                    string += f"case {val}:\n a = mat{val};break;\n"
+                    var_list += [f"mat{val}"]
+                    mat = numpy.array(os[val], dtype=ScalarType)
+                    args += [lp.TemporaryVariable(f"mat{val}", initializer=mat, dtype=ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
+                string += "default:\nbreak;\n }"
+                transform_insn = lp.CInstruction(tuple(), "".join(string), assignees=("a"), read_variables=frozenset(var_list), id="assign")
+
+                parent_knl = lp.make_kernel(
+                        "{:}",
+                        [transform_insn, "res[:] = matmul(a, b, res) {dep=assign}"],
+                        kernel_data=args
+                        ,target=lp.CWithGNULibcTarget())
+                knl = lp.merge([parent_knl, child_knl])
+                # print(lp.generate_code_v2(knl).device_code())
+                # print(knl)
+                transform = op3.Function(knl, [op3.READ, op3.READ, op3.WRITE, op3.WRITE])
+                transform_kernels += [transform]
+            else:
+                raise NotImplementedError("Dense orientations only needed for FUSE elements")
+        return transform_kernels
 
     @functools.singledispatchmethod
     def _as_parloop_arg(self, tsfc_arg, index):
@@ -1947,7 +2004,6 @@ class ParloopBuilder:
         rank = len(self._form.arguments())
         tensor = self._tensor
         Vs = self._indexed_function_spaces
-
         if rank == 0:
             return tensor
         elif rank == 1 or rank == 2 and self._diagonal:
@@ -2096,61 +2152,95 @@ class _FormHandler:
         else:
             raise AssertionError
 
-def fuse_orientations(fs):
-    if hasattr(fs.ufl_element(), "triple"):
-        os = fs.ufl_element().triple.matrices
-        t_dim = fs.ufl_element().cell._tdim
-        construct_assign_loopy(os[t_dim][0], fs)
-    else:
-        raise NotImplementedError("Dense orientations only needed for FUSE elements")
+def fuse_orientations(self):
+    Vs = self._indexed_function_spaces
+    for fs in Vs:
+        if hasattr(fs.ufl_element(), "triple"):
+            os = fs.ufl_element().triple.matrices
+            t_dim = fs.ufl_element().cell._tdim
+            os = os[t_dim][0]
+            n = os[next(iter(os.keys()))].shape[0]
+            child_knl = lp.make_function(
+                    f"{{[i, j]:0<=i, j < {n}}}",
+                    """
+                    res[j] =  res[j] + a[i, j]*b[i]
+                    """, name="matmul",target=lp.CWithGNULibcTarget())
+            args = [lp.GlobalArg("o", dtype=utils.IntType, shape=(1,)),
+                    lp.GlobalArg("b", dtype=ScalarType, shape=(n, )),
+                    lp.GlobalArg("res", dtype=ScalarType, shape =(n,)),
+                    lp.GlobalArg("a", dtype=ScalarType, shape =(n, n))]
 
-def construct_assign_loopy(os, fs):
-    n = os[next(iter(os.keys()))].shape[0]
-    child_knl = lp.make_function(
-            f"{{[i, j]:0<=i, j < {n}}}",
-            """
-            res[j] =  res[j] + a[i, j]*b[i]
-            """, name="matmul",target=lp.CWithGNULibcTarget())
-    args = [lp.GlobalArg("o", dtype=utils.IntType, shape=(1,)),
-            lp.GlobalArg("b", dtype=ScalarType, shape=(n, )),
-            lp.GlobalArg("res", dtype=ScalarType, shape =(n,)),
-            lp.GlobalArg("a", dtype=ScalarType, shape =(n, n))]
+            var_list = ["o"]
+            string = [f"\nswitch (o) {{ \n"]
+            for val in sorted(os.keys()):
+                string += f"case {val}:\n a = mat{val};break;\n"
+                var_list += [f"mat{val}"]
+                mat = numpy.array(os[val], dtype=ScalarType)
+                args += [lp.TemporaryVariable(f"mat{val}", initializer=mat, dtype=ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
+            string += "default:\nbreak;\n }"
+            transform_insn = lp.CInstruction(tuple(), "".join(string), assignees=("a"), read_variables=frozenset(var_list), id="assign")
 
-    var_list = ["o"]
-    string = [f"\nswitch (o) {{ \n"]
-    for val in sorted(os.keys()):
-        string += f"case {val}:\n a = mat{val};break;\n"
-        var_list += [f"mat{val}"]
-        mat = numpy.array(os[val], dtype=ScalarType)
-        args += [lp.TemporaryVariable(f"mat{val}", initializer=mat, dtype=ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
-    string += "default:\nbreak;\n }"
-    transform_insn = lp.CInstruction(tuple(), "".join(string), assignees=("a"), read_variables=frozenset(var_list), id="assign")
+            parent_knl = lp.make_kernel(
+                    "{:}",
+                    [transform_insn, "res[:] = matmul(a, b, res) {dep=assign}"],
+                    kernel_data=args
+                    ,target=lp.CWithGNULibcTarget())
+            knl = lp.merge([parent_knl, child_knl])
+            print(lp.generate_code_v2(knl).device_code())
+            print(knl)
+            transform = op3.Function(knl, [op3.READ, op3.READ, op3.WRITE, op3.WRITE])
+            return transform
+        else:
+            raise NotImplementedError("Dense orientations only needed for FUSE elements")
 
-    parent_knl = lp.make_kernel(
-            "{:}",
-            [transform_insn, "res[:] = matmul(a, b, res) {dep=assign}"],
-            kernel_data=args
-            ,target=lp.CWithGNULibcTarget())
-    knl = lp.merge([parent_knl, child_knl])
-    print(lp.generate_code_v2(knl).device_code())
-    print(knl)
-    transform = op3.Function(knl, [op3.READ, op3.READ, op3.WRITE, op3.WRITE])
-    iter_list = fs.mesh()._topology.measure_set("cell","otherwise",dict())
-    orientation = op3.Dat(op3.AxisTree(),data=numpy.zeros(1))
-    axes = op3.AxisTree.from_nest({op3.Axis(10): op3.Axis(10)})
-    a = op3.Dat(
-        axes, name="a", data=numpy.zeros(axes.size), dtype=op3.ScalarType
-    )
-    b = op3.Dat(
-        axes, name="a", data=numpy.zeros(axes.size), dtype=op3.ScalarType
-    )
-    res = op3.Dat(
-        axes, name="res", data=numpy.zeros(axes.size), dtype=op3.ScalarType
-    )
-    # breakpoint()
-    # need to think about the b argument and how to get the orientation argument
-    loop = op3.loop(cell := iter_list.index(), transform(orientation, b[cell], a, res))
-    loop()
+# def construct_matrix_perm(os, fs):
+#     n = os[next(iter(os.keys()))].shape[0]
+#     child_knl = lp.make_function(
+#             f"{{[i, j]:0<=i, j < {n}}}",
+#             """
+#             res[j] =  res[j] + a[i, j]*b[i]
+#             """, name="matmul",target=lp.CWithGNULibcTarget())
+#     args = [lp.GlobalArg("o", dtype=utils.IntType, shape=(1,)),
+#             lp.GlobalArg("b", dtype=ScalarType, shape=(n, )),
+#             lp.GlobalArg("res", dtype=ScalarType, shape =(n,)),
+#             lp.GlobalArg("a", dtype=ScalarType, shape =(n, n))]
+
+#     var_list = ["o"]
+#     string = [f"\nswitch (o) {{ \n"]
+#     for val in sorted(os.keys()):
+#         string += f"case {val}:\n a = mat{val};break;\n"
+#         var_list += [f"mat{val}"]
+#         mat = numpy.array(os[val], dtype=ScalarType)
+#         args += [lp.TemporaryVariable(f"mat{val}", initializer=mat, dtype=ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
+#     string += "default:\nbreak;\n }"
+#     transform_insn = lp.CInstruction(tuple(), "".join(string), assignees=("a"), read_variables=frozenset(var_list), id="assign")
+
+#     parent_knl = lp.make_kernel(
+#             "{:}",
+#             [transform_insn, "res[:] = matmul(a, b, res) {dep=assign}"],
+#             kernel_data=args
+#             ,target=lp.CWithGNULibcTarget())
+#     knl = lp.merge([parent_knl, child_knl])
+#     print(lp.generate_code_v2(knl).device_code())
+#     print(knl)
+#     transform = op3.Function(knl, [op3.READ, op3.READ, op3.WRITE, op3.WRITE])
+#     return transform
+    # iter_list = fs.mesh()._topology.measure_set("cell","otherwise",dict())
+    # orientation = op3.Dat(op3.AxisTree(),data=numpy.zeros(1))
+    # axes = op3.AxisTree.from_nest({op3.Axis(10): op3.Axis(10)})
+    # a = op3.Dat(
+    #     axes, name="a", data=numpy.zeros(axes.size), dtype=op3.ScalarType
+    # )
+    # b = op3.Dat(
+    #     axes, name="a", data=numpy.zeros(axes.size), dtype=op3.ScalarType
+    # )
+    # res = op3.Dat(
+    #     axes, name="res", data=numpy.zeros(axes.size), dtype=op3.ScalarType
+    # )
+    # # breakpoint()
+    # # need to think about the b argument and how to get the orientation argument
+    # loop = op3.loop(cell := iter_list.index(), transform(orientation, b[cell], a, res))
+    # loop()
         
 def construct_string(os, dofs, c):
     # for testing - makes it into a full c program
