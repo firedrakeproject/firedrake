@@ -2309,6 +2309,13 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             # Finish the initialisation of mesh topology
             self.topology.init()
             coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
+
+            # reordered_coords only needs to reorder the coordinates
+            # *some of the time*. If the input is a DM that has already
+            # been reordered to respect Firedrake then we don't have to do
+            # anything. Otherwise, we have the set the correct section.
+            # TODO: Ask Matt if there is a nice way to do this.
+
             coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
                                                          (self.num_vertices(), self.geometric_dimension()))
             coordinates = function.CoordinatelessFunction(coordinates_fs,

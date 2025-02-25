@@ -3930,29 +3930,31 @@ def set_coordinate_section_and_such(mesh, coordinates):
     plex = mesh.topology_dm
     coordinate_element = coordinates.ufl_element()
     gdim = plex.getCoordinateDim()
+
+    # the existing section has the correct numbering but is scalar, expand to gdim
+    scalar_dm = coordinates.function_space().dm
+    scalar_section = scalar_dm.getLocalSection()
+    p_start, p_end = scalar_section.getChart()
+
+    vector_section = PETSc.Section().create(comm=scalar_section.comm)
+    vector_section.setNumFields(1)
+    vector_section.setFieldComponents(0, gdim)
+    vector_section.setChart(p_start, p_end)
+    vector_section.setPermutation(scalar_section.getPermutation())
+
+    for p in range(p_start, p_end):
+        scalar_ndof = scalar_section.getDof(p)
+        CHKERR(PetscSectionSetDof(vector_section.sec, p, scalar_ndof*gdim))
+        CHKERR(PetscSectionSetFieldDof(vector_section.sec, p, 0, scalar_ndof*gdim))
+    vector_section.setUp()
+
     if coordinate_element.family() == "Lagrange":
-        # the existing section has the correct numbering but is scalar, expand to gdim
-        scalar_dm = coordinates.function_space().dm
-        scalar_section = scalar_dm.getLocalSection()
-        p_start, p_end = scalar_section.getChart()
-
-        vector_section = PETSc.Section().create(comm=scalar_section.comm)
-        vector_section.setNumFields(1)
-        vector_section.setFieldComponents(0, gdim)
-        vector_section.setChart(p_start, p_end)
-        vector_section.setPermutation(scalar_section.getPermutation())
-
-        for p in range(p_start, p_end):
-            scalar_ndof = scalar_section.getDof(p)
-            CHKERR(PetscSectionSetDof(vector_section.sec, p, scalar_ndof*gdim))
-            CHKERR(PetscSectionSetFieldDof(vector_section.sec, p, 0, scalar_ndof*gdim))
-        vector_section.setUp()
-
-        # set coordinates
         # apparently gdim ignored in this call and set explicitly below
         CHKERR(DMSetCoordinateSection(plex.dm, gdim, vector_section.sec))
         plex.setCoordinateDim(gdim)
-
         plex.setCoordinatesLocal(coordinates.dat._vec)
     else:
-        raise NotImplementedError("Need to do DG")
+        plex.setCellCoordinateDM(plex.getCoordinateDM().clone())
+        plex.setCellCoordinateSection(gdim, vector_section)  # gdim ignored
+        plex.setCoordinateDim(gdim)
+        plex.setCellCoordinatesLocal(coordinates.dat._vec)
