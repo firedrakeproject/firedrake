@@ -9,7 +9,7 @@ RUN pip install --break-system-packages --verbose nbclassic nbformat nbconvert i
 # Move the notebooks and strip their output
 RUN mkdir firedrake-notebooks \
     && cp -r firedrake/docs/notebooks/* firedrake-notebooks/ \
-    && for file in *.ipynb; do \
+    && for file in firedrake-notebooks/*.ipynb; do \
         jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace $file; \
     done
 
