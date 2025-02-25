@@ -48,14 +48,14 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get -y install \
+          eval sudo apt-get -y install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
 
       - name: Install PETSc
         run: |
           git clone https://github.com/firedrakeproject/petsc.git
           cd petsc
-          ./configure \
+          eval ./configure \
             $(python3 ../firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-petsc-configure-options) \
             --with-make-np=12
           make
@@ -65,7 +65,7 @@ jobs:
       - name: Install Firedrake
         id: install
         run: |
-          export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-env)
+          eval export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-env)
           python3 -m venv venv
           . venv/bin/activate
           : # Force a rebuild of petsc4py as the cached one will not link to the fresh

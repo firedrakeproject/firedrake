@@ -41,13 +41,13 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          brew install $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --show-system-packages)
+          eval brew install $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --show-system-packages)
 
       - name: Install PETSc
         run: |
           git clone https://github.com/firedrakeproject/petsc.git
           cd petsc
-          ./configure \
+          eval ./configure \
             $(python3 ../firedrake-repo/scripts/firedrake-configure --arch default --show-petsc-configure-options) \
             --with-make-np=4
           make
@@ -56,7 +56,7 @@ jobs:
       - name: Install Firedrake
         id: install
         run: |
-          export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --show-env)
+          eval export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --show-env)
           python3 -m venv venv
           . venv/bin/activate
           : # Force a rebuild of petsc4py as the cached one will not link to the fresh

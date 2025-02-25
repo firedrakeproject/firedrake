@@ -216,7 +216,7 @@ COMMON_PETSC_CONFIGURE_OPTIONS = (
     "--with-strict-petscerrorcode",
     "--COPTFLAGS='-O3 -march=native -mtune=native'",
     "--CXXOPTFLAGS='-O3 -march=native -mtune=native'",
-    "--FOPTFLAGS='-O3 -march=native -mtune=native'",
+    "--FOPTFLAGS='-O3 -mtune=native'",
 )
 
 # Placeholder value to use when we want PETSc to autodetect the package
