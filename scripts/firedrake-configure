@@ -214,9 +214,9 @@ COMMON_PETSC_CONFIGURE_OPTIONS = (
     "--with-fortran-bindings=0",
     "--with-shared-libraries=1",
     "--with-strict-petscerrorcode",
-    "--COPTFLAGS=-O3 -march=native -mtune=native",
-    "--CXXOPTFLAGS=-O3 -march=native -mtune=native",
-    "--FOPTFLAGS=-O3 -march=native -mtune=native",
+    "--COPTFLAGS='-O3 -march=native -mtune=native'",
+    "--CXXOPTFLAGS='-O3 -march=native -mtune=native'",
+    "--FOPTFLAGS='-O3 -march=native -mtune=native'",
 )
 
 # Placeholder value to use when we want PETSc to autodetect the package
@@ -278,11 +278,6 @@ PETSC_EXTERNAL_PACKAGE_SPECS = {
         LINUX_APT_AARCH64: PETSC_DOWNLOAD,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
-    "pastix": {
-        LINUX_APT_X86_64: PETSC_DOWNLOAD,
-        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
-    },
     "pnetcdf": {
         LINUX_APT_X86_64: PETSC_DOWNLOAD,
         LINUX_APT_AARCH64: PETSC_DOWNLOAD,
@@ -323,7 +318,6 @@ COMMON_PETSC_EXTERNAL_PACKAGES = (
     "metis",
     "mumps",
     "netcdf",
-    "pastix",
     "pnetcdf",
     "ptscotch",
     "scalapack",
