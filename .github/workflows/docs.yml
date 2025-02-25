@@ -18,15 +18,9 @@ concurrency:
 jobs:
   build_docs:
     name: Run doc build
-    # Run on the Github hosted runner
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux]
     container:
       image: firedrakeproject/firedrake-docdeps:pip
-      # Github hosted runners require running as root user:
-      # https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners/about-github-hosted-runners#docker-container-filesystem
-      options: --user root
-      volumes:
-        - ${{ github.workspace }}:/home/firedrake/output
     steps:
       - uses: actions/checkout@v4
         with:
