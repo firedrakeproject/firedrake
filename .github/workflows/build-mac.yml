@@ -72,7 +72,7 @@ jobs:
       - name: Run smoke tests
         run: |
           . venv/bin/activate
-          make -C firedrake-repo check CHECK_PYTEST_ARGS="--timeout 60"
+          firedrake-check
         timeout-minutes: 10
 
       - name: Post-run cleanup

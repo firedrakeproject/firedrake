@@ -56,7 +56,7 @@ jobs:
           git clone https://github.com/firedrakeproject/petsc.git
           cd petsc
           python3 ../firedrake-repo/scripts/firedrake-configure \
-            --arch ${{ matrix.arch }} --show-petsc-configure-options) | \
+            --arch ${{ matrix.arch }} --show-petsc-configure-options | \
             xargs -L1 ./configure --with-make-np=12
           make
           # TODO: This fails for some reason
