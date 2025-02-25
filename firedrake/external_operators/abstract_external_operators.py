@@ -47,21 +47,22 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
         Parameters
         ----------
         *operands : ufl.core.expr.Expr or ufl.form.BaseForm
-                    Operands of the external operator.
+            Operands of the external operator.
         function_space : firedrake.functionspaceimpl.WithGeometryBase
-                         The function space the external operator is mapping to.
+            The function space the external operator is mapping to.
         derivatives : tuple
-                      Tuple specifiying the derivative multiindex.
+            Tuple specifiying the derivative multiindex.
         *argument_slots : ufl.coefficient.BaseCoefficient or ufl.argument.BaseArgument
-                          Tuple containing the arguments of the linear form associated with the external operator,
-                          i.e. the arguments with respect to which the external operator is linear. Those arguments
-                          can be ufl.Argument objects, as a result of differentiation, or ufl.Coefficient objects,
-                          as a result of taking the action on a given function.
+            Tuple containing the arguments of the linear form associated with the external operator,
+            i.e. the arguments with respect to which the external operator is linear. Those arguments can
+            be ``ufl.argument.BaseArgument`` objects, as a result of differentiation, or both
+            ``ufl.coefficient.BaseCoefficient`` and ``ufl.argument.BaseArgument`` object, as a result
+            of taking the action on a given function.
         operator_data : dict
-                        Dictionary containing the data of the external operator, i.e. the external data
-                        specific to the external operator subclass considered. This dictionary will be passed on
-                        over the UFL symbolic reconstructions making the operator data accessible to the external operators
-                        arising from symbolic operations on the original operator, such as the Jacobian of the external operator.
+            Dictionary containing the data of the external operator, i.e. the external data
+            specific to the external operator subclass considered. This dictionary will be passed on
+            over the UFL symbolic reconstructions making the operator data accessible to the external operators
+            arising from symbolic operations on the original operator, such as the Jacobian of the external operator.
         """
         from firedrake_citations import Citations
         Citations().register("Bouziani2021")
