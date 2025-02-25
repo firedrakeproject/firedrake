@@ -543,7 +543,7 @@ def _from_cell_list(dim, cells, coords, comm, name=None):
     return plex
 
 
-class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
+class AbstractMeshTopology(metaclass=abc.ABCMeta):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
 
@@ -1186,6 +1186,7 @@ class MeshTopology(AbstractMeshTopology):
             dmcommon.set_adjacency_callback(self.topology_dm)
             original_name = self.topology_dm.getName()
             sfBC = self.topology_dm.distributeOverlap(overlap)
+            self.overlap_sf = sfBC
             self.topology_dm.setName(original_name)
             self.sfBC = self.sfBC.compose(sfBC) if self.sfBC else sfBC
             dmcommon.clear_adjacency_callback(self.topology_dm)
@@ -1194,6 +1195,7 @@ class MeshTopology(AbstractMeshTopology):
             # Default is FEM (vertex star) adjacency.
             original_name = self.topology_dm.getName()
             sfBC = self.topology_dm.distributeOverlap(overlap)
+            self.overlap_sf = sfBC
             self.topology_dm.setName(original_name)
             self.sfBC = self.sfBC.compose(sfBC) if self.sfBC else sfBC
             self._grown_halos = True
@@ -2242,6 +2244,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         cargo = MeshGeometryCargo(uid)
         assert isinstance(element, finat.ufl.FiniteElementBase)
         ufl.Mesh.__init__(mesh, element, ufl_id=mesh.uid, cargo=cargo)
+
         return mesh
 
     @MeshGeometryMixin._ad_annotate_init
@@ -2253,8 +2256,14 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         coordinates : CoordinatelessFunction
             The `CoordinatelessFunction` containing the coordinates.
 
+        Notes
+        -----
+        At the time this constructor is called the mesh is fully distributed.
+
         """
         topology = coordinates.function_space().mesh()
+
+        self.geometry_dm = dmcommon.make_geometry_dm(coordinates)
 
         # this is codegen information so we attach it to the MeshGeometry rather than its cargo
         self.extruded = isinstance(topology, ExtrudedMeshTopology)
@@ -2272,9 +2281,9 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         self._spatial_index = None
         self._saved_coordinate_dat_version = coordinates.dat.dat_version
 
-        # NOTE: This is only ever called with a fully distributed, overlapping
-        # mesh
-        dmcommon.set_coordinate_section_and_such(self, coordinates)
+    @property
+    def cell_closure_list(self):
+        return self.dm.getCoordinateDM().getAttr("cell_closure_list")
 
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.extruded, self.variable_layers,
@@ -2288,7 +2297,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         if hasattr(self, '_callback'):
             self._callback(self)
 
-    def _init_topology(self, topology):
+    def _init_topology(self, topology, geometry_dm):
         """Initialise the topology.
 
         :arg topology: The :class:`.MeshTopology` object.
@@ -2302,12 +2311,24 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         import firedrake.function as function
 
         self._topology = topology
+        self._input_geometry_dm = geometry_dm
 
         def callback(self):
             """Finish initialisation."""
             del self._callback
             # Finish the initialisation of mesh topology
             self.topology.init()
+            # geometry_dm = self._input_geometry_dm.migrate(self.topology.overlap_sf)
+
+            # make the overlap SF dense
+            # dense_overlap_sf = dmcommon.densify_sf(self.topology.topology_dm, self.topology.overlap_sf)
+            # breakpoint()
+            # migration_sf = dmcommon.dmplex_create_overlap_migration_sf(self.topology.topology_dm, self.topology.overlap_sf)
+            # geometry_dm = dmcommon.dmplex_migrate(self._input_geometry_dm, dense_overlap_sf)
+            # geometry_dm = dmcommon.dmplex_migrate(self._input_geometry_dm, self.topology.overlap_sf)
+            # geometry_dm = dmcommon.dmplex_migrate(self._input_geometry_dm, migration_sf)
+            geometry_dm = dmcommon.dmplex_migrate(self._input_geometry_dm, self.topology.sfBC)
+
             coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
 
             # reordered_coords only needs to reorder the coordinates
@@ -2316,7 +2337,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             # anything. Otherwise, we have the set the correct section.
             # TODO: Ask Matt if there is a nice way to do this.
 
-            coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
+            coordinates_data = dmcommon.reordered_coords(geometry_dm, coordinates_fs.dm.getDefaultSection(),
                                                          (self.num_vertices(), self.geometric_dimension()))
             coordinates = function.CoordinatelessFunction(coordinates_fs,
                                                           val=coordinates_data,
@@ -2879,8 +2900,9 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
     return mesh
 
 
-def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
-    """Make mesh from tpology.
+# Should be make_mesh_from_geometry_dm
+def make_mesh_from_mesh_topology(topology, geometry_dm, name, tolerance=0.5):
+    """Make mesh from topology.
 
     Parameters
     ----------
@@ -2901,13 +2923,13 @@ def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
     # TODO: meshfile might indicates higher-order coordinate element
     cell = topology.ufl_cell()
     geometric_dim = topology.topology_dm.getCoordinateDim()
-    if not topology.topology_dm.getCoordinatesLocalized():
+    if not geometry_dm.getCoordinatesLocalized():
         element = finat.ufl.VectorElement("Lagrange", cell, 1, dim=geometric_dim)
     else:
         element = finat.ufl.VectorElement("DQ" if cell in [ufl.quadrilateral, ufl.hexahedron] else "DG", cell, 1, dim=geometric_dim, variant="equispaced")
     # Create mesh object
     mesh = MeshGeometry.__new__(MeshGeometry, element, topology.comm)
-    mesh._init_topology(topology)
+    mesh._init_topology(topology, geometry_dm)
     mesh.name = name
     mesh._tolerance = tolerance
     return mesh
@@ -3105,17 +3127,23 @@ def Mesh(meshfile, **kwargs):
             raise RuntimeError("Mesh file %s has unknown format '%s'."
                                % (meshfile, ext[1:]))
         plex.setName(_generate_default_mesh_topology_name(name))
+
     # Create mesh topology
-    topology = MeshTopology(plex, name=plex.getName(), reorder=reorder,
+    # Pass the coordinate DM because we only want the topology here
+    topology = MeshTopology(plex.getCoordinateDM(), name=plex.getName(), reorder=reorder,
                             distribution_parameters=distribution_parameters,
                             distribution_name=kwargs.get("distribution_name"),
                             permutation_name=kwargs.get("permutation_name"),
                             comm=user_comm)
+
+    # distributed_plex = dmcommon.dmplex_migrate(plex, topology.sfBC)
+    distributed_plex = plex
+
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
         netgen_firedrake_mesh.createFromTopology(topology, name=name, comm=user_comm)
         mesh = netgen_firedrake_mesh.firedrakeMesh
     else:
-        mesh = make_mesh_from_mesh_topology(topology, name)
+        mesh = make_mesh_from_mesh_topology(topology, distributed_plex, name)
     mesh._tolerance = tolerance
     return mesh
 
@@ -4576,13 +4604,13 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
     distribution_parameters_noop = {"partition": False,
                                     "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
     reorder_noop = None
-    tmesh1 = MeshTopology(plex1, name=plex1.getName(), reorder=reorder_noop,
+    tmesh1 = MeshTopology(plex1.getCoordinateDM(), name=plex1.getName(), reorder=reorder_noop,
                           distribution_parameters=distribution_parameters_noop,
                           perm_is=tmesh._dm_renumbering,
                           distribution_name=tmesh._distribution_name,
                           permutation_name=tmesh._permutation_name,
                           comm=tmesh.comm)
-    return make_mesh_from_mesh_topology(tmesh1, name1)
+    return make_mesh_from_mesh_topology(tmesh1, plex1, name1)
 
 
 @PETSc.Log.EventDecorator()

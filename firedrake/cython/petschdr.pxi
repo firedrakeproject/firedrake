@@ -57,6 +57,9 @@ cdef extern from "petscdmplex.h" nogil:
     int DMPlexSetSubpointMap(PETSc.PetscDM,PETSc.PetscDMLabel)
 
     int DMSetCoordinateSection(PETSc.PetscDM,PetscInt,PETSc.PetscSection)
+    int DMPlexMigrate(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscDM)
+    int DMPlexCreateOverlapMigrationSF(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSF*)
+
 
 cdef extern from "petscdmlabel.h" nogil:
     struct _n_DMLabel
