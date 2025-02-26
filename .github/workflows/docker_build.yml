@@ -28,8 +28,6 @@ on:
         description: 'Path to the Dockerfile required to build image'
         required: true
         type: string
-        required: false
-        type: string
     secrets:
       # Docker login information
       DOCKERHUB_USER:
