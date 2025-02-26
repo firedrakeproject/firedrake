@@ -65,6 +65,7 @@ jobs:
     with:
       os: ${{ matrix.os }}
       platform: ${{ matrix.platform }}
+      arch: ${{ matrix.arch }}
       target: firedrake-vanilla-${{ matrix.arch }}
       tag: ${{ inputs.tag }}
       dockerfile: docker/Dockerfile.vanilla
