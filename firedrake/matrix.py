@@ -42,6 +42,8 @@ class MatrixBase(ufl.Matrix):
         self._analyze_form_arguments()
         self._arguments = arguments
 
+        if bcs is None:
+            bcs = ()
         self.bcs = bcs
         self.comm = test.function_space().comm
         self._comm = internal_comm(self.comm, self)
@@ -96,6 +98,12 @@ class MatrixBase(ufl.Matrix):
     def __str__(self):
         return "assembled %s(a=%s, bcs=%s)" % (type(self).__name__,
                                                self.a, self.bcs)
+
+    def __add__(self, other):
+        if isinstance(other, MatrixBase):
+            return self.petscmat + other.petscmat
+        else:
+            return NotImplemented
 
     def assign(self, val):
         """Set matrix entries."""
@@ -212,15 +220,11 @@ class AssembledMatrix(MatrixBase):
         super(AssembledMatrix, self).__init__(a, bcs, "assembled")
 
         self.petscmat = petscmat
+        options_prefix = kwargs.pop("options_prefix")
+        self.petscmat.setOptionsPrefix(options_prefix)
 
         # this allows call to self.M.handle without a new class
         self.M = SimpleNamespace(handle=self.mat())
 
     def mat(self):
         return self.petscmat
-
-    def __add__(self, other):
-        if isinstance(other, MatrixBase):
-            return self.petscmat + other.petscmat
-        else:
-            return NotImplemented

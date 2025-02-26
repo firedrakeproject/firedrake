@@ -449,7 +449,6 @@ class BaseFormAssembler(AbstractFormAssembler):
             petsc_mat.hermitianTranspose(out=res)
             (row, col) = mat.arguments()
             return matrix.AssembledMatrix((col, row), self._bcs, res,
-                                          appctx=self._appctx,
                                           options_prefix=self._options_prefix)
         elif isinstance(expr, ufl.Action):
             if len(args) != 2:
@@ -461,18 +460,15 @@ class BaseFormAssembler(AbstractFormAssembler):
                     (row, col) = lhs.arguments()
                     # The matrix-vector product lives in the dual of the test space.
                     res = tensor if tensor else firedrake.Function(row.function_space().dual())
-                    with rhs.dat.vec_ro as v_vec:
-                        with res.dat.vec as res_vec:
-                            petsc_mat.mult(v_vec, res_vec)
+                    with rhs.dat.vec_ro as v_vec, res.dat.vec as res_vec:
+                        petsc_mat.mult(v_vec, res_vec)
                     return res
                 elif isinstance(rhs, matrix.MatrixBase):
-                    petsc_mat = lhs.petscmat
-                    (row, col) = lhs.arguments()
-                    res = tensor.petscmat if tensor else PETSc.Mat()
-                    petsc_mat.matMult(rhs.petscmat, result=res)
-                    return tensor if tensor else matrix.AssembledMatrix(expr, self._bcs, res,
-                                                                        appctx=self._appctx,
-                                                                        options_prefix=self._options_prefix)
+                    result = tensor.petscmat if tensor else PETSc.Mat()
+                    lhs.petscmat.matMult(rhs.petscmat, result=result)
+                    if tensor is None:
+                        tensor = self.assembled_matrix(expr, result)
+                    return tensor
                 else:
                     raise TypeError("Incompatible RHS for Action.")
             elif isinstance(lhs, (firedrake.Cofunction, firedrake.Function)):
@@ -501,17 +497,18 @@ class BaseFormAssembler(AbstractFormAssembler):
                 result.dat.maxpy(expr.weights(), [a.dat for a in args])
                 return result
             elif all(isinstance(op, ufl.Matrix) for op in args):
-                res = tensor.petscmat if tensor else PETSc.Mat()
+                result = tensor.petscmat if tensor else PETSc.Mat()
                 for (op, w) in zip(args, expr.weights()):
-                    if res:
-                        res.axpy(w, op.petscmat)
+                    if result:
+                        # If result is not void, then accumulate on it
+                        result.axpy(w, op.petscmat)
                     else:
-                        # Make a copy to avoid in-place scaling
-                        res = op.petscmat.copy()
-                        res.scale(w)
-                return tensor if tensor else matrix.AssembledMatrix(expr, self._bcs, res,
-                                                                    appctx=self._appctx,
-                                                                    options_prefix=self._options_prefix)
+                        # If result is void, then allocate it with first term
+                        op.petscmat.copy(result=result)
+                        result.scale(w)
+                if tensor is None:
+                    tensor = self.assembled_matrix(expr, result)
+                return tensor
             else:
                 raise TypeError("Mismatching FormSum shapes")
         elif isinstance(expr, ufl.ExternalOperator):
@@ -585,9 +582,9 @@ class BaseFormAssembler(AbstractFormAssembler):
                 else:
                     # Copy the interpolation matrix into the output tensor
                     petsc_mat.copy(result=res)
-                return matrix.AssembledMatrix(expr.arguments(), self._bcs, res,
-                                              appctx=self._appctx,
-                                              options_prefix=self._options_prefix)
+                if tensor is None:
+                    tensor = self.assembled_matrix(expr, res)
+                return tensor
             else:
                 # The case rank == 0 is handled via the DAG restructuring
                 raise ValueError("Incompatible number of arguments.")
@@ -599,6 +596,10 @@ class BaseFormAssembler(AbstractFormAssembler):
             return expr
         else:
             raise TypeError(f"Unrecognised BaseForm instance: {expr}")
+
+    def assembled_matrix(self, expr, petscmat):
+        return matrix.AssembledMatrix(expr.arguments(), self._bcs, petscmat,
+                                      options_prefix=self._options_prefix)
 
     @staticmethod
     def base_form_postorder_traversal(expr, visitor, visited={}):
