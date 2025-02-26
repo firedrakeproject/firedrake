@@ -34,9 +34,11 @@
 import os
 import pytest
 import tempfile
+import time
 import numpy
 from itertools import chain
 from textwrap import dedent
+from pytest_mpi import parallel_assert
 from pyop2 import op2
 from pyop2.caching import (
     DEFAULT_CACHE,
@@ -46,6 +48,7 @@ from pyop2.caching import (
     clear_memory_cache
 )
 from pyop2.compilation import load
+from pyop2.configuration import configuration
 from pyop2.mpi import (
     MPI,
     COMM_WORLD,
@@ -810,6 +813,116 @@ def test_two_comms_compile_the_same_code():
     dll = load(code, "c", comm=COMM_WORLD)
     fn = getattr(dll, "noop")
     assert fn is not None
+
+
+class spmd_strict:
+    def __init__(self, enabled):
+        self._enabled = enabled
+
+    def __enter__(self):
+        self._orig_spmd_strict = configuration["spmd_strict"]
+        configuration["spmd_strict"] = self._enabled
+
+    def __exit__(self, *args, **kwargs):
+        configuration["spmd_strict"] = self._orig_spmd_strict
+
+
+@pytest.mark.parallel(2)
+@pytest.mark.parametrize("bcast", [False, True])
+@pytest.mark.parametrize("slow_rank", [0, 1])
+def test_no_spmd_strict_disk_cache_obeys_spmd(bcast, slow_rank, tmpdir):
+    with spmd_strict(False):
+        comm = COMM_WORLD
+        # make sure the same tmpdir is used by all ranks
+        tmpdir = comm.bcast(tmpdir, root=0)
+
+        # Create an internal comm eagerly as this is a blocking operation which
+        # prevents the deadlock
+        with temp_internal_comm(comm):
+            pass
+
+        expected = "OBJECT TO CACHE ON DISK"
+
+        def func():
+            return expected
+
+        cached_func = disk_only_cache(
+            hashkey=lambda: "cachekey",
+            cachedir=tmpdir,
+            bcast=bcast,
+            comm_getter=lambda: comm,
+        )(func)
+
+        # Ensure ranks are synchronised at the start (so we can force them to not be)
+        comm.barrier()
+
+        # Delay one rank such that, before it searches the cache, the other rank has
+        # the chance to populate it (but it should wait!).
+        if comm.rank == slow_rank:
+            time.sleep(1)
+
+        result = cached_func()
+        parallel_assert(lambda: result == expected)
+
+        # make sure that the slow rank has not missed a bcast from the other rank
+        sent = "my message"
+        with temp_internal_comm(comm) as tcomm:
+            received = tcomm.bcast(sent, root=0)
+        parallel_assert(lambda: received == sent)
+
+
+@pytest.mark.parallel(4)
+@pytest.mark.parametrize("bcast", [False, True])
+@pytest.mark.parametrize("slow_rank", [0, 1])
+def test_no_spmd_strict_disk_cache_race_condition(bcast, slow_rank, tmpdir):
+    with spmd_strict(False):
+        comm = COMM_WORLD
+        # make sure the same tmpdir is used by all ranks
+        tmpdir = comm.bcast(tmpdir, root=0)
+
+        # split global comm into 2 comms of size 2
+        color = comm.rank // 2
+        subcomm = comm.Split(color=color, key=comm.rank)
+
+        # Create an internal comm eagerly as this is a blocking operation which
+        # otherwise prevents the deadlock
+        with temp_internal_comm(subcomm):
+            pass
+
+        expected = "OBJECT TO CACHE ON DISK"
+
+        def func():
+            return expected
+
+        cached_func = disk_only_cache(
+            hashkey=lambda: "cachekey",
+            cachedir=tmpdir,
+            bcast=bcast,
+            comm_getter=lambda: subcomm,
+        )(func)
+
+        # Ensure ranks are synchronised at the start (so we can force them to not be)
+        comm.barrier()
+
+        # Force a hit on one rank of subcomm 0 and a miss on the other
+        if color == 0 and subcomm.rank != slow_rank:
+            # first to run, will miss the cache and should wait for the other rank
+            pass
+        elif color == 1:
+            # will populate the disk cache
+            time.sleep(0.5)
+        else:
+            # last to run, will have a cache hit
+            time.sleep(1)
+
+        result = cached_func()
+        parallel_assert(lambda: result == expected)
+
+        # make sure that the slow rank has not missed a bcast from the other rank
+        sent = "my message"
+        with temp_internal_comm(subcomm) as tcomm:
+            received = tcomm.bcast(sent, root=0)
+        parallel_assert(lambda: received == sent)
 
 
 if __name__ == '__main__':

@@ -155,7 +155,7 @@ def sniff_compiler(exe, comm=mpi.COMM_WORLD):
         # Find the name of the compiler family
         if output.startswith("gcc") or output.startswith("g++"):
             name = "GNU"
-        elif output.startswith("clang"):
+        elif output.startswith("clang") or output.startswith("Homebrew clang"):
             name = "clang"
         elif output.startswith("Apple LLVM") or output.startswith("Apple clang"):
             name = "clang"

@@ -27,7 +27,7 @@
 
    The first step is to download and install Firedrake and its
    dependencies. For full instructions, see :doc:`obtaining Firedrake
-   <download>`.
+   <install>`.
 
    .. include:: intro_tut.rst
 
