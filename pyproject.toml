@@ -118,7 +118,7 @@ requires = [
   "pkgconfig",
   "pybind11",
   "setuptools>61.2",
-  "petsc4py==3.22.2",
+  "petsc4py",
   "rtree>=1.2",
 ]
 build-backend = "setuptools.build_meta"

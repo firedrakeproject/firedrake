@@ -30,7 +30,7 @@ jobs:
         arch: [default, complex]
     runs-on: [self-hosted, Linux]
     container:
-      image: firedrakeproject/firedrake-env:pip
+      image: firedrakeproject/firedrake-env:latest
     env:
       FIREDRAKE_CI: 1
       PYOP2_CI_TESTS: 1
@@ -204,12 +204,12 @@ jobs:
     name: "Build Docker containers"
     # Only run on master, but always generate firedrake-env image,
     # even if build fails (see docker.yml)
-    # if: always() && (github.ref == 'refs/heads/master')
-    # needs: [test, docker_tag]
+    if: always() && (github.ref == 'refs/heads/master')
+    needs: [test, docker_tag]
     uses: ./.github/workflows/docker.yml
     with:
-      tag: pip
-      status: success
+      tag: ${{ needs.docker_tag.outputs.tag }}
+      status: ${{ needs.test.result }}
     secrets: inherit
 
   lint:
