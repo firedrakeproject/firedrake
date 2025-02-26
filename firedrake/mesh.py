@@ -2651,7 +2651,7 @@ values from f.)"""
         """
         if not isinstance(self.topology, VertexOnlyMeshTopology):
             raise AttributeError("Input ordering is only defined for vertex-only meshes.")
-        _input_ordering = make_vom_from_vom_topology(self.topology.input_ordering, self.name + "_input_ordering")
+        _input_ordering = make_vom_from_vom_topology(self.topology.input_ordering, self.geometry_dm, self.name + "_input_ordering")
         if _input_ordering:
             _input_ordering._parent_mesh = self
             _input_ordering.init()
@@ -4509,7 +4509,7 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
         if not isinstance(subid, numbers.Integral):
             raise TypeError(f"subdomain id must be an integer: got {subid}")
     name1 = kwargs.get("name", DEFAULT_MESH_NAME)
-    plex = tmesh.topology_dm
+    plex = mesh.geometry_dm
     # Clone plex: plex1 will share topology with plex.
     plex1 = plex.clone()
     plex1.setName(_generate_default_mesh_topology_name(name1))
@@ -4546,7 +4546,7 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
     distribution_parameters_noop = {"partition": False,
                                     "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
     reorder_noop = None
-    tmesh1 = MeshTopology(plex1.getCoordinateDM(), name=plex1.getName(), reorder=reorder_noop,
+    tmesh1 = MeshTopology(name=plex1.getName(), reorder=reorder_noop,
                           distribution_parameters=distribution_parameters_noop,
                           perm_is=tmesh._dm_renumbering,
                           distribution_name=tmesh._distribution_name,
