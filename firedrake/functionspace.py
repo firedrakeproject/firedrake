@@ -50,6 +50,7 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant):
     the provided mesh, by calling :meth:`.AbstractMeshTopology.init` (or
     :meth:`.MeshGeometry.init`) as appropriate.
     """
+    mesh.init()
     topology = mesh.topology
     cell = topology.ufl_cell()
     if isinstance(family, finat.ufl.FiniteElementBase):
