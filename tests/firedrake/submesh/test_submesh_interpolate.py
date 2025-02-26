@@ -104,7 +104,8 @@ def test_submesh_interpolate_cell_cell_hex_3_processes(fe_fesub, nelem, condx, c
 @pytest.mark.parametrize('condy', [LT, GT])
 @pytest.mark.parametrize('distribution_parameters', [None, {"overlap_type": (DistributedMeshOverlapType.NONE, 0)}])
 def test_submesh_interpolate_cell_cell_tri_3_processes(fe_fesub, condx, condy, distribution_parameters):
-    mesh = Mesh("./docs/notebooks/stokes-control.msh", distribution_parameters=distribution_parameters)
+    mesh_file = join(cwd, "..", "..", "..", "docs", "notebooks/stokes-control.msh")
+    mesh = Mesh(mesh_file, distribution_parameters=distribution_parameters)
     x, y = SpatialCoordinate(mesh)
     cond = conditional(condx(x, 15.), 1,
            conditional(condy(y, 2.5), 1, 0))  # noqa: E128
