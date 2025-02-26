@@ -1,5 +1,7 @@
 """Global test configuration."""
 
+import os
+
 import pytest
 from firedrake.petsc import PETSc, get_external_packages
 
@@ -98,8 +100,8 @@ def pytest_collection_modifyitems(session, config, items):
             if item.get_closest_marker("skipmumps") is not None:
                 item.add_marker(pytest.mark.skip("MUMPS not installed with PETSc"))
 
-        import os
-        if os.getenv("FIREDRAKE_CI_TESTS") != "1":
+        # Do not skip tests when CI is running
+        if os.getenv("FIREDRAKE_CI") != "1":
             if not torch_backend:
                 if item.get_closest_marker("skiptorch") is not None:
                     item.add_marker(pytest.mark.skip(reason="Test makes no sense if PyTorch is not installed"))

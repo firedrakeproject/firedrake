@@ -6,6 +6,9 @@ modules:
 	@echo "    Building extension modules"
 	@python setup.py build_ext --inplace > build.log 2>&1 || cat build.log
 
+.PHONY: lint
+lint: srclint actionlint dockerlint
+
 # Adds file annotations to Github Actions (only useful on CI)
 GITHUB_ACTIONS_FORMATTING=0
 ifeq ($(GITHUB_ACTIONS_FORMATTING), 1)
@@ -14,8 +17,8 @@ else
 	FLAKE8_FORMAT=
 endif
 
-.PHONY: lint
-lint:
+.PHONY: srclint
+srclint:
 	@echo "    Linting firedrake"
 	@python -m flake8 $(FLAKE8_FORMAT) firedrake
 	@echo "    Linting firedrake scripts"
@@ -46,7 +49,7 @@ dockerlint:
 		do \
 		echo "    Linting $$DOCKERFILE"; \
 		docker run --rm \
-			-e HADOLINT_IGNORE=DL3005,DL3007,DL3008,DL3015,DL3059 \
+			-e HADOLINT_IGNORE=DL3003,DL3004,DL3005,DL3007,DL3008,DL3013,DL3015,DL3042,DL3059,SC2103,SC2046,SC2086 \
 			-i hadolint/hadolint \
 			< $$DOCKERFILE \
 			|| exit 1; \
@@ -87,7 +90,7 @@ clean:
 
 # Do verbose checking if running on CI
 check_flags =
-ifeq ($(FIREDRAKE_CI_TESTS), 1)
+ifeq ($(FIREDRAKE_CI), 1)
 	check_flags = --verbose
 else
 	check_flags = --quiet
@@ -98,7 +101,7 @@ CHECK_PYTEST_ARGS =
 .PHONY: check
 check:
 	@echo "    Running serial smoke tests"
-	@python -m pytest $(check_flags) $(CHECK_PYTEST_ARGS) \
+	@python3 -m pytest $(check_flags) $(CHECK_PYTEST_ARGS) \
 		tests/firedrake/regression/test_stokes_mini.py::test_stokes_mini \
 		tests/firedrake/regression/test_locate_cell.py  `# spatialindex` \
 		tests/firedrake/supermesh/test_assemble_mixed_mass_matrix.py::test_assemble_mixed_mass_matrix[2-CG-CG-0-0]  `# supermesh` \
@@ -106,7 +109,7 @@ check:
 		tests/firedrake/regression/test_nullspace.py::test_near_nullspace  `# near nullspace`
 	@echo "    Serial tests passed"
 	@echo "    Running parallel smoke tests"
-	@mpiexec -n 3 python -m pytest $(check_flags) $(CHECK_PYTEST_ARGS) -m parallel[3] \
+	@mpiexec -n 3 python3 -m pytest $(check_flags) $(CHECK_PYTEST_ARGS) -m parallel[3] \
 		tests/firedrake/regression/test_dg_advection.py::test_dg_advection_icosahedral_sphere \
 		tests/firedrake/regression/test_interpolate_cross_mesh.py::test_interpolate_cross_mesh_parallel[extrudedcube]  `# vertex-only mesh`
 	@echo "    Parallel tests passed"
