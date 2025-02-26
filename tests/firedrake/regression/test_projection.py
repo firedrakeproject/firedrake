@@ -194,7 +194,8 @@ def test_repeatable():
 
 
 @pytest.mark.parametrize('mat_type', ['aij', 'matfree'])
-def test_projector(mat_type):
+@pytest.mark.parametrize('quadrature_degree', (None, 5))
+def test_projector(mat_type, quadrature_degree):
     m = UnitSquareMesh(2, 2)
     Vc = FunctionSpace(m, "CG", 2)
     xs = SpatialCoordinate(m)
@@ -205,8 +206,16 @@ def test_projector(mat_type):
     Vd = FunctionSpace(m, "DG", 1)
     vo = Function(Vd)
 
-    P = Projector(v, vo, solver_parameters={"mat_type": mat_type})
+    fc_params = None
+    if quadrature_degree is not None:
+        fc_params = {"quadrature_degree": quadrature_degree}
+    P = Projector(v, vo, solver_parameters={"mat_type": mat_type},
+                  form_compiler_parameters=fc_params)
     P.project()
+
+    if mat_type == "matfree":
+        ctx = P.A.petscmat.getPythonContext()
+        assert ctx.fc_params.get("quadrature_degree") == quadrature_degree
 
     mass2 = assemble(vo*dx)
     assert np.abs(mass1-mass2) < 1.0e-10
