@@ -144,10 +144,11 @@ class Matrix(MatrixBase):
     def __init__(self, a, bcs, mat_type, *args, **kwargs):
         # sets self._a, self._bcs, and self._mat_type
         MatrixBase.__init__(self, a, bcs, mat_type)
-        options_prefix = kwargs.pop("options_prefix")
+        options_prefix = kwargs.pop("options_prefix", None)
         self.M = op2.Mat(*args, mat_type=mat_type, **kwargs)
         self.petscmat = self.M.handle
-        self.petscmat.setOptionsPrefix(options_prefix)
+        if options_prefix is not None:
+            self.petscmat.setOptionsPrefix(options_prefix)
         self.mat_type = mat_type
 
     def assemble(self):
@@ -217,11 +218,12 @@ class AssembledMatrix(MatrixBase):
     :arg petscmat: the already constructed petsc matrix this object represents.
     """
     def __init__(self, a, bcs, petscmat, *args, **kwargs):
+        options_prefix = kwargs.pop("options_prefix", None)
         super(AssembledMatrix, self).__init__(a, bcs, "assembled")
 
         self.petscmat = petscmat
-        options_prefix = kwargs.pop("options_prefix")
-        self.petscmat.setOptionsPrefix(options_prefix)
+        if options_prefix is not None:
+            self.petscmat.setOptionsPrefix(options_prefix)
 
         # this allows call to self.M.handle without a new class
         self.M = SimpleNamespace(handle=self.mat())
