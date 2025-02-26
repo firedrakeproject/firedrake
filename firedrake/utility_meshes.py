@@ -736,13 +736,12 @@ def TensorRectangleMesh(
     )
 
     # mark boundary facets
-    topology_dm = plex.getCoordinateDM()
-    topology_dm.createLabel(dmcommon.FACE_SETS_LABEL)
-    topology_dm.markBoundaryFaces("boundary_faces")
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
+    plex.markBoundaryFaces("boundary_faces")
     coords = plex.getCoordinates()
     coord_sec = plex.getCoordinateSection()
-    if topology_dm.getStratumSize("boundary_faces", 1) > 0:
-        boundary_faces = topology_dm.getStratumIS("boundary_faces", 1).getIndices()
+    if plex.getStratumSize("boundary_faces", 1) > 0:
+        boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
         xtol = 0.5 * min(xcoords[1] - xcoords[0], xcoords[-1] - xcoords[-2])
         ytol = 0.5 * min(ycoords[1] - ycoords[0], ycoords[-1] - ycoords[-2])
         x0 = xcoords[0]
@@ -752,14 +751,14 @@ def TensorRectangleMesh(
         for face in boundary_faces:
             face_coords = plex.vecGetClosure(coord_sec, coords, face)
             if abs(face_coords[0] - x0) < xtol and abs(face_coords[2] - x0) < xtol:
-                topology_dm.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 1)
             if abs(face_coords[0] - x1) < xtol and abs(face_coords[2] - x1) < xtol:
-                topology_dm.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 2)
             if abs(face_coords[1] - y0) < ytol and abs(face_coords[3] - y0) < ytol:
-                topology_dm.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 3)
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 3)
             if abs(face_coords[1] - y1) < ytol and abs(face_coords[3] - y1) < ytol:
-                topology_dm.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 4)
-    topology_dm.removeLabel("boundary_faces")
+                plex.setLabelValue(dmcommon.FACE_SETS_LABEL, face, 4)
+    plex.removeLabel("boundary_faces")
     m = mesh.Mesh(
         plex,
         reorder=reorder,

@@ -3972,6 +3972,7 @@ def dmplex_migrate(PETSc.DM dm, PETSc.SF sf) -> PETSc.DM:
     return migrated_dm
 
 
+# not used currently
 def densify_sf(PETSc.DM topology_dm, PETSc.SF sparse_sf) -> PETSc.SF:
     cdef:
         PETSc.SF dense_sf
@@ -4008,6 +4009,7 @@ def densify_sf(PETSc.DM topology_dm, PETSc.SF sparse_sf) -> PETSc.SF:
     return dense_sf
 
 
+# not used currently
 def dmplex_create_overlap_migration_sf(PETSc.DM topology_dm, PETSc.SF overlap_sf) -> PETSc.SF:
     cdef:
         PETSc.SF migration_sf
@@ -4015,3 +4017,8 @@ def dmplex_create_overlap_migration_sf(PETSc.DM topology_dm, PETSc.SF overlap_sf
     migration_sf = PETSc.SF().create(comm=topology_dm.comm)
     CHKERR(DMPlexCreateOverlapMigrationSF(topology_dm.dm, overlap_sf.sf, &migration_sf.sf))
     return migration_sf
+
+
+# not used currently
+def set_label(PETSc.DM dm, PETSc.DMLabel label) -> None:
+    CHKERR(DMSetLabel(dm.dm, label.dmlabel))

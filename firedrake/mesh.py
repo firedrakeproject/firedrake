@@ -2318,16 +2318,11 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             del self._callback
             # Finish the initialisation of mesh topology
             self.topology.init()
-            # geometry_dm = self._input_geometry_dm.migrate(self.topology.overlap_sf)
-
-            # make the overlap SF dense
-            # dense_overlap_sf = dmcommon.densify_sf(self.topology.topology_dm, self.topology.overlap_sf)
-            # breakpoint()
-            # migration_sf = dmcommon.dmplex_create_overlap_migration_sf(self.topology.topology_dm, self.topology.overlap_sf)
-            # geometry_dm = dmcommon.dmplex_migrate(self._input_geometry_dm, dense_overlap_sf)
-            # geometry_dm = dmcommon.dmplex_migrate(self._input_geometry_dm, self.topology.overlap_sf)
-            # geometry_dm = dmcommon.dmplex_migrate(self._input_geometry_dm, migration_sf)
-            geometry_dm = dmcommon.dmplex_migrate(self._input_geometry_dm, self.topology.sfBC)
+            if self.comm.size > 1:
+                assert self.topology.sfBC is not None
+                geometry_dm = dmcommon.dmplex_migrate(self._input_geometry_dm, self.topology.sfBC)
+            else:
+                geometry_dm = self._input_geometry_dm
 
             coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
 
@@ -3128,22 +3123,32 @@ def Mesh(meshfile, **kwargs):
                                % (meshfile, ext[1:]))
         plex.setName(_generate_default_mesh_topology_name(name))
 
+    # TODO: Push other labels onto the coordinate DM, this should be done
+    # by DMPlex
+    # NOTE: OR we instead set the plex as the coordinate DM by dropping
+    # coordinates
+    # topology_dm = plex.getCoordinateDM()
+    #
+    # face_sets_label = plex.getLabel(dmcommon.FACE_SETS_LABEL)
+    # topology_dm.createLabel(dmcommon.FACE_SETS_LABEL)
+    # dmcommon.set_label(topology_dm, face_sets_label)
+    topology_dm = plex.clone()
+    topology_dm.setCoordinates(plex.getCoordinateDM().getCoordinates())
+
     # Create mesh topology
     # Pass the coordinate DM because we only want the topology here
-    topology = MeshTopology(plex.getCoordinateDM(), name=plex.getName(), reorder=reorder,
+    # topology = MeshTopology(plex.getCoordinateDM(), name=plex.getName(), reorder=reorder,
+    topology = MeshTopology(topology_dm, name=plex.getName(), reorder=reorder,
                             distribution_parameters=distribution_parameters,
                             distribution_name=kwargs.get("distribution_name"),
                             permutation_name=kwargs.get("permutation_name"),
                             comm=user_comm)
 
-    # distributed_plex = dmcommon.dmplex_migrate(plex, topology.sfBC)
-    distributed_plex = plex
-
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
         netgen_firedrake_mesh.createFromTopology(topology, name=name, comm=user_comm)
         mesh = netgen_firedrake_mesh.firedrakeMesh
     else:
-        mesh = make_mesh_from_mesh_topology(topology, distributed_plex, name)
+        mesh = make_mesh_from_mesh_topology(topology, plex, name)
     mesh._tolerance = tolerance
     return mesh
 

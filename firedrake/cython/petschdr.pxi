@@ -77,6 +77,7 @@ cdef extern from "petscdmlabel.h" nogil:
 cdef extern from "petscdm.h" nogil:
     int DMCreateLabel(PETSc.PetscDM,char[])
     int DMGetLabel(PETSc.PetscDM,char[],DMLabel*)
+    int DMSetLabel(PETSc.PetscDM,PETSc.PetscDMLabel)
     int DMGetPointSF(PETSc.PetscDM,PETSc.PetscSF*)
     int DMSetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
     int DMGetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt*)
