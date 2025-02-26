@@ -5,6 +5,9 @@ FROM firedrakeproject/firedrake-env:latest
 # Set '-o pipefail' to avoid linter error (https://github.com/hadolint/hadolint/wiki/DL4006)
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+# Firedrake arch to build
+ARG ARCH="default"
+
 # Download firedrake-configure
 RUN curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-configure
 
