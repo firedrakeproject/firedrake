@@ -1177,30 +1177,10 @@ class MeshTopology(AbstractMeshTopology):
 
     def _add_overlap(self):
         overlap_type, overlap = self._distribution_parameters["overlap_type"]
-        if overlap < 0:
-            raise ValueError("Overlap depth must be >= 0")
-        if overlap_type == DistributedMeshOverlapType.NONE:
-            if overlap > 0:
-                raise ValueError("Can't have NONE overlap with overlap > 0")
-        elif overlap_type == DistributedMeshOverlapType.FACET:
-            dmcommon.set_adjacency_callback(self.topology_dm)
-            original_name = self.topology_dm.getName()
-            sfBC = self.topology_dm.distributeOverlap(overlap)
-            self.overlap_sf = sfBC
-            self.topology_dm.setName(original_name)
+        sfBC, grown_halos = _add_overlap_to_dm(self.topology_dm, overlap_type, overlap)
+        if sfBC:
             self.sfBC = self.sfBC.compose(sfBC) if self.sfBC else sfBC
-            dmcommon.clear_adjacency_callback(self.topology_dm)
-            self._grown_halos = True
-        elif overlap_type == DistributedMeshOverlapType.VERTEX:
-            # Default is FEM (vertex star) adjacency.
-            original_name = self.topology_dm.getName()
-            sfBC = self.topology_dm.distributeOverlap(overlap)
-            self.overlap_sf = sfBC
-            self.topology_dm.setName(original_name)
-            self.sfBC = self.sfBC.compose(sfBC) if self.sfBC else sfBC
-            self._grown_halos = True
-        else:
-            raise ValueError("Unknown overlap type %r" % overlap_type)
+        self._grown_halos = grown_halos
 
     def _mark_entity_classes(self):
         dmcommon.mark_entity_classes(self.topology_dm)
@@ -2318,11 +2298,11 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             del self._callback
             # Finish the initialisation of mesh topology
             self.topology.init()
+            geometry_dm = self._input_geometry_dm
             if self.comm.size > 1:
-                assert self.topology.sfBC is not None
-                geometry_dm = dmcommon.dmplex_migrate(self._input_geometry_dm, self.topology.sfBC)
-            else:
-                geometry_dm = self._input_geometry_dm
+                # add overlap
+                overlap_type, overlap = self.topology._distribution_parameters["overlap_type"]
+                _add_overlap_to_dm(geometry_dm, overlap_type, overlap)
 
             coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
 
@@ -2914,6 +2894,10 @@ def make_mesh_from_mesh_topology(topology, geometry_dm, name, tolerance=0.5):
         The mesh.
 
     """
+    if topology.comm.size > 1:
+        assert topology.topology_dm.isDistributed()
+        assert geometry_dm.isDistributed()
+
     # Construct coordinate element
     # TODO: meshfile might indicates higher-order coordinate element
     cell = topology.ufl_cell()
@@ -3143,6 +3127,16 @@ def Mesh(meshfile, **kwargs):
                             distribution_name=kwargs.get("distribution_name"),
                             permutation_name=kwargs.get("permutation_name"),
                             comm=user_comm)
+
+    # distribute 'plex' as well (this is done inside MeshTopology for the
+    # topology dm).
+    breakpoint()
+    if user_comm.size > 1:
+        if distribution_parameters["partition"]:
+            assert not plex.isDistributed()
+            assert topology.sfBC is not None
+            plex = dmcommon.dmplex_migrate(plex, topology.sfBC)
+        assert plex.isDistributed()
 
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
         netgen_firedrake_mesh.createFromTopology(topology, name=name, comm=user_comm)
@@ -4723,3 +4717,29 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
     submesh.submesh_parent = mesh
     submesh.init()
     return submesh
+
+
+def _add_overlap_to_dm(dm, overlap_type, overlap):
+    sfBC = None
+    grown_halos = False
+    if overlap < 0:
+        raise ValueError("Overlap depth must be >= 0")
+    if overlap_type == DistributedMeshOverlapType.NONE:
+        if overlap > 0:
+            raise ValueError("Can't have NONE overlap with overlap > 0")
+    elif overlap_type == DistributedMeshOverlapType.FACET:
+        dmcommon.set_adjacency_callback(dm)
+        original_name = dm.getName()
+        sfBC = dm.distributeOverlap(overlap)
+        dm.setName(original_name)
+        dmcommon.clear_adjacency_callback(dm)
+        grown_halos = True
+    elif overlap_type == DistributedMeshOverlapType.VERTEX:
+        # Default is FEM (vertex star) adjacency.
+        original_name = dm.getName()
+        sfBC = dm.distributeOverlap(overlap)
+        dm.setName(original_name)
+        grown_halos = True
+    else:
+        raise ValueError(f"Unknown overlap type {overlap_type}")
+    return sfBC, grown_halos
