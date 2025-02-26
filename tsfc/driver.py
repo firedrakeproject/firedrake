@@ -57,7 +57,6 @@ def compile_form(form, prefix="form", parameters=None, interface=None, diagonal=
     :returns: list of kernels
     """
     cpu_time = time.time()
-
     assert isinstance(form, Form)
 
     GREEN = "\033[1;37;32m%s\033[0m"

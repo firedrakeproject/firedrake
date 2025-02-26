@@ -216,7 +216,6 @@ def compile_form(form, name, parameters=None, split=True, interface=None, diagon
             numbering[c] for c in extract_firedrake_constants(f)
         )
         prefix = name + "".join(map(str, (i for i in idx if i is not None)))
-        breakpoint()
         tsfc_kernel = TSFCKernel(
             f,
             prefix,
