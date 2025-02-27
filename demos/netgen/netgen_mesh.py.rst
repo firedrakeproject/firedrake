@@ -156,8 +156,7 @@ Then a SLEPc Eigenvalue Problem Solver (`EPS`) is initialised and set up to use 
         bc = DirichletBC(V, 0, labels)
         A = assemble(a, bcs=bc)
         M = assemble(m, bcs=bc, weight=0.)
-        Asc = A.petscmat
-        Msc = M.petscmat
+        Asc, Msc = A.M.handle, M.M.handle
         E = SLEPc.EPS().create()
         E.setType(SLEPc.EPS.Type.ARNOLDI)
         E.setProblemType(SLEPc.EPS.ProblemType.GHEP)

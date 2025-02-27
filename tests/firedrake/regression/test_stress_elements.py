@@ -152,7 +152,8 @@ def test_mass_conditioning(stress_element, mesh_hierarchy):
         tau = TestFunction(Sig)
         mass = inner(sigh, tau)*dx
         a = derivative(mass, sigh)
-        A = assemble(a, mat_type="aij").petscmat[:, :]
+        B = assemble(a, mat_type="aij").M.handle
+        A = B.convert("dense").getDenseArray()
         kappa = np.linalg.cond(A)
 
         mass_cond.append(kappa)

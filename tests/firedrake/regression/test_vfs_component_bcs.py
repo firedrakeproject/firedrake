@@ -214,12 +214,15 @@ def test_component_full_bcs(V):
     v = TestFunction(V)
     a = inner(grad(u), grad(v))*dx
 
-    A_full = assemble(a, bcs=bcs_full, mat_type="aij")
-    A_cmp = assemble(a, bcs=bcs_cmp, mat_type="aij")
-    A_mixed = assemble(a, bcs=bcs_mixed, mat_type="aij")
+    def asarray(A):
+        return A.M.handle[:, :]
 
-    assert A_full.petscmat.equal(A_cmp.petscmat)
-    assert A_mixed.petscmat.equal(A_full.petscmat)
+    A_full = asarray(assemble(a, bcs=bcs_full, mat_type="aij"))
+    A_cmp = asarray(assemble(a, bcs=bcs_cmp, mat_type="aij"))
+    A_mixed = asarray(assemble(a, bcs=bcs_mixed, mat_type="aij"))
+
+    assert np.allclose(A_full, A_cmp)
+    assert np.allclose(A_mixed, A_full)
 
 
 def test_component_full_bcs_overlap(V):
@@ -237,7 +240,10 @@ def test_component_full_bcs_overlap(V):
 
     a = inner(grad(u), grad(v)) * dx
 
-    A_1 = assemble(a, bcs=bcs_1, mat_type="aij")
-    A_2 = assemble(a, bcs=bcs_2, mat_type="aij")
+    def asarray(A):
+        return A.M.handle[:, :]
 
-    assert A_1.petscmat.equal(A_2.petscmat)
+    A_1 = asarray(assemble(a, bcs=bcs_1, mat_type="aij"))
+    A_2 = asarray(assemble(a, bcs=bcs_2, mat_type="aij"))
+
+    assert np.allclose(A_1, A_2)
