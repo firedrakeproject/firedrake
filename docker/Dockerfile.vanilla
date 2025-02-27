@@ -18,11 +18,13 @@ RUN sudo apt-get update \
     && sudo rm -rf /var/lib/apt/lists/*
 
 
-# Install PETSc
+# Install PETSc. We set the compiler optimisation flags manually here to
+# remove the default of '-march=native' which is not suitable for Docker images
 RUN git clone https://github.com/firedrakeproject/petsc.git \
     && cd petsc \
-    && python3 ../firedrake-configure --arch $ARCH --show-petsc-configure-options | \
-        xargs -L1 ./configure --with-make-np=12 \
+    && eval ./configure \
+        $(python3 ../firedrake-configure --arch $ARCH --show-petsc-configure-options) \
+        --with-make-np=12 --COPTFLAGS="-O3" --CXXOPTFLAGS="-O3" --FOPTFLAGS="-O3" \
     && make \
     && make check \
     && rm -rf ./**/externalpackages \
