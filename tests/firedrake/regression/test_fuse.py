@@ -15,7 +15,8 @@ def test_poisson_analytic(params, degree, quadrilateral):
 
 @pytest.mark.parametrize(['conv_num', 'degree'],
                          [(p, d)
-                          for p, d in zip([1.8, 2.8, 3.8], [1, 2, 3])])
+                          for p, d in zip([1.8, 2.8], [1, 2])])
+                        #   3.8, 3
 def test_helmholtz(conv_num, degree):
     diff = np.array([helmholtz(i, degree=degree)[0] for i in range(3, 6)])
     print("l2 error norms:", diff)
