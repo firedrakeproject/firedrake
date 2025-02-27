@@ -158,7 +158,7 @@ jobs:
         timeout-minutes: 10
       
       - name: Run spyro smoke tests
-        if: success() || steps.install.conclusion == 'success'
+        if: success() || steps.install.conclusion == 'success' && matrix.arch == 'default'
         run: |
           . venv/bin/activate
           git clone --depth 1 https://github.com/NDF-Poli-USP/spyro.git spyro-repo
