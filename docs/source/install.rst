@@ -211,7 +211,7 @@ install Firedrake. To do this perform the following steps:
 
 #. Install Firedrake::
 
-     $ pip install --no-binary h5py 'git+https://github.com/firedrakeproject/firedrake.git[test]'
+     $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[test]"
 
    .. note::
       Though not strictly necessary to install Firedrake's optional test
