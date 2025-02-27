@@ -158,12 +158,12 @@ jobs:
         timeout-minutes: 10
       
       - name: Run spyro smoke tests
-        if: ${{ success() || steps.build.conclusion == 'success' }}
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
           git clone --depth 1 https://github.com/NDF-Poli-USP/spyro.git spyro-repo
           pip install --verbose ./spyro-repo
-          mpiexec -n 6 python -m pytest  spyro-repo/test_integration/
+          mpiexec -n 6 python -m pytest spyro-repo/test_integration/
         timeout-minutes: 5
 
       - name: Publish test report
