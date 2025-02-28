@@ -1,6 +1,8 @@
 # Dockerfile for Firedrake with a full set of capabilities and applications installed.
 
-FROM firedrakeproject/firedrake-vanilla-default:latest
+# UNDO ME
+# FROM firedrakeproject/firedrake-vanilla-default:latest
+FROM firedrakeproject/firedrake-vanilla-default:piptest
 
 # Install optional dependencies
 RUN pip install --break-system-packages --verbose \
