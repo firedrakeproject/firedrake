@@ -20,7 +20,9 @@ jobs:
     name: Run doc build
     runs-on: [self-hosted, Linux]
     container:
-      image: firedrakeproject/firedrake-docdeps:latest
+      # UNDO ME
+      # image: firedrakeproject/firedrake-docdeps:latest
+      image: firedrakeproject/firedrake-docdeps:piptest
     steps:
       - uses: actions/checkout@v4
         with:
