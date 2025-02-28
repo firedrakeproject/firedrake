@@ -18,11 +18,16 @@ concurrency:
 jobs:
   build_docs:
     name: Run doc build
-    runs-on: [self-hosted, Linux]
+    runs-on: ubuntu-latest
     container:
       # UNDO ME
       # image: firedrakeproject/firedrake-docdeps:latest
       image: firedrakeproject/firedrake-docdeps:piptest
+      options: --user root
+    env:
+      # Since we are running as root we need to set PYTHONPATH to be able to find the installed
+      # packages
+      PYTHONPATH: /home/firedrake/firedrake:/home/firedrake/.local/lib/python3.12/site-packages
     steps:
       - uses: actions/checkout@v4
         with:
