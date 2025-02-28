@@ -26,7 +26,7 @@ RUN git clone https://github.com/firedrakeproject/petsc.git \
     && cd petsc \
     && eval ./configure \
         $(python3 ../firedrake-configure --arch $ARCH --show-petsc-configure-options) \
-        --with-make-np=12 --COPTFLAGS="-mtune=generic" --CXXOPTFLAGS="-mtune=generic" --FOPTFLAGS="-mtune=generic' \
+        --with-make-np=12 --COPTFLAGS="-mtune=generic" --CXXOPTFLAGS="-mtune=generic" --FOPTFLAGS="-mtune=generic" \
     && make \
     && make check \
     && rm -rf ./**/externalpackages \
