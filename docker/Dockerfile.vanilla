@@ -20,11 +20,13 @@ RUN sudo apt-get update \
 
 # Install PETSc. We set the compiler optimisation flags manually here to
 # remove the default of '-march=native' which is not suitable for Docker images
+# FIXME: Figure out parsing to COPTFLAGS, but for now *have* to try
+# using the flag to see if it fixes the segfaults.
 RUN git clone https://github.com/firedrakeproject/petsc.git \
     && cd petsc \
     && eval ./configure \
         $(python3 ../firedrake-configure --arch $ARCH --show-petsc-configure-options) \
-        --with-make-np=12 --COPTFLAGS="-O3 -mtune=generic" --CXXOPTFLAGS="-O3 -mtune=generic" --FOPTFLAGS="-O3 -mtune=generic" \
+        --with-make-np=12 --COPTFLAGS="-mtune=generic" --CXXOPTFLAGS="-mtune=generic" --FOPTFLAGS="-mtune=generic' \
     && make \
     && make check \
     && rm -rf ./**/externalpackages \
