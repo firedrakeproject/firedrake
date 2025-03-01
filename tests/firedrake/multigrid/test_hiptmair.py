@@ -3,21 +3,7 @@ from firedrake.preconditioners.fdm import tabulate_exterior_derivative
 import pytest
 
 
-@pytest.fixture(params=["tetrahedron", "hexahedron"])
-def mesh_hierarchy(request):
-    nx = 5
-    nlevels = 2
-    cell = request.param
-    if cell == "tetrahedron":
-        base = UnitCubeMesh(nx, nx, nx)
-        return MeshHierarchy(base, nlevels)
-    elif cell == "hexahedron":
-        base = UnitSquareMesh(nx, nx, quadrilateral=True)
-        basemh = MeshHierarchy(base, nlevels)
-        return ExtrudedMeshHierarchy(basemh, height=1, base_layer=nx)
-
-
-def run_riesz_map(V, mat_type, max_it):
+def gmg_parameters(V):
     jacobi = {
         "mat_type": mat_type,
         "ksp_type": "preonly",
@@ -67,6 +53,62 @@ def run_riesz_map(V, mat_type, max_it):
             "hiptmair_mg_coarse": potential,
         },
     }
+    return parameters
+
+
+def asm(k):
+    return {
+        "ksp_type": "preonly",
+        "pc_type": "python",
+        "pc_python_type": "firedrake.ASMExtrudedStarPC",
+        "pc_star_patch_construct_dim": k,
+    }
+
+
+def pmg_parameters(V):
+    coarse = {
+        "pc_type": "lu",
+        "pc_factor_mat_solver_type": "mumps",
+    }
+
+    hiptmair = {
+        "ksp_type": "chebyshev",
+        "ksp_chebyshev_esteig": "0.75,0.25,0,1",
+        "pc_type": "python",
+        "pc_python_type": "firedrake.HiptmairPC",
+        "hiptmair_mg_levels": asm(1),
+        "hiptmair_mg_coarse": asm(0),
+    }
+    return {
+        "mat_type": "aij",
+        "ksp_monitor": None,
+        "ksp_type": "cg",
+        "pc_type": "python",
+        "pc_python_type": "firedrake.P1PC",
+        "pmg_mg_coarse": coarse,
+        "pmg_mg_levels": hiptmair
+    }
+
+
+@pytest.fixture(params=["tetrahedron", "hexahedron"])
+def mesh_hierarchy(request):
+    nx = 5
+    nlevels = 2
+    cell = request.param
+    if cell == "tetrahedron":
+        base = UnitCubeMesh(nx, nx, nx)
+        return MeshHierarchy(base, nlevels)
+    elif cell == "hexahedron":
+        base = UnitSquareMesh(nx, nx, quadrilateral=True)
+        basemh = MeshHierarchy(base, nlevels)
+        return ExtrudedMeshHierarchy(basemh, height=1, base_layer=nx)
+
+
+def run_riesz_map(V, mat_type, max_it, solver_type="gmg"):
+    if solver_type == "gmg":
+        parameters = gmg_parameters(V)
+    elif solver_type == "pmg":
+        parameters = pmg_parameters(V)
 
     u_exact = Constant((1, 2, 4))
     f = u_exact
@@ -77,8 +119,8 @@ def run_riesz_map(V, mat_type, max_it):
 
     d = {HCurl: curl,
          HDiv: div}[V.ufl_element().sobolev_space]
-    a = (inner(d(u), d(v)) + inner(u, v)) * dx(degree=2)
-    L = inner(f, v) * dx(degree=2)
+    a = inner(d(u), d(v)) * dx + inner(u, v) * dx
+    L = inner(f, v) * dx
 
     bcs = [DirichletBC(V, u_exact, "on_boundary")]
     appctx = {"get_gradient": tabulate_exterior_derivative,
@@ -115,3 +157,13 @@ def test_hiptmair_hdiv(mesh_hierarchy, mat_type):
         max_it = 7
     V = FunctionSpace(mesh, family, degree=1)
     assert run_riesz_map(V, mat_type, max_it) < 1E-6
+
+
+def test_pmg_hiptmair_hcurl():
+    nx = 4
+    mesh = ExtrudedMesh(UnitSquareMesh(nx, nx, quadrilateral=True), nx)
+    family = "NCE"
+    mat_type = "aij"
+    V = FunctionSpace(mesh, family, degree=3)
+    max_it = 15
+    assert run_riesz_map(V, mat_type, max_it, solver_type="pmg") < 1E-6
