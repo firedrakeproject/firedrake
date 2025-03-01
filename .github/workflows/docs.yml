@@ -20,9 +20,7 @@ jobs:
     name: Run doc build
     runs-on: ubuntu-latest
     container:
-      # UNDO ME
-      # image: firedrakeproject/firedrake-docdeps:latest
-      image: firedrakeproject/firedrake-docdeps:piptest
+      image: firedrakeproject/firedrake-docdeps:latest
       options: --user root
     env:
       # Since we are running as root we need to set PYTHONPATH to be able to find the installed

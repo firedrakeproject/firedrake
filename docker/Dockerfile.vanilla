@@ -1,8 +1,6 @@
 # Dockerfile for a plain Firedrake suitable for testing Firedrake components and applications
 
-# UNDO ME
-# FROM firedrakeproject/firedrake-env:latest
-FROM firedrakeproject/firedrake-env:piptest
+FROM firedrakeproject/firedrake-env:latest
 
 # Set '-o pipefail' to avoid linter error (https://github.com/hadolint/hadolint/wiki/DL4006)
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -23,7 +21,7 @@ RUN sudo apt-get update \
 # Install PETSc. We set the compiler optimisation flags manually here to
 # remove the default of '-march=native' which is not suitable for Docker images.
 # We use 'sed' to make sure that the options are appended.
-RUN git clone https://github.com/firedrakeproject/petsc.git \
+RUN git clone --depth 1 https://github.com/firedrakeproject/petsc.git \
     && cd petsc \
     && python3 ../firedrake-configure --arch $ARCH --show-petsc-configure-options | \
         sed "s/$/ --COPTFLAGS='-O3 -mtune=generic' --CXXOPTFLAGS='-O3 -mtune=generic' --FOPTFLAGS='-O3 -mtune=generic'/" | \
@@ -40,7 +38,7 @@ ENV PETSC_DIR=/home/firedrake/petsc PETSC_ARCH=arch-firedrake-$ARCH
 ENV PATH="$PETSC_DIR/$PETSC_ARCH/bin:$PATH" 
 
 # Install SLEPc
-RUN git clone https://github.com/firedrakeproject/slepc.git \
+RUN git clone --depth 1 https://github.com/firedrakeproject/slepc.git \
     && cd slepc \
     && ./configure \
     && make SLEPC_DIR=/home/firedrake/slepc \
