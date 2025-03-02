@@ -23,6 +23,7 @@ dependencies = [
   # newer than 3.12.1 is released we can revert to simply using "h5py".
   "h5py @ git+https://github.com/firedrakeproject/h5py.git ; python_version >= '3.13'",
   "h5py; python_version < '3.13'",
+  "libsupermesh",
   "petsc4py",
   "numpy",
   "packaging",
@@ -38,7 +39,6 @@ dependencies = [
   "fenics-fiat @ git+https://github.com/firedrakeproject/fiat.git",
   "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint.git",
   "loopy @ git+https://github.com/firedrakeproject/loopy.git@main",
-  "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git",
 ]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
@@ -111,7 +111,7 @@ dev = [
 [build-system]
 requires = [
   "Cython>=3.0",
-  "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git",
+  "libsupermesh",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
   "numpy",
