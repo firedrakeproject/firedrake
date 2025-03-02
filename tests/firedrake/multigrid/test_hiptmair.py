@@ -3,7 +3,7 @@ from firedrake.preconditioners.fdm import tabulate_exterior_derivative
 import pytest
 
 
-def gmg_parameters(V):
+def gmg_parameters(V, mat_type):
     jacobi = {
         "mat_type": mat_type,
         "ksp_type": "preonly",
@@ -65,7 +65,7 @@ def asm(k):
     }
 
 
-def pmg_parameters(V):
+def pmg_parameters(V, mat_type):
     coarse = {
         "pc_type": "lu",
         "pc_factor_mat_solver_type": "mumps",
@@ -106,9 +106,9 @@ def mesh_hierarchy(request):
 
 def run_riesz_map(V, mat_type, max_it, solver_type="gmg"):
     if solver_type == "gmg":
-        parameters = gmg_parameters(V)
+        parameters = gmg_parameters(V, mat_type)
     elif solver_type == "pmg":
-        parameters = pmg_parameters(V)
+        parameters = pmg_parameters(V, mat_type)
 
     u_exact = Constant((1, 2, 4))
     f = u_exact
