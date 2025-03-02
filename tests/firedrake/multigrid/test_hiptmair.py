@@ -165,5 +165,5 @@ def test_pmg_hiptmair_hcurl():
     family = "NCE"
     mat_type = "aij"
     V = FunctionSpace(mesh, family, degree=3)
-    max_it = 15
+    max_it = 10
     assert run_riesz_map(V, mat_type, max_it, solver_type="pmg") < 1E-6
