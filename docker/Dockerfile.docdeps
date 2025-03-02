@@ -1,17 +1,7 @@
-# DockerFile for Firedrake with a full set of capabilities and applications installed.
+# Dockerfile for Firedrake plus packages needed to build the documentation
 
-FROM firedrakeproject/firedrake-vanilla:latest
+FROM firedrakeproject/firedrake-vanilla-default:latest
 
-USER root
-WORKDIR /home/firedrake
-RUN apt-get update --fix-missing \
-    && apt-get -y dist-upgrade \
-    && apt-get -y install inkscape texlive-full \
-    && rm -rf /var/lib/apt/lists/*
-
-USER firedrake
-# PETSC_ARCH inherited from firedrakeproject/firedrake-vanilla
-# Now install extra Firedrake components.
-RUN bash -c "source firedrake/bin/activate; \
-    firedrake-update \
-        --documentation-dependencies"
+RUN sudo apt-get update \
+    && sudo apt-get -y install inkscape texlive-full \
+    && sudo rm -rf /var/lib/apt/lists/*

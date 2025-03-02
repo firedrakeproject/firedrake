@@ -40,22 +40,24 @@ class PytorchOperator(MLOperator):
         Parameters
         ----------
         *operands : ufl.core.expr.Expr or ufl.form.BaseForm
-                    Operands of the :class:`.PytorchOperator`.
+            Operands of the :class:`.PytorchOperator`.
         function_space : firedrake.functionspaceimpl.WithGeometryBase
-                         The function space the ML operator is mapping to.
+            The function space the ML operator is mapping to.
         derivatives : tuple
-                      Tuple specifiying the derivative multiindex.
+            Tuple specifiying the derivative multiindex.
         *argument_slots : ufl.coefficient.BaseCoefficient or ufl.argument.BaseArgument
-                          Tuple containing the arguments of the linear form associated with the ML operator,
-                          i.e. the arguments with respect to which the ML operator is linear. Those arguments
-                          can be ufl.Argument objects, as a result of differentiation, or ufl.Coefficient objects,
-                          as a result of taking the action on a given function.
+            Tuple containing the arguments of the linear form associated with the ML operator, i.e. the
+            arguments with respect to which the ML operator is linear. Those arguments can be
+            ``ufl.argument.BaseArgument`` objects, as a result of differentiation, or both
+            ``ufl.coefficient.BaseCoefficient`` and ``ufl.argument.BaseArgument`` object, as a result
+            of taking the action on a given function.
         operator_data : dict
-                        Dictionary to stash external data specific to the ML operator. This dictionary must
-                        at least contain the following:
-                        (i) 'model': The machine learning model implemented in PyTorch.
-                        (ii) 'inputs_format': The format of the inputs to the ML model: `0` for models acting globally on the inputs, `1` when acting locally/pointwise on the inputs.
-                        Other strategies can also be considered by subclassing the :class:`.PytorchOperator` class.
+            Dictionary to stash external data specific to the ML operator. This dictionary must
+            at least contain the following:
+            (i) ``'model'``: The machine learning model implemented in PyTorch.
+            (ii) ``'inputs_format'``: The format of the inputs to the ML model: ``0`` for models acting globally
+            on the inputs, ``1`` when acting locally/pointwise on the inputs.
+            Other strategies can also be considered by subclassing the :class:`.PytorchOperator` class.
         """
         MLOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
                             argument_slots=argument_slots, operator_data=operator_data)
@@ -98,8 +100,7 @@ class PytorchOperator(MLOperator):
 
     def _post_forward_callback(self, y_P):
         """Callback function to convert the PyTorch output of the ML model to a Firedrake function."""
-        space = self.ufl_function_space()
-        return from_torch(y_P, space)
+        return from_torch(y_P, self.ufl_function_space())
 
     # -- PyTorch routines for computing AD based quantities via `torch.autograd.functional` -- #
 

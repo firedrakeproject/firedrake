@@ -117,7 +117,7 @@ def compile_element(expression, coordinates, parameters=None):
 
     code = {
         "geometric_dimension": domain.geometric_dimension(),
-        "layers_arg": ", int const *__restrict__ layers" if extruded else "",
+        "layers_arg": f", {as_cstr(IntType)} const *__restrict__ layers" if extruded else "",
         "layers": ", layers" if extruded else "",
         "extruded_define": "1" if extruded else "0",
         "IntType": as_cstr(IntType),
@@ -151,8 +151,8 @@ int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
         return 0;
     }
 #if %(extruded_define)s
-    int layers[2] = {0, 0};
-    int nlayers = f->n_layers;
+    %(IntType)s layers[2] = {0, 0};
+    %(IntType)s nlayers = f->n_layers;
     layers[1] = cell %% nlayers + 2;
     cell = cell / nlayers;
 #endif

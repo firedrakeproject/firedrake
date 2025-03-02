@@ -16,6 +16,18 @@ from glob import iglob
 from itertools import chain
 import re
 import importlib
+import time
+import warnings
+
+
+warnings.warn(
+    "firedrake-install/firedrake-update is no longer the recommended way to "
+    "install/update Firedrake. Please use pip instead. For instructions on how "
+    "to do this please visit https://www.firedrakeproject.org/install.html.",
+    FutureWarning
+)
+# Give users time to see the warning
+time.sleep(5)
 
 
 class InstallError(Exception):
@@ -1303,7 +1315,7 @@ def build_and_install_jax():
     """Install JAX for a CPU or CUDA backend."""
     log.info("Installing JAX (backend: %s)" % args.jax)
     version_name = "jax" if args.jax == "cpu" else "jax[cuda12]"
-    run_pip_install([version_name])
+    run_pip_install([version_name] + ["jaxlib"] + ["ml_dtypes"] + ["opt_einsum"])
 
 
 def build_and_install_slepc():
