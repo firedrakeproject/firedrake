@@ -3,7 +3,7 @@ from firedrake.preconditioners.fdm import tabulate_exterior_derivative
 import pytest
 
 
-def gmg_parameters(V, mat_type):
+def gmg_parameters(V, mat_type, max_it):
     jacobi = {
         "mat_type": mat_type,
         "ksp_type": "preonly",
@@ -65,7 +65,7 @@ def asm(k):
     }
 
 
-def pmg_parameters(V, mat_type):
+def pmg_parameters(V, mat_type, max_it):
     coarse = {
         "pc_type": "lu",
         "pc_factor_mat_solver_type": "mumps",
@@ -80,7 +80,8 @@ def pmg_parameters(V, mat_type):
         "hiptmair_mg_coarse": asm(0),
     }
     return {
-        "mat_type": "aij",
+        "mat_type": mat_type,
+        "ksp_max_it": max_it,
         "ksp_monitor": None,
         "ksp_type": "cg",
         "pc_type": "python",
@@ -106,9 +107,9 @@ def mesh_hierarchy(request):
 
 def run_riesz_map(V, mat_type, max_it, solver_type="gmg"):
     if solver_type == "gmg":
-        parameters = gmg_parameters(V, mat_type)
+        parameters = gmg_parameters(V, mat_type, max_it)
     elif solver_type == "pmg":
-        parameters = pmg_parameters(V, mat_type)
+        parameters = pmg_parameters(V, mat_type, max_it)
 
     u_exact = Constant((1, 2, 4))
     f = u_exact
@@ -133,7 +134,7 @@ def run_riesz_map(V, mat_type, max_it, solver_type="gmg"):
 
 @pytest.mark.skipcomplexnoslate
 @pytest.mark.parametrize("mat_type", ["aij", "matfree"])
-def test_hiptmair_hcurl(mesh_hierarchy, mat_type):
+def test_gmg_hiptmair_hcurl(mesh_hierarchy, mat_type):
     mesh = mesh_hierarchy[-1]
     if mesh.ufl_cell().is_simplex():
         family = "N1curl"
@@ -147,7 +148,7 @@ def test_hiptmair_hcurl(mesh_hierarchy, mat_type):
 
 @pytest.mark.skipcomplexnoslate
 @pytest.mark.parametrize("mat_type", ["aij", "matfree"])
-def test_hiptmair_hdiv(mesh_hierarchy, mat_type):
+def test_gmg_hiptmair_hdiv(mesh_hierarchy, mat_type):
     mesh = mesh_hierarchy[-1]
     if mesh.ufl_cell().is_simplex():
         family = "N1div"
