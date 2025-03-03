@@ -18,7 +18,7 @@ from abc import ABCMeta, abstractproperty, abstractmethod
 
 from collections import OrderedDict, namedtuple, defaultdict
 
-from ufl import Constant
+from ufl import Constant, replace
 from ufl.coefficient import BaseCoefficient
 
 from firedrake.function import Function, Cofunction
@@ -143,6 +143,10 @@ class TensorBase(object, metaclass=ABCMeta):
         Mirrors :class:`~ufl.form.Form`.
         """
         self._cache = {}
+
+    @abstractmethod
+    def replace(self, replacement):
+        """Reconstructs this TensorBase with UFL replacement."""
 
     @cached_property
     def id(self):
@@ -443,6 +447,13 @@ class AssembledVector(TensorBase):
             raise TypeError("Expecting a BaseCoefficient or AssembledVector (not a %r)" %
                             type(function))
 
+    def replace(self, replacement):
+        """Reconstructs this TensorBase with UFL replacement."""
+        form = replace(self.form, replacement)
+        if not isinstance(form, BaseCoefficient):
+            form = Function(self.form.function_space()).interpolate(form)
+        return as_slate(form)
+
     @cached_property
     def form(self):
         return self._function
@@ -652,6 +663,10 @@ class Block(TensorBase):
         self.operands = (tensor,)
         self._blocks = dict(enumerate(indices))
         self._indices = indices
+
+    def replace(self, replacement):
+        """Reconstructs this TensorBase with UFL replacement."""
+        return type(self)(self.operands[0].replace(replacement), self._indices)
 
     @cached_property
     def terminal(self):
@@ -900,6 +915,10 @@ class Tensor(TensorBase):
         self.form = form
         self.diagonal = diagonal
 
+    def replace(self, replacement):
+        """Reconstructs this TensorBase with UFL replacement."""
+        return Tensor(replace(self.form, replacement), diagonal=self.diagonal)
+
     @cached_property
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor
@@ -962,6 +981,10 @@ class TensorOp(TensorBase):
         """Constructor for the TensorOp class."""
         super(TensorOp, self).__init__()
         self.operands = tuple(operands)
+
+    def replace(self, replacement):
+        """Reconstructs this TensorBase with UFL replacement."""
+        return type(self)(*(op.replace(replacement) for op in self.operands))
 
     def coefficients(self):
         """Returns the expected coefficients of the resulting tensor."""

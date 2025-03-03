@@ -13,6 +13,17 @@ from firedrake.petsc import PETSc
 from firedrake.ufl_expr import Argument
 from firedrake.cofunction import Cofunction
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace, DualSpace
+from firedrake.matrix import AssembledMatrix
+from firedrake import slate
+
+
+def subspace(V, indices):
+    """Construct a collapsed subspace using components from V."""
+    if len(indices) == 1:
+        W = V[indices[0]]
+    else:
+        W = MixedFunctionSpace([V[i] for i in indices])
+    return W.collapse()
 
 
 class ExtractSubBlock(MultiFunction):
@@ -50,6 +61,7 @@ class ExtractSubBlock(MultiFunction):
 
         Returns a new :class:`ufl.classes.Form` on the selected subspace.
         """
+
         args = form.arguments()
         self._arg_cache = {}
         self.blocks = dict(enumerate(argument_indices))
@@ -60,6 +72,11 @@ class ExtractSubBlock(MultiFunction):
             assert (len(idx) == 1 for idx in self.blocks.values())
             assert (idx[0] == 0 for idx in self.blocks.values())
             return form
+
+        if isinstance(form, slate.slate.TensorBase):
+            return slate.slate.Block(form, argument_indices)
+
+        # TODO find a way to distinguish empty Forms avoiding expand_derivatives
         f = map_integrand_dags(self, form)
         return f
 

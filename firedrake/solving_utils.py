@@ -9,6 +9,7 @@ from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.utils import cached_property
 from firedrake.logging import warning
+from firedrake.ufl_expr import replace
 
 
 def _make_reasons(reasons):
@@ -219,9 +220,20 @@ class _SNESContext(object):
         self.bcs_J = tuple(bc.extract_form('J') for bc in problem.bcs)
         self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in problem.bcs)
 
+        self._bc_residual = None
+        if not pre_apply_bcs and len(self.bcs_F) > 0:
+            # Delayed lifting of DirichletBCs
+            self._bc_residual = Function(self._x.function_space())
+            if problem.is_linear:
+                # Drop existing lifting term from the residual
+                self.F = replace(self.F, {self._x: ufl.zero(self._x.ufl_shape)})
+
+            self.F -= problem.compute_bc_lifting(self.J, self._bc_residual)
+
         self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
                                                 form_compiler_parameters=self.fcp,
-                                                zero_bc_nodes=True).assemble
+                                                zero_bc_nodes=pre_apply_bcs,
+                                                ).assemble
 
         self._jacobian_assembled = False
         self._splits = {}
@@ -302,8 +314,9 @@ class _SNESContext(object):
         from firedrake import replace, as_vector, split
         from firedrake import NonlinearVariationalProblem as NLVP
         from firedrake.bcs import DirichletBC, EquationBC
+
         fields = tuple(tuple(f) for f in fields)
-        splits = self._splits.get(tuple(fields))
+        splits = self._splits.get(fields)
         if splits is not None:
             return splits
 
@@ -314,7 +327,7 @@ class _SNESContext(object):
             F = splitter.split(problem.F, argument_indices=(field, ))
             J = splitter.split(problem.J, argument_indices=(field, field))
             us = problem.u_restrict.subfunctions
-            V = F.arguments()[0].function_space()
+            V = J.arguments()[-1].function_space()
             # Exposition:
             # We are going to make a new solution Function on the sub
             # mixed space defined by the relevant fields.
@@ -329,23 +342,19 @@ class _SNESContext(object):
                 subsplit = (subu, )
             else:
                 val = op2.MixedDat(pieces)
-                subu = function.Function(V, val=val)
+                subu = Function(V, val=val)
                 # Split it apart to shove in the form.
                 subsplit = split(subu)
             # Permutation from field indexing to indexing of pieces
             field_renumbering = dict([f, i] for i, f in enumerate(field))
             vec = []
-            for i, u in enumerate(us):
+            for i, ui in enumerate(us):
                 if i in field:
                     # If this is a field we're keeping, get it from
                     # the new function. Otherwise just point to the
                     # old data.
-                    u = subsplit[field_renumbering[i]]
-                if u.ufl_shape == ():
-                    vec.append(u)
-                else:
-                    for idx in numpy.ndindex(u.ufl_shape):
-                        vec.append(u[idx])
+                    ui = subsplit[field.index(i)]
+                vec.extend(ui[idx] for idx in numpy.ndindex(ui.ufl_shape))
 
             # So now we have a new representation for the solution
             # vector in the old problem. For the fields we're going
@@ -359,6 +368,17 @@ class _SNESContext(object):
             u = as_vector(vec)
             F = replace(F, {problem.u_restrict: u})
             J = replace(J, {problem.u_restrict: u})
+
+            if problem.is_linear and isinstance(J, MatrixBase):
+                # The BC lifting term is action(MatrixBase, u).
+                # We cannot replace u with the split solution, as action expects a Function.
+                # We drop the existing lifting term from the residual
+                # and compute a fully decoupled lifting term with the split J.
+                F = replace(F, {problem.u_restrict: zero(problem.u_restrict.ufl_shape)})
+                F += problem.compute_bc_lifting(J, subu)
+            else:
+                F = replace(F, {problem.u_restrict: u})
+
             if problem.Jp is not None:
                 Jp = splitter.split(problem.Jp, argument_indices=(field, field))
                 Jp = replace(Jp, {problem.u_restrict: u})
@@ -377,8 +397,9 @@ class _SNESContext(object):
             new_problem._constant_jacobian = problem._constant_jacobian
             splits.append(type(self)(new_problem, mat_type=self.mat_type, pmat_type=self.pmat_type,
                                      appctx=self.appctx,
-                                     transfer_manager=self.transfer_manager))
-        return self._splits.setdefault(tuple(fields), splits)
+                                     transfer_manager=self.transfer_manager,
+                                     pre_apply_bcs=self.pre_apply_bcs))
+        return self._splits.setdefault(fields, splits)
 
     @staticmethod
     def form_function(snes, X, F):
