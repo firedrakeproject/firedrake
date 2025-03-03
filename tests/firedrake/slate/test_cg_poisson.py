@@ -1,6 +1,7 @@
 import pytest
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
+import numpy as np
 
 
 def run_CG_problem(r, degree, quads=False):
@@ -62,7 +63,6 @@ def run_CG_problem(r, degree, quads=False):
                          [(3, False, 3.75),
                           (5, True, 5.75)])
 def test_cg_convergence(degree, quads, rate):
-    import numpy as np
     diff = np.array([run_CG_problem(r, degree, quads) for r in range(2, 5)])
     conv = np.log2(diff[:-1] / diff[1:])
     assert (np.array(conv) > rate).all()
