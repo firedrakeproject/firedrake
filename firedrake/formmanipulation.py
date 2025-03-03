@@ -68,7 +68,6 @@ class ExtractSubBlock(MultiFunction):
 
         Returns a new :class:`ufl.classes.Form` on the selected subspace.
         """
-
         args = form.arguments()
         self._arg_cache = {}
         self.blocks = dict(enumerate(map(as_tuple, argument_indices)))

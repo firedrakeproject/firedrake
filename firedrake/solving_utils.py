@@ -322,7 +322,6 @@ class _SNESContext(object):
         from firedrake import as_vector, split, zero
         from firedrake import NonlinearVariationalProblem as NLVP
         from firedrake.bcs import DirichletBC, EquationBC
-
         fields = tuple(tuple(f) for f in fields)
         splits = self._splits.get(fields)
         if splits is not None:
@@ -373,7 +372,6 @@ class _SNESContext(object):
             # coefficients in the new form.
             u = as_vector(vec)
             J = replace(J, {problem.u_restrict: u})
-
             if problem.is_linear and isinstance(J, MatrixBase):
                 # The BC lifting term is action(MatrixBase, u).
                 # We cannot replace u with the split solution, as action expects a Function.
@@ -383,7 +381,6 @@ class _SNESContext(object):
                 F += problem.compute_bc_lifting(J, subu)
             else:
                 F = replace(F, {problem.u_restrict: u})
-
             if problem.Jp is not None:
                 Jp = splitter.split(problem.Jp, argument_indices=(field, field))
                 Jp = replace(Jp, {problem.u_restrict: u})
