@@ -1,7 +1,9 @@
+import logging
 import os
 import platform
 import sys
 import site
+import shutil
 import numpy as np
 import pybind11
 import petsc4py
@@ -13,12 +15,6 @@ from setuptools import setup, find_packages, Extension
 from glob import glob
 from pathlib import Path
 from Cython.Build import cythonize
-
-# Define the compilers to use if not already set
-if "CC" not in os.environ:
-    os.environ["CC"] = os.environ.get("MPICC", "mpicc")
-if "CXX" not in os.environ:
-    os.environ["CXX"] = os.environ.get("MPICXX", "mpicxx")
 
 
 petsc_config = petsc4py.get_config()
@@ -44,17 +40,6 @@ def get_petsc_variables():
         # Split lines on first '=' (assignment)
         splitlines = (line.split("=", maxsplit=1) for line in fh.readlines())
     return {k.strip(): v.strip() for k, v in splitlines}
-
-
-# TODO: This is deprecated behaviour, what to do?:
-if "clean" in sys.argv[1:]:
-    # Forcibly remove the results of Cython.
-    for dirname, dirs, files in os.walk("firedrake"):
-        for f in files:
-            base, ext = os.path.splitext(f)
-            if (ext in (".c", ".cpp") and base + ".pyx" in files
-                or ext == ".so"):
-                os.remove(os.path.join(dirname, f))
 
 
 @dataclass
@@ -142,13 +127,13 @@ else:
     # Set the library name and hope for the best
     hdf5_ = ExternalDependency(libraries=["hdf5"])
 
-# Note:
-# In the next 2 linkages we are using `site.getsitepackages()[0]`, which isn't
-# guaranteed to be the correct place we could also use "$ORIGIN/../../lib_dir",
-# but that definitely doesn't work with editable installs.
-# This is necessary because Python build isolation means that the compile-time
-# library dirs (in the isolated build env) are different to the run-time
-# library dirs (in the venv).
+# When we link against spatialindex or libsupermesh we need to know where
+# the '.so' files end up. Since installation happens in an isolated
+# environment we cannot simply query rtree and libsupermesh for the
+# current paths as they will not be valid once the installation is complete.
+# Therefore we set the runtime library search path to all the different
+# possible site package locations we can think of.
+sitepackage_dirs = site.getsitepackages() + [site.getusersitepackages()]
 
 # libspatialindex
 # example:
@@ -158,7 +143,9 @@ libspatialindex_so = Path(rtree.core.rt._name).absolute()
 spatialindex_ = ExternalDependency(
     include_dirs=[rtree.finder.get_include()],
     extra_link_args=[str(libspatialindex_so)],
-    runtime_library_dirs=[os.path.join(site.getsitepackages()[0], "Rtree.libs")]
+    runtime_library_dirs=[
+        os.path.join(dir, "Rtree.libs") for dir in sitepackage_dirs
+    ],
 )
 
 # libsupermesh
@@ -170,7 +157,9 @@ spatialindex_ = ExternalDependency(
 libsupermesh_ = ExternalDependency(
     include_dirs=[libsupermesh.get_include()],
     library_dirs=[str(Path(libsupermesh.get_library()).parent)],
-    runtime_library_dirs=[os.path.join(site.getsitepackages()[0], "libsupermesh", "lib")],
+    runtime_library_dirs=[
+        os.path.join(dir, "libsupermesh", "lib") for dir in sitepackage_dirs
+    ],
     libraries=["supermesh"],
 )
 
@@ -246,11 +235,54 @@ def extensions():
     return cythonize(cython_list) + pybind11_list
 
 
+# TODO: It would be good to have a single source of truth for these files
+FIREDRAKE_CHECK_TEST_FILES = (
+    "tests/firedrake/regression/test_stokes_mini.py",
+    "tests/firedrake/regression/test_locate_cell.py",
+    "tests/firedrake/supermesh/test_assemble_mixed_mass_matrix.py",
+    "tests/firedrake/regression/test_matrix_free.py",
+    "tests/firedrake/regression/test_nullspace.py",
+    "tests/firedrake/regression/test_dg_advection.py",
+    "tests/firedrake/regression/test_interpolate_cross_mesh.py",
+)
+
+
+# This diabolical function is needed to allow 'firedrake-check' to work. Since
+# installed packages are not allowed to contain files from outside that Python
+# package we cannot access the Makefile or test files once installation is
+# complete. Therefore, before we install, we create a dummy package, called
+# 'firedrake-check' containing said Makefile and tests.
+def make_firedrake_check_package():
+    package_dir = "firedrake_check"
+    logging.info(f"Creating '{package_dir}' package")
+    if os.path.exists(package_dir):
+        logging.info(f"'{package_dir}' already found, removing")
+        shutil.rmtree(package_dir)
+
+    os.mkdir(package_dir)
+    with open(f"{package_dir}/__init__.py", "w") as f:
+        # set 'errors=True' to make sure that we propagate failures to the
+        # outer process
+        f.write("""import pathlib
+import subprocess
+
+def main():
+    dir = pathlib.Path(__file__).parent
+    subprocess.run(f'make -C {dir} check'.split(), errors=True)
+""")
+
+    # copy Makefile and tests into dummy package
+    shutil.copy("Makefile", package_dir)
+    for test_file in FIREDRAKE_CHECK_TEST_FILES:
+        package_test_dir = os.path.join(package_dir, Path(test_file).parent)
+        os.makedirs(package_test_dir, exist_ok=True)
+        shutil.copy(test_file, package_test_dir)
+
+
+make_firedrake_check_package()
+
+
 setup(
     packages=find_packages(),
-    package_data={
-        "firedrake": ["evaluate.h", "locate.c", "icons/*.png"],
-        "pyop2": ["assets/*", "*.h", "*.pxd", "*.pyx", "codegen/c/*.c"]
-    },
     ext_modules=extensions()
 )

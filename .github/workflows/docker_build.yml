@@ -28,9 +28,8 @@ on:
         description: 'Path to the Dockerfile required to build image'
         required: true
         type: string
-      extra-install-flags:
-        description: 'Extra args to pass when building the Dockerfile'
-        default: ''
+      arch:
+        description: 'Firedrake arch to build'
         required: false
         type: string
     secrets:
@@ -76,7 +75,8 @@ jobs:
         with:
           platforms: ${{ inputs.platform }}
           file: ${{ inputs.dockerfile }}
-          build-args: EXTRA_INSTALL_FLAGS=${{ inputs.extra-install-flags }}
+          build-args: |
+            ARCH=${{ inputs.arch }}
           outputs: type=image,name=firedrakeproject/${{ inputs.target }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest

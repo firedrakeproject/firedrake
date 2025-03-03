@@ -18,55 +18,61 @@ concurrency:
 jobs:
   build_docs:
     name: Run doc build
-    # Run on the Github hosted runner
     runs-on: ubuntu-latest
     container:
       image: firedrakeproject/firedrake-docdeps:latest
-      # Github hosted runners require running as root user:
-      # https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners/about-github-hosted-runners#docker-container-filesystem
       options: --user root
-      volumes:
-        - ${{ github.workspace }}:/home/firedrake/output
-    # Steps represent a sequence of tasks that will be executed as
-    # part of the jobs
+    env:
+      # Since we are running as root we need to set PYTHONPATH to be able to find the installed
+      # packages
+      PYTHONPATH: /home/firedrake/firedrake:/home/firedrake/.local/lib/python3.12/site-packages
     steps:
       - uses: actions/checkout@v4
-      - name: Install checkedout Firedrake
+        with:
+          path: firedrake-repo
+
+      - name: Install Firedrake
         run: |
-          . /home/firedrake/firedrake/bin/activate
-          python -m pip install -e .
+          : # Pass '--system-site-packages' so already installed packages can be found
+          python3 -m venv --system-site-packages venv
+          . venv/bin/activate
+          pip uninstall -y firedrake
+          pip install --verbose './firedrake-repo[docs]'
+
       - name: Check bibtex
         run: |
-          . /home/firedrake/firedrake/bin/activate
-          cd docs
-          make validate-bibtex
+          . venv/bin/activate
+          make -C firedrake-repo/docs validate-bibtex
+
       - name: Check documentation links
-        if: ${{ github.ref == 'refs/heads/master' }}
+        if: github.ref == 'refs/heads/master'
         run: |
-          . /home/firedrake/firedrake/bin/activate
-          cd docs
-          make linkcheck
+          . venv/bin/activate
+          make -C firedrake-repo/docs linkcheck
+
       - name: Build docs
         run: |
-          . /home/firedrake/firedrake/bin/activate
-          cd docs
+          . venv/bin/activate
+          cd firedrake-repo/docs
           make html
           make latex
           make latexpdf
+
       - name: Copy manual to HTML tree
         run: |
-          cd docs
+          cd firedrake-repo/docs
           cp build/latex/Firedrake.pdf build/html/_static/manual.pdf
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           name: github-pages
-          path: /__w/firedrake/firedrake/docs/build/html
+          path: /__w/firedrake/firedrake/firedrake-repo/docs/build/html
           retention-days: 1
   deploy:
     name: Deploy Github pages
     needs: build_docs
-    if: ${{ github.ref == 'refs/heads/master' }}
+    if: github.ref == 'refs/heads/master'
     permissions:
       pages: write
       id-token: write

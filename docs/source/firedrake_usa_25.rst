@@ -21,7 +21,9 @@ in the numerical solution of partial differential equations. The event
 will provide Firedrake users with the opportunity to interact directly
 with developers and with other users.
 
-The conference will begin with a tutorial session on the morning of 28 February and end on the evening of 1 March. 
+The conference will begin with a tutorial session on the morning of 28 February and end on the evening of 1 March.
+
+The schedule is up on EasyChair `here <https://easychair.org/smart-program/FiredrakeUSA'25/>`__.
 
 
 Conference venue
