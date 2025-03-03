@@ -86,6 +86,8 @@ def M(fs):
 
 
 def test_one_form(M, f):
+    # to test the new action, obvs undo me
+    assert False
     one_form = assemble(action(M, f))
     assert isinstance(one_form, Cofunction)
     for f in one_form.subfunctions:

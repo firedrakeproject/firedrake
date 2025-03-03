@@ -175,8 +175,8 @@ jobs:
           make -C g-adopt-repo/demos/mantle_convection/base_case check
         timeout-minutes: 5
 
-      - name: Publish test report
-        uses: mikepenz/action-junit-report@v5.0.0-a02
+      - name: Annotate failing tests
+        uses: mikepenz/action-junit-report@v5
         # To avoid permissions issues do not run with forked repos
         # (see https://github.com/mikepenz/action-junit-report/issues/23)
         if: |
@@ -185,10 +185,8 @@ jobs:
           && (github.event.pull_request.head.repo.full_name == github.repository)
         with:
           report_paths: 'firedrake*.xml'
-          comment: true
-          check_name: "Firedrake ${{ matrix.arch }}"
-          updateComment: true
-          flaky_summary: true
+          annotate_only: true
+          annotations_limit: 20
 
       - name: Upload log files
         uses: actions/upload-artifact@v4
