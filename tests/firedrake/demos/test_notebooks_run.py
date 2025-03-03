@@ -6,11 +6,6 @@ import sys
 import pytest
 from firedrake.petsc import get_external_packages
 
-try:
-    import matplotlib.pyplot as plt  # noqa: 401
-except ImportError:
-    pytest.skip("Matplotlib not installed", allow_module_level=True)
-
 
 cwd = os.path.abspath(os.path.dirname(__file__))
 nb_dir = os.path.join(cwd, "..", "..", "..", "docs", "notebooks")
@@ -25,6 +20,7 @@ def ipynb_file(request):
 
 
 @pytest.mark.skipcomplex  # Will need to add a seperate case for a complex tutorial.
+@pytest.mark.skipplot
 def test_notebook_runs(ipynb_file, tmpdir, monkeypatch):
     if os.path.basename(ipynb_file) in ("08-composable-solvers.ipynb", "12-HPC_demo.ipynb"):
         if "mumps" not in get_external_packages():
