@@ -60,17 +60,17 @@ jobs:
             xargs -L1 ./configure --with-make-np=12
           make
           make check
-          echo "PETSC_DIR=${{ github.workspace }}/petsc" >> $GITHUB_ENV
-          echo "PETSC_ARCH=arch-firedrake-${{ matrix.arch }}" >> $GITHUB_ENV
+          echo "PETSC_DIR=${{ github.workspace }}/petsc" >> "$GITHUB_ENV"
+          echo "PETSC_ARCH=arch-firedrake-${{ matrix.arch }}" >> "$GITHUB_ENV"
 
 
       - name: Install SLEPc
         run: |
           git clone --depth 1 https://github.com/firedrakeproject/slepc.git
           cd slepc
-          ./configure --with-make-np=12
+          ./configure
           make
-          echo "SLEPC_DIR=${{ github.workspace }}/slepc" >> $GITHUB_ENV
+          echo "SLEPC_DIR=${{ github.workspace }}/slepc" >> "$GITHUB_ENV"
 
       - name: Install Firedrake
         id: install

@@ -40,7 +40,7 @@ ENV PATH="$PETSC_DIR/$PETSC_ARCH/bin:$PATH"
 # Install SLEPc
 RUN git clone --depth 1 https://github.com/firedrakeproject/slepc.git \
     && cd slepc \
-    && ./configure --with-make-np=12 \
+    && ./configure \
     && make SLEPC_DIR=/home/firedrake/slepc \
     && cd ..
 
