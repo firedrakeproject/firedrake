@@ -101,56 +101,56 @@ jobs:
           . venv/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
-          firedrake-run-split-tests 1 1 "-n 12 $EXTRA_PYTEST_ARGS --junit-xml=firedrake1_{#}.xml"
+          firedrake-run-split-tests 1 1 "-n 12 $EXTRA_PYTEST_ARGS"
         timeout-minutes: 60
 
       - name: Run tests (nprocs = 2)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 2 6 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake2_{#}.xml"
+          firedrake-run-split-tests 2 6 "$EXTRA_PYTEST_ARGS"
         timeout-minutes: 30
 
       - name: Run tests (nprocs = 3)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 3 4 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake3_{#}.xml"
+          firedrake-run-split-tests 3 4 "$EXTRA_PYTEST_ARGS"
         timeout-minutes: 60
 
       - name: Run tests (nprocs = 4)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 4 3 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake4_{#}.xml"
+          firedrake-run-split-tests 4 3 "$EXTRA_PYTEST_ARGS"
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 5)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 5 2 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake5_{#}.xml"
+          firedrake-run-split-tests 5 2 "$EXTRA_PYTEST_ARGS"
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 6)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 6 2 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake6_{#}.xml"
+          firedrake-run-split-tests 6 2 "$EXTRA_PYTEST_ARGS"
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 7)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake7_{#}.xml"
+          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS"
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 8)
         if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake8_{#}.xml"
+          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS"
         timeout-minutes: 15
 
       - name: Run Gusto smoke tests
@@ -174,19 +174,6 @@ jobs:
           pip install --verbose ./g-adopt-repo
           make -C g-adopt-repo/demos/mantle_convection/base_case check
         timeout-minutes: 5
-
-      - name: Annotate failing tests
-        uses: mikepenz/action-junit-report@v5
-        # To avoid permissions issues do not run with forked repos
-        # (see https://github.com/mikepenz/action-junit-report/issues/23)
-        if: |
-          (success() || steps.install.conclusion == 'success')
-          && (github.ref != 'refs/heads/master')
-          && (github.event.pull_request.head.repo.full_name == github.repository)
-        with:
-          report_paths: 'firedrake*.xml'
-          annotate_only: true
-          annotations_limit: 20
 
       - name: Upload log files
         uses: actions/upload-artifact@v4
