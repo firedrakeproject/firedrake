@@ -230,24 +230,106 @@ with `idx` parameter always unset, and the same :class:`~.Function` can only be
 loaded using the same mode.
 
 
-Using disk checkpointing in adjoint simulations
+Using checkpointing in adjoint simulations
 ===============================================
 
 When adjoint annotation is active, the result of every Firedrake operation is
-stored in memory. For some simulations, this can result in a very large memory
-footprint. As an alternative, it is possible to specify that those intermediate
-results in forward evaluations of the tape which have type
-:class:`~firedrake.function.Function` be written to disk. This is usually the
-bulk of the data stored on the tape so this largely alleviates the memory
-problem, at the cost of the time taken to read to and write from disk.
+stored in memory. For some time-dependent simulations, this can lead to a
+large memory footprint. To alleviate this, checkpointing strategies can be used
+to store intermediate results either in memory or on disk, reducing memory
+usage.
 
-Having imported `firedrake.adjoint`, there are two steps required to enable
-disk checkpointing of the forward tape state.
+Checkpointing for time-dependent adjoint simulations in Firedrake employs
+schedules, which determine how forward data is stored. These schedules are
+implemented in the `checkpoint_schedules package
+<https://www.firedrakeproject.org/checkpoint_schedules/>`_.
 
-1. Call :func:`~firedrake.adjoint_utils.checkpointing.enable_disk_checkpointing`.
-2. Wrap all mesh constructors in :func:`~firedrake.adjoint_utils.checkpointing.checkpointable_mesh`.
 
-See the documentation of those functions for more detail.
+To store every time step of the forward data required for adjoint-based gradient
+computation **in memory**, use the following code:
+
+.. code-block:: python3
+
+    from firedrake import *
+    from firedrake.adjoint import *
+    from checkpoint_schedules import SingleMemoryStorageSchedule
+
+    continue_annotation()
+    tape = get_working_tape()
+    tape.enable_checkpointing(SingleMemoryStorageSchedule())
+
+**For any checkpointing approach, it is essential to call the time loop as
+follows when advancing the solver in time:**
+
+.. code-block:: python3
+
+    for step in tape.timestepper(range(total_steps)):
+        # Advance the forward model
+        # ...
+
+
+Using ``SingleMemoryStorageSchedule`` stores all forward data required for the
+adjoint calculation in memory and keeps only the last time step of the
+gradient.
+
+
+To store every time step of the forward data required for adjoint-based gradient
+computation **on disk**, use the following code:
+
+.. code-block:: python3
+
+    from firedrake import *
+    from firedrake.adjoint import *
+    from checkpoint_schedules import SingleDiskStorageSchedule
+
+    continue_annotation()
+    tape = get_working_tape()
+    enable_disk_checkpointing()
+    tape.enable_checkpointing(SingleDiskStorageSchedule())
+
+For disk checkpointing, all mesh constructors must be wrapped using
+:func:`~.checkpointing.checkpointable_mesh`. For example:
+
+.. code-block:: python3
+    
+    mesh = UnitSquareMesh(10, 10)
+    mesh = checkpointable_mesh(mesh)
+
+Using ``SingleDiskStorageSchedule`` stores all forward data required for the
+adjoint calculation on disk, while keeping only the last time step of the
+gradient in memory. ``SingleDiskStorageSchedule`` reduces memory usage at
+the cost of reading and writing data from disk.
+
+
+The ``checkpoint_schedules`` package provides other checkpointing
+strategies, such as Revolve, Mixed Schedule, and HRevolve. These methods
+store only a limited set of time steps, reducing memory usage at the cost of
+increased computational effort due to repeated forward calculations.
+
+For example, to use the **Revolve** schedule:
+
+.. code-block:: python3
+
+    from firedrake import *
+    from firedrake.adjoint import *
+    from checkpoint_schedules import RevolveSchedule
+
+    continue_annotation()
+    tape = get_working_tape()
+    tape.enable_checkpointing(RevolveSchedule(total_steps, steps_to_store))
+
+    ...
+
+    # Advance the forward model in time
+    for step in tape.timestepper(range(total_steps)):
+        # ...
+
+Here, ``steps_to_store`` is the number of time steps stored in memory.
+
+For more details on available checkpointing strategies, refer to the
+`checkpoint_schedules package documentation
+<https://www.firedrakeproject.org/checkpoint_schedules/>`_.
+
 
 
 Checkpointing with DumbCheckpoint
