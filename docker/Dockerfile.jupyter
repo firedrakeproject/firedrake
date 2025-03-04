@@ -1,6 +1,6 @@
 # Dockerfile for a Firedrake container including Jupyter.
 
-FROM firedrakeproject/firedrake:pip
+FROM firedrakeproject/firedrake:latest
 
 # Install an iPython kernel for Firedrake
 RUN pip install --break-system-packages --verbose nbclassic nbformat nbconvert ipympl \
