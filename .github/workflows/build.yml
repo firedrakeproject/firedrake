@@ -218,8 +218,8 @@ jobs:
     needs: [test, docker_tag]
     uses: ./.github/workflows/docker.yml
     with:
-      tag: pip
-      status: success
+      tag: ${{ needs.docker_tag.outputs.tag }}
+      status: ${{ needs.test.result }}
     secrets: inherit
 
   lint:
