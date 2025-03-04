@@ -1,1 +1,1 @@
-from .lower import LOOPY_LANG_VERSION, LOOPY_TARGET
+from .lower import loopy_lang_version, loopy_target

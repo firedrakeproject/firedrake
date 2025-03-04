@@ -28,6 +28,7 @@ from pyop3.array.petsc import Mat, AbstractMat
 from pyop3.axtree.tree import Add, AxisVar, Mul
 from pyop3.buffer import DistributedBuffer, NullBuffer, PackedBuffer
 from pyop3.config import config
+from pyop3.device import CPUDevice, CUDADevice, OpenCLDevice, offloading_device
 from pyop3.dtypes import IntType
 from pyop3.ir.transform import with_likwid_markers, with_petsc_event
 from pyop3.itree.tree import LoopIndexVar
@@ -71,8 +72,20 @@ from pyop3.utils import (
 
 # FIXME this needs to be synchronised with TSFC, tricky
 # shared base package? or both set by Firedrake - better solution
-LOOPY_TARGET = lp.CWithGNULibcTarget()
-LOOPY_LANG_VERSION = (2018, 2)
+def loopy_target():
+    print(offloading_device)
+    if isinstance(offloading_device, CPUDevice):
+        return lp.CWithGNULibcTarget()
+    elif isinstance(offloading_device, CUDADevice):
+        return lp.CudaTarget()
+    elif isinstance(offloading_device, OpenCLDevice):
+        return lp.PyOpenCLTarget()
+    else:
+        raise AssertionError
+
+
+def loopy_lang_version():
+    return (2018, 2)
 
 
 class OpaqueType(lp.types.OpaqueType):
@@ -469,8 +482,8 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
         ctx.instructions,
         ctx.arguments,
         name=function_name,
-        target=LOOPY_TARGET,
-        lang_version=LOOPY_LANG_VERSION,
+        target=loopy_target(),
+        lang_version=loopy_lang_version(),
         preambles=preambles,
         # options=lp.Options(check_dep_resolution=False),
     )
@@ -1225,7 +1238,8 @@ def compile_loopy(translation_unit, *, pyop3_compiler_parameters):
         ldargs += ("-llikwid",)
 
     # TODO: needs a comm
-    dll = load(code, "c", cppargs, ldargs, pyop2.mpi.COMM_SELF)
+    print(pyop2.mpi.COMM_SELF)
+    dll = load(code, "cuda", cppargs, ldargs, pyop2.mpi.COMM_SELF)
 
     if pyop3_compiler_parameters.add_petsc_event:
         # Create the event in python and then set in the shared library to avoid

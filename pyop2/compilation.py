@@ -166,6 +166,8 @@ def sniff_compiler(exe, comm=mpi.COMM_WORLD):
             # Cray clang version 11.0.4  (<some_hash>)
             # gcc (GCC) 9.3.0 20200312 (Cray Inc.)
             name = "Cray"
+        elif output.startswith("nvcc"):
+            name = "CUDA"
         else:
             name = "unknown"
 
@@ -433,7 +435,9 @@ def load(code, extension, cppargs=(), ldargs=(), comm=None):
         compiler = _compiler
     else:
         # Sniff compiler from file extension,
-        if extension == "cpp":
+        if extension == "cuda":
+            exe = petsc_variables["CUDAC"]
+        elif extension == "cpp":
             exe = petsc_variables["CXX"]
         else:
             exe = petsc_variables["CC"]
@@ -540,7 +544,11 @@ def make_so(compiler, code, extension, comm, filename=None):
     ccomm = mpi.compilation_comm(icomm, compiler)
 
     # C or C++
-    if extension == "cpp":
+    if extension == "cuda":
+        print("TEST")
+        exe = compiler.nvcc
+        compiler_flags = compiler.nvccflags
+    elif extension == "cpp":
         exe = compiler.cxx
         compiler_flags = compiler.cxxflags
     else:
