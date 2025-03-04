@@ -186,11 +186,11 @@ class LinearEigensolver(OptionsManager):
         int
             The number of Eigenvalues found.
         """
-        self.A_mat = assemble(self._problem.A, bcs=self._problem.bcs).M.handle
+        self.A_mat = assemble(self._problem.A, bcs=self._problem.bcs).petscmat
         self.M_mat = assemble(
             self._problem.M, bcs=self._problem.bcs,
             weight=self._problem.bc_shift and 1./self._problem.bc_shift
-        ).M.handle
+        ).petscmat
 
         self.es.setDimensions(nev=self.n_evals, ncv=self.ncv, mpd=self.mpd)
         self.es.setOperators(self.A_mat, self.M_mat)

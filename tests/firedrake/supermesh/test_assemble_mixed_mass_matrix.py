@@ -49,7 +49,7 @@ def test_assemble_mixed_mass_matrix(mesh, family_A, family_B, degree_A, degree_B
     M = assemble_mixed_mass_matrix(V_A, V_B)
 
     M_ex = assemble(inner(TrialFunction(V_A), TestFunction(V_B)) * dx)
-    M_ex = M_ex.M.handle
+    M_ex = M_ex.petscmat
 
     M_ex.axpy(-1.0, M)
     nrm = M_ex.norm(PETSc.NormType.NORM_INFINITY)

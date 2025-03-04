@@ -1,15 +1,6 @@
 # Dockerfile for Firedrake with a full set of capabilities and applications installed.
 
-FROM firedrakeproject/firedrake-vanilla-default:pip
-
-# Install SLEPc
-RUN git clone https://github.com/firedrakeproject/slepc.git \
-    && cd slepc \
-    && ./configure \
-    && make SLEPC_DIR=/home/firedrake/slepc \
-    && cd ..
-
-ENV SLEPC_DIR=/home/firedrake/slepc
+FROM firedrakeproject/firedrake-vanilla-default:latest
 
 # Install optional dependencies
 RUN pip install --break-system-packages --verbose \
