@@ -134,5 +134,5 @@ script-files = [
 # Unless specified these files will not be installed along with the
 # rest of the package
 firedrake = ["evaluate.h", "locate.c", "icons/*.png"]
-firedrake_check = ["Makefile", "tests/*/*/*.py"]
+firedrake_check = ["Makefile", "tests/firedrake/conftest.py", "tests/*/*/*.py"]
 pyop2 = ["*.h", "*.pxd", "*.pyx", "codegen/c/*.c"]
