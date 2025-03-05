@@ -389,6 +389,7 @@ class GlobalKernel:
         cppargs = [f"-I{d}/include" for d in get_petsc_dir()]
         cppargs.extend(f"-I{d}" for d in self.local_kernel.include_dirs)
         cppargs.append(f"-I{os.path.abspath(os.path.dirname(__file__))}")
+        cppargs.append("-Wno-incompatible-pointer-types")
         return tuple(cppargs)
 
     @cached_property
