@@ -236,8 +236,7 @@ Using checkpointing in adjoint simulations
 When adjoint annotation is active, the result of every Firedrake operation is
 stored in memory. For some time-dependent simulations, this can lead to a
 large memory footprint. To alleviate this, checkpointing strategies can be used
-to store intermediate results either in memory or on disk, reducing memory
-usage.
+to store intermediate results either in memory or on disk.
 
 Checkpointing for time-dependent adjoint simulations in Firedrake employs
 schedules, which determine how forward data is stored. These schedules are
@@ -268,9 +267,7 @@ follows when advancing the solver in time:**
         # ...
 
 
-Using ``SingleMemoryStorageSchedule`` stores all forward data required for the
-adjoint calculation in memory and keeps only the last time step of the
-gradient.
+`SingleMemoryStorageSchedule`` stores only the last time step of the gradient in memory.
 
 
 To store every time step of the forward data required for adjoint-based gradient
@@ -295,10 +292,7 @@ For disk checkpointing, all mesh constructors must be wrapped using
     mesh = UnitSquareMesh(10, 10)
     mesh = checkpointable_mesh(mesh)
 
-Using ``SingleDiskStorageSchedule`` stores all forward data required for the
-adjoint calculation on disk, while keeping only the last time step of the
-gradient in memory. ``SingleDiskStorageSchedule`` reduces memory usage at
-the cost of reading and writing data from disk.
+``SingleDiskStorageSchedule`` stores only the last time step of the gradient in memory. This checkpointing approach reduces memory usage at the cost of reading and writing data from disk.
 
 
 The ``checkpoint_schedules`` package provides other checkpointing
@@ -312,11 +306,11 @@ For example, to use the **Revolve** schedule:
 
     from firedrake import *
     from firedrake.adjoint import *
-    from checkpoint_schedules import RevolveSchedule
+    from checkpoint_schedules import Revolve
 
     continue_annotation()
     tape = get_working_tape()
-    tape.enable_checkpointing(RevolveSchedule(total_steps, steps_to_store))
+    tape.enable_checkpointing(Revolve(total_steps, steps_to_store))
 
     ...
 
@@ -324,12 +318,11 @@ For example, to use the **Revolve** schedule:
     for step in tape.timestepper(range(total_steps)):
         # ...
 
-Here, ``steps_to_store`` is the number of time steps stored in memory.
+`steps_to_store`` is the number of time steps stored in memory.
 
 For more details on available checkpointing strategies, refer to the
 `checkpoint_schedules package documentation
 <https://www.firedrakeproject.org/checkpoint_schedules/>`_.
-
 
 
 Checkpointing with DumbCheckpoint
