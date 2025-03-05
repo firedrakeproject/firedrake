@@ -15,7 +15,7 @@ __all__ = ["LinearEigenproblem",
            "LinearEigensolver"]
 
 
-class LinearEigenproblem():
+class LinearEigenproblem:
     """Generalised linear eigenvalue problem.
 
     The problem has the form, find `u`, `λ` such that::

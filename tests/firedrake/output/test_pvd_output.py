@@ -6,11 +6,10 @@ from os.path import isfile, join
 from firedrake import *
 
 try:
-    import vtkmodules.vtkCommonDataModel  # noqa: F401
     from firedrake.output import VTKFile
 except ImportError:
-    # VTK is not installed
-    pytest.skip("VTK not installed", allow_module_level=True)
+    # VTK is not installed, tests will be skipped
+    pass
 
 
 @pytest.fixture(params=[
@@ -49,17 +48,20 @@ def pvd(dumpdir):
     return VTKFile(f)
 
 
+@pytest.mark.skipvtk
 def test_can_save_coordinates(mesh, pvd):
     pvd.write(mesh.coordinates)
 
 
 @pytest.mark.parallel
+@pytest.mark.skipvtk
 def test_can_save_coordinates_parallel(mesh, pvd):
     pvd.write(mesh.coordinates)
 
 
 @pytest.mark.parametrize("typ",
                          ["vector", "tensor", "tensor-3"])
+@pytest.mark.skipvtk
 def test_bad_shape(typ, mesh, pvd):
     if typ == "vector":
         V = VectorFunctionSpace(mesh, "DG", 0, dim=4)
@@ -74,6 +76,7 @@ def test_bad_shape(typ, mesh, pvd):
         pvd.write(f)
 
 
+@pytest.mark.skipvtk
 def test_bad_file_name(tmpdir):
     with pytest.raises(ValueError):
         VTKFile(str(tmpdir.join("foo.vtu")))
@@ -81,6 +84,7 @@ def test_bad_file_name(tmpdir):
 
 @pytest.mark.parametrize("space",
                          ["primal", "dual"])
+@pytest.mark.skipvtk
 def test_different_functions(mesh, pvd, space):
     V = FunctionSpace(mesh, "DG", 0)
     if space == "primal":
@@ -96,6 +100,7 @@ def test_different_functions(mesh, pvd, space):
         pvd.write(g)
 
 
+@pytest.mark.skipvtk
 def test_multiple_functions(mesh, pvd):
     V = FunctionSpace(mesh, "DG", 0)
     P = FunctionSpace(mesh, "CG", 1)
@@ -111,6 +116,7 @@ def test_multiple_functions(mesh, pvd):
         pvd.write(g, f)
 
 
+@pytest.mark.skipvtk
 def test_different_meshes(mesh, pvd):
     V = VectorFunctionSpace(mesh, "DG", 1)
     f = Function(V)
@@ -121,6 +127,7 @@ def test_different_meshes(mesh, pvd):
         pvd.write(mesh.coordinates, mesh2.coordinates)
 
 
+@pytest.mark.skipvtk
 def test_bad_cell(pvd):
     mesh = UnitCubeMesh(1, 1, 1)
     mesh = ExtrudedMesh(mesh, layers=1)
@@ -129,6 +136,7 @@ def test_bad_cell(pvd):
         pvd.write(mesh.coordinates)
 
 
+@pytest.mark.skipvtk
 def test_not_function(mesh, pvd):
     c = Constant(1)
     with pytest.raises(ValueError):
@@ -143,6 +151,7 @@ def test_not_function(mesh, pvd):
 
 @pytest.mark.parametrize("space",
                          ["primal", "dual"])
+@pytest.mark.skipvtk
 def test_append(mesh, tmpdir, space):
     V = FunctionSpace(mesh, "DG", 0)
     if space == "primal":
