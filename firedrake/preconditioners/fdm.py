@@ -1867,8 +1867,9 @@ class SparseAssembler:
                                   InsertMode addv)
             {{
                 PetscInt m, ncols, irow, icol;
-                PetscInt *indices, *cols;
-                PetscScalar *vals;
+                PetscInt *indices;
+                const PetscInt *cols;
+                const PetscScalar *vals;
                 PetscCall(MatGetSize(B, &m, NULL));
                 PetscCall(MatSeqAIJGetMaxRowNonzeros(B, &ncols));
                 PetscCall(PetscMalloc1(ncols, &indices));
