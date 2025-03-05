@@ -50,8 +50,23 @@ class checkpoint_init_data:
 
 
 def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True):
-    """Add a DiskCheckpointer to the current tape and switch on
-    disk checkpointing.
+    """Add a DiskCheckpointer to the current tape.
+
+    Disk checkpointing is fully enabled by calling::
+
+        enable_disk_checkpointing()
+        tape = get_working_tape()
+        tape.enable_checkpointing(schedule)
+
+    Here, ``schedule`` is a checkpointing schedule from the `checkpoint_schedules
+    package <https://www.firedrakeproject.org/checkpoint_schedules/>`_. For example,
+    to checkpoint every timestep on disk, use::
+
+        from checkpoint_schedules import SingleDiskStorageSchedule
+        schedule = SingleDiskStorageSchedule()
+
+    `checkpoint_schedules` provides other schedules for checkpointing to memory, disk,
+    or a combination of both.
 
     Parameters
     ----------
@@ -70,8 +85,6 @@ def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True):
     tape = get_working_tape()
     if "firedrake" not in tape._package_data:
         tape._package_data["firedrake"] = DiskCheckpointer(dirname, comm, cleanup)
-    if not disk_checkpointing():
-        continue_disk_checkpointing()
 
 
 def disk_checkpointing():
@@ -118,7 +131,7 @@ class CheckPointFileReference:
 
 
 class DiskCheckpointer(TapePackageData):
-    """Manger for the disk checkpointing process.
+    """Manager for the disk checkpointing process.
 
     Parameters
     ----------
@@ -278,7 +291,7 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
 
     def __init__(self, function):
         from firedrake.checkpointing import CheckpointFile
-        self.name = function.name
+        self.name = function.name()
         self.mesh = function.function_space().mesh()
         self.file = current_checkpoint_file()
 
@@ -310,7 +323,7 @@ class CheckpointFunction(CheckpointBase, OverloadedType):
             function = infile.load_function(self.mesh, self.stored_name,
                                             idx=self.stored_index)
         return type(function)(function.function_space(),
-                              function.dat, name=self.name(), count=self.count)
+                              function.dat, name=self.name, count=self.count)
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         return checkpoint.restore()
