@@ -30,6 +30,7 @@ def handle_annotation():
         pause_annotation()
 
 
+@pytest.fixture
 def basics():
     n = 30
     mesh = UnitIntervalMesh(n)
@@ -39,8 +40,12 @@ def basics():
     return mesh, timestep, steps
 
 
-def Dt(u, u_, timestep):
-    return (u - u_)/timestep
+def setup_test(mesh):
+    V = FunctionSpace(mesh, "CG", 2)
+    ic = project(sin(2. * pi * SpatialCoordinate(mesh)[0]), V, name="ic")
+    R = FunctionSpace(V.mesh(), "R", 0)
+    nu = Function(R, val=0.001)
+    return V, ic, nu
 
 
 def _check_forward(tape):
@@ -95,14 +100,13 @@ def _check_reverse(tape):
                     assert out._checkpoint is None
 
 
-def J(ic, solve_type, timestep, steps, V):
-
+def J(ic, nu, solve_type, timestep, steps, V, nu_time_dependent=False):
+    """Burgers equation solver."""
     u_ = Function(V, name="u_")
     u = Function(V, name="u")
     v = TestFunction(V)
     u_.assign(ic)
-    nu = Constant(0.0001)
-    F = (Dt(u, u_, timestep)*v
+    F = ((u - u_)/timestep*v
          + u*u.dx(0)*v + nu*u.dx(0)*v.dx(0))*dx
     bc = DirichletBC(V, 0.0, "on_boundary")
 
@@ -112,7 +116,9 @@ def J(ic, solve_type, timestep, steps, V):
 
     tape = get_working_tape()
     J = 0.0
-    for _ in tape.timestepper(range(steps)):
+    for j in tape.timestepper(range(steps)):
+        if nu_time_dependent and j > 4:
+            nu.assign(nu*(1.0 + j/1000))
         if solve_type == "NLVS":
             solver.solve()
         else:
@@ -123,19 +129,14 @@ def J(ic, solve_type, timestep, steps, V):
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.parametrize("solve_type, checkpointing",
-                         [("solve", "Revolve"), ("NLVS", "Revolve"),
-                          ("solve", "SingleMemory"), ("NLVS", "SingleMemory"),
-                          ("solve", "SingleDisk"), ("NLVS", "SingleDisk"),
-                          ("solve", "NoneAdjoint"), ("NLVS", "NoneAdjoint"),
-                          ("solve", "Mixed"), ("NLVS", "Mixed"),
-                          ("solve", None), ("NLVS", None)])
-def test_burgers_newton(solve_type, checkpointing):
+@pytest.mark.parametrize("solve_type", ["solve", "NLVS"])
+@pytest.mark.parametrize("checkpointing", ["Revolve", "SingleMemory", "NoneAdjoint", "Mixed", None])
+def test_burgers_newton(solve_type, checkpointing, basics):
     """Adjoint-based gradient tests with and without checkpointing.
     """
-    mesh, timestep, steps = basics()
     tape = get_working_tape()
     tape.progress_bar = ProgressBar
+    mesh, timestep, steps = basics
     if checkpointing:
         if checkpointing == "Revolve":
             schedule = Revolve(steps, steps//3)
@@ -150,12 +151,12 @@ def test_burgers_newton(solve_type, checkpointing):
         if checkpointing == "NoneAdjoint":
             schedule = NoneCheckpointSchedule()
         tape.enable_checkpointing(schedule)
-        if schedule.uses_storage_type(StorageType.DISK):
-            mesh = checkpointable_mesh(mesh)
-    x, = SpatialCoordinate(mesh)
-    V = FunctionSpace(mesh, "CG", 2)
-    ic = project(sin(2. * pi * x), V, name="ic")
-    val = J(ic, solve_type, timestep, steps, V)
+
+    if checkpointing and schedule.uses_storage_type(StorageType.DISK):
+        mesh = checkpointable_mesh(mesh)
+
+    V, ic, nu = setup_test(mesh)
+    val = J(ic, nu, solve_type, timestep, steps, V)
     if checkpointing:
         assert len(tape.timesteps) == steps
         if checkpointing == "Revolve" or checkpointing == "Mixed":
@@ -171,7 +172,7 @@ def test_burgers_newton(solve_type, checkpointing):
 
     # Recomputing the functional with a modified control variable
     # before the recompute test.
-    Jhat(project(sin(pi*x), V))
+    Jhat(project(sin(pi*SpatialCoordinate(mesh)[0]), V))
     if checkpointing:
         # Check is the checkpointing is working correctly.
         if checkpointing == "Revolve" or checkpointing == "Mixed":
@@ -184,39 +185,28 @@ def test_burgers_newton(solve_type, checkpointing):
         # Test recompute adjoint-based gradient
         assert np.allclose(dJ.dat.data_ro[:], dJbar.dat.data_ro[:])
         # Taylor test
-        assert taylor_test(Jhat, ic, Function(V).assign(1, annotate=False)) > 1.9
+        assert taylor_test(Jhat, ic, Function(V).interpolate(1)) > 1.9
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.parametrize("solve_type, checkpointing",
-                         [("solve", "Revolve"),
-                          ("NLVS", "Revolve"),
-                          ("solve", "Mixed"),
-                          ("NLVS", "Mixed"),
-                          ("solve", "SingleDisk"),
-                          ("NLVS", "SingleDisk"),
-                          ])
-def test_checkpointing_validity(solve_type, checkpointing):
-    """Compare forward and backward results with and without checkpointing.
-    """
-    mesh, timestep, steps = basics()
-    V = FunctionSpace(mesh, "CG", 2)
+@pytest.mark.parametrize("solve_type", ["NLVS"])
+@pytest.mark.parametrize("checkpointing", ["Revolve", "SingleMemory", "NoneAdjoint", "Mixed", None])
+def test_checkpointing_validity(solve_type, checkpointing, basics):
+    """Compare forward and backward results with and without checkpointing."""
+    mesh, timestep, steps = basics
     # Without checkpointing
-    tape = get_working_tape()
-    tape.progress_bar = ProgressBar
-    x, = SpatialCoordinate(mesh)
-    ic = project(sin(2.*pi*x), V)
-
-    val0 = J(ic, solve_type, timestep, steps, V)
+    V, ic, nu = setup_test(mesh)
+    val0 = J(ic, nu, solve_type, timestep, steps, V)
     Jhat = ReducedFunctional(val0, Control(ic))
     dJ0 = Jhat.derivative()
+    tape = get_working_tape()
     tape.clear_tape()
 
     # With checkpointing
     tape.progress_bar = ProgressBar
     if checkpointing == "Revolve":
-        schedule = Revolve(steps, steps//3)
-    if checkpointing == "Mixed":
+        tape.enable_checkpointing(Revolve(steps, steps//3))
+    elif checkpointing == "Mixed":
         enable_disk_checkpointing()
         schedule = MixedCheckpointSchedule(steps, steps//3, storage=StorageType.DISK)
 
@@ -229,11 +219,37 @@ def test_checkpointing_validity(solve_type, checkpointing):
     if schedule.uses_storage_type(StorageType.DISK):
         mesh = checkpointable_mesh(mesh)
 
-    V = FunctionSpace(mesh, "CG", 2)
-    x, = SpatialCoordinate(mesh)
-    ic = project(sin(2.*pi*x), V)
-    val1 = J(ic, solve_type, timestep, steps, V)
+    V, ic, nu = setup_test(mesh)
+    # Reinitialize function space and initial condition
+    val1 = J(ic, nu, solve_type, timestep, steps, V)
     Jhat = ReducedFunctional(val1, Control(ic))
+
     assert len(tape.timesteps) == steps
     assert np.allclose(val0, val1)
     assert np.allclose(dJ0.dat.data_ro[:], Jhat.derivative().dat.data_ro[:])
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("nu_time_dependent", [True, False])
+def test_global_deps(nu_time_dependent, basics):
+    """Test the global dependencies."""
+    mesh, timestep, steps = basics
+    tape = get_working_tape()
+    tape.enable_checkpointing(Revolve(steps, steps//3))
+    V, ic, nu = setup_test(mesh)
+    val0 = J(ic, nu, "NLVS", timestep, steps, V, nu_time_dependent=nu_time_dependent)
+    Jhat = ReducedFunctional(val0, Control(ic))
+
+    if nu_time_dependent:
+        # Verify that the global dependencies are correctly built when
+        # an equation parameter (such as ``nu``) starts depending on time
+        # after a certain number of timesteps.
+        assert len(tape._checkpoint_manager._global_deps) == 1
+        assert mesh.block_variable in tape._checkpoint_manager._global_deps
+    else:
+        assert len(tape._checkpoint_manager._global_deps) == 2
+        assert mesh.block_variable in tape._checkpoint_manager._global_deps
+        assert nu.block_variable in tape._checkpoint_manager._global_deps
+
+    assert np.allclose(Jhat(ic), val0)
+    assert taylor_test(Jhat, ic, Function(V).interpolate(0.1)) > 1.9
