@@ -7,7 +7,7 @@ import pytest
 from firedrake import *
 from firedrake.adjoint import *
 from checkpoint_schedules import Revolve, SingleMemoryStorageSchedule, MixedCheckpointSchedule, \
-    NoneCheckpointSchedule, StorageType, SingleDiskStorageSchedule
+    NoneCheckpointSchedule, StorageType
 import numpy as np
 set_log_level(CRITICAL)
 
@@ -17,7 +17,6 @@ def handle_taping():
     yield
     tape = get_working_tape()
     tape.clear_tape()
-    tape._package_data = {}
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -142,9 +141,6 @@ def test_burgers_newton(solve_type, checkpointing, basics):
             schedule = Revolve(steps, steps//3)
         if checkpointing == "SingleMemory":
             schedule = SingleMemoryStorageSchedule()
-        if checkpointing == "SingleDisk":
-            schedule = SingleDiskStorageSchedule()
-            enable_disk_checkpointing()
         if checkpointing == "Mixed":
             enable_disk_checkpointing()
             schedule = MixedCheckpointSchedule(steps, steps//3, storage=StorageType.DISK)
@@ -208,15 +204,7 @@ def test_checkpointing_validity(solve_type, checkpointing, basics):
         tape.enable_checkpointing(Revolve(steps, steps//3))
     elif checkpointing == "Mixed":
         enable_disk_checkpointing()
-        schedule = MixedCheckpointSchedule(steps, steps//3, storage=StorageType.DISK)
-
-    if checkpointing == "SingleDisk":
-        enable_disk_checkpointing()
-        schedule = SingleDiskStorageSchedule()
-
-    tape.enable_checkpointing(schedule)
-
-    if schedule.uses_storage_type(StorageType.DISK):
+        tape.enable_checkpointing(MixedCheckpointSchedule(steps, steps//3, storage=StorageType.DISK))
         mesh = checkpointable_mesh(mesh)
 
     V, ic, nu = setup_test(mesh)
