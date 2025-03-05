@@ -15,7 +15,7 @@ maintainers = [
 requires-python = ">=3.10"
 dependencies = [
   "cachetools",
-  "decorator<=4.4.2",
+  "decorator",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
   # TODO: We are only using our fork here because the most recent PyPI release
