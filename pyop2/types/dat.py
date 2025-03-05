@@ -726,7 +726,7 @@ class DatView(AbstractDat):
                                       name="view[%s](%s)" % (index, dat.name))
 
     def increment_dat_version(self):
-        pass
+        self._parent.increment_dat_version()
 
     @utils.cached_property
     def _kernel_args_(self):
