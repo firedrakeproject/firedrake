@@ -136,7 +136,7 @@ def test_linear_solves_equivalent():
 
     f = Function(V)
     f.assign(1)
-    f.vector()[:] = 1.
+    f.dat.data_wo[:] = 1.
     t = TestFunction(V)
     q = TrialFunction(V)
 
@@ -150,17 +150,12 @@ def test_linear_solves_equivalent():
     # And again
     sol2 = Function(V)
     solve(a == L, sol2)
-    assert np_norm(sol.vector()[:] - sol2.vector()[:]) == 0
+    assert np_norm(sol.dat.data_ro - sol2.dat.data_ro) == 0
 
     # Solve the system using preassembled objects
     sol3 = Function(V)
     solve(assemble(a), sol3, assemble(L))
-    assert np_norm(sol.vector()[:] - sol3.vector()[:]) < 5e-14
-
-    # Same, solving into vector
-    sol4 = sol3.vector()
-    solve(assemble(a), sol4, assemble(L))
-    assert np_norm(sol.vector()[:] - sol4[:]) < 5e-14
+    assert np_norm(sol.dat.data_ro - sol3.dat.data_ro) < 5e-14
 
 
 def test_linear_solver_flattens_params(a_L_out):
@@ -260,6 +255,36 @@ def test_solve_empty_form_rhs(mesh):
     w = Function(V)
     solve(a == L, w, bcs)
     assert errornorm(x, w) < 1E-10
+
+
+@pytest.mark.parametrize("mat_type", ["aij", "matfree"])
+def test_solve_assembled_lhs(mesh, mat_type):
+    V = FunctionSpace(mesh, "CG", 1)
+    x, = SpatialCoordinate(mesh)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v)) * dx
+    bcs = [DirichletBC(V, x, "on_boundary")]
+
+    # Assemble the matrix with bcs
+    A = assemble(a, bcs=bcs, mat_type=mat_type)
+    w = Function(V)
+
+    # Test four different RHS types
+    form = inner(Constant(0), v) * dx
+    cofun = Cofunction(V.dual())
+    empty = Form([])
+    zbf = ZeroBaseForm([v])
+
+    for L in (form, cofun, empty, zbf):
+        w.zero()
+        solve(A == L, w)
+        assert errornorm(x, w) < 1E-10
+
+    # Test that we raise an error when passing bcs twice
+    with pytest.raises(RuntimeError):
+        solve(A == form, w, bcs=bcs)
 
 
 @pytest.mark.skipif(utils.complex_mode, reason="Differentiation of energy not defined in Complex.")
