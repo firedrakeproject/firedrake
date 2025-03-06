@@ -1,9 +1,11 @@
 # Dockerfile for Firedrake with a full set of capabilities and applications installed.
 
-FROM firedrakeproject/firedrake-vanilla-default:latest
+# UNDO ME
+# FROM firedrakeproject/firedrake-vanilla-default:latest
+FROM firedrakeproject/firedrake-vanilla-default:roottest
 
 # Install optional dependencies
-RUN pip install --break-system-packages --verbose \
+RUN pip install --verbose \
         --extra-index-url https://download.pytorch.org/whl/cpu \
         jax ngsPETSc torch vtk
 
@@ -13,7 +15,7 @@ RUN pip install --break-system-packages --verbose \
 # Once they are fixed the following lines can be added back in:
 # -e git+https://github.com/thetisproject/thetis.git#egg=thetis
 # -e git+https://github.com/icepack/icepack.git#egg=icepack
-RUN pip install --break-system-packages --verbose --src . \
+RUN pip install --verbose --src /opt \
         -e git+https://github.com/firedrakeproject/asQ.git#egg=asQ \
         -e git+https://bitbucket.org/pefarrell/defcon.git#egg=defcon \
         -e git+https://bitbucket.org/pefarrell/fascd.git#egg=fascd \
@@ -23,6 +25,6 @@ RUN pip install --break-system-packages --verbose --src . \
         -e git+https://github.com/firedrakeproject/Irksome.git#egg=Irksome
 
 # Install some other niceties
-RUN sudo apt-get update \
-    && sudo apt-get -y install nano vim \
-    && sudo rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get -y install nano vim \
+    && rm -rf /var/lib/apt/lists/*
