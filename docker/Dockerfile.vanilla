@@ -55,7 +55,6 @@ ENV CC=mpicc CXX=mpicxx
 ENV CFLAGS="-mtune=generic" CPPFLAGS="-mtune=generic"
 ENV MPICC=$CC
 
-# Install Firedrake, pass --break-system-packages because we don't want the
-# container to need a venv.
+# Install Firedrake
 RUN pip install --verbose --no-binary h5py --src /opt \
         --editable git+https://github.com/firedrakeproject/firedrake.git#egg=firedrake[ci]
