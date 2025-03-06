@@ -19,6 +19,8 @@ RUN apt-get update \
         $(python3 /opt/firedrake-configure --arch $ARCH --show-system-packages) \
     && rm -rf /var/lib/apt/lists/*
 
+# OpenMPI will complain if mpiexec is invoked as root unless these are set
+ENV OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 
 # Install PETSc. We set the compiler optimisation flags manually here to
 # remove the default of '-march=native' which is not suitable for Docker images.
