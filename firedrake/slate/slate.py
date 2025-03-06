@@ -809,6 +809,11 @@ class Factorization(TensorBase):
         self.operands = (tensor,)
         self.decomposition = decomposition
 
+    def replace(self, replacement):
+        """Reconstructs this TensorBase with UFL replacement."""
+        tensor, = self.operands
+        return Factorization(tensor.replace(replacement), self.decomposition)
+
     @cached_property
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor
