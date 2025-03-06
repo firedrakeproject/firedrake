@@ -1,7 +1,9 @@
 # Dockerfile for Firedrake plus packages needed to build the documentation
 
-FROM firedrakeproject/firedrake-vanilla-default:latest
+# UNDO ME
+# FROM firedrakeproject/firedrake-vanilla-default:latest
+FROM firedrakeproject/firedrake-vanilla-default:roottest
 
-RUN sudo apt-get update \
-    && sudo apt-get -y install inkscape texlive-full \
-    && sudo rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get -y install inkscape texlive-full \
+    && rm -rf /var/lib/apt/lists/*

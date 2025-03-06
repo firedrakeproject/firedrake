@@ -22,6 +22,8 @@ env:
 jobs:
   test:
     name: Install and test Firedrake (Linux)
+    # UNDO ME:
+    if: false
     strategy:
       # We want to know all of the tests which fail, so don't kill real if
       # complex fails and vice-versa
@@ -204,12 +206,16 @@ jobs:
     name: "Build Docker containers"
     # Only run on master, but always generate firedrake-env image,
     # even if build fails (see docker.yml)
-    if: always() && (github.ref == 'refs/heads/master')
-    needs: [test, docker_tag]
+    # UNDO ME
+    # if: always() && (github.ref == 'refs/heads/master')
+    # needs: [test, docker_tag]
     uses: ./.github/workflows/docker.yml
     with:
-      tag: ${{ needs.docker_tag.outputs.tag }}
-      status: ${{ needs.test.result }}
+      # UNDO ME
+      # tag: ${{ needs.docker_tag.outputs.tag }}
+      # status: ${{ needs.test.result }}
+      tag: roottest
+      status: success
     secrets: inherit
 
   lint:

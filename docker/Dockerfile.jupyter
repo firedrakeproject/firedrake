@@ -1,15 +1,17 @@
 # Dockerfile for a Firedrake container including Jupyter.
 
-FROM firedrakeproject/firedrake:latest
+# UNDO ME
+# FROM firedrakeproject/firedrake:latest
+FROM firedrakeproject/firedrake:roottest
 
 # Install an iPython kernel for Firedrake
-RUN pip install --break-system-packages --verbose nbclassic nbformat nbconvert ipympl \
+RUN pip install --verbose nbclassic nbformat nbconvert ipympl \
     && jupyter nbclassic --generate-config
 
 # Move the notebooks and strip their output
-RUN mkdir firedrake-notebooks \
-    && cp -r firedrake/docs/notebooks/* firedrake-notebooks/ \
-    && for file in firedrake-notebooks/*.ipynb; do \
+RUN mkdir /opt/firedrake-notebooks \
+    && cp -r /opt/firedrake/docs/notebooks/* /opt/firedrake-notebooks/ \
+    && for file in /opt/firedrake-notebooks/*.ipynb; do \
         jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace $file; \
     done
 
