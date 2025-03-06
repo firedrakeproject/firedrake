@@ -18,11 +18,7 @@ dependencies = [
   "decorator<=4.4.2",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
-  # TODO: We are only using our fork here because the most recent PyPI release
-  # does not yet work with build isolation for Python 3.13. Once a version
-  # newer than 3.12.1 is released we can revert to simply using "h5py".
-  "h5py @ git+https://github.com/firedrakeproject/h5py.git ; python_version >= '3.13'",
-  "h5py; python_version < '3.13'",
+  "h5py>3.12.1",
   "libsupermesh",
   "petsc4py",
   "numpy",
