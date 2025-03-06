@@ -67,7 +67,7 @@ class LinearSolver(LinearVariationalSolver):
         Parameters
         ----------
         x : firedrake.function.Function
-            Existing Function to place the solution to the linear system in.
+            A Function to place the solution to the linear system in.
         b : firedrake.cofunction.Cofunction
             A Cofunction with the right-hand side of the linear system.
         """
