@@ -18,7 +18,7 @@ dependencies = [
   "decorator<=4.4.2",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
-  "h5py",
+  "h5py>3.12.1",
   "libsupermesh",
   "petsc4py",
   "numpy",
