@@ -257,7 +257,8 @@ def test_solve_empty_form_rhs(mesh):
     assert errornorm(x, w) < 1E-10
 
 
-def test_solve_assembled_lhs(mesh):
+@pytest.mark.parametrize("mat_type", ["aij", "matfree"])
+def test_solve_assembled_lhs(mesh, mat_type):
     V = FunctionSpace(mesh, "CG", 1)
     x, = SpatialCoordinate(mesh)
 
@@ -267,7 +268,7 @@ def test_solve_assembled_lhs(mesh):
     bcs = [DirichletBC(V, x, "on_boundary")]
 
     # Assemble the matrix with bcs
-    A = assemble(a, bcs=bcs)
+    A = assemble(a, bcs=bcs, mat_type=mat_type)
     w = Function(V)
 
     # Test four different RHS types

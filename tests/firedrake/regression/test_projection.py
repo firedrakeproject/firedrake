@@ -213,7 +213,7 @@ def test_projector(mat_type, quadrature_degree):
                   form_compiler_parameters=fc_params)
     P.project()
 
-    assert P.A.fc_params.get("quadrature_degree") == quadrature_degree
+    assert P.A.form_compiler_parameters.get("quadrature_degree") == quadrature_degree
 
     mass2 = assemble(vo*dx)
     assert np.abs(mass1-mass2) < 1.0e-10

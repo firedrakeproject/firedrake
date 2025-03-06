@@ -12,7 +12,7 @@ class LinearSolver(LinearVariationalSolver):
 
     @PETSc.Log.EventDecorator()
     def __init__(self, A, *, P=None, **kwargs):
-        """A linear solver for assembled systems (Ax = b).
+        """A linear solver for assembled systems (Ax = b) with constant A.
 
         :arg A: a :class:`~.MatrixBase` (the operator).
         :arg P: an optional :class:`~.MatrixBase` to construct any
@@ -49,7 +49,7 @@ class LinearSolver(LinearVariationalSolver):
         self.b = Cofunction(test.function_space().dual())
 
         problem = LinearVariationalProblem(A, self.b, self.x, aP=P,
-                                           form_compiler_parameters=A.fc_params,
+                                           form_compiler_parameters=A.form_compiler_parameters,
                                            constant_jacobian=True)
         super().__init__(problem, **kwargs)
 

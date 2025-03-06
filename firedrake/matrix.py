@@ -53,7 +53,7 @@ class MatrixBase(ufl.Matrix):
 
         Matrix type used in the assembly of the PETSc matrix: 'aij', 'baij', 'dense' or 'nest',
         or 'matfree' for matrix-free."""
-        self.fc_params = fc_params
+        self.form_compiler_parameters = fc_params
 
     def arguments(self):
         if self.a:
