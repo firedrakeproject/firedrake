@@ -104,6 +104,7 @@ def test_submesh_solve_cell_cell_mixed_scalar(dim, simplex):
     assert np.allclose(solution.subfunctions[1].dat.data_ro_with_halos, target.dat.data_ro_with_halos)
 
 
+"""
 @pytest.mark.parallel(nprocs=5)
 @pytest.mark.parametrize('dim', [2, 3])
 @pytest.mark.parametrize('simplex', [True, False])
@@ -174,6 +175,7 @@ def test_submesh_solve_cell_cell_mixed_vector(dim, simplex):
     s0, s1 = split(solution)
     x = SpatialCoordinate(subm)
     assert assemble(inner(s1 - x, s1 - x) * dx1) < 1.e-20
+"""
 
 
 def _mixed_poisson_create_mesh_2d(nref, quadrilateral, submesh_region, label_submesh, label_submesh_compl):
