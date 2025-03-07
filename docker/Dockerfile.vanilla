@@ -35,7 +35,7 @@ RUN git clone --depth 1 https://github.com/firedrakeproject/petsc.git \
     && cd ..
 
 ENV PETSC_DIR=/home/firedrake/petsc PETSC_ARCH=arch-firedrake-$ARCH
-ENV PATH="$PETSC_DIR/$PETSC_ARCH/bin:$PATH" 
+ENV PATH="$PETSC_DIR/$PETSC_ARCH/bin:$PATH"
 
 # Install SLEPc
 RUN git clone --depth 1 https://github.com/firedrakeproject/slepc.git \

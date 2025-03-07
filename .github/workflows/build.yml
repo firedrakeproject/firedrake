@@ -58,9 +58,9 @@ jobs:
           python3 ../firedrake-repo/scripts/firedrake-configure \
             --arch ${{ matrix.arch }} --show-petsc-configure-options | \
             xargs -L1 ./configure --with-make-np=12
-          make PETSC_DIR=${{ github.workspace }}/petsc PETSC_ARCH=arch-firedrake-${{ matrix.arch }}
+          make PETSC_DIR=/__w/firedrake/firedrake/petsc PETSC_ARCH=arch-firedrake-${{ matrix.arch }}
           make check
-          echo "PETSC_DIR=${{ github.workspace }}/petsc" >> "$GITHUB_ENV"
+          echo "PETSC_DIR=/__w/firedrake/firedrake/petsc" >> "$GITHUB_ENV"
           echo "PETSC_ARCH=arch-firedrake-${{ matrix.arch }}" >> "$GITHUB_ENV"
 
 
@@ -69,8 +69,8 @@ jobs:
           git clone --depth 1 https://github.com/firedrakeproject/slepc.git
           cd slepc
           ./configure
-          make SLEPC_DIR=${{ github.workspace }}/slepc
-          echo "SLEPC_DIR=${{ github.workspace }}/slepc" >> "$GITHUB_ENV"
+          make SLEPC_DIR=/__w/firedrake/firedrake/slepc
+          echo "SLEPC_DIR=/__w/firedrake/firedrake/slepc" >> "$GITHUB_ENV"
 
       - name: Install Firedrake
         id: install
