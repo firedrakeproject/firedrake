@@ -10,10 +10,11 @@ try:
     from matplotlib.animation import FuncAnimation
     from mpl_toolkits.mplot3d import Axes3D
 except ImportError:
-    # Matplotlib is not installed
-    pytest.skip("Matplotlib not installed", allow_module_level=True)
+    # Matplotlib is not installed, tests should be skipped
+    pass
 
 
+@pytest.mark.skipplot
 def test_plotting_1d():
     mesh = UnitIntervalMesh(32)
     CG = FunctionSpace(mesh, "CG", 1)
@@ -32,6 +33,7 @@ def test_plotting_1d():
     assert len(legend.get_texts()) == 1
 
 
+@pytest.mark.skipplot
 def test_plotting_1d_high_degree():
     mesh = UnitIntervalMesh(2)
     V8 = FunctionSpace(mesh, "DG", 8)
@@ -48,6 +50,7 @@ def test_plotting_1d_high_degree():
     assert patches is not None
 
 
+@pytest.mark.skipplot
 def test_plot_wrong_inputs():
     mesh = UnitSquareMesh(32, 32)
     with pytest.raises(TypeError):
@@ -60,6 +63,7 @@ def test_plot_wrong_inputs():
         plot(q)
 
 
+@pytest.mark.skipplot
 def test_plotting_scalar_field():
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "CG", 1)
@@ -83,6 +87,7 @@ def test_plotting_scalar_field():
     fig.colorbar(filled_contours, ax=axes[1])
 
 
+@pytest.mark.skipplot
 def test_tripcolor_shading():
     mesh = UnitSquareMesh(10, 10)
     x = SpatialCoordinate(mesh)
@@ -108,6 +113,7 @@ def test_tripcolor_shading():
     assert collection.get_array().shape == f0.dat.data_ro[:].shape
 
 
+@pytest.mark.skipplot
 def test_plotting_quadratic():
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "CG", 2)
@@ -120,6 +126,7 @@ def test_plotting_quadratic():
     assert contours is not None
 
 
+@pytest.mark.skipplot
 def test_tricontour_quad_mesh():
     mesh = UnitSquareMesh(10, 10, quadrilateral=True)
     V = FunctionSpace(mesh, "CG", 1)
@@ -134,6 +141,7 @@ def test_tricontour_quad_mesh():
     assert colorbar is not None
 
 
+@pytest.mark.skipplot
 def test_tricontour_extruded_mesh():
     nx = 12
     Lx = Constant(3.0)
@@ -157,6 +165,7 @@ def test_tricontour_extruded_mesh():
     assert colorbar is not None
 
 
+@pytest.mark.skipplot
 def test_quiver_plot():
     mesh = UnitSquareMesh(10, 10)
     V = VectorFunctionSpace(mesh, "CG", 1)
@@ -170,6 +179,7 @@ def test_quiver_plot():
     fig.colorbar(arrows)
 
 
+@pytest.mark.skipplot
 def test_streamplot():
     mesh = UnitSquareMesh(10, 10)
     V = VectorFunctionSpace(mesh, "CG", 1)
@@ -199,6 +209,7 @@ def test_streamplot():
         assert colorbar is not None
 
 
+@pytest.mark.skipplot
 def test_plotting_vector_field():
     mesh = UnitSquareMesh(10, 10)
     V = VectorFunctionSpace(mesh, "CG", 1)
@@ -212,6 +223,7 @@ def test_plotting_vector_field():
     fig.colorbar(contours)
 
 
+@pytest.mark.skipplot
 def test_triplot():
     mesh = UnitSquareMesh(10, 10)
     fig, axes = plt.subplots(ncols=2, sharex=True, sharey=True)
@@ -227,6 +239,7 @@ def test_triplot():
     assert len(legend.get_texts()) == 4
 
 
+@pytest.mark.skipplot
 def test_triplot_quad_mesh():
     mesh = UnitSquareMesh(10, 10, quadrilateral=True)
     fig, axes = plt.subplots()
@@ -236,6 +249,7 @@ def test_triplot_quad_mesh():
     assert len(legend.get_texts()) > 0
 
 
+@pytest.mark.skipplot
 def test_triplot_3d():
     fig = plt.figure()
 
@@ -267,6 +281,7 @@ def test_triplot_3d():
     assert len(legend.get_texts()) == 6
 
 
+@pytest.mark.skipplot
 def test_trisurf():
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "CG", 2)
@@ -281,6 +296,7 @@ def test_trisurf():
     assert collection is not None
 
 
+@pytest.mark.skipplot
 def test_trisurf3d():
     mesh = UnitIcosahedralSphereMesh(2)
     V = FunctionSpace(mesh, "CG", 2)
@@ -294,6 +310,7 @@ def test_trisurf3d():
     assert collection is not None
 
 
+@pytest.mark.skipplot
 def test_trisurf3d_quad():
     mesh = UnitCubedSphereMesh(2)
     V = FunctionSpace(mesh, "CG", 2)
@@ -307,6 +324,7 @@ def test_trisurf3d_quad():
     assert collection is not None
 
 
+@pytest.mark.skipplot
 def test_tripcolor_movie():
     mesh = UnitSquareMesh(16, 16)
     Q = FunctionSpace(mesh, 'CG', 2)

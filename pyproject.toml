@@ -72,6 +72,23 @@ test = [
 # Dependencies needed to run the full test suite
 ci = [
   "ipympl",  # needed for notebook testing
+  "jax",
+  "matplotlib",
+  "mpi-pytest",
+  "nbval",
+  "ngsPETSc",
+  "pylit",
+  "pytest",
+  "pytest-split",  # needed for firedrake-run-split-tests
+  "pytest-timeout",
+  "pytest-xdist",
+  "slepc4py",
+  "torch",  # requires passing '--extra-index-url' to work
+  "vtk",
+]
+docker = [  # Used in firedrake-vanilla container
+  "ipympl",  # needed for notebook testing
+  "matplotlib",
   "mpi-pytest",
   "nbval",
   "pylit",
@@ -79,6 +96,7 @@ ci = [
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
+  "slepc4py",
 ]
 # Dependencies needed to build the docs
 docs = [
