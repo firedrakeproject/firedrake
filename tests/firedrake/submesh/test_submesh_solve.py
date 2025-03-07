@@ -42,7 +42,7 @@ def test_submesh_solve_simple(nelem, distribution_parameters):
     assert abs(error - suberror) < 1e-15
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel(nprocs=5)
 @pytest.mark.parametrize('dim', [2, 3])
 @pytest.mark.parametrize('simplex', [True, False])
 def test_submesh_solve_cell_cell_mixed_scalar(dim, simplex):
@@ -104,7 +104,7 @@ def test_submesh_solve_cell_cell_mixed_scalar(dim, simplex):
     assert np.allclose(solution.subfunctions[1].dat.data_ro_with_halos, target.dat.data_ro_with_halos)
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel(nprocs=5)
 @pytest.mark.parametrize('dim', [2, 3])
 @pytest.mark.parametrize('simplex', [True, False])
 def test_submesh_solve_cell_cell_mixed_vector(dim, simplex):
