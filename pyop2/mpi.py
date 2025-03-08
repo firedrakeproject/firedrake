@@ -278,10 +278,9 @@ def delcomm_outer(comm, keyval, icomm):
                 f"There are still {refcount[0]} references to {comm.name}, "
                 "this will cause deadlock if the communicator has been incorrectly freed"
             )
+        icomm.Free()
     except:
         pass
-
-    icomm.Free()
 
 
 # Reference count, creation index, inner/outer/compilation communicator
