@@ -55,23 +55,20 @@ def test_submesh_solve_cell_cell_mixed_scalar(dim, simplex):
     submesh_label = 999
     mesh.mark_entities(submesh_function, submesh_label)
     subm = Submesh(mesh, dim, submesh_label)
-    V0 = FunctionSpace(mesh, "CG", 2)
-    V1 = FunctionSpace(subm, "CG", 3)
-    V = V0 * V1
-    u = TrialFunction(V)
-    v = TestFunction(V)
-    u0, u1 = split(u)
-    v0, v1 = split(v)
-    dx0 = Measure("cell", domain=mesh)
-    dx1 = Measure("cell", domain=subm)
-    a = inner(grad(u0), grad(v0)) * dx0 + inner(u0 - u1, v1) * dx1
-    L = inner(Constant(0.), v1) * dx1
-    g = Function(V0).interpolate(solution_expr(SpatialCoordinate(mesh)))
-    bc = DirichletBC(V.sub(0), g, bid)
-    solution = Function(V)
-    #solve(a == L, solution, bcs=[bc])
-    #target = Function(V1).interpolate(solution_expr(SpatialCoordinate(subm)))
-    #assert np.allclose(solution.subfunctions[1].dat.data_ro_with_halos, target.dat.data_ro_with_halos)
+    #V0 = FunctionSpace(mesh, "CG", 2)
+    #V1 = FunctionSpace(subm, "CG", 3)
+    #V = V0 * V1
+    #u = TrialFunction(V)
+    #v = TestFunction(V)
+    #u0, u1 = split(u)
+    #v0, v1 = split(v)
+    #dx0 = Measure("cell", domain=mesh)
+    #dx1 = Measure("cell", domain=subm)
+    #a = inner(grad(u0), grad(v0)) * dx0 + inner(u0 - u1, v1) * dx1
+    #L = inner(Constant(0.), v1) * dx1
+    #g = Function(V0).interpolate(solution_expr(SpatialCoordinate(mesh)))
+    #bc = DirichletBC(V.sub(0), g, bid)
+    #solution = Function(V)
 
 
 """
