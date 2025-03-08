@@ -280,6 +280,7 @@ def delcomm_outer(comm, keyval, icomm):
             )
     except:
         pass
+
     icomm.Free()
 
 
