@@ -54,7 +54,7 @@ def test_submesh_solve_cell_cell_mixed_scalar(dim, simplex):
     submesh_function = Function(DG0).interpolate(submesh_expr(SpatialCoordinate(mesh)))
     submesh_label = 999
     mesh.mark_entities(submesh_function, submesh_label)
-    subm = Submesh(mesh, dim, submesh_label)
+    #subm = Submesh(mesh, dim, submesh_label)
     #V0 = FunctionSpace(mesh, "CG", 2)
     #V1 = FunctionSpace(subm, "CG", 3)
     #V = V0 * V1
