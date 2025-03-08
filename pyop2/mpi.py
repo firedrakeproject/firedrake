@@ -580,21 +580,28 @@ def _free_comms():
     debug("STATE1")
     debug(pyop2_comm_status())
 
+    if COMM_WORLD == MPI.COMM_NULL:
+        aaa = "null comm"
+    else:
+        aaa = f"rank = {COMM_WORLD.rank}/{COMM_WORLD.size}"
+
     debug("Freeing PYOP2_COMM_SELF")
+    debug(f"{aaa}: 777")
     COMM_SELF.Free()
+    debug(f"{aaa}: 000")
     debug("STATE2")
     debug(pyop2_comm_status())
     debug(f"Freeing comms in list (length {len(_DUPED_COMM_DICT)})")
-    debug(f"111")
+    debug(f"{aaa}: 111")
     for key in sorted(_DUPED_COMM_DICT.keys(), reverse=True):
-        debug(f"222: key={key}")
+        debug(f"{aaa}: 222: key={key}")
         comm = _DUPED_COMM_DICT[key]
         if comm != MPI.COMM_NULL:
             refcount = comm.Get_attr(refcount_keyval)
             debug(f"Freeing {comm.name}, with index {key}, which has refcount {refcount[0]}")
             comm.Free()
         del _DUPED_COMM_DICT[key]
-    debug(f"333")
+    debug(f"{aaa}: 333")
     for kv in [
         refcount_keyval,
         innercomm_keyval,
@@ -602,9 +609,9 @@ def _free_comms():
         compilationcomm_keyval,
         comm_cache_keyval
     ]:
-        debug(f"444")
+        debug(f"{aaa}: 444")
         MPI.Comm.Free_keyval(kv)
-        debug(f"555")
+        debug(f"{aaa}: 555")
 
 
 # Install an exception hook to MPI Abort if an exception isn't caught

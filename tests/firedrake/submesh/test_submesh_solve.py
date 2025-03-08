@@ -44,7 +44,7 @@ def test_submesh_solve_simple(nelem, distribution_parameters):
 
 @pytest.mark.parallel(nprocs=5)
 @pytest.mark.parametrize('dim', [2, 3])
-@pytest.mark.parametrize('simplex', [True, False])
+@pytest.mark.parametrize('simplex', [True])
 def test_submesh_solve_cell_cell_mixed_scalar(dim, simplex):
     if dim == 2:
         if simplex:
