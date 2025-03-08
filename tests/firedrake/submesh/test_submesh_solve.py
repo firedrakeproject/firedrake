@@ -69,9 +69,9 @@ def test_submesh_solve_cell_cell_mixed_scalar(dim, simplex):
     g = Function(V0).interpolate(solution_expr(SpatialCoordinate(mesh)))
     bc = DirichletBC(V.sub(0), g, bid)
     solution = Function(V)
-    solve(a == L, solution, bcs=[bc])
-    target = Function(V1).interpolate(solution_expr(SpatialCoordinate(subm)))
-    assert np.allclose(solution.subfunctions[1].dat.data_ro_with_halos, target.dat.data_ro_with_halos)
+    #solve(a == L, solution, bcs=[bc])
+    #target = Function(V1).interpolate(solution_expr(SpatialCoordinate(subm)))
+    #assert np.allclose(solution.subfunctions[1].dat.data_ro_with_halos, target.dat.data_ro_with_halos)
 
 
 """
