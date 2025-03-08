@@ -46,40 +46,10 @@ def test_submesh_solve_simple(nelem, distribution_parameters):
 @pytest.mark.parametrize('dim', [2])
 @pytest.mark.parametrize('simplex', [True])
 def test_submesh_solve_cell_cell_mixed_scalar(dim, simplex):
-    if dim == 2:
-        if simplex:
-            mesh = Mesh("./docs/notebooks/stokes-control.msh")
-            bid = (1, 2, 3, 4, 5)
-            submesh_expr = lambda x: conditional(x[0] < 10., 1, 0)
-            solution_expr = lambda x: x[0] + x[1]
-        else:
-            mesh = Mesh(join(cwd, "..", "meshes", "unitsquare_unstructured_quadrilaterals.msh"))
-            HDivTrace0 = FunctionSpace(mesh, "HDiv Trace", 0)
-            x, y = SpatialCoordinate(mesh)
-            hdivtrace0x = Function(HDivTrace0).interpolate(conditional(And(x > .001, x < .999), 0, 1))
-            hdivtrace0y = Function(HDivTrace0).interpolate(conditional(And(y > .001, y < .999), 0, 1))
-            mesh = RelabeledMesh(mesh, [hdivtrace0x, hdivtrace0y], [111, 222])
-            bid = (111, 222)
-            submesh_expr = lambda x: conditional(x[0] < .5, 1, 0)
-            solution_expr = lambda x: x[0] + x[1]
-    elif dim == 3:
-        if simplex:
-            nref = 3
-            mesh = BoxMesh(2 ** nref, 2 ** nref, 2 ** nref, 1., 1., 1., hexahedral=False)
-            HDivTrace0 = FunctionSpace(mesh, "HDiv Trace", 0)
-        else:
-            mesh = Mesh(join(cwd, "..", "meshes", "cube_hex.msh"))
-            HDivTrace0 = FunctionSpace(mesh, "Q", 2)
-        x, y, z = SpatialCoordinate(mesh)
-        hdivtrace0x = Function(HDivTrace0).interpolate(conditional(And(x > .001, x < .999), 0, 1))
-        hdivtrace0y = Function(HDivTrace0).interpolate(conditional(And(y > .001, y < .999), 0, 1))
-        hdivtrace0z = Function(HDivTrace0).interpolate(conditional(And(z > .001, z < .999), 0, 1))
-        mesh = RelabeledMesh(mesh, [hdivtrace0x, hdivtrace0y, hdivtrace0z], [111, 222, 333])
-        bid = (111, 222, 333)
-        submesh_expr = lambda x: conditional(x[0] > .5, 1, 0)
-        solution_expr = lambda x: x[0] + x[1] + x[2]
-    else:
-        raise NotImplementedError
+    mesh = Mesh("./docs/notebooks/stokes-control.msh")
+    bid = (1, 2, 3, 4, 5)
+    submesh_expr = lambda x: conditional(x[0] < 10., 1, 0)
+    solution_expr = lambda x: x[0] + x[1]
     DG0 = FunctionSpace(mesh, "DG", 0)
     submesh_function = Function(DG0).interpolate(submesh_expr(SpatialCoordinate(mesh)))
     submesh_label = 999
