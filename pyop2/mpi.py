@@ -240,35 +240,46 @@ def delcomm_outer(comm, keyval, icomm):
     if keyval == compilationcomm_keyval:
         debug(f'Deleting compilationcomm keyval on {comm.name}')
 
-    ocomm = icomm.Get_attr(outercomm_keyval)
-    if ocomm is None:
-        raise PyOP2CommError("Inner comm does not have expected reference to outer comm")
+    try:
+        ocomm = icomm.Get_attr(outercomm_keyval)
+        if ocomm is None:
+            raise PyOP2CommError("Inner comm does not have expected reference to outer comm")
 
-    if ocomm != comm:
-        raise PyOP2CommError("Inner comm has reference to non-matching outer comm")
-    icomm.Delete_attr(outercomm_keyval)
+        if ocomm != comm:
+            raise PyOP2CommError("Inner comm has reference to non-matching outer comm")
+        icomm.Delete_attr(outercomm_keyval)
+    except:
+        pass
 
     # An inner comm may or may not hold a reference to a compilation comm
-    comp_comm = icomm.Get_attr(compilationcomm_keyval)
-    if comp_comm is not None:
-        debug('Removing compilation comm on inner comm')
-        decref(comp_comm)
-        icomm.Delete_attr(compilationcomm_keyval)
-
+    try:
+        comp_comm = icomm.Get_attr(compilationcomm_keyval)
+        if comp_comm is not None:
+            debug('Removing compilation comm on inner comm')
+            decref(comp_comm)
+            icomm.Delete_attr(compilationcomm_keyval)
+    except:
+        pass
     # Once we have removed the reference to the inner/compilation comm we can free it
-    cidx = icomm.Get_attr(cidx_keyval)
-    cidx = cidx[0]
-    del _DUPED_COMM_DICT[cidx]
+    try:
+        cidx = icomm.Get_attr(cidx_keyval)
+        cidx = cidx[0]
+        del _DUPED_COMM_DICT[cidx]
+    except:
+        pass
     gc.collect()
-    refcount = icomm.Get_attr(refcount_keyval)
-    if refcount[0] > 1:
-        # In the case where `comm` is a custom user communicator there may be references
-        # to the inner comm still held and this is not an issue, but there is not an
-        # easy way to distinguish this case, so we just log the event.
-        debug(
-            f"There are still {refcount[0]} references to {comm.name}, "
-            "this will cause deadlock if the communicator has been incorrectly freed"
-        )
+    try:
+        refcount = icomm.Get_attr(refcount_keyval)
+        if refcount[0] > 1:
+            # In the case where `comm` is a custom user communicator there may be references
+            # to the inner comm still held and this is not an issue, but there is not an
+            # easy way to distinguish this case, so we just log the event.
+            debug(
+                f"There are still {refcount[0]} references to {comm.name}, "
+                "this will cause deadlock if the communicator has been incorrectly freed"
+            )
+    except:
+        pass
     icomm.Free()
 
 
