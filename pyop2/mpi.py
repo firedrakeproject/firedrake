@@ -240,47 +240,36 @@ def delcomm_outer(comm, keyval, icomm):
     if keyval == compilationcomm_keyval:
         debug(f'Deleting compilationcomm keyval on {comm.name}')
 
-    try:
-        ocomm = icomm.Get_attr(outercomm_keyval)
-        if ocomm is None:
-            raise PyOP2CommError("Inner comm does not have expected reference to outer comm")
+    ocomm = icomm.Get_attr(outercomm_keyval)
+    if ocomm is None:
+        raise PyOP2CommError("Inner comm does not have expected reference to outer comm")
 
-        if ocomm != comm:
-            raise PyOP2CommError("Inner comm has reference to non-matching outer comm")
-        icomm.Delete_attr(outercomm_keyval)
-    except:
-        pass
+    if ocomm != comm:
+        raise PyOP2CommError("Inner comm has reference to non-matching outer comm")
+    icomm.Delete_attr(outercomm_keyval)
 
     # An inner comm may or may not hold a reference to a compilation comm
-    try:
-        comp_comm = icomm.Get_attr(compilationcomm_keyval)
-        if comp_comm is not None:
-            debug('Removing compilation comm on inner comm')
-            decref(comp_comm)
-            icomm.Delete_attr(compilationcomm_keyval)
-    except:
-        pass
+    comp_comm = icomm.Get_attr(compilationcomm_keyval)
+    if comp_comm is not None:
+        debug('Removing compilation comm on inner comm')
+        decref(comp_comm)
+        icomm.Delete_attr(compilationcomm_keyval)
+
     # Once we have removed the reference to the inner/compilation comm we can free it
-    try:
-        cidx = icomm.Get_attr(cidx_keyval)
-        cidx = cidx[0]
-        del _DUPED_COMM_DICT[cidx]
-    except:
-        pass
+    cidx = icomm.Get_attr(cidx_keyval)
+    cidx = cidx[0]
+    del _DUPED_COMM_DICT[cidx]
     gc.collect()
-    try:
-        refcount = icomm.Get_attr(refcount_keyval)
-        if refcount[0] > 1:
-            # In the case where `comm` is a custom user communicator there may be references
-            # to the inner comm still held and this is not an issue, but there is not an
-            # easy way to distinguish this case, so we just log the event.
-            debug(
-                f"There are still {refcount[0]} references to {comm.name}, "
-                "this will cause deadlock if the communicator has been incorrectly freed"
-            )
-        icomm.Free()
-    except:
-        pass
+    refcount = icomm.Get_attr(refcount_keyval)
+    if refcount[0] > 1:
+        # In the case where `comm` is a custom user communicator there may be references
+        # to the inner comm still held and this is not an issue, but there is not an
+        # easy way to distinguish this case, so we just log the event.
+        debug(
+            f"There are still {refcount[0]} references to {comm.name}, "
+            "this will cause deadlock if the communicator has been incorrectly freed"
+        )
+    icomm.Free()
 
 
 # Reference count, creation index, inner/outer/compilation communicator
@@ -591,28 +580,18 @@ def _free_comms():
     debug("STATE1")
     debug(pyop2_comm_status())
 
-    if COMM_WORLD == MPI.COMM_NULL:
-        aaa = "null comm"
-    else:
-        aaa = f"rank = {COMM_WORLD.rank}/{COMM_WORLD.size}"
-
     debug("Freeing PYOP2_COMM_SELF")
-    debug(f"{aaa}: 777")
     COMM_SELF.Free()
-    debug(f"{aaa}: 000")
     debug("STATE2")
     debug(pyop2_comm_status())
     debug(f"Freeing comms in list (length {len(_DUPED_COMM_DICT)})")
-    debug(f"{aaa}: 111")
     for key in sorted(_DUPED_COMM_DICT.keys(), reverse=True):
-        debug(f"{aaa}: 222: key={key}")
         comm = _DUPED_COMM_DICT[key]
         if comm != MPI.COMM_NULL:
             refcount = comm.Get_attr(refcount_keyval)
             debug(f"Freeing {comm.name}, with index {key}, which has refcount {refcount[0]}")
             comm.Free()
         del _DUPED_COMM_DICT[key]
-    debug(f"{aaa}: 333")
     for kv in [
         refcount_keyval,
         innercomm_keyval,
@@ -620,9 +599,7 @@ def _free_comms():
         compilationcomm_keyval,
         comm_cache_keyval
     ]:
-        debug(f"{aaa}: 444")
         MPI.Comm.Free_keyval(kv)
-        debug(f"{aaa}: 555")
 
 
 # Install an exception hook to MPI Abort if an exception isn't caught
