@@ -47,28 +47,11 @@ def test_submesh_solve_simple(nelem, distribution_parameters):
 @pytest.mark.parametrize('simplex', [True])
 def test_submesh_solve_cell_cell_mixed_scalar(dim, simplex):
     mesh = Mesh("./docs/notebooks/stokes-control.msh")
-    bid = (1, 2, 3, 4, 5)
-    submesh_expr = lambda x: conditional(x[0] < 10., 1, 0)
-    solution_expr = lambda x: x[0] + x[1]
-    DG0 = FunctionSpace(mesh, "DG", 0)
-    submesh_function = Function(DG0).interpolate(submesh_expr(SpatialCoordinate(mesh)))
-    #submesh_label = 999
-    #mesh.mark_entities(submesh_function, submesh_label)
-    #subm = Submesh(mesh, dim, submesh_label)
-    #V0 = FunctionSpace(mesh, "CG", 2)
-    #V1 = FunctionSpace(subm, "CG", 3)
-    #V = V0 * V1
-    #u = TrialFunction(V)
-    #v = TestFunction(V)
-    #u0, u1 = split(u)
-    #v0, v1 = split(v)
-    #dx0 = Measure("cell", domain=mesh)
-    #dx1 = Measure("cell", domain=subm)
-    #a = inner(grad(u0), grad(v0)) * dx0 + inner(u0 - u1, v1) * dx1
-    #L = inner(Constant(0.), v1) * dx1
-    #g = Function(V0).interpolate(solution_expr(SpatialCoordinate(mesh)))
-    #bc = DirichletBC(V.sub(0), g, bid)
-    #solution = Function(V)
+    #bid = (1, 2, 3, 4, 5)
+    #submesh_expr = lambda x: conditional(x[0] < 10., 1, 0)
+    #solution_expr = lambda x: x[0] + x[1]
+    #DG0 = FunctionSpace(mesh, "DG", 0)
+    #submesh_function = Function(DG0).interpolate(submesh_expr(SpatialCoordinate(mesh)))
 
 
 """
