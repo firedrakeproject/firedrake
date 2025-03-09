@@ -80,7 +80,7 @@ reorder_noop = False
 
 
 def _postprocess_periodic_mesh(coords, comm, distribution_parameters, reorder, name, distribution_name, permutation_name):
-    dm = coords.function_space().mesh().topology.topology_dm
+    dm = coords.function_space().mesh().geometry_dm
     dm.removeLabel("pyop2_core")
     dm.removeLabel("pyop2_owned")
     dm.removeLabel("pyop2_ghost")
