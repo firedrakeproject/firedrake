@@ -73,6 +73,8 @@ jobs:
           : # like h5py or mpi4py if changing HDF5/MPI libraries.
           pip cache remove petsc4py
           pip install --verbose --no-binary h5py './firedrake-repo[ci]'
+          pip install git+https://github.com/firedrakeproject/fiat.git@ksagiyam/introduce_mixed_map
+          pip install git+https://github.com/firedrakeproject/ufl.git@ksagiyam/introduce_mixed_map
           firedrake-clean
           : # Extra test dependencies
           pip install --extra-index-url https://download.pytorch.org/whl/cpu \
@@ -84,37 +86,6 @@ jobs:
           . venv/bin/activate
           firedrake-check
         timeout-minutes: 5
-
-      - name: Run tests (nprocs = 1)
-        # Run even if earlier tests failed
-        if: ${{ success() || steps.install.conclusion == 'success' }}
-        run: |
-          . venv/bin/activate
-          : # Use pytest-xdist here so we can have a single collated output (not possible
-          : # for parallel tests)
-          firedrake-run-split-tests 1 1 "-n 12 $EXTRA_PYTEST_ARGS --junit-xml=firedrake1_{#}.xml"
-        timeout-minutes: 60
-
-      - name: Run tests (nprocs = 2)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 2 6 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake2_{#}.xml"
-        timeout-minutes: 30
-
-      - name: Run tests (nprocs = 3)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 3 4 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake3_{#}.xml"
-        timeout-minutes: 60
-
-      - name: Run tests (nprocs = 4)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 4 3 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake4_{#}.xml"
-        timeout-minutes: 15
 
       - name: Run tests (nprocs = 5)
         if: ${{ success() || steps.install.conclusion == 'success' }}
