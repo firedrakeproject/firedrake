@@ -240,7 +240,10 @@ def delcomm_outer(comm, keyval, icomm):
     if keyval == compilationcomm_keyval:
         debug(f'Deleting compilationcomm keyval on {comm.name}')
 
-    ocomm = icomm.Get_attr(outercomm_keyval)
+    try:
+        ocomm = icomm.Get_attr(outercomm_keyval)
+    else:
+        ocomm = None
     if ocomm is None:
         raise PyOP2CommError("Inner comm does not have expected reference to outer comm")
 
