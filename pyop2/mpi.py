@@ -242,7 +242,7 @@ def delcomm_outer(comm, keyval, icomm):
 
     try:
         ocomm = icomm.Get_attr(outercomm_keyval)
-    else:
+    except:
         ocomm = None
     if ocomm is None:
         raise PyOP2CommError("Inner comm does not have expected reference to outer comm")
