@@ -217,6 +217,27 @@ def test_firedrake_integral_sphere_high_order_netgen():
     assert abs(assemble(f * dx) - (4/3)*np.pi) < 1.e-4
 
 
+@pytest.mark.parallel
+def test_firedrake_integral_sphere_high_order_netgen_parallel():
+    from netgen.csg import CSGeometry, Pnt, Sphere
+    import netgen
+
+    comm = COMM_WORLD
+    if comm.Get_rank() == 0:
+        geo = CSGeometry()
+        geo.Add(Sphere(Pnt(0, 0, 0), 1).bc("sphere"))
+        ngmesh = geo.GenerateMesh(maxh=0.7)
+    else:
+        ngmesh = netgen.libngpy._meshing.Mesh(3)
+
+    msh = Mesh(ngmesh)
+    homsh = Mesh(msh.curve_field(2))
+    V = FunctionSpace(homsh, "CG", 2)
+    x, y, z = SpatialCoordinate(homsh)
+    f = assemble(interpolate(1+0*x, V))
+    assert abs(assemble(f * dx) - (4/3)*np.pi) < 1.e-2
+
+
 @pytest.mark.skipcomplex
 def test_firedrake_Adaptivity_netgen():
     from netgen.occ import WorkPlane, OCCGeometry, Axes
