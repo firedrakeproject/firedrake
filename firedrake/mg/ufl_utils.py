@@ -62,6 +62,7 @@ def coarsen(expr, self, coefficient_mapping=None):
 
 
 @coarsen.register(ufl.Mesh)
+@coarsen.register(ufl.MeshSequence)
 def coarsen_mesh(mesh, self, coefficient_mapping=None):
     hierarchy, level = utils.get_level(mesh)
     if hierarchy is None:
@@ -132,7 +133,9 @@ def coarsen_function_space(V, self, coefficient_mapping=None):
         return V._coarse
 
     V_fine = V
-    mesh_coarse = self(V_fine.mesh(), self)
+    # Handle MixedFunctionSpace : V_fine.reconstruct requires MeshSequence.
+    fine_mesh = V_fine.mesh() if V_fine.index is None else V_fine.parent.mesh()
+    mesh_coarse = self(fine_mesh, self)
     name = f"coarse_{V.name}" if V.name else None
     V_coarse = V_fine.reconstruct(mesh=mesh_coarse, name=name)
     V_coarse._fine = V_fine
