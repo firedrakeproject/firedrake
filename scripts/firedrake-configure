@@ -366,9 +366,12 @@ def prepare_configure_options(
         "--COPTFLAGS='-O3 -march=native -mtune=native'",
         "--CXXOPTFLAGS='-O3 -march=native -mtune=native'",
     ])
-    # -march=native and -mtune=native not available for FOPTFLAGS on macOS
     if package_manager == MACOS_HOMEBREW_ARM64:
+        # -march=native and -mtune=native not available for FOPTFLAGS on macOS
         configure_options.append("--FOPTFLAGS='-O3'")
+        # Avoid macos + openmpi + mumps segmentation violation issue;
+        # see https://github.com/firedrakeproject/firedrake/issues/4102.
+        configure_options.append("-download-mumps-avoid-mpi-in-place")
     else:
         configure_options.append("--FOPTFLAGS='-O3 -march=native -mtune=native'")
 
