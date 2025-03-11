@@ -4712,7 +4712,7 @@ class MeshSequenceGeometry(ufl.MeshSequence):
                 raise ValueError(f"Got {type(m)}")
         super().__init__(meshes)
         self.comm = meshes[0].comm
-        self._comm = internal_comm(self.comm, self)
+        #self._comm = internal_comm(self.comm, self)
         # Only set hierarchy at top level.
         if set_hierarchy:
             self.set_hierarchy()
@@ -4796,6 +4796,10 @@ class MeshSequenceGeometry(ufl.MeshSequence):
         result = tuple(result)
         for i, m in enumerate(result):
             set_level(m, result, i)
+
+    @property
+    def _comm(self):
+        return self.topology._comm
 
 
 class MeshSequenceTopology(object):

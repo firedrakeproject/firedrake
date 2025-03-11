@@ -240,6 +240,8 @@ def delcomm_outer(comm, keyval, icomm):
     if keyval == compilationcomm_keyval:
         debug(f'Deleting compilationcomm keyval on {comm.name}')
 
+    #print("delcomm_outer:", icomm)
+    #import pdb;pdb.set_trace()
     ocomm = icomm.Get_attr(outercomm_keyval)
     if ocomm is None:
         raise PyOP2CommError("Inner comm does not have expected reference to outer comm")
@@ -410,6 +412,7 @@ def dup_comm(comm_in):
         # Haven't seen this comm before, duplicate it.
         internal_comm = comm_in.Dup()
         comm_in.Set_attr(innercomm_keyval, internal_comm)
+        #print("dup_comm:", internal_comm, flush=True)
         internal_comm.Set_attr(outercomm_keyval, comm_in)
         # Name
         internal_comm.Set_name(f"{comm_in.name or comm_in.py2f()}_DUP")
@@ -468,6 +471,8 @@ def create_split_comm(comm):
     # Name
     split_comm.Set_name(f"{comm.name or comm.py2f()}_COMPILATION")
     # Outer communicator
+    #print("create_split_comm:", split_comm, flush=True)
+    #import pdb;pdb.set_trace()
     split_comm.Set_attr(outercomm_keyval, comm)
     # Refcount
     split_comm.Set_attr(refcount_keyval, [1])
