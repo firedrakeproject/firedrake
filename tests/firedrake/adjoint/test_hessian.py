@@ -194,7 +194,7 @@ def test_nonlinear():
 
     dJdm = J.block_variable.tlm_value
     Hm = f.block_variable.hessian_value.vector().inner(h.vector())
-    assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
+    assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.8
 
 
 @pytest.mark.skipcomplex

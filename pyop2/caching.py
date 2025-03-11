@@ -513,10 +513,44 @@ def parallel_cache(
                     debug(debug_string + "hit")
                     cache_hit = True
 
-                if configuration["spmd_strict"] and not pytools.is_single_valued(comm.allgather(cache_hit)):
-                    raise ValueError("Cache hit on some ranks but missed on others")
+                if isinstance(local_cache, DictLikeDiskAccess):
+                    if bcast:
+                        # Since disk caches share state between ranks there are extra
+                        # opportunities for mismatching hit/miss results and hence
+                        # deadlocks. These include:
+                        #
+                        # 1. Race conditions
+                        #
+                        # On CI or with ensemble parallelism other processes not in this
+                        # comm may write to disk, so load imbalances on the current comm
+                        # may result in a hit on some ranks but not others.
+                        #
+                        # 2. Eager writing to disk on rank 0
+                        #
+                        # Since broadcasting is non-blocking for the sending rank (rank 0)
+                        # it is possible for it to have written to disk before other ranks
+                        # begin the cache lookup. These ranks register a cache hit.
+                        #
+                        # If ranks disagree on whether it was a hit or miss then some ranks
+                        # will do a broadcast and others will not, ruining MPI synchronisation.
+                        # To fix this we check to see if any ranks have hit cache and, if so,
+                        # nominate that rank as the root of the subsequent broadcast.
+                        root = comm.rank if cache_hit else -1
+                        root = comm.allreduce(root, op=MPI.MAX)
+                        if root >= 0:
+                            # Found a rank with a cache hit, broadcast 'value' from it
+                            value = comm.bcast(value, root=root)
+                            cache_hit = True
+                        else:
+                            # Cache miss on all ranks, recompute below
+                            cache_hit = False
+                else:
+                    # In-memory caches are stashed on the comm and so must always agree
+                    # on their contents.
+                    if configuration["spmd_strict"] and not pytools.is_single_valued(comm.allgather(cache_hit)):
+                        raise ValueError("Cache hit on some ranks but missed on others")
 
-            if value is CACHE_MISS:
+            if not cache_hit:
                 if bcast:
                     value = func(*args, **kwargs) if comm.rank == 0 else None
                     value = comm.bcast(value, root=0)
