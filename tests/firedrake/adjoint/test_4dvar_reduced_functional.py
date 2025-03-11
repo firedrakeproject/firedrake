@@ -61,9 +61,9 @@ def covariance_norm(covariance):
     return n2
 
 
-B = (fd.Constant(10.), 2)  # background error covariance
-R = (fd.Constant(0.1), 2)  # observation error covariance
-Q = (fd.Constant(0.5), 2)  # model error covariance
+B = (fd.Constant(10.), 4)  # background error covariance
+R = (fd.Constant(0.1), 4)  # observation error covariance
+Q = (fd.Constant(0.5), 4)  # model error covariance
 
 
 """Advecting velocity"""
@@ -395,8 +395,12 @@ def main_test_strong_4dvar_advection():
     eps = 1e-12
 
     # Does evaluating the functional match the reference rf?
-    assert abs(Jhat_pyadj(mp) - Jhat_aaorf(ma)) < eps
-    assert abs(Jhat_pyadj(hp) - Jhat_aaorf(ha)) < eps
+    Jpm = Jhat_pyadj(mp)
+    Jph = Jhat_pyadj(hp)
+    Jam = Jhat_aaorf(ma)
+    Jah = Jhat_aaorf(ha)
+    assert abs((Jpm - Jam)/Jpm) < eps
+    assert abs((Jph - Jah)/Jph) < eps
 
     # If we match the functional, then passing the taylor tests
     # should mean that we match the derivative too.
@@ -436,10 +440,13 @@ def main_test_weak_4dvar_advection():
     ma = m(V, ensemble)
     ha = h(V, ensemble)
 
-    eps = 1e-10
+    Jam = Jhat_aaorf(ma)
+    Jah = Jhat_aaorf(ha)
+
+    eps = 1e-12
     # Does evaluating the functional match the reference rf?
-    assert abs(Jpm - Jhat_aaorf(ma)) < eps
-    assert abs(Jph - Jhat_aaorf(ha)) < eps
+    assert abs((Jpm - Jam)/Jpm) < eps
+    assert abs((Jph - Jah)/Jph) < eps
 
     # If we match the functional, then passing the taylor tests
     # should mean that we match the derivative too.

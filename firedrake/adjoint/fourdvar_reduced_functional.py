@@ -2,16 +2,17 @@ from pyadjoint import ReducedFunctional, OverloadedType, Control, Tape, AdjFloat
     stop_annotating, get_working_tape, set_working_tape
 from pyadjoint.enlisting import Enlist
 from firedrake.function import Function
-from firedrake.ensemble import EnsembleFunction
+from firedrake.ensemble import EnsembleFunction, EnsembleFunctionSpace
 from firedrake import assemble, inner, dx, Constant
 from firedrake.adjoint.composite_reduced_functional import (
-    CompositeReducedFunctional, tlm, hessian, intermediate_options)
+    CompositeReducedFunctional, intermediate_options)
 from ufl.duals import is_primal, is_dual
 from functools import wraps, cached_property, partial
 from typing import Callable, Optional, Collection, Union
 from types import SimpleNamespace
 from contextlib import contextmanager
 from mpi4py import MPI
+from firedrake.petsc import PETSc
 
 __all__ = ['FourDVarReducedFunctional']
 
@@ -123,6 +124,7 @@ class FourDVarReducedFunctional(ReducedFunctional):
     :class:`pyadjoint.ReducedFunctional`.
     """
 
+    @PETSc.Log.EventDecorator()
     def __init__(self, control: Control,
                  background_covariance: Union[Constant, tuple],
                  background: Optional[OverloadedType] = None,
@@ -168,12 +170,18 @@ class FourDVarReducedFunctional(ReducedFunctional):
             self._controls = tuple(Control(xi) for xi in _x)
 
             self.control = control
-            self.controls = [control]
+            self.controls = Enlist(control)
 
             # first control on rank 0 is initial conditions, not end of observation stage
             self.nlocal_stages = len(_x) - (1 if self.trank == 0 else 0)
 
             self.stages = []    # The record of each observation stage
+
+            self.observation_rfs = []
+            self.observation_norms = []
+
+            self.model_rfs = []
+            self.model_norms = []
 
             # first rank sets up functionals for background initial observations
             if self.trank == 0:
@@ -209,6 +217,9 @@ class FourDVarReducedFunctional(ReducedFunctional):
                         self.initial_observation_error.functional,
                         observation_covariance,
                         control_name="obs_err_vec_0_copy")
+
+                    self.observation_rfs.append(self.initial_observation_error)
+                    self.observation_norms.append(self.initial_observation_norm)
 
                     # compose initial observation reduced functionals to evaluate both together
                     self.initial_observation_rf = CompositeReducedFunctional(
@@ -282,6 +293,7 @@ class FourDVarReducedFunctional(ReducedFunctional):
 
     @sc_passthrough
     @stop_annotating()
+    @PETSc.Log.EventDecorator()
     def __call__(self, values: OverloadedType):
         """Computes the reduced functional with supplied control value.
 
@@ -361,6 +373,7 @@ class FourDVarReducedFunctional(ReducedFunctional):
 
     @sc_passthrough
     @stop_annotating()
+    @PETSc.Log.EventDecorator()
     def derivative(self, adj_input: float = 1.0, options: dict = {}):
         """Returns the derivative of the functional w.r.t. the control.
         Using the adjoint method, the derivative of the functional with
@@ -459,6 +472,7 @@ class FourDVarReducedFunctional(ReducedFunctional):
 
     @sc_passthrough
     @stop_annotating()
+    @PETSc.Log.EventDecorator()
     def hessian(self, m_dot: OverloadedType, options: dict = {}):
         """Returns the action of the Hessian of the functional w.r.t. the control on a vector m_dot.
 
@@ -492,6 +506,9 @@ class FourDVarReducedFunctional(ReducedFunctional):
 
         hess = self.control.copy_data()
         hess.zero()
+
+        if not isinstance(m_dot, list):
+            m_dot = [m_dot]
 
         # set up arrays including halos
         if trank == 0:
@@ -584,6 +601,7 @@ class FourDVarReducedFunctional(ReducedFunctional):
             self._accumulation_started = True
 
     @contextmanager
+    @PETSc.Log.EventDecorator()
     def recording_stages(self, sequential=True, nstages=None, **stage_kwargs):
         if not sequential:
             raise ValueError("Recording stages concurrently not yet implemented")
@@ -631,6 +649,12 @@ class FourDVarReducedFunctional(ReducedFunctional):
                 # let the user record the local stages
                 yield stage_sequence
 
+                for stage in self.stages:
+                    self.observation_rfs.append(stage.observation_error)
+                    self.observation_norms.append(stage.observation_norm)
+                    self.model_rfs.append(stage.forward_model)
+                    self.model_norms.append(stage.model_norm)
+
                 # send the state forward
                 with stop_annotating():
                     state = self.stages[-1].controls[1].control
@@ -642,9 +666,14 @@ class FourDVarReducedFunctional(ReducedFunctional):
                     ectx.global_index = self.stages[-1].global_index
                     ectx.observation_index = self.stages[-1].observation_index
 
-                    # make sure that self.control now holds the
-                    # values of the initial timeseris
-                    self.control.assign(self._cbuf)
+            with stop_annotating():
+                # make sure that self.control now holds the
+                # values of the initial timeseris
+                self.control.assign(self._cbuf)
+
+                self.observation_space = EnsembleFunctionSpace(
+                    [Jo.functional.function_space() for Jo in self.observation_rfs],
+                    self.ensemble)
 
         else:  # strong constraint
 
@@ -674,6 +703,7 @@ class ObservationStageSequence:
     def __iter__(self):
         return self
 
+    @PETSc.Log.EventDecorator()
     def __next__(self):
 
         # increment global indices.
@@ -746,6 +776,7 @@ class StrongObservationStage:
         self.index = index
         self.observation_index = observation_index
 
+    @PETSc.Log.EventDecorator()
     def set_observation(self, state: OverloadedType,
                         observation_error: Callable[[OverloadedType], OverloadedType],
                         observation_covariance: Callable[[OverloadedType], AdjFloat]):
@@ -822,6 +853,7 @@ class WeakObservationStage:
         set_working_tape()
         self._stage_tape = get_working_tape()
 
+    @PETSc.Log.EventDecorator()
     def set_observation(self, state: OverloadedType,
                         observation_error: Callable[[OverloadedType], OverloadedType],
                         observation_covariance: Callable[[OverloadedType], AdjFloat],
@@ -935,6 +967,7 @@ class WeakObservationStage:
         set_working_tape()
 
     @stop_annotating()
+    @PETSc.Log.EventDecorator()
     def __call__(self, values: OverloadedType,
                  rftype: Optional[str] = None):
         """Computes the reduced functional with supplied control value.
@@ -974,6 +1007,7 @@ class WeakObservationStage:
         return J
 
     @stop_annotating()
+    @PETSc.Log.EventDecorator()
     def derivative(self, adj_input: float = 1.0, options: dict = {},
                    rftype: Optional[str] = None):
         """Returns the derivative of the functional w.r.t. the control.
@@ -1038,6 +1072,7 @@ class WeakObservationStage:
         return derivatives
 
     @stop_annotating()
+    @PETSc.Log.EventDecorator()
     def hessian(self, m_dot: OverloadedType, options: dict = {},
                 rftype: Optional[str] = None):
         """Returns the action of the Hessian of the functional w.r.t. the control on a vector m_dot.
@@ -1089,8 +1124,7 @@ class WeakObservationStage:
         iopts = intermediate_options(options)
 
         # TLM for model from mdot[0]
-        forward_tlm = tlm(self.forward_model, m_dot[0],
-                          options=iopts)
+        forward_tlm = self.forward_model.tlm(m_dot[0], options=iopts)
 
         # combine model TLM and mdot[1]
         mdot_error = [forward_tlm, m_dot[1]]
@@ -1100,9 +1134,10 @@ class WeakObservationStage:
             mdot_error, options=iopts, evaluate_tlm=True)
 
         # Hessian for model
-        model_hessian = hessian(
-            self.forward_model, options=options,
-            hessian_value=error_hessian[0])
+        model_hessian = self.forward_model.hessian(
+            None, options=options,
+            hessian_input=error_hessian[0],
+            evaluate_tlm=False)
 
         # combine model Hessian and converted error Hessian
         return [
@@ -1119,7 +1154,10 @@ def covariance_norm(x, covariance):
         power = None
     weight = Constant(1/covariance)
     val = assemble(inner(x, weight*x)*dx)
-    return val if power is None else val**power
+    from pyadjoint import AdjFloat
+    result = val if power is None else val**power
+    assert type(result) is AdjFloat
+    return result
 
 
 class CovarianceNormReducedFunctional(ReducedFunctional):
