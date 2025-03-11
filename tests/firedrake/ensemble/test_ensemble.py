@@ -2,6 +2,7 @@ from firedrake import *
 from pyop2.mpi import MPI
 from pytest_mpi import parallel_assert
 import pytest
+from pytest_mpi import parallel_assert
 
 from operator import mul
 from functools import reduce
@@ -205,9 +206,7 @@ def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
     with u_reduce.dat.vec as v:
         states[spatial_rank] = v.stateGet()
     ensemble.comm.Allgather(MPI.IN_PLACE, states)
-    parallel_assert(
-        lambda: len(set(states)) == 1,
-    )
+    parallel_assert(lambda: len(set(states)) == 1)
 
 
 @pytest.mark.parallel(nprocs=2)

@@ -18,40 +18,6 @@ called ``mpiexec``.  For example, to run a simulation in a file named
    mpiexec -n 16 python simulation.py
 
 
-Installing for parallel use
-===========================
-
-By default, Firedrake makes use of an MPICH library that is
-downloaded, configured, and installed in the virtual environment as
-part of the PETSc installation procedure.  If you do not intend to use
-parallelism, or only use it in a limited way, this will be sufficient
-for your needs.  The default MPICH installation uses ``nemesis`` as the
-MPI channel, which is reasonably fast, but imposes a hard limit on the
-maximum number of concurrent MPI threads equal to the number of cores
-on your machine.  If you would like to be able to *oversubscribe* your
-machine, and run more threads than cores, you need to change the MPICH
-device at install time to ``sock``, by setting an environment variable
-before you run ``firedrake-install``:
-
-.. code-block:: shell
-
-   export PETSC_CONFIGURE_OPTIONS="--download-mpich-device=ch3:sock"
-
-If parallel performance is important to you (e.g., for generating
-reliable timings or using a supercomputer), then you should probably
-be using an MPICH library tuned for your system.  If you have a
-system-wide install already available, then you can simply tell the
-firedrake installer to use it, by running:
-
-.. code-block:: shell
-
-   python3 firedrake-install --mpiexec=mpiexec --mpicc=mpicc --mpicxx=mpicxx --mpif90=mpif90 --mpihome mpihome
-
-where ``mpiexec``, ``mpicc``, ``mpicxx``, and ``mpif90`` are the
-commands to run an MPI job and to compile C, C++, and Fortran 90 code,
-respectively. ``mpihome`` is an extra variable that must point to the
-root directory of the MPI installation (e.g. ``/usr`` or ``/opt/mpich``).
-
 Printing in parallel
 ====================
 

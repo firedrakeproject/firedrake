@@ -16,9 +16,9 @@ jobs:
         python-version: ['3.10', '3.11', '3.12', '3.13']
     env:
       CC: mpicc
+      CXX: mpicxx
       PETSC_DIR: ${{ github.workspace }}/petsc
       PETSC_ARCH: default
-      RDMAV_FORK_SAFE: 1
       PYOP2_CI_TESTS: 1
     timeout-minutes: 60
 
@@ -71,7 +71,6 @@ jobs:
         shell: bash
         working-directory: firedrake
         run: |
-          export CC=mpicc
           export HDF5_DIR="$PETSC_DIR/$PETSC_ARCH"
           export HDF5_MPI=ON
           python -m pip install --no-binary h5py -v ".[test]"
