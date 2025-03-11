@@ -48,7 +48,7 @@ def test_submesh_solve_simple(nelem, distribution_parameters):
 def test_submesh_solve_cell_cell_mixed_scalar(dim, simplex):
     if dim == 2:
         if simplex:
-            mesh = Mesh("./docs/notebooks/stokes-control.msh")
+            mesh = Mesh(join(cwd, "..", "..", "..", "docs", "notebooks/stokes-control.msh"))
             bid = (1, 2, 3, 4, 5)
             submesh_expr = lambda x: conditional(x[0] < 10., 1, 0)
             solution_expr = lambda x: x[0] + x[1]
@@ -110,7 +110,7 @@ def test_submesh_solve_cell_cell_mixed_scalar(dim, simplex):
 def test_submesh_solve_cell_cell_mixed_vector(dim, simplex):
     if dim == 2:
         if simplex:
-            mesh = Mesh("./docs/notebooks/stokes-control.msh")
+            mesh = Mesh(join(cwd, "..", "..", "..", "docs", "notebooks/stokes-control.msh"))
             submesh_expr = lambda x: conditional(x[0] < 10., 1, 0)
             elem0 = FiniteElement("RT", "triangle", 3)
             elem1 = VectorElement("P", "triangle", 3)

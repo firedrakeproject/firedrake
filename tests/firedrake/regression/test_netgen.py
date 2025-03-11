@@ -212,7 +212,7 @@ def test_firedrake_integral_sphere_high_order_netgen():
 
 
 @pytest.mark.skipnetgen
-@pytest.mark.parallel
+@pytest.mark.parallel(nprocs=5)
 def test_firedrake_integral_sphere_high_order_netgen_parallel():
     from netgen.csg import CSGeometry, Pnt, Sphere
     import netgen
