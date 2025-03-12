@@ -23,6 +23,7 @@ jobs:
   # Firedrake environment container
   docker_build_env:
     strategy:
+      fail-fast: false
       matrix:
         os: [Linux, macOS]
         include:
@@ -53,6 +54,7 @@ jobs:
     if: inputs.status == 'success'
     needs: docker_merge_env
     strategy:
+      fail-fast: false
       matrix:
         os: [Linux, macOS]
         arch: [default, complex]
@@ -65,6 +67,7 @@ jobs:
     with:
       os: ${{ matrix.os }}
       platform: ${{ matrix.platform }}
+      arch: ${{ matrix.arch }}
       target: firedrake-vanilla-${{ matrix.arch }}
       tag: ${{ inputs.tag }}
       dockerfile: docker/Dockerfile.vanilla
@@ -73,6 +76,7 @@ jobs:
   docker_merge_vanilla:
     needs: docker_build_vanilla
     strategy:
+      fail-fast: false
       matrix:
         arch: [default, complex]
     uses: ./.github/workflows/docker_merge.yml
@@ -107,23 +111,15 @@ jobs:
       tag: ${{ inputs.tag }}
     secrets: inherit
 
-  # # Firedrake container with documentation dependencies and TeX
+  # # Firedrake container with TeX
   docker_build_docdeps:
     # Only run if "Build Firedrake" succeeds
     if: inputs.status == 'success'
     needs: docker_merge_vanilla
-    strategy:
-      matrix:
-        os: [Linux, macOS]
-        include:
-          - os: Linux
-            platform: linux/amd64
-          - os: macOS
-            platform: linux/arm64
     uses: ./.github/workflows/docker_build.yml
     with:
-      os: ${{ matrix.os }}
-      platform: ${{ matrix.platform }}
+      os: Linux
+      platform: linux/amd64
       target: firedrake-docdeps
       tag: ${{ inputs.tag }}
       dockerfile: docker/Dockerfile.docdeps

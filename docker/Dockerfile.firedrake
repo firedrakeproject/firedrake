@@ -2,15 +2,6 @@
 
 FROM firedrakeproject/firedrake-vanilla-default:latest
 
-# Install SLEPc
-RUN git clone https://github.com/firedrakeproject/slepc.git \
-    && cd slepc \
-    && ./configure \
-    && make SLEPC_DIR=/home/firedrake/slepc \
-    && cd ..
-
-ENV SLEPC_DIR=/home/firedrake/slepc
-
 # Install optional dependencies
 RUN pip install --break-system-packages --verbose \
         --extra-index-url https://download.pytorch.org/whl/cpu \

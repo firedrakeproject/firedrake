@@ -2,6 +2,10 @@
 
 import os
 
+# Disable warnings for missing options when running with pytest as PETSc does
+# not know what to do with the pytest arguments.
+os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
+
 import pytest
 from firedrake.petsc import PETSc, get_external_packages
 

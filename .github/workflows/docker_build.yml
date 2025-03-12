@@ -28,6 +28,10 @@ on:
         description: 'Path to the Dockerfile required to build image'
         required: true
         type: string
+      arch:
+        description: 'Firedrake arch to build'
+        required: false
+        type: string
     secrets:
       # Docker login information
       DOCKERHUB_USER:
@@ -71,6 +75,8 @@ jobs:
         with:
           platforms: ${{ inputs.platform }}
           file: ${{ inputs.dockerfile }}
+          build-args: |
+            ARCH=${{ inputs.arch }}
           outputs: type=image,name=firedrakeproject/${{ inputs.target }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest

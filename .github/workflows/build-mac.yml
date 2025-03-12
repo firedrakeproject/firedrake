@@ -45,7 +45,7 @@ jobs:
 
       - name: Install PETSc
         run: |
-          git clone https://github.com/firedrakeproject/petsc.git
+          git clone --depth 1 https://github.com/firedrakeproject/petsc.git
           cd petsc
           python3 ../firedrake-repo/scripts/firedrake-configure \
             --arch default --show-petsc-configure-options | \
