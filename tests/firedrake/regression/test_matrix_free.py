@@ -207,7 +207,7 @@ def test_fieldsplitting(mesh, preassembled, parameters, rhs):
         assert np.allclose(d, 0.0)
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(nprocs=3)
 def test_matrix_free_split_communicators():
 
     wcomm = COMM_WORLD
