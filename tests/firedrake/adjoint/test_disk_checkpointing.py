@@ -101,7 +101,6 @@ def test_disk_checkpointing():
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.skip(reason="Fix pyadjoint timestep checkpointing to be collective.")
 @pytest.mark.parallel(nprocs=3)
 def test_disk_checkpointing_parallel():
     # Use a Firedrake Tape subclass that supports disk checkpointing.
