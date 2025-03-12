@@ -157,6 +157,15 @@ jobs:
             gusto-repo/integration-tests/transport/test_embedded_dg_advection.py
         timeout-minutes: 10
 
+      - name: Run spyro smoke tests
+        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
+        run: |
+          . venv/bin/activate
+          git clone --depth 1 https://github.com/NDF-Poli-USP/spyro.git spyro-repo
+          pip install --verbose ./spyro-repo
+          mpiexec -n 6 python -m pytest spyro-repo/test_integration/
+        timeout-minutes: 5
+
       - name: Publish test report
         uses: mikepenz/action-junit-report@v5.0.0-a02
         # To avoid permissions issues do not run with forked repos
