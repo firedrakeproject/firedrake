@@ -103,6 +103,11 @@ dev = [
   "pytest",
   "setuptools",
 ]
+notebook = [
+  "jupyter",
+  "matplotlib",
+  "ipympl"
+]
 
 [build-system]
 requires = [

@@ -4,13 +4,14 @@ import os
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 
 
-parser = ArgumentParser(description="""Copy Jupyter notebooks to the current directory with the following changes:
+parser = ArgumentParser(
+    description="""Copy Jupyter notebooks to the current directory with the following changes:
 
     * Any output is stripped.
     * A first cell is added with the FEM on Colab download code.
     * Any %matplotlib magics are removed.
     """,
-                        formatter_class=RawDescriptionHelpFormatter)
+    formatter_class=RawDescriptionHelpFormatter)
 parser.add_argument("files", nargs='+',
                     help="The notebook file to be copied and modified.")
 
@@ -25,7 +26,7 @@ colab_cell = nbformat.notebooknode.NotebookNode({
     'source': '''try:
     import firedrake
 except ImportError:
-    !wget "https://fem-on-colab.github.io/releases/firedrake-install-real.sh" -O "/tmp/firedrake-install.sh" && bash "/tmp/firedrake-install.sh"
+    !wget "https://fem-on-colab.github.io/releases/firedrake-install-release.sh" -O "/tmp/firedrake-install.sh" && bash "/tmp/firedrake-install.sh"
     import firedrake'''
 })
 
