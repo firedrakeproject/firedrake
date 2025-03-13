@@ -1,5 +1,11 @@
 """Global test configuration."""
 
+import os
+
+# Disable warnings for missing options when running with pytest as PETSc does
+# not know what to do with the pytest arguments.
+os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
+
 import pytest
 from firedrake.petsc import PETSc, get_external_packages
 
@@ -12,6 +18,10 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers",
+        "skiphypre: mark as skipped unless hypre is installed"
+    )
+    config.addinivalue_line(
+        "markers",
         "skipcomplex: mark as skipped in complex mode"
     )
     config.addinivalue_line(
@@ -21,6 +31,10 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "skipcomplexnoslate: mark as skipped in complex mode due to lack of Slate"
+    )
+    config.addinivalue_line(
+        "markers",
+        "skipslepc: mark as skipped if slepc4py is not installed"
     )
     config.addinivalue_line(
         "markers",
@@ -46,6 +60,13 @@ def pytest_configure(config):
 
 def pytest_collection_modifyitems(session, config, items):
     from firedrake.utils import complex_mode, SLATE_SUPPORTS_COMPLEX
+
+    try:
+        from slepc4py import SLEPc
+        del SLEPc
+        slepc_installed = True
+    except ImportError:
+        slepc_installed = False
 
     try:
         import matplotlib
@@ -94,29 +115,37 @@ def pytest_collection_modifyitems(session, config, items):
             if item.get_closest_marker("skipreal") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense unless in complex mode"))
 
-        if "mumps" not in get_external_packages():
-            if item.get_closest_marker("skipmumps") is not None:
-                item.add_marker(pytest.mark.skip("MUMPS not installed with PETSc"))
+        # Do not skip tests when CI is running
+        if os.getenv("FIREDRAKE_CI") != "1":
+            if "mumps" not in get_external_packages():
+                if item.get_closest_marker("skipmumps") is not None:
+                    item.add_marker(pytest.mark.skip("MUMPS not installed with PETSc"))
+            if "hypre" not in get_external_packages():
+                if item.get_closest_marker("skiphypre") is not None:
+                    item.add_marker(pytest.mark.skip("hypre not installed with PETSc"))
 
-        if not torch_backend:
-            if item.get_closest_marker("skiptorch") is not None:
-                item.add_marker(pytest.mark.skip(reason="Test makes no sense if PyTorch is not installed"))
+            if not slepc_installed and item.get_closest_marker("skipslepc") is not None:
+                item.add_marker(pytest.mark.skip(reason="SLEPc is not installed"))
 
-        if not jax_backend:
-            if item.get_closest_marker("skipjax") is not None:
-                item.add_marker(pytest.mark.skip(reason="Test makes no sense if JAX is not installed"))
+            if not torch_backend:
+                if item.get_closest_marker("skiptorch") is not None:
+                    item.add_marker(pytest.mark.skip(reason="Test makes no sense if PyTorch is not installed"))
 
-        if not matplotlib_installed:
-            if item.get_closest_marker("skipplot") is not None:
-                item.add_marker(pytest.mark.skip(reason="Test cannot be run unless Matplotlib is installed"))
+            if not jax_backend:
+                if item.get_closest_marker("skipjax") is not None:
+                    item.add_marker(pytest.mark.skip(reason="Test makes no sense if JAX is not installed"))
 
-        if not netgen_installed:
-            if item.get_closest_marker("skipnetgen") is not None:
-                item.add_marker(pytest.mark.skip(reason="Test cannot be run unless Netgen and ngsPETSc are installed"))
+            if not matplotlib_installed:
+                if item.get_closest_marker("skipplot") is not None:
+                    item.add_marker(pytest.mark.skip(reason="Test cannot be run unless Matplotlib is installed"))
 
-        if not vtk_installed:
-            if item.get_closest_marker("skipvtk") is not None:
-                item.add_marker(pytest.mark.skip(reason="Test cannot be run unless VTK is installed"))
+            if not netgen_installed:
+                if item.get_closest_marker("skipnetgen") is not None:
+                    item.add_marker(pytest.mark.skip(reason="Test cannot be run unless Netgen and ngsPETSc are installed"))
+
+            if not vtk_installed:
+                if item.get_closest_marker("skipvtk") is not None:
+                    item.add_marker(pytest.mark.skip(reason="Test cannot be run unless VTK is installed"))
 
 
 @pytest.fixture(scope="module", autouse=True)
