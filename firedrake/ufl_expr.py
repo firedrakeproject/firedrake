@@ -346,6 +346,13 @@ def adjoint(form, reordered_arguments=None, derivatives_expanded=None):
         return ufl.adjoint(form, reordered_arguments, derivatives_expanded=derivatives_expanded)
 
 
+def replace(form, replacement):
+    if isinstance(form, firedrake.slate.TensorBase):
+        return form.replace(replacement)
+    else:
+        return ufl.replace(form, replacement)
+
+
 @PETSc.Log.EventDecorator()
 def CellSize(mesh):
     """A symbolic representation of the cell size of a mesh.
