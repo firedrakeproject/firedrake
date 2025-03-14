@@ -35,7 +35,7 @@ RUN git clone --depth 1 https://github.com/firedrakeproject/petsc.git \
     && cd ..
 
 ENV PETSC_DIR=/home/firedrake/petsc PETSC_ARCH=arch-firedrake-$ARCH
-ENV PATH="$PETSC_DIR/$PETSC_ARCH/bin:$PATH" 
+ENV PATH="$PETSC_DIR/$PETSC_ARCH/bin:$PATH"
 
 # Install SLEPc
 RUN git clone --depth 1 https://github.com/firedrakeproject/slepc.git \
@@ -55,4 +55,4 @@ ENV PATH="/home/firedrake/.local/bin:$PATH"
 # Install Firedrake, pass --break-system-packages because we don't want the
 # container to need a venv.
 RUN pip install --break-system-packages --verbose --no-binary h5py --src . \
-        --editable git+https://github.com/firedrakeproject/firedrake.git#egg=firedrake[ci]
+        --editable git+https://github.com/firedrakeproject/firedrake.git#egg=firedrake[docker]

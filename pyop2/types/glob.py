@@ -399,6 +399,9 @@ class Global(SetFreeDataCarrier, VecAccessMixin):
             data = self._data
             self.comm.Bcast(data, 0)
 
+    def increment_dat_version(self):
+        VecAccessMixin.increment_dat_version(self)
+
 
 # has no comm, can only be READ
 class Constant(SetFreeDataCarrier):
@@ -464,3 +467,6 @@ class Constant(SetFreeDataCarrier):
             dtype=self.dtype,
             name=self.name
         )
+
+    def increment_dat_version(self):
+        pass

@@ -932,7 +932,7 @@ with the following:
 .. code-block:: python3
 
    A = assemble(a)  # use bcs keyword if there are boundary conditions
-   print A.M.handle.isSymmetric(tol=1e-13)
+   print A.petscmat.isSymmetric(tol=1e-13)
 
 If the problem is not symmetric, try using a method such as GMRES
 instead.  PETSc uses restarted GMRES with a default restart of 30, for
