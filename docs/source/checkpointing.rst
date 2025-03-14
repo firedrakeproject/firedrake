@@ -267,7 +267,7 @@ follows when advancing the solver in time:**
         # ...
 
 
-`SingleMemoryStorageSchedule`` stores only the last time step of the gradient in memory.
+``SingleMemoryStorageSchedule`` stores only the last time step of the gradient in memory.
 
 
 To store every time step of the forward data required for adjoint-based gradient
