@@ -267,9 +267,9 @@ follows when advancing the solver in time:**
         # ...
 
 
-``SingleMemoryStorageSchedule`` stores only the adjoint variable from the last adjoint
+``SingleMemoryStorageSchedule`` stores only the adjoint variables from the last adjoint
 time step, which corresponds to the zero forward time step due to the time-reversed nature
-of the adjoint solver
+of the adjoint solver.
 
 
 To store every time step of the forward data required for adjoint-based gradient
