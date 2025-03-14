@@ -295,21 +295,26 @@ class KernelBuilderMixin(object):
 
 
 def set_quad_rule(params, cell, integral_type, functions):
-    # Check if the integral has a quad degree attached, otherwise use
-    # the estimated polynomial degree attached by compute_form_data
+    # Check if the integral has a quad degree or quad element attached,
+    # otherwise use the estimated polynomial degree attached by compute_form_data
+    quad_rule = params.get("quadrature_rule", "default")
     try:
         quadrature_degree = params["quadrature_degree"]
     except KeyError:
-        quadrature_degree = params["estimated_polynomial_degree"]
-        function_degrees = [f.ufl_function_space().ufl_element().degree()
-                            for f in functions]
-        if all((asarray(quadrature_degree) > 10 * asarray(degree)).all()
-               for degree in function_degrees):
+        elements = [f.ufl_function_space().ufl_element() for f in functions]
+        try:
+            quadrature_degree, = set(e.degree() for e in elements
+                                     if e.family()
+                                     in ["Quadrature", "Boundary Quadrature"])
+            quad_rule, = set(e.quadrature_scheme() or "default" for e in elements)
+        except ValueError:
+            quadrature_degree = params["estimated_polynomial_degree"]
+        if all((asarray(quadrature_degree) > 10 * asarray(e.degree())).all()
+               for e in elements):
             logger.warning("Estimated quadrature degree %s more "
                            "than tenfold greater than any "
                            "argument/coefficient degree (max %s)",
                            quadrature_degree, max_degree(function_degrees))
-    quad_rule = params.get("quadrature_rule", "default")
     if isinstance(quad_rule, str):
         scheme = quad_rule
         fiat_cell = as_fiat_cell(cell)
