@@ -234,6 +234,17 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         assert isinstance(problem, NonlinearVariationalProblem)
 
         solver_parameters = flatten_parameters(solver_parameters or {})
+
+        if isinstance(problem.J, MatrixBase):
+            solver_parameters.setdefault("mat_type", problem.J.mat_type)
+            if solver_parameters["mat_type"] != problem.J.mat_type:
+                raise ValueError("Cannot change the mat_type of an already assembled matrix.")
+
+        if isinstance(problem.Jp, MatrixBase):
+            solver_parameters.setdefault("pmat_type", problem.Jp.mat_type)
+            if solver_parameters["pmat_type"] != problem.Jp.mat_type:
+                raise ValueError("Cannot change the mat_type of an already assembled matrix.")
+
         solver_parameters = solving_utils.set_defaults(solver_parameters,
                                                        problem.J.arguments(),
                                                        ksp_defaults=self.DEFAULT_KSP_PARAMETERS,
