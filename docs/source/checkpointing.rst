@@ -267,7 +267,9 @@ follows when advancing the solver in time:**
         # ...
 
 
-``SingleMemoryStorageSchedule`` stores only the last time step of the gradient in memory.
+``SingleMemoryStorageSchedule`` stores only the adjoint variable from the last adjoint
+time step, which corresponds to the zero forward time step due to the time-reversed nature
+of the adjoint solver
 
 
 To store every time step of the forward data required for adjoint-based gradient
@@ -292,8 +294,9 @@ For disk checkpointing, all mesh constructors must be wrapped using
     mesh = UnitSquareMesh(10, 10)
     mesh = checkpointable_mesh(mesh)
 
-``SingleDiskStorageSchedule`` stores only the last time step of the gradient in memory. This checkpointing approach reduces memory usage at the cost of reading and writing data from disk.
-
+``SingleDiskStorageSchedule`` stores only the adjoint variable from the last adjoint
+time step (equivalent to zero forward time step) in memory. This checkpointing strategy
+reduces memory usage at the cost of reading and writing data from disk.
 
 The ``checkpoint_schedules`` package provides other checkpointing
 strategies, such as Revolve, Mixed Schedule, and HRevolve. These methods
@@ -318,7 +321,7 @@ For example, to use the **Revolve** schedule:
     for step in tape.timestepper(range(total_steps)):
         # ...
 
-`steps_to_store`` is the number of time steps stored in memory.
+``steps_to_store`` is the number of time steps stored in memory.
 
 For more details on available checkpointing strategies, refer to the
 `checkpoint_schedules package documentation
