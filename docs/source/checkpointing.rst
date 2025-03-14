@@ -294,8 +294,8 @@ For disk checkpointing, all mesh constructors must be wrapped using
     mesh = UnitSquareMesh(10, 10)
     mesh = checkpointable_mesh(mesh)
 
-``SingleDiskStorageSchedule`` stores only the adjoint variable from the last adjoint
-time step (equivalent to zero forward time step) in memory. This checkpointing strategy
+``SingleDiskStorageSchedule`` stores only the adjoint variables from the last adjoint
+time step (equivalent to the zero forward time step) in memory. This checkpointing strategy
 reduces memory usage at the cost of reading and writing data from disk.
 
 The ``checkpoint_schedules`` package provides other checkpointing
