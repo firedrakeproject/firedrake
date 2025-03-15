@@ -564,7 +564,7 @@ def solve_init_params(self, args, kwargs, varform):
 
     if "mat_type" in kwargs.get("solver_parameters", {}):
         self.assemble_kwargs["mat_type"] = \
-            kwargs["solver_parameters"]["mat_type"]
+            kwargs["solver_parameters"].pop("mat_type")
 
     if varform:
         if "appctx" in kwargs:

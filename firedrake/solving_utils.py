@@ -7,10 +7,10 @@ from pyop2 import op2
 from firedrake import dmhooks
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
+from firedrake.matrix import MatrixBase
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS
 from firedrake.formmanipulation import ExtractSubBlock
-from firedrake.ufl_expr import action
 from firedrake.utils import cached_property
 from firedrake.logging import warning
 
@@ -228,14 +228,15 @@ class _SNESContext(object):
         self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in problem.bcs)
 
         self._bc_residual = None
-        if not pre_apply_bcs:
+        if not pre_apply_bcs and len(self.bcs_F) > 0:
             # Delayed lifting of DirichletBCs
             self._bc_residual = Function(self._x.function_space())
             if problem.is_linear:
-                # Drop existing lifting term from the resiudal
+                # Drop existing lifting term from the residual
                 assert isinstance(self.F, ufl.BaseForm)
                 self.F = ufl.replace(self.F, {self._x: ufl.zero(self._x.ufl_shape)})
-            self.F -= action(self.J, self._bc_residual)
+
+            self.F -= problem.compute_bc_lifting(self.J, self._bc_residual)
 
         self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
                                                 form_compiler_parameters=self.fcp,
@@ -318,7 +319,7 @@ class _SNESContext(object):
 
     @PETSc.Log.EventDecorator()
     def split(self, fields):
-        from firedrake import replace, as_vector, split
+        from firedrake import replace, as_vector, split, zero
         from firedrake import NonlinearVariationalProblem as NLVP
         from firedrake.bcs import DirichletBC, EquationBC
         fields = tuple(tuple(f) for f in fields)
@@ -373,8 +374,16 @@ class _SNESContext(object):
             # solving for, and some spaces that have just become
             # coefficients in the new form.
             u = as_vector(vec)
-            F = replace(F, {problem.u_restrict: u})
             J = replace(J, {problem.u_restrict: u})
+            if problem.is_linear and isinstance(J, MatrixBase):
+                # The BC lifting term is action(MatrixBase, u).
+                # We cannot replace u with the split solution, as action expects a Function.
+                # We drop the existing lifting term from the residual
+                # and compute a fully decoupled lifting term with the split J.
+                F = replace(F, {problem.u_restrict: zero(problem.u_restrict.ufl_shape)})
+                F += problem.compute_bc_lifting(J, subu)
+            else:
+                F = replace(F, {problem.u_restrict: u})
             if problem.Jp is not None:
                 Jp = splitter.split(problem.Jp, argument_indices=(field, field))
                 Jp = replace(Jp, {problem.u_restrict: u})
