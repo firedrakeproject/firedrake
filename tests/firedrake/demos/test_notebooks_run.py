@@ -4,7 +4,6 @@ import subprocess
 import sys
 
 import pytest
-from firedrake.petsc import get_external_packages
 
 
 cwd = os.path.abspath(os.path.dirname(__file__))
@@ -21,9 +20,9 @@ def ipynb_file(request):
 
 @pytest.mark.skipcomplex  # Will need to add a seperate case for a complex tutorial.
 @pytest.mark.skipplot
-def test_notebook_runs(ipynb_file, tmpdir, monkeypatch):
+def test_notebook_runs(ipynb_file, tmpdir, monkeypatch, skip_dependency):
     if os.path.basename(ipynb_file) in ("08-composable-solvers.ipynb", "12-HPC_demo.ipynb"):
-        if "mumps" not in get_external_packages():
+        if skip_dependency("mumps"):
             pytest.skip("MUMPS not installed with PETSc")
 
     monkeypatch.chdir(tmpdir)

@@ -81,6 +81,12 @@ def _skip_test_dependency(dependency):
         raise ValueError("Unrecognised dependency to check: {dependency = }")
 
 
+# This allows us to check test dependencies within tests e.g. the demo tests
+@pytest.fixture
+def skip_dependency():
+    return _skip_test_dependency
+
+
 def pytest_configure(config):
     """Register an additional marker."""
     config.addinivalue_line(

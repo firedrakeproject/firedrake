@@ -70,32 +70,31 @@ def test_no_missing_demos():
     assert not all_demo_locs, "Unrecognised demos listed"
 
 
-def _maybe_skip_demo(demo):
+def _maybe_skip_demo(demo, skip_dependency):
     # Add pytest skips for missing imports or packages
-    from conftest import _skip_test_dependency
 
-    if "mumps" in demo.requirements and _skip_test_dependency("mumps"):
+    if "mumps" in demo.requirements and skip_dependency("mumps"):
         pytest.skip("MUMPS not installed with PETSc")
 
-    if "hypre" in demo.requirements and _skip_test_dependency("hypre"):
+    if "hypre" in demo.requirements and skip_dependency("hypre"):
         pytest.skip("hypre not installed with PETSc")
 
-    if "slepc" in demo.requirements and _skip_test_dependency("slepc"):
+    if "slepc" in demo.requirements and skip_dependency("slepc"):
         pytest.skip("SLEPc is not installed")
 
-    if "matplotlib" in demo.requirements and _skip_test_dependency("matplotlib"):
+    if "matplotlib" in demo.requirements and skip_dependency("matplotlib"):
         pytest.skip("Matplotlib is not installed")
 
-    if "netgen" in demo.requirements and _skip_test_dependency("netgen"):
+    if "netgen" in demo.requirements and skip_dependency("netgen"):
         pytest.skip("Netgen and ngsPETSc are not installed")
 
-    if "vtk" in demo.requirements and _skip_test_dependency("vtk"):
+    if "vtk" in demo.requirements and skip_dependency("vtk"):
         pytest.skip("VTK is not installed")
 
-    if "pytorch" in demo.requirements and _skip_test_dependency("pytorch"):
+    if "pytorch" in demo.requirements and skip_dependency("pytorch"):
         pytest.skip("PyTorch is not installed")
 
-    if "jax" in demo.requirements and _skip_test_dependency("jax"):
+    if "jax" in demo.requirements and skip_dependency("jax"):
         pytest.skip("JAX is not installed")
 
 
@@ -138,8 +137,8 @@ def _exec_file(py_file):
 
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("demo", SERIAL_DEMOS, ids=["/".join(d.loc) for d in SERIAL_DEMOS])
-def test_serial_demo(demo, env, monkeypatch, tmpdir):
-    _maybe_skip_demo(demo)
+def test_serial_demo(demo, env, monkeypatch, tmpdir, skip_dependency):
+    _maybe_skip_demo(demo, skip_dependency)
     py_file = _prepare_demo(demo, monkeypatch, tmpdir)
     _exec_file(py_file)
 
@@ -151,8 +150,8 @@ def test_serial_demo(demo, env, monkeypatch, tmpdir):
 @pytest.mark.parallel(2)
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("demo", PARALLEL_DEMOS, ids=["/".join(d.loc) for d in PARALLEL_DEMOS])
-def test_parallel_demo(demo, env, monkeypatch, tmpdir):
-    _maybe_skip_demo(demo)
+def test_parallel_demo(demo, env, monkeypatch, tmpdir, skip_dependency):
+    _maybe_skip_demo(demo, skip_dependency)
     py_file = _prepare_demo(demo, monkeypatch, tmpdir)
     _exec_file(py_file)
 
