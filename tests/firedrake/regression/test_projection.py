@@ -394,8 +394,7 @@ def run_extr_trace_projection(x, degree=1, family='DGT'):
 
 
 def test_project_scalar_boundary_quadrature():
-    nx = 2
-    msh = UnitSquareMesh(2 ** nx, 2 ** nx)
+    msh = UnitSquareMesh(4, 4)
     x = SpatialCoordinate(msh)
     f = x[0]*(2-x[0])*x[1]*(2-x[1])
 
@@ -410,8 +409,7 @@ def test_project_scalar_boundary_quadrature():
 
 
 def test_project_vector_boundary_quadrature():
-    nx = 2
-    msh = UnitCubeMesh(2 ** nx, 2 ** nx, 2 ** nx)
+    msh = UnitCubeMesh(4, 4, 4)
     n = FacetNormal(msh)
 
     T = VectorFunctionSpace(msh, "BQ", 0)

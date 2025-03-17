@@ -162,22 +162,16 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
         self.bcs = bcs
         self.constant_jacobian = constant_jacobian
 
-        needs_trace = False
         F = self.target.function_space()
         if type(F.ufl_element()) is finat.ufl.MixedElement:
-            use_slate_for_inverse = False
+            slate_supported = False
+            needs_trace = False
         else:
-            if use_slate_for_inverse:
-                use_slate_for_inverse = (F.finat_element.is_dg()
-                                         and not F.mesh().variable_layers
-                                         and (not complex_mode or SLATE_SUPPORTS_COMPLEX))
-            if isinstance(F.finat_element, HDivTrace):
-                needs_trace = True
-            elif isinstance(F.finat_element, QuadratureElement):
-                tdim = F.mesh().topological_dimension()
-                needs_trace = F.finat_element._rule.point_set.dimension == tdim-1
+            slate_supported = (F.finat_element.is_dg() and not F.mesh().variable_layers
+                               and (not complex_mode or SLATE_SUPPORTS_COMPLEX))
+            needs_trace = F.ufl_element().family() in {"HDiv Trace", "Boundary Quadrature"}
 
-        self.use_slate_for_inverse = use_slate_for_inverse
+        self.use_slate_for_inverse = use_slate_for_inverse and slate_supported
         self.needs_trace = needs_trace
 
     @cached_property

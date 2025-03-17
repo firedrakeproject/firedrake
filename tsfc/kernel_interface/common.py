@@ -302,19 +302,21 @@ def set_quad_rule(params, cell, integral_type, functions):
         quadrature_degree = params["quadrature_degree"]
     except KeyError:
         elements = [f.ufl_function_space().ufl_element() for f in functions]
-        try:
-            quadrature_degree, = set(e.degree() for e in elements
-                                     if e.family()
-                                     in ["Quadrature", "Boundary Quadrature"])
-            quad_rule, = set(e.quadrature_scheme() or "default" for e in elements)
-        except ValueError:
+        quad_data = set((e.degree(), e.quadrature_scheme() or "default") for e in elements
+                        if e.family() in {"Quadrature", "Boundary Quadrature"})
+        if len(quad_data) == 0:
             quadrature_degree = params["estimated_polynomial_degree"]
-        if all((asarray(quadrature_degree) > 10 * asarray(e.degree())).all()
-               for e in elements):
-            logger.warning("Estimated quadrature degree %s more "
-                           "than tenfold greater than any "
-                           "argument/coefficient degree (max %s)",
-                           quadrature_degree, max_degree([e.degree() for e in elements]))
+            if all((asarray(quadrature_degree) > 10 * asarray(e.degree())).all() for e in elements):
+                logger.warning("Estimated quadrature degree %s more "
+                               "than tenfold greater than any "
+                               "argument/coefficient degree (max %s)",
+                               quadrature_degree, max_degree([e.degree() for e in elements]))
+        else:
+            try:
+                (quadrature_degree, quad_rule), = quad_data
+            except ValueError:
+                raise ValueError("The quadrature rule cannot be infered from multiple Quadrature elements")
+
     if isinstance(quad_rule, str):
         scheme = quad_rule
         fiat_cell = as_fiat_cell(cell)
