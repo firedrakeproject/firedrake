@@ -10,8 +10,6 @@ from os.path import abspath, basename, dirname, join, splitext
 import pyadjoint
 import pytest
 
-from firedrake.petsc import get_external_packages
-
 
 Demo = namedtuple("Demo", ["loc", "requirements"])
 
@@ -37,7 +35,7 @@ SERIAL_DEMOS = [
     Demo(("matrix_free", "rayleigh-benard"), ["hypre", "mumps", "vtk"]),
     Demo(("matrix_free", "stokes"), ["hypre", "mumps", "vtk"]),
     Demo(("multigrid", "geometric_multigrid"), ["vtk"]),
-    Demo(("netgen", "netgen_mesh"), ["mumps", "ngsPETSc", "netgen", "slepc", "vtk"]),
+    Demo(("netgen", "netgen_mesh"), ["mumps", "netgen", "slepc", "vtk"]),
     Demo(("nonlinear_QG_winddrivengyre", "qg_winddrivengyre"), ["vtk"]),
     Demo(("parallel-printing", "parprint"), []),
     Demo(("poisson", "poisson_mixed"), ["vtk"]),
@@ -74,37 +72,31 @@ def test_no_missing_demos():
 
 def _maybe_skip_demo(demo):
     # Add pytest skips for missing imports or packages
-    if "mumps" in demo.requirements and "mumps" not in get_external_packages():
+    from conftest import _skip_test_dependency
+
+    if "mumps" in demo.requirements and _skip_test_dependency("mumps"):
         pytest.skip("MUMPS not installed with PETSc")
 
-    if "hypre" in demo.requirements and "hypre" not in get_external_packages():
+    if "hypre" in demo.requirements and _skip_test_dependency("hypre"):
         pytest.skip("hypre not installed with PETSc")
 
-    if "slepc" in demo.requirements:
-        try:
-            # Do not use `pytest.importorskip` to check for slepc4py:
-            # It isn't sufficient to actually detect whether slepc4py
-            # is installed. Both petsc4py and slepc4py require
-            # `from xy4py import Xy`
-            # to actually load the library.
-            from slepc4py import SLEPc  # noqa: F401
-        except ImportError:
-            pytest.skip("SLEPc unavailable")
+    if "slepc" in demo.requirements and _skip_test_dependency("slepc"):
+        pytest.skip("SLEPc is not installed")
 
-    if "matplotlib" in demo.requirements:
-        pytest.importorskip("matplotlib", reason="Matplotlib unavailable")
+    if "matplotlib" in demo.requirements and _skip_test_dependency("matplotlib"):
+        pytest.skip("Matplotlib is not installed")
 
-    if "netgen" in demo.requirements:
-        pytest.importorskip("netgen", reason="Netgen unavailable")
+    if "netgen" in demo.requirements and _skip_test_dependency("netgen"):
+        pytest.skip("Netgen and ngsPETSc are not installed")
 
-    if "ngsPETSc" in demo.requirements:
-        pytest.importorskip("ngsPETSc", reason="ngsPETSc unavailable")
+    if "vtk" in demo.requirements and _skip_test_dependency("vtk"):
+        pytest.skip("VTK is not installed")
 
-    if "vtk" in demo.requirements:
-        try:
-            import vtkmodules.vtkCommonDataModel  # noqa: F401
-        except ImportError:
-            pytest.skip("VTK unavailable")
+    if "pytorch" in demo.requirements and _skip_test_dependency("pytorch"):
+        pytest.skip("PyTorch is not installed")
+
+    if "jax" in demo.requirements and _skip_test_dependency("jax"):
+        pytest.skip("JAX is not installed")
 
 
 def _prepare_demo(demo, monkeypatch, tmpdir):
