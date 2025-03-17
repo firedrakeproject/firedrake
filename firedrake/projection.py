@@ -161,31 +161,30 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
         self.form_compiler_parameters = form_compiler_parameters
         self.bcs = bcs
         self.constant_jacobian = constant_jacobian
-        try:
-            is_dg = self.target.function_space().finat_element.is_dg()
-            is_variable_layers = self.target.function_space().mesh().variable_layers
-        except AttributeError:
-            # Mixed space
-            is_dg = False
-            is_variable_layers = True
-        self.use_slate_for_inverse = (use_slate_for_inverse and is_dg and not is_variable_layers
-                                      and (not complex_mode or SLATE_SUPPORTS_COMPLEX))
 
-        F = self.target.function_space()
         needs_trace = False
-        if type(F.ufl_element()) is not finat.ufl.MixedElement:
+        F = self.target.function_space()
+        if type(F.ufl_element()) is finat.ufl.MixedElement:
+            use_slate_for_inverse = False
+        else:
+            if use_slate_for_inverse:
+                use_slate_for_inverse = (F.finat_element.is_dg()
+                                         and not F.mesh().variable_layers
+                                         and (not complex_mode or SLATE_SUPPORTS_COMPLEX))
             if isinstance(F.finat_element, HDivTrace):
                 needs_trace = True
             elif isinstance(F.finat_element, QuadratureElement):
                 tdim = F.mesh().topological_dimension()
                 needs_trace = F.finat_element._rule.point_set.dimension == tdim-1
+
+        self.use_slate_for_inverse = use_slate_for_inverse
         self.needs_trace = needs_trace
 
     @cached_property
     def A(self):
         F = self.target.function_space()
-        u = firedrake.TrialFunction(self.target.function_space())
-        v = firedrake.TestFunction(self.target.function_space())
+        u = firedrake.TrialFunction(F)
+        v = firedrake.TestFunction(F)
         if self.needs_trace:
             if F.extruded:
                 a = (
@@ -256,7 +255,7 @@ class BasicProjector(ProjectorBase):
             # Project onto a trace space by supplying the respective form on the facets.
             # The measures on the facets differ between extruded and non-extruded mesh.
             # FIXME The restrictions of cg onto the facets is also a trace space,
-            # but we only cover DGT.
+            # but we only cover DGT and BQ.
             if F.extruded:
                 form = (
                     firedrake.inner(self.source, v)*firedrake.ds_t
