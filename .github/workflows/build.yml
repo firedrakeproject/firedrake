@@ -34,6 +34,8 @@ jobs:
       # image: firedrakeproject/firedrake-env:latest
       image: firedrakeproject/firedrake-env:roottest
     env:
+      OMPI_ALLOW_RUN_AS_ROOT: 1
+      OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
       FIREDRAKE_CI: 1
       PYOP2_CI_TESTS: 1
       PYOP2_SPMD_STRICT: 1
