@@ -101,7 +101,8 @@ class MatrixBase(ufl.Matrix):
 
     def __add__(self, other):
         if isinstance(other, MatrixBase):
-            return self.petscmat + other.petscmat
+            mat = self.petscmat + other.petscmat
+            return AssembledMatrix(self.arguments(), (), mat)
         else:
             return NotImplemented
 
