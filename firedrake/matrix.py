@@ -106,6 +106,13 @@ class MatrixBase(ufl.Matrix):
         else:
             return NotImplemented
 
+    def __sub__(self, other):
+        if isinstance(other, MatrixBase):
+            mat = self.petscmat - other.petscmat
+            return AssembledMatrix(self.arguments(), (), mat)
+        else:
+            return NotImplemented
+
     def assign(self, val):
         """Set matrix entries."""
         if isinstance(val, MatrixBase):
