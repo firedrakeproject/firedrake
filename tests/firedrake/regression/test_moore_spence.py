@@ -5,6 +5,7 @@ from firedrake.petsc import PETSc
 
 @pytest.mark.skipslepc
 def test_moore_spence():
+    from slepc4py import SLEPc
 
     msh = IntervalMesh(1000, 1)
     V = FunctionSpace(msh, "CG", 1)

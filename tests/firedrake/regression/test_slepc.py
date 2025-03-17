@@ -10,6 +10,7 @@ def topetsc(A):
 
 @pytest.mark.skipslepc
 def test_laplace_physical_ev(parallel=False):
+    from slepc4py import SLEPc
 
     mesh = UnitSquareMesh(64, 64)
     V = FunctionSpace(mesh, 'CG', 1)

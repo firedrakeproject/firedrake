@@ -183,6 +183,7 @@ class TransformType(Enum):
 
 
 def transform(v, transform_type, *args, mfn_parameters=None, **kwargs):
+    from slepc4py import SLEPc
     with stop_annotating():
         if mfn_parameters is None:
             mfn_parameters = {}
