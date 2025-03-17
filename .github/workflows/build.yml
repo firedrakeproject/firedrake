@@ -208,7 +208,8 @@ jobs:
   docker_tag:
     name: "Set the Docker release tag"
     runs-on: [self-hosted, Linux]
-    if: ${{ github.ref == 'refs/heads/master' }}
+    # UNDO ME
+    # if: ${{ github.ref == 'refs/heads/master' }}
     steps:
       - name: Set release tag
         # Set a release tag if triggered by monthly CRON job
@@ -226,12 +227,16 @@ jobs:
     name: "Build Docker containers"
     # Only run on master, but always generate firedrake-env image,
     # even if build fails (see docker.yml)
-    if: always() && (github.ref == 'refs/heads/master')
-    needs: [test, docker_tag]
+    # UNDO ME
+    # if: always() && (github.ref == 'refs/heads/master')
+    # needs: [test, docker_tag]
     uses: ./.github/workflows/docker.yml
     with:
-      tag: ${{ needs.docker_tag.outputs.tag }}
-      status: ${{ needs.test.result }}
+      # UNDO ME
+      # tag: ${{ needs.docker_tag.outputs.tag }}
+      # status: ${{ needs.test.result }}
+      tag: roottest
+      status: success
     secrets: inherit
 
   lint:
