@@ -177,6 +177,14 @@ install Firedrake. To do this perform the following steps:
       you have exactly followed the instructions up to this point this should
       already be the case.
 
+#. Remove possibly cached versions of petsc4py::
+
+       $ pip cache remove petsc4py
+
+   This is necessary because cached petsc4py wheels will be linked against the
+   wrong PETSc.
+
+
 #. Install Firedrake::
 
      $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[test]"
@@ -194,15 +202,6 @@ install Firedrake. To do this perform the following steps:
    :doc:`firedrake-zenodo</zenodo>` will only work with *editable* installations of
    Firedrake and its components. To install Firedrake in editable mode you
    should follow the instructions :ref:`below<dev_install>`.
-
-.. note::
-   During the installation Firedrake will compile and install petsc4py_. If
-   you have previously installed petsc4py on your computer with a different
-   PETSc then ``pip`` will erroneously reuse the existing petsc4py which is 
-   linked against the wrong library. To avoid this you need to run the
-   command::
-
-       pip cache remove petsc4py
 
 
 .. _firedrake_check:
@@ -239,11 +238,11 @@ Updating PETSc
 
 To update PETSc you simply need to run::
 
-   $ cd petsc
+   $ cd /path/to/petsc
    $ git pull
    $ make
 
-This will only recompile PETSc's source code, not that of the external
+Note that this will only recompile PETSc's source code, not that of the external
 packages, and so should be relatively quick. If your PETSc is sufficiently
 out-of-date you may also need to rebuild the external packages by running::
 
@@ -281,21 +280,6 @@ should run::
 Customising Firedrake
 =====================
 
-# key point here: can tweak configure!
-
-Since ``firedrake-configure`` only outputs a string of options it is straightforward
-to make changes to the options passed to PETSc ``configure``. You can either:
-
-* Append additional options when ``configure`` is invoked. For example, to compile
-  PETSc with 64 bit indices you should run::
-
-   $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure --with-64-bit-indices
-
-* Write the output of ``firedrake-configure`` to a file than can be modified::
-
-   $ python3 ../firedrake-configure --show-petsc-configure-options > my_configure_options.txt
-   <edit my_configure_options.txt>
-   $ ./configure $(cat my_configure_options.txt)
 
 .. _firedrake_archs:
 
@@ -315,15 +299,58 @@ The different configurations can be selected by passing the flag ``--arch`` to
    $ python3 firedrake-configure --show-petsc-configure-options --arch complex
 
 
-Install optional dependencies
------------------------------
+Optional dependencies
+---------------------
 
-slepc
-vtk
-torch
-netgen
+PETSc with 64-bit indices
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
-from pyproject?
+To build PETSc with 64-bit indices you need to append ``--with-64-bit-indices``
+to the set of options when PETSc is configured. For example this could be::
+
+   $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure --with-64-bit-indices
+
+SLEPc
+~~~~~
+
+To install Firedrake with SLEPc support you must:
+
+#. Clone and install SLEPc (note that ``PETSC_DIR`` and ``PETSC_ARCH`` must be set)::
+
+   $ git clone --depth 1 https://github.com/firedrakeproject/slepc.git
+   $ cd slepc
+   $ ./configure
+   $ make SLEPC_DIR=$PWD
+
+#. Set ``SLEPC_DIR``::
+
+   $ export SLEPC_DIR=$PWD
+
+# Install slepc4py::
+
+   $ pip install slepc4py
+
+
+vtk?
+torch?
+netgen?
+
+
+Advanced customisation
+----------------------
+
+Since ``firedrake-configure`` only outputs a string of options it is straightforward
+to customise all aspects of the installation process. You can either:
+
+* Append additional options when ``configure`` is invoked. For example::
+
+   $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure --download-exotic-package
+
+* Write the output of ``firedrake-configure`` to a file than can be modified. For example::
+
+   $ python3 ../firedrake-configure --show-petsc-configure-options > my_configure_options.txt
+   <edit my_configure_options.txt>
+   $ ./configure $(cat my_configure_options.txt)
 
 
 .. _alternative_install:

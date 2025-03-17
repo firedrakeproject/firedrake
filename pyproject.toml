@@ -64,6 +64,13 @@ spydump = "pyop2.scripts.spydump:main"
 
 
 [project.optional-dependencies]
+# TODO: Is is necessary to specify these? Or is it sufficient to complain
+# when the code in run to prompt the installation?
+netgen = ["ngsPETSc"]
+slepc = ["slepc4py"]
+torch = ["torch"]
+vtk = ["vtk"]
+
 # Dependencies needed to run firedrake-check
 test = [
   "mpi-pytest",
