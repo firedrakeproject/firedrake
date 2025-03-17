@@ -181,7 +181,6 @@ COMMON_LINUX_APT_PACKAGES = BASE_LINUX_APT_PACKAGES + PETSC_EXTRAS_LINUX_APT_PAC
 LINUX_X86_64_APT_PACKAGES = (
     "libmumps-ptscotch-dev",
     "libmetis-dev",
-    "libparmetis-dev",
     "libnetcdf-dev",
     "libpnetcdf-dev",
     "libptscotch-dev",
@@ -393,7 +392,7 @@ def prepare_configure_options(
         )
 
         libraries = (
-             f"{libdir}/hdf5/openmpi",
+            f"{libdir}/hdf5/openmpi",
         )
 
         incflags = " " + " ".join([f"-I{inc}" for inc in includes])
