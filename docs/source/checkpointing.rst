@@ -245,26 +245,42 @@ implemented in the `checkpoint_schedules package
 
 
 To store every time step of the forward data required for adjoint-based gradient
-computation **in memory**, use the following code:
+computation **in memory**, first import the schedule from the
+``checkpoint_schedules`` package, start adjoint annotation with ``continue_annotation()``,
+get the working tape with ``get_working_tape()``:
 
 .. code-block:: python3
 
     from firedrake import *
     from firedrake.adjoint import *
     from checkpoint_schedules import SingleMemoryStorageSchedule
-
     continue_annotation()
     tape = get_working_tape()
-    tape.enable_checkpointing(SingleMemoryStorageSchedule())
+
+Define the schedule:
+
+.. literalinclude:: ../../tests/firedrake/adjoint/test_burgers_newton.py
+    :language: python3
+    :dedent:
+    :start-after: [test_disk_checkpointing 4]
+    :end-before: [test_disk_checkpointing 5]
+
+and enable checkpointing:
+
+.. literalinclude:: ../../tests/firedrake/adjoint/test_burgers_newton.py
+    :language: python3
+    :dedent:
+    :start-after: [test_disk_checkpointing 6]
+    :end-before: [test_disk_checkpointing 7]
 
 **For any checkpointing approach, it is essential to call the time loop as
 follows when advancing the solver in time:**
 
-.. code-block:: python3
-
-    for step in tape.timestepper(range(total_steps)):
-        # Advance the forward model
-        # ...
+.. literalinclude:: ../../tests/firedrake/adjoint/test_burgers_newton.py
+    :language: python3
+    :dedent:
+    :start-after: [test_disk_checkpointing 10]
+    :end-before: [test_disk_checkpointing 11]
 
 
 ``SingleMemoryStorageSchedule`` stores only the adjoint variables from the last adjoint
@@ -273,7 +289,7 @@ of the adjoint solver.
 
 
 To store every time step of the forward data required for adjoint-based gradient
-computation **on disk**, use the following code:
+computation **on disk**, write the necessary imports and start adjoint annotation:
 
 .. code-block:: python3
 
@@ -283,16 +299,23 @@ computation **on disk**, use the following code:
 
     continue_annotation()
     tape = get_working_tape()
-    enable_disk_checkpointing()
-    tape.enable_checkpointing(SingleDiskStorageSchedule())
+
+Then, enable disk checkpointing following the code below:
+
+.. literalinclude:: ../../tests/firedrake/adjoint/test_disk_checkpointing.py
+    :language: python3
+    :dedent:
+    :start-after: [test_disk_checkpointing 1]
+    :end-before: [test_disk_checkpointing 2]
 
 For disk checkpointing, all mesh constructors must be wrapped using
 :func:`~.checkpointing.checkpointable_mesh`. For example:
 
-.. code-block:: python3
-    
-    mesh = UnitSquareMesh(10, 10)
-    mesh = checkpointable_mesh(mesh)
+.. literalinclude:: ../../tests/firedrake/adjoint/test_disk_checkpointing.py
+    :language: python3
+    :dedent:
+    :start-after: [test_disk_checkpointing 2]
+    :end-before: [test_disk_checkpointing 3]
 
 ``SingleDiskStorageSchedule`` stores only the adjoint variables from the last adjoint
 time step (equivalent to the zero forward time step) in memory. This checkpointing strategy
@@ -313,13 +336,26 @@ For example, to use the **Revolve** schedule:
 
     continue_annotation()
     tape = get_working_tape()
-    tape.enable_checkpointing(Revolve(total_steps, steps_to_store))
 
-    ...
+.. literalinclude:: ../../tests/firedrake/adjoint/test_burgers_newton.py
+    :language: python3
+    :dedent:
+    :start-after: [test_disk_checkpointing 8]
+    :end-before: [test_disk_checkpointing 9]
 
-    # Advance the forward model in time
-    for step in tape.timestepper(range(total_steps)):
-        # ...
+.. literalinclude:: ../../tests/firedrake/adjoint/test_burgers_newton.py
+    :language: python3
+    :dedent:
+    :start-after: [test_disk_checkpointing 6]
+    :end-before: [test_disk_checkpointing 7]
+
+Then, advance the solver in time as follows:
+
+.. literalinclude:: ../../tests/firedrake/adjoint/test_burgers_newton.py
+    :language: python3
+    :dedent:
+    :start-after: [test_disk_checkpointing 10]
+    :end-before: [test_disk_checkpointing 11]
 
 ``steps_to_store`` is the number of time steps stored in memory.
 
