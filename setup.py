@@ -278,6 +278,10 @@ def main():
         os.makedirs(package_test_dir, exist_ok=True)
         shutil.copy(test_file, package_test_dir)
 
+    # Also copy conftest.py so any markers are recognised
+    conftest_dir = os.path.join(package_dir, "tests", "firedrake")
+    shutil.copy("tests/firedrake/conftest.py", conftest_dir)
+
 
 make_firedrake_check_package()
 
