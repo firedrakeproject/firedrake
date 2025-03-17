@@ -12,7 +12,6 @@ from firedrake.utils import cached_property, complex_mode, SLATE_SUPPORTS_COMPLE
 from firedrake import functionspaceimpl
 from firedrake import function
 from firedrake.adjoint_utils import annotate_project
-from finat import HDivTrace, QuadratureElement
 
 
 __all__ = ['project', 'Projector']
