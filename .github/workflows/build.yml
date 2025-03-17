@@ -53,14 +53,24 @@ jobs:
 
       - name: Install PETSc
         run: |
-          git clone https://github.com/firedrakeproject/petsc.git
+          git clone --depth 1 https://github.com/firedrakeproject/petsc.git
           cd petsc
           python3 ../firedrake-repo/scripts/firedrake-configure \
             --arch ${{ matrix.arch }} --show-petsc-configure-options | \
             xargs -L1 ./configure --with-make-np=12
-          make
-          # TODO: This fails for some reason
-          # make check
+          make PETSC_DIR=/__w/firedrake/firedrake/petsc PETSC_ARCH=arch-firedrake-${{ matrix.arch }}
+          make check
+          echo "PETSC_DIR=/__w/firedrake/firedrake/petsc" >> "$GITHUB_ENV"
+          echo "PETSC_ARCH=arch-firedrake-${{ matrix.arch }}" >> "$GITHUB_ENV"
+
+
+      - name: Install SLEPc
+        run: |
+          git clone --depth 1 https://github.com/firedrakeproject/slepc.git
+          cd slepc
+          ./configure
+          make SLEPC_DIR=/__w/firedrake/firedrake/slepc
+          echo "SLEPC_DIR=/__w/firedrake/firedrake/slepc" >> "$GITHUB_ENV"
 
       - name: Install Firedrake
         id: install
@@ -69,14 +79,13 @@ jobs:
           python3 -m venv venv
           . venv/bin/activate
           : # Force a rebuild of petsc4py as the cached one will not link to the fresh
-          : # install of PETSc. A similar trick may be needed for compiled dependencies
-          : # like h5py or mpi4py if changing HDF5/MPI libraries.
+          : # install of PETSc.
           pip cache remove petsc4py
-          pip install --verbose --no-binary h5py './firedrake-repo[ci]'
+          pip install --verbose \
+            --no-binary h5py \
+            --extra-index-url https://download.pytorch.org/whl/cpu \
+            './firedrake-repo[ci]'
           firedrake-clean
-          : # Extra test dependencies
-          pip install --extra-index-url https://download.pytorch.org/whl/cpu \
-            jax matplotlib ngsPETSc torch vtk
           pip list
 
       - name: Run firedrake-check
@@ -156,6 +165,15 @@ jobs:
             gusto-repo/integration-tests/equations/test_thermal_sw.py \
             gusto-repo/integration-tests/transport/test_embedded_dg_advection.py
         timeout-minutes: 10
+
+      - name: Run G-ADOPT smoke tests
+        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
+        run: |
+          . venv/bin/activate
+          git clone --depth 1 https://github.com/g-adopt/g-adopt.git g-adopt-repo
+          pip install --verbose ./g-adopt-repo
+          make -C g-adopt-repo/demos/mantle_convection/base_case check
+        timeout-minutes: 5
 
       - name: Publish test report
         uses: mikepenz/action-junit-report@v5.0.0-a02

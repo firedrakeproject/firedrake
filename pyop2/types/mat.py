@@ -550,6 +550,9 @@ class AbstractMat(DataCarrier, abc.ABC):
         return "Mat(%r, %r, %r)" \
                % (self._sparsity, self._datatype, self._name)
 
+    def increment_dat_version(self):
+        pass
+
 
 class Mat(AbstractMat):
     """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
