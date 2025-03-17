@@ -22,8 +22,6 @@ env:
 jobs:
   test:
     name: Install and test Firedrake (Linux)
-    # UNDO ME:
-    if: false
     strategy:
       # We want to know all of the tests which fail, so don't kill real if
       # complex fails and vice-versa
@@ -32,7 +30,9 @@ jobs:
         arch: [default, complex]
     runs-on: [self-hosted, Linux]
     container:
-      image: firedrakeproject/firedrake-env:latest
+      # UNDO ME
+      # image: firedrakeproject/firedrake-env:latest
+      image: firedrakeproject/firedrake-env:roottest
     env:
       FIREDRAKE_CI: 1
       PYOP2_CI_TESTS: 1
@@ -49,8 +49,8 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get -y install \
+          apt-get update
+          apt-get -y install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
 
       - name: Install PETSc
@@ -206,16 +206,12 @@ jobs:
     name: "Build Docker containers"
     # Only run on master, but always generate firedrake-env image,
     # even if build fails (see docker.yml)
-    # UNDO ME
-    # if: always() && (github.ref == 'refs/heads/master')
-    # needs: [test, docker_tag]
+    if: always() && (github.ref == 'refs/heads/master')
+    needs: [test, docker_tag]
     uses: ./.github/workflows/docker.yml
     with:
-      # UNDO ME
-      # tag: ${{ needs.docker_tag.outputs.tag }}
-      # status: ${{ needs.test.result }}
-      tag: roottest
-      status: success
+      tag: ${{ needs.docker_tag.outputs.tag }}
+      status: ${{ needs.test.result }}
     secrets: inherit
 
   lint:
