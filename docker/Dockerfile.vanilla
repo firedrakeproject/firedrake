@@ -36,7 +36,7 @@ RUN git clone --depth 1 https://github.com/firedrakeproject/petsc.git /opt/petsc
     && rm -rf ./src/docs \
     && rm -f ./src/**/tutorials/output/* \
     && rm -f ./src/**/tests/output/* \
-    && cd -
+    && cd - || exit
 
 ENV PETSC_DIR=/opt/petsc PETSC_ARCH=arch-firedrake-$ARCH
 ENV PATH="$PETSC_DIR/$PETSC_ARCH/bin:$PATH" 
@@ -46,7 +46,7 @@ RUN git clone --depth 1 https://github.com/firedrakeproject/slepc.git /opt/slepc
     && cd /opt/slepc \
     && ./configure \
     && make SLEPC_DIR=/opt/slepc \
-    && cd -
+    && cd - || exit
 
 ENV SLEPC_DIR=/opt/slepc
 
