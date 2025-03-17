@@ -26,7 +26,7 @@ def _skip_test_dependency(dependency):
 
     if dependency == "slepc":
         try:
-            from slepc4py import SLEPc
+            from slepc4py import SLEPc  # noqa: F401
             del SLEPc
             return not skip
         except ImportError:
@@ -34,7 +34,7 @@ def _skip_test_dependency(dependency):
 
     elif dependency == 'matplotlib':
         try:
-            import matplotlib
+            import matplotlib  # noqa: F401
             del matplotlib
             return not skip
         except ImportError:
@@ -42,7 +42,7 @@ def _skip_test_dependency(dependency):
 
     elif dependency == "pytorch":
         try:
-            import firedrake.ml.pytorch as fd_torch
+            import firedrake.ml.pytorch as fd_torch  # noqa: F401
             del fd_torch
             return not skip
         except ImportError:
@@ -50,7 +50,7 @@ def _skip_test_dependency(dependency):
 
     elif dependency == "jax":
         try:
-            import firedrake.ml.jax as fd_jax
+            import firedrake.ml.jax as fd_jax  # noqa: F401
             del fd_jax
             return not skip
         except ImportError:
@@ -58,9 +58,9 @@ def _skip_test_dependency(dependency):
 
     elif dependency == "netgen":
         try:
-            import netgen
+            import netgen  # noqa: F401
             del netgen
-            import ngsPETSc
+            import ngsPETSc  # noqa: F401
             del ngsPETSc
             return not skip
         except ImportError:
@@ -68,7 +68,7 @@ def _skip_test_dependency(dependency):
 
     elif dependency == "vtk":
         try:
-            from firedrake.output import VTKFile
+            from firedrake.output import VTKFile  # noqa: F401
             del VTKFile
             return not skip
         except ImportError:
