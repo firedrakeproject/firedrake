@@ -6,15 +6,11 @@ from firedrake.configuration import setup_cache_dirs
 setup_cache_dirs()
 
 # Ensure petsc is initialised by us before anything else gets in there.
-#
-# When running with pytest-xdist (i.e. pytest -n <#procs>) PETSc finalize will
-# crash (see https://github.com/firedrakeproject/firedrake/issues/3247). This
-# is because PETSc wants to complain about unused options to stderr, but by this
-# point the worker's stderr stream has already been destroyed by xdist, causing
-# a crash. To prevent this we disable unused options checking in PETSc when
-# running with xdist.
+# We conditionally pass '-options_left no' as in some circumstances (e.g.
+# when running pytest) PETSc complains that command line options are not
+# PETSc options.
 import petsc4py
-if "PYTEST_XDIST_WORKER" in os.environ:
+if os.getenv("FIREDRAKE_DISABLE_OPTIONS_LEFT") == "1":
     petsc4py.init(sys.argv + ["-options_left", "no"])
 else:
     petsc4py.init(sys.argv)
@@ -89,7 +85,6 @@ from firedrake.mg.embedded import *
 from firedrake.mg.opencascade_mh import *
 from firedrake.norms import *
 from firedrake.nullspace import *
-from firedrake.optimizer import *
 from firedrake.parameters import *
 from firedrake.parloops import *
 from firedrake.projection import *

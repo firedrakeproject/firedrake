@@ -1,6 +1,5 @@
 import functools
 
-import numpy as np
 import ufl
 import finat.ufl
 
@@ -37,7 +36,7 @@ class HybridizationPC(SCBase):
 
         A KSP is created for the Lagrange multiplier system.
         """
-        from firedrake import (FunctionSpace, Cofunction, Function, Constant,
+        from firedrake import (FunctionSpace, Cofunction, Function,
                                TrialFunction, TrialFunctions, TestFunction,
                                DirichletBC)
         from firedrake.assemble import get_assembler
@@ -99,7 +98,7 @@ class HybridizationPC(SCBase):
         self.unbroken_residual = Function(V)
 
         shapes = (V[self.vidx].finat_element.space_dimension(),
-                  np.prod(V[self.vidx].shape))
+                  V[self.vidx].block_size)
         domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
         instructions = """
         for i, j
@@ -178,7 +177,7 @@ class HybridizationPC(SCBase):
             for measure in measures:
                 Kform += integrand*measure
 
-            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), subdomain) for subdomain in trace_subdomains]
+            trace_bcs = [DirichletBC(TraceSpace, 0, subdomain) for subdomain in trace_subdomains]
 
         else:
             # No bcs were provided, we assume weak Dirichlet conditions.
@@ -188,7 +187,7 @@ class HybridizationPC(SCBase):
             trace_subdomains = ["on_boundary"]
             if mesh.cell_set._extruded:
                 trace_subdomains.extend(["bottom", "top"])
-            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), subdomain) for subdomain in trace_subdomains]
+            trace_bcs = [DirichletBC(TraceSpace, 0, subdomain) for subdomain in trace_subdomains]
 
         # Make a SLATE tensor from Kform
         K = Tensor(Kform)

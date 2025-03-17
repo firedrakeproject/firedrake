@@ -157,11 +157,6 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
     def subfunctions(self):
         return (self,)
 
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
-
     def cell_node_map(self, bcs=None):
         """Return a null cell to node map."""
         if bcs is not None:

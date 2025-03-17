@@ -1,12 +1,9 @@
 import pytest
 from firedrake import *
-from firedrake.petsc import get_external_packages
 
 
-if "hypre" not in get_external_packages():
-    pytest.skip("hypre not installed with PETSc", allow_module_level=True)
-
-
+@pytest.mark.skiphypre
+@pytest.mark.skipcomplex
 def test_homogeneous_field_linear():
     mesh = UnitCubeMesh(10, 10, 10)
     V = FunctionSpace(mesh, "RT", 1)
@@ -33,6 +30,8 @@ def test_homogeneous_field_linear():
     assert (errornorm(Constant((1, 0.5, 4)), u, 'L2') < 1e-10)
 
 
+@pytest.mark.skiphypre
+@pytest.mark.skipcomplex
 def test_homogeneous_field_matfree():
     mesh = UnitCubeMesh(10, 10, 10)
     V = FunctionSpace(mesh, "RT", 1)
@@ -62,6 +61,8 @@ def test_homogeneous_field_matfree():
     assert (errornorm(Constant((1, 0.5, 4)), u, 'L2') < 1e-10)
 
 
+@pytest.mark.skiphypre
+@pytest.mark.skipcomplex
 def test_homogeneous_field_nonlinear():
     mesh = UnitCubeMesh(10, 10, 10)
     V = FunctionSpace(mesh, "RT", 1)
@@ -86,6 +87,8 @@ def test_homogeneous_field_nonlinear():
     assert (errornorm(Constant((1, 0.5, 4)), u, 'L2') < 1e-10)
 
 
+@pytest.mark.skiphypre
+@pytest.mark.skipcomplex
 def test_homogeneous_field_linear_convergence():
     mesh = UnitCubeMesh(10, 10, 10)
     V = FunctionSpace(mesh, "RT", 1)

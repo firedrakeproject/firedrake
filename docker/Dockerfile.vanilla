@@ -1,20 +1,58 @@
-# DockerFile for a plain Firedrake suitable for testing Firedrake components and applications
+# Dockerfile for a plain Firedrake suitable for testing Firedrake components and applications
 
 FROM firedrakeproject/firedrake-env:latest
 
-USER firedrake
-WORKDIR /home/firedrake
+# Set '-o pipefail' to avoid linter error (https://github.com/hadolint/hadolint/wiki/DL4006)
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-ENV PETSC_ARCH default
+# Firedrake arch to build
+ARG ARCH="default"
 
-# Now install Firedrake.
-RUN curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
-RUN bash -c "python3 firedrake-install \
-    --no-package-manager \
-    --disable-ssh \
-    --honour-petsc-dir \
-    --mpicc=$MPICH_DIR/mpicc \
-    --mpicxx=$MPICH_DIR/mpicxx \
-    --mpif90=$MPICH_DIR/mpif90 \
-    --mpiexec=$MPICH_DIR/mpiexec \
-    --mpihome=$MPICH_DIR/.."
+# Download firedrake-configure
+RUN curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-configure
+
+# Install system dependencies
+RUN sudo apt-get update \
+    && sudo apt-get -y install \
+        $(python3 ./firedrake-configure --arch $ARCH --show-system-packages) \
+    && sudo rm -rf /var/lib/apt/lists/*
+
+
+# Install PETSc. We set the compiler optimisation flags manually here to
+# remove the default of '-march=native' which is not suitable for Docker images.
+# We use 'sed' to make sure that the options are appended.
+RUN git clone --depth 1 https://github.com/firedrakeproject/petsc.git \
+    && cd petsc \
+    && python3 ../firedrake-configure --arch $ARCH --show-petsc-configure-options | \
+        sed "s/$/ --COPTFLAGS='-O3 -mtune=generic' --CXXOPTFLAGS='-O3 -mtune=generic' --FOPTFLAGS='-O3 -mtune=generic'/" | \
+        xargs -L1 ./configure --with-make-np=12 \
+    && make \
+    && make check \
+    && rm -rf ./**/externalpackages \
+    && rm -rf ./src/docs \
+    && rm -f ./src/**/tutorials/output/* \
+    && rm -f ./src/**/tests/output/* \
+    && cd ..
+
+ENV PETSC_DIR=/home/firedrake/petsc PETSC_ARCH=arch-firedrake-$ARCH
+ENV PATH="$PETSC_DIR/$PETSC_ARCH/bin:$PATH"
+
+# Install SLEPc
+RUN git clone --depth 1 https://github.com/firedrakeproject/slepc.git \
+    && cd slepc \
+    && ./configure \
+    && make SLEPC_DIR=/home/firedrake/slepc \
+    && cd ..
+
+ENV SLEPC_DIR=/home/firedrake/slepc
+
+ENV HDF5_MPI=ON
+ENV CC=mpicc CXX=mpicxx
+ENV CFLAGS="-mtune=generic" CPPFLAGS="-mtune=generic"
+ENV MPICC=$CC
+ENV PATH="/home/firedrake/.local/bin:$PATH" 
+
+# Install Firedrake, pass --break-system-packages because we don't want the
+# container to need a venv.
+RUN pip install --break-system-packages --verbose --no-binary h5py --src . \
+        --editable git+https://github.com/firedrakeproject/firedrake.git#egg=firedrake[docker]
