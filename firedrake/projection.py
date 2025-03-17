@@ -12,7 +12,7 @@ from firedrake.utils import cached_property, complex_mode, SLATE_SUPPORTS_COMPLE
 from firedrake import functionspaceimpl
 from firedrake import function
 from firedrake.adjoint_utils import annotate_project
-from finat import HDivTrace
+from finat import HDivTrace, QuadratureElement
 
 
 __all__ = ['project', 'Projector']
@@ -162,8 +162,7 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
         self.bcs = bcs
         self.constant_jacobian = constant_jacobian
         try:
-            element = self.target.function_space().finat_element
-            is_dg = element.entity_dofs() == element.entity_closure_dofs()
+            is_dg = self.target.function_space().finat_element.is_dg()
             is_variable_layers = self.target.function_space().mesh().variable_layers
         except AttributeError:
             # Mixed space
@@ -172,13 +171,22 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
         self.use_slate_for_inverse = (use_slate_for_inverse and is_dg and not is_variable_layers
                                       and (not complex_mode or SLATE_SUPPORTS_COMPLEX))
 
+        F = self.target.function_space()
+        needs_trace = False
+        if type(F.ufl_element()) is not finat.ufl.MixedElement:
+            if isinstance(F.finat_element, HDivTrace):
+                needs_trace = True
+            elif isinstance(F.finat_element, QuadratureElement):
+                tdim = F.mesh().topological_dimension()
+                needs_trace = F.finat_element._rule.point_set.dimension == tdim-1
+        self.needs_trace = needs_trace
+
     @cached_property
     def A(self):
+        F = self.target.function_space()
         u = firedrake.TrialFunction(self.target.function_space())
         v = firedrake.TestFunction(self.target.function_space())
-        F = self.target.function_space()
-        mixed = isinstance(F.ufl_element(), finat.ufl.MixedElement)
-        if not mixed and isinstance(F.finat_element, HDivTrace):
+        if self.needs_trace:
             if F.extruded:
                 a = (
                     firedrake.inner(u, v)*firedrake.ds_t
@@ -244,8 +252,7 @@ class BasicProjector(ProjectorBase):
     def rhs_form(self):
         v = firedrake.TestFunction(self.target.function_space())
         F = self.target.function_space()
-        mixed = isinstance(F.ufl_element(), finat.ufl.MixedElement)
-        if not mixed and isinstance(F.finat_element, HDivTrace):
+        if self.needs_trace:
             # Project onto a trace space by supplying the respective form on the facets.
             # The measures on the facets differ between extruded and non-extruded mesh.
             # FIXME The restrictions of cg onto the facets is also a trace space,

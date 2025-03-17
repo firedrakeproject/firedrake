@@ -314,7 +314,7 @@ def set_quad_rule(params, cell, integral_type, functions):
             logger.warning("Estimated quadrature degree %s more "
                            "than tenfold greater than any "
                            "argument/coefficient degree (max %s)",
-                           quadrature_degree, max_degree(function_degrees))
+                           quadrature_degree, max_degree([e.degree() for e in elements]))
     if isinstance(quad_rule, str):
         scheme = quad_rule
         fiat_cell = as_fiat_cell(cell)
