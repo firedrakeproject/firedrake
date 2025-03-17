@@ -178,6 +178,22 @@ PETSC_EXTRAS_LINUX_APT_PACKAGES = (
 
 COMMON_LINUX_APT_PACKAGES = BASE_LINUX_APT_PACKAGES + PETSC_EXTRAS_LINUX_APT_PACKAGES
 
+LINUX_X86_64_APT_PACKAGES = (
+    "libmumps-ptscotch-dev",
+    "libmetis-dev",
+    "libparmetis-dev",
+    "libnetcdf-dev",
+    "libpnetcdf-dev",
+    "libptscotch-dev",
+    "libscalapack-openmpi-dev",
+    "libsuitesparse-dev",
+    "libsuperlu-dev",
+    "libsuperlu-dist-dev",
+)
+
+COMMON_LINUX_X86_64_APT_PACKAGES = COMMON_LINUX_APT_PACKAGES + LINUX_X86_64_APT_PACKAGES
+COMMON_LINUX_AARCH64_APT_PACKAGES = COMMON_LINUX_APT_PACKAGES
+
 BASE_MACOS_HOMEBREW_PACKAGES = (
     "autoconf",
     "automake",
@@ -200,10 +216,10 @@ COMMON_MACOS_HOMEBREW_PACKAGES = (
 )
 
 SYSTEM_PACKAGES = {
-    (LINUX_APT_X86_64, ARCH_DEFAULT): COMMON_LINUX_APT_PACKAGES,
-    (LINUX_APT_X86_64, ARCH_COMPLEX): COMMON_LINUX_APT_PACKAGES,
-    (LINUX_APT_AARCH64, ARCH_DEFAULT): COMMON_LINUX_APT_PACKAGES,
-    (LINUX_APT_AARCH64, ARCH_COMPLEX): COMMON_LINUX_APT_PACKAGES,
+    (LINUX_APT_X86_64, ARCH_DEFAULT): COMMON_LINUX_X86_64_APT_PACKAGES,
+    (LINUX_APT_X86_64, ARCH_COMPLEX): COMMON_LINUX_X86_64_APT_PACKAGES,
+    (LINUX_APT_AARCH64, ARCH_DEFAULT): COMMON_LINUX_AARCH64_APT_PACKAGES,
+    (LINUX_APT_AARCH64, ARCH_COMPLEX): COMMON_LINUX_AARCH64_APT_PACKAGES,
     (MACOS_HOMEBREW_ARM64, ARCH_DEFAULT): COMMON_MACOS_HOMEBREW_PACKAGES,
     (MACOS_HOMEBREW_ARM64, ARCH_COMPLEX): COMMON_MACOS_HOMEBREW_PACKAGES,
 }
@@ -242,9 +258,7 @@ PETSC_EXTERNAL_PACKAGE_SPECS = {
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "hdf5": {
-        LINUX_APT_X86_64: (
-            "/usr/include/hdf5/openmpi", ("/usr/lib/x86_64-linux-gnu/hdf5/openmpi/libhdf5.a",)
-        ),
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: (
             "/usr/include/hdf5/openmpi", ("/usr/lib/aarch64-linux-gnu/hdf5/openmpi/libhdf5.a",)
         ),
@@ -261,42 +275,44 @@ PETSC_EXTERNAL_PACKAGE_SPECS = {
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "metis": {
-        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_DOWNLOAD,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "mumps": {
-        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_DOWNLOAD,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "netcdf": {
-        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_DOWNLOAD,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "pnetcdf": {
-        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_DOWNLOAD,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "ptscotch": {
-        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_DOWNLOAD,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "scalapack": {
-        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_X86_64: (
+            "", ("-lscalapack-openmpi",)
+        ),
         LINUX_APT_AARCH64: PETSC_DOWNLOAD,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "suitesparse": {
-        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_DOWNLOAD,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "superlu_dist": {
-        LINUX_APT_X86_64: PETSC_DOWNLOAD,
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_DOWNLOAD,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
@@ -350,8 +366,10 @@ def prepare_external_package_configure_options(
             # Package is installed but not findable, have to provide paths
             # to headers and libraries
             (include_dir, libs) = package_spec
-            configure_options.append(f"--with-{external_package}-include={include_dir}")
-            configure_options.append(f"--with-{external_package}-lib={','.join(libs)}")
+            if include_dir != "":
+                configure_options.append(f"--with-{external_package}-include={include_dir}")
+            if len(libs) >= 1:
+                configure_options.append(f"--with-{external_package}-lib={','.join(libs)}")
     return tuple(configure_options)
 
 
@@ -362,18 +380,42 @@ def prepare_configure_options(
     configure_options = list(COMMON_PETSC_CONFIGURE_OPTIONS)
     configure_options.append(f"PETSC_ARCH=arch-firedrake-{arch.value}")
 
+    # include/link flags
+    if package_manager == LINUX_APT_X86_64:
+        incdir = "/usr/include"
+        libdir = "/usr/lib/x86_64-linux-gnu"
+
+        includes = (
+            f"{incdir}/hdf5/openmpi",
+            f"{incdir}/scotch",
+            f"{incdir}/superlu",
+            f"{incdir}/superlu-dist",
+        )
+
+        libraries = (
+             f"{libdir}/hdf5/openmpi",
+        )
+
+        incflags = " " + " ".join([f"-I{inc}" for inc in includes])
+        libflags = " " + " ".join([f"-L{lib}" for lib in libraries])
+
+    else:
+        incflags = ""
+        libflags = ""
+
     configure_options.extend([
-        "--COPTFLAGS='-O3 -march=native -mtune=native'",
-        "--CXXOPTFLAGS='-O3 -march=native -mtune=native'",
+        f"--COPTFLAGS='-O3 -march=native -mtune=native{incflags}{libflags}'",
+        f"--CXXOPTFLAGS='-O3 -march=native -mtune=native{incflags}{libflags}'",
     ])
+    # Fortran flags
     if package_manager == MACOS_HOMEBREW_ARM64:
         # -march=native and -mtune=native not available for FOPTFLAGS on macOS
-        configure_options.append("--FOPTFLAGS='-O3'")
+        configure_options.append(f"--FOPTFLAGS='-O3{incflags}{libflags}'")
         # Avoid macos + openmpi + mumps segmentation violation issue;
         # see https://github.com/firedrakeproject/firedrake/issues/4102 and https://github.com/firedrakeproject/firedrake/issues/4113.
         configure_options.append("-download-mumps-avoid-mpi-in-place")
     else:
-        configure_options.append("--FOPTFLAGS='-O3 -march=native -mtune=native'")
+        configure_options.append(f"--FOPTFLAGS='-O3 -march=native -mtune=native{incflags}{libflags}'")
 
     if arch == ARCH_COMPLEX:
         configure_options.append("--with-scalar-type=complex")
