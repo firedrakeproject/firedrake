@@ -57,4 +57,4 @@ ENV MPICC=$CC
 
 # Install Firedrake
 RUN pip install --verbose --no-binary h5py --src /opt \
-        --editable git+https://github.com/firedrakeproject/firedrake.git#egg=firedrake[ci]
+        --editable git+https://github.com/firedrakeproject/firedrake.git#egg=firedrake[docker]

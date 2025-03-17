@@ -18,11 +18,7 @@ dependencies = [
   "decorator<=4.4.2",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
-  # TODO: We are only using our fork here because the most recent PyPI release
-  # does not yet work with build isolation for Python 3.13. Once a version
-  # newer than 3.12.1 is released we can revert to simply using "h5py".
-  "h5py @ git+https://github.com/firedrakeproject/h5py.git ; python_version >= '3.13'",
-  "h5py; python_version < '3.13'",
+  "h5py>3.12.1",
   "libsupermesh",
   "petsc4py",
   "numpy",
@@ -76,6 +72,23 @@ test = [
 # Dependencies needed to run the full test suite
 ci = [
   "ipympl",  # needed for notebook testing
+  "jax",
+  "matplotlib",
+  "mpi-pytest",
+  "nbval",
+  "ngsPETSc",
+  "pylit",
+  "pytest",
+  "pytest-split",  # needed for firedrake-run-split-tests
+  "pytest-timeout",
+  "pytest-xdist",
+  "slepc4py",
+  "torch",  # requires passing '--extra-index-url' to work
+  "vtk",
+]
+docker = [  # Used in firedrake-vanilla container
+  "ipympl",  # needed for notebook testing
+  "matplotlib",
   "mpi-pytest",
   "nbval",
   "pylit",
@@ -83,6 +96,7 @@ ci = [
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
+  "slepc4py",
 ]
 # Dependencies needed to build the docs
 docs = [
