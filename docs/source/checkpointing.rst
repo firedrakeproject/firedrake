@@ -235,8 +235,7 @@ Using checkpointing in adjoint simulations
 
 When adjoint annotation is active, the result of every Firedrake operation is
 stored in memory. For some time-dependent simulations, this can lead to a
-large memory footprint. To alleviate this, checkpointing strategies can be used
-to store intermediate results either in memory or on disk.
+large memory footprint. To alleviate this, we can use checkpointing strategies to store only some intermediate forward data in memory or on disk.
 
 Checkpointing for time-dependent adjoint simulations in Firedrake employs
 schedules, which determine how forward data is stored. These schedules are
