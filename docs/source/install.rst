@@ -326,14 +326,39 @@ To install Firedrake with SLEPc support you must:
 
    $ export SLEPC_DIR=$PWD
 
-# Install slepc4py::
+# Install Firedrake with SLEPc support::
 
-   $ pip install slepc4py
+   $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[test,slepc]"
+
+VTK
+~~~
+
+To install Firedrake with VTK, it should be installed using the ``vtk`` optional
+dependency. For example::
+
+   $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[test,vtk]"
 
 
-vtk?
-torch?
-netgen?
+PyTorch
+~~~~~~~
+
+To install Firedrake with `PyTorch <https://pytorch.org/>`_, it should be installed
+using the ``torch`` optional dependency. For example::
+
+   $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[test,torch]" --extra-index-url https://download.pytorch.org/whl/cpu
+
+Observe that, in addition to specifying ``torch``, an additional
+argument (``--extra-index-url``) is needed. More information on installing
+PyTorch can be found `here <https://pytorch.org/get-started/locally/>`__.
+
+
+Netgen
+~~~~~~
+
+To install Firedrake with `Netgen <https://ngsolve.org/>`_ support, it should be
+installed with the ``netgen`` optional dependency. For example::
+
+   $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[test,netgen]"
 
 
 Advanced customisation
