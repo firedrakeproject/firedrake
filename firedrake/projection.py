@@ -134,9 +134,12 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
         if quadrature_degree is not None:
             warnings.warn(f"Passing 'quadrature_degree' to {type(self).__name__} is deprecated, "
                           "please instead set inside the form compiler parameters", FutureWarning)
-            if "quadrature_degree" in form_compiler_parameters:
-                raise ValueError("Cannot pass quadrature degree twice")
-            form_compiler_parameters = form_compiler_parameters.copy()
+            if form_compiler_parameters is not None:
+                if "quadrature_degree" in form_compiler_parameters:
+                    raise ValueError("Cannot pass quadrature degree twice")
+                form_compiler_parameters = form_compiler_parameters.copy()
+            else:
+                form_compiler_parameters = {}
             form_compiler_parameters["quadrature_degree"] = quadrature_degree
         if solver_parameters is None:
             solver_parameters = {}

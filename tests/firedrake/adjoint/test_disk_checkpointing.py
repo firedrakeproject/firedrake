@@ -108,9 +108,14 @@ def test_disk_checkpointing_parallel():
     tape = get_working_tape()
     tape.clear_tape()
     continue_annotation()
+    # The comment below and the others like it are used to generate the
+    # documentation for the firedrake/docs/source/chekpointing.rst file.
+    # [test_disk_checkpointing 1]
     enable_disk_checkpointing()
     tape.enable_checkpointing(SingleDiskStorageSchedule())
+    # [test_disk_checkpointing 2]
     mesh = checkpointable_mesh(UnitSquareMesh(10, 10))
+    # [test_disk_checkpointing 3]
     J_disk, grad_J_disk = adjoint_example(mesh)
 
     assert disk_checkpointing() is False
