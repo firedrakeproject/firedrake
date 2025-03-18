@@ -1509,8 +1509,7 @@ class IndexedAxisTree(AbstractAxisTree):
         layout_exprs=None,  # not used
         outer_loops=(),  # not used
     ):
-        # assert has_unique_entries(targets)
-        assert has_unique_entries(item for target in targets for item in target)  # I think
+        assert has_unique_entries(targets)
 
         if layout_exprs is None:
             layout_exprs = pmap()

@@ -1321,51 +1321,35 @@ def index_axes(
     for orig_path in axes.targets:
 
         match_found = False
-        # If we have full slices we can get duplicate targets here. This is completely expected
-        # but we make assumptions that an indexed tree has unique targets so we filter them here
-        for indexed_path_and_exprs in utils.unique(indexed_target_paths_and_exprs):
+        for indexed_path_and_exprs in indexed_target_paths_and_exprs:
             # catch invalid indexed_target_paths_and_exprs
             if not _index_info_targets_axes(indexed_axes, indexed_path_and_exprs, axes):
                 continue
 
             assert not match_found, "don't expect multiple hits"
             target_path_and_exprs = compose_targets(axes, orig_path, indexed_axes, indexed_path_and_exprs)
+            if (None, (pmap(), pmap())) in target_path_and_exprs.items():
+                breakpoint()
             match_found = True
 
             all_target_paths_and_exprs.append(target_path_and_exprs)
         assert match_found, "must hit once"
 
-    # debug
-    if not utils.has_unique_entries(all_target_paths_and_exprs):
-        breakpoint()
-        all_target_paths_and_exprs = []
-        for orig_path in axes.targets:
-
-            match_found = False
-            # If we have full slices we can get duplicate targets here. This is completely expected
-            # but we make assumptions that an indexed tree has unique targets so we filter them here
-            for indexed_path_and_exprs in utils.unique(indexed_target_paths_and_exprs):
-                # catch invalid indexed_target_paths_and_exprs
-                if not _index_info_targets_axes(indexed_axes, indexed_path_and_exprs, axes):
-                    continue
-
-                assert not match_found, "don't expect multiple hits"
-                target_path_and_exprs = compose_targets(axes, orig_path, indexed_axes, indexed_path_and_exprs)
-                match_found = True
-
-                all_target_paths_and_exprs.append(target_path_and_exprs)
-            assert match_found, "must hit once"
+    # If we have full slices we can get duplicate targets here. This is completely expected
+    # but we make assumptions that an indexed tree has unique targets so we filter them here
+    # NOTE: really bad code, could use ordered set or similar
+    all_target_paths_and_exprs += [pmap(indexed_axes._source_path_and_exprs)]
+    filtered = []
+    for x in all_target_paths_and_exprs:
+        if x not in filtered:
+            filtered.append(x)
+    all_target_paths_and_exprs = filtered
 
     # TODO: reorder so the if statement captures the composition and this line is only needed once
     return IndexedAxisTree(
         indexed_axes.node_map,
         axes.unindexed,
-        # very old
-        # targets=all_target_paths_and_exprs | {indexed_axes._source_path_and_exprs},
-        # old
-        # targets=all_target_paths_and_exprs,
-        # fix? yes, fairly sure that this is correct
-        targets=tuple(all_target_paths_and_exprs) + (pmap(indexed_axes._source_path_and_exprs),),
+        targets=all_target_paths_and_exprs,
         layout_exprs={},
         outer_loops=outer_loops,
     )
@@ -1553,9 +1537,11 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
                 for orig_axis_label, orig_index_expr in orig_target_exprs.items():
                     none_mapped_target_exprs[orig_axis_label] = replace_terminals(orig_index_expr, myreplace_map)
 
-        composed_target_paths_and_exprs[None] = (
-            pmap(none_mapped_target_path), pmap(none_mapped_target_exprs)
-        )
+        # Only store if non-empty
+        if strictly_all((none_mapped_target_path, none_mapped_target_exprs)):
+            composed_target_paths_and_exprs[None] = (
+                pmap(none_mapped_target_path), pmap(none_mapped_target_exprs)
+            )
         # if none_mapped_target_path:
         #     breakpoint()
 
