@@ -57,7 +57,6 @@ from pyop3.lang import (
 )
 from pyop3.log import logger
 from pyop3.utils import (
-    KeyAlreadyExistsException,
     Parameter,
     PrettyTuple,
     StrictlyUniqueDict,

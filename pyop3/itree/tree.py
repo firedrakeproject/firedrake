@@ -15,6 +15,7 @@ from typing import Any, Collection, Hashable, Mapping, Sequence, Type, cast, Opt
 import numpy as np
 import pymbolic as pym
 from pyop3.exceptions import Pyop3Exception
+from pyop3.extras.debug import maybe_breakpoint
 import pytools
 from immutabledict import ImmutableOrderedDict
 from petsc4py import PETSc
@@ -60,6 +61,7 @@ from pyop3.utils import (
     merge_dicts,
     strictly_all,
 )
+from pyop3 import utils
 
 
 # FIXME: Import cycle
@@ -108,6 +110,11 @@ class SliceComponent(LabelledNodeComponent, abc.ABC):
         super().__init__(label)
         self.component = component
 
+    @property
+    @abc.abstractmethod
+    def is_full(self) -> bool:
+        pass
+
 
 class AffineSliceComponent(SliceComponent):
     fields = SliceComponent.fields | {"start", "stop", "step", "label_was_none"}
@@ -140,7 +147,7 @@ class AffineSliceComponent(SliceComponent):
         return pmap()
 
     @property
-    def is_full(self):
+    def is_full(self) -> bool:
         return self.start == 0 and self.stop is None and self.step == 1
 
     # as_range?
@@ -165,10 +172,15 @@ class SubsetSliceComponent(SliceComponent):
 
     @property
     def datamap(self) -> PMap:
+        assert False, "old"
         return self.array.datamap
 
+    @property
+    def is_full(self) -> bool:
+        return False
 
-# alternative name, better or worse?
+
+# alternative name, better or worse? I think worse
 Subset = SubsetSliceComponent
 
 
@@ -1106,11 +1118,13 @@ def _(slice_: Slice, *, prev_axes, **_):
     axes = AxisTree(axis)
 
     for i, slice_component in enumerate(slice_.slices):
-        # if is_full:
+        # don't do this here
         if False:
-            target_path_per_subslice.append({})
-            index_exprs_per_subslice.append({})
-            layout_exprs_per_subslice.append({})
+            pass
+        # if slice_component.is_full:
+            # target_path_per_subslice.append({})
+            # index_exprs_per_subslice.append({})
+            # layout_exprs_per_subslice.append({})
         else:
             target_path_per_subslice.append(pmap({slice_.axis: slice_component.component}))
 
@@ -1304,10 +1318,12 @@ def index_axes(
         raise NotImplementedError("Need to think about this case")
 
     all_target_paths_and_exprs = []
-    for orig_path in axes.paths_and_exprs:
+    for orig_path in axes.targets:
 
         match_found = False
-        for indexed_path_and_exprs in indexed_target_paths_and_exprs:
+        # If we have full slices we can get duplicate targets here. This is completely expected
+        # but we make assumptions that an indexed tree has unique targets so we filter them here
+        for indexed_path_and_exprs in utils.unique(indexed_target_paths_and_exprs):
             # catch invalid indexed_target_paths_and_exprs
             if not _index_info_targets_axes(indexed_axes, indexed_path_and_exprs, axes):
                 continue
@@ -1315,15 +1331,41 @@ def index_axes(
             assert not match_found, "don't expect multiple hits"
             target_path_and_exprs = compose_targets(axes, orig_path, indexed_axes, indexed_path_and_exprs)
             match_found = True
+
             all_target_paths_and_exprs.append(target_path_and_exprs)
         assert match_found, "must hit once"
+
+    # debug
+    if not utils.has_unique_entries(all_target_paths_and_exprs):
+        breakpoint()
+        all_target_paths_and_exprs = []
+        for orig_path in axes.targets:
+
+            match_found = False
+            # If we have full slices we can get duplicate targets here. This is completely expected
+            # but we make assumptions that an indexed tree has unique targets so we filter them here
+            for indexed_path_and_exprs in utils.unique(indexed_target_paths_and_exprs):
+                # catch invalid indexed_target_paths_and_exprs
+                if not _index_info_targets_axes(indexed_axes, indexed_path_and_exprs, axes):
+                    continue
+
+                assert not match_found, "don't expect multiple hits"
+                target_path_and_exprs = compose_targets(axes, orig_path, indexed_axes, indexed_path_and_exprs)
+                match_found = True
+
+                all_target_paths_and_exprs.append(target_path_and_exprs)
+            assert match_found, "must hit once"
 
     # TODO: reorder so the if statement captures the composition and this line is only needed once
     return IndexedAxisTree(
         indexed_axes.node_map,
         axes.unindexed,
+        # very old
         # targets=all_target_paths_and_exprs | {indexed_axes._source_path_and_exprs},
-        targets=all_target_paths_and_exprs,
+        # old
+        # targets=all_target_paths_and_exprs,
+        # fix? yes, fairly sure that this is correct
+        targets=tuple(all_target_paths_and_exprs) + (pmap(indexed_axes._source_path_and_exprs),),
         layout_exprs={},
         outer_loops=outer_loops,
     )

@@ -860,7 +860,9 @@ class AbstractMeshTopology(abc.ABC):
             # for example, we might renumber point 3/vertex 5 into point 9/vertex 4.
             # Previously we would return the mapping point 3 -> vertex 4 whereas now
             # we return vertex 5 -> vertex 4
-            return op3.utils.invert(np.argsort(numbering))
+            # hmmm!!!
+            # return op3.utils.invert(np.argsort(numbering))
+            return np.argsort(numbering)
         else:
             return np.arange(0, p_end-p_start, dtype=IntType)
 

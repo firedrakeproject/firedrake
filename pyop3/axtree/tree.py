@@ -59,6 +59,8 @@ from pyop3.utils import (
     strictly_all,
 )
 
+import pyop3.extras.debug
+
 
 class ExpectedLinearAxisTreeException(Pyop3Exception):
     ...
@@ -1179,11 +1181,11 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
                 # NOTE: I think slices and components should *always* preserve the axis labels
                 slice_component = AffineSliceComponent(
-                    component.label, start=start, stop=stop, label=component.label
+                    component.label, start=start, stop=stop, label=f"{component.label}_{region_label}"
                 )
             else:
                 slice_component = AffineSliceComponent(
-                    component.label, label=component.label
+                    component.label, label=f"{component.label}_{region_label}"
                 )
             slice_components.append(slice_component)
         slice_ = Slice(axis.label, slice_components, label=axis.label)
@@ -1507,6 +1509,9 @@ class IndexedAxisTree(AbstractAxisTree):
         layout_exprs=None,  # not used
         outer_loops=(),  # not used
     ):
+        # assert has_unique_entries(targets)
+        assert has_unique_entries(item for target in targets for item in target)  # I think
+
         if layout_exprs is None:
             layout_exprs = pmap()
         if outer_loops is None:

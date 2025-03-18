@@ -93,7 +93,7 @@ class Parameter(Identified):
         return just_one(self.box)
 
 
-class KeyAlreadyExistsException(Pyop3Exception):
+class ValueMismatchException(Pyop3Exception):
     pass
 
 
@@ -101,15 +101,15 @@ class StrictlyUniqueDict(dict):
     """A dictionary where overwriting entries will raise an error."""
 
     def __setitem__(self, key, value, /) -> None:
-        if key in self:
-            raise KeyAlreadyExistsException
+        if key in self and value != self[key]:
+            raise ValueMismatchException
         return super().__setitem__(key, value)
 
-    def update(self, other) -> None:
-        shared_keys = self.keys() & other.keys()
-        if len(shared_keys) > 0:
-            raise KeyAlreadyExistsException
-        super().update(other)
+    # def update(self, other) -> None:
+    #     shared_keys = self.keys() & other.keys()
+    #     if len(shared_keys) > 0:
+    #         raise ValueMismatchException
+    #     super().update(other)
 
 
 
