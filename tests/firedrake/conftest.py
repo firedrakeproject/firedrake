@@ -148,31 +148,29 @@ def pytest_collection_modifyitems(session, config, items):
             if item.get_closest_marker("skipreal") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense unless in complex mode"))
 
-        # Do not skip tests when CI is running
-        if os.getenv("FIREDRAKE_CI") != "1":
-            if _skip_test_dependency("mumps") and item.get_closest_marker("skipmumps") is not None:
-                item.add_marker(pytest.mark.skip("MUMPS not installed with PETSc"))
+        if _skip_test_dependency("mumps") and item.get_closest_marker("skipmumps") is not None:
+            item.add_marker(pytest.mark.skip("MUMPS not installed with PETSc"))
 
-            if _skip_test_dependency("hypre") and item.get_closest_marker("skiphypre") is not None:
-                item.add_marker(pytest.mark.skip("hypre not installed with PETSc"))
+        if _skip_test_dependency("hypre") and item.get_closest_marker("skiphypre") is not None:
+            item.add_marker(pytest.mark.skip("hypre not installed with PETSc"))
 
-            if _skip_test_dependency("slepc") and item.get_closest_marker("skipslepc") is not None:
-                item.add_marker(pytest.mark.skip(reason="SLEPc is not installed"))
+        if _skip_test_dependency("slepc") and item.get_closest_marker("skipslepc") is not None:
+            item.add_marker(pytest.mark.skip(reason="SLEPc is not installed"))
 
-            if _skip_test_dependency("pytorch") and item.get_closest_marker("skiptorch") is not None:
-                item.add_marker(pytest.mark.skip(reason="PyTorch is not installed"))
+        if _skip_test_dependency("pytorch") and item.get_closest_marker("skiptorch") is not None:
+            item.add_marker(pytest.mark.skip(reason="PyTorch is not installed"))
 
-            if _skip_test_dependency("jax") and item.get_closest_marker("skipjax") is not None:
-                item.add_marker(pytest.mark.skip(reason="JAX is not installed"))
+        if _skip_test_dependency("jax") and item.get_closest_marker("skipjax") is not None:
+            item.add_marker(pytest.mark.skip(reason="JAX is not installed"))
 
-            if _skip_test_dependency("matplotlib") and item.get_closest_marker("skipplot") is not None:
-                item.add_marker(pytest.mark.skip(reason="Matplotlib is not installed"))
+        if _skip_test_dependency("matplotlib") and item.get_closest_marker("skipplot") is not None:
+            item.add_marker(pytest.mark.skip(reason="Matplotlib is not installed"))
 
-            if _skip_test_dependency("netgen") and item.get_closest_marker("skipnetgen") is not None:
-                item.add_marker(pytest.mark.skip(reason="Netgen and ngsPETSc are not installed"))
+        if _skip_test_dependency("netgen") and item.get_closest_marker("skipnetgen") is not None:
+            item.add_marker(pytest.mark.skip(reason="Netgen and ngsPETSc are not installed"))
 
-            if _skip_test_dependency("vtk") and item.get_closest_marker("skipvtk") is not None:
-                item.add_marker(pytest.mark.skip(reason="VTK is not installed"))
+        if _skip_test_dependency("vtk") and item.get_closest_marker("skipvtk") is not None:
+            item.add_marker(pytest.mark.skip(reason="VTK is not installed"))
 
 
 @pytest.fixture(scope="module", autouse=True)
