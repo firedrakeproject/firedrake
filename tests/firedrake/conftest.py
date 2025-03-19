@@ -81,10 +81,22 @@ def _skip_test_dependency(dependency):
         raise ValueError("Unrecognised dependency to check: {dependency = }")
 
 
+dependency_skip_markers_and_reasons = (
+    ("mumps", "skipmumps", "MUMPS not installed with PETSc"),
+    ("hypre", "skiphypre", "hypre not installed with PETSc"),
+    ("slepc", "skipslepc", "SLEPc is not installed"),
+    ("pytorch", "skiptorch", "PyTorch is not installed"),
+    ("jax", "skipjax", "JAX is not installed"),
+    ("matplotlib", "skipplot", "Matplotlib is not installed"),
+    ("netgen", "skipnetgen", "Netgen and ngsPETSc are not installed"),
+    ("vtk", "skipvtk", "VTK is not installed")
+)
+
+
 # This allows us to check test dependencies within tests e.g. the demo tests
 @pytest.fixture
 def skip_dependency():
-    return _skip_test_dependency
+    return _skip_test_dependency, dependency_skip_markers_and_reasons
 
 
 def pytest_configure(config):
@@ -148,29 +160,9 @@ def pytest_collection_modifyitems(session, config, items):
             if item.get_closest_marker("skipreal") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense unless in complex mode"))
 
-        if _skip_test_dependency("mumps") and item.get_closest_marker("skipmumps") is not None:
-            item.add_marker(pytest.mark.skip("MUMPS not installed with PETSc"))
-
-        if _skip_test_dependency("hypre") and item.get_closest_marker("skiphypre") is not None:
-            item.add_marker(pytest.mark.skip("hypre not installed with PETSc"))
-
-        if _skip_test_dependency("slepc") and item.get_closest_marker("skipslepc") is not None:
-            item.add_marker(pytest.mark.skip(reason="SLEPc is not installed"))
-
-        if _skip_test_dependency("pytorch") and item.get_closest_marker("skiptorch") is not None:
-            item.add_marker(pytest.mark.skip(reason="PyTorch is not installed"))
-
-        if _skip_test_dependency("jax") and item.get_closest_marker("skipjax") is not None:
-            item.add_marker(pytest.mark.skip(reason="JAX is not installed"))
-
-        if _skip_test_dependency("matplotlib") and item.get_closest_marker("skipplot") is not None:
-            item.add_marker(pytest.mark.skip(reason="Matplotlib is not installed"))
-
-        if _skip_test_dependency("netgen") and item.get_closest_marker("skipnetgen") is not None:
-            item.add_marker(pytest.mark.skip(reason="Netgen and ngsPETSc are not installed"))
-
-        if _skip_test_dependency("vtk") and item.get_closest_marker("skipvtk") is not None:
-            item.add_marker(pytest.mark.skip(reason="VTK is not installed"))
+        for dep, marker, reason in dependency_skip_markers_and_reasons:
+            if _skip_test_dependency(dep) and item.get_closest_marker(marker) is not None:
+                item.add_marker(pytest.mark.skip(reason))
 
 
 @pytest.fixture(scope="module", autouse=True)

@@ -71,31 +71,12 @@ def test_no_missing_demos():
 
 
 def _maybe_skip_demo(demo, skip_dependency):
+    skip_dep, dependency_skip_markers_and_reasons = skip_dependency
     # Add pytest skips for missing imports or packages
 
-    if "mumps" in demo.requirements and skip_dependency("mumps"):
-        pytest.skip("MUMPS not installed with PETSc")
-
-    if "hypre" in demo.requirements and skip_dependency("hypre"):
-        pytest.skip("hypre not installed with PETSc")
-
-    if "slepc" in demo.requirements and skip_dependency("slepc"):
-        pytest.skip("SLEPc is not installed")
-
-    if "matplotlib" in demo.requirements and skip_dependency("matplotlib"):
-        pytest.skip("Matplotlib is not installed")
-
-    if "netgen" in demo.requirements and skip_dependency("netgen"):
-        pytest.skip("Netgen and ngsPETSc are not installed")
-
-    if "vtk" in demo.requirements and skip_dependency("vtk"):
-        pytest.skip("VTK is not installed")
-
-    if "pytorch" in demo.requirements and skip_dependency("pytorch"):
-        pytest.skip("PyTorch is not installed")
-
-    if "jax" in demo.requirements and skip_dependency("jax"):
-        pytest.skip("JAX is not installed")
+    for dep, _, reason in dependency_skip_markers_and_reasons:
+        if dep in demo.requirements and skip_dep(dep):
+            pytest.skip(reason)
 
 
 def _prepare_demo(demo, monkeypatch, tmpdir):
