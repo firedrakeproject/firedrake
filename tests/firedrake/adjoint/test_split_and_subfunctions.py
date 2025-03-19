@@ -172,17 +172,16 @@ def test_subfunctions_always_create_blocks():
     We check this isn't happening by evaluating ReducedFunctional.derivative and making
     sure that the functional is dependent on the control.
     """
-    pause_annotation()
-    mesh = UnitIntervalMesh(1)
-    R = FunctionSpace(mesh, "R", 0)
+    with stop_annotating():
+        mesh = UnitIntervalMesh(1)
+        R = FunctionSpace(mesh, "R", 0)
 
-    u = Function(R).assign(4)
-    kappa = Function(R).assign(2.0)
-    control = Control(kappa)
+        u = Function(R).assign(4)
+        kappa = Function(R).assign(2.0)
+        control = Control(kappa)
 
-    # force the subfunctions to be created
-    _ = kappa.subfunctions
-    continue_annotation()
+        # force the subfunctions to be created
+        _ = kappa.subfunctions
 
     with set_working_tape() as tape:
         u.assign(kappa.subfunctions[0])
