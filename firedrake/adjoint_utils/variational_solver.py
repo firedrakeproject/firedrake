@@ -67,6 +67,11 @@ class NonlinearVariationalSolverMixin:
             from firedrake import LinearVariationalSolver
             annotate = annotate_tape(kwargs)
             if annotate:
+                bounds = kwargs.pop("bounds", None)
+                if bounds is not None:
+                    raise ValueError(
+                        "MissingMathsError: we do not know how to differentiate through a variational inequality")
+
                 tape = get_working_tape()
                 problem = self._ad_problem
                 sb_kwargs = NonlinearVariationalSolveBlock.pop_kwargs(kwargs)
