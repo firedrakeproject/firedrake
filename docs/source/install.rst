@@ -168,9 +168,6 @@ install Firedrake. To do this perform the following steps:
       CC=mpicc CXX=mpicxx PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-{default,complex} HDF5_MPI=ON
 
    .. note::
-      If you are installing 
-
-   .. note::
       This command will only work if you have the right starting directory.
       Specifically it is assumed that PETSc was cloned into a *subdirectory
       of the current working directory* (i.e. ``<cwd>/petsc``). If
@@ -257,7 +254,9 @@ Developer install
 By default Firedrake is installed just like any other Python package into
 your environment. If you want to be able to edit Firedrake itself then
 an *editable* installation is needed. To install Firedrake in editable
-mode you should run::
+mode you should follow the same
+:ref:`steps as for a non-editable install<install_firedrake>` but replace the
+final ``pip install`` command with::
 
    $ git clone https://github.com/firedrakeproject/firedrake.git
    $ pip install --no-binary h5py --editable './firedrake[dev]'
@@ -326,7 +325,7 @@ To install Firedrake with SLEPc support you must:
 
    $ export SLEPC_DIR=$PWD
 
-# Install Firedrake with SLEPc support::
+#. Install Firedrake with SLEPc support::
 
    $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[test,slepc]"
 
@@ -383,10 +382,59 @@ to customise all aspects of the installation process. You can either:
 Alternative installation methods
 ================================
 
-As well as being installable through ``pip``, Firedrake also provides
-`Docker containers <https://hub.docker.com/u/firedrakeproject>`_ and
-Jupyter notebooks running on :doc:`Google Colab</notebooks>`.
+If for some reason you are unable to install Firedrake natively using pip,
+Firedrake has a number of alternative mechanisms that you can use to obtain
+an environment to run your Firedrake code.
 
+Docker
+------
+
+Firedrake provides a number of different
+`Docker <https://www.docker.com/>`_ images that can be found
+`here <https://hub.docker.com/u/firedrakeproject>`__. The main images best
+suited for users are:
+
+* `firedrake-vanilla-default <https://hub.docker.com/repository/docker/firedrakeproject/firedrake-vanilla-default>`__: a complete Firedrake installation with ARCH ``default``
+* `firedrake-vanilla-complex <https://hub.docker.com/repository/docker/firedrakeproject/firedrake-vanilla-complex>`__: a complete Firedrake installation with ARCH ``complex``
+* `firedrake <https://hub.docker.com/repository/docker/firedrakeproject/firedrake>`__: the firedrake-vanilla-default image with extra downstream packages installed
+
+To use one of the containers you should run::
+
+   $ docker pull firedrakeproject/<image name>:latest
+
+to download the most recent image (replacing ``<image name>`` with the desired
+image). Then you can run::
+
+   $ docker run -it firedrakeproject/<image name>:latest
+
+to start and enter a container.
+
+.. note::
+
+   The 'full-fat' ``firedrakeproject/firedrake`` image only exists for x86
+   architectures because some external packages do not provide ARM wheels.
+   If you are using an ARM Mac (i.e. M1, M2, etc) then you are encouraged to
+   use the ``firedrakeproject/firedrake-vanilla-default`` or
+   ``firedrakeproject/firedrake-vanilla-complex`` images instead.
+
+It is possible to use `Microsoft VSCode <https://code.visualstudio.com/>`__
+inside a running container. Instructions for how to do this may be found
+`here <https://github.com/firedrakeproject/firedrake/wiki/Writing-Firedrake-code-with-VSCode-inside-a-Docker-container>`__.
+
+.. warning::
+
+   The Docker daemon runs with superuser privileges and so has the potential to 
+   damage your system, in particular if volumes are mounted between the container
+   and host. We therefore strongly advise you to take care when using Docker.
+   More information can be found
+   `here <https://docs.docker.com/engine/security/#docker-daemon-attack-surface>`__.
+
+Google Colab
+------------
+
+Firedrake can also be used inside the brower using Jupyter notebooks and
+`Google Colab <https://colab.research.google.com/>`_. For more information
+please see :doc:`here</notebooks>`.
 
 .. _getting_help:
 
