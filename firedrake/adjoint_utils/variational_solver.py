@@ -48,6 +48,8 @@ class NonlinearVariationalSolverMixin:
             self._ad_problem = problem
             self._ad_args = args
             self._ad_kwargs = kwargs
+            # We'll get the parameters directly from self when `solve` is called.
+            self._ad_kwargs.pop("solver_parameters", None)
             self._ad_solvers = {"forward_nlvs": None, "adjoint_lvs": None,
                                 "recompute_count": 0}
             self._ad_adj_cache = {}
