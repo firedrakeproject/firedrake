@@ -21,8 +21,9 @@ def ipynb_file(request):
 @pytest.mark.skipcomplex  # Will need to add a seperate case for a complex tutorial.
 @pytest.mark.skipplot
 def test_notebook_runs(ipynb_file, tmpdir, monkeypatch, skip_dependency):
+    skip_dep, dependency_skip_markers_and_reasons = skip_dependency
     if os.path.basename(ipynb_file) in ("08-composable-solvers.ipynb", "12-HPC_demo.ipynb"):
-        if skip_dependency("mumps"):
+        if skip_dep("mumps"):
             pytest.skip("MUMPS not installed with PETSc")
 
     monkeypatch.chdir(tmpdir)
