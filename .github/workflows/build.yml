@@ -163,7 +163,7 @@ jobs:
           . venv/bin/activate
           git clone --depth 1 https://github.com/NDF-Poli-USP/spyro.git spyro-repo
           pip install --verbose ./spyro-repo
-          mpiexec -n 6 python -m pytest spyro-repo/test_integration/
+          mpiexec -n 6 python -m pytest spyro-repo/test_integration/ -m parallel[6]
         timeout-minutes: 5
 
       - name: Publish test report
