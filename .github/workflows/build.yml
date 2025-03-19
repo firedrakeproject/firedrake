@@ -85,6 +85,7 @@ jobs:
             --no-binary h5py \
             --extra-index-url https://download.pytorch.org/whl/cpu \
             './firedrake-repo[ci]'
+          pip install -I "fenics-fiat @ git+https://github.com/firedrakeproject/fiat.git@pbrubeck/single-point-tabulation"
           firedrake-clean
           pip list
 
