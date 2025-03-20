@@ -233,10 +233,15 @@ class AxisComponentRegion:
 
 @functools.singledispatch
 def _parse_regions(obj: Any) -> tuple[AxisComponentRegion, ...]:
-    from pyop3.array import Dat
+    from pyop3.array import Dat, _ExpressionDat
 
     if isinstance(obj, Dat):
-        return (AxisComponentRegion(obj),)
+        # Dats used as extents for axis component regions have a stricter
+        # set of requirements than generic Dats so we eagerly cast them to
+        # the constrained type here.
+        orig_dat = obj
+        dat = _ExpressionDat(orig_dat, just_one(orig_dat.leaf_layouts.values()))
+        return (AxisComponentRegion(dat),)
     else:
         raise TypeError(f"No handler provided for {type(obj).__name__}")
 
@@ -1188,7 +1193,11 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
                     component.label, label=f"{component.label}_{region_label}"
                 )
             slice_components.append(slice_component)
-        slice_ = Slice(axis.label, slice_components, label=axis.label)
+
+        # NOTE: Ultimately I don't think that this step will be necessary. When axes are reused more we can
+        # start to think about keying certain things on the axis itself, rather than its label.
+        # slice_ = Slice(axis.label, slice_components, label=axis.label)
+        slice_ = Slice(axis.label, slice_components, label=f"{axis.label}_{region_label}")
 
         index_tree = IndexTree(slice_)
         for component, slice_component in strict_zip(axis.components, slice_components):

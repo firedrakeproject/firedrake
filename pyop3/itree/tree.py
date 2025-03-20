@@ -18,10 +18,9 @@ from pyop3.exceptions import Pyop3Exception
 from pyop3.extras.debug import maybe_breakpoint
 import pytools
 from immutabledict import ImmutableOrderedDict
-from petsc4py import PETSc
 from pyrsistent import PMap, freeze, pmap, thaw
 
-from pyop3.array import Dat
+from pyop3.array import Dat, _Dat
 from pyop3.array.base import Array
 from pyop3.axtree import (
     Axis,
@@ -2100,7 +2099,7 @@ def _(affine_component: AffineSliceComponent, regions) -> tuple[AxisComponentReg
     size = sum(r.size for r in regions)
     start, stop, step = affine_component.with_size(size)
 
-    if any(isinstance(r.size, Dat) for r in regions):
+    if any(isinstance(r.size, _Dat) for r in regions):
         if len(regions) > 1:
             raise NotImplementedError("Only single-region ragged components are supported")
         region = just_one(regions)

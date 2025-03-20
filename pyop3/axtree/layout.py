@@ -8,7 +8,7 @@ import operator
 import sys
 import typing
 from collections import defaultdict
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import pymbolic as pym
@@ -24,8 +24,7 @@ from pyop3.axtree.tree import (
     AxisTree,
     AxisVar,
     NaN,
-    component_number_from_offsets,
-    component_offsets,
+    Operator
 )
 from pyop3.dtypes import IntType
 from pyop3.utils import (
@@ -562,9 +561,7 @@ def _region_size_needs_outer_index(region, free_axes):
                     return True
 
     elif isinstance(size, _ExpressionDat):
-        layout = size.layout
-
-        if set(collect_axis_vars(layout)) > free_axis_labels:
+        if not (set(collect_axis_vars(size.layout)) <= free_axis_labels):
             return True
 
     return False
@@ -572,7 +569,7 @@ def _region_size_needs_outer_index(region, free_axes):
 
 @functools.singledispatch
 def collect_axis_vars(obj: Any, /) -> OrderedSet:
-    from pyop3.itree.tree import LoopIndexVar, Operator
+    from pyop3.itree.tree import LoopIndexVar
 
     if isinstance(obj, LoopIndexVar):
         assert False

@@ -675,10 +675,6 @@ class _ExpressionDat(_ConcretizedDat2):
     def __init__(self, dat, layout):
         super().__init__(name=dat.name, parent=None)
 
-        # debug
-        # if self.name == "dat_15":
-        #     breakpoint()
-
         self.dat = dat
         self.layout = layout
 
