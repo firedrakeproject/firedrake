@@ -3,12 +3,9 @@ from firedrake import *
 from firedrake.petsc import PETSc
 
 
+@pytest.mark.skipslepc
 def test_moore_spence():
-
-    try:
-        from slepc4py import SLEPc
-    except ImportError:
-        pytest.skip(reason="SLEPc unavailable, skipping eigenvalue test")
+    from slepc4py import SLEPc
 
     msh = IntervalMesh(1000, 1)
     V = FunctionSpace(msh, "CG", 1)
