@@ -124,7 +124,7 @@ def test_scalar_formsum(f):
     res2 = assemble(formsum)
     assert res2 == expected
 
-    mesh = f.function_space().mesh()
+    mesh = f.function_space().mesh().unique()
     R = FunctionSpace(mesh, "R", 0)
     tensor = Cofunction(R.dual())
 
