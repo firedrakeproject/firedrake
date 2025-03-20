@@ -20,9 +20,7 @@ jobs:
     name: Run doc build
     runs-on: ubuntu-latest
     container:
-      # UNDO ME
-      # image: firedrakeproject/firedrake-docdeps:latest
-      image: firedrakeproject/firedrake-docdeps:roottest
+      image: firedrakeproject/firedrake-docdeps:latest
     steps:
       - uses: actions/checkout@v4
         with:

@@ -1,8 +1,6 @@
 # Dockerfile for a plain Firedrake suitable for testing Firedrake components and applications
 
-# UNDO ME
-# FROM firedrakeproject/firedrake-env:latest
-FROM firedrakeproject/firedrake-env:roottest
+FROM firedrakeproject/firedrake-env:latest
 
 # Set '-o pipefail' to avoid linter error (https://github.com/hadolint/hadolint/wiki/DL4006)
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -39,7 +37,7 @@ RUN git clone --depth 1 https://github.com/firedrakeproject/petsc.git /opt/petsc
     && cd - || exit
 
 ENV PETSC_DIR=/opt/petsc PETSC_ARCH=arch-firedrake-$ARCH
-ENV PATH="$PETSC_DIR/$PETSC_ARCH/bin:$PATH" 
+ENV PATH="$PETSC_DIR/$PETSC_ARCH/bin:$PATH"
 
 # Install SLEPc
 RUN git clone --depth 1 https://github.com/firedrakeproject/slepc.git /opt/slepc \

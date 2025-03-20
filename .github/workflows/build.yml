@@ -30,9 +30,7 @@ jobs:
         arch: [default, complex]
     runs-on: [self-hosted, Linux]
     container:
-      # UNDO ME
-      # image: firedrakeproject/firedrake-env:latest
-      image: firedrakeproject/firedrake-env:roottest
+      image: firedrakeproject/firedrake-env:latest
     env:
       OMPI_ALLOW_RUN_AS_ROOT: 1
       OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
@@ -213,8 +211,7 @@ jobs:
   docker_tag:
     name: "Set the Docker release tag"
     runs-on: [self-hosted, Linux]
-    # UNDO ME
-    # if: ${{ github.ref == 'refs/heads/master' }}
+    if: github.ref == 'refs/heads/master'
     steps:
       - name: Set release tag
         # Set a release tag if triggered by monthly CRON job
@@ -232,16 +229,12 @@ jobs:
     name: "Build Docker containers"
     # Only run on master, but always generate firedrake-env image,
     # even if build fails (see docker.yml)
-    # UNDO ME
-    # if: always() && (github.ref == 'refs/heads/master')
-    # needs: [test, docker_tag]
+    if: always() && (github.ref == 'refs/heads/master')
+    needs: [test, docker_tag]
     uses: ./.github/workflows/docker.yml
     with:
-      # UNDO ME
-      # tag: ${{ needs.docker_tag.outputs.tag }}
-      # status: ${{ needs.test.result }}
-      tag: roottest
-      status: success
+      tag: ${{ needs.docker_tag.outputs.tag }}
+      status: ${{ needs.test.result }}
     secrets: inherit
 
   lint:
