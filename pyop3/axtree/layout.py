@@ -42,6 +42,9 @@ from pyop3.utils import (
 )
 
 
+import pyop3.extras.debug
+
+
 class IntRef:
     """Pass-by-reference integer."""
 
@@ -101,9 +104,6 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
         else:
             subtree, step = _drop_constant_subaxes(axes, axis, component)
 
-            if not subtree.is_empty and subtree.root.component.size == 0:
-                breakpoint()
-
             linear_axis = Axis([component], axis.label)
             offset_axes = AxisTree.from_iterable([*free_axes, linear_axis])
 
@@ -133,7 +133,6 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
         if not isinstance(component_layout, NaN):
             layout_expr_acc_ = layout_expr_acc + component_layout
             layouts[path_acc_] = layout_expr_acc_
-            untabulated_axes_ = ()
             free_axes_ = ()
         else:
             layouts[path_acc_] = NaN()
@@ -561,7 +560,7 @@ def _region_size_needs_outer_index(region, free_axes):
                     return True
 
     elif isinstance(size, _ExpressionDat):
-        if not (set(collect_axis_vars(size.layout)) <= free_axis_labels):
+        if not (set(v.axis_label for v in collect_axis_vars(size.layout)) <= free_axis_labels):
             return True
 
     return False

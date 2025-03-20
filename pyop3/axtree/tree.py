@@ -240,8 +240,11 @@ def _parse_regions(obj: Any) -> tuple[AxisComponentRegion, ...]:
         # set of requirements than generic Dats so we eagerly cast them to
         # the constrained type here.
         orig_dat = obj
-        dat = _ExpressionDat(orig_dat, just_one(orig_dat.leaf_layouts.values()))
+        dat = orig_dat._as_expression_dat()
+        # debugging
+        # interesting, this change breaks stuff!!!
         return (AxisComponentRegion(dat),)
+        # return (AxisComponentRegion(obj),)
     else:
         raise TypeError(f"No handler provided for {type(obj).__name__}")
 
@@ -2170,6 +2173,8 @@ def subst_layouts(
     target_paths_and_exprs_acc=None,
 ):
     from pyop3.expr_visitors import replace_terminals
+
+    # pyop3.extras.debug.maybe_breakpoint()
 
     layouts_subst = {}
     # if strictly_all(x is None for x in [axis, path, target_path_acc, index_exprs_acc]):

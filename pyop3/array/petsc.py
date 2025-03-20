@@ -35,6 +35,9 @@ from pyop3.utils import (
 )
 
 
+import pyop3.extras.debug
+
+
 class PetscObject(Array, abc.ABC):
     dtype = ScalarType
 
@@ -310,7 +313,6 @@ class AbstractMat(Array, Record):
     def default_candidate_layouts(self, loop_axes):
         # NOTE: Needn't really return the cost here as no evaluation happens
         from pyop3.expr_visitors import CompositeDat, extract_axes
-        from pyop3.insn_visitors import materialize_composite_dat
 
         candidatess = {}
 
