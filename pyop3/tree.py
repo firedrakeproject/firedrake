@@ -197,8 +197,6 @@ class AbstractTree(abc.ABC):
             next_cont_prefix = f"{cont_prefix}{' ' if last_child else '│'}    "
             if child is not None:
                 nodestr += self._stringify(child, next_begin_prefix, next_cont_prefix)
-            else:
-                nodestr += [f"{next_begin_prefix}None"]
 
         if not strictly_all([begin_prefix, cont_prefix]):
             return "\n".join(nodestr)

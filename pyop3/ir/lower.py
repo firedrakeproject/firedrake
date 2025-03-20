@@ -584,7 +584,8 @@ def parse_loop_properly_this_time(
             iname = codegen_context.unique_name("i")
             domain_var = register_extent(
                 component._collective_size,
-                iname_map | loop_indices,
+                iname_map,
+                loop_indices,
                 codegen_context,
             )
             codegen_context.add_domain(iname, domain_var)
@@ -595,19 +596,25 @@ def parse_loop_properly_this_time(
             within_inames = set()
 
         with codegen_context.within_inames(within_inames):
+            # NOTE: The following bit is done for each axis, not sure if that's right or if
+            # we should handle at the bottom
             loop_exprs = StrictlyUniqueDict()
-            iname_map = iname_replace_map_ | loop_indices
+            # think this is now wrong, iname_replace_map_ is sufficient
+            # iname_map = iname_replace_map_ | loop_indices
             axis_key = (axis.id, component.label)
             for index_exprs in axes.index_exprs:
                 for axis_label, index_expr in index_exprs.get(axis_key).items():
-                    loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, [iname_map], loop_indices, codegen_context, paths=[path_])
+                    # loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, [iname_map], loop_indices, codegen_context, paths=[path_])
+                    loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, [iname_replace_map_], loop_indices, codegen_context, paths=[path_])
             loop_exprs = pmap(loop_exprs)
 
             if subaxis := axes.child(axis, component):
                 parse_loop_properly_this_time(
                     loop,
                     axes,
+                    # I think we only want to do this at the end of the traversal
                     loop_indices | dict(loop_exprs),
+                    # loop_indices,
                     codegen_context,
                     axis=subaxis,
                     path=path_,
@@ -905,10 +912,10 @@ def parse_assignment_properly_this_time(
         if component._collective_size != 1:
             iname = codegen_context.unique_name("i")
 
-            # my_iname_replace_map = iname_replace_map[-1] | loop_indices,
             extent_var = register_extent(
                 component._collective_size,
-                iname_replace_maps[-1] | loop_indices,
+                iname_replace_maps[-1],
+                loop_indices,
                 codegen_context,
             )
             codegen_context.add_domain(iname, extent_var)
@@ -1131,13 +1138,13 @@ def _(num: numbers.Integral, *args, **kwargs):
 
 
 @register_extent.register(Parameter)
-def _(param: Parameter, inames, context):
+def _(param: Parameter, inames, loop_indices, context):
     return context.add_parameter(param)
 
 @register_extent.register(Dat)
 @register_extent.register(_ExpressionDat)
-def _(extent, iname_replace_map, ctx):
-    expr = lower_expr(extent, iname_replace_map, ctx)
+def _(extent, iname_replace_map, loop_indices, ctx):
+    expr = lower_expr(extent, [iname_replace_map], loop_indices, ctx)
     varname = ctx.unique_name("p")
     ctx.add_temporary(varname)
     ctx.add_assignment(pym.var(varname), expr)
