@@ -861,8 +861,8 @@ class AbstractMeshTopology(abc.ABC):
             # Previously we would return the mapping point 3 -> vertex 4 whereas now
             # we return vertex 5 -> vertex 4
             # hmmm!!!
-            # return op3.utils.invert(np.argsort(numbering))
-            return np.argsort(numbering)
+            return op3.utils.invert(np.argsort(numbering))
+            # return np.argsort(numbering)
         else:
             return np.arange(0, p_end-p_start, dtype=IntType)
 
