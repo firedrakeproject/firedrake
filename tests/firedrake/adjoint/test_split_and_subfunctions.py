@@ -152,3 +152,42 @@ def test_merge_blocks():
     c = Control(w1_const)
     rf = ReducedFunctional(J, c)
     assert taylor_test(rf, Function(R, val=0.3), Function(R, val=0.01)) > 1.95
+
+
+@pytest.mark.skipcomplex
+def test_subfunctions_always_create_blocks():
+    """
+    Function.subfunctions use pyadjoint.FloatingType to create Blocks on the fly when
+    they are accessed that record the connection between the full and sub spaces.
+    However, because subfunctions is a cached property, they may be created _before_
+    annotations are enabled, but used _after_ annotations are enabled. In this case,
+    we still need the subfunctions to know how to create the relevant Blocks, even
+    though usually we don't do any adjoint-y things unless annotations are currently
+    switched on.
+
+    This test checks that this is done correctly by creating a Function and forcing
+    subfunctions to be instantiated before calling annotations are switched on. If the
+    FloatingType isn't created correctly then using _both_ the full Function and the
+    subfunction when recording the tape will create a disconnected tape.
+    We check this isn't happening by evaluating ReducedFunctional.derivative and making
+    sure that the functional is dependent on the control.
+    """
+    with stop_annotating():
+        mesh = UnitIntervalMesh(1)
+        R = FunctionSpace(mesh, "R", 0)
+
+        u = Function(R).assign(4)
+        kappa = Function(R).assign(2.0)
+        control = Control(kappa)
+
+        # force the subfunctions to be created
+        _ = kappa.subfunctions
+
+    with set_working_tape() as tape:
+        u.assign(kappa.subfunctions[0])
+        J = assemble(inner(u, u)*dx)
+        rf = ReducedFunctional(J, control, tape=tape)
+    pause_annotation()
+
+    rf.derivative()
+    assert control.block_variable.adj_value is not None, "Functional should depend on Control"

@@ -43,6 +43,8 @@ class MatrixBase(ufl.Matrix):
         self._analyze_form_arguments()
         self._arguments = arguments
 
+        if bcs is None:
+            bcs = ()
         self.bcs = bcs
         self.comm = test.function_space().comm
         self._comm = internal_comm(self.comm, self)
@@ -99,6 +101,33 @@ class MatrixBase(ufl.Matrix):
         return "assembled %s(a=%s, bcs=%s)" % (type(self).__name__,
                                                self.a, self.bcs)
 
+    def __add__(self, other):
+        if isinstance(other, MatrixBase):
+            mat = self.petscmat + other.petscmat
+            return AssembledMatrix(self.arguments(), (), mat)
+        else:
+            return NotImplemented
+
+    def __sub__(self, other):
+        if isinstance(other, MatrixBase):
+            mat = self.petscmat - other.petscmat
+            return AssembledMatrix(self.arguments(), (), mat)
+        else:
+            return NotImplemented
+
+    def assign(self, val):
+        """Set matrix entries."""
+        if isinstance(val, MatrixBase):
+            val.petscmat.copy(self.petscmat)
+        else:
+            raise TypeError(f"Cannot assign a {type(val).__name__} to a {type(self).__name__}.")
+        return self
+
+    def zero(self):
+        """Set all matrix entries to zero."""
+        self.petscmat.zeroEntries()
+        return self
+
 
 class Matrix(MatrixBase):
     """A representation of an assembled bilinear form.
@@ -128,10 +157,11 @@ class Matrix(MatrixBase):
         # sets self.a, self.bcs, self.mat_type, and self.fc_params
         fc_params = kwargs.pop("fc_params", None)
         MatrixBase.__init__(self, a, bcs, mat_type, fc_params=fc_params)
-        options_prefix = kwargs.pop("options_prefix")
+        options_prefix = kwargs.pop("options_prefix", None)
         self.M = op2.Mat(*args, mat_type=mat_type, **kwargs)
         self.petscmat = self.M.handle
-        self.petscmat.setOptionsPrefix(options_prefix)
+        if options_prefix is not None:
+            self.petscmat.setOptionsPrefix(options_prefix)
         self.mat_type = mat_type
 
     def assemble(self):
@@ -203,19 +233,15 @@ class AssembledMatrix(MatrixBase):
     :arg petscmat: the already constructed petsc matrix this object represents.
     """
     def __init__(self, a, bcs, petscmat, *args, **kwargs):
+        options_prefix = kwargs.pop("options_prefix", None)
         super(AssembledMatrix, self).__init__(a, bcs, "assembled")
 
         self.petscmat = petscmat
+        if options_prefix is not None:
+            self.petscmat.setOptionsPrefix(options_prefix)
 
         # this allows call to self.M.handle without a new class
         self.M = SimpleNamespace(handle=self.mat())
 
     def mat(self):
         return self.petscmat
-
-    def __add__(self, other):
-        if isinstance(other, AssembledMatrix):
-            return self.petscmat + other.petscmat
-        else:
-            raise TypeError("Unable to add %s to AssembledMatrix"
-                            % (type(other)))

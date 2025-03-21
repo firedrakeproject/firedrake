@@ -3,14 +3,6 @@ import pytest
 from enum import Enum, auto
 from numpy.testing import assert_allclose
 import numpy as np
-try:
-    import petsc4py.PETSc as PETSc
-except ModuleNotFoundError:
-    PETSc = None
-try:
-    import slepc4py.SLEPc as SLEPc
-except ModuleNotFoundError:
-    SLEPc = None
 from firedrake import *
 from firedrake.adjoint import *
 from pyadjoint import Block, MinimizationProblem, TAOSolver, get_working_tape
@@ -191,6 +183,7 @@ class TransformType(Enum):
 
 
 def transform(v, transform_type, *args, mfn_parameters=None, **kwargs):
+    from slepc4py import SLEPc
     with stop_annotating():
         if mfn_parameters is None:
             mfn_parameters = {}
@@ -276,7 +269,7 @@ class TransformBlock(Block):
         return transform(v, *self._args, **self._kwargs)
 
 
-@pytest.mark.skipif(SLEPc is None, reason="SLEPc not available")
+@pytest.mark.skipslepc
 @pytest.mark.parametrize("tao_type", ["lmvm",
                                       "blmvm"])
 @pytest.mark.skipcomplex

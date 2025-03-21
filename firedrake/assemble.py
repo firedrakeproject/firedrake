@@ -411,11 +411,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             for bc in self._bcs:
                 OneFormAssembler._apply_bc(self, result, bc, u=current_state)
 
-        if tensor:
-            BaseFormAssembler.update_tensor(result, tensor)
-            return tensor
-        else:
-            return result
+        return result
 
     def base_form_assembly_visitor(self, expr, tensor, *args):
         r"""Assemble a :class:`~ufl.classes.BaseForm` object given its assembled operands.
@@ -455,7 +451,6 @@ class BaseFormAssembler(AbstractFormAssembler):
             petsc_mat.hermitianTranspose(out=res)
             (row, col) = mat.arguments()
             return matrix.AssembledMatrix((col, row), self._bcs, res,
-                                          appctx=self._appctx,
                                           options_prefix=self._options_prefix)
         elif isinstance(expr, ufl.Action):
             if len(args) != 2:
@@ -466,18 +461,16 @@ class BaseFormAssembler(AbstractFormAssembler):
                     petsc_mat = lhs.petscmat
                     (row, col) = lhs.arguments()
                     # The matrix-vector product lives in the dual of the test space.
-                    res = firedrake.Function(row.function_space().dual())
-                    with rhs.dat.vec_ro as v_vec:
-                        with res.dat.vec as res_vec:
-                            petsc_mat.mult(v_vec, res_vec)
+                    res = tensor if tensor else firedrake.Function(row.function_space().dual())
+                    with rhs.dat.vec_ro as v_vec, res.dat.vec as res_vec:
+                        petsc_mat.mult(v_vec, res_vec)
                     return res
                 elif isinstance(rhs, matrix.MatrixBase):
-                    petsc_mat = lhs.petscmat
-                    (row, col) = lhs.arguments()
-                    res = petsc_mat.matMult(rhs.petscmat)
-                    return matrix.AssembledMatrix(expr, self._bcs, res,
-                                                  appctx=self._appctx,
-                                                  options_prefix=self._options_prefix)
+                    result = tensor.petscmat if tensor else PETSc.Mat()
+                    lhs.petscmat.matMult(rhs.petscmat, result=result)
+                    if tensor is None:
+                        tensor = self.assembled_matrix(expr, result)
+                    return tensor
                 else:
                     raise TypeError("Incompatible RHS for Action.")
             elif isinstance(lhs, (firedrake.Cofunction, firedrake.Function)):
@@ -495,30 +488,29 @@ class BaseFormAssembler(AbstractFormAssembler):
                 raise TypeError("Mismatching weights and operands in FormSum")
             if len(args) == 0:
                 raise TypeError("Empty FormSum")
+            if tensor:
+                tensor.zero()
             if all(isinstance(op, numbers.Complex) for op in args):
-                return sum(weight * arg for weight, arg in zip(expr.weights(), args))
+                result = sum(weight * arg for weight, arg in zip(expr.weights(), args))
+                return tensor.assign(result) if tensor else result
             elif all(isinstance(op, firedrake.Cofunction) for op in args):
                 V, = set(a.function_space() for a in args)
-                result = firedrake.Cofunction(V)
+                result = tensor if tensor else firedrake.Cofunction(V)
                 result.dat.maxpy(expr.weights(), [a.dat for a in args])
                 return result
             elif all(isinstance(op, ufl.Matrix) for op in args):
-                res = tensor.petscmat if tensor else PETSc.Mat()
-                is_set = False
+                result = tensor.petscmat if tensor else PETSc.Mat()
                 for (op, w) in zip(args, expr.weights()):
-                    # Make a copy to avoid in-place scaling
-                    petsc_mat = op.petscmat.copy()
-                    petsc_mat.scale(w)
-                    if is_set:
-                        # Modify output tensor in-place
-                        res += petsc_mat
+                    if result:
+                        # If result is not void, then accumulate on it
+                        result.axpy(w, op.petscmat)
                     else:
-                        # Copy to output tensor
-                        petsc_mat.copy(result=res)
-                        is_set = True
-                return matrix.AssembledMatrix(expr, self._bcs, res,
-                                              appctx=self._appctx,
-                                              options_prefix=self._options_prefix)
+                        # If result is void, then allocate it with first term
+                        op.petscmat.copy(result=result)
+                        result.scale(w)
+                if tensor is None:
+                    tensor = self.assembled_matrix(expr, result)
+                return tensor
             else:
                 raise TypeError("Mismatching FormSum shapes")
         elif isinstance(expr, ufl.ExternalOperator):
@@ -539,7 +531,8 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # It is also convenient when we have a Form in that slot since Forms don't play well with `ufl.replace`
                 expr = expr._ufl_expr_reconstruct_(*expr.ufl_operands, argument_slots=(v,) + expr.argument_slots()[1:])
             # Call the external operator assembly
-            return expr.assemble(assembly_opts=opts)
+            result = expr.assemble(assembly_opts=opts)
+            return tensor.assign(result) if tensor else result
         elif isinstance(expr, ufl.Interpolate):
             # Replace assembled children
             _, expression = expr.argument_slots()
@@ -591,33 +584,24 @@ class BaseFormAssembler(AbstractFormAssembler):
                 else:
                     # Copy the interpolation matrix into the output tensor
                     petsc_mat.copy(result=res)
-                return matrix.AssembledMatrix(expr.arguments(), self._bcs, res,
-                                              appctx=self._appctx,
-                                              options_prefix=self._options_prefix)
+                if tensor is None:
+                    tensor = self.assembled_matrix(expr, res)
+                return tensor
             else:
                 # The case rank == 0 is handled via the DAG restructuring
                 raise ValueError("Incompatible number of arguments.")
-        elif isinstance(expr, (ufl.Cofunction, ufl.Coargument, ufl.Argument, ufl.Matrix, ufl.ZeroBaseForm)):
-            return expr
-        elif isinstance(expr, ufl.Coefficient):
+        elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
+            return tensor.assign(expr)
+        elif tensor and isinstance(expr, ufl.ZeroBaseForm):
+            return tensor.zero()
+        elif isinstance(expr, (ufl.Coefficient, ufl.Cofunction, ufl.Matrix, ufl.Argument, ufl.Coargument, ufl.ZeroBaseForm)):
             return expr
         else:
             raise TypeError(f"Unrecognised BaseForm instance: {expr}")
 
-    @staticmethod
-    def update_tensor(assembled_base_form, tensor):
-        if isinstance(tensor, (firedrake.Function, firedrake.Cofunction)):
-            if isinstance(assembled_base_form, ufl.ZeroBaseForm):
-                tensor.dat.zero()
-            else:
-                assembled_base_form.dat.copy(tensor.dat)
-        elif isinstance(tensor, matrix.MatrixBase):
-            if isinstance(assembled_base_form, ufl.ZeroBaseForm):
-                tensor.petscmat.zeroEntries()
-            else:
-                assembled_base_form.petscmat.copy(tensor.petscmat)
-        else:
-            raise NotImplementedError("Cannot update tensor of type %s" % type(tensor))
+    def assembled_matrix(self, expr, petscmat):
+        return matrix.AssembledMatrix(expr.arguments(), self._bcs, petscmat,
+                                      options_prefix=self._options_prefix)
 
     @staticmethod
     def base_form_postorder_traversal(expr, visitor, visited={}):
