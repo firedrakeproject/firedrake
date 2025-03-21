@@ -33,7 +33,7 @@ dependencies = [
   "sympy",
   "fenics-ufl @ git+https://github.com/firedrakeproject/ufl.git",
   "fenics-fiat @ git+https://github.com/firedrakeproject/fiat.git",
-  "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint.git",
+  "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint.git@dolci/defensive_storage_data",
   "loopy @ git+https://github.com/firedrakeproject/loopy.git@main",
 ]
 classifiers = [
