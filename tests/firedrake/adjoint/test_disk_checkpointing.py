@@ -147,3 +147,43 @@ def test_disk_checkpointing_successive_writes():
     Jhat = ReducedFunctional(J, Control(u))
     assert np.allclose(J, Jhat(Function(cg_space).interpolate(1.)))
     assert disk_checkpointing() is False
+
+
+@pytest.mark.skipcomplex
+def test_adjoint_dependencies_set():
+    # This test is enable to reproduce this issue:
+    # https://github.com/dolfin-adjoint/pyadjoint/issues/200
+    tape = get_working_tape()
+    enable_disk_checkpointing()
+    tape.enable_checkpointing(SingleDiskStorageSchedule())
+    mesh = checkpointable_mesh(UnitSquareMesh(10, 10))
+    V = FunctionSpace(mesh, "CG", 1)
+    x, z = SpatialCoordinate(mesh)
+    c = Function(V).interpolate(1.0)
+
+    def delta_expr(x0, x, y, sigma_x=2000.0):
+        sigma_x = Constant(sigma_x)
+        return exp(-sigma_x * ((x - x0[0]) ** 2 + (y - x0[1]) ** 2))
+
+    x, y = SpatialCoordinate(mesh)
+    source = Constant([0.5, 0.5])
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    u_np1 = Function(V, name="u_np1")
+    u_n = Function(V, name="u_n")
+    u_nm1 = Function(V, name="u_nm1")
+    time_term = (u - 2.0 * u_n + u_nm1) / Constant(0.001**2) * v * dx
+    a = c * c * dot(grad(u_n), grad(v)) * dx
+    F = time_term + a + delta_expr(source, x, y) * v * dx
+    lin_var = LinearVariationalProblem(lhs(F), rhs(F), u_np1, constant_jacobian=True)
+    solver = LinearVariationalSolver(lin_var)
+    J = 0.
+    for _ in tape.timestepper(iter(range(10))):
+        solver.solve()
+        u_nm1.assign(u_n)
+        u_n.assign(u_np1)
+        J += assemble(u_np1 * u_np1 * dx)
+
+    J_hat = ReducedFunctional(J, Control(c))
+    assert taylor_test(J_hat, c, Function(V).interpolate(0.1)) > 1.9
