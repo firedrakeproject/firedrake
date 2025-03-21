@@ -2,21 +2,33 @@ import pytest
 import firedrake as fd
 from firedrake.__future__ import interpolate
 from firedrake.adjoint import (
-    continue_annotation, pause_annotation, stop_annotating,
+    continue_annotation, pause_annotation, stop_annotating, annotate_tape,
     set_working_tape, get_working_tape, Control, taylor_test, taylor_to_dict,
-    ReducedFunctional, FourDVarReducedFunctional)
+    ReducedFunctional, FourDVarReducedFunctional, AdjFloat)
 from numpy import mean
 
 
 @pytest.fixture(autouse=True)
-def clear_tape_teardown():
+def handle_taping():
     yield
-    get_working_tape().clear_tape()
+    tape = get_working_tape()
+    tape.clear_tape()
+
+
+@pytest.fixture(autouse=True, scope="module")
+def handle_annotation():
+    if not annotate_tape():
+        continue_annotation()
+    yield
+    # Ensure annotation is paused when we finish.
+    if annotate_tape():
+        pause_annotation()
 
 
 def function_space(comm):
     """DG0 periodic advection"""
-    mesh = fd.PeriodicUnitIntervalMesh(nx, comm=comm)
+    mesh = fd.PeriodicUnitIntervalMesh(nx, comm=comm,
+        distribution_parameters={"partitioner_type": "simple"})
     return fd.FunctionSpace(mesh, "DG", 0)
 
 
@@ -57,13 +69,15 @@ def covariance_norm(covariance):
     weight = fd.Constant(1/cov)
 
     def n2(x):
-        return fd.assemble(fd.inner(x, weight*x)*fd.dx)**power
+        result = fd.assemble(fd.inner(x, weight*x)*fd.dx)**power
+        assert type(result) is AdjFloat
+        return result
     return n2
 
 
-B = (fd.Constant(10.), 2)  # background error covariance
-R = (fd.Constant(0.1), 2)  # observation error covariance
-Q = (fd.Constant(0.5), 2)  # model error covariance
+B = (fd.Constant(10.), 4)  # background error covariance
+R = (fd.Constant(0.1), 4)  # observation error covariance
+Q = (fd.Constant(0.5), 4)  # model error covariance
 
 
 """Advecting velocity"""
@@ -395,8 +409,12 @@ def main_test_strong_4dvar_advection():
     eps = 1e-12
 
     # Does evaluating the functional match the reference rf?
-    assert abs(Jhat_pyadj(mp) - Jhat_aaorf(ma)) < eps
-    assert abs(Jhat_pyadj(hp) - Jhat_aaorf(ha)) < eps
+    Jpm = Jhat_pyadj(mp)
+    Jph = Jhat_pyadj(hp)
+    Jam = Jhat_aaorf(ma)
+    Jah = Jhat_aaorf(ha)
+    assert abs((Jpm - Jam)/Jpm) < eps
+    assert abs((Jph - Jah)/Jph) < eps
 
     # If we match the functional, then passing the taylor tests
     # should mean that we match the derivative too.
@@ -436,10 +454,13 @@ def main_test_weak_4dvar_advection():
     ma = m(V, ensemble)
     ha = h(V, ensemble)
 
-    eps = 1e-10
+    Jam = Jhat_aaorf(ma)
+    Jah = Jhat_aaorf(ha)
+
+    eps = 1e-12
     # Does evaluating the functional match the reference rf?
-    assert abs(Jpm - Jhat_aaorf(ma)) < eps
-    assert abs(Jph - Jhat_aaorf(ha)) < eps
+    assert abs((Jpm - Jam)/Jpm) < eps
+    assert abs((Jph - Jah)/Jph) < eps
 
     # If we match the functional, then passing the taylor tests
     # should mean that we match the derivative too.
