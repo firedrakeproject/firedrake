@@ -504,7 +504,10 @@ class FourDVarReducedFunctional(ReducedFunctional):
         """
         trank = self.trank
 
+        # This should be hess = self.control._ad_dual_type()
+        # to avoid unnecessary solve in riesz_representation
         hess = self.control.copy_data()
+        hess = hess.riesz_representation()
         hess.zero()
 
         if not isinstance(m_dot, list):

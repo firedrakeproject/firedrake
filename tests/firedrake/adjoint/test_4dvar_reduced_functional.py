@@ -2,21 +2,33 @@ import pytest
 import firedrake as fd
 from firedrake.__future__ import interpolate
 from firedrake.adjoint import (
-    continue_annotation, pause_annotation, stop_annotating,
+    continue_annotation, pause_annotation, stop_annotating, annotate_tape,
     set_working_tape, get_working_tape, Control, taylor_test, taylor_to_dict,
-    ReducedFunctional, FourDVarReducedFunctional)
+    ReducedFunctional, FourDVarReducedFunctional, AdjFloat)
 from numpy import mean
 
 
 @pytest.fixture(autouse=True)
-def clear_tape_teardown():
+def handle_taping():
     yield
-    get_working_tape().clear_tape()
+    tape = get_working_tape()
+    tape.clear_tape()
+
+
+@pytest.fixture(autouse=True, scope="module")
+def handle_annotation():
+    if not annotate_tape():
+        continue_annotation()
+    yield
+    # Ensure annotation is paused when we finish.
+    if annotate_tape():
+        pause_annotation()
 
 
 def function_space(comm):
     """DG0 periodic advection"""
-    mesh = fd.PeriodicUnitIntervalMesh(nx, comm=comm)
+    mesh = fd.PeriodicUnitIntervalMesh(nx, comm=comm,
+        distribution_parameters={"partitioner_type": "simple"})
     return fd.FunctionSpace(mesh, "DG", 0)
 
 
@@ -57,7 +69,9 @@ def covariance_norm(covariance):
     weight = fd.Constant(1/cov)
 
     def n2(x):
-        return fd.assemble(fd.inner(x, weight*x)*fd.dx)**power
+        result = fd.assemble(fd.inner(x, weight*x)*fd.dx)**power
+        assert type(result) is AdjFloat
+        return result
     return n2
 
 
