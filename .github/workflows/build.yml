@@ -85,6 +85,7 @@ jobs:
             --no-binary h5py \
             --extra-index-url https://download.pytorch.org/whl/cpu \
             './firedrake-repo[ci]'
+          pip install "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint.git@dolci/defensive_storage_data"
           firedrake-clean
           pip list
 
