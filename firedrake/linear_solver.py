@@ -4,6 +4,8 @@ from firedrake.matrix import MatrixBase
 from firedrake.petsc import PETSc
 from pyop2.mpi import internal_comm
 from firedrake.variational_solver import LinearVariationalProblem, LinearVariationalSolver
+from firedrake.solving_utils import ConvergenceError
+
 
 __all__ = ["LinearSolver"]
 
@@ -83,7 +85,14 @@ class LinearSolver(LinearVariationalSolver):
         if b.function_space() != self.b.function_space():
             raise ValueError(f"b must be a Cofunction in {self.b.function_space()}.")
 
-        self.x.assign(x)
         self.b.assign(b)
-        super().solve()
-        x.assign(self.x)
+        if self.ksp.getInitialGuessNonzero():
+            self.x.assign(x)
+        else:
+            self.x.zero()
+        try:
+            super().solve()
+            x.assign(self.x)
+        except ConvergenceError as e:
+            x.assign(self.x)
+            raise e
