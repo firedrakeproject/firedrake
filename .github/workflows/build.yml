@@ -61,7 +61,7 @@ jobs:
 
       - name: Install PETSc
         run: |
-          git clone --depth 1 https://github.com/firedrakeproject/petsc.git
+          git clone --depth 1 --branch v3.22.2 https://gitlab.com/petsc/petsc.git
           cd petsc
           python3 ../firedrake-repo/scripts/firedrake-configure \
             --arch ${{ matrix.arch }} --show-petsc-configure-options | \
@@ -73,7 +73,7 @@ jobs:
 
       - name: Install SLEPc
         run: |
-          git clone --depth 1 https://github.com/firedrakeproject/slepc.git
+          git clone --depth 1 --branch v3.22.2 https://gitlab.com/slepc/slepc.git
           cd slepc
           ./configure
           make SLEPC_DIR=/__w/firedrake/firedrake/slepc

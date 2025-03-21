@@ -116,6 +116,7 @@ For Firedrake to work as expected, it is important that a specific version of PE
 is installed with a specific set of external packages. To install PETSc you need to
 do the following steps:
 
+FIXME
 #. Clone the PETSc repository::
 
    $ git clone --depth 1 https://github.com/firedrakeproject/petsc.git
