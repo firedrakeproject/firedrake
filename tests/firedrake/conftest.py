@@ -10,11 +10,104 @@ import pytest
 from firedrake.petsc import PETSc, get_external_packages
 
 
+def _skip_test_dependency(dependency):
+    """
+    Returns whether to skip tests with a certain dependency.
+
+    Usually, this will return True if the dependency is not available.
+    However, on CI we never want to skip tests because we should
+    test all functionality there, so if the environment variable
+    FIREDRAKE_CI=1 then this will always return False.
+    """
+    skip = True
+
+    if os.getenv("FIREDRAKE_CI") == "1":
+        return not skip
+
+    if dependency == "slepc":
+        try:
+            from slepc4py import SLEPc  # noqa: F401
+            del SLEPc
+            return not skip
+        except ImportError:
+            return skip
+
+    elif dependency == 'matplotlib':
+        try:
+            import matplotlib  # noqa: F401
+            del matplotlib
+            return not skip
+        except ImportError:
+            return skip
+
+    elif dependency == "pytorch":
+        try:
+            import firedrake.ml.pytorch as fd_torch  # noqa: F401
+            del fd_torch
+            return not skip
+        except ImportError:
+            return skip
+
+    elif dependency == "jax":
+        try:
+            import firedrake.ml.jax as fd_jax  # noqa: F401
+            del fd_jax
+            return not skip
+        except ImportError:
+            return skip
+
+    elif dependency == "netgen":
+        try:
+            import netgen  # noqa: F401
+            del netgen
+            import ngsPETSc  # noqa: F401
+            del ngsPETSc
+            return not skip
+        except ImportError:
+            return skip
+
+    elif dependency == "vtk":
+        try:
+            from firedrake.output import VTKFile  # noqa: F401
+            del VTKFile
+            return not skip
+        except ImportError:
+            return skip
+
+    elif dependency in ("mumps", "hypre"):
+        return dependency not in get_external_packages()
+
+    else:
+        raise ValueError("Unrecognised dependency to check: {dependency = }")
+
+
+dependency_skip_markers_and_reasons = (
+    ("mumps", "skipmumps", "MUMPS not installed with PETSc"),
+    ("hypre", "skiphypre", "hypre not installed with PETSc"),
+    ("slepc", "skipslepc", "SLEPc is not installed"),
+    ("pytorch", "skiptorch", "PyTorch is not installed"),
+    ("jax", "skipjax", "JAX is not installed"),
+    ("matplotlib", "skipplot", "Matplotlib is not installed"),
+    ("netgen", "skipnetgen", "Netgen and ngsPETSc are not installed"),
+    ("vtk", "skipvtk", "VTK is not installed")
+)
+
+
+# This allows us to check test dependencies within tests e.g. the demo tests
+@pytest.fixture
+def skip_dependency():
+    return _skip_test_dependency, dependency_skip_markers_and_reasons
+
+
 def pytest_configure(config):
     """Register an additional marker."""
     config.addinivalue_line(
         "markers",
         "skipmumps: mark as skipped unless MUMPS is installed"
+    )
+    config.addinivalue_line(
+        "markers",
+        "skiphypre: mark as skipped unless hypre is installed"
     )
     config.addinivalue_line(
         "markers",
@@ -27,6 +120,10 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "skipcomplexnoslate: mark as skipped in complex mode due to lack of Slate"
+    )
+    config.addinivalue_line(
+        "markers",
+        "skipslepc: mark as skipped if slepc4py is not installed"
     )
     config.addinivalue_line(
         "markers",
@@ -53,43 +150,6 @@ def pytest_configure(config):
 def pytest_collection_modifyitems(session, config, items):
     from firedrake.utils import complex_mode, SLATE_SUPPORTS_COMPLEX
 
-    try:
-        import matplotlib
-        del matplotlib
-        matplotlib_installed = True
-    except ImportError:
-        matplotlib_installed = False
-
-    try:
-        import firedrake.ml.pytorch as fd_torch
-        del fd_torch
-        torch_backend = True
-    except ImportError:
-        torch_backend = False
-
-    try:
-        import firedrake.ml.jax as fd_jax
-        del fd_jax
-        jax_backend = True
-    except ImportError:
-        jax_backend = False
-
-    try:
-        import netgen
-        del netgen
-        import ngsPETSc
-        del ngsPETSc
-        netgen_installed = True
-    except ImportError:
-        netgen_installed = False
-
-    try:
-        from firedrake.output import VTKFile
-        del VTKFile
-        vtk_installed = True
-    except ImportError:
-        vtk_installed = False
-
     for item in items:
         if complex_mode:
             if item.get_closest_marker("skipcomplex") is not None:
@@ -100,31 +160,9 @@ def pytest_collection_modifyitems(session, config, items):
             if item.get_closest_marker("skipreal") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense unless in complex mode"))
 
-        if "mumps" not in get_external_packages():
-            if item.get_closest_marker("skipmumps") is not None:
-                item.add_marker(pytest.mark.skip("MUMPS not installed with PETSc"))
-
-        # Do not skip tests when CI is running
-        if os.getenv("FIREDRAKE_CI") != "1":
-            if not torch_backend:
-                if item.get_closest_marker("skiptorch") is not None:
-                    item.add_marker(pytest.mark.skip(reason="Test makes no sense if PyTorch is not installed"))
-
-            if not jax_backend:
-                if item.get_closest_marker("skipjax") is not None:
-                    item.add_marker(pytest.mark.skip(reason="Test makes no sense if JAX is not installed"))
-
-            if not matplotlib_installed:
-                if item.get_closest_marker("skipplot") is not None:
-                    item.add_marker(pytest.mark.skip(reason="Test cannot be run unless Matplotlib is installed"))
-
-            if not netgen_installed:
-                if item.get_closest_marker("skipnetgen") is not None:
-                    item.add_marker(pytest.mark.skip(reason="Test cannot be run unless Netgen and ngsPETSc are installed"))
-
-            if not vtk_installed:
-                if item.get_closest_marker("skipvtk") is not None:
-                    item.add_marker(pytest.mark.skip(reason="Test cannot be run unless VTK is installed"))
+        for dep, marker, reason in dependency_skip_markers_and_reasons:
+            if _skip_test_dependency(dep) and item.get_closest_marker(marker) is not None:
+                item.add_marker(pytest.mark.skip(reason))
 
 
 @pytest.fixture(scope="module", autouse=True)

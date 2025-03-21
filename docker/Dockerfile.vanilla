@@ -9,21 +9,23 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ARG ARCH="default"
 
 # Download firedrake-configure
-RUN curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-configure
+RUN curl -O --output-dir /opt https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-configure
 
 # Install system dependencies
-RUN sudo apt-get update \
-    && sudo apt-get -y install \
-        $(python3 ./firedrake-configure --arch $ARCH --show-system-packages) \
-    && sudo rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get -y install \
+        $(python3 /opt/firedrake-configure --arch $ARCH --show-system-packages) \
+    && rm -rf /var/lib/apt/lists/*
 
+# OpenMPI will complain if mpiexec is invoked as root unless these are set
+ENV OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 
 # Install PETSc. We set the compiler optimisation flags manually here to
 # remove the default of '-march=native' which is not suitable for Docker images.
 # We use 'sed' to make sure that the options are appended.
-RUN git clone --depth 1 https://github.com/firedrakeproject/petsc.git \
-    && cd petsc \
-    && python3 ../firedrake-configure --arch $ARCH --show-petsc-configure-options | \
+RUN git clone --depth 1 https://github.com/firedrakeproject/petsc.git /opt/petsc \
+    && cd /opt/petsc \
+    && python3 /opt/firedrake-configure --arch $ARCH --show-petsc-configure-options | \
         sed "s/$/ --COPTFLAGS='-O3 -mtune=generic' --CXXOPTFLAGS='-O3 -mtune=generic' --FOPTFLAGS='-O3 -mtune=generic'/" | \
         xargs -L1 ./configure --with-make-np=12 \
     && make \
@@ -32,27 +34,25 @@ RUN git clone --depth 1 https://github.com/firedrakeproject/petsc.git \
     && rm -rf ./src/docs \
     && rm -f ./src/**/tutorials/output/* \
     && rm -f ./src/**/tests/output/* \
-    && cd ..
+    && cd - || exit
 
-ENV PETSC_DIR=/home/firedrake/petsc PETSC_ARCH=arch-firedrake-$ARCH
-ENV PATH="$PETSC_DIR/$PETSC_ARCH/bin:$PATH" 
+ENV PETSC_DIR=/opt/petsc PETSC_ARCH=arch-firedrake-$ARCH
+ENV PATH="$PETSC_DIR/$PETSC_ARCH/bin:$PATH"
 
 # Install SLEPc
-RUN git clone --depth 1 https://github.com/firedrakeproject/slepc.git \
-    && cd slepc \
+RUN git clone --depth 1 https://github.com/firedrakeproject/slepc.git /opt/slepc \
+    && cd /opt/slepc \
     && ./configure \
-    && make SLEPC_DIR=/home/firedrake/slepc \
-    && cd ..
+    && make SLEPC_DIR=/opt/slepc \
+    && cd - || exit
 
-ENV SLEPC_DIR=/home/firedrake/slepc
+ENV SLEPC_DIR=/opt/slepc
 
 ENV HDF5_MPI=ON
 ENV CC=mpicc CXX=mpicxx
 ENV CFLAGS="-mtune=generic" CPPFLAGS="-mtune=generic"
 ENV MPICC=$CC
-ENV PATH="/home/firedrake/.local/bin:$PATH" 
 
-# Install Firedrake, pass --break-system-packages because we don't want the
-# container to need a venv.
-RUN pip install --break-system-packages --verbose --no-binary h5py --src . \
-        --editable git+https://github.com/firedrakeproject/firedrake.git#egg=firedrake[ci]
+# Install Firedrake
+RUN pip install --verbose --no-binary h5py --src /opt \
+        --editable git+https://github.com/firedrakeproject/firedrake.git#egg=firedrake[docker]

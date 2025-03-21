@@ -181,7 +181,7 @@ def test_assemble_base_form_operator_expressions(mesh):
     res = assemble(Iv1 + Iv2)
     mat_Iv1 = assemble(Iv1)
     mat_Iv2 = assemble(Iv2)
-    assert np.allclose((mat_Iv1 + mat_Iv2)[:, :], res.petscmat[:, :], rtol=1e-14)
+    assert np.allclose(mat_Iv1.petscmat[:, :] + mat_Iv2.petscmat[:, :], res.petscmat[:, :], rtol=1e-14)
 
     # Linear combination of BaseFormOperator (1-form)
     alpha = 0.5
