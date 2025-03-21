@@ -2,6 +2,6 @@
 
 FROM firedrakeproject/firedrake-vanilla-default:latest
 
-RUN sudo apt-get update \
-    && sudo apt-get -y install inkscape texlive-full \
-    && sudo rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get -y install inkscape texlive-full \
+    && rm -rf /var/lib/apt/lists/*
