@@ -62,6 +62,9 @@ from pyop3.utils import (
 import pyop3.extras.debug
 
 
+OWNED_REGION_LABEL = "owned"
+
+
 class ExpectedLinearAxisTreeException(Pyop3Exception):
     ...
 
@@ -525,33 +528,9 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
         # hacky but right (no inner shape)
         return self.size
 
-    # # @parallel_only  # TODO
-    # @cached_property
-    # def owned_count(self):
-    #     return self.count - self.sf.nleaves
-
     @cached_property
     def count_per_component(self):
         return freeze({c.label: c.count for c in self.components})
-
-    # @cached_property
-    # def owned_count_per_component(self):
-    #     return freeze(
-    #         {
-    #             clabel: count - self.ghost_count_per_component[clabel]
-    #             for clabel, count in self.count_per_component.items()
-    #         }
-    #     )
-
-    # @cached_property
-    # def ghost_count_per_component(self):
-    #     counts = np.zeros_like(self.components, dtype=int)
-    #     if self.comm.size > 1:
-    #         for leaf_index in self.sf.ileaf:
-    #             counts[self._axis_number_to_component_index(leaf_index)] += 1
-    #     return freeze(
-    #         {cpt.label: count for cpt, count in strict_zip(self.components, counts)}
-    #     )
 
     @cached_property
     def owned(self):
@@ -1160,10 +1139,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     @cached_property
     def owned(self):
         """Return the owned portion of the axis tree."""
-        if not self.comm or self.comm.size == 1:
-            return self
-
-        return self.with_region_label("owned")
+        return self.with_region_label(OWNED_REGION_LABEL)
 
     def with_region_label(self, region_label: str) -> IndexedAxisTree:
         """TODO"""
@@ -1175,32 +1151,36 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     # NOTE: Unsure if this should be a method
     def _region_slice(self, region_label: str, *, axis: Axis | None = None) -> "IndexTree":
-        from pyop3.itree import AffineSliceComponent, IndexTree, Slice
+        from pyop3.itree import AffineSliceComponent, RegionSliceComponent, IndexTree, Slice
 
         if axis is None:
             axis = self.root
 
+        region_label_matches_all_components = True
+        region_label_matches_no_components = True
         slice_components = []
         for component in axis.components:
             if region_label in component._all_region_labels:
-                region_index = component._all_region_labels.index(region_label)
-                steps = steps_func([r.size for r in component._all_regions])
-                start, stop = steps[region_index:region_index+2]
-
-                # NOTE: I think slices and components should *always* preserve the axis labels
-                slice_component = AffineSliceComponent(
-                    component.label, start=start, stop=stop, label=f"{component.label}_{region_label}"
-                )
+                region_label_matches_no_components = False
+                slice_component = RegionSliceComponent(component.label, region_label, label=f"{component.label}_{region_label}")
             else:
-                slice_component = AffineSliceComponent(
-                    component.label, label=f"{component.label}_{region_label}"
-                )
+                region_label_matches_all_components = False
+                slice_component = AffineSliceComponent(component.label, label=component.label)
             slice_components.append(slice_component)
+
+        # do not change axis label if nothing changes
+        if region_label_matches_all_components:
+            axis_label = f"{axis.label}_{region_label}"
+        elif region_label_matches_no_components:
+            axis_label = axis.label
+        else:
+            # match some, generate something
+            axis_label = None
 
         # NOTE: Ultimately I don't think that this step will be necessary. When axes are reused more we can
         # start to think about keying certain things on the axis itself, rather than its label.
         # slice_ = Slice(axis.label, slice_components, label=axis.label)
-        slice_ = Slice(axis.label, slice_components, label=f"{axis.label}_{region_label}")
+        slice_ = Slice(axis.label, slice_components, label=axis_label)
 
         index_tree = IndexTree(slice_)
         for component, slice_component in strict_zip(axis.components, slice_components):
@@ -1738,7 +1718,7 @@ class IndexedAxisTree(AbstractAxisTree):
 
         mask_dat = Dat(self.unindexed, dtype=bool, prefix="mask")
         do_loop(p := self.index(), mask_dat[p].assign(1))
-        indices = just_one(np.nonzero(mask_dat.data_ro))
+        indices = just_one(np.nonzero(mask_dat.buffer.data_ro))
 
         # then convert to a slice if possible, do in Cython!!!
         slice_ = None

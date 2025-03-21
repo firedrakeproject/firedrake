@@ -156,11 +156,8 @@ class DistributedBuffer(Buffer):
     #     return cls(array.shape, array.dtype, data=array, **kwargs)
 
     @property
-    def comm(self):
-        if self.sf is not None:
-            return self.sf.comm
-        else:
-            return COMM_SELF
+    def comm(self) -> MPI.Comm | None:
+        return self.sf.comm if self.sf else None
 
     @property
     def dtype(self):

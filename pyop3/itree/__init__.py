@@ -1,5 +1,6 @@
 from .tree import (  # noqa: F401
     AffineSliceComponent,
+    RegionSliceComponent,
     CalledMap,
     Index,
     ScalarIndex,

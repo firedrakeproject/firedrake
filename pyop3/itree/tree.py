@@ -37,6 +37,7 @@ from pyop3.axtree.tree import (
     IndexedAxisTree,
     UnitIndexedAxisTree,
     LoopIndexVar,
+    OWNED_REGION_LABEL,
 )
 from pyop3.dtypes import IntType
 from pyop3.expr_visitors import replace_terminals, replace as expr_replace
@@ -180,6 +181,23 @@ class SubsetSliceComponent(SliceComponent):
 
 # alternative name, better or worse? I think worse
 Subset = SubsetSliceComponent
+
+
+class RegionSliceComponent(SliceComponent):
+    """A slice component that takes all entries from a particular region.
+
+    This class differs from an affine slice in that it 'consumes' the region
+    label, and so breaks any recursive cycle where one might have something
+    like `axes.owned.buffer_slice` (which accesses `axes.owned.buffer_slice`...).
+
+    """
+    def __init__(self, component, region: str, *, label=None) -> None:
+        super().__init__(component, label=label)
+        self.region = region
+
+    @property
+    def is_full(self) -> bool:
+        return False
 
 
 class MapComponent(pytools.ImmutableRecord, Labelled, abc.ABC):
@@ -1079,7 +1097,17 @@ def _(slice_: Slice, *, prev_axes, expr_replace_map, **_):
         # case that "owned" points preceded "ghost" points and so extracting the
         # "owned" region is no longer a trivial slice. We therefore choose to discard
         # this information.
-        orig_regions = target_component.regions
+
+        # DEBUG: using _all_regions breaks things because we only express owned-ness
+        # lazily from the SFs. We therefore have to special case the regionslice for
+        # owned around here.
+        if (
+            isinstance(slice_component, RegionSliceComponent)
+            and slice_component.region == OWNED_REGION_LABEL
+        ):
+            orig_regions = target_component._all_regions
+        else:
+            orig_regions = target_component.regions
         # TODO: Might be clearer to combine these steps
         regions = _prepare_regions_for_slice_component(slice_component, orig_regions)
         indexed_regions = _index_regions(slice_component, regions, parent_exprs=expr_replace_map)
@@ -1088,14 +1116,27 @@ def _(slice_: Slice, *, prev_axes, expr_replace_map, **_):
         indexed_size = sum(r.size for r in indexed_regions)
 
         if target_component.sf is not None:
-            if isinstance(slice_component, AffineSliceComponent):
-                indices = np.arange(*slice_component.with_size(orig_size), dtype=IntType)
+            # If we are specially filtering the owned entries we want to drop the SF
+            # to disallow things like `axes.owned.owned`.
+            if (
+                isinstance(slice_component, RegionSliceComponent)
+                and slice_component.region == OWNED_REGION_LABEL
+            ):
+                sf = None
             else:
-                assert isinstance(slice_component, SubsetSliceComponent)
-                indices = slice_component.array.buffer.data_ro
+                if isinstance(slice_component, RegionSliceComponent):
+                    region_index = target_component._all_region_labels.index(slice_component.region_label)
+                    steps = utils.steps([r.size for r in target_component._all_regions])
+                    start, stop = steps[region_index:region_index+2]
+                    indices = np.arange(start, stop, dtype=IntType)
+                elif isinstance(slice_component, AffineSliceComponent):
+                    indices = np.arange(*slice_component.with_size(orig_size), dtype=IntType)
+                else:
+                    assert isinstance(slice_component, SubsetSliceComponent)
+                    indices = slice_component.array.buffer.data_ro
 
-            petsc_sf = filter_sf(target_component.sf.sf, indices, 0, orig_size)
-            sf = StarForest(petsc_sf, indexed_size)
+                petsc_sf = filter_sf(target_component.sf.sf, indices, 0, orig_size)
+                sf = StarForest(petsc_sf, indexed_size)
         else:
             sf = None
 
@@ -1114,7 +1155,11 @@ def _(slice_: Slice, *, prev_axes, expr_replace_map, **_):
     axis = Axis(components, label=axis_label)
     axes = AxisTree(axis)
 
-    for i, slice_component in enumerate(slice_.slices):
+    for slice_component in slice_.slices:
+        target_component = just_one(
+            c for c in target_axis.components if c.label == slice_component.component
+        )
+
         # don't do this here, just leave empty
         if False:
             pass
@@ -1126,7 +1171,22 @@ def _(slice_: Slice, *, prev_axes, expr_replace_map, **_):
             target_path_per_subslice.append(pmap({slice_.axis: slice_component.component}))
 
             newvar = AxisVar(axis.label)
-            if isinstance(slice_component, AffineSliceComponent):
+            if isinstance(slice_component, RegionSliceComponent):
+                if slice_component.region == OWNED_REGION_LABEL:
+                    region_index = target_component._all_region_labels.index(slice_component.region)
+                    steps = utils.steps([r.size for r in target_component._all_regions])
+                else:
+                    region_index = target_component.region_labels.index(slice_component.region)
+                    steps = utils.steps([r.size for r in target_component.regions])
+                start = steps[region_index]
+                index_exprs_per_subslice.append(
+                    freeze(
+                        {
+                            slice_.axis: newvar + start,
+                        }
+                    )
+                )
+            elif isinstance(slice_component, AffineSliceComponent):
                 index_exprs_per_subslice.append(
                     freeze(
                         {
@@ -1134,31 +1194,9 @@ def _(slice_: Slice, *, prev_axes, expr_replace_map, **_):
                         }
                     )
                 )
-                # layout_exprs_per_subslice.append(
-                #     pmap({slice_.label: (layout_var - slice_component.start) // slice_component.step})
-                # )
             else:
                 assert isinstance(slice_component, Subset)
 
-                # below is also used for maps - cleanup
-                # subset_array = slice_component.array
-                # subset_axes = subset_array.axes
-                #
-                # if isinstance(subset_axes, IndexedAxisTree):
-                #     raise NotImplementedError("Need more paths, not just 2")
-                #
-                # # must be single component
-                # assert subset_axes.leaf
-
-                # my_target_path = merge_dicts(just_one(subset_axes.paths).values())
-                # old_index_exprs = merge_dicts(just_one(subset_axes.index_exprs).values())
-                #
-                # my_index_exprs = {}
-                # index_expr_replace_map = {subset_axes.leaf_axis.label: newvar}
-                # replacer = IndexExpressionReplacer(index_expr_replace_map)
-                # for axlabel, index_expr in old_index_exprs.items():
-                #     my_index_exprs[axlabel] = replacer(index_expr)
-                # subset_var = ArrayVar(slice_component.array, my_index_exprs, my_target_path)
                 # NOTE: This replacement could probably be done more eagerly
                 subset_axes = slice_component.array.axes
                 assert subset_axes.is_linear and subset_axes.depth == 1
@@ -2053,6 +2091,11 @@ def _prepare_regions_for_slice_component(slice_component, regions) -> tuple[Axis
     raise TypeError
 
 
+@_prepare_regions_for_slice_component.register(RegionSliceComponent)
+def _(region_component: RegionSliceComponent, regions):
+    return tuple(regions)
+
+
 @_prepare_regions_for_slice_component.register(AffineSliceComponent)
 def _(affine_component: AffineSliceComponent, regions):
     assert affine_component.step != 0
@@ -2072,6 +2115,12 @@ def _(subset: Subset, regions) -> tuple:
 @functools.singledispatch
 def _index_regions(*args, **kwargs) -> tuple[AxisComponentRegion, ...]:
     raise TypeError
+
+
+@_index_regions.register(RegionSliceComponent)
+def _(region_component: RegionSliceComponent, regions, *, parent_exprs) -> tuple[AxisComponentRegion, ...]:
+    selected_region = just_one(filter(lambda r: r.label == region_component.region, regions))
+    return (AxisComponentRegion(selected_region.size),)
 
 
 @_index_regions.register(AffineSliceComponent)
@@ -2097,12 +2146,7 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
 
         # because .replace() swaps with vars, not labels
         replace_map = {AxisVar(axis): expr for (axis, expr) in parent_exprs.items()}
-        stop_new = expr_replace(stop, replace_map)
-
-        if not isinstance(stop, int):
-            breakpoint()
-        stop = stop_new
-
+        stop = expr_replace(stop, replace_map)
         return (AxisComponentRegion(stop, region.label),)
 
     indexed_regions = []

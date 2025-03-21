@@ -481,7 +481,7 @@ class Dat(_Dat):
         return self.buffer.sf
 
     @property
-    def comm(self):
+    def comm(self) -> MPI.Comm | None:
         return self.buffer.comm
 
     # TODO update docstring

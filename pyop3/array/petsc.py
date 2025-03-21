@@ -556,7 +556,7 @@ class AbstractMat(Array, Record):
         return Dat(self.caxes, data=self.caxes.unindexed.global_numbering)
 
     @cached_property
-    def comm(self):
+    def comm(self) -> MPI.Comm:
         return single_valued([self.raxes.comm, self.caxes.comm])
 
     @property
