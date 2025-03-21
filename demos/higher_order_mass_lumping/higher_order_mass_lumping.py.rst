@@ -94,10 +94,12 @@ create a time-varying function to model the time evolution of the Ricker wavelet
 
     def RickerWavelet(t, freq, amp=1.0):
         # Shift in time so the entire wavelet is injected
-        t = t - (math.sqrt(6.0) / (math.pi * freq))
-        return amp * (
-            1.0 - (1.0 / 2.0) * (2.0 * math.pi * freq) * (2.0 * math.pi * freq) * t * t
-        )
+        t_shifted = t - 1.0 / freq  # Time shift to center the wavelet
+
+        factor = 1 - 2 * math.pi**2 * (freq**2) * (t_shifted**2)
+        envelope = math.exp(-math.pi**2 * (freq**2) * (t_shifted**2))
+
+        return amp * factor * envelope
 
 The spatial distribution of the source function is a Guassian kernel with a standard deviation
 of 2,000 so that it's sufficiently localized to emulate a Dirac delta function::

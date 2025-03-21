@@ -153,7 +153,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                  pre_jacobian_callback=None,
                  post_jacobian_callback=None,
                  pre_function_callback=None,
-                 post_function_callback=None):
+                 post_function_callback=None,
+                 pre_apply_bcs=True):
         r"""
         :arg problem: A :class:`NonlinearVariationalProblem` to solve.
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
@@ -182,6 +183,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                before residual assembly.
         :kwarg post_function_callback: As above, but called immediately
                after residual assembly.
+        :kwarg pre_apply_bcs: If `False`, the problem is linearised
+               around the initial guess before imposing the boundary conditions.
 
         Example usage of the ``solver_parameters`` option: to set the
         nonlinear solver type to just use a linear solver, use
@@ -233,7 +236,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                          pre_function_callback=pre_function_callback,
                                          post_jacobian_callback=post_jacobian_callback,
                                          post_function_callback=post_function_callback,
-                                         options_prefix=self.options_prefix)
+                                         options_prefix=self.options_prefix,
+                                         pre_apply_bcs=pre_apply_bcs)
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
 
@@ -304,8 +308,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         problem_dms = [V.dm for V in utils.unique(chain.from_iterable(c.function_space() for c in coefficients)) if V.dm != solution_dm]
         problem_dms.append(solution_dm)
 
-        for dbc in problem.dirichlet_bcs():
-            dbc.apply(problem.u_restrict)
+        if self._ctx.pre_apply_bcs:
+            for bc in problem.dirichlet_bcs():
+                bc.apply(problem.u_restrict)
 
         if bounds is not None:
             lower, upper = bounds

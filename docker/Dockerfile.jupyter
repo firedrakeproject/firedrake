@@ -1,31 +1,25 @@
-# DockerFile for a firedrake + jupyter container
+# Dockerfile for a Firedrake container including Jupyter.
 
 FROM firedrakeproject/firedrake:latest
 
-USER firedrake
-WORKDIR /home/firedrake
+# Install an iPython kernel for Firedrake
+RUN pip install --verbose nbclassic nbformat nbconvert ipympl \
+    && jupyter nbclassic --generate-config
 
-# PETSC_ARCH inherited from firedrakeproject/firedrake
-
-# Install an iPython kernel for firedrake
-RUN bash -c ". /home/firedrake/firedrake/bin/activate && pip install nbclassic nbformat nbconvert ipympl"
-RUN bash -c ". /home/firedrake/firedrake/bin/activate && jupyter nbclassic --generate-config"
-
-# Remove the install log.
-RUN bash -c "rm firedrake-*"
-# Put the notebooks in the working directory for the notebook server.
-RUN bash -c "cp -r firedrake/src/firedrake/docs/notebooks/* ."
-# Strip the output from the notebooks.
-RUN bash -c '. /home/firedrake/firedrake/bin/activate && for file in *.ipynb; do jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace $file; done'
+# Move the notebooks and strip their output
+RUN mkdir /opt/firedrake-notebooks \
+    && cp -r /opt/firedrake/docs/notebooks/* /opt/firedrake-notebooks/ \
+    && for file in /opt/firedrake-notebooks/*.ipynb; do \
+        jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace $file; \
+    done
 
 # Now do the same for thetis.
-RUN bash -c "mkdir thetis"
-RUN bash -c "cp -r firedrake/src/thetis/demos/* thetis/."
-RUN bash -c "rm thetis/*.py"
-RUN bash -c '. /home/firedrake/firedrake/bin/activate && for file in thetis/*.ipynb; do jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace $file; done'
+# FIXME: Add these back in once Thetis is in the firedrake container
+# RUN mkdir thetis-notebooks \
+#     && cp -r thetis/demos/* thetis-notebooks/ \
+#     && rm thetis-notebooks/*.py \
+#     && for file in thetis-notebooks/*.ipynb; do \
+#         jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace $file; \
+#     done
 
-# Environment required for Azure deployments.
-ENV OMPI_MCA_btl tcp,self
-ENV PATH /home/firedrake/firedrake/bin:$PATH
-
-CMD ["/home/firedrake/firedrake/bin/jupyter", "nbclassic", "--ip", "0.0.0.0", "--no-browser", "--allow-root"]
+CMD ["jupyter", "nbclassic", "--ip", "0.0.0.0", "--no-browser", "--allow-root"]
