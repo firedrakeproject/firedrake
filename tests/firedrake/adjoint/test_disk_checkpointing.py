@@ -173,7 +173,7 @@ def test_adjoint_dependencies_set():
     u_nm1 = Function(V, name="u_nm1")
     time_term = (u - 2.0 * u_n + u_nm1) / Constant(0.001**2) * v * dx
     a = c * c * dot(grad(u_n), grad(v)) * dx
-    F = time_term + a + delta_expr(source, x, y) * v * dx
+    F = time_term + a + delta_expr(Constant([0.5, 0.5]), x, y) * v * dx
     lin_var = LinearVariationalProblem(lhs(F), rhs(F), u_np1, constant_jacobian=True)
     solver = LinearVariationalSolver(lin_var)
     J = 0.
