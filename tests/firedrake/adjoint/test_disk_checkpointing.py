@@ -158,7 +158,6 @@ def test_adjoint_dependencies_set():
     tape.enable_checkpointing(SingleDiskStorageSchedule())
     mesh = checkpointable_mesh(UnitSquareMesh(10, 10))
     V = FunctionSpace(mesh, "CG", 1)
-    x, z = SpatialCoordinate(mesh)
     c = Function(V).interpolate(1.0)
 
     def delta_expr(x0, x, y, sigma_x=2000.0):
@@ -166,7 +165,6 @@ def test_adjoint_dependencies_set():
         return exp(-sigma_x * ((x - x0[0]) ** 2 + (y - x0[1]) ** 2))
 
     x, y = SpatialCoordinate(mesh)
-    source = Constant([0.5, 0.5])
 
     u = TrialFunction(V)
     v = TestFunction(V)
