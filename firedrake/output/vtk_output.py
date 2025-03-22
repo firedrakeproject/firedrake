@@ -81,7 +81,7 @@ def is_dg(V):
 
     :arg V: A FunctionSpace.
     """
-    return V.finat_element.entity_dofs() == V.finat_element.entity_closure_dofs()
+    return V.finat_element.is_dg()
 
 
 def is_linear(V):
