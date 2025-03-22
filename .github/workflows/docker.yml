@@ -20,39 +20,10 @@ on:
         required: true
 
 jobs:
-  # Firedrake environment container
-  docker_build_env:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [Linux, macOS]
-        include:
-          - os: Linux
-            platform: linux/amd64
-          - os: macOS
-            platform: linux/arm64
-    uses: ./.github/workflows/docker_build.yml
-    with:
-      os: ${{ matrix.os }}
-      platform: ${{ matrix.platform }}
-      target: firedrake-env
-      tag: ${{ inputs.tag }}
-      dockerfile: docker/Dockerfile.env
-    secrets: inherit
-
-  docker_merge_env:
-    uses: ./.github/workflows/docker_merge.yml
-    needs: docker_build_env
-    with:
-      target: firedrake-env
-      tag: ${{ inputs.tag }}
-    secrets: inherit
-
   # Firedrake container (just Firedrake)
   docker_build_vanilla:
     # Only run if Firedrake tests pass
     if: inputs.status == 'success'
-    needs: docker_merge_env
     strategy:
       fail-fast: false
       matrix:
