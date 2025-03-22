@@ -11,7 +11,7 @@ Finally we will show how to use mesh refinement features included in Netgen to c
 
 Installing Netgen
 ------------------
-This demo requires the NGSolve/Netgen suite to be installed. This is most easily achieved by providing the optional `--netgen` flag to either `firedrake-install` (for a new installation), or `firedrake-update` (to add the NGSolve/Netgen suite to an existing installation). ::
+This demo requires the NGSolve/Netgen suite to be installed. This can be done by running ``pip install ngsPETSc``. ::
 
    from firedrake import *
    try:
