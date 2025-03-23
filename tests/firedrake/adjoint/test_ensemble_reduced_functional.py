@@ -91,6 +91,44 @@ def test_verification_gather_functional_Function():
     assert taylor_test(rf, x, Function(R, val=0.1)) > 1.9
 
 
+@pytest.mark.parallel(nprocs=4)
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_verification_gather_functional_Function():
+    ensemble = Ensemble(COMM_WORLD, 2)
+
+    mesh = UnitSquareMesh(4, 4, comm=ensemble.comm)
+    R = FunctionSpace(mesh, "R", 0)
+    nlocal_spaces = 2//ensemble.ensemble_size
+    espace = EnsembleFunctionSpace([R for _ in nlocal_spaces], ensemble)
+    efunc = EnsembleFunction(espace)
+
+    rank = ensemble.ensemble_rank
+    offset = rank*nlocal_spaces
+    rfs = []
+    # each term in J sum
+    for i, x in enumerate(efunc.subfunctions):
+        with set_working_tape() as tape:
+            x = function.Function(R, val=offset+i+1)
+            J = Function(R).assign(x**2)
+            rfs.append(ReducedFunctional(J, x, tape=tape))
+
+    # reduction operator
+    with set_working_tape() as tape:
+        a = Function(R)
+        b = Function(R)
+        Jr = assemble((a**2 + b**2)*dx)
+        controls = [Control(a), Control(b)]
+        Jred = ReducedFunctional(Jr, controls, tape=tape)
+
+    erf = EnsembleReducedFunctional(rfs, Control(efunc),
+                                    bcast=False, allreduce=Jred)
+    ensemble_J = rf(x)
+    dJdm = rf.derivative()
+    assert_allclose(ensemble_J, 1.0**4+2.0**4, rtol=1e-12)
+    assert_allclose(dJdm.dat.data_ro, 4*(rank+1)**3, rtol=1e-12)
+    assert taylor_test(rf, x, Function(R, val=0.1)) > 1.9
+
+
 @pytest.mark.parallel(nprocs=6)
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_minimise():
