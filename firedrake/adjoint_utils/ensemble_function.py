@@ -1,5 +1,6 @@
 from pyadjoint.overloaded_type import OverloadedType
-from firedrake.petsc import PETSc
+from pyadjoint.tape import no_annotations
+import firedrake
 from .checkpointing import disk_checkpointing
 
 from functools import wraps
@@ -13,7 +14,7 @@ class EnsembleFunctionMixin(OverloadedType):
     Enables EnsembleFunction to do the following:
     - Be a Control for a NumpyReducedFunctional (_ad_to_list and _ad_assign_numpy)
     - Be used with pyadjoint TAO solver (_ad_{to,from}_petsc)
-    - Be used as a Control for Taylor tests (_ad_dot)
+    - Be used as a Control for Taylor tests (_ad_dot, _ad_add, _ad_mul)
     """
 
     @staticmethod
@@ -31,6 +32,7 @@ class EnsembleFunctionMixin(OverloadedType):
 
     @staticmethod
     def _ad_to_list(m):
+        PETSc = firedrake.PETSc
         with m.vec_ro() as gvec:
             lvec = PETSc.Vec().createSeq(gvec.size,
                                          comm=PETSc.COMM_SELF)
@@ -50,10 +52,47 @@ class EnsembleFunctionMixin(OverloadedType):
         local_dot = sum(uself._ad_dot(uother, options=options)
                         for uself, uother in zip(self.subfunctions,
                                                  other.subfunctions))
-        return self.ensemble.ensemble_comm.allreduce(local_dot)
+        return self.function_space().ensemble.ensemble_comm.allreduce(local_dot)
+
+    @no_annotations
+    def _ad_convert_type(self, value, options=None):
+        options = {} if options is None else options.copy()
+        options.setdefault("riesz_representation", "L2")
+        if options["riesz_representation"] is None:
+            if value == 0.:
+                # In adjoint-based differentiation, value == 0. arises only when
+                # the functional is independent on the control variable.
+                from firedrake import EnsembleCofunction
+                V = options.get("function_space", self.function_space())
+                return EnsembleCofunction(V.dual())
+            else:
+                return value
+        else:
+            return self._ad_convert_riesz(value, options=options)
 
     def _ad_convert_riesz(self, value, options=None):
-        raise NotImplementedError
+        from firedrake import EnsembleFunction, EnsembleCofunction
+
+        options = {} if options is None else options
+        riesz_representation = options.get("riesz_representation", "L2")
+        V = options.get("function_space", self.function_space())
+        if value == 0.:
+            # In adjoint-based differentiation, value == 0. arises only when
+            # the functional is independent on the control variable.
+            return EnsembleFunction(V)
+
+        if not isinstance(value, (EnsembleCofunction, EnsembleFunction)):
+            raise TypeError(
+                "Expected an EnsembleCofunction or an EnsembleFunction"
+                f" not a {type(value).__name__}")
+
+        else:
+            if isinstance(value, EnsembleCofunction):
+                kwargs = options.get("solver_options", {})
+            else:
+                kwargs = {}
+            return value.riesz_representation(
+                riesz_representation, **kwargs)
 
     def _ad_create_checkpoint(self):
         if disk_checkpointing():
