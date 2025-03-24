@@ -1780,22 +1780,22 @@ class ParloopBuilder:
             arg = self._as_parloop_arg(tsfc_arg, p)
             args.append(arg)
         
-        # transform_kernels = self.fuse_orientations()
-        # breakpoint()
-        # orientation = op3.Dat(op3.AxisTree(),data=numpy.zeros(1))
-        # axes = op3.AxisTree.from_nest({op3.Axis(10): op3.Axis(10)})
-        # a = op3.Dat(axes, name="a", data=numpy.zeros(axes.size), dtype=op3.ScalarType)
-        # b = op3.Dat(axes, name="b", data=numpy.zeros(axes.size), dtype=op3.ScalarType)
-        # res = op3.Dat(axes, name="res", data=numpy.zeros(axes.size), dtype=op3.ScalarType)
-        # # # breakpoint()
-        # # # need to think about the b argument and how to get the orientation argument
-        # loop = op3.loop(p, transform(orientation, b[cell], a, res))
+        transform_kernels = self.fuse_orientations()
+        print(transform_kernels)
+        orientation = op3.Dat(op3.AxisTree(),data=numpy.zeros(1))
+        axes = op3.AxisTree.from_nest({op3.Axis(10): op3.Axis(10)})
+        a = op3.Dat(axes, name="a", data=numpy.zeros(axes.size), dtype=op3.ScalarType)
+        b = op3.Dat(axes, name="b", data=numpy.zeros(axes.size), dtype=op3.ScalarType)
+        res = op3.Dat(axes, name="res", data=numpy.zeros(axes.size), dtype=op3.ScalarType)
+        # need to think about the b argument and how to get the orientation argument
+        loop2 = op3.loop(p, transform_kernels[0](orientation, b[p], a, res))
         self._kinfo.kernel.code = self._kinfo.kernel.code.with_entrypoints({self._kinfo.kernel.name})
         kernel = op3.Function(
             self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]]
         )
         loop = op3.loop(p, kernel(*args))
-        print(loop.loopy_code.ir)
+        # print(loop.loopy_code.ir)
+        breakpoint()
         return loop
 
     @property
@@ -1989,7 +1989,8 @@ class ParloopBuilder:
                 transform = op3.Function(knl, [op3.READ, op3.READ, op3.WRITE, op3.WRITE])
                 transform_kernels += [transform]
             else:
-                raise NotImplementedError("Dense orientations only needed for FUSE elements")
+                transform_kernels = []
+                # raise NotImplementedError("Dense orientations only needed for FUSE elements")
         return transform_kernels
 
     @functools.singledispatchmethod

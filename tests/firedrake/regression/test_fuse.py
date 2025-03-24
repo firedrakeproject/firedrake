@@ -77,9 +77,9 @@ def create_cg1():
     return cg
 
 def test_orientation_string():
-    dg1 = construct_cg3()
+    elem = construct_cg3()
     mesh = UnitTriangleMesh()
-    U = FunctionSpace(mesh, dg1.to_ufl())
+    U = FunctionSpace(mesh, elem.to_ufl())
 
     v = TestFunction(U)
     L = v * dx
