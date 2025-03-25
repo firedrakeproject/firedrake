@@ -43,15 +43,15 @@ help:
 
 TARGETS = html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex latexpdf text man changes linkcheck doctest gettext
 
-GENERATED_FILES = source/team.rst source/demos source/element_list.csv source/firedrake_citations.rst
+GENERATED_FILES = source/team.rst source/demos source/element_list.csv source/firedrake_citations.rst source/apt_deps.txt source/homebrew_deps.txt source/petsc_configure_options.txt
 
 publishpdf:
 	env FIREDRAKE_MANUAL_RELEASE=`date +%Y-%m` $(MAKE) latexpdf
 
 validate-bibtex:
-	../scripts/firedrake-preprocess-bibtex --validate source/_static/bibliography.bib
-	../scripts/firedrake-preprocess-bibtex --validate source/_static/firedrake-apps.bib
-	../scripts/firedrake-preprocess-bibtex --validate source/_static/references.bib
+	../firedrake/scripts/firedrake_preprocess_bibtex.py --validate source/_static/bibliography.bib
+	../firedrake/scripts/firedrake_preprocess_bibtex.py --validate source/_static/firedrake-apps.bib
+	../firedrake/scripts/firedrake_preprocess_bibtex.py --validate source/_static/references.bib
 
 livehtml:
 	sphinx-autobuild -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
@@ -88,6 +88,24 @@ source/firedrake_citations.rst:
 	sphinx-apidoc -f -T -o source/ ../firedrake_citations
 	echo -e ":orphan:\n\n" | cat - source/firedrake_citations.rst > source/firedrake_citations.tmp
 	mv source/firedrake_citations.tmp source/firedrake_citations.rst
+
+source/apt_deps.txt:
+	python ../scripts/firedrake-configure \
+		--package-manager apt-x86_64 \
+		--show-system-packages > source/apt_deps.tmp
+	mv source/apt_deps.tmp source/apt_deps.txt
+
+source/homebrew_deps.txt:
+	python ../scripts/firedrake-configure \
+		--package-manager brew-arm64 \
+		--show-system-packages > source/homebrew_deps.tmp
+	mv source/homebrew_deps.tmp source/homebrew_deps.txt
+
+source/petsc_configure_options.txt:
+	python ../scripts/firedrake-configure \
+		--no-package-manager \
+		--show-petsc-configure-options > source/petsc_configure_options.tmp
+	mv source/petsc_configure_options.tmp source/petsc_configure_options.txt
 
 apidoc: $(GENERATED_FILES) copy_demos
 	sphinx-apidoc -f -T -o source/ ../firedrake ../firedrake/cython/*.so

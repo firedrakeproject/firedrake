@@ -30,7 +30,7 @@ from tsfc import fem, ufl_utils, spectral
 from tsfc.driver import TSFCIntegralDataInfo
 from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.parameters import default_parameters
-from tsfc.finatinterface import create_element
+from finat.element_factory import create_element
 from finat.quadrature import make_quadrature
 from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, celldist_l1_c_expr
 from firedrake.pointquery_utils import to_reference_coords_newton_step as to_reference_coords_newton_step_body
@@ -45,12 +45,12 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
         parameters = _
 
     # Create FInAT element
-    element = tsfc.finatinterface.create_element(ufl_coordinate_element)
-
+    element = finat.element_factory.create_element(ufl_coordinate_element)
+    gdim, = ufl_coordinate_element.reference_value_shape
     cell = ufl_coordinate_element.cell
 
     code = {
-        "geometric_dimension": cell.geometric_dimension(),
+        "geometric_dimension": gdim,
         "topological_dimension": cell.topological_dimension(),
         "to_reference_coords_newton_step": to_reference_coords_newton_step_body(ufl_coordinate_element, parameters, x0_dtype=ScalarType, dX_dtype="double"),
         "init_X": init_X(element.cell, parameters),
@@ -143,6 +143,7 @@ def compile_element(expression, dual_space=None, parameters=None,
 
     config = dict(interface=builder,
                   ufl_cell=cell,
+                  integral_type="cell",
                   point_indices=(),
                   point_expr=point,
                   argument_multiindices=argument_multiindices,
@@ -176,11 +177,10 @@ def compile_element(expression, dual_space=None, parameters=None,
         return_variable = gem.Indexed(gem.Variable('R', finat_elem.index_shape), argument_multiindex)
         result = gem.Indexed(result, tensor_indices)
         if dual_space:
-            elem = create_element(dual_space.ufl_element())
-            if elem.value_shape:
-                var = gem.Indexed(gem.Variable("b", elem.value_shape),
-                                  tensor_indices)
-                b_arg = [lp.GlobalArg("b", dtype=ScalarType, shape=elem.value_shape)]
+            value_shape = dual_space.value_shape
+            if value_shape:
+                var = gem.Indexed(gem.Variable("b", value_shape), tensor_indices)
+                b_arg = [lp.GlobalArg("b", dtype=ScalarType, shape=value_shape)]
             else:
                 var = gem.Indexed(gem.Variable("b", (1, )), (0, ))
                 b_arg = [lp.GlobalArg("b", dtype=ScalarType, shape=(1,))]
@@ -219,7 +219,7 @@ def prolong_kernel(expression):
         assert hierarchy._meshes[int(idx)].cell_set._extruded
     V = expression.function_space()
     key = (("prolong",)
-           + expression.ufl_element().value_shape
+           + V.value_shape
            + entity_dofs_key(V.finat_element.complex.get_topology())
            + entity_dofs_key(V.finat_element.entity_dofs())
            + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
@@ -283,7 +283,7 @@ def prolong_kernel(expression):
                "evaluate": eval_code,
                "spacedim": element.cell.get_spatial_dimension(),
                "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
-               "Rdim": numpy.prod(element.value_shape),
+               "Rdim": V.value_size,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
@@ -301,7 +301,7 @@ def restrict_kernel(Vf, Vc):
     if Vf.extruded:
         assert Vc.extruded
     key = (("restrict",)
-           + Vf.ufl_element().value_shape
+           + Vf.value_shape
            + entity_dofs_key(Vf.finat_element.complex.get_topology())
            + entity_dofs_key(Vc.finat_element.complex.get_topology())
            + entity_dofs_key(Vf.finat_element.entity_dofs())
@@ -389,7 +389,7 @@ def inject_kernel(Vf, Vc):
     else:
         level_ratio = 1
     key = (("inject", level_ratio)
-           + Vf.ufl_element().value_shape
+           + Vf.value_shape
            + entity_dofs_key(Vc.finat_element.complex.get_topology())
            + entity_dofs_key(Vf.finat_element.complex.get_topology())
            + entity_dofs_key(Vc.finat_element.entity_dofs())
@@ -464,7 +464,7 @@ def inject_kernel(Vf, Vc):
             "celldist_l1_c_expr": celldist_l1_c_expr(Vc.finat_element.cell, X="Xref"),
             "tdim": Vc.mesh().topological_dimension(),
             "ncandidate": ncandidate,
-            "Rdim": numpy.prod(Vf_element.value_shape),
+            "Rdim": numpy.prod(Vf.value_shape),
             "Xf_cell_inc": coords_element.space_dimension(),
             "f_cell_inc": Vf_element.space_dimension()
         }
@@ -537,6 +537,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     integration_dim, entity_ids = lower_integral_type(Vfe.cell, "cell")
     macro_cfg = dict(interface=macro_builder,
                      ufl_cell=Vf.ufl_cell(),
+                     integral_type="cell",
                      integration_dim=integration_dim,
                      entity_ids=entity_ids,
                      index_cache=index_cache,
@@ -573,6 +574,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     coarse_cfg = dict(interface=coarse_builder,
                       ufl_cell=Vc.ufl_cell(),
+                      integral_type="cell",
                       integration_dim=integration_dim,
                       entity_ids=entity_ids,
                       index_cache=index_cache,
@@ -718,7 +720,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     kernel = lp.make_kernel(
         domains, instructions, kernel_data, name=kernel_name,
         target=tsfc.parameters.target, lang_version=(2018, 2))
-    kernel = lp.merge([kernel, *subkernels])
+    kernel = lp.merge([kernel, *subkernels]).with_entrypoints({kernel_name})
     return op2.Kernel(
         kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
         headers=Ainv.headers, events=Ainv.events)

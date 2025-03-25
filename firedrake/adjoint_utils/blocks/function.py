@@ -79,6 +79,7 @@ class FunctionAssignBlock(Block):
                 )
                 diff_expr_assembled = firedrake.Function(adj_input_func.function_space())
                 diff_expr_assembled.interpolate(ufl.conj(diff_expr))
+                diff_expr_assembled = diff_expr_assembled.riesz_representation(riesz_map="l2")
                 adj_output = firedrake.Function(
                     R, val=firedrake.assemble(ufl.Action(diff_expr_assembled, adj_input_func))
                 )
@@ -242,11 +243,13 @@ class FunctionMergeBlock(Block):
         else:
             return adj_inputs[0]
 
-    def evaluate_tlm(self):
+    def evaluate_tlm(self, markings=False):
         tlm_input = self.get_dependencies()[0].tlm_value
         if tlm_input is None:
             return
         output = self.get_outputs()[0]
+        if markings and not output.marked_in_path:
+            return
         fs = output.output.function_space()
         f = type(output.output)(fs)
         output.add_tlm_output(

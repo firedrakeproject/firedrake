@@ -15,6 +15,7 @@ from pathlib import Path
 from pyop2 import op2, mpi
 from pyop2.exceptions import DataTypeError, DataValueError
 
+from finat.ufl import MixedElement
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
 from firedrake import functionspaceimpl
@@ -83,7 +84,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
 
-    @utils.cached_property
+    @property
     def topological(self):
         r"""The underlying coordinateless function."""
         return self
@@ -116,20 +117,18 @@ class CoordinatelessFunction(ufl.Coefficient):
                      for i, (fs, dat) in
                      enumerate(zip(self.function_space(), self.dat)))
 
-    @PETSc.Log.EventDecorator()
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
-
     @utils.cached_property
     def _components(self):
-        if self.dof_dset.cdim == 1:
+        if self.function_space().rank == 0:
             return (self, )
         else:
-            return tuple(CoordinatelessFunction(self.function_space().sub(i), val=op2.DatView(self.dat, j),
-                                                name="view[%d](%s)" % (i, self.name()))
-                         for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
+            if self.dof_dset.cdim == 1:
+                return (CoordinatelessFunction(self.function_space().sub(0), val=self.dat,
+                                               name=f"view[0]({self.name()})"),)
+            else:
+                return tuple(CoordinatelessFunction(self.function_space().sub(i), val=op2.DatView(self.dat, j),
+                                                    name=f"view[{i}]({self.name()})")
+                             for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
@@ -143,9 +142,9 @@ class CoordinatelessFunction(ufl.Coefficient):
         rank-n :class:`~.FunctionSpace`, this returns a proxy object
         indexing the ith component of the space, suitable for use in
         boundary condition application."""
-        if len(self.function_space()) == 1:
-            return self._components[i]
-        return self.subfunctions[i]
+        mixed = type(self.function_space().ufl_element()) is MixedElement
+        data = self.subfunctions if mixed else self._components
+        return data[i]
 
     @property
     def cell_set(self):
@@ -319,19 +318,13 @@ class Function(ufl.Coefficient, FunctionMixin):
         return tuple(type(self)(V, val)
                      for (V, val) in zip(self.function_space(), self.topological.subfunctions))
 
-    @FunctionMixin._ad_annotate_subfunctions
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
-
     @utils.cached_property
     def _components(self):
-        if self.function_space().value_size == 1:
+        if self.function_space().rank == 0:
             return (self, )
         else:
             return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
-                         for i in range(self.function_space().value_size))
+                         for i in range(self.function_space().block_size))
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
@@ -345,9 +338,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         :func:`~.VectorFunctionSpace` or :func:`~.TensorFunctionSpace` this returns a proxy object
         indexing the ith component of the space, suitable for use in
         boundary condition application."""
-        if len(self.function_space()) == 1:
-            return self._components[i]
-        return self.subfunctions[i]
+        mixed = type(self.function_space().ufl_element()) is MixedElement
+        data = self.subfunctions if mixed else self._components
+        return data[i]
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_project
@@ -633,7 +626,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             raise NotImplementedError("Point evaluation not implemented for variable layers")
 
         # Validate geometric dimension
-        gdim = mesh.ufl_cell().geometric_dimension()
+        gdim = mesh.geometric_dimension()
         if arg.shape[-1] == gdim:
             pass
         elif len(arg.shape) == 1 and gdim == 1:
@@ -662,7 +655,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         value_shape = self.ufl_shape
 
         subfunctions = self.subfunctions
-        mixed = len(subfunctions) != 1
+        mixed = type(self.function_space().ufl_element()) is MixedElement
 
         # Local evaluation
         l_result = []
@@ -765,8 +758,8 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     libspatialindex_so = Path(rtree.core.rt._name).absolute()
     lsi_runpath = f"-Wl,-rpath,{libspatialindex_so.parent}"
     ldargs += [str(libspatialindex_so), lsi_runpath]
-    return compilation.load(
-        src, "c", c_name,
+    dll = compilation.load(
+        src, "c",
         cppargs=[
             f"-I{path.dirname(__file__)}",
             f"-I{sys.prefix}/include",
@@ -775,3 +768,4 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
         ldargs=ldargs,
         comm=function.comm
     )
+    return getattr(dll, c_name)

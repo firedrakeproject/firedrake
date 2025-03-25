@@ -39,23 +39,23 @@ cdef extern from "libsupermesh-c.h" nogil:
 #             compute out = R_BS^T @ M_SS @ R_AS with dense matrix triple product
 #             stuff out into relevant part of M_AB (given by outer(dofs_B, dofs_A))
 def assemble_mixed_mass_matrix(V_A, V_B, candidates,
-                               numpy.ndarray[PetscScalar, ndim=2, mode="c"] node_locations_A,
-                               numpy.ndarray[PetscScalar, ndim=2, mode="c"] node_locations_B,
-                               numpy.ndarray[PetscScalar, ndim=2, mode="c"] M_SS,
+                               numpy.ndarray node_locations_A,
+                               numpy.ndarray node_locations_B,
+                               numpy.ndarray M_SS,
                                lib, PETSc.Mat mat not None):
     cdef:
         numpy.ndarray[PetscInt, ndim=2, mode="c"] V_A_cell_node_map
         numpy.ndarray[PetscInt, ndim=2, mode="c"] V_B_cell_node_map
         numpy.ndarray[PetscInt, ndim=2, mode="c"] vertex_map_A, vertex_map_B
-        numpy.ndarray[PetscScalar, ndim=2, mode="c"] vertices_A, vertices_B
-        numpy.ndarray[PetscScalar, ndim=2, mode="c"] outmat
+        numpy.ndarray vertices_A, vertices_B
+        numpy.ndarray outmat
         PetscInt cell_A, cell_B, i, gdim, num_dof_A, num_dof_B
         PetscInt num_cell_B, num_cell_A, num_vertices
         PetscInt insert_mode = PETSc.InsertMode.ADD_VALUES
         const PetscInt *V_A_map
         const PetscInt *V_B_map
-        numpy.ndarray[PetscScalar, ndim=2, mode="c"] simplex_A, simplex_B
-        numpy.ndarray[PetscScalar, ndim=3, mode="c"] simplices_C
+        numpy.ndarray simplex_A, simplex_B
+        numpy.ndarray simplices_C
         compiled_call library_call = (<compiled_call *><uintptr_t>lib)[0]
 
     num_cell_A = V_A.mesh().cell_set.size
@@ -112,10 +112,10 @@ def intersection_finder(mesh_A, mesh_B):
     # Return the output
 
     cdef:
-        numpy.ndarray[long, ndim=2, mode="c"] vertex_map_A, vertex_map_B
-        numpy.ndarray[double, ndim=2, mode="c"] vertices_A, vertices_B
+        numpy.ndarray vertex_map_A, vertex_map_B
+        numpy.ndarray vertices_A, vertices_B
         long nindices
-        numpy.ndarray[long, ndim=1, mode="c"] indices, indptr
+        numpy.ndarray indices, indptr
         long nnodes_A, nnodes_B, ncells_A, ncells_B
         int dim_A, dim_B, loc_A, loc_B
 

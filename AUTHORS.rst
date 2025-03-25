@@ -90,6 +90,8 @@ Christopher Hawkes
 
 Miklós Homolya
 
+Joshua Hope-Collins...........<https://www.imperial.ac.uk/people/joshua.hope-collins13>
+
 Christian T. Jacobs
 
 Darko Janeković
@@ -169,6 +171,8 @@ Connor J. Ward................<https://www.imperial.ac.uk/people/c.ward20>
 Florian Wechsung..............<https://florianwechsung.github.io>
 
 Yian Zeng
+
+Umberto Zerbinati.............<https://www.uzerbinati.eu>
 
 Fangyi Zhou
 

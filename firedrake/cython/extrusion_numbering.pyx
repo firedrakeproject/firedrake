@@ -193,7 +193,7 @@ from mpi4py.libmpi cimport (MPI_Op_create, MPI_OP_NULL, MPI_Op_free,
                             MPI_User_function)
 from pyop2 import op2
 from firedrake.utils import IntType
-from tsfc.finatinterface import as_fiat_cell
+from finat.element_factory import as_fiat_cell
 
 cimport numpy
 cimport mpi4py.MPI as MPI

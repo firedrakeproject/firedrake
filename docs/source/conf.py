@@ -35,6 +35,7 @@ extensions = [
     'sphinxcontrib.bibtex',
     'sphinxcontrib.inkscapeconverter',
     'sphinx.ext.napoleon',
+    'sphinx_reredirects',
 ]
 
 mathjax_path = 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.min.js'
@@ -101,7 +102,7 @@ release = firedrake.__version__
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
-exclude_patterns = []
+exclude_patterns = ['old_pyop2']
 
 # The reST default role (used for this markup: `text`) to use for all documents.
 #default_role = None
@@ -414,4 +415,9 @@ bibtex_bibfiles = ['demos/demo_references.bib', '_static/bibliography.bib', '_st
 #  -- Options for sphinx.ext.extlinks ------------------------------------
 extlinks = {
     'demo': ('https://firedrakeproject.org/demos/%s', None)
+}
+
+#  -- Options for sphinx_reredirects ------------------------------------
+redirects = {
+    "download": "install.html",  # map download.html -> install.html
 }

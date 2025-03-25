@@ -19,7 +19,6 @@
 
       * `Firedrake on GitHub <https://github.com/firedrakeproject/firedrake/>`__
       * `TSFC on GitHub <https://github.com/firedrakeproject/tsfc/>`__
-      * `PyOP2 on GitHub <https://github.com/OP2/PyOP2>`__
       * `FIAT on GitHub <https://github.com/firedrakeproject/fiat>`__
       * `Firedrake version of UFL on GitHub <https://github.com/firedrakeproject/ufl>`__
 
@@ -28,7 +27,7 @@
 
    The first step is to download and install Firedrake and its
    dependencies. For full instructions, see :doc:`obtaining Firedrake
-   <download>`.
+   <install>`.
 
    .. include:: intro_tut.rst
 

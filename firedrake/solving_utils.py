@@ -1,9 +1,13 @@
 from itertools import chain
 
 import numpy
+import ufl
 
 from pyop2 import op2
-from firedrake import function, cofunction, dmhooks
+from firedrake import dmhooks
+from firedrake.function import Function
+from firedrake.cofunction import Cofunction
+from firedrake.matrix import MatrixBase
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS
 from firedrake.formmanipulation import ExtractSubBlock
@@ -12,8 +16,8 @@ from firedrake.logging import warning
 
 
 def _make_reasons(reasons):
-    return dict([(getattr(reasons, r), r)
-                 for r in dir(reasons) if not r.startswith('_')])
+    return {getattr(reasons, r): r
+            for r in dir(reasons) if not r.startswith('_')}
 
 
 KSPReasons = _make_reasons(PETSc.KSP.ConvergedReason())
@@ -151,6 +155,8 @@ class _SNESContext(object):
     :arg options_prefix: The options prefix of the SNES.
     :arg transfer_manager: Object that can transfer functions between
         levels, typically a :class:`~.TransferManager`
+    :arg pre_apply_bcs: If `False`, the problem is linearised
+        around the initial guess before imposing the boundary conditions.
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
@@ -163,7 +169,8 @@ class _SNESContext(object):
                  pre_jacobian_callback=None, pre_function_callback=None,
                  post_jacobian_callback=None, post_function_callback=None,
                  options_prefix=None,
-                 transfer_manager=None):
+                 transfer_manager=None,
+                 pre_apply_bcs=True):
         from firedrake.assemble import get_assembler
 
         if pmat_type is None:
@@ -171,6 +178,7 @@ class _SNESContext(object):
         self.mat_type = mat_type
         self.pmat_type = pmat_type
         self.options_prefix = options_prefix
+        self.pre_apply_bcs = pre_apply_bcs
 
         matfree = mat_type == 'matfree'
         pmatfree = pmat_type == 'matfree'
@@ -219,9 +227,21 @@ class _SNESContext(object):
         self.bcs_J = tuple(bc.extract_form('J') for bc in problem.bcs)
         self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in problem.bcs)
 
+        self._bc_residual = None
+        if not pre_apply_bcs and len(self.bcs_F) > 0:
+            # Delayed lifting of DirichletBCs
+            self._bc_residual = Function(self._x.function_space())
+            if problem.is_linear:
+                # Drop existing lifting term from the residual
+                assert isinstance(self.F, ufl.BaseForm)
+                self.F = ufl.replace(self.F, {self._x: ufl.zero(self._x.ufl_shape)})
+
+            self.F -= problem.compute_bc_lifting(self.J, self._bc_residual)
+
         self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
                                                 form_compiler_parameters=self.fcp,
-                                                zero_bc_nodes=True).assemble
+                                                zero_bc_nodes=pre_apply_bcs,
+                                                ).assemble
 
         self._jacobian_assembled = False
         self._splits = {}
@@ -299,7 +319,7 @@ class _SNESContext(object):
 
     @PETSc.Log.EventDecorator()
     def split(self, fields):
-        from firedrake import replace, as_vector, split
+        from firedrake import replace, as_vector, split, zero
         from firedrake import NonlinearVariationalProblem as NLVP
         from firedrake.bcs import DirichletBC, EquationBC
         fields = tuple(tuple(f) for f in fields)
@@ -325,27 +345,24 @@ class _SNESContext(object):
             pieces = [us[i].dat for i in field]
             if len(pieces) == 1:
                 val, = pieces
-                subu = function.Function(V, val=val)
+                subu = Function(V, val=val)
                 subsplit = (subu, )
             else:
                 val = op2.MixedDat(pieces)
-                subu = function.Function(V, val=val)
+                subu = Function(V, val=val)
                 # Split it apart to shove in the form.
                 subsplit = split(subu)
-            # Permutation from field indexing to indexing of pieces
-            field_renumbering = dict([f, i] for i, f in enumerate(field))
             vec = []
             for i, u in enumerate(us):
                 if i in field:
                     # If this is a field we're keeping, get it from
                     # the new function. Otherwise just point to the
                     # old data.
-                    u = subsplit[field_renumbering[i]]
+                    u = subsplit[field.index(i)]
                 if u.ufl_shape == ():
                     vec.append(u)
                 else:
-                    for idx in numpy.ndindex(u.ufl_shape):
-                        vec.append(u[idx])
+                    vec.extend(u[idx] for idx in numpy.ndindex(u.ufl_shape))
 
             # So now we have a new representation for the solution
             # vector in the old problem. For the fields we're going
@@ -357,8 +374,16 @@ class _SNESContext(object):
             # solving for, and some spaces that have just become
             # coefficients in the new form.
             u = as_vector(vec)
-            F = replace(F, {problem.u_restrict: u})
             J = replace(J, {problem.u_restrict: u})
+            if problem.is_linear and isinstance(J, MatrixBase):
+                # The BC lifting term is action(MatrixBase, u).
+                # We cannot replace u with the split solution, as action expects a Function.
+                # We drop the existing lifting term from the residual
+                # and compute a fully decoupled lifting term with the split J.
+                F = replace(F, {problem.u_restrict: zero(problem.u_restrict.ufl_shape)})
+                F += problem.compute_bc_lifting(J, subu)
+            else:
+                F = replace(F, {problem.u_restrict: u})
             if problem.Jp is not None:
                 Jp = splitter.split(problem.Jp, argument_indices=(field, field))
                 Jp = replace(Jp, {problem.u_restrict: u})
@@ -369,15 +394,16 @@ class _SNESContext(object):
                 if isinstance(bc, DirichletBC):
                     bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain)
                 elif isinstance(bc, EquationBC):
-                    bc_temp = bc.reconstruct(field, V, subu, u)
+                    bc_temp = bc.reconstruct(V, subu, u, field, problem.is_linear)
                 if bc_temp is not None:
                     bcs.append(bc_temp)
-            new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp,
+            new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp, is_linear=problem.is_linear,
                                form_compiler_parameters=problem.form_compiler_parameters)
             new_problem._constant_jacobian = problem._constant_jacobian
             splits.append(type(self)(new_problem, mat_type=self.mat_type, pmat_type=self.pmat_type,
                                      appctx=self.appctx,
-                                     transfer_manager=self.transfer_manager))
+                                     transfer_manager=self.transfer_manager,
+                                     pre_apply_bcs=self.pre_apply_bcs))
         return self._splits.setdefault(tuple(fields), splits)
 
     @staticmethod
@@ -398,7 +424,12 @@ class _SNESContext(object):
         if ctx._pre_function_callback is not None:
             ctx._pre_function_callback(X)
 
-        ctx._assemble_residual(tensor=ctx._F)
+        if not ctx.pre_apply_bcs:
+            # Compute DirichletBC residual
+            for bc in ctx.bcs_F:
+                bc.apply(ctx._bc_residual, u=ctx._x)
+
+        ctx._assemble_residual(tensor=ctx._F, current_state=ctx._x)
 
         if ctx._post_function_callback is not None:
             with ctx._F.dat.vec as F_:
@@ -458,7 +489,6 @@ class _SNESContext(object):
         :arg J: the Jacobian (a Mat)
         :arg P: the preconditioner matrix (a Mat)
         """
-        from firedrake.bcs import DirichletBC
         dm = ksp.getDM()
         ctx = dmhooks.get_appctx(dm)
         problem = ctx._problem
@@ -473,9 +503,8 @@ class _SNESContext(object):
         if fine is not None:
             manager = dmhooks.get_transfer_manager(fine._x.function_space().dm)
             manager.inject(fine._x, ctx._x)
-
-            for bc in chain(*ctx._problem.bcs):
-                if isinstance(bc, DirichletBC):
+            if ctx.pre_apply_bcs:
+                for bc in problem.dirichlet_bcs():
                     bc.apply(ctx._x)
 
         ctx._assemble_jac(ctx._jac)
@@ -521,4 +550,4 @@ class _SNESContext(object):
 
     @cached_property
     def _F(self):
-        return cofunction.Cofunction(self.F.arguments()[0].function_space().dual())
+        return Cofunction(self.F.arguments()[0].function_space().dual())

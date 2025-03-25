@@ -21,10 +21,11 @@ from pyadjoint.tape import Tape, set_working_tape, get_working_tape, \
                             pause_annotation, continue_annotation, \
                             stop_annotating, annotate_tape  # noqa F401
 from pyadjoint.reduced_functional import ReducedFunctional  # noqa F401
+from pyadjoint.checkpointing import disk_checkpointing_callback  # noqa F401
 from firedrake.adjoint_utils.checkpointing import \
     enable_disk_checkpointing, pause_disk_checkpointing, \
     continue_disk_checkpointing, stop_disk_checkpointing, \
-    checkpointable_mesh   # noqa F401
+    checkpointable_mesh  # noqa F401
 from firedrake.adjoint_utils import get_solve_blocks  # noqa F401
 
 from pyadjoint.verification import taylor_test, taylor_to_dict  # noqa F401

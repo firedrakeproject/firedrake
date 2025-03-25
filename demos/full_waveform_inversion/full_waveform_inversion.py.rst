@@ -99,19 +99,29 @@ The source number is defined with the ``Ensemble.ensemble_comm`` rank::
     source_number = my_ensemble.ensemble_comm.rank
 
 In this example, we consider a two-dimensional square domain with a side length of 1.0 km. The mesh is
-built over the ``my_ensemble.comm`` (spatial) communicator::
-    
-    Lx, Lz = 1.0, 1.0
-    mesh = UnitSquareMesh(80, 80, comm=my_ensemble.comm)
+built over the ``my_ensemble.comm`` (spatial) communicator.
 
-The basic input for the FWI problem are defined as follows::
+::
+
+    import os
+    if os.getenv("FIREDRAKE_CI") == "1": 
+        # Setup for a faster test execution.
+        dt = 0.03  # time step in seconds
+        final_time = 0.6  # final time in seconds
+        nx, ny = 15, 15
+    else:
+        dt = 0.002  # time step in seconds
+        final_time = 1.0  # final time in seconds
+        nx, ny = 80, 80
+
+    mesh = UnitSquareMesh(nx, ny, comm=my_ensemble.comm)
+
+The frequency of the Ricker wavelet, the source and receiver locations are defined as follows::
 
     import numpy as np
+    frequency_peak = 7.0  # The dominant frequency of the Ricker wavelet in Hz.
     source_locations = np.linspace((0.3, 0.1), (0.7, 0.1), num_sources)
     receiver_locations = np.linspace((0.2, 0.9), (0.8, 0.9), 20)
-    dt = 0.002  # time step in seconds
-    final_time = 1.0  # final time in seconds
-    frequency_peak = 7.0  # The dominant frequency of the Ricker wavelet in Hz.
 
 Sources and receivers locations are illustrated in the following figure:
 
@@ -251,6 +261,7 @@ To have the step 4, we need first to tape the forward problem. That is done by c
 
     from firedrake.adjoint import *
     continue_annotation()
+    get_working_tape().progress_bar = ProgressBar
 
 **Steps 2-3**: Solve the wave equation and compute the functional::
 

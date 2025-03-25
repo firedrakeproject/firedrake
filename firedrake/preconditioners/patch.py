@@ -20,13 +20,14 @@ import weakref
 
 import ctypes
 from pyop2 import op2
-from pyop2.mpi import COMM_SELF
 import pyop2.types
 from pyop2.compilation import load
-from pyop2.utils import get_petsc_dir
 from pyop2.codegen.builder import Pack, MatPack, DatPack
 from pyop2.codegen.representation import Comparison, Literal
 from pyop2.codegen.rep2loopy import register_petsc_function
+from pyop2.global_kernel import compile_global_kernel
+from pyop2.mpi import COMM_SELF
+from pyop2.utils import get_petsc_dir
 
 __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
 
@@ -126,6 +127,9 @@ class LocalDat(pyop2.types.AbstractDat):
     def __call__(self, access, map_=None):
         return LocalDatLegacyArg(self, map_, access)
 
+    def increment_dat_version(self):
+        pass
+
 
 register_petsc_function("MatSetValues")
 
@@ -222,7 +226,7 @@ def matrix_funptr(form, state):
 
         wrapper_knl_args = tuple(a.global_kernel_arg for a in args)
         mod = op2.GlobalKernel(kinfo.kernel, wrapper_knl_args, subset=True)
-        kernels.append(CompiledKernel(mod.compile(iterset.comm), kinfo))
+        kernels.append(CompiledKernel(compile_global_kernel(mod, iterset.comm), kinfo))
     return cell_kernels, int_facet_kernels
 
 
@@ -316,7 +320,7 @@ def residual_funptr(form, state):
 
         wrapper_knl_args = tuple(a.global_kernel_arg for a in args)
         mod = op2.GlobalKernel(kinfo.kernel, wrapper_knl_args, subset=True)
-        kernels.append(CompiledKernel(mod.compile(iterset.comm), kinfo))
+        kernels.append(CompiledKernel(compile_global_kernel(mod, iterset.comm), kinfo))
     return cell_kernels, int_facet_kernels
 
 
@@ -505,12 +509,13 @@ def load_c_function(code, name, comm):
     ldargs = (["-L%s/lib" % d for d in get_petsc_dir()]
               + ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()]
               + ["-lpetsc", "-lm"])
-    return load(code, "c", name,
-                argtypes=[ctypes.c_voidp, ctypes.c_int, ctypes.c_voidp,
-                          ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int,
-                          ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp],
-                restype=ctypes.c_int, cppargs=cppargs, ldargs=ldargs,
-                comm=comm)
+    dll = load(code, "c", cppargs=cppargs, ldargs=ldargs, comm=comm)
+    fn = getattr(dll, name)
+    fn.argtypes = [ctypes.c_voidp, ctypes.c_int, ctypes.c_voidp,
+                   ctypes.c_voidp, ctypes.c_voidp, ctypes.c_int,
+                   ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp]
+    fn.restype = ctypes.c_int
+    return fn
 
 
 def make_c_arguments(form, kernel, state, get_map, require_state=False,
@@ -580,23 +585,23 @@ def bcdofs(bc, ghost=True):
         if isinstance(Z.ufl_element(), VectorElement):
             offset += idx
             assert i == len(indices)-1  # assert we're at the end of the chain
-            assert Z.sub(idx).value_size == 1
+            assert Z.sub(idx).block_size == 1
         elif isinstance(Z.ufl_element(), MixedElement):
             if ghost:
                 offset += sum(Z.sub(j).dof_count for j in range(idx))
             else:
-                offset += sum(Z.sub(j).dof_dset.size * Z.sub(j).value_size for j in range(idx))
+                offset += sum(Z.sub(j).dof_dset.size * Z.sub(j).block_size for j in range(idx))
         else:
             raise NotImplementedError("How are you taking a .sub?")
 
         Z = Z.sub(idx)
 
     if Z.parent is not None and isinstance(Z.parent.ufl_element(), VectorElement):
-        bs = Z.parent.value_size
+        bs = Z.parent.block_size
         start = 0
         stop = 1
     else:
-        bs = Z.value_size
+        bs = Z.block_size
         start = 0
         stop = bs
     nodes = bc.nodes
@@ -868,7 +873,7 @@ class PatchBase(PCSNESBase):
         offsets = numpy.append([0], numpy.cumsum([W.dof_count
                                                   for W in V])).astype(PETSc.IntType)
         patch.setPatchDiscretisationInfo([W.dm for W in V],
-                                         numpy.array([W.value_size for
+                                         numpy.array([W.block_size for
                                                       W in V], dtype=PETSc.IntType),
                                          [W.cell_node_list for W in V],
                                          offsets,

@@ -7,7 +7,8 @@ from pyop2.datatypes import RealType     # noqa: F401
 from pyop2.datatypes import IntType      # noqa: F401
 from pyop2.datatypes import as_ctypes    # noqa: F401
 from pyop2.mpi import MPI
-from firedrake_configuration import get_config
+from firedrake.petsc import get_petsc_variables
+
 
 # MPI key value for storing a per communicator universal identifier
 FIREDRAKE_UID = MPI.Comm.Create_keyval()
@@ -16,7 +17,7 @@ RealType_c = as_cstr(RealType)
 ScalarType_c = as_cstr(ScalarType)
 IntType_c = as_cstr(IntType)
 
-complex_mode = get_config()["options"].get("complex", False)
+complex_mode = (get_petsc_variables()["PETSC_SCALAR"].lower() == "complex")
 
 # Remove this (and update test suite) when Slate supports complex mode.
 SLATE_SUPPORTS_COMPLEX = False

@@ -77,17 +77,20 @@ def _compile_expression_hashkey(slate_expr, compiler_parameters=None):
         params["slate_compiler"].update(compiler_parameters.pop("slate_compiler"))
     if compiler_parameters:
         params["form_compiler"].update(compiler_parameters)
+    # The getattr here is to defer validation to the `compile_expression` call
+    # as the test suite checks the correct exceptions are raised on invalid input.
     return getattr(slate_expr, "expression_hash", "ERROR") + str(sorted(params.items()))
 
 
 def _compile_expression_comm(*args, **kwargs):
     # args[0] is a slate_expr
-    return args[0].ufl_domains()[0].comm
+    domain, = args[0].ufl_domains()
+    return domain.comm
 
 
 @memory_and_disk_cache(
     hashkey=_compile_expression_hashkey,
-    comm_fetcher=_compile_expression_comm,
+    comm_getter=_compile_expression_comm,
     cachedir=tsfc_interface._cachedir
 )
 @PETSc.Log.EventDecorator()
@@ -236,4 +239,4 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type):
 
     # Part B: impero_c to loopy
     output_arg = OutputKernelArg(output_loopy_arg)
-    return generate_loopy(impero_c, args, scalar_type, "slate_loopy", [], log=PETSc.Log.isActive()), output_arg
+    return generate_loopy(impero_c, args, scalar_type, "slate_loopy", []), output_arg

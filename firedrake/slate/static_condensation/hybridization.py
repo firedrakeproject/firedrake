@@ -1,7 +1,5 @@
 import functools
-import numbers
 
-import numpy as np
 import ufl
 import finat.ufl
 
@@ -11,7 +9,6 @@ from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.parloops import par_loop, READ, INC
 from firedrake.slate.slate import Tensor, AssembledVector
-from pyop2.utils import as_tuple
 from firedrake.slate.static_condensation.la_utils import SchurComplementBuilder
 from firedrake.ufl_expr import adjoint
 
@@ -39,7 +36,7 @@ class HybridizationPC(SCBase):
 
         A KSP is created for the Lagrange multiplier system.
         """
-        from firedrake import (FunctionSpace, Cofunction, Function, Constant,
+        from firedrake import (FunctionSpace, Cofunction, Function,
                                TrialFunction, TrialFunctions, TestFunction,
                                DirichletBC)
         from firedrake.assemble import get_assembler
@@ -61,7 +58,7 @@ class HybridizationPC(SCBase):
         if len(V) != 2:
             raise ValueError("Expecting two function spaces.")
 
-        if all(Vi.ufl_element().value_shape for Vi in V):
+        if all(Vi.value_shape for Vi in V):
             raise ValueError("Expecting an H(div) x L2 pair of spaces.")
 
         # Automagically determine which spaces are vector and scalar
@@ -101,7 +98,7 @@ class HybridizationPC(SCBase):
         self.unbroken_residual = Function(V)
 
         shapes = (V[self.vidx].finat_element.space_dimension(),
-                  np.prod(V[self.vidx].shape))
+                  V[self.vidx].block_size)
         domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
         instructions = """
         for i, j
@@ -153,11 +150,7 @@ class HybridizationPC(SCBase):
                 if bc.function_space().index != self.vidx:
                     raise NotImplementedError("Dirichlet bc set on unsupported space.")
                 # append the set of sub domains
-                subdom = bc.sub_domain
-                if isinstance(subdom, str):
-                    neumann_subdomains |= set([subdom])
-                else:
-                    neumann_subdomains |= set(as_tuple(subdom, numbers.Integral))
+                neumann_subdomains |= set(bc.sub_domain)
 
             # separate out the top and bottom bcs
             extruded_neumann_subdomains = neumann_subdomains & {"top", "bottom"}
@@ -184,7 +177,7 @@ class HybridizationPC(SCBase):
             for measure in measures:
                 Kform += integrand*measure
 
-            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), subdomain) for subdomain in trace_subdomains]
+            trace_bcs = [DirichletBC(TraceSpace, 0, subdomain) for subdomain in trace_subdomains]
 
         else:
             # No bcs were provided, we assume weak Dirichlet conditions.
@@ -194,7 +187,7 @@ class HybridizationPC(SCBase):
             trace_subdomains = ["on_boundary"]
             if mesh.cell_set._extruded:
                 trace_subdomains.extend(["bottom", "top"])
-            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), subdomain) for subdomain in trace_subdomains]
+            trace_bcs = [DirichletBC(TraceSpace, 0, subdomain) for subdomain in trace_subdomains]
 
         # Make a SLATE tensor from Kform
         K = Tensor(Kform)

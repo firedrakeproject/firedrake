@@ -2,8 +2,9 @@ import numpy
 import ufl
 from ufl import replace
 from ufl.formatting.ufl2unicode import ufl2unicode
+from enum import Enum
 
-from pyadjoint import Block, stop_annotating
+from pyadjoint import Block, stop_annotating, get_working_tape
 from pyadjoint.enlisting import Enlist
 import firedrake
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
@@ -22,6 +23,12 @@ def extract_subfunction(u, V):
         return extract_subfunction(u, V.parent).sub(V.component)
     else:
         return u
+
+
+class Solver(Enum):
+    """Enum for solver types."""
+    FORWARD = 0
+    ADJOINT = 1
 
 
 class GenericSolveBlock(Block):
@@ -190,14 +197,9 @@ class GenericSolveBlock(Block):
 
     def _assemble_and_solve_adj_eq(self, dFdu_adj_form, dJdu, compute_bdy):
         dJdu_copy = dJdu.copy()
-        kwargs = self.assemble_kwargs.copy()
-        # Homogenize and apply boundary conditions on adj_dFdu and dJdu.
+        # Homogenize and apply boundary conditions on adj_dFdu.
         bcs = self._homogenize_bcs()
-        kwargs["bcs"] = bcs
-        dFdu = self._assemble_dFdu_adj(dFdu_adj_form, **kwargs)
-
-        for bc in bcs:
-            bc.apply(dJdu)
+        dFdu = firedrake.assemble(dFdu_adj_form, bcs=bcs, **self.assemble_kwargs)
 
         adj_sol = firedrake.Function(self.function_space)
         firedrake.solve(
@@ -206,14 +208,14 @@ class GenericSolveBlock(Block):
 
         adj_sol_bdy = None
         if compute_bdy:
-            adj_sol_bdy = firedrake.Function(
-                self.function_space.dual(),
-                dJdu_copy.dat - firedrake.assemble(
-                    firedrake.action(dFdu_adj_form, adj_sol)
-                ).dat
-            )
+            adj_sol_bdy = self._compute_adj_bdy(
+                adj_sol, adj_sol_bdy, dFdu_adj_form, dJdu_copy)
 
         return adj_sol, adj_sol_bdy
+
+    def _compute_adj_bdy(self, adj_sol, adj_sol_bdy, dFdu_adj_form, dJdu):
+        adj_sol_bdy = firedrake.assemble(dJdu - firedrake.action(dFdu_adj_form, adj_sol))
+        return adj_sol_bdy.riesz_representation("l2")
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
@@ -255,8 +257,11 @@ class GenericSolveBlock(Block):
             return dFdm
 
         dFdm = -firedrake.derivative(F_form, c_rep, trial_function)
-        dFdm = firedrake.adjoint(dFdm)
-        dFdm = dFdm * adj_sol
+        if isinstance(dFdm, ufl.Form):
+            dFdm = firedrake.adjoint(dFdm)
+            dFdm = firedrake.action(dFdm, adj_sol)
+        else:
+            dFdm = dFdm(adj_sol)
         dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
         return dFdm
 
@@ -518,18 +523,11 @@ class GenericSolveBlock(Block):
         return func
 
     def _assembled_solve(self, lhs, rhs, func, bcs, **kwargs):
-        rhs_func = rhs.riesz_representation(riesz_map="l2")
-        for bc in bcs:
-            bc.apply(rhs_func)
-        rhs.assign(rhs_func.riesz_representation(riesz_map="l2"))
         firedrake.solve(lhs, func, rhs, **kwargs)
         return func
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        lhs = prepared[0]
-        rhs = prepared[1]
-        func = prepared[2]
-        bcs = prepared[3]
+        lhs, rhs, func, bcs = prepared
         result = self._forward_solve(lhs, rhs, func, bcs)
         if isinstance(block_variable.checkpoint, firedrake.Function):
             result = block_variable.checkpoint.assign(result)
@@ -604,12 +602,11 @@ class SolveVarFormBlock(GenericSolveBlock):
 
 
 class NonlinearVariationalSolveBlock(GenericSolveBlock):
-    def __init__(self, equation, func, bcs, adj_F, adj_cache, problem_J,
+    def __init__(self, equation, func, bcs, adj_cache, problem_J,
                  solver_params, solver_kwargs, **kwargs):
         lhs = equation.lhs
         rhs = equation.rhs
 
-        self.adj_F = adj_F
         self._adj_cache = adj_cache
         self._dFdm_cache = adj_cache.setdefault("dFdm_cache", {})
         self.problem_J = problem_J
@@ -626,15 +623,61 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         super()._init_solver_parameters(args, kwargs)
         solve_init_params(self, args, kwargs, varform=True)
 
+    def recompute_component(self, inputs, block_variable, idx, prepared):
+        tape = get_working_tape()
+        if self._ad_solvers["recompute_count"] == tape.recompute_count - 1:
+            # Update how many times the block has been recomputed.
+            self._ad_solvers["recompute_count"] = tape.recompute_count
+            if self._ad_solvers["forward_nlvs"]._problem._constant_jacobian:
+                self._ad_solvers["forward_nlvs"].invalidate_jacobian()
+                self._ad_solvers["update_adjoint"] = True
+        return super().recompute_component(inputs, block_variable, idx, prepared)
+
     def _forward_solve(self, lhs, rhs, func, bcs, **kwargs):
-        self._ad_nlvs_replace_forms()
-        self._ad_nlvs.parameters.update(self.solver_params)
-        self._ad_nlvs.solve()
-        func.assign(self._ad_nlvs._problem.u)
+        self._ad_solver_replace_forms()
+        self._ad_solvers["forward_nlvs"].parameters.update(self.solver_params)
+        self._ad_solvers["forward_nlvs"].solve()
+        func.assign(self._ad_solvers["forward_nlvs"]._problem.u)
         return func
 
-    def _ad_assign_map(self, form):
-        count_map = self._ad_nlvs._problem._ad_count_map
+    def _adjoint_solve(self, dJdu, compute_bdy):
+        dJdu_copy = dJdu.copy()
+        # Homogenize and apply boundary conditions on adj_dFdu and dJdu.
+        for bc in self.bcs:
+            bc.zero(dJdu)
+
+        if (
+            self._ad_solvers["forward_nlvs"]._problem._constant_jacobian
+            and self._ad_solvers["update_adjoint"]
+        ):
+            # Update left hand side of the adjoint equation.
+            self._ad_solver_replace_forms(Solver.ADJOINT)
+            self._ad_solvers["adjoint_lvs"].invalidate_jacobian()
+            self._ad_solvers["update_adjoint"] = False
+        elif not self._ad_solvers["forward_nlvs"]._problem._constant_jacobian:
+            # Update left hand side of the adjoint equation.
+            self._ad_solver_replace_forms(Solver.ADJOINT)
+
+        # Update the right hand side of the adjoint equation.
+        # problem.F._component[1] is the right hand side of the adjoint.
+        self._ad_solvers["adjoint_lvs"]._problem.F._components[1].assign(dJdu)
+
+        # Solve the adjoint linear variational solver.
+        self._ad_solvers["adjoint_lvs"].solve()
+        u_sol = self._ad_solvers["adjoint_lvs"]._problem.u
+
+        adj_sol_bdy = None
+        if compute_bdy:
+            jac_adj = self._ad_solvers["adjoint_lvs"]._problem.J
+            adj_sol_bdy = self._compute_adj_bdy(
+                u_sol, adj_sol_bdy, jac_adj, dJdu_copy)
+        return u_sol, adj_sol_bdy
+
+    def _ad_assign_map(self, form, solver):
+        if solver == Solver.FORWARD:
+            count_map = self._ad_solvers["forward_nlvs"]._problem._ad_count_map
+        else:
+            count_map = self._ad_solvers["adjoint_lvs"]._problem._ad_count_map
         assign_map = {}
         form_ad_count_map = dict((count_map[coeff], coeff)
                                  for coeff in form.coefficients())
@@ -647,46 +690,37 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                 if coeff_count in form_ad_count_map:
                     assign_map[form_ad_count_map[coeff_count]] = \
                         block_variable.saved_output
+
+        if (
+            solver == Solver.ADJOINT
+            and not self._ad_solvers["forward_nlvs"]._problem._constant_jacobian
+        ):
+            block_variable = self.get_outputs()[0]
+            coeff_count = block_variable.output.count()
+            if coeff_count in form_ad_count_map:
+                assign_map[form_ad_count_map[coeff_count]] = \
+                    block_variable.saved_output
         return assign_map
 
-    def _ad_assign_coefficients(self, form):
-        assign_map = self._ad_assign_map(form)
+    def _ad_assign_coefficients(self, form, solver):
+        assign_map = self._ad_assign_map(form, solver)
         for coeff, value in assign_map.items():
             coeff.assign(value)
 
-    def _ad_nlvs_replace_forms(self):
-        problem = self._ad_nlvs._problem
-        self._ad_assign_coefficients(problem.F)
-        self._ad_assign_coefficients(problem.J)
-
-    def _assemble_dFdu_adj(self, dFdu_adj_form, **kwargs):
-        if "dFdu_adj" in self._adj_cache:
-            dFdu = self._adj_cache["dFdu_adj"]
+    def _ad_solver_replace_forms(self, solver=Solver.FORWARD):
+        if solver == Solver.FORWARD:
+            problem = self._ad_solvers["forward_nlvs"]._problem
+            self._ad_assign_coefficients(problem.F, solver)
+            self._ad_assign_coefficients(problem.J, solver)
         else:
-            dFdu = super()._assemble_dFdu_adj(dFdu_adj_form, **kwargs)
-            if self._ad_nlvs._problem._constant_jacobian:
-                self._adj_cache["dFdu_adj"] = dFdu
-        return dFdu
+            self._ad_assign_coefficients(
+                self._ad_solvers["adjoint_lvs"]._problem.J, solver)
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
-        dJdu = adj_inputs[0]
-
-        F_form = self._create_F_form()
-
-        dFdu_form = self.adj_F
-        dJdu = dJdu.copy()
-
-        # Replace the form coefficients with checkpointed values.
-        replace_map = self._replace_map(dFdu_form)
-        replace_map[self.func] = self.get_outputs()[0].saved_output
-        dFdu_form = replace(dFdu_form, replace_map)
-
         compute_bdy = self._should_compute_boundary_adjoint(
             relevant_dependencies
         )
-        adj_sol, adj_sol_bdy = self._assemble_and_solve_adj_eq(
-            dFdu_form, dJdu, compute_bdy
-        )
+        adj_sol, adj_sol_bdy = self._adjoint_solve(adj_inputs[0], compute_bdy)
         self.adj_state = adj_sol
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
@@ -694,8 +728,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             self.adj_bdy_cb(adj_sol_bdy)
 
         r = {}
-        r["form"] = F_form
-        r["adj_sol"] = adj_sol
+        r["form"] = self._create_F_form()
+        r["adj_sol"] = self.adj_state
         r["adj_sol_bdy"] = adj_sol_bdy
         return r
 
@@ -830,7 +864,7 @@ class SupermeshProjectBlock(Block):
             self.add_dependency(bc, no_duplicates=True)
 
     def apply_mixedmass(self, a):
-        b = firedrake.Function(self.target_space)
+        b = firedrake.Function(self.target_space.dual())
         with a.dat.vec_ro as vsrc, b.dat.vec_wo as vrhs:
             self.mixed_mass.mult(vsrc, vrhs)
         return b

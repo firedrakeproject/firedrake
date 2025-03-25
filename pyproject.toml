@@ -1,0 +1,154 @@
+[project]
+name = "firedrake"
+version = "0.14_dev"
+description = "An automated system for the portable solution of partial differential equations using the finite element method"
+readme = "README.rst"
+license = {file = "LICENSE"}
+maintainers = [
+  {name = "Pablo D. Brubeck"},
+  {name = "Daiane I. Dolci"},
+  {name = "David A. Ham", email = "david.ham@imperial.ac.uk"},
+  {name = "Josh Hope-Collins"},
+  {name = "Koki Sagiyama"},
+  {name = "Connor J. Ward", email = "c.ward20@imperial.ac.uk"},
+]
+requires-python = ">=3.10"
+dependencies = [
+  "cachetools",
+  "decorator<=4.4.2",
+  "mpi4py>3; python_version >= '3.13'",
+  "mpi4py; python_version < '3.13'",
+  "h5py>3.12.1",
+  "libsupermesh",
+  # NOTE: If changing the PETSc/SLEPc version then firedrake-configure also needs
+  # changing (as well as other references to petsc4py and slepc4py here)
+  "petsc4py==3.22.2",
+  "numpy",
+  "packaging",
+  "pkgconfig",
+  "progress",
+  "pycparser",
+  "pytools[siphash]",
+  "requests",
+  "rtree>=1.2",
+  "scipy",
+  "sympy",
+  "fenics-ufl @ git+https://github.com/firedrakeproject/ufl.git",
+  "fenics-fiat @ git+https://github.com/firedrakeproject/fiat.git",
+  "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint.git",
+  "loopy @ git+https://github.com/firedrakeproject/loopy.git@main",
+]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: Unix",
+]
+
+[project.urls]
+Homepage = "https://firedrakeproject.org"
+Repository = "https://github.com/firedrakeproject/firedrake"
+Issues = "https://github.com/firedrakeproject/firedrake/issues/new/choose"
+
+[project.scripts]
+firedrake-check = "firedrake_check:main"
+firedrake-clean = "firedrake.scripts.firedrake_clean:main"
+firedrake-preprocess-bibtex = "firedrake.scripts.firedrake_preprocess_bibtex:main"
+firedrake-status = "firedrake.scripts.firedrake_status:main"
+pyop2-clean = "pyop2.compilation:clear_compiler_disk_cache"
+spydump = "pyop2.scripts.spydump:main"
+
+
+[project.optional-dependencies]
+# Dependencies needed to run firedrake-check
+test = [
+  "mpi-pytest",
+  "pytest",
+]
+# Dependencies needed to run the full test suite
+ci = [
+  "ipympl",  # needed for notebook testing
+  "jax",
+  "matplotlib",
+  "mpi-pytest",
+  "nbval",
+  "ngsPETSc",
+  "pylit",
+  "pytest",
+  "pytest-split",  # needed for firedrake-run-split-tests
+  "pytest-timeout",
+  "pytest-xdist",
+  "slepc4py==3.22.2",
+  "torch",  # requires passing '--extra-index-url' to work
+  "vtk",
+]
+docker = [  # Used in firedrake-vanilla container
+  "ipympl",  # needed for notebook testing
+  "matplotlib",
+  "mpi-pytest",
+  "nbval",
+  "pylit",
+  "pytest",
+  "pytest-split",  # needed for firedrake-run-split-tests
+  "pytest-timeout",
+  "pytest-xdist",
+  "slepc4py==3.22.2",
+]
+# Dependencies needed to build the docs
+docs = [
+  "bibtexparser",
+  "matplotlib",  # needed to resolve API
+  "numpydoc",
+  "pylit",
+  "sphinx<8.2.0",  # https://github.com/firedrakeproject/firedrake/issues/4059
+  "sphinx-autobuild",
+  "sphinx-reredirects",
+  "sphinxcontrib-bibtex",
+  "sphinxcontrib-jquery",
+  "sphinxcontrib-svg2pdfconverter",
+  "sphinxcontrib-youtube",
+  "vtk",  # needed to resolve API
+]
+# Developer dependencies. In particular the build dependencies that are needed to run 'make'.
+dev = [
+  "Cython",
+  "mpi-pytest",
+  "pybind11",
+  "pytest",
+  "setuptools",
+]
+
+[build-system]
+requires = [
+  "Cython>=3.0",
+  "libsupermesh",
+  "mpi4py>3; python_version >= '3.13'",
+  "mpi4py; python_version < '3.13'",
+  "numpy",
+  "pkgconfig",
+  "pybind11",
+  "setuptools>61.2",
+  "petsc4py==3.22.2",
+  "rtree>=1.2",
+]
+build-backend = "setuptools.build_meta"
+
+# TODO: Convert firedrake-zenodo to a proper entrypoint script.
+[tool.setuptools]
+script-files = [
+  "firedrake/scripts/firedrake-zenodo",
+  "scripts/firedrake-run-split-tests",
+]
+
+[tool.setuptools.package-data]
+# Unless specified these files will not be installed along with the
+# rest of the package
+firedrake = ["evaluate.h", "locate.c", "icons/*.png"]
+firedrake_check = ["Makefile", "tests/firedrake/conftest.py", "tests/*/*/*.py"]
+pyop2 = ["*.h", "*.pxd", "*.pyx", "codegen/c/*.c"]

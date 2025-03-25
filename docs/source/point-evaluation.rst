@@ -128,7 +128,7 @@ evaluation of a function :math:`f` defined in a function space
 :math:`V` on the parent mesh by interpolating into the P0DG space on the
 :func:`~.VertexOnlyMesh`. For example:
 
-.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+.. literalinclude:: ../../tests/firedrake/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
    :start-after: [test_vertex_only_mesh_manual_example 1]
@@ -223,19 +223,19 @@ tolerance <tolerance>` will generate
 a :class:`~.VertexOnlyMeshMissingPointsError`. This can be switched to a
 warning or switched off entirely:
 
-.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+.. literalinclude:: ../../tests/firedrake/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
    :start-after: [test_vom_manual_points_outside_domain 1]
    :end-before: [test_vom_manual_points_outside_domain 2]
 
-.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+.. literalinclude:: ../../tests/firedrake/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
    :start-after: [test_vom_manual_points_outside_domain 3]
    :end-before: [test_vom_manual_points_outside_domain 4]
 
-.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+.. literalinclude:: ../../tests/firedrake/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
    :start-after: [test_vom_manual_points_outside_domain 5]
@@ -265,7 +265,7 @@ where :math:`N` is the number of points, :math:`x_i` is the :math:`i`\th point,
 :math:`\delta` is a dirac delta distribition can therefore be written in
 Firedrake using :func:`~.VertexOnlyMesh` and :func:`~.interpolate` as
 
-.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+.. literalinclude:: ../../tests/firedrake/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
    :start-after: [test_vom_manual_keyword_arguments 1]
@@ -288,7 +288,7 @@ property: this produces another vertex-only mesh which has points in the order
 and MPI rank that they were specified when first creating the original
 vertex-only mesh. For example:
 
-.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+.. literalinclude:: ../../tests/firedrake/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
    :start-after: [test_input_ordering_input 1]
@@ -301,7 +301,7 @@ of a vertex-only mesh in a parallel-safe way. If we return to our example from
 :ref:`the section where we introduced vertex only meshes <primary-api>`, we
 had
 
-.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+.. literalinclude:: ../../tests/firedrake/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
    :start-after: [test_vertex_only_mesh_manual_example 2]
@@ -312,7 +312,7 @@ In parallel, this will print the values of ``f`` at the given ``points`` list
 values of ``f`` at the ``points`` list **before the points have been
 distributed** we can use :py:attr:`~.VertexOnlyMeshTopology.input_ordering` as follows:
 
-.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+.. literalinclude:: ../../tests/firedrake/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
    :start-after: [test_vertex_only_mesh_manual_example 4]
@@ -336,7 +336,7 @@ the original vertex-only mesh. In the above example, the values would be zero
 at those points. To make it more obvious that those points were not found, it's
 a good idea to set the values to ``nan`` before the interpolation:
 
-.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+.. literalinclude:: ../../tests/firedrake/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
    :start-after: [test_vertex_only_mesh_manual_example 6]
@@ -379,7 +379,7 @@ If points are outside the mesh domain but ought to still be found a
 ``tolerance`` parameter can be set. The tolerance is relative to the size of
 the mesh cells and is a property of the mesh itself
 
-.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+.. literalinclude:: ../../tests/firedrake/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
    :start-after: [test_mesh_tolerance 1]
@@ -397,7 +397,7 @@ vertex-only mesh. This will modify the tolerance property of the parent mesh.
    before any point evaluations are performed, rather than making use of these
    keyword arguments.
 
-.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+.. literalinclude:: ../../tests/firedrake/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
    :start-after: [test_mesh_tolerance_change 1]

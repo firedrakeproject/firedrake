@@ -59,10 +59,9 @@ def compile_terminal_form(tensor, prefix, *, tsfc_parameters=None):
     cxt_kernels = []
     assert prefix is not None
     for orig_it_type, integrals in transformed_integrals.items():
-        subkernel_prefix = prefix + "%s_to_" % orig_it_type
         form = Form(integrals)
         kernels = tsfc_compile(form,
-                               subkernel_prefix,
+                               f"{prefix}{orig_it_type}_to_",
                                parameters=tsfc_parameters,
                                split=False, diagonal=tensor.diagonal)
 

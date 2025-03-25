@@ -1,5 +1,5 @@
 """A module providing support for disk checkpointing of the adjoint tape."""
-from pyadjoint import get_working_tape, OverloadedType
+from pyadjoint import get_working_tape, OverloadedType, disk_checkpointing_callback
 from pyadjoint.tape import TapePackageData
 from pyop2.mpi import COMM_WORLD
 import tempfile
@@ -10,6 +10,8 @@ from abc import ABC, abstractmethod
 from numbers import Number
 _enable_disk_checkpoint = False
 _checkpoint_init_data = False
+disk_checkpointing_callback["firedrake"] = "Please call enable_disk_checkpointing() "\
+    "before checkpointing on the disk."
 
 __all__ = ["enable_disk_checkpointing", "disk_checkpointing",
            "pause_disk_checkpointing", "continue_disk_checkpointing",
@@ -48,8 +50,23 @@ class checkpoint_init_data:
 
 
 def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True):
-    """Add a DiskCheckpointer to the current tape and switch on
-    disk checkpointing.
+    """Add a DiskCheckpointer to the current tape.
+
+    Disk checkpointing is fully enabled by calling::
+
+        enable_disk_checkpointing()
+        tape = get_working_tape()
+        tape.enable_checkpointing(schedule)
+
+    Here, ``schedule`` is a checkpointing schedule from the `checkpoint_schedules
+    package <https://www.firedrakeproject.org/checkpoint_schedules/>`_. For example,
+    to checkpoint every timestep on disk, use::
+
+        from checkpoint_schedules import SingleDiskStorageSchedule
+        schedule = SingleDiskStorageSchedule()
+
+    `checkpoint_schedules` provides other schedules for checkpointing to memory, disk,
+    or a combination of both.
 
     Parameters
     ----------
@@ -68,8 +85,6 @@ def enable_disk_checkpointing(dirname=None, comm=COMM_WORLD, cleanup=True):
     tape = get_working_tape()
     if "firedrake" not in tape._package_data:
         tape._package_data["firedrake"] = DiskCheckpointer(dirname, comm, cleanup)
-    if not disk_checkpointing():
-        continue_disk_checkpointing()
 
 
 def disk_checkpointing():
@@ -116,7 +131,7 @@ class CheckPointFileReference:
 
 
 class DiskCheckpointer(TapePackageData):
-    """Manger for the disk checkpointing process.
+    """Manager for the disk checkpointing process.
 
     Parameters
     ----------
@@ -204,6 +219,12 @@ class DiskCheckpointer(TapePackageData):
         self.init_checkpoint_file = state["init"]
         self.current_checkpoint_file = state["current"]
 
+    def continue_checkpointing(self):
+        continue_disk_checkpointing()
+
+    def pause_checkpointing(self):
+        pause_disk_checkpointing()
+
 
 def checkpointable_mesh(mesh):
     """Write a mesh to disk and read it back.
@@ -251,7 +272,7 @@ class CheckpointBase(ABC):
         pass
 
 
-class CheckpointFunction(CheckpointBase):
+class CheckpointFunction(CheckpointBase, OverloadedType):
     """Metadata for a Function checkpointed to disk.
 
     An object of this class replaces the :class:`~firedrake.Function` stored as
@@ -270,7 +291,7 @@ class CheckpointFunction(CheckpointBase):
 
     def __init__(self, function):
         from firedrake.checkpointing import CheckpointFile
-        self.name = function.name
+        self.name = function.name()
         self.mesh = function.function_space().mesh()
         self.file = current_checkpoint_file()
 
@@ -302,7 +323,10 @@ class CheckpointFunction(CheckpointBase):
             function = infile.load_function(self.mesh, self.stored_name,
                                             idx=self.stored_index)
         return type(function)(function.function_space(),
-                              function.dat, name=self.name(), count=self.count)
+                              function.dat, name=self.name, count=self.count)
+
+    def _ad_restore_at_checkpoint(self, checkpoint):
+        return checkpoint.restore()
 
 
 def maybe_disk_checkpoint(function):

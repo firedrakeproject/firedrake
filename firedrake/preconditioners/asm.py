@@ -5,13 +5,9 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space
 from firedrake.logging import warning
+from tinyasm import _tinyasm as tinyasm
+from mpi4py import MPI
 import numpy
-
-try:
-    from tinyasm import _tinyasm as tinyasm
-    have_tinyasm = True
-except ImportError:
-    have_tinyasm = False
 
 
 __all__ = ("ASMPatchPC", "ASMStarPC", "ASMVankaPC", "ASMLinesmoothPC", "ASMExtrudedStarPC")
@@ -38,7 +34,7 @@ class ASMPatchPC(PCBase):
         # Extract function space and mesh to obtain plex and indexing functions
         V = get_function_space(dm)
 
-        # Obtain patches from user defined funtion
+        # Obtain patches from user defined function
         ises = self.get_patches(V)
         # PCASM expects at least one patch, so we define an empty one on idle processes
         if len(ises) == 0:
@@ -77,9 +73,6 @@ class ASMPatchPC(PCBase):
             ises = tuple(lgmap.applyIS(iset) for iset in ises)
             asmpc.setASMLocalSubdomains(len(ises), ises)
         elif backend == "tinyasm":
-            if not have_tinyasm:
-                raise ValueError("To use the TinyASM backend you need to install firedrake with TinyASM (firedrake-update --tinyasm)")
-
             _, P = asmpc.getOperators()
             lgmap = V.dof_dset.lgmap
             P.setLGMap(rmap=lgmap, cmap=lgmap)
@@ -89,14 +82,28 @@ class ASMPatchPC(PCBase):
             tinyasm.SetASMLocalSubdomains(
                 asmpc, ises,
                 [W.dm.getDefaultSF() for W in V],
-                [W.value_size for W in V],
-                sum(W.value_size * W.dof_dset.total_size for W in V))
+                [W.block_size for W in V],
+                sum(W.block_size * W.dof_dset.total_size for W in V))
             asmpc.setUp()
         else:
             raise ValueError(f"Unknown backend type {backend}")
 
         asmpc.setFromOptions()
         self.asmpc = asmpc
+
+        self._patch_statistics = []
+        if opts.getBool("view_patch_sizes", default=False):
+            # Compute and stash patch statistics
+            mpi_comm = pc.comm.tompi4py()
+            max_local_patch = max(is_.getSize() for is_ in ises)
+            min_local_patch = min(is_.getSize() for is_ in ises)
+            sum_local_patch = sum(is_.getSize() for is_ in ises)
+            max_global_patch = mpi_comm.allreduce(max_local_patch, op=MPI.MAX)
+            min_global_patch = mpi_comm.allreduce(min_local_patch, op=MPI.MIN)
+            sum_global_patch = mpi_comm.allreduce(sum_local_patch, op=MPI.SUM)
+            avg_global_patch = sum_global_patch / mpi_comm.allreduce(len(ises) if sum_local_patch > 0 else 0, op=MPI.SUM)
+            msg = f"Minimum / average / maximum patch sizes : {min_global_patch} / {avg_global_patch} / {max_global_patch}\n"
+            self._patch_statistics.append(msg)
 
     @abc.abstractmethod
     def get_patches(self, V):
@@ -111,6 +118,9 @@ class ASMPatchPC(PCBase):
 
     def view(self, pc, viewer=None):
         self.asmpc.view(viewer=viewer)
+        if viewer is not None:
+            for msg in self._patch_statistics:
+                viewer.printfASCII(msg)
 
     def update(self, pc):
         # This is required to update an inplace ILU factorization
@@ -176,7 +186,7 @@ class ASMStarPC(ASMPatchPC):
                         continue
                     off = section.getOffset(p)
                     # Local indices within W
-                    W_indices = slice(off*W.value_size, W.value_size * (off + dof))
+                    W_indices = slice(off*W.block_size, W.block_size * (off + dof))
                     indices.extend(V_local_ises_indices[i][W_indices])
             iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
             ises.append(iset)
@@ -255,7 +265,7 @@ class ASMVankaPC(ASMPatchPC):
                         continue
                     off = section.getOffset(p)
                     # Local indices within W
-                    W_indices = slice(off*W.value_size, W.value_size * (off + dof))
+                    W_indices = slice(off*W.block_size, W.block_size * (off + dof))
                     indices.extend(V_local_ises_indices[i][W_indices])
             iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
             ises.append(iset)
@@ -304,7 +314,7 @@ class ASMLinesmoothPC(ASMPatchPC):
                 if dof <= 0:
                     continue
                 off = section.getOffset(p)
-                indices = numpy.arange(off*V.value_size, V.value_size * (off + dof), dtype=IntType)
+                indices = numpy.arange(off*V.block_size, V.block_size * (off + dof), dtype=IntType)
                 iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
                 ises.append(iset)
 
@@ -479,7 +489,7 @@ class ASMExtrudedStarPC(ASMStarPC):
                                 else:
                                     begin = off + min(k, k+plane) * blayer_offset + dof
                                     end = off + max(k, k+plane) * blayer_offset
-                                zlice = slice(W.value_size * begin, W.value_size * end)
+                                zlice = slice(W.block_size * begin, W.block_size * end)
                                 indices.extend(iset[zlice])
 
                     iset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)

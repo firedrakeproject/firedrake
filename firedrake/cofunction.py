@@ -4,6 +4,7 @@ import ufl
 from ufl.form import BaseForm
 from pyop2 import op2, mpi
 from pyadjoint.tape import stop_annotating, annotate_tape, get_working_tape
+from finat.ufl import MixedElement
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
 from firedrake import utils, vector, ufl_expr
@@ -111,19 +112,16 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         of this this :class:`Cofunction`'s :class:`.FunctionSpace`."""
         return tuple(type(self)(fs, dat) for fs, dat in zip(self.function_space(), self.dat))
 
-    @FunctionMixin._ad_annotate_subfunctions
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
-
     @utils.cached_property
     def _components(self):
-        if self.function_space().value_size == 1:
+        if self.function_space().rank == 0:
             return (self, )
         else:
-            return tuple(type(self)(self.function_space().sub(i), val=op2.DatView(self.dat, i))
-                         for i in range(self.function_space().value_size))
+            if self.dof_dset.cdim == 1:
+                return (type(self)(self.function_space().sub(0), val=self.dat),)
+            else:
+                return tuple(type(self)(self.function_space().sub(i), val=op2.DatView(self.dat, j))
+                             for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
@@ -137,9 +135,9 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         :func:`~.VectorFunctionSpace` or :func:`~.TensorFunctionSpace`
         this returns a proxy object indexing the ith component of the space,
         suitable for use in boundary condition application."""
-        if len(self.function_space()) == 1:
-            return self._components[i]
-        return self.subfunctions[i]
+        mixed = type(self.function_space().ufl_element()) is MixedElement
+        data = self.subfunctions if mixed else self._components
+        return data[i]
 
     def function_space(self):
         r"""Return the :class:`.FunctionSpace`, or :class:`.MixedFunctionSpace`
@@ -225,8 +223,10 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             return self.assign(
                 assembled_expr, subset=subset,
                 expr_from_assemble=True)
-
-        raise ValueError('Cannot assign %s' % expr)
+        else:
+            from firedrake.assign import Assigner
+            Assigner(self, expr, subset).assign()
+        return self
 
     def riesz_representation(self, riesz_map='L2', **solver_options):
         """Return the Riesz representation of this :class:`Cofunction` with respect to the given Riesz map.
@@ -322,6 +322,12 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         return vector.Vector(self)
 
     @property
+    def cell_set(self):
+        r"""The :class:`pyop2.types.set.Set` of cells for the mesh on which this
+        :class:`Cofunction` is defined."""
+        return self.function_space()._mesh.cell_set
+
+    @property
     def node_set(self):
         r"""A :class:`pyop2.types.set.Set` containing the nodes of this
         :class:`Cofunction`. One or (for rank-1 and 2
@@ -329,6 +335,12 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         at each node.
         """
         return self.function_space().node_set
+
+    @property
+    def dof_dset(self):
+        r"""A :class:`pyop2.types.dataset.DataSet` containing the degrees of freedom of
+        this :class:`Cofunction`."""
+        return self.function_space().dof_dset
 
     def ufl_id(self):
         return self.uid

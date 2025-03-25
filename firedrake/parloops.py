@@ -171,7 +171,7 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
       domain = '{[i]: 0 <= i < A.dofs}'
       instructions = '''
       for i
-          A[i] = max(A[i], B[0])
+          A[i] = fmax(A[i], B[0])
       end
       '''
       par_loop((domain, instructions), dx, {'A' : (A, RW), 'B': (B, READ)})

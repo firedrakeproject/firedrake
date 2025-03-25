@@ -16,10 +16,33 @@ from glob import iglob
 from itertools import chain
 import re
 import importlib
+import time
+import warnings
+
+
+warnings.warn(
+    "firedrake-install/firedrake-update is no longer the recommended way to "
+    "install/update Firedrake. Please use pip instead. For instructions on how "
+    "to do this please visit https://www.firedrakeproject.org/install.html.",
+    FutureWarning
+)
+# Give users time to see the warning
+time.sleep(5)
+
+
+class InstallError(Exception):
+    # Exception for generic install problems.
+    pass
+
+
 try:
     from pkg_resources.extern.packaging.version import Version, InvalidVersion
 except ModuleNotFoundError:
-    from packaging.version import Version, InvalidVersion
+    try:
+        from packaging.version import Version, InvalidVersion
+    except ModuleNotFoundError:
+        raise InstallError("Neither setuptools or packaging found. Please "
+                           "install one of these packages before trying again.")
 
 osname = platform.uname().system
 arch = platform.uname().machine
@@ -27,7 +50,7 @@ arch = platform.uname().machine
 # Packages which we wish to ensure are always recompiled
 wheel_blacklist = ["mpi4py", "randomgen", "numpy"]
 # Packages for which we set CC=mpicc, CXX=mpicxx, F90=mpif90.
-parallel_packages = ["h5py", "petsc4py", "slepc", "slepc4py", "PyOP2", "libsupermesh", "firedrake"]
+parallel_packages = ["h5py", "petsc4py", "slepc", "slepc4py", "libsupermesh", "firedrake"]
 
 # Firedrake application installation shortcuts.
 firedrake_apps = {
@@ -52,11 +75,6 @@ firedrake_apps = {
 }
 
 
-class InstallError(Exception):
-    # Exception for generic install problems.
-    pass
-
-
 class FiredrakeConfiguration(dict):
     """A dictionary extended to facilitate the storage of Firedrake
     configuration information."""
@@ -76,7 +94,7 @@ class FiredrakeConfiguration(dict):
                     self["options"][o] = args.__dict__[o]
 
     _persistent_options = ["package_manager",
-                           "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "disable_ssh",
+                           "minimal_petsc", "mpicc", "mpicxx", "mpif90", "mpiexec", "mpihome", "disable_ssh",
                            "honour_petsc_dir", "with_parmetis",
                            "slepc", "packages", "honour_pythonpath",
                            "opencascade", "torch", "jax",
@@ -135,11 +153,11 @@ log.info("Running %s" % " ".join(sys.argv))
 if sys.version_info >= (3, 14):
     print("""\nCan not install Firedrake with Python 3.14 at the moment:
 Some wheels are not yet available for Python 3.14 for some required package(s).
-Please install with Python 3.13 (or an earlier version >= 3.9).""")
+Please install with Python 3.13 (or an earlier version >= 3.10).""")
     sys.exit(1)
-elif sys.version_info < (3, 9):
+elif sys.version_info < (3, 10):
     if mode == "install":
-        print("""\nInstalling Firedrake requires Python 3, at least version 3.9.
+        print("""\nInstalling Firedrake requires Python 3, at least version 3.10.
 You should run firedrake-install with python3.""")
     if mode == "update":
         if hasattr(sys, "real_prefix"):
@@ -306,6 +324,9 @@ honoured.""",
     parser.add_argument("--mpiexec", type=str,
                         action="store", default=None,
                         help="MPI launcher. If not set, MPICH will be downloaded and used.")
+    parser.add_argument("--mpihome", type=str,
+                        action="store", default=None,
+                        help="Location of MPI files. If not set, MPICH will be downloaded and used.")
     parser.add_argument("--mpi4py-version", help="Specify an exact version of mpi4py to install")
     parser.add_argument("--show-petsc-configure-options", action="store_true",
                         help="Print out the configure options passed to PETSc and exit")
@@ -339,9 +360,9 @@ honoured.""",
     args = parser.parse_args()
 
     # If the user has set any MPI info, they must set them all
-    if args.mpicc or args.mpicxx or args.mpif90 or args.mpiexec:
-        if not (args.mpicc and args.mpicxx and args.mpif90 and args.mpiexec):
-            log.error("If you set any MPI information, you must set all of {mpicc, mpicxx, mpif90, mpiexec}.")
+    if args.mpicc or args.mpicxx or args.mpif90 or args.mpiexec or args.mpihome:
+        if not (args.mpicc and args.mpicxx and args.mpif90 and args.mpiexec and args.mpihome):
+            log.error("If you set any MPI information, you must set all of {mpicc, mpicxx, mpif90, mpiexec, mpihome}.")
             sys.exit(1)
 
     if args.package_branch:
@@ -377,19 +398,12 @@ honoured.""",
 
     config = FiredrakeConfiguration(args)
 else:
-    # This duplicates code from firedrake_configuration in order to avoid the module dependency and allow for installation recovery.
     try:
         with open(os.path.join(os.environ["VIRTUAL_ENV"],
                                ".configuration.json"), "r") as f:
             config = json.load(f)
-
     except FileNotFoundError:
-        # Fall back to the old location.
-        import firedrake_configuration
-
-        config = firedrake_configuration.get_config()
-        if config is None:
-            raise InstallError("Failed to find existing Firedrake configuration")
+        raise InstallError("Failed to find existing Firedrake configuration")
 
     parser = ArgumentParser(description="""Update this firedrake install to the latest versions of all packages.""",
                             formatter_class=RawDescriptionHelpFormatter)
@@ -724,6 +738,7 @@ def get_petsc_options(minimal=False):
                      "--with-debugging=0",
                      "--with-shared-libraries=1",
                      "--with-c2html=0",
+                     "--with-strict-petscerrorcode",
                      # Parser generator
                      "--download-bison"}
     for pkg in get_minimal_petsc_packages():
@@ -749,7 +764,7 @@ def get_petsc_options(minimal=False):
         petsc_options.add("--download-suitesparse")
         petsc_options.add("--download-pastix")
         # Required by pastix
-        petsc_options.add("--download-hwloc")
+        petsc_options.update({"--download-hwloc", "--download-netlib-lapack", "--with-netlib-lapack-c-bindings"})
         if osname == "Darwin":
             petsc_options.add("--download-hwloc-configure-arguments=--disable-opencl")
         # Serial mesh partitioner
@@ -790,6 +805,10 @@ def get_petsc_options(minimal=False):
                 # on macOS with parallel solvers. Its necessity is unclear, so a
                 # review in the future may be required.
                 petsc_options.add("--LDFLAGS=-Wl,-ld_classic,-dead_strip_dylibs")
+            if Version(clt["version"]) >= Version("16"):
+                # Should revisit this flag when the the issue https://gitlab.com/petsc/petsc/-/issues/1692
+                # is resolved.
+                petsc_options.add("--with-cxx-dialect=17")
     elif options.get("with_blas") is not None:
         petsc_options.add("--with-blaslapack-dir={}".format(options["with_blas"]))
         if osname == "Darwin":
@@ -1259,36 +1278,6 @@ def build_and_install_h5py():
         log.info("No need to rebuild h5py")
 
 
-def build_and_install_libsupermesh(cc, cxx, f90, mpiexec):
-    log.info("Installing libsupermesh")
-    url = "git+https://github.com/firedrakeproject/libsupermesh.git"
-    if os.path.exists("libsupermesh"):
-        changed = git_update("libsupermesh", url)
-    else:
-        git_clone(url)
-        changed = True
-    if changed:
-        with directory("libsupermesh"):
-            check_call(["git", "reset", "--hard"])
-            check_call(["git", "clean", "-f", "-x", "-d"])
-            check_call(["mkdir", "-p", "build"])
-            with directory("build"):
-                cmd = [
-                    "cmake", "..", "-DBUILD_SHARED_LIBS=ON",
-                    "-DCMAKE_INSTALL_PREFIX=" + firedrake_env,
-                    "-DMPI_C_COMPILER=" + cc,
-                    "-DMPI_CXX_COMPILER=" + cxx,
-                    "-DMPI_Fortran_COMPILER=" + f90,
-                    "-DCMAKE_Fortran_COMPILER=" + f90,
-                    "-DMPIEXEC_EXECUTABLE=" + mpiexec,
-                ]
-                check_call(cmd)
-                check_call(["make"])
-                check_call(["make", "install"])
-    else:
-        log.info("No need to rebuild libsupermesh")
-
-
 def build_and_install_pythonocc():
     log.info("Installing pythonocc-core")
     url = "git+https://github.com/tpaviot/pythonocc-core.git@595b0a4e8e60e8d6011bea0cdb54ac878efcfcd2"
@@ -1326,7 +1315,7 @@ def build_and_install_jax():
     """Install JAX for a CPU or CUDA backend."""
     log.info("Installing JAX (backend: %s)" % args.jax)
     version_name = "jax" if args.jax == "cpu" else "jax[cuda12]"
-    run_pip_install([version_name])
+    run_pip_install([version_name] + ["jaxlib"] + ["ml_dtypes"] + ["opt_einsum"])
 
 
 def build_and_install_slepc():
@@ -1373,23 +1362,6 @@ def build_and_install_slepc():
         else:
             log.info("Cloning slepc4py from %s" % url)
             git_clone(url)
-
-
-def build_and_install_netgen():
-    log.info("Installing NGSolve/Netgen.")
-    run_pip(["install", "netgen-mesher"])
-    log.info("Installing ngsPETSc.")
-    url = "git+https://github.com/NGSolve/ngsPETSc.git@main"
-    ngsPETSc_changed = False
-    if os.path.exists("ngsPETSc"):
-        ngsPETSc_changed |= git_update("ngsPETSc")
-    else:
-        git_clone(url)
-        ngsPETSc_changed = True
-    if ngsPETSc_changed:
-        with directory("ngsPETSc"):
-            with environment(NGSPETSC_NO_INSTALL_REQUIRED="ON"):
-                check_call([python, "-m", "pip", "install", "-e", "."])
 
 
 def install_documentation_dependencies():
@@ -1444,7 +1416,7 @@ if args.rebuild_script:
     sys.exit(0)
 
 
-def create_compiler_env(cc, cxx, f90):
+def create_compiler_env(cc, cxx, f90, mpihome):
     env = dict()
     if cc:
         env["MPICC"] = cc
@@ -1463,8 +1435,10 @@ def create_compiler_env(cc, cxx, f90):
         env["CXX"] = cxx
     if f90:
         env["MPIF90"] = f90
-        env["MPI_C_COMPILER"] = f90
+        env["MPI_Fortran_COMPILER"] = f90
         env["F90"] = f90
+    if mpihome:
+        env["MPI_HOME"] = mpihome
 
     return env
 
@@ -1541,6 +1515,7 @@ if mode == "install" or not args.update_script:
     if osname == "Darwin":
         package_manager = "brew"
         required_packages = ["gcc",
+                             "pkg-config",
                              "autoconf",
                              "make",
                              "automake",
@@ -1559,6 +1534,7 @@ if mode == "install" or not args.update_script:
                              "flex",   # for ptscotch
                              "cmake",
                              "gfortran",
+                             "pkg-config",
                              "git",
                              "libcurl4-openssl-dev",
                              "pkgconf",  # for p4est
@@ -1710,6 +1686,8 @@ run_pip(["install", "-U", "hatch"])
 run_pip(["install", "-U", "editables"])
 run_pip(["install", "-U", "pip"])
 run_pip(["install", "-U", "wheel"])
+run_pip(["install", "-U", "scikit-build-core"])
+run_pip(["install", "-U", "rtree>=1.2"])
 
 # Extra numpy dependendencies, see
 # https://github.com/numpy/numpy/blob/main/pyproject.toml
@@ -1755,7 +1733,18 @@ cc = options["mpicc"]
 cxx = options["mpicxx"]
 f90 = options["mpif90"]
 mpiexec = options["mpiexec"]
-compiler_env = create_compiler_env(cc, cxx, f90)
+try:
+    mpihome = options["mpihome"]
+except KeyError:
+    if cc:
+        try:
+            mpihome = os.environ["MPI_HOME"]
+        except KeyError:
+            raise InstallError("MPI compilers specified but mpihome is missing from "
+                               "configuration. Please set MPI_HOME to continue.")
+    else:
+        mpihome = None
+compiler_env = create_compiler_env(cc, cxx, f90, mpihome)
 os.chdir(firedrake_env)
 
 # Dict to store BLAS and OPENBLAS environment variables
@@ -1820,7 +1809,7 @@ if mode == "install":
         run_pip(["install", "lazy-object-proxy==1.4.*"])
 
     packages = clone_dependencies("firedrake")
-    packages = clone_dependencies("PyOP2") + ["petsc4py"] + packages
+    packages = ["petsc4py"] + packages
     packages += ["firedrake"]
 
     for p in options["packages"]:
@@ -1829,13 +1818,18 @@ if mode == "install":
         packages += [name]
 
     if args.honour_petsc_dir:
-        packages.remove("petsc")
-
-    # Need to install petsc first in order to resolve hdf5 dependency.
-    if not args.honour_petsc_dir:
+        try:
+            packages.remove("petsc")
+        except ValueError:
+            log.warning("PETSc wasn't in dependencies list")
+    else:
+        # Need to install petsc first in order to resolve hdf5 dependency.
         with environment(**compiler_env):
             with pipargs("--no-deps"):
-                packages.remove("petsc")
+                try:
+                    packages.remove("petsc")
+                except ValueError:
+                    log.warning("PETSc wasn't in dependencies list")
                 install("petsc/")
         os.environ["PETSC_DIR"] = petsc_dir
         os.environ["PETSC_ARCH"] = petsc_arch
@@ -1847,7 +1841,8 @@ if mode == "install":
         cxx = os.path.join(compilerbin, "mpicxx")
         f90 = os.path.join(compilerbin, "mpif90")
         mpiexec = os.path.join(compilerbin, "mpiexec")
-        compiler_env = create_compiler_env(cc, cxx, f90)
+        mpihome = os.path.join(compilerbin, "..")
+        compiler_env = create_compiler_env(cc, cxx, f90, mpihome)
 
     # Make sure that we link against the right MPI and PETSc shared libraries
     link_env = {
@@ -1882,7 +1877,6 @@ if mode == "install":
 
     with pipargs("--no-deps"):
         try:
-            packages.remove("PyOP2")
             packages.remove("firedrake")
         except ValueError:
             pass
@@ -1895,18 +1889,9 @@ if mode == "install":
                 install(p+"/")
             sys.path.append(os.getcwd() + "/" + p)
 
-    with environment(**compiler_env):
-        build_and_install_libsupermesh(cc, cxx, f90, mpiexec)
-
     with pipargs("--no-deps"), environment(**compiler_env, **link_env):
-        for p in ("PyOP2", "firedrake"):
-            install(p+"/")
+        install("firedrake/")
 
-    # Work around easy-install.pth bug.
-    try:
-        packages.remove("petsc")
-    except ValueError:
-        pass
     packages.remove("petsc4py")
 
 else:
@@ -1926,7 +1911,6 @@ else:
             run_pip_install(package.split())
 
     deps = OrderedDict()
-    deps.update(list_cloned_dependencies("PyOP2"))
     deps.update(list_cloned_dependencies("firedrake"))
     for p in options["packages"]:
         name = split_requirements_url(p)[0]
@@ -1955,7 +1939,10 @@ else:
         clean("slepc4py")
         shutil.move("slepc4py", "slepc4py_old")
 
-    packages.remove("petsc")
+    try:
+        packages.remove("petsc")
+    except ValueError:
+        log.warning("PETSc wasn't in dependencies list")
     packages.remove("petsc4py")
 
     if args.clean:
@@ -1964,6 +1951,19 @@ else:
             pip_uninstall(package)
         if args.rebuild:
             pip_uninstall("petsc4py")
+
+    # Handle archived repositories
+    archived_repos = [("PyOP2", "firedrake", "PyOP2"),
+                      ("tsfc", "firedrake+fiat", "tsfc"),
+                      ("FInAT", "fiat", "FInAT")]
+    for src_repo, dest_repo, pip_pkg_name in archived_repos:
+        archived_path = os.path.join(firedrake_env, "src", src_repo)
+        if os.path.exists(archived_path):
+            log.warning("%s has been moved into %s, renaming to %s_old and pip uninstalling.\n"
+                        % (src_repo, dest_repo, src_repo))
+            pip_uninstall(pip_pkg_name)
+            new_path = os.path.join(firedrake_env, "src", "%s_old" % src_repo)
+            os.rename(archived_path, new_path)
 
     # If there is a petsc package to remove, then we're an old installation which will need to rebuild PETSc.
     update_petsc = pip_uninstall("petsc") or update_petsc
@@ -1995,7 +1995,8 @@ else:
             cxx = os.path.join(compilerbin, "mpicxx")
             f90 = os.path.join(compilerbin, "mpif90")
             mpiexec = os.path.join(compilerbin, "mpiexec")
-            compiler_env = create_compiler_env(cc, cxx, f90)
+            mpihome = os.path.join(compilerbin, "..")
+            compiler_env = create_compiler_env(cc, cxx, f90, mpihome)
 
     # Make sure that we link against the right MPI and PETSc shared libraries
     link_env = {
@@ -2056,7 +2057,6 @@ Please consider updating your PETSc manually.
 
     with pipargs("--no-deps"):
         try:
-            packages.remove("PyOP2")
             packages.remove("firedrake")
         except ValueError:
             pass
@@ -2069,12 +2069,8 @@ Please consider updating your PETSc manually.
             else:
                 install(p+"/")
 
-        with environment(**compiler_env):
-            build_and_install_libsupermesh(cc, cxx, f90, mpiexec)
-
         with pipargs("--no-deps"), environment(**compiler_env, **link_env):
-            for p in ("PyOP2", "firedrake"):
-                install(p+"/")
+            install("firedrake/")
 
         # Ensure pytest is at the latest version
         run_pip(["install", "-U", "pytest"])
@@ -2089,7 +2085,8 @@ with environment(**compiler_env):
                 install("slepc4py/")
 
     if options["netgen"]:
-        build_and_install_netgen()
+        packages += ["ngsPETSc"]
+        run_pip(["install", "-U", "ngsPETSc"])
 
 with pipargs("--no-deps"):
     if options["opencascade"]:
@@ -2108,8 +2105,8 @@ if args.documentation_dependencies:
 
 if mode == "update":
     try:
-        import firedrake_configuration
-        firedrake_configuration.setup_cache_dirs()
+        from firedrake.configuration import setup_cache_dirs
+        setup_cache_dirs()
         log.info("Clearing just in time compilation caches.")
         from firedrake.tsfc_interface import clear_cache, TSFCKernel
         from pyop2.compilation import clear_cache as pyop2_clear_cache

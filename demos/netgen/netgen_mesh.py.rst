@@ -156,7 +156,8 @@ Then a SLEPc Eigenvalue Problem Solver (`EPS`) is initialised and set up to use 
         bc = DirichletBC(V, 0, labels)
         A = assemble(a, bcs=bc)
         M = assemble(m, bcs=bc, weight=0.)
-        Asc, Msc = A.M.handle, M.M.handle
+        Asc = A.petscmat
+        Msc = M.petscmat
         E = SLEPc.EPS().create()
         E.setType(SLEPc.EPS.Type.ARNOLDI)
         E.setProblemType(SLEPc.EPS.ProblemType.GHEP)
@@ -380,8 +381,7 @@ We will now show how to solve the Poisson problem on a high-order mesh, of order
 
    bc = DirichletBC(V, 0.0, [1])
    A = assemble(a, bcs=bc)
-   b = assemble(l)
-   bc.apply(b)
+   b = assemble(l, bcs=bc)
    solve(A, sol, b, solver_parameters={"ksp_type": "cg", "pc_type": "lu"})
 
    VTKFile("output/Sphere.pvd").write(sol)

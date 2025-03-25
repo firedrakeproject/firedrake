@@ -215,7 +215,7 @@ def curl_to_grad(ele):
     if isinstance(ele, finat.ufl.VectorElement):
         return type(ele)(curl_to_grad(ele._sub_element), dim=ele.num_sub_elements)
     elif isinstance(ele, finat.ufl.TensorElement):
-        return type(ele)(curl_to_grad(ele._sub_element), shape=ele.value_shape, symmetry=ele.symmetry())
+        return type(ele)(curl_to_grad(ele._sub_element), shape=ele._shape, symmetry=ele.symmetry())
     elif isinstance(ele, finat.ufl.MixedElement):
         return type(ele)(*(curl_to_grad(e) for e in ele.sub_elements))
     elif isinstance(ele, finat.ufl.RestrictedElement):
@@ -242,7 +242,7 @@ def div_to_curl(ele):
     if isinstance(ele, finat.ufl.VectorElement):
         return type(ele)(div_to_curl(ele._sub_element), dim=ele.num_sub_elements)
     elif isinstance(ele, finat.ufl.TensorElement):
-        return type(ele)(div_to_curl(ele._sub_element), shape=ele.value_shape, symmetry=ele.symmetry())
+        return type(ele)(div_to_curl(ele._sub_element), shape=ele._shape, symmetry=ele.symmetry())
     elif isinstance(ele, finat.ufl.MixedElement):
         return type(ele)(*(div_to_curl(e) for e in ele.sub_elements))
     elif isinstance(ele, finat.ufl.RestrictedElement):
