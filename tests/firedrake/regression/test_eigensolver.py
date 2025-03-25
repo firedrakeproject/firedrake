@@ -84,6 +84,7 @@ def test_evals_2d():
 
     assert all(convergence > 2.0)
 
+
 @pytest.mark.skipslepc
 def test_no_bcs():
     mesh = SquareMesh(4, 4, pi)
