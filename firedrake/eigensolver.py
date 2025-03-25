@@ -64,7 +64,7 @@ class LinearEigenproblem:
         v, u = args
         self.output_space = u.function_space()
         self.bc_shift = bc_shift
-        self.restrict = restrict
+        self.restrict = restrict and bcs
 
         if not M:
             M = inner(u, v) * dx

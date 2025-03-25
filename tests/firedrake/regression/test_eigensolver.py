@@ -83,3 +83,18 @@ def test_evals_2d():
     convergence = np.log(errors[:-1]/errors[1:])/np.log(2.0)
 
     assert all(convergence > 2.0)
+
+@pytest.mark.skipslepc
+def test_no_bcs():
+    mesh = SquareMesh(4, 4, pi)
+    V = FunctionSpace(mesh, "CG", 1)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    ep = LinearEigenproblem(inner(grad(u), grad(v)) * dx,
+                            inner(u, v)*dx)
+
+    es = LinearEigensolver(ep, 1, solver_parameters={"eps_gen_hermitian": None})
+
+    es.solve()
