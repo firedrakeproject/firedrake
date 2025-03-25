@@ -211,7 +211,6 @@ class GlobalDataSet(DataSet):
         self._globalset = GlobalSet(comm=self.comm)
         self._name = "gdset_#x%x" % id(self)
         self._initialized = True
-        self._apply_local_global_filter = False
 
     @classmethod
     def _cache_key(cls, *args):
