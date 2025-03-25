@@ -22,7 +22,7 @@ from pyop3.axtree import (
     as_axis_tree,
 )
 from pyop3.axtree.tree import ContextFree, ContextSensitiveAxisTree, subst_layouts
-from pyop3.buffer import Buffer, DistributedBuffer
+from pyop3.buffer import AbstractBuffer, Buffer, NullBuffer
 from pyop3.dtypes import ScalarType
 from pyop3.exceptions import Pyop3Exception
 from pyop3.lang import KernelArgument, BufferAssignment
@@ -51,37 +51,35 @@ class FancyIndexWriteException(Exception):
 
 class _Dat(Array, KernelArgument, Record, abc.ABC):
 
-    DEFAULT_DTYPE = Buffer.DEFAULT_DTYPE
-
-    @classmethod
-    def _parse_buffer(cls, data, dtype, size, name):
-        if data is not None:
-            if isinstance(data, Buffer):
-                return data
-
-
-            assert isinstance(data, np.ndarray)
-            assert dtype is None or dtype == data.dtype
-
-            dtype = data.dtype
-
-            # always deal with flattened data
-            if len(data.shape) > 1:
-                data = data.flatten()
-        elif dtype is None:
-            dtype = cls.DEFAULT_DTYPE
-            data = np.zeros(size, dtype=dtype)
-        else:
-            data = np.zeros(size, dtype=dtype)
-
-        buffer = DistributedBuffer(
-            data.size,  # not a useful property anymore
-            dtype,
-            name=name,
-            data=data,
-        )
-
-        return buffer
+    # @classmethod
+    # def _parse_buffer(cls, data, dtype, size, name):
+    #     if data is not None:
+    #         if isinstance(data, Buffer):
+    #             return data
+    #
+    #
+    #         assert isinstance(data, np.ndarray)
+    #         assert dtype is None or dtype == data.dtype
+    #
+    #         dtype = data.dtype
+    #
+    #         # always deal with flattened data
+    #         if len(data.shape) > 1:
+    #             data = data.flatten()
+    #     elif dtype is None:
+    #         dtype = Buffer.DEFAULT_DTYPE
+    #         data = np.zeros(size, dtype=dtype)
+    #     else:
+    #         data = np.zeros(size, dtype=dtype)
+    #
+    #     buffer = DistributedBuffer(
+    #         data.size,  # not a useful property anymore
+    #         dtype,
+    #         name=name,
+    #         data=data,
+    #     )
+    #
+    #     return buffer
 
     @property
     def alloc_size(self):
@@ -188,9 +186,9 @@ class Dat(_Dat):
     def __init__(
         self,
         axes,
-        dtype=None,
+        buffer: Buffer | None = None,
         *,
-        data=None,
+        data: np.ndarray | None = None,
         max_value=None,
         name=None,
         prefix=None,
@@ -198,16 +196,32 @@ class Dat(_Dat):
         ordered=False,
         parent=None,
     ):
+        """
+        NOTE: buffer and data are equivalent options. Only one can be specified. I include both
+        because dat.data is an actual attribute (that returns dat.buffer.data) and so is intuitive
+        to provide as input.
+
+        We could maybe do something similar with dtype...
+        """
         if ordered:
             # TODO: Belongs on the buffer and also will fail for non-numpy arrays
             debug_assert(lambda: (data == np.sort(data)).all())
 
-        super().__init__(name=name, prefix=prefix, parent=parent)
-
         axes = as_axis_tree(axes)
 
-        self.buffer = self._parse_buffer(data, dtype, axes.size, self.name)
+        assert buffer is None or data is None, "cant specify both"
+        if isinstance(buffer, Buffer):
+            assert buffer.sf == axes.sf
+        elif isinstance(buffer, NullBuffer):
+            pass
+        else:
+            assert buffer is None and data is not None
+            assert len(data.shape) == 1, "cant do nested shape"
+            buffer = Buffer(data, axes.sf)
+
+        super().__init__(name=name, prefix=prefix, parent=parent)
         self.axes = axes
+        self.buffer = buffer
         self.max_value = max_value
 
         # TODO This attr really belongs to the buffer not the array
@@ -222,6 +236,12 @@ class Dat(_Dat):
         self.ordered = ordered
 
         # self._cache = {}
+
+    @classmethod
+    def empty(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
+        axes = as_axis_tree(axes)
+        buffer = Buffer.empty(axes.size, dtype=dtype, sf=axes.sf)
+        return cls(axes, buffer=buffer, **kwargs)
 
     @property
     def _record_fields(self) -> frozenset:
@@ -482,7 +502,8 @@ class Dat(_Dat):
 
     @property
     def comm(self) -> MPI.Comm | None:
-        return self.buffer.comm
+        debug_assert(self.axes.comm is self.buffer.comm)
+        return self.axes.comm
 
     # TODO update docstring
     # TODO is this a property of the buffer?

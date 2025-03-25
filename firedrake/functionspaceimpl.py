@@ -858,12 +858,12 @@ class FunctionSpace:
 
     def make_dat(self, val=None, valuetype=None, name=None):
         """Return a new Dat storing DoFs for the function space."""
-        return op3.Dat(
-            self.axes,
-            data=val.flatten() if val is not None else None,
-            dtype=valuetype,
-            name=name
-        )
+        if val is not None:
+            if valuetype is not None:
+                assert val.dtype == valuetype
+            return op3.Dat(self.axes, data=val.flatten(), name=name)
+        else:
+            return op3.Dat.empty(self.axes, dtype=valuetype, name=name)
 
     # this is redundant
     def cell_closure_map(self, cell):

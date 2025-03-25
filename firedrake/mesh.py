@@ -1009,7 +1009,7 @@ class AbstractMeshTopology(abc.ABC):
         perm = self._dm_renumbering.indices
         for dim in range(self.dimension+1):
             p_start, p_end = self._topology_dm.getDepthStratum(dim)
-            ixs = np.argwhere((p_start <= perm) & (perm < p_end)).astype(IntType, casting="same_kind")
+            ixs = np.argwhere((p_start <= perm) & (perm < p_end)).astype(IntType, casting="same_kind").flatten()
             indices.append(readonly(ixs))
         return tuple(indices)
 

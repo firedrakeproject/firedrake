@@ -21,7 +21,7 @@ from pyop3.axtree.tree import (
     IndexedAxisTree,
     as_axis_tree,
 )
-from pyop3.buffer import DistributedBuffer, NullBuffer
+from pyop3.buffer import Buffer, NullBuffer, AbstractBuffer
 from pyop3.dtypes import IntType, ScalarType
 from pyop3.lang import Loop, BufferAssignment
 from pyop3.utils import (
@@ -94,14 +94,8 @@ class AbstractMat(Array, Record):
             mat = self._make_mat(
                 raxes, caxes, mat_type, block_shape=block_shape
                 )
-        elif isinstance(mat, np.ndarray):
-            mat = DistributedBuffer(
-                raxes.alloc_size * caxes.alloc_size,
-                # sf,
-                dtype=mat.dtype,
-                name="anything!",
-                data=mat,
-            )
+
+        assert isinstance(mat, (AbstractBuffer, PETSc.Mat))
 
         super().__init__(name=name, prefix=prefix)
         self.raxes = raxes
@@ -556,7 +550,7 @@ class AbstractMat(Array, Record):
         return Dat(self.caxes, data=self.caxes.unindexed.global_numbering)
 
     @cached_property
-    def comm(self) -> MPI.Comm:
+    def comm(self) -> MPI.Comm | None:
         return single_valued([self.raxes.comm, self.caxes.comm])
 
     @property

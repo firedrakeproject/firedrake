@@ -13,7 +13,7 @@ from pyrsistent import freeze, pmap
 from pyop3.dtypes import IntType, ScalarType
 from pyop3.lang import KernelArgument
 from pyop2.mpi import COMM_SELF
-from pyop3.sf import StarForest, serial_forest
+from pyop3.sf import StarForest
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, readonly
 
 
@@ -50,7 +50,7 @@ def record_modified(func):
     return wrapper
 
 
-class Buffer(KernelArgument, abc.ABC):
+class AbstractBuffer(KernelArgument, abc.ABC):
     DEFAULT_DTYPE = ScalarType
 
     @property
@@ -59,17 +59,12 @@ class Buffer(KernelArgument, abc.ABC):
         pass
 
     @property
-    @abc.abstractmethod
-    def datamap(self):
-        pass
-
-    @property
     def kernel_dtype(self):
         return self.dtype
 
 
 # TODO: Should this carry a size?
-class NullBuffer(Buffer):
+class NullBuffer(AbstractBuffer):
     """A buffer that does not carry data.
 
     This is useful for handling temporaries when we generate code. For much
@@ -88,12 +83,8 @@ class NullBuffer(Buffer):
     def dtype(self):
         return self._dtype
 
-    @property
-    def datamap(self):
-        return pmap()
 
-
-class DistributedBuffer(Buffer):
+class Buffer(AbstractBuffer):
     """An array distributed across multiple processors with ghost values."""
 
     # NOTE: When GPU support is added, the host-device awareness and
@@ -102,46 +93,19 @@ class DistributedBuffer(Buffer):
     # NOTE: It is probably easiest to treat the data as being "moved into" the
     # DistributedArray. But copies should ideally be avoided?
 
-    _prefix = "array"
+    _prefix = "buffer"
     _name_generator = UniqueNameGenerator()
 
-    def __init__(
-        self,
-        shape,
-        dtype=None,
-        sf=None,
-        *,
-        name=None,
-        prefix=None,
-        data=None,
-    ):
-        shape = as_tuple(shape)
-
-        if not all(isinstance(s, numbers.Integral) for s in shape):
-            raise TypeError
-
-        if dtype is None:
-            dtype = self.DEFAULT_DTYPE
-
+    def __init__(self, data: np.ndarray, sf: StarForest | None, *, name=None, prefix=None):
         if name and prefix:
             raise ValueError("Can only specify one of name and prefix")
 
-        if data is not None:
-            if data.shape != shape:
-                raise ValueError
-            if data.dtype != dtype:
-                raise ValueError
+        name = name or self._name_generator(prefix or self._prefix)
 
-        if sf is None:
-            size = np.prod(shape, dtype=IntType)  # should be more obvious
-            sf = serial_forest(size)
-
-        self.shape = shape
-        self._dtype = dtype
+        # FIXME: Clearly not lazy!
         self._lazy_data = data
         self.sf = sf
-
-        self.name = name or self._name_generator(prefix or self._prefix)
+        self.name = name
 
         # counter used to keep track of modifications
         self.state = 0
@@ -151,17 +115,21 @@ class DistributedBuffer(Buffer):
         self._pending_reduction = None
         self._finalizer = None
 
-    # @classmethod
-    # def from_array(cls, array: np.ndarray, **kwargs):
-    #     return cls(array.shape, array.dtype, data=array, **kwargs)
+    @classmethod
+    def empty(cls, size, dtype=None, **kwargs):
+        if dtype is None:
+            dtype = cls.DEFAULT_DTYPE
+
+        data = np.empty(size, dtype=dtype)
+        return cls(data, **kwargs)
 
     @property
-    def comm(self) -> MPI.Comm | None:
-        return self.sf.comm if self.sf else None
+    def comm(self) -> MPI.Comm:
+        return self.sf.comm
 
     @property
     def dtype(self):
-        return self._dtype
+        return self._data.dtype
 
     @property
     @not_in_flight
@@ -247,6 +215,10 @@ class DistributedBuffer(Buffer):
         self._leaves_valid = False
         return self._data
 
+    @property
+    def size(self) -> int:
+        return self._data.size
+
     def copy(self):
         return type(self)(
             self.shape,
@@ -259,10 +231,6 @@ class DistributedBuffer(Buffer):
     @property
     def leaves_valid(self) -> bool:
         return self._leaves_valid
-
-    @property
-    def datamap(self):
-        return freeze({self.name: self})
 
     @property
     def _data(self):
@@ -357,7 +325,7 @@ class DistributedBuffer(Buffer):
         self._broadcast_roots_to_leaves()
 
 
-class PackedBuffer(Buffer):
+class PackedBuffer(AbstractBuffer):
     """Abstract buffer originating from a function call.
 
     For example, the buffer returned from ``MatGetValues`` is such a "packed"

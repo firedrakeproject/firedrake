@@ -68,8 +68,11 @@ def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, axis: Axis) -> tuple[Sta
     for component in axis.components:
         if component.sf is not None:
             # do not recurse further
-            section = axis_tree.component_section((axis, component))
-            petsc_sf = create_section_sf(component.sf.sf, section)
+            if axis_tree.child(axis, component):
+                section = axis_tree.component_section((axis, component))
+                petsc_sf = create_section_sf(component.sf.sf, section)
+            else:
+                petsc_sf = component.sf.sf
 
             size = component.size
             if subaxis := axis_tree.child(axis, component):

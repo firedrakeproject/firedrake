@@ -19,9 +19,7 @@ from itertools import chain
 from typing import Any, FrozenSet, Hashable, Mapping, Optional, Tuple, Union
 
 import numpy as np
-import pymbolic as pym
 import pyrsistent
-import pytools
 from cachetools import cachedmethod
 from mpi4py import MPI
 from immutabledict import ImmutableOrderedDict
@@ -31,7 +29,7 @@ from pyrsistent import freeze, pmap, thaw, PMap
 from pyop2.caching import cached_on, CacheMixin
 from pyop3.exceptions import Pyop3Exception
 from pyop3.dtypes import IntType
-from pyop3.sf import StarForest, serial_forest
+from pyop3.sf import StarForest, local_sf
 from pyop2.mpi import COMM_SELF
 from pyop3.tree import (
     LabelledNodeComponent,
@@ -230,6 +228,12 @@ class AxisComponentRegion:
     size: Any  # IntType or Dat or UNIT
     label: str | None = None
 
+    def __post_init__(self):
+        from pyop3.array import _ExpressionDat
+        if not isinstance(self.size, numbers.Integral):
+            assert isinstance(self.size, _ExpressionDat)
+            assert self.size.dat.sf is None
+
     def __str__(self) -> str:
         return f"({self.size}, {self.label})"
 
@@ -243,6 +247,8 @@ def _parse_regions(obj: Any) -> tuple[AxisComponentRegion, ...]:
         # set of requirements than generic Dats so we eagerly cast them to
         # the constrained type here.
         orig_dat = obj
+        bf = orig_dat.buffer
+        orig_dat = Dat(orig_dat.axes.undistribute(), buffer=type(bf)(bf._data,sf=None))
         dat = orig_dat._as_expression_dat()
         # debugging
         # interesting, this change breaks stuff!!!
@@ -991,6 +997,15 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
         axes = AxisTree(parent_to_children)
 
+    @property
+    @abc.abstractmethod
+    def _undistributed(self):
+        pass
+
+    def undistribute(self):
+        """Return the axis tree discarding parallel overlap information."""
+        return self._undistributed
+
     def offset(self, indices, path=None, *, loop_exprs=pmap()):
         from pyop3.axtree.layout import eval_offset
         return eval_offset(
@@ -1099,28 +1114,32 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     def sf(self) -> StarForest:
         from pyop3.axtree.parallel import collect_star_forests, concatenate_star_forests
 
-        # for now
-        # # NOTE: what is global_size used for? very confusing name
-        # return serial_forest(self.global_size)
-        #
-        # if self.is_empty:
-        #     # no, this is probably not right. Could have a global
-        #     return serial_forest(self.global_size)
-
-        sfs = collect_star_forests(self)
-        return concatenate_star_forests(sfs)
+        has_sfs = bool(list(filter(None, (component.sf for axis in self.axes for component in axis.components))))
+        if has_sfs:
+            sfs = collect_star_forests(self)
+            return concatenate_star_forests(sfs)
+        else:
+            return None
+            return local_sf(self.size, self.comm)
 
     def component_section(self, component_spec) -> PETSc.Section:
         from pyop3.array import Dat
         from pyop3.axtree.layout import _axis_tree_size_rec
+        from pyop3.expr_visitors import extract_axes
 
         axis, component = component_spec
         root = self.child(axis, component)
         size_expr = _axis_tree_size_rec(self, root)
-        size_dat = Dat(Axis(component.count), dtype=IntType)
+
+        if isinstance(size_expr, int):
+            size_axes = Axis(component.count)
+        else:
+            path = self.path_with_nodes(axis, component, and_components=True)
+            size_axes = extract_axes(size_expr, path, pmap(), {})
+        size_dat = Dat.empty(size_axes, dtype=IntType)
         size_dat.assign(size_expr, eager=True)
 
-        sizes = size_dat.buffer.data_ro
+        sizes = size_dat.buffer.data_ro_with_halos
 
         section = PETSc.Section().create(comm=self.comm)
         section.setChart(0, component.count)
@@ -1362,6 +1381,24 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     @property
     def unindexed(self):
         return self
+
+    @cached_property
+    def _undistributed(self):
+        undistributed_root, subnode_map = self._undistribute_rec(self.root)
+        node_map = {None: (undistributed_root,)} | subnode_map
+        return type(self)(node_map)
+
+    def _undistribute_rec(self, axis):
+        undistributed_axis = axis.copy(components=[c.copy(sf=None) for c in axis.components])
+        node_map = {undistributed_axis.id: []}
+        for component in axis.components:
+            if subaxis := self.child(axis, component):
+                undistributed_subaxis, subnode_map = self._undistribute_rec(subaxis)
+                node_map[undistributed_axis.id].append(undistributed_subaxis)
+                node_map.update(subnode_map)
+            else:
+                node_map[undistributed_axis.id].append(None)
+        return undistributed_axis, node_map
 
     @cached_property
     def paths(self):
@@ -1634,6 +1671,10 @@ class IndexedAxisTree(AbstractAxisTree):
 
         return axes
 
+    @property
+    def _undistributed(self):
+        raise NotImplementedError("TODO")
+
     @cached_property
     def layout_axes(self) -> AxisTree:
         if not self.outer_loops:
@@ -1716,7 +1757,7 @@ class IndexedAxisTree(AbstractAxisTree):
     def _buffer_slice(self) -> np.ndarray[IntType]:
         from pyop3 import Dat, do_loop
 
-        mask_dat = Dat(self.unindexed, dtype=bool, prefix="mask")
+        mask_dat = Dat.empty(self.unindexed.undistribute(), dtype=bool, prefix="mask")
         do_loop(p := self.index(), mask_dat[p].assign(1))
         indices = just_one(np.nonzero(mask_dat.buffer.data_ro))
 

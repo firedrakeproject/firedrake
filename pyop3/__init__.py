@@ -45,7 +45,7 @@ from pyop3.axtree import (  # noqa: F401
     AxisVar,
     IndexedAxisTree,
 )
-from pyop3.buffer import DistributedBuffer, NullBuffer  # noqa: F401
+from pyop3.buffer import Buffer, NullBuffer  # noqa: F401
 from pyop3.dtypes import IntType, ScalarType  # noqa: F401
 from pyop3.itree import (  # noqa: F401
     AffineSliceComponent,
@@ -79,7 +79,7 @@ from pyop3.lang import (  # noqa: F401
     do_loop,
     _loop as loop,
 )
-from pyop3.sf import StarForest, serial_forest, single_star
+from pyop3.sf import StarForest, single_star_sf
 from . import utils
 
 del _os

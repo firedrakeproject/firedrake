@@ -26,7 +26,7 @@ from pyop3.array import Dat, _Dat, _ExpressionDat, _ConcretizedDat, _Concretized
 from pyop3.array.base import Array
 from pyop3.array.petsc import Mat, AbstractMat
 from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent
-from pyop3.buffer import DistributedBuffer, NullBuffer, PackedBuffer
+from pyop3.buffer import Buffer, NullBuffer, PackedBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
 from pyop3.ir.transform import with_likwid_markers, with_petsc_event
@@ -41,6 +41,7 @@ from pyop3.lang import (
     READ,
     RW,
     AbstractAssignment,
+    NullInstruction,
     parse_compiler_parameters,
     WRITE,
     AssignmentType,
@@ -207,7 +208,7 @@ class LoopyCodegenContext(CodegenContext):
         # NOTE: It only makes sense to inject *buffers*, not, say, Dats
         # except that isn't totally true. One could have dat[::2] as a constant and only
         # want to inject the used entries
-        elif array.constant and array.buffer.shape[0] < config["max_static_array_size"]:
+        elif array.constant and array.buffer.size < config["max_static_array_size"]:
             name = self.unique_name("t")
             arg = lp.TemporaryVariable(
                 name,
@@ -216,7 +217,7 @@ class LoopyCodegenContext(CodegenContext):
                 address_space=lp.AddressSpace.LOCAL,
                 read_only=True,
             )
-        elif isinstance(array.buffer, DistributedBuffer):
+        elif isinstance(array.buffer, Buffer):
             name = self.unique_name("buffer")
             arg = lp.GlobalArg(name, dtype=self._dtype(array), shape=None)
         else:
@@ -280,7 +281,7 @@ class LoopyCodegenContext(CodegenContext):
     def _(self, array):
         return self._dtype(array.buffer)
 
-    @_dtype.register(DistributedBuffer)
+    @_dtype.register(Buffer)
     def _(self, array):
         return array.dtype
 
@@ -520,6 +521,7 @@ def _(loop: Loop, /):
 
 
 @_collect_temporary_shapes.register(AbstractAssignment)
+@_collect_temporary_shapes.register(NullInstruction)
 def _(assignment: AbstractAssignment, /) -> PMap:
     return pmap()
 
@@ -539,6 +541,11 @@ def _(call: DirectCalledFunction):
 @functools.singledispatch
 def _compile(expr: Any, loop_indices, ctx: LoopyCodegenContext) -> None:
     raise TypeError(f"No handler defined for {type(expr).__name__}")
+
+
+@_compile.register(NullInstruction)
+def _(null: NullInstruction, *args, **kwargs):
+    pass
 
 
 @_compile.register(InstructionList)
@@ -1179,7 +1186,7 @@ def _(arg: _Dat):
 
 
 @as_kernel_arg.register
-def _(arg: DistributedBuffer):
+def _(arg: Buffer):
     # TODO if we use the right accessor here we modify the state appropriately
     # NOTE: Do not use .data_rw accessor here since this would trigger a halo exchange
     return as_kernel_arg(arg._data)

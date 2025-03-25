@@ -12,13 +12,14 @@ from typing import Any, Union
 
 import numpy as np
 from petsc4py import PETSc
+from pyop3.sf import local_sf
 from pyrsistent import pmap, PMap
 from immutabledict import ImmutableOrderedDict
 
 from pyop3.array import Dat, Array, Mat, Sparsity, _ConcretizedDat, _ConcretizedMat, _ExpressionDat, AbstractMat
 from pyop3.axtree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
 from pyop3.axtree.tree import Operator, AxisVar, IndexedAxisTree, prune_zero_sized_branches
-from pyop3.buffer import DistributedBuffer, NullBuffer, PackedBuffer
+from pyop3.buffer import Buffer, NullBuffer, PackedBuffer
 from pyop3.dtypes import IntType
 from pyop3.itree import Map, TabulatedMapComponent, collect_loop_contexts
 from pyop3.itree.tree import LoopIndexVar
@@ -245,11 +246,11 @@ class ImplicitPackUnpackExpander(Transformer):
             if intent != NA and _requires_pack_unpack(arg):
                 # TODO: Make generic across Array types
                 if isinstance(arg, Dat):
+                    # arg.axes.materialize(),  # TODO
                     axes = AxisTree(arg.axes.node_map)
                     temporary = Dat(
-                        # arg.axes.materialize(),  # TODO
                         axes,
-                        data=NullBuffer(arg.dtype),  # does this need a size?
+                        buffer=NullBuffer(arg.dtype),  # does this need a size?
                         prefix="t",
                     )
                 else:
@@ -364,6 +365,7 @@ def _(loop: Loop, /) -> Loop:
 
 @expand_assignments.register(DirectCalledFunction)
 @expand_assignments.register(PetscMatAssignment)
+@expand_assignments.register(NullInstruction)
 def _(func: DirectCalledFunction, /) -> DirectCalledFunction:
     return func
 
@@ -432,7 +434,7 @@ def _(array: Array, /, access_type):
         if isinstance(array, Dat):
             temp_initial = Dat(
                 AxisTree(array.parent.axes.node_map),
-                data=NullBuffer(array.dtype),
+                buffer=NullBuffer(array.dtype),
                 prefix="t"
             )
             temp_reshaped = temp_initial.with_axes(array.axes)
@@ -485,6 +487,7 @@ def _(loop: Loop, /) -> Loop:
 
 
 @prepare_petsc_calls.register(DirectCalledFunction)
+@prepare_petsc_calls.register(NullInstruction)
 def _(func: DirectCalledFunction, /) -> DirectCalledFunction:
     return func
 
@@ -507,7 +510,13 @@ def _(assignment: BufferAssignment, /) -> InstructionList:
         # for MatSetValues to work.
         if isinstance(assignment.expression, numbers.Number):
             # TODO: There must be a more elegant way of doing this
-            expression = Mat(AxisTree(mat.raxes.node_map), AxisTree(mat.caxes.node_map), mat=np.full(mat.alloc_size, assignment.expression, dtype=mat.dtype), prefix="t", constant=True)
+            expr_raxes = AxisTree(mat.raxes.node_map)
+            expr_caxes = AxisTree(mat.caxes.node_map)
+            expr_sf = local_sf(expr_raxes.alloc_size*expr_caxes.alloc_size, comm=mat.comm)
+            expr_data = np.full(mat.alloc_size, assignment.expression, dtype=mat.dtype)
+            expr_buffer = Buffer(expr_data, expr_sf)
+            expression = Mat(
+                expr_raxes, expr_caxes, mat=expr_buffer, prefix="t", constant=True)
         else:
             assert (
                 isinstance(assignment.expression, (Mat, _ConcretizedMat))
@@ -750,7 +759,7 @@ def materialize_composite_dat(dat: CompositeDat) -> _ExpressionDat:
         return None
 
     # FIXME: This is almost certainly wrong in general
-    result = Dat(axes, dtype=IntType)
+    result = Dat.empty(axes, dtype=IntType)
 
     # replace LoopIndexVars in the expression with AxisVars
     loop_index_replace_map = {}
@@ -901,6 +910,7 @@ def _(assignment: NonEmptyPetscMatAssignment, /, loop_axes_acc) -> NonEmptyPetsc
 
 
 @_concretize_arrays_rec.register(DirectCalledFunction)
+@_concretize_arrays_rec.register(NullInstruction)
 def _(func: DirectCalledFunction, /, loop_axes_acc) -> DirectCalledFunction:
     return func
 
@@ -952,5 +962,6 @@ def _(assignment: PetscMatAssignment, /) -> NonEmptyPetscMatAssignment | NullIns
 
 
 @drop_zero_sized_paths.register(DirectCalledFunction)
+@drop_zero_sized_paths.register(NullInstruction)
 def _(func: DirectCalledFunction, /) -> DirectCalledFunction:
     return func

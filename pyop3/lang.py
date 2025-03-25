@@ -210,9 +210,6 @@ class Instruction(UniqueRecord, abc.ABC):
 
         insn = drop_zero_sized_paths(insn)
 
-        if isinstance(insn, NullInstruction):
-            raise NotImplementedError("crash gracefully, nothing to do")
-
         if compiler_parameters.compress_indirection_maps:
             insn = compress_indirection_maps(insn)
 
@@ -349,10 +346,10 @@ class Loop(Instruction):
 
     @cached_property
     def is_parallel(self):
-        from pyop3.buffer import DistributedBuffer
+        from pyop3.buffer import Buffer
 
         for arg in self.kernel_arguments:
-            if isinstance(arg, DistributedBuffer):
+            if isinstance(arg, Buffer):
                 # if arg.is_distributed:
                 if arg.comm.size > 1:
                     return True
@@ -389,7 +386,7 @@ class Loop(Instruction):
             Collections of callables to be executed at the right times.
 
         """
-        from pyop3 import DistributedBuffer, Dat, Mat
+        from pyop3 import Buffer, Dat, Mat
         from pyop3.array.harray import ContextSensitiveDat
 
         initializers = []
@@ -398,7 +395,7 @@ class Loop(Instruction):
         for arg, intent in self.function_arguments:
             if isinstance(arg, Dat):
                 buffer = arg.buffer
-                if isinstance(buffer, DistributedBuffer) and buffer.is_distributed:
+                if isinstance(buffer, Buffer) and buffer.is_distributed:
                     # for now assume the most conservative case
                     touches_ghost_points = True
 
@@ -996,13 +993,13 @@ def fix_intents(tunit, accesses):
 @functools.singledispatch
 def _collect_kernel_arguments(func_arg: FunctionArgument) -> tuple:
     from pyop3 import Dat, Mat  # cyclic import
-    from pyop3.buffer import DistributedBuffer, NullBuffer
+    from pyop3.buffer import Buffer, NullBuffer
 
     if isinstance(func_arg, Dat):
         return _collect_kernel_arguments(func_arg.buffer)
     elif isinstance(func_arg, Mat):
         return _collect_kernel_arguments(func_arg.mat)
-    elif isinstance(func_arg, DistributedBuffer):
+    elif isinstance(func_arg, Buffer):
         return (func_arg,)
     elif isinstance(func_arg, NullBuffer):
         return ()

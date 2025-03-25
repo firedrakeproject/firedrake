@@ -52,7 +52,7 @@ def array(comm):
     serial = op3.Axis(npoints)
     axis = op3.Axis.from_serial(serial, sf)
     axes = op3.AxisTree.from_nest({axis: op3.Axis(3)}).freeze()
-    return op3.DistributedBuffer(axes.size, axes.sf)
+    return op3.Buffer(axes.size, axes.sf)
 
 
 @pytest.mark.parallel(nprocs=2)
