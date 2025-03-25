@@ -1,5 +1,6 @@
 import abc
 import ufl
+import warnings
 import finat.ufl
 from ufl.domain import extract_unique_domain
 from typing import Optional, Union
@@ -131,6 +132,16 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
         form_compiler_parameters=None, constant_jacobian=True,
         use_slate_for_inverse=True, quadrature_degree=None
     ):
+        if quadrature_degree is not None:
+            warnings.warn(f"Passing 'quadrature_degree' to {type(self).__name__} is deprecated, "
+                          "please instead set inside the form compiler parameters", FutureWarning)
+            if form_compiler_parameters is not None:
+                if "quadrature_degree" in form_compiler_parameters:
+                    raise ValueError("Cannot pass quadrature degree twice")
+                form_compiler_parameters = form_compiler_parameters.copy()
+            else:
+                form_compiler_parameters = {}
+            form_compiler_parameters["quadrature_degree"] = quadrature_degree
         if solver_parameters is None:
             solver_parameters = {}
         else:
@@ -163,7 +174,6 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
             is_variable_layers = True
         self.use_slate_for_inverse = (use_slate_for_inverse and is_dg and not is_variable_layers
                                       and (not complex_mode or SLATE_SUPPORTS_COMPLEX))
-        self.quadrature_degree = quadrature_degree
 
     @cached_property
     def A(self):
@@ -174,19 +184,19 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
         if not mixed and isinstance(F.finat_element, HDivTrace):
             if F.extruded:
                 a = (
-                    firedrake.inner(u, v)*firedrake.ds_t(degree=self.quadrature_degree)
-                    + firedrake.inner(u, v)*firedrake.ds_v(degree=self.quadrature_degree)
-                    + firedrake.inner(u, v)*firedrake.ds_b(degree=self.quadrature_degree)
-                    + firedrake.inner(u('+'), v('+'))*firedrake.dS_h(degree=self.quadrature_degree)
-                    + firedrake.inner(u('+'), v('+'))*firedrake.dS_v(degree=self.quadrature_degree)
+                    firedrake.inner(u, v)*firedrake.ds_t
+                    + firedrake.inner(u, v)*firedrake.ds_v
+                    + firedrake.inner(u, v)*firedrake.ds_b
+                    + firedrake.inner(u('+'), v('+'))*firedrake.dS_h
+                    + firedrake.inner(u('+'), v('+'))*firedrake.dS_v
                 )
             else:
                 a = (
-                    firedrake.inner(u, v)*firedrake.ds(degree=self.quadrature_degree)
-                    + firedrake.inner(u('+'), v('+'))*firedrake.dS(degree=self.quadrature_degree)
+                    firedrake.inner(u, v)*firedrake.ds
+                    + firedrake.inner(u('+'), v('+'))*firedrake.dS
                 )
         else:
-            a = firedrake.inner(u, v)*firedrake.dx(degree=self.quadrature_degree)
+            a = firedrake.inner(u, v)*firedrake.dx
         if self.use_slate_for_inverse:
             a = firedrake.Tensor(a).inv
         A = firedrake.assemble(a, bcs=self.bcs,
@@ -245,20 +255,20 @@ class BasicProjector(ProjectorBase):
             # but we only cover DGT.
             if F.extruded:
                 form = (
-                    firedrake.inner(self.source, v)*firedrake.ds_t(degree=self.quadrature_degree)
-                    + firedrake.inner(self.source, v)*firedrake.ds_v(degree=self.quadrature_degree)
-                    + firedrake.inner(self.source, v)*firedrake.ds_b(degree=self.quadrature_degree)
-                    + firedrake.inner(firedrake.avg(self.source), firedrake.avg(v))*firedrake.dS_h(degree=self.quadrature_degree)
-                    + firedrake.inner(firedrake.avg(self.source), firedrake.avg(v))*firedrake.dS_v(degree=self.quadrature_degree)
+                    firedrake.inner(self.source, v)*firedrake.ds_t
+                    + firedrake.inner(self.source, v)*firedrake.ds_v
+                    + firedrake.inner(self.source, v)*firedrake.ds_b
+                    + firedrake.inner(firedrake.avg(self.source), firedrake.avg(v))*firedrake.dS_h
+                    + firedrake.inner(firedrake.avg(self.source), firedrake.avg(v))*firedrake.dS_v
                 )
             else:
                 form = (
-                    firedrake.inner(self.source, v)*firedrake.ds(degree=self.quadrature_degree)
-                    + firedrake.inner(firedrake.avg(self.source), firedrake.avg(v))*firedrake.dS(degree=self.quadrature_degree)
+                    firedrake.inner(self.source, v)*firedrake.ds
+                    + firedrake.inner(firedrake.avg(self.source), firedrake.avg(v))*firedrake.dS
                 )
 
         else:
-            form = firedrake.inner(self.source, v)*firedrake.dx(degree=self.quadrature_degree)
+            form = firedrake.inner(self.source, v)*firedrake.dx
         return form
 
     @cached_property

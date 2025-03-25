@@ -9,7 +9,6 @@ import FIAT
 import ufl
 import finat.ufl
 from ufl.algorithms import extract_arguments, extract_coefficients, replace
-from ufl.algorithms.signature import compute_expression_signature
 from ufl.domain import as_domain, extract_unique_domain
 
 from pyop2 import op2
@@ -17,7 +16,7 @@ from pyop2.caching import memory_and_disk_cache
 
 from finat.element_factory import create_element, as_fiat_cell
 from tsfc import compile_expression_dual_evaluation
-from tsfc.ufl_utils import extract_firedrake_constants
+from tsfc.ufl_utils import extract_firedrake_constants, hash_expr
 
 import gem
 import finat
@@ -517,7 +516,7 @@ class CrossMeshInterpolator(Interpolator):
             missing_points_behaviour = MissingPointsBehaviour.ERROR
 
         # setup
-        V_dest = V
+        V_dest = V.function_space() if isinstance(V, firedrake.Function) else V
         src_mesh = extract_unique_domain(expr)
         dest_mesh = as_domain(V_dest)
         src_mesh_gdim = src_mesh.geometric_dimension()
@@ -574,7 +573,7 @@ class CrossMeshInterpolator(Interpolator):
                     # with arguments, as opposed to just being the argument.
                     expr_subfunctions = [
                         firedrake.TestFunction(V_src_sub_func)
-                        for V_src_sub_func in self.expr.function_space().subfunctions
+                        for V_src_sub_func in self.expr.function_space().subspaces
                     ]
                 elif self.nargs > 1:
                     raise NotImplementedError(
@@ -582,16 +581,16 @@ class CrossMeshInterpolator(Interpolator):
                     )
                 else:
                     expr_subfunctions = self.expr.subfunctions
-                if len(expr_subfunctions) != len(V_dest.subfunctions):
+                if len(expr_subfunctions) != len(V_dest.subspaces):
                     raise NotImplementedError(
                         "Can't interpolate from a non-mixed function space into a mixed function space."
                     )
-                for input_sub_func, target_sub_func in zip(
-                    expr_subfunctions, V_dest.subfunctions
+                for input_sub_func, target_subspace in zip(
+                    expr_subfunctions, V_dest.subspaces
                 ):
                     sub_interpolator = type(self)(
                         input_sub_func,
-                        target_sub_func,
+                        target_subspace,
                         subset=subset,
                         freeze_expr=freeze_expr,
                         access=access,
@@ -877,7 +876,12 @@ class SameMeshInterpolator(Interpolator):
                 V = self.V
             result = output or firedrake.Function(V)
             with function.dat.vec_ro as x, result.dat.vec_wo as out:
-                mul(x, out)
+                if x is not out:
+                    mul(x, out)
+                else:
+                    out_ = out.duplicate()
+                    mul(x, out_)
+                    out_.copy(result=out)
             return result
 
         else:
@@ -1450,20 +1454,6 @@ class GlobalWrapper(object):
         self.dat = glob
         self.cell_node_map = lambda *arguments: None
         self.ufl_domain = lambda: None
-
-
-def hash_expr(expr):
-    """Return a numbering-invariant hash of a UFL expression.
-
-    :arg expr: A UFL expression.
-    :returns: A numbering-invariant hash for the expression.
-    """
-    domain_numbering = {d: i for i, d in enumerate(ufl.domain.extract_domains(expr))}
-    coefficient_numbering = {c: i for i, c in enumerate(extract_coefficients(expr))}
-    constant_numbering = {c: i for i, c in enumerate(extract_firedrake_constants(expr))}
-    return compute_expression_signature(
-        expr, {**domain_numbering, **coefficient_numbering, **constant_numbering}
-    )
 
 
 class VomOntoVomWrapper(object):

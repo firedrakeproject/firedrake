@@ -104,7 +104,7 @@ built over the ``my_ensemble.comm`` (spatial) communicator.
 ::
 
     import os
-    if os.getenv("FIREDRAKE_CI_TESTS") == "1": 
+    if os.getenv("FIREDRAKE_CI") == "1": 
         # Setup for a faster test execution.
         dt = 0.03  # time step in seconds
         final_time = 0.6  # final time in seconds
