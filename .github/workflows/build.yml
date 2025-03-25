@@ -92,7 +92,6 @@ jobs:
             --no-binary h5py \
             --extra-index-url https://download.pytorch.org/whl/cpu \
             './firedrake-repo[ci]'
-          pip install -I "fenics-ufl @ git+https://github.com/firedrakeproject/ufl.git@pbrubeck/merge-upstream"
           firedrake-clean
           pip list
 
