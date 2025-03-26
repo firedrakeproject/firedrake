@@ -96,6 +96,10 @@ def test_no_bcs():
     ep = LinearEigenproblem(inner(grad(u), grad(v)) * dx,
                             inner(u, v)*dx)
 
-    es = LinearEigensolver(ep, 1, solver_parameters={"eps_gen_hermitian": None})
+    es = LinearEigensolver(ep, 1, solver_parameters={"eps_gen_hermitian": None,
+                                                     "eps_smallest_magnitude": None})
 
-    es.solve()
+    nconv = es.solve()
+    assert nconv > 0
+    eig = es.eigenvalue(0)
+    assert abs(eig) < 1.0e-14
