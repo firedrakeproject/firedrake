@@ -141,6 +141,8 @@ class _SNESContext(object):
     :arg pmat_type: Indicates whether the preconditioner (if present) is assembled
         monolithically ('aij'), as a block sparse matrix ('nest') or
         matrix-free (as :class:`~.ImplicitMatrix`, 'matfree').
+    :arg sub_mat_type: Indicates the matrix type for the sparse blocks
+        if mat_type='nest', ignored otherwise.
     :arg appctx: Any extra information used in the assembler.  For the
         matrix-free case this will contain the Newton state in
         ``"state"``.
@@ -166,13 +168,12 @@ class _SNESContext(object):
     """
     @PETSc.Log.EventDecorator()
     def __init__(self, problem, mat_type, pmat_type,
-                 appctx=None,
+                 sub_mat_type=None, appctx=None,
                  pre_jacobian_callback=None, pre_function_callback=None,
                  post_jacobian_callback=None, post_function_callback=None,
                  options_prefix=None,
                  transfer_manager=None,
-                 pre_apply_bcs=True,
-                 sub_mat_type=None):
+                 pre_apply_bcs=True):
         from firedrake.assemble import get_assembler
 
         if pmat_type is None:

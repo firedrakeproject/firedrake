@@ -258,14 +258,14 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         ctx = solving_utils._SNESContext(problem,
                                          mat_type=mat_type,
                                          pmat_type=pmat_type,
+                                         sub_mat_type=sub_mat_type,
                                          appctx=appctx,
                                          pre_jacobian_callback=pre_jacobian_callback,
                                          pre_function_callback=pre_function_callback,
                                          post_jacobian_callback=post_jacobian_callback,
                                          post_function_callback=post_function_callback,
                                          options_prefix=self.options_prefix,
-                                         pre_apply_bcs=pre_apply_bcs,
-                                         sub_mat_type=sub_mat_type)
+                                         pre_apply_bcs=pre_apply_bcs)
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
 
