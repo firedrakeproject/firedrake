@@ -113,11 +113,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         of this this :class:`Cofunction`'s :class:`.FunctionSpace`."""
         return tuple(type(self)(fs, dat) for fs, dat in zip(self.function_space(), self.dat))
 
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
-
     @utils.cached_property
     def _components(self):
         if self.function_space().rank == 0:
@@ -408,11 +403,13 @@ class RieszMap:
     form_compiler_parameters: dict
         A dictionary of form compiler parameters to be passed to the
         variational problem that solves for the Riesz map.
+    restrict: bool
+        If `True`, use restricted function spaces in the Riesz map solver.
     """
 
     def __init__(self, function_space_or_inner_product=None,
                  sobolev_space=ufl.L2, *, bcs=None, solver_parameters=None,
-                 form_compiler_parameters=None):
+                 form_compiler_parameters=None, restrict=True):
         if isinstance(function_space_or_inner_product, ufl.Form):
             args = ufl.algorithms.extract_arguments(
                 function_space_or_inner_product
@@ -444,6 +441,7 @@ class RieszMap:
         self._bcs = bcs
         self._solver_parameters = solver_parameters or {}
         self._form_compiler_parameters = form_compiler_parameters or {}
+        self._restrict = restrict
 
     @staticmethod
     def _inner_product_form(sobolev_space, u, v):
@@ -465,7 +463,8 @@ class RieszMap:
         rhs = Cofunction(self._function_space.dual())
         soln = Function(self._function_space)
         lvp = LinearVariationalProblem(
-            self._inner_product, rhs, soln, bcs=self._bcs, restrict=True,
+            self._inner_product, rhs, soln, bcs=self._bcs,
+            restrict=self._restrict,
             form_compiler_parameters=self._form_compiler_parameters)
         solver = LinearVariationalSolver(
             lvp, solver_parameters=self._solver_parameters
