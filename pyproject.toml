@@ -33,8 +33,8 @@ dependencies = [
   "rtree>=1.2",
   "scipy",
   "sympy",
-  "fenics-ufl @ git+https://github.com/firedrakeproject/ufl.git",
-  "fenics-fiat @ git+https://github.com/firedrakeproject/fiat.git",
+  "fenics-ufl @ git+https://github.com/firedrakeproject/ufl.git@ksagiyam/introduce_mixed_map",
+  "fenics-fiat @ git+https://github.com/firedrakeproject/fiat.git@ksagiyam/introduce_mixed_map",
   "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint.git",
   "loopy @ git+https://github.com/firedrakeproject/loopy.git@main",
 ]
