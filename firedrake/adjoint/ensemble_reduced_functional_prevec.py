@@ -4,9 +4,8 @@ from pyadjoint import ReducedFunctional, Control, set_working_tape, AdjFloat, no
 from pyadjoint.enlisting import Enlist
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
-from .ensemble_adjvec import EnsembleAdjVec
 from firedrake.ensemble.ensemble_function import (
-    EnsembleFunctionSpace, EnsembleFunction, EnsembleFunctionBase)
+    EnsembleFunctionSpace, EnsembleFunction, EnsembleCofunction, EnsembleFunctionBase)
 
 __all__ = (
     "EnsembleReducedFunctional",
@@ -23,15 +22,7 @@ def _intermediate_options(options):
 
 
 def _local_subs(val):
-    if isinstance(val, EnsembleFunctionBase):
-        return val.subfunctions
-    elif isinstance(val, EnsembleAdjVec):
-        return val.subvec
-    elif isinstance(val, (list, tuple)):
-        return val
-    else:
-        raise TypeError(
-            f"Cannot use {type(val).__name__} as an ensemble overloaded type.")
+    return val.subfunctions if isinstance(val, EnsembleFunctionBase) else val
 
 
 def _set_local_subs(dst, src):
@@ -120,31 +111,18 @@ class EnsembleReducedFunctional(ReducedFunctional):
 
         if bcast_control:
             # controls are Functions, so need EnsembleFunctions for Transform input
-            ensemble_controls = []
-            for cntrl in self.controls:
-                if isinstance(cntrl.control, float):
-                    ensemble_controls.append(
-                        EnsembleAdjVec(
-                            [AdjFloat(0.) for _ in range(len(rfs))],
-                            ensemble))
+            ensemble_control_spaces = [
+                EnsembleFunctionSpace([c.control.function_space()
+                                       for _ in range(len(rfs))], ensemble)
+                for c in self.controls]
 
-                elif isinstance(cntrl.control, (Function, Cofunction)):
-                    control_space = EnsembleFunctionSpace(
-                        [cntrl.control.function_space() for _ in range(len(rfs))],
-                        ensemble)
-                    ensemble_controls.append(
-                        EnsembleFunction(control_space))
-
-                else:
-                    TypeError(
-                        f"Don't know how to broadcast controls of type {type(cntrl.control).__name__}")
+            ensemble_controls = [
+                Control(EnsembleFunction(space)) for space in ensemble_control_spaces]
 
             self.bcast_rfs = [
                 EnsembleBcastReducedFunctional(
-                    ec, Control(c.control._ad_copy()), ensemble=ensemble)
+                    ec.control, Control(c.control._ad_copy()), ensemble=ensemble)
                 for ec, c in zip(ensemble_controls, self.controls)]
-
-            ensemble_controls = [Control(ec) for ec in ensemble_controls]
 
         else:
             ensemble_controls = self.controls
@@ -152,10 +130,9 @@ class EnsembleReducedFunctional(ReducedFunctional):
         if reduce_functional:
             # functional is Function or AdjFloat, so need EnsembleFunction for Transform output
             if isinstance(functional, float):
-                ensemble_functional = EnsembleAdjVec(
-                    [functional._ad_copy() for _ in range(len(rfs))],
-                    ensemble=ensemble)
-                reduce_control = Control(ensemble_functional)
+                ensemble_functional = [functional._ad_copy()
+                                       for _ in range(len(rfs))]
+                reduce_control = [Control(f) for f in ensemble_functional]
 
             elif isinstance(functional, Function):
                 ensemble_functional_space = EnsembleFunctionSpace(
@@ -238,9 +215,10 @@ class EnsembleReducedFunctional(ReducedFunctional):
                                           options=transform_options)
 
         if self.bcast_control:
-            dJ = self.controls.delist(
+            dJ = Enlist(dJ)
+            dJ = dJ.delist(
                 [bcast.derivative(adj_input=dj, options=options)
-                 for bcast, dj in zip(self.bcast_rfs, Enlist(dJ))])
+                 for bcast, dj in zip(self.bcast_rfs, dJ)])
 
         return dJ
 
@@ -262,9 +240,10 @@ class EnsembleReducedFunctional(ReducedFunctional):
         iopts = _intermediate_options(options)
 
         if self.bcast_control:
-            m_dot = self.controls.delist(
+            m_dot = Enlist(m_dot)
+            m_dot = m_dot.delist(
                 [bcast.tlm(md, options=iopts)
-                 for bcast, md in zip(self.bcast_rfs, Enlist(m_dot))])
+                 for bcast, md in zip(self.bcast_rfs, m_dot)])
 
         tlm_options = iopts if self.reduce_functional else options
 
@@ -314,10 +293,11 @@ class EnsembleReducedFunctional(ReducedFunctional):
             options=hessian_options)
 
         if self.bcast_control:
-            hessian = self.controls.delist(
+            hessian = Enlist(hessian)
+            hessian = hessian.delist(
                 [bcast.hessian(m_dot=None, evaluate_tlm=False,
                                hessian_input=hess, options=options)
-                 for bcast, hess in zip(self.bcast_rfs, Enlist(hessian))])
+                 for bcast, hess in zip(self.bcast_rfs, hessian)])
 
         return hessian
 
@@ -370,17 +350,20 @@ class EnsembleBcastReducedFunctional(ReducedFunctional, FunctionOrFloatMPIMixin)
         self.control = control
         self.root = root
 
+        # for AdjFloats functional is a list
+        self._functionals = Enlist(functional)
+
         if isinstance(control.control, AdjFloat):
-            if not isinstance(functional, EnsembleAdjVec):
+            if not all([isinstance(f, AdjFloat) for f in functional]):
                 raise TypeError(
-                    f"Functional for {type(self).__name__} must be an EnsembleAdjVec"
-                    " if using an AdjFloat control.")
-            if ensemble is not None and ensemble is not functional.ensemble:
+                    f"Functional for {type(self).__name__} must be a list of"
+                    " AdjFloats if using an AdjFloat control.")
+            if ensemble is None:
                 raise ValueError(
-                    f"Ensemble provided to {type(self).__name__} must match"
-                    " the ensemble of the functional.")
-            self.ensemble = functional.ensemble
-            self.nlocal_outputs = len(functional.subvec)
+                    f"Must provide {type(self).__name__} an Ensemble"
+                    " if using an AdjFloat control.")
+            self.ensemble = ensemble
+            self.nlocal_outputs = len(functional)
 
         elif isinstance(control.control, Function):
             if not isinstance(functional, EnsembleFunction):
@@ -397,7 +380,7 @@ class EnsembleBcastReducedFunctional(ReducedFunctional, FunctionOrFloatMPIMixin)
                     f"Ensemble provided to {type(self).__name__} must match"
                     " the ensemble of the functional.")
             self.ensemble = functional.function_space().ensemble
-            self.nlocal_outputs = len(functional.subfunctions)
+            self.nlocal_outputs = len(self.functional.subfunctions)
 
         else:
             raise ValueError(
@@ -406,11 +389,31 @@ class EnsembleBcastReducedFunctional(ReducedFunctional, FunctionOrFloatMPIMixin)
 
     def __call__(self, values):
         val = self._bcast(values, root=self.root)
-        J = self.functional._ad_convert_type(0)
+
+        # "bcast" val into all elements of J (0+val = val)
+        J = self._functionals.delist([
+            functional._ad_convert_type(0)
+            for functional in self._functionals
+        ])
+        for Ji in _local_subs(J):
+            Ji._ad_iadd(val)
+
         _set_local_subs(J, [val for _ in range(self.nlocal_outputs)])
+
         return J
 
     def derivative(self, adj_input=1.0, options=None):
+        if isinstance(self.control.control, Function):
+            if not isinstance(adj_input, EnsembleCofunction):
+                raise TypeError(
+                    f"{type(self).__name__} needs an EnsembleCofunction"
+                    f" adj_input, not a {type(adj_input).__name__}")
+        else:
+            if not all([isinstance(adj, AdjFloat) for adj in adj_input]):
+                raise TypeError(
+                    f"{type(self).__name__} needs a list of AdjFloats"
+                    f" adj_input, not a {type(adj_input).__name__}")
+
         dJ = self._reduce(_local_subs(adj_input),
                           root=self.root)
 
@@ -441,16 +444,16 @@ class EnsembleReduceReducedFunctional(ReducedFunctional, FunctionOrFloatMPIMixin
         self.control = control
 
         if isinstance(functional, AdjFloat):
-            if not isinstance(control.control, EnsembleAdjVec):
+            if not all([isinstance(c.control, AdjFloat) for c in control]):
                 raise TypeError(
-                    f"Control for {type(self).__name__} must be an EnsembleAdjVec"
-                    "  if using an AdjFloat functional.")
-            if (ensemble is not None and ensemble is not control.control.ensemble):
+                    f"Control for {type(self).__name__} must be a list of"
+                    " AdjFloats if using an AdjFloat functional.")
+            if ensemble is None:
                 raise ValueError(
-                    f"Ensemble provided to {type(self).__name__} must match"
-                    " the ensemble of the control.")
+                    f"Must provide {type(self).__name__} an Ensemble"
+                    " if using an AdjFloat functional.")
             self.ensemble = ensemble
-            self.nlocal_inputs = len(control.subvec)
+            self.nlocal_inputs = len(control)
 
         elif isinstance(functional, Function):
             if not isinstance(control.control, EnsembleFunction):
@@ -467,7 +470,7 @@ class EnsembleReduceReducedFunctional(ReducedFunctional, FunctionOrFloatMPIMixin
                     f"Ensemble provided to {type(self).__name__} must match"
                     " the ensemble of the control.")
             self.ensemble = control.function_space().ensemble
-            self.nlocal_inputs = len(control.subfunctions)
+            self.nlocal_inputs = len(self.control.subfunctions)
 
         else:
             raise ValueError(
@@ -493,8 +496,12 @@ class EnsembleReduceReducedFunctional(ReducedFunctional, FunctionOrFloatMPIMixin
             dJ_local = self.functional._ad_convert_type(adj_input, options=options)
             dJ_local = [dJ_local for _ in range(self.nlocal_inputs)]
 
-        dJ_global = self.control._ad_convert_type(0, options=options)
+        dJ_global = self.controls.delist(
+            [c.control._ad_convert_type(0, options=options)
+             for c in self.controls])
+
         _set_local_subs(dJ_global, dJ_local)
+
         return dJ_global
 
     @no_annotations
@@ -515,8 +522,9 @@ class EnsembleReduceReducedFunctional(ReducedFunctional, FunctionOrFloatMPIMixin
 
     @cached_property
     def _sum_rf(self):
-        controls = [c._ad_convert_type(0.)
-                    for c in _local_subs(self.controls[0].control)]
+        subs = self.controls.delist(
+            [_local_subs(c.control) for c in self.controls])
+        controls = [c._ad_convert_type(0.) for c in subs]
         J = self.functional._ad_convert_type(0.)
         with set_working_tape() as tape:
             if isinstance(J, float):
@@ -541,66 +549,82 @@ class EnsembleTransformReducedFunctional(ReducedFunctional):
         self.functional = functional
         self.controls = Enlist(control)
 
+        # AdjFloat functional is a list but need to treat as a single object
+        self._flist = Enlist(functional)
+
+        # list[EFunction] -> EFunction
         if isinstance(functional, EnsembleFunction):
             if not all(isinstance(c.control, EnsembleFunction)
                        for c in self.controls):
                 raise TypeError(
                     f"Controls for {type(self).__name__} must be EnsembleFunctions")
-            if ensemble is not None and ensemble is not functional.function_space().ensemble:
-                raise ValueError(
-                    f"Ensemble provided to {type(self).__name__} must"
-                    " match the ensemble of the functional.")
+            if ensemble is not None:
+                ensembles = [c.control.function_space().ensemble
+                             for c in self.controls]
+                ensembles.append(functional.function_space().ensemble)
+                if not all(e is ensemble for e in ensembles):
+                    raise ValueError(
+                        f"Ensemble provided to {type(self).__name__} must"
+                        " match the ensemble of the controls and functional.")
 
             self.ensemble = functional.function_space().ensemble
             self.nlocal_outputs = len(functional.subfunctions)
 
-        elif isinstance(functional, EnsembleAdjVec):
-            if ensemble is not None and ensemble is not functional.ensemble:
+        # list[EFunction] -> list[AdjFloat]
+        elif isinstance(functional, list):
+            if not all(isinstance(f, AdjFloat) for f in functional):
+                raise TypeError(
+                    f"Functional for {type(self).__name__} must be either"
+                    " an EnsembleFunction or a list of AdjFloats")
+            if ensemble is None:
                 raise ValueError(
-                    f"Ensemble provided to {type(self).__name__} must"
-                    " match the ensemble of the functional.")
+                    f"Must provide {type(self).__name__} an Ensemble"
+                    " if using an AdjFloat functional.")
 
             self.ensemble = ensemble
-            self.nlocal_outputs = len(functional.subvec)
+            self.nlocal_outputs = len(functional)
 
         else:
             raise TypeError(
                 f"Functional for {type(self).__name__} must be either"
-                " an EnsembleFunction or EnsembleAdjVec")
+                " an EnsembleFunction or a list of AdjFloats")
 
     @no_annotations
     def __call__(self, values):
-        J = self.functional._ad_convert_type(0)
+        # For AdjFloat output, a single functional is a list of AdjFloats
+        J = [f._ad_convert_type(0) for f in self._flist]
+        if self._flist.listed:
+            J = [J]
 
-        with self._local_data(values, output=J) as (local_vals, output):
+        with self._local_data(data=Enlist(values), output=J) as (local_vals, output):
 
             output([rf(rf.controls.delist(vals))
                     for rf, vals in zip(self.rfs, local_vals)])
 
-        return J
+        return J[0]
 
     @no_annotations
     def tlm(self, m_dot, options=None):
-        tlm = self.functional._ad_convert_type(0)
+        tlm = [f._ad_convert_type(0) for f in self._flist]
+        if self._flist.listed:
+            tlm = [tlm]
 
-        with self._local_data(m_dot, output=tlm) as (local_mdots, output):
+        with self._local_data(data=Enlist(m_dot), output=tlm) as (local_mdots, output):
 
             output([rf.tlm(rf.controls.delist(md), options=options)
                     for rf, md in zip(self.rfs, local_mdots)])
 
-        return tlm
+        return tlm[0]
 
     def derivative(self, adj_input=1.0, options=None):
-        dJ = self.controls.delist(
-            [c.control._ad_convert_type(0, options=options)
-             for c in self.controls])
+        dJ = [c.control._ad_convert_type(0, options=options)
+              for c in self.controls]
 
-        with self._local_data(adj_input, output=dJ) as (local_adjs, output):
-
+        with self._local_data(data=[adj_input], output=dJ) as (local_adjs, output):
             output([rf.derivative(adj_input=adj[0], options=options)
                     for rf, adj in zip(self.rfs, local_adjs)])
 
-        return dJ
+        return self.controls.delist(dJ)
 
     @no_annotations
     def hessian(self, m_dot, options=None, hessian_input=0.0, evaluate_tlm=True):
@@ -608,16 +632,14 @@ class EnsembleTransformReducedFunctional(ReducedFunctional):
             iopts = _intermediate_options(options)
             self.tlm(m_dot, options=iopts)
 
-        hessian = self.controls.delist(
-            [c.control._ad_convert_type(0, options=options)
-             for c in self.controls])
+        hessian = [
+            c.control._ad_convert_type(0, options=options)
+            for c in self.controls]
 
-        with self._local_data(hessian_input, output=hessian) as (local_hessians, output):
-
+        with self._local_data(data=[hessian_input], output=hessian) as (local_hessians, output):
             output([rf.hessian(m_dot=None, evaluate_tlm=False,
                                hessian_input=hess[0], options=options)
                     for rf, hess in zip(self.rfs, local_hessians)])
-
         return hessian
 
     @contextmanager
@@ -632,7 +654,7 @@ class EnsembleTransformReducedFunctional(ReducedFunctional):
         # [(1,), (2,), (3,)]->  [(1, 2, 3)]
         # [(1, 11), (2, 12), (3, 13)] -> [(1, 2, 3), (11, 12, 13)]
 
-        for j, global_group in enumerate(Enlist(global_data)):
+        for j, global_group in enumerate(global_data):
             local_group = [Enlist(local_group)[j]
                            for local_group in local_data]
             _set_local_subs(global_group, local_group)
@@ -644,6 +666,8 @@ class EnsembleTransformReducedFunctional(ReducedFunctional):
         # [(1, 2, 3)] -> [(1,), (2,), (3,)]
         # [(1, 2, 3), (11, 12, 13)] -> [(1, 11), (2, 12), (3, 13)]
 
-        local_groups = [
-            ld for ld in zip(*map(_local_subs, Enlist(global_data)))]
+        global_groups = [
+            ld for ld in zip(*map(_local_subs, global_data))]
+
+        local_groups = global_groups
         return local_groups
