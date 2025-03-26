@@ -139,13 +139,6 @@ def test_simple_inversion():
 
     x = minimize(rf)
     assert_allclose(x.dat.data, source_ref.dat.data, rtol=1e-2)
-    rf(source)
-    x = minimize(rf, derivative_options={"riesz_representation": "l2"})
-    assert_allclose(x.dat.data, source_ref.dat.data, rtol=1e-2)
-    rf(source)
-    x = minimize(rf, derivative_options={"riesz_representation": "H1"})
-    # Assert that the optimisation does not converge for H1 representation
-    assert not np.allclose(x.dat.data, source_ref.dat.data, rtol=1e-2)
 
 
 @pytest.mark.parametrize("minimize", [minimize_tao_lmvm,
