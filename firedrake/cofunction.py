@@ -113,11 +113,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         of this this :class:`Cofunction`'s :class:`.FunctionSpace`."""
         return tuple(type(self)(fs, dat) for fs, dat in zip(self.function_space(), self.dat))
 
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
-
     @utils.cached_property
     def _components(self):
         if self.function_space().rank == 0:
