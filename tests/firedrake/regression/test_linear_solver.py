@@ -3,29 +3,6 @@ from firedrake.petsc import PETSc
 import numpy
 
 
-def test_linear_solver_zero_initial_guess():
-    mesh = UnitIntervalMesh(10)
-    space = FunctionSpace(mesh, "CG", 1)
-    test = TestFunction(space)
-    trial = TrialFunction(space)
-
-    solver = LinearSolver(assemble(inner(trial, test) * dx),
-                          solver_parameters={"ksp_type": "preonly",
-                                             "pc_type": "jacobi",
-                                             "ksp_max_it": 1,
-                                             "ksp_initial_guess_nonzero": False})
-    b = assemble(inner(Constant(1), test) * dx)
-
-    u1 = Function(space, name="u1")
-    u1.assign(0)
-    solver.solve(u1, b)
-
-    u2 = Function(space, name="u2")
-    u2.assign(1)
-    solver.solve(u2, b)
-    assert numpy.allclose(u1.dat.data_ro, u2.dat.data_ro)
-
-
 def test_linear_solver_update_after_error():
     mesh = UnitIntervalMesh(10)
     space = FunctionSpace(mesh, "CG", 1)

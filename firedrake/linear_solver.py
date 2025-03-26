@@ -84,10 +84,7 @@ class LinearSolver(LinearVariationalSolver):
             raise ValueError(f"b must be a Cofunction in {self.b.function_space()}.")
 
         self.b.assign(b)
-        if self.ksp.getInitialGuessNonzero():
-            self.x.assign(x)
-        else:
-            self.x.zero()
+        self.x.assign(x)
         try:
             super().solve()
         finally:
