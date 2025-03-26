@@ -134,7 +134,7 @@ def test_verification_gather_functional_Function_taylor():
 def test_minimise():
     # Optimisation test using a list of controls.
     # This test is equivalent to the one found at:
-    # https://github.com/dolfin-adjoint/pyadjoint/blob/master/tests/firedrake_adjoint/test_optimisation.py#L9.
+    # https://github.com/firedrakeproject/firedrake/blob/master/tests/firedrake/adjoint/test_optimisation.py#L92
     # In this test, the functional is the result of an ensemble allreduce operation.
     ensemble = Ensemble(COMM_WORLD, 1)
     mesh = UnitSquareMesh(4, 4, comm=ensemble.comm)
