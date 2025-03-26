@@ -114,8 +114,13 @@ def _simple_helmholz_model(V, source):
     return u
 
 
+@pytest.mark.parametrize(
+    "riesz_representation",
+    [None,
+     "l2",
+     pytest.param("H1", marks=pytest.mark.xfail(reason="H1 is the wrong norm for this problem"))])
 @pytest.mark.skipcomplex
-def test_simple_inversion():
+def test_simple_inversion(riesz_representation):
     """Test inversion of source term in helmholze eqn."""
     mesh = UnitIntervalMesh(10)
     V = FunctionSpace(mesh, "CG", 1)
@@ -129,7 +134,7 @@ def test_simple_inversion():
 
     # now rerun annotated model with zero source
     source = Function(V)
-    c = Control(source)
+    c = Control(source, riesz_map=riesz_representation)
     u = _simple_helmholz_model(V, source)
 
     J = assemble(1e6 * (u - u_ref)**2*dx)
@@ -296,7 +301,7 @@ def test_simple_inversion_riesz_representation(tao_type):
     source = Function(V)
     rf = forward(source)
     with stop_annotating():
-        solver = TAOSolver(MinimizationProblem(rf))
+        solver = TAOSolver(MinimizationProblem(rf), tao_parameters)
         x = solver.solve()
         assert_allclose(x.dat.data, source_ref.dat.data, rtol=1e-2)
 
