@@ -129,7 +129,7 @@ def test_verification_gather_functional_Function_taylor():
     assert taylor_test(rf, x, Function(R, val=0.1)) > 1.9
 
 
-@pytest.mark.parallel(nprocs=1)
+@pytest.mark.parallel(nprocs=3)
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_minimise():
     # Optimisation test using a list of controls.
@@ -145,7 +145,7 @@ def test_minimise():
     # Rosenbrock function https://en.wikipedia.org/wiki/Rosenbrock_function
     # with minimum at x = (1, 1, 1, ...)
     with set_working_tape():
-        f = 3*100*(x[1] - x[0]**2)**2 + (1 - x[0])**2
+        f = 100*(x[1] - x[0]**2)**2 + (1 - x[0])**2
         J = assemble(f * dx(domain=mesh))
         rf = EnsembleReducedFunctional(J, c, ensemble)
     rf_np = ReducedFunctionalNumPy(rf)
