@@ -25,12 +25,13 @@ def _initialise_function(f, _f, method):
 
 def _get_mesh(cell_type, comm):
     if cell_type == "triangle":
-        mesh = Mesh("./docs/notebooks/stokes-control.msh", name=mesh_name, comm=comm)
+        mesh_file = join(cwd, "..", "..", "..", "docs", "notebooks/stokes-control.msh")
+        mesh = Mesh(mesh_file, name=mesh_name, comm=comm)
     elif cell_type == "tetrahedra":
         # TODO: Prepare more interesting mesh.
         mesh = UnitCubeMesh(16, 16, 16, name=mesh_name, comm=comm)
     elif cell_type == "tetrahedra_large":
-        mesh = Mesh(join(os.environ.get("PETSC_DIR"), "share/petsc/datafiles/meshes/mesh-3d-box-innersphere.msh"),
+        mesh = Mesh(join(os.environ["PETSC_DIR"], "share/petsc/datafiles/meshes/mesh-3d-box-innersphere.msh"),
                     name=mesh_name, comm=comm)
     elif cell_type == "quadrilateral":
         mesh = Mesh(join(cwd, "..", "meshes", "unitsquare_unstructured_quadrilaterals.msh"),
@@ -148,42 +149,44 @@ def _load_check_save_functions(filename, func_name, comm, method, mesh_name, var
 
 
 @pytest.mark.parallel(nprocs=2)
-@pytest.mark.parametrize('cell_family_degree', [("triangle_small", "P", 1),
-                                                ("triangle_small", "P", 6),
-                                                ("triangle_small", "DP", 0),
-                                                ("triangle_small", "DP", 7),
-                                                ("quad_small", "Q", 1),
-                                                ("quad_small", "Q", 6),
-                                                ("quad_small", "DQ", 0),
-                                                ("quad_small", "DQ", 7),
-                                                ("triangle", "P", 5),
-                                                ("triangle", "RTE", 4),
-                                                ("triangle", "RTF", 4),
-                                                ("triangle", "DP", 0),
-                                                ("triangle", "DP", 6),
-                                                ("tetrahedra", "P", 6),
-                                                ("tetrahedra", "N1E", 2),  # slow if high order
-                                                ("tetrahedra", "N1F", 5),
-                                                ("tetrahedra", "DP", 0),
-                                                ("tetrahedra", "DP", 5),
-                                                ("triangle", "BDME", 4),
-                                                ("triangle", "BDMF", 4),
-                                                ("tetrahedra", "N2E", 2),  # slow if high order
-                                                ("tetrahedra", "N2F", 5),
-                                                ("quadrilateral", "Q", 7),
-                                                ("quadrilateral", "RTCE", 5),
-                                                ("quadrilateral", "RTCF", 5),
-                                                ("quadrilateral", "DQ", 0),
-                                                ("quadrilateral", "DQ", 7),
-                                                ("quadrilateral", "S", 5),
-                                                ("quadrilateral", "DPC", 5),
-                                                ("hexahedral", "Q", 5),
-                                                ("hexahedral", "DQ", 4),
-                                                ("hexahedral_möbius_solid", "Q", 6),
-                                                ("triangle_periodic", "P", 4),
-                                                ("tetrahedra_periodic", "P", 4),
-                                                ("triangle_3d", "BDMF", 4),
-                                                ("quad_3d", "RTCF", 4)])
+@pytest.mark.parametrize('cell_family_degree', [
+    ("triangle_small", "P", 1),
+    ("triangle_small", "P", 6),
+    ("triangle_small", "DP", 0),
+    ("triangle_small", "DP", 7),
+    ("quad_small", "Q", 1),
+    ("quad_small", "Q", 6),
+    ("quad_small", "DQ", 0),
+    ("quad_small", "DQ", 7),
+    ("triangle", "P", 5),
+    ("triangle", "RTE", 4),
+    ("triangle", "RTF", 4),
+    ("triangle", "DP", 0),
+    ("triangle", "DP", 6),
+    ("tetrahedra", "P", 6),
+    ("tetrahedra", "N1E", 2),
+    ("tetrahedra", "N1F", 5),
+    ("tetrahedra", "DP", 0),
+    ("tetrahedra", "DP", 5),
+    ("triangle", "BDME", 4),
+    ("triangle", "BDMF", 4),
+    ("tetrahedra", "N2E", 2),
+    ("tetrahedra", "N2F", 5),
+    ("quadrilateral", "Q", 7),
+    ("quadrilateral", "RTCE", 5),
+    ("quadrilateral", "RTCF", 5),
+    ("quadrilateral", "DQ", 0),
+    ("quadrilateral", "DQ", 7),
+    ("quadrilateral", "S", 5),
+    ("quadrilateral", "DPC", 5),
+    ("hexahedral", "Q", 5),
+    ("hexahedral", "DQ", 4),
+    ("hexahedral_möbius_solid", "Q", 6),
+    ("triangle_periodic", "P", 4),
+    ("tetrahedra_periodic", "P", 4),
+    ("triangle_3d", "BDMF", 4),
+    ("quad_3d", "RTCF", 4)
+])
 def test_io_function_base(cell_family_degree, tmpdir):
     # Parameters
     cell_type, family, degree = cell_family_degree
@@ -207,6 +210,7 @@ def test_io_function_base(cell_family_degree, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, mesh_name)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -234,6 +238,7 @@ def test_io_function_real(cell_type, tmpdir):
             assert abs(valueB - valueA) < 1.e-16
             with CheckpointFile(filename, 'w', comm=comm) as afile:
                 afile.save_function(fB)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -263,6 +268,7 @@ def test_io_function_mixed(cell_family_degree_tuples, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, mesh_name)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -301,6 +307,7 @@ def test_io_function_mixed_real(cell_family_degree_tuples, tmpdir):
             assert assemble(inner(fB - fBe, fB - fBe) * dx) < 1.e-16
             with CheckpointFile(filename, 'w', comm=comm) as afile:
                 afile.save_function(fB)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -331,6 +338,7 @@ def test_io_function_vector(cell_family_degree_dim, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, mesh_name)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -356,11 +364,14 @@ def test_io_function_tensor(cell_family_degree_shape_symmetry, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, mesh_name)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=2)
-@pytest.mark.parametrize('cell_type', ["tetrahedra",
-                                       "quadrilateral"])
+@pytest.mark.parametrize('cell_type', [
+    "tetrahedra",
+    "quadrilateral"
+])
 def test_io_function_mixed_vector(cell_type, tmpdir):
     filename = join(str(tmpdir), "test_io_function_mixed_vector_dump.h5")
     filename = COMM_WORLD.bcast(filename, root=0)
@@ -389,6 +400,7 @@ def test_io_function_mixed_vector(cell_type, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, mesh_name)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -416,6 +428,7 @@ def test_io_function_extrusion(cell_family_degree_vfamily_vdegree, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -440,6 +453,7 @@ def test_io_function_extrusion_real(cell_family_degree, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -464,11 +478,14 @@ def test_io_function_vector_extrusion_real(cell_family_degree_dim, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=3)
-@pytest.mark.parametrize('cell_family_degree_dim', [("triangle", "P", 1, 2, "BDMF", 2, "DG", 2, 2),
-                                                    ("quadrilateral", "Q", 1, 2, "RTCF", 2, "DG", 0, 2)])
+@pytest.mark.parametrize('cell_family_degree_dim', [
+    ("triangle", "P", 1, 2, "BDMF", 2, "DG", 2, 2),
+    ("quadrilateral", "Q", 1, 2, "RTCF", 2, "DG", 0, 2)
+])
 def test_io_function_mixed_vector_extrusion_real(cell_family_degree_dim, tmpdir):
     cell_type, family0, degree0, dim0, family1, degree1, vfamily1, vdegree1, dim1 = cell_family_degree_dim
     filename = join(str(tmpdir), "test_io_function_mixed_vector_extrusion_real_dump.h5")
@@ -493,6 +510,7 @@ def test_io_function_mixed_vector_extrusion_real(cell_family_degree_dim, tmpdir)
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name)
+        comm.Free()
 
 
 def _compute_random_layers(base):
@@ -537,6 +555,7 @@ def test_io_function_extrusion_variable_layer1(cell_family_degree_vfamily_vdegre
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name)
+        comm.Free()
 
 
 # -- Unable to test in parallel due to potential bug with variable layers extrusion + project in parallel (Issue #2169)
@@ -566,6 +585,7 @@ def test_io_function_extrusion_variable_layer(cell_family_degree_vfamily_vdegree
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name, variable_layers=True)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=3)
@@ -595,6 +615,7 @@ def test_io_function_extrusion_periodic(tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -620,3 +641,4 @@ def test_io_function_naming(cell_family_degree, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, alt_name, comm, method, mesh_name)
+        comm.Free()

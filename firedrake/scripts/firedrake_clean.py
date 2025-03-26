@@ -4,10 +4,7 @@ import shutil
 from firedrake.configuration import setup_cache_dirs
 from pyop2.compilation import clear_compiler_disk_cache as pyop2_clear_cache
 from firedrake.tsfc_interface import clear_cache as tsfc_clear_cache
-try:
-    import platformdirs as appdirs
-except ImportError:
-    import appdirs
+import platformdirs
 
 
 def main():
@@ -20,7 +17,7 @@ def main():
     print(f"Removing cached PyOP2 code from {os.environ.get('PYOP2_CACHE_DIR', '???')}")
     pyop2_clear_cache()
 
-    pytools_cache = appdirs.user_cache_dir("pytools", "pytools")
+    pytools_cache = platformdirs.user_cache_dir("pytools", "pytools")
     print(f"Removing cached pytools files from {pytools_cache}")
     if os.path.exists(pytools_cache):
         shutil.rmtree(pytools_cache, ignore_errors=True)

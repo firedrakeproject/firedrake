@@ -11,7 +11,7 @@ from gem.flop_count import count_flops
 
 import loopy as lp
 
-from tsfc import kernel_args, fem
+from tsfc import kernel_args
 from finat.element_factory import create_element
 from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase, KernelBuilderMixin, get_index_names, check_requirements, prepare_coefficient, prepare_arguments, prepare_constant
 from tsfc.loopy import generate as generate_loopy
@@ -190,7 +190,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
     def register_requirements(self, ir):
         """Inspect what is referenced by the IR that needs to be
         provided by the kernel interface."""
-        self.oriented, self.cell_sizes, self.tabulations = check_requirements(ir)
+        self.oriented, self.cell_sizes, self.tabulations, _ = check_requirements(ir)
 
     def set_output(self, o):
         """Produce the kernel return argument"""
@@ -368,7 +368,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         :arg log: bool if the Kernel should be profiled with Log events
         :returns: :class:`Kernel` object
         """
-        impero_c, oriented, needs_cell_sizes, tabulations, active_variables = self.compile_gem(ctx)
+        impero_c, oriented, needs_cell_sizes, tabulations, active_variables, need_facet_orientation = self.compile_gem(ctx)
         if impero_c is None:
             return self.construct_empty_kernel(name)
         info = self.integral_data_info
@@ -418,8 +418,10 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         elif info.integral_type in ["interior_facet", "interior_facet_vert"]:
             int_loopy_arg = lp.GlobalArg("facet", numpy.uint32, shape=(2,))
             args.append(kernel_args.InteriorFacetKernelArg(int_loopy_arg))
-        # Will generalise this in the submesh PR.
-        if fem.PointSetContext(**self.fem_config()).use_canonical_quadrature_point_ordering:
+        # The submesh PR will introduce a robust mechanism to check if a Variable
+        # is actually used in the final form of the expression, so there will be
+        # no need to get "need_facet_orientation" from self.compile_gem().
+        if need_facet_orientation:
             if info.integral_type == "exterior_facet":
                 ext_ornt_loopy_arg = lp.GlobalArg("facet_orientation", gem.uint_type, shape=(1,))
                 args.append(kernel_args.ExteriorFacetOrientationKernelArg(ext_ornt_loopy_arg))

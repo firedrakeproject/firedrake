@@ -77,6 +77,8 @@ def _compile_expression_hashkey(slate_expr, compiler_parameters=None):
         params["slate_compiler"].update(compiler_parameters.pop("slate_compiler"))
     if compiler_parameters:
         params["form_compiler"].update(compiler_parameters)
+    # The getattr here is to defer validation to the `compile_expression` call
+    # as the test suite checks the correct exceptions are raised on invalid input.
     return getattr(slate_expr, "expression_hash", "ERROR") + str(sorted(params.items()))
 
 
@@ -88,7 +90,7 @@ def _compile_expression_comm(*args, **kwargs):
 
 @memory_and_disk_cache(
     hashkey=_compile_expression_hashkey,
-    comm_fetcher=_compile_expression_comm,
+    comm_getter=_compile_expression_comm,
     cachedir=tsfc_interface._cachedir
 )
 @PETSc.Log.EventDecorator()

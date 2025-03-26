@@ -52,6 +52,7 @@ from pyop2.logger import debug
 from pyop2.mpi import (
     MPI, COMM_WORLD, comm_cache_keyval, temp_internal_comm
 )
+import pytools
 from petsc4py import PETSc
 
 
@@ -365,7 +366,7 @@ class DictLikeDiskAccess(MutableMapping):
         pickle.dump(value, filehandle)
 
 
-def default_comm_fetcher(*args, **kwargs):
+def default_comm_getter(*args, **kwargs):
     """ A sensible default comm fetcher for use with `parallel_cache`.
     """
     comms = filter(
@@ -440,118 +441,125 @@ if configuration["print_cache_info"] or _running_on_ci:
     DictLikeDiskAccess = instrument(DictLikeDiskAccess)
 
 
-if configuration["spmd_strict"]:
-    def parallel_cache(
-        hashkey=default_parallel_hashkey,
-        comm_fetcher=default_comm_fetcher,
-        cache_factory=lambda: DEFAULT_CACHE(),
-    ):
-        """Parallel cache decorator (SPMD strict-enabled).
-        """
-        def decorator(func):
-            @PETSc.Log.EventDecorator("PyOP2 Cache Wrapper")
-            @wraps(func)
-            def wrapper(*args, **kwargs):
-                """ Extract the key and then try the memory cache before falling back
-                on calling the function and populating the cache. SPMD strict ensures
-                that all ranks cache hit or miss to ensure that the function evaluation
-                always occurs in parallel.
-                """
-                k = hashkey(*args, **kwargs)
-                key = _as_hexdigest(*k), func.__qualname__
-                # Create a PyOP2 comm associated with the key, so it is decrefed when the wrapper exits
-                with temp_internal_comm(comm_fetcher(*args, **kwargs)) as comm:
-                    # Fetch the per-comm cache_collection or set it up if not present
-                    # A collection is required since different types of cache can be set up on the same comm
-                    cache_collection = comm.Get_attr(comm_cache_keyval)
-                    if cache_collection is None:
-                        cache_collection = {}
-                        comm.Set_attr(comm_cache_keyval, cache_collection)
-                    # If this kind of cache is already present on the
-                    # cache_collection, get it, otherwise create it
-                    local_cache = cache_collection.setdefault(
-                        (cf := cache_factory()).__class__.__name__,
-                        cf
-                    )
-                    local_cache = cache_collection[cf.__class__.__name__]
+def parallel_cache(
+    hashkey=default_parallel_hashkey,
+    comm_getter=default_comm_getter,
+    cache_factory=lambda: DEFAULT_CACHE(),
+    bcast=False,
+):
+    """Parallel cache decorator.
 
-                    # If this is a new cache or function add it to the list of known caches
-                    if (comm, comm.name, func, local_cache) not in [(c.comm, c.comm_name, c.func, c.cache()) for c in _KNOWN_CACHES]:
-                        # When a comm is freed we do not hold a reference to the cache.
-                        # We attach a finalizer that extracts the stats before the cache
-                        # is deleted.
-                        _KNOWN_CACHES.append(_CacheRecord(next(_CACHE_CIDX), comm, func, local_cache))
+    Parameters
+    ----------
+    hashkey :
+        Callable taking ``*args`` and ``**kwargs`` and returning a hash.
+    comm_getter :
+        Callable taking ``*args`` and ``**kwargs`` and returning the
+        appropriate communicator.
+    cache_factory :
+        Callable that will build a new cache (if one does not exist).
+        This will be called every time the decorated function is called, and must return an instance
+        of the same type every time it is called.
+    bcast :
+        If `True`, then generate the new cache value on one rank and broadcast
+        to the others. If `False` then values are generated on all ranks.
+        This option can only be `True` if the operation can be executed in
+        serial; else it will deadlock.
 
-                    # Grab value from all ranks cache and broadcast cache hit/miss
-                    value = local_cache.get(key, CACHE_MISS)
-                    debug_string = f"{COMM_WORLD.name} R{COMM_WORLD.rank}, {comm.name} R{comm.rank}: "
-                    debug_string += f"key={k} in cache: {local_cache.__class__.__name__} cache "
-                    if value is CACHE_MISS:
-                        debug(debug_string + "miss")
-                        cache_hit = False
-                    else:
-                        debug(debug_string + "hit")
-                        cache_hit = True
-                    all_present = comm.allgather(cache_hit)
+    """
+    def decorator(func):
+        @PETSc.Log.EventDecorator("pyop2: cache wrapper")
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # Extract the key and then try the memory cache before falling back
+            # to calling the function and populating the cache.
+            k = hashkey(*args, **kwargs)
+            key = _as_hexdigest(*k), func.__qualname__
 
-                    # If not present in the cache of all ranks we force re-evaluation on all ranks
-                    if not min(all_present):
-                        value = CACHE_MISS
+            # Create a PyOP2 comm associated with the key, so it is decrefed when the wrapper exits
+            with temp_internal_comm(comm_getter(*args, **kwargs)) as comm:
+                if configuration["spmd_strict"] and not pytools.is_single_valued(comm.allgather(key)):
+                    raise ValueError("Cache keys differ between ranks")
 
+                # Fetch the per-comm cache_collection or set it up if not present
+                # A collection is required since different types of cache can be set up on the same comm
+                cache_collection = comm.Get_attr(comm_cache_keyval)
+                if cache_collection is None:
+                    cache_collection = {}
+                    comm.Set_attr(comm_cache_keyval, cache_collection)
+                # If this kind of cache is already present on the
+                # cache_collection, get it, otherwise create it
+                local_cache = cache_collection.setdefault(
+                    (cf := cache_factory()).__class__.__name__,
+                    cf
+                )
+                local_cache = cache_collection[cf.__class__.__name__]
+
+                # If this is a new cache or function add it to the list of known caches
+                if (comm, comm.name, func, local_cache) not in [(c.comm, c.comm_name, c.func, c.cache()) for c in _KNOWN_CACHES]:
+                    # When a comm is freed we do not hold a reference to the cache.
+                    # We attach a finalizer that extracts the stats before the cache
+                    # is deleted.
+                    _KNOWN_CACHES.append(_CacheRecord(next(_CACHE_CIDX), comm, func, local_cache))
+
+                # Grab value from all ranks cache and broadcast cache hit/miss
+                value = local_cache.get(key, CACHE_MISS)
+                debug_string = f"{COMM_WORLD.name} R{COMM_WORLD.rank}, {comm.name} R{comm.rank}: "
+                debug_string += f"key={k} in cache: {local_cache.__class__.__name__} cache "
                 if value is CACHE_MISS:
+                    debug(debug_string + "miss")
+                    cache_hit = False
+                else:
+                    debug(debug_string + "hit")
+                    cache_hit = True
+
+                if isinstance(local_cache, DictLikeDiskAccess):
+                    if bcast:
+                        # Since disk caches share state between ranks there are extra
+                        # opportunities for mismatching hit/miss results and hence
+                        # deadlocks. These include:
+                        #
+                        # 1. Race conditions
+                        #
+                        # On CI or with ensemble parallelism other processes not in this
+                        # comm may write to disk, so load imbalances on the current comm
+                        # may result in a hit on some ranks but not others.
+                        #
+                        # 2. Eager writing to disk on rank 0
+                        #
+                        # Since broadcasting is non-blocking for the sending rank (rank 0)
+                        # it is possible for it to have written to disk before other ranks
+                        # begin the cache lookup. These ranks register a cache hit.
+                        #
+                        # If ranks disagree on whether it was a hit or miss then some ranks
+                        # will do a broadcast and others will not, ruining MPI synchronisation.
+                        # To fix this we check to see if any ranks have hit cache and, if so,
+                        # nominate that rank as the root of the subsequent broadcast.
+                        root = comm.rank if cache_hit else -1
+                        root = comm.allreduce(root, op=MPI.MAX)
+                        if root >= 0:
+                            # Found a rank with a cache hit, broadcast 'value' from it
+                            value = comm.bcast(value, root=root)
+                            cache_hit = True
+                        else:
+                            # Cache miss on all ranks, recompute below
+                            cache_hit = False
+                else:
+                    # In-memory caches are stashed on the comm and so must always agree
+                    # on their contents.
+                    if configuration["spmd_strict"] and not pytools.is_single_valued(comm.allgather(cache_hit)):
+                        raise ValueError("Cache hit on some ranks but missed on others")
+
+            if not cache_hit:
+                if bcast:
+                    value = func(*args, **kwargs) if comm.rank == 0 else None
+                    value = comm.bcast(value, root=0)
+                else:
                     value = func(*args, **kwargs)
-                return local_cache.setdefault(key, value)
 
-            return wrapper
-        return decorator
-else:
-    def parallel_cache(
-        hashkey=default_parallel_hashkey,
-        comm_fetcher=default_comm_fetcher,
-        cache_factory=lambda: DEFAULT_CACHE(),
-    ):
-        """Parallel cache decorator.
-        """
-        def decorator(func):
-            @PETSc.Log.EventDecorator("PyOP2 Cache Wrapper")
-            @wraps(func)
-            def wrapper(*args, **kwargs):
-                """ Extract the key and then try the memory cache before falling back
-                on calling the function and populating the cache.
-                """
-                k = hashkey(*args, **kwargs)
-                key = _as_hexdigest(*k), func.__qualname__
-                # Create a PyOP2 comm associated with the key, so it is decrefed when the wrapper exits
-                with temp_internal_comm(comm_fetcher(*args, **kwargs)) as comm:
-                    # Fetch the per-comm cache_collection or set it up if not present
-                    # A collection is required since different types of cache can be set up on the same comm
-                    cache_collection = comm.Get_attr(comm_cache_keyval)
-                    if cache_collection is None:
-                        cache_collection = {}
-                        comm.Set_attr(comm_cache_keyval, cache_collection)
-                    # If this kind of cache is already present on the
-                    # cache_collection, get it, otherwise create it
-                    local_cache = cache_collection.setdefault(
-                        (cf := cache_factory()).__class__.__name__,
-                        cf
-                    )
-                    local_cache = cache_collection[cf.__class__.__name__]
-
-                    # If this is a new cache or function add it to the list of known caches
-                    if (comm, comm.name, func, local_cache) not in [(c.comm, c.comm_name, c.func, c.cache()) for c in _KNOWN_CACHES]:
-                        # When a comm is freed we do not hold a reference to the cache.
-                        # We attach a finalizer that extracts the stats before the cache
-                        # is deleted.
-                        _KNOWN_CACHES.append(_CacheRecord(next(_CACHE_CIDX), comm, func, local_cache))
-
-                    value = local_cache.get(key, CACHE_MISS)
-
-                if value is CACHE_MISS:
-                    value = func(*args, **kwargs)
-                return local_cache.setdefault(key, value)
-
-            return wrapper
-        return decorator
+            return local_cache.setdefault(key, value)
+        return wrapper
+    return decorator
 
 
 def clear_memory_cache(comm):
