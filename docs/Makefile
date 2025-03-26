@@ -86,7 +86,7 @@ source/team.rst: source/team2.py
 
 source/firedrake_citations.rst:
 	sphinx-apidoc -f -T -o source/ ../firedrake_citations
-	echo -e ":orphan:\n\n" | cat - source/firedrake_citations.rst > source/firedrake_citations.tmp
+	echo ":orphan:\n\n" | cat - source/firedrake_citations.rst > source/firedrake_citations.tmp
 	mv source/firedrake_citations.tmp source/firedrake_citations.rst
 
 source/apt_deps.txt:
