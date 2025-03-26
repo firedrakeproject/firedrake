@@ -22,10 +22,9 @@ __all__ = ["solve"]
 import ufl
 
 import firedrake.linear_solver as ls
-from firedrake.matrix import AssembledMatrix
+from firedrake.matrix import MatrixBase
 import firedrake.variational_solver as vs
-from firedrake import dmhooks, function, solving_utils, vector
-import firedrake
+from firedrake.function import Function
 from firedrake.adjoint_utils import annotate_solve
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
@@ -133,6 +132,9 @@ def solve(*args, **kwargs):
     To exclude Dirichlet boundary condition nodes through the use of a
     :class`.RestrictedFunctionSpace`, set the ``restrict`` keyword
     argument to be True.
+
+    To linearise around the initial guess before imposing boundary
+    conditions, set the ``pre_apply_bcs`` keyword argument to be False.
     """
 
     assert len(args) > 0
@@ -151,10 +153,10 @@ def _solve_varproblem(*args, **kwargs):
     eq, u, bcs, J, Jp, M, form_compiler_parameters, \
         solver_parameters, nullspace, nullspace_T, \
         near_nullspace, \
-        options_prefix, restrict = _extract_args(*args, **kwargs)
+        options_prefix, restrict, pre_apply_bcs = _extract_args(*args, **kwargs)
 
     # Check whether solution is valid
-    if not isinstance(u, (function.Function, vector.Vector)):
+    if not isinstance(u, Function):
         raise TypeError(f"Provided solution is a '{type(u).__name__}', not a Function")
 
     if form_compiler_parameters is None:
@@ -162,37 +164,30 @@ def _solve_varproblem(*args, **kwargs):
     form_compiler_parameters['scalar_type'] = ScalarType
 
     appctx = kwargs.get("appctx", {})
-    # Solve linear variational problem
-    if isinstance(eq.lhs, (ufl.Form, AssembledMatrix)) and isinstance(eq.rhs, ufl.BaseForm):
-        # Create problem
+    if isinstance(eq.lhs, (ufl.Form, MatrixBase)) and isinstance(eq.rhs, ufl.BaseForm):
+        # Create linear variational problem
         problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
                                               form_compiler_parameters=form_compiler_parameters,
                                               restrict=restrict)
-        # Create solver and call solve
-        solver = vs.LinearVariationalSolver(problem, solver_parameters=solver_parameters,
-                                            nullspace=nullspace,
-                                            transpose_nullspace=nullspace_T,
-                                            near_nullspace=near_nullspace,
-                                            options_prefix=options_prefix,
-                                            appctx=appctx)
-        solver.solve()
-
-    # Solve nonlinear variational problem
+        create_solver = vs.LinearVariationalSolver
     else:
+        # Create nonlinear variational problem
         if eq.rhs != 0:
             raise TypeError("Only '0' support on RHS of nonlinear Equation, not %r" % eq.rhs)
-        # Create problem
         problem = vs.NonlinearVariationalProblem(eq.lhs, u, bcs, J, Jp,
                                                  form_compiler_parameters=form_compiler_parameters,
                                                  restrict=restrict)
-        # Create solver and call solve
-        solver = vs.NonlinearVariationalSolver(problem, solver_parameters=solver_parameters,
-                                               nullspace=nullspace,
-                                               transpose_nullspace=nullspace_T,
-                                               near_nullspace=near_nullspace,
-                                               options_prefix=options_prefix,
-                                               appctx=appctx)
-        solver.solve()
+        create_solver = vs.NonlinearVariationalSolver
+
+    # Create solver and call solve
+    solver = create_solver(problem, solver_parameters=solver_parameters,
+                           nullspace=nullspace,
+                           transpose_nullspace=nullspace_T,
+                           near_nullspace=near_nullspace,
+                           options_prefix=options_prefix,
+                           appctx=appctx,
+                           pre_apply_bcs=pre_apply_bcs)
+    solver.solve()
 
 
 def _la_solve(A, x, b, **kwargs):
@@ -236,41 +231,28 @@ def _la_solve(A, x, b, **kwargs):
 
         _la_solve(A, x, b, solver_parameters=parameters_dict)."""
 
-    P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, \
-        options_prefix = _extract_linear_solver_args(A, x, b, **kwargs)
-
-    # Check whether solution is valid
-    if not isinstance(x, (function.Function, vector.Vector)):
-        raise TypeError(f"Provided solution is a '{type(x).__name__}', not a Function")
+    (P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace,
+     options_prefix, pre_apply_bcs,
+     ) = _extract_linear_solver_args(A, x, b, **kwargs)
 
     if bcs is not None:
         raise RuntimeError("It is no longer possible to apply or change boundary conditions after assembling the matrix `A`; pass any necessary boundary conditions to `assemble` when assembling `A`.")
 
+    appctx = solver_parameters.get("appctx", {})
     solver = ls.LinearSolver(A=A, P=P, solver_parameters=solver_parameters,
                              nullspace=nullspace,
                              transpose_nullspace=nullspace_T,
                              near_nullspace=near_nullspace,
-                             options_prefix=options_prefix)
-    if isinstance(x, firedrake.Vector):
-        x = x.function
-    # linear MG doesn't need RHS, supply zero.
-    lvp = vs.LinearVariationalProblem(a=A.a, L=0, u=x, bcs=A.bcs)
-    mat_type = A.mat_type
-    appctx = solver_parameters.get("appctx", {})
-    ctx = solving_utils._SNESContext(lvp,
-                                     mat_type=mat_type,
-                                     pmat_type=mat_type,
-                                     appctx=appctx,
-                                     options_prefix=options_prefix)
-    dm = solver.ksp.dm
-
-    with dmhooks.add_hooks(dm, solver, appctx=ctx):
-        solver.solve(x, b)
+                             options_prefix=options_prefix,
+                             appctx=appctx,
+                             pre_apply_bcs=pre_apply_bcs)
+    solver.solve(x, b)
 
 
 def _extract_linear_solver_args(*args, **kwargs):
     valid_kwargs = ["P", "bcs", "solver_parameters", "nullspace",
-                    "transpose_nullspace", "near_nullspace", "options_prefix"]
+                    "transpose_nullspace", "near_nullspace", "options_prefix",
+                    "pre_apply_bcs"]
     if len(args) != 3:
         raise RuntimeError("Missing required arguments, expecting solve(A, x, b, **kwargs)")
 
@@ -286,8 +268,9 @@ def _extract_linear_solver_args(*args, **kwargs):
     nullspace_T = kwargs.get("transpose_nullspace", None)
     near_nullspace = kwargs.get("near_nullspace", None)
     options_prefix = kwargs.get("options_prefix", None)
+    pre_apply_bcs = kwargs.get("pre_apply_bcs", True)
 
-    return P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, options_prefix
+    return P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, options_prefix, pre_apply_bcs
 
 
 def _extract_args(*args, **kwargs):
@@ -297,7 +280,7 @@ def _extract_args(*args, **kwargs):
     valid_kwargs = ["bcs", "J", "Jp", "M",
                     "form_compiler_parameters", "solver_parameters",
                     "nullspace", "transpose_nullspace", "near_nullspace",
-                    "options_prefix", "appctx", "restrict"]
+                    "options_prefix", "appctx", "restrict", "pre_apply_bcs"]
     for kwarg in kwargs.keys():
         if kwarg not in valid_kwargs:
             raise RuntimeError("Illegal keyword argument '%s'; valid keywords \
@@ -341,10 +324,11 @@ def _extract_args(*args, **kwargs):
     solver_parameters = kwargs.get("solver_parameters", {})
     options_prefix = kwargs.get("options_prefix", None)
     restrict = kwargs.get("restrict", False)
+    pre_apply_bcs = kwargs.get("pre_apply_bcs", True)
 
     return eq, u, bcs, J, Jp, M, form_compiler_parameters, \
         solver_parameters, nullspace, nullspace_T, near_nullspace, \
-        options_prefix, restrict
+        options_prefix, restrict, pre_apply_bcs
 
 
 def _extract_bcs(bcs):

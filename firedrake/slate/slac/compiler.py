@@ -90,7 +90,7 @@ def _compile_expression_comm(*args, **kwargs):
 
 @memory_and_disk_cache(
     hashkey=_compile_expression_hashkey,
-    comm_fetcher=_compile_expression_comm,
+    comm_getter=_compile_expression_comm,
     cachedir=tsfc_interface._cachedir
 )
 @PETSc.Log.EventDecorator()

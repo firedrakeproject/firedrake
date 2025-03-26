@@ -197,12 +197,9 @@ class GenericSolveBlock(Block):
 
     def _assemble_and_solve_adj_eq(self, dFdu_adj_form, dJdu, compute_bdy):
         dJdu_copy = dJdu.copy()
-        # Homogenize and apply boundary conditions on adj_dFdu and dJdu.
+        # Homogenize and apply boundary conditions on adj_dFdu.
         bcs = self._homogenize_bcs()
         dFdu = firedrake.assemble(dFdu_adj_form, bcs=bcs, **self.assemble_kwargs)
-
-        for bc in bcs:
-            bc.zero(dJdu)
 
         adj_sol = firedrake.Function(self.function_space)
         firedrake.solve(
@@ -526,18 +523,11 @@ class GenericSolveBlock(Block):
         return func
 
     def _assembled_solve(self, lhs, rhs, func, bcs, **kwargs):
-        rhs_func = rhs.riesz_representation(riesz_map="l2")
-        for bc in bcs:
-            bc.apply(rhs_func)
-        rhs.assign(rhs_func.riesz_representation(riesz_map="l2"))
         firedrake.solve(lhs, func, rhs, **kwargs)
         return func
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
-        lhs = prepared[0]
-        rhs = prepared[1]
-        func = prepared[2]
-        bcs = prepared[3]
+        lhs, rhs, func, bcs = prepared
         result = self._forward_solve(lhs, rhs, func, bcs)
         if isinstance(block_variable.checkpoint, firedrake.Function):
             result = block_variable.checkpoint.assign(result)

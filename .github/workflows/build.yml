@@ -1,7 +1,6 @@
-name: Install and Test Firedrake
+name: CI
 
 on:
-  # Push to master or PR
   push:
     branches:
       - master
@@ -11,7 +10,7 @@ on:
     - cron: '0 0 1 * *'  # Monthly release
 
 concurrency:
-  # Cancels jobs running if new commits are pushed
+  # Cancel running jobs if new commits are pushed
   group: >
     ${{ github.workflow }}-
     ${{ github.event.pull_request.number || github.ref }}
@@ -22,178 +21,191 @@ env:
 
 jobs:
   test:
-    name: "Run Firedrake tests (Linux)"
-    runs-on: [self-hosted, Linux]
-    container:
-      image: firedrakeproject/firedrake-env:latest
+    name: Install and test Firedrake (Linux)
     strategy:
       # We want to know all of the tests which fail, so don't kill real if
       # complex fails and vice-versa
       fail-fast: false
       matrix:
-        include:
-          - scalar-type: real
-            complex: ""
-            petsc_arch: default
-          - scalar-type: complex
-            complex: --complex
-            petsc_arch: complex
+        arch: [default, complex]
+    runs-on: [self-hosted, Linux]
+    container:
+      image: firedrakeproject/firedrake-env:latest
     env:
-      # PETSC_DIR and MPICH_DIR are set inside the docker image
-      FIREDRAKE_CI_TESTS: 1
+      OMPI_ALLOW_RUN_AS_ROOT: 1
+      OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
+      FIREDRAKE_CI: 1
       PYOP2_CI_TESTS: 1
-      PETSC_ARCH: ${{ matrix.petsc_arch }}
-      OMP_NUM_THREADS: 1
-      OPENBLAS_NUM_THREADS: 1
-      COMPLEX: ${{ matrix.complex }}
-      RDMAV_FORK_SAFE: 1
-      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=1800 --timeout-method=thread -o faulthandler_timeout=1860 tests/firedrake
+      PYOP2_SPMD_STRICT: 1
+      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 firedrake-repo/tests/firedrake
     steps:
+      - name: Fix HOME
+        # For unknown reasons GitHub actions overwrite HOME to /github/home
+        # which will break everything unless fixed
+        # (https://github.com/actions/runner/issues/863)
+        run: echo "HOME=/root" >> "$GITHUB_ENV"
+
+      - name: Pre-run cleanup
+        # Make sure the current directory is empty
+        run: find . -delete
+
       - uses: actions/checkout@v4
+        with:
+          path: firedrake-repo
 
-      - name: Cleanup
-        if: ${{ always() }}
+      - name: Install system dependencies
         run: |
-          cd ..
-          rm -rf firedrake_venv
+          apt-get update
+          apt-get -y install \
+            $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
 
-      - name: Build Firedrake
+      - name: Install PETSc
         run: |
-          cd ..
-          # Linting should ignore unquoted shell variable $COMPLEX
-          # shellcheck disable=SC2086
-          ./firedrake/scripts/firedrake-install \
-            $COMPLEX \
-            --honour-petsc-dir \
-            --mpicc="$MPICH_DIR"/mpicc \
-            --mpicxx="$MPICH_DIR"/mpicxx \
-            --mpif90="$MPICH_DIR"/mpif90 \
-            --mpiexec="$MPICH_DIR"/mpiexec \
-            --mpihome="$MPICH_DIR"/.. \
-            --venv-name firedrake_venv \
-            --no-package-manager \
-            --disable-ssh \
-            --documentation-dependencies \
-            --torch \
-            --jax \
-            --netgen \
-            --slepc \
-            --install thetis \
-            --install gusto \
-            --install icepack \
-            --install irksome \
-            --install femlium \
-            --install fascd \
-            --install defcon \
-            --install gadopt \
-            --install asQ \
-            || (cat firedrake-install.log && /bin/false)
+          git clone --depth 1 --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) https://gitlab.com/petsc/petsc.git
+          cd petsc
+          python3 ../firedrake-repo/scripts/firedrake-configure \
+            --arch ${{ matrix.arch }} --show-petsc-configure-options | \
+            xargs -L1 ./configure --with-make-np=12
+          make PETSC_DIR=/__w/firedrake/firedrake/petsc PETSC_ARCH=arch-firedrake-${{ matrix.arch }}
+          make check
+          echo "PETSC_DIR=/__w/firedrake/firedrake/petsc" >> "$GITHUB_ENV"
+          echo "PETSC_ARCH=arch-firedrake-${{ matrix.arch }}" >> "$GITHUB_ENV"
 
-      - name: Install test dependencies
-        id: build
+      - name: Install SLEPc
         run: |
-          sudo apt update
-          sudo apt -y install parallel
-          . ../firedrake_venv/bin/activate
-          python "$(which firedrake-clean)"
-          python -m pip install pytest-timeout ipympl pytest-split pytest-xdist
-          python -m pip list
+          git clone --depth 1 --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-slepc-version) https://gitlab.com/slepc/slepc.git
+          cd slepc
+          ./configure
+          make SLEPC_DIR=/__w/firedrake/firedrake/slepc
+          echo "SLEPC_DIR=/__w/firedrake/firedrake/slepc" >> "$GITHUB_ENV"
+
+      - name: Install Firedrake
+        id: install
+        run: |
+          export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-env)
+          python3 -m venv venv
+          . venv/bin/activate
+          : # Force a rebuild of petsc4py as the cached one will not link to the fresh
+          : # install of PETSc.
+          pip cache remove petsc4py
+          pip install --verbose \
+            --no-binary h5py \
+            --extra-index-url https://download.pytorch.org/whl/cpu \
+            './firedrake-repo[ci]'
+          firedrake-clean
+          pip list
+
+      - name: Run firedrake-check
+        run: |
+          . venv/bin/activate
+          firedrake-check
+        timeout-minutes: 5
 
       - name: Run tests (nprocs = 1)
+        # Run even if earlier tests failed
+        if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
+          . venv/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
-          . ../firedrake_venv/bin/activate
-          firedrake-run-split-tests 1 1 "-n 12 $EXTRA_PYTEST_ARGS --junit-xml=firedrake1_{#}.xml"
+          firedrake-run-split-tests 1 1 "-n 12 $EXTRA_PYTEST_ARGS"
+        timeout-minutes: 60
 
       - name: Run tests (nprocs = 2)
-        # Run even if earlier tests failed
-        if: ${{ success() || steps.build.conclusion == 'success' }}
+        if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          . ../firedrake_venv/bin/activate
-          firedrake-run-split-tests 2 6 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake2_{#}.xml"
+          . venv/bin/activate
+          firedrake-run-split-tests 2 6 "$EXTRA_PYTEST_ARGS"
+        timeout-minutes: 30
 
       - name: Run tests (nprocs = 3)
-        if: ${{ success() || steps.build.conclusion == 'success' }}
+        if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          . ../firedrake_venv/bin/activate
-          firedrake-run-split-tests 3 4 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake3_{#}.xml"
+          . venv/bin/activate
+          firedrake-run-split-tests 3 4 "$EXTRA_PYTEST_ARGS"
+        timeout-minutes: 60
 
       - name: Run tests (nprocs = 4)
-        if: ${{ success() || steps.build.conclusion == 'success' }}
+        if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          . ../firedrake_venv/bin/activate
-          firedrake-run-split-tests 4 3 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake4_{#}.xml"
+          . venv/bin/activate
+          firedrake-run-split-tests 4 3 "$EXTRA_PYTEST_ARGS"
+        timeout-minutes: 15
 
       - name: Run tests (nprocs = 5)
-        if: ${{ success() || steps.build.conclusion == 'success' }}
+        if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          . ../firedrake_venv/bin/activate
-          firedrake-run-split-tests 5 2 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake5_{#}.xml"
+          . venv/bin/activate
+          firedrake-run-split-tests 5 2 "$EXTRA_PYTEST_ARGS"
+        timeout-minutes: 15
 
       - name: Run tests (nprocs = 6)
-        if: ${{ success() || steps.build.conclusion == 'success' }}
+        if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          . ../firedrake_venv/bin/activate
-          firedrake-run-split-tests 6 2 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake6_{#}.xml"
+          . venv/bin/activate
+          firedrake-run-split-tests 6 2 "$EXTRA_PYTEST_ARGS"
+        timeout-minutes: 15
 
       - name: Run tests (nprocs = 7)
-        if: ${{ success() || steps.build.conclusion == 'success' }}
+        if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          . ../firedrake_venv/bin/activate
-          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake7_{#}.xml"
+          . venv/bin/activate
+          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS"
+        timeout-minutes: 15
 
       - name: Run tests (nprocs = 8)
-        if: ${{ success() || steps.build.conclusion == 'success' }}
+        if: ${{ success() || steps.install.conclusion == 'success' }}
         run: |
-          . ../firedrake_venv/bin/activate
-          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS --junit-xml=firedrake8_{#}.xml"
+          . venv/bin/activate
+          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS"
+        timeout-minutes: 15
 
-      - name: Publish Test Report
-        uses: mikepenz/action-junit-report@v5.0.0-a02
-        # To avoid permissions issues do not run with forked repos
-        # (see https://github.com/mikepenz/action-junit-report/issues/23)
-        if: ${{ always() && (github.ref != 'refs/heads/master') && (github.event.pull_request.head.repo.full_name == github.repository) }}
-        with:
-          report_paths: 'firedrake*.xml'
-          comment: true
-          check_name: "Firedrake ${{ matrix.scalar-type }}"
-          updateComment: true
-          flaky_summary: true
+      - name: Run Gusto smoke tests
+        # Only test Gusto in real mode
+        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
+        run: |
+          . venv/bin/activate
+          git clone --depth 1 https://github.com/firedrakeproject/gusto.git gusto-repo
+          pip install --verbose ./gusto-repo
+          python -m pytest -n 12 --verbose \
+            gusto-repo/integration-tests/balance/test_saturated_balance.py \
+            gusto-repo/integration-tests/equations/test_thermal_sw.py \
+            gusto-repo/integration-tests/transport/test_embedded_dg_advection.py
+        timeout-minutes: 10
+
+      - name: Run spyro smoke tests
+        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
+        run: |
+          . venv/bin/activate
+          git clone --depth 1 https://github.com/NDF-Poli-USP/spyro.git spyro-repo
+          pip install --verbose ./spyro-repo
+          mpiexec -n 6 python -m pytest spyro-repo/test_integration/ -m parallel[6]
+        timeout-minutes: 5
+
+      - name: Run G-ADOPT smoke tests
+        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
+        run: |
+          . venv/bin/activate
+          git clone --depth 1 https://github.com/g-adopt/g-adopt.git g-adopt-repo
+          pip install --verbose ./g-adopt-repo
+          make -C g-adopt-repo/demos/mantle_convection/base_case check
+        timeout-minutes: 5
 
       - name: Upload log files
         uses: actions/upload-artifact@v4
-        if: always()
+        if: success() || steps.install.conclusion == 'success'
         with:
-          name: firedrake-logs-${{ matrix.scalar-type }}
+          name: firedrake-logs-${{ matrix.arch }}
           path: pytest_*.log
 
-      - name: Test pyadjoint
-        if: ${{ matrix.scalar-type == 'real' }}
-        run: |
-          . ../firedrake_venv/bin/activate
-          cd ../firedrake_venv/src/pyadjoint
-          python -m pytest \
-            --strict-markers \
-            --durations=200 \
-            --timeout=600 \
-            --timeout-method=thread \
-            -o faulthandler_timeout=660 \
-            -n 12 --dist worksteal \
-            -sv tests/firedrake_adjoint
-        timeout-minutes: 30
-
-      - name: Cleanup
-        # Belt and braces: clean up before and after the run.
-        if: ${{ always() }}
-        run: |
-          cd ..
-          rm -rf firedrake_venv
+      - name: Post-run cleanup
+        if: always()
+        run: find . -delete
 
   docker_tag:
     name: "Set the Docker release tag"
     runs-on: [self-hosted, Linux]
-    if: ${{ github.ref == 'refs/heads/master' }}
+    if: github.ref == 'refs/heads/master'
     steps:
       - name: Set release tag
         # Set a release tag if triggered by monthly CRON job
@@ -211,10 +223,47 @@ jobs:
     name: "Build Docker containers"
     # Only run on master, but always generate firedrake-env image,
     # even if build fails (see docker.yml)
-    if: ${{ (github.ref == 'refs/heads/master') && always() }}
+    if: always() && (github.ref == 'refs/heads/master')
     needs: [test, docker_tag]
     uses: ./.github/workflows/docker.yml
     with:
       tag: ${{ needs.docker_tag.outputs.tag }}
       status: ${{ needs.test.result }}
     secrets: inherit
+
+  lint:
+    name: Lint codebase
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Setup flake8 annotations
+        uses: rbialon/flake8-annotations@v1
+      - name: Install linting packages
+        run: pip install flake8 pylint
+      - name: Lint codebase
+        run: make lint GITHUB_ACTIONS_FORMATTING=1
+
+  zenodo_canary:
+    name: Run zenodo canary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install deps
+        run: pip install requests packaging
+      - name: Zenodo API canary
+        run: python scripts/firedrake-install --test-doi-resolution
+      - name: Upload log
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: "zenodo-canary"
+          path: firedrake-install.log
