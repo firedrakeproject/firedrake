@@ -864,10 +864,10 @@ def test_assign_zero_cofunction():
     J = assemble(((sol + Constant(1.0)) ** 2) * dx)
     # The zero assignment should break the tape and hence cause a zero
     # gradient.
-    grad_l2 = compute_gradient(J, Control(k, riesz_map="l2"), apply_riesz=True)
-    grad_none = compute_gradient(J, Control(k))
-    grad_h1 = compute_gradient(J, Control(k, riesz_map="H1"), apply_riesz=True)
-    grad_L2 = compute_gradient(J, Control(k, riesz_map="L2"), apply_riesz=True)
+    grad_l2 = compute_derivative(J, Control(k, riesz_map="l2"), apply_riesz=True)
+    grad_none = compute_derivative(J, Control(k), apply_riesz=False)
+    grad_h1 = compute_derivative(J, Control(k, riesz_map="H1"), apply_riesz=True)
+    grad_L2 = compute_derivative(J, Control(k, riesz_map="L2"), apply_riesz=True)
     assert isinstance(grad_l2, Function) and isinstance(grad_L2, Function) \
         and isinstance(grad_h1, Function)
     assert isinstance(grad_none, Cofunction)
