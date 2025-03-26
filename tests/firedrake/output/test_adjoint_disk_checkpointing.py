@@ -60,7 +60,6 @@ def adjoint_example(mesh):
 
 
 @pytest.mark.skipcomplex
-# A serial version of this test is included in the pyadjoint tests.
 @pytest.mark.parallel(nprocs=3)
 def test_disk_checkpointing():
     from firedrake.adjoint import enable_disk_checkpointing, \
