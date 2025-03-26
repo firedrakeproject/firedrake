@@ -33,6 +33,7 @@ jobs:
           . venv/bin/activate
           pip uninstall -y firedrake
           pip install --verbose './firedrake-repo[docs]'
+          pip list
 
       - name: Check bibtex
         run: |
