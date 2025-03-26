@@ -289,7 +289,7 @@ where the :math:`J_s` and its gradients :math:`\nabla_{\mathtt{c\_guess}} J_s` a
 based on the ``my_ensemble`` configuration.
 
 
-**Steps 4-6**: The instance of the :class:`~.adjoint.EnsembleReducedFunctional`, named ``J_hat``,
+**Steps 4-6**: The instance of the :class:`~.EnsembleReducedFunctional`, named ``J_hat``,
 is then passed as an argument to the ``minimize`` function. The default ``minimize`` function
 uses ``scipy.minimize``, and wraps the ``ReducedFunctional`` in a ``ReducedFunctionalNumPy``
 that handles transferring data between Firedrake and numpy data structures. However, because
