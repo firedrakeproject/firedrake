@@ -114,7 +114,7 @@ such that:
     \frac{\partial f}{\partial u}^{*}(u, m; \lambda, v) = 
     -\frac{\partial J}{\partial u}(u, m; v) \qquad \forall v \in V.
 
-Note that these terms include $u$, so it is first necessary to solve
+Note that these terms include `u`, so it is first necessary to solve
 :eq:`eq:forward` to obtain this value. The value of `m` is an input to the
 whole calculation and is hence known in advance. The adjoint operator
 `\frac{\partial f}{\partial u}^{*}` is given by the following identity:
@@ -159,8 +159,8 @@ The essence of this process is:
    derived automatically by applying UFL's :func:`~ufl.derivative`,
    :func:`~ufl.adjoint`, and :func:`~ufl.action` operators.
 
-Controlling the taping process
-------------------------------
+Taping an example calculation
+-----------------------------
 
 The adjoint computation depends on the operations that result in the functional
 evaluation being recorded by Pyadjoint, a process known as *taping*, or
@@ -171,6 +171,59 @@ First, the user code must access the adjoint module:
 .. code-block:: python3
 
     from firedrake.adjoint import *
+    continue_annotation()
+
+The call to :func:`~pyadjoint.continue_annotation` starts the taping process:
+all subsequent relevant operations will be recorded until taping is paused.
+This can be accomplished with a call to :func:`~pyadjoint.pause_annotation`, or
+temporarily within a :func:`~pyadjoint.stop_annotating` context manager, or
+within a function decorated with :func:`~pyadjoint.no_annotations`.
+
+The following code then solves the Burgers equation in one dimension with
+homogeneous Dirichlet Boundary conditions and (for simplicity) implicit Euler
+in time. Along the way we accumulate the quantity `J`, which is the sum of the
+squared `L_2` norm of the solution at every timestep. We will use this as our
+functional.
+
+Note that no explicit adjoint code is included. This code is shown to
+provide context for the material that follows.
+
+.. literalinclude:: ../../tests/firedrake/adjoint/test_burgers_newton.py
+    :start-after: start solver
+    :end-before: end solver
+    :dedent:
+    :language: python3
+
+We've now solved the PDE over time and computed our functional. Observe that
+we paused taping at the end of the computation.
+
+Reduced functional
+------------------
+
+A :class:`~pyadjoint.ReducedFunctional` is the key object encapsulating adjoint
+calculations. It ties together a functional value, which can be any result of a
+taped calculation, and one or more controls, which are created from almost any
+quantity which is an input of the computation of the functional value (for
+details of object types that can be used as functional values and controls, see
+:ref:`overloaded_types`).
+
+In this case we use :obj:`J` as the functional value and the initial condition as
+the control:
+
+.. literalinclude:: ../../tests/firedrake/adjoint/test_burgers_newton.py
+    :start-after: end solver
+    :end-before: end reduced functional
+    :dedent:
+    :language: python3
+
+Each control must be wrapped in :class:`~pyadjoint.Control`.
+
+Reduced functional operations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
 
+.. _overloaded_types:
+
+Overloaded types
+----------------

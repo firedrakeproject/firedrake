@@ -159,6 +159,7 @@ def test_burgers_newton(solve_type, checkpointing, basics):
             schedule = NoneCheckpointSchedule()
         # [test_disk_checkpointing 6]
         tape.enable_checkpointing(schedule)
+<<<<<<< HEAD
         # [test_disk_checkpointing 7]
 
     if checkpointing and schedule.uses_storage_type(StorageType.DISK):
@@ -166,6 +167,16 @@ def test_burgers_newton(solve_type, checkpointing, basics):
 
     V, ic, nu = setup_test(mesh)
     val = J(ic, nu, solve_type, timestep, total_steps, V)
+=======
+        if schedule.uses_storage_type(StorageType.DISK):
+            mesh = checkpointable_mesh(mesh)
+
+    x, = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 2)
+    ic = project(sin(2. * pi * x), V, name="ic")
+
+    val = J(ic, solve_type, timestep, steps, V)
+>>>>>>> 5b0683065 (update adjoint docs)
     if checkpointing:
         assert len(tape.timesteps) == total_steps
         if checkpointing == "Revolve" or checkpointing == "Mixed":
@@ -198,11 +209,66 @@ def test_burgers_newton(solve_type, checkpointing, basics):
 
 
 @pytest.mark.skipcomplex
+def test_burgers_newton_docs():
+    """This test exists to ensure that the adjoint documentation runs."""
+    # start solver
+    n = 30
+    mesh = UnitIntervalMesh(n)
+    end = 0.3
+    timestep = Constant(1.0/n)
+    steps = int(end/float(timestep)) + 1
+
+    x, = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 2)
+    ic = project(sin(2.*pi*x), V, name="ic")
+
+    u_old= Function(V, name="u_old")
+    u_new = Function(V, name="u")
+    v = TestFunction(V)
+    u_old.assign(ic)
+    nu = Constant(0.0001)
+    F = ((u_new-u_old)/timestep*v
+         + u_new*u_new.dx(0)*v + nu*u_new.dx(0)*v.dx(0))*dx
+    bc = DirichletBC(V, 0.0, "on_boundary")
+    problem = NonlinearVariationalProblem(F, u_new, bcs=bc)
+    solver = NonlinearVariationalSolver(problem)
+
+    J = assemble(ic*ic*dx)
+
+    for _ in range(steps):
+        solver.solve()
+        u_old.assign(u_new)
+        J += assemble(u_new*u_new*dx)
+    pause_annotation()
+    # end solver
+    Jhat = ReducedFunctional(J, Control(ic))
+    # end reduced functional
+
+    rate = taylor_test(Jhat, ic, Function(V).assign(1.))
+    assert rate > 1.9
+
+
+@pytest.mark.skipcomplex
+<<<<<<< HEAD
 @pytest.mark.parametrize("solve_type", ["NLVS"])
 @pytest.mark.parametrize("checkpointing", ["Revolve", "SingleMemory", "NoneAdjoint", "Mixed", None])
 def test_checkpointing_validity(solve_type, checkpointing, basics):
     """Compare forward and backward results with and without checkpointing."""
     mesh, timestep, steps = basics
+=======
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("solve_type, checkpointing",
+                         [("solve", "Revolve"),
+                          ("NLVS", "Revolve"),
+                          ("solve", "Mixed"),
+                          ("NLVS", "Mixed"),
+                          ])
+def test_checkpointing_validity(solve_type, checkpointing):
+    """Compare forward and backward results with and without checkpointing.
+    """
+    mesh, timestep, steps = basics()
+    V = FunctionSpace(mesh, "CG", 2)
+>>>>>>> 5b0683065 (update adjoint docs)
     # Without checkpointing
     V, ic, nu = setup_test(mesh)
     val0 = J(ic, nu, solve_type, timestep, steps, V)
