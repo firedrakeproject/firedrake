@@ -1,6 +1,8 @@
 from functools import partial, cached_property
 from contextlib import contextmanager
-from pyadjoint import ReducedFunctional, Control, set_working_tape, AdjFloat, no_annotations
+from pyadjoint import (
+    ReducedFunctional, Control, set_working_tape, AdjFloat,
+    no_annotations, annotate_tape, pause_annotation, continue_annotation)
 from pyadjoint.enlisting import Enlist
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
@@ -449,7 +451,7 @@ class EnsembleReduceReducedFunctional(ReducedFunctional, FunctionOrFloatMPIMixin
                 raise ValueError(
                     f"Ensemble provided to {type(self).__name__} must match"
                     " the ensemble of the control.")
-            self.ensemble = ensemble
+            self.ensemble = control.control.ensemble
             self.nlocal_inputs = len(control.subvec)
 
         elif isinstance(functional, Function):
@@ -474,13 +476,13 @@ class EnsembleReduceReducedFunctional(ReducedFunctional, FunctionOrFloatMPIMixin
                 f"Do not know how to handle a {type(functional).__name__}"
                 f" control for {type(self).__name__}.")
 
-        _ = self._sum_rf
-
     @no_annotations
     def __call__(self, values):
         if self.reduction_rf:
             return self.reduction_rf(self._allgather(_local_subs(values)))
         else:
+            local_sum = self._sum_rf(_local_subs(values))
+            global_sum = self._reduce(local_sum)
             return self._reduce(
                 self._sum_rf(_local_subs(values)))
 
@@ -518,6 +520,8 @@ class EnsembleReduceReducedFunctional(ReducedFunctional, FunctionOrFloatMPIMixin
         controls = [c._ad_convert_type(0.)
                     for c in _local_subs(self.controls[0].control)]
         J = self.functional._ad_convert_type(0.)
+        annotating = annotate_tape()
+        continue_annotation()
         with set_working_tape() as tape:
             if isinstance(J, float):
                 J = sum(controls)
@@ -526,6 +530,8 @@ class EnsembleReduceReducedFunctional(ReducedFunctional, FunctionOrFloatMPIMixin
                     J = J._ad_add(c)
             rf = ReducedFunctional(
                 J, [Control(c) for c in controls], tape=tape)
+        if not annotating:
+            pause_annotation()
         return rf
 
     @cached_property

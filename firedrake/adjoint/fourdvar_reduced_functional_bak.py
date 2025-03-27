@@ -332,37 +332,55 @@ class FourDVarReducedFunctional(ReducedFunctional):
 
         trank = self.trank
 
-        # first "control" for later ranks is the halo
-        if self.ensemble and trank != 0:
-            x = [self.xprev, *self._x]
-            of = 1
-        else:
-            x = [*self._x]
-            of = 0
+        xi = self._cbuf.copy()
 
         # halos for propagation
         xim1 = self.JM.functional.copy()
-        xi = self.JM.functional.copy()
-
-        xi.zero()
         xim1.zero()
 
-        xprev = None if trank == 0 else self.xprev
+        for i in range(self.nlocal_stages - 1):
+            xim1.subfunctions[i].assign(
+                xi.subfunctions[i-1])
 
         # post messages for control of time propagator on next chunk
-        self._forward_halos(value, xi, xim1, xprev)
+        if self.ensemble:
+            src = trank - 1
+            dst = trank + 1
+
+            reqs = []
+            if trank != self.nchunks - 1:
+                reqs.extend(self.ensemble.isend(
+                    xi.subfunctions[-1], dest=dst, tag=dst))
+
+            if trank != 0:
+                reqs.extend(self.ensemble.irecv(
+                    xim1.subfunctions[0], source=src, tag=trank))
+
+            MPI.Request.Waitall(reqs)
+
+        # evaluate stages:
+        Jm = 0.
+        for i, stage in enumerate(self.stages):
+            Jm += stage([xim1.subfunctions[i],
+                         xi.subfunctions[i]])
 
         # Model functionals
-        Jm = self.Jmodel([self.JM(xim1), xi])
+        # Jq = self.Jmodel([self.JM(xim1), xi])
+        # Mx = self.JM(xim1)
+        # qerr = self.JQerr([Mx, xi])
+        # qnorm = self.JQnorm(qerr)
+        # Jq = self.JMsum(qnorm)
 
         # Observation functional
-        Jo = self.Jobservations(value)
+        Jo = self.Jobservations(xi)
 
         # Background functional
-        Jb = self.ensemble.ensemble_comm.bcast(
-            self.background_rf(value.subfunctions[0]) if trank == 0 else None, root=0)
+        if trank == 0:
+            Jb = self.background_rf(xi.subfunctions[0]) if trank == 0 else None
+        Jb = self.ensemble.ensemble_comm.bcast(Jb, root=0)
 
         J = Jb + Jo + Jm
+        print(f"\n{Jb = } | {Jo = } | {Jm = } | {J = }")
         return J
 
     @sc_passthrough
@@ -394,36 +412,53 @@ class FourDVarReducedFunctional(ReducedFunctional):
         options = options or {}
         ioptions = intermediate_options(options)
 
-        # observation derivatives
-        dJ_do = self.Jobservations.derivative(
+        derivatives = self.Jobservations.derivative(
             adj_input=adj_input, options=options)
 
-        derivatives = dJ_do
-        dJ = dJ_do.subfunctions
+        # dJ_model = self.Jmodel.derivative(
+        #     adj_input=adj_input, options=ioptions)
 
-        # background derivatives
+        if self.ensemble:
+            with stop_annotating():
+                xprev = derivatives.subfunctions[0]._ad_copy().zero()
+                xnext = derivatives.subfunctions[0]._ad_copy().zero()
+            if trank != 0:
+                derivs = [xprev, *derivatives.subfunctions]
+            else:
+                derivs = [*derivatives.subfunctions]
+
+        # initial condition derivatives
         if trank == 0:
-            dJ_x0 = dJ[0]
-            dJ_x0 += self.background_rf.derivative(
+            derivs[0] += self.background_rf.derivative(
                 adj_input=adj_input, options=options)
 
-        # evaluate model derivatives
-        dj_mx, dj_x = self.Jmodel.derivative(
-            adj_input=adj_input, options=ioptions)
+        # # evaluate all time stages on chunk except first while halo in flight
+        for i in range(len(self.stages)):
+            sderiv = self.stages[i].derivative(
+                adj_input=adj_input, options=options,
+                rftype='model')
+            derivs[i] += sderiv[0]
+            derivs[i+1] += sderiv[1]
 
-        # derivative from propagation
-        dj_mx = self.JM.derivative(
-            adj_input=dj_mx, options=options)
+        # post the derivative halo exchange
+        if self.ensemble:
+            # halos sent backward in time
+            src = trank + 1
+            dst = trank - 1
 
-        dj_x = dj_mx._ad_convert_type(dj_x)
+            if trank != 0:
+                self.ensemble.isend(
+                    derivs[0], dest=dst, tag=dst)
 
-        dJ_x = derivatives._ad_copy().zero()
-        dJ_mx = derivatives._ad_copy().zero()
+            if trank != self.nchunks - 1:
+                recv_reqs = self.ensemble.irecv(
+                    xnext, source=src, tag=trank)
 
-        self._backward_halos(dj_x, dj_mx, dJ_x, dJ_mx)
-
-        derivatives += dJ_x
-        derivatives += dJ_mx
+        # finish the derivative halo exchange
+        if self.ensemble:
+            if trank != self.nchunks - 1:
+                MPI.Request.Waitall(recv_reqs)
+                derivs[-1] += xnext
 
         return derivatives
 
@@ -464,29 +499,21 @@ class FourDVarReducedFunctional(ReducedFunctional):
         if isinstance(m_dot, list):
             m_dot = m_dot[0]
 
-        hessians = self.Jobservations.hessian(
+        hess = self.Jobservations.hessian(
             m_dot=m_dot, options=options)
-
-        hess = hessians.subfunctions
-
-        # hessian actions at the initial condition
-        if trank == 0:
-            hess_x0 = hess[0]
-            hess_x0 += self.background_rf.hessian(
-                m_dot.subfunctions[0], options=options)
 
         # set up arrays including halos
         if trank == 0:
-            hs = [*hess]
+            hs = [*hess.subfunctions]
             mdot = [*m_dot.subfunctions]
         else:
-            hprev = hess[0].copy(deepcopy=True).zero()
+            hprev = hess.subfunctions[0].copy(deepcopy=True).zero()
             mprev = m_dot.subfunctions[0].copy(deepcopy=True).zero()
-            hs = [hprev, *hess]
+            hs = [hprev, *hess.subfunctions]
             mdot = [mprev, *m_dot.subfunctions]
 
         if trank != self.nchunks - 1:
-            hnext = hess[0].copy(deepcopy=True).zero()
+            hnext = hess.subfunctions[0].copy(deepcopy=True).zero()
 
         # send m_dot halo forward
         if self.ensemble:
@@ -495,20 +522,35 @@ class FourDVarReducedFunctional(ReducedFunctional):
 
             if trank != self.nchunks - 1:
                 self.ensemble.isend(
-                    m_dot.subfunctions[-1], dest=dst, tag=dst)
+                    mdot[-1], dest=dst, tag=dst)
 
             if trank != 0:
                 recv_reqs = self.ensemble.irecv(
-                    mprev, source=src, tag=trank)
-                MPI.Request.Waitall(recv_reqs)
+                    mdot[0], source=src, tag=trank)
+
+        # hessian actions at the initial condition
+        if trank == 0:
+            hs[0] += self.background_rf.hessian(
+                mdot[0], options=options)
 
         # evaluate all stages on chunk except first
-        for i in range(len(self.stages)):
+        for i in range(1, len(self.stages)):
             hms = self.stages[i].hessian(
                 mdot[i:i+2], options=options, rftype='model')
 
             hs[i] += hms[0]
             hs[i+1] += hms[1]
+
+        # wait for halo swap to finish
+        if trank != 0:
+            MPI.Request.Waitall(recv_reqs)
+
+        # evaluate first stage on chunk now we have the halo
+        hms = self.stages[0].hessian(
+            mdot[:2], options=options, rftype='model')
+
+        hs[0] += hms[0]
+        hs[1] += hms[1]
 
         # send result halo backward
         if self.ensemble:
@@ -522,11 +564,14 @@ class FourDVarReducedFunctional(ReducedFunctional):
             if trank != self.nchunks - 1:
                 recv_reqs = self.ensemble.irecv(
                     hnext, source=src, tag=trank)
-                MPI.Request.Waitall(recv_reqs)
-                hess_xm = hess[-1]
-                hess_xm += hnext
 
-        return hessians
+        # finish the result halo
+        MPI.COMM_WORLD.Barrier()
+        if trank != self.nchunks - 1:
+            MPI.Request.Waitall(recv_reqs)
+            hs[-1] += hnext
+
+        return hess
 
     @stop_annotating()
     def hessian_matrix(self):
@@ -716,75 +761,6 @@ class FourDVarReducedFunctional(ReducedFunctional):
                 self.controls, self, global_index=-1,
                 observation_index=0 if self.initial_observations else -1,
                 stage_kwargs=stage_kwargs, nstages=nstages)
-
-    def _forward_halos(self, x, xi, xim1, xprev):
-        # extract x into xi and xim1
-        for i in range(self.nlocal_stages):
-            if self.trank == 0:
-                xi.subfunctions[i].assign(x.subfunctions[i+1])
-                xim1.subfunctions[i].assign(x.subfunctions[i])
-            else:
-                xi.subfunctions[i].assign(x.subfunctions[i])
-                xim1.subfunctions[i].assign(x.subfunctions[i-1])
-
-        # post messages
-        src = self.trank - 1
-        dst = self.trank + 1
-
-        # # send forward xi
-        if self.trank != self.nchunks - 1:
-            self.ensemble.isend(
-                xi.subfunctions[-1], dest=dst, tag=dst)
-
-        # # recv back xprev
-        if self.trank != 0:
-            recv_reqs = self.ensemble.irecv(
-                xprev, source=src, tag=self.trank)
-            MPI.Request.Waitall(recv_reqs)
-
-            # insert into xim1
-            xim1.subfunctions[0].assign(xprev)
-
-        return
-
-    def _backward_halos(self, dj_x, dj_mx, dJ_x, dJ_mx):
-
-        # accumulate diagonal component
-        for i in range(self.nlocal_stages):
-            if self.trank == 0:
-                dJ_x.subfunctions[i+1].assign(dj_x.subfunctions[i])
-            else:
-                dJ_x.subfunctions[i].assign(dj_x.subfunctions[i])
-
-        # accumulate propagation derivative
-        for i in range(self.nlocal_stages-1):
-            if self.trank == 0:
-                print(f"\n{i = }")
-                dJ_mx.subfunctions[i+1].assign(dj_mx.subfunctions[i+1])
-            else:
-                dJ_mx.subfunctions[i].assign(dj_mx.subfunctions[i+1])
-
-        djnext = dj_mx.subfunctions[0]._ad_copy().zero()
-
-        # no halo on rank 0
-        if self.trank == 0:
-            dJ_mx.subfunctions[0].assign(dj_mx.subfunctions[0])
-
-        # halos sent backward in time
-        src = self.trank + 1
-        dst = self.trank - 1
-
-        if self.trank != 0:
-            self.ensemble.isend(
-                dj_mx.subfunctions[0], dest=dst, tag=dst)
-
-        if self.trank != self.nchunks - 1:
-            recv_reqs = self.ensemble.irecv(
-                djnext, source=src, tag=self.trank)
-            MPI.Request.Waitall(recv_reqs)
-            dJ_mx.subfunctions[-1].assign(djnext)
-
-        return djnext
 
 
 class ObservationStageSequence:
