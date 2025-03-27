@@ -641,15 +641,13 @@ def fiat_to_ufl(fiat_dict, order):
 
 @translate.register(Argument)
 def translate_argument(terminal, mt, ctx):
-    argument_multiindex = ctx.argument_multiindices[terminal.number()]
-    sigma = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
     element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
 
     def callback(entity_id):
         finat_dict = ctx.basis_evaluation(element, mt, entity_id)
         # Filter out irrelevant derivatives
-        filtered_dict = {alpha: table
-                         for alpha, table in finat_dict.items()
+        filtered_dict = {alpha: finat_dict[alpha]
+                         for alpha in finat_dict
                          if sum(alpha) == mt.local_derivatives}
 
         # Change from FIAT to UFL arrangement
@@ -658,13 +656,16 @@ def translate_argument(terminal, mt, ctx):
         # A numerical hack that FFC used to apply on FIAT tables still
         # lives on after ditching FFC and switching to FInAT.
         return ffc_rounding(square, ctx.epsilon)
+
     table = ctx.entity_selector(callback, mt.restriction)
     if ctx.use_canonical_quadrature_point_ordering:
         quad_multiindex = ctx.quadrature_rule.point_set.indices
         quad_multiindex_permuted = _make_quad_multiindex_permuted(mt, ctx)
         mapper = gem.node.MemoizerArg(gem.optimise.filtered_replace_indices)
         table = mapper(table, tuple(zip(quad_multiindex, quad_multiindex_permuted)))
-    return gem.ComponentTensor(gem.Indexed(table, argument_multiindex + sigma), sigma)
+
+    argument_multiindex = ctx.argument_multiindices[terminal.number()]
+    return gem.partial_indexed(table, argument_multiindex)
 
 
 @translate.register(TSFCConstantMixin)
