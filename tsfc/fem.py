@@ -656,14 +656,12 @@ def translate_argument(terminal, mt, ctx):
         # A numerical hack that FFC used to apply on FIAT tables still
         # lives on after ditching FFC and switching to FInAT.
         return ffc_rounding(square, ctx.epsilon)
-
     table = ctx.entity_selector(callback, mt.restriction)
     if ctx.use_canonical_quadrature_point_ordering:
         quad_multiindex = ctx.quadrature_rule.point_set.indices
         quad_multiindex_permuted = _make_quad_multiindex_permuted(mt, ctx)
         mapper = gem.node.MemoizerArg(gem.optimise.filtered_replace_indices)
         table = mapper(table, tuple(zip(quad_multiindex, quad_multiindex_permuted)))
-
     argument_multiindex = ctx.argument_multiindices[terminal.number()]
     return gem.partial_indexed(table, argument_multiindex)
 

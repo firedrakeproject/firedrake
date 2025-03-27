@@ -315,7 +315,7 @@ def set_quad_rule(params, cell, integral_type, functions):
             try:
                 (quadrature_degree, quad_rule), = quad_data
             except ValueError:
-                raise ValueError("The quadrature rule cannot be infered from multiple Quadrature elements")
+                raise ValueError("The quadrature rule cannot be inferred from multiple Quadrature elements")
 
     if isinstance(quad_rule, str):
         scheme = quad_rule
