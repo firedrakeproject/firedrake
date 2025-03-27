@@ -97,14 +97,11 @@ class OffloadPC(PCBase):
             dm = pc.getDM()
             with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
                 with PETSc.Log.Event("Event: vectors offload"):
-                    # Ensure x is not locked by duplicating it
-                    x_unlocked = x.duplicate()
-                    x.copy(x_unlocked)
-
                     y_cu = PETSc.Vec()  # begin
                     y_cu.createCUDAWithArrays(y)
                     x_cu = PETSc.Vec()
-                    x_cu.createCUDAWithArrays(x_unlocked)  # end
+                    # Passing a vec into another vec doesnt work because original is locked
+                    x_cu.createCUDAWithArrays(x.array_r)
                 with PETSc.Log.Event("Event: solve"):
                     self.pc.apply(x_cu, y_cu)  #
             with PETSc.Log.Event("Event: vectors copy back"):
