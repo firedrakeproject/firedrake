@@ -75,9 +75,13 @@ def covariance_norm(covariance):
     return n2
 
 
-B = (fd.Constant(10.), 4)  # background error covariance
-R = (fd.Constant(0.1), 4)  # observation error covariance
-Q = (fd.Constant(0.5), 4)  # model error covariance
+# B = (fd.Constant(10.), 4)  # background error covariance
+# R = (fd.Constant(0.1), 4)  # observation error covariance
+# Q = (fd.Constant(0.5), 4)  # model error covariance
+
+B = (fd.Constant(1e10), 4)  # background error covariance
+R = (fd.Constant(1e10), 4)  # observation error covariance
+Q = (fd.Constant(1e0), 4)  # model error covariance
 
 
 """Advecting velocity"""
@@ -426,7 +430,9 @@ def main_test_strong_4dvar_advection():
 
 def main_test_weak_4dvar_advection():
     global_comm = fd.COMM_WORLD
-    if global_comm.size in (1, 2):  # time serial
+    if global_comm.size == 1:  # time serial
+        nspace = global_comm.size
+    if global_comm.size == 2:  # space parallel
         nspace = global_comm.size
     elif global_comm.size == 3:  # time parallel
         nspace = 1
