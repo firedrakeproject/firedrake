@@ -2,16 +2,21 @@ from pyadjoint import ReducedFunctional, OverloadedType, Control, Tape, AdjFloat
     stop_annotating, get_working_tape, set_working_tape
 from pyadjoint.enlisting import Enlist
 from firedrake.function import Function
-from firedrake.ensemble import EnsembleFunction
+from firedrake.ensemble import EnsembleFunction, EnsembleFunctionSpace
 from firedrake import assemble, inner, dx, Constant
-from firedrake.adjoint.composite_reduced_functional import (
-    CompositeReducedFunctional, tlm, hessian, intermediate_options)
+from .composite_reduced_functional import (
+    CompositeReducedFunctional, intermediate_options)
+from .ensemble_reduced_functional import (
+    EnsembleReduceReducedFunctional, EnsembleBcastReducedFunctional,
+    EnsembleTransformReducedFunctional, EnsembleReducedFunctional)
+from .ensemble_adjvec import EnsembleAdjVec
 from ufl.duals import is_primal, is_dual
 from functools import wraps, cached_property, partial
 from typing import Callable, Optional, Collection, Union
 from types import SimpleNamespace
 from contextlib import contextmanager
 from mpi4py import MPI
+from firedrake.petsc import PETSc
 
 __all__ = ['FourDVarReducedFunctional']
 
@@ -123,6 +128,7 @@ class FourDVarReducedFunctional(ReducedFunctional):
     :class:`pyadjoint.ReducedFunctional`.
     """
 
+    @PETSc.Log.EventDecorator()
     def __init__(self, control: Control,
                  background_covariance: Union[Constant, tuple],
                  background: Optional[OverloadedType] = None,
@@ -168,12 +174,23 @@ class FourDVarReducedFunctional(ReducedFunctional):
             self._controls = tuple(Control(xi) for xi in _x)
 
             self.control = control
-            self.controls = [control]
+            self.controls = Enlist(control)
 
             # first control on rank 0 is initial conditions, not end of observation stage
             self.nlocal_stages = len(_x) - (1 if self.trank == 0 else 0)
 
+            if self.trank == 0 and self.initial_observations:
+                self.nlocal_observations = self.nlocal_stages + 1
+            else:
+                self.nlocal_observations = self.nlocal_stages
+
             self.stages = []    # The record of each observation stage
+
+            self.observation_rfs = []
+            self.observation_norms = []
+
+            self.model_rfs = []
+            self.model_norms = []
 
             # first rank sets up functionals for background initial observations
             if self.trank == 0:
@@ -209,6 +226,9 @@ class FourDVarReducedFunctional(ReducedFunctional):
                         self.initial_observation_error.functional,
                         observation_covariance,
                         control_name="obs_err_vec_0_copy")
+
+                    self.observation_rfs.append(self.initial_observation_error)
+                    self.observation_norms.append(self.initial_observation_norm)
 
                     # compose initial observation reduced functionals to evaluate both together
                     self.initial_observation_rf = CompositeReducedFunctional(
@@ -282,6 +302,7 @@ class FourDVarReducedFunctional(ReducedFunctional):
 
     @sc_passthrough
     @stop_annotating()
+    @PETSc.Log.EventDecorator()
     def __call__(self, values: OverloadedType):
         """Computes the reduced functional with supplied control value.
 
@@ -314,53 +335,39 @@ class FourDVarReducedFunctional(ReducedFunctional):
         # first "control" for later ranks is the halo
         if self.ensemble and trank != 0:
             x = [self.xprev, *self._x]
+            of = 1
         else:
             x = [*self._x]
+            of = 0
+
+        # halos for propagation
+        xim1 = self.JM.functional.copy()
+        xi = self.JM.functional.copy()
+
+        xi.zero()
+        xim1.zero()
+
+        xprev = None if trank == 0 else self.xprev
 
         # post messages for control of time propagator on next chunk
-        if self.ensemble:
-            src = trank - 1
-            dst = trank + 1
+        self._forward_halos(value, xi, xim1, xprev)
 
-            if trank != self.nchunks - 1:
-                self.ensemble.isend(
-                    x[-1], dest=dst, tag=dst)
+        # Model functionals
+        Jm = self.Jmodel([self.JM(xim1), xi])
 
-            if trank != 0:
-                recv_reqs = self.ensemble.irecv(
-                    self.xprev, source=src, tag=trank)
+        # Observation functional
+        Jo = self.Jobservations(value)
 
-        # Initial condition functionals
-        if trank == 0:
-            Jlocal = self.background_rf(x[0])
+        # Background functional
+        Jb = self.ensemble.ensemble_comm.bcast(
+            self.background_rf(value.subfunctions[0]) if trank == 0 else None, root=0)
 
-            # observations at time 0
-            if self.initial_observations:
-                Jlocal += self.initial_observation_rf(x[0])
-        else:
-            Jlocal = 0.
-
-        # evaluate all stages on chunk except first
-        for i in range(1, len(self.stages)):
-            Jlocal += self.stages[i](x[i:i+2])
-
-        # wait for halo swap to finish
-        if trank != 0:
-            MPI.Request.Waitall(recv_reqs)
-
-        # evaluate first stage model on chunk now we have data
-        Jlocal += self.stages[0](x[0:2])
-
-        # sum all stages
-        if self.ensemble:
-            J = self.ensemble.ensemble_comm.allreduce(Jlocal)
-        else:
-            J = Jlocal
-
+        J = Jb + Jo + Jm
         return J
 
     @sc_passthrough
     @stop_annotating()
+    @PETSc.Log.EventDecorator()
     def derivative(self, adj_input: float = 1.0, options: dict = {}):
         """Returns the derivative of the functional w.r.t. the control.
         Using the adjoint method, the derivative of the functional with
@@ -385,80 +392,44 @@ class FourDVarReducedFunctional(ReducedFunctional):
 
         # chaining ReducedFunctionals means we need to pass Cofunctions not Functions
         options = options or {}
+        ioptions = intermediate_options(options)
 
-        # evaluate first time propagator, which contributes to previous chunk
-        sderiv0 = self.stages[0].derivative(
+        # observation derivatives
+        dJ_do = self.Jobservations.derivative(
             adj_input=adj_input, options=options)
 
-        # create the derivative in the right primal or dual space
-        if is_primal(sderiv0[0]):
-            derivative_space = self.control_space
-        else:
-            if not is_dual(sderiv0[0]):
-                raise ValueError(
-                    "Do not know how to handle stage derivative which is not primal or dual")
-            derivative_space = self.control_space.dual()
-        derivatives = EnsembleFunction(derivative_space)
+        derivatives = dJ_do
+        dJ = dJ_do.subfunctions
 
-        derivatives.zero()
-
-        if self.ensemble:
-            with stop_annotating():
-                xprev = derivatives.subfunctions[0]._ad_copy()
-                xnext = derivatives.subfunctions[0]._ad_copy()
-                xprev.zero()
-                xnext.zero()
-            if trank != 0:
-                derivs = [xprev, *derivatives.subfunctions]
-            else:
-                derivs = [*derivatives.subfunctions]
-
-        # start accumulating the complete derivative
-        derivs[0] += sderiv0[0]
-        derivs[1] += sderiv0[1]
-
-        # post the derivative halo exchange
-        if self.ensemble:
-            # halos sent backward in time
-            src = trank + 1
-            dst = trank - 1
-
-            if trank != 0:
-                self.ensemble.isend(
-                    derivs[0], dest=dst, tag=dst)
-
-            if trank != self.nchunks - 1:
-                recv_reqs = self.ensemble.irecv(
-                    xnext, source=src, tag=trank)
-
-        # initial condition derivatives
+        # background derivatives
         if trank == 0:
-            derivs[0] += self.background_rf.derivative(
+            dJ_x0 = dJ[0]
+            dJ_x0 += self.background_rf.derivative(
                 adj_input=adj_input, options=options)
 
-            # observations at time 0
-            if self.initial_observations:
-                derivs[0] += self.initial_observation_rf.derivative(
-                    adj_input=adj_input, options=options)
+        # evaluate model derivatives
+        dj_mx, dj_x = self.Jmodel.derivative(
+            adj_input=adj_input, options=ioptions)
 
-        # # evaluate all time stages on chunk except first while halo in flight
-        for i in range(1, len(self.stages)):
-            sderiv = self.stages[i].derivative(
-                adj_input=adj_input, options=options)
+        # derivative from propagation
+        dj_mx = self.JM.derivative(
+            adj_input=dj_mx, options=options)
 
-            derivs[i] += sderiv[0]
-            derivs[i+1] += sderiv[1]
+        dj_x = dj_mx._ad_convert_type(dj_x)
 
-        # finish the derivative halo exchange
-        if self.ensemble:
-            if trank != self.nchunks - 1:
-                MPI.Request.Waitall(recv_reqs)
-                derivs[-1] += xnext
+        dJ_x = derivatives._ad_copy().zero()
+        dJ_mx = derivatives._ad_copy().zero()
+
+        self._backward_halos(dj_x, dj_mx, dJ_x, dJ_mx)
+
+        derivatives += dJ_x
+        derivatives += dJ_mx
 
         return derivatives
 
     @sc_passthrough
     @stop_annotating()
+    @PETSc.Log.EventDecorator()
     def hessian(self, m_dot: OverloadedType, options: dict = {}):
         """Returns the action of the Hessian of the functional w.r.t. the control on a vector m_dot.
 
@@ -490,21 +461,32 @@ class FourDVarReducedFunctional(ReducedFunctional):
         """
         trank = self.trank
 
-        hess = self.control.copy_data()
-        hess.zero()
+        if isinstance(m_dot, list):
+            m_dot = m_dot[0]
+
+        hessians = self.Jobservations.hessian(
+            m_dot=m_dot, options=options)
+
+        hess = hessians.subfunctions
+
+        # hessian actions at the initial condition
+        if trank == 0:
+            hess_x0 = hess[0]
+            hess_x0 += self.background_rf.hessian(
+                m_dot.subfunctions[0], options=options)
 
         # set up arrays including halos
         if trank == 0:
-            hs = [*hess.subfunctions]
-            mdot = [*m_dot[0].subfunctions]
+            hs = [*hess]
+            mdot = [*m_dot.subfunctions]
         else:
-            hprev = hess.subfunctions[0].copy(deepcopy=True)
-            mprev = m_dot[0].subfunctions[0].copy(deepcopy=True)
-            hs = [hprev, *hess.subfunctions]
-            mdot = [mprev, *m_dot[0].subfunctions]
+            hprev = hess[0].copy(deepcopy=True).zero()
+            mprev = m_dot.subfunctions[0].copy(deepcopy=True).zero()
+            hs = [hprev, *hess]
+            mdot = [mprev, *m_dot.subfunctions]
 
         if trank != self.nchunks - 1:
-            hnext = hess.subfunctions[0].copy(deepcopy=True)
+            hnext = hess[0].copy(deepcopy=True).zero()
 
         # send m_dot halo forward
         if self.ensemble:
@@ -513,39 +495,20 @@ class FourDVarReducedFunctional(ReducedFunctional):
 
             if trank != self.nchunks - 1:
                 self.ensemble.isend(
-                    mdot[-1], dest=dst, tag=dst)
+                    m_dot.subfunctions[-1], dest=dst, tag=dst)
 
             if trank != 0:
                 recv_reqs = self.ensemble.irecv(
-                    mdot[0], source=src, tag=trank)
-
-        # hessian actions at the initial condition
-        if trank == 0:
-            hs[0] += self.background_rf.hessian(
-                mdot[0], options=options)
-
-            if self.initial_observations:
-                hs[0] += self.initial_observation_rf.hessian(
-                    mdot[0], options=options)
+                    mprev, source=src, tag=trank)
+                MPI.Request.Waitall(recv_reqs)
 
         # evaluate all stages on chunk except first
-        for i in range(1, len(self.stages)):
+        for i in range(len(self.stages)):
             hms = self.stages[i].hessian(
-                mdot[i:i+2], options=options)
+                mdot[i:i+2], options=options, rftype='model')
 
             hs[i] += hms[0]
             hs[i+1] += hms[1]
-
-        # wait for halo swap to finish
-        if trank != 0:
-            MPI.Request.Waitall(recv_reqs)
-
-        # evaluate first stage on chunk now we have the halo
-        hms = self.stages[0].hessian(
-            mdot[:2], options=options)
-
-        hs[0] += hms[0]
-        hs[1] += hms[1]
 
         # send result halo backward
         if self.ensemble:
@@ -559,13 +522,11 @@ class FourDVarReducedFunctional(ReducedFunctional):
             if trank != self.nchunks - 1:
                 recv_reqs = self.ensemble.irecv(
                     hnext, source=src, tag=trank)
+                MPI.Request.Waitall(recv_reqs)
+                hess_xm = hess[-1]
+                hess_xm += hnext
 
-        # finish the result halo
-        if trank != self.nchunks - 1:
-            MPI.Request.Waitall(recv_reqs)
-            hs[-1] += hnext
-
-        return hess
+        return hessians
 
     @stop_annotating()
     def hessian_matrix(self):
@@ -584,6 +545,7 @@ class FourDVarReducedFunctional(ReducedFunctional):
             self._accumulation_started = True
 
     @contextmanager
+    @PETSc.Log.EventDecorator()
     def recording_stages(self, sequential=True, nstages=None, **stage_kwargs):
         if not sequential:
             raise ValueError("Recording stages concurrently not yet implemented")
@@ -631,6 +593,12 @@ class FourDVarReducedFunctional(ReducedFunctional):
                 # let the user record the local stages
                 yield stage_sequence
 
+                for stage in self.stages:
+                    self.observation_rfs.append(stage.observation_error)
+                    self.observation_norms.append(stage.observation_norm)
+                    self.model_rfs.append(stage.forward_model)
+                    self.model_norms.append(stage.model_norm)
+
                 # send the state forward
                 with stop_annotating():
                     state = self.stages[-1].controls[1].control
@@ -642,9 +610,105 @@ class FourDVarReducedFunctional(ReducedFunctional):
                     ectx.global_index = self.stages[-1].global_index
                     ectx.observation_index = self.stages[-1].observation_index
 
-                    # make sure that self.control now holds the
-                    # values of the initial timeseris
-                    self.control.assign(self._cbuf)
+            with stop_annotating():
+                # make sure that self.control now holds the
+                # values of the initial timeseris
+                self.control.assign(self._cbuf)
+
+                # # # # # #
+                # Create observation ReducedFunctionals
+                # # # # # #
+
+                self.observation_space = EnsembleFunctionSpace(
+                    [Jo.functional.function_space() for Jo in self.observation_rfs],
+                    ensemble=self.ensemble)
+
+                self._observation_float_vec = EnsembleAdjVec(
+                    [AdjFloat(0.) for _ in range(self.nlocal_observations)],
+                    ensemble=self.ensemble)
+
+                # (JH : V^n -> U^n) = (x -> y - H(x))
+                observation_control = EnsembleFunction(self.control_space)
+                observation_functional = EnsembleFunction(self.observation_space)
+
+                self.JH = EnsembleTransformReducedFunctional(
+                    self.observation_rfs,
+                    observation_functional,
+                    Control(observation_control))
+
+                # (Jr : U^n -> R^n) = (x -> x^T R^{-1} x)
+                observation_control = EnsembleFunction(self.observation_space)
+                observation_functional = self._observation_float_vec._ad_convert_type(0.)
+
+                self.JR = EnsembleTransformReducedFunctional(
+                    self.observation_norms,
+                    observation_functional,
+                    Control(observation_control))
+
+                # (Jsum : R^n -> R) = (x -> \sum_{i} x_{i})
+                obs_sum_control = self._observation_float_vec._ad_convert_type(0.)
+                obs_sum_functional = AdjFloat(0.)
+
+                self.JOsum = EnsembleReduceReducedFunctional(
+                    obs_sum_functional,
+                    Control(obs_sum_control))
+
+                self.Jobservations = CompositeReducedFunctional(
+                    CompositeReducedFunctional(self.JH, self.JR), self.JOsum)
+
+                # # # # # #
+                # Create model propagator ReducedFunctionals
+                # # # # # #
+
+                self._state_float_vec = EnsembleAdjVec(
+                    [AdjFloat(0.) for _ in range(self.nlocal_stages)],
+                    ensemble=self.ensemble)
+
+                # contains the halo and propagated states (one less than full series)
+                stage_state_space = EnsembleFunctionSpace(
+                    [Jm.functional.function_space() for Jm in self.model_rfs],
+                    ensemble=self.ensemble)
+
+                # (Jm : V^{n-1} -> V^{n-1}) = (x -> M(x))
+                propagator_control = EnsembleFunction(stage_state_space)
+                propagator_functional = EnsembleFunction(stage_state_space)
+
+                self.JM = EnsembleTransformReducedFunctional(
+                    self.model_rfs,
+                    propagator_functional,
+                    Control(propagator_control))
+
+                # (JQerr : [V^{n-1}, V^{n-1}] -> V^{n-1}) = ([x, y] -> x - y)
+                propagator_controls = [
+                    Control(EnsembleFunction(stage_state_space)),
+                    Control(EnsembleFunction(stage_state_space))]
+                propagator_functional = EnsembleFunction(stage_state_space)
+
+                self.JQerr = EnsembleTransformReducedFunctional(
+                    [stage.model_error for state in self.stages],
+                    propagator_functional,
+                    propagator_controls
+                )
+
+                # (JQnorm : V^{n-1} -> R^{n-1}) = (x -> x^T Q^{-1} x)
+                propagator_control = EnsembleFunction(stage_state_space)
+                propagator_functional = self._state_float_vec._ad_convert_type(0.)
+
+                self.JQnorm = EnsembleTransformReducedFunctional(
+                    self.model_norms,
+                    propagator_functional,
+                    Control(propagator_control))
+
+                # (JMsum : R^n -> R) = (x -> \sum_{i} x_{i})
+                prop_sum_control = self._state_float_vec._ad_convert_type(0.)
+                prop_sum_functional = AdjFloat(0.)
+
+                self.JMsum = EnsembleReduceReducedFunctional(
+                    prop_sum_functional,
+                    Control(prop_sum_control))
+
+                self.Jmodel = CompositeReducedFunctional(
+                    CompositeReducedFunctional(self.JQerr, self.JQnorm), self.JMsum)
 
         else:  # strong constraint
 
@@ -652,6 +716,75 @@ class FourDVarReducedFunctional(ReducedFunctional):
                 self.controls, self, global_index=-1,
                 observation_index=0 if self.initial_observations else -1,
                 stage_kwargs=stage_kwargs, nstages=nstages)
+
+    def _forward_halos(self, x, xi, xim1, xprev):
+        # extract x into xi and xim1
+        for i in range(self.nlocal_stages):
+            if self.trank == 0:
+                xi.subfunctions[i].assign(x.subfunctions[i+1])
+                xim1.subfunctions[i].assign(x.subfunctions[i])
+            else:
+                xi.subfunctions[i].assign(x.subfunctions[i])
+                xim1.subfunctions[i].assign(x.subfunctions[i-1])
+
+        # post messages
+        src = self.trank - 1
+        dst = self.trank + 1
+
+        # # send forward xi
+        if self.trank != self.nchunks - 1:
+            self.ensemble.isend(
+                xi.subfunctions[-1], dest=dst, tag=dst)
+
+        # # recv back xprev
+        if self.trank != 0:
+            recv_reqs = self.ensemble.irecv(
+                xprev, source=src, tag=self.trank)
+            MPI.Request.Waitall(recv_reqs)
+
+            # insert into xim1
+            xim1.subfunctions[0].assign(xprev)
+
+        return
+
+    def _backward_halos(self, dj_x, dj_mx, dJ_x, dJ_mx):
+
+        # accumulate diagonal component
+        for i in range(self.nlocal_stages):
+            if self.trank == 0:
+                dJ_x.subfunctions[i+1].assign(dj_x.subfunctions[i])
+            else:
+                dJ_x.subfunctions[i].assign(dj_x.subfunctions[i])
+
+        # accumulate propagation derivative
+        for i in range(self.nlocal_stages-1):
+            if self.trank == 0:
+                print(f"\n{i = }")
+                dJ_mx.subfunctions[i+1].assign(dj_mx.subfunctions[i+1])
+            else:
+                dJ_mx.subfunctions[i].assign(dj_mx.subfunctions[i+1])
+
+        djnext = dj_mx.subfunctions[0]._ad_copy().zero()
+
+        # no halo on rank 0
+        if self.trank == 0:
+            dJ_mx.subfunctions[0].assign(dj_mx.subfunctions[0])
+
+        # halos sent backward in time
+        src = self.trank + 1
+        dst = self.trank - 1
+
+        if self.trank != 0:
+            self.ensemble.isend(
+                dj_mx.subfunctions[0], dest=dst, tag=dst)
+
+        if self.trank != self.nchunks - 1:
+            recv_reqs = self.ensemble.irecv(
+                djnext, source=src, tag=self.trank)
+            MPI.Request.Waitall(recv_reqs)
+            dJ_mx.subfunctions[-1].assign(djnext)
+
+        return djnext
 
 
 class ObservationStageSequence:
@@ -674,6 +807,7 @@ class ObservationStageSequence:
     def __iter__(self):
         return self
 
+    @PETSc.Log.EventDecorator()
     def __next__(self):
 
         # increment global indices.
@@ -746,6 +880,7 @@ class StrongObservationStage:
         self.index = index
         self.observation_index = observation_index
 
+    @PETSc.Log.EventDecorator()
     def set_observation(self, state: OverloadedType,
                         observation_error: Callable[[OverloadedType], OverloadedType],
                         observation_covariance: Callable[[OverloadedType], AdjFloat]):
@@ -822,6 +957,7 @@ class WeakObservationStage:
         set_working_tape()
         self._stage_tape = get_working_tape()
 
+    @PETSc.Log.EventDecorator()
     def set_observation(self, state: OverloadedType,
                         observation_error: Callable[[OverloadedType], OverloadedType],
                         observation_covariance: Callable[[OverloadedType], AdjFloat],
@@ -935,6 +1071,7 @@ class WeakObservationStage:
         set_working_tape()
 
     @stop_annotating()
+    @PETSc.Log.EventDecorator()
     def __call__(self, values: OverloadedType,
                  rftype: Optional[str] = None):
         """Computes the reduced functional with supplied control value.
@@ -974,6 +1111,7 @@ class WeakObservationStage:
         return J
 
     @stop_annotating()
+    @PETSc.Log.EventDecorator()
     def derivative(self, adj_input: float = 1.0, options: dict = {},
                    rftype: Optional[str] = None):
         """Returns the derivative of the functional w.r.t. the control.
@@ -1038,6 +1176,7 @@ class WeakObservationStage:
         return derivatives
 
     @stop_annotating()
+    @PETSc.Log.EventDecorator()
     def hessian(self, m_dot: OverloadedType, options: dict = {},
                 rftype: Optional[str] = None):
         """Returns the action of the Hessian of the functional w.r.t. the control on a vector m_dot.
@@ -1089,8 +1228,7 @@ class WeakObservationStage:
         iopts = intermediate_options(options)
 
         # TLM for model from mdot[0]
-        forward_tlm = tlm(self.forward_model, m_dot[0],
-                          options=iopts)
+        forward_tlm = self.forward_model.tlm(m_dot[0], options=iopts)
 
         # combine model TLM and mdot[1]
         mdot_error = [forward_tlm, m_dot[1]]
@@ -1100,9 +1238,10 @@ class WeakObservationStage:
             mdot_error, options=iopts, evaluate_tlm=True)
 
         # Hessian for model
-        model_hessian = hessian(
-            self.forward_model, options=options,
-            hessian_value=error_hessian[0])
+        model_hessian = self.forward_model.hessian(
+            None, options=options,
+            hessian_input=error_hessian[0],
+            evaluate_tlm=False)
 
         # combine model Hessian and converted error Hessian
         return [
@@ -1119,7 +1258,10 @@ def covariance_norm(x, covariance):
         power = None
     weight = Constant(1/covariance)
     val = assemble(inner(x, weight*x)*dx)
-    return val if power is None else val**power
+    from pyadjoint import AdjFloat
+    result = val if power is None else val**power
+    assert type(result) is AdjFloat
+    return result
 
 
 class CovarianceNormReducedFunctional(ReducedFunctional):

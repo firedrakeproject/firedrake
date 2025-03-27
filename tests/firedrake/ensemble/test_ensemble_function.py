@@ -2,6 +2,7 @@ import firedrake as fd
 from pyop2 import Subset
 import pytest
 import numpy as np
+from pytest_mpi.parallel_assert import parallel_assert
 
 
 def random_func(f):

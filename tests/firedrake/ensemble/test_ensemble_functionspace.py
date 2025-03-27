@@ -1,6 +1,6 @@
 import firedrake as fd
 import pytest
-from pytest_mpi import parallel_assert
+from pytest_mpi.parallel_assert import parallel_assert
 
 
 @pytest.fixture
@@ -119,7 +119,7 @@ def test_ensemble_space_reject_inconsistent_meshes(ensemble, space_type):
     elif space_type == 'dual':
         spaces = (FS0.dual(), FS1.dual())
     else:
-        raise ValueError(f"Unrecognised {space_type = }")
+        raise ValueError(f"Unrecognised {space_type=}")
 
     with pytest.raises(ValueError):
         _ = fd.EnsembleFunctionSpace(spaces, ensemble)
@@ -212,7 +212,7 @@ def test_ensemble_local_spaces_correct(ensemblespace, Wlocal):
         parallel_assert(
             lambda: all(local_space_matches),
             participating=(ensemble.ensemble_rank == root),
-            msg=f"{ensemble.ensemble_rank = }, {local_space_matches = }")
+            msg=f"{ensemble.ensemble_rank=}, {local_space_matches=}")
 
 
 @pytest.mark.parallel(nprocs=[1, 2, 4, 6])
@@ -232,15 +232,15 @@ def test_ensemble_dofsizes_correct(ensemblespace):
 
     parallel_assert(
         lambda: efs.nlocal_rank_dofs == nlocal_rank_dofs,
-        msg=f"{rank = }, {efs.nlocal_rank_dofs = }, {nlocal_rank_dofs = }")
+        msg=f"{rank=}, {efs.nlocal_rank_dofs=}, {nlocal_rank_dofs=}")
 
     parallel_assert(
         lambda: efs.nlocal_comm_dofs == nlocal_comm_dofs,
-        msg=f"{rank = }, {efs.nlocal_comm_dofs = }, {nlocal_comm_dofs = }")
+        msg=f"{rank=}, {efs.nlocal_comm_dofs=}, {nlocal_comm_dofs=}")
 
     parallel_assert(
         lambda: efs.nglobal_dofs == nglobal_dofs,
-        msg=f"{rank = }, {efs.nglobal_dofs = }, {nglobal_dofs = }")
+        msg=f"{rank=}, {efs.nglobal_dofs=}, {nglobal_dofs=}")
 
 
 @pytest.mark.parallel(nprocs=[1, 2, 4, 6])
@@ -271,7 +271,7 @@ def test_ensemble_space_dual(ensemblespace):
         parallel_assert(
             lambda: all(local_space_matches),
             participating=(ensemble.ensemble_rank == root),
-            msg=f"{ensemble_rank = }, {local_space_matches = }")
+            msg=f"{ensemble_rank=}, {local_space_matches=}")
 
     dual2 = dual.dual()
     parallel_assert(lambda: type(dual.dual()) is type(ensemblespace))
@@ -287,7 +287,7 @@ def test_ensemble_space_dual(ensemblespace):
         parallel_assert(
             lambda: all(local_space_matches),
             participating=(ensemble.ensemble_rank == root),
-            msg=f"{ensemble_rank = }, {local_space_matches = }")
+            msg=f"{ensemble_rank=}, {local_space_matches=}")
 
 
 @pytest.mark.parallel(nprocs=[1, 2, 4])
