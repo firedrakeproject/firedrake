@@ -331,8 +331,8 @@ class CodegenResult:
             array = kwargs.get(actual_arg_name, self.datamap[actual_arg_name])
             data_args.append(as_kernel_arg(array))
 
-        if len(self.ir.callables_table) > 1:
-            breakpoint()
+        # if len(self.ir.callables_table) > 1:
+        #     breakpoint()
 
         if len(data_args) > 0:
             executable = self._compile()
