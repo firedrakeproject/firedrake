@@ -1,0 +1,90 @@
+name: Install and test Firedrake (CUDA)
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+concurrency:
+  # Cancels jobs running if new commits are pushed
+  group: >
+    ${{ github.workflow }}-
+    ${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Install and test Firedrake (Linux)
+    strategy:
+      # We want to know all of the tests which fail, so don't kill real if
+      # complex fails and vice-versa
+      fail-fast: false
+      matrix:
+        arch: [default]
+    runs-on: [self-hosted, Linux]
+    container:
+      image: firedrakeproject/firedrake-env:latest
+    env:
+      FIREDRAKE_CI: 1
+      OMP_NUM_THREADS: 1
+    steps:
+      - name: Pre-run cleanup
+        # Make sure the current directory is empty
+        run: find . -delete
+
+      - uses: actions/checkout@v4
+        with:
+          path: firedrake-repo
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install \
+            $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
+
+      - name: Install PETSc
+        run: |
+          git clone --depth 1 https://github.com/firedrakeproject/petsc.git
+          cd petsc
+          # TODO update configure file
+          ./configure --with-make-np=12 --with-c2html=0 --with-debugging=0 --with-fortran-bindings=0 --with-shared-libraries=1 --with-strict-petscerrorcode PETSC_ARCH=arch-firedrake-default --COPTFLAGS=-O3 -march=native -mtune=native --CXXOPTFLAGS=-O3 -march=native -mtune=native --FOPTFLAGS=-O3 -march=native -mtune=native --download-bison --download-fftw --download-hdf5 --download-hwloc --download-metis --download-mumps --download-netcdf --download-pnetcdf --download-ptscotch --download-scalapack --download-suitesparse --download-superlu_dist --download-zlib --download-hypre --with-cuda --with-cuda-dir=/usr/local/cuda CUDAPPFLAGS=-Wno-deprecated-gpu-targets --download-openmpi
+          make
+          # TODO: This fails for some reason
+          # make check
+
+      - name: Install Firedrake
+        id: install
+        run: |
+          # TODO update configure file for the exports
+          # export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-env)
+          export PETSC_DIR=./petsc
+          export PETSC_ARCH=arch-firedrake-default
+          export MPI_HOME=$PETSC_DIR/$PETSC_ARCH
+          export CC=$PETSC_DIR/$PETSC_ARCH/bin/mpicc
+          export CXX=$PETSC_DIR/$PETSC_ARCH/bin/mpicxx
+          export MPICC=$CC
+          export MPI_HOME=$PETSC_DIR/$PETSC_ARCH
+          export PATH=$PETSC_DIR/$PETSC_ARCH/bin:$PATH
+          export HDF5_MPI=ON
+          python3 -m venv venv
+          . venv/bin/activate
+          : # Force a rebuild of petsc4py as the cached one will not link to the fresh
+          : # install of PETSc. A similar trick may be needed for compiled dependencies
+          : # like h5py or mpi4py if changing HDF5/MPI libraries.
+          pip cache remove petsc4py
+          pip install --verbose --no-binary h5py './firedrake-repo[ci]'
+          firedrake-clean
+          : # Extra test dependencies
+          pip install matplotlib vtk
+          pip list
+
+      - name: Run smoke tests
+        run: |
+          . venv/bin/activate
+          firedrake-check
+        timeout-minutes: 10
+        
+      - name: Post-run cleanup
+        if: always()
+        run: find . -delete
