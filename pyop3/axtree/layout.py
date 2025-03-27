@@ -214,8 +214,8 @@ def _tabulate_offset_dat(offset_dat, axes, region, start):
     step_dat = Dat.empty(offset_dat.axes, dtype=IntType)
     step_dat.assign(step_expr, eager=True)
 
-    offsets = steps(step_dat.buffer.data_ro, drop_last=False)
-    offset_dat.buffer.data_wo[...] = offsets[:-1]
+    offsets = steps(step_dat.buffer._data, drop_last=False)
+    offset_dat.buffer._data[...] = offsets[:-1]
 
     return offsets[-1]
 

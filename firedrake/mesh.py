@@ -749,17 +749,19 @@ class AbstractMeshTopology(abc.ABC):
 
             if perm_is:
                 dm_renumbering = perm_is
-            elif reorder:  # NOTE: This should surely be the default?!
-                with PETSc.Log.Event("Renumber mesh topology"):
-                    rcm_ordering_is = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM)
-                    cell_ordering = rcm_ordering_is.indices[:self.num_cells]
-                    dm_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
+            else:
+                if reorder:
+                    with PETSc.Log.Event("Renumber mesh topology"):
+                        rcm_ordering_is = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM)
+                        cell_ordering = rcm_ordering_is.indices[:self.num_cells]
+                        dm_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
+                else:
+                    # NOTE: kind of redundant, could have None instead
+                    dm_renumbering = PETSc.IS().createGeneral(np.arange(self.num_points, dtype=IntType), comm=self._comm)
 
                 # Now take this renumbering and partition owned and ghost points, this
                 # is the part that pyop3 should ultimately be able to handle.
                 dm_renumbering = dmcommon.partition_renumbering(self.topology_dm, dm_renumbering)
-            else:
-                dm_renumbering = None
 
             self._dm_renumbering = dm_renumbering
 
@@ -770,9 +772,11 @@ class AbstractMeshTopology(abc.ABC):
             # would be nice to avoid this branch.
             if self.comm.size > 1:
                 point_sf = self.topology_dm.getPointSF()
-                point_sf_renum = dmcommon.renumber_sf(point_sf, dm_renumbering)
             else:
-                point_sf_renum = None
+                point_sf = op3.local_sf(self.num_points, self._comm).sf
+
+            # FIXME: Fails in serial
+            point_sf_renum = dmcommon.renumber_sf(point_sf, dm_renumbering)
 
             # TODO: Allow the label here to be None
             flat_points = op3.Axis(
@@ -861,9 +865,13 @@ class AbstractMeshTopology(abc.ABC):
             # Previously we would return the mapping point 3 -> vertex 4 whereas now
             # we return vertex 5 -> vertex 4
             # hmmm!!!
-            return op3.utils.invert(np.argsort(numbering))
+            print("AA: ", numbering)
+            retval = op3.utils.invert(np.argsort(numbering))
+            print("BB: ", retval)
+            return retval
             # return np.argsort(numbering)
         else:
+            assert False, "old code"
             return np.arange(0, p_end-p_start, dtype=IntType)
 
     @cached_property
@@ -1121,8 +1129,12 @@ class AbstractMeshTopology(abc.ABC):
             offset = 0
             for map_dim, size in reversed(list(enumerate(self._closure_sizes[dim]))):
                 closure_data_XXX = closure_data[:, offset:offset+size]
+                print(closure_data_XXX)
                 closure_data_split.append(self._renumber_map(dim, map_dim, closure_data_XXX))
                 offset += size
+
+            print(closure_data_split)
+
 
             # TODO: Cleanup. This is here because we have a tricksy way of slicing out
             # the right bits of the closure maps above.
