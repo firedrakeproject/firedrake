@@ -753,8 +753,13 @@ class AbstractMeshTopology(abc.ABC):
                 if reorder:
                     with PETSc.Log.Event("Renumber mesh topology"):
                         rcm_ordering_is = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM)
-                        cell_ordering = rcm_ordering_is.indices[:self.num_cells]
+                        rcm_ordering_is.view()
+                        cell_ordering = op3.utils.invert(rcm_ordering_is.indices[:self.num_cells])
+                        # must use an inverse ordering because we want to know the map *back*
+                        # from renumbered to original cell number
                         dm_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
+                        dm_renumbering.view()
+                        
                 else:
                     # NOTE: kind of redundant, could have None instead
                     dm_renumbering = PETSc.IS().createGeneral(np.arange(self.num_points, dtype=IntType), comm=self._comm)
@@ -762,6 +767,10 @@ class AbstractMeshTopology(abc.ABC):
                 # Now take this renumbering and partition owned and ghost points, this
                 # is the part that pyop3 should ultimately be able to handle.
                 dm_renumbering = dmcommon.partition_renumbering(self.topology_dm, dm_renumbering)
+
+            # These map from new to old numbers - we don't generally want this!
+            xxx = op3.utils.invert(dm_renumbering.indices)
+            dm_renumbering = PETSc.IS().createGeneral(xxx, comm=self._comm)
 
             self._dm_renumbering = dm_renumbering
 
@@ -865,6 +874,16 @@ class AbstractMeshTopology(abc.ABC):
             # Previously we would return the mapping point 3 -> vertex 4 whereas now
             # we return vertex 5 -> vertex 4
             # hmmm!!!
+
+            # this is very inefficient
+            sorted_arr = list(sorted(numbering))
+            retval0 = [sorted_arr.index(x) for x in numbering]
+            return retval0
+            print(retval0)
+            ret = op3.utils.invert(retval0)
+            print(ret)
+            return ret
+
             print("AA: ", numbering)
             retval = op3.utils.invert(np.argsort(numbering))
             print("BB: ", retval)
@@ -1129,11 +1148,10 @@ class AbstractMeshTopology(abc.ABC):
             offset = 0
             for map_dim, size in reversed(list(enumerate(self._closure_sizes[dim]))):
                 closure_data_XXX = closure_data[:, offset:offset+size]
-                print(closure_data_XXX)
                 closure_data_split.append(self._renumber_map(dim, map_dim, closure_data_XXX))
                 offset += size
 
-            print(closure_data_split)
+            #print(closure_data_split)
 
 
             # TODO: Cleanup. This is here because we have a tricksy way of slicing out
@@ -1326,9 +1344,16 @@ class AbstractMeshTopology(abc.ABC):
         """
         src_renumbering = self._entity_numbering(src_dim)
         dest_renumbering = self._entity_numbering(dest_dim)
+        print("src",src_renumbering)
+        print("dest",dest_renumbering)
 
         src_start, src_end = self.topology_dm.getDepthStratum(src_dim)
         dest_start, dest_end = self.topology_dm.getDepthStratum(dest_dim)
+
+        print("ds",dest_start)
+
+        print("CC" ,map_pts)
+
 
         map_pts_renum = np.empty_like(map_pts)
 
@@ -1338,6 +1363,7 @@ class AbstractMeshTopology(abc.ABC):
                 for i, dest_pt in enumerate(map_data_per_pt):
                     dest_pt_renum = dest_renumbering[dest_pt-dest_start]
                     map_pts_renum[src_pt_renum, i] = dest_pt_renum
+            print("XX" ,map_pts_renum)
             return readonly(map_pts_renum)
         else:
             sizes_renum = np.empty_like(sizes)

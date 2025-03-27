@@ -2426,6 +2426,7 @@ def compute_dm_renumbering(
 
     for cell in range(cStart, cEnd):
         if reorder:
+            # is this wrong? invert! YES
             cell = reordering[cell]
 
         get_transitive_closure(dm.dm, cell, PETSC_TRUE, &nclosure, &closure)
