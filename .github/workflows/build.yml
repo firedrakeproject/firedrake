@@ -73,15 +73,6 @@ jobs:
           make check
           echo "PETSC_DIR=/__w/firedrake/firedrake/petsc" >> "$GITHUB_ENV"
           echo "PETSC_ARCH=arch-firedrake-${{ matrix.arch }}" >> "$GITHUB_ENV"
-          : # do we need to set slepc dir?
-
-      # - name: Install SLEPc
-      #   run: |
-      #     git clone --depth 1 --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-slepc-version) https://gitlab.com/slepc/slepc.git
-      #     cd slepc
-      #     ./configure
-      #     make SLEPC_DIR=/__w/firedrake/firedrake/slepc
-      #     echo "SLEPC_DIR=/__w/firedrake/firedrake/slepc" >> "$GITHUB_ENV"
 
       - name: Install Firedrake
         id: install
