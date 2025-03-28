@@ -362,3 +362,65 @@ def test_restricted_function_space_extrusion_stokes(ncells):
     # -- Actually, the ordering is the same.
     assert np.allclose(sol_res.subfunctions[0].dat.data_ro_with_halos, sol.subfunctions[0].dat.data_ro_with_halos)
     assert np.allclose(sol_res.subfunctions[1].dat.data_ro_with_halos, sol.subfunctions[1].dat.data_ro_with_halos)
+
+
+@pytest.mark.parametrize("names", [(None, None), (None, "name1"), ("name0", "name1")])
+def test_restrict_fieldsplit(names):
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1, name=names[0])
+    Q = FunctionSpace(mesh, "CG", 2, name=names[1])
+    Z = V * Q
+
+    z = Function(Z)
+    test = TestFunction(Z)
+    z_exact = Constant([1, -1])
+
+    F = inner(z - z_exact, test) * dx
+    bcs = [DirichletBC(Z.sub(i), z_exact[i], (i+1, i+3)) for i in range(len(Z))]
+
+    problem = NonlinearVariationalProblem(F, z, bcs=bcs, restrict=True)
+    solver = NonlinearVariationalSolver(problem, solver_parameters={
+        "snes_type": "ksponly",
+        "ksp_type": "preonly",
+        "pc_type": "fieldsplit",
+        "pc_fieldsplit_type": "additive",
+        f"fieldsplit_{names[0] or 0}_pc_type": "lu",
+        f"fieldsplit_{names[1] or 1}_pc_type": "lu"},
+        options_prefix="")
+    solver.solve()
+
+    # Test prefixes for the restricted spaces
+    pc = solver.snes.ksp.pc
+    for field, ksp in enumerate(pc.getFieldSplitSubKSP()):
+        name = Z[field].name or field
+        assert ksp.getOptionsPrefix() == f"fieldsplit_{name}_"
+
+    assert errornorm(z_exact[0], z.subfunctions[0]) < 1E-10
+    assert errornorm(z_exact[1], z.subfunctions[1]) < 1E-10
+
+
+def test_restrict_python_pc():
+    mesh = UnitSquareMesh(2, 2)
+    x, y = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 1)
+
+    u = Function(V)
+    test = TestFunction(V)
+    u_exact = x + y
+    g = Function(V).interpolate(u_exact)
+
+    F = inner(u - u_exact, test) * dx
+    bcs = [DirichletBC(V, g, 1), DirichletBC(V, u_exact, 2)]
+
+    problem = NonlinearVariationalProblem(F, u, bcs=bcs, restrict=True)
+    solver = NonlinearVariationalSolver(problem, solver_parameters={
+        "snes_type": "ksponly",
+        "mat_type": "matfree",
+        "ksp_type": "preonly",
+        "pc_type": "python",
+        "pc_python_type": "firedrake.AssembledPC",
+        "assembled_pc_type": "lu"},
+        options_prefix="")
+    solver.solve()
+
+    assert errornorm(u_exact, u) < 1E-10

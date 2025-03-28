@@ -53,11 +53,13 @@ def get_function_space(dm):
     :raises RuntimeError: if no function space was found.
     """
     info = dm.getAttr("__fs_info__")
-    meshref, element, indices, (name, names) = info
+    meshref, element, indices, (name, names), boundary_sets = info
     mesh = meshref()
     if mesh is None:
         raise RuntimeError("Somehow your mesh was collected, this should never happen")
     V = firedrake.FunctionSpace(mesh, element, name=name)
+    if any(boundary_sets):
+        V = firedrake.bcs.restricted_function_space(V, boundary_sets)
     if len(V) > 1:
         for V_, name in zip(V, names):
             V_.topological.name = name
@@ -93,8 +95,8 @@ def set_function_space(dm, V):
     if len(V) > 1:
         names = tuple(V_.name for V_ in V)
     element = V.ufl_element()
-
-    info = (weakref.ref(mesh), element, tuple(reversed(indices)), (V.name, names))
+    boundary_sets = tuple(V_.boundary_set for V_ in V)
+    info = (weakref.ref(mesh), element, tuple(reversed(indices)), (V.name, names), boundary_sets)
     dm.setAttr("__fs_info__", info)
 
 
