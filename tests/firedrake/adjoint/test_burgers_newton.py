@@ -211,6 +211,7 @@ def test_burgers_newton(solve_type, checkpointing, basics):
 @pytest.mark.skipcomplex
 def test_burgers_newton_docs():
     """This test exists to ensure that the adjoint documentation runs."""
+    get_working_tape().clear_tape()
     # start solver
     n = 30
     mesh = UnitIntervalMesh(n)
@@ -240,10 +241,19 @@ def test_burgers_newton_docs():
         u_old.assign(u_new)
         J += assemble(u_new*u_new*dx)
     pause_annotation()
+    print(round(J, 3))
     # end solver
     Jhat = ReducedFunctional(J, Control(ic))
     # end reduced functional
 
+    # start functional evaluation
+    get_working_tape().progress_bar = ProgressBar
+    ic_new = project(sin(pi*x), V)
+    J_new = Jhat(ic_new)
+    print(round(J_new, 3))
+    # end functional evaluation
+
+    get_working_tape().visualise("tape.pdf")
     rate = taylor_test(Jhat, ic, Function(V).assign(1.))
     assert rate > 1.9
 

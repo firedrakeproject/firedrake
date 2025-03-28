@@ -197,6 +197,9 @@ provide context for the material that follows.
 We've now solved the PDE over time and computed our functional. Observe that
 we paused taping at the end of the computation.
 
+For future reference, the value of :obj:`J` printed at the end is
+`5.006`.
+
 Reduced functional
 ------------------
 
@@ -221,9 +224,19 @@ Each control must be wrapped in :class:`~pyadjoint.Control`.
 Reduced functional operations
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+A reduced functional is a callable, differentiable function object whose inputs
+are the control and whose output is the functional value. 
 
+Taylor tests
+------------
 
 .. _overloaded_types:
 
 Overloaded types
 ----------------
+
+The tape
+--------
+
+Progress bars
+~~~~~~~~~~~~~
