@@ -1,4 +1,4 @@
-:orphan:
+-e :orphan:
 
 
 firedrake\_citations package

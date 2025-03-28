@@ -27,3 +27,4 @@ Manual
    parallelism
    zenodo
    optimising
+   adjoint

@@ -172,7 +172,5 @@ Florian Wechsung..............<https://florianwechsung.github.io>
 
 Yian Zeng
 
-Umberto Zerbinati.............<https://www.uzerbinati.eu>
-
 Fangyi Zhou
 
