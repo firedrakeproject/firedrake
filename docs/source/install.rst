@@ -15,8 +15,9 @@ Supported systems
 =================
 
 A :ref:`native installation<pip_install_firedrake>` of Firedrake is officially
-supported on Ubuntu and macOS though it should be installable on any Linux
-distribution. Windows users are encouraged to use WSL_ or one of Firedrake's
+supported on Ubuntu and ARM Macs (Intel Macs are no longer supported) though
+it should be installable on any Linux distribution. Windows users are encouraged
+to use WSL_ or one of Firedrake's
 :ref:`alternative installation mechanisms<alternative_install>`.
 
 
@@ -52,25 +53,16 @@ To simplify the installation process, Firedrake provides a utility script called
 
   $ curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-configure
 
+Unlike the now deprecated ``firedrake-install`` script, ``firedrake-configure``
+**does not install Firedrake for you**. It is simply a helper script that emits
+the configuration options that Firedrake needs for the various steps needed
+during installation.
 
-.. _firedrake_archs:
-
-Prepared configurations
-~~~~~~~~~~~~~~~~~~~~~~~
-
-``firedrake-configure`` provides a number of different possible configurations
-(termed 'ARCH's) that specify how PETSc is configured and which external
-packages are built. The currently supported ARCHs are:
-
-* ``default``: the default installation, suitable for most users
-* ``complex``: an installation where PETSc is configured using complex numbers
-
-The different configurations can be selected by passing the flag ``--arch`` to
-``firedrake-configure``. For example::
-
-  $ python3 firedrake-configure --show-system-packages --arch complex
-
-If ``--arch`` is not specified then ``default`` is used.
+To improve robustness, ``firedrake-configure`` is intentionally kept extremely
+minimal and simple. This means that if you want to install Firedrake in a
+non-standard way (for instance with a custom installation of PETSc, HDF5 or MPI)
+then it is your responsibility to modify the output from ``firedrake-configure``
+as necessary. This is described in more detail in :ref:`customising`.
 
 
 .. _install_system_dependencies:
@@ -99,12 +91,6 @@ which will install the following packages:
 
 If you do not have one of these systems then these dependencies will need to
 be installed manually.
-
-.. note::
-   Not all the system dependencies declared by ``firedrake-configure`` have to
-   be installed at this stage. Some (e.g. HDF5, hwloc) can also be installed
-   from source by PETSc during the ``configure`` :ref:`step<install_petsc>` by
-   passing additional flags (e.g. ``--download-hdf5``, ``--download-hwloc``).
 
 
 .. _install_petsc:
@@ -154,24 +140,6 @@ For the ``default`` ARCH, running ``firedrake-configure`` with
    :language: text
 
 
-Customising the PETSc installation
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Since ``firedrake-configure`` only outputs a string of options it is straightforward
-to make changes to the options passed to PETSc ``configure``. You can either:
-
-* Append additional options when ``configure`` is invoked. For example, to compile
-  PETSc with 64 bit indices you should run::
-
-   $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure --with-64-bit-indices
-
-* Write the output of ``firedrake-configure`` to a file than can be modified::
-
-   $ python3 ../firedrake-configure --show-petsc-configure-options > my_configure_options.txt
-   <edit my_configure_options.txt>
-   $ ./configure $(cat my_configure_options.txt)
-
-
 .. _install_firedrake:
 
 Installing Firedrake
@@ -193,14 +161,11 @@ install Firedrake. To do this perform the following steps:
 
      $ export $(python3 firedrake-configure --show-env)
 
-   At a minimum this will set the following variables:
+   Which at a minimum will set the following variables:
 
    .. code-block:: text
 
       CC=mpicc CXX=mpicxx PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-{default,complex} HDF5_MPI=ON
-
-   .. note::
-      If you are installing 
 
    .. note::
       This command will only work if you have the right starting directory.
@@ -208,6 +173,14 @@ install Firedrake. To do this perform the following steps:
       of the current working directory* (i.e. ``<cwd>/petsc``). If
       you have exactly followed the instructions up to this point this should
       already be the case.
+
+#. Remove possibly cached versions of petsc4py::
+
+       $ pip cache remove petsc4py
+
+   This is necessary because cached petsc4py wheels will be linked against the
+   wrong PETSc.
+
 
 #. Install Firedrake::
 
@@ -226,26 +199,6 @@ install Firedrake. To do this perform the following steps:
    :doc:`firedrake-zenodo</zenodo>` will only work with *editable* installations of
    Firedrake and its components. To install Firedrake in editable mode you
    should follow the instructions :ref:`below<dev_install>`.
-
-.. note::
-   During the installation Firedrake will compile and install petsc4py_. If
-   you have previously installed petsc4py on your computer with a different
-   PETSc then ``pip`` will erroneously reuse the existing petsc4py which is 
-   linked against the wrong library. To avoid this you need to run the
-   command::
-
-       pip cache remove petsc4py
-
-   Equivalent commands may also be necessary for mpi4py and h5py if you are
-   changing the MPI and/or HDF5 libraries in use.
-
-.. note::
-   If you are using an MPI installed into a nonstandard location it may be
-   necessary to set some additional environment variables before installation including:
-
-   * ``MPICC`` to the location of ``mpicc``
-   * ``MPI_HOME`` to the base directory of the MPI installation (e.g. ``/usr``
-     or ``/opt/mpich``)
 
 
 .. _firedrake_check:
@@ -268,15 +221,42 @@ Firedrake with its optional test dependencies by specifying the ``[test]``
 dependency group as shown :ref:`above<install_firedrake>`.
 
 
+Updating Firedrake
+------------------
+
+Updating Firedrake involves following the same steps as above when
+:ref:`installing Firedrake<install_firedrake>`. First, use ``firedrake-configure``
+to set the right environment variables and then run::
+
+     $ pip install --upgrade git+https://github.com/firedrakeproject/firedrake.git
+
+Updating PETSc
+~~~~~~~~~~~~~~
+
+To update PETSc you simply need to run::
+
+   $ cd /path/to/petsc
+   $ git pull
+   $ make
+
+Note that this will only recompile PETSc's source code, not that of the external
+packages, and so should be relatively quick. If your PETSc is sufficiently
+out-of-date you may also need to rebuild the external packages by running::
+
+   $ make reconfigure
+
+
 .. _dev_install:
 
 Developer install
-~~~~~~~~~~~~~~~~~
+-----------------
 
 By default Firedrake is installed just like any other Python package into
 your environment. If you want to be able to edit Firedrake itself then
 an *editable* installation is needed. To install Firedrake in editable
-mode you should run::
+mode you should follow the same
+:ref:`steps as for a non-editable install<install_firedrake>` but replace the
+final ``pip install`` command with::
 
    $ git clone https://github.com/firedrakeproject/firedrake.git
    $ pip install --no-binary h5py --editable './firedrake[dev]'
@@ -294,29 +274,107 @@ should run::
    whatever packages you just installed.
 
 
-Updating Firedrake
-------------------
+.. _customising:
 
-Updating Firedrake involves following the same steps as above when
-:ref:`installing Firedrake<install_firedrake>`. First, use ``firedrake-configure``
-to set the right environment variables and then run::
+Customising Firedrake
+=====================
 
-     $ pip install --upgrade git+https://github.com/firedrakeproject/firedrake.git
 
-Updating PETSc
-~~~~~~~~~~~~~~
+.. _firedrake_archs:
 
-To update PETSc you simply need to run::
+Prepared configurations
+-----------------------
 
-   $ cd petsc
-   $ git pull
-   $ make
+``firedrake-configure`` provides a number of different possible configurations
+(termed 'ARCHs') that specify how PETSc is configured and which external
+packages are built. The currently supported ARCHs are:
 
-This will only recompile PETSc's source code, not that of the external
-packages, and so should be relatively quick. If your PETSc is sufficiently
-out-of-date you may also need to rebuild the external packages by running::
+* ``default``: the default installation, suitable for most users
+* ``complex``: an installation where PETSc is configured using complex numbers
 
-   $ make reconfigure
+The different configurations can be selected by passing the flag ``--arch`` to
+``firedrake-configure``. For example::
+
+   $ python3 firedrake-configure --show-petsc-configure-options --arch complex
+
+
+Optional dependencies
+---------------------
+
+PETSc with 64-bit indices
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+To build PETSc with 64-bit indices you need to append ``--with-64-bit-indices``
+to the set of options when PETSc is configured. For example this could be::
+
+   $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure --with-64-bit-indices
+
+SLEPc
+~~~~~
+
+To install Firedrake with SLEPc support you must:
+
+#. Clone and install SLEPc (note that ``PETSC_DIR`` and ``PETSC_ARCH`` must be set)::
+
+   $ git clone --depth 1 https://github.com/firedrakeproject/slepc.git
+   $ cd slepc
+   $ ./configure
+   $ make SLEPC_DIR=$PWD
+
+#. Set ``SLEPC_DIR``::
+
+   $ export SLEPC_DIR=$PWD
+
+#. Install Firedrake with SLEPc support::
+
+   $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[test,slepc]"
+
+VTK
+~~~
+
+To install Firedrake with VTK, it should be installed using the ``vtk`` optional
+dependency. For example::
+
+   $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[test,vtk]"
+
+
+PyTorch
+~~~~~~~
+
+To install Firedrake with `PyTorch <https://pytorch.org/>`_, it should be installed
+using the ``torch`` optional dependency. For example::
+
+   $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[test,torch]" --extra-index-url https://download.pytorch.org/whl/cpu
+
+Observe that, in addition to specifying ``torch``, an additional
+argument (``--extra-index-url``) is needed. More information on installing
+PyTorch can be found `here <https://pytorch.org/get-started/locally/>`__.
+
+
+Netgen
+~~~~~~
+
+To install Firedrake with `Netgen <https://ngsolve.org/>`_ support, it should be
+installed with the ``netgen`` optional dependency. For example::
+
+   $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[test,netgen]"
+
+
+Advanced customisation
+----------------------
+
+Since ``firedrake-configure`` only outputs a string of options it is straightforward
+to customise all aspects of the installation process. You can either:
+
+* Append additional options when ``configure`` is invoked. For example::
+
+   $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure --download-exotic-package
+
+* Write the output of ``firedrake-configure`` to a file than can be modified. For example::
+
+   $ python3 ../firedrake-configure --show-petsc-configure-options > my_configure_options.txt
+   <edit my_configure_options.txt>
+   $ ./configure $(cat my_configure_options.txt)
 
 
 .. _alternative_install:
@@ -324,10 +382,59 @@ out-of-date you may also need to rebuild the external packages by running::
 Alternative installation methods
 ================================
 
-As well as being installable through ``pip``, Firedrake also provides
-`Docker containers <https://hub.docker.com/u/firedrakeproject>`_ and
-Jupyter notebooks running on :doc:`Google Colab</notebooks>`.
+If for some reason you are unable to install Firedrake natively using pip,
+Firedrake has a number of alternative mechanisms that you can use to obtain
+an environment to run your Firedrake code.
 
+Docker
+------
+
+Firedrake provides a number of different
+`Docker <https://www.docker.com/>`_ images that can be found
+`here <https://hub.docker.com/u/firedrakeproject>`__. The main images best
+suited for users are:
+
+* `firedrake-vanilla-default <https://hub.docker.com/repository/docker/firedrakeproject/firedrake-vanilla-default>`__: a complete Firedrake installation with ARCH ``default``
+* `firedrake-vanilla-complex <https://hub.docker.com/repository/docker/firedrakeproject/firedrake-vanilla-complex>`__: a complete Firedrake installation with ARCH ``complex``
+* `firedrake <https://hub.docker.com/repository/docker/firedrakeproject/firedrake>`__: the firedrake-vanilla-default image with extra downstream packages installed
+
+To use one of the containers you should run::
+
+   $ docker pull firedrakeproject/<image name>:latest
+
+to download the most recent image (replacing ``<image name>`` with the desired
+image). Then you can run::
+
+   $ docker run -it firedrakeproject/<image name>:latest
+
+to start and enter a container.
+
+.. note::
+
+   The 'full-fat' ``firedrakeproject/firedrake`` image only exists for x86
+   architectures because some external packages do not provide ARM wheels.
+   If you are using an ARM Mac (i.e. M1, M2, etc) then you are encouraged to
+   use the ``firedrakeproject/firedrake-vanilla-default`` or
+   ``firedrakeproject/firedrake-vanilla-complex`` images instead.
+
+It is possible to use `Microsoft VSCode <https://code.visualstudio.com/>`__
+inside a running container. Instructions for how to do this may be found
+`here <https://github.com/firedrakeproject/firedrake/wiki/Writing-Firedrake-code-with-VSCode-inside-a-Docker-container>`__.
+
+.. warning::
+
+   The Docker daemon runs with superuser privileges and so has the potential to 
+   damage your system, in particular if volumes are mounted between the container
+   and host. We therefore strongly advise you to take care when using Docker.
+   More information can be found
+   `here <https://docs.docker.com/engine/security/#docker-daemon-attack-surface>`__.
+
+Google Colab
+------------
+
+Firedrake can also be used inside the brower using Jupyter notebooks and
+`Google Colab <https://colab.research.google.com/>`_. For more information
+please see :doc:`here</notebooks>`.
 
 .. _getting_help:
 
