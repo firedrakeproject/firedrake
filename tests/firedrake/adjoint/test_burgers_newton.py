@@ -204,7 +204,7 @@ def test_burgers_newton_docs():
     # start solver
     n = 30
     mesh = UnitIntervalMesh(n)
-    end = 0.01
+    end = 0.3
     timestep = Constant(1.0/n)
     steps = int(end/float(timestep)) + 1
 
@@ -236,15 +236,19 @@ def test_burgers_newton_docs():
     # end reduced functional
 
     # start functional evaluation
-    get_working_tape().progress_bar = ProgressBar
     ic_new = project(sin(pi*x), V)
     J_new = Jhat(ic_new)
     print(round(J_new, 3))
     # end functional evaluation
 
+    # start progress bar
+    get_working_tape().progress_bar = ProgressBar
+    # end progress bar
+
     # start derivative
     dJ = Jhat.derivative()
     # end derivative
+
 
     get_working_tape().visualise("tape.pdf")
     rate = taylor_test(Jhat, ic, Function(V).assign(1.))

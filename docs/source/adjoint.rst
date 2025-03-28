@@ -257,7 +257,7 @@ taped if the functional has never been re-evaluated). This is as simple as:
     :dedent:
     :language: python3
 
-The derivative, :meth:`!dJ`, will have the same type as the controls.
+The derivative, :obj:`!dJ`, will have the same type as the controls.
 
 .. note::
 
@@ -308,9 +308,40 @@ The oval variables with labels of the form `w_n` are of type Firedrake
 :class:`~.function.Function` while the variables labelled with numbers
 are annotated scalars of type :class:`~pyadjoint.AdjFloat`.
 
+Visualising the tape makes it possible to verify that the computational
+dependencies of the functional value are correct. This is a key debugging tool.
+
 Progress bars
 ~~~~~~~~~~~~~
 
+Calling the functional or computing a derivative evaluates all the blocks on
+all paths connecting the functional and its controls. It can be helpful to
+visualise the progress that is made through that calculation by printing a
+progress bar which advances for each block calculated.
+
+This can be achieved by setting the :attr:`pyadjoint.Tape.progress_bar`
+property to :class:`~firedrake.progress_bar.ProgressBar` thus:
+
+.. literalinclude:: ../../tests/firedrake/adjoint/test_burgers_newton.py
+    :start-after: start progress bar
+    :end-before: end progress bar
+    :dedent:
+    :language: python3
+
+After setting this property, each traversal of the tape prints a progress bar.
+For example, executing:
+
+.. literalinclude:: ../../tests/firedrake/adjoint/test_burgers_newton.py
+    :start-after: start derivative
+    :end-before: end derivative
+    :dedent:
+    :language: python3
+
+will print:
+
+.. code-block:: console
+
+    Evaluating adjoint ▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣ 53/53 [0:00:00]
 
 Taylor tests
 ------------
