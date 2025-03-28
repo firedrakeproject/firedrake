@@ -33,6 +33,8 @@ jobs:
           . venv/bin/activate
           pip uninstall -y firedrake
           pip install --verbose './firedrake-repo[docs]'
+          pip list
+          pip install --verbose git+https://github.com/dolfin-adjoint/pyadjoint.git@dham/abstract_reduced_functional#egg=pyadjoint-ad
 
       - name: Check bibtex
         run: |
