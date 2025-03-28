@@ -159,7 +159,6 @@ def test_burgers_newton(solve_type, checkpointing, basics):
             schedule = NoneCheckpointSchedule()
         # [test_disk_checkpointing 6]
         tape.enable_checkpointing(schedule)
-<<<<<<< HEAD
         # [test_disk_checkpointing 7]
 
     if checkpointing and schedule.uses_storage_type(StorageType.DISK):
@@ -167,16 +166,6 @@ def test_burgers_newton(solve_type, checkpointing, basics):
 
     V, ic, nu = setup_test(mesh)
     val = J(ic, nu, solve_type, timestep, total_steps, V)
-=======
-        if schedule.uses_storage_type(StorageType.DISK):
-            mesh = checkpointable_mesh(mesh)
-
-    x, = SpatialCoordinate(mesh)
-    V = FunctionSpace(mesh, "CG", 2)
-    ic = project(sin(2. * pi * x), V, name="ic")
-
-    val = J(ic, solve_type, timestep, steps, V)
->>>>>>> 5b0683065 (update adjoint docs)
     if checkpointing:
         assert len(tape.timesteps) == total_steps
         if checkpointing == "Revolve" or checkpointing == "Mixed":
@@ -259,26 +248,11 @@ def test_burgers_newton_docs():
 
 
 @pytest.mark.skipcomplex
-<<<<<<< HEAD
 @pytest.mark.parametrize("solve_type", ["NLVS"])
 @pytest.mark.parametrize("checkpointing", ["Revolve", "SingleMemory", "NoneAdjoint", "Mixed", None])
 def test_checkpointing_validity(solve_type, checkpointing, basics):
     """Compare forward and backward results with and without checkpointing."""
     mesh, timestep, steps = basics
-=======
-@pytest.mark.skipcomplex
-@pytest.mark.parametrize("solve_type, checkpointing",
-                         [("solve", "Revolve"),
-                          ("NLVS", "Revolve"),
-                          ("solve", "Mixed"),
-                          ("NLVS", "Mixed"),
-                          ])
-def test_checkpointing_validity(solve_type, checkpointing):
-    """Compare forward and backward results with and without checkpointing.
-    """
-    mesh, timestep, steps = basics()
-    V = FunctionSpace(mesh, "CG", 2)
->>>>>>> 5b0683065 (update adjoint docs)
     # Without checkpointing
     V, ic, nu = setup_test(mesh)
     val0 = J(ic, nu, solve_type, timestep, steps, V)
