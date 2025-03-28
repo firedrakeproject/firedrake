@@ -901,8 +901,7 @@ class RestrictedFunctionSpace(FunctionSpace):
                                                      function_space.ufl_element(),
                                                      label=self._label)
         self.function_space = function_space
-        self.name = name or (function_space.name or "Restricted" + "_"
-                             + "_".join(sorted(map(str, self.boundary_set))))
+        self.name = name or function_space.name
 
     def set_shared_data(self):
         sdata = get_shared_data(self._mesh, self.ufl_element(), self.boundary_set)

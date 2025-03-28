@@ -319,6 +319,8 @@ class DirichletBC(BCBase, DirichletBCMixin):
             V = V.sub(index)
         if g is None:
             g = self._original_arg
+            if isinstance(g, firedrake.Function) and g.function_space() != V:
+                g = firedrake.Function(V).interpolate(g)
         if sub_domain is None:
             sub_domain = self.sub_domain
         if field is not None:
@@ -739,11 +741,11 @@ def restricted_function_space(V, ids):
         return V
 
     assert len(ids) == len(V)
-    spaces = [Vsub if len(boundary_set) == 0 else
-              firedrake.RestrictedFunctionSpace(Vsub, boundary_set=boundary_set)
-              for Vsub, boundary_set in zip(V, ids)]
+    spaces = [V_ if len(boundary_set) == 0 else
+              firedrake.RestrictedFunctionSpace(V_, boundary_set=boundary_set, name=V_.name)
+              for V_, boundary_set in zip(V, ids)]
 
     if len(spaces) == 1:
         return spaces[0]
     else:
-        return firedrake.MixedFunctionSpace(spaces)
+        return firedrake.MixedFunctionSpace(spaces, name=V.name)
