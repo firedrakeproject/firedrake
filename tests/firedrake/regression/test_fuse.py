@@ -4,7 +4,6 @@ import pytest
 import numpy as np
 from firedrake import *
 from fuse import *
-from firedrake.assemble import fuse_orientations
 
 
 # @pytest.mark.parametrize(['params', 'degree', 'quadrilateral'],

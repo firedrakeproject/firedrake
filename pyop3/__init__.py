@@ -78,6 +78,7 @@ from pyop3.lang import (  # noqa: F401
     BufferAssignment,
     do_loop,
     _loop as loop,
+    AssignmentType,
 )
 from pyop3.sf import StarForest, serial_forest, single_star
 from . import utils
