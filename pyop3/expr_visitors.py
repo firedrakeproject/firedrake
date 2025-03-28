@@ -10,14 +10,14 @@ from pyrsistent import pmap, PMap
 
 from pyop3.array import Array, Dat, Mat, _ExpressionDat, _ConcretizedDat, _ConcretizedMat
 from pyop3.array.petsc import AbstractMat
-from pyop3.axtree.tree import AxisVar, Expression, Operator, Add, Mul, BaseAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, merge_trees2, ExpressionT, Terminal, AxisComponent
+from pyop3.axtree.tree import AxisVar, Expression, Operator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, merge_trees2, ExpressionT, Terminal, AxisComponent
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
 
 
 # should inherit from _Dat
 # or at least be an Expression!
-class _CompositeDat:
+class CompositeDat:
     def __init__(self, expr, visited_axes, loop_axes):
         self.expr = expr
 
@@ -169,7 +169,7 @@ def _(array: Array, /, loop_context):
 
 # NOTE: visited_axes is more like visited_components! Only need axis labels and component information
 @functools.singledispatch
-def extract_axes(obj: Any, /, visited_axes, loop_axes, cache) -> BaseAxisTree:
+def extract_axes(obj: Any, /, visited_axes, loop_axes, cache) -> AbstractAxisTree:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
@@ -234,7 +234,7 @@ def _(dat, /, visited_axes, loop_axes, cache):
     return extract_axes(dat.layout, visited_axes, loop_axes, cache)
 
 
-@extract_axes.register(_CompositeDat)
+@extract_axes.register(CompositeDat)
 def _(dat, /, visited_axes, loop_axes, cache):
     assert visited_axes == dat.visited_axes
     assert loop_axes == dat.loop_axes
@@ -275,7 +275,7 @@ def _(dat: _ExpressionDat, /, suffix: str) -> Dat:
 
 
 @functools.singledispatch
-def _relabel_axes(obj: Any, suffix: str) -> BaseAxisTree:
+def _relabel_axes(obj: Any, suffix: str) -> AbstractAxisTree:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
@@ -387,8 +387,8 @@ def _(dat: _ExpressionDat, /, replace_map):
         return dat.reconstruct(layout=replaced_layout)
 
 
-@replace.register(_CompositeDat)
-def _(dat: _CompositeDat, /, replace_map):
+@replace.register(CompositeDat)
+def _(dat: CompositeDat, /, replace_map):
     # TODO: Can have a flag that determines the replacement order (pre/post)
     if dat in replace_map:
         return replace_map[dat]
@@ -411,12 +411,12 @@ def concretize_arrays(obj: Any, /, *args, **kwargs) -> Expression:
 
 @concretize_arrays.register(Dat)
 def _(dat: Dat, /, loop_axes) -> _ConcretizedDat:
-    candidate_layouts = dat.candidate_layouts(loop_axes)
-    selected_layouts = {}
-    for leaf_path in dat.axes.leaf_paths:
-        possible_layouts = candidate_layouts[(dat, leaf_path)]
-        selected_layout, _ = min(possible_layouts, key=lambda item: item[1])
-        selected_layouts[leaf_path] = selected_layout
+    selected_layouts = dat.default_candidate_layouts(loop_axes)
+    # selected_layouts = {}
+    # for leaf_path in dat.axes.leaf_paths:
+    #     possible_layouts = candidate_layouts[(dat, leaf_path)]
+    #     selected_layout, _ = min(possible_layouts, key=lambda item: item[1])
+    #     selected_layouts[leaf_path] = selected_layout
 
     return _ConcretizedDat(dat, selected_layouts)
 
@@ -425,38 +425,30 @@ def _(dat: Dat, /, loop_axes) -> _ConcretizedDat:
 def _(mat: Mat, /, loop_axes) -> _ConcretizedDat:
     from pyop3.insn_visitors import materialize_composite_dat
 
-    layouts = mat.candidate_layouts(loop_axes)
-    row_layouts = {}
-    for leaf_path in mat.raxes.leaf_paths:
-        try:
-            possible_row_layouts = layouts[(mat, leaf_path, 0)]
-        except KeyError:
-            # zero-sized axis
-            row_layouts[leaf_path] = -1
-            continue
-        selected_layout, _ = min(possible_row_layouts, key=lambda item: item[1])
+    # NOTE: default_candidate_layouts shouldn't return any cost because it doesn't matter here
 
-        if isinstance(selected_layout, _CompositeDat):
+    layouts = mat.default_candidate_layouts(loop_axes)
+    row_layouts = {}
+    for leaf_path in mat.raxes.pruned.leaf_paths:
+        possible_row_layouts = layouts[(mat, leaf_path, 0)]
+        selected_layout, _ = just_one(possible_row_layouts)
+
+        if isinstance(selected_layout, CompositeDat):
             selected_layout = materialize_composite_dat(selected_layout)
 
         row_layouts[leaf_path] = selected_layout
 
     col_layouts = {}
-    for leaf_path in mat.caxes.leaf_paths:
-        try:
-            possible_col_layouts = layouts[(mat, leaf_path, 1)]
-        except KeyError:
-            # zero-sized axis
-            col_layouts[leaf_path] = -1
-            continue
-        selected_layout, _ = min(possible_col_layouts, key=lambda item: item[1])
+    for leaf_path in mat.caxes.pruned.leaf_paths:
+        possible_col_layouts = layouts[(mat, leaf_path, 1)]
+        selected_layout, _ = just_one(possible_col_layouts)
 
-        if isinstance(selected_layout, _CompositeDat):
+        if isinstance(selected_layout, CompositeDat):
             selected_layout = materialize_composite_dat(selected_layout)
 
         col_layouts[leaf_path] = selected_layout
 
-    return _ConcretizedMat(mat, row_layouts, col_layouts)
+    return _ConcretizedMat(mat, row_layouts, col_layouts, parent=mat.parent)
 
 
 @concretize_arrays.register(numbers.Number)
@@ -516,7 +508,7 @@ def _(op: Operator, /, visited_axes, loop_axes) -> tuple:
     # Only do this when the cost is large as small arrays will fit in cache
     # and not benefit from the optimisation.
     if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
-        compressed_expr = _CompositeDat(op, visited_axes, loop_axes)
+        compressed_expr = CompositeDat(op, visited_axes, loop_axes)
         compressed_cost = extract_axes(op, visited_axes, loop_axes, {}).size
         candidates.append((compressed_expr, compressed_cost))
 
@@ -539,7 +531,7 @@ def _(dat: _ExpressionDat, /, visited_axes, loop_axes) -> tuple:
 
     if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
         compressed_cost = extract_axes(dat, visited_axes, loop_axes, {}).size
-        candidates.append((_CompositeDat(dat, visited_axes, loop_axes), compressed_cost))
+        candidates.append((CompositeDat(dat, visited_axes, loop_axes), compressed_cost))
     return tuple(candidates)
 
 
@@ -587,8 +579,8 @@ def _(dat: _ExpressionDat, /, visited_axes, loop_axes, seen_exprs_mut, cache) ->
     return dat_cost + layout_cost * INDIRECTION_PENALTY_FACTOR
 
 
-@compute_indirection_cost.register(_CompositeDat)
-def _(dat: _CompositeDat, /, visited_axes, loop_axes, seen_exprs_mut, cache) -> int:
+@compute_indirection_cost.register(CompositeDat)
+def _(dat: CompositeDat, /, visited_axes, loop_axes, seen_exprs_mut, cache) -> int:
     if seen_exprs_mut is not None:
         if dat in seen_exprs_mut:
             return 0
@@ -598,42 +590,42 @@ def _(dat: _CompositeDat, /, visited_axes, loop_axes, seen_exprs_mut, cache) -> 
     return extract_axes(dat.expr, visited_axes, loop_axes, cache).size
 
 
-@functools.singledispatch
-def materialize(obj: Any, /, *args, **kwargs) -> ExpressionT:
-    raise TypeError
-
-
-@materialize.register(AxisVar)
-@materialize.register(LoopIndexVar)
-@materialize.register(numbers.Number)
-def _(var: Any, /, *args, **kwargs):
-    return var
-
-
-@materialize.register(Operator)
-def _(op: Operator, /, *args, **kwargs) -> Operator:
-    return type(op)(materialize(op.a, *args, **kwargs), materialize(op.b, *args, **kwargs))
-
-
-@materialize.register(_CompositeDat)
-def _(dat: _CompositeDat, /, visited_axes, loop_axes) -> _ExpressionDat:
-    axes = extract_axes(dat, visited_axes, loop_axes)
-
-    # dtype correct?
-    result = Dat(axes, dtype=IntType)
-
-    # replace LoopIndexVars in the expression with AxisVars
-    loop_index_replace_map = {}
-    for loop_id, iterset in loop_axes.items():
-        for axis in iterset.nodes:
-            loop_index_replace_map[(loop_id, axis.label)] = AxisVar(f"{axis.label}_{loop_id}")
-    expr = replace_terminals(dat.expr, loop_index_replace_map)
-
-    result.assign(expr, eager=True)
-
-    # now put the loop indices back
-    inv_map = {axis_var.axis_label: LoopIndexVar(loop_id, axis_label) for (loop_id, axis_label), axis_var in loop_index_replace_map.items()}
-    layout = just_one(result.axes.leaf_subst_layouts.values())
-    newlayout = replace_terminals(layout, inv_map)
-
-    return _ExpressionDat(result, newlayout)
+# @functools.singledispatch
+# def materialize(obj: Any, /, *args, **kwargs) -> ExpressionT:
+#     raise TypeError
+#
+#
+# @materialize.register(AxisVar)
+# @materialize.register(LoopIndexVar)
+# @materialize.register(numbers.Number)
+# def _(var: Any, /, *args, **kwargs):
+#     return var
+#
+#
+# @materialize.register(Operator)
+# def _(op: Operator, /, *args, **kwargs) -> Operator:
+#     return type(op)(materialize(op.a, *args, **kwargs), materialize(op.b, *args, **kwargs))
+#
+#
+# @materialize.register(CompositeDat)
+# def _(dat: CompositeDat, /, visited_axes, loop_axes) -> _ExpressionDat:
+#     axes = extract_axes(dat, visited_axes, loop_axes)
+#
+#     # dtype correct?
+#     result = Dat(axes, dtype=IntType)
+#
+#     # replace LoopIndexVars in the expression with AxisVars
+#     loop_index_replace_map = {}
+#     for loop_id, iterset in loop_axes.items():
+#         for axis in iterset.nodes:
+#             loop_index_replace_map[(loop_id, axis.label)] = AxisVar(f"{axis.label}_{loop_id}")
+#     expr = replace_terminals(dat.expr, loop_index_replace_map)
+#
+#     result.assign(expr, eager=True)
+#
+#     # now put the loop indices back
+#     inv_map = {axis_var.axis_label: LoopIndexVar(loop_id, axis_label) for (loop_id, axis_label), axis_var in loop_index_replace_map.items()}
+#     layout = just_one(result.axes.leaf_subst_layouts.values())
+#     newlayout = replace_terminals(layout, inv_map)
+#
+#     return _ExpressionDat(result, newlayout)

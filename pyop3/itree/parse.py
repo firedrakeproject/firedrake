@@ -9,10 +9,10 @@ from pyrsistent import PMap, pmap
 
 from pyop3.array.harray import Dat
 from pyop3.axtree import AxisTree
-from pyop3.axtree.tree import BaseAxisTree
+from pyop3.axtree.tree import AbstractAxisTree, IndexedAxisTree
 from pyop3.exceptions import Pyop3Exception
 from pyop3.itree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map
-from pyop3.utils import OrderedSet, expand_collection_of_iterables, strictly_all, strict_zip, single_valued, just_one
+from pyop3.utils import OrderedSet, debug_assert, expand_collection_of_iterables, strictly_all, strict_zip, single_valued, just_one
 
 
 class IncompletelyIndexedException(Pyop3Exception):
@@ -22,7 +22,7 @@ class IncompletelyIndexedException(Pyop3Exception):
 # NOTE: Now really should be plural: 'forests'
 # NOTE: Is this definitely the case? I think at the moment I always return just a single
 # tree per context.
-def as_index_forests(forest: Any, /, axes: BaseAxisTree | None = None, *, strict: bool = False) -> PMap:
+def as_index_forests(forest: Any, /, axes: AbstractAxisTree | None = None, *, strict: bool = False) -> PMap:
     """Return a collection of index trees, split by loop context.
 
     Parameters
@@ -64,16 +64,16 @@ def as_index_forests(forest: Any, /, axes: BaseAxisTree | None = None, *, strict
         for index_tree in forest_:
             if axes is not None:
                 if strict:
-                    # Make sure that `axes` are completely indexed by each of the index
+                    # Make sure that 'axes' are completely indexed by each of the index
                     # forests. Note that, since the index trees in a forest represent
                     # 'equivalent' indexing operations, only one of them is expected to work.
                     if not _index_tree_completely_indexes_axes(index_tree, axes):
                         continue
                 else:
                     # Add extra slices to make sure that index tree targets
-                    # all the axes in `axes`
-                    # FIXME: needs try-except
+                    # all the axes in 'axes'
                     index_tree = _complete_index_tree(index_tree, axes)
+                    debug_assert(lambda: _index_tree_completely_indexes_axes(index_tree, axes))
 
             if found_match:
                 # Each of the index trees in a forest are considered
@@ -128,14 +128,17 @@ def _(index_tree: IndexTree, /) -> OrderedSet:
 
 @collect_loop_contexts.register(LoopIndex)
 def _(loop_index: LoopIndex, /) -> OrderedSet:
-    if not isinstance(loop_index.iterset, BaseAxisTree):
+    if not isinstance(loop_index.iterset, AbstractAxisTree):
         raise NotImplementedError("Need to think about context-sensitive itersets and add them here")
 
     return OrderedSet({
         (
             loop_index.id,
             tuple(
-                loop_index.iterset.source_path[axis.id, component_label]
+                tuple(
+                    target_acc[axis.id, component_label][0]
+                    for target_acc in loop_index.iterset.targets_acc
+                )
                 for axis, component_label in loop_index.iterset.leaves
             )
         )
@@ -502,9 +505,18 @@ def _(loop_index: LoopIndex, /, loop_context) -> tuple[LoopIndex]:
     if loop_index.is_context_free:
         return (loop_index,)
     else:
-        path = loop_context[loop_index.id]
+        # TODO: Somewhere we are using a set when we shouldn't so we have to search
+        # for the right path when it should really be the first/last entry.
+        leaf = None
+        for path in loop_context[loop_index.id]:
+            try:
+                leaf_ = loop_index.iterset._node_from_path(path)
+                assert leaf is None
+                leaf = leaf_
+            except:
+                continue
+        assert leaf is not None
 
-        leaf = loop_index.iterset._node_from_path(path)
         slices = [
             Slice(axis_label, [AffineSliceComponent(component_label, label=component_label)], label=axis_label)
             for axis_label, component_label in loop_index.iterset.path(leaf, ordered=True)

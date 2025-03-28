@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import abc
 import collections
+import functools
 import itertools
+import numbers
 import warnings
 from collections.abc import Mapping
 from typing import Any, Collection, Hashable, Optional
@@ -14,6 +16,7 @@ from pyrsistent import pmap
 
 from pyop3.config import config
 from pyop3.exceptions import Pyop3Exception
+from pyop3.dtypes import IntType
 
 from mpi4py import MPI
 
@@ -79,7 +82,18 @@ class UniqueRecord(pytools.ImmutableRecord, Identified):
         Identified.__init__(self, id)
 
 
-class KeyAlreadyExistsException(Pyop3Exception):
+class Parameter(Identified):
+    """Wrapper class for a scalar value that differs between ranks."""
+    def __init__(self, value):
+        super().__init__(id=None)  # generate a fresh ID
+        self.box = np.array([value])
+
+    @property
+    def value(self):
+        return just_one(self.box)
+
+
+class ValueMismatchException(Pyop3Exception):
     pass
 
 
@@ -87,15 +101,15 @@ class StrictlyUniqueDict(dict):
     """A dictionary where overwriting entries will raise an error."""
 
     def __setitem__(self, key, value, /) -> None:
-        if key in self:
-            raise KeyAlreadyExistsException
+        if key in self and value != self[key]:
+            raise ValueMismatchException
         return super().__setitem__(key, value)
 
-    def update(self, other) -> None:
-        shared_keys = self.keys() & other.keys()
-        if len(shared_keys) > 0:
-            raise KeyAlreadyExistsException
-        super().update(other)
+    # def update(self, other) -> None:
+    #     shared_keys = self.keys() & other.keys()
+    #     if len(shared_keys) > 0:
+    #         raise ValueMismatchException
+    #     super().update(other)
 
 
 
@@ -337,15 +351,29 @@ def invert(p):
     return s
 
 
-def strict_cast(obj, cast):
-    new_obj = cast(obj)
-    if new_obj != obj:
-        raise TypeError(f"Invalid cast from {obj} to {new_obj}")
-    return new_obj
+@functools.singledispatch
+def strict_cast(obj: Any, dtype: type | np.dtype) -> Any:
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-def strict_int(num):
-    return strict_cast(num, int)
+@strict_cast.register(numbers.Integral)
+def _(num: numbers.Integral, dtype: type | np.dtype) -> np.number:
+    if not isinstance(dtype, np.dtype):
+        dtype = np.dtype(dtype)
+
+    iinfo = np.iinfo(dtype)
+    if not (iinfo.min <= num <= iinfo.max):
+        raise TypeError(f"{num} exceeds the limits of {dtype}")
+    return dtype.type(num)
+
+
+@strict_cast.register(np.ndarray)
+def _(array: np.ndarray, dtype: type) -> np.ndarray:
+    return array.astype(dtype, casting="safe")
+
+
+def strict_int(num) -> IntType:
+    return strict_cast(num, IntType)
 
 
 def apply_at(func, iterable, index):
@@ -502,7 +530,6 @@ def unique_comm(iterable) -> MPI.Comm | None:
 
         if comm is None:
             comm = item.comm
-        elif item.comm is not comm:
-            raise ValueError("Comm mismatch")
-
+        elif item.comm != comm:
+            raise ValueError("More than a single comm provided")
     return comm

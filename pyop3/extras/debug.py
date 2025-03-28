@@ -10,6 +10,25 @@ warnings.warn(
 )
 
 
+_stopping = False
+"""Flag to switch conditional breakpoints on and off."""
+
+
+def enable_conditional_breakpoints():
+    global _stopping
+    _stopping = True
+
+
+def disable_conditional_breakpoints():
+    global _stopping
+    _stopping = False
+
+
+def maybe_breakpoint():
+    if _stopping:
+        breakpoint()
+
+
 def print_with_rank(*args, comm: Optional[Union[PETSc.Comm, MPI.Comm]] = None) -> None:
     comm = comm or PETSc.Sys.getDefaultComm()
     print(f"[rank {comm.rank}] : ", *args, flush=True)

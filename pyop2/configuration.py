@@ -101,6 +101,8 @@ class Configuration(dict):
             ("PYOP2_LOG_LEVEL", (str, int), "WARNING"),
         "cache_dir":
             ("PYOP2_CACHE_DIR", str, cache_dir),
+        "scratch_dir":
+            ("PYOP2_SCRATCH_DIR", str, cache_dir),
         "node_local_compilation":
             ("PYOP2_NODE_LOCAL_COMPILATION", bool, True),
         "no_fork_available":

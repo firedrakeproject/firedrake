@@ -17,7 +17,7 @@ from immutabledict import ImmutableOrderedDict
 
 from pyop3.array import Dat, Array, Mat, Sparsity, _ConcretizedDat, _ConcretizedMat, _ExpressionDat, AbstractMat
 from pyop3.axtree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
-from pyop3.axtree.tree import Operator, AxisVar, IndexedAxisTree
+from pyop3.axtree.tree import Operator, AxisVar, IndexedAxisTree, prune_zero_sized_branches
 from pyop3.buffer import DistributedBuffer, NullBuffer, PackedBuffer
 from pyop3.dtypes import IntType
 from pyop3.itree import Map, TabulatedMapComponent, collect_loop_contexts
@@ -26,11 +26,10 @@ from pyop3.itree.parse import _as_context_free_indices
 from pyop3.expr_visitors import (
     replace as replace_expression,
     replace_terminals,
-    _CompositeDat,
+    CompositeDat,
     collect_loops as expr_collect_loops,
     concretize_arrays as expr_concretize_arrays,
     extract_axes,
-    materialize,
     restrict_to_context as restrict_expression_to_context,
     collect_candidate_indirections as collect_expression_candidate_indirections,
     compute_indirection_cost as compute_expression_indirection_cost,
@@ -43,18 +42,22 @@ from pyop3.lang import (
     RW,
     WRITE,
     AbstractAssignment,
+    DirectCalledFunction,
+    NonEmptyPetscMatAssignment,
     NullInstruction,
-    Assignment,
+    BufferAssignment,
     AssignmentType,
     CalledFunction,
+    NonEmptyBufferAssignment,
     DummyKernelArgument,
     Instruction,
     Loop,
     InstructionList,
-    PetscMatAssign,
+    PetscMatAssignment,
     ArrayAccessType,
     enlist,
     maybe_enlist,
+    non_null,
 )
 from pyop3.utils import UniqueNameGenerator, checked_zip, just_one, single_valued, OrderedSet, merge_dicts, expand_collection_of_iterables, strictly_all
 
@@ -85,18 +88,19 @@ def _expand_loop_contexts_rec(obj: Any, /, *, loop_context_acc) -> InstructionLi
 
 
 @_expand_loop_contexts_rec.register(InstructionList)
-def _(insn_list: InstructionList, /, **kwargs) -> InstructionList:
+def _(insn_list: InstructionList, /, **kwargs) -> Instruction:
     return maybe_enlist([_expand_loop_contexts_rec(insn, **kwargs) for insn in insn_list])
 
 
 @_expand_loop_contexts_rec.register(Loop)
-def _(loop: Loop, /, *, loop_context_acc) -> InstructionList:
+def _(loop: Loop, /, *, loop_context_acc) -> Loop | InstructionList:
     expanded_loops = []
     for axis, component_label in loop.index.iterset.leaves:
-        # NOTE: I think that this should always just be the axis tree!? indexed bits
-        # can be discarded by this point
-        path = loop.index.iterset.source_path[axis.id, component_label]
-        loop_context = {loop.index.id: path}
+        paths = tuple(
+            target_acc[axis.id, component_label][0]
+            for target_acc in loop.index.iterset.targets_acc
+        )
+        loop_context = {loop.index.id: paths}
 
         restricted_loop_index = just_one(_as_context_free_indices(loop.index, loop_context))
 
@@ -124,8 +128,8 @@ def _(func: CalledFunction, /, *, loop_context_acc) -> CalledFunction:
     )
 
 
-@_expand_loop_contexts_rec.register(Assignment)
-def _(assignment: Assignment, /, *, loop_context_acc) -> Assignment:
+@_expand_loop_contexts_rec.register(BufferAssignment)
+def _(assignment: BufferAssignment, /, *, loop_context_acc) -> BufferAssignment:
     assignee = restrict_expression_to_context(assignment.assignee, loop_context_acc)
     expression = restrict_expression_to_context(assignment.expression, loop_context_acc)
 
@@ -138,7 +142,7 @@ def _(assignment: Assignment, /, *, loop_context_acc) -> Assignment:
     if size == 0:
         return NullInstruction()
     else:
-        return Assignment(assignee, expression, assignment.assignment_type)
+        return BufferAssignment(assignee, expression, assignment.assignment_type)
 
 
 class ImplicitPackUnpackExpander(Transformer):
@@ -174,55 +178,55 @@ class ImplicitPackUnpackExpander(Transformer):
     #     return (assignment,)
 
     @_apply.register
-    def _(self, assignment: Assignment):
+    def _(self, assignment: BufferAssignment):
         # I think this is fine...
         return assignment
 
-        # same as for CalledFunction
-        gathers = []
-        # NOTE: scatters are executed in LIFO order
-        scatters = []
-        arguments = []
-
-        # lazy coding, tidy up
-        if isinstance(assignment, ReplaceAssignment):
-            access = WRITE
-        else:
-            assert isinstance(assignment, AddAssignment)
-            access = INC
-        for arg, intent in [
-            (assignment.assignee, access),
-            (assignment.expression, READ),
-        ]:
-            if isinstance(arg, numbers.Number):
-                arguments.append(arg)
-                continue
-
-            # emit function calls for PetscMat
-            if isinstance(arg, Mat):
-                axes = AxisTree(arg.axes.node_map)
-                new_arg = Dat(
-                    axes,
-                    data=NullBuffer(arg.dtype),  # does this need a size?
-                    prefix="t",
-                )
-
-                if intent == READ:
-                    gathers.append(PetscMatLoad(arg, new_arg))
-                elif intent == WRITE:
-                    scatters.insert(0, PetscMatStore(arg, new_arg))
-                elif intent == RW:
-                    gathers.append(PetscMatLoad(arg, new_arg))
-                    scatters.insert(0, PetscMatStore(arg, new_arg))
-                else:
-                    assert intent == INC
-                    scatters.insert(0, PetscMatAdd(arg, new_arg))
-
-                arguments.append(new_arg)
-            else:
-                arguments.append(arg)
-
-        return maybe_enlist((*gathers, assignment.with_arguments(arguments), *scatters))
+        # # same as for CalledFunction
+        # gathers = []
+        # # NOTE: scatters are executed in LIFO order
+        # scatters = []
+        # arguments = []
+        #
+        # # lazy coding, tidy up
+        # if isinstance(assignment, ReplaceAssignment):
+        #     access = WRITE
+        # else:
+        #     assert isinstance(assignment, AddAssignment)
+        #     access = INC
+        # for arg, intent in [
+        #     (assignment.assignee, access),
+        #     (assignment.expression, READ),
+        # ]:
+        #     if isinstance(arg, numbers.Number):
+        #         arguments.append(arg)
+        #         continue
+        #
+        #     # emit function calls for PetscMat
+        #     if isinstance(arg, Mat):
+        #         axes = AxisTree(arg.axes.node_map)
+        #         new_arg = Dat(
+        #             axes,
+        #             data=NullBuffer(arg.dtype),  # does this need a size?
+        #             prefix="t",
+        #         )
+        #
+        #         if intent == READ:
+        #             gathers.append(PetscMatLoad(arg, new_arg))
+        #         elif intent == WRITE:
+        #             scatters.insert(0, PetscMatStore(arg, new_arg))
+        #         elif intent == RW:
+        #             gathers.append(PetscMatLoad(arg, new_arg))
+        #             scatters.insert(0, PetscMatStore(arg, new_arg))
+        #         else:
+        #             assert intent == INC
+        #             scatters.insert(0, PetscMatAdd(arg, new_arg))
+        #
+        #         arguments.append(new_arg)
+        #     else:
+        #         arguments.append(arg)
+        #
+        # return maybe_enlist((*gathers, assignment.with_arguments(arguments), *scatters))
 
     @_apply.register
     def _(self, terminal: CalledFunction):
@@ -260,27 +264,27 @@ class ImplicitPackUnpackExpander(Transformer):
                     )
 
                 if intent == READ:
-                    gathers.append(Assignment(temporary, arg, "write"))
+                    gathers.append(BufferAssignment(temporary, arg, "write"))
                 elif intent == WRITE:
                     # This is currently necessary because some local kernels
                     # (interpolation) actually increment values instead of setting
                     # them directly. This should ideally be addressed.
-                    gathers.append(Assignment(temporary, 0, "write"))
-                    scatters.insert(0, Assignment(arg, temporary, "write"))
+                    gathers.append(BufferAssignment(temporary, 0, "write"))
+                    scatters.insert(0, BufferAssignment(arg, temporary, "write"))
                 elif intent == RW:
-                    gathers.append(Assignment(temporary, arg, "write"))
-                    scatters.insert(0, Assignment(arg, temporary, "write"))
+                    gathers.append(BufferAssignment(temporary, arg, "write"))
+                    scatters.insert(0, BufferAssignment(arg, temporary, "write"))
                 else:
                     assert intent == INC
-                    gathers.append(Assignment(temporary, 0, "write"))
-                    scatters.insert(0, Assignment(arg, temporary, "inc"))
+                    gathers.append(BufferAssignment(temporary, 0, "write"))
+                    scatters.insert(0, BufferAssignment(arg, temporary, "inc"))
 
                 arguments.append(temporary)
 
             else:
                 arguments.append(arg)
 
-        return maybe_enlist((*gathers, terminal.with_arguments(arguments), *scatters))
+        return maybe_enlist((*gathers, DirectCalledFunction(terminal.function, arguments), *scatters))
 
 
 # class ExprMarker
@@ -349,20 +353,23 @@ def _(insn_list: InstructionList, /) -> InstructionList:
 
 
 @expand_assignments.register(Loop)
-def _(loop: Loop, /) -> InstructionList:
-    return Loop(loop.index, [
-            expand_assignments(stmt) for stmt in loop.statements
-    ])
+def _(loop: Loop, /) -> Loop:
+    return Loop(
+        loop.index,
+        [
+            stmt_ for stmt in loop.statements for stmt_ in enlist(expand_assignments(stmt))
+        ],
+    )
 
 
-@expand_assignments.register(CalledFunction)
-def _(func: CalledFunction, /) -> InstructionList:
-    # Assume that this isn't a problem here, think about this
+@expand_assignments.register(DirectCalledFunction)
+@expand_assignments.register(PetscMatAssignment)
+def _(func: DirectCalledFunction, /) -> DirectCalledFunction:
     return func
 
 
-@expand_assignments.register(Assignment)
-def _(assignment: Assignment, /) -> InstructionList:
+@expand_assignments.register(BufferAssignment)
+def _(assignment: BufferAssignment, /) -> InstructionList:
     # NOTE: This is incorrect, we only include this because if we have a 'basic' matrix assignment
     # like
     #
@@ -391,9 +398,9 @@ def _(assignment: Assignment, /) -> InstructionList:
     )
 
     if bare_assignee == assignment.assignee:
-        bare_assignment = Assignment(bare_assignee, bare_expression, assignment.assignment_type)
+        bare_assignment = BufferAssignment(bare_assignee, bare_expression, assignment.assignment_type)
     else:
-        bare_assignment = Assignment(bare_assignee, bare_expression, "write")
+        bare_assignment = BufferAssignment(bare_assignee, bare_expression, "write")
 
     return maybe_enlist((*extra_input_insns, bare_assignment, *extra_output_insns))
 
@@ -445,12 +452,12 @@ def _(array: Array, /, access_type):
             raise NotImplementedError("Pretty sure this doesn't work as is")
 
         if access_type == ArrayAccessType.READ:
-            assignment = Assignment(temp_initial, transformed_dat, "write")
+            assignment = BufferAssignment(temp_initial, transformed_dat, "write")
         elif access_type == ArrayAccessType.WRITE:
-            assignment = Assignment(transformed_dat, temp_initial, "write")
+            assignment = BufferAssignment(transformed_dat, temp_initial, "write")
         else:
             assert access_type == ArrayAccessType.INC
-            assignment = Assignment(transformed_dat, temp_initial, "inc")
+            assignment = BufferAssignment(transformed_dat, temp_initial, "inc")
 
         return (temp_reshaped, extra_insns + (assignment,))
     else:
@@ -469,20 +476,23 @@ def _(insn_list: InstructionList, /) -> InstructionList:
 
 @prepare_petsc_calls.register(Loop)
 def _(loop: Loop, /) -> Loop:
-    return Loop(loop.index, [
-        prepare_petsc_calls(stmt) for stmt in loop.statements
-    ])
+    return Loop(
+        loop.index,
+        [
+            stmt_ for stmt in loop.statements for stmt_ in enlist(prepare_petsc_calls(stmt))
+        ]
+    )
 
 
-@prepare_petsc_calls.register(CalledFunction)
-def _(func: CalledFunction, /) -> InstructionList:
+@prepare_petsc_calls.register(DirectCalledFunction)
+def _(func: DirectCalledFunction, /) -> DirectCalledFunction:
     return func
 
 
 # NOTE: At present we assume that matrices are never part of the expression, only
 # the assignee. Ideally we should traverse the expression and emit extra READ instructions.
-@prepare_petsc_calls.register(Assignment)
-def _(assignment: Assignment, /) -> InstructionList:
+@prepare_petsc_calls.register(BufferAssignment)
+def _(assignment: BufferAssignment, /) -> InstructionList:
     if isinstance(assignment.assignee.buffer, PETSc.Mat):
         mat = assignment.assignee
 
@@ -497,7 +507,7 @@ def _(assignment: Assignment, /) -> InstructionList:
         # for MatSetValues to work.
         if isinstance(assignment.expression, numbers.Number):
             # TODO: There must be a more elegant way of doing this
-            expression = Dat(AxisTree(mat.axes.node_map), data=np.full(mat.alloc_size, assignment.expression, dtype=mat.dtype), prefix="t", constant=True)
+            expression = Mat(AxisTree(mat.raxes.node_map), AxisTree(mat.caxes.node_map), mat=np.full(mat.alloc_size, assignment.expression, dtype=mat.dtype), prefix="t", constant=True)
         else:
             assert (
                 isinstance(assignment.expression, (Mat, _ConcretizedMat))
@@ -511,14 +521,16 @@ def _(assignment: Assignment, /) -> InstructionList:
             assert assignment.assignment_type == AssignmentType.INC
             access_type = ArrayAccessType.INC
 
-        assignment = PetscMatAssign(mat, expression, access_type)
+        assignment = PetscMatAssignment(mat, expression, access_type)
 
-    # If we are doing a non-PETSc matrix assignment then we cast the buffer to a 'Dat'
-    elif isinstance(assignment.assignee, (Sparsity, Mat)):
-        assert isinstance(assignment.assignee.buffer, NullBuffer), "Must be a temporary"
-        mat = assignment.assignee
-        dat = Dat(mat.axes, data=mat.buffer, name=mat.name)
-        assignment = Assignment(dat, assignment.expression, assignment.assignment_type)
+    # NO! Do not do this here. If we have Mats on the RHS (which we get at high-order) then
+    # we get a Mat -> Dat which does not work because the axes are not the same.
+    # ~If we are doing a non-PETSc matrix assignment then we cast the buffer to a 'Dat'~
+    # elif isinstance(assignment.assignee, (Sparsity, Mat)):
+    #     assert isinstance(assignment.assignee.buffer, NullBuffer), "Must be a temporary"
+    #     mat = assignment.assignee
+    #     dat = Dat(mat.axes, data=mat.buffer, name=mat.name)
+    #     assignment = BufferAssignment(dat, assignment.expression, assignment.assignment_type)
 
     return assignment
 
@@ -628,7 +640,7 @@ def _(loop: Loop, /, *, loop_axes_acc) -> ImmutableOrderedDict:
 
 
 @_collect_candidate_indirections.register(AbstractAssignment)
-def _(assignment: Assignment, /, *, loop_axes_acc) -> ImmutableOrderedDict:
+def _(assignment: BufferAssignment, /, *, loop_axes_acc) -> ImmutableOrderedDict:
     candidates = {}
     for i, arg in enumerate([assignment.assignee, assignment.expression]):
         for key, value in _collect_array_candidate_indirections(arg, loop_axes_acc).items():
@@ -636,13 +648,15 @@ def _(assignment: Assignment, /, *, loop_axes_acc) -> ImmutableOrderedDict:
     return ImmutableOrderedDict(candidates)
 
 
-@_collect_candidate_indirections.register(CalledFunction)
-def _(func: CalledFunction, /, *, loop_axes_acc) -> ImmutableOrderedDict:
-    candidates = {}
-    for i, arg in enumerate(func.arguments):
-        for key, value in _collect_array_candidate_indirections(arg, loop_axes_acc).items():
-            candidates[func.id, i, key] = value
-    return ImmutableOrderedDict(candidates)
+@_collect_candidate_indirections.register(DirectCalledFunction)
+def _(func: DirectCalledFunction, /, *, loop_axes_acc) -> ImmutableOrderedDict:
+    # there should be no indirections here!
+    # candidates = {}
+    # for i, arg in enumerate(func.arguments):
+    #     for key, value in _collect_array_candidate_indirections(arg, loop_axes_acc).items():
+    #         candidates[func.id, i, key] = value
+    # return ImmutableOrderedDict(candidates)
+    return ImmutableOrderedDict()
 
 
 @PETSc.Log.EventDecorator()
@@ -670,25 +684,22 @@ def _(loop: Loop, /, arg_layouts, seen_exprs_mut, *, loop_axes_acc, **kwargs) ->
     )
 
 
-@_compute_indirection_cost_rec.register(Assignment)
-def _(assignment: Assignment, /, arg_layouts, seen_exprs_mut, *, loop_axes_acc, cache) -> int:
+@_compute_indirection_cost_rec.register(BufferAssignment)
+def _(assignment: BufferAssignment, /, arg_layouts, seen_exprs_mut, *, loop_axes_acc, cache) -> int:
     return sum(
         _compute_array_indirection_cost(arg, arg_layouts, seen_exprs_mut, loop_axes_acc, (assignment.id, i), cache)
         for i, arg in enumerate([assignment.assignee, assignment.expression])
     )
 
 
-@_compute_indirection_cost_rec.register(CalledFunction)
-def _(func: CalledFunction, /, arg_layouts, seen_exprs_mut, *, loop_axes_acc, cache) -> int:
-    return sum(
-        _compute_array_indirection_cost(arg, arg_layouts, seen_exprs_mut, loop_axes_acc, (func.id, i), cache)
-        for i, arg in enumerate(func.arguments)
-    )
+@_compute_indirection_cost_rec.register(DirectCalledFunction)
+def _(func: DirectCalledFunction, /, arg_layouts, seen_exprs_mut, *, loop_axes_acc, cache) -> int:
+    return 0
 
 
 @functools.singledispatch
 def _collect_array_candidate_indirections(dat, loop_axes) -> ImmutableOrderedDict:
-    if not isinstance(dat, Array):
+    if isinstance(dat, numbers.Number):
         return ImmutableOrderedDict()
 
     raise NotImplementedError
@@ -726,13 +737,13 @@ def _(dat, /) -> frozenset:
     return _collect_composite_dats(dat.layout)
 
 
-@_collect_composite_dats.register(_CompositeDat)
+@_collect_composite_dats.register(CompositeDat)
 def _(dat, /) -> frozenset:
     return frozenset({dat})
 
 
 # NOTE: Think this lives in expr_visitors or something
-def materialize_composite_dat(dat: _CompositeDat) -> _ExpressionDat:
+def materialize_composite_dat(dat: CompositeDat) -> _ExpressionDat:
     axes = extract_axes(dat, dat.visited_axes, dat.loop_axes, {})
 
     if axes.size == 0:
@@ -773,28 +784,30 @@ def _(loop: Loop, /, layouts) -> Loop:
     return loop.copy(statements=[_replace_with_real_dats(stmt, layouts) for stmt in loop.statements])
 
 
-@_replace_with_real_dats.register(Assignment)
-def _(assignment: Assignment, /, layouts) -> Assignment:
-    return Assignment(
+@_replace_with_real_dats.register(NonEmptyBufferAssignment)
+def _(assignment: NonEmptyBufferAssignment, /, layouts) -> NonEmptyBufferAssignment:
+    return NonEmptyBufferAssignment(
         _compress_array_indirection_maps(assignment.assignee, layouts, (assignment.id, 0)),
         _compress_array_indirection_maps(assignment.expression, layouts, (assignment.id, 1)),
         assignment.assignment_type,
+        assignment.axis_trees,
     )
 
 
-@_replace_with_real_dats.register(PetscMatAssign)
-def _(assignment: PetscMatAssign, /, layouts) -> PetscMatAssign:
-    return PetscMatAssign(
+@_replace_with_real_dats.register(NonEmptyPetscMatAssignment)
+def _(assignment: NonEmptyPetscMatAssignment, /, layouts) -> NonEmptyPetscMatAssignment:
+    return type(assignment)(
         _compress_array_indirection_maps(assignment.mat, layouts, (assignment.id, 0)),
         _compress_array_indirection_maps(assignment.values, layouts, (assignment.id, 1)),
         assignment.access_type,
+        assignment.row_axis_tree,
+        assignment.col_axis_tree,
     )
 
 
-@_replace_with_real_dats.register(CalledFunction)
-def _(func: CalledFunction, /, layouts) -> CalledFunction:
-    return func.copy(arguments=[_compress_array_indirection_maps(arg, layouts, (func.id, i))
-                                for i, arg in enumerate(func.arguments)])
+@_replace_with_real_dats.register(DirectCalledFunction)
+def _(func: DirectCalledFunction, /, layouts) -> DirectCalledFunction:
+    return func
 
 
 @functools.singledispatch
@@ -809,11 +822,12 @@ def _compress_array_indirection_maps(dat, layouts, outer_key):
 def _(dat: Dat, layouts, outer_key):
     newlayouts = {}
     for leaf_path in dat.axes.leaf_paths:
-        try:
-            chosen_layout = layouts[outer_key + ((dat, leaf_path),)]
-        except KeyError:
-            # zero-sized axis, no layout needed
-            chosen_layout = -1
+        chosen_layout = layouts[outer_key + ((dat, leaf_path),)]
+        # try:
+        #     chosen_layout = layouts[outer_key + ((dat, leaf_path),)]
+        # except KeyError:
+        #     # zero-sized axis, no layout needed
+        #     chosen_layout = -1
         newlayouts[leaf_path] = chosen_layout
 
     return _ConcretizedDat(dat, newlayouts)
@@ -822,22 +836,27 @@ def _(dat: Dat, layouts, outer_key):
 @_compress_array_indirection_maps.register(Mat)
 @_compress_array_indirection_maps.register(Sparsity)
 def _(mat, layouts, outer_key):
+    # If we have a temporary then things are easy and we do not need to substitute anything
+    # (at least for now)
+    if strictly_all(isinstance(ax, AxisTree) for ax in {mat.raxes, mat.caxes}):
+        return _ConcretizedMat(mat, mat.raxes.layouts, mat.caxes.layouts, parent=mat.parent)
+
     def collect(axes, newlayouts, counter):
         for leaf_path in axes.leaf_paths:
-            try:
-                chosen_layout = layouts[outer_key + ((mat, leaf_path, counter),)]
-            except KeyError:
-                # zero-sized axis, no layout needed
-                chosen_layout = -1
+            chosen_layout = layouts[outer_key + ((mat, leaf_path, counter),)]
+            # try:
+            #     chosen_layout = layouts[outer_key + ((mat, leaf_path, counter),)]
+            # except KeyError:
+            #     # zero-sized axis, no layout needed
+            #     chosen_layout = -1
             newlayouts[leaf_path] = chosen_layout
 
     row_layouts = {}
     col_layouts = {}
+    collect(mat.raxes.pruned, row_layouts, 0)
+    collect(mat.caxes.pruned, col_layouts, 1)
 
-    collect(mat.raxes, row_layouts, 0)
-    collect(mat.caxes, col_layouts, 1)
-
-    return _ConcretizedMat(mat, row_layouts, col_layouts)
+    return _ConcretizedMat(mat, row_layouts, col_layouts, parent=mat.parent)
 
 
 def concretize_arrays(insn: Instruction, /) -> Instruction:
@@ -860,24 +879,78 @@ def _(loop: Loop, /, loop_axes_acc) -> Loop:
     return loop.copy(statements=[_concretize_arrays_rec(stmt, loop_axes_acc_) for stmt in loop.statements])
 
 
-@_concretize_arrays_rec.register(Assignment)
-def _(assignment: Assignment, /, loop_axes_acc) -> Assignment:
-    return Assignment(
+@_concretize_arrays_rec.register(NonEmptyBufferAssignment)
+def _(assignment: NonEmptyBufferAssignment, /, loop_axes_acc) -> NonEmptyBufferAssignment:
+    return type(assignment)(
         expr_concretize_arrays(assignment.assignee, loop_axes_acc),
         expr_concretize_arrays(assignment.expression, loop_axes_acc),
         assignment.assignment_type,
+        assignment.axis_trees,
     )
 
 
-@_concretize_arrays_rec.register(PetscMatAssign)
-def _(assignment: PetscMatAssign, /, loop_axes_acc) -> PetscMatAssign:
-    return PetscMatAssign(
+@_concretize_arrays_rec.register(NonEmptyPetscMatAssignment)
+def _(assignment: NonEmptyPetscMatAssignment, /, loop_axes_acc) -> NonEmptyPetscMatAssignment:
+    return type(assignment)(
         expr_concretize_arrays(assignment.mat, loop_axes_acc),
         expr_concretize_arrays(assignment.values, loop_axes_acc),
         assignment.access_type,
+        assignment.row_axis_tree,
+        assignment.col_axis_tree,
     )
 
 
-@_concretize_arrays_rec.register(CalledFunction)
-def _(func: CalledFunction, /, loop_axes_acc) -> CalledFunction:
-    return func.copy(arguments=[expr_concretize_arrays(arg, loop_axes_acc) for arg in func.arguments])
+@_concretize_arrays_rec.register(DirectCalledFunction)
+def _(func: DirectCalledFunction, /, loop_axes_acc) -> DirectCalledFunction:
+    return func
+
+
+@functools.singledispatch
+def drop_zero_sized_paths(insn: Instruction, /) -> Instruction:
+    raise TypeError
+
+
+@drop_zero_sized_paths.register(InstructionList)
+def _(insn_list: InstructionList, /) -> Instruction:
+    return maybe_enlist(
+        filter(non_null, (drop_zero_sized_paths(insn) for insn in insn_list))
+    )
+
+
+@drop_zero_sized_paths.register(Loop)
+def _(loop: Loop, /) -> Loop | NullInstruction:
+    statements = tuple(filter(non_null, (drop_zero_sized_paths(stmt) for stmt in loop.statements)))
+    return loop.copy(statements=statements) if statements else NullInstruction()
+
+
+@drop_zero_sized_paths.register(BufferAssignment)
+def _(assignment: BufferAssignment, /) -> NonEmptyBufferAssignment | NullInstruction:
+    assignee = assignment.assignee
+    if isinstance(assignee, Dat):
+        axis_trees = (assignee.axes,)
+    else:
+        assert isinstance(assignee, Mat)
+        axis_trees = (assignee.raxes, assignee.caxes)
+
+    nonzero_axis_trees = tuple(map(prune_zero_sized_branches, axis_trees))
+    if any(axis_tree.size == 0 for axis_tree in nonzero_axis_trees):
+        return NullInstruction()
+    else:
+        return assignment.with_axes(nonzero_axis_trees)
+
+
+@drop_zero_sized_paths.register(PetscMatAssignment)
+def _(assignment: PetscMatAssignment, /) -> NonEmptyPetscMatAssignment | NullInstruction:
+    pruned_trees = []
+    for tree in (assignment.assignee.raxes, assignment.assignee.caxes):
+        pruned_tree = prune_zero_sized_branches(tree)
+        if pruned_tree.size == 0:
+            return NullInstruction()
+        else:
+            pruned_trees.append(pruned_tree)
+    return assignment.with_axes(*pruned_trees)
+
+
+@drop_zero_sized_paths.register(DirectCalledFunction)
+def _(func: DirectCalledFunction, /) -> DirectCalledFunction:
+    return func

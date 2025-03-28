@@ -197,8 +197,6 @@ class AbstractTree(abc.ABC):
             next_cont_prefix = f"{cont_prefix}{' ' if last_child else '│'}    "
             if child is not None:
                 nodestr += self._stringify(child, next_begin_prefix, next_cont_prefix)
-            else:
-                nodestr += [f"{next_begin_prefix}None"]
 
         if not strictly_all([begin_prefix, cont_prefix]):
             return "\n".join(nodestr)
@@ -311,9 +309,12 @@ class LabelledTree(AbstractTree):
 
     # NOTE: It might be nicer if this were to take a 2-tuple (or None). Though this
     # would break *so much*...
-    def child(self, parent, component):
+    def child(self, parent, component=None):
         if parent is None and component is None:
             return self.root
+
+        if component is None:
+            component = just_one(parent.components)
 
         children = self.node_map[parent.id]
 
@@ -693,6 +694,7 @@ class MutableLabelledTreeMixin:
         subtree,
         parent=None,
         component=None,
+        *,
         uniquify: bool = False,
         uniquify_ids=False,
     ):

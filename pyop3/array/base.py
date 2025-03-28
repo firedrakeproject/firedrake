@@ -2,7 +2,7 @@ import abc
 
 from pyop3.axtree import ContextAware
 from pyop3.axtree.tree import Expression
-from pyop3.lang import FunctionArgument, Assignment
+from pyop3.lang import FunctionArgument, BufferAssignment
 from pyop3.utils import UniqueNameGenerator
 
 
@@ -25,7 +25,7 @@ class Array(ContextAware, FunctionArgument, Expression, abc.ABC):
     __iter__ = None
 
     def assign(self, other, /, *, eager=False):
-        expr = Assignment(self, other, "write")
+        expr = BufferAssignment(self, other, "write")
         return expr() if eager else expr
 
     # TODO: Add this to different types

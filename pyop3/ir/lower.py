@@ -25,7 +25,7 @@ import pyop2
 from pyop3.array import Dat, _Dat, _ExpressionDat, _ConcretizedDat, _ConcretizedMat
 from pyop3.array.base import Array
 from pyop3.array.petsc import Mat, AbstractMat
-from pyop3.axtree.tree import Add, AxisVar, Mul
+from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent
 from pyop3.buffer import DistributedBuffer, NullBuffer, PackedBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
@@ -44,10 +44,10 @@ from pyop3.lang import (
     parse_compiler_parameters,
     WRITE,
     AssignmentType,
-    Assignment,
+    NonEmptyBufferAssignment,
     ContextAwareLoop,  # TODO: remove this class
-    CalledFunction,
-    PetscMatAssign,
+    DirectCalledFunction,
+    NonEmptyPetscMatAssignment,
     PreprocessedExpression,
     UnprocessedExpressionException,
     DummyKernelArgument,
@@ -57,7 +57,7 @@ from pyop3.lang import (
 )
 from pyop3.log import logger
 from pyop3.utils import (
-    KeyAlreadyExistsException,
+    Parameter,
     PrettyTuple,
     StrictlyUniqueDict,
     UniqueNameGenerator,
@@ -67,6 +67,7 @@ from pyop3.utils import (
     merge_dicts,
     single_valued,
     strictly_all,
+    Identified,
 )
 
 # FIXME this needs to be synchronised with TSFC, tricky
@@ -78,18 +79,6 @@ LOOPY_LANG_VERSION = (2018, 2)
 class OpaqueType(lp.types.OpaqueType):
     def __repr__(self) -> str:
         return f"OpaqueType('{self.name}')"
-
-
-class Renamer(pym.mapper.IdentityMapper):
-    def __init__(self, replace_map):
-        super().__init__()
-        self._replace_map = replace_map
-
-    def map_variable(self, var):
-        try:
-            return pym.var(self._replace_map[var.name])
-        except KeyError:
-            return var
 
 
 class CodegenContext(abc.ABC):
@@ -243,6 +232,17 @@ class LoopyCodegenContext(CodegenContext):
         temp = lp.TemporaryVariable(name, dtype=dtype, shape=shape)
         self._args.append(temp)
 
+    def add_parameter(self, parameter: Parameter) -> str:
+        self.datamap[parameter.id] = parameter
+
+        name = self.unique_name("p")
+        self.actual_to_kernel_rename_map[parameter.id] = name
+
+        loopy_arg = lp.ValueArg(name, dtype=parameter.box.dtype)
+        self._args.append(loopy_arg)
+
+        return name
+
     def add_subkernel(self, subkernel):
         self._subkernels.append(subkernel)
 
@@ -328,7 +328,7 @@ class CodegenResult:
         for kernel_arg in self.ir.default_entrypoint.args:
             actual_arg_name = self.arg_replace_map[kernel_arg.name]
             array = kwargs.get(actual_arg_name, self.datamap[actual_arg_name])
-            data_args.append(_as_pointer(array))
+            data_args.append(as_kernel_arg(array))
 
         if len(data_args) > 0:
             executable = self._compile()
@@ -396,7 +396,8 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
 
     compiler_parameters = parse_compiler_parameters(compiler_parameters)
 
-    function_name = insn.name
+    # function_name = insn.name
+    function_name = "pyop3_loop"  # TODO: Provide as kwarg
 
     if isinstance(insn, InstructionList):
         cs_expr = insn.instructions
@@ -524,7 +525,7 @@ def _(assignment: AbstractAssignment, /) -> PMap:
 
 
 @_collect_temporary_shapes.register
-def _(call: CalledFunction):
+def _(call: DirectCalledFunction):
     return freeze(
         {
             arg.name: lp_arg.shape
@@ -579,11 +580,12 @@ def parse_loop_properly_this_time(
     for component in axis.components:
         path_ = path | {axis.label: component.label}
 
-        if component._collective_count != 1:
+        if component._collective_size != 1:
             iname = codegen_context.unique_name("i")
             domain_var = register_extent(
-                component._collective_count,
-                iname_map | loop_indices,
+                component._collective_size,
+                iname_map,
+                loop_indices,
                 codegen_context,
             )
             codegen_context.add_domain(iname, domain_var)
@@ -594,25 +596,31 @@ def parse_loop_properly_this_time(
             within_inames = set()
 
         with codegen_context.within_inames(within_inames):
+            # NOTE: The following bit is done for each axis, not sure if that's right or if
+            # we should handle at the bottom
+            loop_exprs = StrictlyUniqueDict()
+            # think this is now wrong, iname_replace_map_ is sufficient
+            # iname_map = iname_replace_map_ | loop_indices
+            axis_key = (axis.id, component.label)
+            for index_exprs in axes.index_exprs:
+                for axis_label, index_expr in index_exprs.get(axis_key).items():
+                    # loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, [iname_map], loop_indices, codegen_context, paths=[path_])
+                    loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, [iname_replace_map_], loop_indices, codegen_context, paths=[path_])
+            loop_exprs = pmap(loop_exprs)
+
             if subaxis := axes.child(axis, component):
                 parse_loop_properly_this_time(
                     loop,
                     axes,
-                    loop_indices,
+                    # I think we only want to do this at the end of the traversal
+                    loop_indices | dict(loop_exprs),
+                    # loop_indices,
                     codegen_context,
                     axis=subaxis,
                     path=path_,
                     iname_map=iname_replace_map_,
                 )
             else:
-                loop_exprs = StrictlyUniqueDict()
-                iname_map = iname_replace_map_ | loop_indices
-                axis_key = (axis.id, component.label)
-                for index_exprs in axes.index_exprs:
-                    for axis_label, index_expr in index_exprs.get(axis_key).items():
-                        loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, iname_map, codegen_context, path=path_)
-                loop_exprs = pmap(loop_exprs)
-
                 for stmt in loop.statements:
                     _compile(
                         stmt,
@@ -622,7 +630,7 @@ def parse_loop_properly_this_time(
 
 
 @_compile.register
-def _(call: CalledFunction, loop_indices, ctx: LoopyCodegenContext) -> None:
+def _(call: DirectCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> None:
     temporaries = []
     subarrayrefs = {}
     extents = {}
@@ -695,7 +703,7 @@ def _(call: CalledFunction, loop_indices, ctx: LoopyCodegenContext) -> None:
 
 
 # FIXME this is practically identical to what we do in build_loop
-@_compile.register(Assignment)
+@_compile.register(NonEmptyBufferAssignment)
 def parse_assignment(
     assignment,
     loop_indices,
@@ -705,10 +713,11 @@ def parse_assignment(
         assignment,
         loop_indices,
         codegen_ctx,
+        assignment.axis_trees,
     )
 
 
-@_compile.register(PetscMatAssign)
+@_compile.register(NonEmptyPetscMatAssignment)
 def _compile_petscmat(assignment, loop_indices, codegen_context):
     mat = assignment.mat
     array = assignment.values
@@ -738,21 +747,15 @@ def _compile_petscmat(assignment, loop_indices, codegen_context):
     mat_name = codegen_context.actual_to_kernel_rename_map[mat.name]
     array_name = codegen_context.actual_to_kernel_rename_map[array.name]
 
-    for row_layout in mat.row_layouts.values():
-        for col_layout in mat.col_layouts.values():
-            # old aliases
-            rmap = row_layout
-            cmap = col_layout
+    for row_path in assignment.row_axis_tree.leaf_paths:
+        for col_path in assignment.col_axis_tree.leaf_paths:
+            row_layout = mat.row_layouts[row_path]
+            codegen_context.add_array(row_layout)
+            rmap_name = codegen_context.actual_to_kernel_rename_map[row_layout.name]
 
-            if rmap == -1 or cmap == -1:
-                # zero sized, do nothing
-                continue
-
-            codegen_context.add_array(rmap)
-            codegen_context.add_array(cmap)
-
-            rmap_name = codegen_context.actual_to_kernel_rename_map[rmap.name]
-            cmap_name = codegen_context.actual_to_kernel_rename_map[cmap.name]
+            col_layout = mat.col_layouts[col_path]
+            codegen_context.add_array(col_layout)
+            cmap_name = codegen_context.actual_to_kernel_rename_map[col_layout.name]
 
             blocked = mat.mat.block_shape > 1
     # if mat.nested:
@@ -786,9 +789,15 @@ def _compile_petscmat(assignment, loop_indices, codegen_context):
 
     # TODO: The following code should be done in a loop per submat.
 
-            # these sizes can be expressions that need evaluating
-            rsize, csize = mat.mat.shape
+            raxes = row_layout.dat.axes
+            row_subtree = raxes.subtree(raxes.child(raxes.root))
+            rsize = row_subtree.size
 
+            caxes = col_layout.dat.axes
+            col_subtree = caxes.subtree(caxes.child(caxes.root))
+            csize = col_subtree.size
+
+            # these sizes can be expressions that need evaluating
             if not isinstance(rsize, numbers.Integral):
                 raise NotImplementedError
                 rsize_var = register_extent(
@@ -810,15 +819,23 @@ def _compile_petscmat(assignment, loop_indices, codegen_context):
                 csize_var = csize
 
             # replace inner bits with zeros
-            zeros = {axis.label: 0 for axis in rmap.dat.axes.nodes if axis is not rmap.dat.axes.root}
-            irow = str(lower_expr(rmap, loop_indices | zeros, codegen_context))
+            rzeros = {axis.label: 0 for axis in row_layout.dat.axes.nodes if axis is not row_layout.dat.axes.root}
+            irow = str(lower_expr(row_layout, [rzeros], loop_indices, codegen_context))
 
-            zeros = {axis.label: 0 for axis in cmap.dat.axes.nodes if axis is not cmap.dat.axes.root}
-            icol = str(lower_expr(cmap, loop_indices | zeros, codegen_context))
+            czeros = {axis.label: 0 for axis in col_layout.dat.axes.nodes if axis is not col_layout.dat.axes.root}
+            icol = str(lower_expr(col_layout, [czeros], loop_indices, codegen_context))
+
+            array_row_layout = assignment.values.row_layouts[row_path]
+            array_row_expr = lower_expr(array_row_layout, [rzeros], loop_indices, codegen_context)
+            array_col_layout = assignment.values.col_layouts[col_path]
+            array_col_expr = lower_expr(array_col_layout, [czeros], loop_indices, codegen_context)
+
+            array_indices = array_row_expr * csize + array_col_expr
+            array_expr = str(pym.subscript(pym.var(array_name), array_indices))
 
             # hacky
             myargs = [
-                assignment, mat_name, array_name, rsize_var, csize_var, irow, icol, blocked
+                assignment, mat_name, array_expr, rsize_var, csize_var, irow, icol, blocked
             ]
             access_type = assignment.access_type
             if access_type == ArrayAccessType.READ:
@@ -834,91 +851,113 @@ def _compile_petscmat(assignment, loop_indices, codegen_context):
 
 def _petsc_mat_load(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
     if blocked:
-        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]));"
+        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}));"
     else:
-        return f"MatGetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]));"
+        return f"MatGetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}));"
 
 
 def _petsc_mat_store(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
     if blocked:
-        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), INSERT_VALUES);"
+        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}), INSERT_VALUES);"
     else:
-        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), INSERT_VALUES);"
+        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}), INSERT_VALUES);"
 
 
 def _petsc_mat_add(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
     if blocked:
-        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), ADD_VALUES);"
+        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}), ADD_VALUES);"
     else:
-        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), ADD_VALUES);"
+        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}), ADD_VALUES);"
 
 # TODO now I attach a lot of info to the context-free array, do I need to pass axes around?
 def parse_assignment_properly_this_time(
     assignment,
     loop_indices,
     codegen_context,
+    axis_trees,
     *,
-    iname_replace_map=pmap(),
+    iname_replace_maps=None,
     # TODO document these under "Other Parameters"
+    axis_tree=None,
     axis=None,
-    path=None,
+    paths=None,
 ):
-    axes = assignment.assignee.axes
+    if paths is None:
+        paths = []
+    if iname_replace_maps is None:
+        iname_replace_maps = []
 
-    if strictly_all(x is None for x in [axis, path]):
-        # for array in assignment.arrays:
-        #     codegen_context.add_argument(array)
+    if axis_tree is None:
+        axis_tree, *axis_trees = axis_trees
 
-        axis = axes.root
-        path = pmap()
+        paths += [pmap()]
+        iname_replace_maps += [pmap()]
 
-    if axes.is_empty:
-        add_leaf_assignment(
-            assignment,
-            path,
-            iname_replace_map | loop_indices,
-            codegen_context,
-            loop_indices,
-        )
-        return
+        if axis_tree.is_empty or axis_tree is UNIT_AXIS_TREE or isinstance(axis, IndexedAxisTree):
+            if axis_trees:
+                raise NotImplementedError("need to refactor code here")
+
+            add_leaf_assignment(
+                assignment,
+                paths,
+                iname_replace_maps,
+                codegen_context,
+                loop_indices,
+            )
+            return
+
+        axis = axis_tree.root
 
     for component in axis.components:
-        if component._collective_count == 0:
-            # NOTE: Should trim these earlier
-            return
-        elif component._collective_count != 1:
+        if component._collective_size != 1:
             iname = codegen_context.unique_name("i")
 
             extent_var = register_extent(
-                component._collective_count,
-                iname_replace_map | loop_indices,
+                component._collective_size,
+                iname_replace_maps[-1],
+                loop_indices,
                 codegen_context,
             )
             codegen_context.add_domain(iname, extent_var)
-            new_iname_replace_map = iname_replace_map | {axis.label: pym.var(iname)}
+            new_iname_replace_maps = iname_replace_maps.copy()
+            new_iname_replace_maps[-1] = iname_replace_maps[-1] | {axis.label: pym.var(iname)}
             within_inames = {iname}
         else:
-            new_iname_replace_map = iname_replace_map | {axis.label: 0}
+            new_iname_replace_maps = iname_replace_maps.copy()
+            new_iname_replace_maps[-1] = iname_replace_maps[-1] | {axis.label: 0}
             within_inames = set()
 
-        path_ = path | {axis.label: component.label}
+        new_paths = paths.copy()
+        new_paths[-1] = paths[-1] | {axis.label: component.label}
 
         with codegen_context.within_inames(within_inames):
-            if subaxis := axes.child(axis, component):
+            if subaxis := axis_tree.child(axis, component):
                 parse_assignment_properly_this_time(
                     assignment,
                     loop_indices,
                     codegen_context,
-                    iname_replace_map=new_iname_replace_map,
+                    axis_trees,
+                    iname_replace_maps=new_iname_replace_maps,
+                    axis_tree=axis_tree,
                     axis=subaxis,
-                    path=path_,
+                    paths=new_paths,
                 )
-
+            elif axis_trees:
+                parse_assignment_properly_this_time(
+                    assignment,
+                    loop_indices,
+                    codegen_context,
+                    axis_trees,
+                    iname_replace_maps=new_iname_replace_maps,
+                    axis_tree=None,
+                    axis=None,
+                    paths=new_paths,
+                )
             else:
                 add_leaf_assignment(
                     assignment,
-                    path_,
-                    new_iname_replace_map | loop_indices,
+                    new_paths,
+                    new_iname_replace_maps,
                     codegen_context,
                     loop_indices,
                 )
@@ -926,14 +965,13 @@ def parse_assignment_properly_this_time(
 
 def add_leaf_assignment(
     assignment,
-    path,
-    iname_replace_map,
+    paths,
+    iname_replace_maps,
     codegen_context,
     loop_indices,
 ):
-
-    lexpr = lower_expr(assignment.assignee, iname_replace_map, codegen_context, path=path)
-    rexpr = lower_expr(assignment.expression, iname_replace_map, codegen_context, path=path)
+    lexpr = lower_expr(assignment.assignee, iname_replace_maps, loop_indices, codegen_context, paths=paths)
+    rexpr = lower_expr(assignment.expression, iname_replace_maps, loop_indices, codegen_context, paths=paths)
 
     if assignment.assignment_type == AssignmentType.WRITE:
         pass
@@ -981,6 +1019,7 @@ def make_array_expr(array, path, inames, ctx):
     return pym.subscript(pym.var(name), indices)
 
 
+# NOTE: There is a difference here between `lower_expr` and `lower_expr_linear` (where paths are not relevant)
 @functools.singledispatch
 def lower_expr(obj: Any, /, *args, **kwargs):
     raise TypeError(f"No handler defined for {type(obj).__name__}")
@@ -1002,13 +1041,17 @@ def _(num: numbers.Number, /, *args, **kwargs):
 
 
 @lower_expr.register(AxisVar)
-def _(axis_var: AxisVar, /, iname_map, context, path=None):
+def _(axis_var: AxisVar, /, iname_maps, loop_indices, context, paths=None):
+    if len(iname_maps) > 1:
+        raise NotImplementedError("not sure")
+    else:
+        iname_map = just_one(iname_maps)
     return iname_map[axis_var.axis_label]
 
 
 @lower_expr.register
-def _(loop_var: LoopIndexVar, iname_map, context, path=None):
-    return iname_map[(loop_var.loop_id, loop_var.axis_label)]
+def _(loop_var: LoopIndexVar, iname_maps, loop_indices, context, paths=None):
+    return loop_indices[(loop_var.loop_id, loop_var.axis_label)]
 
 
 def maybe_multiindex(dat, offset_expr, context):
@@ -1032,147 +1075,127 @@ def maybe_multiindex(dat, offset_expr, context):
     return indices
 
 
-# NOTE: Here should not accept Dat because we need to have special layouts!!!
-# aka `Array`
-@lower_expr.register(Dat)
-@lower_expr.register(Mat)
-def _(dat: Dat, /, iname_map, context, path=None):
-    # assert not dat.parent, "Should be handled in preprocessing"
-
-    context.add_array(dat)
-
-    new_name = context.actual_to_kernel_rename_map[dat.name]
-
-    if path is None:
-        assert dat.axes.is_linear
-        path = dat.axes.path(dat.axes.leaf)
-
-    layout_expr = dat.axes.subst_layouts()[path]
-    offset_expr = lower_expr(layout_expr, iname_map, context)
-
-    indices = maybe_multiindex(dat, offset_expr, context)
-
-    rexpr = pym.subscript(pym.var(new_name), indices)
-    return rexpr
-
-
 @lower_expr.register(_ConcretizedDat)
-def _(dat: _ConcretizedDat, /, iname_map, context, path=None):
+def _(dat: _ConcretizedDat, /, iname_maps, loop_indices, context, paths):
+    iname_map = just_one(iname_maps)
+    path = just_one(paths)
+
     context.add_array(dat)
 
     new_name = context.actual_to_kernel_rename_map[dat.name]
-
-    if path is None:
-        assert False, "do not use?"
-        assert dat.axes.is_linear
-        path = dat.axes.path(dat.axes.leaf)
 
     layout_expr = dat.layouts[path]
-    offset_expr = lower_expr(layout_expr, iname_map, context)
+    offset_expr = lower_expr(layout_expr, [iname_map], loop_indices, context)
     indices = maybe_multiindex(dat, offset_expr, context)
 
     return pym.subscript(pym.var(new_name), indices)
 
 
 @lower_expr.register(_ConcretizedMat)
-def _(mat: _ConcretizedMat, /, iname_map, context, path=None):
+def _(mat: _ConcretizedMat, /, iname_maps, loop_indices, context, paths):
     context.add_array(mat)
 
     new_name = context.actual_to_kernel_rename_map[mat.name]
 
-    if path is None:
-        assert False, "do not use?"
-        assert mat.row_axes.is_linear
-        path = mat.row_axes.path(dat.axes.leaf)
+    row_iname_map, col_iname_map = iname_maps
+    row_path, col_path = paths
 
-    breakpoint()
-    row_layout_expr = mat.row_layouts[path]
-    col_layout_expr = mat.col_layouts[path]
+    row_layout_expr = mat.row_layouts[row_path]
+    col_layout_expr = mat.col_layouts[col_path]
 
-    row_offset_expr = lower_expr(row_layout_expr, iname_map, context)
-    col_offset_expr = lower_expr(col_layout_expr, iname_map, context)
+    row_offset_expr = lower_expr(row_layout_expr, [row_iname_map], loop_indices, context)
+    col_offset_expr = lower_expr(col_layout_expr, [col_iname_map], loop_indices, context)
 
-    offset_expr = row_offset_expr * mat.mat.col_axes.size + col_offset_expr
+    offset_expr = row_offset_expr * mat.mat.caxes.size + col_offset_expr
+    indices = maybe_multiindex(mat, offset_expr, context)
 
-    rexpr = pym.subscript(pym.var(new_name), (offset_expr,))
+    rexpr = pym.subscript(pym.var(new_name), indices)
     return rexpr
 
 
 @lower_expr.register(_ExpressionDat)
-def _(dat: _ExpressionDat, /, iname_map, context, path=None):
+def _(dat: _ExpressionDat, /, iname_maps, loop_indices, context, paths=None):
+    iname_map = just_one(iname_maps)
+
     context.add_array(dat)
 
     new_name = context.actual_to_kernel_rename_map[dat.name]
 
-    offset_expr = lower_expr(dat.layout, iname_map, context)
-    rexpr = pym.subscript(pym.var(new_name), (offset_expr,))
+    offset_expr = lower_expr(dat.layout, [iname_map], loop_indices, context)
+    indices = maybe_multiindex(dat, offset_expr, context)
+    rexpr = pym.subscript(pym.var(new_name), indices)
     return rexpr
 
 
-def register_extent(extent, iname_replace_map, ctx):
-    if isinstance(extent, numbers.Integral):
-        return extent
+@functools.singledispatch
+def register_extent(obj: Any, *args, **kwargs):
+    raise TypeError(f"No handler defined for {type(extent).__name__}")
 
-    # actually a pymbolic expression
-    if not isinstance(extent, (Dat, _ExpressionDat)):
-        raise NotImplementedError("need to tidy up assignment logic")
 
-    expr = lower_expr(extent, iname_replace_map, ctx)
+@register_extent.register(numbers.Integral)
+def _(num: numbers.Integral, *args, **kwargs):
+    return num
+
+
+@register_extent.register(Parameter)
+def _(param: Parameter, inames, loop_indices, context):
+    return context.add_parameter(param)
+
+@register_extent.register(Dat)
+@register_extent.register(_ExpressionDat)
+def _(extent, iname_replace_map, loop_indices, ctx):
+    expr = lower_expr(extent, [iname_replace_map], loop_indices, ctx)
     varname = ctx.unique_name("p")
     ctx.add_temporary(varname)
     ctx.add_assignment(pym.var(varname), expr)
     return varname
 
 
-class VariableReplacer(pym.mapper.IdentityMapper):
-    def __init__(self, replace_map):
-        self._replace_map = replace_map
-
-    def map_variable(self, expr):
-        return self._replace_map.get(expr.name, expr)
-
-
 # lives here??
 @functools.singledispatch
-def _as_pointer(array) -> int:
-    raise NotImplementedError
+def as_kernel_arg(obj: Any) -> int:
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-# bad name now, "as_kernel_arg"?
-@_as_pointer.register
-def _(arg: int):
-    return arg
+@as_kernel_arg.register(numbers.Integral)
+def _(num: numbers.Integral) -> int:
+    return int(num)
 
 
-@_as_pointer.register
-def _(arg: np.ndarray):
-    return arg.ctypes.data
+@as_kernel_arg.register(Parameter)
+def _(param: Parameter) -> int:
+    return as_kernel_arg(param.value)
 
 
-@_as_pointer.register
+@as_kernel_arg.register(np.ndarray)
+def _(array: np.ndarray) -> int:
+    return array.ctypes.data
+
+
+@as_kernel_arg.register
 def _(arg: _Dat):
     # TODO if we use the right accessor here we modify the state appropriately
-    return _as_pointer(arg.buffer)
+    return as_kernel_arg(arg.buffer)
 
 
-@_as_pointer.register
+@as_kernel_arg.register
 def _(arg: DistributedBuffer):
     # TODO if we use the right accessor here we modify the state appropriately
     # NOTE: Do not use .data_rw accessor here since this would trigger a halo exchange
-    return _as_pointer(arg._data)
+    return as_kernel_arg(arg._data)
 
 
-@_as_pointer.register
+@as_kernel_arg.register
 def _(arg: PackedBuffer):
-    return _as_pointer(arg.array)
+    return as_kernel_arg(arg.array)
 
 
-@_as_pointer.register
+@as_kernel_arg.register
 def _(array: AbstractMat):
     return array.mat.handle
 
 
-@_as_pointer.register(PETSc.Mat)
+@as_kernel_arg.register(PETSc.Mat)
 def _(mat):
     return mat.handle
 
@@ -1237,5 +1260,3 @@ def compile_loopy(translation_unit, *, pyop3_compiler_parameters):
     func.argtypes = argtypes
     func.restype = restype
     return func
-
-

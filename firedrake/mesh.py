@@ -848,21 +848,46 @@ class AbstractMeshTopology(abc.ABC):
         assert not hasattr(self, "_callback"), "Mesh must be initialised"
         return self._entity_numbering(self.dimension-1)
 
-    # TODO: Cache this?
-    # NOTE: I dislike this function because the renumbering goes from all points
-    # to a entity-wise numbering
+    # TODO: Cache this? Definitely cythonize it
+    # IMPORTANT: This used to return a mapping from point numbering to entity numbering
+    # but now returns entity numbering to entity numbering
     def _entity_numbering(self, dim):
-        section = PETSc.Section().create(self._comm)
-        section.setChart(*self.topology_dm.getChart())
+        # NOTE: If we do not renumber then just return a range...
+        p_start, p_end = self.topology_dm.getDepthStratum(dim)
 
-        if self._dm_renumbering is not None:
-            section.setPermutation(self._dm_renumbering)
+        if self._dm_renumbering:
+            numbering = self._dm_renumbering.indices[p_start:p_end]
+            # use argsort to convert a point numbering into an entity-wise one
+            # for example, we might renumber point 3/vertex 5 into point 9/vertex 4.
+            # Previously we would return the mapping point 3 -> vertex 4 whereas now
+            # we return vertex 5 -> vertex 4
+            # hmmm!!!
+            return op3.utils.invert(np.argsort(numbering))
+            # return np.argsort(numbering)
+        else:
+            return np.arange(0, p_end-p_start, dtype=IntType)
 
-        for pt in range(*self.topology_dm.getDepthStratum(dim)):
-            section.setDof(pt, 1)
+    @cached_property
+    def _global_numbering(self):
+        # NOTE: We do exactly the same thing inside pyop3, grep for 'exscan'
 
-        section.setUp()
-        return section
+        # Start with a local numbering
+        if self._dm_renumbering:
+            numbering = self._dm_renumbering.indices.copy()
+        else:
+            numbering = np.arange(self.points.size, dtype=IntType)
+
+
+        if self.comm.size > 1:
+            # Then offset by the number of owned points on preceding ranks
+            # offset = self._comm.exscan(self.num_owned_points) or 0
+            offset = self._comm.exscan(self.points.owned.size) or 0
+            numbering += offset
+
+            # And finally send ghost points their actual global number
+            self.point_sf.broadcast(numbering, MPI.REPLACE)
+
+        return readonly(numbering)
 
     @property
     def comm(self):
@@ -871,6 +896,11 @@ class AbstractMeshTopology(abc.ABC):
     def mpi_comm(self):
         """The MPI communicator this mesh is built on (an mpi4py object)."""
         return self.comm
+
+    @cached_property
+    def point_sf(self) -> op3.StarForest:
+        petsc_sf = self.topology_dm.getPointSF()
+        return op3.StarForest(petsc_sf, self.num_points)
 
     @PETSc.Log.EventDecorator("CreateMesh")
     def init(self):
@@ -980,7 +1010,7 @@ class AbstractMeshTopology(abc.ABC):
         perm = self._dm_renumbering.indices
         for dim in range(self.dimension+1):
             p_start, p_end = self._topology_dm.getDepthStratum(dim)
-            ixs = np.argwhere((p_start <= perm) & (perm < p_end))
+            ixs = np.argwhere((p_start <= perm) & (perm < p_end)).astype(IntType, casting="same_kind")
             indices.append(readonly(ixs))
         return tuple(indices)
 
@@ -1286,38 +1316,37 @@ class AbstractMeshTopology(abc.ABC):
         src_renumbering = self._entity_numbering(src_dim)
         dest_renumbering = self._entity_numbering(dest_dim)
 
-        # TODO: We should distinguish between different numberings
-        # (from plex point or "component-wise" point)
         src_start, src_end = self.topology_dm.getDepthStratum(src_dim)
+        dest_start, dest_end = self.topology_dm.getDepthStratum(dest_dim)
 
         map_pts_renum = np.empty_like(map_pts)
 
         if sizes is None:
             for src_pt, map_data_per_pt in enumerate(map_pts):
-                src_pt_renum = src_renumbering.getOffset(src_pt + src_start)
+                src_pt_renum = src_renumbering[src_pt]
                 for i, dest_pt in enumerate(map_data_per_pt):
-                    dest_pt_renum = dest_renumbering.getOffset(dest_pt)
+                    dest_pt_renum = dest_renumbering[dest_pt-dest_start]
                     map_pts_renum[src_pt_renum, i] = dest_pt_renum
-            return op3.utils.readonly(map_pts_renum)
+            return readonly(map_pts_renum)
         else:
-            # map from a renumbered point to the offset in the original array
             sizes_renum = np.empty_like(sizes)
             offsets = op3.utils.steps(sizes, drop_last=True)
             offsets_renum = np.empty_like(offsets)
             for stratum_pt, src_pt in enumerate(range(src_start, src_end)):
-                stratum_pt_renum = src_renumbering.getOffset(src_pt)
+                stratum_pt_renum = src_renumbering[stratum_pt]
                 sizes_renum[stratum_pt_renum] = sizes[stratum_pt]
                 offsets_renum[stratum_pt_renum] = offsets[stratum_pt]
 
             map_pts_renum = np.empty_like(map_pts)
             for src_stratum_pt, src_plex_pt in enumerate(range(src_start, src_end)):
-                src_stratum_pt_renum = src_renumbering.getOffset(src_plex_pt)
+                src_stratum_pt_renum = src_renumbering[src_stratum_pt]
                 for i in range(sizes[src_stratum_pt]):
                     dest_pt = map_pts[offsets[src_stratum_pt]+i]
-                    dest_stratum_pt_renum = dest_renumbering.getOffset(dest_pt)
+                    dest_stratum_pt = dest_pt - dest_start
+                    dest_stratum_pt_renum = dest_renumbering[dest_stratum_pt]
                     map_pts_renum[offsets_renum[src_stratum_pt_renum]+i] = dest_stratum_pt_renum
 
-            return op3.utils.readonly(map_pts_renum), op3.utils.readonly(sizes_renum)
+            return readonly(map_pts_renum), readonly(sizes_renum)
 
     def support(self, index):
         return self._support(index)
@@ -1556,7 +1585,7 @@ class AbstractMeshTopology(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def num_of_entity(self, depth):
+    def entity_count(self, dim, include_ghost_points=True):
         pass
 
     def size(self, depth):
@@ -1703,32 +1732,25 @@ class AbstractMeshTopology(abc.ABC):
 
         return numbering
 
-    @utils.cached_property
-    def _global_numbering(self):
-        numbering = [None] * (self.dimension+1)
-        for stratum in self.points.components:
-            stratum_dim = int(stratum.label)
-            numbering[stratum_dim] = np.full(stratum.count, -1, dtype=IntType)
-        numbering = tuple(numbering)
-
-        for local_pt, global_pt in enumerate(self._default_global_numbering):
-            stratum, stratum_pt = self.points.axis_to_component_number(local_pt)
-            stratum_dim = int(stratum.label)
-            stratum_index = self.points.component_index(stratum)
-
-            stratum_pt_renum = self.points.renumber_point(stratum, stratum_pt)
-            global_stratum_pt = global_pt - self.points._component_offsets[stratum_index]
-            numbering[stratum_dim][stratum_pt_renum] = global_stratum_pt
-
-        debug_assert(lambda: all(np.all(n >= 0) for n in numbering))
-        return numbering
-
-    @property
-    def _global_vertex_numbering(self):
-        if self.comm.size > 1:
-            raise NotImplementedError
-        return self._vertex_numbering
-        return self._global_numbering[0]
+    # @utils.cached_property
+    # def _global_numbering(self):
+    #     numbering = [None] * (self.dimension+1)
+    #     for stratum in self.points.components:
+    #         stratum_dim = int(stratum.label)
+    #         numbering[stratum_dim] = np.full(stratum.count, -1, dtype=IntType)
+    #     numbering = tuple(numbering)
+    #
+    #     for local_pt, global_pt in enumerate(self._default_global_numbering):
+    #         stratum, stratum_pt = self.points.axis_to_component_number(local_pt)
+    #         stratum_dim = int(stratum.label)
+    #         stratum_index = self.points.component_index(stratum)
+    #
+    #         stratum_pt_renum = self.points.renumber_point(stratum, stratum_pt)
+    #         global_stratum_pt = global_pt - self.points._component_offsets[stratum_index]
+    #         numbering[stratum_dim][stratum_pt_renum] = global_stratum_pt
+    #
+    #     debug_assert(lambda: all(np.all(n >= 0) for n in numbering))
+    #     return numbering
 
     # submesh
 
@@ -2203,31 +2225,37 @@ class MeshTopology(AbstractMeshTopology):
 
     @property
     def num_cells(self) -> int:
-        return self.num_of_entity(self.dimension)
+        return self.entity_count(self.dimension)
 
     @property
     def num_facets(self) -> int:
-        return self.num_of_entity(self.dimension - 1)
+        return self.entity_count(self.dimension - 1)
 
     @property
     def num_faces(self):
-        return self.num_of_entity(2)
+        return self.entity_count(2)
 
     @property
     def num_edges(self):
-        return self.num_of_entity(1)
+        return self.entity_count(1)
 
     @property
     def num_vertices(self):
-        return self.num_of_entity(0)
+        return self.entity_count(0)
 
-    def num_of_entity(self, depth):
-        eStart, eEnd = self.topology_dm.getDepthStratum(depth)
-        return eEnd - eStart
+    def entity_count(self, dim, include_ghost_points=True):
+        p_start, p_end = self.topology_dm.getDepthStratum(dim)
+        num_points = p_end - p_start
 
-    def npoints_per_dim(self, dim):
-        start, stop = self.topology_dm.getDepthStratum(dim)
-        return stop - start
+        if not include_ghost_points:
+            ghost_label = self.topology_dm.getLabel("firedrake_is_ghost")
+            ghost_indices = ghost_label.getStratumIS(1).indices
+            # TODO: This is what ISGeneralFilter() does, but that is not exposed in petsc4py
+            # https://petsc.org/release/manualpages/IS/ISGeneralFilter/
+            num_ghost_points = sum((p_start <= ghost_indices) & (ghost_indices < p_end))
+            num_points -= num_ghost_points
+
+        return num_points
 
     @property
     def cell_label(self):
@@ -3201,7 +3229,8 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             # Finish the initialisation of mesh topology
             self.topology.init()
             coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
-            coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
+
+            coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getLocalSection(),
                                                          (self.num_vertices, self.geometric_dimension()))
             coordinates = function.CoordinatelessFunction(coordinates_fs,
                                                           val=coordinates_data,

@@ -609,14 +609,14 @@ def closure_ordering(mesh, closure_data):
     CHKERR(PetscMalloc1(nverts_per_cell, &facet_verts))
 
     # Must call this before loop collectively.
-    mesh._global_vertex_numbering
+    mesh._global_numbering
 
     closure_data_reord = np.empty_like(closure_data)
     for cell in range(*dm.getHeightStratum(0)):
         # 1. Order vertices
         for vi, vert in enumerate(closure_data[cell, vert_offset:]):
             verts[vi] = vert
-            global_verts[vi] = mesh._global_vertex_numbering.getOffset(vert)
+            global_verts[vi] = mesh._global_numbering[vert]
 
         # Sort vertices by their global number
         CHKERR(PetscSortIntWithArray(nverts_per_cell, global_verts, verts))
@@ -2506,6 +2506,7 @@ def partition_renumbering(PETSc.DM dm, PETSc.IS serial_renumbering) -> PETSc.IS:
     return parallel_renumbering
 
 
+# TODO: Just int array not IS
 def renumber_sf(PETSc.SF sf, PETSc.IS renumbering) -> PETSc.SF:
     """Renumber an SF.
 
@@ -2543,11 +2544,49 @@ def renumber_sf(PETSc.SF sf, PETSc.IS renumbering) -> PETSc.SF:
     section.setPermutation(renumbering)
     section.setUp()
 
-    CHKERR(PetscSFCreateRemoteOffsets(sf.sf, section.sec, section.sec, &remoteOffsets_c))
+    return create_section_sf(sf, section)
 
-    sf_renum = PETSc.SF()
-    CHKERR(PetscSFCreateSectionSF(sf.sf, section.sec, remoteOffsets_c, section.sec, &sf_renum.sf))
-    return sf_renum
+
+def filter_sf(
+    sf: PETSc.SF,
+    selected_points: np.ndarray[IntType],
+    p_start: IntType,
+    p_end: IntType,
+) -> PETSc.SF:
+    """
+    neednt be ordered
+
+    """
+    cdef:
+        PETSc.SF      sf_filtered
+        PETSc.Section section
+
+        PetscInt      nPoints_c, i_c, p_c
+        PetscInt      *remoteOffsets_c = NULL
+
+    nPoints_c = len(selected_points)
+
+    section = PETSc.Section().create(comm=sf.comm)
+    section.setChart(p_start, p_end)
+    for i_c in range(nPoints_c):
+        p_c = selected_points[i_c]
+        CHKERR(PetscSectionSetDof(section.sec, p_c, 1))
+    section.setUp()
+
+    return create_section_sf(sf, section)
+
+
+def create_section_sf(sf: PETSc.SF, section: PETSc.Section) -> PETSc.SF:
+    """Create an SF from an existing SF and section."""
+    cdef:
+        PETSc.SF sf_new
+        PetscInt *remoteOffsets_c = NULL
+
+    sf_new = PETSc.SF().create(comm=sf.comm)
+    CHKERR(PetscSFCreateRemoteOffsets(sf.sf, section.sec, section.sec, &remoteOffsets_c))
+    CHKERR(PetscSFCreateSectionSF(sf.sf, section.sec, remoteOffsets_c, section.sec, &sf_new.sf))
+    return sf_new
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)

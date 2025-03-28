@@ -75,11 +75,12 @@ from pyop3.lang import (  # noqa: F401
     Function,
     Loop,
     OpaqueKernelArgument,
-    Assignment,
+    BufferAssignment,
     do_loop,
     _loop as loop,
 )
 from pyop3.sf import StarForest, serial_forest, single_star
+from . import utils
 
 del _os
 del _config
