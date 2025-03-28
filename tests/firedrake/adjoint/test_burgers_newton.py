@@ -204,7 +204,7 @@ def test_burgers_newton_docs():
     # start solver
     n = 30
     mesh = UnitIntervalMesh(n)
-    end = 0.3
+    end = 0.01
     timestep = Constant(1.0/n)
     steps = int(end/float(timestep)) + 1
 
@@ -241,6 +241,10 @@ def test_burgers_newton_docs():
     J_new = Jhat(ic_new)
     print(round(J_new, 3))
     # end functional evaluation
+
+    # start derivative
+    dJ = Jhat.derivative()
+    # end derivative
 
     get_working_tape().visualise("tape.pdf")
     rate = taylor_test(Jhat, ic, Function(V).assign(1.))

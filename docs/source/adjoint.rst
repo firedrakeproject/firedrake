@@ -144,8 +144,8 @@ How Firedrake and Pyadjoint automate derivative calculation
 -----------------------------------------------------------
 
 Firedrake automates the process in the preceding section using the methodology
-first published in :cite:`Farrell2012` using the implementation in 
-`Pyadjoint <https://pyadjoint.org>`__ :cite:`Mitusch`. 
+first published in :cite:`Farrell2013` using the implementation in 
+`Pyadjoint <https://pyadjoint.org>`__ :cite:`Mitusch2019`. 
 
 The essence of this process is:
 
@@ -176,8 +176,8 @@ First, the user code must access the adjoint module:
 The call to :func:`~pyadjoint.continue_annotation` starts the taping process:
 all subsequent relevant operations will be recorded until taping is paused.
 This can be accomplished with a call to :func:`~pyadjoint.pause_annotation`, or
-temporarily within a :func:`~pyadjoint.stop_annotating` context manager, or
-within a function decorated with :func:`~pyadjoint.no_annotations`.
+temporarily within a :class:`~pyadjoint.stop_annotating` context manager, or
+within a function decorated with :func:`~pyadjoint.tape.no_annotations`.
 
 The following code then solves the Burgers equation in one dimension with
 homogeneous Dirichlet Boundary conditions and (for simplicity) implicit Euler
@@ -197,11 +197,11 @@ provide context for the material that follows.
 We've now solved the PDE over time and computed our functional. Observe that
 we paused taping at the end of the computation.
 
-For future reference, the value of :obj:`J` printed at the end is
+For future reference, the value of :obj:`!J` printed at the end is
 `5.006`.
 
-Reduced functional
-------------------
+Reduced functionals
+-------------------
 
 A :class:`~pyadjoint.ReducedFunctional` is the key object encapsulating adjoint
 calculations. It ties together a functional value, which can be any result of a
@@ -210,8 +210,8 @@ quantity which is an input of the computation of the functional value (for
 details of object types that can be used as functional values and controls, see
 :ref:`overloaded_types`).
 
-In this case we use :obj:`J` as the functional value and the initial condition as
-the control:
+In this case we use :obj:`!J` as the functional value and the initial condition
+as the control:
 
 .. literalinclude:: ../../tests/firedrake/adjoint/test_burgers_newton.py
     :start-after: end solver
@@ -221,11 +221,96 @@ the control:
 
 Each control must be wrapped in :class:`~pyadjoint.Control`.
 
-Reduced functional operations
+Reduced functional evaluation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 A reduced functional is a callable, differentiable function object whose inputs
-are the control and whose output is the functional value. 
+are the control and whose output is the functional value. The most basic
+operation that can be undertaken on a reduced functional is to evaluate the
+functional for a new value of the control(s). This is achieved by calling the
+reduced functional passing an object of the same type as the control for each
+control. For example, we can evaluate :obj:`!Jhat` for new initial conditions
+using:
+
+.. literalinclude:: ../../tests/firedrake/adjoint/test_burgers_newton.py
+    :start-after: start functional evaluation
+    :end-before: end functional evaluation
+    :dedent:
+    :language: python3
+
+This time the printed output is `5.415` which is different from the first
+evaluation. The documentation for calling reduced functionals is to be found on
+the :meth:`~pyadjoint.ReducedFunctional.__call__` special method.
+
+Reduced functional derivative
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The derivative of the reduced functional with respect to the controls can be
+evaluated using the :meth:`~pyadjoint.ReducedFunctional.derivative` method. The
+derivative so calculated will be linearised about the state resulting from the
+last evaluation of the reduced functional (or the state that was originally
+taped if the functional has never been re-evaluated). This is as simple as:
+
+.. literalinclude:: ../../tests/firedrake/adjoint/test_burgers_newton.py
+    :start-after: start derivative
+    :end-before: end derivative
+    :dedent:
+    :language: python3
+
+The derivative, :meth:`!dJ`, will have the same type as the controls.
+
+.. note::
+
+    Strictly, :meth:`!ReducedFunctional.derivative` returns the gradient, which
+    is the Riesz representer of the derivative. A future release of Firedrake
+    and Pyadjoint will change this to return the true derivative, which is of
+    the type dual to the controls.
+
+The tape
+--------
+
+The sequence of recorded operations is stored on an object called the tape. The
+currently active tape can be accessed by calling
+:func:`~pyadjoint.get_working_tape`. The user usually has limited direct
+interaction with the tape, but there is some useful information which can be
+extracted. 
+
+Visualising the tape
+~~~~~~~~~~~~~~~~~~~~
+
+A PDF visualisation of the tape can be constructed by calling the
+:meth:`pyadjoint.Tape.visualise` method and passing a filename ending in
+:file:`.pdf`. This requires the installation of two additional Python modules,
+:mod:`!networkx` and :mod:`!pygraphviz`. The former can simply be installed with
+:program:`pip` but the latter depends on the external :program:`graphviz` package.
+Installation instructions for both :mod:`!pygraphviz` and :program:`graphviz`
+are to be found on `the pygraphviz website
+<https://pygraphviz.github.io/documentation/stable/install.html#recommended>`__.
+
+.. _fig-tape:
+
+.. figure:: images/tape.pdf
+
+    A visualisation of the Burgers equation example above shortened to a single
+    timestep. Operations (blocks) recorded on the tape are shown as grey
+    rectangles, while taped variables are shown as ovals. 
+
+The numbered blocks in the tape visualisation are as follows:
+
+1.  The initial condition is projected.
+2.  The initial condition is copied into `u_{\mathrm{old}}`.
+3.  The squared norm of the initial condition is computed.
+4.  The timestep PDE is solved.
+5.  The squared norm of the new solution is computed.
+6.  The result of step 5 is added to step 3 resulting in the functional value.
+
+The oval variables with labels of the form `w_n` are of type Firedrake
+:class:`~.function.Function` while the variables labelled with numbers
+are annotated scalars of type :class:`~pyadjoint.AdjFloat`.
+
+Progress bars
+~~~~~~~~~~~~~
+
 
 Taylor tests
 ------------
@@ -235,8 +320,10 @@ Taylor tests
 Overloaded types
 ----------------
 
-The tape
---------
 
-Progress bars
-~~~~~~~~~~~~~
+
+.. bibliography:: _static/references.bib
+    :filter: False
+
+    Farrell2013
+    Mitusch2019
