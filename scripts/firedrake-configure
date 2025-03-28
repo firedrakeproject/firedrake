@@ -39,10 +39,9 @@ ARCH_DEFAULT = FiredrakeArch.DEFAULT
 ARCH_COMPLEX = FiredrakeArch.COMPLEX
 
 
-# NOTE: When updating these variables corresponding changes must be made inside
+# NOTE: When updating this variable corresponding changes must be made inside
 # pyproject.toml
 SUPPORTED_PETSC_VERSION = "v3.22.2"
-SUPPORTED_SLEPC_VERSION = "v3.22.2"
 
 
 def main():
@@ -100,12 +99,6 @@ Please see https://firedrakeproject.org/install for more information."""
         help="Print out the officially supported PETSc version tag.",
     )
     cmd_group.add_argument(
-        "--show-slepc-version",
-        "--slepcver",  # alias
-        action="store_true",
-        help="Print out the officially supported SLEPc version tag.",
-    )
-    cmd_group.add_argument(
         "--show-env",
         "--env",  # alias
         action="store_true",
@@ -133,8 +126,6 @@ Please see https://firedrakeproject.org/install for more information."""
         print(" ".join(PETSC_CONFIGURE_OPTIONS[package_manager, arch]), end="")
     elif args.show_petsc_version:
         print(SUPPORTED_PETSC_VERSION, end="")
-    elif args.show_slepc_version:
-        print(SUPPORTED_SLEPC_VERSION, end="")
     else:
         assert args.show_env
         print(" ".join(ENVIRONMENT_VARS[package_manager, arch]), end="")
