@@ -212,7 +212,7 @@ def test_burgers_newton_docs():
     V = FunctionSpace(mesh, "CG", 2)
     ic = project(sin(2.*pi*x), V, name="ic")
 
-    u_old= Function(V, name="u_old")
+    u_old = Function(V, name="u_old")
     u_new = Function(V, name="u")
     v = TestFunction(V)
     u_old.assign(ic)
@@ -231,23 +231,24 @@ def test_burgers_newton_docs():
         J += assemble(u_new*u_new*dx)
     pause_annotation()
     print(round(J, 3))
-    # end solver
+    # end solver
     Jhat = ReducedFunctional(J, Control(ic))
-    # end reduced functional
+    # end reduced functional
 
     # start functional evaluation
     ic_new = project(sin(pi*x), V)
     J_new = Jhat(ic_new)
     print(round(J_new, 3))
-    # end functional evaluation
+    # end functional evaluation
 
-    # start progress bar
+    # start progress bar
     get_working_tape().progress_bar = ProgressBar
-    # end progress bar
+    # end progress bar
 
-    # start derivative
+    # start derivative
     dJ = Jhat.derivative()
     # end derivative
+    dJ  # Shut up flake8.
 
     # start taylor test
     dm = assemble(interpolate(Constant(1.), V))
