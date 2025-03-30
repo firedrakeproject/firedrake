@@ -311,6 +311,8 @@ are annotated scalars of type :class:`~pyadjoint.AdjFloat`.
 Visualising the tape makes it possible to verify that the computational
 dependencies of the functional value are correct. This is a key debugging tool.
 
+.. _progress_bar:
+
 Progress bars
 ~~~~~~~~~~~~~
 
@@ -346,11 +348,60 @@ will print:
 Taylor tests
 ------------
 
-.. _overloaded_types:
+The possibility of evaluating a reduced functional and its gradient creates a
+powerful debugging tool. Consider a perturbation `\delta m` of the same type as
+the control, `m`, and choose `h` to be a small real parameter. Then, by
+Taylor's theorem:
 
-Overloaded types
-----------------
+.. math::
 
+    \hat{J}(m+h\delta m) = \hat{J}(m)
+    + h\frac{\mathrm{d}\hat{J}}{\mathrm{d}m}\cdot\delta m + O(h^2)
+
+Firedrake and pyadjoint provide the mechanism for evaluating all of the terms
+bar the last. The Taylor test exploits this to solve for the Taylor residual:
+
+.. math::
+
+    R(h) = \hat{J}(m+h\delta m) - \hat{J}(m)
+    - h\frac{\mathrm{d}\hat{J}}{\mathrm{d}m}\cdot\delta m
+
+By computing the residual for a sequence of decreasing values of `h`, the
+convergence rate of the residual can be estimated. This is a very sensitive
+measure: essentially any error in the computation of the reduced functional
+derivative will cause the measured convergence rate to drop significantly below
+two.
+
+The Taylor test is automated by :func:`pyadjoint.taylor_test`. It can be
+applied to the case above, using a constant function as the perturbation thus:
+
+.. literalinclude:: ../../tests/firedrake/adjoint/test_burgers_newton.py
+    :start-after: start taylor test
+    :end-before: end taylor test
+    :dedent:
+    :language: python3
+
+Given that a :ref:`progress bar <progress_bar>` has already been added to the
+tape, the output is:
+
+.. code-block:: console
+    :dedent:
+
+    Evaluating functional ▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣ 53/53 [0:00:00]
+    Evaluating adjoint ▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣ 53/53 [0:00:00]
+    Running Taylor test
+    Evaluating functional ▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣ 53/53 [0:00:00]
+    Evaluating functional ▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣ 53/53 [0:00:00]
+    Evaluating functional ▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣ 53/53 [0:00:00]
+    Evaluating functional ▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣▣ 53/53 [0:00:00]
+    Computed residuals: [0.0014987214563476335, 0.0003660923070762233, 9.099970030487065e-05, 2.271743962188236e-05]
+    Computed convergence rates: [np.float64(2.0334529144590374), np.float64(2.008273758606956), np.float64(2.002061549516079)]
+
+This shows the evaluation of the reduced functional and its derivative at the
+initial condition, followed by four functional evaluations for different
+scalings of the perturbation. The residuals are printed, followed by the
+convergence rate computed from each successive pair of residuals. The measured
+convergence rate is around two, as expected.
 
 
 .. bibliography:: _static/references.bib

@@ -249,9 +249,11 @@ def test_burgers_newton_docs():
     dJ = Jhat.derivative()
     # end derivative
 
+    # start taylor test
+    dm = assemble(interpolate(Constant(1.), V))
+    rate = taylor_test(Jhat, ic, dm)
+    # end taylor test
 
-    get_working_tape().visualise("tape.pdf")
-    rate = taylor_test(Jhat, ic, Function(V).assign(1.))
     assert rate > 1.9
 
 
