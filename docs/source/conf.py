@@ -118,8 +118,6 @@ exclude_patterns = ['old_pyop2']
 # output. They are ignored by default.
 #show_authors = False
 
-numfig = True
-
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = 'sphinx'
 

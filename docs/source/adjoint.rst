@@ -403,6 +403,19 @@ scalings of the perturbation. The residuals are printed, followed by the
 convergence rate computed from each successive pair of residuals. The measured
 convergence rate is around two, as expected.
 
+.. _overloaded_types:
+
+Overloaded types
+----------------
+
+Data types that are recorded on the tape, and hence that can be used as
+functional values or controls, are those that inherit from
+:class:`pyadjoint.OverloadedType`. In firedrake, the key such types are
+:class:`~.function.Function`, :class:`~.cofunction.Cofunction` and the annotated float type
+:class:`pyadjoint.AdjFloat`. Firedrake users do not usually need to concern
+themselves with this since annotated operations will return overloaded types.
+
+----
 
 .. bibliography:: _static/references.bib
     :filter: False
