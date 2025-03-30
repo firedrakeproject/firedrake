@@ -354,6 +354,7 @@ the control, `m`, and choose `h` to be a small real parameter. Then, by
 Taylor's theorem:
 
 .. math::
+    :label:
 
     \hat{J}(m+h\delta m) = \hat{J}(m)
     + h\frac{\mathrm{d}\hat{J}}{\mathrm{d}m}\cdot\delta m + O(h^2)
@@ -362,6 +363,7 @@ Firedrake and pyadjoint provide the mechanism for evaluating all of the terms
 bar the last. The Taylor test exploits this to solve for the Taylor residual:
 
 .. math::
+    :label:
 
     R(h) = \hat{J}(m+h\delta m) - \hat{J}(m)
     - h\frac{\mathrm{d}\hat{J}}{\mathrm{d}m}\cdot\delta m
