@@ -543,10 +543,10 @@ def prepare_arguments(arguments, multiindices, domain_integral_type_map, diagona
             element, = set(elements)
         except ValueError:
             raise ValueError("Diagonal only for diagonal blocks (test and trial spaces the same)")
-
         elements = (element, )
         shapes = tuple(element.index_shape for element in elements)
         multiindices = multiindices[:1]
+        arguments = arguments[:1]
 
     def expression(restricted):
         return gem.Indexed(gem.reshape(restricted, *shapes),
