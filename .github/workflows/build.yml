@@ -89,8 +89,8 @@ jobs:
             --no-binary h5py \
             --extra-index-url https://download.pytorch.org/whl/cpu \
             './firedrake-repo[ci]'
-          pip install git+https://github.com/firedrakeproject/fiat.git@ksagiyam/introduce_mixed_map
-          pip install git+https://github.com/firedrakeproject/ufl.git@ksagiyam/introduce_mixed_map
+          pip install -I git+https://github.com/firedrakeproject/fiat.git@ksagiyam/introduce_mixed_map
+          pip install -I git+https://github.com/firedrakeproject/ufl.git@ksagiyam/introduce_mixed_map
           firedrake-clean
           pip list
 
