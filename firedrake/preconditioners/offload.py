@@ -104,6 +104,7 @@ class OffloadPC(PCBase):
                     x_cu.createCUDAWithArrays(x.array_r)
                 with PETSc.Log.Event("Event: solve"):
                     self.pc.apply(x_cu, y_cu)  #
+                    tmp = y_cu.array_r # Calling data to synchronize vector
             with PETSc.Log.Event("Event: vectors copy back"):
                 y.copy(y_cu)  #
 
