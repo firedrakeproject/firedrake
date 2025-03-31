@@ -236,6 +236,7 @@ COMMON_PETSC_CONFIGURE_OPTIONS = (
     "--with-fortran-bindings=0",
     "--with-shared-libraries=1",
     "--with-strict-petscerrorcode",
+    "--with-petsc4py=1",
 )
 
 # Placeholder value to use when we want PETSc to autodetect the package

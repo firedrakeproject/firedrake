@@ -20,9 +20,6 @@ dependencies = [
   "mpi4py; python_version < '3.13'",
   "h5py>3.12.1",
   "libsupermesh",
-  # NOTE: If changing the PETSc/SLEPc version then firedrake-configure also needs
-  # changing (as well as other references to petsc4py and slepc4py here)
-  "petsc4py==3.22.2",
   "numpy",
   "packaging",
   "pkgconfig",
@@ -84,7 +81,6 @@ ci = [
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.22.2",
   "torch",  # requires passing '--extra-index-url' to work
   "vtk",
 ]
@@ -98,7 +94,6 @@ docker = [  # Used in firedrake-vanilla container
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.22.2",
 ]
 # Dependencies needed to build the docs
 docs = [
@@ -134,7 +129,6 @@ requires = [
   "pkgconfig",
   "pybind11",
   "setuptools>61.2",
-  "petsc4py==3.22.2",
   "rtree>=1.2",
 ]
 build-backend = "setuptools.build_meta"
@@ -149,6 +143,6 @@ script-files = [
 [tool.setuptools.package-data]
 # Unless specified these files will not be installed along with the
 # rest of the package
-firedrake = ["evaluate.h", "locate.c", "icons/*.png"]
+firedrake = ["config.ini", "evaluate.h", "locate.c", "icons/*.png"]
 firedrake_check = ["Makefile", "tests/firedrake/conftest.py", "tests/*/*/*.py"]
 pyop2 = ["*.h", "*.pxd", "*.pyx", "codegen/c/*.c"]

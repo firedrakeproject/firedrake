@@ -1,3 +1,4 @@
+import configparser
 import logging
 import os
 import platform
@@ -6,7 +7,6 @@ import site
 import shutil
 import numpy as np
 import pybind11
-import petsc4py
 import rtree
 import libsupermesh
 import pkgconfig
@@ -17,29 +17,61 @@ from pathlib import Path
 from Cython.Build import cythonize
 
 
-petsc_config = petsc4py.get_config()
+# TODO: fail if petsc4py not compatible
+def init_petsc4py():
+    try:
+        import petsc4py
+        return
+    except ImportError:
+        pass
+
+    if "PETSC_DIR" not in os.environ:
+        raise Exception("uh oh, no petsc")
+
+    petsc_dir = os.environ["PETSC_DIR"]
+    petsc_arch = os.environ.get("PETSC_ARCH", "")  # can be empty
+    sys.path.insert(0, os.path.join(petsc_dir, petsc_arch, "lib"))
+
+    try:
+        import petsc4py
+    except ImportError:
+        raise Exception("can't find petsc4py, bad install?")
 
 
-def get_petsc_dir():
-    """Attempts to find the PETSc directory on the system
-    """
+# do as eagerly as possible
+init_petsc4py()
+
+
+def get_petsc_config():
+    import petsc4py
+
+    petsc_config = petsc4py.get_config()
     petsc_dir = petsc_config["PETSC_DIR"]
     petsc_arch = petsc_config["PETSC_ARCH"]
-    pathlist = [petsc_dir]
-    if petsc_arch:
-        pathlist.append(os.path.join(petsc_dir, petsc_arch))
-    return pathlist
+    return petsc_dir, petsc_arch
 
 
 def get_petsc_variables():
     """Attempts obtain a dictionary of PETSc configuration settings
     """
-    path = [get_petsc_dir()[-1], "lib/petsc/conf/petscvariables"]
-    variables_path = os.path.join(*path)
-    with open(variables_path) as fh:
+    petsc_dir, petsc_arch = get_petsc_config()
+    path = os.path.join(petsc_dir, petsc_arch, "lib/petsc/conf/petscvariables")
+    with open(path) as fh:
         # Split lines on first '=' (assignment)
         splitlines = (line.split("=", maxsplit=1) for line in fh.readlines())
     return {k.strip(): v.strip() for k, v in splitlines}
+
+
+def write_config():
+    config = configparser.ConfigParser()
+    config["settings"] = {}
+
+    petsc_dir, petsc_arch = get_petsc_config()
+    config["settings"]["PETSC_DIR"] = petsc_dir
+    config["settings"]["PETSC_ARCH"] = petsc_arch
+
+    with open("firedrake/config.ini", "w") as f:
+      config.write(f)
 
 
 @dataclass
@@ -71,6 +103,9 @@ class ExternalDependency:
             raise KeyError(f"Key {key} not present")
 
 
+import petsc4py
+
+
 # Pybind11
 # example:
 # gcc -I/pyind11/include ...
@@ -92,7 +127,8 @@ numpy_ = ExternalDependency(include_dirs=[np.get_include()])
 # example:
 # gcc -I$PETSC_DIR/include -I$PETSC_DIR/$PETSC_ARCH/include -I/petsc4py/include
 # gcc -L$PETSC_DIR/$PETSC_ARCH/lib -lpetsc -Wl,-rpath,$PETSC_DIR/$PETSC_ARCH/lib
-petsc_dirs = get_petsc_dir()
+petsc_dir, petsc_arch = get_petsc_config()
+petsc_dirs = [petsc_dir, os.path.join(petsc_dir, petsc_arch)]
 petsc_ = ExternalDependency(
     libraries=["petsc"],
     include_dirs=[petsc4py.get_include()] + [os.path.join(d, "include") for d in petsc_dirs],
@@ -283,10 +319,6 @@ def main():
     shutil.copy("tests/firedrake/conftest.py", conftest_dir)
 
 
+write_config()
 make_firedrake_check_package()
-
-
-setup(
-    packages=find_packages(),
-    ext_modules=extensions()
-)
+setup(packages=find_packages(), ext_modules=extensions())
