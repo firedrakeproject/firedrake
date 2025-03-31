@@ -401,11 +401,11 @@ def test_restrict_fieldsplit(names):
 
 def test_restrict_python_pc():
     mesh = UnitSquareMesh(2, 2)
-    x, y = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", 1)
-
     u = Function(V)
     test = TestFunction(V)
+
+    x, y = SpatialCoordinate(mesh)
     u_exact = x + y
     g = Function(V).interpolate(u_exact)
 
@@ -419,8 +419,40 @@ def test_restrict_python_pc():
         "ksp_type": "preonly",
         "pc_type": "python",
         "pc_python_type": "firedrake.AssembledPC",
-        "assembled_pc_type": "lu"},
-        options_prefix="")
+        "assembled_pc_type": "lu"})
+    solver.solve()
+
+    assert errornorm(u_exact, u) < 1E-10
+
+
+def test_restrict_multigrid():
+    base = UnitSquareMesh(2, 2)
+    refine = 2
+    mh = MeshHierarchy(base, refine)
+    mesh = mh[-1]
+
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    test = TestFunction(V)
+
+    x, y = SpatialCoordinate(mesh)
+    u_exact = x + y
+    g = Function(V).interpolate(u_exact)
+
+    F = inner(grad(u - u_exact), grad(test)) * dx
+    bcs = [DirichletBC(V, g, 1), DirichletBC(V, u_exact, 2)]
+
+    problem = NonlinearVariationalProblem(F, u, bcs=bcs, restrict=True)
+    solver = NonlinearVariationalSolver(problem, solver_parameters={
+        "snes_type": "ksponly",
+        "ksp_type": "cg",
+        "ksp_rtol": 1E-10,
+        "ksp_max_it": 10,
+        "ksp_monitor": None,
+        "pc_type": "mg",
+        "mg_levels_ksp_type": "chebyshev",
+        "mg_levels_pc_type": "jacobi",
+        "mg_coarse_pc_type": "lu"})
     solver.solve()
 
     assert errornorm(u_exact, u) < 1E-10

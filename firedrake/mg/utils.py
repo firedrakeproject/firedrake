@@ -11,7 +11,7 @@ from firedrake.cython import mgimpl as impl
 def fine_node_to_coarse_node_map(Vf, Vc):
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
-        return op2.MixedMap(fine_node_to_coarse_node_map(f, c) for f, c in zip(Vf, Vc))
+        return op2.MixedMap(map(fine_node_to_coarse_node_map, Vf, Vc))
     mesh = Vf.mesh()
     assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.mesh())
@@ -49,7 +49,7 @@ def fine_node_to_coarse_node_map(Vf, Vc):
 def coarse_node_to_fine_node_map(Vc, Vf):
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
-        return op2.MixedMap(coarse_node_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
+        return op2.MixedMap(map(coarse_node_to_fine_node_map, Vf, Vc))
     mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.mesh())
@@ -146,7 +146,8 @@ def physical_node_locations(V):
     try:
         return cache[key]
     except KeyError:
-        Vc = firedrake.VectorFunctionSpace(mesh, element)
+        Vc = V.reconstruct(element=finat.ufl.VectorElement(element, dim=mesh.geometric_dimension()))
+
         # FIXME: This is unsafe for DG coordinates and CG target spaces.
         locations = firedrake.assemble(firedrake.Interpolate(firedrake.SpatialCoordinate(mesh), Vc))
         return cache.setdefault(key, locations)

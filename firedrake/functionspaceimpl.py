@@ -357,7 +357,7 @@ class WithGeometryBase(object):
         return type(self).create(self.topological.collapse(), self.mesh())
 
     @classmethod
-    def make_function_space(cls, mesh, element, name=None):
+    def make_function_space(cls, mesh, element, name=None, boundary_set=None):
         r"""Factory method for :class:`.WithGeometryBase`."""
         mesh.init()
         topology = mesh.topology
@@ -376,12 +376,18 @@ class WithGeometryBase(object):
         if mesh is not topology:
             # Create a concrete WithGeometry or FiredrakeDualSpace on this mesh
             new = cls.create(new, mesh)
+
+        if boundary_set:
+            new = RestrictedFunctionSpace(new, boundary_set=boundary_set)
+            if mesh is not topology:
+                new = cls.create(new, mesh)
         return new
 
-    def reconstruct(self, mesh=None, name=None, **kwargs):
+    def reconstruct(self, mesh=None, element=None, name=None, **kwargs):
         r"""Reconstruct this :class:`.WithGeometryBase` .
 
         :kwarg mesh: the new :func:`~.Mesh` (defaults to same mesh)
+        :kwarg element: the new :class:`finat.ufl.FiniteElement` (defaults to same element)
         :kwarg name: the new name (defaults to None)
         :returns: the new function space of the same class as ``self``.
 
@@ -404,12 +410,14 @@ class WithGeometryBase(object):
         if mesh is None:
             mesh = V_parent.mesh()
 
-        element = V_parent.ufl_element()
+        if element is None:
+            element = V_parent.ufl_element()
         cell = mesh.topology.ufl_cell()
         if len(kwargs) > 0 or element.cell != cell:
             element = element.reconstruct(cell=cell, **kwargs)
 
-        V = type(self).make_function_space(mesh, element, name=name)
+        V = type(self).make_function_space(mesh, element, name=name,
+                                           boundary_set=V_parent.boundary_set)
         for i in reversed(indices):
             V = V.sub(i)
         return V
