@@ -889,7 +889,6 @@ class RestrictedFunctionSpace(FunctionSpace):
     def __new__(cls, function_space, boundary_set=frozenset(), name=None):
         mesh = function_space.mesh()
         if mesh is not mesh.topology:
-            # Restrict WithGeometry and return a WithGeometry
             V = RestrictedFunctionSpace(function_space.topological,
                                         boundary_set=boundary_set, name=name)
             return type(function_space).create(V, mesh)
