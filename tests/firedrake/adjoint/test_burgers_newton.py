@@ -254,7 +254,8 @@ def test_burgers_newton_docs():
     dm = assemble(interpolate(Constant(1.), V))
     rate = taylor_test(Jhat, ic, dm)
     # end taylor test
-
+    # Return annotation state to that at the start of the test.
+    continue_annotation()
     assert rate > 1.9
 
 
