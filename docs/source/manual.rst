@@ -19,6 +19,7 @@ Manual
    interpolation
    point-evaluation
    external_operators
+   adjoint
    visualisation
    checkpointing
    matrix-free
@@ -27,4 +28,3 @@ Manual
    parallelism
    zenodo
    optimising
-   adjoint
