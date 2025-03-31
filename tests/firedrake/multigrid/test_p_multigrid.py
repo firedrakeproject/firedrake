@@ -137,7 +137,8 @@ def mat_type(request):
     return request.param
 
 
-def test_p_multigrid_scalar(mesh, mat_type):
+@pytest.mark.parametrize("restrict", [False, True], ids=("unrestrict", "restrict"))
+def test_p_multigrid_scalar(mesh, mat_type, restrict):
     V = FunctionSpace(mesh, "CG", 4)
 
     u = Function(V)
@@ -175,7 +176,7 @@ def test_p_multigrid_scalar(mesh, mat_type):
           "pmg_mg_coarse_mg_coarse_ksp_monitor": None,
           "pmg_mg_coarse_mg_coarse_pc_type": "gamg",
           "pmg_mg_coarse_mg_coarse_pc_gamg_threshold": 0}
-    problem = NonlinearVariationalProblem(F, u, bcs)
+    problem = NonlinearVariationalProblem(F, u, bcs, restrict=restrict)
     solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
     solver.solve()
 

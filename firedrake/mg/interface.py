@@ -127,7 +127,7 @@ def restrict(fine_dual, coarse_dual):
             next = coarse_dual
         else:
             Vc = Vf.reconstruct(mesh=meshes[next_level])
-            next = firedrake.Cofunction(Vc.dual())
+            next = firedrake.Cofunction(Vc)
         Vc = next.function_space()
         # XXX: Should be able to figure out locations by pushing forward
         # reference cell node locations to physical space.
