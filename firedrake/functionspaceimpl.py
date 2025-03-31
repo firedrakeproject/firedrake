@@ -357,7 +357,7 @@ class WithGeometryBase(object):
         return type(self).create(self.topological.collapse(), self.mesh())
 
     @classmethod
-    def make_function_space(cls, mesh, element, name=None, boundary_set=None):
+    def make_function_space(cls, mesh, element, name=None):
         r"""Factory method for :class:`.WithGeometryBase`."""
         mesh.init()
         topology = mesh.topology
@@ -376,18 +376,15 @@ class WithGeometryBase(object):
         if mesh is not topology:
             # Create a concrete WithGeometry or FiredrakeDualSpace on this mesh
             new = cls.create(new, mesh)
-
-        if boundary_set:
-            new = RestrictedFunctionSpace(new, boundary_set=boundary_set)
-            if mesh is not topology:
-                new = cls.create(new, mesh)
         return new
 
-    def reconstruct(self, mesh=None, element=None, name=None, **kwargs):
+    def reconstruct(self, mesh=None, element=None, boundary_set=None, name=None, **kwargs):
         r"""Reconstruct this :class:`.WithGeometryBase` .
 
         :kwarg mesh: the new :func:`~.Mesh` (defaults to same mesh)
         :kwarg element: the new :class:`finat.ufl.FiniteElement` (defaults to same element)
+        :kwarg boundary_set: boundary subdomain labels defining a new
+                             :func:`~.RestrictedFunctionSpace` (defaults to same boundary_set)
         :kwarg name: the new name (defaults to None)
         :returns: the new function space of the same class as ``self``.
 
@@ -395,6 +392,9 @@ class WithGeometryBase(object):
         For details see :meth:`finat.ufl.finiteelement.FiniteElement.reconstruct`.
         """
         V_parent = self
+        if boundary_set is None:
+            boundary_set = V_parent.boundary_set
+
         # Deal with ProxyFunctionSpace
         indices = []
         while True:
@@ -409,17 +409,19 @@ class WithGeometryBase(object):
 
         if mesh is None:
             mesh = V_parent.mesh()
-
         if element is None:
             element = V_parent.ufl_element()
+
         cell = mesh.topology.ufl_cell()
         if len(kwargs) > 0 or element.cell != cell:
             element = element.reconstruct(cell=cell, **kwargs)
 
-        V = type(self).make_function_space(mesh, element, name=name,
-                                           boundary_set=V_parent.boundary_set)
+        V = type(self).make_function_space(mesh, element, name=name)
         for i in reversed(indices):
             V = V.sub(i)
+
+        if boundary_set:
+            V = RestrictedFunctionSpace(V, boundary_set=boundary_set, name=V.name)
         return V
 
 
@@ -884,6 +886,15 @@ class RestrictedFunctionSpace(FunctionSpace):
     If using this class to solve or similar, a list of DirichletBCs will still
     need to be specified on this space and passed into the function.
     """
+    def __new__(cls, function_space, boundary_set=frozenset(), name=None):
+        mesh = function_space.mesh()
+        if mesh is not mesh.topology:
+            # Restrict WithGeometry and return a WithGeometry
+            V = RestrictedFunctionSpace(function_space.topological,
+                                        boundary_set=boundary_set, name=name)
+            return type(function_space).create(V, mesh)
+        return FunctionSpace.__new__(cls)
+
     def __init__(self, function_space, boundary_set=frozenset(), name=None):
         label = ""
         boundary_set_ = []
@@ -1207,7 +1218,7 @@ class ProxyFunctionSpace(FunctionSpace):
     """
     def __new__(cls, mesh, element, name=None):
         topology = mesh.topology
-        self = super(ProxyFunctionSpace, cls).__new__(cls)
+        self = FunctionSpace.__new__(cls)
         if mesh is not topology:
             return WithGeometry.create(self, mesh)
         else:
@@ -1262,7 +1273,7 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
     """
     def __new__(cls, function_space, boundary_set=frozenset(), name=None):
         topology = function_space._mesh.topology
-        self = super(ProxyRestrictedFunctionSpace, cls).__new__(cls)
+        self = FunctionSpace.__new__(cls)
         if function_space._mesh is not topology:
             return WithGeometry.create(self, function_space._mesh)
         else:
