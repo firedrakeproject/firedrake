@@ -45,6 +45,18 @@ def test_constant_cast_to_complex():
     assert complex(c) == val
 
 
+@pytest.mark.skipreal
+def test_constant_complex_division():
+    a = Constant(1.0 + 2.0j)
+    b = Constant(3.0 + 4.0j)
+    expected = complex(a) / complex(b)
+    c = Constant(a / b)
+    assert complex(c) == expected
+    d = Constant(0.0)
+    d.assign(a / b)
+    assert complex(d) == expected
+
+
 def test_indexed_vector_constant_cast_to_float():
     val = [10.0, 20.0]
     c = Constant(val)
