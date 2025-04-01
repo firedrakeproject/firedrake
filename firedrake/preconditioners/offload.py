@@ -103,8 +103,9 @@ class OffloadPC(PCBase):
                     # Passing a vec into another vec doesnt work because original is locked
                     x_cu.createCUDAWithArrays(x.array_r)
                 with PETSc.Log.Event("Event: solve"):
-                    self.pc.apply(x_cu, y_cu)  #
-                    tmp = y_cu.array_r # Calling data to synchronize vector
+                    self.pc.apply(x_cu, y_cu)
+                    # Calling data to synchronize vector
+                    tmp = y_cu.array_r  # noqa: F841
             with PETSc.Log.Event("Event: vectors copy back"):
                 y.copy(y_cu)  #
 

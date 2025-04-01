@@ -191,7 +191,7 @@ class LinearSolver(OptionsManager):
         #         u.createCUDAWithArrays(solution)
         #         self.ksp.solve(b_cu, u)
         #         u.getArray()
-                
+
         # else:
         # instead: preconditioner
 
