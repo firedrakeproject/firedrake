@@ -22,6 +22,7 @@ dependencies = [
   "libsupermesh",
   "numpy",
   "packaging",
+  "petsctools @ git+https://github.com/connorjward/petsctools.git",
   "pkgconfig",
   "progress",
   "pycparser",
@@ -127,6 +128,7 @@ requires = [
   "mpi4py; python_version < '3.13'",
   "numpy",
   "pkgconfig",
+  "petsctools @ git+https://github.com/connorjward/petsctools.git",
   "pybind11",
   "setuptools>61.2",
   "rtree>=1.2",
@@ -143,6 +145,6 @@ script-files = [
 [tool.setuptools.package-data]
 # Unless specified these files will not be installed along with the
 # rest of the package
-firedrake = ["config.ini", "evaluate.h", "locate.c", "icons/*.png"]
+firedrake = ["evaluate.h", "locate.c", "icons/*.png"]
 firedrake_check = ["Makefile", "tests/firedrake/conftest.py", "tests/*/*/*.py"]
 pyop2 = ["*.h", "*.pxd", "*.pyx", "codegen/c/*.c"]

@@ -1,49 +1,26 @@
-def init_petsc4py():
-    import configparser
+def init_petsc():
     import os
-    import pathlib
     import sys
+    import petsctools
 
-    try:
-        import petsc4py  # noqa: F401
-        return
-    except ImportError:
-        pass
+    # We conditionally pass '-options_left no' as in some circumstances (e.g.
+    # when running pytest) PETSc complains that command line options are not
+    # PETSc options.
+    if os.getenv("FIREDRAKE_DISABLE_OPTIONS_LEFT") == "1":
+        petsctools.init(sys.argv + ["-options_left", "no"])
+    else:
+        petsctools.init(sys.argv)
+    del os, sys, petsctools
 
-    config = configparser.ConfigParser()
-    dir = pathlib.Path(__file__).parent
-    with open(dir / "config.ini", "r") as f:
-        config.read_file(f)
-
-    petsc_dir = config["settings"]["petsc_dir"]
-    petsc_arch = config["settings"]["petsc_arch"]
-    sys.path.insert(0, os.path.join(petsc_dir, petsc_arch, "lib"))
-
-    try:
-        import petsc4py  # noqa: F401, F811
-    except ImportError:
-        raise Exception("can't find petsc4py, bad install?")
-
-
-init_petsc4py()
-
-from firedrake.configuration import setup_cache_dirs
-
-# Set up the cache directories before importing PyOP2.
-setup_cache_dirs()
 
 # Ensure petsc is initialised by us before anything else gets in there.
-# We conditionally pass '-options_left no' as in some circumstances (e.g.
-# when running pytest) PETSc complains that command line options are not
-# PETSc options.
-import os
-import sys
-import petsc4py
-if os.getenv("FIREDRAKE_DISABLE_OPTIONS_LEFT") == "1":
-    petsc4py.init(sys.argv + ["-options_left", "no"])
-else:
-    petsc4py.init(sys.argv)
-del os, sys, petsc4py
+init_petsc()
+
+# Set up the cache directories before importing PyOP2.
+from firedrake.configuration import setup_cache_dirs
+
+setup_cache_dirs()
+
 
 # Initialise PETSc events for both import and entire duration of program
 from firedrake import petsc
