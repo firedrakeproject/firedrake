@@ -54,6 +54,9 @@ pyop2.log
 .tox
 .vagrant
 
+# Configuration
+firedrake/config.ini
+
 # Meshes
 *.edge
 *.ele

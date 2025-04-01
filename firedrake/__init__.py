@@ -4,24 +4,23 @@ def init_petsc4py():
     import pathlib
     import sys
 
-    # try:
-    #     import petsc4py
-    #     return
-    # except ImportError:
-    #     pass
-
+    try:
+        import petsc4py  # noqa: F401
+        return
+    except ImportError:
+        pass
 
     config = configparser.ConfigParser()
     dir = pathlib.Path(__file__).parent
     with open(dir / "config.ini", "r") as f:
         config.read_file(f)
 
-    petsc_dir = config["PETSC_DIR"]
-    petsc_arch = config["PETSC_ARCH"]
+    petsc_dir = config["settings"]["petsc_dir"]
+    petsc_arch = config["settings"]["petsc_arch"]
     sys.path.insert(0, os.path.join(petsc_dir, petsc_arch, "lib"))
 
     try:
-        import petsc4py
+        import petsc4py  # noqa: F401, F811
     except ImportError:
         raise Exception("can't find petsc4py, bad install?")
 
@@ -116,6 +115,7 @@ from firedrake._deprecation import plot, File  # noqa: F401
 #   from firedrake._deprecation import output
 #   sys.modules["firedrake.output"] = output
 from firedrake.output import *
+import sys
 sys.modules["firedrake.plot"] = plot
 from firedrake.plot import *
 
