@@ -88,6 +88,7 @@ jobs:
             --no-binary h5py \
             --extra-index-url https://download.pytorch.org/whl/cpu \
             './firedrake-repo[ci]'
+          pip install -I git+https://github.com/firedrakeproject/ufl.git@ksagiyam/touch_up_external_operator
           firedrake-clean
           pip list
 
