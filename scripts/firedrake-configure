@@ -202,9 +202,10 @@ LINUX_X86_64_APT_PACKAGES = (
     "libsuperlu-dev",
     "libsuperlu-dist-dev",
 )
+LINUX_AARCH64_APT_PACKAGES = LINUX_X86_64_APT_PACKAGES
 
 COMMON_LINUX_X86_64_APT_PACKAGES = COMMON_LINUX_APT_PACKAGES + LINUX_X86_64_APT_PACKAGES
-COMMON_LINUX_AARCH64_APT_PACKAGES = COMMON_LINUX_APT_PACKAGES
+COMMON_LINUX_AARCH64_APT_PACKAGES = COMMON_LINUX_APT_PACKAGES + LINUX_AARCH64_APT_PACKAGES
 
 BASE_MACOS_HOMEBREW_PACKAGES = (
     "autoconf",
@@ -271,9 +272,7 @@ PETSC_EXTERNAL_PACKAGE_SPECS = {
     },
     "hdf5": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
-        LINUX_APT_AARCH64: (
-            "/usr/include/hdf5/openmpi", ("/usr/lib/aarch64-linux-gnu/hdf5/openmpi/libhdf5.a",)
-        ),
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
         MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
     "hwloc": {
@@ -288,44 +287,42 @@ PETSC_EXTERNAL_PACKAGE_SPECS = {
     },
     "metis": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
-        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "mumps": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
-        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "netcdf": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
-        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "pnetcdf": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
-        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "ptscotch": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
-        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "scalapack": {
-        LINUX_APT_X86_64: (
-            "", ("-lscalapack-openmpi",)
-        ),
-        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        LINUX_APT_X86_64: ("", ("-lscalapack-openmpi",)),
+        LINUX_APT_AARCH64: ("", ("-lscalapack-openmpi",)),
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "suitesparse": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
-        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "superlu_dist": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
-        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "zlib": {
@@ -393,9 +390,12 @@ def prepare_configure_options(
     configure_options.append(f"PETSC_ARCH=arch-firedrake-{arch.value}")
 
     # include/link flags
-    if package_manager == LINUX_APT_X86_64:
+    if package_manager in (LINUX_APT_X86_64, LINUX_APT_AARCH64):
         incdir = "/usr/include"
-        libdir = "/usr/lib/x86_64-linux-gnu"
+        if package_manager == LINUX_APT_X86_64:
+            libdir = "/usr/lib/x86_64-linux-gnu"
+        elif package_manager == LINUX_APT_AARCH64:
+            libdir = "/usr/lib/aarch64-linux-gnu"
 
         includes = (
             f"{incdir}/hdf5/openmpi",
