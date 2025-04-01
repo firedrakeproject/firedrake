@@ -241,9 +241,8 @@ class FunctionMergeBlock(Block):
         if idx == 0:
             return adj_inputs[0].subfunctions[self.idx].copy(deepcopy=True)
         else:
-            cpt = adj_inputs[0].copy(deepcopy=True)
-            cpt.subfunctions[self.idx].zero()
-            return cpt
+            adj_inputs[0].subfunctions[self.idx].zero()
+            return adj_inputs[0]
 
     def evaluate_tlm(self, markings=False):
         tlm_input = self.get_dependencies()[0].tlm_value
