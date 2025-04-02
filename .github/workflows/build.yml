@@ -61,6 +61,8 @@ jobs:
           apt-get -y install python3
           apt-get -y install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages) python3-venv parallel
+          : # Needed because the apt numpy package is too old (v1.x not v2.x)
+          python3 -m pip install --break-system-packages numpy
 
       - name: Install PETSc
         run: |
