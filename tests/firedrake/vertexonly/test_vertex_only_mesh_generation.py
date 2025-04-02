@@ -434,7 +434,7 @@ def test_on_boundary_behaviour():
     coords = np.array([[0.4, 0.2, 0.3]])
     mesh = UnitCubeMesh(10, 10, 10)
     vm = VertexOnlyMesh(mesh, coords)
-    total_num_cells = MPI.COMM_WORLD.allreduce(len(vm.coordinates.dat.data_ro_with_halos), op=MPI.SUM)
+    total_num_cells = MPI.COMM_WORLD.allreduce(len(vm.coordinates.dat.data_ro), op=MPI.SUM)
     assert total_num_cells == 1
 
 
