@@ -20,6 +20,7 @@ dependencies = [
   "mpi4py; python_version < '3.13'",
   "h5py>3.12.1",
   "libsupermesh",
+  "loopy",
   # NOTE: If changing the PETSc/SLEPc version then firedrake-configure also needs
   # changing (as well as other references to petsc4py and slepc4py here)
   "petsc4py==3.22.2",
@@ -36,7 +37,6 @@ dependencies = [
   "fenics-ufl @ git+https://github.com/firedrakeproject/ufl.git",
   "fenics-fiat @ git+https://github.com/firedrakeproject/fiat.git",
   "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint.git",
-  "loopy @ git+https://github.com/firedrakeproject/loopy.git@main",
 ]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
