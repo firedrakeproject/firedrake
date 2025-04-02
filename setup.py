@@ -1,14 +1,13 @@
-import configparser
 import logging
 import os
 import platform
-import sys
 import site
 import shutil
 import numpy as np
 import pybind11
 import rtree
 import libsupermesh
+import petsctools
 import pkgconfig
 from dataclasses import dataclass, field
 from setuptools import setup, find_packages, Extension
@@ -17,61 +16,8 @@ from pathlib import Path
 from Cython.Build import cythonize
 
 
-# TODO: fail if petsc4py not compatible
-def init_petsc4py():
-    try:
-        import petsc4py
-        return
-    except ImportError:
-        pass
-
-    if "PETSC_DIR" not in os.environ:
-        raise Exception("uh oh, no petsc")
-
-    petsc_dir = os.environ["PETSC_DIR"]
-    petsc_arch = os.environ.get("PETSC_ARCH", "")  # can be empty
-    sys.path.insert(0, os.path.join(petsc_dir, petsc_arch, "lib"))
-
-    try:
-        import petsc4py
-    except ImportError:
-        raise Exception("can't find petsc4py, bad install?")
-
-
-# do as eagerly as possible
-init_petsc4py()
-
-
-def get_petsc_config():
-    import petsc4py
-
-    petsc_config = petsc4py.get_config()
-    petsc_dir = petsc_config["PETSC_DIR"]
-    petsc_arch = petsc_config["PETSC_ARCH"]
-    return petsc_dir, petsc_arch
-
-
-def get_petsc_variables():
-    """Attempts obtain a dictionary of PETSc configuration settings
-    """
-    petsc_dir, petsc_arch = get_petsc_config()
-    path = os.path.join(petsc_dir, petsc_arch, "lib/petsc/conf/petscvariables")
-    with open(path) as fh:
-        # Split lines on first '=' (assignment)
-        splitlines = (line.split("=", maxsplit=1) for line in fh.readlines())
-    return {k.strip(): v.strip() for k, v in splitlines}
-
-
-def write_config():
-    config = configparser.ConfigParser()
-    config["settings"] = {}
-
-    petsc_dir, petsc_arch = get_petsc_config()
-    config["settings"]["PETSC_DIR"] = petsc_dir
-    config["settings"]["PETSC_ARCH"] = petsc_arch
-
-    with open("firedrake/config.ini", "w") as f:
-      config.write(f)
+petsctools.init()
+import petsc4py
 
 
 @dataclass
@@ -103,9 +49,6 @@ class ExternalDependency:
             raise KeyError(f"Key {key} not present")
 
 
-import petsc4py
-
-
 # Pybind11
 # example:
 # gcc -I/pyind11/include ...
@@ -127,7 +70,7 @@ numpy_ = ExternalDependency(include_dirs=[np.get_include()])
 # example:
 # gcc -I$PETSC_DIR/include -I$PETSC_DIR/$PETSC_ARCH/include -I/petsc4py/include
 # gcc -L$PETSC_DIR/$PETSC_ARCH/lib -lpetsc -Wl,-rpath,$PETSC_DIR/$PETSC_ARCH/lib
-petsc_dir, petsc_arch = get_petsc_config()
+petsc_dir, petsc_arch = petsctools.get_petsc_config()
 petsc_dirs = [petsc_dir, os.path.join(petsc_dir, petsc_arch)]
 petsc_ = ExternalDependency(
     libraries=["petsc"],
@@ -135,7 +78,7 @@ petsc_ = ExternalDependency(
     library_dirs=[os.path.join(petsc_dirs[-1], "lib")],
     runtime_library_dirs=[os.path.join(petsc_dirs[-1], "lib")],
 )
-petsc_variables = get_petsc_variables()
+petsc_variables = petsctools.get_petsc_variables()
 petsc_hdf5_compile_args = petsc_variables.get("HDF5_INCLUDE", "")
 petsc_hdf5_link_args = petsc_variables.get("HDF5_LIB", "")
 
@@ -147,15 +90,15 @@ if petsc_hdf5_link_args and petsc_hdf5_compile_args:
     # We almost always want to be in this first case!!!
     # PETSc variables only contains the compile/link args, not the paths
     hdf5_ = ExternalDependency(
-        extra_compile_args = petsc_hdf5_compile_args.split(),
-        extra_link_args = petsc_hdf5_link_args.split()
+        extra_compile_args=petsc_hdf5_compile_args.split(),
+        extra_link_args=petsc_hdf5_link_args.split()
     )
 elif os.environ.get("HDF5_DIR"):
     hdf5_dir = Path(os.environ.get("HDF5_DIR"))
     hdf5_ = ExternalDependency(
         libraries=["hdf5"],
-        include_dirs = [str(hdf5_dir.joinpath("include"))],
-        library_dirs = [str(hdf5_dir.joinpath("lib"))]
+        include_dirs=[str(hdf5_dir.joinpath("include"))],
+        library_dirs=[str(hdf5_dir.joinpath("lib"))]
     )
 elif pkgconfig.exists("hdf5"):
     hdf5_ = ExternalDependency(**pkgconfig.parse("hdf5"))
@@ -199,9 +142,10 @@ libsupermesh_ = ExternalDependency(
     libraries=["supermesh"],
 )
 
+
 # The following extensions need to be linked accordingly:
 def extensions():
-    ## CYTHON EXTENSIONS
+    # CYTHON EXTENSIONS
     cython_list = []
     # firedrake/cython/dmcommon.pyx: petsc, numpy
     cython_list.append(Extension(
@@ -259,7 +203,7 @@ def extensions():
         sources=[os.path.join("pyop2", "sparsity.pyx")],
         **(petsc_ + numpy_)
     ))
-    ## PYBIND11 EXTENSIONS
+    # PYBIND11 EXTENSIONS
     pybind11_list = []
     # tinyasm/tinyasm.cpp: petsc, pybind11
     pybind11_list.append(Extension(
@@ -319,6 +263,5 @@ def main():
     shutil.copy("tests/firedrake/conftest.py", conftest_dir)
 
 
-write_config()
 make_firedrake_check_package()
 setup(packages=find_packages(), ext_modules=extensions())
