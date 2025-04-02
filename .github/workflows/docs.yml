@@ -85,12 +85,12 @@ jobs:
     # UNDO
     # if: always() && github.ref == 'refs/heads/master' && needs.build_docs.outputs.conclusion == 'success'
     if: always() && needs.build_docs.outputs.conclusion == 'success'
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: http://firedrakeproject.github.io/firedrake
+    # permissions:
+    #   pages: write
+    #   id-token: write
+    # environment:
+    #   name: github-pages
+    #   url: http://firedrakeproject.github.io/firedrake
     runs-on: ubuntu-latest
     steps:
       # - name: Deploy to GitHub Pages
