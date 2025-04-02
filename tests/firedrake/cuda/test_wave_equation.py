@@ -31,7 +31,7 @@ def test_kmv_wave_propagation_cuda():
 
     # Setting up mesh parameters
     nx, ny = 10, 10
-    mesh = PeriodicRectangleMesh(nx, ny, 1.0, 1.0)
+    mesh = RectangleMesh(nx, ny, 1.0, 1.0)
 
     # Acquisition geometry
     frequency_peak = 5.0  # The dominant frequency of the Ricker wavelet in Hz.
