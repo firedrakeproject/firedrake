@@ -82,19 +82,14 @@ jobs:
     name: Deploy Github pages
     needs: build_docs
     # Always run this workflow on master, even if linkcheck fails
-    # UNDO
-    # if: always() && github.ref == 'refs/heads/master' && needs.build_docs.outputs.conclusion == 'success'
-    if: always() && needs.build_docs.outputs.conclusion == 'success'
-    # permissions:
-    #   pages: write
-    #   id-token: write
-    # environment:
-    #   name: github-pages
-    #   url: http://firedrakeproject.github.io/firedrake
+    if: always() && github.ref == 'refs/heads/master' && needs.build_docs.outputs.conclusion == 'success'
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: http://firedrakeproject.github.io/firedrake
     runs-on: ubuntu-latest
     steps:
-      # - name: Deploy to GitHub Pages
-      #   id: deployment
-      #   uses: actions/deploy-pages@v4
-      - name: anything
-        run: echo yay, it worked
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
