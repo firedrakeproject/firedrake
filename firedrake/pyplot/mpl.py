@@ -627,7 +627,7 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     if max_time is None:
         area = assemble(Constant(1) * dx(mesh))
         average_speed = np.sqrt(assemble(inner(function, function) * dx) / area)
-        if average_speed:
+        if np.isclose(average_speed, 0.0):
             max_time = 50 * min_length / average_speed
         else:
             max_time = 0.
