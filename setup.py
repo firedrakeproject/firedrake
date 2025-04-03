@@ -68,7 +68,8 @@ numpy_ = ExternalDependency(include_dirs=[np.get_include()])
 # example:
 # gcc -I$PETSC_DIR/include -I$PETSC_DIR/$PETSC_ARCH/include -I/petsc4py/include
 # gcc -L$PETSC_DIR/$PETSC_ARCH/lib -lpetsc -Wl,-rpath,$PETSC_DIR/$PETSC_ARCH/lib
-petsc_dir, petsc_arch = petsctools.get_config()
+petsc_dir = petsctools.get_petsc_dir()
+petsc_arch = petsctools.get_petsc_arch()
 petsc_dirs = [petsc_dir, os.path.join(petsc_dir, petsc_arch)]
 petsc_ = ExternalDependency(
     libraries=["petsc"],
@@ -76,9 +77,9 @@ petsc_ = ExternalDependency(
     library_dirs=[os.path.join(petsc_dirs[-1], "lib")],
     runtime_library_dirs=[os.path.join(petsc_dirs[-1], "lib")],
 )
-petsc_variables = petsctools.get_petscvariables()
-petsc_hdf5_compile_args = petsc_variables.get("HDF5_INCLUDE", "")
-petsc_hdf5_link_args = petsc_variables.get("HDF5_LIB", "")
+petscvariables = petsctools.get_petscvariables()
+petsc_hdf5_compile_args = petscvariables.get("HDF5_INCLUDE", "")
+petsc_hdf5_link_args = petscvariables.get("HDF5_LIB", "")
 
 # HDF5
 # example:
