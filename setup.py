@@ -1,23 +1,21 @@
 import logging
 import os
-import platform
-import site
-import shutil
-import numpy as np
-import pybind11
-import rtree
-import libsupermesh
-import petsctools
 import pkgconfig
+import platform
+import shutil
+import site
 from dataclasses import dataclass, field
-from setuptools import setup, find_packages, Extension
 from glob import glob
 from pathlib import Path
-from Cython.Build import cythonize
 
-
-petsctools.init()
+import libsupermesh
+import numpy as np
+import pybind11
 import petsc4py
+import petsctools
+import rtree
+from Cython.Build import cythonize
+from setuptools import setup, find_packages, Extension
 
 
 @dataclass

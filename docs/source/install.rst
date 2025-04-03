@@ -228,6 +228,18 @@ install Firedrake. To do this perform the following steps:
    should follow the instructions :ref:`below<dev_install>`.
 
 .. note::
+   During the installation Firedrake will compile and install petsc4py_. If
+   you have previously installed petsc4py on your computer with a different
+   PETSc then ``pip`` will erroneously reuse the existing petsc4py which is 
+   linked against the wrong library. To avoid this you need to run the
+   command::
+
+       pip cache remove petsc4py
+
+   Equivalent commands may also be necessary for mpi4py and h5py if you are
+   changing the MPI and/or HDF5 libraries in use.
+
+.. note::
    If you are using an MPI installed into a nonstandard location it may be
    necessary to set some additional environment variables before installation including:
 

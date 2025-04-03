@@ -10,10 +10,9 @@ def init_petsc():
         petsctools.init(sys.argv + ["-options_left", "no"])
     else:
         petsctools.init(sys.argv)
-    del os, sys, petsctools
 
 
-# Ensure petsc is initialised by us before anything else gets in there.
+# Ensure petsc is initialised right away
 init_petsc()
 
 # Set up the cache directories before importing PyOP2.
