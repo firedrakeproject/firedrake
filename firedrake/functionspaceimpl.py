@@ -733,6 +733,7 @@ class FunctionSpace:
         iset.setBlockSize(self._cdim)
         return (iset,)
 
+    # TODO: cythonize
     @utils.cached_property
     def local_section(self):
         section = PETSc.Section().create(comm=self.comm)

@@ -3,6 +3,7 @@ import ctypes
 import functools
 import os
 import sys
+from pyop2.caching import serial_cache
 import ufl
 import finat.ufl
 import FIAT
@@ -758,8 +759,6 @@ class AbstractMeshTopology(abc.ABC):
                         # must use an inverse ordering because we want to know the map *back*
                         # from renumbered to original cell number
                         dm_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
-                        dm_renumbering.view()
-                        
                 else:
                     # NOTE: kind of redundant, could have None instead
                     dm_renumbering = PETSc.IS().createGeneral(np.arange(self.num_points, dtype=IntType), comm=self._comm)
@@ -769,10 +768,12 @@ class AbstractMeshTopology(abc.ABC):
                 dm_renumbering = dmcommon.partition_renumbering(self.topology_dm, dm_renumbering)
 
             # These map from new to old numbers - we don't generally want this!
+            # NOTE: not sure this makes sense as an IS. The numbering is local.
             xxx = op3.utils.invert(dm_renumbering.indices)
-            dm_renumbering = PETSc.IS().createGeneral(xxx, comm=self._comm)
+            dm_renumbering_inv = PETSc.IS().createGeneral(xxx, comm=self._comm)
 
             self._dm_renumbering = dm_renumbering
+            self._dm_renumbering_inv = dm_renumbering_inv
 
             p_start, p_end = topology_dm.getChart()
             n_points = p_end - p_start
@@ -860,38 +861,24 @@ class AbstractMeshTopology(abc.ABC):
         assert not hasattr(self, "_callback"), "Mesh must be initialised"
         return self._entity_numbering(self.dimension-1)
 
-    # TODO: Cache this? Definitely cythonize it
+    # TODO: Cythonize
     # IMPORTANT: This used to return a mapping from point numbering to entity numbering
     # but now returns entity numbering to entity numbering
+    @cachedmethod(lambda self: self._cache["_entity_numbering"])
     def _entity_numbering(self, dim):
-        # NOTE: If we do not renumber then just return a range...
         p_start, p_end = self.topology_dm.getDepthStratum(dim)
 
-        if self._dm_renumbering:
-            numbering = self._dm_renumbering.indices[p_start:p_end]
-            # use argsort to convert a point numbering into an entity-wise one
-            # for example, we might renumber point 3/vertex 5 into point 9/vertex 4.
-            # Previously we would return the mapping point 3 -> vertex 4 whereas now
-            # we return vertex 5 -> vertex 4
-            # hmmm!!!
+        numbering = self._dm_renumbering_inv.indices[p_start:p_end]
+        # use argsort to convert a point numbering into an entity-wise one
+        # for example, we might renumber point 3/vertex 5 into point 9/vertex 4.
+        # Previously we would return the mapping point 3 -> vertex 4 whereas now
+        # we return vertex 5 -> vertex 4
 
-            # this is very inefficient
-            sorted_arr = list(sorted(numbering))
-            retval0 = [sorted_arr.index(x) for x in numbering]
-            return retval0
-            print(retval0)
-            ret = op3.utils.invert(retval0)
-            print(ret)
-            return ret
+        # NOTE: not using argsort any more, but the idea is the same
 
-            print("AA: ", numbering)
-            retval = op3.utils.invert(np.argsort(numbering))
-            print("BB: ", retval)
-            return retval
-            # return np.argsort(numbering)
-        else:
-            assert False, "old code"
-            return np.arange(0, p_end-p_start, dtype=IntType)
+        # this is very inefficient
+        sorted_arr = list(sorted(numbering))
+        return readonly(np.asarray([sorted_arr.index(x) for x in numbering], dtype=IntType))
 
     @cached_property
     def _global_numbering(self):
