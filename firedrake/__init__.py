@@ -1,3 +1,12 @@
+# IMPORTANT: If updating this constraint then corresponding changes may be
+# needed in pyproject.toml and firedrake-configure. Note that unlike in
+# those locations where we want to be strict about the specific version, here
+# we are more permissive. This is to catch the case where users don't update
+# their PETSc for a really long time or accidentally install a too-new release
+# that isn't yet supported.
+PETSC_SUPPORTED_VERSIONS = "<3.23"
+
+
 def init_petsc():
     import os
     import sys
@@ -7,9 +16,9 @@ def init_petsc():
     # when running pytest) PETSc complains that command line options are not
     # PETSc options.
     if os.getenv("FIREDRAKE_DISABLE_OPTIONS_LEFT") == "1":
-        petsctools.init(sys.argv + ["-options_left", "no"])
+        petsctools.init(sys.argv + ["-options_left", "no"], version_spec=PETSC_SUPPORTED_VERSIONS)
     else:
-        petsctools.init(sys.argv)
+        petsctools.init(sys.argv, version_spec=PETSC_SUPPORTED_VERSIONS)
 
 
 # Ensure petsc is initialised right away

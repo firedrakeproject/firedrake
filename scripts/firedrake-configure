@@ -39,8 +39,8 @@ ARCH_DEFAULT = FiredrakeArch.DEFAULT
 ARCH_COMPLEX = FiredrakeArch.COMPLEX
 
 
-# NOTE: When updating these variables corresponding changes must be made inside
-# pyproject.toml
+# IMPORTANT: When updating these variables corresponding changes must be made inside
+# pyproject.toml and firedrake/__init__.py.
 SUPPORTED_PETSC_VERSION = "v3.22.2"
 SUPPORTED_SLEPC_VERSION = "v3.22.2"
 
