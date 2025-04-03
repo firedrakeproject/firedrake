@@ -18,12 +18,11 @@ dependencies = [
   "decorator<=4.4.2",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
-  # TODO: We are only using our fork here because the most recent PyPI release
-  # does not yet work with build isolation for Python 3.13. Once a version
-  # newer than 3.12.1 is released we can revert to simply using "h5py".
-  "h5py @ git+https://github.com/firedrakeproject/h5py.git ; python_version >= '3.13'",
-  "h5py; python_version < '3.13'",
-  "petsc4py",
+  "h5py>3.12.1",
+  "libsupermesh",
+  # NOTE: If changing the PETSc/SLEPc version then firedrake-configure also needs
+  # changing (as well as other references to petsc4py and slepc4py here)
+  "petsc4py==3.22.2",
   "numpy",
   "packaging",
   "pkgconfig",
@@ -38,7 +37,6 @@ dependencies = [
   "fenics-fiat @ git+https://github.com/firedrakeproject/fiat.git",
   "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint.git",
   "loopy @ git+https://github.com/firedrakeproject/loopy.git@main",
-  "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git",
 ]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
@@ -76,6 +74,23 @@ test = [
 # Dependencies needed to run the full test suite
 ci = [
   "ipympl",  # needed for notebook testing
+  "jax",
+  "matplotlib",
+  "mpi-pytest",
+  "nbval",
+  "ngsPETSc",
+  "pylit",
+  "pytest",
+  "pytest-split",  # needed for firedrake-run-split-tests
+  "pytest-timeout",
+  "pytest-xdist",
+  "slepc4py==3.22.2",
+  "torch",  # requires passing '--extra-index-url' to work
+  "vtk",
+]
+docker = [  # Used in firedrake-vanilla container
+  "ipympl",  # needed for notebook testing
+  "matplotlib",
   "mpi-pytest",
   "nbval",
   "pylit",
@@ -83,6 +98,7 @@ ci = [
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
+  "slepc4py==3.22.2",
 ]
 # Dependencies needed to build the docs
 docs = [
@@ -111,14 +127,14 @@ dev = [
 [build-system]
 requires = [
   "Cython>=3.0",
-  "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git",
+  "libsupermesh",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
   "numpy",
   "pkgconfig",
   "pybind11",
   "setuptools>61.2",
-  "petsc4py",
+  "petsc4py==3.22.2",
   "rtree>=1.2",
 ]
 build-backend = "setuptools.build_meta"
@@ -134,5 +150,5 @@ script-files = [
 # Unless specified these files will not be installed along with the
 # rest of the package
 firedrake = ["evaluate.h", "locate.c", "icons/*.png"]
-firedrake_check = ["Makefile", "tests/*/*/*.py"]
+firedrake_check = ["Makefile", "tests/firedrake/conftest.py", "tests/*/*/*.py"]
 pyop2 = ["*.h", "*.pxd", "*.pyx", "codegen/c/*.c"]

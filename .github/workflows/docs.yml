@@ -21,17 +21,15 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: firedrakeproject/firedrake-docdeps:latest
-      options: --user root
-    env:
-      # Since we are running as root we need to set PYTHONPATH to be able to find the installed
-      # packages
-      PYTHONPATH: /home/firedrake/firedrake:/home/firedrake/.local/lib/python3.12/site-packages
+    outputs:
+      conclusion: ${{ steps.report.outputs.conclusion }}
     steps:
       - uses: actions/checkout@v4
         with:
           path: firedrake-repo
 
       - name: Install Firedrake
+        id: install
         run: |
           : # Pass '--system-site-packages' so already installed packages can be found
           python3 -m venv --system-site-packages venv
@@ -45,12 +43,13 @@ jobs:
           make -C firedrake-repo/docs validate-bibtex
 
       - name: Check documentation links
-        if: github.ref == 'refs/heads/master'
         run: |
           . venv/bin/activate
           make -C firedrake-repo/docs linkcheck
 
       - name: Build docs
+        id: build
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
           cd firedrake-repo/docs
@@ -59,20 +58,31 @@ jobs:
           make latexpdf
 
       - name: Copy manual to HTML tree
+        id: copy
+        if: success() || steps.build.conclusion == 'success'
         run: |
           cd firedrake-repo/docs
           cp build/latex/Firedrake.pdf build/html/_static/manual.pdf
 
       - name: Upload artifact
+        id: upload
+        if: success() || steps.copy.conclusion == 'success'
         uses: actions/upload-pages-artifact@v3
         with:
           name: github-pages
           path: /__w/firedrake/firedrake/firedrake-repo/docs/build/html
           retention-days: 1
+
+      - name: Report status
+        id: report
+        if: success() || steps.upload.conclusion == 'success'
+        run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
+
   deploy:
     name: Deploy Github pages
     needs: build_docs
-    if: github.ref == 'refs/heads/master'
+    # Always run this workflow on master, even if linkcheck fails
+    if: always() && github.ref == 'refs/heads/master' && needs.build_docs.outputs.conclusion == 'success'
     permissions:
       pages: write
       id-token: write
@@ -82,5 +92,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages
-        id: deployment
         uses: actions/deploy-pages@v4

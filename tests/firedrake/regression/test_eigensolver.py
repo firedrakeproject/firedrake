@@ -3,13 +3,6 @@ import pytest
 from firedrake import *
 
 
-try:
-    from slepc4py import SLEPc  # noqa: F401
-except ImportError:
-    # SLEPc is not installed
-    pytest.skip("SLEPc not installed", allow_module_level=True)
-
-
 def evals(n, degree=1, mesh=None, restrict=False):
     '''We base this test on the 1D Poisson problem with Dirichlet boundary
     conditions, outlined in part 1 of Daniele Boffi's
@@ -51,6 +44,7 @@ def evals(n, degree=1, mesh=None, restrict=False):
     return sorted(true_values), sorted(estimates)
 
 
+@pytest.mark.skipslepc
 @pytest.mark.parametrize("restrict", [True, False])
 @pytest.mark.parametrize(('n', 'degree', 'tolerance'),
                          [(5, 1, 1e-13),
@@ -80,6 +74,7 @@ def poisson_eigenvalue_2d(i):
     return es.eigenvalue(0)-2.0
 
 
+@pytest.mark.skipslepc
 def test_evals_2d():
     """2D Eigenvalue convergence test. As with Boffi, we observe that the
     convergence rate convergest to 2 from above."""
@@ -88,3 +83,27 @@ def test_evals_2d():
     convergence = np.log(errors[:-1]/errors[1:])/np.log(2.0)
 
     assert all(convergence > 2.0)
+
+
+@pytest.mark.skipslepc
+def test_no_bcs():
+    mesh = SquareMesh(4, 4, pi)
+    V = FunctionSpace(mesh, "CG", 1)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    ep = LinearEigenproblem(inner(grad(u), grad(v)) * dx,
+                            inner(u, v)*dx)
+
+    es = LinearEigensolver(ep, 1, solver_parameters={"eps_gen_non_hermitian": None,
+                                                     "eps_smallest_magnitude": None})
+
+    nconv = es.solve()
+    assert nconv > 0
+    eig = es.eigenvalue(0)
+    assert np.isclose(eig, 0, atol=1e-12)
+
+    re, im = es.eigenfunction(0)
+    assert np.allclose(re.dat.data[:], re.dat.data[0])
+    assert np.allclose(im.dat.data[:], im.dat.data[0])

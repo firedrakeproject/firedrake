@@ -99,7 +99,7 @@ def _check_reverse(tape):
                     assert out._checkpoint is None
 
 
-def J(ic, nu, solve_type, timestep, steps, V, nu_time_dependent=False):
+def J(ic, nu, solve_type, timestep, total_steps, V, nu_time_dependent=False):
     """Burgers equation solver."""
     u_ = Function(V, name="u_")
     u = Function(V, name="u")
@@ -115,9 +115,15 @@ def J(ic, nu, solve_type, timestep, steps, V, nu_time_dependent=False):
 
     tape = get_working_tape()
     J = 0.0
-    for j in tape.timestepper(range(steps)):
-        if nu_time_dependent and j > 4:
-            nu.assign(nu*(1.0 + j/1000))
+
+    # The comment below and the others like it are used to generate the
+    # documentation for the firedrake/docs/source/chekpointing.rst file.
+    # [test_disk_checkpointing 10]
+    for step in tape.timestepper(range(total_steps)):
+        # Advance the forward model
+        # [test_disk_checkpointing 11]
+        if nu_time_dependent and step > 4:
+            nu.assign(nu*(1.0 + step/1000))
         if solve_type == "NLVS":
             solver.solve()
         else:
@@ -135,26 +141,33 @@ def test_burgers_newton(solve_type, checkpointing, basics):
     """
     tape = get_working_tape()
     tape.progress_bar = ProgressBar
-    mesh, timestep, steps = basics
+    mesh, timestep, total_steps = basics
     if checkpointing:
+        steps_to_store = total_steps//3
         if checkpointing == "Revolve":
-            schedule = Revolve(steps, steps//3)
+            # [test_disk_checkpointing 8]
+            schedule = Revolve(total_steps, steps_to_store)
+            # [test_disk_checkpointing 9]
         if checkpointing == "SingleMemory":
+            # [test_disk_checkpointing 4]
             schedule = SingleMemoryStorageSchedule()
+            # [test_disk_checkpointing 5]
         if checkpointing == "Mixed":
             enable_disk_checkpointing()
-            schedule = MixedCheckpointSchedule(steps, steps//3, storage=StorageType.DISK)
+            schedule = MixedCheckpointSchedule(total_steps, steps_to_store, storage=StorageType.DISK)
         if checkpointing == "NoneAdjoint":
             schedule = NoneCheckpointSchedule()
+        # [test_disk_checkpointing 6]
         tape.enable_checkpointing(schedule)
+        # [test_disk_checkpointing 7]
 
     if checkpointing and schedule.uses_storage_type(StorageType.DISK):
         mesh = checkpointable_mesh(mesh)
 
     V, ic, nu = setup_test(mesh)
-    val = J(ic, nu, solve_type, timestep, steps, V)
+    val = J(ic, nu, solve_type, timestep, total_steps, V)
     if checkpointing:
-        assert len(tape.timesteps) == steps
+        assert len(tape.timesteps) == total_steps
         if checkpointing == "Revolve" or checkpointing == "Mixed":
             _check_forward(tape)
 
@@ -182,6 +195,67 @@ def test_burgers_newton(solve_type, checkpointing, basics):
         assert np.allclose(dJ.dat.data_ro[:], dJbar.dat.data_ro[:])
         # Taylor test
         assert taylor_test(Jhat, ic, Function(V).interpolate(1)) > 1.9
+
+
+@pytest.mark.skipcomplex
+def test_burgers_newton_docs():
+    """This test exists to ensure that the adjoint documentation runs."""
+    get_working_tape().clear_tape()
+    # start solver
+    n = 30
+    mesh = UnitIntervalMesh(n)
+    timestep = Constant(1.0/n)
+    steps = 10
+
+    x, = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 2)
+    ic = project(sin(2.*pi*x), V, name="ic")
+
+    u_old = Function(V, name="u_old")
+    u_new = Function(V, name="u")
+    v = TestFunction(V)
+    u_old.assign(ic)
+    nu = Constant(0.0001)
+    F = ((u_new-u_old)/timestep*v
+         + u_new*u_new.dx(0)*v + nu*u_new.dx(0)*v.dx(0))*dx
+    bc = DirichletBC(V, 0.0, "on_boundary")
+    problem = NonlinearVariationalProblem(F, u_new, bcs=bc)
+    solver = NonlinearVariationalSolver(problem)
+
+    J = assemble(ic*ic*dx)
+
+    for _ in range(steps):
+        solver.solve()
+        u_old.assign(u_new)
+        J += assemble(u_new*u_new*dx)
+    pause_annotation()
+    print(round(J, 3))
+    # end solver
+    Jhat = ReducedFunctional(J, Control(ic))
+    # end reduced functional
+
+    # start functional evaluation
+    ic_new = project(sin(pi*x), V)
+    J_new = Jhat(ic_new)
+    print(round(J_new, 3))
+    # end functional evaluation
+
+    # start progress bar
+    get_working_tape().progress_bar = ProgressBar
+    # end progress bar
+
+    # start derivative
+    dJ = Jhat.derivative()
+    # end derivative
+    dJ  # Shut up flake8.
+
+    # start taylor test
+    dm = assemble(interpolate(Constant(1.), V))
+    rate = taylor_test(Jhat, ic, dm)
+    # end taylor test
+    # Return annotation state to that at the start of the test.
+    continue_annotation()
+    assert rate > 1.9
 
 
 @pytest.mark.skipcomplex

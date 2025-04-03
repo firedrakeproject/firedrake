@@ -15,7 +15,7 @@ __all__ = ["LinearEigenproblem",
            "LinearEigensolver"]
 
 
-class LinearEigenproblem():
+class LinearEigenproblem:
     """Generalised linear eigenvalue problem.
 
     The problem has the form, find `u`, `λ` such that::
@@ -64,12 +64,12 @@ class LinearEigenproblem():
         v, u = args
         self.output_space = u.function_space()
         self.bc_shift = bc_shift
-        self.restrict = restrict
+        self.restrict = restrict and bcs
 
         if not M:
             M = inner(u, v) * dx
 
-        if restrict and bcs:  # assumed u and v are in the same space here
+        if self.restrict:  # assumed u and v are in the same space here
             V_res = restricted_function_space(self.output_space, extract_subdomain_ids(bcs))
             u_res = TrialFunction(V_res)
             v_res = TestFunction(V_res)

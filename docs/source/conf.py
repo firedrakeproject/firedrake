@@ -402,11 +402,11 @@ intersphinx_mapping = {
     'h5py.h5p': ('https://api.h5py.org/', None),
     'matplotlib': ('https://matplotlib.org/', None),
     'python': ('https://docs.python.org/3/', None),
-    'pyadjoint': ('https://www.dolfin-adjoint.org/en/latest/', None),
+    'pyadjoint': ('https://pyadjoint.org/', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
     'loopy': ('https://documen.tician.de/loopy/', None),
     'torch': ('https://pytorch.org/docs/stable/', None),
-    'jax': ('https://jax.readthedocs.io/en/latest/', None),
+    'jax': ('https://jax.readthedocs.io/en/latest/', None)
 }
 
 #  -- Options for sphinxcontrib.bibtex ------------------------------------
