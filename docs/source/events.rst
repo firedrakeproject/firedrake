@@ -8,6 +8,14 @@
 Firedrake events
 ----------------
 
+CCP-DCM Hackathon
+~~~~~~~~~~~~~~~~~
+
+In conjunction with our friends from FEniCS we're hosting a 3 day retreat in
+Totnes to write up demos based on users' use-cases for Firedrake and its
+downstream applications. For more details see `the website
+<https://ccp-dcm.github.io/exeter_hackathon.html>`__.
+
 Firedrake USA'25
 ~~~~~~~~~~~~~~~~
 
