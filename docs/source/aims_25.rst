@@ -30,13 +30,13 @@ Course programme
     - `Our first finite element problem <https://finite-element.github.io/L1_introduction.html>`__
     - Firedrake practical 3: vector-valued problems
     - Firedrake practical 5: The Burgers equation
-    - Devito: inverse tomography
+    - Adjoints part 1: derivation
     - Adjoint practical 2: the tape
   * - **Early PM**
     - Firedrake practical 1: `Helmholtz Equation <https://colab.research.google.com/github/firedrakeproject/notebooks/blob/main/01-spd-helmholtz.ipynb>`__
     - Systems with more than one variable
     - An introduction to solvers and preconditioners
-    - Adjoints part 1: derivation
+    - Devito: inverse tomography
     - ML and FEM
   * - **Late PM**
     - Firedrake practical 2: Dirichlet boundary conditions
