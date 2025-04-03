@@ -123,6 +123,14 @@ class Buffer(AbstractBuffer):
         data = np.empty(size, dtype=dtype)
         return cls(data, **kwargs)
 
+    @classmethod
+    def zeros(cls, size, dtype=None, **kwargs):
+        if dtype is None:
+            dtype = cls.DEFAULT_DTYPE
+
+        data = np.zeros(size, dtype=dtype)
+        return cls(data, **kwargs)
+
     @property
     def comm(self) -> MPI.Comm:
         return self.sf.comm

@@ -103,7 +103,10 @@ def concatenate_star_forests(star_forests: Sequence[StarForest]) -> StarForest:
         nr, ilocal, iremote = sf.graph
         num_roots += nr
         ilocals.append(ilocal+size)
-        iremotes.append(iremote+size)
+        if iremote.size > 0:
+            iremote = iremote.copy()
+            iremote[:, 1] += size
+        iremotes.append(iremote)
         size += sf.size
     ilocal = np.concatenate(ilocals)
     iremote = np.concatenate(iremotes)

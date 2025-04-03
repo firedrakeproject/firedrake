@@ -281,6 +281,24 @@ class Loop(Instruction):
 
         code = self.compile(compiler_parameters)
 
+        breakpoint()
+        # TODO: handle interleaving as a compiler_parameter somehow
+        if self.comm.size == 1:
+            initializers = []
+            reductions = []
+            broadcasts = []
+        else:
+            # how do we get the right intent?
+            # can track as we do codegen
+            # means MAX etc isn't needed...
+            initializers, reductions, broadcasts = zip(
+                (
+                    Loop._buffer_exchanges(arg, code.intents[k])
+                    for k, arg in code.datamap.items()
+                ),
+                strict=True,
+            )
+
         if False:
         # if self.is_parallel:
             # FIXME: The partitioning code does not seem to always run properly
@@ -339,6 +357,11 @@ class Loop(Instruction):
         else:
             with PETSc.Log.Event(f"compute_{self.name}_serial"):
                 code(**kwargs)
+
+    @property
+    def comm(self):
+        # maybe collect the comm by looking at everything?
+        return self.index.iterset.comm
 
     @cached_property
     def datamap(self) -> PMap:
@@ -415,9 +438,15 @@ class Loop(Instruction):
 
         return initializers, reductions, broadcasts
 
+    # I hate staticmethods now, refactor
     @staticmethod
-    def _buffer_exchanges(buffer, intent, *, touches_ghost_points):
+    def _buffer_exchanges(buffer, intent):
         initializers, reductions, broadcasts = [], [], []
+
+        # Possibly instead of touches_ghost_points we could produce custom SFs for each loop
+        # (we have filter_star_forest())
+        # For now we just disregard the optimisation
+        touches_ghost_points = True
 
         if intent in {READ, RW}:
             if touches_ghost_points:

@@ -243,6 +243,12 @@ class Dat(_Dat):
         buffer = Buffer.empty(axes.size, dtype=dtype, sf=axes.sf)
         return cls(axes, buffer=buffer, **kwargs)
 
+    @classmethod
+    def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
+        axes = as_axis_tree(axes)
+        buffer = Buffer.zeros(axes.size, dtype=dtype, sf=axes.sf)
+        return cls(axes, buffer=buffer, **kwargs)
+
     @property
     def _record_fields(self) -> frozenset:
         return frozenset({"axes", "buffer", "max_value", "name", "constant", "ordered", "parent"})

@@ -106,6 +106,7 @@ class LoopyCodegenContext(CodegenContext):
         self._seen_arrays = set()
 
         self.datamap = weakref.WeakValueDictionary()
+        self.intents = {}
 
     @property
     def domains(self):
@@ -192,8 +193,11 @@ class LoopyCodegenContext(CodegenContext):
         self._args.append(lp.ValueArg(name, dtype=dtype))
 
     # TODO we pass a lot more data here than we need I think, need to use unique *buffers*
-    def add_array(self, array: Array) -> None:
+    def add_array(self, array: Array, intent) -> None:
         if array.name in self._seen_arrays:
+            # not all array are in intents, only external things
+            if array.name in self.intents and intent != self.intents[array.name]:
+                raise ValueError("cannot have multiple intents for the same array")
             return
         self._seen_arrays.add(array.name)
 
@@ -218,10 +222,12 @@ class LoopyCodegenContext(CodegenContext):
                 read_only=True,
             )
         elif isinstance(array.buffer, Buffer):
+            self.intents[array.name] = intent
             name = self.unique_name("buffer")
             arg = lp.GlobalArg(name, dtype=self._dtype(array), shape=None)
         else:
             assert isinstance(array.buffer, PETSc.Mat)
+            self.intents[array.name] = "SPECIAL INTENT, needs thought"
             name = self.unique_name("mat")
             arg = lp.ValueArg(name, dtype=self._dtype(array))
 
@@ -309,10 +315,14 @@ class LoopyCodegenContext(CodegenContext):
 # bad name, bit misleading as this is just the loopy bit, further optimisation
 # and lowering to go...
 class CodegenResult:
-    def __init__(self, ir, arg_replace_map, datamap, compiler_parameters):
+    # TODO: intents and datamap etc maybe all go together. All relate to the same objects
+    def __init__(self, ir, arg_replace_map, datamap, intents, compiler_parameters):
         self.ir = ir
         self.arg_replace_map = arg_replace_map
+
+        ??? here need to think about BUFFERS, not dats etc
         self.datamap = datamap
+        self.intents = intents
         self.compiler_parameters = compiler_parameters
 
         # self._cache = collections.defaultdict(dict)
@@ -495,7 +505,7 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
     # needed?
     translation_unit = translation_unit.with_entrypoints(entrypoint.name)
 
-    return CodegenResult(translation_unit, ctx.kernel_to_actual_rename_map, ctx.datamap, compiler_parameters)
+    return CodegenResult(translation_unit, ctx.kernel_to_actual_rename_map, ctx.datamap, ctx.intents, compiler_parameters)
 
 
 # put into a class in transform.py?
@@ -614,8 +624,7 @@ def parse_loop_properly_this_time(
             axis_key = (axis.id, component.label)
             for index_exprs in axes.index_exprs:
                 for axis_label, index_expr in index_exprs.get(axis_key).items():
-                    # loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, [iname_map], loop_indices, codegen_context, paths=[path_])
-                    loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, [iname_replace_map_], loop_indices, codegen_context, paths=[path_])
+                    loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, READ, [iname_replace_map_], loop_indices, codegen_context, paths=[path_])
             loop_exprs = pmap(loop_exprs)
 
             if subaxis := axes.child(axis, component):
@@ -672,7 +681,7 @@ def _(call: DirectCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> Non
             # Register data
             # TODO This might be bad for temporaries
             if isinstance(arg, _Dat):
-                ctx.add_array(arg)
+                ctx.add_array(arg, "should be a temp")
 
             # this should already be done in an assignment
             # ctx.add_temporary(temporary.name, temporary.dtype, shape)
@@ -728,7 +737,7 @@ def parse_assignment(
 
 
 @_compile.register(NonEmptyPetscMatAssignment)
-def _compile_petscmat(assignment, loop_indices, codegen_context):
+def _compile_petscmat(assignment, loop_indices, context):
     mat = assignment.mat
     array = assignment.values
 
@@ -751,21 +760,21 @@ def _compile_petscmat(assignment, loop_indices, codegen_context):
 
     # now emit the right line of code, this should properly be a lp.ScalarCallable
     # https://petsc.org/release/manualpages/Mat/MatGetValuesLocal/
-    codegen_context.add_array(mat)
-    codegen_context.add_array(array)
+    context.add_array(mat, "TODO")
+    context.add_array(array, "Hmm")
 
-    mat_name = codegen_context.actual_to_kernel_rename_map[mat.name]
-    array_name = codegen_context.actual_to_kernel_rename_map[array.name]
+    mat_name = context.actual_to_kernel_rename_map[mat.name]
+    array_name = context.actual_to_kernel_rename_map[array.name]
 
     for row_path in assignment.row_axis_tree.leaf_paths:
         for col_path in assignment.col_axis_tree.leaf_paths:
             row_layout = mat.row_layouts[row_path]
-            codegen_context.add_array(row_layout)
-            rmap_name = codegen_context.actual_to_kernel_rename_map[row_layout.name]
+            context.add_array(row_layout, READ)
+            rmap_name = context.actual_to_kernel_rename_map[row_layout.name]
 
             col_layout = mat.col_layouts[col_path]
-            codegen_context.add_array(col_layout)
-            cmap_name = codegen_context.actual_to_kernel_rename_map[col_layout.name]
+            context.add_array(col_layout, READ)
+            cmap_name = context.actual_to_kernel_rename_map[col_layout.name]
 
             blocked = mat.mat.block_shape > 1
     # if mat.nested:
@@ -813,7 +822,7 @@ def _compile_petscmat(assignment, loop_indices, codegen_context):
                 rsize_var = register_extent(
                     rsize,
                     loop_indices,
-                    codegen_context,
+                    context,
                 )
             else:
                 rsize_var = rsize
@@ -823,22 +832,22 @@ def _compile_petscmat(assignment, loop_indices, codegen_context):
                 csize_var = register_extent(
                     csize,
                     loop_indices,
-                    codegen_context,
+                    context,
                 )
             else:
                 csize_var = csize
 
             # replace inner bits with zeros
             rzeros = {axis.label: 0 for axis in row_layout.dat.axes.nodes if axis is not row_layout.dat.axes.root}
-            irow = str(lower_expr(row_layout, [rzeros], loop_indices, codegen_context))
+            irow = str(lower_expr(row_layout, READ, [rzeros], loop_indices, context))
 
             czeros = {axis.label: 0 for axis in col_layout.dat.axes.nodes if axis is not col_layout.dat.axes.root}
-            icol = str(lower_expr(col_layout, [czeros], loop_indices, codegen_context))
+            icol = str(lower_expr(col_layout, READ, [czeros], loop_indices, context))
 
             array_row_layout = assignment.values.row_layouts[row_path]
-            array_row_expr = lower_expr(array_row_layout, [rzeros], loop_indices, codegen_context)
+            array_row_expr = lower_expr(array_row_layout, READ, [rzeros], loop_indices, context)
             array_col_layout = assignment.values.col_layouts[col_path]
-            array_col_expr = lower_expr(array_col_layout, [czeros], loop_indices, codegen_context)
+            array_col_expr = lower_expr(array_col_layout, READ, [czeros], loop_indices, context)
 
             array_indices = array_row_expr * csize + array_col_expr
             array_expr = str(pym.subscript(pym.var(array_name), array_indices))
@@ -856,7 +865,7 @@ def _compile_petscmat(assignment, loop_indices, codegen_context):
                 assert access_type == ArrayAccessType.INC
                 call_str = _petsc_mat_add(*myargs)
 
-            codegen_context.add_cinstruction(call_str)
+            context.add_cinstruction(call_str)
 
 
 def _petsc_mat_load(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
@@ -980,8 +989,14 @@ def add_leaf_assignment(
     codegen_context,
     loop_indices,
 ):
-    lexpr = lower_expr(assignment.assignee, iname_replace_maps, loop_indices, codegen_context, paths=paths)
-    rexpr = lower_expr(assignment.expression, iname_replace_maps, loop_indices, codegen_context, paths=paths)
+    if assignment.assignment_type == AssignmentType.WRITE:
+        intent = WRITE
+    else:
+        assert assignment.assignment_type == AssignmentType.INC
+        intent = INC
+
+    lexpr = lower_expr(assignment.assignee, intent, iname_replace_maps, loop_indices, codegen_context, paths=paths)
+    rexpr = lower_expr(assignment.expression, READ, iname_replace_maps, loop_indices, codegen_context, paths=paths)
 
     if assignment.assignment_type == AssignmentType.WRITE:
         pass
@@ -990,43 +1005,6 @@ def add_leaf_assignment(
         rexpr = lexpr + rexpr
 
     codegen_context.add_assignment(lexpr, rexpr)
-
-
-# NOTE: This could really just be lower_expr itself
-def make_array_expr(array, path, inames, ctx):
-    assert False, "old code"
-    # TODO: This should be propagated as an option - we don't always want to optimise
-    # TODO: Disabled optimising for now since I can't get it to work without a
-    # symbolic language. That has to be future work.
-
-    # ultimately this can go when everything is just lower_expr
-    ctx.add_array(array)  # (lower_expr registers the rest)
-
-    array_offset = lower_expr(
-        array.layouts[path],
-        inames,
-        ctx,
-    )
-
-    # hack to handle the fact that temporaries can have shape but we want to
-    # linearly index it here
-    if array.name in ctx._temporary_shapes:
-        shape = ctx._temporary_shapes[array.name]
-        assert shape is not None
-        rank = len(shape)
-        extra_indices = (0,) * (rank - 1)
-
-        # also has to be a scalar, not an expression
-        temp_offset_name = ctx.unique_name("j")
-        temp_offset_var = pym.var(temp_offset_name)
-        ctx.add_temporary(temp_offset_name)
-        ctx.add_assignment(temp_offset_var, array_offset)
-        indices = extra_indices + (temp_offset_var,)
-    else:
-        indices = (array_offset,)
-
-    name = ctx.actual_to_kernel_rename_map[array.name]
-    return pym.subscript(pym.var(name), indices)
 
 
 # NOTE: There is a difference here between `lower_expr` and `lower_expr_linear` (where paths are not relevant)
@@ -1051,7 +1029,7 @@ def _(num: numbers.Number, /, *args, **kwargs):
 
 
 @lower_expr.register(AxisVar)
-def _(axis_var: AxisVar, /, iname_maps, loop_indices, context, paths=None):
+def _(axis_var: AxisVar, /, intent, iname_maps, *args, **kwargs):
     if len(iname_maps) > 1:
         raise NotImplementedError("not sure")
     else:
@@ -1060,7 +1038,7 @@ def _(axis_var: AxisVar, /, iname_maps, loop_indices, context, paths=None):
 
 
 @lower_expr.register
-def _(loop_var: LoopIndexVar, iname_maps, loop_indices, context, paths=None):
+def _(loop_var: LoopIndexVar, intent, iname_maps, loop_indices, *args, **kwargs):
     return loop_indices[(loop_var.loop_id, loop_var.axis_label)]
 
 
@@ -1086,24 +1064,24 @@ def maybe_multiindex(dat, offset_expr, context):
 
 
 @lower_expr.register(_ConcretizedDat)
-def _(dat: _ConcretizedDat, /, iname_maps, loop_indices, context, paths):
+def _(dat: _ConcretizedDat, /, intent, iname_maps, loop_indices, context, paths):
     iname_map = just_one(iname_maps)
     path = just_one(paths)
 
-    context.add_array(dat)
+    context.add_array(dat, intent)
 
     new_name = context.actual_to_kernel_rename_map[dat.name]
 
     layout_expr = dat.layouts[path]
-    offset_expr = lower_expr(layout_expr, [iname_map], loop_indices, context)
+    offset_expr = lower_expr(layout_expr, READ, [iname_map], loop_indices, context)
     indices = maybe_multiindex(dat, offset_expr, context)
 
     return pym.subscript(pym.var(new_name), indices)
 
 
 @lower_expr.register(_ConcretizedMat)
-def _(mat: _ConcretizedMat, /, iname_maps, loop_indices, context, paths):
-    context.add_array(mat)
+def _(mat: _ConcretizedMat, /, intent, iname_maps, loop_indices, context, paths):
+    context.add_array(mat, intent)
 
     new_name = context.actual_to_kernel_rename_map[mat.name]
 
@@ -1113,8 +1091,8 @@ def _(mat: _ConcretizedMat, /, iname_maps, loop_indices, context, paths):
     row_layout_expr = mat.row_layouts[row_path]
     col_layout_expr = mat.col_layouts[col_path]
 
-    row_offset_expr = lower_expr(row_layout_expr, [row_iname_map], loop_indices, context)
-    col_offset_expr = lower_expr(col_layout_expr, [col_iname_map], loop_indices, context)
+    row_offset_expr = lower_expr(row_layout_expr, READ, [row_iname_map], loop_indices, context)
+    col_offset_expr = lower_expr(col_layout_expr, READ, [col_iname_map], loop_indices, context)
 
     offset_expr = row_offset_expr * mat.mat.caxes.size + col_offset_expr
     indices = maybe_multiindex(mat, offset_expr, context)
@@ -1124,14 +1102,14 @@ def _(mat: _ConcretizedMat, /, iname_maps, loop_indices, context, paths):
 
 
 @lower_expr.register(_ExpressionDat)
-def _(dat: _ExpressionDat, /, iname_maps, loop_indices, context, paths=None):
+def _(dat: _ExpressionDat, /, intent, iname_maps, loop_indices, context, paths=None):
     iname_map = just_one(iname_maps)
 
-    context.add_array(dat)
+    context.add_array(dat, intent)
 
     new_name = context.actual_to_kernel_rename_map[dat.name]
 
-    offset_expr = lower_expr(dat.layout, [iname_map], loop_indices, context)
+    offset_expr = lower_expr(dat.layout, READ, [iname_map], loop_indices, context)
     indices = maybe_multiindex(dat, offset_expr, context)
     rexpr = pym.subscript(pym.var(new_name), indices)
     return rexpr
@@ -1153,11 +1131,11 @@ def _(param: Parameter, inames, loop_indices, context):
 
 @register_extent.register(Dat)
 @register_extent.register(_ExpressionDat)
-def _(extent, iname_replace_map, loop_indices, ctx):
-    expr = lower_expr(extent, [iname_replace_map], loop_indices, ctx)
-    varname = ctx.unique_name("p")
-    ctx.add_temporary(varname)
-    ctx.add_assignment(pym.var(varname), expr)
+def _(extent, /, intent, iname_replace_map, loop_indices, context):
+    expr = lower_expr(extent, READ, [iname_replace_map], loop_indices, context)
+    varname = context.unique_name("p")
+    context.add_temporary(varname)
+    context.add_assignment(pym.var(varname), expr)
     return varname
 
 

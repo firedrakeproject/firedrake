@@ -864,7 +864,7 @@ class FunctionSpace:
                 assert val.dtype == valuetype
             return op3.Dat(self.axes, data=val.flatten(), name=name)
         else:
-            return op3.Dat.empty(self.axes, dtype=valuetype, name=name)
+            return op3.Dat.zeros(self.axes, dtype=valuetype, name=name)
 
     # this is redundant
     def cell_closure_map(self, cell):

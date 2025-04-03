@@ -46,6 +46,22 @@ def unique_name(prefix: str) -> str:
     return _unique_name_generator(prefix)
 
 
+# NOTE: Python 3.13 has warnings.deprecated
+def deprecated(prefer=None, internal=False):
+    def decorator(fn):
+        def wrapper(*args, **kwargs):
+            msg = f"{fn.__qualname__} is deprecated and will be removed"
+            if prefer:
+                msg += f", please use {prefer} instead"
+            warning_type = DeprecationWarning if internal else FutureWarning
+            warnings.warn(msg, warning_type)
+            return fn(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
 class auto:
     pass
 
@@ -197,10 +213,9 @@ class LengthMismatchException(Pyop3Exception):
     pass
 
 
+@deprecated("Use zip(strict=True) instead")
 def strict_zip(*iterables):
-    if not pytools.is_single_valued(len(it) for it in iterables):
-        raise LengthMismatchException("Zipped iterables have different lengths")
-    return zip(*iterables)
+    return zip(*iterables, strict=True)
 
 
 # old alias, remove
@@ -402,22 +417,6 @@ def readonly(array):
     view = array.view()
     view.setflags(write=False)
     return view
-
-
-# NOTE: Python 3.13 has warnings.deprecated
-def deprecated(prefer=None, internal=False):
-    def decorator(fn):
-        def wrapper(*args, **kwargs):
-            msg = f"{fn.__qualname__} is deprecated and will be removed"
-            if prefer:
-                msg += f", please use {prefer} instead"
-            warning_type = DeprecationWarning if internal else FutureWarning
-            warnings.warn(msg, warning_type)
-            return fn(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
 
 
 def debug_assert(predicate, msg=None):
