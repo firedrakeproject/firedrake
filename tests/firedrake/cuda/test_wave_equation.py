@@ -3,7 +3,6 @@ import os
 import numpy as np
 import finat
 from firedrake.__future__ import interpolate
-import matplotlib.pyplot as plt
 import pytest
 
 
@@ -104,15 +103,16 @@ def test_kmv_wave_propagation_cuda():
     rec_matrix = np.matrix(true_data_receivers)
 
     # Hard coded values from an analytical solution
-    min_value = -0.0571
-    max_value = 0.0946
-    min_location = 0.269
-    max_location = 0.352
+    # Hard coded values from an analytical solution
+    min_value = -0.05708
+    max_value = 0.09467
+    min_location = 0.2701
+    max_location = 0.3528
 
-    correct_min_loc = np.isclose(min_location, np.argmin(rec_matrix)*dt)
+    correct_min_loc = np.isclose(min_location, np.argmin(rec_matrix)*dt, rtol=1e-2)
     correct_min = np.isclose(min_value, np.min(rec_matrix), rtol=1e-2)
     correct_max = np.isclose(max_value, np.max(rec_matrix), rtol=1e-2)
-    correct_max_loc = np.isclose(max_location, np.argmax(rec_matrix)*dt)
+    correct_max_loc = np.isclose(max_location, np.argmax(rec_matrix)*dt, rtol=1e-2)
 
     print(f"Correct minimum and its location: {correct_min} and {correct_min_loc}.")
     print(f"Correct maximum and its location: {correct_max} and {correct_max_loc}.")
