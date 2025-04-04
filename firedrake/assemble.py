@@ -549,9 +549,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             # 4) Interpolate(Argument(V1, 0), Cofunction(...)) -> Action of the Jacobian adjoint
             # This can be generalized to the case where the first slot is an arbitray expression.
             rank = len(expr.arguments())
-            arg_expression = ufl.algorithms.extract_arguments(expression)
 
-            # Handle interpolation of subfunctions
+            # Handle interpolation onto subfunctions
             parent_tensor = None
             if isinstance(expression, ufl.classes.Indexed):
                 assert rank == 1
@@ -563,10 +562,14 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # Symbolic indirection for the input expression
                 expression = firedrake.Argument(V.sub(index), number=A.number(), part=A.part())
                 # Symbolic indirection for the output tensor
+                if tensor is not None:
+                    assert tensor.function_space() == V.dual()
+                    tensor.zero()
                 parent_tensor = tensor or firedrake.Cofunction(V.dual())
-                tensor = parent_tensor.sub(index)
+                tensor = parent_tensor.subfunctions[index]
 
             # If argument numbers have been swapped => Adjoint.
+            arg_expression = ufl.algorithms.extract_arguments(expression)
             is_adjoint = (arg_expression and arg_expression[0].number() == 0)
             # Workaround: Renumber argument when needed since Interpolator assumes it takes a zero-numbered argument.
             if not is_adjoint and rank != 1:
@@ -575,7 +578,6 @@ class BaseFormAssembler(AbstractFormAssembler):
             # Get the interpolator
             interp_data = expr.interp_data
             default_missing_val = interp_data.pop('default_missing_val', None)
-
             interpolator = firedrake.Interpolator(expression, expr.function_space(), **interp_data)
             # Assembly
             if rank == 1:

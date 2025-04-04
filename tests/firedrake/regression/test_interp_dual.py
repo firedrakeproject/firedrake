@@ -279,17 +279,24 @@ def test_solve_interp_u(mesh):
     assert np.allclose(u.dat.data, u2.dat.data)
 
 
-def test_interp_subfunction(mesh):
+@pytest.mark.parametrize("tensor", (False, True), ids=("tensor=none", "tensor"))
+def test_interp_subfunction(mesh, tensor):
     V = FunctionSpace(mesh, "DG", 0)
     v = TestFunction(V)
     Fv = inner(1, v)*dx
 
-    W = V*V
+    W = V * V
     w = TestFunction(W)
-    Fw = inner(1, w[0])*dx
+    Fw = inner(1, w[1])*dx
+    expected = assemble(Fw)
 
-    I = Interpolate(w[0], Fv)
+    IFv = Interpolate(w[1], Fv)
 
-    c0 = assemble(I)
-    c1 = assemble(Fw)
-    assert np.allclose(c0.dat.data_ro, c1.dat.data_ro)
+    if tensor:
+        tensor = Cofunction(W.dual())
+    else:
+        tensor = None
+
+    c = assemble(IFv, tensor=tensor)
+    assert c.function_space() == W.dual()
+    assert np.allclose(c.dat.data_ro, expected.dat.data_ro)
