@@ -1,3 +1,5 @@
+#TODO: Fix and then move this as matrix arch into build.yml and 
+
 name: Install and test Firedrake (CUDA)
 
 on:
@@ -24,7 +26,7 @@ jobs:
         arch: [default]
     runs-on: [self-hosted, Linux]
     container:
-      image: firedrakeproject/firedrake-env:latest
+      image: nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
     env:
       FIREDRAKE_CI: 1
       OMP_NUM_THREADS: 1
