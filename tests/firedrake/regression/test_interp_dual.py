@@ -279,24 +279,32 @@ def test_solve_interp_u(mesh):
     assert np.allclose(u.dat.data, u2.dat.data)
 
 
-@pytest.mark.parametrize("tensor", (False, True), ids=("tensor=none", "tensor"))
-def test_interp_subfunction(mesh, tensor):
+@pytest.mark.parametrize("family0,degree0,family1,degree1",
+                         [("DG", 1, "CG", 1),
+                          ("DG", 0, "RT", 1)])
+def test_interp_subfunction(mesh, family0, degree0, family1, degree1):
     V = FunctionSpace(mesh, "DG", 0)
     v = TestFunction(V)
     Fv = inner(1, v)*dx
 
-    W = V * V
+    W0 = FunctionSpace(mesh, family0, degree0)
+    W1 = FunctionSpace(mesh, family1, degree1)
+    W = W0 * W1
     w = TestFunction(W)
-    Fw = inner(1, w[1])*dx
+    c = Cofunction(W.dual())
+
+    expr = sum(w[i] for i in np.ndindex(w.ufl_shape))
+
+    Fw = inner(1, expr)*dx
     expected = assemble(Fw)
 
-    IFv = Interpolate(w[1], Fv)
+    IFv = Interpolate(expr, Fv)
 
-    if tensor:
-        tensor = Cofunction(W.dual())
-    else:
-        tensor = None
+    for tensor in (None, c):
+        if tensor:
+            tensor.assign(99)
 
-    c = assemble(IFv, tensor=tensor)
-    assert c.function_space() == W.dual()
-    assert np.allclose(c.dat.data_ro, expected.dat.data_ro)
+        result = assemble(IFv, tensor=tensor)
+        assert result.function_space() == W.dual()
+        with result.dat.vec_ro as x, expected.dat.vec_ro as y:
+            assert np.allclose(x[:], y[:])
