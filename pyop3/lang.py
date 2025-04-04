@@ -295,7 +295,7 @@ class Loop(Instruction):
                     continue
 
                 inits, reds, bcasts = Loop._buffer_exchanges(
-                    data_arg, code.global_buffer_intents[data_arg]
+                    data_arg, code.global_buffer_intents[data_arg.name]
                 )
                 initializers.extend(inits)
                 reductions.extend(reds)

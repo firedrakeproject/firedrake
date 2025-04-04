@@ -84,6 +84,7 @@ LOOPY_TARGET = lp.CWithGNULibcTarget()
 LOOPY_LANG_VERSION = (2018, 2)
 
 
+# Is this still needed? Loopy may have fixed this
 class OpaqueType(lp.types.OpaqueType):
     def __repr__(self) -> str:
         return f"OpaqueType('{self.name}')"
@@ -108,11 +109,13 @@ class LoopyCodegenContext(CodegenContext):
         # TODO remove
         self._dummy_names = {}
 
-        self._added_buffers = weakref.WeakSet()
-        # global buffer -> intent
-        self.global_buffer_intents = weakref.WeakKeyDictionary()
-        # global buffer -> name in kernel
-        self.kernel_arg_names = weakref.WeakKeyDictionary()
+        # data argument name -> data argument
+        # NOTE: If PETSc Mats were hashable then this could be a WeakSet
+        self.data_arguments = weakref.WeakValueDictionary()
+        # data argument name -> name in kernel
+        self.kernel_arg_names = {}
+        # global buffer name -> intent
+        self.global_buffer_intents = {}
 
     @property
     def domains(self):
@@ -200,13 +203,13 @@ class LoopyCodegenContext(CodegenContext):
         if intent is None:
             raise ValueError("Global data must declare intent")
 
-        if buffer in self._added_buffers:
-            if intent != self.global_buffer_intents[buffer]:
+        if buffer.name in self.data_arguments:
+            if intent != self.global_buffer_intents[buffer.name]:
                 raise ValueError("Cannot have mismatching intents for the same global buffer")
-            return self.kernel_arg_names[buffer]
+            return self.kernel_arg_names[buffer.name]
 
-        self._added_buffers.add(buffer)
-        self.global_buffer_intents[buffer] = intent
+        self.data_arguments[buffer.name] = buffer
+        self.global_buffer_intents[buffer.name] = intent
 
         # Inject constant buffer data into the generated code if sufficiently small
         # TODO: Need to consider 'constant-ness'. Something may be immutable but still
@@ -220,11 +223,11 @@ class LoopyCodegenContext(CodegenContext):
                 address_space=lp.AddressSpace.LOCAL,
             )
 
-        name = self.unique_name("buffer")
-        arg = lp.GlobalArg(name, dtype=buffer.dtype, shape=None)
+        kernel_name = self.unique_name("buffer")
+        arg = lp.GlobalArg(kernel_name, dtype=buffer.dtype, shape=None)
         self._args.append(arg)
-        self.kernel_arg_names[buffer] = name
-        return name
+        self.kernel_arg_names[buffer.name] = kernel_name
+        return kernel_name
 
     @add_buffer.register(PETSc.Mat)
     def _(self, buffer: PETSc.Mat, intent: Intent | None = None) -> str:
@@ -232,54 +235,54 @@ class LoopyCodegenContext(CodegenContext):
             raise ValueError("Global data must declare intent")
 
         # TODO: This is the same as for Buffer, refactor
-        if buffer in self._added_buffers:
-            if intent != self.global_buffer_intents[buffer]:
+        if buffer.name in self.data_arguments:
+            if intent != self.global_buffer_intents[buffer.name]:
                 raise ValueError("Cannot have mismatching intents for the same global buffer")
-            return self.kernel_arg_names[buffer]
+            return self.kernel_arg_names[buffer.name]
 
-        self._added_buffers.add(buffer)
-        self.global_buffer_intents[buffer] = intent
+        self.data_arguments[buffer.name] = buffer
+        self.global_buffer_intents[buffer.name] = intent
 
-        name = self.unique_name("mat")
-        arg = lp.ValueArg(name, dtype=OpaqueType("Mat"))
+        kernel_name = self.unique_name("mat")
+        arg = lp.ValueArg(kernel_name, dtype=OpaqueType("Mat"))
         self._args.append(arg)
-        self.kernel_arg_names[buffer] = name
-        return name
+        self.kernel_arg_names[buffer.name] = kernel_name
+        return kernel_name
 
     @add_buffer.register(NullBuffer)
     def _(self, buffer: NullBuffer, intent: Intent | None = None) -> str:
         # NOTE: 'intent' is not important for temporaries
-        if buffer in self._added_buffers:
-            return self.kernel_arg_names[buffer]
-        self._added_buffers.add(buffer)
+        if buffer.name in self.data_arguments:
+            return self.kernel_arg_names[buffer.name]
+        self.data_arguments[buffer.name] = buffer
 
-        name = self.add_temporary(
-            "t",
-            buffer.dtype,
-            shape=self._temporary_shapes.get(buffer.name, (buffer.size,)),
-            address_space=lp.AddressSpace.LOCAL,
-        )
-        self.kernel_arg_names[buffer] = name
+        shape = self._temporary_shapes.get(buffer.name, (buffer.size,))
+        name = self.add_temporary("t", buffer.dtype, shape=shape)
+        self.kernel_arg_names[buffer.name] = name
         return name
 
     def add_temporary(self, prefix="t", dtype=IntType, *, shape=(), **kwargs) -> str:
         name = self.unique_name(prefix)
-        arg = lp.TemporaryVariable(name, dtype=dtype, shape=shape, **kwargs)
+        arg = lp.TemporaryVariable(
+            name,
+            dtype=dtype,
+            shape=shape,
+            address_space=lp.AddressSpace.LOCAL,
+            **kwargs,
+        )
         self._args.append(arg)
         return name
 
     def add_parameter(self, parameter: Parameter, *, prefix="p") -> str:
-        # NOTE: _added_buffers is maybe a misnomer, figure out some good terminology
-        # 'kernel_args'? 'global_args'?
         # TODO: This is the same as for Buffer, refactor
-        if parameter in self._added_buffers:
-            return
-        self._added_buffers.add(parameter)
+        if parameter.name in self.data_arguments:
+            return self.data_arguments[parameter.name]
+        self.data_arguments[parameter.name] = parameter
 
         name = self.unique_name(prefix)
         arg = lp.ValueArg(name, dtype=parameter.dtype)
         self._args.append(arg)
-        self.kernel_arg_names[parameter] = name
+        self.kernel_arg_names[parameter.name] = name
         return name
 
     def add_subkernel(self, subkernel):
@@ -505,14 +508,14 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
     # needed?
     translation_unit = translation_unit.with_entrypoints(entrypoint.name)
 
-    data_arguments = utils.invert_mapping(context.kernel_arg_names)
-    ordered_data_arguments = []
+    data_argument_names = utils.invert_mapping(context.kernel_arg_names)
+    data_arguments = []
     buffer_intents = {}
-    for loopy_arg in entrypoint.args:
-        data_argument = data_arguments[loopy_arg.name]
-        ordered_data_arguments.append(data_argument)
+    for kernel_arg in entrypoint.args:
+        data_argument_name = data_argument_names[kernel_arg.name]
+        data_arguments.append(context.data_arguments[data_argument_name])
 
-    return CodegenResult(translation_unit, ordered_data_arguments, context.global_buffer_intents, compiler_parameters)
+    return CodegenResult(translation_unit, data_arguments, context.global_buffer_intents, compiler_parameters)
 
 
 # put into a class in transform.py?
@@ -550,7 +553,7 @@ def _(assignment: AbstractAssignment, /) -> PMap:
 def _(call: DirectCalledFunction):
     return freeze(
         {
-            arg.name: lp_arg.shape
+            arg.buffer.name: lp_arg.shape
             for lp_arg, arg in checked_zip(
                 call.function.code.default_entrypoint.args, call.arguments
             )
@@ -687,8 +690,9 @@ def _(call: DirectCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> Non
 
             # Register data
             # TODO This might be bad for temporaries
-            if isinstance(arg, _Dat):
-                temp_name = ctx.add_buffer(arg.buffer)
+            # NOTE: not sure why I added this condition before
+            # if isinstance(arg, _Dat):
+            temp_name = ctx.add_buffer(arg.buffer)
 
             # this should already be done in an assignment
             # ctx.add_temporary(temporary.name, temporary.dtype, shape)
@@ -766,21 +770,16 @@ def _compile_petscmat(assignment, loop_indices, context):
 
     # now emit the right line of code, this should properly be a lp.ScalarCallable
     # https://petsc.org/release/manualpages/Mat/MatGetValuesLocal/
-    context.add_buffer(assignment.assignee, assignment_type_as_intent(assignment.assignment_type))
-    context.add_buffer(assignment.expression, READ)
-
-    mat_name = context.kernel_buffer_names[mat.buffer]
-    array_name = context.kernel_buffer_names[array.buffer]
+    mat_name = context.add_buffer(assignment.assignee.buffer, assignment_type_as_intent(assignment.assignment_type))
+    array_name = context.add_buffer(assignment.expression.buffer, READ)
 
     for row_path in assignment.row_axis_tree.leaf_paths:
         for col_path in assignment.col_axis_tree.leaf_paths:
             row_layout = mat.row_layouts[row_path]
-            context.add_buffer(row_layout.buffer, READ)
-            rmap_name = context.kernel_buffer_names[row_layout.buffer]
+            rmap_name = context.add_buffer(row_layout.buffer, READ)
 
             col_layout = mat.col_layouts[col_path]
-            context.add_buffer(col_layout.buffer, READ)
-            cmap_name = context.kernel_buffer_names[col_layout.buffer]
+            cmap_name = context.add_buffer(col_layout.buffer, READ)
 
             blocked = mat.mat.block_shape > 1
     # if mat.nested:
@@ -862,14 +861,15 @@ def _compile_petscmat(assignment, loop_indices, context):
             myargs = [
                 assignment, mat_name, array_expr, rsize_var, csize_var, irow, icol, blocked
             ]
-            access_type = assignment.access_type
-            if access_type == ArrayAccessType.READ:
-                call_str = _petsc_mat_load(*myargs)
-            elif access_type == ArrayAccessType.WRITE:
-                call_str = _petsc_mat_store(*myargs)
-            else:
-                assert access_type == ArrayAccessType.INC
-                call_str = _petsc_mat_add(*myargs)
+            match assignment.access_type:
+                case ArrayAccessType.READ:
+                    call_str = _petsc_mat_load(*myargs)
+                case ArrayAccessType.WRITE:
+                    call_str = _petsc_mat_store(*myargs)
+                case ArrayAccessType.INC:
+                    call_str = _petsc_mat_add(*myargs)
+                case _:
+                    raise AssertionError
 
             context.add_cinstruction(call_str)
 
@@ -1043,9 +1043,8 @@ def _(loop_var: LoopIndexVar, intent, iname_maps, loop_indices, *args, **kwargs)
 def maybe_multiindex(dat, offset_expr, context):
     # hack to handle the fact that temporaries can have shape but we want to
     # linearly index it here
-    if dat.name in context._temporary_shapes:
-        shape = context._temporary_shapes[dat.name]
-        assert shape is not None
+    if dat.buffer.name in context._temporary_shapes:
+        shape = context._temporary_shapes[dat.buffer.name]
         rank = len(shape)
         extra_indices = (0,) * (rank - 1)
 
@@ -1251,4 +1250,7 @@ def _(arg: lp.ArrayArg) -> type:
 
 @cast_loopy_arg_to_ctypes_type.register(lp.ValueArg)
 def _(arg: lp.ValueArg):
-    return np.ctypeslib.as_ctypes_type(arg.dtype)
+    if isinstance(arg.dtype, OpaqueType):
+        return ctypes.c_voidp
+    else:
+        return np.ctypeslib.as_ctypes_type(arg.dtype)
