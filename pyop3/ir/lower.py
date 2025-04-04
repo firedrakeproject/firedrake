@@ -3,14 +3,17 @@ from __future__ import annotations
 import abc
 import collections
 import contextlib
+import ctypes
 import dataclasses
 import enum
 import functools
+import os
 import numbers
 import textwrap
-from functools import cached_property
-from typing import Any
+import warnings
 import weakref
+from collections.abc import Mapping
+from typing import Any
 
 from cachetools import cachedmethod
 from petsc4py import PETSc
@@ -22,16 +25,18 @@ from pyrsistent import freeze, pmap, PMap
 
 import pyop2
 
+from pyop3 import utils
 from pyop3.array import Dat, _Dat, _ExpressionDat, _ConcretizedDat, _ConcretizedMat
 from pyop3.array.base import Array
 from pyop3.array.petsc import Mat, AbstractMat
 from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent
-from pyop3.buffer import Buffer, NullBuffer, PackedBuffer
+from pyop3.buffer import AbstractBuffer, Buffer, NullBuffer, PackedBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
 from pyop3.ir.transform import with_likwid_markers, with_petsc_event
 from pyop3.itree.tree import LoopIndexVar
 from pyop3.lang import (
+    Intent,
     INC,
     MAX_RW,
     MAX_WRITE,
@@ -42,6 +47,7 @@ from pyop3.lang import (
     RW,
     AbstractAssignment,
     NullInstruction,
+    assignment_type_as_intent,
     parse_compiler_parameters,
     WRITE,
     AssignmentType,
@@ -65,6 +71,7 @@ from pyop3.utils import (
     as_tuple,
     checked_zip,
     just_one,
+    maybe_generate_name,
     merge_dicts,
     single_valued,
     strictly_all,
@@ -93,8 +100,6 @@ class LoopyCodegenContext(CodegenContext):
         self._args = []
         self._subkernels = []
 
-        self.actual_to_kernel_rename_map = {}
-
         self._within_inames = frozenset()
         self._last_insn_id = None
 
@@ -103,10 +108,11 @@ class LoopyCodegenContext(CodegenContext):
         # TODO remove
         self._dummy_names = {}
 
-        self._seen_arrays = set()
-
-        self.datamap = weakref.WeakValueDictionary()
-        self.intents = {}
+        self._added_buffers = weakref.WeakSet()
+        # global buffer -> intent
+        self.global_buffer_intents = weakref.WeakKeyDictionary()
+        # global buffer -> name in kernel
+        self.kernel_arg_names = weakref.WeakKeyDictionary()
 
     @property
     def domains(self):
@@ -123,13 +129,6 @@ class LoopyCodegenContext(CodegenContext):
     @property
     def subkernels(self):
         return tuple(self._subkernels)
-
-    @property
-    def kernel_to_actual_rename_map(self):
-        return {
-            kernel: actual
-            for actual, kernel in self.actual_to_kernel_rename_map.items()
-        }
 
     def add_domain(self, iname, *args):
         nargs = len(args)
@@ -192,62 +191,95 @@ class LoopyCodegenContext(CodegenContext):
             name = self._dummy_names.setdefault(arg, self._name_generator("dummy"))
         self._args.append(lp.ValueArg(name, dtype=dtype))
 
-    # TODO we pass a lot more data here than we need I think, need to use unique *buffers*
-    def add_array(self, array: Array, intent) -> None:
-        if array.name in self._seen_arrays:
-            # not all array are in intents, only external things
-            if array.name in self.intents and intent != self.intents[array.name]:
-                raise ValueError("cannot have multiple intents for the same array")
-            return
-        self._seen_arrays.add(array.name)
+    @functools.singledispatchmethod
+    def add_buffer(self, buffer: Any, intent: Intent | None = None) -> str:
+        raise TypeError(f"No handler defined for {type(buffer).__name__}")
 
-        self.datamap[array.name] = array
+    @add_buffer.register(Buffer)
+    def _(self, buffer: Buffer, intent: Intent| None = None) -> str:
+        if intent is None:
+            raise ValueError("Global data must declare intent")
 
-        if isinstance(array.buffer, NullBuffer):
-            name = self.unique_name("t")
-            shape = self._temporary_shapes.get(array.name, (array.alloc_size,))
-            arg = lp.TemporaryVariable(
-                name, dtype=array.dtype, shape=shape, read_only=array.constant, address_space=lp.AddressSpace.LOCAL,
-            )
-        # NOTE: It only makes sense to inject *buffers*, not, say, Dats
-        # except that isn't totally true. One could have dat[::2] as a constant and only
-        # want to inject the used entries
-        elif array.constant and array.buffer.size < config["max_static_array_size"]:
-            name = self.unique_name("t")
-            arg = lp.TemporaryVariable(
-                name,
-                dtype=array.dtype,
-                initializer=array.buffer.data_ro,
-                address_space=lp.AddressSpace.LOCAL,
+        if buffer in self._added_buffers:
+            if intent != self.global_buffer_intents[buffer]:
+                raise ValueError("Cannot have mismatching intents for the same global buffer")
+            return self.kernel_arg_names[buffer]
+
+        self._added_buffers.add(buffer)
+        self.global_buffer_intents[buffer] = intent
+
+        # Inject constant buffer data into the generated code if sufficiently small
+        # TODO: Need to consider 'constant-ness'. Something may be immutable but still
+        # not match across ranks.
+        if buffer.constant and buffer.size < config["max_static_array_size"]:
+            return self.add_temporary(
+                "t",
+                buffer.dtype,
+                initializer=buffer.data_ro,
                 read_only=True,
+                address_space=lp.AddressSpace.LOCAL,
             )
-        elif isinstance(array.buffer, Buffer):
-            self.intents[array.name] = intent
-            name = self.unique_name("buffer")
-            arg = lp.GlobalArg(name, dtype=self._dtype(array), shape=None)
-        else:
-            assert isinstance(array.buffer, PETSc.Mat)
-            self.intents[array.name] = "SPECIAL INTENT, needs thought"
-            name = self.unique_name("mat")
-            arg = lp.ValueArg(name, dtype=self._dtype(array))
 
-        self.actual_to_kernel_rename_map[array.name] = name
+        name = self.unique_name("buffer")
+        arg = lp.GlobalArg(name, dtype=buffer.dtype, shape=None)
         self._args.append(arg)
+        self.kernel_arg_names[buffer] = name
+        return name
 
-    # can this now go? no, not all things are arrays
-    def add_temporary(self, name, dtype=IntType, shape=()):
-        temp = lp.TemporaryVariable(name, dtype=dtype, shape=shape)
-        self._args.append(temp)
+    @add_buffer.register(PETSc.Mat)
+    def _(self, buffer: PETSc.Mat, intent: Intent | None = None) -> str:
+        if intent is None:
+            raise ValueError("Global data must declare intent")
 
-    def add_parameter(self, parameter: Parameter) -> str:
-        self.datamap[parameter.id] = parameter
+        # TODO: This is the same as for Buffer, refactor
+        if buffer in self._added_buffers:
+            if intent != self.global_buffer_intents[buffer]:
+                raise ValueError("Cannot have mismatching intents for the same global buffer")
+            return self.kernel_arg_names[buffer]
 
-        name = self.unique_name("p")
-        self.actual_to_kernel_rename_map[parameter.id] = name
+        self._added_buffers.add(buffer)
+        self.global_buffer_intents[buffer] = intent
 
-        loopy_arg = lp.ValueArg(name, dtype=parameter.box.dtype)
-        self._args.append(loopy_arg)
+        name = self.unique_name("mat")
+        arg = lp.ValueArg(name, dtype=OpaqueType("Mat"))
+        self._args.append(arg)
+        self.kernel_arg_names[buffer] = name
+        return name
 
+    @add_buffer.register(NullBuffer)
+    def _(self, buffer: NullBuffer, intent: Intent | None = None) -> str:
+        # NOTE: 'intent' is not important for temporaries
+        if buffer in self._added_buffers:
+            return self.kernel_arg_names[buffer]
+        self._added_buffers.add(buffer)
+
+        name = self.add_temporary(
+            "t",
+            buffer.dtype,
+            shape=self._temporary_shapes.get(buffer.name, (buffer.size,)),
+            address_space=lp.AddressSpace.LOCAL,
+        )
+        self.kernel_arg_names[buffer] = name
+        return name
+
+    def add_temporary(self, prefix="t", dtype=IntType, *, shape=(), **kwargs) -> str:
+        name = self.unique_name(prefix)
+        arg = lp.TemporaryVariable(name, dtype=dtype, shape=shape, **kwargs)
+        self._args.append(arg)
+        return name
+
+    def add_parameter(self, parameter: Parameter, *, prefix="p") -> str:
+        # NOTE: _added_buffers is maybe a misnomer, figure out some good terminology
+        # 'kernel_args'? 'global_args'?
+        # TODO: This is the same as for Buffer, refactor
+        if parameter in self._added_buffers:
+            return
+        self._added_buffers.add(parameter)
+
+        name = self.unique_name(prefix)
+        arg = lp.ValueArg(name, dtype=parameter.dtype)
+        self._args.append(arg)
+        self.kernel_arg_names[parameter] = name
         return name
 
     def add_subkernel(self, subkernel):
@@ -268,41 +300,6 @@ class LoopyCodegenContext(CodegenContext):
     def _depends_on(self):
         return frozenset({self._last_insn_id}) - {None}
 
-    # TODO Perhaps this should be made more public so external users can register
-    # arguments. I don't want to make it a property to attach to the objects since
-    # that would "tie us in" to loopy more than I would like.
-    @functools.singledispatchmethod
-    def _dtype(self, array):
-        """Return the dtype corresponding to a given kernel argument.
-
-        This function is required because we need to distinguish between the
-        dtype of the data stored in the array and that of the array itself. For
-        basic arrays loopy can figure this out but for complex types like `PetscMat`
-        it would otherwise get this wrong.
-
-        """
-        raise TypeError(f"No handler provided for {type(array).__name__}")
-
-    @_dtype.register(_Dat)
-    def _(self, array):
-        return self._dtype(array.buffer)
-
-    @_dtype.register(Buffer)
-    def _(self, array):
-        return array.dtype
-
-    @_dtype.register
-    def _(self, array: PackedBuffer):
-        return self._dtype(array.array)
-
-    @_dtype.register
-    def _(self, array: AbstractMat):
-        return OpaqueType("Mat")
-
-    @_dtype.register(PETSc.Mat)
-    def _(self, mat):
-        return OpaqueType("Mat")
-
     def _add_instruction(self, insn):
         self._insns.append(insn)
         self._last_insn_id = insn.id
@@ -316,13 +313,10 @@ class LoopyCodegenContext(CodegenContext):
 # and lowering to go...
 class CodegenResult:
     # TODO: intents and datamap etc maybe all go together. All relate to the same objects
-    def __init__(self, ir, arg_replace_map, datamap, intents, compiler_parameters):
-        self.ir = ir
-        self.arg_replace_map = arg_replace_map
-
-        ??? here need to think about BUFFERS, not dats etc
-        self.datamap = datamap
-        self.intents = intents
+    def __init__(self, loopy_kernel, data_arguments, global_buffer_intents, compiler_parameters):
+        self.loopy_kernel = loopy_kernel
+        self.data_arguments = data_arguments
+        self.global_buffer_intents = global_buffer_intents
         self.compiler_parameters = compiler_parameters
 
         # self._cache = collections.defaultdict(dict)
@@ -330,23 +324,29 @@ class CodegenResult:
     # @cachedmethod(lambda self: self._cache["CodegenResult._compile"])
     # not really needed, just a @property
     def _compile(self):
-        return compile_loopy(self.ir, pyop3_compiler_parameters=self.compiler_parameters)
+        return compile_loopy(self.loopy_kernel, pyop3_compiler_parameters=self.compiler_parameters)
 
     def __call__(self, **kwargs):
+        if not self.global_buffer_intents:
+            warnings.warn(
+                "Attempting to execute a kernel that does not touch any global "
+                "data, skipping"
+            )
+            return
+
+        executable = self._compile()
+
         # TODO: Check each of kwargs and make sure that the replacement is
         # valid (e.g. same size, same data type, same layout funcs).
-        data_args = []
-        for kernel_arg in self.ir.default_entrypoint.args:
-            actual_arg_name = self.arg_replace_map[kernel_arg.name]
-            array = kwargs.get(actual_arg_name, self.datamap[actual_arg_name])
-            data_args.append(as_kernel_arg(array))
+        kernel_args = []
+        for data_argument in self.data_arguments:
+            data_argument = kwargs.get(data_argument.name, data_argument)
+            kernel_args.append(as_kernel_arg(data_argument))
 
         # if len(self.ir.callables_table) > 1:
         #     breakpoint()
 
-        if len(data_args) > 0:
-            executable = self._compile()
-            executable(*data_args)
+        executable(*kernel_args)
 
     def target_code(self, target):
         raise NotImplementedError("TODO")
@@ -418,7 +418,7 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
     else:
         cs_expr = (insn,)
 
-    ctx = LoopyCodegenContext()
+    context = LoopyCodegenContext()
     # NOTE: so I think LoopCollection is a better abstraction here - don't want to be
     # explicitly dealing with contexts at this point. Can always sniff them out again.
     # for context, ex in cs_expr:
@@ -446,20 +446,20 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
 
         for e in as_tuple(ex): # TODO: get rid of this loop
             # context manager?
-            ctx.set_temporary_shapes(_collect_temporary_shapes(e))
-            _compile(e, loop_indices, ctx)
+            context.set_temporary_shapes(_collect_temporary_shapes(e))
+            _compile(e, loop_indices, context)
 
     # add a no-op instruction touching all of the kernel arguments so they are
     # not silently dropped
     noop = lp.CInstruction(
         (),
         "",
-        read_variables=frozenset({a.name for a in ctx.arguments}),
+        read_variables=frozenset({a.name for a in context.arguments}),
         within_inames=frozenset(),
         within_inames_is_final=True,
-        depends_on=ctx._depends_on,
+        depends_on=context._depends_on,
     )
-    ctx._insns.append(noop)
+    context._insns.append(noop)
 
     preambles = [
         ("20_debug", "#include <stdio.h>"),  # dont always inject
@@ -480,9 +480,9 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
     ]
 
     translation_unit = lp.make_kernel(
-        ctx.domains,
-        ctx.instructions,
-        ctx.arguments,
+        context.domains,
+        context.instructions,
+        context.arguments,
         name=function_name,
         target=LOOPY_TARGET,
         lang_version=LOOPY_LANG_VERSION,
@@ -497,7 +497,7 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
         entrypoint = with_petsc_event(entrypoint)
     translation_unit = translation_unit.with_kernel(entrypoint)
 
-    translation_unit = lp.merge((translation_unit, *ctx.subkernels))
+    translation_unit = lp.merge((translation_unit, *context.subkernels))
 
     # add callables
     # tu = lp.register_callable(tu, "bsearch", BinarySearchCallable())
@@ -505,7 +505,14 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
     # needed?
     translation_unit = translation_unit.with_entrypoints(entrypoint.name)
 
-    return CodegenResult(translation_unit, ctx.kernel_to_actual_rename_map, ctx.datamap, ctx.intents, compiler_parameters)
+    data_arguments = utils.invert_mapping(context.kernel_arg_names)
+    ordered_data_arguments = []
+    buffer_intents = {}
+    for loopy_arg in entrypoint.args:
+        data_argument = data_arguments[loopy_arg.name]
+        ordered_data_arguments.append(data_argument)
+
+    return CodegenResult(translation_unit, ordered_data_arguments, context.global_buffer_intents, compiler_parameters)
 
 
 # put into a class in transform.py?
@@ -681,7 +688,7 @@ def _(call: DirectCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> Non
             # Register data
             # TODO This might be bad for temporaries
             if isinstance(arg, _Dat):
-                ctx.add_array(arg, "should be a temp")
+                temp_name = ctx.add_buffer(arg.buffer)
 
             # this should already be done in an assignment
             # ctx.add_temporary(temporary.name, temporary.dtype, shape)
@@ -694,7 +701,6 @@ def _(call: DirectCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> Non
                 indices.append(pym.var(iname))
             indices = tuple(indices)
 
-            temp_name = ctx.actual_to_kernel_rename_map[temporary.name]
             subarrayrefs[arg] = lp.symbolic.SubArrayRef(
                 indices, pym.subscript(pym.var(temp_name), indices)
             )
@@ -760,21 +766,21 @@ def _compile_petscmat(assignment, loop_indices, context):
 
     # now emit the right line of code, this should properly be a lp.ScalarCallable
     # https://petsc.org/release/manualpages/Mat/MatGetValuesLocal/
-    context.add_array(mat, "TODO")
-    context.add_array(array, "Hmm")
+    context.add_buffer(assignment.assignee, assignment_type_as_intent(assignment.assignment_type))
+    context.add_buffer(assignment.expression, READ)
 
-    mat_name = context.actual_to_kernel_rename_map[mat.name]
-    array_name = context.actual_to_kernel_rename_map[array.name]
+    mat_name = context.kernel_buffer_names[mat.buffer]
+    array_name = context.kernel_buffer_names[array.buffer]
 
     for row_path in assignment.row_axis_tree.leaf_paths:
         for col_path in assignment.col_axis_tree.leaf_paths:
             row_layout = mat.row_layouts[row_path]
-            context.add_array(row_layout, READ)
-            rmap_name = context.actual_to_kernel_rename_map[row_layout.name]
+            context.add_buffer(row_layout.buffer, READ)
+            rmap_name = context.kernel_buffer_names[row_layout.buffer]
 
             col_layout = mat.col_layouts[col_path]
-            context.add_array(col_layout, READ)
-            cmap_name = context.actual_to_kernel_rename_map[col_layout.name]
+            context.add_buffer(col_layout.buffer, READ)
+            cmap_name = context.kernel_buffer_names[col_layout.buffer]
 
             blocked = mat.mat.block_shape > 1
     # if mat.nested:
@@ -989,19 +995,11 @@ def add_leaf_assignment(
     codegen_context,
     loop_indices,
 ):
-    if assignment.assignment_type == AssignmentType.WRITE:
-        intent = WRITE
-    else:
-        assert assignment.assignment_type == AssignmentType.INC
-        intent = INC
-
+    intent = assignment_type_as_intent(assignment.assignment_type)
     lexpr = lower_expr(assignment.assignee, intent, iname_replace_maps, loop_indices, codegen_context, paths=paths)
     rexpr = lower_expr(assignment.expression, READ, iname_replace_maps, loop_indices, codegen_context, paths=paths)
 
-    if assignment.assignment_type == AssignmentType.WRITE:
-        pass
-    else:
-        assert assignment.assignment_type == AssignmentType.INC
+    if assignment.assignment_type == AssignmentType.INC:
         rexpr = lexpr + rexpr
 
     codegen_context.add_assignment(lexpr, rexpr)
@@ -1052,9 +1050,8 @@ def maybe_multiindex(dat, offset_expr, context):
         extra_indices = (0,) * (rank - 1)
 
         # also has to be a scalar, not an expression
-        temp_offset_name = context.unique_name("j")
+        temp_offset_name = context.add_temporary("j")
         temp_offset_var = pym.var(temp_offset_name)
-        context.add_temporary(temp_offset_name)
         context.add_assignment(temp_offset_var, offset_expr)
         indices = extra_indices + (temp_offset_var,)
     else:
@@ -1065,54 +1062,44 @@ def maybe_multiindex(dat, offset_expr, context):
 
 @lower_expr.register(_ConcretizedDat)
 def _(dat: _ConcretizedDat, /, intent, iname_maps, loop_indices, context, paths):
+    name_in_kernel = context.add_buffer(dat.buffer, intent)
+
     iname_map = just_one(iname_maps)
     path = just_one(paths)
-
-    context.add_array(dat, intent)
-
-    new_name = context.actual_to_kernel_rename_map[dat.name]
-
-    layout_expr = dat.layouts[path]
-    offset_expr = lower_expr(layout_expr, READ, [iname_map], loop_indices, context)
+    offset_expr = lower_expr(dat.layouts[path], READ, [iname_map], loop_indices, context)
     indices = maybe_multiindex(dat, offset_expr, context)
 
-    return pym.subscript(pym.var(new_name), indices)
+    return pym.subscript(pym.var(name_in_kernel), indices)
 
 
 @lower_expr.register(_ConcretizedMat)
 def _(mat: _ConcretizedMat, /, intent, iname_maps, loop_indices, context, paths):
-    context.add_array(mat, intent)
-
-    new_name = context.actual_to_kernel_rename_map[mat.name]
+    name_in_kernel = context.add_buffer(mat.buffer, intent)
 
     row_iname_map, col_iname_map = iname_maps
     row_path, col_path = paths
 
     row_layout_expr = mat.row_layouts[row_path]
-    col_layout_expr = mat.col_layouts[col_path]
-
     row_offset_expr = lower_expr(row_layout_expr, READ, [row_iname_map], loop_indices, context)
+
+    col_layout_expr = mat.col_layouts[col_path]
     col_offset_expr = lower_expr(col_layout_expr, READ, [col_iname_map], loop_indices, context)
 
     offset_expr = row_offset_expr * mat.mat.caxes.size + col_offset_expr
     indices = maybe_multiindex(mat, offset_expr, context)
 
-    rexpr = pym.subscript(pym.var(new_name), indices)
-    return rexpr
+    return pym.subscript(pym.var(name_in_kernel), indices)
 
 
 @lower_expr.register(_ExpressionDat)
 def _(dat: _ExpressionDat, /, intent, iname_maps, loop_indices, context, paths=None):
+    kernel_arg_name = context.add_buffer(dat.buffer, intent)
+
     iname_map = just_one(iname_maps)
-
-    context.add_array(dat, intent)
-
-    new_name = context.actual_to_kernel_rename_map[dat.name]
-
     offset_expr = lower_expr(dat.layout, READ, [iname_map], loop_indices, context)
     indices = maybe_multiindex(dat, offset_expr, context)
-    rexpr = pym.subscript(pym.var(new_name), indices)
-    return rexpr
+
+    return pym.subscript(pym.var(kernel_arg_name), indices)
 
 
 @functools.singledispatch
@@ -1133,56 +1120,57 @@ def _(param: Parameter, inames, loop_indices, context):
 @register_extent.register(_ExpressionDat)
 def _(extent, /, intent, iname_replace_map, loop_indices, context):
     expr = lower_expr(extent, READ, [iname_replace_map], loop_indices, context)
-    varname = context.unique_name("p")
-    context.add_temporary(varname)
+    varname = context.add_temporary("p")
     context.add_assignment(pym.var(varname), expr)
     return varname
 
 
 # lives here??
 @functools.singledispatch
-def as_kernel_arg(obj: Any) -> int:
+def as_kernel_arg(obj: Any) -> numbers.Number:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@as_kernel_arg.register(numbers.Integral)
-def _(num: numbers.Integral) -> int:
-    return int(num)
+# @as_kernel_arg.register(numbers.Integral)
+# def _(num: numbers.Integral) -> int:
+#     return int(num)
 
 
 @as_kernel_arg.register(Parameter)
-def _(param: Parameter) -> int:
-    return as_kernel_arg(param.value)
+def _(param: Parameter) -> np.number:
+    return param.value
 
 
-@as_kernel_arg.register(np.ndarray)
-def _(array: np.ndarray) -> int:
-    return array.ctypes.data
+# @as_kernel_arg.register(np.ndarray)
+# def _(array: np.ndarray) -> int:
+#     return array.ctypes.data
+
+
+# @as_kernel_arg.register
+# def _(arg: _Dat):
+#     # TODO if we use the right accessor here we modify the state appropriately
+#     return as_kernel_arg(arg.buffer)
 
 
 @as_kernel_arg.register
-def _(arg: _Dat):
-    # TODO if we use the right accessor here we modify the state appropriately
-    return as_kernel_arg(arg.buffer)
-
-
-@as_kernel_arg.register
-def _(arg: Buffer):
+def _(arg: Buffer) -> int:
     # TODO if we use the right accessor here we modify the state appropriately
     # NOTE: Do not use .data_rw accessor here since this would trigger a halo exchange
-    return as_kernel_arg(arg._data)
+    return arg._data.ctypes.data
 
 
-@as_kernel_arg.register
-def _(arg: PackedBuffer):
-    return as_kernel_arg(arg.array)
+# @as_kernel_arg.register
+# def _(arg: PackedBuffer):
+#     return as_kernel_arg(arg.array)
 
 
-@as_kernel_arg.register
-def _(array: AbstractMat):
-    return array.mat.handle
+# @as_kernel_arg.register
+# def _(array: AbstractMat):
+#     return array.mat.handle
 
 
+# NOTE: I think that we should probably have a MatBuffer or similar type so
+# array.buffer is universal
 @as_kernel_arg.register(PETSc.Mat)
 def _(mat):
     return mat.handle
@@ -1208,12 +1196,13 @@ def compile_loopy(translation_unit, *, pyop3_compiler_parameters):
     :kwarg comm: Optional communicator to compile the code on (only
         rank 0 compiles code) (defaults to pyop2.mpi.COMM_WORLD).
     """
-    import ctypes, os
     from pyop2.utils import get_petsc_dir
     from pyop2.compilation import load
 
     code = lp.generate_code_v2(translation_unit).device_code()
-    argtypes = [ctypes.c_voidp for _ in translation_unit.default_entrypoint.args]
+    argtypes = [
+        cast_loopy_arg_to_ctypes_type(arg) for arg in translation_unit.default_entrypoint.args
+    ]
     restype = None
 
     # ideally move this logic somewhere else
@@ -1248,3 +1237,18 @@ def compile_loopy(translation_unit, *, pyop3_compiler_parameters):
     func.argtypes = argtypes
     func.restype = restype
     return func
+
+
+@functools.singledispatch
+def cast_loopy_arg_to_ctypes_type(obj: Any) -> type:
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
+
+
+@cast_loopy_arg_to_ctypes_type.register(lp.ArrayArg)
+def _(arg: lp.ArrayArg) -> type:
+    return ctypes.c_voidp
+
+
+@cast_loopy_arg_to_ctypes_type.register(lp.ValueArg)
+def _(arg: lp.ValueArg):
+    return np.ctypeslib.as_ctypes_type(arg.dtype)

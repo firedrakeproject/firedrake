@@ -63,18 +63,21 @@ READ = Intent.READ
 WRITE = Intent.WRITE
 RW = Intent.RW
 INC = Intent.INC
+NA = Intent.NA
+
+# NOTE: I dont think that these are needed any more. Just RW access?
 MIN_RW = Intent.MIN_RW
 MIN_WRITE = Intent.MIN_WRITE
 MAX_RW = Intent.MAX_RW
 MAX_WRITE = Intent.MAX_WRITE
-NA = Intent.NA
 
 
-@dataclasses.dataclass(frozen=True)  # TODO: Add kw_only=True in Python 3.10
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class CompilerParameters:
     # Optimisation options
 
     compress_indirection_maps: bool = False
+    interleave_comp_comm: bool = False
 
     # Profiling options
 
@@ -85,10 +88,11 @@ class CompilerParameters:
 DEFAULT_COMPILER_PARAMETERS = CompilerParameters()
 
 
-MACRO_COMPILER_PARAMETERS = immutabledict.ImmutableOrderedDict({
+META_COMPILER_PARAMETERS = immutabledict.ImmutableOrderedDict({
+    # TODO: when implemented should also set interleave_comp_comm to True
     "optimize": {"compress_indirection_maps": True}
 })
-"""'Macro' compiler parameters that set multiple options at once."""
+"""'Meta' compiler parameters that set multiple options at once."""
 # NOTE: These must be boolean options
 
 
@@ -120,7 +124,7 @@ def parse_compiler_parameters(compiler_parameters) -> ParsedCompilerParameters:
         compiler_parameters = dict(compiler_parameters)
 
     parsed_parameters = dataclasses.asdict(DEFAULT_COMPILER_PARAMETERS)
-    for macro_param, specific_params in MACRO_COMPILER_PARAMETERS.items():
+    for macro_param, specific_params in META_COMPILER_PARAMETERS.items():
         # Do not rely on the truthiness of variables here. We want to make
         # sure that the user has provided a boolean value.
         if compiler_parameters.pop(macro_param, False) == True:
@@ -276,34 +280,29 @@ class Loop(Instruction):
         # TODO just parse into ContextAwareLoop and call that
         from pyop3.ir.lower import compile
         from pyop3.itree.tree import partition_iterset
+        from pyop3.buffer import Buffer
 
         compiler_parameters = parse_compiler_parameters(compiler_parameters)
 
         code = self.compile(compiler_parameters)
 
-        breakpoint()
-        # TODO: handle interleaving as a compiler_parameter somehow
-        if self.comm.size == 1:
-            initializers = []
-            reductions = []
-            broadcasts = []
-        else:
-            # how do we get the right intent?
-            # can track as we do codegen
-            # means MAX etc isn't needed...
-            initializers, reductions, broadcasts = zip(
-                (
-                    Loop._buffer_exchanges(arg, code.intents[k])
-                    for k, arg in code.datamap.items()
-                ),
-                strict=True,
-            )
+        initializers = []
+        reductions = []
+        broadcasts = []
+        if self.comm.size > 1:
+            for data_arg in code.data_arguments:
+                if not isinstance(data_arg, Buffer):
+                    continue
 
-        if False:
-        # if self.is_parallel:
-            # FIXME: The partitioning code does not seem to always run properly
-            # so for now do all the transfers in advance.
-            # interleave computation and communication
+                inits, reds, bcasts = Loop._buffer_exchanges(
+                    data_arg, code.global_buffer_intents[data_arg]
+                )
+                initializers.extend(inits)
+                reductions.extend(reds)
+                broadcasts.extend(bcasts)
+
+        # TODO: handle interleaving as a compiler_parameter somehow
+        if compiler_parameters.interleave_comp_comm:
             new_index, (icore, iroot, ileaf) = partition_iterset(
                 self.index, [a for a, _ in self.function_arguments]
             )
@@ -312,9 +311,6 @@ class Loop(Instruction):
             #
             # # substitute subsets into loopexpr, should maybe be done in partition_iterset
             # parallel_loop = self.copy(index=new_index)
-
-            # interleave communication and computation
-            initializers, reductions, broadcasts = self._array_updates()
 
             for init in initializers:
                 init()
@@ -355,8 +351,17 @@ class Loop(Instruction):
 
             # also may need to eagerly assemble Mats, or be clever and spike the accessors?
         else:
-            with PETSc.Log.Event(f"compute_{self.name}_serial"):
-                code(**kwargs)
+            # Unoptimised case: perform all transfers eagerly
+            for init in initializers:
+                init()
+            for red in reductions:
+                red()
+            for bcast in broadcasts:
+                bcast()
+
+            # TODO: reenable logging (what is 'self.name')?
+            # with PETSc.Log.Event(f"apply_{self.name}"):
+            code(**kwargs)
 
     @property
     def comm(self):
@@ -746,6 +751,16 @@ class NullInstruction(Terminal):
 class AssignmentType(enum.Enum):
     WRITE = "write"
     INC = "inc"
+
+
+def assignment_type_as_intent(assignment_type: AssignmentType) -> Intent:
+    match assignment_type:
+        case AssignmentType.WRITE:
+            return Intent.WRITE
+        case AssignmentType.INC:
+            return Intent.INC
+        case _:
+            raise AssertionError(f"{assignment_type} not recognised")
 
 
 class AbstractAssignment(Terminal):

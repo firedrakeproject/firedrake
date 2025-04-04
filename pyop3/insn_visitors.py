@@ -250,7 +250,7 @@ class ImplicitPackUnpackExpander(Transformer):
                     axes = AxisTree(arg.axes.node_map)
                     temporary = Dat(
                         axes,
-                        buffer=NullBuffer(arg.dtype),  # does this need a size?
+                        buffer=NullBuffer(axes.alloc_size, arg.dtype),
                         prefix="t",
                     )
                 else:
@@ -260,7 +260,7 @@ class ImplicitPackUnpackExpander(Transformer):
                     temporary = Mat(
                         raxes,
                         caxes,
-                        mat=NullBuffer(arg.dtype),
+                        mat=NullBuffer(raxes.alloc_size*caxes.alloc_size, arg.dtype),
                         prefix="t",
                     )
 
@@ -434,7 +434,7 @@ def _(array: Array, /, access_type):
         if isinstance(array, Dat):
             temp_initial = Dat(
                 AxisTree(array.parent.axes.node_map),
-                buffer=NullBuffer(array.dtype),
+                buffer=NullBuffer(array.axes.alloc_size, array.dtype),
                 prefix="t"
             )
             temp_reshaped = temp_initial.with_axes(array.axes)
@@ -443,7 +443,7 @@ def _(array: Array, /, access_type):
             temp_initial = Mat(
                 AxisTree(array.parent.raxes.node_map),
                 AxisTree(array.parent.caxes.node_map),
-                mat=NullBuffer(array.dtype),
+                mat=NullBuffer(array.parent.raxes.alloc_size*array.parent.caxes.alloc_size, array.dtype),
                 prefix="t"
             )
             temp_reshaped = temp_initial.with_axes(array.raxes, array.caxes)

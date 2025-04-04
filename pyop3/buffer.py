@@ -10,11 +10,12 @@ from mpi4py import MPI
 from petsc4py import PETSc
 from pyrsistent import freeze, pmap
 
+from pyop3 import utils
 from pyop3.dtypes import IntType, ScalarType
 from pyop3.lang import KernelArgument
 from pyop2.mpi import COMM_SELF
 from pyop3.sf import StarForest
-from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, readonly
+from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
 
 
 class IncompatibleStarForestException(Exception):
@@ -55,15 +56,26 @@ class AbstractBuffer(KernelArgument, abc.ABC):
 
     @property
     @abc.abstractmethod
+    def size(self):
+        pass
+
+    @property
+    @abc.abstractmethod
     def dtype(self):
         pass
 
+    @property
+    @abc.abstractmethod
+    def name(self):
+        pass
+
+    # needed? the motivation is that one can consider arrays as having 2 dtypes. E.g.
+    # 'double*' or 'double' (the whole thing or the entries)
     @property
     def kernel_dtype(self):
         return self.dtype
 
 
-# TODO: Should this carry a size?
 class NullBuffer(AbstractBuffer):
     """A buffer that does not carry data.
 
@@ -74,14 +86,25 @@ class NullBuffer(AbstractBuffer):
 
     """
 
-    def __init__(self, dtype=None):
+    def __init__(self, size, dtype=None):
         if dtype is None:
             dtype = self.DEFAULT_DTYPE
+
+        self._size = size
         self._dtype = dtype
+        self._name = utils.unique_name("null")
+
+    @property
+    def size(self):
+        return self._size
 
     @property
     def dtype(self):
         return self._dtype
+
+    @property
+    def name(self):
+        return self._name
 
 
 class Buffer(AbstractBuffer):
@@ -96,16 +119,17 @@ class Buffer(AbstractBuffer):
     _prefix = "buffer"
     _name_generator = UniqueNameGenerator()
 
-    def __init__(self, data: np.ndarray, sf: StarForest | None, *, name=None, prefix=None):
+    def __init__(self, data: np.ndarray, sf: StarForest | None, *, constant=False, name=None, prefix=None):
         if name and prefix:
             raise ValueError("Can only specify one of name and prefix")
 
-        name = name or self._name_generator(prefix or self._prefix)
+        name = maybe_generate_name(name, prefix, self._prefix, generator=self._name_generator)
 
         # FIXME: Clearly not lazy!
         self._lazy_data = data
         self.sf = sf
-        self.name = name
+        self._name = name
+        self.constant = constant
 
         # counter used to keep track of modifications
         self.state = 0
@@ -132,12 +156,20 @@ class Buffer(AbstractBuffer):
         return cls(data, **kwargs)
 
     @property
-    def comm(self) -> MPI.Comm:
-        return self.sf.comm
+    def size(self) -> int:
+        return self._data.size
 
     @property
     def dtype(self):
         return self._data.dtype
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.sf.comm
 
     @property
     @not_in_flight
@@ -222,10 +254,6 @@ class Buffer(AbstractBuffer):
         self._pending_reduction = None
         self._leaves_valid = False
         return self._data
-
-    @property
-    def size(self) -> int:
-        return self._data.size
 
     def copy(self):
         return type(self)(
@@ -333,6 +361,7 @@ class Buffer(AbstractBuffer):
         self._broadcast_roots_to_leaves()
 
 
+# I dont use this any more!
 class PackedBuffer(AbstractBuffer):
     """Abstract buffer originating from a function call.
 

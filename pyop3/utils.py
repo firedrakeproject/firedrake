@@ -46,6 +46,19 @@ def unique_name(prefix: str) -> str:
     return _unique_name_generator(prefix)
 
 
+def maybe_generate_name(name, prefix, default_prefix, *, generator=_unique_name_generator):
+    if name is not None:
+        if prefix is not None:
+            raise ValueError("Can only specify one of 'name' and 'prefix'")
+        else:
+            return name
+    else:
+        if prefix is not None:
+            return generator(prefix)
+        else:
+            return generator(default_prefix)
+
+
 # NOTE: Python 3.13 has warnings.deprecated
 def deprecated(prefer=None, internal=False):
     def decorator(fn):
@@ -98,15 +111,29 @@ class UniqueRecord(pytools.ImmutableRecord, Identified):
         Identified.__init__(self, id)
 
 
-class Parameter(Identified):
+# class Parameter(Identified):
+#     """Wrapper class for a scalar value that differs between ranks."""
+#     def __init__(self, value):
+#         super().__init__(id=None)  # generate a fresh ID
+#         self.box = np.array([value])
+#
+#     @property
+#     def value(self):
+#         return just_one(self.box)
+
+
+# TODO: This is like Dat etc, a legit data carrier type
+class Parameter:
     """Wrapper class for a scalar value that differs between ranks."""
-    def __init__(self, value):
-        super().__init__(id=None)  # generate a fresh ID
-        self.box = np.array([value])
+    DEFAULT_PREFIX = "param"
+
+    def __init__(self, value, *, name=None, prefix=None):
+        self.value = as_numpy_scalar(value)
+        self.name = maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
     @property
-    def value(self):
-        return just_one(self.box)
+    def dtype(self):
+        return self.value.dtype
 
 
 class ValueMismatchException(Pyop3Exception):
@@ -366,6 +393,10 @@ def invert(p):
     return s
 
 
+def invert_mapping(mapping, *, mapping_type=dict):
+    return mapping_type((v, k) for k, v in mapping.items())
+
+
 @functools.singledispatch
 def strict_cast(obj: Any, dtype: type | np.dtype) -> Any:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
@@ -532,3 +563,7 @@ def unique_comm(iterable) -> MPI.Comm | None:
         elif item.comm != comm:
             raise ValueError("More than a single comm provided")
     return comm
+
+
+def as_numpy_scalar(value: numbers.Number) -> np.number:
+    return just_one(np.asarray([value]))

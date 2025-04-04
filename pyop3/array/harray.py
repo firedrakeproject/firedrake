@@ -192,7 +192,6 @@ class Dat(_Dat):
         max_value=None,
         name=None,
         prefix=None,
-        constant=False,
         ordered=False,
         parent=None,
     ):
@@ -224,9 +223,6 @@ class Dat(_Dat):
         self.buffer = buffer
         self.max_value = max_value
 
-        # TODO This attr really belongs to the buffer not the array
-        self.constant = constant
-
         # NOTE: This is a tricky one, is it an attribute of the dat or the buffer? What
         # if the Dat is indexed? Maybe it should be
         #
@@ -251,7 +247,7 @@ class Dat(_Dat):
 
     @property
     def _record_fields(self) -> frozenset:
-        return frozenset({"axes", "buffer", "max_value", "name", "constant", "ordered", "parent"})
+        return frozenset({"axes", "buffer", "max_value", "name", "ordered", "parent"})
 
     def __str__(self) -> str:
         try:
@@ -271,7 +267,7 @@ class Dat(_Dat):
     def __hash__(self) -> int:
         return hash(
             (
-                type(self), self.axes, self.dtype, self.buffer, self.max_value, self.name, self.constant, self.ordered)
+                type(self), self.axes, self.dtype, self.buffer, self.max_value, self.name, self.ordered)
         )
 
     @cachedmethod(lambda self: self.axes._cache)
