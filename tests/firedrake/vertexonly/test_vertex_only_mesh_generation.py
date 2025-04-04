@@ -16,7 +16,6 @@ def cell_midpoints(m):
     `midpoints` are the midpoints for the entire mesh even if the mesh is
     distributed and `local_midpoints` are the midpoints of only the
     rank-local non-ghost cells."""
-    m.init()
     V = VectorFunctionSpace(m, "DG", 0)
     f = Function(V).interpolate(SpatialCoordinate(m))
     # since mesh may be distributed, the number of cells on the MPI rank
@@ -121,7 +120,6 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     assert vm.geometric_dimension() == gdim
     assert vm.topological_dimension() == 0
     # Can initialise
-    vm.init()
     # has correct name
     assert vm.name == name
     # Find in-bounds and non-halo-region input coordinates
