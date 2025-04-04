@@ -1,8 +1,7 @@
 from firedrake import *
-from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 from pyop2.mpi import MPI
 import pytest
-from pytest_mpi import parallel_assert
+from pytest_mpi.parallel_assert import parallel_assert
 
 from operator import mul
 from functools import reduce
@@ -50,7 +49,9 @@ def ensemble():
 def mesh(ensemble):
     if COMM_WORLD.size == 1:
         return
-    return UnitSquareMesh(10, 10, comm=ensemble.comm, distribution_parameters={"partitioner_type": "simple"})
+    return UnitSquareMesh(
+        10, 10, comm=ensemble.comm,
+        distribution_parameters={"partitioner_type": "simple"})
 
 
 # mixed function space
@@ -67,7 +68,7 @@ def W(request, mesh):
 def urank(ensemble, mesh, W):
     if COMM_WORLD.size == 1:
         return
-    return unique_function(mesh, ensemble.ensemble_comm.rank, W)
+    return unique_function(mesh, ensemble.ensemble_rank, W)
 
 
 # sum of urank across all ranks
@@ -76,7 +77,7 @@ def urank_sum(ensemble, mesh, W):
     if COMM_WORLD.size == 1:
         return
     u = Function(W).assign(0)
-    for rank in range(ensemble.ensemble_comm.size):
+    for rank in range(ensemble.ensemble_size):
         u.assign(u + unique_function(mesh, rank, W))
     return u
 
@@ -103,7 +104,7 @@ def test_ensemble_allreduce(ensemble, mesh, W, urank, urank_sum, blocking):
         requests = ensemble.iallreduce(urank, u_reduce)
         MPI.Request.Waitall(requests)
 
-    parallel_assert(lambda: errornorm(urank_sum, u_reduce) < 1e-12)
+    parallel_assert(errornorm(urank_sum, u_reduce) < 1e-12)
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -155,7 +156,7 @@ def test_comm_manager_allreduce(blocking):
     f5 = Function(V5)
 
     with f4.dat.vec_ro as v4, f5.dat.vec_ro as v5:
-        parallel_assert(lambda: v4.getSizes() == v5.getSizes())
+        parallel_assert(v4.getSizes() == v5.getSizes())
 
     with pytest.raises(ValueError):
         allreduce(f4, f5)
@@ -184,17 +185,17 @@ def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
 
     # only u_reduce on rank root should be modified
     error = errornorm(urank_sum, u_reduce)
-    root_ranks = {ii + root*ensemble.comm.size for ii in range(ensemble.comm.size)}
+    rank = ensemble.ensemble_rank
     parallel_assert(
-        lambda: error < 1e-12,
-        participating=COMM_WORLD.rank in root_ranks,
-        msg=f"{error = :.5f}"  # noqa: E203, E251
+        error < 1e-12,
+        participating=(rank == root),
+        msg=f"{error=:.5f}"
     )
     error = errornorm(Function(W).assign(10), u_reduce)
     parallel_assert(
-        lambda: error < 1e-12,
-        participating=COMM_WORLD.rank not in root_ranks,
-        msg=f"{error = :.5f}"  # noqa: E203, E251
+        error < 1e-12,
+        participating=(rank != root),
+        msg=f"{error=:.5f}"
     )
 
     # check that u_reduce dat vector is still synchronised
@@ -204,7 +205,7 @@ def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
     with u_reduce.dat.vec as v:
         states[spatial_rank] = v.stateGet()
     ensemble.comm.Allgather(MPI.IN_PLACE, states)
-    parallel_assert(lambda: len(set(states)) == 1)
+    parallel_assert(len(set(states)) == 1)
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -255,7 +256,7 @@ def test_comm_manager_reduce(blocking):
     f5 = Function(V5)
 
     with f4.dat.vec_ro as v4, f5.dat.vec_ro as v5:
-        parallel_assert(lambda: v4.getSizes() == v5.getSizes())
+        parallel_assert(v4.getSizes() == v5.getSizes())
 
     with pytest.raises(ValueError):
         reduction(f4, f5)
@@ -283,18 +284,16 @@ def test_ensemble_bcast(ensemble, mesh, W, urank, root, blocking):
     # broadcasted function
     u_correct = unique_function(mesh, root, W)
 
-    parallel_assert(lambda: errornorm(u_correct, urank) < 1e-12)
+    parallel_assert(errornorm(u_correct, urank) < 1e-12)
 
 
 @pytest.mark.parallel(nprocs=6)
 @pytest.mark.parametrize("blocking", blocking)
 def test_send_and_recv(ensemble, mesh, W, blocking):
-    ensemble_rank = ensemble.ensemble_comm.rank
-    ensemble_size = ensemble.ensemble_comm.size
     rank0 = 0
     rank1 = 1
 
-    usend = unique_function(mesh, ensemble_size, W)
+    usend = unique_function(mesh, ensemble.ensemble_size, W)
     urecv = Function(W).assign(0)
 
     if blocking:
@@ -304,14 +303,14 @@ def test_send_and_recv(ensemble, mesh, W, blocking):
         send = ensemble.isend
         recv = ensemble.irecv
 
-    if ensemble_rank == rank0:
+    if ensemble.ensemble_rank == rank0:
         send_requests = send(usend, dest=rank1, tag=rank0)
         recv_requests = recv(urecv, source=rank1, tag=rank1)
         if not blocking:
             MPI.Request.waitall(send_requests)
             MPI.Request.waitall(recv_requests)
         error = errornorm(urecv, usend)
-    elif ensemble_rank == rank1:
+    elif ensemble.ensemble_rank == rank1:
         recv_requests = recv(urecv, source=rank0, tag=rank0)
         send_requests = send(usend, dest=rank0, tag=rank1)
         if not blocking:
@@ -323,23 +322,19 @@ def test_send_and_recv(ensemble, mesh, W, blocking):
 
     # Test send/recv between first two spatial comms
     # ie: ensemble.ensemble_comm.rank == 0 and 1
-    root_ranks = {ii + rank0*ensemble.comm.size for ii in range(ensemble.comm.size)}
-    root_ranks |= {ii + rank1*ensemble.comm.size for ii in range(ensemble.comm.size)}
     parallel_assert(
-        lambda: error < 1e-12,
-        participating=COMM_WORLD.rank in root_ranks,
-        msg=f"{error = :.5f}"  # noqa: E203, E251
+        error < 1e-12,
+        participating=ensemble.ensemble_rank in (rank0, rank1),
+        msg=f"{error=:.5f}"  # noqa: E203, E251
     )
 
 
 @pytest.mark.parallel(nprocs=6)
 @pytest.mark.parametrize("blocking", blocking)
 def test_sendrecv(ensemble, mesh, W, urank, blocking):
-    ensemble_rank = ensemble.ensemble_comm.rank
-    ensemble_size = ensemble.ensemble_comm.size
 
-    src_rank = (ensemble_rank - 1) % ensemble_size
-    dst_rank = (ensemble_rank + 1) % ensemble_size
+    src_rank = (ensemble.ensemble_rank - 1) % ensemble.ensemble_size
+    dst_rank = (ensemble.ensemble_rank + 1) % ensemble.ensemble_size
 
     usend = urank
     urecv = Function(W).assign(0)
@@ -350,21 +345,22 @@ def test_sendrecv(ensemble, mesh, W, urank, blocking):
     else:
         sendrecv = ensemble.isendrecv
 
-    requests = sendrecv(usend, dst_rank, sendtag=ensemble_rank,
+    requests = sendrecv(usend, dst_rank, sendtag=ensemble.ensemble_rank,
                         frecv=urecv, source=src_rank, recvtag=src_rank)
 
     if not blocking:
         MPI.Request.Waitall(requests)
 
-    parallel_assert(lambda: errornorm(urecv, u_expect) < 1e-12)
+    parallel_assert(errornorm(urecv, u_expect) < 1e-12)
 
 
 @pytest.mark.parallel(nprocs=6)
 def test_ensemble_solvers(ensemble, W, urank, urank_sum):
-    # this test uses linearity of the equation to solve two problems
-    # with different RHS on different subcommunicators,
-    # and compare the reduction with a problem solved with the sum
-    # of the two RHS
+    """
+    this test uses linearity of the equation to solve two problems
+    with different RHS on different subcommunicators, and compare
+    the reduction with a problem solved with the sum of the two RHS
+    """
     u = TrialFunction(W)
     v = TestFunction(W)
     a = (inner(u, v) + inner(grad(u), grad(v)))*dx
@@ -374,20 +370,11 @@ def test_ensemble_solvers(ensemble, W, urank, urank_sum):
     u_combined = Function(W)
     u_separate = Function(W)
 
-    params = {
-        "ksp_type": "preonly",
-        "pc_type": "redundant",
-        "redundant_pc_type": "lu",
-        "redundant_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS
-    }
-
     combinedProblem = LinearVariationalProblem(a, Lcombined, u_combined)
-    combinedSolver = LinearVariationalSolver(combinedProblem,
-                                             solver_parameters=params)
+    combinedSolver = LinearVariationalSolver(combinedProblem)
 
     separateProblem = LinearVariationalProblem(a, Lseparate, u_separate)
-    separateSolver = LinearVariationalSolver(separateProblem,
-                                             solver_parameters=params)
+    separateSolver = LinearVariationalSolver(separateProblem)
 
     combinedSolver.solve()
     separateSolver.solve()
@@ -395,4 +382,4 @@ def test_ensemble_solvers(ensemble, W, urank, urank_sum):
     usum = Function(W)
     ensemble.allreduce(u_separate, usum)
 
-    parallel_assert(lambda: errornorm(u_combined, usum) < 1e-8)
+    parallel_assert(errornorm(u_combined, usum) < 1e-8)
