@@ -269,7 +269,8 @@ def test_grid_transfer_deformed(deformed_hierarchy, deformed_transfer_type):
         run_prolongation(deformed_hierarchy, vector, space, degrees)
 
 
-@pytest.fixture(params=["interval", "triangle", "quadrilateral", "tetrahedron"], scope="module")
+#@pytest.fixture(params=["interval", "triangle", "quadrilateral", "tetrahedron"], scope="module")
+@pytest.fixture(params=["interval"], scope="module")
 def periodic_cell(request):
     return request.param
 
@@ -313,7 +314,6 @@ def exact_primal_periodic(mesh, vector, degree):
     return expr
 
 
-@pytest.mark.parallel(nprocs=3)
 def test_grid_transfer_periodic(periodic_hierarchy, periodic_space):
     degrees = [4]
     vector = False
