@@ -277,3 +277,19 @@ def test_solve_interp_u(mesh):
                                           "ksp_type": "cg",
                                           "pc_type": "none"})
     assert np.allclose(u.dat.data, u2.dat.data)
+
+
+def test_interp_subfunction(mesh):
+    V = FunctionSpace(mesh, "DG", 0)
+    v = TestFunction(V)
+    Fv = inner(1, v)*dx
+
+    W = V*V
+    w = TestFunction(W)
+    Fw = inner(1, w[0])*dx
+
+    I = Interpolate(w[0], Fv)
+
+    c0 = assemble(I)
+    c1 = assemble(Fw)
+    assert np.allclose(c0.dat.data_ro, c1.dat.data_ro)

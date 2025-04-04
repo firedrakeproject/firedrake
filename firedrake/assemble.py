@@ -549,8 +549,24 @@ class BaseFormAssembler(AbstractFormAssembler):
             # 4) Interpolate(Argument(V1, 0), Cofunction(...)) -> Action of the Jacobian adjoint
             # This can be generalized to the case where the first slot is an arbitray expression.
             rank = len(expr.arguments())
-            # If argument numbers have been swapped => Adjoint.
             arg_expression = ufl.algorithms.extract_arguments(expression)
+
+            # Handle interpolation of subfunctions
+            parent_tensor = None
+            if isinstance(expression, ufl.classes.Indexed):
+                assert rank == 1
+                A, multiindex = expression.ufl_operands
+                index, = map(int, multiindex)
+                # TODO handle more general case with ufl.replace
+                assert isinstance(A, firedrake.Argument)
+                V = A.function_space()
+                # Symbolic indirection for the input expression
+                expression = firedrake.Argument(V.sub(index), number=A.number(), part=A.part())
+                # Symbolic indirection for the output tensor
+                parent_tensor = tensor or firedrake.Cofunction(V.dual())
+                tensor = parent_tensor.sub(index)
+
+            # If argument numbers have been swapped => Adjoint.
             is_adjoint = (arg_expression and arg_expression[0].number() == 0)
             # Workaround: Renumber argument when needed since Interpolator assumes it takes a zero-numbered argument.
             if not is_adjoint and rank != 1:
@@ -559,20 +575,23 @@ class BaseFormAssembler(AbstractFormAssembler):
             # Get the interpolator
             interp_data = expr.interp_data
             default_missing_val = interp_data.pop('default_missing_val', None)
+
             interpolator = firedrake.Interpolator(expression, expr.function_space(), **interp_data)
             # Assembly
             if rank == 1:
                 # Assembling the action of the Jacobian adjoint.
                 if is_adjoint:
                     output = tensor or firedrake.Cofunction(arg_expression[0].function_space().dual())
-                    return interpolator._interpolate(v, output=output, adjoint=True, default_missing_val=default_missing_val)
+                    result = interpolator._interpolate(v, output=output, adjoint=True, default_missing_val=default_missing_val)
                 # Assembling the Jacobian action.
-                if interpolator.nargs:
-                    return interpolator._interpolate(expression, output=tensor, default_missing_val=default_missing_val)
+                elif interpolator.nargs:
+                    result = interpolator._interpolate(expression, output=tensor, default_missing_val=default_missing_val)
                 # Assembling the operator
-                if tensor is None:
-                    return interpolator._interpolate(default_missing_val=default_missing_val)
-                return firedrake.Interpolator(expression, tensor, **interp_data)._interpolate(default_missing_val=default_missing_val)
+                elif tensor is None:
+                    result = interpolator._interpolate(default_missing_val=default_missing_val)
+                else:
+                    result = firedrake.Interpolator(expression, tensor, **interp_data)._interpolate(default_missing_val=default_missing_val)
+                return parent_tensor or result
             elif rank == 2:
                 res = tensor.petscmat if tensor else PETSc.Mat()
                 # Get the interpolation matrix
