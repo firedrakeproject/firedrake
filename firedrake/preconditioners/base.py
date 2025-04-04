@@ -143,7 +143,7 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         if bcs:
             bcs = tuple(bc._as_nonlinear_variational_problem_arg(is_linear=True) for bc in bcs)
         nprob = LinearVariationalProblem(op, L, u, bcs=bcs, form_compiler_parameters=fcp)
-        return _SNESContext(nprob, mat_type, mat_type, old_appctx, options_prefix=options_prefix, pre_apply_bcs=pre_apply_bcs)
+        return _SNESContext(nprob, mat_type, mat_type, appctx=old_appctx, options_prefix=options_prefix, pre_apply_bcs=pre_apply_bcs)
 
 
 class PCBase(PCSNESBase):
