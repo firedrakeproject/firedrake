@@ -7,7 +7,7 @@ import os
 os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
 
 import pytest
-from firedrake.petsc import PETSc, get_external_packages
+from firedrake.petsc import PETSc, get_external_packages, get_petsc_variables
 
 
 def _skip_test_dependency(dependency):
@@ -145,10 +145,20 @@ def pytest_configure(config):
         "markers",
         "skipnetgen: mark as skipped if netgen and ngsPETSc is not installed"
     )
+    config.addinivalue_line(
+        "markers",
+        "skipcuda: mark as skipped if CUDA is not available"
+    )
 
 
 def pytest_collection_modifyitems(session, config, items):
     from firedrake.utils import complex_mode, SLATE_SUPPORTS_COMPLEX
+
+    try:
+        get_petsc_variables()["CUDA_VERSION"]
+        cuda_unavailable = False
+    except:
+        cuda_unavailable = True
 
     for item in items:
         if complex_mode:
@@ -159,6 +169,10 @@ def pytest_collection_modifyitems(session, config, items):
         else:
             if item.get_closest_marker("skipreal") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense unless in complex mode"))
+
+        if cuda_unavailable:
+            if item.get_closest_marker("skipcuda") is not None:
+                item.add_marker(pytest.mark.skip(reason="CUDA not available"))
 
         for dep, marker, reason in dependency_skip_markers_and_reasons:
             if _skip_test_dependency(dep) and item.get_closest_marker(marker) is not None:

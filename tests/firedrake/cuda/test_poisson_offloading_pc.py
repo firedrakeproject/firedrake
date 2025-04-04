@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 # TODO: add marker for cuda pytests and something to check if cuda memory was really used
+@pytest.mark.skipcuda
 @pytest.mark.parametrize("ksp_type, pc_type", [("cg", "sor"), ("cg", "gamg"), ("preonly", "lu")])
 def test_poisson_on_cuda(ksp_type, pc_type):
 

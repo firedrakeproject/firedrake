@@ -1,3 +1,5 @@
+#TODO: Fix and then move this as matrix arch into build.yml and 
+
 name: Install and test Firedrake (CUDA)
 
 on:
@@ -24,11 +26,18 @@ jobs:
         arch: [default]
     runs-on: [self-hosted, Linux]
     container:
-      image: firedrakeproject/firedrake-env:latest
+      image: nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+      options: --gpus all
     env:
       FIREDRAKE_CI: 1
       OMP_NUM_THREADS: 1
     steps:
+      - name: Fix HOME
+        # For unknown reasons GitHub actions overwrite HOME to /github/home
+        # which will break everything unless fixed
+        # (https://github.com/actions/runner/issues/863)
+        run: echo "HOME=/root" >> "$GITHUB_ENV"
+
       - name: Pre-run cleanup
         # Make sure the current directory is empty
         run: find . -delete
@@ -39,8 +48,12 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get -y install \
+          apt-get update
+          apt-get install -y curl
+          apt-get install -y git
+          apt-get install -y python3
+          apt install -y python3.12-venv
+          apt-get -y install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
 
       - name: Install PETSc
@@ -49,16 +62,16 @@ jobs:
           cd petsc
           # TODO update configure file
           ./configure --with-make-np=12 --with-c2html=0 --with-debugging=0 --with-fortran-bindings=0 --with-shared-libraries=1 --with-strict-petscerrorcode PETSC_ARCH=arch-firedrake-default --COPTFLAGS=-O3 -march=native -mtune=native --CXXOPTFLAGS=-O3 -march=native -mtune=native --FOPTFLAGS=-O3 -march=native -mtune=native --download-bison --download-fftw --download-hdf5 --download-hwloc --download-metis --download-mumps --download-netcdf --download-pnetcdf --download-ptscotch --download-scalapack --download-suitesparse --download-superlu_dist --download-zlib --download-hypre --with-cuda --with-cuda-dir=/usr/local/cuda CUDAPPFLAGS=-Wno-deprecated-gpu-targets --download-openmpi
-          make
+          make PETSC_DIR=/__w/firedrake/firedrake/petsc PETSC_ARCH=arch-firedrake-default all
           # TODO: This fails for some reason
-          # make check
+          make PETSC_DIR=/__w/firedrake/firedrake/petsc PETSC_ARCH=arch-firedrake-default check MPIEXEC="mpiexec --allow-run-as-root"
 
       - name: Install Firedrake
         id: install
         run: |
           # TODO update configure file for the exports
           # export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-env)
-          export PETSC_DIR=./petsc
+          export PETSC_DIR=/__w/firedrake/firedrake/petsc
           export PETSC_ARCH=arch-firedrake-default
           export MPI_HOME=$PETSC_DIR/$PETSC_ARCH
           export CC=$PETSC_DIR/$PETSC_ARCH/bin/mpicc

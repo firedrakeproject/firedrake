@@ -6,7 +6,7 @@ from firedrake.__future__ import interpolate
 import pytest
 
 
-# TODO: add marker for cuda pytestss
+@pytest.mark.skipcuda
 def test_kmv_wave_propagation_cuda():
     nested_parameters = {
         "ksp_type": "preonly",
