@@ -1,0 +1,57 @@
+:orphan: true
+
+.. title:: Finite Element Course at AIMS Rwanda
+
+Finite Element Course at AIMS Rwanda
+------------------------------------
+
+The Firedrake Team will be delivering a finite element course, with practical
+examples in Firedrake (of course!) at the `African Institute for Mathematical
+Sciences Rwanda <https://aims.ac.rw>`__ from 8 to 12 April 2025.
+
+Course programme
+----------------
+
+.. list-table::
+
+  * - 
+    - **Tuesday**
+    - **Wednesday**
+    - **Thursday**
+    - **Friday**
+    - **Saturday**
+  * - **Early AM**
+    - `Function spaces and inner products <https://wp.doc.ic.ac.uk/spo/wp-content/uploads/sites/31/2013/11/notes.pdf>`__
+    - The Ciarlet finite element
+    - Nonlinear problems
+    - Devito: inverse tomography
+    - Software for adjoints: differentiable programming
+  * - **Late AM**
+    - `Our first finite element problem <https://finite-element.github.io/L1_introduction.html>`__
+    - Firedrake practical 3: vector-valued problems
+    - Firedrake practical 5: The Burgers equation
+    - Devito: inverse tomography
+    - Adjoint practical 2: the tape
+  * - **Early PM**
+    - Firedrake practical 1: `Helmholtz Equation <https://colab.research.google.com/github/firedrakeproject/notebooks/blob/main/01-spd-helmholtz.ipynb>`__
+    - Systems with more than one variable
+    - An introduction to solvers and preconditioners
+    - Adjoints part 1: derivation
+    - ML and FEM
+  * - **Late PM**
+    - Firedrake practical 2: Dirichlet boundary conditions
+    - Firedrake practical 4: mixed Poisson
+    - Firedrake practical 6: solvers
+    - Adjoint practical 1: Burgers again
+    - ML and FEM practical
+
+
+
+Course lecturers
+----------------
+
+* `David Ham <https://profiles.imperial.ac.uk/david.ham>`__, Department of Mathematics, Imperial College London
+* `Nicolas Boullé <https://profiles.imperial.ac.uk/n.boulle>`__, Department of Mathematics, Imperial College London
+* `Jack Betteridge <https://www.devitocodes.com/about/#jack-betteridge-research-scientist>`__, Devito Codes and Department of Mathematics, Imperial College London
+
+
