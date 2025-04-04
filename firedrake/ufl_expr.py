@@ -348,7 +348,6 @@ def CellSize(mesh):
 
     :arg mesh: the mesh for which to calculate the cell size.
     """
-    mesh.init()
     return ufl.CellDiameter(mesh)
 
 
@@ -358,7 +357,6 @@ def FacetNormal(mesh):
 
     :arg mesh: the mesh over which the normal should be represented.
     """
-    mesh.init()
     return ufl.FacetNormal(mesh)
 
 
