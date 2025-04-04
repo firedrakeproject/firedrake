@@ -239,8 +239,9 @@ class FunctionMergeBlock(Block):
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
         if idx == 0:
-            return adj_inputs[0].subfunctions[self.idx]
+            return adj_inputs[0].subfunctions[self.idx].copy(deepcopy=True)
         else:
+            adj_inputs[0].subfunctions[self.idx].zero()
             return adj_inputs[0]
 
     def evaluate_tlm(self, markings=False):
