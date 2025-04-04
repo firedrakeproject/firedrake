@@ -87,4 +87,3 @@ class LinearSolver(LinearVariationalSolver):
         self.b.assign(b)
         super().solve()
         x.assign(self.x)
-

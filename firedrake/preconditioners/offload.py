@@ -1,14 +1,11 @@
-from firedrake.preconditioners.base import PCBase
-from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
+from firedrake.preconditioners.assembled import AssembledPC
 from firedrake.petsc import PETSc
-from firedrake.ufl_expr import TestFunction, TrialFunction
 import firedrake.dmhooks as dmhooks
-from firedrake.dmhooks import get_function_space
 
 __all__ = ("OffloadPC",)
 
 
-class OffloadPC(PCBase):
+class OffloadPC(AssembledPC):
     """Offload PC from CPU to GPU and back.
 
     Internally this makes a PETSc PC object that can be controlled by
@@ -18,69 +15,23 @@ class OffloadPC(PCBase):
     _prefix = "offload_"
 
     def initialize(self, pc):
-        with PETSc.Log.Event("Event: initialize offload"):  #
+        super().initialize(pc)
+
+        with PETSc.Log.Event("Event: initialize offload"):
             A, P = pc.getOperators()
 
-            outer_pc = pc
-            appctx = self.get_appctx(pc)
-            fcp = appctx.get("form_compiler_parameters")
-
-            V = get_function_space(pc.getDM())
-            if len(V) == 1:
-                V = FunctionSpace(V.mesh(), V.ufl_element())
-            else:
-                V = MixedFunctionSpace([V_ for V_ in V])
-            test = TestFunction(V)
-            trial = TrialFunction(V)
-
-            (a, bcs) = self.form(pc, test, trial)
-
-            if P.type == "assembled":
-                context = P.getPythonContext()
-                # It only makes sense to preconditioner/invert a diagonal
-                # block in general.  That's all we're going to allow.
-                if not context.on_diag:
-                    raise ValueError("Only makes sense to invert diagonal block")
-
-            prefix = pc.getOptionsPrefix()
-            options_prefix = prefix + self._prefix
-
-            mat_type = PETSc.Options().getString(options_prefix + "mat_type", "cusparse")
-
             # Convert matrix to ajicusparse
+            mat_type = PETSc.Options().getString(self._prefix + "mat_type", "cusparse")
             with PETSc.Log.Event("Event: matrix offload"):
                 P_cu = P.convert(mat_type='aijcusparse')  # todo
 
             # Transfer nullspace
             P_cu.setNullSpace(P.getNullSpace())
-            tnullsp = P.getTransposeNullSpace()
-            if tnullsp.handle != 0:
-                P_cu.setTransposeNullSpace(tnullsp)
+            P_cu.setTransposeNullSpace(P.getTransposeNullSpace())
             P_cu.setNearNullSpace(P.getNearNullSpace())
 
-            # PC object set-up
-            pc = PETSc.PC().create(comm=outer_pc.comm)
-            pc.incrementTabLevel(1, parent=outer_pc)
-
-            # We set a DM and an appropriate SNESContext on the constructed PC
-            # so one can do e.g. multigrid or patch solves.
-            dm = outer_pc.getDM()
-            self._ctx_ref = self.new_snes_ctx(
-                outer_pc, a, bcs, mat_type,
-                fcp=fcp, options_prefix=options_prefix
-            )
-
-            pc.setDM(dm)
-            pc.setOptionsPrefix(options_prefix)
-            pc.setOperators(A, P_cu)
-            self.pc = pc
-            with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref, save=False):
-                pc.setFromOptions()
-
-    def update(self, pc):
-        _, P = pc.getOperators()
-        _, P_cu = self.pc.getOperators()
-        P.copy(P_cu)
+            # Update preconditioner with GPU matrix
+            self.pc.setOperators(A, P_cu)
 
     def form(self, pc, test, trial):
         _, P = pc.getOperators()
