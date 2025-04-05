@@ -494,9 +494,10 @@ class BaseFormAssembler(AbstractFormAssembler):
             if all(isinstance(op, numbers.Complex) for op in args):
                 result = sum(weight * arg for weight, arg in zip(expr.weights(), args))
                 return tensor.assign(result) if tensor else result
-            elif all(isinstance(op, firedrake.Cofunction) for op in args):
+            elif (all(isinstance(op, firedrake.Cofunction) for op in args)
+                    or all(isinstance(op, firedrake.Function) for op in args)):
                 V, = set(a.function_space() for a in args)
-                result = tensor if tensor else firedrake.Cofunction(V)
+                result = tensor if tensor else firedrake.Function(V)
                 result.dat.maxpy(expr.weights(), [a.dat for a in args])
                 return result
             elif all(isinstance(op, ufl.Matrix) for op in args):
@@ -541,7 +542,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             if assembled_expression:
                 # Occur in situations such as Interpolate composition
                 expression = assembled_expression[0]
-            expr = expr._ufl_expr_reconstruct_(expression, v)
+            if (v, expression) != expr.argument_slots():
+                expr = expr._ufl_expr_reconstruct_(expression, v=v)
 
             # Different assembly procedures:
             # 1) Interpolate(Argument(V1, 1), Argument(V2.dual(), 0)) -> Jacobian (Interpolate matrix)
@@ -553,8 +555,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             arg_expression = ufl.algorithms.extract_arguments(expression)
 
             # Handle interpolation onto subfunctions
-            if (arg_expression and len(arg_expression[0].function_space()) > 1
-                    and not isinstance(expression, firedrake.Argument)):
+            if arg_expression and len(arg_expression[0].function_space()) > 1:
                 assert rank == 1
                 V = arg_expression[0].function_space()
                 if tensor is not None:
