@@ -85,14 +85,9 @@ class Interpolate(ufl.Interpolate):
                               the :meth:`interpolate` method or (b) set to zero.
                               Ignored if interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`.
         """
-
         # Check function space
         if isinstance(v, functionspaceimpl.WithGeometry):
             v = Argument(v.dual(), 0)
-
-        # Get the primal space (V** = V)
-        vv = v if not isinstance(v, ufl.Form) else v.arguments()[0]
-        self._function_space = vv.function_space().dual()
         super().__init__(expr, v)
 
         # -- Interpolate data (e.g. `subset` or `access`) -- #
@@ -101,8 +96,7 @@ class Interpolate(ufl.Interpolate):
                             "allow_missing_dofs": allow_missing_dofs,
                             "default_missing_val": default_missing_val}
 
-    def function_space(self):
-        return self._function_space
+    function_space = ufl.Interpolate.ufl_function_space
 
     def _ufl_expr_reconstruct_(self, expr, v=None, **interp_data):
         interp_data = interp_data or self.interp_data.copy()
@@ -1123,12 +1117,14 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     name = kernel.name
     kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
                         flop_count=kernel.flop_count, events=(kernel.event,))
+
     parloop_args = [kernel, cell_set]
 
     coefficients = tsfc_interface.extract_numbered_coefficients(expr, coefficient_numbers)
     if needs_external_coords:
         coefficients = [source_mesh.coordinates] + coefficients
 
+    needs_target_ref_coords = False
     if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
         if target_mesh is not source_mesh:
             # NOTE: TSFC will sometimes drop run-time arguments in generated
@@ -1143,14 +1139,10 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
             #       replacing `to_element` with a CoFunction/CoArgument as the
             #       target `dual` which would contain `dual` related
             #       coefficient(s))
-            if rt_var_name in [arg.name for arg in kernel.code[name].args]:
-                # Add the coordinates of the target mesh quadrature points in the
-                # source mesh's reference cell as an extra argument for the inner
-                # loop. (With a vertex only mesh this is a single point for each
-                # vertex cell.)
-                coefficients.append(target_mesh.reference_coordinates)
+            if any(arg.name == rt_var_name for arg in kernel.code[name].args):
+                needs_target_ref_coords = True
 
-    if tensor in set((c.dat for c in coefficients)):
+    if tensor in set(c.dat for c in coefficients):
         output = tensor
         tensor = op2.Dat(tensor.dataset)
         if access is not op2.WRITE:
@@ -1196,6 +1188,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     if needs_cell_sizes:
         cs = target_mesh.cell_sizes
         parloop_args.append(cs.dat(op2.READ, cs.cell_node_map()))
+
     for coefficient in coefficients:
         if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
             coeff_mesh = extract_unique_domain(coefficient)
@@ -1226,6 +1219,15 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     for const in extract_firedrake_constants(expr):
         parloop_args.append(const.dat(op2.READ))
+
+    if needs_target_ref_coords:
+        # Add the coordinates of the target mesh quadrature points in the
+        # source mesh's reference cell as an extra argument for the inner
+        # loop. (With a vertex only mesh this is a single point for each
+        # vertex cell.)
+        target_ref_coords = target_mesh.reference_coordinates
+        m_ = target_ref_coords.cell_node_map()
+        parloop_args.append(target_ref_coords.dat(op2.READ, m_))
 
     parloop = op2.ParLoop(*parloop_args)
     parloop_compute_callable = parloop.compute

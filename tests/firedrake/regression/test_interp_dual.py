@@ -277,3 +277,34 @@ def test_solve_interp_u(mesh):
                                           "ksp_type": "cg",
                                           "pc_type": "none"})
     assert np.allclose(u.dat.data, u2.dat.data)
+
+
+@pytest.mark.parametrize("family0,degree0,family1,degree1",
+                         [("DG", 1, "CG", 2),
+                          ("DG", 0, "RT", 1)])
+def test_interp_subfunction(mesh, family0, degree0, family1, degree1):
+    V = FunctionSpace(mesh, "DG", 0)
+    v = TestFunction(V)
+    Fv = inner(1, v)*dx
+
+    W0 = FunctionSpace(mesh, family0, degree0)
+    W1 = FunctionSpace(mesh, family1, degree1)
+    W = W0 * W1
+    w = TestFunction(W)
+
+    expr = sum(w[i] for i in np.ndindex(w.ufl_shape))
+
+    Fw = inner(1, expr)*dx(degree=0)
+    expected = assemble(Fw)
+
+    IFv = Interpolate(expr, Fv)
+
+    c = Cofunction(W.dual())
+    c.assign(99)
+    for tensor in (None, c):
+        result = assemble(IFv, tensor=tensor)
+        assert result.function_space() == W.dual()
+        if tensor:
+            assert result is tensor
+        for x, y, in zip(result.subfunctions, expected.subfunctions):
+            assert np.allclose(x.dat.data_ro, y.dat.data_ro)
