@@ -45,13 +45,13 @@ reading is available on the links above.
     - `Systems with more than one variable <https://finite-element.github.io/9_mixed_problems.html>`__
     - An introduction to solvers and preconditioners
     - Devito: inverse tomography
-    - ML and FEM
+    - Deep learning introduction, `practical <https://colab.research.google.com/github/NBoulle/physics-driven-ml/blob/main/tutorials/Tutorial_1_ex.ipynb>`__
   * - **Late PM**
     - Firedrake practical 2: `Dirichlet boundary conditions <https://colab.research.google.com/github/firedrakeproject/notebooks/blob/aims/02-poisson.ipynb>`__
     - Firedrake practical 4: `mixed Poisson <https://colab.research.google.com/github/firedrakeproject/notebooks/blob/aims/05-mixed-poisson.ipynb>`__
     - Firedrake practical 6: `solvers <https://colab.research.google.com/github/firedrakeproject/notebooks/blob/aims/08-composable-solvers.ipynb>`__
     - Adjoint practical 1: Burgers again
-    - ML and FEM practical
+    - Scientific machine learning, `practical <https://colab.research.google.com/github/NBoulle/physics-driven-ml/blob/main/tutorials/Tutorial_2_ex.ipynb>`__
 
 
 
