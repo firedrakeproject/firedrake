@@ -287,9 +287,7 @@ class Interpolator(abc.ABC):
         expr_args = extract_arguments(expr)
         if expr_args and expr_args[0].number() == 0:
             v, = expr_args
-            expr = replace(expr, {v: Argument(v.function_space(),
-                                              number=1,
-                                              part=v.part())})
+            expr = replace(expr, {v: v.reconstruct(number=1)})
         self.expr_renumbered = expr
 
     def _interpolate_future(self, *function, transpose=None, adjoint=False, default_missing_val=None):
@@ -864,7 +862,7 @@ class SameMeshInterpolator(Interpolator):
                 raise ValueError("The expression had arguments: we therefore need to be given a Function (not an expression) to interpolate!")
             if adjoint:
                 mul = assembled_interpolator.handle.multHermitian
-                V = self.arguments[0].function_space()
+                V = self.arguments[0].function_space().dual()
             else:
                 mul = assembled_interpolator.handle.mult
                 V = self.V

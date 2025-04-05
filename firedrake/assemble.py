@@ -555,8 +555,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             arg_expression = ufl.algorithms.extract_arguments(expression)
 
             # Handle interpolation onto subfunctions
-            if arg_expression and len(arg_expression[0].function_space()) > 1:
-                assert rank == 1
+            if (arg_expression and len(arg_expression[0].function_space()) > 1
+                    and rank == 1 and len(v.function_space()) == 1):
                 V = arg_expression[0].function_space()
                 if tensor is not None:
                     assert tensor.function_space() == V.dual()
@@ -575,17 +575,19 @@ class BaseFormAssembler(AbstractFormAssembler):
             # Workaround: Renumber argument when needed since Interpolator assumes it takes a zero-numbered argument.
             if not is_adjoint and rank != 1:
                 _, v1 = expr.arguments()
-                expression = ufl.replace(expression, {v1: firedrake.Argument(v1.function_space(), number=0, part=v1.part())})
+                expression = ufl.replace(expression, {v1: v1.reconstruct(number=0)})
             # Get the interpolator
+            V = expr.function_space()
+            if is_adjoint:
+                V = V.dual()
             interp_data = expr.interp_data
             default_missing_val = interp_data.pop('default_missing_val', None)
-            interpolator = firedrake.Interpolator(expression, expr.function_space(), **interp_data)
+            interpolator = firedrake.Interpolator(expression, V, **interp_data)
             # Assembly
             if rank == 1:
                 # Assembling the action of the Jacobian adjoint.
                 if is_adjoint:
-                    output = tensor or firedrake.Cofunction(arg_expression[0].function_space().dual())
-                    return interpolator._interpolate(v, output=output, adjoint=True, default_missing_val=default_missing_val)
+                    return interpolator._interpolate(v, output=tensor, adjoint=True, default_missing_val=default_missing_val)
                 # Assembling the Jacobian action.
                 elif interpolator.nargs:
                     return interpolator._interpolate(expression, output=tensor, default_missing_val=default_missing_val)
