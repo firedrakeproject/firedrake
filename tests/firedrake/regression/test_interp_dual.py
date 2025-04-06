@@ -279,24 +279,51 @@ def test_solve_interp_u(mesh):
     assert np.allclose(u.dat.data, u2.dat.data)
 
 
-@pytest.mark.parametrize("family0,degree0,family1,degree1",
-                         [("DG", 1, "CG", 2),
-                          ("DG", 0, "RT", 1)])
-def test_interp_subfunction(mesh, family0, degree0, family1, degree1):
-    V = FunctionSpace(mesh, "DG", 0)
-    v = TestFunction(V)
-    Fv = inner(1, v)*dx
-
+@pytest.fixture(params=[("DG", 1, "CG", 2),
+                        ("DG", 0, "RT", 1)],
+                ids=lambda x: "-".join(map(str, x)))
+def target_space(mesh, request):
+    family0, degree0, family1, degree1 = request.param
     W0 = FunctionSpace(mesh, family0, degree0)
     W1 = FunctionSpace(mesh, family1, degree1)
     W = W0 * W1
+    return W
+
+
+@pytest.fixture(params=["scalar", "vector", "mixed"])
+def source_space(mesh, request):
+    if request.param == "scalar":
+        return FunctionSpace(mesh, "DG", 0)
+    elif request.param == "vector":
+        return VectorFunctionSpace(mesh, "DG", 0, dim=3)
+    elif request.param == "mixed":
+        P0 = FunctionSpace(mesh, "DG", 0)
+        return P0 * P0 * P0
+    else:
+        raise ValueError("Unrecognized parameter")
+
+
+def test_interp_dual_mixed(source_space, target_space):
+    W = target_space
     w = TestFunction(W)
 
-    expr = sum(w[i] for i in np.ndindex(w.ufl_shape))
+    V = source_space
+    v = TestFunction(V)
 
-    Fw = inner(1, expr)*dx(degree=0)
+    expr0 = sum(w[i] for i in np.ndindex(w.ufl_shape))
+    if V.value_shape == ():
+        expr = expr0
+        q = 1
+    else:
+        expr1 = expr0 - 2*w[0]
+        expr2 = expr0 - 2*w[1]
+        expr = as_vector([expr0, expr1, expr2])
+        q = Constant([1, 2, -1])
+
+    Fw = inner(q, expr)*dx(degree=0)
     expected = assemble(Fw)
 
+    Fv = inner(q, v)*dx
     IFv = Interpolate(expr, Fv)
 
     c = Cofunction(W.dual())
