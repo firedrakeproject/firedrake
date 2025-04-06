@@ -51,7 +51,7 @@ reading is available on the links above.
     - Firedrake practical 4: `mixed Poisson <https://colab.research.google.com/github/firedrakeproject/notebooks/blob/aims/05-mixed-poisson.ipynb>`__
     - Firedrake practical 6: `solvers <https://colab.research.google.com/github/firedrakeproject/notebooks/blob/aims/08-composable-solvers.ipynb>`__
     - Adjoint practical 1: Burgers again
-    - Scientific machine learning, `practical <https://colab.research.google.com/github/NBoulle/physics-driven-ml/blob/main/tutorials/Tutorial_2_ex.ipynb>`__
+    - `Scientific machine learning <https://github.com/NBoulle/physics-driven-ml/raw/main/tutorials/sciml_intro.pdf>`__, `practical <https://colab.research.google.com/github/NBoulle/physics-driven-ml/blob/main/tutorials/Tutorial_2_ex.ipynb>`__
 
 
 
