@@ -1122,25 +1122,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     if needs_external_coords:
         coefficients = [source_mesh.coordinates] + coefficients
 
-    needs_target_ref_coords = False
-    if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
-        if target_mesh is not source_mesh:
-            # NOTE: TSFC will sometimes drop run-time arguments in generated
-            # kernels if they are deemed not-necessary.
-            # FIXME: Checking for argument name in the inner kernel to decide
-            # whether to add an extra coefficient is a stopgap until
-            # compile_expression_dual_evaluation
-            #   (a) outputs a coefficient map to indicate argument ordering in
-            #       parloops as `compile_form` does and
-            #   (b) allows the dual evaluation related coefficients to be supplied to
-            #       them rather than having to be added post-hoc (likely by
-            #       replacing `to_element` with a CoFunction/CoArgument as the
-            #       target `dual` which would contain `dual` related
-            #       coefficient(s))
-            if any(arg.name == rt_var_name for arg in kernel.code[name].args):
-                needs_target_ref_coords = True
-
-    if tensor in set(c.dat for c in coefficients):
+    if any(c.dat == tensor for c in coefficients):
         output = tensor
         tensor = op2.Dat(tensor.dataset)
         if access is not op2.WRITE:
@@ -1218,14 +1200,29 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     for const in extract_firedrake_constants(expr):
         parloop_args.append(const.dat(op2.READ))
 
-    if needs_target_ref_coords:
-        # Add the coordinates of the target mesh quadrature points in the
-        # source mesh's reference cell as an extra argument for the inner
-        # loop. (With a vertex only mesh this is a single point for each
-        # vertex cell.)
-        target_ref_coords = target_mesh.reference_coordinates
-        m_ = target_ref_coords.cell_node_map()
-        parloop_args.append(target_ref_coords.dat(op2.READ, m_))
+    # Finally, add the target mesh reference coordinates if they appear in the kernel
+    if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
+        if target_mesh is not source_mesh:
+            # NOTE: TSFC will sometimes drop run-time arguments in generated
+            # kernels if they are deemed not-necessary.
+            # FIXME: Checking for argument name in the inner kernel to decide
+            # whether to add an extra coefficient is a stopgap until
+            # compile_expression_dual_evaluation
+            #   (a) outputs a coefficient map to indicate argument ordering in
+            #       parloops as `compile_form` does and
+            #   (b) allows the dual evaluation related coefficients to be supplied to
+            #       them rather than having to be added post-hoc (likely by
+            #       replacing `to_element` with a CoFunction/CoArgument as the
+            #       target `dual` which would contain `dual` related
+            #       coefficient(s))
+            if any(arg.name == rt_var_name for arg in kernel.code[name].args):
+                # Add the coordinates of the target mesh quadrature points in the
+                # source mesh's reference cell as an extra argument for the inner
+                # loop. (With a vertex only mesh this is a single point for each
+                # vertex cell.)
+                target_ref_coords = target_mesh.reference_coordinates
+                m_ = target_ref_coords.cell_node_map()
+                parloop_args.append(target_ref_coords.dat(op2.READ, m_))
 
     parloop = op2.ParLoop(*parloop_args)
     parloop_compute_callable = parloop.compute

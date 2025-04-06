@@ -101,6 +101,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
                 self.F = replace(F, {F_arg: v_res, self.u: self.u_restrict})
             else:
                 self.F = Interpolate(v_res, replace(F, {self.u: self.u_restrict}))
+
             v_arg, u_arg = self.J.arguments()
             self.J = replace(self.J, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
             if self.Jp:
