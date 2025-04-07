@@ -1,7 +1,5 @@
 import logging
 
-import pytest
-
 import ufl
 import finat.ufl
 from tsfc import compile_form
