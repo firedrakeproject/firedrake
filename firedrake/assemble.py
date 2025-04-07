@@ -574,11 +574,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             # Dual interpolation into mixed target
             if is_adjoint and len(arg_expression[0].function_space()) > 1 and rank == 1:
                 V = arg_expression[0].function_space()
-                if tensor is not None:
-                    assert tensor.function_space() == V.dual()
-                    tensor.zero()
-                else:
-                    tensor = firedrake.Cofunction(V.dual())
+                tensor = tensor or firedrake.Cofunction(V.dual())
 
                 # Argument-split of the Interpolate gets assembled into the corresponding sub-tensor
                 for (i,), sub_interp in split_form(expr):
