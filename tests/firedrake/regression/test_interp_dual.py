@@ -280,13 +280,17 @@ def test_solve_interp_u(mesh):
 
 
 @pytest.fixture(params=[("DG", 1, "CG", 2),
-                        ("DG", 0, "RT", 1)],
+                        ("DG", 0, "RT", 1),
+                        ("CG", 1),
+                        ("RT", 1)],
                 ids=lambda x: "-".join(map(str, x)))
 def target_space(mesh, request):
-    family0, degree0, family1, degree1 = request.param
-    W0 = FunctionSpace(mesh, family0, degree0)
-    W1 = FunctionSpace(mesh, family1, degree1)
-    W = W0 * W1
+    spaces = []
+    for i in range(0, len(request.param), 2):
+        family, degree = request.param[i:i+2]
+        spaces.append(FunctionSpace(mesh, family, degree))
+
+    W = spaces[0] if len(spaces) == 1 else MixedFunctionSpace(spaces)
     return W
 
 
@@ -310,26 +314,31 @@ def test_interp_dual_mixed(source_space, target_space):
     V = source_space
     v = TestFunction(V)
 
-    expr0 = sum(w[i] for i in np.ndindex(w.ufl_shape))
-    if V.value_shape == ():
-        expr = expr0
-        q = 1
+    A_shape = V.value_shape + W.value_shape
+    if A_shape == ():
+        A = 1
     else:
-        expr1 = expr0 - 2*w[0]
-        expr2 = expr0 - 2*w[1]
-        expr = as_vector([expr0, expr1, expr2])
-        q = Constant([1, 2, -1])
+        mn = V.value_size * W.value_size
+        A = as_tensor(np.arange(1, 1+mn).reshape(A_shape))
 
-    Fw = inner(q, expr)*dx(degree=0)
-    expected = assemble(Fw)
+    if V.value_shape == ():
+        b = 1
+    else:
+        m = V.value_size
+        b = as_tensor(np.arange(1, 1+m).reshape(V.value_shape))
 
-    Fv = inner(q, v)*dx
-    IFv = Interpolate(expr, Fv)
+    expr = dot(A, w) if V.value_shape == () else A * w
+
+    F_target = inner(b, expr)*dx(degree=0)
+    expected = assemble(F_target)
+
+    F_source = inner(b, v)*dx
+    I_source = Interpolate(expr, F_source)
 
     c = Cofunction(W.dual())
     c.assign(99)
     for tensor in (None, c):
-        result = assemble(IFv, tensor=tensor)
+        result = assemble(I_source, tensor=tensor)
         assert result.function_space() == W.dual()
         if tensor:
             assert result is tensor

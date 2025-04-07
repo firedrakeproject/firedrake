@@ -543,9 +543,9 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # Occur in situations such as Interpolate composition
                 expression = assembled_expression[0]
 
-            Interpolator = expr._ufl_expr_reconstruct_
+            Interpolate = expr._ufl_expr_reconstruct_
             if (v, expression) != expr.argument_slots():
-                expr = Interpolator(expression, v=v)
+                expr = Interpolate(expression, v=v)
 
             # Different assembly procedures:
             # 1) Interpolate(Argument(V1, 1), Argument(V2.dual(), 0)) -> Jacobian (Interpolate matrix)
@@ -554,22 +554,25 @@ class BaseFormAssembler(AbstractFormAssembler):
             # 4) Interpolate(Argument(V1, 0), Cofunction(...)) -> Action of the Jacobian adjoint
             # This can be generalized to the case where the first slot is an arbitray expression.
             rank = len(expr.arguments())
+            # If argument numbers have been swapped => Adjoint.
             arg_expression = ufl.algorithms.extract_arguments(expression)
+            is_adjoint = (arg_expression and arg_expression[0].number() == 0)
 
-            # Interpolation into a MixedFunctionSpace
-            if (arg_expression and len(arg_expression[0].function_space()) > 1 and rank == 1):
-                if len(expr.function_space()) > 1:
-                    # Interpolation from a MixedFunctionSpace
-                    cur = 0
-                    sub_expressions = []
-                    components = numpy.reshape(expression, (-1,))
-                    for Vi in expr.function_space():
-                        sub_expressions.append(ufl.as_tensor(components[cur:cur+Vi.value_size].reshape(Vi.value_shape)))
-                        cur += Vi.value_size
+            # Dual interpolation from mixed source
+            if is_adjoint and len(expr.function_space()) > 1:
+                cur = 0
+                sub_expressions = []
+                components = numpy.reshape(expression, (-1,))
+                for Vi in expr.function_space():
+                    sub_expressions.append(ufl.as_tensor(components[cur:cur+Vi.value_size].reshape(Vi.value_shape)))
+                    cur += Vi.value_size
 
-                    expr = sum(Interpolator(sub_expressions[i[0]], v=vi) for i, vi in split_form(v))
-                    return assemble(expr, tensor=tensor)
+                # Component-split of the primal expression interpolated into the dual argument-split
+                split_interp = sum(Interpolate(sub_expressions[i], v=vi) for (i,), vi in split_form(v))
+                return assemble(split_interp, tensor=tensor)
 
+            # Dual interpolation into mixed target
+            if is_adjoint and len(arg_expression[0].function_space()) > 1 and rank == 1:
                 V = arg_expression[0].function_space()
                 if tensor is not None:
                     assert tensor.function_space() == V.dual()
@@ -577,14 +580,11 @@ class BaseFormAssembler(AbstractFormAssembler):
                 else:
                     tensor = firedrake.Cofunction(V.dual())
 
-                # Indirection by splitting the input expression and output tensor
-                for index, sub_expr in split_form(expr):
-                    i, = index
-                    assemble(sub_expr, tensor=tensor.subfunctions[i])
+                # Argument-split of the Interpolate gets assembled into the corresponding sub-tensor
+                for (i,), sub_interp in split_form(expr):
+                    assemble(sub_interp, tensor=tensor.subfunctions[i])
                 return tensor
 
-            # If argument numbers have been swapped => Adjoint.
-            is_adjoint = (arg_expression and arg_expression[0].number() == 0)
             # Get the primal space
             V = expr.function_space()
             if is_adjoint:
