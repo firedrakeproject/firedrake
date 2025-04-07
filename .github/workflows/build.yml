@@ -63,9 +63,21 @@ jobs:
           apt-get -y install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages) python3-venv parallel
 
+      # TODO: is there a 'blessed commit' or do we just point to 'main'?
+      - name: Determine PETSc refspec (master)
+        # if: github.ref == 'refs/heads/master'
+        if: false
+        # run: echo "PETSC_REFSPEC=''" >> "$GITHUB_ENV"
+        run: echo "PETSC_REFSPEC='--branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version)'" >> "$GITHUB_ENV"
+
+      - name: Determine PETSc refspec (release)
+        # if: github.ref == 'refs/heads/release'
+        if: true  # debugging, does this parse?
+        run: echo "PETSC_REFSPEC='--branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version)'" >> "$GITHUB_ENV"
+
       - name: Install PETSc
         run: |
-          git clone --depth 1 --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) https://gitlab.com/petsc/petsc.git
+          git clone --depth 1 "$PETSC_REFSPEC" https://gitlab.com/petsc/petsc.git
           cd petsc
           python3 ../firedrake-repo/scripts/firedrake-configure \
             --arch ${{ matrix.arch }} --show-petsc-configure-options | \
@@ -78,14 +90,27 @@ jobs:
       - name: Install Firedrake
         id: install
         run: |
-          export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-env)
+          export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch "${{ matrix.arch }}" --show-env)
           python3 -m venv venv
           . venv/bin/activate
           : # Force a rebuild of petsc4py as the cached one will not link to the fresh
           : # install of PETSc.
           pip cache remove petsc4py
           pip cache remove slepc4py
-          pip install --verbose \
+
+          if [ "${{ github.ref_name == 'master' }}" ]; then
+            : # Install build dependencies
+            pip install Cython libsupermesh mpi4py numpy pybind11 setuptools rtree
+            pip install $PETSC_DIR/src/binding/petsc4py
+
+            : # We have to pass '--no-build-isolation' to use a custom petsc4py
+            PIP_FLAGS='--no-build-isolation'
+          else
+            : # release
+            PIP_FLAGS=''
+          fi
+
+          pip install --verbose "$PIP_FLAGS" \
             --no-binary h5py \
             --extra-index-url https://download.pytorch.org/whl/cpu \
             './firedrake-repo[ci]'
