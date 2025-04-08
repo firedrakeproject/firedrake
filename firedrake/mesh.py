@@ -4676,6 +4676,6 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
     submesh = Mesh(subplex, name=name, distribution_parameters={"partition": False,
                                                                 "overlap_type": (DistributedMeshOverlapType.NONE, 0)})
     submesh.topology.submesh_parent = mesh.topology
-    submesh.submesh_parent = mesh
     submesh.init()
+    submesh.submesh_parent = mesh
     return submesh
