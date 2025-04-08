@@ -99,9 +99,13 @@ jobs:
           pip cache remove slepc4py
 
           if [ "${{ github.ref_name == 'master' }}" ]; then
-            : # Install build dependencies
-            pip install Cython libsupermesh mpi4py numpy pybind11 setuptools rtree
             pip install $PETSC_DIR/src/binding/petsc4py
+            pip install $PETSC_DIR/$PETSC_ARCH/externalpackages/git.slepc/src/binding/slepc4py
+
+            ./scripts/firedrake-dev-patch petsc4py slepc4py
+
+            : # Install the remaining build dependencies
+            pip install -r requirements-build.txt
 
             : # We have to pass '--no-build-isolation' to use a custom petsc4py
             PIP_FLAGS='--no-build-isolation'
