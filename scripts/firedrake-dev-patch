@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+
+"""TODO"""
+
+import argparse
+import pathlib
+import tomli
+import tomli_w
+
+
+# TODO: 
+# * logging
+# * save prev pyproj as pyproject.toml.orig
+# * also patch requirements-build.txt
+
+def main():
+    args = parse_args()
+
+    repo_root = pathlib.Path(__file__).parent.parent
+
+    with open(repo_root / "pyproject.toml", "rb") as f:
+        data = tomli.load(f)
+
+    removed_deps = set()
+    removed_deps |= filter_deps(data["project"]["dependencies"], args.existing_packages)
+    for optional_deps in data["project"]["optional-dependencies"].values():
+        removed_deps |= filter_deps(optional_deps, args.existing_packages)
+
+    print("Removed: ", removed_deps)
+
+    with open(repo_root / "pyproject.toml", "wb") as f:
+        tomli_w.dump(data, f)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("existing_packages", nargs="*")
+    return parser.parse_args()
+
+
+def filter_deps(deps, existing_packages):
+    to_remove = set()
+    for dep in deps:
+        if any(dep.startswith(p) for p in existing_packages):
+            to_remove.add(dep)
+    for dep in to_remove:
+        deps.remove(dep)
+    return to_remove
+
+
+if __name__ == "__main__":
+    main()
