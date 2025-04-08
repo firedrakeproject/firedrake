@@ -72,6 +72,7 @@ test = [
     "mpi-pytest",
     "pytest",
 ]
+# NOTE: I think 'ci' and 'docker' dependency groups are silly because they are single use
 # Dependencies needed to run the full test suite
 ci = [
     "ipympl",  # needed for notebook testing
@@ -79,7 +80,7 @@ ci = [
     "matplotlib",
     "mpi-pytest",
     "nbval",
-    "ngsPETSc",
+    # "ngsPETSc",
     "pylit",
     "pytest",
     "pytest-split",  # needed for firedrake-run-split-tests
