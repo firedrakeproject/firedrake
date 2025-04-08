@@ -7,3 +7,6 @@ pkgconfig
 pybind11
 setuptools>61.2
 rtree>=1.2
+
+# transitive build dependencies
+hatchling
