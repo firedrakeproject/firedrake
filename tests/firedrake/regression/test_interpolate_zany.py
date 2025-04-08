@@ -81,7 +81,7 @@ def vom(mesh):
 def test_interpolate_zany_into_vom(V, vom):
     P0 = FunctionSpace(vom, "DG", 0)
     vvom = TestFunction(P0)
-    Fvom = inner(1, vvom) *dx
+    Fvom = inner(1, vvom) * dx
 
     v = TestFunction(V)
     assemble(Interpolate(v, Fvom))
