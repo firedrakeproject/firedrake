@@ -715,7 +715,7 @@ class PlaneSmoother(object):
             raise NotImplementedError("Sorry, plane smoothers not yet implemented in complex mode")
         dm = pc.getDM()
         context = dm.getAttr("__firedrake_ctx__")
-        prefix = pc.getOptionsPrefix()
+        prefix = pc.getOptionsPrefix() or ""
         sentinel = object()
         sweeps = PETSc.Options(prefix).getString("pc_patch_construct_ps_sweeps", default=sentinel)
         if sweeps == sentinel:
@@ -759,6 +759,7 @@ class PlaneSmoother(object):
 class PatchBase(PCSNESBase):
 
     def initialize(self, obj):
+        breakpoint()
 
         ctx = get_appctx(obj.getDM())
         if ctx is None:
@@ -789,7 +790,7 @@ class PatchBase(PCSNESBase):
                 PETSc.Sys.Print("Warning: you almost surely want to set an overlap_type in your mesh's distribution_parameters.")
 
         patch = obj.__class__().create(comm=mesh.comm)
-        patch.setOptionsPrefix(obj.getOptionsPrefix() + "patch_")
+        patch.setOptionsPrefix((obj.getOptionsPrefix() or "") + "patch_")
         self.configure_patch(patch, obj)
         patch.setType("patch")
 
@@ -924,7 +925,7 @@ class PatchBase(PCSNESBase):
             self.patch.destroy()
 
     def user_construction_op(self, obj, *args, **kwargs):
-        prefix = obj.getOptionsPrefix()
+        prefix = obj.getOptionsPrefix() or ""
         sentinel = object()
         usercode = PETSc.Options(prefix).getString("%s_patch_construct_python_type" % self._objectname, default=sentinel)
         if usercode == sentinel:

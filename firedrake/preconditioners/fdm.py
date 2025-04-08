@@ -121,7 +121,7 @@ class FDMPC(PCBase):
         Citations().register(self._citation)
         self.comm = pc.comm
         Amat, Pmat = pc.getOperators()
-        prefix = pc.getOptionsPrefix()
+        prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
         options = PETSc.Options(options_prefix)
 
