@@ -759,7 +759,6 @@ class PlaneSmoother(object):
 class PatchBase(PCSNESBase):
 
     def initialize(self, obj):
-        breakpoint()
 
         ctx = get_appctx(obj.getDM())
         if ctx is None:
