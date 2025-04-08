@@ -2401,9 +2401,23 @@ values from f.)"""
         This is computed by the :math:`L^2` projection of the local mesh element size."""
         from firedrake.ufl_expr import CellSize
         from firedrake.functionspace import FunctionSpace
+        from firedrake.function import Function
         from firedrake.projection import project
-        P1 = FunctionSpace(self, "Lagrange", 1)
-        return project(CellSize(self), P1)
+
+        mesh = self
+        if self.topological_dimension() == 0:
+            P0 = FunctionSpace(mesh, "DG", 0)
+            return Function(P0).assign(1)
+
+        elif self.ufl_coordinate_element().degree() > 1:
+            V = self.coordinates.function_space().reconstruct(degree=1)
+            mesh = Mesh(Function(V).interpolate(self.coordinates))
+
+        P1 = FunctionSpace(mesh, "Lagrange", 1)
+        h = project(CellSize(mesh), P1)
+        if self is not mesh:
+            h = Function(P1.reconstruct(mesh=self), val=h.dat)
+        return h
 
     def clear_cell_sizes(self):
         """Reset the :attr:`cell_sizes` field on this mesh geometry.

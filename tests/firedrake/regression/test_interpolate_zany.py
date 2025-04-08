@@ -51,7 +51,7 @@ def expect(V, which):
         return a + b
 
 
-def test_interpolate(V, mesh, which, expect, tolerance):
+def test_interpolate_zany_into_cg(V, mesh, which, expect, tolerance):
     degree = V.ufl_element().degree()
     Vcg = FunctionSpace(mesh, "P", degree)
 
@@ -71,3 +71,17 @@ def test_interpolate(V, mesh, which, expect, tolerance):
         g.interpolate(a + b)
 
     assert numpy.allclose(norm(g - expect), 0, atol=tolerance)
+
+
+@pytest.fixture
+def vom(mesh):
+    return VertexOnlyMesh(mesh, [(0.5, 0.5)])
+
+
+def test_interpolate_zany_into_vom(V, vom):
+    P0 = FunctionSpace(vom, "DG", 0)
+    vvom = TestFunction(P0)
+    Fvom = inner(1, vvom) *dx
+
+    v = TestFunction(V)
+    assemble(Interpolate(v, Fvom))

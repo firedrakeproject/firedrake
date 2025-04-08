@@ -20,3 +20,12 @@ def test_meshes_volume_solidtorusmesh():
     vol = assemble(Constant(1., domain=mesh) * dx)
     exact = (pi * r * r) * (2 * pi * R)
     assert abs(vol - exact) / exact < .0005
+
+
+def test_meshes_cell_sizes():
+    msh = UnitDiskMesh(4)
+    msh.cell_sizes
+
+    V = msh.coordinates.function_space().reconstruct(degree=2)
+    msh = Mesh(Function(V).interpolate(msh.coordinates))
+    msh.cell_sizes
