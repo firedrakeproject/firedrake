@@ -8,28 +8,18 @@ import tomli
 import tomli_w
 
 
+REPO = pathlib.Path(__file__).parent.parent
+
+
 # TODO: 
 # * logging
 # * save prev pyproj as pyproject.toml.orig
-# * also patch requirements-build.txt
 
 def main():
     args = parse_args()
-
-    repo_root = pathlib.Path(__file__).parent.parent
-
-    with open(repo_root / "pyproject.toml", "rb") as f:
-        data = tomli.load(f)
-
-    removed_deps = set()
-    removed_deps |= filter_deps(data["project"]["dependencies"], args.existing_packages)
-    for optional_deps in data["project"]["optional-dependencies"].values():
-        removed_deps |= filter_deps(optional_deps, args.existing_packages)
-
-    print("Removed: ", removed_deps)
-
-    with open(repo_root / "pyproject.toml", "wb") as f:
-        tomli_w.dump(data, f)
+    patch_pyproject(args.existing_packages)
+    patch_build_requirements(args.existing_packages)
+    print("done")
 
 
 def parse_args():
@@ -38,14 +28,44 @@ def parse_args():
     return parser.parse_args()
 
 
+def patch_pyproject(existing_packages):
+    with open(REPO / "pyproject.toml", "rb") as f:
+        data = tomli.load(f)
+
+    removed_deps = set()
+    removed_deps |= filter_deps(data["project"]["dependencies"], existing_packages)
+    for optional_deps in data["project"]["optional-dependencies"].values():
+        removed_deps |= filter_deps(optional_deps, existing_packages)
+
+    print("Removed: ", removed_deps)
+
+    with open(REPO / "pyproject.toml", "wb") as f:
+        tomli_w.dump(data, f)
+
+
+def patch_build_requirements(existing_packages):
+    with open(REPO / "requirements-build.txt", "r") as f:
+        deps = f.read().splitlines()
+
+    filtered_deps = [dep for dep in deps if not matches_existing(dep, existing_packages)]
+
+    with open(REPO / "requirements-build.txt", "w") as f:
+        f.write("\n".join(filtered_deps))
+
+
 def filter_deps(deps, existing_packages):
     to_remove = set()
     for dep in deps:
-        if any(dep.startswith(p) for p in existing_packages):
+        if matches_existing(dep, existing_packages):
             to_remove.add(dep)
     for dep in to_remove:
         deps.remove(dep)
     return to_remove
+
+
+def matches_existing(spec, existing_packages):
+    return any(spec.startswith(p) for p in existing_packages)
+
 
 
 if __name__ == "__main__":
