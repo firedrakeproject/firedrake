@@ -92,7 +92,9 @@ jobs:
           . venv/bin/activate
 
           if [ "${{ github.ref_name == 'master' }}" ]; then
+            : # build deps (including transitive)
             pip install Cython libsupermesh mpi4py numpy pkgconfig pybind11 setuptools rtree
+            pip install hatchling
             pip install "$PETSC_DIR"/src/binding/petsc4py
             pip install "$PETSC_DIR"/"$PETSC_ARCH"/externalpackages/git.slepc/src/binding/slepc4py
 
