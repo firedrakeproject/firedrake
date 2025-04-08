@@ -77,7 +77,7 @@ jobs:
 
       - name: Install PETSc
         run: |
-          git clone --depth 1 $PETSC_REFSPEC https://gitlab.com/petsc/petsc.git
+          git clone --depth 1 $(echo $PETSC_REFSPEC) https://gitlab.com/petsc/petsc.git
           cd petsc
           python3 ../firedrake-repo/scripts/firedrake-configure \
             --arch ${{ matrix.arch }} --show-petsc-configure-options | \
