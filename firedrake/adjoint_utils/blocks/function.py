@@ -238,6 +238,26 @@ class FunctionMergeBlock(Block):
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
+        # The merge block appears whenever a subfunction is the output of a block.
+        # This means that the subfunction has been modified, so we need to make
+        # sure that this modification is accounted for when evaluating the adjoint.
+        #
+        # When recomputing the merge block, the indexed subfunction in the full
+        # Function is completely overwritten, meaning that the pre-existing value
+        # of the subfunction in the full function is ignored.
+        # The equivalent adjoint operation is to:
+        #   1. send the subfunction component of the adjoint value back up
+        #      the branch of the tape corresponding to the subfunction
+        #      dependency (idx=0).
+        #   2. zero out the subfunction component of the adjoint value sent
+        #      back up the full Function branch of the tape (idx=1).
+        # This means that when the adjoint values of each branch are combined
+        # after the SubfunctionBlock only the adjoint value from the subfunction
+        # branch is used.
+        #
+        # See https://github.com/firedrakeproject/firedrake/pull/4177 for more
+        # detail and for diagrams of the tape produced when accessing subfunctions.
+
         if idx == 0:
             return adj_inputs[0].subfunctions[self.sub_idx].copy(deepcopy=True)
         else:
