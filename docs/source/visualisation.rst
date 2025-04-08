@@ -18,7 +18,7 @@ Creating output files
 Output for visualisation purposes is managed with a
 :class:`~.vtk_output.VTKFile` object. To create one, first import the
 class from `firedrake.output, then we just need to pass the name of the
-output file on disk. The file Firedrake creates is in PVD_ and
+output file on disk. The file Firedrake creates is in PVD and
 therefore the requested file name must end in ``.pvd``.
 
 .. code-block:: python3
@@ -67,7 +67,7 @@ and call :meth:`~.vtk_output.VTKFile.write` inside.
        t += dt
 
 
-The PVD_ data format supports specifying the timestep value for
+The PVD data format supports specifying the timestep value for
 time-dependent data.  We do not have to provide it to
 :meth:`~.vtk_output.VTKFile.write`, by default an integer counter is
 used that is incremented by 1 each time
@@ -329,7 +329,6 @@ matplotlib.
 
 .. _Paraview: http://www.paraview.org
 .. _VTK: http://www.vtk.org
-.. _PVD: http://www.paraview.org/Wiki/ParaView/Data_formats#PVD_File_Format
 .. _matplotlib: http://matplotlib.org
 .. _Arbitrary: https://www.kitware.com/modeling-arbitrary-order-lagrange-finite-elements-in-the-visualization-toolkit/
 __ Arbitrary_
