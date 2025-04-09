@@ -56,6 +56,12 @@ jobs:
         with:
           path: firedrake-repo
 
+      # Raise an error if any 'TODO RELEASE' comments remain
+      - name: Check release (optional)
+        # undo me
+        # if: github.ref_name == 'release'
+        run: exit test -z "$( git grep 'TODO RELEASE' )"
+
       - name: Install system dependencies
         run: |
           apt-get update
