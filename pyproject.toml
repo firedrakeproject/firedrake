@@ -40,7 +40,6 @@ dependencies = [
 ]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
-  "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)",
   "Intended Audience :: Science/Research",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
