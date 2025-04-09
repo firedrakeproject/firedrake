@@ -152,7 +152,7 @@ def single_star_sf(comm, size=1, root=0):
     else:
         nroots = 0
         ilocal = np.arange(size, dtype=np.int32)
-        iremote = [(root, i) for i in ilocal]
+        iremote = np.stack([np.full(size, root, dtype=np.int32), ilocal], axis=1)
     return StarForest.from_graph(size, nroots, ilocal, iremote, comm)
 
 
