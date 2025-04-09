@@ -65,7 +65,7 @@ jobs:
 
       - name: Install PETSc
         run: |
-          git clone --depth 1 --branch v$(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) https://gitlab.com/petsc/petsc.git
+          git clone --depth 1 --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) https://gitlab.com/petsc/petsc.git
           cd petsc
           python3 ../firedrake-repo/scripts/firedrake-configure \
             --arch ${{ matrix.arch }} --show-petsc-configure-options | \
@@ -74,6 +74,7 @@ jobs:
           make check
           echo "PETSC_DIR=/__w/firedrake/firedrake/petsc" >> "$GITHUB_ENV"
           echo "PETSC_ARCH=arch-firedrake-${{ matrix.arch }}" >> "$GITHUB_ENV"
+          echo "SLEPC_DIR=/__w/firedrake/firedrake/petsc/arch-firedrake-${{ matrix.arch }}" >> "$GITHUB_ENV"
 
       - name: Install Firedrake
         id: install
@@ -85,8 +86,6 @@ jobs:
           : # install of PETSc.
           pip cache remove petsc4py
           pip cache remove slepc4py
-          pip install petsc4py==$(python3 firedrake-configure --show-petsc-version)
-          pip install slepc4py==$(python3 firedrake-configure --show-petsc-version)
           pip install --verbose \
             --no-binary h5py \
             --extra-index-url https://download.pytorch.org/whl/cpu \

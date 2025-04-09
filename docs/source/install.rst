@@ -174,10 +174,16 @@ install Firedrake. To do this perform the following steps:
       you have exactly followed the instructions up to this point this should
       already be the case.
 
-#. Install petsc4py_::
+#. Install Firedrake::
 
-       $ pip cache remove petsc4py
-       $ pip install petsc4py==$(python3 firedrake-configure --show-petsc-version)
+      $ pip cache remove petsc4py
+      $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[check]"
+
+   .. note::
+      Though not strictly necessary to install Firedrake's optional
+      dependencies with ``[check]`` it is recommended because it allows you
+      to check that the install was successful (see
+      :ref:`below<firedrake_check>`).
 
    .. note::
       A common issue encountered with this step is the installation will fail with
@@ -193,15 +199,6 @@ install Firedrake. To do this perform the following steps:
 
          $ ls $PETSC_DIR
 
-#. Install Firedrake::
-
-     $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[check]"
-
-   .. note::
-      Though not strictly necessary to install Firedrake's optional
-      dependencies with ``[check]`` it is recommended because it allows you
-      to check that the install was successful (see
-      :ref:`below<firedrake_check>`).
 
 #. Firedrake is now installed and ready for use!
 
@@ -327,12 +324,11 @@ To install Firedrake with SLEPc support you should:
 
    $ export SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH
 
-#. Install slepc4py::
+#. Continue with the installation as normal but remove slepc4py from the pip cache
+   and install Firedrake with the ``slepc`` optional dependency. For example::
 
-       $ pip cache remove slepc4py
-       $ pip install slepc4py==$(python3 firedrake-configure --show-petsc-version)
-
-#. Continue with the installation as normal
+   $ pip cache remove slepc4py
+   $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[check,slepc]"
 
 VTK
 ~~~
