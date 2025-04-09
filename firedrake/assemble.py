@@ -1179,13 +1179,7 @@ class ZeroFormAssembler(ParloopFormAssembler):
         # revisit in a refactor
         comm = self._form.ufl_domains()[0]._comm
 
-        # TODO this is more convoluted than strictly needed, add a factory method?
-        sf = op3.sf.single_star(comm)
-        axis = op3.Axis([op3.AxisComponent(1, sf=sf)])
-        return op3.Dat(
-            axis,
-            data=numpy.asarray([0.0], dtype=utils.ScalarType),
-        )
+        return op3.Global(comm=comm)
 
     def _apply_bc(self, tensor, bc):
         pass
@@ -1200,9 +1194,10 @@ class ZeroFormAssembler(ParloopFormAssembler):
 
     def result(self, tensor):
         # NOTE: If we could return the tensor here then that would avoid a
-        # halo exchange. That would be a very significant API change though.
-        tensor.assemble(update_leaves=True)
-        return op3.utils.just_one(tensor.buffer._data)
+        # reduction. That would be a very significant API change though (but more consistent?).
+        # It would be even nicer to return a firedrake.Constant.
+        # Return with halo data here because non-root ranks have no owned data.
+        return op3.utils.just_one(tensor.buffer.data_ro_with_halos)
 
 
 class OneFormAssembler(ParloopFormAssembler):

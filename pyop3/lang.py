@@ -52,18 +52,12 @@ class Intent(enum.Enum):
     MIN_RW = "min_rw"
     MAX_WRITE = "max_write"
     MAX_RW = "max_rw"
-    NA = "na"  # TODO prefer NONE
-
-
-# old alias
-Access = Intent
 
 
 READ = Intent.READ
 WRITE = Intent.WRITE
 RW = Intent.RW
 INC = Intent.INC
-NA = Intent.NA
 
 # NOTE: I dont think that these are needed any more. Just RW access?
 MIN_RW = Intent.MIN_RW
@@ -633,9 +627,9 @@ class Terminal(Instruction, abc.ABC):
 
 @dataclasses.dataclass(frozen=True)
 class ArgumentSpec:
-    access: Intent
+    intent: Intent
     dtype: np.dtype
-    space: Tuple[int]
+    space: Tuple[int]  # TODO: definitely am not using this...
 
 
 class FunctionArgument(abc.ABC):
@@ -712,7 +706,7 @@ class AbstractCalledFunction(Terminal, metaclass=abc.ABCMeta):
 
     @cached_property
     def function_arguments(self):
-        return tuple((arg, spec.access) for arg, spec in strict_zip(self.arguments, self.argspec))
+        return tuple((arg, spec.intent) for arg, spec in strict_zip(self.arguments, self.argspec))
 
     @cached_property
     def kernel_arguments(self):
@@ -737,7 +731,7 @@ class CalledFunction(AbstractCalledFunction):
         return self.copy(arguments=arguments)
 
 
-class DirectCalledFunction(AbstractCalledFunction):
+class ExplicitCalledFunction(AbstractCalledFunction):
     """A `CalledFunction` whose arguments do not need packing/unpacking."""
 
 
@@ -1028,7 +1022,7 @@ def fix_intents(tunit, accesses):
     new_args = []
     for arg, access in strict_zip(kernel.args, accesses):
         assert isinstance(access, Intent)
-        is_input = access in {READ, RW, INC, MIN_RW, MAX_RW, NA}
+        is_input = access in {READ, RW, INC, MIN_RW, MAX_RW}
         is_output = access in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_WRITE, MAX_RW}
         new_args.append(arg.copy(is_input=is_input, is_output=is_output))
     return tunit.with_kernel(kernel.copy(args=new_args))

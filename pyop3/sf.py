@@ -145,10 +145,10 @@ def single_star_sf(comm, size=1, root=0):
 
     """
     if comm.rank == root:
-        # there are no leaves on the root process
         nroots = size
-        ilocal = []
-        iremote = []
+        # there are no leaves on the root process
+        ilocal = np.empty(0, dtype=np.int32)
+        iremote = np.empty(0, dtype=np.int32)
     else:
         nroots = 0
         ilocal = np.arange(size, dtype=np.int32)

@@ -785,7 +785,6 @@ class AbstractMeshTopology(abc.ABC):
             else:
                 point_sf = op3.local_sf(self.num_points, self._comm).sf
 
-            # FIXME: Fails in serial
             point_sf_renum = dmcommon.renumber_sf(point_sf, dm_renumbering)
 
             # TODO: Allow the label here to be None

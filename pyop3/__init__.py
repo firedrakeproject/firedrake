@@ -36,7 +36,7 @@ del _init_likwid
 import pyop3.ir
 import pyop3.insn_visitors
 # TODO: delete old aliases
-from pyop3.array import Array, FancyIndexWriteException, Dat
+from pyop3.array import Array, FancyIndexWriteException, Dat, Global
 from pyop3.array.petsc import Mat, Sparsity  # noqa: F401
 from pyop3.axtree import (  # noqa: F401
     Axis,
@@ -67,7 +67,6 @@ from pyop3.lang import (  # noqa: F401
     MAX_WRITE,
     MIN_RW,
     MIN_WRITE,
-    NA,
     READ,
     RW,
     WRITE,

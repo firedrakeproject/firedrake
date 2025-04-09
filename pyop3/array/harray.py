@@ -508,21 +508,20 @@ class Dat(_Dat):
         return self.axes.comm
 
     # TODO update docstring
-    # TODO is this a property of the buffer?
-    @PETSc.Log.EventDecorator()
-    def assemble(self, update_leaves=False):
-        """Ensure that stored values are up-to-date.
-
-        This function is typically only required when accessing the `Dat` in a
-        write-only mode (`Access.WRITE`, `Access.MIN_WRITE` or `Access.MAX_WRITE`)
-        and only setting a subset of the values. Without `Dat.assemble` the non-subset
-        entries in the array would hold undefined values.
-
-        """
-        if update_leaves:
-            self.buffer._reduce_then_broadcast()
-        else:
-            self.buffer._reduce_leaves_to_roots()
+    # @PETSc.Log.EventDecorator()
+    # def assemble(self, update_leaves=False):
+    #     """Ensure that stored values are up-to-date.
+    #
+    #     This function is typically only required when accessing the `Dat` in a
+    #     write-only mode (`Access.WRITE`, `Access.MIN_WRITE` or `Access.MAX_WRITE`)
+    #     and only setting a subset of the values. Without `Dat.assemble` the non-subset
+    #     entries in the array would hold undefined values.
+    #
+    #     """
+    #     if update_leaves:
+    #         self.buffer._reduce_then_broadcast()
+    #     else:
+    #         self.buffer._reduce_leaves_to_roots()
 
     def materialize(self) -> Dat:
         """Return a new "unindexed" array with the same shape."""

@@ -42,7 +42,6 @@ from pyop3.lang import (
     MAX_WRITE,
     MIN_RW,
     MIN_WRITE,
-    NA,
     READ,
     RW,
     AbstractAssignment,
@@ -53,7 +52,7 @@ from pyop3.lang import (
     AssignmentType,
     NonEmptyBufferAssignment,
     ContextAwareLoop,  # TODO: remove this class
-    DirectCalledFunction,
+    ExplicitCalledFunction,
     NonEmptyPetscMatAssignment,
     PreprocessedExpression,
     UnprocessedExpressionException,
@@ -224,7 +223,10 @@ class LoopyCodegenContext(CodegenContext):
             )
 
         kernel_name = self.unique_name("buffer")
-        arg = lp.GlobalArg(kernel_name, dtype=buffer.dtype, shape=None)
+        # If the buffer is being passed straight through to a function then we
+        # have to make sure that the shapes match
+        shape = self._temporary_shapes.get(buffer.name, None)
+        arg = lp.GlobalArg(kernel_name, dtype=buffer.dtype, shape=shape)
         self._args.append(arg)
         self.kernel_arg_names[buffer.name] = kernel_name
         return kernel_name
@@ -550,7 +552,7 @@ def _(assignment: AbstractAssignment, /) -> PMap:
 
 
 @_collect_temporary_shapes.register
-def _(call: DirectCalledFunction):
+def _(call: ExplicitCalledFunction):
     return freeze(
         {
             arg.buffer.name: lp_arg.shape
@@ -659,7 +661,7 @@ def parse_loop_properly_this_time(
 
 
 @_compile.register
-def _(call: DirectCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> None:
+def _(call: ExplicitCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> None:
     temporaries = []
     subarrayrefs = {}
     extents = {}
@@ -686,13 +688,13 @@ def _(call: DirectCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> Non
                     raise RuntimeError("Shape mismatch between inner and outer kernels")
                 shape = loopy_arg.shape
 
-            temporaries.append((arg, indexed_temp, spec.access, shape))
+            temporaries.append((arg, indexed_temp, spec.intent, shape))
 
             # Register data
             # TODO This might be bad for temporaries
             # NOTE: not sure why I added this condition before
             # if isinstance(arg, _Dat):
-            temp_name = ctx.add_buffer(arg.buffer)
+            temp_name = ctx.add_buffer(arg.buffer, spec.intent)
 
             # this should already be done in an assignment
             # ctx.add_temporary(temporary.name, temporary.dtype, shape)
@@ -714,15 +716,14 @@ def _(call: DirectCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> Non
     assignees = tuple(
         subarrayrefs[arg]
         for arg, spec in checked_zip(call.arguments, call.argspec)
-        # if spec.access in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE, NA}
-        if spec.access in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE}
+        if spec.intent in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE}
     )
     expression = pym.primitives.Call(
         pym.var(call.function.code.default_entrypoint.name),
         tuple(
             subarrayrefs[arg]
             for arg, spec in checked_zip(call.arguments, call.argspec)
-            if spec.access in {READ, RW, INC, MIN_RW, MAX_RW, NA}
+            if spec.intent in {READ, RW, INC, MIN_RW, MAX_RW}
         )
         + tuple(extents.values()),
     )

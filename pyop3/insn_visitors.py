@@ -16,10 +16,10 @@ from pyop3.sf import local_sf
 from pyrsistent import pmap, PMap
 from immutabledict import ImmutableOrderedDict
 
-from pyop3.array import Dat, Array, Mat, Sparsity, _ConcretizedDat, _ConcretizedMat, _ExpressionDat, AbstractMat
+from pyop3.array import Global, Dat, Array, Mat, Sparsity, _ConcretizedDat, _ConcretizedMat, _ExpressionDat, AbstractMat
 from pyop3.axtree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
 from pyop3.axtree.tree import Operator, AxisVar, IndexedAxisTree, prune_zero_sized_branches
-from pyop3.buffer import Buffer, NullBuffer, PackedBuffer
+from pyop3.buffer import AbstractBuffer, Buffer, NullBuffer, PackedBuffer
 from pyop3.dtypes import IntType
 from pyop3.itree import Map, TabulatedMapComponent, collect_loop_contexts
 from pyop3.itree.tree import LoopIndexVar
@@ -38,12 +38,12 @@ from pyop3.expr_visitors import (
 )
 from pyop3.lang import (
     INC,
-    NA,
     READ,
     RW,
     WRITE,
     AbstractAssignment,
-    DirectCalledFunction,
+    ExplicitCalledFunction,
+    FunctionArgument,
     NonEmptyPetscMatAssignment,
     NullInstruction,
     BufferAssignment,
@@ -242,8 +242,8 @@ class ImplicitPackUnpackExpander(Transformer):
                 arguments.append(arg)
                 continue
 
-            # unpick pack/unpack instructions
-            if intent != NA and _requires_pack_unpack(arg):
+            # emit pack/unpack instructions
+            if _requires_pack_unpack(arg):
                 # TODO: Make generic across Array types
                 if isinstance(arg, Dat):
                     # arg.axes.materialize(),  # TODO
@@ -285,7 +285,7 @@ class ImplicitPackUnpackExpander(Transformer):
             else:
                 arguments.append(arg)
 
-        return maybe_enlist((*gathers, DirectCalledFunction(terminal.function, arguments), *scatters))
+        return maybe_enlist((*gathers, ExplicitCalledFunction(terminal.function, arguments), *scatters))
 
 
 # class ExprMarker
@@ -320,27 +320,30 @@ def expand_implicit_pack_unpack(expr: Instruction):
     return ImplicitPackUnpackExpander().apply(expr)
 
 
-def _requires_pack_unpack(arg):
-    # TODO in theory packing isn't required for arrays that are contiguous,
-    # but this is hard to determine
-    # FIXME, we inefficiently copy matrix temporaries here because this
-    # doesn't identify requiring pack/unpack properly. To demonstrate
-    #   kernel(mat[p, q])
-    # gets turned into
-    #   t0 <- mat[p, q]
-    #   kernel(t0)
-    # However, the array mat[p, q] is actually retrieved from MatGetValues
-    # so we really have something like
-    #   MatGetValues(mat, ..., t0)
-    #   t1 <- t0
-    #   kernel(t1)
-    # and the same for unpacking
+@functools.singledispatch
+def _requires_pack_unpack(arg: FunctionArgument) -> bool:
+    raise TypeError
 
-    # if subst_layouts and layouts are the same I *think* it is safe to avoid a pack/unpack
-    # however, it is overly restrictive since we could pass something like dat[i0, :] directly
-    # to a local kernel
-    # return isinstance(arg, Dat) and arg.subst_layouts != arg.layouts
-    return isinstance(arg, (Dat, Mat))
+
+@_requires_pack_unpack.register(Global)
+def _(glob: Global) -> bool:
+    return not isinstance(glob.buffer, AbstractBuffer)
+
+
+@_requires_pack_unpack.register(Dat)
+def _(dat: Dat) -> bool:
+    # This is overly restrictive since we could pass something contiguous like
+    # dat[i0, :] directly to a local kernel
+    return not (isinstance(dat.buffer, AbstractBuffer) and _layouts_match(dat.axes))
+
+
+@_requires_pack_unpack.register(Mat)
+def _(mat: Mat) -> bool:
+    return not (isinstance(mat.mat, AbstractBuffer) and _layouts_match(mat.raxes) and _layouts_match(mat.caxes))
+
+
+def _layouts_match(axis_tree) -> bool:
+    return axis_tree.leaf_subst_layouts == axis_tree.unindexed.leaf_subst_layouts
 
 
 @functools.singledispatch
@@ -363,10 +366,10 @@ def _(loop: Loop, /) -> Loop:
     )
 
 
-@expand_assignments.register(DirectCalledFunction)
+@expand_assignments.register(ExplicitCalledFunction)
 @expand_assignments.register(PetscMatAssignment)
 @expand_assignments.register(NullInstruction)
-def _(func: DirectCalledFunction, /) -> DirectCalledFunction:
+def _(func: ExplicitCalledFunction, /) -> ExplicitCalledFunction:
     return func
 
 
@@ -486,9 +489,9 @@ def _(loop: Loop, /) -> Loop:
     )
 
 
-@prepare_petsc_calls.register(DirectCalledFunction)
+@prepare_petsc_calls.register(ExplicitCalledFunction)
 @prepare_petsc_calls.register(NullInstruction)
-def _(func: DirectCalledFunction, /) -> DirectCalledFunction:
+def _(func: ExplicitCalledFunction, /) -> ExplicitCalledFunction:
     return func
 
 
@@ -657,8 +660,8 @@ def _(assignment: BufferAssignment, /, *, loop_axes_acc) -> ImmutableOrderedDict
     return ImmutableOrderedDict(candidates)
 
 
-@_collect_candidate_indirections.register(DirectCalledFunction)
-def _(func: DirectCalledFunction, /, *, loop_axes_acc) -> ImmutableOrderedDict:
+@_collect_candidate_indirections.register(ExplicitCalledFunction)
+def _(func: ExplicitCalledFunction, /, *, loop_axes_acc) -> ImmutableOrderedDict:
     # there should be no indirections here!
     # candidates = {}
     # for i, arg in enumerate(func.arguments):
@@ -701,8 +704,8 @@ def _(assignment: BufferAssignment, /, arg_layouts, seen_exprs_mut, *, loop_axes
     )
 
 
-@_compute_indirection_cost_rec.register(DirectCalledFunction)
-def _(func: DirectCalledFunction, /, arg_layouts, seen_exprs_mut, *, loop_axes_acc, cache) -> int:
+@_compute_indirection_cost_rec.register(ExplicitCalledFunction)
+def _(func: ExplicitCalledFunction, /, arg_layouts, seen_exprs_mut, *, loop_axes_acc, cache) -> int:
     return 0
 
 
@@ -814,8 +817,8 @@ def _(assignment: NonEmptyPetscMatAssignment, /, layouts) -> NonEmptyPetscMatAss
     )
 
 
-@_replace_with_real_dats.register(DirectCalledFunction)
-def _(func: DirectCalledFunction, /, layouts) -> DirectCalledFunction:
+@_replace_with_real_dats.register(ExplicitCalledFunction)
+def _(func: ExplicitCalledFunction, /, layouts) -> ExplicitCalledFunction:
     return func
 
 
@@ -909,9 +912,9 @@ def _(assignment: NonEmptyPetscMatAssignment, /, loop_axes_acc) -> NonEmptyPetsc
     )
 
 
-@_concretize_arrays_rec.register(DirectCalledFunction)
+@_concretize_arrays_rec.register(ExplicitCalledFunction)
 @_concretize_arrays_rec.register(NullInstruction)
-def _(func: DirectCalledFunction, /, loop_axes_acc) -> DirectCalledFunction:
+def _(func: ExplicitCalledFunction, /, loop_axes_acc) -> ExplicitCalledFunction:
     return func
 
 
@@ -961,7 +964,7 @@ def _(assignment: PetscMatAssignment, /) -> NonEmptyPetscMatAssignment | NullIns
     return assignment.with_axes(*pruned_trees)
 
 
-@drop_zero_sized_paths.register(DirectCalledFunction)
+@drop_zero_sized_paths.register(ExplicitCalledFunction)
 @drop_zero_sized_paths.register(NullInstruction)
-def _(func: DirectCalledFunction, /) -> DirectCalledFunction:
+def _(func: ExplicitCalledFunction, /) -> ExplicitCalledFunction:
     return func
