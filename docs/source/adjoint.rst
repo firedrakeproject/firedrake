@@ -81,7 +81,7 @@ Consider now the function signatures of the symbols in :eq:`eq:djdm`. Here we ar
 only concerned with the arguments, as these determine the sizes of the
 resulting assembled tensors:
 
-.. math:: 
+.. math::
     :label:
 
     \frac{\mathrm{d}\hat{J}}{\mathrm{d}m}: M\rightarrow \mathbb{R}
@@ -102,16 +102,16 @@ Instead, we define:
 
 .. math::
     :label: eq:adjoint
-    
+
     \lambda^*(\in V\rightarrow\mathbb{R}) = -\frac{\partial J}{\partial u}\frac{\partial f}{\partial u}^{-1}.
 
 We actually solve the adjoint to this equation. That is find `\lambda \in V`
-such that: 
+such that:
 
 .. math::
     :label:
 
-    \frac{\partial f}{\partial u}^{*}(u, m; \lambda, v) = 
+    \frac{\partial f}{\partial u}^{*}(u, m; \lambda, v) =
     -\frac{\partial J}{\partial u}(u, m; v) \qquad \forall v \in V.
 
 Note that these terms include `u`, so it is first necessary to solve
@@ -144,8 +144,8 @@ How Firedrake and Pyadjoint automate derivative calculation
 -----------------------------------------------------------
 
 Firedrake automates the process in the preceding section using the methodology
-first published in :cite:`Farrell2013` using the implementation in 
-`Pyadjoint <https://pyadjoint.org>`__ :cite:`Mitusch2019`. 
+first published in :cite:`Farrell2013` using the implementation in
+`Pyadjoint <https://pyadjoint.org>`__ :cite:`Mitusch2019`.
 
 The essence of this process is:
 
@@ -273,7 +273,7 @@ The sequence of recorded operations is stored on an object called the tape. The
 currently active tape can be accessed by calling
 :func:`~pyadjoint.get_working_tape`. The user usually has limited direct
 interaction with the tape, but there is some useful information which can be
-extracted. 
+extracted.
 
 Visualising the tape
 ~~~~~~~~~~~~~~~~~~~~
@@ -289,11 +289,11 @@ are to be found on `the pygraphviz website
 
 .. _fig-tape:
 
-.. figure:: images/tape.pdf
+.. figure:: images/tape.png
 
     A visualisation of the Burgers equation example above shortened to a single
     timestep. Operations (blocks) recorded on the tape are shown as grey
-    rectangles, while taped variables are shown as ovals. 
+    rectangles, while taped variables are shown as ovals.
 
 The numbered blocks in the tape visualisation are as follows:
 
