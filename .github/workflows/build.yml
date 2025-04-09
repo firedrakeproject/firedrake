@@ -72,9 +72,11 @@ jobs:
             xargs -L1 ./configure --with-make-np=8 --download-slepc
           make PETSC_DIR=/__w/firedrake/firedrake/petsc PETSC_ARCH=arch-firedrake-${{ matrix.arch }}
           make check
-          echo "PETSC_DIR=/__w/firedrake/firedrake/petsc" >> "$GITHUB_ENV"
-          echo "PETSC_ARCH=arch-firedrake-${{ matrix.arch }}" >> "$GITHUB_ENV"
-          echo "SLEPC_DIR=/__w/firedrake/firedrake/petsc/arch-firedrake-${{ matrix.arch }}" >> "$GITHUB_ENV"
+          {
+            echo "PETSC_DIR=/__w/firedrake/firedrake/petsc"
+            echo "PETSC_ARCH=arch-firedrake-${{ matrix.arch }}"
+            echo "SLEPC_DIR=/__w/firedrake/firedrake/petsc/arch-firedrake-${{ matrix.arch }}"
+          } >> "$GITHUB_ENV"
 
       - name: Install Firedrake
         id: install
