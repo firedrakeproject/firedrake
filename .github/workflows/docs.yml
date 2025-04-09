@@ -1,11 +1,10 @@
 name: Check docs build cleanly
 
 on:
-  # Run on pushes to master
   push:
     branches:
       - master
-  # And all pull requests
+      - release
   pull_request:
 
 concurrency:
@@ -28,9 +27,13 @@ jobs:
         with:
           path: firedrake-repo
 
+      # this wont work any more because we wont have a docdeps container
+      # for firedrake. I think we should probably just do the docs build in
+      # the main workflow - can wait until this afternoon for that to merge
       - name: Install Firedrake
         id: install
         run: |
+          exit 1
           : # Pass '--system-site-packages' so already installed packages can be found
           python3 -m venv --system-site-packages venv
           . venv/bin/activate
@@ -82,13 +85,16 @@ jobs:
     name: Deploy Github pages
     needs: build_docs
     # Always run this workflow on master, even if linkcheck fails
-    if: always() && github.ref == 'refs/heads/master' && needs.build_docs.outputs.conclusion == 'success'
+    if: |
+      always() &&
+      needs.build_docs.outputs.conclusion == 'success' &&
+      (github.ref_name == 'master' || github.ref_name == 'release')
     permissions:
       pages: write
       id-token: write
     environment:
       name: github-pages
-      url: http://firedrakeproject.github.io/firedrake
+      url: http://firedrakeproject.github.io/firedrake/${{ github.ref_name }}
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages
