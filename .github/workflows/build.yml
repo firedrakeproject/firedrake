@@ -16,9 +16,6 @@ concurrency:
     ${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-env:
-  RELEASE_TAG: latest
-
 jobs:
   test:
     name: Install and test Firedrake (Linux)
@@ -248,33 +245,6 @@ jobs:
       - name: Post-run cleanup
         if: always()
         run: find . -delete
-
-  docker_tag:
-    name: "Set the Docker release tag"
-    runs-on: [self-hosted, Linux]
-    if: github.ref == 'refs/heads/master'
-    steps:
-      - name: Set release tag
-        # Set a release tag if triggered by monthly CRON job
-        if: github.event.schedule == '0 0 1 * *'
-        run: |
-          DATE_TAG="$(date +%Y-%m)"
-          echo "RELEASE_TAG=$DATE_TAG" >> "$GITHUB_ENV"
-      - name: Print release tag being used
-        run: |
-          echo The release tag is "$RELEASE_TAG"
-    outputs:
-      tag: ${{ env.RELEASE_TAG }}
-
-  docker:
-    name: Build Docker containers
-    if: github.ref == 'refs/heads/master'
-    needs: [test, docker_tag]
-    uses: ./.github/workflows/docker.yml
-    with:
-      tag: ${{ needs.docker_tag.outputs.tag }}
-      status: ${{ needs.test.result }}
-    secrets: inherit
 
   lint:
     name: Lint codebase
