@@ -99,7 +99,7 @@ jobs:
 
           if [ "${{ github.ref_name == 'master' }}" ]; then
             : # Install build dependencies
-            pip install -r requirements-dev.txt
+            pip install -r ./firedrake-repo/requirements-dev.txt
             pip install "$PETSC_DIR"/src/binding/petsc4py
 
             : # Install runtime dependencies that have been removed from the pyproject.toml
