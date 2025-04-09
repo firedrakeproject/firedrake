@@ -1,6 +1,6 @@
 :orphan: true
 
-.. title:: Finite Element Course at AIMS Rwanda
+.. title:: Finite Element Course at AIMS Research and Innovation Centre Rwanda
 
 Finite Element Course at AIMS Rwanda
 ------------------------------------
