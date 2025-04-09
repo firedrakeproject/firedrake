@@ -51,7 +51,7 @@ def expect(V, which):
         return a + b
 
 
-def test_interpolate(V, mesh, which, expect, tolerance):
+def test_interpolate_zany_into_cg(V, mesh, which, expect, tolerance):
     degree = V.ufl_element().degree()
     Vcg = FunctionSpace(mesh, "P", degree)
 
@@ -71,3 +71,14 @@ def test_interpolate(V, mesh, which, expect, tolerance):
         g.interpolate(a + b)
 
     assert numpy.allclose(norm(g - expect), 0, atol=tolerance)
+
+
+def test_high_order_mesh_cell_sizes():
+    msh1 = UnitSquareMesh(2, 2)
+    h1 = msh1.cell_sizes
+
+    P2 = msh1.coordinates.function_space().reconstruct(degree=2)
+    msh2 = Mesh(Function(P2).interpolate(msh1.coordinates))
+    h2 = msh2.cell_sizes
+
+    assert numpy.allclose(h1.dat.data, h2.dat.data)
