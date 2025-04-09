@@ -289,7 +289,7 @@ are to be found on `the pygraphviz website
 
 .. _fig-tape:
 
-.. figure:: images/tape.png
+.. figure:: images/tape.svg
 
     A visualisation of the Burgers equation example above shortened to a single
     timestep. Operations (blocks) recorded on the tape are shown as grey
