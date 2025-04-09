@@ -73,7 +73,7 @@ jobs:
         run: |
           export HDF5_DIR="$PETSC_DIR/$PETSC_ARCH"
           export HDF5_MPI=ON
-          python -m pip install --no-binary h5py -v ".[test]"
+          python -m pip install --no-binary h5py -v ".[check]"
 
       - name: Run TSFC tests
         shell: bash
