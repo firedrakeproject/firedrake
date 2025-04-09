@@ -83,6 +83,7 @@ jobs:
           make check
           echo "PETSC_DIR=/__w/firedrake/firedrake/petsc" >> "$GITHUB_ENV"
           echo "PETSC_ARCH=arch-firedrake-${{ matrix.arch }}" >> "$GITHUB_ENV"
+          echo "SLEPC_DIR=/__w/firedrake/firedrake/petsc/arch-firedrake-${{ matrix.arch }}" >> "$GITHUB_ENV"
 
       - name: Install Firedrake
         id: install
