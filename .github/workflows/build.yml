@@ -85,6 +85,8 @@ jobs:
           : # install of PETSc.
           pip cache remove petsc4py
           pip cache remove slepc4py
+          pip install petsc4py==$(python3 firedrake-configure --show-petsc-version)
+          pip install slepc4py==$(python3 firedrake-configure --show-petsc-version)
           pip install --verbose \
             --no-binary h5py \
             --extra-index-url https://download.pytorch.org/whl/cpu \
