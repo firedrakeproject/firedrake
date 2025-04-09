@@ -97,6 +97,16 @@ jobs:
           . venv/bin/activate
           firedrake-check
         timeout-minutes: 10
+      
+      - name: Run tests (nprocs = 1)
+        # Run even if earlier tests failed
+        if: ${{ success() || steps.install.conclusion == 'success' }}
+        run: |
+          . venv/bin/activate
+          : # Use pytest-xdist here so we can have a single collated output (not possible
+          : # for parallel tests)
+          firedrake-run-split-tests 1 1 "-n 12 $EXTRA_PYTEST_ARGS"
+        timeout-minutes: 60
         
       - name: Post-run cleanup
         if: always()
