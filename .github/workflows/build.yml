@@ -56,14 +56,6 @@ jobs:
         with:
           path: firedrake-repo
 
-      # Raise an error if any 'TODO RELEASE' comments remain
-      - name: Check release (optional)
-        # undo me
-        # if: github.ref_name == 'release'
-        run: |
-          test -z "$( git grep 'TODO RELEASE' )"
-          exit "$PIPESTATUS"
-
       - name: Install system dependencies
         run: |
           apt-get update
@@ -71,18 +63,28 @@ jobs:
           apt-get -y install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages) python3-venv parallel
 
+      # Raise an error if any 'TODO RELEASE' comments remain
+      - name: Check no release TODO comments (optional)
+        # undo me
+        # if: github.ref_name == 'release'
+        run: |
+          if [ -z "$( git grep 'TODO RELEASE' )" ]; then
+            exit 0
+          else
+            exit 1
+          fi
+
       # TODO: is there a 'blessed commit' or do we just point to 'main'?
-      - name: Determine PETSc refspec (master)
-        if: github.ref_name == 'master'
-        run: echo "PETSC_REFSPEC=" >> "$GITHUB_ENV"
-
-      - name: Determine PETSc refspec (release)
-        if: github.ref_name == 'release'
-        run: echo "PETSC_REFSPEC=--branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version)" >> "$GITHUB_ENV"
-
+      # I prefer the latter because then failures are everyone's problem, not just mine!
       - name: Install PETSc
         run: |
-          git clone --depth 1 $PETSC_REFSPEC https://gitlab.com/petsc/petsc.git
+          if [ "${{ github.ref_name == 'master' }}" ]; then
+            git clone --depth 1 https://gitlab.com/petsc/petsc.git
+          else
+            git clone --depth 1 \
+              --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
+            https://gitlab.com/petsc/petsc.git
+          fi
           cd petsc
           python3 ../firedrake-repo/scripts/firedrake-configure \
             --arch ${{ matrix.arch }} --show-petsc-configure-options | \
