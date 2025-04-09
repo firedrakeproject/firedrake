@@ -1013,6 +1013,9 @@ def make_interpolator(expr, V, subset, access, bcs=None):
         # Make sure we have an expression of the right length i.e. a value for
         # each component in the value shape of each function space
         loops = []
+        if numpy.prod(expr.ufl_shape, dtype=int) != V.value_size:
+            raise RuntimeError('Expression of length %d required, got length %d'
+                               % (V.value_size, numpy.prod(expr.ufl_shape, dtype=int)))
 
         if len(V) == 1:
             loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
