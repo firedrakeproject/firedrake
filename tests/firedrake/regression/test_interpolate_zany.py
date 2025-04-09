@@ -110,16 +110,16 @@ def test_interpolate_zany_into_vom(V, mesh, which, vom):
 
     # Construct a Cofunction on P0(vom)*
     Fvom = Cofunction(P0.dual()).assign(1)
-    expected = assemble(action(Fvom, expected))
+    expected_action = assemble(action(Fvom, expected))
 
     # Interpolate a Function into Fvom
     f_at_vom = assemble(Interpolate(fexpr, Fvom))
-    assert numpy.allclose(f_at_vom, expected)
+    assert numpy.allclose(f_at_vom, expected_action)
 
     # Interpolate a TestFunction into Fvom
     expr_vom = assemble(Interpolate(vexpr, Fvom))
     f_at_vom = assemble(action(expr_vom, f))
-    assert numpy.allclose(f_at_vom, expected)
+    assert numpy.allclose(f_at_vom, expected_action)
 
 
 def test_high_order_mesh_cell_sizes():

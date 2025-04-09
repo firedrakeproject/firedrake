@@ -2416,7 +2416,6 @@ values from f.)"""
         else:
             mesh = self
 
-        # Project the CellSize into P1
         P1 = FunctionSpace(mesh, "Lagrange", 1)
         h = project(CellSize(mesh), P1)
 
