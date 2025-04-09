@@ -64,11 +64,11 @@ jobs:
             $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages) python3-venv parallel
 
       # Raise an error if any 'TODO RELEASE' comments remain
-      - name: Check no release TODO comments (optional)
+      - name: Check no 'TODO RELEASE' comments (release only)
         # undo me
         # if: github.ref_name == 'release'
         run: |
-          if [ -z "$( git grep 'TODO RELEASE' )" ]; then
+          if [ -z "$( git -C ./firedrake-repo grep 'TODO RELEASE' )" ]; then
             exit 0
           else
             exit 1
