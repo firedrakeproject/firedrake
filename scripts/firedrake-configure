@@ -173,6 +173,7 @@ BASE_LINUX_APT_PACKAGES = (
     "build-essential",
     "cmake",
     "flex",
+    "gfortran",
     "git",
     "libopenblas-dev",
     "libopenmpi-dev",
