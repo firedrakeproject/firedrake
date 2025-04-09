@@ -68,7 +68,6 @@ from pyop3.utils import (
     StrictlyUniqueDict,
     UniqueNameGenerator,
     as_tuple,
-    checked_zip,
     just_one,
     maybe_generate_name,
     merge_dicts,
@@ -556,8 +555,8 @@ def _(call: ExplicitCalledFunction):
     return freeze(
         {
             arg.buffer.name: lp_arg.shape
-            for lp_arg, arg in checked_zip(
-                call.function.code.default_entrypoint.args, call.arguments
+            for lp_arg, arg in zip(
+                call.function.code.default_entrypoint.args, call.arguments, strict=True
             )
         }
     )
@@ -668,7 +667,7 @@ def _(call: ExplicitCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> N
 
     # loopy args can contain ragged params too
     loopy_args = call.function.code.default_entrypoint.args[: len(call.arguments)]
-    for loopy_arg, arg, spec in checked_zip(loopy_args, call.arguments, call.argspec):
+    for loopy_arg, arg, spec in zip(loopy_args, call.arguments, call.argspec, strict=True):
         # this check fails because we currently assume that all arrays require packing
         # from pyop3.transform import _requires_pack_unpack
         # assert not _requires_pack_unpack(arg)
@@ -715,14 +714,14 @@ def _(call: ExplicitCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> N
     # probably best to combine them - could add a sensible check there too.
     assignees = tuple(
         subarrayrefs[arg]
-        for arg, spec in checked_zip(call.arguments, call.argspec)
+        for arg, spec in zip(call.arguments, call.argspec, strict=True)
         if spec.intent in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE}
     )
     expression = pym.primitives.Call(
         pym.var(call.function.code.default_entrypoint.name),
         tuple(
             subarrayrefs[arg]
-            for arg, spec in checked_zip(call.arguments, call.argspec)
+            for arg, spec in zip(call.arguments, call.argspec, strict=True)
             if spec.intent in {READ, RW, INC, MIN_RW, MAX_RW}
         )
         + tuple(extents.values()),

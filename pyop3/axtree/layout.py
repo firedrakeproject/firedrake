@@ -32,7 +32,6 @@ from pyop3.utils import (
     as_tuple,
     single_valued,
     is_single_valued,
-    strict_zip,
     just_one,
     OrderedSet,
     merge_dicts,
@@ -334,7 +333,7 @@ def _truncate_axis_tree_rec(axis_tree, axis) -> tuple[tuple[AxisTree, int]]:
         # The new candidate consists of the per-component subtrees stuck on to the
         # current axis.
         candidate_axis_tree = AxisTree(axis)
-        for component, subtree in strict_zip(axis.components, subaxis_trees):
+        for component, subtree in zip(axis.components, subaxis_trees, strict=True):
             candidate_axis_tree = candidate_axis_tree.add_subtree(subtree, axis, component)
         axis_candidate = (candidate_axis_tree, substep)
         axis_candidates.append(axis_candidate)

@@ -29,7 +29,7 @@ from pyop2.mpi import (
 )
 from pyop2.utils import as_tuple, tuplify
 import pyop3 as op3
-from pyop3.utils import pairwise, steps, checked_zip, debug_assert, just_one, single_valued, readonly
+from pyop3.utils import pairwise, steps, debug_assert, just_one, single_valued, readonly
 from finat.element_factory import as_fiat_cell
 
 import firedrake.cython.dmcommon as dmcommon
@@ -754,7 +754,6 @@ class AbstractMeshTopology(abc.ABC):
                 if reorder:
                     with PETSc.Log.Event("Renumber mesh topology"):
                         rcm_ordering_is = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM)
-                        rcm_ordering_is.view()
                         cell_ordering = op3.utils.invert(rcm_ordering_is.indices[:self.num_cells])
                         # must use an inverse ordering because we want to know the map *back*
                         # from renumbered to original cell number
@@ -1021,7 +1020,7 @@ class AbstractMeshTopology(abc.ABC):
         indices = []
         perm = self._dm_renumbering.indices
         for dim in range(self.dimension+1):
-            p_start, p_end = self._topology_dm.getDepthStratum(dim)
+            p_start, p_end = self.topology_dm.getDepthStratum(dim)
             ixs = np.argwhere((p_start <= perm) & (perm < p_end)).astype(IntType, casting="same_kind").flatten()
             indices.append(readonly(ixs))
         return tuple(indices)
@@ -1136,9 +1135,6 @@ class AbstractMeshTopology(abc.ABC):
                 closure_data_XXX = closure_data[:, offset:offset+size]
                 closure_data_split.append(self._renumber_map(dim, map_dim, closure_data_XXX))
                 offset += size
-
-            #print(closure_data_split)
-
 
             # TODO: Cleanup. This is here because we have a tricksy way of slicing out
             # the right bits of the closure maps above.
@@ -1330,16 +1326,9 @@ class AbstractMeshTopology(abc.ABC):
         """
         src_renumbering = self._entity_numbering(src_dim)
         dest_renumbering = self._entity_numbering(dest_dim)
-        print("src",src_renumbering)
-        print("dest",dest_renumbering)
 
         src_start, src_end = self.topology_dm.getDepthStratum(src_dim)
         dest_start, dest_end = self.topology_dm.getDepthStratum(dest_dim)
-
-        print("ds",dest_start)
-
-        print("CC" ,map_pts)
-
 
         map_pts_renum = np.empty_like(map_pts)
 
@@ -1349,7 +1338,6 @@ class AbstractMeshTopology(abc.ABC):
                 for i, dest_pt in enumerate(map_data_per_pt):
                     dest_pt_renum = dest_renumbering[dest_pt-dest_start]
                     map_pts_renum[src_pt_renum, i] = dest_pt_renum
-            print("XX" ,map_pts_renum)
             return readonly(map_pts_renum)
         else:
             sizes_renum = np.empty_like(sizes)
@@ -1652,10 +1640,10 @@ class AbstractMeshTopology(abc.ABC):
 
         """
         if subdomain_id == "everywhere":
-            return self.cell_set
+            return self.cells.owned
         if subdomain_id == "otherwise":
             if all_integer_subdomain_ids is None:
-                return self.cell_set
+                return self.cells.owned
             key = ("otherwise", ) + all_integer_subdomain_ids
         else:
             key = subdomain_id
@@ -3217,7 +3205,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         self.submesh_parent = None
 
         self._spatial_index = None
-        self._saved_coordinate_dat_version = coordinates.dat.dat_version
+        self._saved_coordinate_dat_version = coordinates.dat.buffer.state
 
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.extruded, self.variable_layers,

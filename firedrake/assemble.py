@@ -1437,7 +1437,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
         for rindex, cindex in diag_blocks:
             op3.do_loop(
-                p := test.ufl_domain().points.index(),
+                p := extract_unique_domain(test).points.index(),
                 sparsity[rindex, cindex][p, p].assign(666, eager=False)
             )
 
@@ -1532,7 +1532,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     def _make_maps_and_regions_default(test, trial, allocation_integral_types):
         assert allocation_integral_types is not None
 
-        mesh = op3.utils.single_valued(a.ufl_domain() for a in {test, trial})
+        mesh = op3.utils.single_valued(extract_unique_domain(a) for a in {test, trial})
         plex = mesh.topology
         Vrow = test.function_space()
         Vcol = trial.function_space()

@@ -12,7 +12,7 @@ from pyop3.axtree import AxisTree
 from pyop3.axtree.tree import AbstractAxisTree, IndexedAxisTree
 from pyop3.exceptions import Pyop3Exception
 from pyop3.itree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map
-from pyop3.utils import OrderedSet, debug_assert, expand_collection_of_iterables, strictly_all, strict_zip, single_valued, just_one
+from pyop3.utils import OrderedSet, debug_assert, expand_collection_of_iterables, strictly_all, single_valued, just_one
 
 
 class IncompletelyIndexedException(Pyop3Exception):
@@ -357,8 +357,9 @@ def _index_tree_from_iterable(indices, *, axes, parent=None, unhandled_target_pa
 
     else:
         index_tree = IndexTree(index)
-        for component_label, equiv_target_paths in strict_zip(
-            index.component_labels, index.leaf_target_paths
+        for component_label, equiv_target_paths in zip(
+            index.component_labels, index.leaf_target_paths,
+            strict=True
         ):
             # Here we only care about targeting the most recent axis tree.
             unhandled_target_paths_ = unhandled_target_paths | equiv_target_paths[-1]
@@ -393,8 +394,8 @@ def _complete_index_tree(
 
     index_tree_ = IndexTree(index)
 
-    for component_label, equivalent_target_paths in strict_zip(
-        index.component_labels, index.leaf_target_paths
+    for component_label, equivalent_target_paths in zip(
+        index.component_labels, index.leaf_target_paths, strict=True
     ):
         possible_target_paths_acc_ = tuple(
             possible_target_path | target_path
@@ -436,8 +437,8 @@ def _complete_index_tree_slices(axes, target_paths, *, axis=None) -> IndexTree:
         )
         index_tree = IndexTree(slice_)
 
-        for axis_component, slice_component_label in strict_zip(
-            axis.components, slice_.component_labels
+        for axis_component, slice_component_label in zip(
+            axis.components, slice_.component_labels, strict=True
         ):
             if subaxis := axes.child(axis, axis_component):
                 subindex_tree = _complete_index_tree_slices(axes, target_paths, axis=subaxis)
@@ -466,8 +467,8 @@ def  _index_tree_completely_indexes_axes(index_tree: IndexTree, axes, *, index=N
         index = index_tree.root
         possible_target_paths_acc = (pmap(),)
 
-    for component_label, equivalent_target_paths in strict_zip(
-        index.component_labels, index.leaf_target_paths
+    for component_label, equivalent_target_paths in zip(
+        index.component_labels, index.leaf_target_paths, strict=True
     ):
         possible_target_paths_acc_ = tuple(
             possible_target_path_acc | possible_target_path

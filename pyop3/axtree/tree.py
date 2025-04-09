@@ -43,7 +43,6 @@ from pyop3.tree import (
 from pyop3.utils import (
     has_unique_entries,
     unique_comm,
-    strict_zip,
     Parameter,
     debug_assert,
     deprecated,
@@ -1202,7 +1201,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         slice_ = Slice(axis.label, slice_components, label=axis_label)
 
         index_tree = IndexTree(slice_)
-        for component, slice_component in strict_zip(axis.components, slice_components):
+        for component, slice_component in zip(axis.components, slice_components, strict=True):
             if subaxis := self.child(axis, component):
                 subtree = self._region_slice(region_label, axis=subaxis)
                 index_tree = index_tree.add_subtree(subtree, slice_, slice_component.label)
@@ -2296,7 +2295,7 @@ def prune_zero_sized_branches(axis_tree: AbstractAxisTree, *, _axis=None) -> Axi
 
     new_axis = Axis(new_components, _axis.label)
     new_axis_tree = AxisTree(new_axis)
-    for new_component, subtree in strict_zip(new_components, subtrees):
+    for new_component, subtree in zip(new_components, subtrees, strict=True):
         if subtree is not None:
             new_axis_tree = new_axis_tree.add_subtree(subtree, (new_axis, new_component))
     return new_axis_tree

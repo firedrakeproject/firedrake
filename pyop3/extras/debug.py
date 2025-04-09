@@ -4,10 +4,12 @@ from typing import Optional, Union
 from mpi4py import MPI
 from petsc4py import PETSc
 
-warnings.warn(
-    "Importing pyop3.extras.debug, this should not happen in released code",
-    RuntimeWarning,
-)
+#TODO reenable
+# TODO Runtime warning
+# warnings.warn(
+#     "Importing pyop3.extras.debug, this should not happen in released code",
+#     RuntimeWarning,
+# )
 
 
 _stopping = False

@@ -245,10 +245,6 @@ def strict_zip(*iterables):
     return zip(*iterables, strict=True)
 
 
-# old alias, remove
-checked_zip = strict_zip
-
-
 def rzip(*iterables):
     if any(not isinstance(it, collections.abc.Sized) for it in iterables):
         raise ValueError("Can only rzip with objects that have a known length")

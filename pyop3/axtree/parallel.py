@@ -10,7 +10,7 @@ from pyrsistent import pmap
 
 from pyop3.dtypes import IntType, as_numpy_dtype
 from pyop3.sf import StarForest
-from pyop3.utils import checked_zip, unique_comm
+from pyop3.utils import unique_comm
 
 
 def reduction_op(op, invec, inoutvec, datatype):

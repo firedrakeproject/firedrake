@@ -60,7 +60,7 @@ from pyop3.lang import (
     maybe_enlist,
     non_null,
 )
-from pyop3.utils import UniqueNameGenerator, checked_zip, just_one, single_valued, OrderedSet, merge_dicts, expand_collection_of_iterables, strictly_all
+from pyop3.utils import UniqueNameGenerator, just_one, single_valued, OrderedSet, merge_dicts, expand_collection_of_iterables, strictly_all
 
 
 # NOTE: A sensible pattern is to have a public and private (rec) implementations of a
@@ -235,8 +235,8 @@ class ImplicitPackUnpackExpander(Transformer):
         # NOTE: scatters are executed in LIFO order
         scatters = []
         arguments = []
-        for (arg, intent), shape in checked_zip(
-            terminal.function_arguments, terminal.argument_shapes
+        for (arg, intent), shape in zip(
+            terminal.function_arguments, terminal.argument_shapes, strict=True
         ):
             if isinstance(arg, DummyKernelArgument):
                 arguments.append(arg)

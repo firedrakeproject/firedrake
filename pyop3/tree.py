@@ -23,7 +23,6 @@ from pyop3.utils import (
     UniqueNameGenerator,
     apply_at,
     as_tuple,
-    checked_zip,
     deprecated,
     flatten,
     has_unique_entries,
@@ -596,7 +595,7 @@ class LabelledTree(AbstractTree):
 
             children = [None] * node.degree
             parent_to_children = {}
-            for cidx, subnode in checked_zip(cidxs, subnodes):
+            for cidx, subnode in zip(cidxs, subnodes, strict=True):
                 subnode_, sub_p2c = cls._from_nest(subnode)
                 children[cidx] = subnode_
                 parent_to_children.update(sub_p2c)

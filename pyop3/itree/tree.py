@@ -54,7 +54,6 @@ from pyop3.utils import (
     Labelled,
     as_tuple,
     expand_collection_of_iterables,
-    strict_zip,
     single_valued,
     just_one,
     merge_dicts,
@@ -1208,10 +1207,10 @@ def _(slice_: Slice, *, prev_axes, expr_replace_map, **_):
     target_per_component = {}
     index_exprs_per_component = {}
     # layout_exprs_per_component = {}
-    for cpt, target_path, index_exprs in strict_zip(
+    for cpt, target_path, index_exprs in zip(
         components,
         target_path_per_subslice,
-        index_exprs_per_subslice,
+        index_exprs_per_subslice, strict=True
     ):
         target_per_component[axis.id, cpt.label] = ((freeze(target_path), freeze(index_exprs)),)
 
@@ -1253,7 +1252,7 @@ def _make_leaf_axis_from_called_map_new(map_, map_name, output_spec, linear_inpu
     axis = Axis(components, label=map_name)
 
     targets = {}
-    for component, map_output in strict_zip(components, output_spec):
+    for component, map_output in zip(components, output_spec, strict=True):
         if not isinstance(map_output, TabulatedMapComponent):
             raise NotImplementedError("Currently we assume only arrays here")
 
@@ -1417,8 +1416,8 @@ def _index_axes(
         leafkeys = [None]
 
     subaxes = {}
-    for leafkey, subindex in strict_zip(
-        leafkeys, index_tree.node_map[index.id]
+    for leafkey, subindex in zip(
+        leafkeys, index_tree.node_map[index.id], strict=True
     ):
         if subindex is None:
             continue
@@ -1653,8 +1652,8 @@ def compose_axes(orig_axes, indexed_axes, indexed_target_paths, indexed_target_e
 
     composed_target_paths = []
     composed_target_exprs = []
-    for orig_paths, orig_index_exprs in strict_zip(
-        orig_axes.paths, orig_axes.index_exprs
+    for orig_paths, orig_index_exprs in zip(
+        orig_axes.paths, orig_axes.index_exprs, strict=True
     ):
         composed_target_paths_, composed_target_exprs_ = _compose_axes(
             orig_axes,

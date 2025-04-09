@@ -30,7 +30,6 @@ from pyop3.utils import (
     OrderedSet,
     as_tuple,
     auto,
-    strict_zip,
     just_one,
     merge_dicts,
     single_valued,
@@ -671,8 +670,8 @@ class Function:
     @property
     def argspec(self):
         spec = []
-        for access, arg in strict_zip(
-            self._access_descrs, self.code.default_entrypoint.args
+        for access, arg in zip(
+            self._access_descrs, self.code.default_entrypoint.args, strict=True
         ):
             shape = arg.shape if not isinstance(arg, lp.ValueArg) else ()
             spec.append(ArgumentSpec(access, arg.dtype, shape))
@@ -706,7 +705,7 @@ class AbstractCalledFunction(Terminal, metaclass=abc.ABCMeta):
 
     @cached_property
     def function_arguments(self):
-        return tuple((arg, spec.intent) for arg, spec in strict_zip(self.arguments, self.argspec))
+        return tuple((arg, spec.intent) for arg, spec in zip(self.arguments, self.argspec, strict=True))
 
     @cached_property
     def kernel_arguments(self):
@@ -784,7 +783,7 @@ class AbstractAssignment(Terminal):
             if len(expression_strs) > 1:
                 return "\n".join((
                     f"{assignee} {operator} {expression}"
-                    for assignee, expression in strict_zip(assignee_strs, expression_strs)
+                    for assignee, expression in zip(assignee_strs, expression_strs, strict=True)
                 ))
             else:
                 return "\n".join((
@@ -1020,7 +1019,7 @@ def fix_intents(tunit, accesses):
     """
     kernel = tunit.default_entrypoint
     new_args = []
-    for arg, access in strict_zip(kernel.args, accesses):
+    for arg, access in zip(kernel.args, accesses, strict=True):
         assert isinstance(access, Intent)
         is_input = access in {READ, RW, INC, MIN_RW, MAX_RW}
         is_output = access in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_WRITE, MAX_RW}

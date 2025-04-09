@@ -565,7 +565,7 @@ def _with_shape_indices(V: WithGeometry, indices: op3.IndexTree, and_support=Fal
             )
         )
         tree = field_indices
-        for leaf, subtree in op3.utils.checked_zip(field_indices.leaves, trees):
+        for leaf, subtree in zip(field_indices.leaves, trees, strict=True):
             tree = tree.add_subtree(subtree, *leaf, uniquify_ids=True)
     else:
         tree = op3.utils.just_one(trees)
