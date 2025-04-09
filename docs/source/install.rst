@@ -342,6 +342,11 @@ dependency. For example::
 
    $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[check,vtk]"
 
+At present VTK wheels are not available for ARM Linux machines. Depending on your
+Python version you may be able to work around this by downloading and pip installing
+the appropriate ``.whl`` file from
+`here <https://github.com/scientificcomputing/vtk-aarch64/releases>`__.
+
 
 PyTorch
 ~~~~~~~
