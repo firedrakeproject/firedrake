@@ -91,27 +91,26 @@ jobs:
           python3 -m venv venv
           . venv/bin/activate
 
-          if [ "${{ github.ref_name == 'master' }}" ]; then
-            : # build deps (including transitive)
-            pip install Cython libsupermesh mpi4py numpy pkgconfig pybind11 setuptools rtree
-            pip install hatchling
-            pip install "$PETSC_DIR"/src/binding/petsc4py
-            pip install "$PETSC_DIR"/"$PETSC_ARCH"/externalpackages/git.slepc/src/binding/slepc4py
+          : # Force a rebuild of petsc4py as the cached one will not link to the fresh
+          : # install of PETSc.
+          pip cache remove petsc4py
+          pip cache remove slepc4py
 
-            : # ngsPETSc needs petsc4py so we have to pass '--no-deps' to make sure it
-            : # doesn't fetch it from PyPI
+
+          if [ "${{ github.ref_name == 'master' }}" ]; then
+            : # Install build dependencies
+            pip install -r requirements-dev.txt
+            pip install "$PETSC_DIR"/src/binding/petsc4py
+
+            : # Install runtime dependencies that have been removed from the pyproject.toml
+            : # because they rely on non-PyPI versions of petsc4py.
+            pip install --no-build-isolation --no-deps \
+              "$PETSC_DIR"/"$PETSC_ARCH"/externalpackages/git.slepc/src/binding/slepc4py
             pip install --no-deps ngsPETSc netgen-mesher netgen-occt
 
             : # We have to pass '--no-build-isolation' to use a custom petsc4py
             EXTRA_PIP_FLAGS='--no-build-isolation'
-
-            : # Maybe patch pyproject.toml? So we don't need to maintain two of them...
           else
-            : # Force a rebuild of petsc4py as the cached one will not link to the fresh
-            : # install of PETSc.
-            pip cache remove petsc4py
-            pip cache remove slepc4py
-
             EXTRA_PIP_FLAGS=''
           fi
 
