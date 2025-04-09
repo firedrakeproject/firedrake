@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 def setup_cache_dirs():
-    root = Path(os.environ.get("VIRTUAL_ENV", "~")).joinpath(".cache")
+    root = Path(os.environ.get("VIRTUAL_ENV", Path.home())).joinpath(".cache")
     if "PYOP2_CACHE_DIR" not in os.environ:
         os.environ["PYOP2_CACHE_DIR"] = str(root.joinpath("pyop2"))
     if 'FIREDRAKE_TSFC_KERNEL_CACHE_DIR' not in os.environ:
