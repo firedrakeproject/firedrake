@@ -562,9 +562,9 @@ def solve_init_params(self, args, kwargs, varform):
                 )
             self.adj_kwargs.pop("appctx", None)
 
-    if "mat_type" in kwargs.get("solver_parameters", {}):
-        self.assemble_kwargs["mat_type"] = \
-            kwargs["solver_parameters"]["mat_type"]
+    solver_params = kwargs.get("solver_parameters", None)
+    if solver_params is not None and "mat_type" in solver_params:
+        self.assemble_kwargs["mat_type"] = solver_params["mat_type"]
 
     if varform:
         if "appctx" in kwargs:
@@ -603,14 +603,13 @@ class SolveVarFormBlock(GenericSolveBlock):
 
 class NonlinearVariationalSolveBlock(GenericSolveBlock):
     def __init__(self, equation, func, bcs, adj_cache, problem_J,
-                 solver_params, solver_kwargs, **kwargs):
+                 solver_kwargs, **kwargs):
         lhs = equation.lhs
         rhs = equation.rhs
 
         self._adj_cache = adj_cache
         self._dFdm_cache = adj_cache.setdefault("dFdm_cache", {})
         self.problem_J = problem_J
-        self.solver_params = solver_params.copy()
         self.solver_kwargs = solver_kwargs
 
         super().__init__(lhs, rhs, func, bcs, **{**solver_kwargs, **kwargs})
@@ -635,7 +634,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
     def _forward_solve(self, lhs, rhs, func, bcs, **kwargs):
         self._ad_solver_replace_forms()
-        self._ad_solvers["forward_nlvs"].parameters.update(self.solver_params)
         self._ad_solvers["forward_nlvs"].solve()
         func.assign(self._ad_solvers["forward_nlvs"]._problem.u)
         return func
