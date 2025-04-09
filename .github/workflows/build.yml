@@ -60,7 +60,9 @@ jobs:
       - name: Check release (optional)
         # undo me
         # if: github.ref_name == 'release'
-        run: exit test -z "$( git grep 'TODO RELEASE' )"
+        run: |
+          test -z "$( git grep 'TODO RELEASE' )"
+          exit "$PIPESTATUS"
 
       - name: Install system dependencies
         run: |
