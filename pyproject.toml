@@ -98,7 +98,7 @@ netgen = [
   "ngsPETSc",
 ]
 slepc = [
-  "slepc4py>=3.22.2<3.23",
+  "slepc4py>=3.22.2,<3.23",
 ]
 torch = [  # requires passing '--extra-index-url' to work
   "torch",
