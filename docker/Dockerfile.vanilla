@@ -44,7 +44,7 @@ RUN git clone --depth 1 --branch $(python3 /opt/firedrake-configure --show-petsc
     && cd /opt/petsc \
     && python3 /opt/firedrake-configure --arch $ARCH --show-petsc-configure-options | \
         sed "s/$/ --COPTFLAGS='-O3 -mtune=generic' --CXXOPTFLAGS='-O3 -mtune=generic' --FOPTFLAGS='-O3 -mtune=generic'/" | \
-        xargs -L1 ./configure --with-make-np=12 --download-slepc \
+        xargs -L1 ./configure --with-make-np=8 --download-slepc \
     && make \
     && make check \
     && rm -rf ./**/externalpackages \
