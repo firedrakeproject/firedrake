@@ -8,8 +8,7 @@ from typing import Any, Optional
 from immutabledict import ImmutableOrderedDict
 from pyrsistent import pmap, PMap
 
-from pyop3.array import Array, Dat, Mat, _ExpressionDat, _ConcretizedDat, _ConcretizedMat
-from pyop3.array.petsc import AbstractMat
+from pyop3.array import Array, Dat, Mat, _ExpressionDat, _ConcretizedDat, _ConcretizedMat, AbstractMat
 from pyop3.axtree.tree import AxisVar, Expression, Operator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, merge_trees2, ExpressionT, Terminal, AxisComponent
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one

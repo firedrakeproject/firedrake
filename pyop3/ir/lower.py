@@ -26,9 +26,8 @@ from pyrsistent import freeze, pmap, PMap
 import pyop2
 
 from pyop3 import utils
-from pyop3.array import Dat, _Dat, _ExpressionDat, _ConcretizedDat, _ConcretizedMat, Parameter
+from pyop3.array import Dat, _Dat, _ExpressionDat, _ConcretizedDat, _ConcretizedMat, Parameter, Mat, AbstractMat
 from pyop3.array.base import Array
-from pyop3.array.petsc import Mat, AbstractMat
 from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent
 from pyop3.buffer import AbstractBuffer, Buffer, NullBuffer, PackedBuffer
 from pyop3.config import config
