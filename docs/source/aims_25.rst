@@ -50,7 +50,7 @@ reading is available on the links above.
     - Firedrake practical 2: `Dirichlet boundary conditions <https://colab.research.google.com/github/firedrakeproject/notebooks/blob/aims/02-poisson.ipynb>`__
     - Firedrake practical 4: `mixed Poisson <https://colab.research.google.com/github/firedrakeproject/notebooks/blob/aims/05-mixed-poisson.ipynb>`__
     - Firedrake practical 6: `solvers <https://colab.research.google.com/github/firedrakeproject/notebooks/blob/aims/08-composable-solvers.ipynb>`__
-    - Adjoint practical 1: Burgers again
+    - Adjoint practical 1: `Burgers again <https://colab.research.google.com/github/firedrakeproject/notebooks/blob/aims/13_adjoint_calculations.ipynb#scrollTo=e7b5808f-f0ae-4e40-bcca-eff67f251fc9>`__
     - `Scientific machine learning <https://github.com/NBoulle/physics-driven-ml/raw/main/tutorials/sciml_intro.pdf>`__, `practical <https://colab.research.google.com/github/NBoulle/physics-driven-ml/blob/main/tutorials/Tutorial_2_ex.ipynb>`__
 
 
