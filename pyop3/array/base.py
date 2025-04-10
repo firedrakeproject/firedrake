@@ -1,30 +1,43 @@
+from __future__ import annotations
+
 import abc
-from typing import Any
+import dataclasses
+from typing import Any, ClassVar
 
 import numpy as np
 from mpi4py import MPI
 
+from pyop3 import utils
 from pyop3.axtree import ContextAware
 from pyop3.axtree.tree import Expression
 from pyop3.exceptions import InvalidIndexCountException
 from pyop3.lang import FunctionArgument, BufferAssignment
-from pyop3.utils import UniqueNameGenerator
 
 
-class Array(ContextAware, FunctionArgument, Expression, abc.ABC):
-    _prefix = "array"
-    _name_generator = UniqueNameGenerator()
+@dataclasses.dataclass(init=False, frozen=True)
+class Array(ContextAware, FunctionArgument, Expression, utils.RecordMixin, abc.ABC):
 
-    def __init__(self, name=None, *, prefix=None, parent=None) -> None:
-        if name and prefix:
-            raise ValueError("Can only specify one of name and prefix")
-        self.name = name or self._name_generator(prefix or self._prefix)
+    # {{{ Instance attrs
 
-        self.parent = parent
+    name: str
+    parent: Array | None
+
+    # }}}
+
+    # {{{ Class attrs
+
+    DEFAULT_PREFIX: ClassVar[str] = "array"
+
+    # }}}
+
+    def __init__(self, name: str | None=None, *, prefix: str | None=None, parent: Array|None=None) -> None:
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "parent", parent)
 
     def __getitem__(self, indices):
-        # Handle the fact that 'obj[123]' sets 'indices' to '123' (i.e. not a tuple)
-        # but 'obj[123, 456]' sets it to '(123, 456)' (i.e. a tuple).
+        # Handle the fact that 'obj[123]' sets 'indices' to '123' (not a tuple)
+        # but 'obj[123, 456]' sets it to '(123, 456)' (a tuple).
         if not isinstance(indices, tuple):
             indices = (indices,)
 
@@ -80,6 +93,7 @@ class Array(ContextAware, FunctionArgument, Expression, abc.ABC):
         return expr() if eager else expr
 
 
+# TODO: make this a dataclass and accept the buffer there
 class DistributedArray(Array, abc.ABC):
 
     # {{{ abstract methods

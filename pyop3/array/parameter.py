@@ -1,4 +1,7 @@
-import numbers
+from collections.abc import Sequence
+import dataclasses
+from numbers import Number
+from typing import Any, ClassVar
 
 import numpy as np
 
@@ -6,14 +9,31 @@ from pyop3 import utils
 from pyop3.array.base import Array
 
 
+@dataclasses.dataclass(init=False, frozen=True)
 class Parameter(Array):
-    """Scalar value that can be changed without triggering code generation."""
+    """Value that can be changed without triggering code generation."""
 
-    DEFAULT_PREFIX = "param"
+    # {{{ Instance attrs
 
-    def __init__(self, value: numbers.Number, *, name: str | None =None, prefix: str | None=None) -> None:
-        self.value = utils.as_numpy_scalar(value)
-        self.name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+    # TODO: can be a scalar or numpy array
+    value: Any
+
+    # }}}
+
+    # {{{ Class attrs
+
+    DEFAULT_PREFIX: ClassVar[str] = "param"
+
+    # }}}
+
+    def __init__(self, value: Sequence[Number] | Number, *, name: str | None =None, prefix: str | None=None) -> None:
+        if isinstance(value, Number):
+            value = utils.as_numpy_scalar(value)
+        else:
+            raise NotImplementedError("TODO")
+
+        super().__init__(name, prefix=prefix)
+        object.__setattr__(self, "value", value)
 
     # {{{ Array impls
 

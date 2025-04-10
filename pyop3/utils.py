@@ -496,30 +496,16 @@ def popfirst(dict_: dict) -> Any:
     return (key, dict_.pop(key))
 
 
-class Record(abc.ABC):
-    def __eq__(self, other) -> bool:
-        return (
-            type(self) is type(other)
-            and all(getattr(self, field) == getattr(other, field) for field in self._record_fields)
-        )
+class RecordMixin(abc.ABC):
 
-    @property
-    @abc.abstractmethod
-    def _record_fields(self) -> frozenset:
-        pass
-
-    def _record_init(self, **kwargs) -> None:
-        for field in self._record_fields:
-            setattr(self, field, kwargs.pop(field))
-        assert not kwargs
-
-    def reconstruct(self, **kwargs):
-        for field in self._record_fields:
-            if field not in kwargs:
-                kwargs[field] = getattr(self, field)
+    def reconstruct(self, **attrs) -> RecordMixin:
+        for field in self.__dataclass_fields__.keys():
+            if field not in attrs:
+                attrs[field] = getattr(self, field)
 
         new = object.__new__(type(self))
-        new._record_init(**kwargs)
+        for attr, value in attrs.items():
+            object.__setattr__(new, attr, value)
         return new
 
 

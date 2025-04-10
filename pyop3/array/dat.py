@@ -3,14 +3,16 @@ from __future__ import annotations
 import abc
 import collections
 import contextlib
+import dataclasses
 import sys
 from functools import cached_property
-from typing import Any, Sequence
+from typing import Any, ClassVar, Sequence
 
 import numpy as np
 import pymbolic as pym
 from cachetools import cachedmethod
 from immutabledict import ImmutableOrderedDict
+from mpi4py import MPI
 from petsc4py import PETSc
 from pyrsistent import freeze, pmap
 
@@ -21,14 +23,14 @@ from pyop3.axtree import (
     AxisTree,
     as_axis_tree,
 )
-from pyop3.axtree.tree import ContextFree, ContextSensitiveAxisTree, subst_layouts
+from pyop3.axtree.tree import AbstractAxisTree, ContextFree, ContextSensitiveAxisTree, subst_layouts
 from pyop3.buffer import AbstractBuffer, Buffer, NullBuffer
 from pyop3.dtypes import ScalarType
 from pyop3.exceptions import Pyop3Exception
 from pyop3.lang import KernelArgument, BufferAssignment
 from pyop3.log import warning
 from pyop3.utils import (
-    Record,
+    RecordMixin,
     debug_assert,
     deprecated,
     just_one,
@@ -49,37 +51,8 @@ class FancyIndexWriteException(Exception):
     pass
 
 
-class _Dat(DistributedArray, KernelArgument, Record, abc.ABC):
-
-    # @classmethod
-    # def _parse_buffer(cls, data, dtype, size, name):
-    #     if data is not None:
-    #         if isinstance(data, Buffer):
-    #             return data
-    #
-    #
-    #         assert isinstance(data, np.ndarray)
-    #         assert dtype is None or dtype == data.dtype
-    #
-    #         dtype = data.dtype
-    #
-    #         # always deal with flattened data
-    #         if len(data.shape) > 1:
-    #             data = data.flatten()
-    #     elif dtype is None:
-    #         dtype = Buffer.DEFAULT_DTYPE
-    #         data = np.zeros(size, dtype=dtype)
-    #     else:
-    #         data = np.zeros(size, dtype=dtype)
-    #
-    #     buffer = DistributedBuffer(
-    #         data.size,  # not a useful property anymore
-    #         dtype,
-    #         name=name,
-    #         data=data,
-    #     )
-    #
-    #     return buffer
+@dataclasses.dataclass(init=False, frozen=True)
+class _Dat(DistributedArray, KernelArgument, abc.ABC):
 
     # {{{ Array impls
 
@@ -92,13 +65,8 @@ class _Dat(DistributedArray, KernelArgument, Record, abc.ABC):
     # {{{ DistributedArray impls
 
     @property
-    def buffer(self):
+    def buffer(self) -> AbstractBuffer:
         return self._buffer
-
-    # NOTE: Only need this because of my immutable record stuff (which is rubbish)
-    @buffer.setter
-    def buffer(self, new):
-        self._buffer = new
 
     @property
     def comm(self) -> MPI.Comm:
@@ -199,6 +167,7 @@ class _Dat(DistributedArray, KernelArgument, Record, abc.ABC):
         return expr() if eager else expr
 
 
+@dataclasses.dataclass(init=False, frozen=True)
 class Dat(_Dat):
     """Multi-dimensional, hierarchical array.
 
@@ -207,7 +176,22 @@ class Dat(_Dat):
 
     """
 
-    _prefix = "dat"
+    # {{{ Instance attrs
+
+    axes: AbstractAxisTree
+    _buffer: AbstractBuffer
+
+    # TODO: These belong to the buffer
+    max_value: int | None
+    ordered: bool
+
+    # }}}
+
+    # {{{ Class attrs
+
+    DEFAULT_PREFIX: ClassVar[str] = "dat"
+
+    # }}}
 
     def __init__(
         self,
@@ -245,9 +229,9 @@ class Dat(_Dat):
             buffer = Buffer(data, axes.sf)
 
         super().__init__(name=name, prefix=prefix, parent=parent)
-        self.axes = axes
-        self._buffer = buffer
-        self.max_value = max_value
+        object.__setattr__(self, "axes", axes)
+        object.__setattr__(self, "_buffer", buffer)
+        object.__setattr__(self, "max_value", max_value)
 
         # NOTE: This is a tricky one, is it an attribute of the dat or the buffer? What
         # if the Dat is indexed? Maybe it should be
@@ -255,7 +239,7 @@ class Dat(_Dat):
         #     return self.buffer.ordered and self.ordered_access
         #
         # where self.ordered_access would detect the use of a subset...
-        self.ordered = ordered
+        object.__setattr__(self, "ordered", ordered)
 
         # self._cache = {}
 
@@ -273,12 +257,12 @@ class Dat(_Dat):
     def __getitem__(self, indices):
         return self.getitem(indices, strict=False)
 
-    # TODO: redo now that we have Record?
-    def __hash__(self) -> int:
-        return hash(
-            (
-                type(self), self.axes, self.dtype, self.buffer, self.max_value, self.name, self.ordered)
-        )
+    # # TODO: redo now that we have Record?
+    # def __hash__(self) -> int:
+    #     return hash(
+    #         (
+    #             type(self), self.axes, self.dtype, self.buffer, self.max_value, self.name, self.ordered)
+    #     )
 
 
     # {{{ Class constructors
@@ -296,10 +280,6 @@ class Dat(_Dat):
         return cls(axes, buffer=buffer, **kwargs)
 
     # }}}
-
-    @property
-    def _record_fields(self) -> frozenset:
-        return frozenset({"axes", "buffer", "max_value", "name", "ordered", "parent"})
 
     @cachedmethod(lambda self: self.axes._cache)
     def getitem(self, index, *, strict=False):
@@ -589,6 +569,7 @@ class Dat(_Dat):
         return self.reconstruct(axes=axes)
 
 
+@dataclasses.dataclass(init=False, frozen=True)
 class _ConcretizedDat2(_Dat, ContextFree, abc.ABC):
 
     # unimplemented
@@ -660,11 +641,10 @@ class _ConcretizedDat(_ConcretizedDat2):
     def axes(self):
         return self.dat.axes
 
-    @property
-    def _record_fields(self) -> frozenset:
-        return frozenset({"dat", "layouts", "name"})
 
-
+# TODO: reenable when I have cleaned things up, disabling this just means that
+# reconstruct will break (fine with me)
+# @dataclasses.dataclass(init=False, frozen=True)
 class _ConcretizedMat(_ConcretizedDat2):
     """A dat with fixed layouts.
 
@@ -674,12 +654,11 @@ class _ConcretizedMat(_ConcretizedDat2):
 
     """
     def __init__(self, mat, row_layouts, col_layouts, parent):
-        super().__init__(name=mat.name)
+        super().__init__(name=mat.name, parent=parent)
         self.dat = mat  # only because I need to clean this up
         self.mat = mat
         self.row_layouts = pmap(row_layouts)
         self.col_layouts = pmap(col_layouts)
-        self.parent = parent
 
     def __str__(self) -> str:
         return "\n".join(
@@ -688,21 +667,9 @@ class _ConcretizedMat(_ConcretizedDat2):
             for col_layout in self.col_layouts.values()
         )
 
-    # TODO: redo now that we have Record?
-    def __hash__(self) -> int:
-        return hash((type(self), self.dat, self.row_layouts, self.col_layouts))
-
     @property
     def axes(self):
         return self.mat.axes
-
-    # @property
-    # def axes(self):
-    #     return self.dat.axes
-
-    @property
-    def _record_fields(self) -> frozenset:
-        return frozenset({"mat", "row_layouts", "col_layouts", "name"})
 
     @property
     def alloc_size(self) -> int:
@@ -711,6 +678,7 @@ class _ConcretizedMat(_ConcretizedDat2):
 
 # NOTE: I think that this is a bad name for this class. Dats and _ConcretizedDats
 # can also appear in expressions.
+@dataclasses.dataclass(init=False, frozen=True)
 class _ExpressionDat(_ConcretizedDat2):
     """A dat with fixed (?) layout.
 
@@ -720,14 +688,18 @@ class _ExpressionDat(_ConcretizedDat2):
     point it has a fixed set of axes.
 
     """
+
+    # {{{ Instance attrs
+
+    dat: Dat
+    layout: Any
+
+    # }}}
+
     def __init__(self, dat, layout):
-        super().__init__(name=dat.name, parent=None)
-
-        self.dat = dat
-        self.layout = layout
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.dat!r}, {self.layout!r})"
+        super().__init__(name=dat.name)
+        object.__setattr__(self, "dat", dat)
+        object.__setattr__(self, "layout", layout)
 
     def __str__(self) -> str:
         return f"{self.name}[{self.layout}]"
@@ -753,8 +725,3 @@ class _ExpressionDat(_ConcretizedDat2):
         from pyop3.expr_visitors import evaluate
 
         return evaluate(self.layout, indices)
-
-    @property
-    def _record_fields(self) -> frozenset:
-        # NOTE: Including 'name' is a hack because of inheritance...
-        return frozenset({"dat", "layout", "name"})

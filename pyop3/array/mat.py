@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import abc
 import collections
+import dataclasses
 import numbers
 from functools import cached_property
 from itertools import product
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 from immutabledict import ImmutableOrderedDict
@@ -13,9 +14,11 @@ from mpi4py import MPI
 from petsc4py import PETSc
 from pyrsistent import freeze, pmap
 
+from pyop3 import utils
 from pyop3.array.base import Array, DistributedArray
 from pyop3.array.dat import Dat
 from pyop3.axtree.tree import (
+    AbstractAxisTree,
     merge_axis_trees,
     AxisTree,
     ContextSensitiveAxisTree,
@@ -27,7 +30,6 @@ from pyop3.buffer import Buffer, NullBuffer, AbstractBuffer
 from pyop3.dtypes import IntType, ScalarType
 from pyop3.lang import Loop, BufferAssignment
 from pyop3.utils import (
-    Record,
     deprecated,
     just_one,
     merge_dicts,
@@ -58,19 +60,34 @@ class PetscVecNest(PetscVec):
     ...
 
 
-# BaseMat?
-class AbstractMat(DistributedArray, Record):
-    DEFAULT_MAT_TYPE = PETSc.Mat.Type.AIJ
+@dataclasses.dataclass(init=False, frozen=True)
+class AbstractMat(DistributedArray):
 
-    prefix = "mat"
-    _prefix = "mat"
-    dtype = PETSc.ScalarType
+    # {{{ Instance attributes
 
-    # Make abstract property of some parent class?
-    constant = False
+    name: str
+    raxes: AbstractAxisTree
+    caxes: AbstractAxisTree
+    _buffer: AbstractBuffer | PETSc.Mat
 
-    _row_suffix = "_row"
-    _col_suffix = "_col"
+    # TODO: not really the right place for this - the buffer? just need compatibility here
+    block_shape: Any
+
+    # TODO: buffer attr
+    constant: bool
+    mat_type: str
+
+    # }}}
+
+    # {{{ Class attrs
+
+    DEFAULT_PREFIX: ClassVar[str] = "mat"
+
+    # TODO: belongs on the buffer
+    DEFAULT_MAT_TYPE: ClassVar[PETSc.Mat.Type] = PETSc.Mat.Type.AIJ
+
+    _row_suffix: ClassVar[str] = "_row"
+    _col_suffix: ClassVar[str] = "_col"
 
     def __init__(
         self,
@@ -99,15 +116,13 @@ class AbstractMat(DistributedArray, Record):
 
         assert isinstance(mat, (AbstractBuffer, PETSc.Mat))
 
-        super().__init__(name=name, prefix=prefix)
-        self.raxes = raxes
-        self.caxes = caxes
-        self.block_shape = block_shape
-        self.mat_type = mat_type
-        self._buffer = mat
-        self.parent = parent
-        self.constant = constant
-
+        super().__init__(name, prefix=prefix, parent=parent)
+        object.__setattr__(self, "raxes", raxes)
+        object.__setattr__(self, "caxes", caxes)
+        object.__setattr__(self, "block_shape", block_shape)
+        object.__setattr__(self, "mat_type", mat_type)
+        object.__setattr__(self, "_buffer", mat)
+        object.__setattr__(self, "constant", constant)
 
         # self._cache = {}
 
@@ -268,20 +283,11 @@ class AbstractMat(DistributedArray, Record):
     def buffer(self) -> Any:
         return self._buffer
 
-    # NOTE: Only needed because of nasty record stuff that should go
-    @buffer.setter
-    def buffer(self, buffer) -> None:
-        self._buffer = buffer
-
     @property
     def comm(self) -> MPI.Comm:
         return single_valued([self.raxes.comm, self.caxes.comm])
 
     # }}}
-
-    @property
-    def _record_fields(self) -> frozenset:
-        return frozenset({"raxes", "caxes", "mat_type", "buffer", "name", "parent", "constant", "block_shape"})
 
     # old alias
     @property
