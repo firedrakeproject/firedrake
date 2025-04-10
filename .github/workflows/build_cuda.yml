@@ -24,7 +24,7 @@ jobs:
       fail-fast: false
       matrix:
         arch: [default]
-    runs-on: [self-hosted, Linux]
+    runs-on: [self-hosted, Linux, gpu]
     container:
       image: nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
       options: --gpus all
