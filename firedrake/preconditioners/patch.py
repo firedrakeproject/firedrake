@@ -660,9 +660,6 @@ class PlaneSmoother(object):
             # a periodic mesh. We need to interpolate to CGk
             # with access descriptor MAX to define a consistent opinion
             # about where the vertices are.
-            # Need to supply the actual mesh to the FunctionSpace constructor,
-            # not its weakref proxy (the variable `mesh`)
-            # as interpolation fails because they are not hashable
             CGk = V.reconstruct(family="Lagrange")
             coordinates = assemble(Interpolate(coordinates, CGk, access=op2.MAX))
 
