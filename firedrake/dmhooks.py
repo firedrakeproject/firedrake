@@ -459,7 +459,7 @@ def refine(dm, comm):
     if hasattr(V, "_fine"):
         fdm = V._fine.dm
     else:
-        V._fine = firedrake.FunctionSpace(hierarchy[level + 1], V.ufl_element())
+        V._fine = V.reconstruct(mesh=hierarchy[level + 1])
         fdm = V._fine.dm
     V._fine._coarse = V
     return fdm
