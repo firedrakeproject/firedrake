@@ -22,7 +22,7 @@ dependencies = [
   "libsupermesh",
   # NOTE: If changing the PETSc/SLEPc version then firedrake-configure also needs
   # changing (as well as other references to petsc4py and slepc4py here)
-  "petsc4py==3.22.2",
+  "petsc4py==3.23.0",
   "numpy",
   "packaging",
   "pkgconfig",
@@ -119,7 +119,7 @@ ci = [
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.22.2",
+  "slepc4py==3.23.0",
   "torch",  # requires passing '--extra-index-url' to work
   "vtk",
 ]
@@ -133,7 +133,7 @@ docker = [  # Used in firedrake-vanilla container
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.22.2",
+  "slepc4py==3.23.0",
 ]
 
 [build-system]
@@ -146,7 +146,7 @@ requires = [
   "pkgconfig",
   "pybind11",
   "setuptools>61.2",
-  "petsc4py==3.22.2",
+  "petsc4py==3.23.0",
   "rtree>=1.2",
 ]
 build-backend = "setuptools.build_meta"
