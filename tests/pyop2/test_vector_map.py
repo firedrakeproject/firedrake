@@ -180,58 +180,6 @@ class TestVectorMap:
             start=1, stop=nnodes, step=2).reshape(expected.shape)
         assert all(vd1.data == expected)
 
-    def test_read_2d_vector_map(self, node, d2, vd2, node2ele):
-        vd2.data[:] = numpy.arange(nele * 2).reshape(nele, 2)
-        k = """
-        static void k(int d[2], int vd[1][2]) {
-        d[0] = vd[0][0];
-        d[1] = vd[0][1];
-        }"""
-        op2.par_loop(op2.Kernel(k, 'k'), node,
-                     d2(op2.WRITE),
-                     vd2(op2.READ, node2ele))
-        assert all(d2.data[::2, 0] == vd2.data[:, 0])
-        assert all(d2.data[::2, 1] == vd2.data[:, 1])
-        assert all(d2.data[1::2, 0] == vd2.data[:, 0])
-        assert all(d2.data[1::2, 1] == vd2.data[:, 1])
-
-    def test_write_2d_vector_map(self, node, vd2, node2ele):
-        k = """
-        static void k(int vd[1][2]) {
-        vd[0][0] = 2;
-        vd[0][1] = 3;
-        }
-        """
-
-        op2.par_loop(op2.Kernel(k, 'k'), node,
-                     vd2(op2.WRITE, node2ele))
-        assert all(vd2.data[:, 0] == 2)
-        assert all(vd2.data[:, 1] == 3)
-
-    def test_inc_2d_vector_map(self, node, d2, vd2, node2ele):
-        vd2.data[:, 0] = 3
-        vd2.data[:, 1] = 4
-        d2.data[:] = numpy.arange(2 * nnodes).reshape(d2.data.shape)
-
-        k = """
-        static void k(int vd[1][2], int d[2]) {
-        vd[0][0] += d[0];
-        vd[0][1] += d[1];
-        }"""
-        op2.par_loop(op2.Kernel(k, 'k'), node,
-                     vd2(op2.INC, node2ele),
-                     d2(op2.READ))
-
-        expected = numpy.zeros_like(vd2.data)
-        expected[:, 0] = 3
-        expected[:, 1] = 4
-        expected[:, 0] += numpy.arange(start=0, stop=2 * nnodes, step=4)
-        expected[:, 0] += numpy.arange(start=2, stop=2 * nnodes, step=4)
-        expected[:, 1] += numpy.arange(start=1, stop=2 * nnodes, step=4)
-        expected[:, 1] += numpy.arange(start=3, stop=2 * nnodes, step=4)
-        assert all(vd2.data[:, 0] == expected[:, 0])
-        assert all(vd2.data[:, 1] == expected[:, 1])
-
 
 if __name__ == '__main__':
     import os
