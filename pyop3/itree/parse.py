@@ -7,7 +7,7 @@ from typing import Any
 from immutabledict import ImmutableOrderedDict
 from pyrsistent import PMap, pmap
 
-from pyop3.array.harray import Dat
+from pyop3.array.dat import Dat
 from pyop3.axtree import AxisTree
 from pyop3.axtree.tree import AbstractAxisTree, IndexedAxisTree
 from pyop3.exceptions import Pyop3Exception

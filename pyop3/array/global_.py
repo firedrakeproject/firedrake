@@ -26,12 +26,21 @@ class Global(Array):
         self.buffer = buffer
         self.name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
+    # {{{ Array impls
+
+    @property
+    def dim(self) -> int:
+        return 0
+
+    # }}}
+
     @property
     def dtype(self):
         return self.buffer.dtype
 
     def getitem(self, indices, *, strict=False):
-        raise TypeError("Not applicable")
+        assert len(indices) == self.dim  #  move out
+        return self
 
     def with_context(self, *args, **kwargs):
         return self

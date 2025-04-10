@@ -2,8 +2,13 @@ import abc
 
 from pyop3.axtree import ContextAware
 from pyop3.axtree.tree import Expression
+from pyop3.exceptions import Pyop3Exception
 from pyop3.lang import FunctionArgument, BufferAssignment
 from pyop3.utils import UniqueNameGenerator
+
+
+class InvalidIndexCount(Pyop3Exception):
+    pass
 
 
 class Array(ContextAware, FunctionArgument, Expression, abc.ABC):
@@ -33,10 +38,18 @@ class Array(ContextAware, FunctionArgument, Expression, abc.ABC):
     # def reshape(self, *axes):
     #     pass
 
+    @property
+    @abc.abstractmethod
+    def dim(self) -> int:
+        pass
+
+    # TODO: want to check dim here... (if one arg then not a tuple - check dim==1)
+    # TODO: remove __iter__ here too
     @abc.abstractmethod
     def getitem(self, indices, *, strict=False):
         pass
 
+    # TODO: remove these
     @abc.abstractmethod
     def with_context(self):
         pass

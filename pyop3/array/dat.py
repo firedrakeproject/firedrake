@@ -81,6 +81,15 @@ class _Dat(Array, KernelArgument, Record, abc.ABC):
     #
     #     return buffer
 
+    # {{{ Array impls
+
+    @property
+    def dim(self) -> int:
+        return 1
+
+    # }}}
+
+
     @property
     def alloc_size(self):
         return self.axes.alloc_size
@@ -233,22 +242,6 @@ class Dat(_Dat):
 
         # self._cache = {}
 
-    @classmethod
-    def empty(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
-        axes = as_axis_tree(axes)
-        buffer = Buffer.empty(axes.size, dtype=dtype, sf=axes.sf)
-        return cls(axes, buffer=buffer, **kwargs)
-
-    @classmethod
-    def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
-        axes = as_axis_tree(axes)
-        buffer = Buffer.zeros(axes.size, dtype=dtype, sf=axes.sf)
-        return cls(axes, buffer=buffer, **kwargs)
-
-    @property
-    def _record_fields(self) -> frozenset:
-        return frozenset({"axes", "buffer", "max_value", "name", "ordered", "parent"})
-
     def __str__(self) -> str:
         try:
             return "\n".join(
@@ -270,18 +263,39 @@ class Dat(_Dat):
                 type(self), self.axes, self.dtype, self.buffer, self.max_value, self.name, self.ordered)
         )
 
+
+    # {{{ Class constructors
+
+    @classmethod
+    def empty(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
+        axes = as_axis_tree(axes)
+        buffer = Buffer.empty(axes.size, dtype=dtype, sf=axes.sf)
+        return cls(axes, buffer=buffer, **kwargs)
+
+    @classmethod
+    def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
+        axes = as_axis_tree(axes)
+        buffer = Buffer.zeros(axes.size, dtype=dtype, sf=axes.sf)
+        return cls(axes, buffer=buffer, **kwargs)
+
+    # }}}
+
+    @property
+    def _record_fields(self) -> frozenset:
+        return frozenset({"axes", "buffer", "max_value", "name", "ordered", "parent"})
+
     @cachedmethod(lambda self: self.axes._cache)
-    def getitem(self, indices, *, strict=False):
+    def getitem(self, index, *, strict=False):
         from pyop3.itree import as_index_forest, index_axes
 
-        if indices is Ellipsis:
+        if index is Ellipsis:
             return self
 
         # key = (indices, strict)
         # if key in self._cache:
         #     return self._cache[key]
 
-        index_forest = as_index_forest(indices, axes=self.axes, strict=strict)
+        index_forest = as_index_forest(index, axes=self.axes, strict=strict)
 
         if len(index_forest) == 1:
             # There is no outer loop context to consider. Needn't return a

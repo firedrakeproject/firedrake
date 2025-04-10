@@ -12,7 +12,7 @@ from petsc4py import PETSc
 from pyrsistent import freeze, pmap
 
 from pyop3.array.base import Array
-from pyop3.array.harray import Dat
+from pyop3.array.dat import Dat
 from pyop3.axtree.tree import (
     merge_axis_trees,
     AxisTree,
@@ -109,6 +109,14 @@ class AbstractMat(Array, Record):
 
         # self._cache = {}
 
+    # {{{ Array impls
+
+    @property
+    def dim(self) -> int:
+        return 2
+
+    # }}}
+
     @property
     def _record_fields(self) -> frozenset:
         return frozenset({"raxes", "caxes", "mat_type", "buffer", "name", "parent", "constant", "block_shape"})
@@ -142,7 +150,8 @@ class AbstractMat(Array, Record):
         # if cache_key in self._cache:
         #     return self._cache[cache_key]
 
-        if len(indices) != 2:
+        # move out
+        if len(indices) != self.dim:
             raise ValueError
 
         # Combine the loop contexts of the row and column indices. Consider

@@ -111,31 +111,6 @@ class UniqueRecord(pytools.ImmutableRecord, Identified):
         Identified.__init__(self, id)
 
 
-# class Parameter(Identified):
-#     """Wrapper class for a scalar value that differs between ranks."""
-#     def __init__(self, value):
-#         super().__init__(id=None)  # generate a fresh ID
-#         self.box = np.array([value])
-#
-#     @property
-#     def value(self):
-#         return just_one(self.box)
-
-
-# TODO: This is like Dat etc, a legit data carrier type
-class Parameter:
-    """Wrapper class for a scalar value that differs between ranks."""
-    DEFAULT_PREFIX = "param"
-
-    def __init__(self, value, *, name=None, prefix=None):
-        self.value = as_numpy_scalar(value)
-        self.name = maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-
-    @property
-    def dtype(self):
-        return self.value.dtype
-
-
 class ValueMismatchException(Pyop3Exception):
     pass
 

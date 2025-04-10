@@ -407,8 +407,8 @@ class Loop(Instruction):
             Collections of callables to be executed at the right times.
 
         """
-        from pyop3 import Buffer, Dat, Mat
-        from pyop3.array.harray import ContextSensitiveDat
+        from pyop3.array import Dat, Mat
+        from pyop3.buffer import Buffer
 
         initializers = []
         reductions = []
@@ -856,8 +856,7 @@ class BufferAssignment(AbstractBufferAssignment):
 
     @property
     def kernel_arguments(self):
-        from pyop3.array.harray import Dat
-        from pyop3.array.petsc import Mat
+        from pyop3.array import Dat, Mat
 
         args = OrderedSet()
         for array, _ in self.function_arguments:
@@ -1029,7 +1028,7 @@ def fix_intents(tunit, accesses):
 
 @functools.singledispatch
 def _collect_kernel_arguments(func_arg: FunctionArgument) -> tuple:
-    from pyop3 import Dat, Mat  # cyclic import
+    from pyop3.array import Dat, Mat
     from pyop3.buffer import Buffer, NullBuffer
 
     if isinstance(func_arg, Dat):

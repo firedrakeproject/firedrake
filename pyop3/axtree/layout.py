@@ -16,7 +16,7 @@ from petsc4py import PETSc
 from pyop3 import tree
 from pyrsistent import PMap, freeze, pmap
 
-from pyop3.array.harray import Dat, _ExpressionDat
+from pyop3.array.dat import Dat, _ExpressionDat
 from pyop3.axtree.tree import (
     Axis,
     AxisComponent,
@@ -538,7 +538,7 @@ def _axis_component_region_has_fixed_size(region: AxisComponentRegion) -> bool:
 
 def _region_size_needs_outer_index(region, free_axes):
     from pyop3.array import Dat
-    from pyop3.array.harray import _ExpressionDat
+    from pyop3.array.dat import _ExpressionDat
 
     free_axis_labels = frozenset(ax.label for ax in free_axes)
 
@@ -737,7 +737,7 @@ def _axis_component_size_region(
 @functools.singledispatch
 def _as_int(arg: Any, indices, path=None, *, loop_indices=pmap()):
     from pyop3.array import Dat
-    from pyop3.array.harray import _ExpressionDat
+    from pyop3.array.dat import _ExpressionDat
 
     if isinstance(arg, (Dat, _ExpressionDat)):
         # TODO this might break if we have something like [:, subset]

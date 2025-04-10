@@ -43,7 +43,6 @@ from pyop3.tree import (
 from pyop3.utils import (
     has_unique_entries,
     unique_comm,
-    Parameter,
     debug_assert,
     deprecated,
     invert,
@@ -410,6 +409,8 @@ class AxisComponent(LabelledNodeComponent):
     @cached_property
     def _collective_size(self):
         """Return the size of an axis component in a format consistent over ranks."""
+        from pyop3.array import Parameter
+
         local_size = self.size
         if self.sf is not None:
             if not isinstance(local_size, numbers.Integral):
