@@ -90,6 +90,9 @@ class TransferManager(object):
         except KeyError:
             return self.caches.setdefault(key, TransferManager.Cache(*key))
 
+    def cache_key(self, V):
+        return (V.dim(), tuple(V.boundary_set))
+
     def V_dof_weights(self, V):
         """Dof weights for averaging projection.
 
@@ -97,7 +100,7 @@ class TransferManager(object):
         :returns: A PETSc Vec.
         """
         cache = self.cache(V)
-        key = V.dim()
+        key = self.cache_key(V)
         try:
             return cache._V_dof_weights[key]
         except KeyError:
@@ -122,7 +125,7 @@ class TransferManager(object):
         :returns: A PETSc Mat mapping from V -> DG
         """
         cache = self.cache(V)
-        key = V.dim()
+        key = self.cache_key(V)
         try:
             return cache._V_DG_mass[key]
         except KeyError:
@@ -153,7 +156,7 @@ class TransferManager(object):
         :returns: A PETSc Mat mapping from V -> DG.
         """
         cache = self.cache(V)
-        key = V.dim()
+        key = self.cache_key(V)
         try:
             return cache._V_approx_inv_mass[key]
         except KeyError:
@@ -171,7 +174,7 @@ class TransferManager(object):
         :returns: A PETSc KSP for inverting (V, V).
         """
         cache = self.cache(V)
-        key = V.dim()
+        key = self.cache_key(V)
         try:
             return cache._V_inv_mass_ksp[key]
         except KeyError:
@@ -193,7 +196,7 @@ class TransferManager(object):
         """
         needs_dual = ufl.duals.is_dual(V)
         cache = self.cache(V)
-        key = (V.dim(), needs_dual)
+        key = self.cache_key(V) + (needs_dual,)
         try:
             return cache._DG_work[key]
         except KeyError:
@@ -210,7 +213,7 @@ class TransferManager(object):
         :returns: A PETSc Vec for V.
         """
         cache = self.cache(V)
-        key = V.dim()
+        key = self.cache_key(V)
         try:
             return cache._work_vec[key]
         except KeyError:
