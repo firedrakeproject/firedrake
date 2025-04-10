@@ -36,6 +36,7 @@ import pytest
 import numpy as np
 
 from pyop2 import op2
+from pyop2.datatypes import ScalarType
 
 nelems = 32
 
@@ -214,19 +215,19 @@ static void inc(unsigned int* v1, unsigned int* v2) {
         ss10 = op2.Subset(iterset, [1, 0])
         indset = op2.Set(4)
 
-        dat = op2.Dat(idset ** 1, data=[0, 1], dtype=np.float64)
+        dat = op2.Dat(idset ** 1, data=[0, 1], dtype=ScalarType)
         map = op2.Map(iterset, indset, 4, [0, 1, 2, 3, 0, 1, 2, 3])
         idmap = op2.Map(iterset, idset, 1, [0, 1])
         sparsity = op2.Sparsity((indset ** 1, indset ** 1), {(0, 0): [(map, map, None)]})
-        mat = op2.Mat(sparsity, np.float64)
-        mat01 = op2.Mat(sparsity, np.float64)
-        mat10 = op2.Mat(sparsity, np.float64)
+        mat = op2.Mat(sparsity, ScalarType)
+        mat01 = op2.Mat(sparsity, ScalarType)
+        mat10 = op2.Mat(sparsity, ScalarType)
 
         kernel_code = """
-static void unique_id(double mat[4][4], double *dat) {
+static void unique_id(PetscScalar mat[16], PetscScalar *dat) {
   for (int i=0; i<4; ++i)
     for (int j=0; j<4; ++j)
-      mat[i][j] += (*dat)*16+i*4+j;
+      mat[i*4+j] += (*dat)*16+i*4+j;
 }
         """
         k = op2.Kernel(kernel_code, "unique_id")

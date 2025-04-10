@@ -44,7 +44,7 @@ RUN git clone --depth 1 --branch $(python3 /opt/firedrake-configure --show-petsc
     && cd /opt/petsc \
     && python3 /opt/firedrake-configure --arch $ARCH --show-petsc-configure-options | \
         sed "s/$/ --COPTFLAGS='-O3 -mtune=generic' --CXXOPTFLAGS='-O3 -mtune=generic' --FOPTFLAGS='-O3 -mtune=generic'/" | \
-        xargs -L1 ./configure --with-make-np=12 \
+        xargs -L1 ./configure --with-make-np=8 --download-slepc \
     && make \
     && make check \
     && rm -rf ./**/externalpackages \
@@ -55,15 +55,6 @@ RUN git clone --depth 1 --branch $(python3 /opt/firedrake-configure --show-petsc
 
 ENV PETSC_DIR=/opt/petsc PETSC_ARCH=arch-firedrake-$ARCH
 ENV PATH="$PETSC_DIR/$PETSC_ARCH/bin:$PATH"
-
-# Install SLEPc
-RUN git clone --depth 1 --branch $(python3 /opt/firedrake-configure --show-slepc-version) https://gitlab.com/slepc/slepc.git /opt/slepc \
-    && cd /opt/slepc \
-    && ./configure \
-    && make SLEPC_DIR=/opt/slepc \
-    && cd - || exit
-
-ENV SLEPC_DIR=/opt/slepc
 
 ENV HDF5_MPI=ON
 ENV CC=mpicc CXX=mpicxx
