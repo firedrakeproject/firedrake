@@ -208,11 +208,13 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     # Collect required coefficients and determine numbering
     coefficients = extract_coefficients(expression)
     orig_coefficients = extract_coefficients(orig_expression)
-    coefficient_numbers = tuple(orig_coefficients.index(c) for c in coefficients)
+    coefficient_numbers = tuple(map(orig_coefficients.index, coefficients))
     builder.set_coefficient_numbers(coefficient_numbers)
 
+    elements = [f.ufl_element() for f in (*coefficients, *arguments)]
+
     needs_external_coords = False
-    if has_type(expression, GeometricQuantity) or any(fem.needs_coordinate_mapping(c.ufl_element()) for c in coefficients):
+    if has_type(expression, GeometricQuantity) or any(map(fem.needs_coordinate_mapping, elements)):
         # Create a fake coordinate coefficient for a domain.
         coords_coefficient = ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
         builder.domain_coordinate[domain] = coords_coefficient

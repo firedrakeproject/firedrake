@@ -16,6 +16,13 @@ Totnes to write up demos based on users' use-cases for Firedrake and its
 downstream applications. For more details see `the website
 <https://ccp-dcm.github.io/exeter_hackathon.html>`__.
 
+Finite Element Course at AIMS Rwanda
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The Firedrake team will be presenting a short course on the Finite Element
+Method at the African Institute for Mathematical Sciences in Kigali between 8
+and 12 April 2025. For more information see :doc:`the course page <aims_25>`.
+
 Firedrake USA'25
 ~~~~~~~~~~~~~~~~
 

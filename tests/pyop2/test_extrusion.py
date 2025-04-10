@@ -37,7 +37,11 @@ import numpy
 import random
 
 from pyop2 import op2
+from pyop2.datatypes import ScalarType, as_cstr
 from pyop2.mpi import COMM_WORLD
+
+
+ScalarType_c = as_cstr(ScalarType)
 
 
 def compute_ind_extr(nums,
@@ -74,7 +78,7 @@ def compute_ind_extr(nums,
 
 
 # Data type
-valuetype = numpy.float64
+valuetype = ScalarType
 
 # Constants
 NUM_ELE = 2
@@ -321,7 +325,7 @@ def xtr_coords(xtr_dvnodes):
 @pytest.fixture
 def extrusion_kernel():
     kernel_code = """
-static void extrusion(double *xtr, double *x, int* j)
+static void extrusion(PetscScalar *xtr, PetscScalar *x, int* j)
 {
     //Only the Z-coord is increased, the others stay the same
     xtr[0] = x[0];
@@ -340,9 +344,9 @@ class TestExtrusion:
     def test_extrusion(self, elements, dat_coords, dat_field, coords_map, field_map):
         g = op2.Global(1, data=0.0, name='g', comm=COMM_WORLD)
         mass = op2.Kernel("""
-static void comp_vol(double A[1], double x[6][2], double y[1])
+static void comp_vol(double A[1], double x[12], double y[1])
 {
-    double abs = x[0][0]*(x[2][1]-x[4][1])+x[2][0]*(x[4][1]-x[0][1])+x[4][0]*(x[0][1]-x[2][1]);
+    double abs = x[0*2+0]*(x[2*2+1]-x[4*2+1])+x[2*2+0]*(x[4*2+1]-x[0*2+1])+x[4*2+0]*(x[0*2+1]-x[2*2+1]);
     if (abs < 0)
       abs = abs * (-1.0);
     A[0]+=0.5*abs*0.1 * y[0];
@@ -362,7 +366,7 @@ static void comp_vol(double A[1], double x[6][2], double y[1])
     def test_direct_loop_inc(self, iterset, diterset):
         dat = op2.Dat(diterset)
         xtr_iterset = op2.ExtrudedSet(iterset, layers=10)
-        k = 'static void k(double *x) { *x += 1.0; }'
+        k = f'static void k({ScalarType_c} *x) {{ *x += 1.0; }}'
         dat.data[:] = 0
         op2.par_loop(op2.Kernel(k, 'k'),
                      xtr_iterset, dat(op2.INC))
@@ -396,13 +400,13 @@ static void comp_vol(double A[1], double x[6][2], double y[1])
 
     def test_write_data_coords(self, elements, dat_coords, dat_field, coords_map, field_map, dat_c):
         kernel_wo_c = """
-        static void wo_c(double x[6][2]) {
-           x[0][0] = 42.0; x[0][1] = 42.0;
-           x[1][0] = 42.0; x[1][1] = 42.0;
-           x[2][0] = 42.0; x[2][1] = 42.0;
-           x[3][0] = 42.0; x[3][1] = 42.0;
-           x[4][0] = 42.0; x[4][1] = 42.0;
-           x[5][0] = 42.0; x[5][1] = 42.0;
+        static void wo_c(double x[12]) {
+           x[0*2+0] = 42.0; x[0*2+1] = 42.0;
+           x[1*2+0] = 42.0; x[1*2+1] = 42.0;
+           x[2*2+0] = 42.0; x[2*2+1] = 42.0;
+           x[3*2+0] = 42.0; x[3*2+1] = 42.0;
+           x[4*2+0] = 42.0; x[4*2+1] = 42.0;
+           x[5*2+0] = 42.0; x[5*2+1] = 42.0;
         }"""
         op2.par_loop(op2.Kernel(kernel_wo_c, "wo_c"),
                      elements, dat_c(op2.WRITE, coords_map))
@@ -413,10 +417,10 @@ static void comp_vol(double A[1], double x[6][2], double y[1])
         self, elements, dat_coords, dat_field,
             coords_map, field_map, dat_c, dat_f):
         kernel_wtf = """
-        static void wtf(double* y, double x[6][2]) {
+        static void wtf(double* y, double x[12]) {
            double sum = 0.0;
            for (int i=0; i<6; i++){
-                sum += x[i][0] + x[i][1];
+                sum += x[i*2] + x[i*2+1];
            }
            y[0] = sum;
         }"""
@@ -429,11 +433,11 @@ static void comp_vol(double A[1], double x[6][2], double y[1])
                                  dat_field, coords_map, field_map, dat_c,
                                  dat_f):
         kernel_inc = """
-        static void inc(double y[6][2], double x[6][2]) {
+        static void inc(double y[12], double x[12]) {
            for (int i=0; i<6; i++){
-             if (y[i][0] == 0){
-                y[i][0] += 1;
-                y[i][1] += 1;
+             if (y[i*2+0] == 0){
+                y[i*2+0] += 1;
+                y[i*2+1] += 1;
              }
            }
         }"""
