@@ -443,7 +443,7 @@ def _(
     else:
         raise NotImplementedError
 
-    indexed = mat.getitem((rmap, cmap), strict=True)
+    indexed = mat.getitem(rmap, cmap, strict=True)
 
     row_perm = _flatten_entity_dofs(Vrow.finat_element.entity_dofs())
     row_perm = invert_permutation(row_perm)

@@ -21,8 +21,7 @@ class Parameter(Array):
     def dim(self) -> int:
         return 0
 
-    def getitem(self, indices, strict=False):
-        assert len(indices) == self.dim
+    def getitem(self, strict=False):
         return self
 
     # }}}

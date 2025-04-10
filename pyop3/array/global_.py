@@ -38,8 +38,7 @@ class Global(Array):
     def dtype(self):
         return self.buffer.dtype
 
-    def getitem(self, indices, *, strict=False):
-        assert len(indices) == self.dim  #  move out
+    def getitem(self, *, strict=False):
         return self
 
     def with_context(self, *args, **kwargs):

@@ -1,14 +1,14 @@
 import abc
+from typing import Any
+
+import numpy as np
+from mpi4py import MPI
 
 from pyop3.axtree import ContextAware
 from pyop3.axtree.tree import Expression
-from pyop3.exceptions import Pyop3Exception
+from pyop3.exceptions import InvalidIndexCountException
 from pyop3.lang import FunctionArgument, BufferAssignment
 from pyop3.utils import UniqueNameGenerator
-
-
-class InvalidIndexCount(Pyop3Exception):
-    pass
 
 
 class Array(ContextAware, FunctionArgument, Expression, abc.ABC):
@@ -23,30 +23,34 @@ class Array(ContextAware, FunctionArgument, Expression, abc.ABC):
         self.parent = parent
 
     def __getitem__(self, indices):
-        return self.getitem(indices, strict=False)
+        # Handle the fact that 'obj[123]' sets 'indices' to '123' (i.e. not a tuple)
+        # but 'obj[123, 456]' sets it to '(123, 456)' (i.e. a tuple).
+        if not isinstance(indices, tuple):
+            indices = (indices,)
+
+        if len(indices) != self.dim:
+            raise InvalidIndexCountException(
+                f"Wrong number of indices provided during indexing. Expected {self.dim} but got {len(indices)}.")
+        return self.getitem(*indices, strict=False)
 
     # Since __getitem__ is implemented, this class is implicitly considered
     # to be iterable (which it's not). This avoids some confusing behaviour.
     __iter__ = None
 
-    def assign(self, other, /, *, eager=False):
-        expr = BufferAssignment(self, other, "write")
-        return expr() if eager else expr
-
-    # TODO: Add this to different types
-    # @abc.abstractmethod
-    # def reshape(self, *axes):
-    #     pass
+    # {{{ abstract methods
 
     @property
     @abc.abstractmethod
     def dim(self) -> int:
         pass
 
-    # TODO: want to check dim here... (if one arg then not a tuple - check dim==1)
-    # TODO: remove __iter__ here too
+    @property
     @abc.abstractmethod
-    def getitem(self, indices, *, strict=False):
+    def dtype(self) -> np.dtype:
+        pass
+
+    @abc.abstractmethod
+    def getitem(self, *indices, strict=False):
         pass
 
     # TODO: remove these
@@ -68,3 +72,30 @@ class Array(ContextAware, FunctionArgument, Expression, abc.ABC):
     @abc.abstractmethod
     def leaf_layouts(self):  # or all layouts?
         pass
+
+    # }}}
+
+    def assign(self, other, /, *, eager=False):
+        expr = BufferAssignment(self, other, "write")
+        return expr() if eager else expr
+
+
+class DistributedArray(Array, abc.ABC):
+
+    # {{{ abstract methods
+
+    @property
+    @abc.abstractmethod
+    def buffer(self) -> Any:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def comm(self) -> MPI.Comm:
+        pass
+
+    # }}}
+
+    @property
+    def dtype(self) -> np.dtype:
+        return self.buffer.dtype

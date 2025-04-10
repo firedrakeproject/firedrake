@@ -5,13 +5,15 @@ import collections
 import numbers
 from functools import cached_property
 from itertools import product
+from typing import Any
 
 import numpy as np
 from immutabledict import ImmutableOrderedDict
+from mpi4py import MPI
 from petsc4py import PETSc
 from pyrsistent import freeze, pmap
 
-from pyop3.array.base import Array
+from pyop3.array.base import Array, DistributedArray
 from pyop3.array.dat import Dat
 from pyop3.axtree.tree import (
     merge_axis_trees,
@@ -57,7 +59,7 @@ class PetscVecNest(PetscVec):
 
 
 # BaseMat?
-class AbstractMat(Array, Record):
+class AbstractMat(DistributedArray, Record):
     DEFAULT_MAT_TYPE = PETSc.Mat.Type.AIJ
 
     prefix = "mat"
@@ -102,29 +104,12 @@ class AbstractMat(Array, Record):
         self.caxes = caxes
         self.block_shape = block_shape
         self.mat_type = mat_type
-        self.buffer = mat
+        self._buffer = mat
         self.parent = parent
         self.constant = constant
 
 
         # self._cache = {}
-
-    # {{{ Array impls
-
-    @property
-    def dim(self) -> int:
-        return 2
-
-    # }}}
-
-    @property
-    def _record_fields(self) -> frozenset:
-        return frozenset({"raxes", "caxes", "mat_type", "buffer", "name", "parent", "constant", "block_shape"})
-
-    # old alias
-    @property
-    def mat(self):
-        return self.buffer
 
     # NOTE: This is missing out on certain fields!
     def __hash__(self) -> int:
@@ -133,26 +118,25 @@ class AbstractMat(Array, Record):
                 type(self), self.raxes, self.caxes, self.dtype, id(self.mat), self.name)
         )
 
-    @property
-    def block_raxes(self):
-        assert self.mat_type != "baij", "FIXME"
-        return self.raxes
+
+    # {{{ Array impls
 
     @property
-    def block_caxes(self):
-        assert self.mat_type != "baij", "FIXME"
-        return self.caxes
+    def dim(self) -> int:
+        return 2
 
-    def getitem(self, indices, *, strict=False):
+    # NOTE: We overload here because PetscMat.dtype doesn't exist. We should wrap Mats in
+    # a different buffer type.
+    @property
+    def dtype(self) -> np.dtype:
+        return ScalarType
+
+    def getitem(self, row_index, column_index, *, strict=False):
         from pyop3.itree import as_index_forest, index_axes
         # does not work as indices may not be hashable, parse first?
         # cache_key = (indices, strict)
         # if cache_key in self._cache:
         #     return self._cache[cache_key]
-
-        # move out
-        if len(indices) != self.dim:
-            raise ValueError
 
         # Combine the loop contexts of the row and column indices. Consider
         # a loop over a multi-component axis with components "a" and "b":
@@ -183,8 +167,8 @@ class AbstractMat(Array, Record):
         #     {p: "b", q: "y"}: [rtree1, ctree1],
         #   }
 
-        rtrees = as_index_forest(indices[0], self.raxes, strict=strict)
-        ctrees = as_index_forest(indices[1], self.caxes, strict=strict)
+        rtrees = as_index_forest(row_index, self.raxes, strict=strict)
+        ctrees = as_index_forest(column_index, self.caxes, strict=strict)
         rcforest = {}
         for rctx, rtree in rtrees.items():
             for cctx, ctree in ctrees.items():
@@ -243,22 +227,6 @@ class AbstractMat(Array, Record):
         # self._cache[cache_key] = mat
         return mat
 
-    def reshape(self, row_axes: AxisTree, col_axes: AxisTree) -> AbstractMat:
-        """Return a reshaped view of the `Dat`.
-
-        TODO
-
-        """
-        # from pyop3.array.transforms import MatReshape
-
-        assert isinstance(row_axes, AxisTree), "not indexed"
-        assert isinstance(col_axes, AxisTree), "not indexed"
-
-        # NOTE: This will get nicer if we have a pyop3_init special method for this
-        # sort of object to facilitate reconstruction
-        return self.reconstruct(raxes=row_axes, caxes=col_axes, parent=self)
-
-
     def with_context(self, context):
         row_axes = self.raxes.with_context(context)
         col_axes = self.caxes.with_context(context)
@@ -292,10 +260,60 @@ class AbstractMat(Array, Record):
 
         return (materialize_(self.raxes), materialize_(self.caxes))
 
-        breakpoint()
-        # return (
-        #     materialize_composite_dat()
-        # )
+    # }}}
+
+    # {{{ DistributedArray impls
+
+    @property
+    def buffer(self) -> Any:
+        return self._buffer
+
+    # NOTE: Only needed because of nasty record stuff that should go
+    @buffer.setter
+    def buffer(self, buffer) -> None:
+        self._buffer = buffer
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return single_valued([self.raxes.comm, self.caxes.comm])
+
+    # }}}
+
+    @property
+    def _record_fields(self) -> frozenset:
+        return frozenset({"raxes", "caxes", "mat_type", "buffer", "name", "parent", "constant", "block_shape"})
+
+    # old alias
+    @property
+    def mat(self):
+        return self.buffer
+
+    @property
+    def block_raxes(self):
+        assert self.mat_type != "baij", "FIXME"
+        return self.raxes
+
+    @property
+    def block_caxes(self):
+        assert self.mat_type != "baij", "FIXME"
+        return self.caxes
+
+
+    def reshape(self, row_axes: AxisTree, col_axes: AxisTree) -> AbstractMat:
+        """Return a reshaped view of the `Dat`.
+
+        TODO
+
+        """
+        # from pyop3.array.transforms import MatReshape
+
+        assert isinstance(row_axes, AxisTree), "not indexed"
+        assert isinstance(col_axes, AxisTree), "not indexed"
+
+        # NOTE: This will get nicer if we have a pyop3_init special method for this
+        # sort of object to facilitate reconstruction
+        return self.reconstruct(raxes=row_axes, caxes=col_axes, parent=self)
+
 
     # TODO: Make this generic to all 'Array's and implement for 'Dat'
     def candidate_layouts(self, loop_axes):
@@ -484,67 +502,10 @@ class AbstractMat(Array, Record):
     @cached_property
     def rmap(self):
         return self.leaf_layouts[0]
-        # return self._make_map_part1(self.block_raxes)
 
     @cached_property
     def cmap(self):
         return self.leaf_layouts[1]
-        # return self._make_map_part1(self.block_caxes)
-    #
-    # # TODO: rename, also cache somewhere
-    # def _make_map_part1(self, axes):
-    #     from pyop3.expr_visitors import collect_loops
-    #     from pyop3.itree import Slice, AffineSliceComponent, IndexTree
-    #
-    #     loop_indices = collect_loops(self)
-    #
-    #     if len(loop_indices) > 1:
-    #         # should be straightforward enough to do
-    #         raise NotImplementedError
-    #     else:
-    #         loop_index = just_one(loop_indices)
-    #
-    #     # NOTE: It is safe to discard indexing information about the iterset here
-    #     # because we immediately index it with the loop and reinstate all the
-    #     # symbolic information.
-    #     iterset = AxisTree(loop_index.iterset.node_map)
-    #
-    #     rmap_axes = iterset.add_subtree(axes, iterset.leaf)
-    #     rmap = Dat(rmap_axes, dtype=IntType, prefix="map")
-    #
-    #
-    #
-    #     # index the map so it has the same indexing information as the original expression
-    #     rmap = rmap[loop_index]
-    #     # TODO: Need a nice way to cast indexed axes to a fresh axis tree
-    #     assert AxisTree(rmap.axes.node_map) == AxisTree(axes.node_map)
-    #
-    #     # now populate with values
-    #     loops = []
-    #     for leaf in axes.leaves:
-    #         leaf_layout_expr = axes.subst_layouts()[axes.path(leaf)]
-    #
-    #         slices = [
-    #             Slice(axis_label, AffineSliceComponent(component_label))
-    #             for axis_label, component_label in axes.path(leaf, ordered=True)
-    #         ]
-    #         # TODO: Ideally index tree parsing is done inside __getitem__
-    #         slices_tree = IndexTree.from_iterable(slices)
-    #         rmap_restrict = rmap[slices_tree]
-    #
-    #         loop = Loop(
-    #             loop_index,
-    #             rmap_restrict.assign(leaf_layout_expr)
-    #         )
-    #         loops.append(loop)
-    #
-    #     # TODO: Needn't be a loop list, outer loops will always be the same
-    #     loop_list = LoopList(loops)
-    #     loop_list()
-    #
-    #     # breakpoint()
-    #
-    #     return rmap
 
     @cached_property
     def row_lgmap_dat(self):
@@ -557,10 +518,6 @@ class AbstractMat(Array, Record):
         if self.nested or self.mat_type == "baij":
             raise NotImplementedError("Use a smaller set of axes here")
         return Dat(self.caxes, data=self.caxes.unindexed.global_numbering)
-
-    @cached_property
-    def comm(self) -> MPI.Comm | None:
-        return single_valued([self.raxes.comm, self.caxes.comm])
 
     @property
     def shape(self):

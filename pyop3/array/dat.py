@@ -14,7 +14,7 @@ from immutabledict import ImmutableOrderedDict
 from petsc4py import PETSc
 from pyrsistent import freeze, pmap
 
-from pyop3.array.base import Array
+from pyop3.array.base import DistributedArray
 from pyop3.axtree import (
     Axis,
     ContextSensitive,
@@ -49,7 +49,7 @@ class FancyIndexWriteException(Exception):
     pass
 
 
-class _Dat(Array, KernelArgument, Record, abc.ABC):
+class _Dat(DistributedArray, KernelArgument, Record, abc.ABC):
 
     # @classmethod
     # def _parse_buffer(cls, data, dtype, size, name):
@@ -86,6 +86,23 @@ class _Dat(Array, KernelArgument, Record, abc.ABC):
     @property
     def dim(self) -> int:
         return 1
+
+    # }}}
+
+    # {{{ DistributedArray impls
+
+    @property
+    def buffer(self):
+        return self._buffer
+
+    # NOTE: Only need this because of my immutable record stuff (which is rubbish)
+    @buffer.setter
+    def buffer(self, new):
+        self._buffer = new
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.buffer.comm
 
     # }}}
 
@@ -229,7 +246,7 @@ class Dat(_Dat):
 
         super().__init__(name=name, prefix=prefix, parent=parent)
         self.axes = axes
-        self.buffer = buffer
+        self._buffer = buffer
         self.max_value = max_value
 
         # NOTE: This is a tricky one, is it an attribute of the dat or the buffer? What
@@ -515,11 +532,6 @@ class Dat(_Dat):
     @property
     def sf(self):
         return self.buffer.sf
-
-    @property
-    def comm(self) -> MPI.Comm | None:
-        debug_assert(self.axes.comm is self.buffer.comm)
-        return self.axes.comm
 
     # TODO update docstring
     # @PETSc.Log.EventDecorator()
