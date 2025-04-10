@@ -37,7 +37,7 @@ class AssembledPC(PCBase):
             if not context.on_diag:
                 raise ValueError("Only makes sense to invert diagonal block")
 
-        prefix = pc.getOptionsPrefix()
+        prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
 
         mat_type = PETSc.Options().getString(options_prefix + "mat_type", "aij")

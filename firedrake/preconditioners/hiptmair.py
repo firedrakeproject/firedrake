@@ -41,7 +41,7 @@ class TwoLevelPC(PCBase):
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
 
-        prefix = pc.getOptionsPrefix()
+        prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
         opts = PETSc.Options()
 
@@ -156,7 +156,7 @@ class HiptmairPC(TwoLevelPC):
         else:
             raise ValueError("Hiptmair decomposition not available for", element)
 
-        prefix = pc.getOptionsPrefix()
+        prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
         opts = PETSc.Options(options_prefix)
         domain = opts.getString("mg_coarse_restriction_domain", "")
