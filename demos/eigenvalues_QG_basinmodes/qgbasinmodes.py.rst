@@ -18,9 +18,6 @@ dissipative forces. Unlike the other demo that integrated the equations forward
 in time, in this problem it is necessary to compute the eigenvalues and
 eigenfunctions for a particular differential operator.
 
-This demo requires SLEPc and slepc4py to be installed. For instructions on how
-to install them please follow `these instructions <https://www.firedrakeproject.org/install#slepc>`_.
-
 
 Governing PDE
 ~~~~~~~~~~~~~
@@ -138,7 +135,7 @@ We define the Test Function :math:`\phi` and the Trial Function
 To build the weak formulation of our equation we need to build two PETSc
 matrices in the form of a generalized eigenvalue problem,
 :math:`A\psi = \lambda M\psi`. This eigenproblem takes `restrict=True` to help
-users to avoid convergence failures by removing eigenvalues on the 
+users to avoid convergence failures by removing eigenvalues on the
 boundary, while preserving the original function space for the eigenmodes. ::
 
   eigenproblem = LinearEigenproblem(
