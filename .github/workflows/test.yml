@@ -39,7 +39,7 @@ jobs:
       FIREDRAKE_CI: 1
       PYOP2_CI_TESTS: 1
       PYOP2_SPMD_STRICT: 1
-      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 firedrake-repo/tests/firedrake
+      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660
       PYTEST_MPI_MAX_NPROCS: 8
     steps:
       - name: Fix HOME
@@ -98,63 +98,85 @@ jobs:
           firedrake-check
         timeout-minutes: 5
 
-      - name: Run tests (nprocs = 1)
+      - name: Run TSFC tests
         # Run even if earlier tests failed
-        if: ${{ success() || steps.install.conclusion == 'success' }}
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
-          firedrake-run-split-tests 1 1 "-n 8 $EXTRA_PYTEST_ARGS"
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/tsfc
+        timeout-minutes: 60
+
+      - name: Run PyOP2 tests
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . venv/bin/activate
+          : # Use pytest-xdist here so we can have a single collated output (not possible
+          : # for parallel tests)
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
+          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
+          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
+          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
+        timeout-minutes: 15
+
+
+      - name: Run Firedrake tests (nprocs = 1)
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . venv/bin/activate
+          : # Use pytest-xdist here so we can have a single collated output (not possible
+          : # for parallel tests)
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 60
 
       - name: Run tests (nprocs = 2)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS"
+          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 30
 
       - name: Run tests (nprocs = 3)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS"
+          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 60
 
       - name: Run tests (nprocs = 4)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS"
+          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 5)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS"
+          firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 6)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS"
+          firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 7)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS"
+          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 8)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS"
+          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run Gusto smoke tests
@@ -260,7 +282,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
       - name: Install deps
         run: pip install requests packaging
       - name: Zenodo API canary
@@ -269,7 +291,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: "zenodo-canary"
+          name: zenodo-canary
           path: firedrake-install.log
 
   build_docs:
