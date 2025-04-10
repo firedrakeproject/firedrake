@@ -31,7 +31,7 @@ class GTMGPC(PCBase):
         if not isinstance(ctx, _SNESContext):
             raise ValueError("Don't know how to get form from %r" % ctx)
 
-        prefix = pc.getOptionsPrefix()
+        prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
         opts = PETSc.Options()
 

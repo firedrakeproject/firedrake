@@ -1194,7 +1194,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         co = target_mesh.cell_orientations()
         parloop_args.append(co.dat(op2.READ, co.cell_node_map()))
     if needs_cell_sizes:
-        cs = target_mesh.cell_sizes
+        cs = source_mesh.cell_sizes
         parloop_args.append(cs.dat(op2.READ, cs.cell_node_map()))
     for coefficient in coefficients:
         if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):

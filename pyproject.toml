@@ -22,7 +22,7 @@ dependencies = [
   "libsupermesh",
   # NOTE: If changing the PETSc/SLEPc version then firedrake-configure also needs
   # changing (as well as other references to petsc4py and slepc4py here)
-  "petsc4py==3.22.2",
+  "petsc4py==3.23.0",
   "numpy",
   "packaging",
   "pkgconfig",
@@ -40,7 +40,6 @@ dependencies = [
 ]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
-  "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)",
   "Intended Audience :: Science/Research",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
@@ -66,41 +65,17 @@ spydump = "pyop2.scripts.spydump:main"
 
 
 [project.optional-dependencies]
-# Dependencies needed to run firedrake-check
-test = [
+check = [
   "mpi-pytest",
   "pytest",
 ]
-# Dependencies needed to run the full test suite
-ci = [
-  "ipympl",  # needed for notebook testing
-  "jax",
-  "matplotlib",
+dev = [  # build dependencies that are needed to run 'make'
+  "Cython",
   "mpi-pytest",
-  "nbval",
-  "ngsPETSc",
-  "pylit",
+  "pybind11",
   "pytest",
-  "pytest-split",  # needed for firedrake-run-split-tests
-  "pytest-timeout",
-  "pytest-xdist",
-  "slepc4py==3.22.2",
-  "torch",  # requires passing '--extra-index-url' to work
-  "vtk",
+  "setuptools",
 ]
-docker = [  # Used in firedrake-vanilla container
-  "ipympl",  # needed for notebook testing
-  "matplotlib",
-  "mpi-pytest",
-  "nbval",
-  "pylit",
-  "pytest",
-  "pytest-split",  # needed for firedrake-run-split-tests
-  "pytest-timeout",
-  "pytest-xdist",
-  "slepc4py==3.22.2",
-]
-# Dependencies needed to build the docs
 docs = [
   "bibtexparser",
   "matplotlib",  # needed to resolve API
@@ -115,13 +90,50 @@ docs = [
   "sphinxcontrib-youtube",
   "vtk",  # needed to resolve API
 ]
-# Developer dependencies. In particular the build dependencies that are needed to run 'make'.
-dev = [
-  "Cython",
+jax = [
+  "jax",
+]
+netgen = [
+  "ngsPETSc",
+]
+slepc = [
+  "slepc4py==3.22.2",
+]
+torch = [  # requires passing '--extra-index-url' to work
+  "torch",
+]
+vtk = [
+  "vtk",
+]
+
+# Dependencies needed to run the full test suite
+ci = [
+  "ipympl",  # needed for notebook testing
+  "jax",
+  "matplotlib",
   "mpi-pytest",
-  "pybind11",
+  "nbval",
+  "ngsPETSc",
+  "pylit",
   "pytest",
-  "setuptools",
+  "pytest-split",  # needed for firedrake-run-split-tests
+  "pytest-timeout",
+  "pytest-xdist",
+  "slepc4py==3.23.0",
+  "torch",  # requires passing '--extra-index-url' to work
+  "vtk",
+]
+docker = [  # Used in firedrake-vanilla container
+  "ipympl",  # needed for notebook testing
+  "matplotlib",
+  "mpi-pytest",
+  "nbval",
+  "pylit",
+  "pytest",
+  "pytest-split",  # needed for firedrake-run-split-tests
+  "pytest-timeout",
+  "pytest-xdist",
+  "slepc4py==3.23.0",
 ]
 
 [build-system]
@@ -134,7 +146,7 @@ requires = [
   "pkgconfig",
   "pybind11",
   "setuptools>61.2",
-  "petsc4py==3.22.2",
+  "petsc4py==3.23.0",
   "rtree>=1.2",
 ]
 build-backend = "setuptools.build_meta"

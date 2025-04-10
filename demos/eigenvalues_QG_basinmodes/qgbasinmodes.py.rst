@@ -18,10 +18,8 @@ dissipative forces. Unlike the other demo that integrated the equations forward
 in time, in this problem it is necessary to compute the eigenvalues and
 eigenfunctions for a particular differential operator.
 
-This demo requires SLEPc and slepc4py to be installed.  This is most easily
-achieved by providing the optional `--slepc` flag to either `firedrake-install`
-(for a new installation), or `firedrake-update` (to add SLEPc to an existing
-installation).
+This demo requires SLEPc and slepc4py to be installed. For instructions on how
+to install them please follow `these instructions <https://www.firedrakeproject.org/install#slepc>`_.
 
 
 Governing PDE
