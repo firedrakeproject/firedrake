@@ -92,6 +92,7 @@ jobs:
           : # install of PETSc. A similar trick may be needed for compiled dependencies
           : # like h5py or mpi4py if changing HDF5/MPI libraries.
           pip cache remove petsc4py
+          python -c "import petsc4py; print(petsc4py.get_config())"
           pip install --verbose --no-binary h5py './firedrake-repo[ci]'
           firedrake-clean
           : # Extra test dependencies
