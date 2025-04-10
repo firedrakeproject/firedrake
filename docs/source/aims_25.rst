@@ -22,7 +22,7 @@ reading is available on the links above.
 
 .. list-table::
 
-  * - 
+  * -
     - **Tuesday**
     - **Wednesday**
     - **Thursday**
@@ -32,7 +32,7 @@ reading is available on the links above.
     - `Function spaces and inner products <https://wp.doc.ic.ac.uk/spo/wp-content/uploads/sites/31/2013/11/notes.pdf>`__
     - `The Ciarlet finite element <https://finite-element.github.io/L2_fespaces.html>`__
     - `Nonlinear problems <https://finite-element.github.io/8_nonlinear_problems.html>`__
-    - Devito: inverse tomography
+    - Devito: `sympy <https://colab.research.google.com/github/devitocodes/devito/blob/main/examples/userapi/00_sympy.ipynb>`__, `Devito <https://colab.research.google.com/github/devitocodes/devito/blob/main/examples/userapi/01_dsl.ipynb>`__, `Acoustic Wave equation <https://colab.research.google.com/github/devitocodes/devito/blob/main/examples/seismic/tutorials/01_modelling.ipynb>`__
     - Software for adjoints: differentiable programming
   * - **Late AM**
     - `Our first finite element problem <https://finite-element.github.io/L1_introduction.html>`__
@@ -44,7 +44,7 @@ reading is available on the links above.
     - Firedrake practical 1: `Helmholtz Equation <https://colab.research.google.com/github/firedrakeproject/notebooks/blob/aims/01-spd-helmholtz.ipynb>`__
     - `Systems with more than one variable <https://finite-element.github.io/9_mixed_problems.html>`__
     - An introduction to solvers and preconditioners
-    - Devito: inverse tomography
+    - Devito: `Full Waveform Inversion <https://colab.research.google.com/github/devitocodes/devito/blob/main/examples/seismic/tutorials/03_fwi.ipynb>`__
     - `Deep learning introduction <https://github.com/NBoulle/physics-driven-ml/raw/main/tutorials/intro_deep_learning.pdf>`__, `practical <https://colab.research.google.com/github/NBoulle/physics-driven-ml/blob/main/tutorials/Tutorial_1_ex.ipynb>`__
   * - **Late PM**
     - Firedrake practical 2: `Dirichlet boundary conditions <https://colab.research.google.com/github/firedrakeproject/notebooks/blob/aims/02-poisson.ipynb>`__
