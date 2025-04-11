@@ -1,0 +1,15 @@
+name: Deploy after push
+
+on:
+  push:
+    branches:
+      - master
+      - release
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+    with:
+      target_branch: ${{ github.ref_name }}
+      deploy_website: true
+    secrets: inherit

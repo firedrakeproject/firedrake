@@ -1,13 +1,24 @@
-name: CI
+name: Test Firedrake
 
 on:
-  push:
-    branches:
-      - master
-  pull_request:
-  schedule:
-    - cron: '0 0 * * 0'
-    - cron: '0 0 1 * *'  # Monthly release
+  workflow_call:
+    inputs:
+      target_branch:
+        description: The target branch (usually 'master' or 'release')
+        type: string
+        required: true
+      deploy_website:
+        description: Whether to deploy the website
+        type: bool
+        default: false
+      upload_pypi:
+        description: Whether to upload an sdist to PyPI
+        type: bool
+        default: false
+      upload_testpypi:
+        description: Whether to upload an sdist to TestPyPI
+        type: bool
+        default: false
 
 concurrency:
   # Cancel running jobs if new commits are pushed
@@ -38,6 +49,8 @@ jobs:
       PYOP2_SPMD_STRICT: 1
       EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660
       PYTEST_MPI_MAX_NPROCS: 8
+    outputs:
+      conclusion: ${{ steps.report_docs.outputs.conclusion }}
     steps:
       - name: Fix HOME
         # For unknown reasons GitHub actions overwrite HOME to /github/home
@@ -62,8 +75,7 @@ jobs:
 
       # Raise an error if any 'TODO RELEASE' comments remain
       - name: Check no 'TODO RELEASE' comments (release only)
-        # undo me
-        # if: github.ref_name == 'release'
+        if: inputs.target_branch == 'release'
         run: |
           if [ -z "$( git -C ./firedrake-repo grep 'TODO RELEASE' )" ]; then
             exit 0
@@ -75,12 +87,12 @@ jobs:
       # I prefer the latter because then failures are everyone's problem, not just mine!
       - name: Install PETSc
         run: |
-          if [ "${{ github.ref_name == 'master' }}" ]; then
-            git clone --depth 1 https://gitlab.com/petsc/petsc.git
-          else
+          if [ "${{ inputs.target_branch == 'release' }}" ]; then
             git clone --depth 1 \
               --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
-            https://gitlab.com/petsc/petsc.git
+              https://gitlab.com/petsc/petsc.git
+          else
+            git clone --depth 1 https://gitlab.com/petsc/petsc.git
           fi
           cd petsc
           python3 ../firedrake-repo/scripts/firedrake-configure \
@@ -106,8 +118,9 @@ jobs:
           pip cache remove petsc4py
           pip cache remove slepc4py
 
-
-          if [ "${{ github.ref_name == 'master' }}" ]; then
+          if [ "${{ inputs.target_branch == 'release' }}" ]; then
+            EXTRA_PIP_FLAGS=''
+          else
             : # Install build dependencies
             pip install -r ./firedrake-repo/requirements-dev.txt
             pip install "$PETSC_DIR"/src/binding/petsc4py
@@ -120,14 +133,12 @@ jobs:
 
             : # We have to pass '--no-build-isolation' to use a custom petsc4py
             EXTRA_PIP_FLAGS='--no-build-isolation'
-          else
-            EXTRA_PIP_FLAGS=''
           fi
 
           pip install --verbose $EXTRA_PIP_FLAGS \
             --no-binary h5py \
             --extra-index-url https://download.pytorch.org/whl/cpu \
-            './firedrake-repo[ci]'
+            './firedrake-repo[ci,docs]'
 
           firedrake-clean
           pip list
@@ -137,6 +148,64 @@ jobs:
           . venv/bin/activate
           firedrake-check
         timeout-minutes: 5
+
+      # TODO: Move towards the bottom, just here for testing purposes
+      - name: Build sdist (release only)
+        if: inputs.target_branch == 'release'
+        run: |
+          pip install build
+          python -m build ./firedrake-repo --sdist
+
+      - name: Upload sdist (release only)
+        if: inputs.target_branch == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+
+      # TODO: Move further down
+      # Could be a separate stage?
+      - name: Check bibtex
+        run: |
+          . venv/bin/activate
+          make -C firedrake-repo/docs validate-bibtex
+
+      - name: Check documentation links
+        run: |
+          . venv/bin/activate
+          make -C firedrake-repo/docs linkcheck
+
+      - name: Build docs
+        id: build
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . venv/bin/activate
+          cd firedrake-repo/docs
+          make html
+          make latex
+          make latexpdf
+
+      - name: Copy manual to HTML tree
+        id: copy
+        if: success() || steps.build.conclusion == 'success'
+        run: |
+          cd firedrake-repo/docs
+          cp build/latex/Firedrake.pdf build/html/_static/manual.pdf
+
+      - name: Upload artifact
+        id: upload
+        if: success() || steps.copy.conclusion == 'success'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          name: github-pages
+          path: /__w/firedrake/firedrake/firedrake-repo/docs/build/html
+          retention-days: 1
+
+      - name: Report docs build
+        id: report_docs
+        if: success() || steps.upload.conclusion == 'success'
+        run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
+
 
       - name: Run TSFC tests
         # Run even if earlier tests failed
@@ -285,102 +354,57 @@ jobs:
       - name: Lint codebase
         run: make lint GITHUB_ACTIONS_FORMATTING=1
 
-  zenodo_canary:
-    name: Run zenodo canary
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install deps
-        run: pip install requests packaging
-      - name: Zenodo API canary
-        run: python scripts/firedrake-install --test-doi-resolution
-      - name: Upload log
-        uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: zenodo-canary
-          path: firedrake-install.log
-
-  build_docs:
-    name: Build documentation
-    runs-on: ubuntu-latest
-    container:
-      image: firedrakeproject/firedrake-docdeps:latest
-    outputs:
-      conclusion: ${{ steps.report.outputs.conclusion }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          path: firedrake-repo
-
-      - name: Install Firedrake
-        id: install
-        run: |
-          : # Pass '--system-site-packages' so already installed packages can be found
-          python3 -m venv --system-site-packages venv
-          . venv/bin/activate
-          pip uninstall -y firedrake
-          pip install --verbose './firedrake-repo[docs]'
-
-      - name: Check bibtex
-        run: |
-          . venv/bin/activate
-          make -C firedrake-repo/docs validate-bibtex
-
-      - name: Check documentation links
-        run: |
-          . venv/bin/activate
-          make -C firedrake-repo/docs linkcheck
-
-      - name: Build docs
-        id: build
-        if: success() || steps.install.conclusion == 'success'
-        run: |
-          . venv/bin/activate
-          cd firedrake-repo/docs
-          make html
-          make latex
-          make latexpdf
-
-      - name: Copy manual to HTML tree
-        id: copy
-        if: success() || steps.build.conclusion == 'success'
-        run: |
-          cd firedrake-repo/docs
-          cp build/latex/Firedrake.pdf build/html/_static/manual.pdf
-
-      - name: Upload artifact
-        id: upload
-        if: success() || steps.copy.conclusion == 'success'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          name: github-pages
-          path: /__w/firedrake/firedrake/firedrake-repo/docs/build/html
-          retention-days: 1
-
-      - name: Report status
-        id: report
-        if: success() || steps.upload.conclusion == 'success'
-        run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
-
   deploy:
-    name: Deploy Github pages
-    needs: build_docs
-    # Always run this workflow on master, even if linkcheck fails
-    if: always() && github.ref == 'refs/heads/master' && needs.build_docs.outputs.conclusion == 'success'
+    name: Deploy GitHub pages
+    needs: test
+    # Deploy even if linkcheck fails
+    if: |
+      always() &&
+      needs.build_docs.outputs.conclusion == 'success' &&
+      inputs.deploy_website
     permissions:
       pages: write
       id-token: write
     environment:
       name: github-pages
-      url: http://firedrakeproject.github.io/firedrake
+      url: http://firedrakeproject.github.io/firedrake/${{ inputs.target_branch }}
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4
+
+  upload_pypi:
+    name: Upload to PyPI (optional)
+    if: inputs.upload_pypi
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Push to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  upload_testpypi:
+    name: Upload to TestPyPI (optional)
+    if: inputs.upload_testpypi
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Push to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
