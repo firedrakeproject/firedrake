@@ -202,3 +202,52 @@ def test_assemble_recompute():
     h = Function(V)
     h.vector()[:] = 1
     assert taylor_test(Jhat, f, h) > 1.9
+
+
+@pytest.mark.skipcomplex
+def test_interpolate():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    Q = FunctionSpace(mesh, "DG", 0)
+    c = Cofunction(Q.dual())
+    c.dat.data[:] = 1
+
+    f = Function(V)
+    f.dat.data[:] = 2
+    J = assemble(Interpolate(f**2, c))
+    Jhat = ReducedFunctional(J, Control(f))
+
+    h = Function(V)
+    h.dat.data[:] = 3
+    assert taylor_test(Jhat, f, h) > 1.9
+
+
+@pytest.mark.skipcomplex
+def test_interpolate_mixed():
+    mesh = UnitSquareMesh(2, 2)
+    V1 = FunctionSpace(mesh, "RT", 1)
+    V2 = FunctionSpace(mesh, "CG", 1)
+    V = V1 * V2
+
+    Q1 = FunctionSpace(mesh, "DG", 0)
+    Q2 = FunctionSpace(mesh, "N1curl", 1)
+    Q = Q1 * Q2
+
+    c = Cofunction(Q.dual())
+    c.subfunctions[0].dat.data[:] = 1
+    c.subfunctions[1].dat.data[:] = 2
+
+    f = Function(V)
+    f.subfunctions[0].dat.data[:] = 3
+    f.subfunctions[1].dat.data[:] = 4
+
+    f1, f2 = split(f)
+    exprs = [f2 * div(f1)**2, grad(f2) * div(f1)]
+    expr = as_vector([e[i] for e in exprs for i in np.ndindex(e.ufl_shape)])
+    J = assemble(Interpolate(expr, c))
+    Jhat = ReducedFunctional(J, Control(f))
+
+    h = Function(V)
+    h.subfunctions[0].dat.data[:] = 5
+    h.subfunctions[1].dat.data[:] = 6
+    assert taylor_test(Jhat, f, h) > 1.9

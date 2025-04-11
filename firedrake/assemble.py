@@ -18,6 +18,7 @@ import ufl
 import finat.ufl
 from firedrake import (extrusion_utils as eutils, matrix, parameters, solving,
                        tsfc_interface, utils)
+from firedrake.formmanipulation import split_form
 from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_unique_domain
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
@@ -493,9 +494,10 @@ class BaseFormAssembler(AbstractFormAssembler):
             if all(isinstance(op, numbers.Complex) for op in args):
                 result = sum(weight * arg for weight, arg in zip(expr.weights(), args))
                 return tensor.assign(result) if tensor else result
-            elif all(isinstance(op, firedrake.Cofunction) for op in args):
+            elif (all(isinstance(op, firedrake.Cofunction) for op in args)
+                    or all(isinstance(op, firedrake.Function) for op in args)):
                 V, = set(a.function_space() for a in args)
-                result = tensor if tensor else firedrake.Cofunction(V)
+                result = tensor if tensor else firedrake.Function(V)
                 result.dat.maxpy(expr.weights(), [a.dat for a in args])
                 return result
             elif all(isinstance(op, ufl.Matrix) for op in args):
@@ -540,7 +542,10 @@ class BaseFormAssembler(AbstractFormAssembler):
             if assembled_expression:
                 # Occur in situations such as Interpolate composition
                 expression = assembled_expression[0]
-            expr = expr._ufl_expr_reconstruct_(expression, v)
+
+            Interpolate = expr._ufl_expr_reconstruct_
+            if (v, expression) != expr.argument_slots():
+                expr = Interpolate(expression, v=v)
 
             # Different assembly procedures:
             # 1) Interpolate(Argument(V1, 1), Argument(V2.dual(), 0)) -> Jacobian (Interpolate matrix)
@@ -552,27 +557,55 @@ class BaseFormAssembler(AbstractFormAssembler):
             # If argument numbers have been swapped => Adjoint.
             arg_expression = ufl.algorithms.extract_arguments(expression)
             is_adjoint = (arg_expression and arg_expression[0].number() == 0)
+
+            # Dual interpolation from mixed source
+            if is_adjoint and len(expr.function_space()) > 1:
+                cur = 0
+                sub_expressions = []
+                components = numpy.reshape(expression, (-1,))
+                for Vi in expr.function_space():
+                    sub_expressions.append(ufl.as_tensor(components[cur:cur+Vi.value_size].reshape(Vi.value_shape)))
+                    cur += Vi.value_size
+
+                # Component-split of the primal expression interpolated into the dual argument-split
+                split_interp = sum(Interpolate(sub_expressions[i], v=vi) for (i,), vi in split_form(v))
+                return assemble(split_interp, tensor=tensor)
+
+            # Dual interpolation into mixed target
+            if is_adjoint and len(arg_expression[0].function_space()) > 1 and rank == 1:
+                V = arg_expression[0].function_space()
+                tensor = tensor or firedrake.Cofunction(V.dual())
+
+                # Argument-split of the Interpolate gets assembled into the corresponding sub-tensor
+                for (i,), sub_interp in split_form(expr):
+                    assemble(sub_interp, tensor=tensor.subfunctions[i])
+                return tensor
+
+            # Get the primal space
+            V = expr.function_space()
+            if is_adjoint:
+                V = V.dual()
             # Workaround: Renumber argument when needed since Interpolator assumes it takes a zero-numbered argument.
             if not is_adjoint and rank != 1:
                 _, v1 = expr.arguments()
-                expression = ufl.replace(expression, {v1: firedrake.Argument(v1.function_space(), number=0, part=v1.part())})
+                expression = ufl.replace(expression, {v1: v1.reconstruct(number=0)})
             # Get the interpolator
             interp_data = expr.interp_data
             default_missing_val = interp_data.pop('default_missing_val', None)
-            interpolator = firedrake.Interpolator(expression, expr.function_space(), **interp_data)
+            interpolator = firedrake.Interpolator(expression, V, **interp_data)
             # Assembly
             if rank == 1:
                 # Assembling the action of the Jacobian adjoint.
                 if is_adjoint:
-                    output = tensor or firedrake.Cofunction(arg_expression[0].function_space().dual())
-                    return interpolator._interpolate(v, output=output, adjoint=True, default_missing_val=default_missing_val)
+                    return interpolator._interpolate(v, output=tensor, adjoint=True, default_missing_val=default_missing_val)
                 # Assembling the Jacobian action.
-                if interpolator.nargs:
+                elif interpolator.nargs:
                     return interpolator._interpolate(expression, output=tensor, default_missing_val=default_missing_val)
                 # Assembling the operator
-                if tensor is None:
+                elif tensor is None:
                     return interpolator._interpolate(default_missing_val=default_missing_val)
-                return firedrake.Interpolator(expression, tensor, **interp_data)._interpolate(default_missing_val=default_missing_val)
+                else:
+                    return firedrake.Interpolator(expression, tensor, **interp_data)._interpolate(default_missing_val=default_missing_val)
             elif rank == 2:
                 res = tensor.petscmat if tensor else PETSc.Mat()
                 # Get the interpolation matrix
@@ -799,7 +832,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 replace_map = {arg: left}
                 # Decrease number for all the other arguments since the lowest numbered argument will be replaced.
                 other_args = [a for a in right.arguments() if a is not arg]
-                new_args = [firedrake.Argument(a.function_space(), number=a.number()-1, part=a.part()) for a in other_args]
+                new_args = [a.reconstruct(number=a.number()-1) for a in other_args]
                 replace_map.update(dict(zip(other_args, new_args)))
                 # Replace arguments
                 return ufl.replace(right, replace_map)
@@ -810,8 +843,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             u, v = B.arguments()
             # Let V1 and V2 be primal spaces, B: V1 -> V2 and B*: V2* -> V1*:
             # Adjoint(B(Argument(V1, 1), Argument(V2.dual(), 0))) = B(Argument(V1, 0), Argument(V2.dual(), 1))
-            reordered_arguments = (firedrake.Argument(u.function_space(), number=v.number(), part=v.part()),
-                                   firedrake.Argument(v.function_space(), number=u.number(), part=u.part()))
+            reordered_arguments = (u.reconstruct(number=v.number()),
+                                   v.reconstruct(number=u.number()))
             # Replace arguments in argument slots
             return ufl.replace(B, dict(zip((u, v), reordered_arguments)))
 
