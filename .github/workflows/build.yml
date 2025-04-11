@@ -79,7 +79,8 @@ jobs:
       - name: Check no 'TODO RELEASE' comments (release only)
         if: inputs.target_branch == 'release'
         run: |
-          if [ -z "$( git -C ./firedrake-repo grep 'TODO RELEASE' )" ]; then
+          cd firedrake-repo
+          if [ -z "$( git grep 'TODO RELEASE' )" ]; then
             exit 0
           else
             exit 1
@@ -89,7 +90,7 @@ jobs:
       # I prefer the latter because then failures are everyone's problem, not just mine!
       - name: Install PETSc
         run: |
-          if [ "${{ inputs.target_branch == 'release' }}" ]; then
+          if [ ${{ inputs.target_branch }} = 'release' ]; then
             git clone --depth 1 \
               --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
               https://gitlab.com/petsc/petsc.git
@@ -120,7 +121,7 @@ jobs:
           pip cache remove petsc4py
           pip cache remove slepc4py
 
-          if [ "${{ inputs.target_branch == 'release' }}" ]; then
+          if [ ${{ inputs.target_branch }} = 'release' ]; then
             EXTRA_PIP_FLAGS=''
           else
             : # Install build dependencies
