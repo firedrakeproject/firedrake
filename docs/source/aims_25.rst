@@ -44,7 +44,6 @@ reading is available on the links above.
     - Firedrake practical 1: `Helmholtz Equation <https://colab.research.google.com/github/firedrakeproject/notebooks/blob/aims/01-spd-helmholtz.ipynb>`__
     - `Systems with more than one variable <https://finite-element.github.io/9_mixed_problems.html>`__
     - An introduction to solvers and preconditioners
-    - Devito: inverse tomography
     - Devito: `Full Waveform Inversion <https://colab.research.google.com/github/devitocodes/devito/blob/JDBetteridge%2Faims_25/examples/seismic/tutorials/03_fwi.ipynb>`__
     - `Deep learning introduction <https://github.com/NBoulle/physics-driven-ml/raw/main/tutorials/intro_deep_learning.pdf>`__, `practical <https://colab.research.google.com/github/NBoulle/physics-driven-ml/blob/main/tutorials/Tutorial_1_sol.ipynb>`__
   * - **Late PM**
