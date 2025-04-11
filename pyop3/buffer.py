@@ -119,7 +119,7 @@ class Buffer(AbstractBuffer):
     _prefix = "buffer"
     _name_generator = UniqueNameGenerator()
 
-    def __init__(self, data: np.ndarray, sf: StarForest | None, *, constant=False, name=None, prefix=None):
+    def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, constant: bool=False, name:str|None=None, prefix:str | None=None):
         if name and prefix:
             raise ValueError("Can only specify one of name and prefix")
 
@@ -168,8 +168,8 @@ class Buffer(AbstractBuffer):
         return self._name
 
     @property
-    def comm(self) -> MPI.Comm:
-        return self.sf.comm
+    def comm(self) -> MPI.Comm | None:
+        return self.sf.comm if self.sf else None
 
     @property
     @not_in_flight

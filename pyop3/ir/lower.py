@@ -210,13 +210,15 @@ class LoopyCodegenContext(CodegenContext):
         # Inject constant buffer data into the generated code if sufficiently small
         # TODO: Need to consider 'constant-ness'. Something may be immutable but still
         # not match across ranks.
+        # Maybe sf check is enough?
         if buffer.constant and buffer.size < config["max_static_array_size"]:
+            assert not buffer.sf, "sufficient check?"
             return self.add_temporary(
                 "t",
                 buffer.dtype,
                 initializer=buffer.data_ro,
+                shape=buffer.data_ro.shape,
                 read_only=True,
-                address_space=lp.AddressSpace.LOCAL,
             )
 
         kernel_name = self.unique_name("buffer")
