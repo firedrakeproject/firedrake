@@ -14,12 +14,11 @@ RUN mkdir /opt/firedrake-notebooks \
     done
 
 # Now do the same for thetis.
-# FIXME: Add these back in once Thetis is in the firedrake container
-# RUN mkdir thetis-notebooks \
-#     && cp -r thetis/demos/* thetis-notebooks/ \
-#     && rm thetis-notebooks/*.py \
-#     && for file in thetis-notebooks/*.ipynb; do \
-#         jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace $file; \
-#     done
+RUN mkdir /opt/thetis-notebooks \
+    && cp -r /opt/thetis/demos/* /opt/thetis-notebooks/ \
+    && rm /opt/thetis-notebooks/*.py \
+    && for file in /opt/thetis-notebooks/*.ipynb; do \
+        jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace $file; \
+    done
 
 CMD ["jupyter", "nbclassic", "--ip", "0.0.0.0", "--no-browser", "--allow-root"]
