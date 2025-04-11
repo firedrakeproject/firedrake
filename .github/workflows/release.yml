@@ -5,12 +5,11 @@ on:
     types: [published]
 
 jobs:
-  pypi_publish:
-    name: Publish release on PyPI
-    uses: ./.github/workflows/pypi.yml
+  deploy:
+    uses: ./.github/workflows/build.yml
     with:
-      ref: ${{ github.ref }}
-      pypi: true
+      target_branch: release
+      run_tests: false
     secrets: inherit
 
   docker:

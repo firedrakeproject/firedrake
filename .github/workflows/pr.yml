@@ -5,7 +5,7 @@ on:
 
 jobs:
   test:
-    uses: ./.github/workflows/ci.yml
+    uses: ./.github/workflows/build.yml
     with:
       target_branch: ${{ github.base_ref }}
     secrets: inherit

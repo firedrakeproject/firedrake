@@ -1,4 +1,4 @@
-name: Test Firedrake
+name: Build Firedrake
 
 on:
   workflow_call:
@@ -7,17 +7,21 @@ on:
         description: The target branch (usually 'master' or 'release')
         type: string
         required: true
+      run_tests:
+        description: Whether to run the test suite
+        type: boolean
+        default: true
       deploy_website:
         description: Whether to deploy the website
-        type: bool
+        type: boolean
         default: false
       upload_pypi:
         description: Whether to upload an sdist to PyPI
-        type: bool
+        type: boolean
         default: false
       upload_testpypi:
         description: Whether to upload an sdist to TestPyPI
-        type: bool
+        type: boolean
         default: false
 
 concurrency:
@@ -28,7 +32,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  build:
     name: Install and test Firedrake (Linux)
     strategy:
       # We want to know all of the tests which fail, so don't kill real if
@@ -49,8 +53,6 @@ jobs:
       PYOP2_SPMD_STRICT: 1
       EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660
       PYTEST_MPI_MAX_NPROCS: 8
-    outputs:
-      conclusion: ${{ steps.report_docs.outputs.conclusion }}
     steps:
       - name: Fix HOME
         # For unknown reasons GitHub actions overwrite HOME to /github/home
@@ -149,6 +151,8 @@ jobs:
           firedrake-check
         timeout-minutes: 5
 
+      # -----
+
       # TODO: Move towards the bottom, just here for testing purposes
       - name: Build sdist (release only)
         if: inputs.target_branch == 'release'
@@ -171,13 +175,13 @@ jobs:
           make -C firedrake-repo/docs validate-bibtex
 
       - name: Check documentation links
+        # This step can fail spuriously so don't burn everything down if that happens
+        continue-on-error: true
         run: |
           . venv/bin/activate
           make -C firedrake-repo/docs linkcheck
 
       - name: Build docs
-        id: build
-        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
           cd firedrake-repo/docs
@@ -186,30 +190,22 @@ jobs:
           make latexpdf
 
       - name: Copy manual to HTML tree
-        id: copy
-        if: success() || steps.build.conclusion == 'success'
         run: |
           cd firedrake-repo/docs
           cp build/latex/Firedrake.pdf build/html/_static/manual.pdf
 
       - name: Upload artifact
-        id: upload
-        if: success() || steps.copy.conclusion == 'success'
         uses: actions/upload-pages-artifact@v3
         with:
           name: github-pages
           path: /__w/firedrake/firedrake/firedrake-repo/docs/build/html
           retention-days: 1
 
-      - name: Report docs build
-        id: report_docs
-        if: success() || steps.upload.conclusion == 'success'
-        run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
-
+      # -----
 
       - name: Run TSFC tests
         # Run even if earlier tests failed
-        if: success() || steps.install.conclusion == 'success'
+        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
@@ -218,7 +214,7 @@ jobs:
         timeout-minutes: 60
 
       - name: Run PyOP2 tests
-        if: success() || steps.install.conclusion == 'success'
+        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
@@ -231,7 +227,7 @@ jobs:
 
 
       - name: Run Firedrake tests (nprocs = 1)
-        if: success() || steps.install.conclusion == 'success'
+        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
@@ -240,49 +236,49 @@ jobs:
         timeout-minutes: 60
 
       - name: Run tests (nprocs = 2)
-        if: success() || steps.install.conclusion == 'success'
+        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 30
 
       - name: Run tests (nprocs = 3)
-        if: success() || steps.install.conclusion == 'success'
+        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 60
 
       - name: Run tests (nprocs = 4)
-        if: success() || steps.install.conclusion == 'success'
+        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 5)
-        if: success() || steps.install.conclusion == 'success'
+        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 6)
-        if: success() || steps.install.conclusion == 'success'
+        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 7)
-        if: success() || steps.install.conclusion == 'success'
+        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 8)
-        if: success() || steps.install.conclusion == 'success'
+        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
@@ -290,7 +286,10 @@ jobs:
 
       - name: Run Gusto smoke tests
         # Only test Gusto in real mode
-        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
+        if: |
+          inputs.run_tests &&
+          (success() || steps.install.conclusion == 'success') &&
+          matrix.arch == 'default'
         run: |
           . venv/bin/activate
           git clone --depth 1 https://github.com/firedrakeproject/gusto.git gusto-repo
@@ -302,7 +301,10 @@ jobs:
         timeout-minutes: 10
 
       - name: Run Thetis smoke tests
-        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
+        if: |
+          inputs.run_tests &&
+          (success() || steps.install.conclusion == 'success') &&
+          matrix.arch == 'default'
         run: |
           . venv/bin/activate
           git clone --depth 1 https://github.com/thetisproject/thetis.git thetis-repo
@@ -311,7 +313,10 @@ jobs:
         timeout-minutes: 10
 
       - name: Run spyro smoke tests
-        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
+        if: |
+          inputs.run_tests &&
+          (success() || steps.install.conclusion == 'success') &&
+          matrix.arch == 'default'
         run: |
           . venv/bin/activate
           git clone --depth 1 https://github.com/NDF-Poli-USP/spyro.git spyro-repo
@@ -320,7 +325,10 @@ jobs:
         timeout-minutes: 5
 
       - name: Run G-ADOPT smoke tests
-        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
+        if: |
+          inputs.run_tests &&
+          (success() || steps.install.conclusion == 'success') &&
+          matrix.arch == 'default'
         run: |
           . venv/bin/activate
           git clone --depth 1 https://github.com/g-adopt/g-adopt.git g-adopt-repo
@@ -330,7 +338,7 @@ jobs:
 
       - name: Upload log files
         uses: actions/upload-artifact@v4
-        if: success() || steps.install.conclusion == 'success'
+        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         with:
           name: firedrake-logs-${{ matrix.arch }}
           path: pytest_*.log
@@ -356,12 +364,8 @@ jobs:
 
   deploy:
     name: Deploy GitHub pages
-    needs: test
-    # Deploy even if linkcheck fails
-    if: |
-      always() &&
-      needs.build_docs.outputs.conclusion == 'success' &&
-      inputs.deploy_website
+    needs: build
+    if: inputs.deploy_website
     permissions:
       pages: write
       id-token: write
@@ -375,8 +379,8 @@ jobs:
 
   upload_pypi:
     name: Upload to PyPI (optional)
-    if: inputs.upload_pypi
-    needs: test
+    if: inputs.upload_pypi && inputs.target_branch == 'release'
+    needs: build
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -392,8 +396,8 @@ jobs:
 
   upload_testpypi:
     name: Upload to TestPyPI (optional)
-    if: inputs.upload_testpypi
-    needs: test
+    if: inputs.upload_testpypi && inputs.target_branch == 'release'
+    needs: build
     runs-on: ubuntu-latest
     environment:
       name: testpypi
