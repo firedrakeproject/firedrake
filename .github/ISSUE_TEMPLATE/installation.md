@@ -13,7 +13,7 @@ A short description of what the installation error is.
 **Steps to Reproduce**
 Steps to reproduce the behavior:
 
-ie: The exact command used for installation/update  '...'
+ie: The exact command used for installation  '...'
 
 **Expected behavior**
 Describe what you expected to happen.
@@ -23,12 +23,11 @@ Add error message with full backtrace.
 Please add these as text using three backticks (`) for highlighting.
 Please do not add screenshots.
 
-Please also include either `firedrake-install.log` which is found in
-the directory `firedrake-install` was run or `firedrake-update.log`
-found in the virtualenv directory.
+If the issue was with installing PETSc then please share the `configure.log`
+file found inside the `petsc` directory.
 
-Additionally please include the PETSc configure log located in
-`$VIRTUAL_ENV/src/petsc/configure.log`.
+If the issue was with installing Firedrake then please share the output
+of the `pip install` command having passed the extra flag `--verbose`.
 
 **Environment:**
  - OS: [eg: Linux, MacOS, WSL (Windows Subsystem for Linux)] add this as an issue label too! Please be specific: state the Linux distribution or MacOS version you are attempting to install on.
