@@ -185,21 +185,6 @@ install Firedrake. To do this perform the following steps:
       to check that the install was successful (see
       :ref:`below<firedrake_check>`).
 
-   .. note::
-      A common issue encountered with this step is the installation will fail with
-      an error message like:
-
-      .. code-block:: text
-
-         FileNotFoundError: [Errno 2] No such file or directory: '/tmp/pip-build-env-9j45p2su/normal/lib/python3.11/site-packages/petsc/lib/petsc/conf/petscvariables'
-
-      This usually means that the environment variable ``PETSC_DIR`` is not set
-      correctly. You can check this by making sure that you can run the following
-      command without error::
-
-         $ ls $PETSC_DIR
-
-
 #. Firedrake is now installed and ready for use!
 
 .. warning::
@@ -401,7 +386,6 @@ to customise the options that are passed to PETSc ``configure``. You can either:
    ``configure`` option with ``--download-package`` so that PETSc will download
    and install the right thing.
 
-
 Reconfiguring an existing PETSc
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -411,6 +395,43 @@ Python script that PETSc generates. This can be found in
 ``$PETSC_DIR/$PETSC_ARCH/lib/petsc/conf``. Other example scripts can be found in
 ``$PETSC_DIR/config/examples`` directory.
 
+
+.. _common_issues:
+
+Common installation issues
+--------------------------
+
+No such file or directory: '/tmp/.../petsc/conf/petscvariables'
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you encounter this error when running the ``pip install`` instruction this is
+usually a sign that the environment variable ``PETSC_DIR`` is not set correctly.
+You can check this by making sure that you can run the following command without
+error::
+
+   $ ls $PETSC_DIR
+
+If this raises an error then you should re-``export`` the variable::
+
+   $ export PETSC_DIR=/path/to/petsc
+
+Missing symbols post install
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If the installation completes but then you get errors regarding missing symbols
+when you import Firedrake this is usually a sign that one of the Python bindings
+packages used by Firedrake (h5py, mpi4py, petsc4py, slepc4py) is linked against
+the wrong compiled library. This is usually caused by issues with caching.
+
+To resolve the problem you should first remove any existing cached packages::
+
+   $ pip uninstall -y h5py mpi4py petsc4py slepc4py
+   $ pip cache remove h5py
+   $ pip cache remove mpi4py
+   $ pip cache remove petsc4py
+   $ pip cache remove slepc4py
+
+before re-running the instruction to install Firedrake.
 
 .. _alternative_install:
 
@@ -473,10 +494,10 @@ please see :doc:`here</notebooks>`.
 
 .. _getting_help:
 
-Having trouble?
-===============
+Contact us
+==========
 
-If you struggling to install Firedrake for any reason please
+If you are struggling to install Firedrake for any reason please
 :doc:`get in touch</contact>` either on our Slack channel or create a GitHub
 discussion_.
 
