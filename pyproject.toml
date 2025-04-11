@@ -1,16 +1,17 @@
 [project]
 name = "firedrake"
-version = "0.14_dev"
+# <year>.<month>.<patch>
+version = "2025.04.0"
 description = "An automated system for the portable solution of partial differential equations using the finite element method"
 readme = "README.rst"
 license = {file = "LICENSE"}
 maintainers = [
-  {name = "Pablo D. Brubeck"},
-  {name = "Daiane I. Dolci"},
-  {name = "David A. Ham", email = "david.ham@imperial.ac.uk"},
-  {name = "Josh Hope-Collins"},
-  {name = "Koki Sagiyama"},
-  {name = "Connor J. Ward", email = "c.ward20@imperial.ac.uk"},
+    {name = "Pablo D. Brubeck"},
+    {name = "Daiane I. Dolci"},
+    {name = "David A. Ham", email = "david.ham@imperial.ac.uk"},
+    {name = "Josh Hope-Collins"},
+    {name = "Koki Sagiyama"},
+    {name = "Connor J. Ward", email = "c.ward20@imperial.ac.uk"},
 ]
 requires-python = ">=3.10"
 dependencies = [
@@ -22,7 +23,8 @@ dependencies = [
   "libsupermesh",
   # NOTE: If changing the PETSc/SLEPc version then firedrake-configure also needs
   # changing (as well as other references to petsc4py and slepc4py here)
-  "petsc4py==3.23.0",
+  # TODO RELEASE
+  # "petsc4py==3.23.0",
   "numpy",
   "packaging",
   "pkgconfig",
@@ -33,6 +35,7 @@ dependencies = [
   "rtree>=1.2",
   "scipy",
   "sympy",
+  # TODO RELEASE: use releases
   "fenics-ufl @ git+https://github.com/firedrakeproject/ufl.git",
   "fenics-fiat @ git+https://github.com/firedrakeproject/fiat.git",
   "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint.git",
@@ -97,7 +100,8 @@ netgen = [
   "ngsPETSc",
 ]
 slepc = [
-  "slepc4py==3.22.2",
+  # TODO RELEASE
+  # "slepc4py==3.22.2",
 ]
 torch = [  # requires passing '--extra-index-url' to work
   "torch",
@@ -113,13 +117,15 @@ ci = [
   "matplotlib",
   "mpi-pytest",
   "nbval",
-  "ngsPETSc",
+  # TODO RELEASE
+  # "ngsPETSc",
   "pylit",
   "pytest",
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.23.0",
+  # TODO RELEASE
+  # "slepc4py==3.23.0",
   "torch",  # requires passing '--extra-index-url' to work
   "vtk",
 ]
@@ -133,7 +139,8 @@ docker = [  # Used in firedrake-vanilla container
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.23.0",
+  # TODO RELEASE
+  # "slepc4py==3.23.0",
 ]
 
 [build-system]
@@ -146,7 +153,8 @@ requires = [
   "pkgconfig",
   "pybind11",
   "setuptools>61.2",
-  "petsc4py==3.23.0",
+  # TODO RELEASE
+  # "petsc4py==3.23.0",
   "rtree>=1.2",
 ]
 build-backend = "setuptools.build_meta"
@@ -154,13 +162,26 @@ build-backend = "setuptools.build_meta"
 # TODO: Convert firedrake-zenodo to a proper entrypoint script.
 [tool.setuptools]
 script-files = [
-  "firedrake/scripts/firedrake-zenodo",
-  "scripts/firedrake-run-split-tests",
+    "firedrake/scripts/firedrake-zenodo",
+    "scripts/firedrake-run-split-tests",
 ]
 
 [tool.setuptools.package-data]
 # Unless specified these files will not be installed along with the
 # rest of the package
-firedrake = ["evaluate.h", "locate.c", "icons/*.png"]
-firedrake_check = ["Makefile", "tests/firedrake/conftest.py", "tests/*/*/*.py"]
-pyop2 = ["*.h", "*.pxd", "*.pyx", "codegen/c/*.c"]
+firedrake = [
+    "evaluate.h",
+    "locate.c",
+    "icons/*.png",
+]
+firedrake_check = [
+    "Makefile",
+    "tests/firedrake/conftest.py",
+    "tests/*/*/*.py",
+]
+pyop2 = [
+    "*.h",
+    "*.pxd",
+    "*.pyx",
+    "codegen/c/*.c",
+]

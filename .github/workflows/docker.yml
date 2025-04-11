@@ -4,13 +4,7 @@ on:
   workflow_call:
     inputs:
       tag:
-        description: 'Optional tag (defaults to `latest`)'
-        required: false
-        default: 'latest'
-        type: string
-      status:
-        description: 'Firedrake test status'
-        required: true
+        description: Docker image tag
         type: string
     secrets:
       # Docker login information
@@ -22,8 +16,6 @@ on:
 jobs:
   # Firedrake container (just Firedrake)
   docker_build_vanilla:
-    # Only run if Firedrake tests pass
-    if: inputs.status == 'success'
     strategy:
       fail-fast: false
       matrix:
@@ -58,8 +50,6 @@ jobs:
 
   # # Firedrake container (Firedrake and friends)
   docker_build_firedrake:
-    # Only run if "Build Firedrake" succeeds
-    if: inputs.status == 'success'
     needs: docker_merge_vanilla
     uses: ./.github/workflows/docker_build.yml
     # Only build the 'firedrake' container for 'linux/amd64' because
@@ -84,8 +74,6 @@ jobs:
 
   # # Firedrake container with TeX
   docker_build_docdeps:
-    # Only run if "Build Firedrake" succeeds
-    if: inputs.status == 'success'
     needs: docker_merge_vanilla
     uses: ./.github/workflows/docker_build.yml
     with:
@@ -106,8 +94,6 @@ jobs:
 
   # # Firedrake container with Jupyter notebooks
   docker_build_jupyter:
-    # Only run if "Build Firedrake" succeeds
-    if: inputs.status == 'success'
     needs: docker_merge_firedrake
     uses: ./.github/workflows/docker_build.yml
     with:
