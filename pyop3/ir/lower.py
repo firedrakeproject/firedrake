@@ -35,6 +35,7 @@ from pyop3.dtypes import IntType
 from pyop3.ir.transform import with_likwid_markers, with_petsc_event
 from pyop3.itree.tree import LoopIndexVar
 from pyop3.lang import (
+    Breakpoint,
     Intent,
     INC,
     MAX_RW,
@@ -347,8 +348,9 @@ class CodegenResult:
             data_argument = kwargs.get(data_argument.name, data_argument)
             kernel_args.append(as_kernel_arg(data_argument))
 
-        # if len(self.ir.callables_table) > 1:
-        #     breakpoint()
+        if len(self.loopy_kernel.callables_table) > 1:
+            ccode = lp.generate_code_v2(self.loopy_kernel).device_code()
+            breakpoint()
 
         executable(*kernel_args)
 
@@ -546,6 +548,7 @@ def _(loop: Loop, /):
 
 @_collect_temporary_shapes.register(AbstractAssignment)
 @_collect_temporary_shapes.register(NullInstruction)
+@_collect_temporary_shapes.register(Breakpoint)
 def _(assignment: AbstractAssignment, /) -> PMap:
     return pmap()
 
@@ -565,6 +568,11 @@ def _(call: ExplicitCalledFunction):
 @functools.singledispatch
 def _compile(expr: Any, loop_indices, ctx: LoopyCodegenContext) -> None:
     raise TypeError(f"No handler defined for {type(expr).__name__}")
+
+
+@_compile.register(Breakpoint)
+def _(trace: Breakpoint, /, loop_indices, context):
+    context.add_cinstruction("PetscAttachDebugger();")
 
 
 @_compile.register(NullInstruction)

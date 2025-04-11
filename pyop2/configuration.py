@@ -90,7 +90,8 @@ class Configuration(dict):
         "simd_width":
             ("PYOP2_SIMD_WIDTH", int, 4),
         "debug":
-            ("PYOP2_DEBUG", bool, False),
+            # PYOP2_DEBUG is dead!
+            ("PYOP3_DEBUG", bool, False),
         "compute_kernel_flops":
             ("PYOP2_COMPUTE_KERNEL_FLOPS", bool, False),
         "type_check":

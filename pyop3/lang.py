@@ -739,6 +739,14 @@ class NullInstruction(Terminal):
     """An instruction that does nothing."""
 
 
+class Breakpoint(Terminal):
+    def __init__(self):
+        from pyop3.config import config
+
+        if not config["debug"]:
+            raise RuntimeError("Will only work in debug mode (PYOP3_DEBUG=1)")
+
+
 
 # TODO: With Python 3.11 can be made a StrEnum
 class AssignmentType(enum.Enum):
@@ -1000,8 +1008,13 @@ def _loop(*args, **kwargs):
     return Loop(*args, **kwargs)
 
 
+# TODO: better to pass eager kwarg
 def do_loop(index, statements, *, compiler_parameters: Mapping | None = None):
     _loop(index, statements)(compiler_parameters=compiler_parameters)
+
+
+def set_trace():
+    return Breakpoint()
 
 
 def fix_intents(tunit, accesses):

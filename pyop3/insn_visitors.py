@@ -42,6 +42,7 @@ from pyop3.lang import (
     RW,
     WRITE,
     AbstractAssignment,
+    Breakpoint,
     ExplicitCalledFunction,
     FunctionArgument,
     NonEmptyPetscMatAssignment,
@@ -86,6 +87,11 @@ def expand_loop_contexts(insn: Instruction, /) -> InstructionList:
 @functools.singledispatch
 def _expand_loop_contexts_rec(obj: Any, /, *, loop_context_acc) -> InstructionList:
     raise TypeError
+
+
+@_expand_loop_contexts_rec.register(Breakpoint)
+def _(trace, /, **kwargs):
+    return trace
 
 
 @_expand_loop_contexts_rec.register(InstructionList)
@@ -157,9 +163,10 @@ class ImplicitPackUnpackExpander(Transformer):
     def _apply(self, expr: Any):
         raise NotImplementedError(f"No handler provided for {type(expr).__name__}")
 
+    @_apply.register(Breakpoint)
     @_apply.register(NullInstruction)
-    def _(self, /, expr):
-        return NullInstruction()
+    def _(self, insn, /):
+        return insn
 
     # TODO Can I provide a generic "operands" thing? Put in the parent class?
     @_apply.register(Loop)
@@ -369,6 +376,7 @@ def _(loop: Loop, /) -> Loop:
 @expand_assignments.register(ExplicitCalledFunction)
 @expand_assignments.register(PetscMatAssignment)
 @expand_assignments.register(NullInstruction)
+@expand_assignments.register(Breakpoint)
 def _(func: ExplicitCalledFunction, /) -> ExplicitCalledFunction:
     return func
 
@@ -491,6 +499,7 @@ def _(loop: Loop, /) -> Loop:
 
 @prepare_petsc_calls.register(ExplicitCalledFunction)
 @prepare_petsc_calls.register(NullInstruction)
+@prepare_petsc_calls.register(Breakpoint)
 def _(func: ExplicitCalledFunction, /) -> ExplicitCalledFunction:
     return func
 
@@ -914,6 +923,7 @@ def _(assignment: NonEmptyPetscMatAssignment, /, loop_axes_acc) -> NonEmptyPetsc
 
 @_concretize_arrays_rec.register(ExplicitCalledFunction)
 @_concretize_arrays_rec.register(NullInstruction)
+@_concretize_arrays_rec.register(Breakpoint)
 def _(func: ExplicitCalledFunction, /, loop_axes_acc) -> ExplicitCalledFunction:
     return func
 
@@ -966,5 +976,6 @@ def _(assignment: PetscMatAssignment, /) -> NonEmptyPetscMatAssignment | NullIns
 
 @drop_zero_sized_paths.register(ExplicitCalledFunction)
 @drop_zero_sized_paths.register(NullInstruction)
+@drop_zero_sized_paths.register(Breakpoint)
 def _(func: ExplicitCalledFunction, /) -> ExplicitCalledFunction:
     return func

@@ -114,6 +114,9 @@ class AbstractMat(DistributedArray):
                 raxes, caxes, mat_type, block_shape=block_shape
                 )
 
+            # debugging
+            mat.setOption(PETSc.Mat.Option.NEW_NONZERO_LOCATION_ERR, True)
+
         assert isinstance(mat, (AbstractBuffer, PETSc.Mat))
 
         super().__init__(name, prefix=prefix, parent=parent)
