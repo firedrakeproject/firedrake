@@ -36,7 +36,7 @@ jobs:
       FIREDRAKE_CI: 1
       PYOP2_CI_TESTS: 1
       PYOP2_SPMD_STRICT: 1
-      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 firedrake-repo/tests/firedrake
+      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660
       PYTEST_MPI_MAX_NPROCS: 8
     steps:
       - name: Fix HOME
@@ -88,9 +88,11 @@ jobs:
             xargs -L1 ./configure --with-make-np=8 --download-slepc
           make PETSC_DIR=/__w/firedrake/firedrake/petsc PETSC_ARCH=arch-firedrake-${{ matrix.arch }}
           make check
-          echo "PETSC_DIR=/__w/firedrake/firedrake/petsc" >> "$GITHUB_ENV"
-          echo "PETSC_ARCH=arch-firedrake-${{ matrix.arch }}" >> "$GITHUB_ENV"
-          echo "SLEPC_DIR=/__w/firedrake/firedrake/petsc/arch-firedrake-${{ matrix.arch }}" >> "$GITHUB_ENV"
+          {
+            echo "PETSC_DIR=/__w/firedrake/firedrake/petsc"
+            echo "PETSC_ARCH=arch-firedrake-${{ matrix.arch }}"
+            echo "SLEPC_DIR=/__w/firedrake/firedrake/petsc/arch-firedrake-${{ matrix.arch }}"
+          } >> "$GITHUB_ENV"
 
       - name: Install Firedrake
         id: install
@@ -136,63 +138,85 @@ jobs:
           firedrake-check
         timeout-minutes: 5
 
-      - name: Run tests (nprocs = 1)
+      - name: Run TSFC tests
         # Run even if earlier tests failed
-        if: ${{ success() || steps.install.conclusion == 'success' }}
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
-          firedrake-run-split-tests 1 1 "-n 8 $EXTRA_PYTEST_ARGS"
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/tsfc
+        timeout-minutes: 60
+
+      - name: Run PyOP2 tests
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . venv/bin/activate
+          : # Use pytest-xdist here so we can have a single collated output (not possible
+          : # for parallel tests)
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
+          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
+          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
+          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
+        timeout-minutes: 15
+
+
+      - name: Run Firedrake tests (nprocs = 1)
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . venv/bin/activate
+          : # Use pytest-xdist here so we can have a single collated output (not possible
+          : # for parallel tests)
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 60
 
       - name: Run tests (nprocs = 2)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS"
+          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 30
 
       - name: Run tests (nprocs = 3)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS"
+          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 60
 
       - name: Run tests (nprocs = 4)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS"
+          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 5)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS"
+          firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 6)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS"
+          firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 7)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS"
+          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 8)
-        if: ${{ success() || steps.install.conclusion == 'success' }}
+        if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS"
+          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run Gusto smoke tests
@@ -271,7 +295,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
       - name: Install deps
         run: pip install requests packaging
       - name: Zenodo API canary
@@ -280,5 +304,83 @@ jobs:
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: "zenodo-canary"
+          name: zenodo-canary
           path: firedrake-install.log
+
+  build_docs:
+    name: Build documentation
+    runs-on: ubuntu-latest
+    container:
+      image: firedrakeproject/firedrake-docdeps:latest
+    outputs:
+      conclusion: ${{ steps.report.outputs.conclusion }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: firedrake-repo
+
+      - name: Install Firedrake
+        id: install
+        run: |
+          : # Pass '--system-site-packages' so already installed packages can be found
+          python3 -m venv --system-site-packages venv
+          . venv/bin/activate
+          pip uninstall -y firedrake
+          pip install --verbose './firedrake-repo[docs]'
+
+      - name: Check bibtex
+        run: |
+          . venv/bin/activate
+          make -C firedrake-repo/docs validate-bibtex
+
+      - name: Check documentation links
+        run: |
+          . venv/bin/activate
+          make -C firedrake-repo/docs linkcheck
+
+      - name: Build docs
+        id: build
+        if: success() || steps.install.conclusion == 'success'
+        run: |
+          . venv/bin/activate
+          cd firedrake-repo/docs
+          make html
+          make latex
+          make latexpdf
+
+      - name: Copy manual to HTML tree
+        id: copy
+        if: success() || steps.build.conclusion == 'success'
+        run: |
+          cd firedrake-repo/docs
+          cp build/latex/Firedrake.pdf build/html/_static/manual.pdf
+
+      - name: Upload artifact
+        id: upload
+        if: success() || steps.copy.conclusion == 'success'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          name: github-pages
+          path: /__w/firedrake/firedrake/firedrake-repo/docs/build/html
+          retention-days: 1
+
+      - name: Report status
+        id: report
+        if: success() || steps.upload.conclusion == 'success'
+        run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy Github pages
+    needs: build_docs
+    # Always run this workflow on master, even if linkcheck fails
+    if: always() && github.ref == 'refs/heads/master' && needs.build_docs.outputs.conclusion == 'success'
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: http://firedrakeproject.github.io/firedrake
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
