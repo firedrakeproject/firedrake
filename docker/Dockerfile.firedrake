@@ -8,10 +8,8 @@ RUN pip install --verbose \
         jax ngsPETSc torch vtk
 
 # Install Firedrake apps
-# FIXME: Thetis and icepack use legacy installation methods and are not installable
-# (Thetis fixed in https://github.com/thetisproject/thetis/pull/392)
-# Once they are fixed the following lines can be added back in:
-# -e git+https://github.com/thetisproject/thetis.git#egg=thetis
+# FIXME: icepack uses a legacy installation method and is not installable
+# Once fixed the following line can be added back in:
 # -e git+https://github.com/icepack/icepack.git#egg=icepack
 RUN pip install --verbose --src /opt \
         -e git+https://github.com/firedrakeproject/asQ.git#egg=asQ \
@@ -20,7 +18,8 @@ RUN pip install --verbose --src /opt \
         -e git+https://github.com/FEMlium/FEMlium.git#egg=FEMlium \
         -e git+https://github.com/g-adopt/g-adopt.git#egg=gadopt \
         -e git+https://github.com/firedrakeproject/gusto.git#egg=gusto \
-        -e git+https://github.com/firedrakeproject/Irksome.git#egg=Irksome
+        -e git+https://github.com/firedrakeproject/Irksome.git#egg=Irksome \
+        -e git+https://github.com/thetisproject/thetis.git#egg=thetis
 
 # Install some other niceties
 RUN apt-get update \
