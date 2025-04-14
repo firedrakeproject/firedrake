@@ -63,7 +63,6 @@ from pyop3.itree import (  # noqa: F401
 from pyop3.lang import (  # noqa: F401
     INC,
     MAX_RW,
-    set_trace,
     MAX_WRITE,
     MIN_RW,
     MIN_WRITE,

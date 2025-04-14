@@ -22,6 +22,7 @@ from pyrsistent import PMap, pmap
 
 from pyop3.axtree import AxisTree
 from pyop3.axtree.tree import ContextFree, ContextSensitive
+from pyop3.config import config
 from pyop3.dtypes import dtype_limits
 from pyop3.exceptions import Pyop3Exception
 from pyop3.utils import (
@@ -76,6 +77,14 @@ class CompilerParameters:
 
     add_likwid_markers: bool = False
     add_petsc_event: bool = False
+
+    # Debugging options
+
+    add_breakpoint: bool = False
+
+    def __post_init__(self):
+        if self.add_breakpoint and not config["debug"]:
+            raise RuntimeError("Will only work in debug mode (PYOP3_DEBUG=1)")
 
 
 DEFAULT_COMPILER_PARAMETERS = CompilerParameters()
@@ -739,15 +748,6 @@ class NullInstruction(Terminal):
     """An instruction that does nothing."""
 
 
-class Breakpoint(Terminal):
-    def __init__(self):
-        from pyop3.config import config
-
-        if not config["debug"]:
-            raise RuntimeError("Will only work in debug mode (PYOP3_DEBUG=1)")
-
-
-
 # TODO: With Python 3.11 can be made a StrEnum
 class AssignmentType(enum.Enum):
     WRITE = "write"
@@ -1011,10 +1011,6 @@ def _loop(*args, **kwargs):
 # TODO: better to pass eager kwarg
 def do_loop(index, statements, *, compiler_parameters: Mapping | None = None):
     _loop(index, statements)(compiler_parameters=compiler_parameters)
-
-
-def set_trace():
-    return Breakpoint()
 
 
 def fix_intents(tunit, accesses):

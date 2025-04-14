@@ -32,10 +32,9 @@ from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul
 from pyop3.buffer import AbstractBuffer, Buffer, NullBuffer, PackedBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
-from pyop3.ir.transform import with_likwid_markers, with_petsc_event
+from pyop3.ir.transform import with_likwid_markers, with_petsc_event, with_breakpoint
 from pyop3.itree.tree import LoopIndexVar
 from pyop3.lang import (
-    Breakpoint,
     Intent,
     INC,
     MAX_RW,
@@ -501,6 +500,8 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
         entrypoint = with_likwid_markers(entrypoint)
     if compiler_parameters.add_petsc_event:
         entrypoint = with_petsc_event(entrypoint)
+    if compiler_parameters.add_breakpoint:
+        entrypoint = with_breakpoint(entrypoint)
     translation_unit = translation_unit.with_kernel(entrypoint)
 
     translation_unit = lp.merge((translation_unit, *context.subkernels))
@@ -548,7 +549,6 @@ def _(loop: Loop, /):
 
 @_collect_temporary_shapes.register(AbstractAssignment)
 @_collect_temporary_shapes.register(NullInstruction)
-@_collect_temporary_shapes.register(Breakpoint)
 def _(assignment: AbstractAssignment, /) -> PMap:
     return pmap()
 
@@ -568,11 +568,6 @@ def _(call: ExplicitCalledFunction):
 @functools.singledispatch
 def _compile(expr: Any, loop_indices, ctx: LoopyCodegenContext) -> None:
     raise TypeError(f"No handler defined for {type(expr).__name__}")
-
-
-@_compile.register(Breakpoint)
-def _(trace: Breakpoint, /, loop_indices, context):
-    context.add_cinstruction("PetscAttachDebugger();")
 
 
 @_compile.register(NullInstruction)

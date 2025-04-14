@@ -1022,7 +1022,7 @@ class ParloopFormAssembler(FormAssembler):
 
         # debug
         #pyop3_compiler_parameters = {"optimize": True}
-        pyop3_compiler_parameters = {"optimize": False}
+        pyop3_compiler_parameters = {"optimize": False, "attach_debugger: True"}
         pyop3_compiler_parameters.update(self._pyop3_compiler_parameters)
 
         if tensor is None:
@@ -1780,9 +1780,7 @@ class ParloopBuilder:
         kernel = op3.Function(
             self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]]
         )
-        # return op3.loop(p, kernel(*args))
-        # debug
-        return op3.loop(p, [op3.set_trace(), kernel(*args)])
+        return op3.loop(p, kernel(*args))
 
     @property
     def test_function_space(self):
