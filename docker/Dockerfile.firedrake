@@ -8,9 +8,6 @@ RUN pip install --verbose \
         jax ngsPETSc torch vtk
 
 # Install Firedrake apps
-# FIXME: icepack uses a legacy installation method and is not installable
-# Once fixed the following line can be added back in:
-# -e git+https://github.com/icepack/icepack.git#egg=icepack
 RUN pip install --verbose --src /opt \
         -e git+https://github.com/firedrakeproject/asQ.git#egg=asQ \
         -e git+https://bitbucket.org/pefarrell/defcon.git#egg=defcon \
@@ -19,6 +16,7 @@ RUN pip install --verbose --src /opt \
         -e git+https://github.com/g-adopt/g-adopt.git#egg=gadopt \
         -e git+https://github.com/firedrakeproject/gusto.git#egg=gusto \
         -e git+https://github.com/firedrakeproject/Irksome.git#egg=Irksome \
+        -e git+https://github.com/icepack/icepack.git#egg=icepack \
         -e git+https://github.com/thetisproject/thetis.git#egg=thetis
 
 # Install some other niceties
