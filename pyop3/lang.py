@@ -80,10 +80,10 @@ class CompilerParameters:
 
     # Debugging options
 
-    add_breakpoint: bool = False
+    attach_debugger: bool = False
 
     def __post_init__(self):
-        if self.add_breakpoint and not config["debug"]:
+        if self.attach_debugger and not config["debug"]:
             raise RuntimeError("Will only work in debug mode (PYOP3_DEBUG=1)")
 
 

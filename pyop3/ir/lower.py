@@ -32,7 +32,7 @@ from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul
 from pyop3.buffer import AbstractBuffer, Buffer, NullBuffer, PackedBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
-from pyop3.ir.transform import with_likwid_markers, with_petsc_event, with_breakpoint
+from pyop3.ir.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
 from pyop3.itree.tree import LoopIndexVar
 from pyop3.lang import (
     Intent,
@@ -500,8 +500,8 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
         entrypoint = with_likwid_markers(entrypoint)
     if compiler_parameters.add_petsc_event:
         entrypoint = with_petsc_event(entrypoint)
-    if compiler_parameters.add_breakpoint:
-        entrypoint = with_breakpoint(entrypoint)
+    if compiler_parameters.attach_debugger:
+        entrypoint = with_attach_debugger(entrypoint)
     translation_unit = translation_unit.with_kernel(entrypoint)
 
     translation_unit = lp.merge((translation_unit, *context.subkernels))

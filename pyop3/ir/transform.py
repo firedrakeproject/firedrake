@@ -55,7 +55,7 @@ def _with_region_markers(knl, start_insn, stop_insn, preambles):
     return knl.copy(preambles=preambles, instructions=insns)
 
 
-def with_breakpoint(kernel):
+def with_attach_debugger(kernel):
     debug_insn = lp.CInstruction((), "PetscAttachDebugger();", id="attach_debugger")
     insns = (
         debug_insn,
