@@ -64,7 +64,7 @@ jobs:
 
       - name: Install PETSc
         run: |
-          git clone --depth 1 https://github.com/firedrakeproject/petsc.git
+          git clone --depth 1 --branch $(python3 firedrake-configure --show-petsc-version) https://gitlab.com/petsc/petsc.git
           cd petsc
           # TODO update configure file
           ./configure --with-make-np=12 --with-c2html=0 --with-debugging=0 --with-fortran-bindings=0 --with-shared-libraries=1 --with-strict-petscerrorcode PETSC_ARCH=arch-firedrake-default --COPTFLAGS=-O3 -march=native -mtune=native --CXXOPTFLAGS=-O3 -march=native -mtune=native --FOPTFLAGS=-O3 -march=native -mtune=native --download-bison --download-fftw --download-hdf5 --download-hwloc --download-metis --download-mumps --download-netcdf --download-pnetcdf --download-ptscotch --download-scalapack --download-suitesparse --download-superlu_dist --download-zlib --download-hypre --with-cuda --with-cuda-dir=/usr/local/cuda CUDAPPFLAGS=-Wno-deprecated-gpu-targets --download-openmpi
