@@ -41,7 +41,7 @@ class AssembleBlock(Block):
         """
         if arity_form == 0:
             if dform is None:
-                dc = firedrake.TestFunction(c_rep.function_space())
+                dc = firedrake.TestFunction(space)
                 dform = firedrake.derivative(form, c_rep, dc)
             dform_adj = firedrake.assemble(dform)
             if dform_adj == 0:

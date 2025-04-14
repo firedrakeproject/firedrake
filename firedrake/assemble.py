@@ -843,10 +843,10 @@ class BaseFormAssembler(AbstractFormAssembler):
             u, v = B.arguments()
             # Let V1 and V2 be primal spaces, B: V1 -> V2 and B*: V2* -> V1*:
             # Adjoint(B(Argument(V1, 1), Argument(V2.dual(), 0))) = B(Argument(V1, 0), Argument(V2.dual(), 1))
-            reordered_arguments = (u.reconstruct(number=v.number()),
-                                   v.reconstruct(number=u.number()))
+            reordered_arguments = {u: u.reconstruct(number=v.number()),
+                                   v: v.reconstruct(number=u.number())}
             # Replace arguments in argument slots
-            return ufl.replace(B, dict(zip((u, v), reordered_arguments)))
+            return ufl.replace(B, reordered_arguments)
 
         # -- Case (5) -- #
         if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator) and not expr.arguments():
