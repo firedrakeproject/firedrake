@@ -402,6 +402,7 @@ def _(
     perm = invert_permutation(dof_numbering)
 
     # skip if identity
+    # if False:
     if not np.all(perm == np.arange(perm.size, dtype=IntType)):
         perm_buffer = op3.Buffer(perm, constant=True)
         perm_dat = op3.Dat(V._packed_nodal_axes.root.copy(label="mylabel"), perm_buffer, prefix="p")

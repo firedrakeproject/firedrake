@@ -751,16 +751,15 @@ class AbstractMeshTopology(abc.ABC):
             if perm_is:
                 dm_renumbering = perm_is
             else:
-                if reorder:
-                    with PETSc.Log.Event("Renumber mesh topology"):
+                with PETSc.Log.Event("Renumber mesh topology"):
+                    if reorder:
                         rcm_ordering_is = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM)
                         cell_ordering = op3.utils.invert(rcm_ordering_is.indices[:self.num_cells])
-                        # must use an inverse ordering because we want to know the map *back*
-                        # from renumbered to original cell number
-                        dm_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
-                else:
-                    # NOTE: kind of redundant, could have None instead
-                    dm_renumbering = PETSc.IS().createGeneral(np.arange(self.num_points, dtype=IntType), comm=self._comm)
+                    else:
+                        cell_ordering = np.arange(self.num_cells, dtype=IntType)
+                    # must use an inverse ordering because we want to know the map *back*
+                    # from renumbered to original cell number
+                    dm_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
 
                 # Now take this renumbering and partition owned and ghost points, this
                 # is the part that pyop3 should ultimately be able to handle.

@@ -551,7 +551,6 @@ def _(assignment: BufferAssignment, /) -> InstructionList:
 # E.g. PreprocessedInstruction?
 @PETSc.Log.EventDecorator()
 def compress_indirection_maps(insn: Instruction) -> Instruction:
-
     # try setting a 'global' cache here
     mycache = {}
 
