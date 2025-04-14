@@ -160,60 +160,6 @@ jobs:
           firedrake-check
         timeout-minutes: 5
 
-      # -----
-
-      # TODO: Move towards the bottom, just here for testing purposes
-      - name: Build sdist (release only)
-        if: inputs.target_branch == 'release'
-        run: |
-          . venv/bin/activate
-          pip install build
-          python -m build ./firedrake-repo --sdist
-
-      - name: Upload sdist (release only)
-        if: inputs.target_branch == 'release'
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/*
-
-      # TODO: Move further down
-      # Could be a separate stage?
-      - name: Check bibtex
-        run: |
-          . venv/bin/activate
-          make -C firedrake-repo/docs validate-bibtex
-
-      - name: Check documentation links
-        # This step can fail spuriously so don't burn everything down if that happens
-        continue-on-error: true
-        id: linkcheck
-        run: |
-          . venv/bin/activate
-          make -C firedrake-repo/docs linkcheck
-
-      - name: Build docs
-        run: |
-          . venv/bin/activate
-          cd firedrake-repo/docs
-          make html
-          make latex
-          make latexpdf
-
-      - name: Copy manual to HTML tree
-        run: |
-          cd firedrake-repo/docs
-          cp build/latex/Firedrake.pdf build/html/_static/manual.pdf
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          name: github-pages
-          path: /__w/firedrake/firedrake/firedrake-repo/docs/build/html
-          retention-days: 1
-
-      # -----
-
       - name: Run TSFC tests
         # Run even if earlier tests failed
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
@@ -354,11 +300,57 @@ jobs:
           name: firedrake-logs-${{ matrix.arch }}
           path: pytest_*.log
 
-      # We want to fail the workflow if the link check step fails but we still want
-      # the rest of the run to complete
-      - name: Assert linkcheck passes
-        if: steps.linkcheck.conclusion != 'success'
-        run: exit 1
+      - name: Build sdist (release only)
+        if: |
+          inputs.target_branch == 'release' &&
+          matrix.arch == 'default' &&
+          (success() || steps.install.conclusion == 'success')
+        run: |
+          . venv/bin/activate
+          pip install build
+          python -m build ./firedrake-repo --sdist
+
+      - name: Upload sdist (release only)
+        if: |
+          inputs.target_branch == 'release' &&
+          matrix.arch == 'default' &&
+          (success() || steps.install.conclusion == 'success')
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: firedrake-repo/dist/*
+
+      - name: Check bibtex
+        if: always()
+        run: |
+          . venv/bin/activate
+          make -C firedrake-repo/docs validate-bibtex
+
+      - name: Check documentation links
+        if: always()
+        run: |
+          . venv/bin/activate
+          make -C firedrake-repo/docs linkcheck
+
+      - name: Build documentation
+        if: success() || steps.install.conclusion == 'success'
+        id: build_docs
+        run: |
+          . venv/bin/activate
+          cd firedrake-repo/docs
+          make html
+          make latex
+          make latexpdf
+          # : Copy manual to HTML tree
+          cp build/latex/Firedrake.pdf build/html/_static/manual.pdf
+
+      - name: Upload documentation
+        uses: actions/upload-pages-artifact@v3
+        if: success() || steps.build_docs.conclusion == 'success'
+        with:
+          name: github-pages
+          path: firedrake-repo/docs/build/html
+          retention-days: 1
 
       - name: Post-run cleanup
         if: always()
