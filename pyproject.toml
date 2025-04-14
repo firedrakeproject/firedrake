@@ -101,7 +101,7 @@ netgen = [
 ]
 slepc = [
   # TODO RELEASE
-  # "slepc4py==3.22.2",
+  # "slepc4py==3.23.0",
 ]
 torch = [  # requires passing '--extra-index-url' to work
   "torch",

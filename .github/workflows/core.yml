@@ -321,19 +321,19 @@ jobs:
           path: firedrake-repo/dist/*
 
       - name: Check bibtex
-        if: always()
+        if: always() && matrix.arch == 'default'
         run: |
           . venv/bin/activate
           make -C firedrake-repo/docs validate-bibtex
 
       - name: Check documentation links
-        if: always()
+        if: always() && matrix.arch == 'default'
         run: |
           . venv/bin/activate
           make -C firedrake-repo/docs linkcheck
 
       - name: Build documentation
-        if: success() || steps.install.conclusion == 'success'
+        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
         id: build_docs
         run: |
           . venv/bin/activate
@@ -346,7 +346,7 @@ jobs:
 
       - name: Upload documentation
         uses: actions/upload-pages-artifact@v3
-        if: success() || steps.build_docs.conclusion == 'success'
+        if: (success() || steps.build_docs.conclusion == 'success') && matrix.arch == 'default'
         with:
           name: github-pages
           path: firedrake-repo/docs/build/html
