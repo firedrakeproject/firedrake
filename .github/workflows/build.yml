@@ -71,9 +71,13 @@ jobs:
       - name: Install system dependencies
         run: |
           apt-get update
-          apt-get -y install python3
+          apt-get -y install python3 python3-venv
           apt-get -y install \
-            $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages) python3-venv parallel
+            $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
+          : # Dependencies needed to run the test suite
+          apt-get -y install parallel
+          : # Dependencies needed to build the documentation
+          apt-get -y install inkscape texlive-full
 
       # Raise an error if any 'TODO RELEASE' comments remain
       - name: Check no 'TODO RELEASE' comments (release only)
@@ -158,6 +162,7 @@ jobs:
       - name: Build sdist (release only)
         if: inputs.target_branch == 'release'
         run: |
+          . venv/bin/activate
           pip install build
           python -m build ./firedrake-repo --sdist
 
@@ -178,6 +183,7 @@ jobs:
       - name: Check documentation links
         # This step can fail spuriously so don't burn everything down if that happens
         continue-on-error: true
+        id: linkcheck
         run: |
           . venv/bin/activate
           make -C firedrake-repo/docs linkcheck
@@ -343,6 +349,12 @@ jobs:
         with:
           name: firedrake-logs-${{ matrix.arch }}
           path: pytest_*.log
+
+      # We want to fail the workflow if the link check step fails but we still want
+      # the rest of the run to complete
+      - name: Assert linkcheck passes
+        if: steps.linkcheck.conclusion != 'success'
+        run: exit 1
 
       - name: Post-run cleanup
         if: always()
