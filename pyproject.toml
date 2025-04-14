@@ -1,7 +1,7 @@
 [project]
 name = "firedrake"
 # <year>.<month>.<patch>
-version = "2025.04.0"
+version = "2025.4.0"
 description = "An automated system for the portable solution of partial differential equations using the finite element method"
 readme = "README.rst"
 license = {file = "LICENSE"}
