@@ -1,4 +1,4 @@
-name: Build Firedrake
+# Main Firedrake CI workflow
 
 on:
   workflow_call:
@@ -11,6 +11,10 @@ on:
         description: Whether to run the test suite
         type: boolean
         default: true
+      test_macos:
+        description: Whether to test using macOS
+        type: boolean
+        default: false
       deploy_website:
         description: Whether to deploy the website
         type: boolean
@@ -32,8 +36,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Install and test Firedrake (Linux)
+  test_linux:
+    name: Build and test Firedrake (Linux)
     strategy:
       # We want to know all of the tests which fail, so don't kill real if
       # complex fails and vice-versa
@@ -360,6 +364,68 @@ jobs:
         if: always()
         run: find . -delete
 
+  test_macos:
+    name: Build and test Firedrake (macOS)
+    runs-on: [self-hosted, macOS]
+    if: inputs.test_macos
+    env:
+      FIREDRAKE_CI: 1
+      OMP_NUM_THREADS: 1
+      OPENBLAS_NUM_THREADS: 1
+    steps:
+      - name: Add homebrew to PATH
+        # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
+        run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+
+      - name: Pre-run cleanup
+        # Make sure the current directory is empty
+        run: find . -delete
+
+      - uses: actions/checkout@v4
+        with:
+          path: firedrake-repo
+
+      - name: Install system dependencies
+        run: |
+          brew install $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --show-system-packages)
+
+      - name: Install PETSc
+        run: |
+          git clone --depth 1 --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) https://gitlab.com/petsc/petsc.git
+          cd petsc
+          python3 ../firedrake-repo/scripts/firedrake-configure \
+            --arch default --show-petsc-configure-options | \
+            xargs -L1 ./configure --with-make-np=4
+          make
+          make check
+
+      - name: Install Firedrake
+        id: install
+        run: |
+          export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --show-env)
+          python3 -m venv venv
+          . venv/bin/activate
+          : # Force a rebuild of petsc4py as the cached one will not link to the fresh
+          : # install of PETSc. A similar trick may be needed for compiled dependencies
+          : # like h5py or mpi4py if changing HDF5/MPI libraries.
+          pip cache remove petsc4py
+          pip install --verbose --no-binary h5py './firedrake-repo[test]'
+          firedrake-clean
+          : # Extra test dependencies
+          pip install pytest-timeout
+          pip list
+
+      - name: Run smoke tests
+        run: |
+          . venv/bin/activate
+          firedrake-check
+        timeout-minutes: 10
+
+      - name: Post-run cleanup
+        if: always()
+        run: |
+          find . -delete
+
   lint:
     name: Lint codebase
     runs-on: ubuntu-latest
@@ -377,7 +443,7 @@ jobs:
 
   deploy:
     name: Deploy GitHub pages
-    needs: build
+    needs: test_linux
     if: inputs.deploy_website
     permissions:
       pages: write
@@ -393,7 +459,7 @@ jobs:
   upload_pypi:
     name: Upload to PyPI (optional)
     if: inputs.upload_pypi && inputs.target_branch == 'release'
-    needs: build
+    needs: test_linux
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -410,7 +476,7 @@ jobs:
   upload_testpypi:
     name: Upload to TestPyPI (optional)
     if: inputs.upload_testpypi && inputs.target_branch == 'release'
-    needs: build
+    needs: test_linux
     runs-on: ubuntu-latest
     environment:
       name: testpypi

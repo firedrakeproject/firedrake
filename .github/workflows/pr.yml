@@ -5,7 +5,9 @@ on:
 
 jobs:
   test:
-    uses: ./.github/workflows/build.yml
+    uses: ./.github/workflows/core.yml
     with:
       target_branch: ${{ github.base_ref }}
+      # Only run macOS tests if the PR is labelled 'macOS'
+      test_macos: ${{ contains(github.event.pull_request.labels.*.name, 'macOS') }}
     secrets: inherit
