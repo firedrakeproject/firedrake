@@ -410,13 +410,24 @@ jobs:
 
       - name: Install PETSc
         run: |
-          git clone --depth 1 --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) https://gitlab.com/petsc/petsc.git
+          if [ ${{ inputs.target_branch }} = 'release' ]; then
+            git clone --depth 1 \
+              --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
+              https://gitlab.com/petsc/petsc.git
+          else
+            git clone --depth 1 https://gitlab.com/petsc/petsc.git
+          fi
           cd petsc
           python3 ../firedrake-repo/scripts/firedrake-configure \
             --arch default --show-petsc-configure-options | \
             xargs -L1 ./configure --with-make-np=4
           make
           make check
+          {
+            echo "PETSC_DIR=/Users/github/actions-runner/_work/firedrake/firedrake/petsc"
+            echo "PETSC_ARCH=arch-firedrake-default"
+            echo "SLEPC_DIR=/Users/github/actions-runner/_work/firedrake/firedrake/petsc/arch-firedrake-default"
+          } >> "$GITHUB_ENV"
 
       - name: Install Firedrake
         id: install
@@ -424,14 +435,28 @@ jobs:
           export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch default --show-env)
           python3 -m venv venv
           . venv/bin/activate
+
           : # Force a rebuild of petsc4py as the cached one will not link to the fresh
           : # install of PETSc. A similar trick may be needed for compiled dependencies
           : # like h5py or mpi4py if changing HDF5/MPI libraries.
           pip cache remove petsc4py
-          pip install --verbose --no-binary h5py './firedrake-repo[test]'
+
+          if [ ${{ inputs.target_branch }} = 'release' ]; then
+            EXTRA_PIP_FLAGS=''
+          else
+            : # Install build dependencies
+            pip install -r ./firedrake-repo/requirements-dev.txt
+            pip install "$PETSC_DIR"/src/binding/petsc4py
+
+            : # We have to pass '--no-build-isolation' to use a custom petsc4py
+            EXTRA_PIP_FLAGS='--no-build-isolation'
+          fi
+
+          pip install --verbose $EXTRA_PIP_FLAGS \
+            --no-binary h5py \
+            './firedrake-repo[check]'
+
           firedrake-clean
-          : # Extra test dependencies
-          pip install pytest-timeout
           pip list
 
       - name: Run smoke tests
