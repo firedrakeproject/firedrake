@@ -138,7 +138,7 @@ We define the Test Function :math:`\phi` and the Trial Function
 To build the weak formulation of our equation we need to build two PETSc
 matrices in the form of a generalized eigenvalue problem,
 :math:`A\psi = \lambda M\psi`. This eigenproblem takes `restrict=True` to help
-users to avoid convergence failures by removing eigenvalues on the 
+users to avoid convergence failures by removing eigenvalues on the
 boundary, while preserving the original function space for the eigenmodes. ::
 
   eigenproblem = LinearEigenproblem(
