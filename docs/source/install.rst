@@ -286,36 +286,6 @@ To resolve the problem you should first remove any existing cached packages::
 
 before re-running the instruction to install Firedrake.
 
-.. _dev_install:
-
-Developer install
------------------
-
-By default Firedrake is installed just like any other Python package into
-your environment. If you want to be able to edit Firedrake itself then
-an *editable* installation is needed. To install Firedrake in editable
-mode you should follow the same
-:ref:`steps as for a non-editable install<install_firedrake>` but replace the
-final ``pip install`` command with::
-
-   $ git clone <firedrake url>
-   $ pip install --no-binary h5py --editable './firedrake[dev]'
-
-where ``<firedrake url>`` is ``https://github.com/firedrakeproject/firedrake.git``
-or ``git@github.com:firedrakeproject/firedrake.git`` as preferred.
-
-The same process applies for Firedrake's dependencies. For example, to install
-`FIAT <https://github.com/firedrakeproject/fiat.git>`_ in editable mode you
-should run::
-
-   $ git clone <fiat url>
-   $ pip install --editable ./fiat
-
-Note that editable versions of Firedrake's dependencies should be installed *after*
-Firedrake is installed. Otherwise installing Firedrake will overwrite
-whatever packages you just installed.
-
-
 .. _customising:
 
 Customising Firedrake
@@ -500,6 +470,74 @@ Google Colab
 Firedrake can also be used inside the brower using Jupyter notebooks and
 `Google Colab <https://colab.research.google.com/>`_. For more information
 please see :doc:`here</notebooks>`.
+
+.. _dev_install:
+
+Developer install
+=================
+
+.. only:: release
+
+   .. warning::
+      You are currently looking at the documentation for the current stable
+      release of Firedrake. For the most recent developer documentation you
+      should follow the instructions `here <https://firedrakeproject.org/firedrake/main/install>`__.
+
+In order to install a development version of Firedrake the following steps
+should be followed:
+
+#. Install system dependencies :ref:`as before<install_system_dependencies>`
+
+#. Clone and build the *default branch* of PETSc:
+
+   .. code-block:: text
+
+      $ git clone https://gitlab.com/petsc/petsc.git
+      $ cd petsc
+      $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure
+      $ make PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-default all
+      $ make check
+      $ cd ..
+
+#. Clone Firedrake::
+
+   $ git clone <firedrake url>
+
+   where ``<firedrake url>`` is ``https://github.com/firedrakeproject/firedrake.git``
+   or ``git@github.com:firedrakeproject/firedrake.git`` as preferred.
+
+#. Set the necessary environment variables::
+
+   $ export $(python3 firedrake-configure --show-env)
+
+#. Install petsc4py and Firedrake's other build dependencies:
+
+   .. code-block:: text
+
+      $ pip cache remove petsc4py
+      $ pip install $PETSC_DIR/$PETSC_ARCH/src/binding/petsc4py
+      $ pip install -r ./firedrake/requirements-dev.txt
+
+#. Install Firedrake in editable mode without build isolation::
+
+   $ pip install --no-build-isolation --no-binary h5py --editable './firedrake[check]'
+
+Editing subpackages
+-------------------
+
+Firedrake dependencies can be cloned and installed in editable mode in an
+identical way to Firedrake. For example, to install
+`FIAT <https://github.com/firedrakeproject/fiat.git>`_ in editable mode you
+should run::
+
+   $ git clone <fiat url>
+   $ pip install --editable ./fiat
+
+For most packages it should not be necessary to pass ``--no-build-isolation``.
+
+It is important to note that these packages **must be installed after Firedrake**.
+This is because otherwise installing Firedrake will overwrite the just-installed
+package.
 
 .. _discussion: https://github.com/firedrakeproject/firedrake/discussions
 .. _issue: https://github.com/firedrakeproject/firedrake/issues

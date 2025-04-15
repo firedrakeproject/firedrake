@@ -72,13 +72,6 @@ check = [
   "mpi-pytest",
   "pytest",
 ]
-dev = [  # build dependencies that are needed to run 'make'
-  "Cython",
-  "mpi-pytest",
-  "pybind11",
-  "pytest",
-  "setuptools",
-]
 docs = [
   "bibtexparser",
   "matplotlib",  # needed to resolve API

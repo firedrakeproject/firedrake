@@ -338,7 +338,7 @@ jobs:
         run: |
           . venv/bin/activate
           cd firedrake-repo/docs
-          make html
+          make SPHINXOPTS="-t ${{ inputs.target_branch }}" html
           make latex
           make latexpdf
           # : Copy manual to HTML tree
