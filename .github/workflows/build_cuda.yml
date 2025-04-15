@@ -116,7 +116,7 @@ jobs:
           . venv/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
-          firedrake-run-split-tests 1 1 "-n 12 $EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+          firedrake-run-split-tests 1 1 "-n 8 $EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 60
         
       - name: Post-run cleanup
