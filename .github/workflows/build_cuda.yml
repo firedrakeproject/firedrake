@@ -95,6 +95,7 @@ jobs:
           : # like h5py or mpi4py if changing HDF5/MPI libraries.
           pip cache remove petsc4py
           pip cache remove slepc4py
+          pip cache remove h5py
           # python -c "import petsc4py; print(petsc4py.get_config())"
           pip install --verbose --no-binary h5py './firedrake-repo[ci]'
           firedrake-clean
