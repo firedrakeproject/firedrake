@@ -59,6 +59,7 @@ jobs:
           apt-get install -y git
           apt-get install -y python3
           apt install -y python3.12-venv
+          apt-get install -y parallel
           apt-get -y install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
 
