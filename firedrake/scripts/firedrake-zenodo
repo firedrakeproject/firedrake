@@ -803,16 +803,20 @@ variable FIREDRAKE_GITHUB_TOKEN to a Github personal access token
 with public_repo scope.""")
     sys.exit(1)
 
-fd = gh.repository("firedrakeproject", "firedrake")
 
-tag = time.strftime("Firedrake_%Y%m%d", time.localtime())
-index = -1
+def generate_unique_release_tag():
+    tag = time.strftime("Firedrake_%Y%m%d", time.localtime())
+    index = -1
+    firedrake_repo = gh.repository("firedrakeproject", "firedrake")
+    for release in firedrake_repo.tags():
+        if release.name.startswith(tag):
+            newindex = int(release.name.split(".")[1])
+            index = max(index, newindex)
+    tag += "." + str(index + 1)
+    return tag
 
-for r in fd.tags():
-    if r.name.startswith(tag):
-        newindex = int(r.name.split(".")[1])
-        index = max(index, newindex)
-tag += "." + str(index + 1)
+
+tag = generate_unique_release_tag()
 
 # Verify commits. This ensures that an invalid sha will cause us to fail before we release any component.
 # This step also replaces short shas with long ones. This seems to be necessary for release creation.
@@ -834,54 +838,101 @@ for component in components:
         log.warning(f"Repository {component} already has tag {tag}. This should not have happened.")
         sys.exit(1)
 
-# Now create releases.
-message = """This release is specifically created to document the version of
-{component} used in a particular set of experiments using
-Firedrake. Please do not cite this as a general source for Firedrake
-or any of its dependencies. Instead, refer to
-https://www.firedrakeproject.org/citing.html"""
+
+def make_github_releases():
+    # NOTE: dont necessarily need to make everything anew
+
+    for component in components:
+        if "version" in shas[component]:
+            # component is versioned, a GitHub release should already exist
+            release_name = shas[component]["version"]
+            if not release_already_exists(component, release_name):
+                log.error("ARGH, do manually")
+                sys.exit(1)
+        else:
+            commit_id = shas[component]["commit_id"]
+            release_name = f"{component}_{commit_id[:8]}"
+            target_commitish = commit_id
+
+            message = """This release is specifically created to document the version of
+            {component} used in a particular set of experiments using
+            Firedrake. Please do not cite this as a general source for Firedrake
+            or any of its dependencies. Instead, refer to
+            https://www.firedrakeproject.org/citing.html"""
 
 
-for component in (set(shas) & set(components)):
-    log.info("Releasing %s" % component)
-    repo = gh.repository("firedrakeproject", component)
-    releases = repo.releases()
-    just_tag = False
-    date = datetime.datetime.utcnow().replace(microsecond=0, tzinfo=datetime.timezone.utc).isoformat()
-    tagger = {"name": "firedrake-zenodo",
-              "email": "firedrake@imperial.ac.uk",
-              "date": date}
+            log.info(f"Creating release {release_name} for {component}")
+            repo = gh.repository("firedrakeproject", component)
+            releases = repo.releases()
+            date = datetime.datetime.utcnow().replace(microsecond=0, tzinfo=datetime.timezone.utc).isoformat()
+            tagger = {"name": "firedrake-zenodo",
+                      "email": "firedrake@imperial.ac.uk",
+                      "date": date}
 
-    for release in releases:
-        if release.target_commitish == shas[component]:
-            just_tag = True
-            break
-    if just_tag:
-        repo.create_tag(tag,
-                        message=descriptions[component],
-                        sha=shas[component],
-                        obj_type="tree",
-                        tagger=tagger)
-    else:
-        repo.create_release(
-            tag_name=tag,
-            target_commitish=shas[component],
-            name=descriptions[component],
-            body=message.format(component=component),
-            draft=False,
-            prerelease=False)
+            if not release_already_exists(component, release_name):
+                repo.create_release(
+                    tag_name=release_name,
+                    target_commitish=shas[component],
+                    name=release_name,
+                    body=message.format(component=component),
+                    draft=False,
+                    prerelease=False)
 
-meta_file = "firedrake-meta-release.json"
-with open(meta_file, "w") as f:
-    data = {"tag": tag,
-            "title": shas["title"],
-            "components": sorted(set(shas) & set(components)),
-            "info_file": shas.get("metarelease_info_file", None),
-            "new_version_of": shas.get("new_version_of", None),
-            "additional_dois": shas.get("additional_dois", None)}
-    f.write(json.dumps(data))
+    meta_file = "firedrake-meta-release.json"
+    with open(meta_file, "w") as f:
+        data = {"tag": tag,
+                "title": shas["title"],
+                "components": sorted(set(shas) & set(components)),
+                "info_file": shas.get("metarelease_info_file", None),
+                "new_version_of": shas.get("new_version_of", None),
+                "additional_dois": shas.get("additional_dois", None)}
+        f.write(json.dumps(data))
 
-log.info("Releases complete. The release tag is %s" % tag)
-log.info("Now, you need to create the meta-release")
-log.info("Run 'firedrake-zenodo --create-meta-release %s' to do this" % os.path.abspath(meta_file))
-log.info("It is best to wait a short while to ensure that Zenodo is up to date")
+    log.info("Releases complete. The release tag is %s" % tag)
+    log.info("Now, you need to create the meta-release")
+    log.info("Run 'firedrake-zenodo --create-meta-release %s' to do this" % os.path.abspath(meta_file))
+    log.info("It is best to wait a short while to ensure that Zenodo is up to date")
+
+
+def release_already_exists(component, release_name):
+    for release in gh.repository("firedrakeproject", component).releases():
+        if release.name == release_name:
+            return True
+    return False
+
+
+def maybe_make_github_release(???):
+            target_commitish = commit_id
+
+            message = """This release is specifically created to document the version of
+            {component} used in a particular set of experiments using
+            Firedrake. Please do not cite this as a general source for Firedrake
+            or any of its dependencies. Instead, refer to
+            https://www.firedrakeproject.org/citing.html"""
+
+
+            log.info(f"Creating release {release_name} for {component}")
+            repo = gh.repository("firedrakeproject", component)
+            releases = repo.releases()
+            date = datetime.datetime.utcnow().replace(microsecond=0, tzinfo=datetime.timezone.utc).isoformat()
+            tagger = {"name": "firedrake-zenodo",
+                      "email": "firedrake@imperial.ac.uk",
+                      "date": date}
+
+            release_already_exists = False
+            for release in releases:
+                if release.name == release_name:
+                    release_already_exists = True
+                    break
+
+            if not release_already_exists:
+                repo.create_release(
+                    tag_name=release_name,
+                    target_commitish=shas[component],
+                    name=release_name,
+                    body=message.format(component=component),
+                    draft=False,
+                    prerelease=False)
+
+
+make_github_releases()
