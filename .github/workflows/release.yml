@@ -10,6 +10,7 @@ jobs:
     with:
       target_branch: release
       run_tests: false
+      upload_pypi: true
     secrets: inherit
 
   docker:

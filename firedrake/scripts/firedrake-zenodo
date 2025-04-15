@@ -14,6 +14,7 @@ import time
 import requests
 import base64
 import datetime
+from importlib.metadata import Distribution
 
 
 # Change this to https://sandbox.zenodo.org/api for testing
@@ -24,21 +25,16 @@ descriptions = OrderedDict([
     ("fiat", "The Finite Element Automated Tabulator"),
     ("petsc", "Portable, Extensible Toolkit for Scientific Computation"),
     ("loopy", "Transformation-Based Generation of High-Performance CPU/GPU Code"),
-    ("slepc", "Scalable Library for Eigenvalue Problem Computations"),
 ])
 
-projects = dict([
-    ("firedrake", "firedrakeproject"),
-    ("ufl", "firedrakeproject"),
-    ("fiat", "firedrakeproject"),
-    ("petsc", "firedrakeproject"),
-    ("loopy", "firedrakeproject"),
-    ("slepc", "firedrakeproject"),
-])
+pypi_package_names = {
+    "firedrake": "firedrake",
+    "ufl": "fenics-ufl",
+    "fiat": "fenics-fiat",
+    "loopy": "loopy",
+}
 
 components = list(descriptions.keys())
-
-optional_components = ("slepc",)
 
 parser = ArgumentParser(description="""Create Zenodo DOIs for specific versions of Firedrake components.
 
@@ -153,6 +149,17 @@ log = logging.getLogger()
 cwd = os.getcwd()
 
 
+def package_is_editable(package_name):
+    # See https://stackoverflow.com/questions/43348746/how-to-detect-if-module-is-installed-in-editable-mode#75078002
+    direct_url = Distribution.from_name(package_name).read_text("direct_url.json")
+    breakpoint()
+    return json.loads(direct_url).get("dir_info", {}).get("editable", False)
+
+
+# debug
+package_is_editable("firedrake")
+
+
 def check_call(arguments):
     if args.log:
         try:
@@ -220,9 +227,6 @@ def collect_repo_shas():
                             f"'{component}' so it will not be included in the "
                             "release. This may be because the package is not "
                             "installed in 'editable' mode.")
-        elif component in optional_components:
-            log.warning(f"Failed to find optional component '{component}', "
-                        "continuing without it")
         else:
             log.error(f"Mandatory component '{component}' could not be found.")
             sys.exit(1)
@@ -304,13 +308,11 @@ variable FIREDRAKE_GITHUB_TOKEN to a github personal access token.""")
         sys.exit(1)
     result = []
     for component in components:
-        repo = gh.repository(projects[component], component)
+        repo = gh.repository("firedrakeproject", component)
         tags = list(repo.tags())
         try:
             found, = [t for t in tags if t.name == tag]
         except ValueError:
-            if component in optional_components:
-                continue
             if args.skip_missing:
                 log.warning("Tag '{tag}' does not exist in repository '{repo}'. Continuing".format(tag=tag, repo=repo))
             else:
@@ -835,7 +837,7 @@ tag += "." + str(index + 1)
 # This step also replaces short shas with long ones. This seems to be necessary for release creation.
 
 for component in components:
-    repo = gh.repository(projects[component], component)
+    repo = gh.repository("firedrakeproject", component)
 
     try:
         commit = repo.commit(shas[component])
@@ -861,7 +863,7 @@ https://www.firedrakeproject.org/citing.html"""
 
 for component in (set(shas) & set(components)):
     log.info("Releasing %s" % component)
-    repo = gh.repository(projects[component], component)
+    repo = gh.repository("firedrakeproject", component)
     releases = repo.releases()
     just_tag = False
     date = datetime.datetime.utcnow().replace(microsecond=0, tzinfo=datetime.timezone.utc).isoformat()

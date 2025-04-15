@@ -28,6 +28,33 @@ on:
         type: boolean
         default: false
 
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: The target branch (usually 'master' or 'release')
+        type: string
+        required: true
+      run_tests:
+        description: Whether to run the test suite
+        type: boolean
+        default: true
+      test_macos:
+        description: Whether to test using macOS
+        type: boolean
+        default: false
+      deploy_website:
+        description: Whether to deploy the website
+        type: boolean
+        default: false
+      upload_pypi:
+        description: Whether to upload an sdist to PyPI
+        type: boolean
+        default: false
+      upload_testpypi:
+        description: Whether to upload an sdist to TestPyPI
+        type: boolean
+        default: false
+
 concurrency:
   # Cancel running jobs if new commits are pushed
   group: >
