@@ -369,7 +369,7 @@ def prepare_external_package_configure_options(
             # Package is installed but not findable, have to provide paths
             # to headers and libraries
             (include_dir, libs) = package_spec
-            if include_dir != None:
+            if include_dir is not None:
                 configure_options.append(f"--with-{external_package}-include={include_dir}")
             if len(libs) >= 1:
                 configure_options.append(f"--with-{external_package}-lib={','.join(libs)}")
