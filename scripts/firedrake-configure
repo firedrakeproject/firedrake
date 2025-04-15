@@ -188,11 +188,6 @@ PETSC_EXTRAS_LINUX_APT_PACKAGES = (
     "libfftw3-mpi-dev",
     "libhwloc-dev",
     "libhdf5-mpi-dev",
-)
-
-COMMON_LINUX_APT_PACKAGES = BASE_LINUX_APT_PACKAGES + PETSC_EXTRAS_LINUX_APT_PACKAGES
-
-LINUX_X86_64_APT_PACKAGES = (
     "libmumps-ptscotch-dev",
     "libmetis-dev",
     "libnetcdf-dev",
@@ -203,10 +198,8 @@ LINUX_X86_64_APT_PACKAGES = (
     "libsuperlu-dev",
     "libsuperlu-dist-dev",
 )
-LINUX_AARCH64_APT_PACKAGES = LINUX_X86_64_APT_PACKAGES
 
-COMMON_LINUX_X86_64_APT_PACKAGES = COMMON_LINUX_APT_PACKAGES + LINUX_X86_64_APT_PACKAGES
-COMMON_LINUX_AARCH64_APT_PACKAGES = COMMON_LINUX_APT_PACKAGES + LINUX_AARCH64_APT_PACKAGES
+COMMON_LINUX_APT_PACKAGES = BASE_LINUX_APT_PACKAGES + PETSC_EXTRAS_LINUX_APT_PACKAGES
 
 BASE_MACOS_HOMEBREW_PACKAGES = (
     "autoconf",
@@ -230,10 +223,10 @@ COMMON_MACOS_HOMEBREW_PACKAGES = (
 )
 
 SYSTEM_PACKAGES = {
-    (LINUX_APT_X86_64, ARCH_DEFAULT): COMMON_LINUX_X86_64_APT_PACKAGES,
-    (LINUX_APT_X86_64, ARCH_COMPLEX): COMMON_LINUX_X86_64_APT_PACKAGES,
-    (LINUX_APT_AARCH64, ARCH_DEFAULT): COMMON_LINUX_AARCH64_APT_PACKAGES,
-    (LINUX_APT_AARCH64, ARCH_COMPLEX): COMMON_LINUX_AARCH64_APT_PACKAGES,
+    (LINUX_APT_X86_64, ARCH_DEFAULT): COMMON_LINUX_APT_PACKAGES,
+    (LINUX_APT_X86_64, ARCH_COMPLEX): COMMON_LINUX_APT_PACKAGES,
+    (LINUX_APT_AARCH64, ARCH_DEFAULT): COMMON_LINUX_APT_PACKAGES,
+    (LINUX_APT_AARCH64, ARCH_COMPLEX): COMMON_LINUX_APT_PACKAGES,
     (MACOS_HOMEBREW_ARM64, ARCH_DEFAULT): COMMON_MACOS_HOMEBREW_PACKAGES,
     (MACOS_HOMEBREW_ARM64, ARCH_COMPLEX): COMMON_MACOS_HOMEBREW_PACKAGES,
 }
@@ -312,8 +305,8 @@ PETSC_EXTERNAL_PACKAGE_SPECS = {
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "scalapack": {
-        LINUX_APT_X86_64: ("", ("-lscalapack-openmpi",)),
-        LINUX_APT_AARCH64: ("", ("-lscalapack-openmpi",)),
+        LINUX_APT_X86_64: (None, ("-lscalapack-openmpi",)),
+        LINUX_APT_AARCH64: (None, ("-lscalapack-openmpi",)),
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "suitesparse": {
@@ -376,7 +369,7 @@ def prepare_external_package_configure_options(
             # Package is installed but not findable, have to provide paths
             # to headers and libraries
             (include_dir, libs) = package_spec
-            if include_dir != "":
+            if include_dir != None:
                 configure_options.append(f"--with-{external_package}-include={include_dir}")
             if len(libs) >= 1:
                 configure_options.append(f"--with-{external_package}-lib={','.join(libs)}")
