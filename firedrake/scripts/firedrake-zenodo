@@ -1,4 +1,8 @@
 #! /usr/bin/env python3
+import abc
+import contextlib
+import dataclasses
+import enum
 import hashlib
 import re
 import importlib
@@ -27,11 +31,12 @@ descriptions = OrderedDict([
     ("loopy", "Transformation-Based Generation of High-Performance CPU/GPU Code"),
 ])
 
-pypi_package_names = {
+PYPI_PACKAGE_NAMES = {
     "firedrake": "firedrake",
     "ufl": "fenics-ufl",
     "fiat": "fenics-fiat",
     "loopy": "loopy",
+    "petsc": "petsc4py",
 }
 
 components = list(descriptions.keys())
@@ -149,15 +154,46 @@ log = logging.getLogger()
 cwd = os.getcwd()
 
 
-def package_is_editable(package_name):
-    # See https://stackoverflow.com/questions/43348746/how-to-detect-if-module-is-installed-in-editable-mode#75078002
-    direct_url = Distribution.from_name(package_name).read_text("direct_url.json")
-    breakpoint()
-    return json.loads(direct_url).get("dir_info", {}).get("editable", False)
+class ComponentVersion(abc.ABC):
+    pass
 
 
-# debug
-package_is_editable("firedrake")
+@dataclasses.dataclass(frozen=True)
+class ReleaseComponentVersion(ComponentVersion):
+    version: str
+
+
+@dataclasses.dataclass(frozen=True)
+class VCSComponentVersion(ComponentVersion):
+    commit_id: str
+
+
+def get_component_version(component: str) -> ComponentVersion:
+    # debugging
+    if component == "firedrake":
+        print("setting firedrake to nonsense")
+        return VCSComponentVersion("WHERE AM I?")
+
+    pypi_package_name = PYPI_PACKAGE_NAMES[component]
+    # This incantation returns a JSON string containing information about where the
+    # component is installed and whether it is editable or not
+    # (see https://stackoverflow.com/questions/43348746/how-to-detect-if-module-is-installed-in-editable-mode#75078002).
+    dist = Distribution.from_name(pypi_package_name)
+    direct_url_json = dist.read_text("direct_url.json")
+
+    if direct_url_json:
+        direct_url = json.loads(direct_url_json)
+        is_editable = direct_url.get("dir_info", {}).get("editable", False)
+        if is_editable:
+            # sniff the commit info from the repository
+            repo = direct_url["url"].removeprefix("file://")
+            commit_id = get_git_commit_info(repo)
+        else:
+            commit_id = direct_url["vcs_info"]["commit_id"]
+        return VCSComponentVersion(commit_id)
+    else:
+        # 'direct_url_json' is 'None' if the package is installed via PyPI
+        return ReleaseComponentVersion(dist.version)
 
 
 def check_call(arguments):
@@ -179,66 +215,12 @@ def check_output(args):
         raise
 
 
-class directory(object):
-    """Context manager that executes body in a given directory"""
-    def __init__(self, d):
-        self.d = os.path.abspath(d)
-
-    def __enter__(self):
-        self.olddir = os.path.abspath(os.getcwd())
-        os.chdir(self.d)
-
-    def __exit__(self, *args):
-        os.chdir(self.olddir)
-
-
-def collect_repo_shas():
-    shas = {}
-    for component in components:
-        log.info(f"Retrieving git information for {component}")
-
-        repo = None
-        # handle non-Python components separately
-        if component in {"petsc", "slepc"}:
-            repo_root_var = "PETSC_DIR"if component == "petsc" else "SLEPC_DIR"
-            if repo_root_var in os.environ:
-                repo = os.environ[repo_root_var]
-            elif "VIRTUAL_ENV" in os.environ:
-                venv_path = os.path.join(os.getenv("VIRTUAL_ENV"), "src", component)
-                if os.path.exists(venv_path):
-                    repo = venv_path
-        else:
-            # handle the fact that the fiat Python package is called FIAT
-            if component == "fiat":
-                python_package_name = "FIAT"
-            else:
-                python_package_name = component
-            try:
-                package = importlib.import_module(python_package_name)
-                repo = pathlib.Path(package.__file__).parent.parent
-            except ImportError:
-                pass
-
-        if repo:
-            try:
-                shas[component] = get_git_commit_info(component, repo)
-            except RepositoryNotFoundException:
-                log.warning("Cannot retrieve git information for component "
-                            f"'{component}' so it will not be included in the "
-                            "release. This may be because the package is not "
-                            "installed in 'editable' mode.")
-        else:
-            log.error(f"Mandatory component '{component}' could not be found.")
-            sys.exit(1)
-    return shas
-
-
 class RepositoryNotFoundException(RuntimeError):
     pass
 
 
-def get_git_commit_info(component, repo):
-    with directory(repo):
+def get_git_commit_info(repo):
+    with contextlib.chdir(repo):
         try:
             check_call(["git", "status"])
         except subprocess.CalledProcessError:
@@ -247,7 +229,7 @@ def get_git_commit_info(component, repo):
         try:
             check_call(["git", "diff-index", "--quiet", "HEAD"])
         except subprocess.CalledProcessError:
-            log.error(f"Component {component} has uncommitted changes, cannot create release")
+            log.error(f"Repository {repo} contains uncommitted changes, cannot create release")
             sys.exit(1)
 
         return check_output(["git", "rev-parse", "HEAD"]).strip()
@@ -757,8 +739,7 @@ if args.release or not args.input_file:
         log.error("You must provide a title using the --title option")
         sys.exit(1)
 
-    # Collect hashes from the current repo.
-    shas = collect_repo_shas()
+    shas = {c: dataclasses.asdict(get_component_version(c)) for c in components}
     if args.info_file:
         shas["metarelease_info_file"] = encode_info_file(args.info_file[0])
     else:
@@ -785,7 +766,7 @@ if args.additional_dois:
 for component in components:
     new_sha = getattr(args, component)
     if new_sha:
-        shas[component] = new_sha[0]
+        shas[component] = {"commit_id": new_sha[0]}
 
 if not (args.release or args.input_file):
     # Dump json and exit.
