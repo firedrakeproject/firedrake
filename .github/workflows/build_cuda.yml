@@ -87,7 +87,7 @@ jobs:
           export MPI_HOME=$PETSC_DIR/$PETSC_ARCH
           export PATH=$PETSC_DIR/$PETSC_ARCH/bin:$PATH
           export SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH
-          export HDF5_DIR=$PETSC_DIR/$HDF5_DIR
+          export HDF5_DIR=$PETSC_DIR/$PETSC_ARCH
           export HDF5_MPI=ON
           python3 -m venv venv
           . venv/bin/activate
