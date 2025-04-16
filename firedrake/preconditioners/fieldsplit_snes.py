@@ -1,6 +1,6 @@
 from firedrake.preconditioners.base import SNESBase
 from firedrake.petsc import PETSc
-from firedrake.dmhooks import get_appctx
+from firedrake.dmhooks import get_appctx, get_function_space
 from firedrake.function import Function
 
 __all__ = ("FieldsplitSNES",)
@@ -15,6 +15,7 @@ class FieldsplitSNES(SNESBase):
     def initialize(self, snes):
         from firedrake.variational_solver import NonlinearVariationalSolver  # ImportError if we do this at file level
         ctx = get_appctx(snes.dm)
+        W = get_function_space(snes.dm)
         self.sol = ctx._problem.u_restrict
 
         # buffer to save solution to outer problem during solve
@@ -36,7 +37,7 @@ class FieldsplitSNES(SNESBase):
                 'FieldsplitSNES option snes_fieldsplit_type must be'
                 ' "additive" or "multiplicative"')
 
-        split_ctxs = ctx.split([(i,) for i in range(len(self.sol))])
+        split_ctxs = ctx.split([(i,) for i in range(len(W))])
 
         self.solvers = tuple(
             NonlinearVariationalSolver(
