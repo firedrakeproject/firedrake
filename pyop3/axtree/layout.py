@@ -16,7 +16,6 @@ from petsc4py import PETSc
 from pyop3 import tree
 from pyrsistent import PMap, freeze, pmap
 
-from pyop3.array.dat import Dat, _ExpressionDat
 from pyop3.axtree.tree import (
     Axis,
     AxisComponent,
@@ -80,6 +79,8 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
     Any axes that do not require tabulation will also be set at this point.
 
     """
+    from pyop3 import Dat
+
     if len(axis.components) > 1 and not all(_axis_component_has_fixed_size(c) for c in axis.components):
         # Fixing this would require deciding what to do with the start variable, which
         # might need tabulating itself.
@@ -202,6 +203,7 @@ def _collect_regions(axes: AxisTree, *, axis: Axis | None = None):
 
 
 def _tabulate_offset_dat(offset_dat, axes, region, start):
+    from pyop3 import Dat
 
     # NOTE: We don't handle regions at all. What should be done?
 
@@ -537,8 +539,8 @@ def _axis_component_region_has_fixed_size(region: AxisComponentRegion) -> bool:
 
 
 def _region_size_needs_outer_index(region, free_axes):
-    from pyop3.array import Dat
-    from pyop3.array.dat import _ExpressionDat
+    from pyop3.array import Dat, LinearBufferExpression
+    from pyop3.expr_visitors import collect_axis_vars
 
     free_axis_labels = frozenset(ax.label for ax in free_axes)
 
@@ -558,50 +560,11 @@ def _region_size_needs_outer_index(region, free_axes):
                 if axlabel not in free_axis_labels:
                     return True
 
-    elif isinstance(size, _ExpressionDat):
+    elif isinstance(size, LinearBufferExpression):
         if not (set(v.axis_label for v in collect_axis_vars(size.layout)) <= free_axis_labels):
             return True
 
     return False
-
-
-@functools.singledispatch
-def collect_axis_vars(obj: Any, /) -> OrderedSet:
-    from pyop3.itree.tree import LoopIndexVar
-
-    if isinstance(obj, LoopIndexVar):
-        assert False
-    elif isinstance(obj, Operator):
-        return collect_axis_vars(obj.a) | collect_axis_vars(obj.b)
-
-    raise TypeError(f"No handler defined for {type(obj).__name__}")
-
-
-@collect_axis_vars.register(numbers.Number)
-def _(var):
-    return OrderedSet()
-
-@collect_axis_vars.register(AxisVar)
-def _(var):
-    return OrderedSet([var])
-
-
-@collect_axis_vars.register(Dat)
-def _(dat: Dat, /) -> OrderedSet:
-    loop_indices = OrderedSet()
-
-    if dat.parent:
-        loop_indices |= collect_axis_vars(dat.parent)
-
-    for leaf in dat.axes.leaves:
-        path = dat.axes.path(leaf)
-        loop_indices |= collect_axis_vars(dat.axes.subst_layouts()[path])
-    return loop_indices
-
-
-@collect_axis_vars.register(_ExpressionDat)
-def _(dat: _ExpressionDat, /) -> OrderedSet:
-    return collect_axis_vars(dat.layout)
 
 
 def step_size(

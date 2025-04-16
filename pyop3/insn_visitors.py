@@ -12,11 +12,12 @@ from typing import Any, Union
 
 import numpy as np
 from petsc4py import PETSc
+from pyop3.array.dat import BufferExpression
 from pyop3.sf import local_sf
 from pyrsistent import pmap, PMap
 from immutabledict import ImmutableOrderedDict
 
-from pyop3.array import Global, Dat, Array, Mat, Sparsity, _ConcretizedDat, _ConcretizedMat, _ExpressionDat, AbstractMat
+from pyop3.array import Global, Dat, Array, Mat, Sparsity, NonlinearBufferExpression, LinearBufferExpression, _ConcretizedMat, AbstractMat
 from pyop3.axtree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
 from pyop3.axtree.tree import Operator, AxisVar, IndexedAxisTree, prune_zero_sized_branches
 from pyop3.buffer import AbstractBuffer, Buffer, NullBuffer, PackedBuffer
@@ -426,6 +427,7 @@ def _(op: Operator, /, access_type):
 @_expand_reshapes.register(numbers.Number)
 @_expand_reshapes.register(AxisVar)
 @_expand_reshapes.register(LoopIndexVar)
+@_expand_reshapes.register(BufferExpression)
 def _(var, /, access_type):
     return (var, ())
 
@@ -743,7 +745,7 @@ def _(op, /) -> frozenset:
     return frozenset()
 
 
-@_collect_composite_dats.register(_ExpressionDat)
+@_collect_composite_dats.register(LinearBufferExpression)
 def _(dat, /) -> frozenset:
     return _collect_composite_dats(dat.layout)
 
@@ -754,7 +756,7 @@ def _(dat, /) -> frozenset:
 
 
 # NOTE: Think this lives in expr_visitors or something
-def materialize_composite_dat(dat: CompositeDat) -> _ExpressionDat:
+def materialize_composite_dat(dat: CompositeDat) -> LinearBufferExpression:
     axes = extract_axes(dat, dat.visited_axes, dat.loop_axes, {})
 
     if axes.size == 0:
@@ -777,7 +779,7 @@ def materialize_composite_dat(dat: CompositeDat) -> _ExpressionDat:
     layout = just_one(result.axes.leaf_subst_layouts.values())
     newlayout = replace_terminals(layout, inv_map)
 
-    return _ExpressionDat(result, newlayout)
+    return LinearBufferExpression(result.buffer, newlayout)
 
 
 @functools.singledispatch

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import collections
 import functools
 import itertools
@@ -6,9 +8,10 @@ from collections.abc import Mapping
 from typing import Any, Optional
 
 from immutabledict import ImmutableOrderedDict
+from pyop3.array.dat import BufferExpression
 from pyrsistent import pmap, PMap
 
-from pyop3.array import Array, Dat, Mat, _ExpressionDat, _ConcretizedDat, _ConcretizedMat, AbstractMat
+from pyop3.array import Array, Dat, Mat, LinearBufferExpression, _ConcretizedMat, AbstractMat, NonlinearBufferExpression
 from pyop3.axtree.tree import AxisVar, Expression, Operator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, merge_trees2, ExpressionT, Terminal, AxisComponent
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
@@ -59,10 +62,10 @@ def _(dat: Dat, indices):
     return dat.buffer.data_ro_with_halos[offset]
 
 
-@evaluate.register(_ExpressionDat)
-def _(dat: _ExpressionDat, indices):
-    offset = evaluate(dat.layout, indices)
-    return dat.buffer.data_ro_with_halos[offset]
+@evaluate.register(LinearBufferExpression)
+def _(expr: LinearBufferExpression, indices):
+    offset = evaluate(expr.layout, indices)
+    return expr.buffer.data_ro_with_halos[offset]
 
 
 @evaluate.register
@@ -123,9 +126,9 @@ def _(dat: Dat, /) -> OrderedSet:
     return loop_indices
 
 
-@collect_loops.register(_ExpressionDat)
-def _(dat: _ExpressionDat, /) -> OrderedSet:
-    return collect_loops(dat.layout)
+@collect_loops.register(LinearBufferExpression)
+def _(expr: LinearBufferExpression, /) -> OrderedSet:
+    return collect_loops(expr.layout)
 
 
 @collect_loops.register(AbstractMat)
@@ -147,8 +150,9 @@ def restrict_to_context(obj: Any, /, loop_context):
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@restrict_to_context.register(AxisVar)
 @restrict_to_context.register(numbers.Number)
+@restrict_to_context.register(AxisVar)
+@restrict_to_context.register(BufferExpression)
 def _(var: Any, /, loop_context) -> Any:
     return var
 
@@ -228,9 +232,9 @@ def _(array: Array, /, visited_axes, loop_axes, cache):
     return array.axes
 
 
-@extract_axes.register(_ExpressionDat)
-def _(dat, /, visited_axes, loop_axes, cache):
-    return extract_axes(dat.layout, visited_axes, loop_axes, cache)
+@extract_axes.register(LinearBufferExpression)
+def _(expr, /, visited_axes, loop_axes, cache):
+    return extract_axes(expr.layout, visited_axes, loop_axes, cache)
 
 
 @extract_axes.register(CompositeDat)
@@ -240,37 +244,37 @@ def _(dat, /, visited_axes, loop_axes, cache):
     return extract_axes(dat.expr, visited_axes, loop_axes, cache)
 
 
-@functools.singledispatch
-def relabel(obj: Any, /, suffix: str):
-    raise TypeError(f"No handler defined for {type(obj).__name__}")
-
-
-@relabel.register(numbers.Number)
-@relabel.register(LoopIndexVar)
-def _(var: Any, /, suffix: str) -> Any:
-    return var
-
-
-@relabel.register(AxisVar)
-def _(var: AxisVar, /, suffix: str) -> AxisVar:
-    return AxisVar(var.axis_label+suffix)
-
-
-@relabel.register(Operator)
-def _(op: Operator, /, suffix: str) -> AxisVar:
-    return type(op)(relabel(op.a, suffix), relabel(op.b, suffix))
-
-
-@relabel.register(Dat)
-def _(dat: Dat, /, suffix: str) -> Dat:
-    new_axes = _relabel_axes(dat.axes, suffix)
-    # return array.with_axes(new_axes)
-    return dat.reconstruct(axes=new_axes)
-
-
-@relabel.register(_ExpressionDat)
-def _(dat: _ExpressionDat, /, suffix: str) -> Dat:
-    return _ExpressionDat(relabel(dat.dat, suffix), relabel(dat.layout, suffix))
+# @functools.singledispatch
+# def relabel(obj: Any, /, suffix: str):
+#     raise TypeError(f"No handler defined for {type(obj).__name__}")
+#
+#
+# @relabel.register(numbers.Number)
+# @relabel.register(LoopIndexVar)
+# def _(var: Any, /, suffix: str) -> Any:
+#     return var
+#
+#
+# @relabel.register(AxisVar)
+# def _(var: AxisVar, /, suffix: str) -> AxisVar:
+#     return AxisVar(var.axis_label+suffix)
+#
+#
+# @relabel.register(Operator)
+# def _(op: Operator, /, suffix: str) -> AxisVar:
+#     return type(op)(relabel(op.a, suffix), relabel(op.b, suffix))
+#
+#
+# @relabel.register(Dat)
+# def _(dat: Dat, /, suffix: str) -> Dat:
+#     new_axes = _relabel_axes(dat.axes, suffix)
+#     # return array.with_axes(new_axes)
+#     return dat.reconstruct(axes=new_axes)
+#
+#
+# @relabel.register(LinearBufferExpression)
+# def _(expr: LinearBufferExpression, /, suffix: str) -> Dat:
+#     return LinearBufferExpression(relabel(dat.dat, suffix), relabel(dat.layout, suffix))
 
 
 @functools.singledispatch
@@ -343,10 +347,10 @@ def _(dat: Dat, /, replace_map):
     return replace_terminals(dat._as_expression_dat(), replace_map)
 
 
-@replace_terminals.register(_ExpressionDat)
-def _(dat: _ExpressionDat, /, replace_map) -> _ExpressionDat:
-    replaced_layout = replace_terminals(dat.layout, replace_map)
-    return dat.reconstruct(layout=replaced_layout)
+@replace_terminals.register(LinearBufferExpression)
+def _(expr: LinearBufferExpression, /, replace_map) -> LinearBufferExpression:
+    new_layout = replace_terminals(expr.layout, replace_map)
+    return LinearBufferExpression(expr.buffer, new_layout)
 
 
 @replace_terminals.register(Operator)
@@ -376,14 +380,14 @@ def _(dat: Dat, /, replace_map):
     return replace(dat._as_expression_dat(), replace_map)
 
 
-@replace.register(_ExpressionDat)
-def _(dat: _ExpressionDat, /, replace_map):
+@replace.register(LinearBufferExpression)
+def _(expr: LinearBufferExpression, /, replace_map):
     # TODO: Can have a flag that determines the replacement order (pre/post)
-    if dat in replace_map:
-        return replace_map[dat]
+    if expr in replace_map:
+        return replace_map[expr]
     else:
-        replaced_layout = replace(dat.layout, replace_map)
-        return dat.reconstruct(layout=replaced_layout)
+        new_layout = replace(expr.layout, replace_map)
+        return type(expr)(expr.buffer, new_layout)
 
 
 @replace.register(CompositeDat)
@@ -409,7 +413,7 @@ def concretize_arrays(obj: Any, /, *args, **kwargs) -> Expression:
 
 
 @concretize_arrays.register(Dat)
-def _(dat: Dat, /, loop_axes) -> _ConcretizedDat:
+def _(dat: Dat, /, loop_axes) -> NonlinearBufferExpression:
     selected_layouts = dat.default_candidate_layouts(loop_axes)
     # selected_layouts = {}
     # for leaf_path in dat.axes.leaf_paths:
@@ -417,7 +421,7 @@ def _(dat: Dat, /, loop_axes) -> _ConcretizedDat:
     #     selected_layout, _ = min(possible_layouts, key=lambda item: item[1])
     #     selected_layouts[leaf_path] = selected_layout
 
-    return _ConcretizedDat(dat, selected_layouts)
+    return NonlinearBufferExpression(dat.buffer, selected_layouts)
 
 
 @concretize_arrays.register(AbstractMat)
@@ -453,8 +457,7 @@ def _(mat: Mat, /, loop_axes) -> _ConcretizedDat:
 @concretize_arrays.register(numbers.Number)
 @concretize_arrays.register(AxisVar)
 @concretize_arrays.register(LoopIndexVar)
-@concretize_arrays.register(_ConcretizedDat)
-@concretize_arrays.register(_ExpressionDat)
+@concretize_arrays.register(BufferExpression)
 @concretize_arrays.register(_ConcretizedMat)
 def _(var: Any, /, loop_axes) -> Any:
     return var
@@ -514,23 +517,23 @@ def _(op: Operator, /, visited_axes, loop_axes) -> tuple:
     return tuple(candidates)
 
 
-@collect_candidate_indirections.register(_ExpressionDat)
-def _(dat: _ExpressionDat, /, visited_axes, loop_axes) -> tuple:
+@collect_candidate_indirections.register(LinearBufferExpression)
+def _(expr: LinearBufferExpression, /, visited_axes, loop_axes) -> tuple:
     candidates = []
-    for layout_expr, layout_cost in collect_candidate_indirections(dat.layout, visited_axes, loop_axes):
-        candidate_expr = _ExpressionDat(dat.dat, layout_expr)
+    for layout_expr, layout_cost in collect_candidate_indirections(expr.layout, visited_axes, loop_axes):
+        candidate_expr = LinearBufferExpression(expr.buffer, layout_expr)
         # The cost of an expression dat (i.e. the memory volume) is given by...
         # Remember that the axes here described the outer loops that exist and that
         # index expressions that do not access data (e.g. 2i+j) have a cost of zero.
         # dat[2i+j] would have a cost equal to ni*nj as those would be the outer loops
-        dat_cost = extract_axes(dat.layout, visited_axes, loop_axes, cache={}).size
+        dat_cost = extract_axes(expr.layout, visited_axes, loop_axes, cache={}).size
         # TODO: Only apply penalty for non-affine layouts
         candidate_cost = dat_cost + layout_cost * INDIRECTION_PENALTY_FACTOR
         candidates.append((candidate_expr, candidate_cost))
 
     if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
-        compressed_cost = extract_axes(dat, visited_axes, loop_axes, {}).size
-        candidates.append((CompositeDat(dat, visited_axes, loop_axes), compressed_cost))
+        compressed_cost = extract_axes(expr, visited_axes, loop_axes, {}).size
+        candidates.append((CompositeDat(expr, visited_axes, loop_axes), compressed_cost))
     return tuple(candidates)
 
 
@@ -560,21 +563,21 @@ def _(op: Operator, /, visited_axes, loop_axes, seen_exprs_mut, cache) -> int:
     )
 
 
-@compute_indirection_cost.register(_ExpressionDat)
-def _(dat: _ExpressionDat, /, visited_axes, loop_axes, seen_exprs_mut, cache) -> int:
+@compute_indirection_cost.register(LinearBufferExpression)
+def _(expr: LinearBufferExpression, /, visited_axes, loop_axes, seen_exprs_mut, cache) -> int:
     if seen_exprs_mut is not None:
-        if dat in seen_exprs_mut:
+        if expr in seen_exprs_mut:
             return 0
         else:
-            seen_exprs_mut.add(dat)
+            seen_exprs_mut.add(expr)
 
-    # The cost of an expression dat (i.e. the memory volume) is given by...
+    # The cost of a buffer expression (i.e. the memory volume) is given by...
     # Remember that the axes here described the outer loops that exist and that
     # index expressions that do not access data (e.g. 2i+j) have a cost of zero.
     # dat[2i+j] would have a cost equal to ni*nj as those would be the outer loops
     # TODO: Add penalty for non-affine layouts
-    layout_cost = compute_indirection_cost(dat.layout, visited_axes, loop_axes, seen_exprs_mut, cache)
-    dat_cost = extract_axes(dat.layout, visited_axes, loop_axes, cache=cache).size
+    layout_cost = compute_indirection_cost(expr.layout, visited_axes, loop_axes, seen_exprs_mut, cache)
+    dat_cost = extract_axes(expr.layout, visited_axes, loop_axes, cache=cache).size
     return dat_cost + layout_cost * INDIRECTION_PENALTY_FACTOR
 
 
@@ -628,3 +631,42 @@ def _(dat: CompositeDat, /, visited_axes, loop_axes, seen_exprs_mut, cache) -> i
 #     newlayout = replace_terminals(layout, inv_map)
 #
 #     return _ExpressionDat(result, newlayout)
+@functools.singledispatch
+def collect_axis_vars(obj: Any, /) -> OrderedSet:
+    from pyop3.itree.tree import LoopIndexVar
+
+    if isinstance(obj, LoopIndexVar):
+        assert False
+    elif isinstance(obj, Operator):
+        return collect_axis_vars(obj.a) | collect_axis_vars(obj.b)
+
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
+
+
+@collect_axis_vars.register(numbers.Number)
+def _(var):
+    return OrderedSet()
+
+@collect_axis_vars.register(AxisVar)
+def _(var):
+    return OrderedSet([var])
+
+
+@collect_axis_vars.register(Dat)
+def _(dat: Dat, /) -> OrderedSet:
+    loop_indices = OrderedSet()
+
+    if dat.parent:
+        loop_indices |= collect_axis_vars(dat.parent)
+
+    for leaf in dat.axes.leaves:
+        path = dat.axes.path(leaf)
+        loop_indices |= collect_axis_vars(dat.axes.subst_layouts()[path])
+    return loop_indices
+
+
+@collect_axis_vars.register(LinearBufferExpression)
+def _(dat: _ExpressionDat, /) -> OrderedSet:
+    return collect_axis_vars(dat.layout)
+
+

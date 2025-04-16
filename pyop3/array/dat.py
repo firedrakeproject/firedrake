@@ -23,7 +23,7 @@ from pyop3.axtree import (
     AxisTree,
     as_axis_tree,
 )
-from pyop3.axtree.tree import AbstractAxisTree, ContextFree, ContextSensitiveAxisTree, subst_layouts
+from pyop3.axtree.tree import AbstractAxisTree, Expression, ContextFree, ContextSensitiveAxisTree, subst_layouts
 from pyop3.buffer import AbstractBuffer, Buffer, NullBuffer
 from pyop3.dtypes import ScalarType
 from pyop3.exceptions import Pyop3Exception
@@ -496,7 +496,7 @@ class Dat(_Dat):
     def _as_expression_dat(self):
         assert self.axes.is_linear
         layout = just_one(self.axes.leaf_subst_layouts.values())
-        return _ExpressionDat(self, layout)
+        return LinearBufferExpression(self.buffer, layout)
 
     def _check_vec_dtype(self):
         if self.dtype != PETSc.ScalarType:
@@ -569,117 +569,14 @@ class Dat(_Dat):
         return self.reconstruct(axes=axes)
 
 
+# FIXME: Should inherit from Terminal
+@dataclasses.dataclass(frozen=True)
+class BufferExpression(Expression, abc.ABC):
+    buffer: AbstractBuffer
+
+
 @dataclasses.dataclass(init=False, frozen=True)
-class _ConcretizedDat2(_Dat, ContextFree, abc.ABC):
-
-    # unimplemented
-
-    @property
-    def leaf_layouts(self):
-        assert False, "shouldnt touch this I dont think"
-
-    def getitem(self, *args, **kwargs):
-        assert False, "shouldnt touch this I dont think"
-
-    # ///
-
-    parent = None
-
-    @property
-    def buffer(self):
-        return self.dat.buffer
-
-    @property
-    def dtype(self):
-        return self.dat.dtype
-
-    @property
-    def constant(self):
-        return self.dat.constant
-
-    def with_context(self, context):
-        return self
-
-    @property
-    def context_free(self):
-        return self
-
-    def filter_context(self, context):
-        return pmap()
-
-    # @property
-    # def context_map(self):
-    #     return ImmutableOrderedDict({pmap(): self})
-
-
-# NOTE: I think that having dat.dat is a bad design pattern, instead pass the buffer or similar
-# NOTE: Should not be underscored, that would suggest module-only scope
-class _ConcretizedDat(_ConcretizedDat2):
-    """A dat with fixed layouts.
-
-    This class is useful for describing dats whose layouts have been optimised.
-
-    Unlike `_ExpressionDat` a `_ConcretizedDat` is permitted to be multi-component.
-
-    """
-    def __init__(self, dat, layouts):
-        super().__init__(name=dat.name)
-        self.dat = dat
-        self.layouts = pmap(layouts)
-
-    def __str__(self) -> str:
-        return "\n".join(
-            f"{self.name}[{layout}]"
-            for layout in self.layouts.values()
-        )
-
-    # TODO: redo now that we have Record?
-    def __hash__(self) -> int:
-        return hash((type(self), self.dat, self.layouts))
-
-    @property
-    def axes(self):
-        return self.dat.axes
-
-
-# TODO: reenable when I have cleaned things up, disabling this just means that
-# reconstruct will break (fine with me)
-# @dataclasses.dataclass(init=False, frozen=True)
-class _ConcretizedMat(_ConcretizedDat2):
-    """A dat with fixed layouts.
-
-    This class is useful for describing dats whose layouts have been optimised.
-
-    Unlike `_ExpressionDat` a `_ConcretizedDat` is permitted to be multi-component.
-
-    """
-    def __init__(self, mat, row_layouts, col_layouts, parent):
-        super().__init__(name=mat.name, parent=parent)
-        self.dat = mat  # only because I need to clean this up
-        self.mat = mat
-        self.row_layouts = pmap(row_layouts)
-        self.col_layouts = pmap(col_layouts)
-
-    def __str__(self) -> str:
-        return "\n".join(
-            f"{self.name}[{row_layout}, {col_layout}]"
-            for row_layout in self.row_layouts.values()
-            for col_layout in self.col_layouts.values()
-        )
-
-    @property
-    def axes(self):
-        return self.mat.axes
-
-    @property
-    def alloc_size(self) -> int:
-        return self.mat.alloc_size
-
-
-# NOTE: I think that this is a bad name for this class. Dats and _ConcretizedDats
-# can also appear in expressions.
-@dataclasses.dataclass(init=False, frozen=True)
-class _ExpressionDat(_ConcretizedDat2):
+class LinearBufferExpression(BufferExpression):
     """A dat with fixed (?) layout.
 
     It cannot be indexed.
@@ -691,37 +588,97 @@ class _ExpressionDat(_ConcretizedDat2):
 
     # {{{ Instance attrs
 
-    dat: Dat
     layout: Any
 
     # }}}
 
-    def __init__(self, dat, layout):
-        super().__init__(name=dat.name)
-        object.__setattr__(self, "dat", dat)
+    def __init__(self, buffer, layout):
+        super().__init__(buffer)
         object.__setattr__(self, "layout", layout)
 
     def __str__(self) -> str:
-        return f"{self.name}[{self.layout}]"
+        return f"{self.buffer.name}[{self.layout}]"
 
-    # TODO: redo now that we have Record?
-    def __hash__(self) -> int:
-        return hash((type(self), self.dat, self.layout))
+    # # TODO: redo now that we have Record?
+    # def __hash__(self) -> int:
+    #     return hash((type(self), self.dat, self.layout))
+    #
+    # def __eq__(self, other) -> bool:
+    #     return type(other) is type(self) and other.dat == self.dat and other.layout == self.layout and other.name == self.name
+    #
+    # # NOTE: args, kwargs unused
+    # def get_value(self, indices, *args, **kwargs):
+    #     offset = self._get_offset(indices)
+    #     return self.buffer.data_ro[offset]
+    #
+    # # NOTE: args, kwargs unused
+    # def set_value(self, indices, value, *args, **kwargs):
+    #     offset = self._get_offset(indices)
+    #     self.buffer.data_wo[offset] = value
+    #
+    # def _get_offset(self, indices):
+    #     from pyop3.expr_visitors import evaluate
+    #
+    #     return evaluate(self.layout, indices)
 
-    def __eq__(self, other) -> bool:
-        return type(other) is type(self) and other.dat == self.dat and other.layout == self.layout and other.name == self.name
 
-    # NOTE: args, kwargs unused
-    def get_value(self, indices, *args, **kwargs):
-        offset = self._get_offset(indices)
-        return self.buffer.data_ro[offset]
+@dataclasses.dataclass(init=False, frozen=True)
+class NonlinearBufferExpression(BufferExpression):
+    """A dat with fixed layouts.
 
-    # NOTE: args, kwargs unused
-    def set_value(self, indices, value, *args, **kwargs):
-        offset = self._get_offset(indices)
-        self.buffer.data_wo[offset] = value
+    This class is useful for describing dats whose layouts have been optimised.
 
-    def _get_offset(self, indices):
-        from pyop3.expr_visitors import evaluate
+    Unlike `_ExpressionDat` a `_ConcretizedDat` is permitted to be multi-component.
 
-        return evaluate(self.layout, indices)
+    """
+    # {{{ Instance attrs
+
+    layouts: Any
+
+    # }}}
+
+    def __init__(self, buffer, layouts):
+        super().__init__(buffer)
+        object.__setattr__(self, "layouts", layouts)
+
+    def __str__(self) -> str:
+        return "\n".join(
+            f"{self.buffer.name}[{layout}]"
+            for layout in self.layouts.values()
+        )
+
+
+# TODO: reenable when I have cleaned things up, disabling this just means that
+# reconstruct will break (fine with me)
+# @dataclasses.dataclass(init=False, frozen=True)
+# class _ConcretizedMat(_ConcretizedDat2):
+class _ConcretizedMat:
+    pass
+    """A dat with fixed layouts.
+
+    This class is useful for describing dats whose layouts have been optimised.
+
+    Unlike `_ExpressionDat` a `_ConcretizedDat` is permitted to be multi-component.
+
+    """
+    # def __init__(self, mat, row_layouts, col_layouts, parent):
+    #     super().__init__(name=mat.name, parent=parent)
+    #     self.dat = mat  # only because I need to clean this up
+    #     self.mat = mat
+    #     self.row_layouts = pmap(row_layouts)
+    #     self.col_layouts = pmap(col_layouts)
+    #
+    # def __str__(self) -> str:
+    #     return "\n".join(
+    #         f"{self.name}[{row_layout}, {col_layout}]"
+    #         for row_layout in self.row_layouts.values()
+    #         for col_layout in self.col_layouts.values()
+    #     )
+    #
+    # @property
+    # def axes(self):
+    #     return self.mat.axes
+    #
+    # @property
+    # def alloc_size(self) -> int:
+    #     return self.mat.alloc_size

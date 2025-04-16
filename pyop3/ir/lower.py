@@ -26,7 +26,7 @@ from pyrsistent import freeze, pmap, PMap
 import pyop2
 
 from pyop3 import utils
-from pyop3.array import Dat, _Dat, _ExpressionDat, _ConcretizedDat, _ConcretizedMat, Parameter, Mat, AbstractMat
+from pyop3.array import Dat, _Dat, LinearBufferExpression, NonlinearBufferExpression, _ConcretizedMat, Parameter, Mat, AbstractMat
 from pyop3.array.base import Array
 from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent
 from pyop3.buffer import AbstractBuffer, Buffer, NullBuffer, PackedBuffer
@@ -776,6 +776,9 @@ def _compile_petscmat(assignment, loop_indices, context):
     mat_name = context.add_buffer(assignment.assignee.buffer, assignment_type_as_intent(assignment.assignment_type))
     array_name = context.add_buffer(assignment.expression.buffer, READ)
 
+    if assignment.expression.buffer.size == 36:
+        breakpoint()
+
     for row_path in assignment.row_axis_tree.leaf_paths:
         for col_path in assignment.col_axis_tree.leaf_paths:
             row_layout = mat.row_layouts[row_path]
@@ -856,6 +859,11 @@ def _compile_petscmat(assignment, loop_indices, context):
             array_row_expr = lower_expr(array_row_layout, READ, [rzeros], loop_indices, context)
             array_col_layout = assignment.values.col_layouts[col_path]
             array_col_expr = lower_expr(array_col_layout, READ, [czeros], loop_indices, context)
+
+            # csize is the issue
+            # but it is not straightforward to get the right thing here. What is the layout
+            # function for the temporary? It's a matrix that has a buffer inside it.
+            raise NotImplementedError("TODO")
 
             array_indices = array_row_expr * csize + array_col_expr
             array_expr = str(pym.subscript(pym.var(array_name), array_indices))
@@ -1043,11 +1051,11 @@ def _(loop_var: LoopIndexVar, intent, iname_maps, loop_indices, *args, **kwargs)
     return loop_indices[(loop_var.loop_id, loop_var.axis_label)]
 
 
-def maybe_multiindex(dat, offset_expr, context):
+def maybe_multiindex(buffer, offset_expr, context):
     # hack to handle the fact that temporaries can have shape but we want to
     # linearly index it here
-    if dat.buffer.name in context._temporary_shapes:
-        shape = context._temporary_shapes[dat.buffer.name]
+    if buffer.name in context._temporary_shapes:
+        shape = context._temporary_shapes[buffer.name]
         rank = len(shape)
         extra_indices = (0,) * (rank - 1)
 
@@ -1062,16 +1070,27 @@ def maybe_multiindex(dat, offset_expr, context):
     return indices
 
 
-@lower_expr.register(_ConcretizedDat)
-def _(dat: _ConcretizedDat, /, intent, iname_maps, loop_indices, context, paths):
-    name_in_kernel = context.add_buffer(dat.buffer, intent)
+@lower_expr.register(NonlinearBufferExpression)
+def _(expr: NonlinearBufferExpression, /, intent, iname_maps, loop_indices, context, paths):
+    path = just_one(paths)
+    layout = expr.layouts[path]
+    return lower_buffer_access(expr.buffer, layout, intent, iname_maps, loop_indices, context)
+
+
+@lower_expr.register(LinearBufferExpression)
+def _(expr: LinearBufferExpression, /, intent, iname_maps, loop_indices, context, paths=None):
+    return lower_buffer_access(expr.buffer, expr.layout, intent, iname_maps, loop_indices, context)
+
+
+def lower_buffer_access(buffer, layout, intent, iname_maps, loop_indices, context):
+    name_in_kernel = context.add_buffer(buffer, intent)
 
     iname_map = just_one(iname_maps)
-    path = just_one(paths)
-    offset_expr = lower_expr(dat.layouts[path], READ, [iname_map], loop_indices, context)
-    indices = maybe_multiindex(dat, offset_expr, context)
+    offset_expr = lower_expr(layout, READ, [iname_map], loop_indices, context)
+    indices = maybe_multiindex(buffer, offset_expr, context)
 
     return pym.subscript(pym.var(name_in_kernel), indices)
+
 
 
 @lower_expr.register(_ConcretizedMat)
@@ -1093,15 +1112,15 @@ def _(mat: _ConcretizedMat, /, intent, iname_maps, loop_indices, context, paths)
     return pym.subscript(pym.var(name_in_kernel), indices)
 
 
-@lower_expr.register(_ExpressionDat)
-def _(dat: _ExpressionDat, /, intent, iname_maps, loop_indices, context, paths=None):
-    kernel_arg_name = context.add_buffer(dat.buffer, intent)
-
-    iname_map = just_one(iname_maps)
-    offset_expr = lower_expr(dat.layout, READ, [iname_map], loop_indices, context)
-    indices = maybe_multiindex(dat, offset_expr, context)
-
-    return pym.subscript(pym.var(kernel_arg_name), indices)
+# @lower_expr.register(_ExpressionDat)
+# def _(dat: _ExpressionDat, /, intent, iname_maps, loop_indices, context, paths=None):
+#     kernel_arg_name = context.add_buffer(dat.buffer, intent)
+#
+#     iname_map = just_one(iname_maps)
+#     offset_expr = lower_expr(dat.layout, READ, [iname_map], loop_indices, context)
+#     indices = maybe_multiindex(dat, offset_expr, context)
+#
+#     return pym.subscript(pym.var(kernel_arg_name), indices)
 
 
 @functools.singledispatch
@@ -1118,8 +1137,8 @@ def _(num: numbers.Integral, *args, **kwargs):
 def _(param: Parameter, inames, loop_indices, context):
     return context.add_parameter(param)
 
-@register_extent.register(Dat)
-@register_extent.register(_ExpressionDat)
+@register_extent.register(Dat)  # is this right? should this already be parsed?
+@register_extent.register(LinearBufferExpression)
 def _(extent, /, intent, iname_replace_map, loop_indices, context):
     expr = lower_expr(extent, READ, [iname_replace_map], loop_indices, context)
     varname = context.add_temporary("p")

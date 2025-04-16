@@ -314,13 +314,9 @@ class AbstractMat(DistributedArray):
         TODO
 
         """
-        # from pyop3.array.transforms import MatReshape
-
         assert isinstance(row_axes, AxisTree), "not indexed"
         assert isinstance(col_axes, AxisTree), "not indexed"
 
-        # NOTE: This will get nicer if we have a pyop3_init special method for this
-        # sort of object to facilitate reconstruction
         return self.reconstruct(raxes=row_axes, caxes=col_axes, parent=self)
 
 

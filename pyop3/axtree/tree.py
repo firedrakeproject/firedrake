@@ -227,10 +227,10 @@ class AxisComponentRegion:
     label: str | None = None
 
     def __post_init__(self):
-        from pyop3.array import _ExpressionDat
+        from pyop3.array import LinearBufferExpression
         if not isinstance(self.size, numbers.Integral):
-            assert isinstance(self.size, _ExpressionDat)
-            assert self.size.dat.sf is None
+            assert isinstance(self.size, LinearBufferExpression)
+            assert self.size.buffer.sf is None
 
     def __str__(self) -> str:
         return f"({self.size}, {self.label})"
@@ -238,7 +238,7 @@ class AxisComponentRegion:
 
 @functools.singledispatch
 def _parse_regions(obj: Any) -> tuple[AxisComponentRegion, ...]:
-    from pyop3.array import Dat, _ExpressionDat
+    from pyop3.array import Dat
 
     if isinstance(obj, Dat):
         # Dats used as extents for axis component regions have a stricter

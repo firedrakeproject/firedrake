@@ -14,6 +14,7 @@ from typing import Any, Collection, Hashable, Mapping, Sequence, Type, cast, Opt
 
 import numpy as np
 import pymbolic as pym
+from pyop3.array.dat import BufferExpression
 from pyop3.exceptions import Pyop3Exception
 from pyop3.extras.debug import maybe_breakpoint
 import pytools
@@ -2138,7 +2139,7 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
     size = sum(r.size for r in regions)
     start, stop, step = affine_component.with_size(size)
 
-    if any(isinstance(r.size, _Dat) for r in regions):
+    if any(isinstance(r.size, (Dat, BufferExpression)) for r in regions):
         if len(regions) > 1:
             raise NotImplementedError("Only single-region ragged components are supported")
         region = just_one(regions)

@@ -4,9 +4,9 @@ from .dat import (  # noqa: F401
     FancyIndexWriteException,
     Dat,
     _Dat,
-    _ConcretizedDat,
+    LinearBufferExpression,
     _ConcretizedMat,
-    _ExpressionDat,
+    NonlinearBufferExpression,
 )
 from .mat import Mat, Sparsity, AbstractMat  # noqa: F401
 from .parameter import Parameter  # noqa: F401
