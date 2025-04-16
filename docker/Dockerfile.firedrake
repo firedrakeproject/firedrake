@@ -9,7 +9,7 @@ RUN pip install --verbose \
 
 # Set PYTHONPATH so netgen can be found
 # (see https://github.com/NGSolve/netgen/issues/213)
-ENV PYTHONPATH=/usr/local/lib/python3.12/site-packages
+ENV PYTHONPATH=/usr/local/lib/python3.12/site-packages:$PYTHONPATH
 
 # Install Firedrake apps
 RUN pip install --verbose --src /opt \
