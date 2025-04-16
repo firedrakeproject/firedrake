@@ -88,10 +88,11 @@ class FacetSplitPC(PCBase):
             self.set_nullspaces(pc)
             self.work_vecs = self.mixed_opmat.createVecs()
         elif self.subset:
+            self.mixed_opmat = PETSc.Mat()
             global_indices = V.dof_dset.lgmap.apply(self.subset.indices)
             self._global_iperm = PETSc.IS().createGeneral(global_indices, comm=pc.comm)
-            self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self._global_iperm, self._global_iperm)
-            self.mixed_opmat = self._permute_op()
+            self._permute_op = partial(self.mixed_opmat.createSubMatrixVirtual, P, self._global_iperm, self._global_iperm)
+            self._permute_op()
             self.set_nullspaces(pc)
             self.work_vecs = self.mixed_opmat.createVecs()
         else:
@@ -143,11 +144,10 @@ class FacetSplitPC(PCBase):
 
     def update(self, pc):
         if hasattr(self, "_permute_op"):
-            for mat in self.pc.getOperators():
-                mat.destroy()
             P = self._permute_op()
             self.pc.setOperators(A=P, P=P)
-            self.mixed_opmat = P
+            with dmhooks.add_hooks(self.pc.getDM(), self, appctx=self._ctx_ref, save=True):
+                self.pc.setFromOptions()
         elif hasattr(self, "P"):
             self._assemble_mixed_op(tensor=self.P)
 
