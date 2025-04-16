@@ -6,11 +6,11 @@
 
    .. sidebar:: Current development information.
 
-      Firedrake and PyOP2 are continually tested using `GitHub actions <https://docs.github.com/en/actions>`__.
+      Firedrake is continually tested using `GitHub actions <https://docs.github.com/en/actions>`__.
 
       Latest Firedrake status: |firedrakebuild|_
-         .. |firedrakebuild| image:: https://github.com/firedrakeproject/firedrake/actions/workflows/build.yml/badge.svg
-         .. _firedrakebuild: https://github.com/firedrakeproject/firedrake/actions/workflows/build.yml
+         .. |firedrakebuild| image:: https://github.com/firedrakeproject/firedrake/actions/workflows/pr.yml/badge.svg
+         .. _firedrakebuild: https://github.com/firedrakeproject/firedrake/actions/workflows/pr.yml
 
       Firedrake and its components are developed on `GitHub
       <http://github.com>`__ where we also maintain Firedrake-ready
@@ -18,7 +18,6 @@
       UFL.
 
       * `Firedrake on GitHub <https://github.com/firedrakeproject/firedrake/>`__
-      * `TSFC on GitHub <https://github.com/firedrakeproject/tsfc/>`__
       * `FIAT on GitHub <https://github.com/firedrakeproject/fiat>`__
       * `Firedrake version of UFL on GitHub <https://github.com/firedrakeproject/ufl>`__
 

@@ -32,6 +32,9 @@ A native installation of Firedrake is accomplished in 3 steps:
 #. :ref:`Install PETSc<install_petsc>`
 #. :ref:`Install Firedrake<install_firedrake>`
 
+If you encounter any problems then please refer to our list of
+:ref:`common installation issues<common_issues>` or consider
+:doc:`getting in touch</contact>`.
 
 .. _prerequisites:
 
@@ -185,21 +188,6 @@ install Firedrake. To do this perform the following steps:
       to check that the install was successful (see
       :ref:`below<firedrake_check>`).
 
-   .. note::
-      A common issue encountered with this step is the installation will fail with
-      an error message like:
-
-      .. code-block:: text
-
-         FileNotFoundError: [Errno 2] No such file or directory: '/tmp/pip-build-env-9j45p2su/normal/lib/python3.11/site-packages/petsc/lib/petsc/conf/petscvariables'
-
-      This usually means that the environment variable ``PETSC_DIR`` is not set
-      correctly. You can check this by making sure that you can run the following
-      command without error::
-
-         $ ls $PETSC_DIR
-
-
 #. Firedrake is now installed and ready for use!
 
 .. warning::
@@ -221,8 +209,9 @@ that Firedrake is fully functional. To do this, after the installation run::
 
 This command will run a few of the unit tests, which exercise a good
 chunk of the functionality of the library. These tests should take a
-minute or less. If they fail to run for any reason, please see the
-section below on how to :ref:`get help<getting_help>`.
+minute or less. If they fail to run for any reason, please check out
+our list of :ref:`commonly encountered installation issues<common_issues>`
+or consider :doc:`getting in touch</contact>`.
 
 Note that for you to be able to run the tests you need to have installed
 Firedrake with its optional test dependencies by specifying the ``[check]``
@@ -253,36 +242,49 @@ out-of-date you may also need to rebuild the external packages by running::
 
    $ make reconfigure
 
+.. _common_issues:
 
-.. _dev_install:
+Common installation issues
+--------------------------
 
-Developer install
------------------
+No such file or directory: '/tmp/.../petsc/conf/petscvariables'
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-By default Firedrake is installed just like any other Python package into
-your environment. If you want to be able to edit Firedrake itself then
-an *editable* installation is needed. To install Firedrake in editable
-mode you should follow the same
-:ref:`steps as for a non-editable install<install_firedrake>` but replace the
-final ``pip install`` command with::
+If you encounter the error:
 
-   $ git clone <firedrake url>
-   $ pip install --no-binary h5py --editable './firedrake[dev]'
+   .. code-block:: text
 
-where ``<firedrake url>`` is ``https://github.com/firedrakeproject/firedrake.git``
-or ``git@github.com:firedrakeproject/firedrake.git`` as preferred.
+      FileNotFoundError: [Errno 2] No such file or directory: '/tmp/.../petsc/conf/petscvariables'
 
-The same process applies for Firedrake's dependencies. For example, to install
-`FIAT <https://github.com/firedrakeproject/fiat.git>`_ in editable mode you
-should run::
+when running the ``pip install`` instruction this is usually a sign that the
+environment variable ``PETSC_DIR`` is not set correctly. You can check this
+by making sure that you can run the following command without error::
 
-   $ git clone <fiat url>
-   $ pip install --editable ./fiat
+   $ ls $PETSC_DIR
 
-Note that editable versions of Firedrake's dependencies should be installed *after*
-Firedrake is installed. Otherwise installing Firedrake will overwrite
-whatever packages you just installed.
+If this raises an error then you should re-``export`` the variable::
 
+   $ export PETSC_DIR=/path/to/petsc
+
+and try the ``pip install`` again.
+
+Missing symbols post install
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If the installation completes but then you get errors regarding missing symbols
+when you import Firedrake this is usually a sign that one of the Python bindings
+packages used by Firedrake (h5py, mpi4py, petsc4py, slepc4py) is linked against
+the wrong compiled library. This is usually caused by issues with caching.
+
+To resolve the problem you should first remove any existing cached packages::
+
+   $ pip uninstall -y h5py mpi4py petsc4py slepc4py
+   $ pip cache remove h5py
+   $ pip cache remove mpi4py
+   $ pip cache remove petsc4py
+   $ pip cache remove slepc4py
+
+before re-running the instruction to install Firedrake.
 
 .. _customising:
 
@@ -401,7 +403,6 @@ to customise the options that are passed to PETSc ``configure``. You can either:
    ``configure`` option with ``--download-package`` so that PETSc will download
    and install the right thing.
 
-
 Reconfiguring an existing PETSc
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -410,7 +411,6 @@ starting from scratch, it can be useful to modify and run the ``reconfigure-ARCH
 Python script that PETSc generates. This can be found in
 ``$PETSC_DIR/$PETSC_ARCH/lib/petsc/conf``. Other example scripts can be found in
 ``$PETSC_DIR/config/examples`` directory.
-
 
 .. _alternative_install:
 
@@ -471,23 +471,73 @@ Firedrake can also be used inside the brower using Jupyter notebooks and
 `Google Colab <https://colab.research.google.com/>`_. For more information
 please see :doc:`here</notebooks>`.
 
-.. _getting_help:
+.. _dev_install:
 
-Having trouble?
-===============
+Developer install
+=================
 
-If you struggling to install Firedrake for any reason please
-:doc:`get in touch</contact>` either on our Slack channel or create a GitHub
-discussion_.
+.. only:: release
 
-To make debugging easier please make sure to share as much information as you
-can including:
+   .. warning::
+      You are currently looking at the documentation for the current stable
+      release of Firedrake. For the most recent developer documentation you
+      should follow the instructions `here <https://firedrakeproject.org/firedrake/main/install>`__.
 
-* The operating system you are using
-* The command you ran and the error that was produced
-* Any install logs that are produced (e.g. if PETSc ``configure`` fails please
-  make sure to share the ``configure.log`` file)
+In order to install a development version of Firedrake the following steps
+should be followed:
 
+#. Install system dependencies :ref:`as before<install_system_dependencies>`
+
+#. Clone and build the *default branch* of PETSc:
+
+   .. code-block:: text
+
+      $ git clone https://gitlab.com/petsc/petsc.git
+      $ cd petsc
+      $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure
+      $ make PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-default all
+      $ make check
+      $ cd ..
+
+#. Clone Firedrake::
+
+   $ git clone <firedrake url>
+
+   where ``<firedrake url>`` is ``https://github.com/firedrakeproject/firedrake.git``
+   or ``git@github.com:firedrakeproject/firedrake.git`` as preferred.
+
+#. Set the necessary environment variables::
+
+   $ export $(python3 firedrake-configure --show-env)
+
+#. Install petsc4py and Firedrake's other build dependencies:
+
+   .. code-block:: text
+
+      $ pip cache remove petsc4py
+      $ pip install $PETSC_DIR/$PETSC_ARCH/src/binding/petsc4py
+      $ pip install -r ./firedrake/requirements-dev.txt
+
+#. Install Firedrake in editable mode without build isolation::
+
+   $ pip install --no-build-isolation --no-binary h5py --editable './firedrake[check]'
+
+Editing subpackages
+-------------------
+
+Firedrake dependencies can be cloned and installed in editable mode in an
+identical way to Firedrake. For example, to install
+`FIAT <https://github.com/firedrakeproject/fiat.git>`_ in editable mode you
+should run::
+
+   $ git clone <fiat url>
+   $ pip install --editable ./fiat
+
+For most packages it should not be necessary to pass ``--no-build-isolation``.
+
+It is important to note that these packages **must be installed after Firedrake**.
+This is because otherwise installing Firedrake will overwrite the just-installed
+package.
 
 .. _discussion: https://github.com/firedrakeproject/firedrake/discussions
 .. _issue: https://github.com/firedrakeproject/firedrake/issues

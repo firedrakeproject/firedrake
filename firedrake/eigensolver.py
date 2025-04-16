@@ -57,7 +57,7 @@ class LinearEigenproblem:
         if not SLEPc:
             raise ImportError(
                 "Unable to import SLEPc, eigenvalue computation not possible "
-                "(try firedrake-update --slepc)"
+                "(see https://www.firedrakeproject.org/install.html#slepc)"
             )
 
         args = A.arguments()
