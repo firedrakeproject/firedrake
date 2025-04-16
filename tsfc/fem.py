@@ -336,7 +336,8 @@ class GemPointContext(ContextBase):
     def basis_evaluation(self, finat_element, mt, entity_id):
         return finat_element.point_evaluation(mt.local_derivatives,
                                               self.point_expr,
-                                              (self.integration_dim, entity_id))
+                                              (self.integration_dim, entity_id),
+                                              CoordinateMapping(mt, self))
 
 
 class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
@@ -641,15 +642,13 @@ def fiat_to_ufl(fiat_dict, order):
 
 @translate.register(Argument)
 def translate_argument(terminal, mt, ctx):
-    argument_multiindex = ctx.argument_multiindices[terminal.number()]
-    sigma = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
     element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
 
     def callback(entity_id):
         finat_dict = ctx.basis_evaluation(element, mt, entity_id)
         # Filter out irrelevant derivatives
-        filtered_dict = {alpha: table
-                         for alpha, table in finat_dict.items()
+        filtered_dict = {alpha: finat_dict[alpha]
+                         for alpha in finat_dict
                          if sum(alpha) == mt.local_derivatives}
 
         # Change from FIAT to UFL arrangement
@@ -664,7 +663,8 @@ def translate_argument(terminal, mt, ctx):
         quad_multiindex_permuted = _make_quad_multiindex_permuted(mt, ctx)
         mapper = gem.node.MemoizerArg(gem.optimise.filtered_replace_indices)
         table = mapper(table, tuple(zip(quad_multiindex, quad_multiindex_permuted)))
-    return gem.ComponentTensor(gem.Indexed(table, argument_multiindex + sigma), sigma)
+    argument_multiindex = ctx.argument_multiindices[terminal.number()]
+    return gem.partial_indexed(table, argument_multiindex)
 
 
 @translate.register(TSFCConstantMixin)

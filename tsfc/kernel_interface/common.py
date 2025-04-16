@@ -295,21 +295,28 @@ class KernelBuilderMixin(object):
 
 
 def set_quad_rule(params, cell, integral_type, functions):
-    # Check if the integral has a quad degree attached, otherwise use
-    # the estimated polynomial degree attached by compute_form_data
+    # Check if the integral has a quad degree or quad element attached,
+    # otherwise use the estimated polynomial degree attached by compute_form_data
+    quad_rule = params.get("quadrature_rule", "default")
     try:
         quadrature_degree = params["quadrature_degree"]
     except KeyError:
-        quadrature_degree = params["estimated_polynomial_degree"]
-        function_degrees = [f.ufl_function_space().ufl_element().degree()
-                            for f in functions]
-        if all((asarray(quadrature_degree) > 10 * asarray(degree)).all()
-               for degree in function_degrees):
-            logger.warning("Estimated quadrature degree %s more "
-                           "than tenfold greater than any "
-                           "argument/coefficient degree (max %s)",
-                           quadrature_degree, max_degree(function_degrees))
-    quad_rule = params.get("quadrature_rule", "default")
+        elements = [f.ufl_function_space().ufl_element() for f in functions]
+        quad_data = set((e.degree(), e.quadrature_scheme() or "default") for e in elements
+                        if e.family() in {"Quadrature", "Boundary Quadrature"})
+        if len(quad_data) == 0:
+            quadrature_degree = params["estimated_polynomial_degree"]
+            if all((asarray(quadrature_degree) > 10 * asarray(e.degree())).all() for e in elements):
+                logger.warning("Estimated quadrature degree %s more "
+                               "than tenfold greater than any "
+                               "argument/coefficient degree (max %s)",
+                               quadrature_degree, max_degree([e.degree() for e in elements]))
+        else:
+            try:
+                (quadrature_degree, quad_rule), = quad_data
+            except ValueError:
+                raise ValueError("The quadrature rule cannot be inferred from multiple Quadrature elements")
+
     if isinstance(quad_rule, str):
         scheme = quad_rule
         fiat_cell = as_fiat_cell(cell)

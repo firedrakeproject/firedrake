@@ -104,6 +104,16 @@ class KernelBuilderBase(_KernelBuilderBase):
         self.coefficient_map[coefficient] = expr
         return expr
 
+    def set_coordinates(self, domain):
+        """Prepare the coordinate field.
+
+        :arg domain: :class:`ufl.Domain`
+        """
+        # Create a fake coordinate coefficient for a domain.
+        f = Coefficient(FunctionSpace(domain, domain.ufl_coordinate_element()))
+        self.domain_coordinate[domain] = f
+        self._coefficient(f, "coords")
+
     def set_cell_sizes(self, domain):
         """Setup a fake coefficient for "cell sizes".
 
@@ -303,16 +313,6 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
                                              diagonal=self.diagonal)
         self.return_variables = return_variables
         self.argument_multiindices = argument_multiindices
-
-    def set_coordinates(self, domain):
-        """Prepare the coordinate field.
-
-        :arg domain: :class:`ufl.Domain`
-        """
-        # Create a fake coordinate coefficient for a domain.
-        f = Coefficient(FunctionSpace(domain, domain.ufl_coordinate_element()))
-        self.domain_coordinate[domain] = f
-        self._coefficient(f, "coords")
 
     def set_coefficients(self, integral_data, form_data):
         """Prepare the coefficients of the form.
