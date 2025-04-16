@@ -106,7 +106,7 @@ import numpy.random as randomgen
 
 from firedrake.function import Function
 from pyop2.mpi import COMM_WORLD
-from ufl import FunctionSpace
+from ufl.functionspace import BaseFunctionSpace
 
 _deprecated_attributes = ['RandomGenerator', ]
 
@@ -294,7 +294,7 @@ def __getattr__(module_attr):
                 def funcgen(c_a):
                     @add_doc_string(getattr(_Base, c_a).__doc__)
                     def func(self, *args, **kwargs):
-                        if len(args) > 0 and isinstance(args[0], FunctionSpace):
+                        if len(args) > 0 and isinstance(args[0], BaseFunctionSpace):
                             # Extract size from V
                             if 'size' in kwargs.keys():
                                 raise TypeError("Cannot specify 'size' when generating a random function from 'V'")
