@@ -3,7 +3,7 @@ Overview
 ========
 
 This module wraps `numpy.random <https://numpy.org/doc/stable/reference/random/index.html>`__,
-and enables users to generate a randomised :class:`.Function` from a :class:`.FunctionSpace`.
+and enables users to generate a randomised :class:`.Function` from a :class:`.WithGeometry` or :class:`.FiredrakeDualSpace`.
 This module inherits almost all attributes from `numpy.random <https://numpy.org/doc/stable/reference/random/index.html>`__ with the following changes:
 
 Generator
@@ -11,7 +11,7 @@ Generator
 
 A :class:`.Generator` wraps `numpy.random.Generator <https://numpy.org/doc/stable/reference/random/generator.html>`__.
 :class:`.Generator` inherits almost all distribution methods from `numpy.random.Generator <https://numpy.org/doc/stable/reference/random/generator.html>`__,
-and they can be used to generate a randomised :class:`.Function` by passing a :class:`.FunctionSpace` as the first argument.
+and they can be used to generate a randomised :class:`.Function` by passing a :class:`.WithGeometry` or :class:`.FiredrakeDualSpace` as the first argument.
 
 Example:
 
