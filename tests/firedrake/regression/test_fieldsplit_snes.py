@@ -32,8 +32,8 @@ def test_fieldsplit_snes():
     def Ascalar(q, p, u):
         n = FacetNormal(mesh)
         un = 0.5*(dot(u, n) + abs(dot(u, n)))
-        return (- q*div(p*u)*dx
-                + jump(p)*jump(un*q)*dS)
+        return (- q*div(u*p)*dx
+                + jump(un*q)*jump(p)*dS)
 
     # current and next timestep
     w = Function(W)
