@@ -280,7 +280,7 @@ def __getattr__(module_attr):
 
                     @add_doc_string(getattr(_Base, c_a).__doc__)
                     def func(self, *args, **kwargs):
-                        if len(args) > 0 and isinstance(args[0], FunctionSpace):
+                        if len(args) > 0 and isinstance(args[0], BaseFunctionSpace):
                             raise NotImplementedError("%s.%s does not take FunctionSpace as argument" % (module_attr, c_a))
                         else:
                             return getattr(super(_Wrapper, self), c_a)(*args, **kwargs)
