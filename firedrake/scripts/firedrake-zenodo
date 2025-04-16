@@ -22,8 +22,7 @@ from importlib.metadata import Distribution
 # Change this to https://sandbox.zenodo.org/api for testing
 ZENODO_URL = "https://zenodo.org/api"
 DESCRIPTIONS = {
-    # FIXME: UNDO ME
-    # "firedrake": "Firedrake: an automated finite element system",
+    "firedrake": "Firedrake: an automated finite element system",
     "ufl": "UFL: the Unified Form Language",
     "fiat": "FIAT: the Finite Element Automated Tabulator",
     "petsc": "PETSc: the Portable, Extensible Toolkit for Scientific Computation",
