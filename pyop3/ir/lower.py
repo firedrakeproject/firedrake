@@ -21,7 +21,7 @@ from petsc4py import PETSc
 import loopy as lp
 import numpy as np
 import pymbolic as pym
-from pyop3.array.dat import MatBufferExpression
+from pyop3.array.dat import PetscMatBufferExpression
 from pyop3.expr_visitors import collect_axis_vars, extract_axes
 from pyrsistent import freeze, pmap, PMap
 
@@ -30,7 +30,7 @@ import pyop2
 from pyop3 import utils
 from pyop3.array import Dat, _Dat, LinearDatBufferExpression, NonlinearDatBufferExpression, Parameter, Mat, AbstractMat
 from pyop3.array.base import Array
-from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent
+from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent, relabel_path
 from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer, PackedBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
@@ -349,9 +349,9 @@ class CodegenResult:
             data_argument = kwargs.get(data_argument.name, data_argument)
             kernel_args.append(as_kernel_arg(data_argument))
 
-        if len(self.loopy_kernel.callables_table) > 1:
-            ccode = lp.generate_code_v2(self.loopy_kernel).device_code()
-            breakpoint()
+        # if len(self.loopy_kernel.callables_table) > 1:
+        #     ccode = lp.generate_code_v2(self.loopy_kernel).device_code()
+        #     breakpoint()
 
         executable(*kernel_args)
 
@@ -872,13 +872,15 @@ def _compile_petscmat(assignment, loop_indices, context):
             czeros = {var.axis_label: 0 for var in collect_axis_vars(col_layout)}
             icol = str(lower_expr(col_layout, READ, [czeros], loop_indices, context))
 
-            array_row_layout = assignment.values.row_layouts[row_path]
-            array_row_expr = lower_expr(array_row_layout, READ, [rzeros], loop_indices, context)
-            array_col_layout = assignment.values.column_layouts[col_path]
-            array_col_expr = lower_expr(array_col_layout, READ, [czeros], loop_indices, context)
+            def make_array_path(rpath, cpath):
+                relabelled_row_path = relabel_path(rpath, "0")
+                relabelled_column_path = relabel_path(cpath, "1")
+                return pmap(relabelled_row_path | relabelled_column_path)
 
-            column_size = assignment.col_axis_tree.size
-            array_indices = array_row_expr * column_size + array_col_expr
+            array_path = make_array_path(row_path, col_path)
+            array_layout = assignment.values.layouts[array_path]
+            array_zeros = {var.axis_label: 0 for var in collect_axis_vars(array_layout)}
+            array_indices = lower_expr(array_layout, READ, [array_zeros], loop_indices, context)
             array_expr = str(pym.subscript(pym.var(array_name), array_indices))
 
             # FIXME:
@@ -1088,20 +1090,44 @@ def maybe_multiindex(buffer, offset_expr, context):
 
 @lower_expr.register(NonlinearDatBufferExpression)
 def _(expr: NonlinearDatBufferExpression, /, intent, iname_maps, loop_indices, context, paths):
-    path = just_one(paths)
+    # TODO: I reuse this pattern when I construct the expression, refactor out to avoid the repetition
+    if len(paths) > 1:
+        path = {}
+        iname_map = {}
+        for i, (p, im) in enumerate(zip(paths, iname_maps, strict=True)):
+            path |= relabel_path(p, str(i))
+            iname_map |= {k+f"_{i}": v for k, v in im.items()}
+        path = pmap(path)
+    else:
+        path = just_one(paths)
+        iname_map = just_one(iname_maps)
+
+    # layouts = {}
+    # for row_path, row_layout in row_layouts.items():
+    #     for column_path, column_layout in col_layouts.items():
+    #         relabelled_row_path = 
+    #         relabelled_column_path = relabel_path(column_path, "1")
+    #
+    #         replace_map = {var.axis_label: AxisVar(var.axis_label+"_0") for var in collect_axis_vars(row_layout)}
+    #         relabelled_row_layout = replace_terminals(row_layout, replace_map)
+    #
+    #         replace_map = {var.axis_label: AxisVar(var.axis_label+"_1") for var in collect_axis_vars(column_layout)}
+    #         relabelled_column_layout = replace_terminals(row_layout, replace_map)
+    #
+    #         layouts[pmap(relabelled_row_path|relabelled_column_path)] = relabelled_row_layout * mat.caxes.size + relabelled_column_layout
+
     layout = expr.layouts[path]
-    return lower_buffer_access(expr.buffer, layout, intent, iname_maps, loop_indices, context)
+    return lower_buffer_access(expr.buffer, layout, intent, iname_map, loop_indices, context)
 
 
 @lower_expr.register(LinearDatBufferExpression)
 def _(expr: LinearDatBufferExpression, /, intent, iname_maps, loop_indices, context, **kwargs):
-    return lower_buffer_access(expr.buffer, expr.layout, intent, iname_maps, loop_indices, context)
+    return lower_buffer_access(expr.buffer, expr.layout, intent, just_one(iname_maps), loop_indices, context)
 
 
-def lower_buffer_access(buffer, layout, intent, iname_maps, loop_indices, context):
+def lower_buffer_access(buffer, layout, intent, iname_map, loop_indices, context):
     name_in_kernel = context.add_buffer(buffer, intent)
 
-    iname_map = just_one(iname_maps)
     offset_expr = lower_expr(layout, READ, [iname_map], loop_indices, context)
     indices = maybe_multiindex(buffer, offset_expr, context)
 
@@ -1109,8 +1135,9 @@ def lower_buffer_access(buffer, layout, intent, iname_maps, loop_indices, contex
 
 
 
-@lower_expr.register(MatBufferExpression)
-def _(expr: MatBufferExpression, /, intent, iname_maps, loop_indices, context, paths):
+@lower_expr.register(PetscMatBufferExpression)
+def _(expr: PetscMatBufferExpression, /, intent, iname_maps, loop_indices, context, paths):
+    assert False, "dont think I get here any more"
     name_in_kernel = context.add_buffer(expr.buffer, intent)
 
     row_iname_map, col_iname_map = iname_maps

@@ -276,7 +276,8 @@ class Dat(_Dat):
     @classmethod
     def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = ArrayBuffer.zeros(axes.alloc_size, dtype=dtype, sf=axes.sf)
+        # alloc_size?
+        buffer = ArrayBuffer.zeros(axes.size, dtype=dtype, sf=axes.sf)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
@@ -581,6 +582,7 @@ class BufferExpression(Expression, abc.ABC):
     buffer: AbstractBuffer
 
 
+# TODO: just ArrayBufferExpression
 class DatBufferExpression(BufferExpression, abc.ABC):
     pass
 
@@ -660,7 +662,7 @@ class NonlinearDatBufferExpression(DatBufferExpression):
 
 
 @dataclasses.dataclass(init=False, frozen=True)
-class MatBufferExpression(BufferExpression):
+class PetscMatBufferExpression(BufferExpression):
 
     # {{{ Instance attrs
 
@@ -670,6 +672,9 @@ class MatBufferExpression(BufferExpression):
     # }}}
 
     def __init__(self, buffer, row_layouts, column_layouts):
+        # debug
+        assert isinstance(buffer, PETSc.Mat)
+
         row_layouts = pmap(row_layouts)
         column_layouts = pmap(column_layouts)
 

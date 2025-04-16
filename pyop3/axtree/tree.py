@@ -387,10 +387,12 @@ class AxisComponent(LabelledNodeComponent):
 
     # TODO this is just a traversal - clean up
     def alloc_size(self, axtree, axis):
-        from pyop3.array import Dat
+        from pyop3.array import Dat, LinearDatBufferExpression
 
-        if isinstance(self.count, Dat):
-            npoints = self.count.max_value
+        if isinstance(self.count, (Dat, LinearDatBufferExpression)):
+            # TODO: make max_value an attr of buffers
+            # npoints = self.count.max_value
+            npoints = max(self.count.buffer._data)
         else:
             assert isinstance(self.count, numbers.Integral)
             npoints = self.count
@@ -1151,6 +1153,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     # TODO: In serial should this be COMM_SELF, COMM_WORLD or None?
     # It is valid for bits of an axis tree to have no comm but I think
     # that the tree overall should have one...
+    # Should be COMM_WORLD I think
     @property
     def comm(self) -> MPI.Comm | None:
         return unique_comm(self.nodes)
@@ -1158,7 +1161,10 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     @cached_property
     def owned(self):
         """Return the owned portion of the axis tree."""
-        return self.with_region_label(OWNED_REGION_LABEL)
+        if self.comm.size == 1:
+            return self
+        else:
+            return self.with_region_label(OWNED_REGION_LABEL)
 
     def with_region_label(self, region_label: str) -> IndexedAxisTree:
         """TODO"""
@@ -2300,3 +2306,7 @@ def prune_zero_sized_branches(axis_tree: AbstractAxisTree, *, _axis=None) -> Axi
         if subtree is not None:
             new_axis_tree = new_axis_tree.add_subtree(subtree, (new_axis, new_component))
     return new_axis_tree
+
+
+def relabel_path(path, suffix:str):
+    return {f"{axis_label}_{suffix}": component_label for axis_label, component_label in path.items()}

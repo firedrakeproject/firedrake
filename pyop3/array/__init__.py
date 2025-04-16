@@ -6,7 +6,7 @@ from .dat import (  # noqa: F401
     BufferExpression,
     _Dat,
     LinearDatBufferExpression,
-    MatBufferExpression,
+    PetscMatBufferExpression,
     NonlinearDatBufferExpression,
 )
 from .mat import Mat, Sparsity, AbstractMat  # noqa: F401

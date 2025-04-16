@@ -17,7 +17,7 @@ from pyop3.sf import local_sf
 from pyrsistent import pmap, PMap
 from immutabledict import ImmutableOrderedDict
 
-from pyop3.array import Global, Dat, Array, Mat, Sparsity, NonlinearDatBufferExpression, LinearDatBufferExpression, MatBufferExpression, AbstractMat
+from pyop3.array import Global, Dat, Array, Mat, Sparsity, NonlinearDatBufferExpression, LinearDatBufferExpression, PetscMatBufferExpression, AbstractMat
 from pyop3.axtree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
 from pyop3.axtree.tree import Operator, AxisVar, IndexedAxisTree, prune_zero_sized_branches
 from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer, PackedBuffer
@@ -493,7 +493,7 @@ def _(assignment: BufferAssignment, /) -> InstructionList:
     if isinstance(assignment.assignee.buffer, PETSc.Mat):
         mat = assignment.assignee
 
-        if isinstance(mat, MatBufferExpression):
+        if isinstance(mat, PetscMatBufferExpression):
             breakpoint()  # ugly...
             mat = mat.mat
 
@@ -750,6 +750,9 @@ def _(dat, /) -> frozenset:
 def materialize_composite_dat(dat: CompositeDat) -> LinearDatBufferExpression:
     axes = extract_axes(dat, dat.visited_axes, dat.loop_axes, {})
 
+    # TODO: This is almost certainly the wrong place to do this
+    axes = axes.undistribute()
+
     if axes.size == 0:
         return None
 
@@ -839,11 +842,11 @@ def _(dat: Dat, layouts, outer_key):
 
 @_compress_array_indirection_maps.register(Mat)
 @_compress_array_indirection_maps.register(Sparsity)
-def _(mat, layouts, outer_key) -> MatBufferExpression:
+def _(mat, layouts, outer_key) -> PetscMatBufferExpression:
     # If we have a temporary then things are easy and we do not need to substitute anything
     # (at least for now)
     if strictly_all(isinstance(ax, AxisTree) for ax in {mat.raxes, mat.caxes}):
-        return MatBufferExpression(mat.buffer, mat.raxes.layouts, mat.caxes.layouts, parent=mat.parent)
+        return PetscMatBufferExpression(mat.buffer, mat.raxes.layouts, mat.caxes.layouts, parent=mat.parent)
 
     def collect(axes, newlayouts, counter):
         for leaf_path in axes.leaf_paths:
@@ -862,7 +865,7 @@ def _(mat, layouts, outer_key) -> MatBufferExpression:
 
     # will go away when we can assert using types
     assert mat.parent is None
-    return MatBufferExpression(mat.buffer, row_layouts, col_layouts)
+    return PetscMatBufferExpression(mat.buffer, row_layouts, col_layouts)
 
 
 def concretize_arrays(insn: Instruction, /) -> Instruction:

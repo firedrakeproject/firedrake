@@ -8,12 +8,12 @@ from collections.abc import Mapping
 from typing import Any, Optional
 
 from immutabledict import ImmutableOrderedDict
-from pyop3.array.dat import DatBufferExpression, MatBufferExpression
+from pyop3.array.dat import DatBufferExpression, PetscMatBufferExpression
 from pyrsistent import pmap, PMap
 from petsc4py import PETSc
 
 from pyop3.array import Array, Dat, Mat, LinearDatBufferExpression, BufferExpression, AbstractMat, NonlinearDatBufferExpression
-from pyop3.axtree.tree import AxisVar, Expression, Operator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, merge_trees2, ExpressionT, Terminal, AxisComponent
+from pyop3.axtree.tree import AxisVar, Expression, Operator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
 
@@ -245,39 +245,6 @@ def _(dat, /, visited_axes, loop_axes, cache):
     return extract_axes(dat.expr, visited_axes, loop_axes, cache)
 
 
-# @functools.singledispatch
-# def relabel(obj: Any, /, suffix: str):
-#     raise TypeError(f"No handler defined for {type(obj).__name__}")
-#
-#
-# @relabel.register(numbers.Number)
-# @relabel.register(LoopIndexVar)
-# def _(var: Any, /, suffix: str) -> Any:
-#     return var
-#
-#
-# @relabel.register(AxisVar)
-# def _(var: AxisVar, /, suffix: str) -> AxisVar:
-#     return AxisVar(var.axis_label+suffix)
-#
-#
-# @relabel.register(Operator)
-# def _(op: Operator, /, suffix: str) -> AxisVar:
-#     return type(op)(relabel(op.a, suffix), relabel(op.b, suffix))
-#
-#
-# @relabel.register(Dat)
-# def _(dat: Dat, /, suffix: str) -> Dat:
-#     new_axes = _relabel_axes(dat.axes, suffix)
-#     # return array.with_axes(new_axes)
-#     return dat.reconstruct(axes=new_axes)
-#
-#
-# @relabel.register(LinearBufferExpression)
-# def _(expr: LinearBufferExpression, /, suffix: str) -> Dat:
-#     return LinearBufferExpression(relabel(dat.dat, suffix), relabel(dat.layout, suffix))
-
-
 @functools.singledispatch
 def _relabel_axes(obj: Any, suffix: str) -> AbstractAxisTree:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
@@ -426,7 +393,7 @@ def _(dat: Dat, /, loop_axes) -> NonlinearDatBufferExpression:
 
 
 @concretize_arrays.register(AbstractMat)
-def _(mat: Mat, /, loop_axes) -> MatBufferExpression:
+def _(mat: Mat, /, loop_axes) -> PetscMatBufferExpression:
     from pyop3.insn_visitors import materialize_composite_dat
 
     # TODO: Add intermediate type to assert that there is no longer a parent attr
@@ -434,7 +401,9 @@ def _(mat: Mat, /, loop_axes) -> MatBufferExpression:
 
     # NOTE: default_candidate_layouts shouldn't return any cost because it doesn't matter here
 
+    # FIXME: this is bad for temporaries because it means we needlessly tabulate
     layouts = mat.default_candidate_layouts(loop_axes)
+
     row_layouts = {}
     for leaf_path in mat.raxes.pruned.leaf_paths:
         possible_row_layouts = layouts[(mat, leaf_path, 0)]
@@ -455,7 +424,24 @@ def _(mat: Mat, /, loop_axes) -> MatBufferExpression:
 
         col_layouts[leaf_path] = selected_layout
 
-    return MatBufferExpression(mat.buffer, row_layouts, col_layouts)
+    if isinstance(mat.buffer, PETSc.Mat):
+        return PetscMatBufferExpression(mat.buffer, row_layouts, col_layouts)
+    else:
+        # merge layouts
+        layouts = {}
+        for row_path, row_layout in row_layouts.items():
+            for column_path, column_layout in col_layouts.items():
+                relabelled_row_path = relabel_path(row_path, "0")
+                relabelled_column_path = relabel_path(column_path, "1")
+
+                replace_map = {var.axis_label: AxisVar(var.axis_label+"_0") for var in collect_axis_vars(row_layout)}
+                relabelled_row_layout = replace_terminals(row_layout, replace_map)
+
+                replace_map = {var.axis_label: AxisVar(var.axis_label+"_1") for var in collect_axis_vars(column_layout)}
+                relabelled_column_layout = replace_terminals(row_layout, replace_map)
+
+                layouts[pmap(relabelled_row_path|relabelled_column_path)] = relabelled_row_layout * mat.caxes.size + relabelled_column_layout
+        return NonlinearDatBufferExpression(mat.buffer, layouts)
 
 
 @concretize_arrays.register(numbers.Number)
