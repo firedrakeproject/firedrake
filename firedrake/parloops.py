@@ -402,9 +402,8 @@ def _(
     perm = invert_permutation(dof_numbering)
 
     # skip if identity
-    # if False:
     if not np.all(perm == np.arange(perm.size, dtype=IntType)):
-        perm_buffer = op3.Buffer(perm, constant=True)
+        perm_buffer = op3.ArrayBuffer(perm, constant=True)
         perm_dat = op3.Dat(V._packed_nodal_axes.root.copy(label="mylabel"), perm_buffer, prefix="p")
         perm_subset = op3.Slice("nodes_flat", [op3.Subset("XXX", perm_dat)], label="mylabel")
         indexed = indexed.reshape(V._packed_nodal_axes)[perm_subset]
@@ -456,14 +455,14 @@ def _(
         or np.any(col_perm != np.arange(col_perm.size, dtype=IntType))
     ):
         # NOTE: This construction is horrible
-        row_perm_buffer = op3.Buffer(row_perm, constant=True)
+        row_perm_buffer = op3.ArrayBuffer(row_perm, constant=True)
         row_perm_dat = op3.Dat(
             Vrow._packed_nodal_axes.root.copy(label="mylabel"),
             buffer=row_perm_buffer,
         )
         row_perm_subset = op3.Slice("nodes_flat", [op3.Subset("XXX", row_perm_dat)], label="mylabel")
 
-        col_perm_buffer = op3.Buffer(col_perm, constant=True)
+        col_perm_buffer = op3.ArrayBuffer(col_perm, constant=True)
         col_perm_dat = op3.Dat(
             Vcol._packed_nodal_axes.root.copy(label="mylabel"),
             buffer=col_perm_buffer,

@@ -26,7 +26,7 @@ from pyop3.axtree.tree import (
     IndexedAxisTree,
     as_axis_tree,
 )
-from pyop3.buffer import Buffer, NullBuffer, AbstractBuffer
+from pyop3.buffer import ArrayBuffer, NullBuffer, AbstractBuffer
 from pyop3.dtypes import IntType, ScalarType
 from pyop3.lang import Loop, BufferAssignment
 from pyop3.utils import (
@@ -119,7 +119,6 @@ class AbstractMat(DistributedArray):
 
         assert isinstance(mat, (AbstractBuffer, PETSc.Mat))
 
-        super().__init__(name, prefix=prefix, parent=parent)
         object.__setattr__(self, "raxes", raxes)
         object.__setattr__(self, "caxes", caxes)
         object.__setattr__(self, "block_shape", block_shape)
@@ -128,6 +127,7 @@ class AbstractMat(DistributedArray):
         object.__setattr__(self, "constant", constant)
 
         # self._cache = {}
+        super().__init__(name, prefix=prefix, parent=parent)
 
     # NOTE: This is missing out on certain fields!
     def __hash__(self) -> int:
@@ -136,6 +136,16 @@ class AbstractMat(DistributedArray):
                 type(self), self.raxes, self.caxes, self.dtype, id(self.mat), self.name)
         )
 
+    # {{{ Class constructors
+
+    @classmethod
+    def null(cls, row_axes, column_axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Mat:
+        row_axes = as_axis_tree(row_axes)
+        column_axes = as_axis_tree(column_axes)
+        buffer = NullBuffer(row_axes.alloc_size*column_axes.alloc_size, dtype=dtype)
+        return cls(row_axes, column_axes, mat=buffer, **kwargs)
+
+    # }}}
 
     # {{{ Array impls
 
@@ -615,6 +625,9 @@ class AbstractMat(DistributedArray):
 
 # NOTE: Is it possible to remove this? Potentially an unnecessary type...
 class Sparsity(AbstractMat):
+
+    __hash__ = AbstractMat.__hash__
+
     def materialize(self) -> PETSc.Mat:
         if not hasattr(self, "_lazy_template"):
             self.assemble()
@@ -683,7 +696,10 @@ class Sparsity(AbstractMat):
         return mat
 
 
+@dataclasses.dataclass(init=False, frozen=True)
 class Mat(AbstractMat):
+    __hash__ = AbstractMat.__hash__
+
     @classmethod
     def from_sparsity(cls, sparsity, *, name=None):
         mat = sparsity.materialize()

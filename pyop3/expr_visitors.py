@@ -8,10 +8,11 @@ from collections.abc import Mapping
 from typing import Any, Optional
 
 from immutabledict import ImmutableOrderedDict
-from pyop3.array.dat import BufferExpression
+from pyop3.array.dat import DatBufferExpression, MatBufferExpression
 from pyrsistent import pmap, PMap
+from petsc4py import PETSc
 
-from pyop3.array import Array, Dat, Mat, LinearBufferExpression, _ConcretizedMat, AbstractMat, NonlinearBufferExpression
+from pyop3.array import Array, Dat, Mat, LinearDatBufferExpression, BufferExpression, AbstractMat, NonlinearDatBufferExpression
 from pyop3.axtree.tree import AxisVar, Expression, Operator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, merge_trees2, ExpressionT, Terminal, AxisComponent
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
@@ -62,8 +63,8 @@ def _(dat: Dat, indices):
     return dat.buffer.data_ro_with_halos[offset]
 
 
-@evaluate.register(LinearBufferExpression)
-def _(expr: LinearBufferExpression, indices):
+@evaluate.register(LinearDatBufferExpression)
+def _(expr: LinearDatBufferExpression, indices):
     offset = evaluate(expr.layout, indices)
     return expr.buffer.data_ro_with_halos[offset]
 
@@ -126,8 +127,8 @@ def _(dat: Dat, /) -> OrderedSet:
     return loop_indices
 
 
-@collect_loops.register(LinearBufferExpression)
-def _(expr: LinearBufferExpression, /) -> OrderedSet:
+@collect_loops.register(LinearDatBufferExpression)
+def _(expr: LinearDatBufferExpression, /) -> OrderedSet:
     return collect_loops(expr.layout)
 
 
@@ -152,7 +153,7 @@ def restrict_to_context(obj: Any, /, loop_context):
 
 @restrict_to_context.register(numbers.Number)
 @restrict_to_context.register(AxisVar)
-@restrict_to_context.register(BufferExpression)
+@restrict_to_context.register(DatBufferExpression)
 def _(var: Any, /, loop_context) -> Any:
     return var
 
@@ -232,7 +233,7 @@ def _(array: Array, /, visited_axes, loop_axes, cache):
     return array.axes
 
 
-@extract_axes.register(LinearBufferExpression)
+@extract_axes.register(LinearDatBufferExpression)
 def _(expr, /, visited_axes, loop_axes, cache):
     return extract_axes(expr.layout, visited_axes, loop_axes, cache)
 
@@ -347,10 +348,10 @@ def _(dat: Dat, /, replace_map):
     return replace_terminals(dat._as_expression_dat(), replace_map)
 
 
-@replace_terminals.register(LinearBufferExpression)
-def _(expr: LinearBufferExpression, /, replace_map) -> LinearBufferExpression:
+@replace_terminals.register(LinearDatBufferExpression)
+def _(expr: LinearDatBufferExpression, /, replace_map) -> LinearDatBufferExpression:
     new_layout = replace_terminals(expr.layout, replace_map)
-    return LinearBufferExpression(expr.buffer, new_layout)
+    return LinearDatBufferExpression(expr.buffer, new_layout)
 
 
 @replace_terminals.register(Operator)
@@ -380,8 +381,8 @@ def _(dat: Dat, /, replace_map):
     return replace(dat._as_expression_dat(), replace_map)
 
 
-@replace.register(LinearBufferExpression)
-def _(expr: LinearBufferExpression, /, replace_map):
+@replace.register(LinearDatBufferExpression)
+def _(expr: LinearDatBufferExpression, /, replace_map):
     # TODO: Can have a flag that determines the replacement order (pre/post)
     if expr in replace_map:
         return replace_map[expr]
@@ -413,7 +414,7 @@ def concretize_arrays(obj: Any, /, *args, **kwargs) -> Expression:
 
 
 @concretize_arrays.register(Dat)
-def _(dat: Dat, /, loop_axes) -> NonlinearBufferExpression:
+def _(dat: Dat, /, loop_axes) -> NonlinearDatBufferExpression:
     selected_layouts = dat.default_candidate_layouts(loop_axes)
     # selected_layouts = {}
     # for leaf_path in dat.axes.leaf_paths:
@@ -421,12 +422,15 @@ def _(dat: Dat, /, loop_axes) -> NonlinearBufferExpression:
     #     selected_layout, _ = min(possible_layouts, key=lambda item: item[1])
     #     selected_layouts[leaf_path] = selected_layout
 
-    return NonlinearBufferExpression(dat.buffer, selected_layouts)
+    return NonlinearDatBufferExpression(dat.buffer, selected_layouts)
 
 
 @concretize_arrays.register(AbstractMat)
-def _(mat: Mat, /, loop_axes) -> _ConcretizedDat:
+def _(mat: Mat, /, loop_axes) -> MatBufferExpression:
     from pyop3.insn_visitors import materialize_composite_dat
+
+    # TODO: Add intermediate type to assert that there is no longer a parent attr
+    assert mat.parent is None
 
     # NOTE: default_candidate_layouts shouldn't return any cost because it doesn't matter here
 
@@ -451,14 +455,13 @@ def _(mat: Mat, /, loop_axes) -> _ConcretizedDat:
 
         col_layouts[leaf_path] = selected_layout
 
-    return _ConcretizedMat(mat, row_layouts, col_layouts, parent=mat.parent)
+    return MatBufferExpression(mat.buffer, row_layouts, col_layouts)
 
 
 @concretize_arrays.register(numbers.Number)
 @concretize_arrays.register(AxisVar)
-@concretize_arrays.register(LoopIndexVar)
 @concretize_arrays.register(BufferExpression)
-@concretize_arrays.register(_ConcretizedMat)
+@concretize_arrays.register(LoopIndexVar)
 def _(var: Any, /, loop_axes) -> Any:
     return var
 
@@ -517,11 +520,11 @@ def _(op: Operator, /, visited_axes, loop_axes) -> tuple:
     return tuple(candidates)
 
 
-@collect_candidate_indirections.register(LinearBufferExpression)
-def _(expr: LinearBufferExpression, /, visited_axes, loop_axes) -> tuple:
+@collect_candidate_indirections.register(LinearDatBufferExpression)
+def _(expr: LinearDatBufferExpression, /, visited_axes, loop_axes) -> tuple:
     candidates = []
     for layout_expr, layout_cost in collect_candidate_indirections(expr.layout, visited_axes, loop_axes):
-        candidate_expr = LinearBufferExpression(expr.buffer, layout_expr)
+        candidate_expr = LinearDatBufferExpression(expr.buffer, layout_expr)
         # The cost of an expression dat (i.e. the memory volume) is given by...
         # Remember that the axes here described the outer loops that exist and that
         # index expressions that do not access data (e.g. 2i+j) have a cost of zero.
@@ -563,8 +566,8 @@ def _(op: Operator, /, visited_axes, loop_axes, seen_exprs_mut, cache) -> int:
     )
 
 
-@compute_indirection_cost.register(LinearBufferExpression)
-def _(expr: LinearBufferExpression, /, visited_axes, loop_axes, seen_exprs_mut, cache) -> int:
+@compute_indirection_cost.register(LinearDatBufferExpression)
+def _(expr: LinearDatBufferExpression, /, visited_axes, loop_axes, seen_exprs_mut, cache) -> int:
     if seen_exprs_mut is not None:
         if expr in seen_exprs_mut:
             return 0
@@ -635,15 +638,14 @@ def _(dat: CompositeDat, /, visited_axes, loop_axes, seen_exprs_mut, cache) -> i
 def collect_axis_vars(obj: Any, /) -> OrderedSet:
     from pyop3.itree.tree import LoopIndexVar
 
-    if isinstance(obj, LoopIndexVar):
-        assert False
-    elif isinstance(obj, Operator):
+    if isinstance(obj, Operator):
         return collect_axis_vars(obj.a) | collect_axis_vars(obj.b)
 
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
 @collect_axis_vars.register(numbers.Number)
+@collect_axis_vars.register(LoopIndexVar)
 def _(var):
     return OrderedSet()
 
@@ -665,7 +667,7 @@ def _(dat: Dat, /) -> OrderedSet:
     return loop_indices
 
 
-@collect_axis_vars.register(LinearBufferExpression)
+@collect_axis_vars.register(LinearDatBufferExpression)
 def _(dat: _ExpressionDat, /) -> OrderedSet:
     return collect_axis_vars(dat.layout)
 

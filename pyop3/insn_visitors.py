@@ -12,15 +12,15 @@ from typing import Any, Union
 
 import numpy as np
 from petsc4py import PETSc
-from pyop3.array.dat import BufferExpression
+from pyop3.array.dat import DatBufferExpression
 from pyop3.sf import local_sf
 from pyrsistent import pmap, PMap
 from immutabledict import ImmutableOrderedDict
 
-from pyop3.array import Global, Dat, Array, Mat, Sparsity, NonlinearBufferExpression, LinearBufferExpression, _ConcretizedMat, AbstractMat
+from pyop3.array import Global, Dat, Array, Mat, Sparsity, NonlinearDatBufferExpression, LinearDatBufferExpression, MatBufferExpression, AbstractMat
 from pyop3.axtree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
 from pyop3.axtree.tree import Operator, AxisVar, IndexedAxisTree, prune_zero_sized_branches
-from pyop3.buffer import AbstractBuffer, Buffer, NullBuffer, PackedBuffer
+from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer, PackedBuffer
 from pyop3.dtypes import IntType
 from pyop3.itree import Map, TabulatedMapComponent, collect_loop_contexts
 from pyop3.itree.tree import LoopIndexVar
@@ -249,21 +249,12 @@ class ImplicitPackUnpackExpander(Transformer):
                 if isinstance(arg, Dat):
                     # arg.axes.materialize(),  # TODO
                     axes = AxisTree(arg.axes.node_map)
-                    temporary = Dat(
-                        axes,
-                        buffer=NullBuffer(axes.alloc_size, arg.dtype),
-                        prefix="t",
-                    )
+                    temporary = Dat.null(axes, dtype=arg.dtype, prefix="t")
                 else:
                     assert isinstance(arg, Mat)
                     raxes = AxisTree(arg.raxes.node_map)
                     caxes = AxisTree(arg.caxes.node_map)
-                    temporary = Mat(
-                        raxes,
-                        caxes,
-                        mat=NullBuffer(raxes.alloc_size*caxes.alloc_size, arg.dtype),
-                        prefix="t",
-                    )
+                    temporary = Mat.null(raxes, caxes, dtype=arg.dtype, prefix="t")
 
                 if intent == READ:
                     gathers.append(BufferAssignment(temporary, arg, "write"))
@@ -427,30 +418,28 @@ def _(op: Operator, /, access_type):
 @_expand_reshapes.register(numbers.Number)
 @_expand_reshapes.register(AxisVar)
 @_expand_reshapes.register(LoopIndexVar)
-@_expand_reshapes.register(BufferExpression)
+@_expand_reshapes.register(DatBufferExpression)
 def _(var, /, access_type):
     return (var, ())
 
 
+# TODO: Add intermediate type here to assert that there is no longer a parent attr
 @_expand_reshapes.register(Array)
 def _(array: Array, /, access_type):
     if array.parent:
         # .materialize?
         if isinstance(array, Dat):
-            temp_initial = Dat(
+            temp_initial = Dat.null(
                 AxisTree(array.parent.axes.node_map),
-                buffer=NullBuffer(array.axes.alloc_size, array.dtype),
+                dtype=array.dtype,
                 prefix="t"
             )
             temp_reshaped = temp_initial.with_axes(array.axes)
         else:
             assert isinstance(array, Mat)
-            temp_initial = Mat(
-                AxisTree(array.parent.raxes.node_map),
-                AxisTree(array.parent.caxes.node_map),
-                mat=NullBuffer(array.parent.raxes.alloc_size*array.parent.caxes.alloc_size, array.dtype),
-                prefix="t"
-            )
+            raxes = AxisTree(array.parent.raxes.node_map)
+            caxes = AxisTree(array.parent.caxes.node_map)
+            temp_initial = Mat.null(raxes, caxes, dtype=array.dtype, prefix="t")
             temp_reshaped = temp_initial.with_axes(array.raxes, array.caxes)
 
         transformed_dat, extra_insns = _expand_reshapes(array.parent, access_type)
@@ -504,7 +493,8 @@ def _(assignment: BufferAssignment, /) -> InstructionList:
     if isinstance(assignment.assignee.buffer, PETSc.Mat):
         mat = assignment.assignee
 
-        if isinstance(mat, _ConcretizedMat):
+        if isinstance(mat, MatBufferExpression):
+            breakpoint()  # ugly...
             mat = mat.mat
 
         # If we have an expression like
@@ -518,13 +508,14 @@ def _(assignment: BufferAssignment, /) -> InstructionList:
             expr_raxes = AxisTree(mat.raxes.node_map)
             expr_caxes = AxisTree(mat.caxes.node_map)
             expr_sf = local_sf(expr_raxes.alloc_size*expr_caxes.alloc_size, comm=mat.comm)
-            expr_data = np.full(mat.alloc_size, assignment.expression, dtype=mat.dtype)
-            expr_buffer = Buffer(expr_data, expr_sf)
+            expr_data = np.full((expr_raxes.size, expr_caxes.size), assignment.expression, dtype=mat.dtype)
+            expr_buffer = ArrayBuffer(expr_data, expr_sf)
             expression = Mat(
                 expr_raxes, expr_caxes, mat=expr_buffer, prefix="t", constant=True)
         else:
             assert (
-                isinstance(assignment.expression, (Mat, _ConcretizedMat))
+                # isinstance(assignment.expression, (Mat, _ConcretizedMat))
+                isinstance(assignment.expression, (Mat,))
                 and isinstance(assignment.expression.buffer, NullBuffer)
             )
             expression = assignment.expression
@@ -745,7 +736,7 @@ def _(op, /) -> frozenset:
     return frozenset()
 
 
-@_collect_composite_dats.register(LinearBufferExpression)
+@_collect_composite_dats.register(LinearDatBufferExpression)
 def _(dat, /) -> frozenset:
     return _collect_composite_dats(dat.layout)
 
@@ -756,7 +747,7 @@ def _(dat, /) -> frozenset:
 
 
 # NOTE: Think this lives in expr_visitors or something
-def materialize_composite_dat(dat: CompositeDat) -> LinearBufferExpression:
+def materialize_composite_dat(dat: CompositeDat) -> LinearDatBufferExpression:
     axes = extract_axes(dat, dat.visited_axes, dat.loop_axes, {})
 
     if axes.size == 0:
@@ -779,7 +770,7 @@ def materialize_composite_dat(dat: CompositeDat) -> LinearBufferExpression:
     layout = just_one(result.axes.leaf_subst_layouts.values())
     newlayout = replace_terminals(layout, inv_map)
 
-    return LinearBufferExpression(result.buffer, newlayout)
+    return LinearDatBufferExpression(result.buffer, newlayout)
 
 
 @functools.singledispatch
@@ -848,11 +839,11 @@ def _(dat: Dat, layouts, outer_key):
 
 @_compress_array_indirection_maps.register(Mat)
 @_compress_array_indirection_maps.register(Sparsity)
-def _(mat, layouts, outer_key):
+def _(mat, layouts, outer_key) -> MatBufferExpression:
     # If we have a temporary then things are easy and we do not need to substitute anything
     # (at least for now)
     if strictly_all(isinstance(ax, AxisTree) for ax in {mat.raxes, mat.caxes}):
-        return _ConcretizedMat(mat, mat.raxes.layouts, mat.caxes.layouts, parent=mat.parent)
+        return MatBufferExpression(mat.buffer, mat.raxes.layouts, mat.caxes.layouts, parent=mat.parent)
 
     def collect(axes, newlayouts, counter):
         for leaf_path in axes.leaf_paths:
@@ -869,7 +860,9 @@ def _(mat, layouts, outer_key):
     collect(mat.raxes.pruned, row_layouts, 0)
     collect(mat.caxes.pruned, col_layouts, 1)
 
-    return _ConcretizedMat(mat, row_layouts, col_layouts, parent=mat.parent)
+    # will go away when we can assert using types
+    assert mat.parent is None
+    return MatBufferExpression(mat.buffer, row_layouts, col_layouts)
 
 
 def concretize_arrays(insn: Instruction, /) -> Instruction:

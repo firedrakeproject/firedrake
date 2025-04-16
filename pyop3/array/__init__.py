@@ -3,10 +3,11 @@ from .global_ import Global  # noqa: F401
 from .dat import (  # noqa: F401
     FancyIndexWriteException,
     Dat,
+    BufferExpression,
     _Dat,
-    LinearBufferExpression,
-    _ConcretizedMat,
-    NonlinearBufferExpression,
+    LinearDatBufferExpression,
+    MatBufferExpression,
+    NonlinearDatBufferExpression,
 )
 from .mat import Mat, Sparsity, AbstractMat  # noqa: F401
 from .parameter import Parameter  # noqa: F401

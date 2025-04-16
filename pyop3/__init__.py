@@ -44,7 +44,7 @@ from pyop3.axtree import (  # noqa: F401
     AxisVar,
     IndexedAxisTree,
 )
-from pyop3.buffer import Buffer, NullBuffer  # noqa: F401
+from pyop3.buffer import ArrayBuffer, NullBuffer  # noqa: F401
 from pyop3.dtypes import IntType, ScalarType  # noqa: F401
 from pyop3.itree import (  # noqa: F401
     AffineSliceComponent,

@@ -227,9 +227,9 @@ class AxisComponentRegion:
     label: str | None = None
 
     def __post_init__(self):
-        from pyop3.array import LinearBufferExpression
+        from pyop3.array import LinearDatBufferExpression
         if not isinstance(self.size, numbers.Integral):
-            assert isinstance(self.size, LinearBufferExpression)
+            assert isinstance(self.size, LinearDatBufferExpression)
             assert self.size.buffer.sf is None
 
     def __str__(self) -> str:

@@ -6,6 +6,7 @@ from typing import Any, ClassVar
 
 import numpy as np
 from mpi4py import MPI
+from petsc4py import PETSc
 
 from pyop3 import utils
 from pyop3.axtree import ContextAware
@@ -14,6 +15,10 @@ from pyop3.exceptions import InvalidIndexCountException
 from pyop3.lang import FunctionArgument, BufferAssignment
 
 
+__all__ = ("Array",)
+
+
+# TODO: rename 'DataCarrier'? Or TENSOR!!!!!!! Array is overloaded
 @dataclasses.dataclass(init=False, frozen=True)
 class Array(ContextAware, FunctionArgument, Expression, utils.RecordMixin, abc.ABC):
 
@@ -94,10 +99,12 @@ class Array(ContextAware, FunctionArgument, Expression, utils.RecordMixin, abc.A
 
 
 # TODO: make this a dataclass and accept the buffer there
+@dataclasses.dataclass(init=False, frozen=True)
 class DistributedArray(Array, abc.ABC):
 
     # {{{ abstract methods
 
+    # NOTE: Why is this not an attr of the parent class?
     @property
     @abc.abstractmethod
     def buffer(self) -> Any:

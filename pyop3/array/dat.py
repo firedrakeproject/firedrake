@@ -24,7 +24,7 @@ from pyop3.axtree import (
     as_axis_tree,
 )
 from pyop3.axtree.tree import AbstractAxisTree, Expression, ContextFree, ContextSensitiveAxisTree, subst_layouts
-from pyop3.buffer import AbstractBuffer, Buffer, NullBuffer
+from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer
 from pyop3.dtypes import ScalarType
 from pyop3.exceptions import Pyop3Exception
 from pyop3.lang import KernelArgument, BufferAssignment
@@ -196,7 +196,7 @@ class Dat(_Dat):
     def __init__(
         self,
         axes,
-        buffer: Buffer | None = None,
+        buffer: ArrayBuffer | None = None,
         *,
         data: np.ndarray | None = None,
         max_value=None,
@@ -219,16 +219,15 @@ class Dat(_Dat):
         axes = as_axis_tree(axes)
 
         assert buffer is None or data is None, "cant specify both"
-        if isinstance(buffer, Buffer):
+        if isinstance(buffer, ArrayBuffer):
             assert buffer.sf == axes.sf
         elif isinstance(buffer, NullBuffer):
             pass
         else:
             assert buffer is None and data is not None
             assert len(data.shape) == 1, "cant do nested shape"
-            buffer = Buffer(data, axes.sf)
+            buffer = ArrayBuffer(data, axes.sf)
 
-        super().__init__(name=name, prefix=prefix, parent=parent)
         object.__setattr__(self, "axes", axes)
         object.__setattr__(self, "_buffer", buffer)
         object.__setattr__(self, "max_value", max_value)
@@ -240,6 +239,7 @@ class Dat(_Dat):
         #
         # where self.ordered_access would detect the use of a subset...
         object.__setattr__(self, "ordered", ordered)
+        super().__init__(name=name, prefix=prefix, parent=parent)
 
         # self._cache = {}
 
@@ -270,13 +270,19 @@ class Dat(_Dat):
     @classmethod
     def empty(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = Buffer.empty(axes.size, dtype=dtype, sf=axes.sf)
+        buffer = ArrayBuffer.empty(axes.alloc_size, dtype=dtype, sf=axes.sf)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
     def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = Buffer.zeros(axes.size, dtype=dtype, sf=axes.sf)
+        buffer = ArrayBuffer.zeros(axes.alloc_size, dtype=dtype, sf=axes.sf)
+        return cls(axes, buffer=buffer, **kwargs)
+
+    @classmethod
+    def null(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
+        axes = as_axis_tree(axes)
+        buffer = NullBuffer(axes.alloc_size, dtype=dtype)
         return cls(axes, buffer=buffer, **kwargs)
 
     # }}}
@@ -496,7 +502,7 @@ class Dat(_Dat):
     def _as_expression_dat(self):
         assert self.axes.is_linear
         layout = just_one(self.axes.leaf_subst_layouts.values())
-        return LinearBufferExpression(self.buffer, layout)
+        return LinearDatBufferExpression(self.buffer, layout)
 
     def _check_vec_dtype(self):
         if self.dtype != PETSc.ScalarType:
@@ -569,14 +575,19 @@ class Dat(_Dat):
         return self.reconstruct(axes=axes)
 
 
-# FIXME: Should inherit from Terminal
+# TODO: Should inherit from Terminal (but Terminal has odd attrs)
 @dataclasses.dataclass(frozen=True)
 class BufferExpression(Expression, abc.ABC):
     buffer: AbstractBuffer
 
 
+class DatBufferExpression(BufferExpression, abc.ABC):
+    pass
+
+
+
 @dataclasses.dataclass(init=False, frozen=True)
-class LinearBufferExpression(BufferExpression):
+class LinearDatBufferExpression(DatBufferExpression):
     """A dat with fixed (?) layout.
 
     It cannot be indexed.
@@ -623,7 +634,7 @@ class LinearBufferExpression(BufferExpression):
 
 
 @dataclasses.dataclass(init=False, frozen=True)
-class NonlinearBufferExpression(BufferExpression):
+class NonlinearDatBufferExpression(DatBufferExpression):
     """A dat with fixed layouts.
 
     This class is useful for describing dats whose layouts have been optimised.
@@ -648,37 +659,32 @@ class NonlinearBufferExpression(BufferExpression):
         )
 
 
-# TODO: reenable when I have cleaned things up, disabling this just means that
-# reconstruct will break (fine with me)
-# @dataclasses.dataclass(init=False, frozen=True)
-# class _ConcretizedMat(_ConcretizedDat2):
-class _ConcretizedMat:
-    pass
-    """A dat with fixed layouts.
+@dataclasses.dataclass(init=False, frozen=True)
+class MatBufferExpression(BufferExpression):
 
-    This class is useful for describing dats whose layouts have been optimised.
+    # {{{ Instance attrs
 
-    Unlike `_ExpressionDat` a `_ConcretizedDat` is permitted to be multi-component.
+    row_layouts: Any
+    column_layouts: Any
 
-    """
-    # def __init__(self, mat, row_layouts, col_layouts, parent):
-    #     super().__init__(name=mat.name, parent=parent)
-    #     self.dat = mat  # only because I need to clean this up
-    #     self.mat = mat
-    #     self.row_layouts = pmap(row_layouts)
-    #     self.col_layouts = pmap(col_layouts)
-    #
-    # def __str__(self) -> str:
-    #     return "\n".join(
-    #         f"{self.name}[{row_layout}, {col_layout}]"
-    #         for row_layout in self.row_layouts.values()
-    #         for col_layout in self.col_layouts.values()
-    #     )
-    #
-    # @property
-    # def axes(self):
-    #     return self.mat.axes
-    #
-    # @property
-    # def alloc_size(self) -> int:
-    #     return self.mat.alloc_size
+    # }}}
+
+    def __init__(self, buffer, row_layouts, column_layouts):
+        row_layouts = pmap(row_layouts)
+        column_layouts = pmap(column_layouts)
+
+        object.__setattr__(self, "row_layouts", row_layouts)
+        object.__setattr__(self, "column_layouts", column_layouts)
+        super().__init__(buffer)
+
+    def __str__(self) -> str:
+        # TODO: undo this when we have a PetscMatBuffer type
+        if isinstance(self.buffer, PETSc.Mat):
+            name = f"petscmat_{id(self)}"
+        else:
+            name = self.buffer.name
+        return "\n".join(
+            f"{name}[{rl}, {cl}]"
+            for rl in self.row_layouts.values()
+            for cl in self.column_layouts.values()
+        )

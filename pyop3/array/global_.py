@@ -6,7 +6,7 @@ import numpy as np
 from mpi4py import MPI
 
 from pyop3.array.base import DistributedArray
-from pyop3.buffer import AbstractBuffer, Buffer
+from pyop3.buffer import AbstractBuffer, ArrayBuffer
 from pyop3.sf import single_star_sf
 
 
@@ -33,9 +33,9 @@ class Global(DistributedArray):
             sf = single_star_sf(comm)
             if value is not None:
                 data = np.asarray([value])
-                buffer = Buffer(data, sf=sf)
+                buffer = ArrayBuffer(data, sf=sf)
             else:
-                buffer = Buffer.zeros(1, sf=sf)
+                buffer = ArrayBuffer.zeros(1, sf=sf)
 
         super().__init__(name, prefix=prefix)
         object.__setattr__(self, "_buffer", buffer)

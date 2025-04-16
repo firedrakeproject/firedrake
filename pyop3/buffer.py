@@ -54,9 +54,10 @@ def record_modified(func):
 class AbstractBuffer(KernelArgument, abc.ABC):
     DEFAULT_DTYPE = ScalarType
 
+    # maybe doesnt have to be abstract, just use __init__
     @property
     @abc.abstractmethod
-    def size(self):
+    def size(self) -> int:
         pass
 
     @property
@@ -68,12 +69,6 @@ class AbstractBuffer(KernelArgument, abc.ABC):
     @abc.abstractmethod
     def name(self):
         pass
-
-    # needed? the motivation is that one can consider arrays as having 2 dtypes. E.g.
-    # 'double*' or 'double' (the whole thing or the entries)
-    @property
-    def kernel_dtype(self):
-        return self.dtype
 
 
 class NullBuffer(AbstractBuffer):
@@ -86,16 +81,19 @@ class NullBuffer(AbstractBuffer):
 
     """
 
-    def __init__(self, size, dtype=None):
+    def __init__(self, size: numbers.Integral, dtype=None):
+        # debug
+        assert isinstance(size, numbers.Integral)
+
         if dtype is None:
             dtype = self.DEFAULT_DTYPE
 
-        self._size = size
+        self._size = utils.strict_int(size)
         self._dtype = dtype
         self._name = utils.unique_name("null")
 
     @property
-    def size(self):
+    def size(self) -> int:
         return self._size
 
     @property
@@ -107,7 +105,7 @@ class NullBuffer(AbstractBuffer):
         return self._name
 
 
-class Buffer(AbstractBuffer):
+class ArrayBuffer(AbstractBuffer):
     """An array distributed across multiple processors with ghost values."""
 
     # NOTE: When GPU support is added, the host-device awareness and
@@ -117,13 +115,12 @@ class Buffer(AbstractBuffer):
     # DistributedArray. But copies should ideally be avoided?
 
     _prefix = "buffer"
-    _name_generator = UniqueNameGenerator()
 
     def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, constant: bool=False, name:str|None=None, prefix:str | None=None):
         if name and prefix:
             raise ValueError("Can only specify one of name and prefix")
 
-        name = maybe_generate_name(name, prefix, self._prefix, generator=self._name_generator)
+        name = maybe_generate_name(name, prefix, self._prefix)
 
         # FIXME: Clearly not lazy!
         self._lazy_data = data
@@ -140,19 +137,19 @@ class Buffer(AbstractBuffer):
         self._finalizer = None
 
     @classmethod
-    def empty(cls, size, dtype=None, **kwargs):
+    def empty(cls, shape, dtype=None, **kwargs):
         if dtype is None:
             dtype = cls.DEFAULT_DTYPE
 
-        data = np.empty(size, dtype=dtype)
+        data = np.empty(shape, dtype=dtype)
         return cls(data, **kwargs)
 
     @classmethod
-    def zeros(cls, size, dtype=None, **kwargs):
+    def zeros(cls, shape, dtype=None, **kwargs):
         if dtype is None:
             dtype = cls.DEFAULT_DTYPE
 
-        data = np.zeros(size, dtype=dtype)
+        data = np.zeros(shape, dtype=dtype)
         return cls(data, **kwargs)
 
     @property
@@ -162,6 +159,10 @@ class Buffer(AbstractBuffer):
     @property
     def dtype(self):
         return self._data.dtype
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        return self._data.shape
 
     @property
     def name(self) -> str:

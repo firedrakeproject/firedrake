@@ -158,10 +158,12 @@ class KernelArgument(abc.ABC):
 
     """
 
-    @property
-    @abc.abstractmethod
-    def kernel_dtype(self):
-        pass
+    # needed? the motivation is that one can consider arrays as having 2 dtypes. E.g.
+    # 'double*' or 'double' (the whole thing or the entries)
+    # @property
+    # @abc.abstractmethod
+    # def kernel_dtype(self):
+    #     pass
 
 
 class UnprocessedExpressionException(Pyop3Exception):
@@ -282,7 +284,7 @@ class Loop(Instruction):
         # TODO just parse into ContextAwareLoop and call that
         from pyop3.ir.lower import compile
         from pyop3.itree.tree import partition_iterset
-        from pyop3.buffer import Buffer
+        from pyop3.buffer import ArrayBuffer
 
         compiler_parameters = parse_compiler_parameters(compiler_parameters)
 
@@ -293,7 +295,7 @@ class Loop(Instruction):
         broadcasts = []
         if self.comm.size > 1:
             for data_arg in code.data_arguments:
-                if not isinstance(data_arg, Buffer):
+                if not isinstance(data_arg, ArrayBuffer):
                     continue
 
                 inits, reds, bcasts = Loop._buffer_exchanges(
@@ -376,10 +378,10 @@ class Loop(Instruction):
 
     @cached_property
     def is_parallel(self):
-        from pyop3.buffer import Buffer
+        from pyop3.buffer import ArrayBuffer
 
         for arg in self.kernel_arguments:
-            if isinstance(arg, Buffer):
+            if isinstance(arg, ArrayBuffer):
                 # if arg.is_distributed:
                 if arg.comm.size > 1:
                     return True
@@ -417,7 +419,7 @@ class Loop(Instruction):
 
         """
         from pyop3.array import Dat, Mat
-        from pyop3.buffer import Buffer
+        from pyop3.buffer import ArrayBuffer
 
         initializers = []
         reductions = []
@@ -425,7 +427,7 @@ class Loop(Instruction):
         for arg, intent in self.function_arguments:
             if isinstance(arg, Dat):
                 buffer = arg.buffer
-                if isinstance(buffer, Buffer) and buffer.is_distributed:
+                if isinstance(buffer, ArrayBuffer) and buffer.is_distributed:
                     # for now assume the most conservative case
                     touches_ghost_points = True
 
@@ -1038,13 +1040,13 @@ def fix_intents(tunit, accesses):
 @functools.singledispatch
 def _collect_kernel_arguments(func_arg: FunctionArgument) -> tuple:
     from pyop3.array import Dat, Mat
-    from pyop3.buffer import Buffer, NullBuffer
+    from pyop3.buffer import ArrayBuffer, NullBuffer
 
     if isinstance(func_arg, Dat):
         return _collect_kernel_arguments(func_arg.buffer)
     elif isinstance(func_arg, Mat):
         return _collect_kernel_arguments(func_arg.mat)
-    elif isinstance(func_arg, Buffer):
+    elif isinstance(func_arg, ArrayBuffer):
         return (func_arg,)
     elif isinstance(func_arg, NullBuffer):
         return ()

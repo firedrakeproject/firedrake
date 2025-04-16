@@ -21,15 +21,17 @@ from petsc4py import PETSc
 import loopy as lp
 import numpy as np
 import pymbolic as pym
+from pyop3.array.dat import MatBufferExpression
+from pyop3.expr_visitors import collect_axis_vars, extract_axes
 from pyrsistent import freeze, pmap, PMap
 
 import pyop2
 
 from pyop3 import utils
-from pyop3.array import Dat, _Dat, LinearBufferExpression, NonlinearBufferExpression, _ConcretizedMat, Parameter, Mat, AbstractMat
+from pyop3.array import Dat, _Dat, LinearDatBufferExpression, NonlinearDatBufferExpression, Parameter, Mat, AbstractMat
 from pyop3.array.base import Array
 from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent
-from pyop3.buffer import AbstractBuffer, Buffer, NullBuffer, PackedBuffer
+from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer, PackedBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
 from pyop3.ir.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
@@ -194,8 +196,8 @@ class LoopyCodegenContext(CodegenContext):
     def add_buffer(self, buffer: Any, intent: Intent | None = None) -> str:
         raise TypeError(f"No handler defined for {type(buffer).__name__}")
 
-    @add_buffer.register(Buffer)
-    def _(self, buffer: Buffer, intent: Intent| None = None) -> str:
+    @add_buffer.register(ArrayBuffer)
+    def _(self, buffer: ArrayBuffer, intent: Intent| None = None) -> str:
         if intent is None:
             raise ValueError("Global data must declare intent")
 
@@ -754,7 +756,7 @@ def _compile_petscmat(assignment, loop_indices, context):
     mat = assignment.mat
     array = assignment.values
 
-    assert isinstance(mat, _ConcretizedMat)
+    assert isinstance(mat.buffer, PETSc.Mat)
 
     # tidy this up
     # if mat.mat.nested:
@@ -776,18 +778,15 @@ def _compile_petscmat(assignment, loop_indices, context):
     mat_name = context.add_buffer(assignment.assignee.buffer, assignment_type_as_intent(assignment.assignment_type))
     array_name = context.add_buffer(assignment.expression.buffer, READ)
 
-    if assignment.expression.buffer.size == 36:
-        breakpoint()
-
     for row_path in assignment.row_axis_tree.leaf_paths:
         for col_path in assignment.col_axis_tree.leaf_paths:
             row_layout = mat.row_layouts[row_path]
             rmap_name = context.add_buffer(row_layout.buffer, READ)
 
-            col_layout = mat.col_layouts[col_path]
+            col_layout = mat.column_layouts[col_path]
             cmap_name = context.add_buffer(col_layout.buffer, READ)
 
-            blocked = mat.mat.block_shape > 1
+            # blocked = mat.mat.block_shape > 1
     # if mat.nested:
     #     if len(mat.nest_labels) > 1:
     #         # Need to loop over the different nest labels and emit separate calls to
@@ -819,13 +818,31 @@ def _compile_petscmat(assignment, loop_indices, context):
 
     # TODO: The following code should be done in a loop per submat.
 
-            raxes = row_layout.dat.axes
-            row_subtree = raxes.subtree(raxes.child(raxes.root))
-            rsize = row_subtree.size
+            # TODO: can be made much much nicer
+            def get_linear_size(axis_tree, path):
+                linear_size = 1
+                visited = axis_tree.path_with_nodes(axis_tree._node_from_path(row_path), and_components=True)
+                for axis, component in visited.items():
+                    assert component.size > 0
+                    linear_size *= component.size
+                return linear_size
 
-            caxes = col_layout.dat.axes
-            col_subtree = caxes.subtree(caxes.child(caxes.root))
-            csize = col_subtree.size
+
+            # This code figures out the sizes of the maps - it's simply the
+            # size of the assignment axes but linearised for the particular
+            # row and column paths.
+            # For example, if we have a P2 triangle then we have row and col maps
+            # with arities [3, 3] (and those values should be embedded in MatSetValues)
+            # 
+            # The indexed axis tree for the row (and col) looks like:
+            #
+            #   {closure: [{0: [(3, None)]}, {1: [(3, None)]}]}
+            #   ├──➤ {dof0: [[(1, None)]]}
+            #   └──➤ {dof1: [[(1, None)]]}
+            #
+            # where it can clearly be seen that, for each path, the size is 3.
+            rsize = get_linear_size(assignment.row_axis_tree, row_path)
+            csize = get_linear_size(assignment.col_axis_tree, col_path)
 
             # these sizes can be expressions that need evaluating
             if not isinstance(rsize, numbers.Integral):
@@ -849,24 +866,23 @@ def _compile_petscmat(assignment, loop_indices, context):
                 csize_var = csize
 
             # replace inner bits with zeros
-            rzeros = {axis.label: 0 for axis in row_layout.dat.axes.nodes if axis is not row_layout.dat.axes.root}
+            rzeros = {var.axis_label: 0 for var in collect_axis_vars(row_layout)}
             irow = str(lower_expr(row_layout, READ, [rzeros], loop_indices, context))
 
-            czeros = {axis.label: 0 for axis in col_layout.dat.axes.nodes if axis is not col_layout.dat.axes.root}
+            czeros = {var.axis_label: 0 for var in collect_axis_vars(col_layout)}
             icol = str(lower_expr(col_layout, READ, [czeros], loop_indices, context))
 
             array_row_layout = assignment.values.row_layouts[row_path]
             array_row_expr = lower_expr(array_row_layout, READ, [rzeros], loop_indices, context)
-            array_col_layout = assignment.values.col_layouts[col_path]
+            array_col_layout = assignment.values.column_layouts[col_path]
             array_col_expr = lower_expr(array_col_layout, READ, [czeros], loop_indices, context)
 
-            # csize is the issue
-            # but it is not straightforward to get the right thing here. What is the layout
-            # function for the temporary? It's a matrix that has a buffer inside it.
-            raise NotImplementedError("TODO")
-
-            array_indices = array_row_expr * csize + array_col_expr
+            column_size = assignment.col_axis_tree.size
+            array_indices = array_row_expr * column_size + array_col_expr
             array_expr = str(pym.subscript(pym.var(array_name), array_indices))
+
+            # FIXME:
+            blocked = False
 
             # hacky
             myargs = [
@@ -1070,15 +1086,15 @@ def maybe_multiindex(buffer, offset_expr, context):
     return indices
 
 
-@lower_expr.register(NonlinearBufferExpression)
-def _(expr: NonlinearBufferExpression, /, intent, iname_maps, loop_indices, context, paths):
+@lower_expr.register(NonlinearDatBufferExpression)
+def _(expr: NonlinearDatBufferExpression, /, intent, iname_maps, loop_indices, context, paths):
     path = just_one(paths)
     layout = expr.layouts[path]
     return lower_buffer_access(expr.buffer, layout, intent, iname_maps, loop_indices, context)
 
 
-@lower_expr.register(LinearBufferExpression)
-def _(expr: LinearBufferExpression, /, intent, iname_maps, loop_indices, context, paths=None):
+@lower_expr.register(LinearDatBufferExpression)
+def _(expr: LinearDatBufferExpression, /, intent, iname_maps, loop_indices, context, **kwargs):
     return lower_buffer_access(expr.buffer, expr.layout, intent, iname_maps, loop_indices, context)
 
 
@@ -1093,21 +1109,22 @@ def lower_buffer_access(buffer, layout, intent, iname_maps, loop_indices, contex
 
 
 
-@lower_expr.register(_ConcretizedMat)
-def _(mat: _ConcretizedMat, /, intent, iname_maps, loop_indices, context, paths):
-    name_in_kernel = context.add_buffer(mat.buffer, intent)
+@lower_expr.register(MatBufferExpression)
+def _(expr: MatBufferExpression, /, intent, iname_maps, loop_indices, context, paths):
+    name_in_kernel = context.add_buffer(expr.buffer, intent)
 
     row_iname_map, col_iname_map = iname_maps
     row_path, col_path = paths
 
-    row_layout_expr = mat.row_layouts[row_path]
+    row_layout_expr = expr.row_layouts[row_path]
     row_offset_expr = lower_expr(row_layout_expr, READ, [row_iname_map], loop_indices, context)
 
-    col_layout_expr = mat.col_layouts[col_path]
+    col_layout_expr = expr.column_layouts[col_path]
     col_offset_expr = lower_expr(col_layout_expr, READ, [col_iname_map], loop_indices, context)
 
-    offset_expr = row_offset_expr * mat.mat.caxes.size + col_offset_expr
-    indices = maybe_multiindex(mat, offset_expr, context)
+    _, column_size = expr.buffer.shape
+    offset_expr = row_offset_expr * column_size + col_offset_expr
+    indices = maybe_multiindex(expr.buffer, offset_expr, context)
 
     return pym.subscript(pym.var(name_in_kernel), indices)
 
@@ -1138,7 +1155,7 @@ def _(param: Parameter, inames, loop_indices, context):
     return context.add_parameter(param)
 
 @register_extent.register(Dat)  # is this right? should this already be parsed?
-@register_extent.register(LinearBufferExpression)
+@register_extent.register(LinearDatBufferExpression)
 def _(extent, /, intent, iname_replace_map, loop_indices, context):
     expr = lower_expr(extent, READ, [iname_replace_map], loop_indices, context)
     varname = context.add_temporary("p")
@@ -1174,7 +1191,7 @@ def _(param: Parameter) -> np.number:
 
 
 @as_kernel_arg.register
-def _(arg: Buffer) -> int:
+def _(arg: ArrayBuffer) -> int:
     # TODO if we use the right accessor here we modify the state appropriately
     # NOTE: Do not use .data_rw accessor here since this would trigger a halo exchange
     return arg._data.ctypes.data
