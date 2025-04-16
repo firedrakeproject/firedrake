@@ -38,7 +38,7 @@ dependencies = [
   "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint.git",
   "loopy @ git+https://github.com/firedrakeproject/loopy.git@main",
   # https://github.com/inducer/islpy/issues/162
-  "islpy<2025.1.3; sys_platform == 'darwin'",
+  "islpy>=2025.1.5; sys_platform == 'darwin'",
 ]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
