@@ -86,8 +86,15 @@ class GenericSolveBlock(Block):
         self.assemble_kwargs = {}
 
     def __str__(self):
-        return "solve({} = {})".format(ufl2unicode(self.lhs),
-                                       ufl2unicode(self.rhs))
+        try:
+            lhs_string = ufl2unicode(self.lhs)
+        except AttributeError:
+            lhs_string = str(self.lhs)
+        try:
+            rhs_string = ufl2unicode(self.rhs)
+        except AttributeError:
+            rhs_string = str(self.rhs)
+        return "solve({} = {})".format(lhs_string, rhs_string)
 
     def _create_F_form(self):
         # Process the equation forms, replacing values with checkpoints,
@@ -744,7 +751,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         c = block_variable.output
         c_rep = block_variable.saved_output
 
-        if isinstance(c, firedrake.Function):
+        if isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             trial_function = firedrake.TrialFunction(c.function_space())
         elif isinstance(c, firedrake.Constant):
             mesh = F_form.ufl_domain()
@@ -781,7 +788,11 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         replace_map[self.func] = self.get_outputs()[0].saved_output
         dFdm = replace(dFdm, replace_map)
 
-        dFdm = dFdm * adj_sol
+        if isinstance(dFdm, firedrake.Argument):
+            #  Corner case. Should be fixed more permanently upstream in UFL.
+            dFdm = ufl.Action(dFdm, adj_sol)
+        else:
+            dFdm = dFdm * adj_sol
         dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
 
         return dFdm

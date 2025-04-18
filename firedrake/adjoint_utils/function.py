@@ -2,7 +2,7 @@ from functools import wraps
 import ufl
 from ufl.domain import extract_unique_domain
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
-from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape, no_annotations
+from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 from firedrake.adjoint_utils.blocks import FunctionAssignBlock, ProjectBlock, SubfunctionBlock, FunctionMergeBlock, SupermeshProjectBlock
 import firedrake
 from .checkpointing import disk_checkpointing, CheckpointFunction, \
@@ -218,72 +218,15 @@ class FunctionMixin(FloatingType):
         else:
             return self.copy(deepcopy=True)
 
-    def _ad_convert_riesz(self, value, options=None):
+    def _ad_convert_riesz(self, value, riesz_map=None):
+        return value.riesz_representation(riesz_map=riesz_map or "L2")
+
+    def _ad_init_zero(self, dual=False):
         from firedrake import Function, Cofunction
-
-        options = {} if options is None else options
-        riesz_representation = options.get("riesz_representation", "L2")
-        solver_options = options.get("solver_options", {})
-        V = options.get("function_space", self.function_space())
-        if value == 0.:
-            # In adjoint-based differentiation, value == 0. arises only when
-            # the functional is independent on the control variable.
-            return Function(V)
-
-        if not isinstance(value, (Cofunction, Function)):
-            raise TypeError("Expected a Cofunction or a Function")
-
-        if riesz_representation == "l2":
-            return Function(V, val=value.dat)
-
-        elif riesz_representation in ("L2", "H1"):
-            if not isinstance(value, Cofunction):
-                raise TypeError("Expected a Cofunction")
-
-            ret = Function(V)
-            a = self._define_riesz_map_form(riesz_representation, V)
-            firedrake.solve(a == value, ret, **solver_options)
-            return ret
-
-        elif callable(riesz_representation):
-            return riesz_representation(value)
-
+        if dual:
+            return Cofunction(self.function_space().dual())
         else:
-            raise ValueError(
-                "Unknown Riesz representation %s" % riesz_representation)
-
-    def _define_riesz_map_form(self, riesz_representation, V):
-        from firedrake import TrialFunction, TestFunction
-
-        u = TrialFunction(V)
-        v = TestFunction(V)
-        if riesz_representation == "L2":
-            a = firedrake.inner(u, v)*firedrake.dx
-
-        elif riesz_representation == "H1":
-            a = firedrake.inner(u, v)*firedrake.dx \
-                + firedrake.inner(firedrake.grad(u), firedrake.grad(v))*firedrake.dx
-
-        else:
-            raise NotImplementedError(
-                "Unknown Riesz representation %s" % riesz_representation)
-        return a
-
-    @no_annotations
-    def _ad_convert_type(self, value, options=None):
-        # `_ad_convert_type` is not annotated, unlike `_ad_convert_riesz`
-        options = {} if options is None else options.copy()
-        options.setdefault("riesz_representation", "L2")
-        if options["riesz_representation"] is None:
-            if value == 0.:
-                # In adjoint-based differentiation, value == 0. arises only when
-                # the functional is independent on the control variable.
-                V = options.get("function_space", self.function_space())
-                return firedrake.Cofunction(V.dual())
-            else:
-                return value
-        else:
-            return self._ad_convert_riesz(value, options=options)
+            return Function(self.function_space())
 
     def _ad_restore_at_checkpoint(self, checkpoint):
         if isinstance(checkpoint, CheckpointBase):
@@ -292,9 +235,7 @@ class FunctionMixin(FloatingType):
             return checkpoint
 
     def _ad_will_add_as_dependency(self):
-        """Method called when the object is added as a Block dependency.
-
-        """
+        """Method called when the object is added as a Block dependency."""
         with checkpoint_init_data():
             super()._ad_will_add_as_dependency()
 
@@ -302,7 +243,8 @@ class FunctionMixin(FloatingType):
         from firedrake import Function
 
         r = Function(self.function_space())
-        # `self` can be a Cofunction in which case only left multiplication with a scalar is allowed.
+        # `self` can be a Cofunction in which case only left multiplication
+        # with a scalar is allowed.
         r.assign(other * self)
         return r
 
@@ -314,7 +256,10 @@ class FunctionMixin(FloatingType):
         return r
 
     def _ad_dot(self, other, options=None):
-        from firedrake import assemble
+        from firedrake import assemble, action, Cofunction
+
+        if isinstance(other, Cofunction):
+            return assemble(action(other, self))
 
         options = {} if options is None else options
         riesz_representation = options.get("riesz_representation", "L2")
@@ -404,3 +349,9 @@ class FunctionMixin(FloatingType):
 
     def __deepcopy__(self, memodict={}):
         return self.copy(deepcopy=True)
+
+
+class CofunctionMixin(FunctionMixin):
+
+    def _ad_dot(self, other):
+        return firedrake.assemble(firedrake.action(self, other))

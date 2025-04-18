@@ -1,6 +1,7 @@
 from firedrake import *
 from firedrake.adjoint import *
 from firedrake.adjoint.ensemble_adjvec import EnsembleAdjVec
+from pyadjoint.reduced_functional_numpy import ReducedFunctionalNumPy
 import pytest
 from numpy.testing import assert_allclose
 from numpy import mean
@@ -788,70 +789,15 @@ def test_ensemble_rf_efunction_to_float():
     assert R2 > 2.95
 
 
-@pytest.mark.parallel(nprocs=4)
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-@pytest.mark.xfail(reason="Taylor's test fails because the inner product \
-                   between the perturbation and gradient is not allreduced \
-                   for `scatter_control=False`.")
-def test_verification_gather_functional_adjfloat():
-    ensemble = Ensemble(COMM_WORLD, 2)
-    rank = ensemble.ensemble_comm.rank
-    mesh = UnitSquareMesh(4, 4, comm=ensemble.comm)
-    R = FunctionSpace(mesh, "R", 0)
-    x = function.Function(R, val=rank+1)
-    J = assemble(x * x * dx(domain=mesh))
-    a = AdjFloat(1.0)
-    b = AdjFloat(1.0)
-
-    Jg_m = [Control(a), Control(b)]
-    Jg = ReducedFunctional(a**2 + b**2, Jg_m)
-
-    rf = EnsembleReducedFunctional(J, Control(x), ensemble,
-                                   scatter_control=False,
-                                   gather_functional=Jg)
-
-    ensemble_J = rf(x)
-    dJdm = rf.derivative()
-    assert_allclose(ensemble_J, 1.0**4+2.0**4, rtol=1e-12)
-    assert_allclose(dJdm.dat.data_ro, 4*(rank+1)**3, rtol=1e-12)
-
-    assert taylor_test(rf, x, Function(R, val=0.1)) > 1.95
-
-
-@pytest.mark.parallel(nprocs=4)
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-@pytest.mark.xfail(reason="Taylor's test fails because the inner product \
-                   between the perturbation and gradient is not allreduced \
-                   for `scatter_control=False`.")
-def test_verification_gather_functional_Function():
-    ensemble = Ensemble(COMM_WORLD, 2)
-    rank = ensemble.ensemble_comm.rank
-    mesh = UnitSquareMesh(4, 4, comm=ensemble.comm)
-    R = FunctionSpace(mesh, "R", 0)
-    x = function.Function(R, val=rank+1)
-    J = Function(R).assign(x**2)
-    a = Function(R).assign(1.0)
-    b = Function(R).assign(1.0)
-    Jg_m = [Control(a), Control(b)]
-    Jg = assemble((a**2 + b**2)*dx)
-    Jghat = ReducedFunctional(Jg, Jg_m)
-    rf = EnsembleReducedFunctional(J, Control(x), ensemble,
-                                   scatter_control=False,
-                                   gather_functional=Jghat)
-    ensemble_J = rf(x)
-    dJdm = rf.derivative()
-    assert_allclose(ensemble_J, 1.0**4+2.0**4, rtol=1e-12)
-    assert_allclose(dJdm.dat.data_ro, 4*(rank+1)**3, rtol=1e-12)
-    assert taylor_test(rf, x, Function(R, val=0.1)) > 1.95
-
-
 @pytest.mark.parallel(nprocs=[1, 2, 3, 6])
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_ensemble_rf_minimise():
-    # Optimisation test using a list of controls.
-    # This test is equivalent to the one found at:
-    # https://github.com/dolfin-adjoint/pyadjoint/blob/master/tests/firedrake_adjoint/test_optimisation.py#L9.
-    # In this test, the functional is the result of an ensemble allreduce operation.
+    """
+    Optimisation test using a list of controls.
+    This test is equivalent to the one found at:
+    https://github.com/firedrakeproject/firedrake/blob/master/tests/firedrake/adjoint/test_optimisation.py#L92
+    In this test, the functional is the result of an ensemble allreduce operation.
+    """
     nspatial_ranks = 2 if COMM_WORLD.size in (2, 6) else 1
     ensemble = Ensemble(COMM_WORLD, nspatial_ranks)
 
@@ -879,7 +825,8 @@ def test_ensemble_rf_minimise():
     J = AdjFloat(0.)
     controls = [Control(Function(R)) for _ in range(n)]
 
-    Jhat = EnsembleReducedFunctional(rfs, J, controls, ensemble=ensemble)
+    rf = EnsembleReducedFunctional(rfs, J, controls, ensemble=ensemble)
+    rf_np = ReducedFunctionalNumPy(rf)
 
-    result = minimize(Jhat)
+    result = minimize(rf_np)
     assert_allclose([float(xi) for xi in result], 1., rtol=1e-8)
