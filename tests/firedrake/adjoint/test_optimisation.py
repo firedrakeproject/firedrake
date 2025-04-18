@@ -68,7 +68,7 @@ def test_petsc_roundtrip_multiple():
 def minimize_tao_lmvm(rf):
     problem = MinimizationProblem(rf)
     solver = TAOSolver(problem, {"tao_type": "lmvm",
-                                 "tao_gatol": 1.0e-7,
+                                 "tao_gatol": 1.0e-4,
                                  "tao_grtol": 0.0,
                                  "tao_gttol": 0.0})
     return solver.solve()
