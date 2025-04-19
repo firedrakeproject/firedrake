@@ -1,6 +1,9 @@
 from functools import partial, cached_property
 from contextlib import contextmanager
-from pyadjoint import ReducedFunctional, Control, set_working_tape, AdjFloat, no_annotations
+from pyadjoint.reduced_functional import AbstractReducedFunctional
+from pyadjoint import (
+    ReducedFunctional, Control, AdjFloat, set_working_tape, annotate_tape,
+    no_annotations, continue_annotation, pause_annotation)
 from pyadjoint.enlisting import Enlist
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
@@ -14,12 +17,6 @@ __all__ = (
     "EnsembleReduceReducedFunctional",
     "EnsembleTransformReducedFunctional",
 )
-
-
-def _intermediate_options(options):
-    iopts = {} if options is None else options.copy()
-    iopts["riesz_representation"] = None
-    return iopts
 
 
 def _local_subs(val):
@@ -44,7 +41,362 @@ def _set_local_subs(dst, src):
     return dst
 
 
-class EnsembleReducedFunctional(ReducedFunctional):
+class FunctionOrFloatMPIMixin:
+    # Should be replaced by Ensemble passing through non-Functions to ensemble_comm
+    def _bcast(self, val, root=None):
+        if root is None:
+            return val
+        if isinstance(val, float):
+            val = self.ensemble.ensemble_comm.bcast(val, root=root)
+        elif isinstance(val, Function):
+            val = self.ensemble.bcast(val, root=self.root)
+        else:
+            raise NotImplementedError(f"Functionals of type {type(val).__name__} are not supported.")
+        return val
+
+    def _reduce(self, vals, root=None):
+        vals = Enlist(vals)
+        for v in vals:
+            if not isinstance(v, (Function, Cofunction, float)):
+                raise NotImplementedError(
+                    f"Functionals of type {type(v).__name__} are not supported.")
+
+        if isinstance(vals[0], float):
+            comm = self.ensemble.ensemble_comm
+            local_sum = sum(vals)
+            if root is None:
+                return comm.allreduce(local_sum)
+            else:
+                return comm.reduce(local_sum, root=root)
+        else:
+            comm = self.ensemble
+            global_sum = vals[0]._ad_init_zero()
+            local_sum = vals[0]._ad_init_zero()
+            local_sum.assign(sum(vals))
+            if root is None:
+                return comm.allreduce(local_sum, global_sum)
+            else:
+                return comm.reduce(local_sum, global_sum, root=root)
+
+    def _allgather(self, vals):
+        pass
+
+
+class EnsembleReduceReducedFunctional(AbstractReducedFunctional, FunctionOrFloatMPIMixin):
+    def __init__(self, functional, control, ensemble=None):
+        if isinstance(functional, AbstractReducedFunctional):
+            self.reduction_rf = functional
+            self.functional = self.reduction_rf.functional
+        else:
+            self.reduction_rf = None
+            self.functional = functional
+
+        self._controls = Enlist(control)
+        self._control = control
+
+        if isinstance(functional, AdjFloat):
+            if not isinstance(control.control, EnsembleAdjVec):
+                raise TypeError(
+                    f"Control for {type(self).__name__} must be an EnsembleAdjVec"
+                    "  if using an AdjFloat functional.")
+            if (ensemble is not None and ensemble is not control.control.ensemble):
+                raise ValueError(
+                    f"Ensemble provided to {type(self).__name__} must match"
+                    " the ensemble of the control.")
+            self.ensemble = ensemble
+            self.nlocal_inputs = len(control.subvec)
+
+        elif isinstance(functional, Function):
+            if not isinstance(control.control, EnsembleFunction):
+                raise TypeError(
+                    f"Control for {type(self).__name__} must be an"
+                    " EnsembleFunction if using a Function functional.")
+            if not all([c.function_space() == functional.function_space()
+                        for c in control.subfunctions]):
+                raise ValueError(
+                    f"All subfunctions of the {type(self).__name__} control"
+                    " must have the same function space as the functional.")
+            if (ensemble is not None and ensemble is not control.function_space().ensemble):
+                raise ValueError(
+                    f"Ensemble provided to {type(self).__name__} must match"
+                    " the ensemble of the control.")
+            self.ensemble = control.function_space().ensemble
+            self.nlocal_inputs = len(control.subfunctions)
+
+        else:
+            raise ValueError(
+                f"Do not know how to handle a {type(functional).__name__}"
+                f" control for {type(self).__name__}.")
+
+        _ = self._sum_rf
+
+    @property
+    def controls(self):
+        return self._controls
+
+    @no_annotations
+    def __call__(self, values):
+        if self.reduction_rf:
+            return self.reduction_rf(self._allgather(_local_subs(values)))
+        else:
+            return self._reduce(
+                self._sum_rf(_local_subs(values)))
+
+    @no_annotations
+    def derivative(self, adj_input=1.0, apply_riesz=False):
+        if self.reduction_rf:
+            dJ_global = self.reduction_rf.derivative(
+                adj_input=adj_input, apply_riesz=False)
+            dJ_local = [dJ_global[i] for i in range(self._local_indices)]
+        else:
+            dJ_local = (
+                self.functional._ad_init_zero(dual=True)._ad_init_object(adj_input))
+            dJ_local = [dJ_local for _ in range(self.nlocal_inputs)]
+
+        dJ_global = self._control._ad_init_zero(dual=True)
+        _set_local_subs(dJ_global, dJ_local)
+        if apply_riesz:
+            dJ_global = dJ_global._ad_convert_riesz(
+                dJ_global, riesz_map=self._control.riesz_map)
+        return dJ_global
+
+    @no_annotations
+    def tlm(self, m_dot):
+        if self.reduction_rf:
+            return self.reduction_rf.tlm(
+                self._allgather(_local_subs(m_dot)))
+        else:
+            return self._reduce(
+                self._sum_rf.tlm(_local_subs(m_dot)))
+
+    @no_annotations
+    def hessian(self, m_dot, hessian_input=None, evaluate_tlm=True, apply_riesz=False):
+        if evaluate_tlm:
+            self.tlm(m_dot)
+        hessian_input = 1.0 if hessian_input is None else hessian_input
+        return self.derivative(adj_input=hessian_input, apply_riesz=apply_riesz)
+
+    @cached_property
+    def _sum_rf(self):
+        controls = [c._ad_init_zero()
+                    for c in _local_subs(self.controls[0].control)]
+        J = self.functional._ad_init_zero()
+        annotating = annotate_tape()
+        if not annotating:
+            continue_annotation()
+        with set_working_tape() as tape:
+            if isinstance(J, float):
+                J = sum(controls)
+            else:
+                for c in controls:
+                    J = J._ad_add(c)
+            rf = ReducedFunctional(
+                J, [Control(c) for c in controls], tape=tape)
+        if not annotating:
+            pause_annotation()
+        return rf
+
+    @cached_property
+    def _local_indices(self):
+        fs = self.functional.function_space()
+        offset = self.ensemble.ensemble_comm.exscan(fs.nlocal_spaces())
+        return tuple(offset + i for i in range(fs.nlocal_spaces))
+
+
+class EnsembleBcastReducedFunctional(AbstractReducedFunctional, FunctionOrFloatMPIMixin):
+    def __init__(self, functional, control, root=None, ensemble=None):
+        self.functional = functional
+        self._controls = Enlist(control)
+        self._control = control
+        self.root = root
+
+        if isinstance(control.control, AdjFloat):
+            if not isinstance(functional, EnsembleAdjVec):
+                raise TypeError(
+                    f"Functional for {type(self).__name__} must be an EnsembleAdjVec"
+                    " if using an AdjFloat control.")
+            if ensemble is not None and ensemble is not functional.ensemble:
+                raise ValueError(
+                    f"Ensemble provided to {type(self).__name__} must match"
+                    " the ensemble of the functional.")
+            self.ensemble = functional.ensemble
+            self.nlocal_outputs = len(functional.subvec)
+
+        elif isinstance(control.control, Function):
+            if not isinstance(functional, EnsembleFunction):
+                raise TypeError(
+                    f"Functional for {type(self).__name__} must be an"
+                    " EnsembleFunction if using a Function control.")
+            if not all([f.function_space() == control.function_space()
+                        for f in functional.subfunctions]):
+                raise ValueError(
+                    f"All subfunctions of the {type(self).__name__} functional"
+                    " must have the same function space as the control.")
+            if (ensemble is not None and ensemble is not functional.function_space().ensemble):
+                raise ValueError(
+                    f"Ensemble provided to {type(self).__name__} must match"
+                    " the ensemble of the functional.")
+            self.ensemble = functional.function_space().ensemble
+            self.nlocal_outputs = len(functional.subfunctions)
+
+        else:
+            raise ValueError(
+                f"Do not know how to handle a {type(control).__name__}"
+                f" control for {type(self).__name__}.")
+
+    @property
+    def controls(self):
+        return self._controls
+
+    @no_annotations
+    def __call__(self, values):
+        val = self._bcast(values, root=self.root)
+        J = self.functional._ad_init_zero()
+        _set_local_subs(J, [val for _ in range(self.nlocal_outputs)])
+        return J
+
+    @no_annotations
+    def derivative(self, adj_input=1.0, apply_riesz=False):
+        dJ = self._reduce(_local_subs(adj_input), root=self.root)
+
+        if apply_riesz:
+            return self._control._ad_convert_riesz(
+                dJ, riesz_map=self._control.riesz_map)
+        else:
+            return dJ
+
+    @no_annotations
+    def tlm(self, m_dot):
+        return self(m_dot)
+
+    @no_annotations
+    def hessian(self, m_dot, hessian_input=None, evaluate_tlm=True, apply_riesz=False):
+        if evaluate_tlm:
+            self.tlm(m_dot)
+        return self.derivative(hessian_input, apply_riesz=apply_riesz)
+
+
+class EnsembleTransformReducedFunctional(AbstractReducedFunctional):
+    def __init__(self, rfs, functional, control, ensemble=None):
+        self.rfs = rfs
+        self.functional = functional
+        self._controls = Enlist(control)
+
+        if isinstance(functional, EnsembleFunction):
+            if not all(isinstance(c.control, EnsembleFunction)
+                       for c in self.controls):
+                raise TypeError(
+                    f"Controls for {type(self).__name__} must be EnsembleFunctions")
+            if ensemble is not None and ensemble is not functional.function_space().ensemble:
+                raise ValueError(
+                    f"Ensemble provided to {type(self).__name__} must"
+                    " match the ensemble of the functional.")
+
+            self.ensemble = functional.function_space().ensemble
+            self.nlocal_outputs = len(functional.subfunctions)
+
+        elif isinstance(functional, EnsembleAdjVec):
+            if ensemble is not None and ensemble is not functional.ensemble:
+                raise ValueError(
+                    f"Ensemble provided to {type(self).__name__} must"
+                    " match the ensemble of the functional.")
+
+            self.ensemble = ensemble
+            self.nlocal_outputs = len(functional.subvec)
+
+        else:
+            raise TypeError(
+                f"Functional for {type(self).__name__} must be either"
+                " an EnsembleFunction or EnsembleAdjVec")
+
+    @property
+    def controls(self):
+        return self._controls
+
+    @no_annotations
+    def __call__(self, values):
+        J = self.functional._ad_init_zero()
+
+        with self._local_data(values, output=J) as (local_vals, output):
+
+            output([rf(rf.controls.delist(vals))
+                    for rf, vals in zip(self.rfs, local_vals)])
+
+        return J
+
+    @no_annotations
+    def tlm(self, m_dot):
+        tlm = self.functional._ad_init_zero()
+
+        with self._local_data(m_dot, output=tlm) as (local_mdots, output):
+
+            output([rf.tlm(rf.controls.delist(md))
+                    for rf, md in zip(self.rfs, local_mdots)])
+
+        return tlm
+
+    @no_annotations
+    def derivative(self, adj_input=1.0, apply_riesz=False):
+        dJ = self.controls.delist(
+            [c.control._ad_init_zero(dual=not apply_riesz)
+             for c in self.controls])
+
+        with self._local_data(adj_input, output=dJ) as (local_adjs, output):
+
+            output([rf.derivative(adj_input=adj[0],
+                                  apply_riesz=apply_riesz)
+                    for rf, adj in zip(self.rfs, local_adjs)])
+
+        return dJ
+
+    @no_annotations
+    def hessian(self, m_dot, hessian_input=None, evaluate_tlm=True, apply_riesz=False):
+        if evaluate_tlm:
+            self.tlm(m_dot)
+
+        hessian = self.controls.delist(
+            [c.control._ad_init_zero(dual=not apply_riesz)
+             for c in self.controls])
+
+        with self._local_data(hessian_input, output=hessian) as (local_hessians, output):
+
+            output([rf.hessian(m_dot=None, evaluate_tlm=False,
+                               hessian_input=hess[0],
+                               apply_riesz=apply_riesz)
+                    for rf, hess in zip(self.rfs, local_hessians)])
+
+        return hessian
+
+    @contextmanager
+    def _local_data(self, data, output):
+        local_data = self._global_to_local_data(data)
+        output_transform = partial(
+            self._local_to_global_data, global_data=output)
+        yield local_data, output_transform
+
+    def _local_to_global_data(self, local_data, global_data):
+        # N local lists of length n -> n global lists of length N
+        # [(1,), (2,), (3,)]->  [(1, 2, 3)]
+        # [(1, 11), (2, 12), (3, 13)] -> [(1, 2, 3), (11, 12, 13)]
+
+        for j, global_group in enumerate(Enlist(global_data)):
+            local_group = [Enlist(local_group)[j]
+                           for local_group in local_data]
+            _set_local_subs(global_group, local_group)
+
+        return global_data
+
+    def _global_to_local_data(self, global_data):
+        # n global lists of length N -> N local lists of length n
+        # [(1, 2, 3)] -> [(1,), (2,), (3,)]
+        # [(1, 2, 3), (11, 12, 13)] -> [(1, 11), (2, 12), (3, 13)]
+
+        local_groups = [
+            ld for ld in zip(*map(_local_subs, Enlist(global_data)))]
+        return local_groups
+
+
+class EnsembleReducedFunctional(AbstractReducedFunctional):
     """Enable solving simultaneously reduced functionals in parallel.
 
     Consider a functional :math:`J` and its gradient :math:`\\dfrac{dJ}{dm}`,
@@ -112,7 +464,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
     def __init__(self, rfs, functional, control, ensemble=None,
                  bcast_control=True, reduce_functional=True):
         self.rfs = rfs
-        self.controls = Enlist(control)
+        self._controls = Enlist(control)
         self.functional = functional
         self.bcast_control = bcast_control
         self.reduce_functional = reduce_functional
@@ -180,6 +532,11 @@ class EnsembleReducedFunctional(ReducedFunctional):
             self.controls.delist(ensemble_controls),
             ensemble=ensemble)
 
+    @property
+    def controls(self):
+        return self._controls
+
+    @no_annotations
     def __call__(self, values):
         """Computes the reduced functional with supplied control value.
 
@@ -208,7 +565,8 @@ class EnsembleReducedFunctional(ReducedFunctional):
 
         return J
 
-    def derivative(self, adj_input=1.0, options=None):
+    @no_annotations
+    def derivative(self, adj_input=1.0, apply_riesz=False):
         """Compute derivatives of a functional with respect to the control parameters.
 
         Parameters
@@ -227,25 +585,24 @@ class EnsembleReducedFunctional(ReducedFunctional):
         --------
         :meth:`~.ensemble.Ensemble.allreduce`, :meth:`pyadjoint.ReducedFunctional.derivative`.
         """
-        iopts = _intermediate_options(options)
         if self.reduce_functional:
-            adj_input = self.reduce_rf.derivative(adj_input=adj_input,
-                                                  options=iopts)
+            adj_input = self.reduce_rf.derivative(
+                adj_input=adj_input, apply_riesz=False)
 
-        transform_options = iopts if self.bcast_control else options
+        transform_riesz = False if self.bcast_control else apply_riesz
 
-        dJ = self.transform_rf.derivative(adj_input=adj_input,
-                                          options=transform_options)
+        dJ = self.transform_rf.derivative(
+            adj_input=adj_input, apply_riesz=transform_riesz)
 
         if self.bcast_control:
             dJ = self.controls.delist(
-                [bcast.derivative(adj_input=dj, options=options)
+                [bcast.derivative(adj_input=dj, apply_riesz=apply_riesz)
                  for bcast, dj in zip(self.bcast_rfs, Enlist(dJ))])
 
         return dJ
 
     @no_annotations
-    def tlm(self, m_dot, options=None):
+    def tlm(self, m_dot):
         """Returns the action of the tangent linear model of the functional w.r.t. the
         control on a vector m_dot, around the last supplied value of the control.
 
@@ -259,23 +616,20 @@ class EnsembleReducedFunctional(ReducedFunctional):
             OverloadedType: The action of the tangent linear model in the direction m_dot.
                 Should be an instance of the same type as the functional.
         """
-        iopts = _intermediate_options(options)
-
         if self.bcast_control:
             m_dot = self.controls.delist(
-                [bcast.tlm(md, options=iopts)
+                [bcast.tlm(md)
                  for bcast, md in zip(self.bcast_rfs, Enlist(m_dot))])
 
-        tlm_options = iopts if self.reduce_functional else options
-
-        tlm = self.transform_rf.tlm(m_dot, options=tlm_options)
+        tlm = self.transform_rf.tlm(m_dot)
 
         if self.reduce_functional:
-            tlm = self.reduce_rf.tlm(tlm, options=options)
+            tlm = self.reduce_rf.tlm(tlm)
 
         return tlm
 
-    def hessian(self, m_dot, options=None, hessian_input=0.0, evaluate_tlm=True):
+    @no_annotations
+    def hessian(self, m_dot, hessian_input=None, evaluate_tlm=True, apply_riesz=False):
         """Returns the action of the Hessian of the functional w.r.t. the control on a vector m_dot.
 
         Using the second-order adjoint method, the action of the Hessian of the
@@ -295,355 +649,27 @@ class EnsembleReducedFunctional(ReducedFunctional):
             OverloadedType: The action of the Hessian in the direction m_dot.
                 Should be an instance of the same type as the control.
         """
-        iopts = _intermediate_options(options)
-
         if evaluate_tlm:
-            self.tlm(m_dot, options=iopts)
+            self.tlm(m_dot)
 
         if self.reduce_functional:
             hessian_input = self.reduce_rf.hessian(
                 m_dot=None, evaluate_tlm=False,
                 hessian_input=hessian_input,
-                options=iopts)
+                apply_riesz=False)
 
-        hessian_options = iopts if self.bcast_control else options
+        transform_riesz = False if self.bcast_control else apply_riesz
 
         hessian = self.transform_rf.hessian(
             m_dot=None, evaluate_tlm=False,
             hessian_input=hessian_input,
-            options=hessian_options)
+            apply_riesz=transform_riesz)
 
         if self.bcast_control:
             hessian = self.controls.delist(
                 [bcast.hessian(m_dot=None, evaluate_tlm=False,
-                               hessian_input=hess, options=options)
+                               hessian_input=hess,
+                               apply_riesz=apply_riesz)
                  for bcast, hess in zip(self.bcast_rfs, Enlist(hessian))])
 
         return hessian
-
-
-class FunctionOrFloatMPIMixin:
-    # Should be replaced by Ensemble passing through non-Functions to ensemble_comm
-    def _bcast(self, val, root=None):
-        if root is None:
-            return val
-        if isinstance(val, float):
-            val = self.ensemble.ensemble_comm.bcast(val, root=root)
-        elif isinstance(val, Function):
-            val = self.ensemble.bcast(val, root=self.root)
-        else:
-            raise NotImplementedError(f"Functionals of type {type(val).__name__} are not supported.")
-        return val
-
-    def _reduce(self, vals, root=None):
-        vals = Enlist(vals)
-        for v in vals:
-            if not isinstance(v, (Function, Cofunction, float)):
-                raise NotImplementedError(
-                    f"Functionals of type {type(v).__name__} are not supported.")
-
-        if isinstance(vals[0], float):
-            comm = self.ensemble.ensemble_comm
-            local_sum = sum(vals)
-            if root is None:
-                return comm.allreduce(local_sum)
-            else:
-                return comm.reduce(local_sum, root=root)
-        else:
-            comm = self.ensemble
-            global_sum = vals[0]._ad_convert_type(0)
-            local_sum = vals[0]._ad_convert_type(0)
-            local_sum.assign(sum(vals))
-            if root is None:
-                return comm.allreduce(local_sum, global_sum)
-            else:
-                return comm.reduce(local_sum, global_sum, root=root)
-
-    def _allgather(self, vals):
-        pass
-
-
-class EnsembleBcastReducedFunctional(ReducedFunctional, FunctionOrFloatMPIMixin):
-    def __init__(self, functional, control, root=None, ensemble=None):
-        self.functional = functional
-        self.controls = Enlist(control)
-        self.control = control
-        self.root = root
-
-        if isinstance(control.control, AdjFloat):
-            if not isinstance(functional, EnsembleAdjVec):
-                raise TypeError(
-                    f"Functional for {type(self).__name__} must be an EnsembleAdjVec"
-                    " if using an AdjFloat control.")
-            if ensemble is not None and ensemble is not functional.ensemble:
-                raise ValueError(
-                    f"Ensemble provided to {type(self).__name__} must match"
-                    " the ensemble of the functional.")
-            self.ensemble = functional.ensemble
-            self.nlocal_outputs = len(functional.subvec)
-
-        elif isinstance(control.control, Function):
-            if not isinstance(functional, EnsembleFunction):
-                raise TypeError(
-                    f"Functional for {type(self).__name__} must be an"
-                    " EnsembleFunction if using a Function control.")
-            if not all([f.function_space() == control.function_space()
-                        for f in functional.subfunctions]):
-                raise ValueError(
-                    f"All subfunctions of the {type(self).__name__} functional"
-                    " must have the same function space as the control.")
-            if (ensemble is not None and ensemble is not functional.function_space().ensemble):
-                raise ValueError(
-                    f"Ensemble provided to {type(self).__name__} must match"
-                    " the ensemble of the functional.")
-            self.ensemble = functional.function_space().ensemble
-            self.nlocal_outputs = len(functional.subfunctions)
-
-        else:
-            raise ValueError(
-                f"Do not know how to handle a {type(control).__name__}"
-                f" control for {type(self).__name__}.")
-
-    def __call__(self, values):
-        val = self._bcast(values, root=self.root)
-        J = self.functional._ad_convert_type(0)
-        _set_local_subs(J, [val for _ in range(self.nlocal_outputs)])
-        return J
-
-    def derivative(self, adj_input=1.0, options=None):
-        dJ = self._reduce(_local_subs(adj_input),
-                          root=self.root)
-
-        return self.control._ad_convert_type(dJ, options=options)
-
-    @no_annotations
-    def tlm(self, m_dot, options=None):
-        return self.functional._ad_convert_type(self(m_dot), options=options)
-
-    @no_annotations
-    def hessian(self, m_dot, options=None, hessian_input=0.0, evaluate_tlm=True):
-        if evaluate_tlm:
-            iopts = _intermediate_options(options)
-            self.tlm(m_dot, options=iopts)
-        return self.derivative(hessian_input, options=options)
-
-
-class EnsembleReduceReducedFunctional(ReducedFunctional, FunctionOrFloatMPIMixin):
-    def __init__(self, functional, control, ensemble=None):
-        if isinstance(functional, ReducedFunctional):
-            self.reduction_rf = functional
-            self.functional = self.reduction_rf.functional
-        else:
-            self.reduction_rf = None
-            self.functional = functional
-
-        self.controls = Enlist(control)
-        self.control = control
-
-        if isinstance(functional, AdjFloat):
-            if not isinstance(control.control, EnsembleAdjVec):
-                raise TypeError(
-                    f"Control for {type(self).__name__} must be an EnsembleAdjVec"
-                    "  if using an AdjFloat functional.")
-            if (ensemble is not None and ensemble is not control.control.ensemble):
-                raise ValueError(
-                    f"Ensemble provided to {type(self).__name__} must match"
-                    " the ensemble of the control.")
-            self.ensemble = ensemble
-            self.nlocal_inputs = len(control.subvec)
-
-        elif isinstance(functional, Function):
-            if not isinstance(control.control, EnsembleFunction):
-                raise TypeError(
-                    f"Control for {type(self).__name__} must be an"
-                    " EnsembleFunction if using a Function functional.")
-            if not all([c.function_space() == functional.function_space()
-                        for c in control.subfunctions]):
-                raise ValueError(
-                    f"All subfunctions of the {type(self).__name__} control"
-                    " must have the same function space as the functional.")
-            if (ensemble is not None and ensemble is not control.function_space().ensemble):
-                raise ValueError(
-                    f"Ensemble provided to {type(self).__name__} must match"
-                    " the ensemble of the control.")
-            self.ensemble = control.function_space().ensemble
-            self.nlocal_inputs = len(control.subfunctions)
-
-        else:
-            raise ValueError(
-                f"Do not know how to handle a {type(functional).__name__}"
-                f" control for {type(self).__name__}.")
-
-        _ = self._sum_rf
-
-    @no_annotations
-    def __call__(self, values):
-        if self.reduction_rf:
-            return self.reduction_rf(self._allgather(_local_subs(values)))
-        else:
-            return self._reduce(
-                self._sum_rf(_local_subs(values)))
-
-    def derivative(self, adj_input=1.0, options=None):
-        if self.reduction_rf:
-            dJ_global = self.reduction_rf.derivative(
-                adj_input=adj_input, options=options)
-            dJ_local = [dJ_global[i] for i in range(self._local_indices)]
-        else:
-            dJ_local = self.functional._ad_convert_type(adj_input, options=options)
-            dJ_local = [dJ_local for _ in range(self.nlocal_inputs)]
-
-        dJ_global = self.control._ad_convert_type(0, options=options)
-        _set_local_subs(dJ_global, dJ_local)
-        return dJ_global
-
-    @no_annotations
-    def tlm(self, m_dot, options=None):
-        if self.reduction_rf:
-            return self.reduction_rf.tlm(
-                self._allgather(_local_subs(m_dot)), options=options)
-        else:
-            return self._reduce(
-                self._sum_rf.tlm(_local_subs(m_dot), options=options))
-
-    @no_annotations
-    def hessian(self, m_dot, options=None, hessian_input=0.0, evaluate_tlm=True):
-        if evaluate_tlm:
-            iopts = _intermediate_options(options)
-            self.tlm(m_dot, options=iopts)
-        return self.derivative(hessian_input, options=options)
-
-    @cached_property
-    def _sum_rf(self):
-        controls = [c._ad_convert_type(0.)
-                    for c in _local_subs(self.controls[0].control)]
-        J = self.functional._ad_convert_type(0.)
-        with set_working_tape() as tape:
-            if isinstance(J, float):
-                J = sum(controls)
-            else:
-                for c in controls:
-                    J = J._ad_add(c)
-            rf = ReducedFunctional(
-                J, [Control(c) for c in controls], tape=tape)
-        return rf
-
-    @cached_property
-    def _local_indices(self):
-        fs = self.functional.function_space()
-        offset = self.ensemble.ensemble_comm.exscan(fs.nlocal_spaces())
-        return tuple(offset + i for i in range(fs.nlocal_spaces))
-
-
-class EnsembleTransformReducedFunctional(ReducedFunctional):
-    def __init__(self, rfs, functional, control, ensemble=None):
-        self.rfs = rfs
-        self.functional = functional
-        self.controls = Enlist(control)
-
-        if isinstance(functional, EnsembleFunction):
-            if not all(isinstance(c.control, EnsembleFunction)
-                       for c in self.controls):
-                raise TypeError(
-                    f"Controls for {type(self).__name__} must be EnsembleFunctions")
-            if ensemble is not None and ensemble is not functional.function_space().ensemble:
-                raise ValueError(
-                    f"Ensemble provided to {type(self).__name__} must"
-                    " match the ensemble of the functional.")
-
-            self.ensemble = functional.function_space().ensemble
-            self.nlocal_outputs = len(functional.subfunctions)
-
-        elif isinstance(functional, EnsembleAdjVec):
-            if ensemble is not None and ensemble is not functional.ensemble:
-                raise ValueError(
-                    f"Ensemble provided to {type(self).__name__} must"
-                    " match the ensemble of the functional.")
-
-            self.ensemble = ensemble
-            self.nlocal_outputs = len(functional.subvec)
-
-        else:
-            raise TypeError(
-                f"Functional for {type(self).__name__} must be either"
-                " an EnsembleFunction or EnsembleAdjVec")
-
-    @no_annotations
-    def __call__(self, values):
-        J = self.functional._ad_convert_type(0)
-
-        with self._local_data(values, output=J) as (local_vals, output):
-
-            output([rf(rf.controls.delist(vals))
-                    for rf, vals in zip(self.rfs, local_vals)])
-
-        return J
-
-    @no_annotations
-    def tlm(self, m_dot, options=None):
-        tlm = self.functional._ad_convert_type(0)
-
-        with self._local_data(m_dot, output=tlm) as (local_mdots, output):
-
-            output([rf.tlm(rf.controls.delist(md), options=options)
-                    for rf, md in zip(self.rfs, local_mdots)])
-
-        return tlm
-
-    def derivative(self, adj_input=1.0, options=None):
-        dJ = self.controls.delist(
-            [c.control._ad_convert_type(0, options=options)
-             for c in self.controls])
-
-        with self._local_data(adj_input, output=dJ) as (local_adjs, output):
-
-            output([rf.derivative(adj_input=adj[0], options=options)
-                    for rf, adj in zip(self.rfs, local_adjs)])
-
-        return dJ
-
-    @no_annotations
-    def hessian(self, m_dot, options=None, hessian_input=0.0, evaluate_tlm=True):
-        if evaluate_tlm:
-            iopts = _intermediate_options(options)
-            self.tlm(m_dot, options=iopts)
-
-        hessian = self.controls.delist(
-            [c.control._ad_convert_type(0, options=options)
-             for c in self.controls])
-
-        with self._local_data(hessian_input, output=hessian) as (local_hessians, output):
-
-            output([rf.hessian(m_dot=None, evaluate_tlm=False,
-                               hessian_input=hess[0], options=options)
-                    for rf, hess in zip(self.rfs, local_hessians)])
-
-        return hessian
-
-    @contextmanager
-    def _local_data(self, data, output):
-        local_data = self._global_to_local_data(data)
-        output_transform = partial(
-            self._local_to_global_data, global_data=output)
-        yield local_data, output_transform
-
-    def _local_to_global_data(self, local_data, global_data):
-        # N local lists of length n -> n global lists of length N
-        # [(1,), (2,), (3,)]->  [(1, 2, 3)]
-        # [(1, 11), (2, 12), (3, 13)] -> [(1, 2, 3), (11, 12, 13)]
-
-        for j, global_group in enumerate(Enlist(global_data)):
-            local_group = [Enlist(local_group)[j]
-                           for local_group in local_data]
-            _set_local_subs(global_group, local_group)
-
-        return global_data
-
-    def _global_to_local_data(self, global_data):
-        # n global lists of length N -> N local lists of length n
-        # [(1, 2, 3)] -> [(1,), (2,), (3,)]
-        # [(1, 2, 3), (11, 12, 13)] -> [(1, 11), (2, 12), (3, 13)]
-
-        local_groups = [
-            ld for ld in zip(*map(_local_subs, Enlist(global_data)))]
-        return local_groups

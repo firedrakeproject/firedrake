@@ -1,5 +1,4 @@
 from pyadjoint.overloaded_type import OverloadedType
-from pyadjoint.tape import no_annotations
 import firedrake
 from .checkpointing import disk_checkpointing
 
@@ -54,45 +53,15 @@ class EnsembleFunctionMixin(OverloadedType):
                                                  other.subfunctions))
         return self.function_space().ensemble.ensemble_comm.allreduce(local_dot)
 
-    @no_annotations
-    def _ad_convert_type(self, value, options=None):
-        options = {} if options is None else options.copy()
-        options.setdefault("riesz_representation", "L2")
-        if options["riesz_representation"] is None:
-            if value == 0.:
-                # In adjoint-based differentiation, value == 0. arises only when
-                # the functional is independent on the control variable.
-                from firedrake import EnsembleCofunction
-                V = options.get("function_space", self.function_space())
-                return EnsembleCofunction(V.dual())
-            else:
-                return value
-        else:
-            return self._ad_convert_riesz(value, options=options)
+    def _ad_init_zero(self, dual=False):
+        from firedrake import EnsembleFunction
+        space = self.function_space()
+        if dual:
+            space = space.dual()
+        return EnsembleFunction(space)
 
-    def _ad_convert_riesz(self, value, options=None):
-        from firedrake import EnsembleFunction, EnsembleCofunction
-
-        options = {} if options is None else options
-        riesz_representation = options.get("riesz_representation", "L2")
-        V = options.get("function_space", self.function_space())
-        if value == 0.:
-            # In adjoint-based differentiation, value == 0. arises only when
-            # the functional is independent on the control variable.
-            return EnsembleFunction(V)
-
-        if not isinstance(value, (EnsembleCofunction, EnsembleFunction)):
-            raise TypeError(
-                "Expected an EnsembleCofunction or an EnsembleFunction"
-                f" not a {type(value).__name__}")
-
-        else:
-            if isinstance(value, EnsembleCofunction):
-                kwargs = options.get("solver_options", {})
-            else:
-                kwargs = {}
-            return value.riesz_representation(
-                riesz_representation, **kwargs)
+    def _ad_convert_riesz(self, value, riesz_map=None):
+        return value.riesz_representation(riesz_map=riesz_map or "L2")
 
     def _ad_create_checkpoint(self):
         if disk_checkpointing():

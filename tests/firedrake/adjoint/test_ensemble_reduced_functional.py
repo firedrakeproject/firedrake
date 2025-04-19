@@ -67,7 +67,7 @@ def test_ensemble_bcast_float():
 
     expect = AdjFloat(sum(i+1.0 for i in range(nglobal_floats)))
 
-    dJ = Jhat.derivative(adj_input=adj_input)
+    dJ = Jhat.derivative(adj_input=adj_input, apply_riesz=True)
 
     match_local = dJ - expect < eps
 
@@ -128,7 +128,7 @@ def test_ensemble_bcast_function():
 
     expect = Function(R).assign(sum(i+1.0 for i in range(nglobal_funcs)))
 
-    dJ = Jhat.derivative(adj_input=adj_input)
+    dJ = Jhat.derivative(adj_input=adj_input, apply_riesz=True)
 
     match_local = errornorm(dJ, expect) < eps
 
@@ -185,7 +185,7 @@ def test_ensemble_reduction_float():
     adj_input = AdjFloat(adj_value)
 
     expect = AdjFloat(adj_value)
-    dJ = Jhat.derivative(adj_input=adj_input)
+    dJ = Jhat.derivative(adj_input=adj_input, apply_riesz=True)
 
     match_local = all((dJi - expect) < eps for dJi in dJ.subvec)
 
@@ -246,7 +246,7 @@ def test_ensemble_reduction_function():
     adj_input = (Function(R).assign(adj_value)).riesz_representation()
 
     expect = Function(R).assign(adj_value)
-    dJ = Jhat.derivative(adj_input=adj_input)
+    dJ = Jhat.derivative(adj_input=adj_input, apply_riesz=True)
 
     match_local = all(errornorm(dJi, expect) < eps
                       for dJi in dJ.subfunctions)
@@ -323,9 +323,9 @@ def test_ensemble_transform_float():
 
     expect = EnsembleFunction(Re)
     for rf, adji, ei in zip(rfs, adj_input.subvec, expect.subfunctions):
-        ei.assign(rf.derivative(adj_input=adji))
+        ei.assign(rf.derivative(adj_input=adji, apply_riesz=True))
 
-    dJ = Jhat.derivative(adj_input=adj_input)
+    dJ = Jhat.derivative(adj_input=adj_input, apply_riesz=True)
 
     match_local = all(
         errornorm(dJi, ei) < eps
@@ -414,11 +414,11 @@ def test_ensemble_transform_float_two_controls():
     for rf, adji, e0i, e1i in zip(rfs, adj_input.subvec,
                                   expect0.subfunctions,
                                   expect1.subfunctions):
-        e0, e1 = rf.derivative(adj_input=adji)
+        e0, e1 = rf.derivative(adj_input=adji, apply_riesz=True)
         e0i.assign(e0)
         e1i.assign(e1)
 
-    dJ0, dJ1 = Jhat.derivative(adj_input=adj_input)
+    dJ0, dJ1 = Jhat.derivative(adj_input=adj_input, apply_riesz=True)
 
     match_local0 = all(
         errornorm(dJi, ei) < eps
@@ -514,9 +514,9 @@ def test_ensemble_transform_function():
     expect = EnsembleFunction(Re)
     for rf, adji, ei in zip(rfs, adj_input.subfunctions,
                             expect.subfunctions):
-        ei.assign(rf.derivative(adj_input=adji))
+        ei.assign(rf.derivative(adj_input=adji, apply_riesz=True))
 
-    dJ = Jhat.derivative(adj_input=adj_input)
+    dJ = Jhat.derivative(adj_input=adj_input, apply_riesz=True)
 
     match_local = all(
         errornorm(dJi, ei) < eps
@@ -611,11 +611,11 @@ def test_ensemble_transform_function_two_controls():
     for rf, adji, e0i, e1i in zip(rfs, adj_input.subfunctions,
                                   expect0.subfunctions,
                                   expect1.subfunctions):
-        e0, e1 = rf.derivative(adj_input=adji)
+        e0, e1 = rf.derivative(adj_input=adji, apply_riesz=True)
         e0i.assign(e0)
         e1i.assign(e1)
 
-    dJ0, dJ1 = Jhat.derivative(adj_input=adj_input)
+    dJ0, dJ1 = Jhat.derivative(adj_input=adj_input, apply_riesz=True)
 
     match_local0 = all(
         errornorm(dJi, ei) < eps
@@ -682,7 +682,7 @@ def test_ensemble_rf_function_to_float():
     assert_allclose(J, Jexpect, rtol=1e-12)
 
     adj_input = AdjFloat(4.0)
-    edJ = Jhat.derivative(adj_input=adj_input)
+    edJ = Jhat.derivative(adj_input=adj_input, apply_riesz=True)
 
     assert_allclose(edJ.dat.data_ro, adj_input*(4*xval**3)*sum_weights, rtol=1e-12)
 
@@ -752,7 +752,7 @@ def test_ensemble_rf_efunction_to_float():
     )
 
     adj_input = 3.0
-    dJ = Jhat.derivative(adj_input=adj_input)
+    dJ = Jhat.derivative(adj_input=adj_input, apply_riesz=True)
 
     expect = EnsembleFunction(Re)
     for i, ei in enumerate(expect.subfunctions):
