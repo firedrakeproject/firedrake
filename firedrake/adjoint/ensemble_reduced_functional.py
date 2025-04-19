@@ -162,6 +162,12 @@ class EnsembleReduceReducedFunctional(AbstractReducedFunctional, FunctionOrFloat
 
     @no_annotations
     def tlm(self, m_dot):
+        if isinstance(m_dot, (list, tuple)):
+            if len(m_dot) != 1:
+                raise ValueError(
+                    f"m_dot for {self(type).__name__} TLM must"
+                    f" only have one entry, not {len(m_dot)}")
+            m_dot = m_dot[0]
         if self.reduction_rf:
             return self.reduction_rf.tlm(
                 self._allgather(_local_subs(m_dot)))
@@ -173,7 +179,7 @@ class EnsembleReduceReducedFunctional(AbstractReducedFunctional, FunctionOrFloat
     def hessian(self, m_dot, hessian_input=None, evaluate_tlm=True, apply_riesz=False):
         if evaluate_tlm:
             self.tlm(m_dot)
-        hessian_input = 1.0 if hessian_input is None else hessian_input
+        hessian_input = 0.0 if hessian_input is None else hessian_input
         return self.derivative(adj_input=hessian_input, apply_riesz=apply_riesz)
 
     @cached_property

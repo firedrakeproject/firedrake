@@ -27,8 +27,9 @@ class EnsembleAdjVec(OverloadedType):
 
     def _ad_dot(self, other, options=None):
         local_dot = sum(s._ad_dot(o)
-                        for s, o in zip(self.subvec, other.subvec)),
-        return self.ensemble.ensemble_comm.allreduce(local_dot)
+                        for s, o in zip(self.subvec, other.subvec))
+        global_dot = self.ensemble.ensemble_comm.allreduce(local_dot)
+        return global_dot
 
     def _ad_add(self, other):
         return EnsembleAdjVec(

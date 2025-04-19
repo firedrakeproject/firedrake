@@ -177,6 +177,17 @@ def test_ensemble_reduction_float():
             f" expected value {expect}"
     )
 
+    # TLM
+    tlmx = Jhat.tlm(x)
+
+    match_local = tlmx - expect < eps
+
+    parallel_assert(
+        lambda: match_local,
+        msg=f"Reduced TLM AdjFloat {tlmx} does not match"
+            f" expected value {expect}"
+    )
+
     # Check the adjoint is broadcast back to all ranks.
     # Because the functional is a Function we need to
     # pass an adj_input of an Cofunction.
@@ -193,6 +204,16 @@ def test_ensemble_reduction_float():
         lambda: match_local,
         msg=f"Reduced derivatives {dJ} do not match expected value {expect}."
     )
+
+    for i, dj in enumerate(dJ.subvec):
+        dj *= (i+2)*0.3
+    taylor = taylor_to_dict(Jhat, x, dJ)
+    print(f"{taylor = }")
+
+    # derivative and hessian should be "exact"
+    assert mean(taylor['R0']['Rate'])
+    assert all(r < 1e-14 for r in taylor['R1']['Residual'])
+    assert all(r < 1e-14 for r in taylor['R2']['Residual'])
 
 
 @pytest.mark.parallel(nprocs=[1, 2, 3, 4, 6])
@@ -698,9 +719,9 @@ def test_ensemble_rf_function_to_float():
     R1 = mean(taylor['R1']['Rate'])
     R2 = mean(taylor['R2']['Rate'])
 
-    assert R0 > 0.95
-    assert R1 > 1.95
-    assert R2 > 2.95
+    assert R0 > 0.99
+    assert R1 > 1.99
+    assert R2 > 2.99
 
 
 @pytest.mark.parallel(nprocs=[1, 2, 3, 4, 6])
@@ -784,9 +805,9 @@ def test_ensemble_rf_efunction_to_float():
     R1 = mean(taylor['R1']['Rate'])
     R2 = mean(taylor['R2']['Rate'])
 
-    assert R0 > 0.95
-    assert R1 > 1.95
-    assert R2 > 2.95
+    assert R0 > 0.99
+    assert R1 > 1.99
+    assert R2 > 2.99
 
 
 @pytest.mark.parallel(nprocs=[1, 2, 3, 6])
