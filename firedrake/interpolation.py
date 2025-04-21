@@ -22,7 +22,8 @@ import gem
 import finat
 
 import firedrake
-from firedrake import tsfc_interface, utils, functionspaceimpl
+from firedrake import tsfc_interface, utils, functionspace, functionspaceimpl, parloops
+import firedrake.function as ffunc
 from firedrake.ufl_expr import Argument, action, adjoint as expr_adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError
 from firedrake.petsc import PETSc
@@ -38,6 +39,7 @@ __all__ = (
     "DofNotDefinedError",
     "CrossMeshInterpolator",
     "SameMeshInterpolator",
+    "ClementInterpolator",
 )
 
 
@@ -1664,3 +1666,113 @@ class VomOntoVomDummyMat(object):
             # matrix will then have rows of zeros for those points.
             target_vec.zeroEntries()
             self.reduce(source_vec, target_vec)
+
+
+class ClementInterpolator(SameMeshInterpolator):
+    r"""
+    Compute the Clément interpolant of a :math:`\mathbb{P}0` source field, i.e., take
+    the volume average over neighbouring cells at each vertex.
+
+    See :cite:`Clement:1975` for details.
+
+    For arguments, see :class:`.Interpolator`.
+    """
+
+    def __new__(cls, expr, V, **kwargs):
+        target_mesh = as_domain(V)
+        source_mesh = extract_unique_domain(expr) or target_mesh
+        if target_mesh is source_mesh:
+            return object.__new__(ClementInterpolator)
+        else:
+            raise ValueError("Clément interpolation requires the source and target meshes to coincide.")
+
+    @no_annotations
+    def __init__(
+        self,
+        expr,
+        V,
+        subset=None,
+        freeze_expr=False,
+        access=op2.WRITE,
+        bcs=None,
+        allow_missing_dofs=False,
+    ):
+        if subset:
+            raise NotImplementedError("subset not implemented")
+        if freeze_expr:
+            raise NotImplementedError("freeze_expr not implemented")
+        if access != op2.WRITE:
+            raise NotImplementedError("access other than op2.WRITE not implemented")
+        if bcs:
+            raise NotImplementedError("bcs not implemented")
+        element = V.ufl_element()
+        if element.family() != "Lagrange" or element.degree() != 1:
+            raise ValueError("Clément interpolation must target a P1 space.")
+        super().__init__(expr, V, subset=subset, freeze_expr=freeze_expr, access=access,
+                         bcs=bcs, allow_missing_dofs=allow_missing_dofs)
+
+    @PETSc.Log.EventDecorator()
+    def interpolate(self, function, output=None, adjoint=False):
+        """
+        Compute the Clément interpolant applied to a source function.
+
+        Parameters
+        ----------
+        function: firedrake.function.Function or firedrake.cofunction.Cofunction
+                  Function to be interpolated.
+        output: firedrake.function.Function or firedrake.cofunction.Cofunction
+                A function to contain the output.
+        adjoint: bool
+                   Set to true to apply the adjoint of the interpolation
+                   operator.
+
+        Returns
+        -------
+        firedrake.function.Function or firedrake.cofunction.Cofunction
+            The resulting interpolated function.
+        """
+        from firedrake.assemble import assemble
+        if adjoint:
+            raise NotImplementedError("Adjoint of Clément interpolation not implemented.")
+        Vs = function.function_space()
+        element = Vs.ufl_element()
+        if not (element.family() == "Discontinuous Lagrange" and element.degree() == 0):
+            raise ValueError("Source function must live in P0 space.")
+        rank = len(Vs.value_shape)
+        if rank not in (0, 1, 2):
+            raise ValueError(f"Rank-{rank} tensors are not supported.")
+        if rank != len(self.V.value_shape):
+            raise ValueError(f"Rank-{rank} input inconsistent with target space.")
+        mesh = self.V.mesh()
+        dim = mesh.topological_dimension()
+        dX = ufl.dx(domain=mesh)
+        if output is None:
+            output = ffunc.Function(self.V)
+
+        # Compute volume of each element
+        volume = ffunc.Function(functionspace.FunctionSpace(mesh, "DG", 0))
+        volume.interpolate(ufl.CellVolume(mesh))
+
+        # Compute patch volume
+        patch_volume = ffunc.Function(functionspace.FunctionSpace(mesh, "CG", 1))
+        domain = "{[i]: 0 <= i < patch.dofs}"
+        instructions = "patch[i] = patch[i] + vol[0]"
+        keys = {"vol": (volume, op2.READ), "patch": (patch_volume, op2.RW)}
+        parloops.par_loop((domain, instructions), dX, keys)
+
+        # Take weighted average
+        domain = {
+            0: "{[i]: 0 <= i < o.dofs}",
+            1: f"{{[i, j]: 0 <= i < o.dofs and 0 <= j < {dim}}}",
+            2: f"{{[i, j, k]: 0 <= i < o.dofs and 0 <= j < {dim} and 0 <= k < {dim}}}",
+        }[rank]
+        instructions = {
+            0: "o[i] = o[i] + v[0] * f[0]",
+            1: "o[i, j] = o[i, j] + v[0] * f[0, j]",
+            2: f"o[i, {dim} * j + k] = o[i, {dim} * j + k] + v[0] * f[0, {dim} * j + k]",
+        }[rank]
+        keys = {"f": (function, op2.READ), "v": (volume, op2.READ), "o": (output, op2.RW)}
+        parloops.par_loop((domain, instructions), dX, keys)
+
+        # Divide by patch volume
+        return output.interpolate(output / patch_volume)
