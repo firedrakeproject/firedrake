@@ -566,3 +566,37 @@ def test_interpolate_logical_not():
     a = assemble(interpolate(conditional(Not(x < .2), 1, 0), V))
     b = assemble(interpolate(conditional(x >= .2, 1, 0), V))
     assert np.allclose(a.dat.data, b.dat.data)
+
+
+@pytest.mark.parametrize("rank", range(3))
+@pytest.mark.parametrize("dim", range(1, 4))
+def test_clement_interpolator_simplex(dim, rank):
+    mesh = {
+        1: UnitIntervalMesh,
+        2: UnitSquareMesh,
+        3: UnitCubeMesh,
+    }[dim](*(5 for _ in range(dim)))
+    x = SpatialCoordinate(mesh)
+    if rank == 0:
+        fs_constructor = FunctionSpace
+        expr = sum(x)
+    elif rank == 1:
+        fs_constructor = VectorFunctionSpace
+        expr = as_vector(x)
+    else:
+        fs_constructor = TensorFunctionSpace
+        expr = as_matrix([list(x) for _ in range(dim)])
+    P0 = fs_constructor(mesh, "DG", 0)
+    P1 = fs_constructor(mesh, "CG", 1)
+
+    # Projecting into P0 space and then applying Clement interpolation should recover
+    # the original function
+    x_P0 = assemble(project(expr, P0))
+    interpolator = ClementInterpolator(TestFunction(P0), P1)
+    x_P1 = interpolator.interpolate(x_P0)
+    x_P1_direct = Function(P1).interpolate(expr)
+
+    # Account for the fact that the Clement interpolant breaks down at domain boundaries
+    DirichletBC(P1, x_P1_direct, "on_boundary").apply(x_P1)
+
+    assert np.isclose(errornorm(x_P1_direct, x_P1), 0)
