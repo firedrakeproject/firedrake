@@ -1,6 +1,7 @@
 from firedrake import *
 from firedrake.adjoint import *
 from firedrake.adjoint.ensemble_adjvec import EnsembleAdjVec
+from pyadjoint.reduced_functional_numpy import ReducedFunctionalNumPy
 import pytest
 from numpy.testing import assert_allclose
 from numpy import mean
@@ -66,7 +67,7 @@ def test_ensemble_bcast_float():
 
     expect = AdjFloat(sum(i+1.0 for i in range(nglobal_floats)))
 
-    dJ = Jhat.derivative(adj_input=adj_input)
+    dJ = Jhat.derivative(adj_input=adj_input, apply_riesz=True)
 
     match_local = dJ - expect < eps
 
@@ -127,7 +128,7 @@ def test_ensemble_bcast_function():
 
     expect = Function(R).assign(sum(i+1.0 for i in range(nglobal_funcs)))
 
-    dJ = Jhat.derivative(adj_input=adj_input)
+    dJ = Jhat.derivative(adj_input=adj_input, apply_riesz=True)
 
     match_local = errornorm(dJ, expect) < eps
 
@@ -176,6 +177,17 @@ def test_ensemble_reduction_float():
             f" expected value {expect}"
     )
 
+    # TLM
+    tlmx = Jhat.tlm(x)
+
+    match_local = tlmx - expect < eps
+
+    parallel_assert(
+        lambda: match_local,
+        msg=f"Reduced TLM AdjFloat {tlmx} does not match"
+            f" expected value {expect}"
+    )
+
     # Check the adjoint is broadcast back to all ranks.
     # Because the functional is a Function we need to
     # pass an adj_input of an Cofunction.
@@ -184,7 +196,7 @@ def test_ensemble_reduction_float():
     adj_input = AdjFloat(adj_value)
 
     expect = AdjFloat(adj_value)
-    dJ = Jhat.derivative(adj_input=adj_input)
+    dJ = Jhat.derivative(adj_input=adj_input, apply_riesz=True)
 
     match_local = all((dJi - expect) < eps for dJi in dJ.subvec)
 
@@ -192,6 +204,16 @@ def test_ensemble_reduction_float():
         lambda: match_local,
         msg=f"Reduced derivatives {dJ} do not match expected value {expect}."
     )
+
+    for i, dj in enumerate(dJ.subvec):
+        dj *= (i+2)*0.3
+    taylor = taylor_to_dict(Jhat, x, dJ)
+    print(f"{taylor = }")
+
+    # derivative and hessian should be "exact"
+    assert mean(taylor['R0']['Rate'])
+    assert all(r < 1e-14 for r in taylor['R1']['Residual'])
+    assert all(r < 1e-14 for r in taylor['R2']['Residual'])
 
 
 @pytest.mark.parallel(nprocs=[1, 2, 3, 4, 6])
@@ -245,7 +267,7 @@ def test_ensemble_reduction_function():
     adj_input = (Function(R).assign(adj_value)).riesz_representation()
 
     expect = Function(R).assign(adj_value)
-    dJ = Jhat.derivative(adj_input=adj_input)
+    dJ = Jhat.derivative(adj_input=adj_input, apply_riesz=True)
 
     match_local = all(errornorm(dJi, expect) < eps
                       for dJi in dJ.subfunctions)
@@ -322,9 +344,9 @@ def test_ensemble_transform_float():
 
     expect = EnsembleFunction(Re)
     for rf, adji, ei in zip(rfs, adj_input.subvec, expect.subfunctions):
-        ei.assign(rf.derivative(adj_input=adji))
+        ei.assign(rf.derivative(adj_input=adji, apply_riesz=True))
 
-    dJ = Jhat.derivative(adj_input=adj_input)
+    dJ = Jhat.derivative(adj_input=adj_input, apply_riesz=True)
 
     match_local = all(
         errornorm(dJi, ei) < eps
@@ -413,11 +435,11 @@ def test_ensemble_transform_float_two_controls():
     for rf, adji, e0i, e1i in zip(rfs, adj_input.subvec,
                                   expect0.subfunctions,
                                   expect1.subfunctions):
-        e0, e1 = rf.derivative(adj_input=adji)
+        e0, e1 = rf.derivative(adj_input=adji, apply_riesz=True)
         e0i.assign(e0)
         e1i.assign(e1)
 
-    dJ0, dJ1 = Jhat.derivative(adj_input=adj_input)
+    dJ0, dJ1 = Jhat.derivative(adj_input=adj_input, apply_riesz=True)
 
     match_local0 = all(
         errornorm(dJi, ei) < eps
@@ -513,9 +535,9 @@ def test_ensemble_transform_function():
     expect = EnsembleFunction(Re)
     for rf, adji, ei in zip(rfs, adj_input.subfunctions,
                             expect.subfunctions):
-        ei.assign(rf.derivative(adj_input=adji))
+        ei.assign(rf.derivative(adj_input=adji, apply_riesz=True))
 
-    dJ = Jhat.derivative(adj_input=adj_input)
+    dJ = Jhat.derivative(adj_input=adj_input, apply_riesz=True)
 
     match_local = all(
         errornorm(dJi, ei) < eps
@@ -610,11 +632,11 @@ def test_ensemble_transform_function_two_controls():
     for rf, adji, e0i, e1i in zip(rfs, adj_input.subfunctions,
                                   expect0.subfunctions,
                                   expect1.subfunctions):
-        e0, e1 = rf.derivative(adj_input=adji)
+        e0, e1 = rf.derivative(adj_input=adji, apply_riesz=True)
         e0i.assign(e0)
         e1i.assign(e1)
 
-    dJ0, dJ1 = Jhat.derivative(adj_input=adj_input)
+    dJ0, dJ1 = Jhat.derivative(adj_input=adj_input, apply_riesz=True)
 
     match_local0 = all(
         errornorm(dJi, ei) < eps
@@ -681,7 +703,7 @@ def test_ensemble_rf_function_to_float():
     assert_allclose(J, Jexpect, rtol=1e-12)
 
     adj_input = AdjFloat(4.0)
-    edJ = Jhat.derivative(adj_input=adj_input)
+    edJ = Jhat.derivative(adj_input=adj_input, apply_riesz=True)
 
     assert_allclose(edJ.dat.data_ro, adj_input*(4*xval**3)*sum_weights, rtol=1e-12)
 
@@ -697,9 +719,9 @@ def test_ensemble_rf_function_to_float():
     R1 = mean(taylor['R1']['Rate'])
     R2 = mean(taylor['R2']['Rate'])
 
-    assert R0 > 0.95
-    assert R1 > 1.95
-    assert R2 > 2.95
+    assert R0 > 0.99
+    assert R1 > 1.99
+    assert R2 > 2.99
 
 
 @pytest.mark.parallel(nprocs=[1, 2, 3, 4, 6])
@@ -751,7 +773,7 @@ def test_ensemble_rf_efunction_to_float():
     )
 
     adj_input = 3.0
-    dJ = Jhat.derivative(adj_input=adj_input)
+    dJ = Jhat.derivative(adj_input=adj_input, apply_riesz=True)
 
     expect = EnsembleFunction(Re)
     for i, ei in enumerate(expect.subfunctions):
@@ -783,75 +805,20 @@ def test_ensemble_rf_efunction_to_float():
     R1 = mean(taylor['R1']['Rate'])
     R2 = mean(taylor['R2']['Rate'])
 
-    assert R0 > 0.95
-    assert R1 > 1.95
-    assert R2 > 2.95
-
-
-@pytest.mark.parallel(nprocs=4)
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-@pytest.mark.xfail(reason="Taylor's test fails because the inner product \
-                   between the perturbation and gradient is not allreduced \
-                   for `scatter_control=False`.")
-def test_verification_gather_functional_adjfloat():
-    ensemble = Ensemble(COMM_WORLD, 2)
-    rank = ensemble.ensemble_comm.rank
-    mesh = UnitSquareMesh(4, 4, comm=ensemble.comm)
-    R = FunctionSpace(mesh, "R", 0)
-    x = function.Function(R, val=rank+1)
-    J = assemble(x * x * dx(domain=mesh))
-    a = AdjFloat(1.0)
-    b = AdjFloat(1.0)
-
-    Jg_m = [Control(a), Control(b)]
-    Jg = ReducedFunctional(a**2 + b**2, Jg_m)
-
-    rf = EnsembleReducedFunctional(J, Control(x), ensemble,
-                                   scatter_control=False,
-                                   gather_functional=Jg)
-
-    ensemble_J = rf(x)
-    dJdm = rf.derivative()
-    assert_allclose(ensemble_J, 1.0**4+2.0**4, rtol=1e-12)
-    assert_allclose(dJdm.dat.data_ro, 4*(rank+1)**3, rtol=1e-12)
-
-    assert taylor_test(rf, x, Function(R, val=0.1)) > 1.95
-
-
-@pytest.mark.parallel(nprocs=4)
-@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-@pytest.mark.xfail(reason="Taylor's test fails because the inner product \
-                   between the perturbation and gradient is not allreduced \
-                   for `scatter_control=False`.")
-def test_verification_gather_functional_Function():
-    ensemble = Ensemble(COMM_WORLD, 2)
-    rank = ensemble.ensemble_comm.rank
-    mesh = UnitSquareMesh(4, 4, comm=ensemble.comm)
-    R = FunctionSpace(mesh, "R", 0)
-    x = function.Function(R, val=rank+1)
-    J = Function(R).assign(x**2)
-    a = Function(R).assign(1.0)
-    b = Function(R).assign(1.0)
-    Jg_m = [Control(a), Control(b)]
-    Jg = assemble((a**2 + b**2)*dx)
-    Jghat = ReducedFunctional(Jg, Jg_m)
-    rf = EnsembleReducedFunctional(J, Control(x), ensemble,
-                                   scatter_control=False,
-                                   gather_functional=Jghat)
-    ensemble_J = rf(x)
-    dJdm = rf.derivative()
-    assert_allclose(ensemble_J, 1.0**4+2.0**4, rtol=1e-12)
-    assert_allclose(dJdm.dat.data_ro, 4*(rank+1)**3, rtol=1e-12)
-    assert taylor_test(rf, x, Function(R, val=0.1)) > 1.95
+    assert R0 > 0.99
+    assert R1 > 1.99
+    assert R2 > 2.99
 
 
 @pytest.mark.parallel(nprocs=[1, 2, 3, 6])
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_ensemble_rf_minimise():
-    # Optimisation test using a list of controls.
-    # This test is equivalent to the one found at:
-    # https://github.com/dolfin-adjoint/pyadjoint/blob/master/tests/firedrake_adjoint/test_optimisation.py#L9.
-    # In this test, the functional is the result of an ensemble allreduce operation.
+    """
+    Optimisation test using a list of controls.
+    This test is equivalent to the one found at:
+    https://github.com/firedrakeproject/firedrake/blob/master/tests/firedrake/adjoint/test_optimisation.py#L92
+    In this test, the functional is the result of an ensemble allreduce operation.
+    """
     nspatial_ranks = 2 if COMM_WORLD.size in (2, 6) else 1
     ensemble = Ensemble(COMM_WORLD, nspatial_ranks)
 
@@ -879,7 +846,8 @@ def test_ensemble_rf_minimise():
     J = AdjFloat(0.)
     controls = [Control(Function(R)) for _ in range(n)]
 
-    Jhat = EnsembleReducedFunctional(rfs, J, controls, ensemble=ensemble)
+    rf = EnsembleReducedFunctional(rfs, J, controls, ensemble=ensemble)
+    rf_np = ReducedFunctionalNumPy(rf)
 
-    result = minimize(Jhat)
+    result = minimize(rf_np)
     assert_allclose([float(xi) for xi in result], 1., rtol=1e-8)
