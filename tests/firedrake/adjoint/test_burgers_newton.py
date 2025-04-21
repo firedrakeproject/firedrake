@@ -198,6 +198,67 @@ def test_burgers_newton(solve_type, checkpointing, basics):
 
 
 @pytest.mark.skipcomplex
+def test_burgers_newton_docs():
+    """This test exists to ensure that the adjoint documentation runs."""
+    get_working_tape().clear_tape()
+    # start solver
+    n = 30
+    mesh = UnitIntervalMesh(n)
+    timestep = Constant(1.0/n)
+    steps = 10
+
+    x, = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 2)
+    ic = project(sin(2.*pi*x), V, name="ic")
+
+    u_old = Function(V, name="u_old")
+    u_new = Function(V, name="u")
+    v = TestFunction(V)
+    u_old.assign(ic)
+    nu = Constant(0.0001)
+    F = ((u_new-u_old)/timestep*v
+         + u_new*u_new.dx(0)*v + nu*u_new.dx(0)*v.dx(0))*dx
+    bc = DirichletBC(V, 0.0, "on_boundary")
+    problem = NonlinearVariationalProblem(F, u_new, bcs=bc)
+    solver = NonlinearVariationalSolver(problem)
+
+    J = assemble(ic*ic*dx)
+
+    for _ in range(steps):
+        solver.solve()
+        u_old.assign(u_new)
+        J += assemble(u_new*u_new*dx)
+    pause_annotation()
+    print(round(J, 3))
+    # end solver
+    Jhat = ReducedFunctional(J, Control(ic))
+    # end reduced functional
+
+    # start functional evaluation
+    ic_new = project(sin(pi*x), V)
+    J_new = Jhat(ic_new)
+    print(round(J_new, 3))
+    # end functional evaluation
+
+    # start progress bar
+    get_working_tape().progress_bar = ProgressBar
+    # end progress bar
+
+    # start derivative
+    dJ = Jhat.derivative()
+    # end derivative
+    dJ  # Shut up flake8.
+
+    # start taylor test
+    dm = assemble(interpolate(Constant(1.), V))
+    rate = taylor_test(Jhat, ic, dm)
+    # end taylor test
+    # Return annotation state to that at the start of the test.
+    continue_annotation()
+    assert rate > 1.9
+
+
+@pytest.mark.skipcomplex
 @pytest.mark.parametrize("solve_type", ["NLVS"])
 @pytest.mark.parametrize("checkpointing", ["Revolve", "SingleMemory", "NoneAdjoint", "Mixed", None])
 def test_checkpointing_validity(solve_type, checkpointing, basics):
