@@ -191,8 +191,9 @@ def test_streamplot():
     saddle = assemble(interpolate(2 * as_vector((v[0], -v[1])), V))
     r = Constant(.5)
     sink = assemble(interpolate(center - r * v, V))
+    zero = Function(V)
 
-    fig, axes = plt.subplots(ncols=1, nrows=3, sharex=True, sharey=True)
+    fig, axes = plt.subplots(ncols=1, nrows=4, sharex=True, sharey=True)
     for ax in axes:
         ax.set_aspect("equal")
 
@@ -200,9 +201,10 @@ def test_streamplot():
     kwargses = [
         {'resolution': 1/48, 'tolerance': 2e-2, 'norm': color_norm, 'seed': 0},
         {'loc_tolerance': 1e-5, 'cmap': 'bone', 'vmax': 1., 'seed': 0},
-        {'min_length': 1/4, 'max_time': 5., 'seed': 0}
+        {'min_length': 1/4, 'max_time': 5., 'seed': 0},
+        {}
     ]
-    for ax, function, kwargs in zip(axes, [center, saddle, sink], kwargses):
+    for ax, function, kwargs in zip(axes, [center, saddle, sink, zero], kwargses):
         lines = streamplot(function, axes=ax, **kwargs)
         colorbar = fig.colorbar(lines, ax=ax)
         assert lines is not None

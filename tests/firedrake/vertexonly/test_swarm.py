@@ -218,8 +218,9 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     nptslocal = len(localpointcoords)
     nptsglobal = MPI.COMM_WORLD.allreduce(nptslocal, op=MPI.SUM)
     # Get parent PETSc cell indices on current MPI rank
-    localparentcellindices = np.copy(swarm.getField("DMSwarm_cellid").ravel())
-    swarm.restoreField("DMSwarm_cellid")
+    cell_id = swarm.getCellDMActive().getCellID()
+    localparentcellindices = np.copy(swarm.getField(cell_id).ravel())
+    swarm.restoreField(cell_id)
 
     # also get the global coordinate numbering
     globalindices = np.copy(swarm.getField("globalindex").ravel())
@@ -242,7 +243,6 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     # Check swarm fields are correct
     default_fields = [
         ("DMSwarmPIC_coor", parentmesh.geometric_dimension(), RealType),
-        ("DMSwarm_cellid", 1, IntType),
         ("DMSwarm_rank", 1, IntType),
     ]
     default_extra_fields = [
@@ -378,8 +378,9 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     ):
         swarm.setPointCoordinates(localpointcoords, redundant=False,
                                   mode=PETSc.InsertMode.INSERT_VALUES)
-        petsclocalparentcellindices = np.copy(swarm.getField("DMSwarm_cellid").ravel())
-        swarm.restoreField("DMSwarm_cellid")
+        cell_id = swarm.getCellDMActive().getCellID()
+        petsclocalparentcellindices = np.copy(swarm.getField(cell_id).ravel())
+        swarm.restoreField(cell_id)
         if exclude_halos:
             assert np.all(petsclocalparentcellindices == localparentcellindices)
         elif parentmesh.comm.size > 1:

@@ -29,7 +29,7 @@ class ASMPatchPC(PCBase):
         # Get context from pc
         _, P = pc.getOperators()
         dm = pc.getDM()
-        self.prefix = pc.getOptionsPrefix() + self._prefix
+        self.prefix = (pc.getOptionsPrefix() or "") + self._prefix
 
         # Extract function space and mesh to obtain plex and indexing functions
         V = get_function_space(dm)

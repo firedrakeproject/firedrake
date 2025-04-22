@@ -37,6 +37,7 @@ from pyop2.codegen.rep2loopy import SolveCallable, INVCallable
 import numpy as np
 from pyop2 import op2
 from pyop2.configuration import target
+from pyop2.datatypes import ScalarType
 
 
 @pytest.fixture
@@ -46,28 +47,28 @@ def s():
 
 @pytest.fixture
 def zero_mat(s):
-    return op2.Dat(s ** (2, 2), [[0.0, 0.0], [0.0, 0.0]])
+    return op2.Dat(s ** (2, 2), [[0.0, 0.0], [0.0, 0.0]], dtype=ScalarType)
 
 
 @pytest.fixture
 def inv_mat(s):
-    return op2.Dat(s ** (2, 2), [[1.0, 2.0], [3.0, 4.0]])
+    return op2.Dat(s ** (2, 2), [[1.0, 2.0], [3.0, 4.0]], dtype=ScalarType)
 
 
 @pytest.fixture
 def zero_vec(s):
-    return op2.Dat(s ** (2, 1), [0.0, 0.0])
+    return op2.Dat(s ** (2, 1), [0.0, 0.0], dtype=ScalarType)
 
 
 @pytest.fixture
 def solve_mat(s):
-    d = op2.Dat(s ** (2, 2), [[2.0, 1.0], [-3.0, 2.0]])
+    d = op2.Dat(s ** (2, 2), [[2.0, 1.0], [-3.0, 2.0]], dtype=ScalarType)
     return d
 
 
 @pytest.fixture
 def solve_vec(s):
-    return op2.Dat(s ** (2, 1), [1.0, 0.0])
+    return op2.Dat(s ** (2, 1), [1.0, 0.0], dtype=ScalarType)
 
 
 class TestCallables:
@@ -80,8 +81,8 @@ class TestCallables:
             """
             B[:,:] = inverse(A[:,:])
             """,
-            [loopy.GlobalArg('B', dtype=np.float64, shape=(2, 2)),
-             loopy.GlobalArg('A', dtype=np.float64, shape=(2, 2))],
+            [loopy.GlobalArg('B', dtype=ScalarType, shape=(2, 2)),
+             loopy.GlobalArg('A', dtype=ScalarType, shape=(2, 2))],
             target=target,
             name="callable_kernel",
             lang_version=(2018, 2))
@@ -104,9 +105,9 @@ class TestCallables:
             """
             x[:] = solve(A[:,:], b[:])
             """,
-            [loopy.GlobalArg('x', dtype=np.float64, shape=(2, )),
-             loopy.GlobalArg('A', dtype=np.float64, shape=(2, 2)),
-             loopy.GlobalArg('b', dtype=np.float64, shape=(2, ),)],
+            [loopy.GlobalArg('x', dtype=ScalarType, shape=(2, )),
+             loopy.GlobalArg('A', dtype=ScalarType, shape=(2, 2)),
+             loopy.GlobalArg('b', dtype=ScalarType, shape=(2, ),)],
             target=target,
             name="callable_kernel2",
             lang_version=(2018, 2))
