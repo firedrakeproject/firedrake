@@ -1,30 +1,62 @@
-from pyadjoint import OverloadedType
-from typing import Optional
+from pyadjoint import (
+    OverloadedType, Control, ReducedFunctional,
+    stop_annotating, pause_annotation, continue_annotation,
+    annotate_tape, set_working_tape)
+from pyadjoint.enlisting import Enlist
 
 
-def intermediate_options(options: dict):
+def _rename(obj, name):
+    if hasattr(obj, "rename"):
+        obj.rename(name)
+
+
+def _ad_sub(left, right):
+    result = right._ad_copy()
+    result._ad_imul(-1)
+    result._ad_iadd(left)
+    return result
+
+
+# @set_working_tape()  # ends up using old_tape = None because evaluates when imported - need separate decorator
+def isolated_rf(operation, control,
+                functional_name=None,
+                control_name=None):
     """
-    Options set for the intermediate stages of a chain of ReducedFunctionals
-
-    Takes all elements of the options except riesz_representation, which
-    is set to None to prevent returning derivatives to the primal space.
-
-    Parameters
-    ----------
-    options
-        The dictionary of options provided by the user
-
-    Returns
-    -------
-    dict
-        The options for ReducedFunctionals at intermediate stages
-
+    Return a ReducedFunctional where the functional is `operation` applied
+    to a copy of `control`, and the tape contains only `operation`.
     """
-    return {
-        **{k: v for k, v in (options or {}).items()
-           if k != 'riesz_representation'},
-        'riesz_representation': None
-    }
+    with stop_annotating():
+        controls = Enlist(control)
+        control_copies = [control._ad_copy() for control in controls]
+
+        if control_name:
+            for control, name in zip(control_copies, Enlist(control_name)):
+                _rename(control, name)
+
+    annotating = annotate_tape()
+    if not annotating:
+        continue_annotation()
+    with set_working_tape() as tape:
+        functional = operation(
+            controls.delist(control_copies))
+
+        if functional_name:
+            _rename(functional, functional_name)
+
+        control = controls.delist(
+            [Control(control_copy)
+             for control_copy in control_copies])
+
+        Jhat = ReducedFunctional(
+            functional, control, tape=tape)
+
+    if not annotating:
+        pause_annotation()
+    return Jhat
+
+
+def identity_reduced_functional(value):
+    return isolated_rf(lambda v: v._ad_init_zero()._ad_add(v), value)
 
 
 class CompositeReducedFunctional:
@@ -67,7 +99,7 @@ class CompositeReducedFunctional:
         """
         return self.rf2(self.rf1(values))
 
-    def derivative(self, adj_input: Optional[float] = 1.0, options: Optional[dict] = None):
+    def derivative(self, adj_input: float = 1.0, apply_riesz: bool = False):
         """Returns the derivative of the functional w.r.t. the control.
         Using the adjoint method, the derivative of the functional with
         respect to the control, around the last supplied value of the
@@ -78,8 +110,8 @@ class CompositeReducedFunctional:
         adj_input
             The adjoint input.
 
-        options
-            Additional options for the derivative computation.
+        apply_riesz
+            Whether to apply the Riesz map to the result to obtain the primal value.
 
         Returns
         -------
@@ -89,12 +121,12 @@ class CompositeReducedFunctional:
 
         """
         deriv2 = self.rf2.derivative(
-            adj_input=adj_input, options=intermediate_options(options))
+            adj_input=adj_input, apply_riesz=False)
         deriv1 = self.rf1.derivative(
-            adj_input=deriv2, options=options or {})
+            adj_input=deriv2, apply_riesz=apply_riesz)
         return deriv1
 
-    def tlm(self, m_dot: OverloadedType, options: Optional[dict] = None):
+    def tlm(self, m_dot: OverloadedType):
         """Returns the action of the tangent linear model of the functional w.r.t. the control on a vector m_dot.
 
         Parameters
@@ -103,10 +135,6 @@ class CompositeReducedFunctional:
         m_dot
             The direction in which to compute the action of the Hessian.
 
-        options
-            A dictionary of options. To find a list of available options
-            have a look at the specific control type.
-
         Returns
         -------
         pyadjoint.OverloadedType
@@ -114,12 +142,9 @@ class CompositeReducedFunctional:
             Should be an instance of the same type as the control.
 
         """
-        return self.rf2.tlm(self.rf1.tlm(m_dot, intermediate_options(options)), options)
+        return self.rf2.tlm(self.rf1.tlm(m_dot))
 
-    def hessian(self, m_dot: OverloadedType,
-                options: Optional[dict] = None,
-                hessian_input: OverloadedType = 0.0,
-                evaluate_tlm: Optional[bool] = True):
+    def hessian(self, m_dot, hessian_input=None, evaluate_tlm=True, apply_riesz=False):
         """Returns the action of the Hessian of the functional w.r.t. the control on a vector m_dot.
 
         Using the second-order adjoint method, the action of the Hessian of the
@@ -131,10 +156,6 @@ class CompositeReducedFunctional:
 
         m_dot
             The direction in which to compute the action of the Hessian.
-
-        options
-            A dictionary of options. To find a list of available options
-            have a look at the specific control type.
 
         evaluate_tlm
             If True, the tlm values on the tape will be reset and evaluated before
@@ -149,9 +170,9 @@ class CompositeReducedFunctional:
 
         """
         if evaluate_tlm:
-            self.tlm(m_dot, options=intermediate_options(options))
+            self.tlm(m_dot)
         return self.rf1.hessian(
-            None, options or {}, evaluate_tlm=False,
+            None, evaluate_tlm=False, apply_riesz=apply_riesz,
             hessian_input=self.rf2.hessian(
-                None, options=intermediate_options(options), evaluate_tlm=False,
+                None, evaluate_tlm=False, apply_riesz=False,
                 hessian_input=hessian_input))

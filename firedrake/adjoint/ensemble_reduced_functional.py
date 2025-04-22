@@ -103,7 +103,7 @@ class EnsembleReduceReducedFunctional(AbstractReducedFunctional, FunctionOrFloat
                 raise ValueError(
                     f"Ensemble provided to {type(self).__name__} must match"
                     " the ensemble of the control.")
-            self.ensemble = ensemble
+            self.ensemble = control.control.ensemble
             self.nlocal_inputs = len(control.subvec)
 
         elif isinstance(functional, Function):
@@ -314,6 +314,22 @@ class EnsembleTransformReducedFunctional(AbstractReducedFunctional):
             raise TypeError(
                 f"Functional for {type(self).__name__} must be either"
                 " an EnsembleFunction or EnsembleAdjVec")
+
+        clens = set(len(_local_subs(c.control)) for c in self.controls)
+        flen = len(_local_subs(functional))
+        rlen = len(rfs)
+        if len(clens) != 1:
+            raise ValueError(
+                f"All Controls for {type(self).__name__} must be the same length")
+        clen = clens.pop()
+        if clen != flen:
+            raise ValueError(
+                f"Control of length {clen} for {type(self).__name__} must have"
+                f" the same number of components as functional with length {flen}")
+        if clen != rlen:
+            raise ValueError(
+                f"{type(self).__name__} given {rlen} ReducedFunctionals, but"
+                f" needs one for each component of Control with length {clen}")
 
     @property
     def controls(self):

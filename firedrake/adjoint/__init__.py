@@ -32,7 +32,7 @@ from pyadjoint.verification import taylor_test, taylor_to_dict  # noqa F401
 from pyadjoint.drivers import compute_gradient, compute_derivative, compute_hessian  # noqa F401
 from pyadjoint.adjfloat import AdjFloat  # noqa F401
 from pyadjoint.control import Control  # noqa F401
-from pyadjoint import IPOPTSolver, ROLSolver, MinimizationProblem, \
+from pyadjoint import TAOSolver, IPOPTSolver, ROLSolver, MinimizationProblem, \
     InequalityConstraint, minimize  # noqa F401
 
 from firedrake.adjoint.ufl_constraints import UFLInequalityConstraint, \
