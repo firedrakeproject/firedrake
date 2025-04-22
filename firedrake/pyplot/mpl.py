@@ -392,7 +392,12 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
     x = np.array(point)
     v1 = toreal(direction * function.at(x, tolerance=loc_tolerance), complex_component)
     r = toreal(cell_sizes.at(x, tolerance=loc_tolerance), "real")
-    dt = 0.5 * r / np.sqrt(np.sum(v1**2))
+    v1norm = np.sqrt(np.sum(v1**2))
+    if np.isclose(v1norm, 0.0):
+        # Bail early for zero fields.
+        return
+
+    dt = 0.5 * r / v1norm
 
     while True:
         try:
@@ -622,7 +627,10 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     if max_time is None:
         area = assemble(Constant(1) * dx(mesh))
         average_speed = np.sqrt(assemble(inner(function, function) * dx) / area)
-        max_time = 50 * min_length / average_speed
+        if np.isclose(average_speed, 0.0):
+            max_time = 0.
+        else:
+            max_time = 50 * min_length / average_speed
 
     streamplotter = Streamplotter(function, resolution, min_length, max_time,
                                   tolerance, loc_tolerance,
@@ -666,9 +674,13 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     widths = np.array(widths)
 
     points = np.asarray(points)
-    vmin = kwargs.pop("vmin", speeds.min())
-    vmax = kwargs.pop("vmax", speeds.max())
-    norm = kwargs.pop("norm", matplotlib.colors.Normalize(vmin=vmin, vmax=vmax))
+    if speeds.size > 0:
+        vmin = kwargs.pop("vmin", speeds.min())
+        vmax = kwargs.pop("vmax", speeds.max())
+        norm = kwargs.pop("norm", matplotlib.colors.Normalize(vmin=vmin, vmax=vmax))
+    else:
+        norm = None
+
     cmap = plt.get_cmap(kwargs.pop("cmap", None))
 
     collection = LineCollection(points, cmap=cmap, norm=norm, linewidth=widths)

@@ -1114,7 +1114,7 @@ class ZeroFormAssembler(ParloopFormAssembler):
 
     Parameters
     ----------
-    form : ufl.Form or slate.TensorBasehe
+    form : ufl.Form or slate.TensorBase
         0-form.
 
     Notes

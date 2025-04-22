@@ -16,7 +16,7 @@ class HypreADS(PCBase):
     def initialize(self, obj):
         A, P = obj.getOperators()
         appctx = self.get_appctx(obj)
-        prefix = obj.getOptionsPrefix()
+        prefix = obj.getOptionsPrefix() or ""
         V = get_function_space(obj.getDM())
         mesh = V.mesh()
 
