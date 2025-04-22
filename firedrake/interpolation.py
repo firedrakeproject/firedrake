@@ -1753,6 +1753,20 @@ class ClementInterpolator(SameMeshInterpolator):
         volume = ffunc.Function(functionspace.FunctionSpace(mesh, "DG", 0))
         volume.interpolate(ufl.CellVolume(mesh))
 
+        # Take weighted average
+        domain = {
+            0: "{[i]: 0 <= i < out.dofs}",
+            1: f"{{[i, j]: 0 <= i < out.dofs and 0 <= j < {dim}}}",
+            2: f"{{[i, j, k]: 0 <= i < out.dofs and 0 <= j < {dim} and 0 <= k < {dim}}}",
+        }[rank]
+        instructions = {
+            0: "out[i] = out[i] + vol[0] * f[0]",
+            1: "out[i, j] = out[i, j] + vol[0] * f[0, j]",
+            2: f"out[i, {dim} * j + k] = out[i, {dim} * j + k] + vol[0] * f[0, {dim} * j + k]",
+        }[rank]
+        keys = {"f": (function, op2.READ), "vol": (volume, op2.READ), "out": (output, op2.RW)}
+        parloops.par_loop((domain, instructions), dX, keys)
+
         # Compute patch volume
         patch_volume = ffunc.Function(functionspace.FunctionSpace(mesh, "CG", 1))
         domain = "{[i]: 0 <= i < patch.dofs}"
@@ -1760,19 +1774,18 @@ class ClementInterpolator(SameMeshInterpolator):
         keys = {"vol": (volume, op2.READ), "patch": (patch_volume, op2.RW)}
         parloops.par_loop((domain, instructions), dX, keys)
 
-        # Take weighted average
+        # Divide by patch volume
         domain = {
-            0: "{[i]: 0 <= i < o.dofs}",
-            1: f"{{[i, j]: 0 <= i < o.dofs and 0 <= j < {dim}}}",
-            2: f"{{[i, j, k]: 0 <= i < o.dofs and 0 <= j < {dim} and 0 <= k < {dim}}}",
+            0: "",
+            1: f"{{[j]: 0 <= j < {dim}}}",
+            2: f"{{[j, k]: 0 <= j < {dim} and 0 <= k < {dim}}}",
         }[rank]
         instructions = {
-            0: "o[i] = o[i] + v[0] * f[0]",
-            1: "o[i, j] = o[i, j] + v[0] * f[0, j]",
-            2: f"o[i, {dim} * j + k] = o[i, {dim} * j + k] + v[0] * f[0, {dim} * j + k]",
+            0: "out[0] = out[0] / patch[0]",
+            1: "out[0, j] = out[0, j] / patch[0]",
+            2: f"out[0, {dim} * j + k] = out[0, {dim} * j + k] / patch[0]",
         }[rank]
-        keys = {"f": (function, op2.READ), "v": (volume, op2.READ), "o": (output, op2.RW)}
-        parloops.par_loop((domain, instructions), dX, keys)
+        keys = {"patch": (patch_volume, op2.READ), "out": (output, op2.RW)}
+        parloops.par_loop((domain, instructions), parloops.direct, keys)
 
-        # Divide by patch volume
-        return output.interpolate(output / patch_volume)
+        return output
