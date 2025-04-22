@@ -1673,7 +1673,7 @@ class ClementInterpolator(SameMeshInterpolator):
     Compute the Clément interpolant of a :math:`\mathbb{P}0` source field, i.e., take
     the volume average over neighbouring cells at each vertex.
 
-    See :cite:`Clement:1975` for details.
+    See :cite:`Clement1975` for details.
 
     For arguments, see :class:`.Interpolator`.
     """
