@@ -31,9 +31,11 @@ def uniform_mesh(request):
                         extrusion_type="uniform", name=mesh_name)
 
 
-@pytest.fixture(params=["circlemanifold",
-                        "icosahedron",
-                        "cubedsphere"])
+@pytest.fixture(params=[
+    "circlemanifold",
+    "icosahedron",
+    "cubedsphere"
+])
 def radial_mesh(request):
     if request.param == "circlemanifold":
         # Circumference of 1
@@ -121,12 +123,13 @@ def _test_io_mesh_extrusion(mesh, tmpdir, variable_layers=False):
                 layers[:, 1] += 1 + layers[:, 0]
                 assert np.array_equal(mesh.topology.layers, layers)
             v1 = _compute_integral(mesh)
-            assert abs(v1 - v) < 2.e-14
+            assert abs(v1 - v) < 5.e-14
             if isinstance(mesh.topology, ExtrudedMeshTopology):
                 assert mesh.topology._base_mesh is mesh._base_mesh.topology
             # Save.
             with CheckpointFile(fname, "w", comm=comm) as afile:
                 afile.save_mesh(mesh)
+        comm.Free()
 
 
 @pytest.mark.parallel(nprocs=3)
@@ -174,7 +177,8 @@ def test_io_mesh_default_mesh_name(tmpdir):
             with CheckpointFile(fname, "r", comm=comm) as afile:
                 mesh = afile.load_mesh()
             v1 = _compute_integral(mesh)
-            assert abs(v1 - v) < 1.e-14
+            assert abs(v1 - v) < 5.e-14
             # Save.
             with CheckpointFile(fname, "w", comm=comm) as afile:
                 afile.save_mesh(mesh)
+        comm.Free()

@@ -20,13 +20,14 @@ import weakref
 
 import ctypes
 from pyop2 import op2
-from pyop2.mpi import COMM_SELF
 import pyop2.types
 from pyop2.compilation import load
-from pyop2.utils import get_petsc_dir
 from pyop2.codegen.builder import Pack, MatPack, DatPack
 from pyop2.codegen.representation import Comparison, Literal
 from pyop2.codegen.rep2loopy import register_petsc_function
+from pyop2.global_kernel import compile_global_kernel
+from pyop2.mpi import COMM_SELF
+from pyop2.utils import get_petsc_dir
 
 __all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
 
@@ -126,6 +127,9 @@ class LocalDat(pyop2.types.AbstractDat):
     def __call__(self, access, map_=None):
         return LocalDatLegacyArg(self, map_, access)
 
+    def increment_dat_version(self):
+        pass
+
 
 register_petsc_function("MatSetValues")
 
@@ -222,7 +226,7 @@ def matrix_funptr(form, state):
 
         wrapper_knl_args = tuple(a.global_kernel_arg for a in args)
         mod = op2.GlobalKernel(kinfo.kernel, wrapper_knl_args, subset=True)
-        kernels.append(CompiledKernel(mod.compile(iterset.comm), kinfo))
+        kernels.append(CompiledKernel(compile_global_kernel(mod, iterset.comm), kinfo))
     return cell_kernels, int_facet_kernels
 
 
@@ -316,7 +320,7 @@ def residual_funptr(form, state):
 
         wrapper_knl_args = tuple(a.global_kernel_arg for a in args)
         mod = op2.GlobalKernel(kinfo.kernel, wrapper_knl_args, subset=True)
-        kernels.append(CompiledKernel(mod.compile(iterset.comm), kinfo))
+        kernels.append(CompiledKernel(compile_global_kernel(mod, iterset.comm), kinfo))
     return cell_kernels, int_facet_kernels
 
 
@@ -711,7 +715,7 @@ class PlaneSmoother(object):
             raise NotImplementedError("Sorry, plane smoothers not yet implemented in complex mode")
         dm = pc.getDM()
         context = dm.getAttr("__firedrake_ctx__")
-        prefix = pc.getOptionsPrefix()
+        prefix = pc.getOptionsPrefix() or ""
         sentinel = object()
         sweeps = PETSc.Options(prefix).getString("pc_patch_construct_ps_sweeps", default=sentinel)
         if sweeps == sentinel:
@@ -785,7 +789,7 @@ class PatchBase(PCSNESBase):
                 PETSc.Sys.Print("Warning: you almost surely want to set an overlap_type in your mesh's distribution_parameters.")
 
         patch = obj.__class__().create(comm=mesh.comm)
-        patch.setOptionsPrefix(obj.getOptionsPrefix() + "patch_")
+        patch.setOptionsPrefix((obj.getOptionsPrefix() or "") + "patch_")
         self.configure_patch(patch, obj)
         patch.setType("patch")
 
@@ -920,7 +924,7 @@ class PatchBase(PCSNESBase):
             self.patch.destroy()
 
     def user_construction_op(self, obj, *args, **kwargs):
-        prefix = obj.getOptionsPrefix()
+        prefix = obj.getOptionsPrefix() or ""
         sentinel = object()
         usercode = PETSc.Options(prefix).getString("%s_patch_construct_python_type" % self._objectname, default=sentinel)
         if usercode == sentinel:

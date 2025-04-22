@@ -41,7 +41,7 @@ class FacetSplitPC(PCBase):
     def initialize(self, pc):
         from firedrake import FunctionSpace, TestFunction, TrialFunction, split
 
-        prefix = pc.getOptionsPrefix()
+        prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
         options = PETSc.Options(options_prefix)
         mat_type = options.getString("mat_type", "submatrix")

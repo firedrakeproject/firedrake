@@ -327,7 +327,7 @@ def test_bcs_rhs_assemble(a, V):
     b1 = assemble(a)
     b1_func = b1.riesz_representation(riesz_map="l2")
     for bc in bcs:
-        bc.apply(b1_func)
+        bc.zero(b1_func)
     b1.assign(b1_func.riesz_representation(riesz_map="l2"))
     b2 = assemble(a, bcs=bcs)
     assert np.allclose(b1.dat.data, b2.dat.data)

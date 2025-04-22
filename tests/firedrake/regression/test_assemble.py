@@ -225,7 +225,7 @@ def test_one_form_assembler_cache(mesh):
     assert len(L._cache[_FORM_CACHE_KEY]) == 3
 
     # changing zero_bc_nodes should increase the cache size
-    assemble(L, zero_bc_nodes=True)
+    assemble(L, zero_bc_nodes=False)
     assert len(L._cache[_FORM_CACHE_KEY]) == 4
 
 
@@ -344,3 +344,21 @@ def test_assemble_power_zero_minmax():
     g = Function(V).assign(2.)
     assert assemble(zero()**min_value(f, g) * dx) == 0.0
     assert assemble(zero()**max_value(f, g) * dx) == 0.0
+
+
+def test_split_subdomain_ids():
+    mesh = UnitSquareMesh(1, 1)
+    q = Function(FunctionSpace(mesh, "DG", 0), dtype=int)
+    q.dat.data[1] = 1
+    rmesh = RelabeledMesh(mesh, (q,), (1,))
+
+    V = FunctionSpace(rmesh, "DG", 0)
+    Z = V * V
+    v0, v1 = TestFunctions(Z)
+
+    a = assemble(conj(v0)*dx + conj(v1)*dx)
+    b = assemble(conj(v0)*dx + conj(v1)*dx(1))
+
+    assert (a.dat[0].data == b.dat[0].data).all()
+    assert b.dat[1].data[0] == 0.0
+    assert b.dat[1].data[1] == a.dat[1].data[1]

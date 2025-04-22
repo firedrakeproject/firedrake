@@ -21,7 +21,9 @@ from collections import OrderedDict, namedtuple, defaultdict
 from ufl import Constant, replace
 from ufl.coefficient import BaseCoefficient
 
+from firedrake.formmanipulation import ExtractSubBlock, subspace
 from firedrake.function import Function, Cofunction
+from firedrake.ufl_expr import TestFunction
 from firedrake.utils import cached_property, unique
 
 from itertools import chain, count
@@ -32,10 +34,8 @@ from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import Zero
 from ufl.domain import join_domains, sort_domains
-from ufl.form import Form
+from ufl.form import BaseForm, Form, ZeroBaseForm
 import hashlib
-
-from firedrake.formmanipulation import ExtractSubBlock
 
 from tsfc.ufl_utils import extract_firedrake_constants
 
@@ -241,7 +241,7 @@ class TensorBase(object, metaclass=ABCMeta):
                 coeff_map[m].update(c.indices[0])
             else:
                 m = self.coefficients().index(c)
-                split_map = tuple(range(len(c.subfunctions))) if isinstance(c, Function) or isinstance(c, Constant) or isinstance(c, Cofunction) else tuple(range(1))
+                split_map = tuple(range(len(c.subfunctions))) if isinstance(c, (Function, Constant, Cofunction)) else (0,)
                 coeff_map[m].update(split_map)
         return tuple((k, tuple(sorted(v)))for k, v in coeff_map.items())
 
@@ -297,6 +297,10 @@ class TensorBase(object, metaclass=ABCMeta):
         """
         return Solve(self, B, decomposition=decomposition)
 
+    def empty(self):
+        """Returns whether the form associated with the tensor is empty."""
+        return False
+
     @cached_property
     def blocks(self):
         """Returns an object containing the blocks of the tensor defined
@@ -332,52 +336,52 @@ class TensorBase(object, metaclass=ABCMeta):
         return BlockIndexer(self)
 
     def __add__(self, other):
-        if isinstance(other, TensorBase):
+        try:
+            other = as_slate(other)
             return Add(self, other)
-        else:
-            raise NotImplementedError("Type(s) for + not supported: '%s' '%s'"
-                                      % (type(self), type(other)))
+        except TypeError:
+            return NotImplemented
 
     def __radd__(self, other):
-        # If other is not a TensorBase, raise NotImplementedError. Otherwise,
-        # delegate action to other.
-        if not isinstance(other, TensorBase):
-            raise NotImplementedError("Type(s) for + not supported: '%s' '%s'"
-                                      % (type(other), type(self)))
-        else:
-            other.__add__(self)
+        # If other cannot be converted into a TensorBase, return NotImplemented.
+        # Otherwise, delegate action to other.
+        try:
+            other = as_slate(other)
+            return other + self
+        except TypeError:
+            return NotImplemented
 
     def __sub__(self, other):
-        if isinstance(other, TensorBase):
+        try:
+            other = as_slate(other)
             return Add(self, Negative(other))
-        else:
-            raise NotImplementedError("Type(s) for - not supported: '%s' '%s'"
-                                      % (type(self), type(other)))
+        except TypeError:
+            return NotImplemented
 
     def __rsub__(self, other):
-        # If other is not a TensorBase, raise NotImplementedError. Otherwise,
-        # delegate action to other.
-        if not isinstance(other, TensorBase):
-            raise NotImplementedError("Type(s) for - not supported: '%s' '%s'"
-                                      % (type(other), type(self)))
-        else:
-            other.__sub__(self)
+        # If other cannot be converted into a TensorBase, return NotImplemented.
+        # Otherwise, delegate action to other.
+        try:
+            other = as_slate(other)
+            return other - self
+        except TypeError:
+            return NotImplemented
 
     def __mul__(self, other):
-        if isinstance(other, TensorBase):
+        try:
+            other = as_slate(other)
             return Mul(self, other)
-        else:
-            raise NotImplementedError("Type(s) for * not supported: '%s' '%s'"
-                                      % (type(self), type(other)))
+        except TypeError:
+            return NotImplemented
 
     def __rmul__(self, other):
-        # If other is not a TensorBase, raise NotImplementedError. Otherwise,
-        # delegate action to other.
-        if not isinstance(other, TensorBase):
-            raise NotImplementedError("Type(s) for * not supported: '%s' '%s'"
-                                      % (type(other), type(self)))
-        else:
-            other.__mul__(self)
+        # If other cannot be converted into a TensorBase, return NotImplemented.
+        # Otherwise, delegate action to other.
+        try:
+            other = as_slate(other)
+            return other * self
+        except TypeError:
+            return NotImplemented
 
     def __neg__(self):
         return Negative(self)
@@ -386,6 +390,10 @@ class TensorBase(object, metaclass=ABCMeta):
         """Determines whether two TensorBase objects are equal using their
         associated keys.
         """
+        if isinstance(other, (int, float)) and other == 0:
+            if isinstance(self, Tensor):
+                return isinstance(self.form, ZeroBaseForm) or self.form.empty()
+            return False
         return self._key == other._key
 
     def __ne__(self, other):
@@ -463,13 +471,15 @@ class AssembledVector(TensorBase):
         """Returns a tuple of function spaces that the tensor
         is defined on.
         """
-        return (self._function.ufl_function_space(),)
+        tensor = self._function
+        if isinstance(tensor, BaseForm):
+            return tuple(a.function_space() for a in tensor.arguments())
+        else:
+            return (tensor.ufl_function_space(),)
 
     @cached_property
     def _argument(self):
         """Generates a 'test function' associated with this class."""
-        from firedrake.ufl_expr import TestFunction
-
         V, = self.arg_function_spaces
         return TestFunction(V)
 
@@ -550,7 +560,6 @@ class BlockAssembledVector(AssembledVector):
     @cached_property
     def _argument(self):
         """Generates a tuple of 'test function' associated with this class."""
-        from firedrake.ufl_expr import TestFunction
         return tuple(TestFunction(fs) for fs in self.arg_function_spaces)
 
     def arguments(self):
@@ -661,7 +670,7 @@ class Block(TensorBase):
         """Constructor for the Block class."""
         super(Block, self).__init__()
         self.operands = (tensor,)
-        self._blocks = dict(enumerate(indices))
+        self._blocks = dict(enumerate(map(as_tuple, indices)))
         self._indices = indices
 
     def replace(self, replacement):
@@ -679,25 +688,10 @@ class Block(TensorBase):
         """Splits the function space and stores the component
         spaces determined by the indices.
         """
-        from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
-        from firedrake.ufl_expr import Argument
-
         tensor, = self.operands
-        nargs = []
-        for i, arg in enumerate(tensor.arguments()):
-            V = arg.function_space()
-            V_is = V.subfunctions
-            idx = as_tuple(self._blocks[i])
-            if len(idx) == 1:
-                fidx, = idx
-                W = V_is[fidx]
-                W = FunctionSpace(W.mesh(), W.ufl_element())
-            else:
-                W = MixedFunctionSpace([V_is[fidx] for fidx in idx])
-
-            nargs.append(Argument(W, arg.number(), part=arg.part()))
-
-        return tuple(nargs)
+        return tuple(type(a)(subspace(a.function_space(), self._blocks[i]),
+                             a.number(), part=a.part())
+                     for i, a in enumerate(tensor.arguments()))
 
     @cached_property
     def arg_function_spaces(self):
@@ -900,8 +894,8 @@ class Tensor(TensorBase):
 
     def __init__(self, form, diagonal=False):
         """Constructor for the Tensor class."""
-        if not isinstance(form, Form):
-            if isinstance(form, Function):
+        if not isinstance(form, (Form, ZeroBaseForm)):
+            if isinstance(form, (Function, Cofunction)):
                 raise TypeError("Use AssembledVector instead of Tensor.")
             raise TypeError("Only UFL forms are acceptable inputs.")
 
@@ -959,6 +953,10 @@ class Tensor(TensorBase):
         ``{domain:{integral_type: subdomain_data}}``.
         """
         return self.form.subdomain_data()
+
+    def empty(self):
+        """Returns whether the form associated with the tensor is empty."""
+        return self.form.empty()
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
@@ -1131,6 +1129,13 @@ class Inverse(UnaryOp):
 
 class Transpose(UnaryOp):
     """An abstract Slate class representing the transpose of a tensor."""
+    def __new__(cls, A):
+        if A == 0:
+            return Tensor(ZeroBaseForm(A.arguments()[::-1]))
+        if isinstance(A, Transpose):
+            tensor, = A.operands
+            return tensor
+        return BinaryOp.__new__(cls)
 
     @cached_property
     def arg_function_spaces(self):
@@ -1155,6 +1160,10 @@ class Transpose(UnaryOp):
 
 class Negative(UnaryOp):
     """Abstract Slate class representing the negation of a tensor object."""
+    def __new__(cls, A):
+        if A == 0:
+            return A
+        return BinaryOp.__new__(cls)
 
     @cached_property
     def arg_function_spaces(self):
@@ -1225,6 +1234,12 @@ class Add(BinaryOp):
     :arg A: a :class:`~.firedrake.slate.TensorBase` object.
     :arg B: another :class:`~.firedrake.slate.TensorBase` object.
     """
+    def __new__(cls, A, B):
+        if A == 0:
+            return B
+        elif B == 0:
+            return A
+        return BinaryOp.__new__(cls)
 
     def __init__(self, A, B):
         """Constructor for the Add class."""
@@ -1232,8 +1247,8 @@ class Add(BinaryOp):
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
 
-        assert all([space_equivalence(fsA, fsB) for fsA, fsB in
-                    zip(A.arg_function_spaces, B.arg_function_spaces)]), (
+        assert all(space_equivalence(fsA, fsB) for fsA, fsB in
+                   zip(A.arg_function_spaces, B.arg_function_spaces)), (
             "Function spaces associated with operands must match."
         )
 
@@ -1266,6 +1281,10 @@ class Mul(BinaryOp):
     :arg A: a :class:`~.firedrake.slate.TensorBase` object.
     :arg B: another :class:`~.firedrake.slate.TensorBase` object.
     """
+    def __new__(cls, A, B):
+        if A == 0 or B == 0:
+            return Tensor(ZeroBaseForm(A.arguments()[:-1] + B.arguments()[1:]))
+        return BinaryOp.__new__(cls)
 
     def __init__(self, A, B):
         """Constructor for the Mul class."""
@@ -1316,14 +1335,14 @@ class Solve(BinaryOp):
 
     def __new__(cls, A, B, decomposition=None):
         assert A.rank == 2, "Operator must be a matrix."
+        assert B.rank >= 1, "RHS must be a vector or matrix."
 
         # Same rules for performing multiplication on Slate tensors
         # applies here.
         if A.shape[1] != B.shape[0]:
-            raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
-                             % (A.shape, B.shape))
+            raise ValueError(f"Illegal op on a {A.shape}-tensor with a {B.shape}-tensor.")
 
-        fsA = A.arg_function_spaces[::-1][-1]
+        fsA = A.arg_function_spaces[0]
         fsB = B.arg_function_spaces[0]
 
         assert space_equivalence(fsA, fsB), (
@@ -1376,6 +1395,11 @@ class DiagonalTensor(UnaryOp):
     """
     diagonal = True
 
+    def __new__(cls, A):
+        if A == 0:
+            return Tensor(ZeroBaseForm(A.arguments()[:1]))
+        return BinaryOp.__new__(cls)
+
     def __init__(self, A):
         """Constructor for the Diagonal class."""
         assert A.rank == 2, "The tensor must be rank 2."
@@ -1415,6 +1439,28 @@ def space_equivalence(A, B):
     """
 
     return A.mesh() == B.mesh() and A.ufl_element() == B.ufl_element()
+
+
+def as_slate(F):
+    """Convert an assembled or unassembled expression into a Slate Tensor.
+
+    Parameters
+    ----------
+    F : ufl.BaseForm, ufl.Coefficient, or TensorBase
+        The expression to convert into Slate.
+
+    Returns
+    -------
+    The slate.TensorBase equivalent expression.
+    """
+    if isinstance(F, TensorBase):
+        return F
+    elif isinstance(F, Form):
+        return Tensor(F)
+    elif isinstance(F, (Function, Cofunction)):
+        return AssembledVector(F)
+    else:
+        raise TypeError(f"Cannot convert {type(F).__name__} into a slate.Tensor")
 
 
 # Establishes levels of precedence for Slate tensors

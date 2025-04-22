@@ -5,6 +5,7 @@ import finat.ufl
 from tsfc.ufl_utils import TSFCConstantMixin
 from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
+from pyop2.mpi import collective
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
 from ufl.classes import all_ufl_classes, ufl_classes, terminal_classes
@@ -95,6 +96,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         else:
             return object.__new__(cls)
 
+    @collective
     @ConstantMixin._ad_annotate_init
     def __init__(self, value, domain=None, name=None, count=None):
         """"""
@@ -155,11 +157,6 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
     def subfunctions(self):
         return (self,)
 
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
-
     def cell_node_map(self, bcs=None):
         """Return a null cell to node map."""
         if bcs is not None:
@@ -189,6 +186,10 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
             return self
         except (DataTypeError, DataValueError) as e:
             raise ValueError(e)
+
+    def zero(self):
+        """Set the value of this constant to zero."""
+        return self.assign(0)
 
     def __iadd__(self, o):
         raise NotImplementedError("Augmented assignment to Constant not implemented")

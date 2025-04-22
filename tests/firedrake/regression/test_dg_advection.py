@@ -73,19 +73,11 @@ def run_test(mesh):
     assert np.allclose(Dbar_T, Dbar_0)
 
 
+@pytest.mark.parallel([1, 3])
 def test_dg_advection_icosahedral_sphere():
     run_test(UnitIcosahedralSphereMesh(refinement_level=3))
 
 
-@pytest.mark.parallel(nprocs=3)
-def test_dg_advection_icosahedral_sphere_parallel():
-    run_test(UnitIcosahedralSphereMesh(refinement_level=3))
-
-
+@pytest.mark.parallel([1, 3])
 def test_dg_advection_cubed_sphere():
-    run_test(UnitCubedSphereMesh(refinement_level=4))
-
-
-@pytest.mark.parallel(nprocs=3)
-def test_dg_advection_cubed_sphere_parallel():
     run_test(UnitCubedSphereMesh(refinement_level=4))

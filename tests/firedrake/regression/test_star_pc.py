@@ -41,6 +41,7 @@ def test_star_equivalence(problem_type, backend):
 
         star_params = {"mat_type": "aij",
                        "snes_type": "ksponly",
+                       "snes_view": None,
                        "ksp_type": "richardson",
                        "pc_type": "mg",
                        "pc_mg_type": "multiplicative",
@@ -50,7 +51,8 @@ def test_star_equivalence(problem_type, backend):
                        "mg_levels_ksp_max_it": 1,
                        "mg_levels_pc_type": "python",
                        "mg_levels_pc_python_type": "firedrake.ASMStarPC",
-                       "mg_levels_pc_star_construct_dim": 0}
+                       "mg_levels_pc_star_construct_dim": 0,
+                       "mg_levels_pc_star_view_patch_sizes": None}
 
         comp_params = {"mat_type": "aij",
                        "snes_type": "ksponly",

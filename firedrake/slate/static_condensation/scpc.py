@@ -36,7 +36,7 @@ class SCPC(SCBase):
         from firedrake.parloops import par_loop, INC
         from ufl import dx
 
-        prefix = pc.getOptionsPrefix() + "condensed_field_"
+        prefix = (pc.getOptionsPrefix() or "") + "condensed_field_"
         A, P = pc.getOperators()
         self.cxt = A.getPythonContext()
         if not isinstance(self.cxt, ImplicitMatrixContext):
@@ -49,7 +49,7 @@ class SCPC(SCBase):
         if len(W) > 3:
             raise NotImplementedError("Only supports up to three function spaces.")
 
-        elim_fields = PETSc.Options().getString(pc.getOptionsPrefix()
+        elim_fields = PETSc.Options().getString((pc.getOptionsPrefix() or "")
                                                 + "pc_sc_eliminate_fields",
                                                 None)
         if elim_fields:
@@ -102,7 +102,7 @@ class SCPC(SCBase):
         r_expr = reduced_sys.rhs
 
         # Construct the condensed right-hand side
-        self._assemble_Srhs = get_assembler(r_expr, bcs=bcs, zero_bc_nodes=True, form_compiler_parameters=self.cxt.fc_params).assemble
+        self._assemble_Srhs = get_assembler(r_expr, bcs=bcs, form_compiler_parameters=self.cxt.fc_params).assemble
 
         # Allocate and set the condensed operator
         form_assembler = get_assembler(S_expr, bcs=bcs, form_compiler_parameters=self.cxt.fc_params, mat_type=mat_type, options_prefix=prefix, appctx=self.get_appctx(pc))

@@ -5,6 +5,7 @@ import warnings
 
 
 def solver_parameters(solver_type):
+    max_its = 4
     if solver_type == "mg":
         parameters = {"snes_type": "ksponly",
                       "ksp_type": "preonly",
@@ -12,7 +13,7 @@ def solver_parameters(solver_type):
                       "pc_type": "mg",
                       "pc_mg_type": "full",
                       "mg_levels_ksp_type": "chebyshev",
-                      "mg_levels_ksp_max_it": 3,
+                      "mg_levels_ksp_max_it": max_its,
                       "mg_levels_pc_type": "jacobi"}
     elif solver_type == "mgmatfree":
         parameters = {"snes_type": "ksponly",
@@ -25,7 +26,7 @@ def solver_parameters(solver_type):
                       "mg_coarse_pc_python_type": "firedrake.AssembledPC",
                       "mg_coarse_assembled_pc_type": "lu",
                       "mg_levels_ksp_type": "chebyshev",
-                      "mg_levels_ksp_max_it": 3,
+                      "mg_levels_ksp_max_it": max_its,
                       "mg_levels_pc_type": "jacobi"}
     elif solver_type == "fas":
         parameters = {"snes_type": "fas",
@@ -36,7 +37,7 @@ def solver_parameters(solver_type):
                       "fas_coarse_redundant_pc_type": "lu",
                       "fas_levels_snes_type": "ksponly",
                       "fas_levels_ksp_type": "chebyshev",
-                      "fas_levels_ksp_max_it": 3,
+                      "fas_levels_ksp_max_it": max_its,
                       "fas_levels_pc_type": "jacobi",
                       "fas_levels_ksp_convergence_test": "skip",
                       "snes_max_it": 1,
@@ -57,7 +58,7 @@ def solver_parameters(solver_type):
                       "npc_fas_coarse_snes_linesearch_type": "basic",
                       "npc_fas_levels_snes_type": "ksponly",
                       "npc_fas_levels_ksp_type": "chebyshev",
-                      "npc_fas_levels_ksp_max_it": 3,
+                      "npc_fas_levels_ksp_max_it": max_its,
                       "npc_fas_levels_pc_type": "jacobi",
                       "npc_fas_levels_ksp_convergence_test": "skip",
                       "npc_snes_max_it": 1,
@@ -195,12 +196,11 @@ def test_baseform_coarsening(solver_type, mixed):
         a_terms.append(inner(grad(u), grad(v)) * dx)
     a = sum(a_terms)
 
-    assemble_bcs = lambda L: assemble(L, bcs=bcs, zero_bc_nodes=True)
     # These are equivalent right-hand sides
     sources = [sum(forms),  # purely symbolic linear form
-               assemble_bcs(sum(forms)),  # purely numerical cofunction
-               sum(assemble_bcs(form) for form in forms),  # symbolic combination of numerical cofunctions
-               forms[0] + assemble_bcs(sum(forms[1:])),  # symbolic plus numerical
+               assemble(sum(forms), bcs=bcs),  # purely numerical cofunction
+               sum(assemble(form, bcs=bcs) for form in forms),  # symbolic combination of numerical cofunctions
+               forms[0] + assemble(sum(forms[1:]), bcs=bcs),  # symbolic plus numerical
                ]
     solutions = []
     for L in sources:

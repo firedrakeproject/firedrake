@@ -30,7 +30,6 @@ def mesh_hierarchy(request):
 
 
 def test_stress_displacement_convergence(stress_element, mesh_hierarchy):
-
     mesh = mesh_hierarchy[0]
     V = FunctionSpace(mesh, mesh.coordinates.ufl_element())
 
@@ -153,8 +152,7 @@ def test_mass_conditioning(stress_element, mesh_hierarchy):
         tau = TestFunction(Sig)
         mass = inner(sigh, tau)*dx
         a = derivative(mass, sigh)
-        B = assemble(a, mat_type="aij").M.handle
-        A = B.convert("dense").getDenseArray()
+        A = assemble(a, mat_type="aij").petscmat[:, :]
         kappa = np.linalg.cond(A)
 
         mass_cond.append(kappa)

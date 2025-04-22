@@ -155,7 +155,7 @@ def sniff_compiler(exe, comm=mpi.COMM_WORLD):
         # Find the name of the compiler family
         if output.startswith("gcc") or output.startswith("g++"):
             name = "GNU"
-        elif output.startswith("clang"):
+        elif output.startswith("clang") or output.startswith("Homebrew clang"):
             name = "clang"
         elif output.startswith("Apple LLVM") or output.startswith("Apple clang"):
             name = "clang"
@@ -427,7 +427,6 @@ def load(code, extension, cppargs=(), ldargs=(), comm=None):
     :kwarg comm: Optional communicator to compile the code on (only
         rank 0 compiles code) (defaults to pyop2.mpi.COMM_WORLD).
     """
-    global _compiler
     if _compiler:
         # Use the global compiler if it has been set
         compiler = _compiler

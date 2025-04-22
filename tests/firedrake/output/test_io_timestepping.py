@@ -57,7 +57,8 @@ def test_io_timestepping(element, tmpdir):
     comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
     method = "project" if isinstance(element, finat.ufl.MixedElement) else "interpolate"
     if mycolor == 0:
-        mesh = Mesh("./docs/notebooks/stokes-control.msh", name=mesh_name, comm=comm)
+        mesh_file = os.path.join(cwd, "..", "..", "..", "docs", "notebooks/stokes-control.msh")
+        mesh = Mesh(mesh_file, name=mesh_name, comm=comm)
         V = FunctionSpace(mesh, element)
         f = Function(V, name=func_name)
         with CheckpointFile(filename, 'w', comm=comm) as afile:

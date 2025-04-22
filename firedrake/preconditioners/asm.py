@@ -6,6 +6,7 @@ from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space
 from firedrake.logging import warning
 from tinyasm import _tinyasm as tinyasm
+from mpi4py import MPI
 import numpy
 
 
@@ -28,12 +29,12 @@ class ASMPatchPC(PCBase):
         # Get context from pc
         _, P = pc.getOperators()
         dm = pc.getDM()
-        self.prefix = pc.getOptionsPrefix() + self._prefix
+        self.prefix = (pc.getOptionsPrefix() or "") + self._prefix
 
         # Extract function space and mesh to obtain plex and indexing functions
         V = get_function_space(dm)
 
-        # Obtain patches from user defined funtion
+        # Obtain patches from user defined function
         ises = self.get_patches(V)
         # PCASM expects at least one patch, so we define an empty one on idle processes
         if len(ises) == 0:
@@ -90,6 +91,20 @@ class ASMPatchPC(PCBase):
         asmpc.setFromOptions()
         self.asmpc = asmpc
 
+        self._patch_statistics = []
+        if opts.getBool("view_patch_sizes", default=False):
+            # Compute and stash patch statistics
+            mpi_comm = pc.comm.tompi4py()
+            max_local_patch = max(is_.getSize() for is_ in ises)
+            min_local_patch = min(is_.getSize() for is_ in ises)
+            sum_local_patch = sum(is_.getSize() for is_ in ises)
+            max_global_patch = mpi_comm.allreduce(max_local_patch, op=MPI.MAX)
+            min_global_patch = mpi_comm.allreduce(min_local_patch, op=MPI.MIN)
+            sum_global_patch = mpi_comm.allreduce(sum_local_patch, op=MPI.SUM)
+            avg_global_patch = sum_global_patch / mpi_comm.allreduce(len(ises) if sum_local_patch > 0 else 0, op=MPI.SUM)
+            msg = f"Minimum / average / maximum patch sizes : {min_global_patch} / {avg_global_patch} / {max_global_patch}\n"
+            self._patch_statistics.append(msg)
+
     @abc.abstractmethod
     def get_patches(self, V):
         ''' Get the patches used for PETSc PCASM
@@ -103,6 +118,9 @@ class ASMPatchPC(PCBase):
 
     def view(self, pc, viewer=None):
         self.asmpc.view(viewer=viewer)
+        if viewer is not None:
+            for msg in self._patch_statistics:
+                viewer.printfASCII(msg)
 
     def update(self, pc):
         # This is required to update an inplace ILU factorization

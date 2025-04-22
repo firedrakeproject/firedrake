@@ -2,6 +2,7 @@ import copy
 from functools import wraps
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
 from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock
+from firedrake.ufl_expr import derivative, adjoint
 from ufl import replace
 
 
@@ -11,7 +12,6 @@ class NonlinearVariationalProblemMixin:
         @no_annotations
         @wraps(init)
         def wrapper(self, *args, **kwargs):
-            from firedrake import derivative, adjoint, TrialFunction
             init(self, *args, **kwargs)
             self._ad_F = self.F
             self._ad_u = self.u_restrict
@@ -20,10 +20,13 @@ class NonlinearVariationalProblemMixin:
             try:
                 # Some forms (e.g. SLATE tensors) are not currently
                 # differentiable.
-                dFdu = derivative(self.F,
-                                  self.u_restrict,
-                                  TrialFunction(self.u_restrict.function_space()))
-                self._ad_adj_F = adjoint(dFdu)
+                dFdu = derivative(self.F, self.u_restrict)
+                try:
+                    self._ad_adj_F = adjoint(dFdu)
+                except ValueError:
+                    # Try again without expanding derivatives,
+                    # as dFdu might have been simplied to an empty Form
+                    self._ad_adj_F = adjoint(dFdu, derivatives_expanded=True)
             except (TypeError, NotImplementedError):
                 self._ad_adj_F = None
             self._ad_kwargs = {'Jp': self.Jp, 'form_compiler_parameters': self.form_compiler_parameters, 'is_linear': self.is_linear}
@@ -62,6 +65,11 @@ class NonlinearVariationalSolverMixin:
             from firedrake import LinearVariationalSolver
             annotate = annotate_tape(kwargs)
             if annotate:
+                bounds = kwargs.pop("bounds", None)
+                if bounds is not None:
+                    raise ValueError(
+                        "MissingMathsError: we do not know how to differentiate through a variational inequality")
+
                 tape = get_working_tape()
                 problem = self._ad_problem
                 sb_kwargs = NonlinearVariationalSolveBlock.pop_kwargs(kwargs)
@@ -72,7 +80,6 @@ class NonlinearVariationalSolverMixin:
                                                        problem._ad_bcs,
                                                        adj_cache=self._ad_adj_cache,
                                                        problem_J=problem._ad_J,
-                                                       solver_params=self.parameters,
                                                        solver_kwargs=self._ad_kwargs,
                                                        ad_block_tag=self.ad_block_tag,
                                                        **sb_kwargs)

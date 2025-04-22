@@ -112,12 +112,6 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         of this this :class:`Cofunction`'s :class:`.FunctionSpace`."""
         return tuple(type(self)(fs, dat) for fs, dat in zip(self.function_space(), self.dat))
 
-    @FunctionMixin._ad_annotate_subfunctions
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
-
     @utils.cached_property
     def _components(self):
         if self.function_space().rank == 0:
@@ -229,8 +223,10 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             return self.assign(
                 assembled_expr, subset=subset,
                 expr_from_assemble=True)
-
-        raise ValueError('Cannot assign %s' % expr)
+        else:
+            from firedrake.assign import Assigner
+            Assigner(self, expr, subset).assign()
+        return self
 
     def riesz_representation(self, riesz_map='L2', **solver_options):
         """Return the Riesz representation of this :class:`Cofunction` with respect to the given Riesz map.

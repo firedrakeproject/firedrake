@@ -83,7 +83,7 @@ def assemble(expr, *args, **kwargs):
     zero_bc_nodes : bool
         If `True`, set the boundary condition nodes in the
         output tensor to zero rather than to the values prescribed by the
-        boundary condition. Default is `False`.
+        boundary condition. Default is `True`.
     diagonal : bool
         If assembling a matrix is it diagonal?
     weight : float
@@ -95,6 +95,10 @@ def assemble(expr, *args, **kwargs):
         `matrix.Matrix`.
     is_base_form_preprocessed : bool
         If `True`, skip preprocessing of the form.
+    current_state : firedrake.function.Function or None
+        If provided and ``zero_bc_nodes == False``, the boundary condition
+        nodes of the output are set to the residual of the boundary conditions
+        computed as ``current_state`` minus the boundary condition value.
 
     Returns
     -------
@@ -130,8 +134,12 @@ def assemble(expr, *args, **kwargs):
     """
     if args:
         raise RuntimeError(f"Got unexpected args: {args}")
-    tensor = kwargs.pop("tensor", None)
-    return get_assembler(expr, *args, **kwargs).assemble(tensor=tensor)
+
+    assemble_kwargs = {}
+    for key in ("tensor", "current_state"):
+        if key in kwargs:
+            assemble_kwargs[key] = kwargs.pop(key, None)
+    return get_assembler(expr, *args, **kwargs).assemble(**assemble_kwargs)
 
 
 def get_assembler(form, *args, **kwargs):
@@ -139,11 +147,11 @@ def get_assembler(form, *args, **kwargs):
 
     Notes
     -----
-    See `assemble` for descriptions of the parameters. ``tensor`` should not be passed to this function.
+    See `assemble` for descriptions of the parameters. ``tensor`` and
+    ``current_state`` should not be passed to this function.
 
     """
     is_base_form_preprocessed = kwargs.pop('is_base_form_preprocessed', False)
-    bcs = kwargs.get('bcs', None)
     fc_params = kwargs.get('form_compiler_parameters', None)
     if isinstance(form, ufl.form.BaseForm) and not is_base_form_preprocessed:
         mat_type = kwargs.get('mat_type', None)
@@ -155,8 +163,13 @@ def get_assembler(form, *args, **kwargs):
         if len(form.arguments()) == 0:
             return ZeroFormAssembler(form, form_compiler_parameters=fc_params)
         elif len(form.arguments()) == 1 or diagonal:
-            return OneFormAssembler(form, *args, bcs=bcs, form_compiler_parameters=fc_params, needs_zeroing=kwargs.get('needs_zeroing', True),
-                                    zero_bc_nodes=kwargs.get('zero_bc_nodes', False), diagonal=diagonal)
+            return OneFormAssembler(form, *args,
+                                    bcs=kwargs.get("bcs", None),
+                                    form_compiler_parameters=fc_params,
+                                    needs_zeroing=kwargs.get("needs_zeroing", True),
+                                    zero_bc_nodes=kwargs.get("zero_bc_nodes", True),
+                                    diagonal=diagonal,
+                                    weight=kwargs.get("weight", 1.0))
         elif len(form.arguments()) == 2:
             return TwoFormAssembler(form, *args, **kwargs)
         else:
@@ -183,13 +196,15 @@ class ExprAssembler(object):
     def __init__(self, expr):
         self._expr = expr
 
-    def assemble(self, tensor=None):
+    def assemble(self, tensor=None, current_state=None):
         """Assemble the pointwise expression.
 
         Parameters
         ----------
         tensor : firedrake.function.Function or firedrake.cofunction.Cofunction or matrix.MatrixBase
             Output tensor.
+        current_state : None
+            Ignored by this class.
 
         Returns
         -------
@@ -201,6 +216,7 @@ class ExprAssembler(object):
         from ufl.checks import is_scalar_constant_expression
 
         assert tensor is None
+        assert current_state is None
         expr = self._expr
         # Get BaseFormOperators (e.g. `Interpolate` or `ExternalOperator`)
         base_form_operators = extract_base_form_operators(expr)
@@ -270,13 +286,16 @@ class AbstractFormAssembler(abc.ABC):
         """Allocate memory for the output tensor."""
 
     @abc.abstractmethod
-    def assemble(self, tensor=None):
+    def assemble(self, tensor=None, current_state=None):
         """Assemble the form.
 
         Parameters
         ----------
         tensor : firedrake.cofunction.Cofunction or firedrake.function.Function or matrix.MatrixBase
             Output tensor to contain the result of assembly; if `None`, a tensor of appropriate type is created.
+        current_state : firedrake.function.Function or None
+            If provided, the boundary condition nodes are set to the boundary condition residual
+            computed as ``current_state`` minus the boundary condition value.
 
         Returns
         -------
@@ -308,7 +327,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                  sub_mat_type=None,
                  options_prefix=None,
                  appctx=None,
-                 zero_bc_nodes=False,
+                 zero_bc_nodes=True,
                  diagonal=False,
                  weight=1.0,
                  allocation_integral_types=None):
@@ -325,7 +344,9 @@ class BaseFormAssembler(AbstractFormAssembler):
     def allocate(self):
         rank = len(self._form.arguments())
         if rank == 2 and not self._diagonal:
-            if self._mat_type == "matfree":
+            if isinstance(self._form, matrix.MatrixBase):
+                return self._form
+            elif self._mat_type == "matfree":
                 return MatrixFreeAssembler(self._form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
                                            options_prefix=self._options_prefix,
                                            appctx=self._appctx).allocate()
@@ -354,13 +375,16 @@ class BaseFormAssembler(AbstractFormAssembler):
         else:
             return self._allocation_integral_types
 
-    def assemble(self, tensor=None):
+    def assemble(self, tensor=None, current_state=None):
         """Assemble the form.
 
         Parameters
         ----------
         tensor : firedrake.cofunction.Cofunction or firedrake.function.Function or matrix.MatrixBase
             Output tensor to contain the result of assembly.
+        current_state : firedrake.function.Function or None
+            If provided, the boundary condition nodes are set to the boundary condition residual
+            computed as ``current_state`` minus the boundary condition value.
 
         Returns
         -------
@@ -381,11 +405,13 @@ class BaseFormAssembler(AbstractFormAssembler):
         visited = {}
         result = BaseFormAssembler.base_form_postorder_traversal(self._form, visitor, visited)
 
-        if tensor:
-            BaseFormAssembler.update_tensor(result, tensor)
-            return tensor
-        else:
-            return result
+        # Apply BCs after assembly
+        rank = len(self._form.arguments())
+        if rank == 1 and not isinstance(result, ufl.ZeroBaseForm):
+            for bc in self._bcs:
+                OneFormAssembler._apply_bc(self, result, bc, u=current_state)
+
+        return result
 
     def base_form_assembly_visitor(self, expr, tensor, *args):
         r"""Assemble a :class:`~ufl.classes.BaseForm` object given its assembled operands.
@@ -405,8 +431,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             if rank == 0:
                 assembler = ZeroFormAssembler(form, form_compiler_parameters=self._form_compiler_params)
             elif rank == 1 or (rank == 2 and self._diagonal):
-                assembler = OneFormAssembler(form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
-                                             zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal)
+                assembler = OneFormAssembler(form, form_compiler_parameters=self._form_compiler_params,
+                                             zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal, weight=self._weight)
             elif rank == 2:
                 assembler = TwoFormAssembler(form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
                                              mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
@@ -425,7 +451,6 @@ class BaseFormAssembler(AbstractFormAssembler):
             petsc_mat.hermitianTranspose(out=res)
             (row, col) = mat.arguments()
             return matrix.AssembledMatrix((col, row), self._bcs, res,
-                                          appctx=self._appctx,
                                           options_prefix=self._options_prefix)
         elif isinstance(expr, ufl.Action):
             if len(args) != 2:
@@ -436,18 +461,16 @@ class BaseFormAssembler(AbstractFormAssembler):
                     petsc_mat = lhs.petscmat
                     (row, col) = lhs.arguments()
                     # The matrix-vector product lives in the dual of the test space.
-                    res = firedrake.Function(row.function_space().dual())
-                    with rhs.dat.vec_ro as v_vec:
-                        with res.dat.vec as res_vec:
-                            petsc_mat.mult(v_vec, res_vec)
+                    res = tensor if tensor else firedrake.Function(row.function_space().dual())
+                    with rhs.dat.vec_ro as v_vec, res.dat.vec as res_vec:
+                        petsc_mat.mult(v_vec, res_vec)
                     return res
                 elif isinstance(rhs, matrix.MatrixBase):
-                    petsc_mat = lhs.petscmat
-                    (row, col) = lhs.arguments()
-                    res = petsc_mat.matMult(rhs.petscmat)
-                    return matrix.AssembledMatrix(expr, self._bcs, res,
-                                                  appctx=self._appctx,
-                                                  options_prefix=self._options_prefix)
+                    result = tensor.petscmat if tensor else PETSc.Mat()
+                    lhs.petscmat.matMult(rhs.petscmat, result=result)
+                    if tensor is None:
+                        tensor = self.assembled_matrix(expr, result)
+                    return tensor
                 else:
                     raise TypeError("Incompatible RHS for Action.")
             elif isinstance(lhs, (firedrake.Cofunction, firedrake.Function)):
@@ -465,30 +488,29 @@ class BaseFormAssembler(AbstractFormAssembler):
                 raise TypeError("Mismatching weights and operands in FormSum")
             if len(args) == 0:
                 raise TypeError("Empty FormSum")
+            if tensor:
+                tensor.zero()
             if all(isinstance(op, numbers.Complex) for op in args):
-                return sum(weight * arg for weight, arg in zip(expr.weights(), args))
+                result = sum(weight * arg for weight, arg in zip(expr.weights(), args))
+                return tensor.assign(result) if tensor else result
             elif all(isinstance(op, firedrake.Cofunction) for op in args):
                 V, = set(a.function_space() for a in args)
-                result = firedrake.Cofunction(V)
+                result = tensor if tensor else firedrake.Cofunction(V)
                 result.dat.maxpy(expr.weights(), [a.dat for a in args])
                 return result
             elif all(isinstance(op, ufl.Matrix) for op in args):
-                res = tensor.petscmat if tensor else PETSc.Mat()
-                is_set = False
+                result = tensor.petscmat if tensor else PETSc.Mat()
                 for (op, w) in zip(args, expr.weights()):
-                    # Make a copy to avoid in-place scaling
-                    petsc_mat = op.petscmat.copy()
-                    petsc_mat.scale(w)
-                    if is_set:
-                        # Modify output tensor in-place
-                        res += petsc_mat
+                    if result:
+                        # If result is not void, then accumulate on it
+                        result.axpy(w, op.petscmat)
                     else:
-                        # Copy to output tensor
-                        petsc_mat.copy(result=res)
-                        is_set = True
-                return matrix.AssembledMatrix(expr, self._bcs, res,
-                                              appctx=self._appctx,
-                                              options_prefix=self._options_prefix)
+                        # If result is void, then allocate it with first term
+                        op.petscmat.copy(result=result)
+                        result.scale(w)
+                if tensor is None:
+                    tensor = self.assembled_matrix(expr, result)
+                return tensor
             else:
                 raise TypeError("Mismatching FormSum shapes")
         elif isinstance(expr, ufl.ExternalOperator):
@@ -509,7 +531,8 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # It is also convenient when we have a Form in that slot since Forms don't play well with `ufl.replace`
                 expr = expr._ufl_expr_reconstruct_(*expr.ufl_operands, argument_slots=(v,) + expr.argument_slots()[1:])
             # Call the external operator assembly
-            return expr.assemble(assembly_opts=opts)
+            result = expr.assemble(assembly_opts=opts)
+            return tensor.assign(result) if tensor else result
         elif isinstance(expr, ufl.Interpolate):
             # Replace assembled children
             _, expression = expr.argument_slots()
@@ -542,7 +565,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # Assembling the action of the Jacobian adjoint.
                 if is_adjoint:
                     output = tensor or firedrake.Cofunction(arg_expression[0].function_space().dual())
-                    return interpolator._interpolate(v, output=output, transpose=True, default_missing_val=default_missing_val)
+                    return interpolator._interpolate(v, output=output, adjoint=True, default_missing_val=default_missing_val)
                 # Assembling the Jacobian action.
                 if interpolator.nargs:
                     return interpolator._interpolate(expression, output=tensor, default_missing_val=default_missing_val)
@@ -561,28 +584,24 @@ class BaseFormAssembler(AbstractFormAssembler):
                 else:
                     # Copy the interpolation matrix into the output tensor
                     petsc_mat.copy(result=res)
-                return matrix.AssembledMatrix(expr.arguments(), self._bcs, res,
-                                              appctx=self._appctx,
-                                              options_prefix=self._options_prefix)
+                if tensor is None:
+                    tensor = self.assembled_matrix(expr, res)
+                return tensor
             else:
                 # The case rank == 0 is handled via the DAG restructuring
                 raise ValueError("Incompatible number of arguments.")
-        elif isinstance(expr, (ufl.Cofunction, ufl.Coargument, ufl.Argument, ufl.Matrix, ufl.ZeroBaseForm)):
-            return expr
-        elif isinstance(expr, ufl.Coefficient):
+        elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
+            return tensor.assign(expr)
+        elif tensor and isinstance(expr, ufl.ZeroBaseForm):
+            return tensor.zero()
+        elif isinstance(expr, (ufl.Coefficient, ufl.Cofunction, ufl.Matrix, ufl.Argument, ufl.Coargument, ufl.ZeroBaseForm)):
             return expr
         else:
             raise TypeError(f"Unrecognised BaseForm instance: {expr}")
 
-    @staticmethod
-    def update_tensor(assembled_base_form, tensor):
-        if isinstance(tensor, (firedrake.Function, firedrake.Cofunction)):
-            assembled_base_form.dat.copy(tensor.dat)
-        elif isinstance(tensor, matrix.MatrixBase):
-            # Uses the PETSc copy method.
-            assembled_base_form.petscmat.copy(tensor.petscmat)
-        else:
-            raise NotImplementedError("Cannot update tensor of type %s" % type(tensor))
+    def assembled_matrix(self, expr, petscmat):
+        return matrix.AssembledMatrix(expr.arguments(), self._bcs, petscmat,
+                                      options_prefix=self._options_prefix)
 
     @staticmethod
     def base_form_postorder_traversal(expr, visitor, visited={}):
@@ -807,9 +826,9 @@ class BaseFormAssembler(AbstractFormAssembler):
             return ufl.action(expr, ustar)
 
         # -- Case (6) -- #
-        if isinstance(expr, ufl.FormSum) and all(isinstance(c, ufl.core.base_form_operator.BaseFormOperator) for c in expr.components()):
-            # Return ufl.Sum
-            return sum([c for c in expr.components()])
+        if isinstance(expr, ufl.FormSum) and all(ufl.duals.is_dual(a.function_space()) for a in expr.arguments()):
+            # Return ufl.Sum if we are assembling a FormSum with Coarguments (a primal expression)
+            return sum(w*c for w, c in zip(expr.weights(), expr.components()))
         return expr
 
     @staticmethod
@@ -953,13 +972,16 @@ class ParloopFormAssembler(FormAssembler):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
         self._needs_zeroing = needs_zeroing
 
-    def assemble(self, tensor=None):
+    def assemble(self, tensor=None, current_state=None):
         """Assemble the form.
 
         Parameters
         ----------
         tensor : firedrake.cofunction.Cofunction or matrix.MatrixBase
             Output tensor to contain the result of assembly; if `None`, a tensor of appropriate type is created.
+        current_state : firedrake.function.Function or None
+            If provided, the boundary condition nodes are set to the boundary condition residual
+            computed as ``current_state`` minus the boundary condition value.
 
         Returns
         -------
@@ -983,12 +1005,12 @@ class ParloopFormAssembler(FormAssembler):
         self.execute_parloops(tensor)
 
         for bc in self._bcs:
-            self._apply_bc(tensor, bc)
+            self._apply_bc(tensor, bc, u=current_state)
 
         return self.result(tensor)
 
     @abc.abstractmethod
-    def _apply_bc(self, tensor, bc):
+    def _apply_bc(self, tensor, bc, u=None):
         """Apply boundary condition."""
 
     @abc.abstractmethod
@@ -1019,7 +1041,7 @@ class ParloopFormAssembler(FormAssembler):
                     self._bcs,
                     local_kernel,
                     subdomain_id,
-                    self.all_integer_subdomain_ids,
+                    self.all_integer_subdomain_ids[local_kernel.indices],
                     diagonal=self.diagonal,
                 )
                 pyop2_tensor = self._as_pyop2_type(tensor, local_kernel.indices)
@@ -1073,9 +1095,14 @@ class ParloopFormAssembler(FormAssembler):
 
     @cached_property
     def all_integer_subdomain_ids(self):
-        return tsfc_interface.gather_integer_subdomain_ids(
-            {k for k, _ in self.local_kernels}
-        )
+        """Return a dict mapping local_kernel.indices to all integer subdomain ids."""
+        all_indices = {k.indices for k, _ in self.local_kernels}
+        return {
+            i: tsfc_interface.gather_integer_subdomain_ids(
+                {k for k, _ in self.local_kernels if k.indices == i}
+            )
+            for i in all_indices
+        }
 
     @abc.abstractmethod
     def result(self, tensor):
@@ -1087,7 +1114,7 @@ class ZeroFormAssembler(ParloopFormAssembler):
 
     Parameters
     ----------
-    form : ufl.Form or slate.TensorBasehe
+    form : ufl.Form or slate.TensorBase
         0-form.
 
     Notes
@@ -1118,7 +1145,7 @@ class ZeroFormAssembler(ParloopFormAssembler):
             comm=self._form.ufl_domains()[0]._comm
         )
 
-    def _apply_bc(self, tensor, bc):
+    def _apply_bc(self, tensor, bc, u=None):
         pass
 
     def _check_tensor(self, tensor):
@@ -1138,7 +1165,7 @@ class OneFormAssembler(ParloopFormAssembler):
 
     Parameters
     ----------
-    form : ufl.Form or slate.TensorBasehe
+    form : ufl.Form or slate.TensorBase
         1-form.
 
     Notes
@@ -1149,14 +1176,15 @@ class OneFormAssembler(ParloopFormAssembler):
 
     @classmethod
     def _cache_key(cls, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
-                   zero_bc_nodes=False, diagonal=False):
+                   zero_bc_nodes=True, diagonal=False, weight=1.0):
         bcs = solving._extract_bcs(bcs)
-        return tuple(bcs), tuplify(form_compiler_parameters), needs_zeroing, zero_bc_nodes, diagonal
+        return tuple(bcs), tuplify(form_compiler_parameters), needs_zeroing, zero_bc_nodes, diagonal, weight
 
     @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
-                 zero_bc_nodes=False, diagonal=False):
+                 zero_bc_nodes=True, diagonal=False, weight=1.0):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=needs_zeroing)
+        self._weight = weight
         self._diagonal = diagonal
         self._zero_bc_nodes = zero_bc_nodes
         if self._diagonal and any(isinstance(bc, EquationBCSplit) for bc in self._bcs):
@@ -1178,30 +1206,31 @@ class OneFormAssembler(ParloopFormAssembler):
         else:
             raise RuntimeError(f"Not expected: found rank = {rank} and diagonal = {self._diagonal}")
 
-    def _apply_bc(self, tensor, bc):
+    def _apply_bc(self, tensor, bc, u=None):
         # TODO Maybe this could be a singledispatchmethod?
         if isinstance(bc, DirichletBC):
-            self._apply_dirichlet_bc(tensor, bc)
+            if self._diagonal:
+                bc.set(tensor, self._weight)
+            elif self._zero_bc_nodes:
+                bc.zero(tensor)
+            else:
+                # The residual belongs to a mixed space that is dual on the boundary nodes
+                # and primal on the interior nodes. Therefore, this is a type-safe operation.
+                r = tensor.riesz_representation("l2")
+                bc.apply(r, u=u)
         elif isinstance(bc, EquationBCSplit):
             bc.zero(tensor)
-            type(self)(bc.f, bcs=bc.bcs, form_compiler_parameters=self._form_compiler_params, needs_zeroing=False,
-                       zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal).assemble(tensor=tensor)
+            OneFormAssembler(bc.f, bcs=bc.bcs,
+                             form_compiler_parameters=self._form_compiler_params,
+                             needs_zeroing=False,
+                             zero_bc_nodes=self._zero_bc_nodes,
+                             diagonal=self._diagonal,
+                             weight=self._weight).assemble(tensor=tensor, current_state=u)
         else:
             raise AssertionError
 
-    def _apply_dirichlet_bc(self, tensor, bc):
-        if not self._zero_bc_nodes:
-            tensor_func = tensor.riesz_representation(riesz_map="l2")
-            if self._diagonal:
-                bc.set(tensor_func, 1)
-            else:
-                bc.apply(tensor_func)
-            tensor.assign(tensor_func.riesz_representation(riesz_map="l2"))
-        else:
-            bc.zero(tensor)
-
     def _check_tensor(self, tensor):
-        if tensor.function_space() != self._form.arguments()[0].function_space():
+        if tensor.function_space() != self._form.arguments()[0].function_space().dual():
             raise ValueError("Form's argument does not match provided result tensor")
 
     @staticmethod
@@ -1315,7 +1344,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                                                           self._sub_mat_type,
                                                           self._make_maps_and_regions())
         return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType,
-                             options_prefix=self._options_prefix)
+                             options_prefix=self._options_prefix,
+                             fc_params=self._form_compiler_params)
 
     @staticmethod
     def _make_sparsity(test, trial, mat_type, sub_mat_type, maps_and_regions):
@@ -1357,7 +1387,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     i, j = local_kernel.indices
                     mesh = all_meshes[local_kernel.kinfo.domain_number]  # integration domain
                     integral_type = local_kernel.kinfo.integral_type
-                    all_subdomain_ids = assembler.all_integer_subdomain_ids
+                    all_subdomain_ids = assembler.all_integer_subdomain_ids[local_kernel.indices]
                     # Make Sparsity independent of the subdomain of integration for better reusability;
                     # subdomain_id is passed here only to determine the integration_type on the target domain
                     # (see ``entity_node_map``).
@@ -1411,7 +1441,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 all_assemblers.extend(_assembler._all_assemblers)
         return tuple(all_assemblers)
 
-    def _apply_bc(self, tensor, bc):
+    def _apply_bc(self, tensor, bc, u=None):
+        assert u is None
         op2tensor = tensor.M
         spaces = tuple(a.function_space() for a in tensor.a.arguments())
         V = bc.function_space()
@@ -1515,7 +1546,7 @@ class MatrixFreeAssembler(FormAssembler):
                                      options_prefix=self._options_prefix,
                                      appctx=self._appctx or {})
 
-    def assemble(self, tensor=None):
+    def assemble(self, tensor=None, current_state=None):
         if tensor is None:
             tensor = self.allocate()
         else:
@@ -2127,14 +2158,13 @@ class _FormHandler:
 
     @staticmethod
     def iter_constants(form, kinfo):
-        """Yield the form constants"""
+        """Yield the form constants referenced in ``kinfo``."""
         if isinstance(form, slate.TensorBase):
-            for const in form.constants():
-                yield const
+            all_constants = form.constants()
         else:
             all_constants = extract_firedrake_constants(form)
-            for constant_index in kinfo.constant_numbers:
-                yield all_constants[constant_index]
+        for constant_index in kinfo.constant_numbers:
+            yield all_constants[constant_index]
 
     @staticmethod
     def index_function_spaces(form, indices):

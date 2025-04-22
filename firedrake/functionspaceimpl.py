@@ -13,6 +13,7 @@ import numpy
 import ufl
 import finat.ufl
 
+from ufl.duals import is_dual, is_primal
 from pyop2 import op2, mpi
 from pyop2.utils import as_tuple
 
@@ -148,10 +149,17 @@ class WithGeometryBase(object):
         self.cargo.topological = val
 
     @utils.cached_property
-    def subfunctions(self):
+    def subspaces(self):
         r"""Split into a tuple of constituent spaces."""
         return tuple(type(self).create(subspace, self.mesh())
-                     for subspace in self.topological.subfunctions)
+                     for subspace in self.topological.subspaces)
+
+    @property
+    def subfunctions(self):
+        import warnings
+        warnings.warn("The 'subfunctions' property is deprecated for function spaces, please use the "
+                      "'subspaces' property instead", category=FutureWarning)
+        return self.subspaces
 
     mesh = ufl.FunctionSpace.ufl_domain
 
@@ -167,24 +175,18 @@ class WithGeometryBase(object):
         r"""The :class:`~ufl.classes.Cell` this FunctionSpace is defined on."""
         return self.mesh().ufl_cell()
 
-    @PETSc.Log.EventDecorator()
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
-
     @utils.cached_property
     def _components(self):
         if len(self) == 1:
             return tuple(type(self).create(self.topological.sub(i), self.mesh())
                          for i in range(self.block_size))
         else:
-            return self.subfunctions
+            return self.subspaces
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
         mixed = type(self.ufl_element()) is finat.ufl.MixedElement
-        data = self.subfunctions if mixed else self._components
+        data = self.subspaces if mixed else self._components
         return data[i]
 
     @utils.cached_property
@@ -293,6 +295,9 @@ class WithGeometryBase(object):
         cache[function] = False
 
     def __eq__(self, other):
+        if is_primal(self) != is_primal(other) or \
+                is_dual(self) != is_dual(other):
+            return False
         try:
             return self.topological == other.topological and \
                 self.mesh() is other.mesh()
@@ -315,10 +320,10 @@ class WithGeometryBase(object):
         return "%s(%s, %s)" % (self.__class__.__name__, self.topological, self.mesh())
 
     def __iter__(self):
-        return iter(self.subfunctions)
+        return iter(self.subspaces)
 
     def __getitem__(self, i):
-        return self.subfunctions[i]
+        return self.subspaces[i]
 
     def __mul__(self, other):
         r"""Create a :class:`.MixedFunctionSpace` composed of this
@@ -637,14 +642,16 @@ class FunctionSpace(object):
         return self.__repr__()
 
     @utils.cached_property
-    def subfunctions(self):
-        r"""Split into a tuple of constituent spaces."""
-        return (self, )
+    def subspaces(self):
+        """Split into a tuple of constituent spaces."""
+        return (self,)
 
-    def split(self):
+    @property
+    def subfunctions(self):
         import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
+        warnings.warn("The 'subfunctions' property is deprecated for function spaces, please use the "
+                      "'subspaces' property instead", category=FutureWarning)
+        return self.subspaces
 
     def __getitem__(self, i):
         r"""Return the ith subspace."""
@@ -655,7 +662,7 @@ class FunctionSpace(object):
     @utils.cached_property
     def _components(self):
         if self.rank == 0:
-            return self.subfunctions
+            return self.subspaces
         else:
             return tuple(ComponentFunctionSpace(self, i) for i in range(self.block_size))
 
@@ -872,7 +879,9 @@ class RestrictedFunctionSpace(FunctionSpace):
     def __init__(self, function_space, boundary_set=frozenset(), name=None):
         label = ""
         boundary_set_ = []
-        for boundary_domain in boundary_set:
+        # NOTE: boundary_set must be deterministically ordered here to ensure
+        # that the label is consistent between ranks.
+        for boundary_domain in sorted(boundary_set, key=str):
             if isinstance(boundary_domain, str):
                 boundary_set_.append(boundary_domain)
             else:
@@ -937,6 +946,9 @@ class RestrictedFunctionSpace(FunctionSpace):
 
     def local_to_global_map(self, bcs, lgmap=None):
         return lgmap or self.dof_dset.lgmap
+
+    def collapse(self):
+        return type(self)(self.function_space.collapse(), boundary_set=self.boundary_set)
 
 
 class MixedFunctionSpace(object):
@@ -1006,15 +1018,17 @@ class MixedFunctionSpace(object):
         return hash(tuple(self))
 
     @utils.cached_property
-    def subfunctions(self):
+    def subspaces(self):
         r"""The list of :class:`FunctionSpace`\s of which this
         :class:`MixedFunctionSpace` is composed."""
         return self._spaces
 
-    def split(self):
+    @property
+    def subfunctions(self):
         import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
+        warnings.warn("The 'subfunctions' property is deprecated for function spaces, please use the "
+                      "'subspaces' property instead", category=FutureWarning)
+        return self.subspaces
 
     def sub(self, i):
         r"""Return the `i`th :class:`FunctionSpace` in this
@@ -1230,16 +1244,16 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
     r"""A :class:`RestrictedFunctionSpace` that one can attach extra properties to.
 
     :arg function_space: The function space to be restricted.
-    :kwarg name: The name of the restricted function space.
     :kwarg boundary_set: The boundary domains on which boundary conditions will
        be specified
+    :kwarg name: The name of the restricted function space.
 
     .. warning::
 
        Users should not build a :class:`ProxyRestrictedFunctionSpace` directly,
        it is mostly used as an internal implementation detail.
     """
-    def __new__(cls, function_space, name=None, boundary_set=frozenset()):
+    def __new__(cls, function_space, boundary_set=frozenset(), name=None):
         topology = function_space._mesh.topology
         self = super(ProxyRestrictedFunctionSpace, cls).__new__(cls)
         if function_space._mesh is not topology:
