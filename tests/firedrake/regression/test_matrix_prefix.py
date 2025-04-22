@@ -32,9 +32,7 @@ def test_matrix_prefix_solver(options_prefix):
     assert factor.getType() == DEFAULT_DIRECT_SOLVER
 
     for A in pc.getOperators():
-        pfx = A.getOptionsPrefix()
-        if pfx is None:
-            pfx = ""
+        pfx = A.getOptionsPrefix() or ""
         assert pfx == solver.options_prefix
 
 

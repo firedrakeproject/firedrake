@@ -45,7 +45,7 @@ class PCDPC(PCBase):
         from firedrake.assemble import assemble, get_assembler
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
-        prefix = pc.getOptionsPrefix() + "pcd_"
+        prefix = (pc.getOptionsPrefix() or "") + "pcd_"
 
         # we assume P has things stuffed inside of it
         _, P = pc.getOperators()
