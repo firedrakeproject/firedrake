@@ -36,9 +36,12 @@ import pytest
 import numpy as np
 
 from pyop2 import op2
+from pyop2.datatypes import as_cstr, ScalarType
 from pyop2.exceptions import MapValueError
 from pyop2.mpi import COMM_WORLD
 
+
+ScalarType_c = as_cstr(ScalarType)
 
 nelems = 4096
 
@@ -252,10 +255,10 @@ class TestMixedIndirectLoop:
 
     def test_mixed_non_mixed_dat(self, mdat, mmap, iterset):
         """Increment into a MixedDat from a non-mixed Dat."""
-        d = op2.Dat(iterset, np.ones(iterset.size))
-        kernel_inc = """static void inc(double *d, double *x) {
+        d = op2.Dat(iterset, np.ones(iterset.size), dtype=ScalarType)
+        kernel_inc = """static void inc({0} *d, {0} *x) {{
           d[0] += x[0]; d[1] += x[0];
-        }"""
+        }}""".format(ScalarType_c)
         op2.par_loop(op2.Kernel(kernel_inc, "inc"), iterset,
                      mdat(op2.INC, mmap),
                      d(op2.READ))
@@ -263,11 +266,11 @@ class TestMixedIndirectLoop:
 
     def test_mixed_non_mixed_dat_itspace(self, mdat, mmap, iterset):
         """Increment into a MixedDat from a Dat using iteration spaces."""
-        d = op2.Dat(iterset, np.ones(iterset.size))
-        kernel_inc = """static void inc(double *d, double *x) {
+        d = op2.Dat(iterset, np.ones(iterset.size), dtype=ScalarType)
+        kernel_inc = """static void inc({0} *d, {0} *x) {{
           for (int i=0; i<2; ++i)
             d[i] += x[0];
-        }"""
+        }}""".format(ScalarType_c)
         op2.par_loop(op2.Kernel(kernel_inc, "inc"), iterset,
                      mdat(op2.INC, mmap),
                      d(op2.READ))

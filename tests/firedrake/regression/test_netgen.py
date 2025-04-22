@@ -226,7 +226,9 @@ def test_firedrake_integral_sphere_high_order_netgen_parallel():
         ngmesh = netgen.libngpy._meshing.Mesh(3)
 
     msh = Mesh(ngmesh)
-    homsh = Mesh(msh.curve_field(2))
+    # The default value for location_tol is much too large (see https://github.com/NGSolve/ngsPETSc/issues/76)
+    # TODO: Once the default value is adjusted this can be removed
+    homsh = Mesh(msh.curve_field(2, location_tol=1e-8))
     V = FunctionSpace(homsh, "CG", 2)
     x, y, z = SpatialCoordinate(homsh)
     f = assemble(interpolate(1+0*x, V))

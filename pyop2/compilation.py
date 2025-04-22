@@ -427,7 +427,6 @@ def load(code, extension, cppargs=(), ldargs=(), comm=None):
     :kwarg comm: Optional communicator to compile the code on (only
         rank 0 compiles code) (defaults to pyop2.mpi.COMM_WORLD).
     """
-    global _compiler
     if _compiler:
         # Use the global compiler if it has been set
         compiler = _compiler
