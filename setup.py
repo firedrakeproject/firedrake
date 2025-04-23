@@ -11,11 +11,17 @@ from pathlib import Path
 import libsupermesh
 import numpy as np
 import pybind11
-import petsc4py
 import petsctools
 import rtree
 from Cython.Build import cythonize
 from setuptools import setup, find_packages, Extension
+
+
+# Ensure that the PETSc getting linked against is compatible.
+# IMPORTANT: If updating this constraint then corresponding changes may be
+# needed in pyproject.toml, firedrake/__init__.py, and firedrake-configure.
+petsctools.init(version_spec=">=3.23.0")
+import petsc4py
 
 
 @dataclass
