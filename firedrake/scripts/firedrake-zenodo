@@ -695,7 +695,7 @@ def create_zenodo_meta_release(meta_release: str) -> None:
     log.info("Created Zenodo meta-release.")
     log.info(f"Tag is `{tag}`")
     log.info(f"DOI is {record[doi]}")
-    log.info(f"Zenodo URL is {record["links"]["record_html"]}")
+    log.info(f"Zenodo URL is {record['links']['record_html']}")
     log.info(f"BibTeX\n\n```bibtex\n{format_bibtex(record)}\n```")
 
 
