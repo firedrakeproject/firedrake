@@ -10,11 +10,11 @@ from firedrake.petsc import (
 )
 from firedrake.function import Function
 from firedrake.matrix import MatrixBase
-from firedrake.ufl_expr import TrialFunction, TestFunction, action
+from firedrake.ufl_expr import TrialFunction, TestFunction, action, replace
 from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
 from firedrake.__future__ import interpolate
-from ufl import replace, Form
+from ufl import Form
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
