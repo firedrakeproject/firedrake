@@ -160,8 +160,8 @@ jobs:
             EXTRA_PIP_FLAGS=''
           else
             : # Install build dependencies
-            pip install -r ./firedrake-repo/requirements-dev.txt
             pip install "$PETSC_DIR"/src/binding/petsc4py
+            pip install -r ./firedrake-repo/requirements-build.txt
 
             : # Install runtime dependencies that have been removed from the pyproject.toml
             : # because they rely on non-PyPI versions of petsc4py.
@@ -445,8 +445,8 @@ jobs:
             EXTRA_PIP_FLAGS=''
           else
             : # Install build dependencies
-            pip install -r ./firedrake-repo/requirements-dev.txt
             pip install "$PETSC_DIR"/src/binding/petsc4py
+            pip install -r ./firedrake-repo/requirements-build.txt
 
             : # We have to pass '--no-build-isolation' to use a custom petsc4py
             EXTRA_PIP_FLAGS='--no-build-isolation'

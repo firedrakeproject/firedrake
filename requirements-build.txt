@@ -1,4 +1,4 @@
-# core build dependencies (adapted from pyproject.toml)
+# Core build dependencies (adapted from pyproject.toml)
 Cython>=3.0
 libsupermesh
 mpi4py>3; python_version >= '3.13'
@@ -9,5 +9,5 @@ pybind11
 setuptools>61.2
 rtree>=1.2
 
-# transitive build dependencies
+# Transitive build dependencies
 hatchling

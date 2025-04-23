@@ -6,12 +6,12 @@ description = "An automated system for the portable solution of partial differen
 readme = "README.rst"
 license = {file = "LICENSE"}
 maintainers = [
-    {name = "Pablo D. Brubeck"},
-    {name = "Daiane I. Dolci"},
-    {name = "David A. Ham", email = "david.ham@imperial.ac.uk"},
-    {name = "Josh Hope-Collins"},
-    {name = "Koki Sagiyama"},
-    {name = "Connor J. Ward", email = "c.ward20@imperial.ac.uk"},
+  {name = "Pablo D. Brubeck"},
+  {name = "Daiane I. Dolci"},
+  {name = "David A. Ham", email = "david.ham@imperial.ac.uk"},
+  {name = "Josh Hope-Collins"},
+  {name = "Koki Sagiyama"},
+  {name = "Connor J. Ward", email = "c.ward20@imperial.ac.uk"},
 ]
 requires-python = ">=3.10"
 dependencies = [
@@ -90,7 +90,8 @@ jax = [
   "jax",
 ]
 netgen = [
-  "ngsPETSc",
+  # TODO RELEASE
+  # "ngsPETSc",
 ]
 slepc = [
   # TODO RELEASE
@@ -155,26 +156,26 @@ build-backend = "setuptools.build_meta"
 # TODO: Convert firedrake-zenodo to a proper entrypoint script.
 [tool.setuptools]
 script-files = [
-    "firedrake/scripts/firedrake-zenodo",
-    "scripts/firedrake-run-split-tests",
+  "firedrake/scripts/firedrake-zenodo",
+  "scripts/firedrake-run-split-tests",
 ]
 
 [tool.setuptools.package-data]
 # Unless specified these files will not be installed along with the
 # rest of the package
 firedrake = [
-    "evaluate.h",
-    "locate.c",
-    "icons/*.png",
+  "evaluate.h",
+  "locate.c",
+  "icons/*.png",
 ]
 firedrake_check = [
-    "Makefile",
-    "tests/firedrake/conftest.py",
-    "tests/*/*/*.py",
+  "Makefile",
+  "tests/firedrake/conftest.py",
+  "tests/*/*/*.py",
 ]
 pyop2 = [
-    "*.h",
-    "*.pxd",
-    "*.pyx",
-    "codegen/c/*.c",
+  "*.h",
+  "*.pxd",
+  "*.pyx",
+  "codegen/c/*.c",
 ]

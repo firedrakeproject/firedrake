@@ -407,7 +407,7 @@ The Firedrake components and dependencies used were:
 {links}
 </ul>
 </p>
-    """.format(title=title, links=links, doi=doi)
+    """.format(title=title, links=links)
     if additional_dois:
         data = """{data}
 
@@ -799,13 +799,7 @@ def check_ref_exists(component):
             sys.exit(1)
     else:
         repo = get_component_repository(component)
-        # I *think* that this will fail if it doesn't exist or clashes
-        debug = repo.commit("NOT A REAL COMMIT")
-        breakpoint()
         repo.commit(shas[component]["commit_id"])
-
-        # log.error(f"A release of {component} is referenced but no corresponding release on GitHub can be found, aborting")
-        # sys.exit(1)
 
 
 def make_github_release_or_tag_existing(component: str) -> None:

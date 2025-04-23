@@ -190,12 +190,6 @@ install Firedrake. To do this perform the following steps:
 
 #. Firedrake is now installed and ready for use!
 
-.. warning::
-   Until Firedrake has versioned releases (slated for April/May 2025),
-   :doc:`firedrake-zenodo</zenodo>` will only work with *editable* installations of
-   Firedrake and its components. To install Firedrake in editable mode you
-   should follow the instructions :ref:`below<dev_install>`.
-
 
 .. _firedrake_check:
 

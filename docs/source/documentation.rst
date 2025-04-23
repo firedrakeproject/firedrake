@@ -9,17 +9,14 @@
       Firedrake is continually tested using `GitHub actions <https://docs.github.com/en/actions>`__.
 
       Latest Firedrake status: |firedrakebuild|_
-         .. |firedrakebuild| image:: https://github.com/firedrakeproject/firedrake/actions/workflows/pr.yml/badge.svg
-         .. _firedrakebuild: https://github.com/firedrakeproject/firedrake/actions/workflows/pr.yml
+         .. |firedrakebuild| image:: https://github.com/firedrakeproject/firedrake/actions/workflows/push.yml/badge.svg
+         .. _firedrakebuild: https://github.com/firedrakeproject/firedrake/actions/workflows/push.yml
 
       Firedrake and its components are developed on `GitHub
-      <http://github.com>`__ where we also maintain Firedrake-ready
-      versions of the `FEniCS <http://fenicsproject.org>`__ components
-      UFL.
+      <http://github.com>`__.
 
       * `Firedrake on GitHub <https://github.com/firedrakeproject/firedrake/>`__
       * `FIAT on GitHub <https://github.com/firedrakeproject/fiat>`__
-      * `Firedrake version of UFL on GitHub <https://github.com/firedrakeproject/ufl>`__
 
    Getting started
    ===============
