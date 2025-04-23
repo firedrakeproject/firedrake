@@ -56,15 +56,19 @@ jobs:
         with:
           path: firedrake-repo
 
+      - name: Install Python
+        run: |
+          apt-get update
+          apt-get -y install python3
+
       - name: Validate single-source-of-truth
         run: ./firedrake-repo/scripts/check-config
 
       - name: Install system dependencies
         run: |
-          apt-get update
-          apt-get -y install python3
           apt-get -y install \
-            $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages) python3-venv parallel
+            python3-venv parallel \
+            $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
 
       - name: Install PETSc
         run: |
