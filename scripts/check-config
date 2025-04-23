@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+
+"""Script that makes sure that hardcoded version numbers are consistent.
+
+It reads in Firedrake's 'config.ini' file and makes sure that everywhere a
+version number is hardcoded that it matches the expected value. This allows
+for single-source-of-truth of hardcoded values (via CI).
+
+"""
+
+import configparser
+import pathlib
+import re
+from collections.abc import Mapping
+
+
+REPO_ROOT = pathlib.Path(__file__).parent.parent
+
+
+class InvalidConfigurationException(Exception):
+    pass
+
+
+def main():
+    config = read_config()
+    check_min_python_version(config["min-python-version"])
+    check_petsc_version(config["petsc-version"])
+    check_petsc_version_spec(config["petsc-version-spec"])
+
+
+def read_config() -> Mapping[str, str]:
+    parser = configparser.ConfigParser()
+    parser.read_file(open(REPO_ROOT / "config.ini"))
+    return parser["config"]
+
+
+def check_min_python_version(min_python_version: str) -> None:
+    check_file_contains_pattern(
+        REPO_ROOT / "pyproject.toml",
+        f"requires-python = \">={min_python_version}\""
+    )
+    check_file_contains_pattern(
+        REPO_ROOT / "docs/source/install.rst",
+        f"Python \\({min_python_version} or greater\\)"
+    )
+
+
+def check_petsc_version(petsc_version: str) -> None:
+    check_file_contains_pattern(
+        REPO_ROOT / "scripts/firedrake-configure",
+        f"SUPPORTED_PETSC_VERSION = \"v{petsc_version}\"",
+    )
+    check_file_contains_pattern(
+        REPO_ROOT / "pyproject.toml",
+        f"petsc4py=={petsc_version}",
+        2,
+    )
+    check_file_contains_pattern(
+        REPO_ROOT / "pyproject.toml",
+        f"slepc4py=={petsc_version}",
+        3,
+    )
+
+
+def check_petsc_version_spec(petsc_version_spec: str) -> None:
+    # TODO when https://github.com/firedrakeproject/firedrake/pull/4194 is merged
+    pass
+
+
+def check_file_contains_pattern(
+    filename: pathlib.Path | str,
+    pattern: str,
+    num_expected_matches: int = 1,
+) -> None:
+    with open(filename) as f:
+        text = f.read()
+    matches = re.findall(pattern, text)
+    if len(matches) != num_expected_matches:
+        raise InvalidConfigurationException(
+            f"Expected to find {num_expected_matches} matches for '{pattern}' in "
+            f"{filename} but found {len(matches)}"
+        )
+
+
+if __name__ == "__main__":
+    main()

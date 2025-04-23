@@ -56,6 +56,9 @@ jobs:
         with:
           path: firedrake-repo
 
+      - name: Validate single-source-of-truth
+        run: ./scripts/check-config
+
       - name: Install system dependencies
         run: |
           apt-get update
