@@ -60,18 +60,33 @@ jobs:
           apt-get install -y python3
           apt install -y python3.12-venv
           apt-get install -y parallel
-          apt-get -y install \
-            $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
+          apt-get install -y bison
+          apt-get install -y cmake
+          apt-get install -y flex
+          apt-get install -y gfortran
+          apt-get install -y libopenblas-dev
+          apt-get install -y ninja-build
+          apt-get install -y pkg-config
+          apt-get install -y python3-dev
+          apt-get install -y libfftw3-dev
+          apt-get install -y libhwloc-dev
 
+          # Missing for now: 
+            # libfftw3-mpi-dev
+            # libopenmpi-dev
+            # libhdf5-mpi-dev
+
+          # apt-get -y install \
+          #   $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
+          # run a list of app packages and grep openmpi and fail
       - name: Install PETSc
         run: |
           git clone --depth 1 --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) https://gitlab.com/petsc/petsc.git
           cd petsc
           # TODO update configure file
-          ./configure --with-make-np=8 --with-c2html=0 --with-debugging=0 --with-fortran-bindings=0 --with-shared-libraries=1 --with-strict-petscerrorcode PETSC_ARCH=arch-firedrake-default --COPTFLAGS=-O3 -march=native -mtune=native --CXXOPTFLAGS=-O3 -march=native -mtune=native --FOPTFLAGS=-O3 -march=native -mtune=native --download-bison --download-fftw --download-hdf5 --download-hwloc --download-metis --download-mumps --download-netcdf --download-pnetcdf --download-ptscotch --download-scalapack --download-suitesparse --download-superlu_dist --download-zlib --download-hypre --with-cuda --with-cuda-dir=/usr/local/cuda CUDAPPFLAGS=-Wno-deprecated-gpu-targets --download-mpich --download-slepc
+          ./configure --with-make-np=8 --with-c2html=0 --with-debugging=0 --with-fortran-bindings=0 --with-shared-libraries=1 --with-strict-petscerrorcode PETSC_ARCH=arch-firedrake-default --COPTFLAGS=-O3 -march=native -mtune=native --CXXOPTFLAGS=-O3 -march=native -mtune=native --FOPTFLAGS=-O3 -march=native -mtune=native --download-bison --download-fftw --download-hdf5 --download-hwloc --download-metis --download-mumps --download-netcdf --download-pnetcdf --download-ptscotch --download-scalapack --download-suitesparse --download-superlu_dist --download-zlib --download-hypre --with-cuda --with-cuda-dir=/usr/local/cuda CUDAPPFLAGS=-Wno-deprecated-gpu-targets --download-openmpi --download-slepc
           make PETSC_DIR=/__w/firedrake/firedrake/petsc PETSC_ARCH=arch-firedrake-default all
-          # TODO: This fails for some reason
-          # make PETSC_DIR=/__w/firedrake/firedrake/petsc PETSC_ARCH=arch-firedrake-default check MPIEXEC="mpiexec --allow-run-as-root"
+          make PETSC_DIR=/__w/firedrake/firedrake/petsc PETSC_ARCH=arch-firedrake-default check MPIEXEC="mpiexec --allow-run-as-root"
 
       - name: Install Firedrake
         id: install
@@ -84,7 +99,6 @@ jobs:
           export CC=$PETSC_DIR/$PETSC_ARCH/bin/mpicc
           export CXX=$PETSC_DIR/$PETSC_ARCH/bin/mpicxx
           export MPICC=$CC
-          export MPI_HOME=$PETSC_DIR/$PETSC_ARCH
           export PATH=$PETSC_DIR/$PETSC_ARCH/bin:$PATH
           export SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH
           export HDF5_DIR=$PETSC_DIR/$PETSC_ARCH
