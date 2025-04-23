@@ -26,7 +26,7 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1
 ENV OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 
 # Download firedrake-configure
-RUN curl -O --output-dir /opt https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-configure
+RUN curl -O --output-dir /opt https://raw.githubusercontent.com/firedrakeproject/firedrake/release/scripts/firedrake-configure
 
 # Install system dependencies
 RUN apt-get update \
@@ -63,4 +63,4 @@ ENV MPICC=$CC
 
 # Install Firedrake
 RUN pip install --verbose --no-binary h5py --src /opt \
-        --editable git+https://github.com/firedrakeproject/firedrake.git#egg=firedrake[docker]
+        --editable git+https://github.com/firedrakeproject/firedrake.git@release#egg=firedrake[docker]
