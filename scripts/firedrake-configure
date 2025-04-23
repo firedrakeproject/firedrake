@@ -216,7 +216,16 @@ BASE_MACOS_HOMEBREW_PACKAGES = (
     "python",
 )
 
-PETSC_EXTRAS_MACOS_HOMEBREW_PACKAGES = ("hwloc", "hdf5-mpi")
+PETSC_EXTRAS_MACOS_HOMEBREW_PACKAGES = (
+    "fftw",
+    "hwloc",
+    "hdf5-mpi",
+    "metis",
+    "pnetcdf",
+    "scalapack",
+    "suitesparse",
+    "zlib",
+)
 
 COMMON_MACOS_HOMEBREW_PACKAGES = (
     BASE_MACOS_HOMEBREW_PACKAGES + PETSC_EXTRAS_MACOS_HOMEBREW_PACKAGES
@@ -262,7 +271,7 @@ PETSC_EXTERNAL_PACKAGE_SPECS = {
     "fftw": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_AUTODETECT,
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
     "hdf5": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
@@ -282,7 +291,7 @@ PETSC_EXTERNAL_PACKAGE_SPECS = {
     "metis": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_AUTODETECT,
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
     "mumps": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
@@ -297,7 +306,7 @@ PETSC_EXTERNAL_PACKAGE_SPECS = {
     "pnetcdf": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_AUTODETECT,
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
     "ptscotch": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
@@ -307,12 +316,12 @@ PETSC_EXTERNAL_PACKAGE_SPECS = {
     "scalapack": {
         LINUX_APT_X86_64: (None, ("-lscalapack-openmpi",)),
         LINUX_APT_AARCH64: (None, ("-lscalapack-openmpi",)),
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
     "suitesparse": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_AUTODETECT,
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
     "superlu_dist": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
@@ -322,7 +331,7 @@ PETSC_EXTERNAL_PACKAGE_SPECS = {
     "zlib": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_AUTODETECT,
-        MACOS_HOMEBREW_ARM64: PETSC_AUTODETECT,
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew/opt/zlib",
     },
 }
 
