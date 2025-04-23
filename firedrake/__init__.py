@@ -1,10 +1,10 @@
 # IMPORTANT: If updating this constraint then corresponding changes may be
-# needed in pyproject.toml and firedrake-configure. Note that unlike in
+# needed in pyproject.toml, setup.py and firedrake-configure. Note that unlike in
 # those locations where we want to be strict about the specific version, here
 # we are more permissive. This is to catch the case where users don't update
 # their PETSc for a really long time or accidentally install a too-new release
 # that isn't yet supported.
-PETSC_SUPPORTED_VERSIONS = "<3.23"
+PETSC_SUPPORTED_VERSIONS = ">=3.23.0"
 
 
 def init_petsc():
