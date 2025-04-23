@@ -209,7 +209,6 @@ def test_writing_to_subfunctions():
         u.assign(kappa)
         usub *= 2
         J = assemble(inner(u, u) * dx)
-        print(f"{type(J) = }")  # noqa: E202, E251
         rf = ReducedFunctional(J, Control(kappa), tape=tape)
     pause_annotation()
 
