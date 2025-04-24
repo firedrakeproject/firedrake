@@ -252,16 +252,12 @@ jobs:
 
   docker:
     name: Build Docker containers
-    # TODO: undo
-    # if: github.ref == 'refs/heads/master'
-    # needs: [test, docker_tag]
+    if: github.ref == 'refs/heads/master'
+    needs: [test, docker_tag]
     uses: ./.github/workflows/docker.yml
     with:
-      # TODO: undo
-      # tag: ${{ needs.docker_tag.outputs.tag }}
-      # status: ${{ needs.test.result }}
-      tag: apt_test
-      status: success
+      tag: ${{ needs.docker_tag.outputs.tag }}
+      status: ${{ needs.test.result }}
     secrets: inherit
 
   lint:
