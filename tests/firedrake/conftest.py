@@ -149,6 +149,10 @@ def pytest_configure(config):
         "markers",
         "skipcuda: mark as skipped if CUDA is not available"
     )
+    config.addinivalue_line(
+        "markers",
+        "skipgpu: mark as skipped if a GPU enabled PETSC was installed"
+    )
 
 
 def pytest_collection_modifyitems(session, config, items):
@@ -156,9 +160,13 @@ def pytest_collection_modifyitems(session, config, items):
 
     try:
         get_petsc_variables()["CUDA_VERSION"]
+        # They look like the same thing (but opposite) for now, but they are not.
+        # This will skip some nongpurelated tests (hypre) if a gpu-aware petsc was installed.
         cuda_unavailable = False
+        gpu_based_petsc = True
     except:
         cuda_unavailable = True
+        gpu_based_petsc = False
 
     for item in items:
         if complex_mode:
@@ -173,6 +181,10 @@ def pytest_collection_modifyitems(session, config, items):
         if cuda_unavailable:
             if item.get_closest_marker("skipcuda") is not None:
                 item.add_marker(pytest.mark.skip(reason="CUDA not available"))
+        
+        if gpu_based_petsc:
+            if item.get_closest_marker("skipgpu") is not None:
+                item.add_marker(pytest.mark.skip(reason="Test skipped on gpu-based install"))
 
         for dep, marker, reason in dependency_skip_markers_and_reasons:
             if _skip_test_dependency(dep) and item.get_closest_marker(marker) is not None:

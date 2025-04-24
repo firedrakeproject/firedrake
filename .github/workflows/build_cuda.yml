@@ -84,7 +84,7 @@ jobs:
           git clone --depth 1 --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) https://gitlab.com/petsc/petsc.git
           cd petsc
           # TODO update configure file
-          ./configure --with-make-np=8 --with-c2html=0 --with-debugging=0 --with-fortran-bindings=0 --with-shared-libraries=1 --with-strict-petscerrorcode PETSC_ARCH=arch-firedrake-default --COPTFLAGS=-O3 -march=native -mtune=native --CXXOPTFLAGS=-O3 -march=native -mtune=native --FOPTFLAGS=-O3 -march=native -mtune=native --download-bison --download-fftw --download-hdf5 --download-hwloc --download-metis --download-mumps --download-netcdf --download-pnetcdf --download-ptscotch --download-scalapack --download-suitesparse --download-superlu_dist --download-zlib --download-hypre --with-cuda --with-cuda-dir=/usr/local/cuda CUDAPPFLAGS=-Wno-deprecated-gpu-targets --download-openmpi --download-slepc
+          ./configure --with-make-np=8 --with-c2html=0 --with-debugging=0 --with-fortran-bindings=0 --with-shared-libraries=1 --with-strict-petscerrorcode PETSC_ARCH=arch-firedrake-default --COPTFLAGS=-O3 -march=native -mtune=native --CXXOPTFLAGS=-O3 -march=native -mtune=native --FOPTFLAGS=-O3 -march=native -mtune=native --download-bison --download-fftw --download-hdf5 --download-hwloc --download-metis --download-mumps --download-netcdf --download-pnetcdf --download-ptscotch --download-scalapack --download-suitesparse --download-superlu_dist --download-zlib --with-cuda --with-cuda-dir=/usr/local/cuda CUDAPPFLAGS=-Wno-deprecated-gpu-targets --download-openmpi --download-slepc
           make PETSC_DIR=/__w/firedrake/firedrake/petsc PETSC_ARCH=arch-firedrake-default all
           export PETSC_DIR=/__w/firedrake/firedrake/petsc
           export PETSC_ARCH=arch-firedrake-default
@@ -95,7 +95,6 @@ jobs:
           export PATH=$PETSC_DIR/$PETSC_ARCH/bin:$PATH
           export SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH
           export HDF5_DIR=$PETSC_DIR/$PETSC_ARCH
-          export HYPRE_DIR=$PETSC_DIR/$PETSC_ARCH
           export HDF5_MPI=ON
           make PETSC_DIR=/__w/firedrake/firedrake/petsc PETSC_ARCH=arch-firedrake-default check MPIEXEC="mpiexec --allow-run-as-root"
 
@@ -113,7 +112,6 @@ jobs:
           export PATH=$PETSC_DIR/$PETSC_ARCH/bin:$PATH
           export SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH
           export HDF5_DIR=$PETSC_DIR/$PETSC_ARCH
-          export HYPRE_DIR=$PETSC_DIR/$PETSC_ARCH
           export HDF5_MPI=ON
           python3 -m venv venv
           . venv/bin/activate
