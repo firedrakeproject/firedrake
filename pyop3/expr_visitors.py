@@ -438,7 +438,7 @@ def _(mat: Mat, /, loop_axes) -> PetscMatBufferExpression:
                 relabelled_row_layout = replace_terminals(row_layout, replace_map)
 
                 replace_map = {var.axis_label: AxisVar(var.axis_label+"_1") for var in collect_axis_vars(column_layout)}
-                relabelled_column_layout = replace_terminals(row_layout, replace_map)
+                relabelled_column_layout = replace_terminals(column_layout, replace_map)
 
                 layouts[pmap(relabelled_row_path|relabelled_column_path)] = relabelled_row_layout * mat.caxes.size + relabelled_column_layout
         return NonlinearDatBufferExpression(mat.buffer, layouts)
