@@ -37,7 +37,6 @@ dependencies = [
   "fenics-fiat @ git+https://github.com/firedrakeproject/fiat.git",
   "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint.git",
   "loopy @ git+https://github.com/firedrakeproject/loopy.git@main",
-  # https://github.com/inducer/islpy/issues/162
   "islpy>=2025.1.5; sys_platform == 'darwin'",
 ]
 classifiers = [
