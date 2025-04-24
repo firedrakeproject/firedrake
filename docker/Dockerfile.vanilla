@@ -26,7 +26,7 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1
 ENV OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 
 # Download firedrake-configure
-RUN curl -O --output-dir /opt https://raw.githubusercontent.com/firedrakeproject/firedrake/JHopeCollins/more-apt-petsc-packages/scripts/firedrake-configure
+RUN curl -O --output-dir /opt https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-configure
 
 # Install system dependencies
 RUN apt-get update \
