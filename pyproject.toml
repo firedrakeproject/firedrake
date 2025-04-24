@@ -36,7 +36,7 @@ dependencies = [
   "scipy",
   "sympy",
   "fenics-ufl @ git+https://github.com/firedrakeproject/ufl.git",
-  "fenics-fiat @ git+https://github.com/firedrakeproject/fiat.git",
+  "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git",
   # https://github.com/inducer/islpy/issues/162
   "islpy<2025.1.3; sys_platform == 'darwin'",
 ]
