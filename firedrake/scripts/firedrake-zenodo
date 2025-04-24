@@ -32,7 +32,7 @@ DESCRIPTIONS = {
 PYPI_PACKAGE_NAMES = {
     "firedrake": "firedrake",
     "ufl": "fenics-ufl",
-    "fiat": "fenics-fiat",
+    "fiat": "firedrake-fiat",
     "loopy": "loopy",
     "petsc": "petsc4py",
 }
@@ -834,7 +834,7 @@ def make_github_release_or_tag_existing(component: str) -> None:
                         obj_type="tree",
                         tagger=tagger)
     else:
-        log.info(f"Pre-existing release for component '{component}' for commit '{commit_id}' not found, creating a new release '{release_tag}' for it")
+        log.info(f"Pre-existing release for component '{component}' for commit '{commit_id}' not found, creating a new pre-release '{release_tag}' for it")
         body = (
             "This release is specifically created to document the version of "
             f"{component} used in a particular set of experiments using "
@@ -848,7 +848,7 @@ def make_github_release_or_tag_existing(component: str) -> None:
             name=DESCRIPTIONS[component],
             body=body,
             draft=False,
-            prerelease=False)
+            prerelease=True)
 
 
 def make_releases() -> None:
