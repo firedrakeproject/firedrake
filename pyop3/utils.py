@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import collections
+import dataclasses
 import functools
 import itertools
 import numbers
@@ -501,6 +502,14 @@ class RecordMixin(abc.ABC):
         for attr, value in attrs.items():
             object.__setattr__(new, attr, value)
         return new
+
+
+# testing...
+def record(cls):
+    cls = dataclasses.dataclass(init=False)(cls)
+    cls.__hash__ = object.__hash__
+    cls.__eq__ = object.__eq__
+    return cls
 
 
 def unique_comm(iterable) -> MPI.Comm | None:

@@ -709,8 +709,10 @@ class Mat(AbstractMat):
         return cls(sparsity.raxes, sparsity.caxes, buffer, **kwargs)
 
     def zero(self, *, eager=False):
+        if not isinstance(self.buffer, PetscMatBuffer):
+            raise NotImplementedError("TODO")
         if eager:
-            self.mat.zeroEntries()
+            self.buffer.mat.zeroEntries()
         else:
             raise NotImplementedError
 

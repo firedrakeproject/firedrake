@@ -54,7 +54,7 @@ def record_modified(func):
     return wrapper
 
 
-@dataclasses.dataclass(init=False, frozen=True)
+@utils.record
 class AbstractBuffer(KernelArgument, utils.RecordMixin, abc.ABC):
 
     # {{{ Instance attrs
@@ -85,7 +85,7 @@ class AbstractBuffer(KernelArgument, utils.RecordMixin, abc.ABC):
         pass
 
 
-@dataclasses.dataclass(init=False, frozen=True)
+@utils.record
 class NullBuffer(AbstractBuffer):
     """A buffer that does not carry data.
 
@@ -129,7 +129,7 @@ class NullBuffer(AbstractBuffer):
 
 
 
-@dataclasses.dataclass(init=False, frozen=True)
+@utils.record
 class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
     """Abstract class representing buffers that carry actual data."""
 
@@ -156,7 +156,7 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
 
 # NOTE: When GPU support is added, the host-device awareness and
 # copies should live in this class.
-@dataclasses.dataclass(init=False, frozen=True)
+@utils.record
 class ArrayBuffer(ConcreteBuffer):
     """A buffer whose underlying data structure is a numpy array."""
 
@@ -186,6 +186,8 @@ class ArrayBuffer(ConcreteBuffer):
         self._pending_reduction = None
         self._finalizer = None
 
+    __hash__ = object.__hash__
+    __eq__ = object.__eq__
 
     @classmethod
     def empty(cls, shape, dtype: DTypeT | None = None, **kwargs):
@@ -424,7 +426,7 @@ class ArrayBuffer(ConcreteBuffer):
         self._broadcast_roots_to_leaves()
 
 
-@dataclasses.dataclass(init=False, frozen=True)
+@utils.record
 class AbstractPetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
     """A buffer whose underlying data structure is a PETSc Mat."""
 
@@ -524,7 +526,7 @@ class AbstractPetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
         return mat
 
 
-@dataclasses.dataclass(init=False, frozen=True)
+@utils.record
 class PetscMatBuffer(AbstractPetscMatBuffer):
     """A buffer whose underlying data structure is a PETSc Mat."""
 
@@ -546,7 +548,7 @@ class PetscMatBuffer(AbstractPetscMatBuffer):
 
 
 
-@dataclasses.dataclass(init=False, frozen=True)
+@utils.record
 class PetscMatPreallocatorBuffer(AbstractPetscMatBuffer):
     """A buffer whose underlying data structure is a PETSc Mat."""
 
