@@ -62,7 +62,7 @@ class PetscVecNest(PetscVec):
 
 
 @dataclasses.dataclass(init=False, frozen=True)
-class AbstractMat(DistributedArray):
+class Mat(DistributedArray):
 
     # {{{ Instance attributes
 
@@ -328,7 +328,7 @@ class AbstractMat(DistributedArray):
         return self.caxes
 
 
-    def reshape(self, row_axes: AxisTree, col_axes: AxisTree) -> AbstractMat:
+    def reshape(self, row_axes: AxisTree, col_axes: AxisTree) -> Mat:
         """Return a reshaped view of the `Dat`.
 
         TODO
@@ -603,106 +603,6 @@ class AbstractMat(DistributedArray):
 
         return axes
 
-    # TODO: Move to the buffer
-    # @classmethod
-    # def _make_mat(cls, raxes, caxes, mat_type, block_shape=None):
-    #     if isinstance(mat_type, collections.abc.Mapping):
-    #         # TODO: This is very ugly
-    #         rsize = max(x or 0 for x, _ in mat_type.keys()) + 1
-    #         csize = max(y or 0 for _, y in mat_type.keys()) + 1
-    #         submats = np.empty((rsize, csize), dtype=object)
-    #         for (rkey, ckey), submat_type in mat_type.items():
-    #             subraxes = raxes[rkey] if rkey is not None else raxes
-    #             subcaxes = caxes[ckey] if ckey is not None else caxes
-    #             submat = cls._make_mat(
-    #                 subraxes, subcaxes, submat_type, block_shape=block_shape
-    #                 )
-    #             submats[rkey, ckey] = submat
-    #
-    #         # TODO: Internal comm? Set as mat property (then not a classmethod)?
-    #         comm = single_valued([raxes.comm, caxes.comm])
-    #         return PETSc.Mat().createNest(submats, comm=comm)
-    #     else:
-    #         return cls._make_monolithic_mat(raxes, caxes, mat_type, block_shape=block_shape)
-
-
-# NOTE: Is it possible to remove this? Potentially an unnecessary type...
-# class Sparsity(AbstractMat):
-#
-#     __hash__ = AbstractMat.__hash__
-#
-#     def materialize(self) -> PETSc.Mat:
-#         if not hasattr(self, "_lazy_template"):
-#             self.assemble()
-#
-#             template = Mat._make_mat(self.raxes, self.caxes,
-#                                      self.mat_type, block_shape=self.block_shape
-#                                      )
-#             self._preallocate(self.mat, template, self.mat_type)
-#             # template.preallocateWithMatPreallocator(self.mat)
-#             # We can safely set these options since by using a sparsity we
-#             # are asserting that we know where the non-zeros are going.
-#             # NOTE: These may already get set by PETSc.
-#             template.setOption(PETSc.Mat.Option.NEW_NONZERO_LOCATION_ERR, True)
-#             #template.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, True)
-#
-#             template.assemble()
-#             self._lazy_template = template
-#         return self._lazy_template.copy()
-#
-#     def _preallocate(self, preallocator, template, mat_type):
-#         if isinstance(mat_type, collections.abc.Mapping):
-#             for (ridx, cidx), submat_type in mat_type.items():
-#                 if ridx is None:
-#                     ridx = 0
-#                 if cidx is None:
-#                     cidx = 0
-#                 subpreallocator = preallocator.getNestSubMatrix(ridx, cidx)
-#                 submat = template.getNestSubMatrix(ridx, cidx)
-#                 self._preallocate(subpreallocator, submat, submat_type)
-#         else:
-#             if mat_type != "dat":
-#                 # template.preallocateWithMatPreallocator(preallocator)
-#                 preallocator.preallocatorPreallocate(template)
-#
-#     @classmethod
-#     def _make_monolithic_mat(cls, raxes, caxes, mat_type: str, block_shape=None):
-#         # TODO: Internal comm?
-#         comm = single_valued([raxes.comm, caxes.comm])
-#
-#         if mat_type == "dat":
-#             matdat = _MatDat(raxes, caxes)
-#             if matdat.is_row_matrix:
-#                 assert not matdat.is_column_matrix
-#                 sizes = ((raxes.owned.size, None), (None, 1))
-#             elif matdat.is_column_matrix:
-#                 sizes = ((None, 1), (caxes.owned.size, None))
-#             else:
-#                 # 1x1 block
-#                 sizes = ((None, 1), (None, 1))
-#             mat = PETSc.Mat().createPython(sizes, comm=comm)
-#             mat.setPythonContext(matdat)
-#         else:
-#             mat = PETSc.Mat().create(comm)
-#             mat.setBlockSize(block_shape)
-#             mat.setType(PETSc.Mat.Type.PREALLOCATOR)
-#
-#             # None is for the global size, PETSc will figure it out for us
-#             sizes = ((raxes.owned.size, None), (caxes.owned.size, None))
-#             mat.setSizes(sizes)
-#
-#             rlgmap = PETSc.LGMap().create(raxes.global_numbering, bsize=block_shape, comm=comm)
-#             clgmap = PETSc.LGMap().create(caxes.global_numbering, bsize=block_shape, comm=comm)
-#             mat.setLGMap(rlgmap, clgmap)
-#
-#         mat.setUp()
-#         return mat
-
-
-@dataclasses.dataclass(init=False, frozen=True)
-class Mat(AbstractMat):
-    __hash__ = AbstractMat.__hash__
-
     @classmethod
     def from_sparsity(cls, sparsity, **kwargs):
         buffer = sparsity.buffer.materialize()
@@ -741,40 +641,6 @@ class Mat(AbstractMat):
             return mat.getPythonContext().dat.data_ro
         else:
             return mat[:, :]
-
-    # # TODO: Almost identical code to Sparsity
-    # @classmethod
-    # def _make_monolithic_mat(cls, raxes, caxes, mat_type: str, block_shape=None):
-    #     # TODO: Internal comm?
-    #     comm = single_valued([raxes.comm, caxes.comm])
-    #
-    #     if mat_type == "dat":
-    #         matdat = _MatDat(raxes, caxes)
-    #         if matdat.is_row_matrix:
-    #             assert not matdat.is_column_matrix
-    #             sizes = ((raxes.owned.size, None), (None, 1))
-    #         elif matdat.is_column_matrix:
-    #             sizes = ((None, 1), (caxes.owned.size, None))
-    #         else:
-    #             # 1x1 block
-    #             sizes = ((None, 1), (None, 1))
-    #         mat = PETSc.Mat().createPython(sizes, comm=comm)
-    #         mat.setPythonContext(matdat)
-    #     else:
-    #         mat = PETSc.Mat().create(comm)
-    #         mat.setType(mat_type)
-    #         mat.setBlockSize(block_shape)
-    #
-    #         # None is for the global size, PETSc will figure it out for us
-    #         sizes = ((raxes.owned.size, None), (caxes.owned.size, None))
-    #         mat.setSizes(sizes)
-    #
-    #         rlgmap = PETSc.LGMap().create(raxes.global_numbering, bsize=block_shape, comm=comm)
-    #         clgmap = PETSc.LGMap().create(caxes.global_numbering, bsize=block_shape, comm=comm)
-    #         mat.setLGMap(rlgmap, clgmap)
-    #
-    #     mat.setUp()
-    #     return mat
 
 
 class _MatDat:

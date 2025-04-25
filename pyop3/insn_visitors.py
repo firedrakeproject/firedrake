@@ -17,7 +17,7 @@ from pyop3.sf import local_sf
 from pyrsistent import pmap, PMap
 from immutabledict import ImmutableOrderedDict
 
-from pyop3.array import Global, Dat, Array, Mat, NonlinearDatBufferExpression, LinearDatBufferExpression, PetscMatBufferExpression, AbstractMat
+from pyop3.array import Global, Dat, Array, Mat, NonlinearDatBufferExpression, LinearDatBufferExpression, PetscMatBufferExpression
 from pyop3.axtree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
 from pyop3.axtree.tree import Operator, AxisVar, IndexedAxisTree, prune_zero_sized_branches
 from pyop3.buffer import AbstractBuffer, AbstractPetscMatBuffer, ArrayBuffer, NullBuffer, PetscMatBuffer
@@ -717,7 +717,7 @@ def _(dat: Dat, loop_axes):
     return dat.candidate_layouts(loop_axes)
 
 
-@_collect_array_candidate_indirections.register(AbstractMat)
+@_collect_array_candidate_indirections.register(Mat)
 def _(mat: Mat, loop_axes):
     return mat.candidate_layouts(loop_axes)
 
@@ -999,7 +999,7 @@ def _(assignment: BufferAssignment, /) -> NonEmptyBufferAssignment | NullInstruc
     if isinstance(assignee, Dat):
         axis_trees = (assignee.axes,)
     else:
-        assert isinstance(assignee, AbstractMat)
+        assert isinstance(assignee, Mat)
         axis_trees = (assignee.raxes, assignee.caxes)
 
     nonzero_axis_trees = tuple(map(prune_zero_sized_branches, axis_trees))

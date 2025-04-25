@@ -28,7 +28,7 @@ from pyop3.expr_visitors import collect_axis_vars, extract_axes
 import pyop2
 
 from pyop3 import utils
-from pyop3.array import Dat, _Dat, LinearDatBufferExpression, NonlinearDatBufferExpression, Parameter, Mat, AbstractMat
+from pyop3.array import Dat, _Dat, LinearDatBufferExpression, NonlinearDatBufferExpression, Parameter, Mat
 from pyop3.array.base import Array
 from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent, relabel_path
 from pyop3.buffer import AbstractBuffer, AbstractPetscMatBuffer, ArrayBuffer, NullBuffer
@@ -1209,27 +1209,11 @@ def _(param: Parameter) -> np.number:
     return param.value
 
 
-# @as_kernel_arg.register(np.ndarray)
-# def _(array: np.ndarray) -> int:
-#     return array.ctypes.data
-
-
-# @as_kernel_arg.register
-# def _(arg: _Dat):
-#     # TODO if we use the right accessor here we modify the state appropriately
-#     return as_kernel_arg(arg.buffer)
-
-
 @as_kernel_arg.register
 def _(arg: ArrayBuffer) -> int:
     # TODO if we use the right accessor here we modify the state appropriately
     # NOTE: Do not use .data_rw accessor here since this would trigger a halo exchange
     return arg._data.ctypes.data
-
-
-# @as_kernel_arg.register
-# def _(array: AbstractMat):
-#     return array.mat.handle
 
 
 # NOTE: I think that we should probably have a MatBuffer or similar type so

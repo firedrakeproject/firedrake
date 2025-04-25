@@ -15,7 +15,7 @@ from pyop3.buffer import PetscMatBuffer, AbstractPetscMatBuffer
 from pyrsistent import pmap, PMap
 from petsc4py import PETSc
 
-from pyop3.array import Array, Dat, Mat, LinearDatBufferExpression, BufferExpression, AbstractMat, NonlinearDatBufferExpression
+from pyop3.array import Array, Dat, Mat, LinearDatBufferExpression, BufferExpression, NonlinearDatBufferExpression
 from pyop3.axtree.tree import AxisVar, Expression, Operator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
@@ -124,8 +124,8 @@ def _(expr: LinearDatBufferExpression, /) -> OrderedSet:
     return collect_loop_index_vars(expr.layout)
 
 
-@collect_loop_index_vars.register(AbstractMat)
-def _(mat: AbstractMat, /) -> OrderedSet:
+@collect_loop_index_vars.register(Mat)
+def _(mat: Mat, /) -> OrderedSet:
     loop_indices = OrderedSet()
     if mat.parent:
         loop_indices |= collect_loop_index_vars(mat.parent)
@@ -384,7 +384,7 @@ def _(dat: Dat, /, loop_axes) -> NonlinearDatBufferExpression:
     return NonlinearDatBufferExpression(dat.buffer, selected_layouts)
 
 
-@concretize_arrays.register(AbstractMat)
+@concretize_arrays.register(Mat)
 def _(mat: Mat, /, loop_axes) -> PetscMatBufferExpression:
     from pyop3.insn_visitors import materialize_composite_dat
 
