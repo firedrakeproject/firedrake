@@ -2415,6 +2415,35 @@ values from f.)"""
         except AttributeError:
             pass
 
+    @utils.cached_property
+    def cell_volume(self):
+        """
+        A :class:`~.Function` in the :math:`P^0` space containing the local mesh volume.
+
+        This is computed by interpolating the UFL :class:`~.CellVolume` for the current
+        mesh.
+        """
+        from firedrake.function import Function
+        from firedrake.functionspace import FunctionSpace
+        volume = Function(FunctionSpace(self, "Discontinuous Lagrange", 0))
+        return volume.interpolate(ufl.CellVolume(self))
+
+    @utils.cached_property
+    def patch_volume(self):
+        """
+        A :class:`~.Function` in the :math:`P^1` space containing the sum of the volumes
+        of cells neighbouring a vertex.
+        """
+        from firedrake.function import Function
+        from firedrake.functionspace import FunctionSpace
+        from firedrake.parloops import par_loop, READ, RW
+        patch_vol = Function(FunctionSpace(self, "Lagrange", 1))
+        domain = "{[i]: 0 <= i < patch.dofs}"
+        instructions = "patch[i] = patch[i] + vol[0]"
+        keys = {"vol": (self.cell_volume, READ), "patch": (patch_vol, RW)}
+        par_loop((domain, instructions), ufl.dx(domain=self), keys)
+        return patch_vol
+
     @property
     def tolerance(self):
         """The relative tolerance (i.e. as defined on the reference cell) for
