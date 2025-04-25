@@ -21,9 +21,9 @@ from petsc4py import PETSc
 import loopy as lp
 import numpy as np
 import pymbolic as pym
+from immutabledict import ImmutableOrderedDict
 from pyop3.array.dat import PetscMatBufferExpression
 from pyop3.expr_visitors import collect_axis_vars, extract_axes
-from pyrsistent import freeze, pmap, PMap
 
 import pyop2
 
@@ -35,7 +35,7 @@ from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer, PackedBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
 from pyop3.ir.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
-from pyop3.itree.tree import LoopIndexVar
+from pyop3.itree.tree import AffineSliceComponent, LoopIndexVar, Slice
 from pyop3.lang import (
     Intent,
     INC,
@@ -75,6 +75,8 @@ from pyop3.utils import (
     strictly_all,
     Identified,
 )
+
+import pyop3.extras.debug
 
 # FIXME this needs to be synchronised with TSFC, tricky
 # shared base package? or both set by Firedrake - better solution
@@ -349,9 +351,9 @@ class CodegenResult:
             data_argument = kwargs.get(data_argument.name, data_argument)
             kernel_args.append(as_kernel_arg(data_argument))
 
-        # if len(self.loopy_kernel.callables_table) > 1:
-        #     ccode = lp.generate_code_v2(self.loopy_kernel).device_code()
-        #     breakpoint()
+        if len(self.loopy_kernel.callables_table) > 1:
+            ccode = lp.generate_code_v2(self.loopy_kernel).device_code()
+            breakpoint()
 
         executable(*kernel_args)
 
@@ -531,7 +533,7 @@ def _collect_temporary_shapes(expr):
 
 
 @_collect_temporary_shapes.register(InstructionList)
-def _(insn_list: InstructionList, /) -> PMap:
+def _(insn_list: InstructionList, /) -> ImmutableOrderedDict:
     return merge_dicts(_collect_temporary_shapes(insn) for insn in insn_list)
 
 
@@ -551,13 +553,13 @@ def _(loop: Loop, /):
 
 @_collect_temporary_shapes.register(AbstractAssignment)
 @_collect_temporary_shapes.register(NullInstruction)
-def _(assignment: AbstractAssignment, /) -> PMap:
-    return pmap()
+def _(assignment: AbstractAssignment, /) -> ImmutableOrderedDict:
+    return ImmutableOrderedDict()
 
 
 @_collect_temporary_shapes.register
 def _(call: ExplicitCalledFunction):
-    return freeze(
+    return ImmutableOrderedDict(
         {
             arg.buffer.name: lp_arg.shape
             for lp_arg, arg in zip(
@@ -610,8 +612,8 @@ def parse_loop_properly_this_time(
 ):
     if strictly_all(x is None for x in {axis, path, iname_map}):
         axis = axes.root
-        path = pmap()
-        iname_map = pmap()
+        path = ImmutableOrderedDict()
+        iname_map = ImmutableOrderedDict()
 
     for component in axis.components:
         path_ = path | {axis.label: component.label}
@@ -641,7 +643,7 @@ def parse_loop_properly_this_time(
             for index_exprs in axes.index_exprs:
                 for axis_label, index_expr in index_exprs.get(axis_key).items():
                     loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, READ, [iname_replace_map_], loop_indices, codegen_context, paths=[path_])
-            loop_exprs = pmap(loop_exprs)
+            loop_exprs = ImmutableOrderedDict(loop_exprs)
 
             if subaxis := axes.child(axis, component):
                 parse_loop_properly_this_time(
@@ -752,7 +754,7 @@ def parse_assignment(
 
 
 @_compile.register(NonEmptyPetscMatAssignment)
-def _compile_petscmat(assignment, loop_indices, context):
+def _(assignment: NonEmptyPetscMatAssignment, loop_indices, context):
     mat = assignment.mat
     array = assignment.values
 
@@ -776,17 +778,12 @@ def _compile_petscmat(assignment, loop_indices, context):
     # now emit the right line of code, this should properly be a lp.ScalarCallable
     # https://petsc.org/release/manualpages/Mat/MatGetValuesLocal/
     mat_name = context.add_buffer(assignment.assignee.buffer, assignment_type_as_intent(assignment.assignment_type))
+
+    # NOTE: Is this always correct? It is for now.
     array_name = context.add_buffer(assignment.expression.buffer, READ)
 
-    for row_path in assignment.row_axis_tree.leaf_paths:
-        for col_path in assignment.col_axis_tree.leaf_paths:
-            row_layout = mat.row_layouts[row_path]
-            rmap_name = context.add_buffer(row_layout.buffer, READ)
-
-            col_layout = mat.column_layouts[col_path]
-            cmap_name = context.add_buffer(col_layout.buffer, READ)
-
-            # blocked = mat.mat.block_shape > 1
+    # TODO: The following code should be done in a loop per submat.
+    # blocked = mat.mat.block_shape > 1
     # if mat.nested:
     #     if len(mat.nest_labels) > 1:
     #         # Need to loop over the different nest labels and emit separate calls to
@@ -816,112 +813,135 @@ def _compile_petscmat(assignment, loop_indices, context):
     #     codegen_context.add_cinstruction(code)
     #     mat_name = submat_name
 
-    # TODO: The following code should be done in a loop per submat.
+    # concatenate row layouts
+    row_map = Dat.empty(assignment.row_axis_tree)
+    for row_path in assignment.row_axis_tree.leaf_paths:
+        assert utils.is_ordered_mapping(row_path)
+        myslices = []
+        for axis, component in row_path.items():
+            myslice = Slice(axis, [AffineSliceComponent(component, label=component)], label=axis)
+            myslices.append(myslice)
 
-            # TODO: can be made much much nicer
-            def get_linear_size(axis_tree, path):
-                linear_size = 1
-                visited = axis_tree.path_with_nodes(axis_tree._node_from_path(row_path), and_components=True)
-                for axis, component in visited.items():
-                    assert component.size > 0
-                    linear_size *= component.size
-                return linear_size
+        row_layout = mat.row_layouts[row_path]
+        row_map[myslices].assign(row_layout, eager=True)
+
+    breakpoint()
+
+    rmap_name = context.add_buffer(row_layout.buffer, READ)
+
+    # TODO: cols too
+    breakpoint()
+
+    col_layout = mat.column_layouts[col_path]
+    cmap_name = context.add_buffer(col_layout.buffer, READ)
+
+    # def get_linear_size(axis_tree, path):
+    #     linear_size = 1
+    #     visited = axis_tree.path_with_nodes(axis_tree._node_from_path(path), and_components=True)
+    #     for axis, component in visited.items():
+    #         assert component.size > 0
+    #         linear_size *= component.size
+    #     return linear_size
 
 
-            # This code figures out the sizes of the maps - it's simply the
-            # size of the assignment axes but linearised for the particular
-            # row and column paths.
-            # For example, if we have a P2 triangle then we have row and col maps
-            # with arities [3, 3] (and those values should be embedded in MatSetValues)
-            # 
-            # The indexed axis tree for the row (and col) looks like:
-            #
-            #   {closure: [{0: [(3, None)]}, {1: [(3, None)]}]}
-            #   ├──➤ {dof0: [[(1, None)]]}
-            #   └──➤ {dof1: [[(1, None)]]}
-            #
-            # where it can clearly be seen that, for each path, the size is 3.
-            rsize = get_linear_size(assignment.row_axis_tree, row_path)
-            csize = get_linear_size(assignment.col_axis_tree, col_path)
+    # This code figures out the sizes of the maps - it's simply the
+    # size of the assignment axes but linearised for the particular
+    # row and column paths.
+    # For example, if we have a P2 triangle then we have row and col maps
+    # with arities [3, 3] (and those values should be embedded in MatSetValues)
+    # 
+    # The indexed axis tree for the row (and col) looks like:
+    #
+    #   {closure: [{0: [(3, None)]}, {1: [(3, None)]}]}
+    #   ├──➤ {dof0: [[(1, None)]]}
+    #   └──➤ {dof1: [[(1, None)]]}
+    #
+    # where it can clearly be seen that, for each path, the size is 3.
+    # rsize = get_linear_size(assignment.row_axis_tree, row_path)
+    # csize = get_linear_size(assignment.column_axis_tree, col_path)
+    rsize = assignment.row_axis_tree.size
+    csize = assignment.column_axis_tree.size
 
-            # these sizes can be expressions that need evaluating
-            if not isinstance(rsize, numbers.Integral):
-                raise NotImplementedError
-                rsize_var = register_extent(
-                    rsize,
-                    loop_indices,
-                    context,
-                )
-            else:
-                rsize_var = rsize
+    # these sizes can be expressions that need evaluating
+    if not isinstance(rsize, numbers.Integral):
+        raise NotImplementedError
+        rsize_var = register_extent(
+            rsize,
+            loop_indices,
+            context,
+        )
+    else:
+        rsize_var = rsize
 
-            if not isinstance(csize, numbers.Integral):
-                raise NotImplementedError
-                csize_var = register_extent(
-                    csize,
-                    loop_indices,
-                    context,
-                )
-            else:
-                csize_var = csize
+    if not isinstance(csize, numbers.Integral):
+        raise NotImplementedError
+        csize_var = register_extent(
+            csize,
+            loop_indices,
+            context,
+        )
+    else:
+        csize_var = csize
 
-            # replace inner bits with zeros
-            rzeros = {var.axis_label: 0 for var in collect_axis_vars(row_layout)}
-            irow = str(lower_expr(row_layout, READ, [rzeros], loop_indices, context))
+    # replace inner bits with zeros
+    rzeros = {var.axis_label: 0 for var in collect_axis_vars(row_layout)}
+    irow = str(lower_expr(row_layout, READ, [rzeros], loop_indices, context))
 
-            czeros = {var.axis_label: 0 for var in collect_axis_vars(col_layout)}
-            icol = str(lower_expr(col_layout, READ, [czeros], loop_indices, context))
+    czeros = {var.axis_label: 0 for var in collect_axis_vars(col_layout)}
+    icol = str(lower_expr(col_layout, READ, [czeros], loop_indices, context))
 
-            def make_array_path(rpath, cpath):
-                relabelled_row_path = relabel_path(rpath, "0")
-                relabelled_column_path = relabel_path(cpath, "1")
-                return pmap(relabelled_row_path | relabelled_column_path)
+    # def make_array_path(rpath, cpath):
+    #     relabelled_row_path = relabel_path(rpath, "0")
+    #     relabelled_column_path = relabel_path(cpath, "1")
+    #     return pmap(relabelled_row_path | relabelled_column_path)
 
-            array_path = make_array_path(row_path, col_path)
-            array_layout = assignment.values.layouts[array_path]
-            array_zeros = {var.axis_label: 0 for var in collect_axis_vars(array_layout)}
-            array_indices = lower_expr(array_layout, READ, [array_zeros], loop_indices, context)
-            array_expr = str(pym.subscript(pym.var(array_name), array_indices))
+    # array_path = make_array_path(row_path, col_path)
+    # array_layout = assignment.values.layouts[array_path]
+    # array_zeros = {var.axis_label: 0 for var in collect_axis_vars(array_layout)}
+    # array_indices = lower_expr(array_layout, READ, [array_zeros], loop_indices, context)
+    # array_expr = str(pym.subscript(pym.var(array_name), array_indices))
 
-            # FIXME:
-            blocked = False
+    pyop3.extras.debug.maybe_breakpoint()
 
-            # hacky
-            myargs = [
-                assignment, mat_name, array_expr, rsize_var, csize_var, irow, icol, blocked
-            ]
-            match assignment.access_type:
-                case ArrayAccessType.READ:
-                    call_str = _petsc_mat_load(*myargs)
-                case ArrayAccessType.WRITE:
-                    call_str = _petsc_mat_store(*myargs)
-                case ArrayAccessType.INC:
-                    call_str = _petsc_mat_add(*myargs)
-                case _:
-                    raise AssertionError
+    # FIXME:
+    blocked = False
 
-            context.add_cinstruction(call_str)
+    # hacky
+    myargs = [
+        assignment, mat_name, array_name, rsize_var, csize_var, irow, icol, blocked
+    ]
+    match assignment.access_type:
+        case ArrayAccessType.READ:
+            call_str = _petsc_mat_load(*myargs)
+        case ArrayAccessType.WRITE:
+            call_str = _petsc_mat_store(*myargs)
+        case ArrayAccessType.INC:
+            call_str = _petsc_mat_add(*myargs)
+        case _:
+            raise AssertionError
+
+    context.add_cinstruction(call_str)
 
 
 def _petsc_mat_load(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
     if blocked:
-        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}));"
+        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]));"
     else:
-        return f"MatGetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}));"
+        return f"MatGetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]));"
 
 
 def _petsc_mat_store(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
     if blocked:
-        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}), INSERT_VALUES);"
+        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), INSERT_VALUES);"
     else:
-        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}), INSERT_VALUES);"
+        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), INSERT_VALUES);"
 
 
 def _petsc_mat_add(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
     if blocked:
-        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}), ADD_VALUES);"
+        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), ADD_VALUES);"
     else:
-        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}), ADD_VALUES);"
+        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), ADD_VALUES);"
 
 # TODO now I attach a lot of info to the context-free array, do I need to pass axes around?
 def parse_assignment_properly_this_time(
@@ -944,8 +964,8 @@ def parse_assignment_properly_this_time(
     if axis_tree is None:
         axis_tree, *axis_trees = axis_trees
 
-        paths += [pmap()]
-        iname_replace_maps += [pmap()]
+        paths += [ImmutableOrderedDict()]
+        iname_replace_maps += [ImmutableOrderedDict()]
 
         if axis_tree.is_empty or axis_tree is UNIT_AXIS_TREE or isinstance(axis, IndexedAxisTree):
             if axis_trees:
@@ -1097,7 +1117,7 @@ def _(expr: NonlinearDatBufferExpression, /, intent, iname_maps, loop_indices, c
         for i, (p, im) in enumerate(zip(paths, iname_maps, strict=True)):
             path |= relabel_path(p, str(i))
             iname_map |= {k+f"_{i}": v for k, v in im.items()}
-        path = pmap(path)
+        path = ImmutableOrderedDict(path)
     else:
         path = just_one(paths)
         iname_map = just_one(iname_maps)

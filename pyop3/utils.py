@@ -6,7 +6,7 @@ import functools
 import itertools
 import numbers
 import warnings
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any, Collection, Hashable, Optional
 
 import numpy as np
@@ -240,13 +240,11 @@ single_valued = pytools.single_valued
 is_single_valued = pytools.is_single_valued
 
 
-def merge_dicts(dicts, *, ordered=False):
+def merge_dicts(dicts: Iterable[Mapping]) -> ImmutableOrderedDict:
     merged = {}
     for dict_ in dicts:
         merged.update(dict_)
-
-    mapping_type = ImmutableOrderedDict if ordered else pmap
-    return mapping_type(merged)
+    return ImmutableOrderedDict(merged)
 
 
 def unique(iterable):
@@ -436,7 +434,7 @@ def is_ordered_mapping(obj: Mapping):
     return isinstance(obj, _ordered_mapping_types)
 
 
-def expand_collection_of_iterables(compressed, /, *, ordered: bool = True) -> tuple:
+def expand_collection_of_iterables(compressed) -> tuple:
     """
     Expand target paths written in 'compressed' form like:
 
@@ -454,34 +452,26 @@ def expand_collection_of_iterables(compressed, /, *, ordered: bool = True) -> tu
     if not isinstance(compressed, Mapping):
         compressed = dict(compressed)
 
-    if ordered and not is_ordered_mapping(compressed):
-        raise UnorderedCollectionException(
-            "Expected an ordered mapping, valid options include: "
-            f"{{{', '.join(type_.__name__ for type_ in _ordered_mapping_types)}}}"
-        )
-
-    mapping_type = ImmutableOrderedDict if ordered else pmap
-
     if not compressed:
-        return (mapping_type(),)
+        return (ImmutableOrderedDict(),)
     else:
         compressed_mut = dict(compressed)
-        return _expand_dict_of_iterables_rec(compressed_mut, mapping_type=mapping_type)
+        return _expand_dict_of_iterables_rec(compressed_mut)
 
 
-def _expand_dict_of_iterables_rec(compressed_mut, /, *, mapping_type):
+def _expand_dict_of_iterables_rec(compressed_mut):
     expanded = []
     key, items = popfirst(compressed_mut)
 
     if compressed_mut:
-        subexpanded = _expand_dict_of_iterables_rec(compressed_mut, mapping_type=mapping_type)
+        subexpanded = _expand_dict_of_iterables_rec(compressed_mut)
         for item in items:
-            entry = mapping_type({key: item})
+            entry = ImmutableOrderedDict({key: item})
             for subentry in subexpanded:
                 expanded.append(entry | subentry)
     else:
         for item in items:
-            entry = mapping_type({key: item})
+            entry = ImmutableOrderedDict({key: item})
             expanded.append(entry)
 
     return tuple(expanded)

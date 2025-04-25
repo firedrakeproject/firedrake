@@ -63,6 +63,8 @@ from pyop3.lang import (
 )
 from pyop3.utils import UniqueNameGenerator, just_one, single_valued, OrderedSet, merge_dicts, expand_collection_of_iterables, strictly_all
 
+import pyop3.extras.debug
+
 
 # NOTE: A sensible pattern is to have a public and private (rec) implementations of a
 # transformation. Then the outer one can also drop extra instruction lists.
@@ -645,6 +647,9 @@ def _(loop: Loop, /, *, loop_axes_acc) -> ImmutableOrderedDict:
 
 @_collect_candidate_indirections.register(AbstractAssignment)
 def _(assignment: BufferAssignment, /, *, loop_axes_acc) -> ImmutableOrderedDict:
+    if isinstance(assignment, (PetscMatAssignment, NonEmptyPetscMatAssignment)):
+        pyop3.extras.debug.warn_todo("Map compression is now wrong for matrices as we now combine them later on")
+
     candidates = {}
     for i, arg in enumerate([assignment.assignee, assignment.expression]):
         for key, value in _collect_array_candidate_indirections(arg, loop_axes_acc).items():
@@ -808,7 +813,7 @@ def _(assignment: NonEmptyPetscMatAssignment, /, layouts) -> NonEmptyPetscMatAss
         _compress_array_indirection_maps(assignment.values, layouts, (assignment.id, 1)),
         assignment.access_type,
         assignment.row_axis_tree,
-        assignment.col_axis_tree,
+        assignment.column_axis_tree,
     )
 
 
@@ -905,7 +910,7 @@ def _(assignment: NonEmptyPetscMatAssignment, /, loop_axes_acc) -> NonEmptyPetsc
         expr_concretize_arrays(assignment.values, loop_axes_acc),
         assignment.access_type,
         assignment.row_axis_tree,
-        assignment.col_axis_tree,
+        assignment.column_axis_tree,
     )
 
 

@@ -8,6 +8,7 @@ import operator
 from collections import defaultdict
 from collections.abc import Hashable, Sequence
 from functools import cached_property
+from immutabledict import ImmutableOrderedDict
 from itertools import chain
 from typing import Any, Dict, FrozenSet, List, Mapping, Optional, Tuple, Union
 
@@ -418,11 +419,11 @@ class LabelledTree(AbstractTree):
             }
         )
 
-    def path(self, node, component=None, ordered=False):
+    def path(self, node, component=None, ordered=False) -> ImmutableOrderedDict:
         # TODO: make target always be a 2-tuple
         if node is None:
             assert component is None
-            return pmap()
+            return ImmutableOrderedDict()
 
         if isinstance(node, tuple):
             assert component is None
@@ -433,13 +434,13 @@ class LabelledTree(AbstractTree):
         if ordered:
             return path_
         else:
-            return pmap(path_)
+            return ImmutableOrderedDict(path_)
 
     def path_with_nodes(
         self, node, component_label=None, ordered=False, and_components=False
-    ):
+    ) -> ImmutableOrderedDict:
         if node is None:
-            return pmap()
+            return ImmutableOrderedDict()
 
         # TODO: make target always be a 2-tuple
         if isinstance(node, tuple):
@@ -457,14 +458,14 @@ class LabelledTree(AbstractTree):
         if ordered:
             return path_
         else:
-            return pmap(path_)
+            return ImmutableOrderedDict(path_)
 
     @cached_property
-    def leaf_paths(self):
+    def leaf_paths(self) -> tuple[ImmutableOrderedDict, ...]:
         return tuple(self.path(leaf) for leaf in self.leaves)
 
     @property
-    def leaf_path(self):
+    def leaf_path(self) -> ImmutableOrderedDict:
         return just_one(self.leaf_paths)
 
     @cached_property

@@ -4,7 +4,7 @@ from typing import Optional, Union
 from mpi4py import MPI
 from petsc4py import PETSc
 
-# TODO Runtime warning
+
 warnings.warn(
     "Importing pyop3.extras.debug, this should not happen in released code",
     RuntimeWarning,
@@ -41,3 +41,11 @@ def print_if_rank(
     comm = comm or PETSc.Sys.getDefaultComm()
     if rank == comm.rank:
         print(*args, flush=True)
+
+
+class TodoWarning(UserWarning):
+    pass
+
+
+def warn_todo(message: str) -> None:
+    warnings.warn(message, TodoWarning)
