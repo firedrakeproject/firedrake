@@ -30,6 +30,7 @@ from pyop3.exceptions import Pyop3Exception
 from pyop3.dtypes import IntType
 from pyop3.sf import StarForest, local_sf
 from pyop2.mpi import COMM_SELF
+from pyop3 import utils
 from pyop3.tree import (
     LabelledNodeComponent,
     LabelledTree,
@@ -1342,7 +1343,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     def _alloc_size(self, axis=None):
         if self.is_empty:
-            breakpoint()
+            pyop3.extras.debug.warn_todo("think about zero-sized things, should this be allowed?")
             return 1
         axis = axis or self.root
         return sum(cpt.alloc_size(self, axis) for cpt in axis.components)
@@ -1540,7 +1541,8 @@ class IndexedAxisTree(AbstractAxisTree):
         layout_exprs=None,  # not used
         outer_loops=(),  # not used
     ):
-        assert has_unique_entries(targets)
+        # drop duplicate entries as they are necessarily equivalent
+        targets = utils.unique(targets)
 
         if layout_exprs is None:
             layout_exprs = ImmutableOrderedDict()
@@ -1795,8 +1797,8 @@ class UnitIndexedAxisTree:
         layout_exprs=None,  # not used
         outer_loops=(),  # not used?
     ):
-        # debug
-        assert has_unique_entries(targets)
+        # drop duplicate entries as they are necessarily equivalent
+        targets = utils.unique(targets)
 
         self.unindexed = unindexed
         self.targets = targets

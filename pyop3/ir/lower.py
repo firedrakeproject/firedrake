@@ -35,7 +35,7 @@ from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer, PackedBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
 from pyop3.ir.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
-from pyop3.itree.tree import AffineSliceComponent, LoopIndexVar, Slice
+from pyop3.itree.tree import AffineSliceComponent, LoopIndexVar, Slice, IndexTree
 from pyop3.lang import (
     Intent,
     INC,
@@ -813,26 +813,10 @@ def _(assignment: NonEmptyPetscMatAssignment, loop_indices, context):
     #     codegen_context.add_cinstruction(code)
     #     mat_name = submat_name
 
-    # concatenate row layouts
-    row_map = Dat.empty(assignment.row_axis_tree)
-    for row_path in assignment.row_axis_tree.leaf_paths:
-        assert utils.is_ordered_mapping(row_path)
-        myslices = []
-        for axis, component in row_path.items():
-            myslice = Slice(axis, [AffineSliceComponent(component, label=component)], label=axis)
-            myslices.append(myslice)
-
-        row_layout = mat.row_layouts[row_path]
-        row_map[myslices].assign(row_layout, eager=True)
-
-    breakpoint()
-
+    row_layout = mat.row_layouts
     rmap_name = context.add_buffer(row_layout.buffer, READ)
 
-    # TODO: cols too
-    breakpoint()
-
-    col_layout = mat.column_layouts[col_path]
+    col_layout = mat.column_layouts
     cmap_name = context.add_buffer(col_layout.buffer, READ)
 
     # def get_linear_size(axis_tree, path):
@@ -883,23 +867,23 @@ def _(assignment: NonEmptyPetscMatAssignment, loop_indices, context):
     else:
         csize_var = csize
 
-    # replace inner bits with zeros
-    rzeros = {var.axis_label: 0 for var in collect_axis_vars(row_layout)}
-    irow = str(lower_expr(row_layout, READ, [rzeros], loop_indices, context))
+    irow = str(pym.var(rmap_name)[lower_expr(row_layout.layouts[ImmutableOrderedDict()], READ, [], loop_indices, context)])
+    icol = str(pym.var(cmap_name)[lower_expr(col_layout.layouts[ImmutableOrderedDict()], READ, [], loop_indices, context)])
 
-    czeros = {var.axis_label: 0 for var in collect_axis_vars(col_layout)}
-    icol = str(lower_expr(col_layout, READ, [czeros], loop_indices, context))
-
-    # def make_array_path(rpath, cpath):
-    #     relabelled_row_path = relabel_path(rpath, "0")
-    #     relabelled_column_path = relabel_path(cpath, "1")
-    #     return pmap(relabelled_row_path | relabelled_column_path)
-
-    # array_path = make_array_path(row_path, col_path)
-    # array_layout = assignment.values.layouts[array_path]
-    # array_zeros = {var.axis_label: 0 for var in collect_axis_vars(array_layout)}
-    # array_indices = lower_expr(array_layout, READ, [array_zeros], loop_indices, context)
-    # array_expr = str(pym.subscript(pym.var(array_name), array_indices))
+    # irows = set()
+    # for mypath, inner_row_layout in mat.row_layouts.layouts.items():
+    #     # replace inner bits with zeros
+    #     rzeros = {var.axis_label: 0 for var in collect_axis_vars(inner_row_layout)}
+    #     irow = str(lower_expr(row_layout, READ, [rzeros], loop_indices, context, paths=[mypath]))
+    #     irows.add(irow)
+    # irow = just_one(irows)
+    #
+    # icols = set()
+    # for mypath, inner_col_layout in mat.column_layouts.layouts.items():
+    #     czeros = {var.axis_label: 0 for var in collect_axis_vars(inner_col_layout)}
+    #     icol = str(lower_expr(col_layout, READ, [czeros], loop_indices, context, paths=[mypath]))
+    #     icols.add(icol)
+    # icol = just_one(icols)
 
     pyop3.extras.debug.maybe_breakpoint()
 

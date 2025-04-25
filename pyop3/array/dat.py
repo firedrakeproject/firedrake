@@ -14,7 +14,6 @@ from cachetools import cachedmethod
 from immutabledict import ImmutableOrderedDict
 from mpi4py import MPI
 from petsc4py import PETSc
-from pyrsistent import freeze, pmap
 
 from pyop3.array.base import DistributedArray
 from pyop3.axtree import (
@@ -320,7 +319,7 @@ class Dat(_Dat):
             # we need to consider each of these separately and produce an axis *forest*.
             indexed_axess = []
             for restricted_index_tree in index_trees:
-                indexed_axes = index_axes(restricted_index_tree, pmap(), self.axes)
+                indexed_axes = index_axes(restricted_index_tree, ImmutableOrderedDict(), self.axes)
                 indexed_axess.append(indexed_axes)
 
             if len(indexed_axess) > 1:
@@ -334,7 +333,7 @@ class Dat(_Dat):
             for loop_context, index_trees in index_forest.items():
                 indexed_axess = []
                 for index_tree in index_trees:
-                    indexed_axes = index_axes(index_tree, pmap(), self.axes)
+                    indexed_axes = index_axes(index_tree, ImmutableOrderedDict(), self.axes)
                     indexed_axess.append(indexed_axes)
 
                 if len(indexed_axess) > 1:
@@ -351,11 +350,11 @@ class Dat(_Dat):
     # to be iterable (which it's not). This avoids some confusing behaviour.
     __iter__ = None
 
-    def get_value(self, indices, path=None, *, loop_exprs=pmap()):
+    def get_value(self, indices, path=None, *, loop_exprs=ImmutableOrderedDict()):
         offset = self.axes.offset(indices, path, loop_exprs=loop_exprs)
         return self.buffer.data_ro[offset]
 
-    def set_value(self, indices, value, path=None, *, loop_exprs=pmap()):
+    def set_value(self, indices, value, path=None, *, loop_exprs=ImmutableOrderedDict()):
         offset = self.axes.offset(indices, path, loop_exprs=loop_exprs)
         self.buffer.data_wo[offset] = value
 
@@ -666,20 +665,17 @@ class PetscMatBufferExpression(BufferExpression):
 
     # {{{ Instance attrs
 
-    row_layouts: Any
-    column_layouts: Any
+    row_layout: Any
+    column_layout: Any
 
     # }}}
 
-    def __init__(self, buffer, row_layouts, column_layouts):
+    def __init__(self, buffer, row_layout, column_layout):
         # debug
         assert isinstance(buffer, PETSc.Mat)
 
-        row_layouts = pmap(row_layouts)
-        column_layouts = pmap(column_layouts)
-
-        object.__setattr__(self, "row_layouts", row_layouts)
-        object.__setattr__(self, "column_layouts", column_layouts)
+        object.__setattr__(self, "row_layouts", row_layout)
+        object.__setattr__(self, "column_layouts", column_layout)
         super().__init__(buffer)
 
     def __str__(self) -> str:

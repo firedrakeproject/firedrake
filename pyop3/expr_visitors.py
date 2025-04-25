@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import collections
+import dataclasses
 import functools
 import itertools
 import numbers
+import operator
 from collections.abc import Mapping
 from typing import Any, Optional
 
@@ -20,27 +22,16 @@ from pyop3.utils import OrderedSet, just_one
 
 # should inherit from _Dat
 # or at least be an Expression!
+@dataclasses.dataclass(init=False, frozen=True)
 class CompositeDat:
-    def __init__(self, expr, visited_axes, loop_axes):
-        self.expr = expr
+    def __init__(self, axis_tree, leaf_exprs, loop_indices, dtype):
+        object.__setattr__(self, "axis_tree", axis_tree)
+        object.__setattr__(self, "leaf_exprs", leaf_exprs)
+        object.__setattr__(self, "loop_indices", loop_indices)
+        object.__setattr__(self, "dtype", dtype)
 
-        # we need to track these somehow so we can differentiate _CompositeDats
-        # that are within different loops that have the same axis labels
-        # perhaps better to not tie to it but instead return together as some sort of context
-        self.visited_axes = visited_axes
-        self.loop_axes = loop_axes
-
-    def __hash__(self) -> int:
-        return hash((self.expr,))
-
-    def __eq__(self, other, /) -> bool:
-        return type(self) is type(other) and other.expr == self.expr
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.expr!r})"
-
-    def __str__(self) -> str:
-        return f"acc({self.expr})"
+    # def __str__(self) -> str:
+    #     return f"acc({self.expr})"
 
 
 # TODO: could make a postvisitor
@@ -95,54 +86,54 @@ def _(loop_var: LoopIndexVar):
 
 
 @functools.singledispatch
-def collect_loops(obj: Any, /) -> OrderedSet:
+def collect_loop_index_vars(obj: Any, /) -> OrderedSet:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@collect_loops.register(LoopIndexVar)
+@collect_loop_index_vars.register(LoopIndexVar)
 def _(loop_var: LoopIndexVar):
-    return OrderedSet({loop_var.index})
+    return OrderedSet({loop_var})
 
 
-@collect_loops.register(AxisVar)
-@collect_loops.register(numbers.Number)
+@collect_loop_index_vars.register(AxisVar)
+@collect_loop_index_vars.register(numbers.Number)
 def _(var):
     return OrderedSet()
 
-@collect_loops.register(Operator)
+@collect_loop_index_vars.register(Operator)
 def _(op: Operator):
-    return collect_loops(op.a) | collect_loops(op.b)
+    return collect_loop_index_vars(op.a) | collect_loop_index_vars(op.b)
 
 
-@collect_loops.register(Dat)
+@collect_loop_index_vars.register(Dat)
 def _(dat: Dat, /) -> OrderedSet:
     loop_indices = OrderedSet()
 
     if dat.parent:
-        loop_indices |= collect_loops(dat.parent)
+        loop_indices |= collect_loop_index_vars(dat.parent)
 
     for leaf in dat.axes.leaves:
         path = dat.axes.path(leaf)
-        loop_indices |= collect_loops(dat.axes.subst_layouts()[path])
+        loop_indices |= collect_loop_index_vars(dat.axes.subst_layouts()[path])
     return loop_indices
 
 
-@collect_loops.register(LinearDatBufferExpression)
+@collect_loop_index_vars.register(LinearDatBufferExpression)
 def _(expr: LinearDatBufferExpression, /) -> OrderedSet:
-    return collect_loops(expr.layout)
+    return collect_loop_index_vars(expr.layout)
 
 
-@collect_loops.register(AbstractMat)
+@collect_loop_index_vars.register(AbstractMat)
 def _(mat: AbstractMat, /) -> OrderedSet:
     loop_indices = OrderedSet()
     if mat.parent:
-        loop_indices |= collect_loops(mat.parent)
+        loop_indices |= collect_loop_index_vars(mat.parent)
 
     for cs_axes in {mat.raxes, mat.caxes}:
         for cf_axes in cs_axes.context_map.values():
             for leaf in cf_axes.leaves:
                 path = cf_axes.path(leaf)
-                loop_indices |= collect_loops(cf_axes.subst_layouts()[path])
+                loop_indices |= collect_loop_index_vars(cf_axes.subst_layouts()[path])
     return loop_indices
 
 
@@ -400,33 +391,38 @@ def _(mat: Mat, /, loop_axes) -> PetscMatBufferExpression:
     assert mat.parent is None
 
     # NOTE: default_candidate_layouts shouldn't return any cost because it doesn't matter here
+    # Actually this might not be quite true: for non-PETSc matrices we have some amount of choice
 
     # FIXME: this is bad for temporaries because it means we needlessly tabulate
-    layouts = mat.default_candidate_layouts(loop_axes)
+    # layouts = mat.default_candidate_layouts(loop_axes)
+    layouts = mat.candidate_layouts(loop_axes)
 
-    row_layouts = {}
-    for leaf_path in mat.raxes.pruned.leaf_paths:
-        possible_row_layouts = layouts[(mat, leaf_path, 0)]
-        selected_layout, _ = just_one(possible_row_layouts)
-
-        if isinstance(selected_layout, CompositeDat):
-            selected_layout = materialize_composite_dat(selected_layout)
-
-        row_layouts[leaf_path] = selected_layout
-
-    col_layouts = {}
-    for leaf_path in mat.caxes.pruned.leaf_paths:
-        possible_col_layouts = layouts[(mat, leaf_path, 1)]
-        selected_layout, _ = just_one(possible_col_layouts)
-
-        if isinstance(selected_layout, CompositeDat):
-            selected_layout = materialize_composite_dat(selected_layout)
-
-        col_layouts[leaf_path] = selected_layout
-
+    # FIXME: Different treatment for buffer and petsc mats here
     if isinstance(mat.buffer, PETSc.Mat):
-        return PetscMatBufferExpression(mat.buffer, row_layouts, col_layouts)
+        row_layout = materialize_composite_dat(layouts[(mat, "anything", 0)][0][0])
+        column_layout = materialize_composite_dat(layouts[(mat, "anything", 1)][0][0])
+        return PetscMatBufferExpression(mat.buffer, row_layout, column_layout)
     else:
+        row_layouts = {}
+        for leaf_path in mat.raxes.pruned.leaf_paths:
+            possible_row_layouts = layouts[(mat, leaf_path, 0)]
+            selected_layout, _ = just_one(possible_row_layouts)
+
+            if isinstance(selected_layout, CompositeDat):
+                selected_layout = materialize_composite_dat(selected_layout)
+
+            row_layouts[leaf_path] = selected_layout
+
+        col_layouts = {}
+        for leaf_path in mat.caxes.pruned.leaf_paths:
+            possible_col_layouts = layouts[(mat, leaf_path, 1)]
+            selected_layout, _ = just_one(possible_col_layouts)
+
+            if isinstance(selected_layout, CompositeDat):
+                selected_layout = materialize_composite_dat(selected_layout)
+
+            col_layouts[leaf_path] = selected_layout
+
         # merge layouts
         layouts = {}
         for row_path, row_layout in row_layouts.items():
@@ -654,7 +650,13 @@ def _(dat: Dat, /) -> OrderedSet:
 
 
 @collect_axis_vars.register(LinearDatBufferExpression)
-def _(dat: _ExpressionDat, /) -> OrderedSet:
+def _(dat: LinearDatBufferExpression, /) -> OrderedSet:
     return collect_axis_vars(dat.layout)
 
 
+@collect_axis_vars.register(NonlinearDatBufferExpression)
+def _(dat: NonlinearDatBufferExpression, /) -> OrderedSet:
+    result = OrderedSet()
+    for layout_expr in dat.layouts.values():
+        result |= collect_axis_vars(layout_expr)
+    return result
