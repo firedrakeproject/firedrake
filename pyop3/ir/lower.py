@@ -351,9 +351,9 @@ class CodegenResult:
             data_argument = kwargs.get(data_argument.name, data_argument)
             kernel_args.append(as_kernel_arg(data_argument))
 
-        if len(self.loopy_kernel.callables_table) > 1:
-            ccode = lp.generate_code_v2(self.loopy_kernel).device_code()
-            breakpoint()
+        # if len(self.loopy_kernel.callables_table) > 1:
+        #     ccode = lp.generate_code_v2(self.loopy_kernel).device_code()
+        #     breakpoint()
 
         executable(*kernel_args)
 
@@ -885,8 +885,6 @@ def _(assignment: NonEmptyPetscMatAssignment, loop_indices, context):
     #     icols.add(icol)
     # icol = just_one(icols)
 
-    pyop3.extras.debug.maybe_breakpoint()
-
     # FIXME:
     blocked = False
 
@@ -1095,6 +1093,7 @@ def maybe_multiindex(buffer, offset_expr, context):
 @lower_expr.register(NonlinearDatBufferExpression)
 def _(expr: NonlinearDatBufferExpression, /, intent, iname_maps, loop_indices, context, paths):
     # TODO: I reuse this pattern when I construct the expression, refactor out to avoid the repetition
+    # TODO: OR... could have a NonlinearMatExpression or similar?
     if len(paths) > 1:
         path = {}
         iname_map = {}

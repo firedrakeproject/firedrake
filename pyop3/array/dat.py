@@ -650,6 +650,8 @@ class NonlinearDatBufferExpression(DatBufferExpression):
     # }}}
 
     def __init__(self, buffer, layouts):
+        layouts = ImmutableOrderedDict(layouts)
+
         super().__init__(buffer)
         object.__setattr__(self, "layouts", layouts)
 
