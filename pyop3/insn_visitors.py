@@ -17,10 +17,10 @@ from pyop3.sf import local_sf
 from pyrsistent import pmap, PMap
 from immutabledict import ImmutableOrderedDict
 
-from pyop3.array import Global, Dat, Array, Mat, Sparsity, NonlinearDatBufferExpression, LinearDatBufferExpression, PetscMatBufferExpression, AbstractMat
+from pyop3.array import Global, Dat, Array, Mat, NonlinearDatBufferExpression, LinearDatBufferExpression, PetscMatBufferExpression, AbstractMat
 from pyop3.axtree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
 from pyop3.axtree.tree import Operator, AxisVar, IndexedAxisTree, prune_zero_sized_branches
-from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer, PackedBuffer
+from pyop3.buffer import AbstractBuffer, AbstractPetscMatBuffer, ArrayBuffer, NullBuffer, PetscMatBuffer
 from pyop3.dtypes import IntType
 from pyop3.itree import Map, TabulatedMapComponent, collect_loop_contexts
 from pyop3.itree.tree import LoopIndexVar, Slice, AffineSliceComponent, IndexTree
@@ -333,7 +333,7 @@ def _(dat: Dat) -> bool:
 
 @_requires_pack_unpack.register(Mat)
 def _(mat: Mat) -> bool:
-    return not (isinstance(mat.mat, AbstractBuffer) and _layouts_match(mat.raxes) and _layouts_match(mat.caxes))
+    return not (not isinstance(mat.buffer, AbstractPetscMatBuffer) and _layouts_match(mat.raxes) and _layouts_match(mat.caxes))
 
 
 def _layouts_match(axis_tree) -> bool:
@@ -492,7 +492,7 @@ def _(func: ExplicitCalledFunction, /) -> ExplicitCalledFunction:
 # the assignee. Ideally we should traverse the expression and emit extra READ instructions.
 @prepare_petsc_calls.register(BufferAssignment)
 def _(assignment: BufferAssignment, /) -> InstructionList:
-    if isinstance(assignment.assignee.buffer, PETSc.Mat):
+    if isinstance(assignment.assignee.buffer, AbstractPetscMatBuffer):
         mat = assignment.assignee
 
         if isinstance(mat, PetscMatBufferExpression):
@@ -509,11 +509,11 @@ def _(assignment: BufferAssignment, /) -> InstructionList:
             # TODO: There must be a more elegant way of doing this
             expr_raxes = AxisTree(mat.raxes.node_map)
             expr_caxes = AxisTree(mat.caxes.node_map)
-            expr_sf = local_sf(expr_raxes.alloc_size*expr_caxes.alloc_size, comm=mat.comm)
+            # expr_sf = local_sf(expr_raxes.alloc_size*expr_caxes.alloc_size, comm=mat.comm)
             expr_data = np.full((expr_raxes.size, expr_caxes.size), assignment.expression, dtype=mat.dtype)
-            expr_buffer = ArrayBuffer(expr_data, expr_sf)
+            expr_buffer = ArrayBuffer(expr_data, sf=None, constant=True)
             expression = Mat(
-                expr_raxes, expr_caxes, mat=expr_buffer, prefix="t", constant=True)
+                expr_raxes, expr_caxes, buffer=expr_buffer, prefix="t")
         else:
             assert (
                 # isinstance(assignment.expression, (Mat, _ConcretizedMat))
@@ -901,7 +901,7 @@ def _(dat: Dat, layouts, outer_key):
 
 
 @_compress_array_indirection_maps.register(Mat)
-@_compress_array_indirection_maps.register(Sparsity)
+# @_compress_array_indirection_maps.register(Sparsity)
 def _(mat, layouts, outer_key) -> PetscMatBufferExpression:
     # If we have a temporary then things are easy and we do not need to substitute anything
     # (at least for now)
@@ -999,7 +999,7 @@ def _(assignment: BufferAssignment, /) -> NonEmptyBufferAssignment | NullInstruc
     if isinstance(assignee, Dat):
         axis_trees = (assignee.axes,)
     else:
-        assert isinstance(assignee, Mat)
+        assert isinstance(assignee, AbstractMat)
         axis_trees = (assignee.raxes, assignee.caxes)
 
     nonzero_axis_trees = tuple(map(prune_zero_sized_branches, axis_trees))

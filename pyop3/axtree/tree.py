@@ -267,7 +267,7 @@ def _(regions: Sequence[AxisComponentRegion]) -> tuple[AxisComponentRegion, ...]
 
 @_parse_regions.register(numbers.Integral)
 def _(num: numbers.Integral) -> tuple[AxisComponentRegion, ...]:
-    num = IntType(num)
+    num = IntType.type(num)
     return (AxisComponentRegion(num),)
 
 

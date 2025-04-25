@@ -23,7 +23,7 @@ from pyop3.axtree import (
     as_axis_tree,
 )
 from pyop3.axtree.tree import AbstractAxisTree, Expression, ContextFree, ContextSensitiveAxisTree, subst_layouts
-from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer
+from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer, AbstractPetscMatBuffer
 from pyop3.dtypes import ScalarType
 from pyop3.exceptions import Pyop3Exception
 from pyop3.lang import KernelArgument, BufferAssignment
@@ -674,20 +674,15 @@ class PetscMatBufferExpression(BufferExpression):
 
     def __init__(self, buffer, row_layout, column_layout):
         # debug
-        assert isinstance(buffer, PETSc.Mat)
+        assert isinstance(buffer, AbstractPetscMatBuffer)
 
         object.__setattr__(self, "row_layouts", row_layout)
         object.__setattr__(self, "column_layouts", column_layout)
         super().__init__(buffer)
 
     def __str__(self) -> str:
-        # TODO: undo this when we have a PetscMatBuffer type
-        if isinstance(self.buffer, PETSc.Mat):
-            name = f"petscmat_{id(self)}"
-        else:
-            name = self.buffer.name
         return "\n".join(
-            f"{name}[{rl}, {cl}]"
+            f"{self.buffer.name}[{rl}, {cl}]"
             for rl in self.row_layouts.values()
             for cl in self.column_layouts.values()
         )

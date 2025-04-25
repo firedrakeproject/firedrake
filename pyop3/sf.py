@@ -157,7 +157,7 @@ def single_star_sf(comm, size=1, root=0):
 
 
 def local_sf(size: IntType, comm: MPI.Comm) -> StarForest:
-    nroots = IntType(0)
+    nroots = IntType.type(0)
     ilocal = np.empty(0, dtype=IntType)
     iremote = np.empty(0, dtype=IntType)
     return StarForest.from_graph(size, nroots, ilocal, iremote, comm)

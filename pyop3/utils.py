@@ -16,7 +16,7 @@ from pyrsistent import pmap
 
 from pyop3.config import config
 from pyop3.exceptions import Pyop3Exception
-from pyop3.dtypes import IntType
+from pyop3.dtypes import DTypeT, IntType
 
 from mpi4py import MPI
 
@@ -372,7 +372,7 @@ def strict_cast(obj: Any, dtype: type | np.dtype) -> Any:
 
 
 @strict_cast.register(numbers.Integral)
-def _(num: numbers.Integral, dtype: type | np.dtype) -> np.number:
+def _(num: numbers.Integral, dtype: DTypeT) -> np.number:
     if not isinstance(dtype, np.dtype):
         dtype = np.dtype(dtype)
 
@@ -383,12 +383,16 @@ def _(num: numbers.Integral, dtype: type | np.dtype) -> np.number:
 
 
 @strict_cast.register(np.ndarray)
-def _(array: np.ndarray, dtype: type) -> np.ndarray:
+def _(array: np.ndarray, dtype: DTypeT) -> np.ndarray:
     return array.astype(dtype, casting="safe")
 
 
-def strict_int(num) -> IntType:
+def strict_int(num: numbers.Number) -> IntType:
     return strict_cast(num, IntType)
+
+
+def as_dtype(dtype: DTypeT | None, default: np.dtype) -> np.dtype:
+    return np.dtype(dtype) if dtype else default
 
 
 def apply_at(func, iterable, index):

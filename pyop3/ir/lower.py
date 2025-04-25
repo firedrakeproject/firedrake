@@ -31,7 +31,7 @@ from pyop3 import utils
 from pyop3.array import Dat, _Dat, LinearDatBufferExpression, NonlinearDatBufferExpression, Parameter, Mat, AbstractMat
 from pyop3.array.base import Array
 from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent, relabel_path
-from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer, PackedBuffer
+from pyop3.buffer import AbstractBuffer, AbstractPetscMatBuffer, ArrayBuffer, NullBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
 from pyop3.ir.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
@@ -234,8 +234,8 @@ class LoopyCodegenContext(CodegenContext):
         self.kernel_arg_names[buffer.name] = kernel_name
         return kernel_name
 
-    @add_buffer.register(PETSc.Mat)
-    def _(self, buffer: PETSc.Mat, intent: Intent | None = None) -> str:
+    @add_buffer.register(AbstractPetscMatBuffer)
+    def _(self, buffer: AbstractPetscMatBuffer, intent: Intent | None = None) -> str:
         if intent is None:
             raise ValueError("Global data must declare intent")
 
@@ -758,7 +758,7 @@ def _(assignment: NonEmptyPetscMatAssignment, loop_indices, context):
     mat = assignment.mat
     array = assignment.values
 
-    assert isinstance(mat.buffer, PETSc.Mat)
+    assert isinstance(mat.buffer, AbstractPetscMatBuffer)
 
     # tidy this up
     # if mat.mat.nested:
@@ -1228,20 +1228,15 @@ def _(arg: ArrayBuffer) -> int:
 
 
 # @as_kernel_arg.register
-# def _(arg: PackedBuffer):
-#     return as_kernel_arg(arg.array)
-
-
-# @as_kernel_arg.register
 # def _(array: AbstractMat):
 #     return array.mat.handle
 
 
 # NOTE: I think that we should probably have a MatBuffer or similar type so
 # array.buffer is universal
-@as_kernel_arg.register(PETSc.Mat)
+@as_kernel_arg.register(AbstractPetscMatBuffer)
 def _(mat):
-    return mat.handle
+    return mat.mat.handle
 
 
 # FIXME: We assume COMM_SELF here, this is maybe OK if we make sure to use a

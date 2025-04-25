@@ -1417,11 +1417,13 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         if any(len(a.function_space()) > 1 for a in [test, trial]) and mat_type == "baij":
             raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
 
-        sparsity = op3.Sparsity(
+        sparsity = op3.Mat.sparsity(
             test.function_space().axes,
             trial.function_space().axes,
-            mat_type=mat_type,
-            block_shape=test.function_space().value_size
+            buffer_kwargs={
+                "target_mat_type": mat_type,
+                "block_shape": test.function_space().value_size,
+            },
         )
 
         if type(test.function_space().ufl_element()) is finat.ufl.MixedElement:
@@ -1680,8 +1682,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         else:
             mat = tensor.M
 
-        if mat.handle.getType() == "python":
-            mat_context = mat.handle.getPythonContext()
+        if mat.buffer.mat.getType() == "python":
+            mat_context = mat.buffer.mat.getPythonContext()
             if isinstance(mat_context, _GlobalMatPayload):
                 mat = mat_context.global_
             else:

@@ -9,5 +9,5 @@ from .dat import (  # noqa: F401
     PetscMatBufferExpression,
     NonlinearDatBufferExpression,
 )
-from .mat import Mat, Sparsity, AbstractMat  # noqa: F401
+from .mat import Mat, AbstractMat  # noqa: F401
 from .parameter import Parameter  # noqa: F401

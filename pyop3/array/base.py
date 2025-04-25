@@ -15,9 +15,6 @@ from pyop3.exceptions import InvalidIndexCountException
 from pyop3.lang import FunctionArgument, BufferAssignment
 
 
-__all__ = ("Array",)
-
-
 # TODO: rename 'DataCarrier'? Or TENSOR!!!!!!! Array is overloaded
 @dataclasses.dataclass(init=False, frozen=True)
 class Array(ContextAware, FunctionArgument, Expression, utils.RecordMixin, abc.ABC):

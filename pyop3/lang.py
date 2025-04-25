@@ -378,6 +378,7 @@ class Loop(Instruction):
 
     @cached_property
     def is_parallel(self):
+        assert False, "old code? if not then adapt for MatBuffer"
         from pyop3.buffer import ArrayBuffer
 
         for arg in self.kernel_arguments:
@@ -718,14 +719,6 @@ class AbstractCalledFunction(Terminal, metaclass=abc.ABCMeta):
     def function_arguments(self):
         return tuple((arg, spec.intent) for arg, spec in zip(self.arguments, self.argspec, strict=True))
 
-    @cached_property
-    def kernel_arguments(self):
-        kargs = OrderedSet()
-        for func_arg in self.arguments:
-            for karg in _collect_kernel_arguments(func_arg):
-                kargs.add(karg)
-        return tuple(kargs)
-
     @property
     def argument_shapes(self):
         return tuple(
@@ -1035,25 +1028,3 @@ def fix_intents(tunit, accesses):
         is_output = access in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_WRITE, MAX_RW}
         new_args.append(arg.copy(is_input=is_input, is_output=is_output))
     return tunit.with_kernel(kernel.copy(args=new_args))
-
-
-@functools.singledispatch
-def _collect_kernel_arguments(func_arg: FunctionArgument) -> tuple:
-    from pyop3.array import Dat, Mat
-    from pyop3.buffer import ArrayBuffer, NullBuffer
-
-    if isinstance(func_arg, Dat):
-        return _collect_kernel_arguments(func_arg.buffer)
-    elif isinstance(func_arg, Mat):
-        return _collect_kernel_arguments(func_arg.mat)
-    elif isinstance(func_arg, ArrayBuffer):
-        return (func_arg,)
-    elif isinstance(func_arg, NullBuffer):
-        return ()
-    else:
-        raise TypeError(f"No handler defined for {type(func_arg).__name__}")
-
-
-@_collect_kernel_arguments.register
-def _(mat: PETSc.Mat) -> tuple:
-    return (mat,)

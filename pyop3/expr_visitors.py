@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 from immutabledict import ImmutableOrderedDict
 from pyop3.array.dat import DatBufferExpression, PetscMatBufferExpression
+from pyop3.buffer import PetscMatBuffer, AbstractPetscMatBuffer
 from pyrsistent import pmap, PMap
 from petsc4py import PETSc
 
@@ -398,7 +399,7 @@ def _(mat: Mat, /, loop_axes) -> PetscMatBufferExpression:
     layouts = mat.candidate_layouts(loop_axes)
 
     # FIXME: Different treatment for buffer and petsc mats here
-    if isinstance(mat.buffer, PETSc.Mat):
+    if isinstance(mat.buffer, AbstractPetscMatBuffer):
         row_layout = materialize_composite_dat(layouts[(mat, "anything", 0)][0][0])
         column_layout = materialize_composite_dat(layouts[(mat, "anything", 1)][0][0])
         return PetscMatBufferExpression(mat.buffer, row_layout, column_layout)
