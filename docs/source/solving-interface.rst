@@ -257,7 +257,7 @@ definite, and therefore can choose the conjugate gradient method,
 rather than GMRES.
 
 .. code-block:: python3
-
+   
    solve(a == L, solver_parameters={'ksp_type': 'cg'})
 
 To change the preconditioner used, we set the ``'pc_type'`` option.
@@ -278,10 +278,10 @@ do this, we set the ``pc_type`` to ``'lu'`` and tell PETSc to use a
 "preconditioner only" Krylov method:
 
 .. code-block:: python3
-
+   
    solve(a == L,
          solver_parameters={'ksp_type': 'preonly',
-                            'pc_type': 'lu'})
+                            'pc_type': 'lu', 'pc_factor`: _DEFAULT_DIRECT_SOLVER_PARAMETERS'})
 
 In a similar manner, we can use Jacobi preconditioned Richardson
 iterations with:
@@ -734,12 +734,17 @@ system.  We describe the most commonly modified options (along with
 their defaults in Firedrake) here.  For linear variational solves we
 use:
 
-* ``ksp_type``: GMRES, with a restart (``ksp_gmres_restart``) of 30
-* ``ksp_rtol``: 1e-7
-* ``ksp_atol``: 1e-50
-* ``ksp_divtol`` 1e4
-* ``ksp_max_it``: 10000
-* ``pc_type``: ILU (Jacobi preconditioning for mixed problems)
+source/apt_deps.txt
+* a == L
+solver_parameters: {
+   * ``mat_type``: "aij"
+   * ``ksp_type``: "preonly"
+   * ``ksp_rtol``: 1e-7
+   * ``pc_type``: "lu"
+   * ``pc_factor``: _DEFAULT_DIRECT_SOLVER_PARAMETERS
+}
+
+`LinearVariationalSolver defaults <https://github.com/firedrakeproject/firedrake/blob/master/firedrake/variational_solver.py#L134-L143>`_
 
 For nonlinear variational solves we have:
 
