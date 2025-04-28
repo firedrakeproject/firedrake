@@ -1738,46 +1738,22 @@ class ClementInterpolator(SameMeshInterpolator):
         if not (element.family() == "Discontinuous Lagrange" and element.degree() == 0):
             raise ValueError("Source function must live in P0 space.")
         rank = len(Vs.value_shape)
-        if rank not in (0, 1, 2):
-            raise ValueError(f"Rank-{rank} tensors are not supported.")
         if rank != len(self.V.value_shape):
             raise ValueError(f"Rank-{rank} input inconsistent with target space.")
         mesh = self.V.mesh()
         if output is None:
             output = ffunc.Function(self.V)
 
-        # Determine the number of degrees of freedom for vector and tensor elements
-        s0, s1 = None, None
-        if rank == 1:
-            s0 = Vs.block_size
-        elif rank == 2:
-            s0, s1 = Vs.value_shape
 
         # Take the weighted average of the source function over the neighbouring cells
-        domain = {
-            0: "{[i]: 0 <= i < out.dofs}",
-            1: f"{{[i, j]: 0 <= i < out.dofs and 0 <= j < {s0}}}",
-            2: f"{{[i, j, k]: 0 <= i < out.dofs and 0 <= j < {s0} and 0 <= k < {s1}}}",
-        }[rank]
-        instructions = {
-            0: "out[i] = out[i] + vol[0] * f[0]",
-            1: "out[i, j] = out[i, j] + vol[0] * f[0, j]",
-            2: f"out[i, {s0} * j + k] = out[i, {s0} * j + k] + vol[0] * f[0, {s0} * j + k]",
-        }[rank]
+        domain = f"{{[i, j]: 0 <= i < out.dofs and 0 <= j < {Vs.block_size}}}"
+        instructions = "out[i, j] = out[i, j] + vol[0] * f[0, j]"
         keys = {"f": (function, op2.READ), "vol": (mesh.cell_volume, op2.READ), "out": (output, op2.RW)}
         parloops.par_loop((domain, instructions), ufl.dx(domain=mesh), keys)
 
         # Divide by the volume of the patch of neighbouring cells
-        domain = {
-            0: "",
-            1: f"{{[j]: 0 <= j < {s0}}}",
-            2: f"{{[j, k]: 0 <= j < {s0} and 0 <= k < {s1}}}",
-        }[rank]
-        instructions = {
-            0: "out[0] = out[0] / patch[0]",
-            1: "out[0, j] = out[0, j] / patch[0]",
-            2: f"out[0, {s0} * j + k] = out[0, {s0} * j + k] / patch[0]",
-        }[rank]
+        domain = f"{{[j]: 0 <= j < {Vs.block_size}}}"
+        instructions = "out[0, j] = out[0, j] / patch[0]"
         keys = {"patch": (mesh.patch_volume, op2.READ), "out": (output, op2.RW)}
         parloops.par_loop((domain, instructions), parloops.direct, keys)
 

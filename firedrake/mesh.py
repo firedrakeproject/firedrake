@@ -2425,7 +2425,8 @@ values from f.)"""
         """
         from firedrake.function import Function
         from firedrake.functionspace import FunctionSpace
-        volume = Function(FunctionSpace(self, "Discontinuous Lagrange", 0))
+        DG0 = FunctionSpace(self, "Discontinuous Lagrange", 0)
+        volume = Function(DG0)
         return volume.interpolate(ufl.CellVolume(self))
 
     @utils.cached_property
@@ -2437,7 +2438,8 @@ values from f.)"""
         from firedrake.function import Function
         from firedrake.functionspace import FunctionSpace
         from firedrake.parloops import par_loop, READ, RW
-        patch_vol = Function(FunctionSpace(self, "Lagrange", 1))
+        CG1 = FunctionSpace(self, "Lagrange", 1)
+        patch_vol = Function(CG1)
         domain = "{[i]: 0 <= i < patch.dofs}"
         instructions = "patch[i] = patch[i] + vol[0]"
         keys = {"vol": (self.cell_volume, READ), "patch": (patch_vol, RW)}
