@@ -1744,7 +1744,6 @@ class ClementInterpolator(SameMeshInterpolator):
         if output is None:
             output = ffunc.Function(self.V)
 
-
         # Take the weighted average of the source function over the neighbouring cells
         domain = f"{{[i, j]: 0 <= i < out.dofs and 0 <= j < {Vs.block_size}}}"
         instructions = "out[i, j] = out[i, j] + vol[0] * f[0, j]"
