@@ -271,17 +271,21 @@ precondition the system with:
          solver_parameters={'pc_type': 'hypre',
                             'pc_hypre_type': 'boomeramg'})
 
-Although the `KSP` name suggests that only Krylov methods are
-supported, this is not the case.  We may, for example, solve the
-system directly by computing an LU factorisation of the problem.  To
+Although the ``KSP`` name suggests that only Krylov methods are
+supported, this is not the case. We may, for example, solve the
+system directly by computing an LU factorisation of the problem. To
 do this, we set the ``pc_type`` to ``'lu'`` and tell PETSc to use a
 "preconditioner only" Krylov method:
 
 .. code-block:: python3
-   
-   solve(a == L,
-         solver_parameters={'ksp_type': 'preonly',
-                            'pc_type': 'lu', 'pc_factor`: _DEFAULT_DIRECT_SOLVER_PARAMETERS'})
+
+    solve(a == L,
+          solver_parameters={
+              'mat_type': 'aij',
+              'ksp_type': 'preonly',
+              'ksp_rtol': 1e-7,
+              'pc_type': 'lu'
+          })
 
 In a similar manner, we can use Jacobi preconditioned Richardson
 iterations with:
@@ -290,7 +294,7 @@ iterations with:
 
    solve(a == L,
          solver_parameters={'ksp_type': 'richardson',
-                            'pc_type': 'jacobi'}
+                            'pc_type': 'jacobi'})
 
 .. note::
 
@@ -728,23 +732,21 @@ solving with.
 Default solver options
 ~~~~~~~~~~~~~~~~~~~~~~
 
-If no parameters are passed to a solve call, we use, in most cases,
+
+If no parameters are passed to a ``solve`` call, we use, in most cases,
 the defaults that PETSc supplies for solving the linear or nonlinear
-system.  We describe the most commonly modified options (along with
-their defaults in Firedrake) here.  For linear variational solves we
+system. We describe the most commonly modified options (along with
+their defaults in Firedrake) here. For linear variational solves we
 use:
 
-source/apt_deps.txt
-* a == L
-solver_parameters: {
-   * ``mat_type``: "aij"
-   * ``ksp_type``: "preonly"
-   * ``ksp_rtol``: 1e-7
-   * ``pc_type``: "lu"
-   * ``pc_factor``: _DEFAULT_DIRECT_SOLVER_PARAMETERS
-}
+* ``mat_type``: ``aij``
+* ``ksp_type``: ``preonly``
+* ``ksp_rtol``: ``1e-7``
+* ``ksp_atol``: ``1e-50``
+* ``ksp_divtol``: ``1e4``
+* ``ksp_max_it``: ``10000``
+* ``pc_type``: ``lu``
 
-`LinearVariationalSolver defaults <https://github.com/firedrakeproject/firedrake/blob/master/firedrake/variational_solver.py#L134-L143>`_
 
 For nonlinear variational solves we have:
 
