@@ -257,16 +257,18 @@ If you encounter the error:
       FileNotFoundError: [Errno 2] No such file or directory: '/tmp/.../petsc/conf/petscvariables'
 
 when running the ``pip install`` instruction this is usually a sign that the
-environment variable ``PETSC_DIR`` is not set correctly. You can check this
-by making sure that you can run the following command without error::
+environment variables ``PETSC_DIR`` or ``PETSC_ARCH`` are not set correctly.
+You can check this by making sure that you can run the following command
+without error::
 
-   $ ls $PETSC_DIR
+   $ ls $PETSC_DIR/$PETSC_ARCH/lib/petsc/conf/petscvariables 
 
-If this raises an error then you should re-``export`` the variable::
+If this raises an error then you should re-``export`` the variables necessary to
+build Firedrake as described :ref:`above<install_firedrake>`::
 
-   $ export PETSC_DIR=/path/to/petsc
+   $ export $(python3 firedrake-configure --show-env)
 
-and try the ``pip install`` again.
+and try the install again.
 
 Missing symbols post install
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
