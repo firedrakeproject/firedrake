@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import abc
 import collections
-import dataclasses
 import numbers
 from functools import cached_property
 from itertools import product
@@ -61,7 +60,7 @@ class PetscVecNest(PetscVec):
     ...
 
 
-@dataclasses.dataclass(init=False, frozen=True)
+@utils.record
 class Mat(DistributedArray):
 
     # {{{ Instance attributes

@@ -907,7 +907,7 @@ def _(assignment: NonEmptyPetscMatAssignment, loop_indices, context):
 
 def _petsc_mat_load(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
     if blocked:
-        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]));"
+        return f"MatGetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]));"
     else:
         return f"MatGetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]));"
 

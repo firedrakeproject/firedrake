@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import collections
-import dataclasses
 import functools
 import itertools
 import numbers
@@ -15,6 +14,7 @@ from pyop3.buffer import PetscMatBuffer, AbstractPetscMatBuffer
 from pyrsistent import pmap, PMap
 from petsc4py import PETSc
 
+from pyop3 import utils
 from pyop3.array import Array, Dat, Mat, LinearDatBufferExpression, BufferExpression, NonlinearDatBufferExpression
 from pyop3.axtree.tree import AxisVar, Expression, Operator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path
 from pyop3.dtypes import IntType
@@ -23,7 +23,7 @@ from pyop3.utils import OrderedSet, just_one
 
 # should inherit from _Dat
 # or at least be an Expression!
-@dataclasses.dataclass(init=False, frozen=True)
+@utils.record
 class CompositeDat:
     def __init__(self, axis_tree, leaf_exprs, loop_indices, dtype):
         object.__setattr__(self, "axis_tree", axis_tree)

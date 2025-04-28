@@ -50,7 +50,7 @@ class FancyIndexWriteException(Exception):
     pass
 
 
-@dataclasses.dataclass(init=False, frozen=True)
+@utils.record
 class _Dat(DistributedArray, KernelArgument, abc.ABC):
 
     # {{{ Array impls
@@ -166,7 +166,7 @@ class _Dat(DistributedArray, KernelArgument, abc.ABC):
         return expr() if eager else expr
 
 
-@dataclasses.dataclass(init=False, frozen=True)
+@utils.record
 class Dat(_Dat):
     """Multi-dimensional, hierarchical array.
 
@@ -587,7 +587,7 @@ class DatBufferExpression(BufferExpression, abc.ABC):
 
 
 
-@dataclasses.dataclass(init=False, frozen=True)
+@utils.record
 class LinearDatBufferExpression(DatBufferExpression):
     """A dat with fixed (?) layout.
 
@@ -634,7 +634,7 @@ class LinearDatBufferExpression(DatBufferExpression):
     #     return evaluate(self.layout, indices)
 
 
-@dataclasses.dataclass(init=False, frozen=True)
+@utils.record
 class NonlinearDatBufferExpression(DatBufferExpression):
     """A dat with fixed layouts.
 
@@ -662,7 +662,7 @@ class NonlinearDatBufferExpression(DatBufferExpression):
         )
 
 
-@dataclasses.dataclass(init=False, frozen=True)
+@utils.record
 class PetscMatBufferExpression(BufferExpression):
 
     # {{{ Instance attrs
