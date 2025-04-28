@@ -257,7 +257,6 @@ definite, and therefore can choose the conjugate gradient method,
 rather than GMRES.
 
 .. code-block:: python3
-   
    solve(a == L, solver_parameters={'ksp_type': 'cg'})
 
 To change the preconditioner used, we set the ``'pc_type'`` option.
