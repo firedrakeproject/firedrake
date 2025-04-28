@@ -567,6 +567,7 @@ def test_interpolate_logical_not():
     b = assemble(interpolate(conditional(x >= .2, 1, 0), V))
     assert np.allclose(a.dat.data, b.dat.data)
 
+
 @pytest.mark.parametrize("tdim,shape", [(1, tuple()), (2, tuple()), (3, tuple()),
                                         (1, (1,)), (2, (2,)), (2, (3,)), (3, (3,)),
                                         (1, (1, 1)), (2, (2, 2)), (3, (3, 3))],

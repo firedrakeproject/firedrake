@@ -22,7 +22,7 @@ import gem
 import finat
 
 import firedrake
-from firedrake import tsfc_interface, utils, functionspace, functionspaceimpl, parloops
+from firedrake import tsfc_interface, utils, functionspaceimpl, parloops
 import firedrake.function as ffunc
 from firedrake.ufl_expr import Argument, action, adjoint as expr_adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError
@@ -1731,7 +1731,6 @@ class ClementInterpolator(SameMeshInterpolator):
         firedrake.function.Function or firedrake.cofunction.Cofunction
             The resulting interpolated function.
         """
-        from firedrake.assemble import assemble
         if adjoint:
             raise NotImplementedError("Adjoint of Clément interpolation not implemented.")
         Vs = function.function_space()
