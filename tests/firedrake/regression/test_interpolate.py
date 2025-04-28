@@ -567,25 +567,32 @@ def test_interpolate_logical_not():
     b = assemble(interpolate(conditional(x >= .2, 1, 0), V))
     assert np.allclose(a.dat.data, b.dat.data)
 
-
-@pytest.mark.parametrize("rank", range(3))
-@pytest.mark.parametrize("dim", range(1, 4))
-def test_clement_interpolator_simplex(dim, rank):
+@pytest.mark.parametrize("tdim,shape", [(1, tuple()), (2, tuple()), (3, tuple()),
+                                        (1, (1,)), (2, (2,)), (2, (3,)), (3, (3,)),
+                                        (1, (1, 1)), (2, (2, 2)), (3, (3, 3))],
+                         ids=["1d-scalar", "2d-scalar", "3d-scalar", "1d-vector",
+                              "2d-vector", "2d-3vector", "3d-vector", "1d-matrix",
+                              "2d-matrix", "3d-matrix"])
+def test_clement_interpolator_simplex(tdim, shape):
     mesh = {
         1: UnitIntervalMesh,
         2: UnitSquareMesh,
         3: UnitCubeMesh,
-    }[dim](*(5 for _ in range(dim)))
-    x = SpatialCoordinate(mesh)
-    if rank == 0:
+    }[tdim](*(5 for _ in range(tdim)))
+    if len(shape) == 0:
         fs_constructor = FunctionSpace
-        expr = sum(x)
-    elif rank == 1:
-        fs_constructor = VectorFunctionSpace
-        expr = as_vector(x)
+        expr = sum(SpatialCoordinate(mesh))
+    elif len(shape) == 1:
+        dim = shape[0]
+        fs_constructor = lambda *args: VectorFunctionSpace(*args, dim=dim)
+        x = SpatialCoordinate(mesh)
+        if dim == tdim:
+            expr = as_vector(x)
+        else:
+            expr = as_vector([x[0] for _ in range(dim)])
     else:
-        fs_constructor = TensorFunctionSpace
-        expr = as_matrix([list(x) for _ in range(dim)])
+        fs_constructor = lambda *args: TensorFunctionSpace(*args, shape=shape)
+        expr = as_matrix([list(SpatialCoordinate(mesh)) for _ in range(tdim)])
     P0 = fs_constructor(mesh, "DG", 0)
     P1 = fs_constructor(mesh, "CG", 1)
 
