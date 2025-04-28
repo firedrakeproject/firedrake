@@ -7,13 +7,11 @@ from ufl.duals import is_dual
 from functools import singledispatch, partial
 from itertools import chain
 import firedrake
-from firedrake.utils import unique
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
                                get_parent, add_hook)
 
 from . import utils
-import weakref
 
 
 __all__ = ["coarsen"]
@@ -91,6 +89,12 @@ def coarsen_form(form, self, coefficient_mapping=None):
     if form is None:
         return None
 
+    if coefficient_mapping is None:
+        coefficient_mapping = {}
+    for c in form.coefficients():
+        if c not in coefficient_mapping:
+            coefficient_mapping[c] = self(c, self, coefficient_mapping=coefficient_mapping)
+
     mapper = CoarsenIntegrand(self, coefficient_mapping)
     integrals = []
     for it in form.integrals():
@@ -150,12 +154,12 @@ def coarsen_function(expr, self, coefficient_mapping=None):
         Vf = expr.function_space()
         Vc = self(Vf, self)
         new = firedrake.Function(Vc, name=f"coarse_{expr.name()}")
-        expr._child = weakref.proxy(new)
         manager = get_transfer_manager(Vf.dm)
         if is_dual(expr):
             manager.restrict(expr, new)
         else:
             manager.inject(expr, new)
+        coefficient_mapping[expr] = new
     return new
 
 
@@ -164,27 +168,26 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
     if hasattr(problem, "_coarse"):
         return problem._coarse
 
+    if coefficient_mapping is None:
+        coefficient_mapping = {}
+
     def inject_on_restrict(fine, restriction, rscale, injection, coarse):
         from firedrake.bcs import DirichletBC
         manager = get_transfer_manager(fine)
         finectx = get_appctx(fine)
-        forms = (finectx.F, finectx.J, finectx.Jp)
-        coefficients = unique(chain.from_iterable(form.coefficients()
-                              for form in forms if form is not None))
-        for c in coefficients:
-            if hasattr(c, '_child'):
-                if is_dual(c):
-                    manager.restrict(c, c._child)
-                else:
-                    manager.inject(c, c._child)
+        coefficient_mapping = finectx._problem._coefficient_mapping
+        for f, c in coefficient_mapping.items():
+            if is_dual(f):
+                manager.restrict(f, c)
+            else:
+                manager.inject(f, c)
+
+        cctx = get_appctx(coarse)
         # Apply bcs and also inject them
-        for bc in chain(*finectx._problem.bcs):
+        for bc in chain(*cctx._problem.bcs):
             if isinstance(bc, DirichletBC):
-                if finectx.pre_apply_bcs:
-                    bc.apply(finectx._x)
-                g = bc.function_arg
-                if isinstance(g, firedrake.Function) and hasattr(g, "_child"):
-                    manager.inject(g, g._child)
+                if cctx.pre_apply_bcs:
+                    bc.apply(cctx._x)
 
     V = problem.u.function_space()
     if not hasattr(V, "_coarse"):
@@ -193,22 +196,14 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
         V.dm.addCoarsenHook(None, inject_on_restrict)
 
     # Build set of coefficients we need to coarsen
-    forms = (problem.F, problem.J, problem.Jp)
-    coefficients = unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
-    # Coarsen them, and remember where from.
-    if coefficient_mapping is None:
-        coefficient_mapping = {}
-    for c in coefficients:
-        coefficient_mapping[c] = self(c, self, coefficient_mapping=coefficient_mapping)
-
-    u = coefficient_mapping[problem.u]
-
-    bcs = [self(bc, self) for bc in problem.bcs]
+    bcs = [self(bc, self, coefficient_mapping=coefficient_mapping) for bc in problem.bcs]
     J = self(problem.J, self, coefficient_mapping=coefficient_mapping)
     Jp = self(problem.Jp, self, coefficient_mapping=coefficient_mapping)
     F = self(problem.F, self, coefficient_mapping=coefficient_mapping)
+    u = coefficient_mapping[problem.u]
 
     fine = problem
+    fine._coefficient_mapping = coefficient_mapping
     problem = firedrake.NonlinearVariationalProblem(F, u, bcs=bcs, J=J, Jp=Jp, is_linear=problem.is_linear,
                                                     form_compiler_parameters=problem.form_compiler_parameters)
     fine._coarse = problem
