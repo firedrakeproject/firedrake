@@ -5,7 +5,6 @@ from ufl.domain import as_domain, extract_unique_domain
 from ufl.duals import is_dual
 
 from functools import singledispatch, partial
-from itertools import chain
 import firedrake
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
@@ -171,39 +170,14 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
 
-    def inject_on_restrict(fine, restriction, rscale, injection, coarse):
-        from firedrake.bcs import DirichletBC
-        manager = get_transfer_manager(fine)
-        finectx = get_appctx(fine)
-        coefficient_mapping = finectx._problem._coefficient_mapping
-        for f, c in coefficient_mapping.items():
-            if is_dual(f):
-                manager.restrict(f, c)
-            else:
-                manager.inject(f, c)
-
-        cctx = get_appctx(coarse)
-        # Apply bcs and also inject them
-        for bc in chain(*cctx._problem.bcs):
-            if isinstance(bc, DirichletBC):
-                if cctx.pre_apply_bcs:
-                    bc.apply(cctx._x)
-
-    V = problem.u.function_space()
-    if not hasattr(V, "_coarse"):
-        # The hook is persistent and cumulative, but also problem-independent.
-        # Therefore, we are only adding it once.
-        V.dm.addCoarsenHook(None, inject_on_restrict)
-
-    # Build set of coefficients we need to coarsen
-    bcs = [self(bc, self, coefficient_mapping=coefficient_mapping) for bc in problem.bcs]
+    # Coarsen forms and bcs
+    F = self(problem.F, self, coefficient_mapping=coefficient_mapping)
     J = self(problem.J, self, coefficient_mapping=coefficient_mapping)
     Jp = self(problem.Jp, self, coefficient_mapping=coefficient_mapping)
-    F = self(problem.F, self, coefficient_mapping=coefficient_mapping)
+    bcs = [self(bc, self, coefficient_mapping=coefficient_mapping) for bc in problem.bcs]
     u = coefficient_mapping[problem.u]
 
     fine = problem
-    fine._coefficient_mapping = coefficient_mapping
     problem = firedrake.NonlinearVariationalProblem(F, u, bcs=bcs, J=J, Jp=Jp, is_linear=problem.is_linear,
                                                     form_compiler_parameters=problem.form_compiler_parameters)
     fine._coarse = problem
@@ -268,17 +242,40 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     # Now that we have the coarse snescontext, push it to the coarsened DMs
     # Otherwise they won't have the right transfer manager when they are
     # coarsened in turn
-    for val in chain(coefficient_mapping.values(), (bc.function_arg for bc in problem.bcs)):
+    parentdm = get_parent(context._problem.u.function_space().dm)
+    for val in coefficient_mapping.values():
         if isinstance(val, (firedrake.Function, firedrake.Cofunction)):
             V = val.function_space()
             coarseneddm = V.dm
-            parentdm = get_parent(context._problem.u.function_space().dm)
 
             # Now attach the hook to the parent DM
             if get_appctx(coarseneddm) is None:
                 push_appctx(coarseneddm, coarse)
                 teardown = partial(pop_appctx, coarseneddm, coarse)
                 add_hook(parentdm, teardown=teardown)
+
+    def coarsen(fine, coarse):
+        pass
+
+    def inject_on_restrict(fine, restriction, rscale, injection, coarse):
+        manager = get_transfer_manager(fine)
+        cctx = get_appctx(coarse)
+        cmapping = cctx.F._cache["coefficient_mapping"]
+        for f, c in cmapping.items():
+            if is_dual(f):
+                manager.restrict(f, c)
+            else:
+                manager.inject(f, c)
+
+        if cctx.pre_apply_bcs:
+            # Apply bcs on the injected state
+            for bc in cctx._problem.bcs:
+                bc.apply(cctx._x)
+
+    V = context._problem.u.function_space()
+    if not V.dm.getAttr("__coarsen_hooks__"):
+        V.dm.addCoarsenHook(coarsen, inject_on_restrict)
+        V.dm.setAttr("__coarsen_hooks__", True)
 
     ises = problem.J.arguments()[0].function_space()._ises
     coarse._nullspace = self(context._nullspace, self, coefficient_mapping=coefficient_mapping)
@@ -358,7 +355,6 @@ class Injection(object):
 
 
 def create_interpolation(dmc, dmf):
-
     cctx = get_appctx(dmc)
     fctx = get_appctx(dmf)
 
