@@ -35,7 +35,7 @@ dependencies = [
   "rtree>=1.2",
   "scipy",
   "sympy",
-  "fenics-ufl @ git+https://github.com/firedrakeproject/ufl.git",
+  "fenics-ufl @ git+https://github.com/FEniCS/ufl.git",
   "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git",
   "islpy>=2025.1.5; sys_platform == 'darwin'",
 ]
