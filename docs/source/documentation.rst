@@ -13,14 +13,11 @@
          .. _firedrakebuild: https://github.com/firedrakeproject/firedrake/actions/workflows/build.yml
 
       Firedrake and its components are developed on `GitHub
-      <http://github.com>`__ where we also maintain Firedrake-ready
-      versions of the `FEniCS <http://fenicsproject.org>`__ components
-      UFL.
+      <http://github.com>`__.
 
       * `Firedrake on GitHub <https://github.com/firedrakeproject/firedrake/>`__
       * `TSFC on GitHub <https://github.com/firedrakeproject/tsfc/>`__
       * `FIAT on GitHub <https://github.com/firedrakeproject/fiat>`__
-      * `Firedrake version of UFL on GitHub <https://github.com/firedrakeproject/ufl>`__
 
    Getting started
    ===============

@@ -16,6 +16,8 @@ requires-python = ">=3.10"
 dependencies = [
   "cachetools",
   "decorator<=4.4.2",
+  "fenics-ufl>=2025.1.0",
+  "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git@connorjward/ufl-release",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
   "h5py>3.12.1",
@@ -35,8 +37,6 @@ dependencies = [
   "rtree>=1.2",
   "scipy",
   "sympy",
-  "fenics-ufl @ git+https://github.com/firedrakeproject/ufl.git",
-  "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git",
   "islpy>=2025.1.5; sys_platform == 'darwin'",
 ]
 classifiers = [
