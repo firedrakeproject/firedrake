@@ -15,6 +15,7 @@ from immutabledict import ImmutableOrderedDict
 from mpi4py import MPI
 from petsc4py import PETSc
 
+from pyop3 import utils
 from pyop3.array.base import DistributedArray
 from pyop3.axtree import (
     Axis,
@@ -50,7 +51,7 @@ class FancyIndexWriteException(Exception):
     pass
 
 
-@utils.record
+@utils.record(init=False)
 class _Dat(DistributedArray, KernelArgument, abc.ABC):
 
     # {{{ Array impls
@@ -166,7 +167,7 @@ class _Dat(DistributedArray, KernelArgument, abc.ABC):
         return expr() if eager else expr
 
 
-@utils.record
+@utils.record(init=False)
 class Dat(_Dat):
     """Multi-dimensional, hierarchical array.
 
@@ -369,26 +370,6 @@ class Dat(_Dat):
     def leaf_layouts(self):
         return self.axes.leaf_subst_layouts
 
-    # TODO: Array property
-    def candidate_layouts(self, loop_axes):
-        from pyop3.expr_visitors import collect_candidate_indirections
-
-        candidatess = {}
-        for leaf_path, orig_layout in self.axes.leaf_subst_layouts.items():
-            visited_axes = self.axes.path_with_nodes(self.axes._node_from_path(leaf_path), and_components=True)
-
-            # if extract_axes(orig_layout, visited_axes, loop_axes, {}).size == 0:
-            #     continue
-
-            candidatess[(self, leaf_path)] = collect_candidate_indirections(
-                orig_layout, visited_axes, loop_axes
-            )
-
-        return ImmutableOrderedDict(candidatess)
-
-    def default_candidate_layouts(self, loop_axes):
-        return self.axes.leaf_subst_layouts
-
     @property
     def dtype(self):
         return self.buffer.dtype
@@ -499,10 +480,10 @@ class Dat(_Dat):
     def vec(self):
         return self.vec_rw
 
-    def _as_expression_dat(self):
-        assert self.axes.is_linear
-        layout = just_one(self.axes.leaf_subst_layouts.values())
-        return LinearDatBufferExpression(self.buffer, layout)
+    # def _as_expression_dat(self):
+    #     assert self.axes.is_linear
+    #     layout = just_one(self.axes.leaf_subst_layouts.values())
+    #     return LinearDatBufferExpression(self.buffer, layout)
 
     def _check_vec_dtype(self):
         if self.dtype != PETSc.ScalarType:
@@ -576,9 +557,12 @@ class Dat(_Dat):
 
 
 # TODO: Should inherit from Terminal (but Terminal has odd attrs)
-@dataclasses.dataclass(frozen=True)
-class BufferExpression(Expression, abc.ABC):
+@utils.record(init=False)
+class BufferExpression(Expression, metaclass=abc.ABCMeta):
     buffer: AbstractBuffer
+
+    def __init__(self, buffer: AbstractBuffer) -> None:
+        self.buffer = buffer
 
 
 # TODO: just ArrayBufferExpression
@@ -587,7 +571,7 @@ class DatBufferExpression(BufferExpression, abc.ABC):
 
 
 
-@utils.record
+@utils.record(init=False)
 class LinearDatBufferExpression(DatBufferExpression):
     """A dat with fixed (?) layout.
 
@@ -606,7 +590,7 @@ class LinearDatBufferExpression(DatBufferExpression):
 
     def __init__(self, buffer, layout):
         super().__init__(buffer)
-        object.__setattr__(self, "layout", layout)
+        self.layout = layout
 
     def __str__(self) -> str:
         return f"{self.buffer.name}[{self.layout}]"
@@ -634,7 +618,7 @@ class LinearDatBufferExpression(DatBufferExpression):
     #     return evaluate(self.layout, indices)
 
 
-@utils.record
+@utils.record(init=False)
 class NonlinearDatBufferExpression(DatBufferExpression):
     """A dat with fixed layouts.
 
@@ -662,7 +646,7 @@ class NonlinearDatBufferExpression(DatBufferExpression):
         )
 
 
-@utils.record
+@utils.record(init=False)
 class PetscMatBufferExpression(BufferExpression):
 
     # {{{ Instance attrs
@@ -686,3 +670,11 @@ class PetscMatBufferExpression(BufferExpression):
             for rl in self.row_layouts.values()
             for cl in self.column_layouts.values()
         )
+
+
+def as_linear_buffer_expression(dat: Dat) -> LinearDatBufferExpression:
+    if not dat.axes.is_linear:
+        raise ValueError("The provided Dat must be linear")
+
+    layout = just_one(dat.axes.leaf_subst_layouts.values())
+    return LinearDatBufferExpression(dat.buffer, layout)

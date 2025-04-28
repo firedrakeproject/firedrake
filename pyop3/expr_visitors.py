@@ -5,12 +5,12 @@ import functools
 import itertools
 import numbers
 import operator
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any, Optional
 
 from immutabledict import ImmutableOrderedDict
 from pyop3.array.dat import DatBufferExpression, PetscMatBufferExpression
-from pyop3.buffer import PetscMatBuffer, AbstractPetscMatBuffer
+from pyop3.buffer import AbstractArrayBuffer, PetscMatBuffer, AbstractPetscMatBuffer
 from pyrsistent import pmap, PMap
 from petsc4py import PETSc
 
@@ -23,7 +23,7 @@ from pyop3.utils import OrderedSet, just_one
 
 # should inherit from _Dat
 # or at least be an Expression!
-@utils.record
+@utils.record()
 class CompositeDat:
     def __init__(self, axis_tree, leaf_exprs, loop_indices, dtype):
         object.__setattr__(self, "axis_tree", axis_tree)
@@ -366,93 +366,148 @@ def _(op: Operator, /, replace_map) -> Operator:
     return type(op)(replace(op.a, replace_map), replace(op.b, replace_map))
 
 
-# TODO: rename to concretize_array_accesses or concretize_arrays
 @functools.singledispatch
-def concretize_arrays(obj: Any, /, *args, **kwargs) -> Expression:
+def concretize_layouts(obj: Any, /) -> Any:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@concretize_arrays.register(Dat)
-def _(dat: Dat, /, loop_axes) -> NonlinearDatBufferExpression:
-    selected_layouts = dat.default_candidate_layouts(loop_axes)
-    # selected_layouts = {}
-    # for leaf_path in dat.axes.leaf_paths:
-    #     possible_layouts = candidate_layouts[(dat, leaf_path)]
-    #     selected_layout, _ = min(possible_layouts, key=lambda item: item[1])
-    #     selected_layouts[leaf_path] = selected_layout
-
-    return NonlinearDatBufferExpression(dat.buffer, selected_layouts)
+@concretize_layouts.register(numbers.Number)
+def _(num: numbers.Number, /) -> numbers.Number:
+    return num
 
 
-@concretize_arrays.register(Mat)
-def _(mat: Mat, /, loop_axes) -> PetscMatBufferExpression:
-    from pyop3.insn_visitors import materialize_composite_dat
-
-    # TODO: Add intermediate type to assert that there is no longer a parent attr
-    assert mat.parent is None
-
-    # NOTE: default_candidate_layouts shouldn't return any cost because it doesn't matter here
-    # Actually this might not be quite true: for non-PETSc matrices we have some amount of choice
-
-    # FIXME: this is bad for temporaries because it means we needlessly tabulate
-    # layouts = mat.default_candidate_layouts(loop_axes)
-    layouts = mat.candidate_layouts(loop_axes)
-
-    # FIXME: Different treatment for buffer and petsc mats here
-    if isinstance(mat.buffer, AbstractPetscMatBuffer):
-        row_layout = materialize_composite_dat(layouts[(mat, "anything", 0)][0][0])
-        column_layout = materialize_composite_dat(layouts[(mat, "anything", 1)][0][0])
-        return PetscMatBufferExpression(mat.buffer, row_layout, column_layout)
+@concretize_layouts.register(Dat)
+def _(dat: Dat, /) -> Any:
+    if dat.axes.is_linear:
+        layout = just_one(dat.axes.leaf_subst_layouts.values())
+        return LinearDatBufferExpression(dat.buffer, layout)
     else:
-        row_layouts = {}
-        for leaf_path in mat.raxes.pruned.leaf_paths:
-            possible_row_layouts = layouts[(mat, leaf_path, 0)]
-            selected_layout, _ = just_one(possible_row_layouts)
-
-            if isinstance(selected_layout, CompositeDat):
-                selected_layout = materialize_composite_dat(selected_layout)
-
-            row_layouts[leaf_path] = selected_layout
-
-        col_layouts = {}
-        for leaf_path in mat.caxes.pruned.leaf_paths:
-            possible_col_layouts = layouts[(mat, leaf_path, 1)]
-            selected_layout, _ = just_one(possible_col_layouts)
-
-            if isinstance(selected_layout, CompositeDat):
-                selected_layout = materialize_composite_dat(selected_layout)
-
-            col_layouts[leaf_path] = selected_layout
-
-        # merge layouts
-        layouts = {}
-        for row_path, row_layout in row_layouts.items():
-            for column_path, column_layout in col_layouts.items():
-                relabelled_row_path = relabel_path(row_path, "0")
-                relabelled_column_path = relabel_path(column_path, "1")
-
-                replace_map = {var.axis_label: AxisVar(var.axis_label+"_0") for var in collect_axis_vars(row_layout)}
-                relabelled_row_layout = replace_terminals(row_layout, replace_map)
-
-                replace_map = {var.axis_label: AxisVar(var.axis_label+"_1") for var in collect_axis_vars(column_layout)}
-                relabelled_column_layout = replace_terminals(column_layout, replace_map)
-
-                layouts[ImmutableOrderedDict(relabelled_row_path|relabelled_column_path)] = relabelled_row_layout * mat.caxes.size + relabelled_column_layout
-        # TODO: Is this the right type?
-        return NonlinearDatBufferExpression(mat.buffer, layouts)
+        return NonlinearDatBufferExpression(dat.buffer, dat.axes.leaf_subst_layouts)
 
 
-@concretize_arrays.register(numbers.Number)
-@concretize_arrays.register(AxisVar)
-@concretize_arrays.register(BufferExpression)
-@concretize_arrays.register(LoopIndexVar)
-def _(var: Any, /, loop_axes) -> Any:
-    return var
+@concretize_layouts.register(Mat)
+def _(mat: Mat, /) -> Any:
+    breakpoint()
 
 
-@concretize_arrays.register(Operator)
-def _(op: Operator, /, loop_axes) -> Operator:
-    return type(op)(concretize_arrays(op.a, loop_axes), concretize_arrays(op.b, loop_axes))
+@functools.singledispatch
+def collect_tensor_candidate_indirections(obj: Any, /, **kwargs) -> ImmutableOrderedDict:
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
+
+
+@collect_tensor_candidate_indirections.register(numbers.Number)
+def _(num: numbers.Number, /, **kwargs) -> ImmutableOrderedDict:
+    return ImmutableOrderedDict()
+
+
+@collect_tensor_candidate_indirections.register(LinearDatBufferExpression)
+def _(dat_expr: LinearDatBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], optimize: bool) -> ImmutableOrderedDict:
+    if not isinstance(dat_expr.buffer, AbstractArrayBuffer):
+        raise NotImplementedError("Currently we assume that Dats are based on an underlying array buffer")
+
+    axis_tree = just_one(axis_trees)
+    return ImmutableOrderedDict({
+        dat_expr: collect_candidate_indirections(dat_expr.layout, axis_tree, loop_indices)
+    })
+
+
+@collect_tensor_candidate_indirections.register(Mat)
+def _(mat: Mat, loop_axes):
+    # think about the buffer type... 
+    if isinstance(mat.buffer, AbstractPetscMatBuffer):
+        breakpoint()
+    breakpoint()
+    return mat.candidate_layouts(loop_axes)
+
+
+
+# TODO: rename to concretize_array_accesses or concretize_arrays
+# @functools.singledispatch
+# def concretize_arrays(obj: Any, /, *args, **kwargs) -> Expression:
+#     raise TypeError(f"No handler defined for {type(obj).__name__}")
+#
+#
+# @concretize_arrays.register(Dat)
+# def _(dat: Dat, /, loop_axes) -> NonlinearDatBufferExpression:
+#     selected_layouts = dat.axes.leaf_subst_layouts
+#     # selected_layouts = {}
+#     # for leaf_path in dat.axes.leaf_paths:
+#     #     possible_layouts = candidate_layouts[(dat, leaf_path)]
+#     #     selected_layout, _ = min(possible_layouts, key=lambda item: item[1])
+#     #     selected_layouts[leaf_path] = selected_layout
+#
+#     return NonlinearDatBufferExpression(dat.buffer, selected_layouts)
+#
+#
+# @concretize_arrays.register(Mat)
+# def _(mat: Mat, /, loop_axes) -> PetscMatBufferExpression:
+#     from pyop3.insn_visitors import materialize_composite_dat
+#
+#     # TODO: Add intermediate type to assert that there is no longer a parent attr
+#     assert mat.parent is None
+#
+#     # NOTE: default_candidate_layouts shouldn't return any cost because it doesn't matter here
+#     # Actually this might not be quite true: for non-PETSc matrices we have some amount of choice
+#
+#     # FIXME: this is bad for temporaries because it means we needlessly tabulate
+#     # layouts = mat.default_candidate_layouts(loop_axes)
+#     layouts = mat.candidate_layouts(loop_axes)
+#
+#     # FIXME: Different treatment for buffer and petsc mats here
+#     if isinstance(mat.buffer, AbstractPetscMatBuffer):
+#         row_layout = materialize_composite_dat(layouts[(mat, "anything", 0)][0][0])
+#         column_layout = materialize_composite_dat(layouts[(mat, "anything", 1)][0][0])
+#         return PetscMatBufferExpression(mat.buffer, row_layout, column_layout)
+#     else:
+#         row_layouts = {}
+#         for leaf_path in mat.raxes.pruned.leaf_paths:
+#             possible_row_layouts = layouts[(mat, leaf_path, 0)]
+#             selected_layout, _ = just_one(possible_row_layouts)
+#
+#             if isinstance(selected_layout, CompositeDat):
+#                 selected_layout = materialize_composite_dat(selected_layout)
+#
+#             row_layouts[leaf_path] = selected_layout
+#
+#         col_layouts = {}
+#         for leaf_path in mat.caxes.pruned.leaf_paths:
+#             possible_col_layouts = layouts[(mat, leaf_path, 1)]
+#             selected_layout, _ = just_one(possible_col_layouts)
+#
+#             if isinstance(selected_layout, CompositeDat):
+#                 selected_layout = materialize_composite_dat(selected_layout)
+#
+#             col_layouts[leaf_path] = selected_layout
+#
+#         # merge layouts
+#         layouts = {}
+#         for row_path, row_layout in row_layouts.items():
+#             for column_path, column_layout in col_layouts.items():
+#                 relabelled_row_path = relabel_path(row_path, "0")
+#                 relabelled_column_path = relabel_path(column_path, "1")
+#
+#                 replace_map = {var.axis_label: AxisVar(var.axis_label+"_0") for var in collect_axis_vars(row_layout)}
+#                 relabelled_row_layout = replace_terminals(row_layout, replace_map)
+#
+#                 replace_map = {var.axis_label: AxisVar(var.axis_label+"_1") for var in collect_axis_vars(column_layout)}
+#                 relabelled_column_layout = replace_terminals(column_layout, replace_map)
+#
+#                 layouts[ImmutableOrderedDict(relabelled_row_path|relabelled_column_path)] = relabelled_row_layout * mat.caxes.size + relabelled_column_layout
+#         # TODO: Is this the right type?
+#         return NonlinearDatBufferExpression(mat.buffer, layouts)
+
+
+# @concretize_arrays.register(numbers.Number)
+# @concretize_arrays.register(AxisVar)
+# @concretize_arrays.register(BufferExpression)
+# @concretize_arrays.register(LoopIndexVar)
+# def _(var: Any, /, loop_axes) -> Any:
+#     return var
+#
+#
+# @concretize_arrays.register(Operator)
+# def _(op: Operator, /, loop_axes) -> Operator:
+#     return type(op)(concretize_arrays(op.a, loop_axes), concretize_arrays(op.b, loop_axes))
 
 
 # TODO: account for non-affine accesses in arrays and selectively apply this
@@ -467,16 +522,14 @@ so memory optimisations are ineffectual.
 """
 
 
-# TODO: Return the minimum each time, not all candidates
-# TODO: penalise non-affine accesses (inspect layout func and compare)
 @functools.singledispatch
-def collect_candidate_indirections(obj: Any, /, visited_axes, loop_axes) -> tuple:
+def collect_candidate_indirections(obj: Any, /, *, visited_axes, loop_indices: tuple[LoopIndex, ...]) -> tuple[tuple[Any, int], ...]:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
+@collect_candidate_indirections.register(numbers.Number)
 @collect_candidate_indirections.register(AxisVar)
 @collect_candidate_indirections.register(LoopIndexVar)
-@collect_candidate_indirections.register(numbers.Number)
 def _(var: Any, /, visited_axes, loop_axes) -> tuple:
     return ((var, 0),)
 
@@ -578,6 +631,58 @@ def _(dat: CompositeDat, /, visited_axes, loop_axes, seen_exprs_mut, cache) -> i
 
     return extract_axes(dat.expr, visited_axes, loop_axes, cache).size
 
+
+@functools.singledispatch
+def concretize_materialized_tensor_indirections(obj: Any, /, *args, **kwargs) -> Any:
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
+
+
+@concretize_materialized_tensor_indirections.register(numbers.Number)
+def _(num: numbers.Number, /, *args, **kwargs) -> numbers.Number:
+    return num
+
+
+@concretize_materialized_tensor_indirections.register(Dat)
+def _(dat: Dat, layouts, outer_key):
+    newlayouts = {}
+    for leaf_path in dat.axes.leaf_paths:
+        chosen_layout = layouts[outer_key + ((dat, leaf_path),)]
+        # try:
+        #     chosen_layout = layouts[outer_key + ((dat, leaf_path),)]
+        # except KeyError:
+        #     # zero-sized axis, no layout needed
+        #     chosen_layout = -1
+        newlayouts[leaf_path] = chosen_layout
+
+    return NonlinearDatBufferExpression(dat.buffer, newlayouts)
+
+
+@concretize_materialized_tensor_indirections.register(Mat)
+# @_compress_array_indirection_maps.register(Sparsity)
+def _(mat, layouts, outer_key) -> PetscMatBufferExpression:
+    # If we have a temporary then things are easy and we do not need to substitute anything
+    # (at least for now)
+    if strictly_all(isinstance(ax, AxisTree) for ax in {mat.raxes, mat.caxes}):
+        return PetscMatBufferExpression(mat.buffer, mat.raxes.layouts, mat.caxes.layouts, parent=mat.parent)
+
+    def collect(axes, newlayouts, counter):
+        for leaf_path in axes.leaf_paths:
+            chosen_layout = layouts[outer_key + ((mat, leaf_path, counter),)]
+            # try:
+            #     chosen_layout = layouts[outer_key + ((mat, leaf_path, counter),)]
+            # except KeyError:
+            #     # zero-sized axis, no layout needed
+            #     chosen_layout = -1
+            newlayouts[leaf_path] = chosen_layout
+
+    row_layouts = {}
+    col_layouts = {}
+    collect(mat.raxes.pruned, row_layouts, 0)
+    collect(mat.caxes.pruned, col_layouts, 1)
+
+    # will go away when we can assert using types
+    assert mat.parent is None
+    return PetscMatBufferExpression(mat.buffer, row_layouts, col_layouts)
 
 # @functools.singledispatch
 # def materialize(obj: Any, /, *args, **kwargs) -> ExpressionT:

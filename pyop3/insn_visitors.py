@@ -1,5 +1,3 @@
-# TODO: rename this file to insn_visitors.py? Consistent with expr_visitors
-
 from __future__ import annotations
 
 import abc
@@ -7,6 +5,7 @@ import collections
 import functools
 import numbers
 import operator
+from collections.abc import Mapping
 from os import access
 from typing import Any, Union
 
@@ -23,19 +22,22 @@ from pyop3.axtree.tree import Operator, AxisVar, IndexedAxisTree, prune_zero_siz
 from pyop3.buffer import AbstractBuffer, AbstractPetscMatBuffer, ArrayBuffer, NullBuffer, PetscMatBuffer
 from pyop3.dtypes import IntType
 from pyop3.itree import Map, TabulatedMapComponent, collect_loop_contexts
-from pyop3.itree.tree import LoopIndexVar, Slice, AffineSliceComponent, IndexTree
+from pyop3.itree.tree import LoopIndex, LoopIndexVar, Slice, AffineSliceComponent, IndexTree
 from pyop3.itree.parse import _as_context_free_indices
 from pyop3.expr_visitors import (
     replace as replace_expression,
     replace_terminals,
     CompositeDat,
+    collect_candidate_indirections,
     collect_loop_index_vars as expr_collect_loops,
-    concretize_arrays as expr_concretize_arrays,
+    concretize_layouts as concretize_expression_layouts,
     extract_axes,
     restrict_to_context as restrict_expression_to_context,
     collect_candidate_indirections as collect_expression_candidate_indirections,
     compute_indirection_cost as compute_expression_indirection_cost,
-    concretize_arrays as concretize_expression_layouts,
+    # concretize_arrays as concretize_expression_layouts,
+    collect_tensor_candidate_indirections,
+    concretize_materialized_tensor_indirections,
 )
 from pyop3.lang import (
     INC,
@@ -50,13 +52,14 @@ from pyop3.lang import (
     BufferAssignment,
     AssignmentType,
     CalledFunction,
-    NonEmptyBufferAssignment,
+    NonEmptyArrayBufferAssignment,
     DummyKernelArgument,
     Instruction,
     Loop,
     InstructionList,
     PetscMatAssignment,
     ArrayAccessType,
+    Terminal,
     enlist,
     maybe_enlist,
     non_null,
@@ -463,6 +466,48 @@ def _(array: Array, /, access_type):
 
 
 @functools.singledispatch
+def concretize_layouts(obj: Any, /) -> Instruction:
+    raise TypeError(f"No handler provided for {type(obj).__name__}")
+
+
+@concretize_layouts.register(InstructionList)
+def _(insn_list: InstructionList, /) -> InstructionList:
+    return type(insn_list)(map(concretize_layouts, insn_list))
+
+
+@concretize_layouts.register(Loop)
+def _(loop: Loop, /) -> Loop:
+    return loop.reconstruct(statements=tuple(map(concretize_layouts, loop.statements)))
+
+
+# @prepare_petsc_calls.register(ExplicitCalledFunction)
+# @prepare_petsc_calls.register(NullInstruction)
+# def _(func: ExplicitCalledFunction, /) -> ExplicitCalledFunction:
+#     return func
+#     >>>
+
+
+@concretize_layouts.register(Terminal)
+def _(terminal: Terminal, /) -> Terminal:
+    axis_tree = None
+    new_arguments = []
+    for argument in terminal.arguments:
+        new_argument, arg_axis_tree = concretize_expression_layouts(argument)
+
+        if axis_tree is None:
+            axis_tree = arg_axis_tree
+        else:
+            check things
+
+
+    # TODO: Need a new type of terminal here that carries additional shape information...
+    breakpoint()
+    return terminal.with_(
+        arguments=tuple(map(concretize_expression_layouts, terminal.arguments))
+    )
+
+
+@functools.singledispatch
 def prepare_petsc_calls(obj: Any, /) -> InstructionList:
     raise TypeError(f"No handler provided for {type(obj).__name__}")
 
@@ -542,33 +587,33 @@ def _(assignment: BufferAssignment, /) -> InstructionList:
     return assignment
 
 
-# NOTE: Should perhaps take a different input type to ensure that always called at root?
-# E.g. PreprocessedInstruction?
 @PETSc.Log.EventDecorator()
-def compress_indirection_maps(insn: Instruction) -> Instruction:
+def materialize_indirections(insn: Instruction, *, optimize: bool = False) -> Instruction:
     # try setting a 'global' cache here
+    # TODO: formalise this.
     mycache = {}
 
-    # cache this?
-    arg_candidatess = _collect_candidate_indirections(insn, loop_axes_acc=pmap())
+    # If 'optimize' is false here then only a single candidate layout will be returned for each
+    # instruction in this step. This renders many of the checks below redundant.
+    expr_candidates = collect_candidate_indirections(insn, optimize=optimize)
 
-    # Start by combining the best per-arg candidates into the initial overall best candidate
+    # Combine the best per-arg candidates into the initial overall best candidate
     best_candidate = {}
     max_cost = 0
-    for arg_id, arg_candidates in arg_candidatess.items():
+    for arg_id, arg_candidates in expr_candidates.items():
         expr, expr_cost = min(arg_candidates, key=lambda item: item[1])
         best_candidate[arg_id] = (expr, expr_cost)
         max_cost += expr_cost
 
     # Optimise by dropping any immediately bad candidates. We do this by dropping
     # any candidates whose cost (per-arg) is greater than the current best candidate.
-    arg_candidatess = {
+    expr_candidates = {
         arg_id: tuple(
             (arg_candidate, cost)
             for arg_candidate, cost in arg_candidates
             if cost <= max_cost
         )
-        for arg_id, arg_candidates in arg_candidatess.items()
+        for arg_id, arg_candidates in expr_candidates.items()
     }
 
     # Now select the combination with the lowest combined cost. We can make savings here
@@ -586,7 +631,7 @@ def compress_indirection_maps(insn: Instruction) -> Instruction:
     #     dat1[mapABC[i]]
     #     dat2[mapBC[i]]
     min_cost = max_cost
-    for shared_candidate in expand_collection_of_iterables(arg_candidatess):
+    for shared_candidate in expand_collection_of_iterables(expr_candidates):
         cost = 0
         seen_exprs = set()
         for expr, expr_cost in shared_candidate.values():
@@ -598,72 +643,64 @@ def compress_indirection_maps(insn: Instruction) -> Instruction:
             best_candidate = shared_candidate
             min_cost = cost
 
-    # Now materialise any symbolic (composite) dats and propagate the
-    # decision back to the tree.
-    composite_dats = frozenset.union(
-        *(_collect_composite_dats(expr) for (expr, _) in best_candidate.values())
-    )
+    # Drop cost information from 'best_candidate'
+    best_candidate = {key: expr for key, (expr, _) in best_candidate.items()}
+
+    # Materialise any symbolic (composite) dats
+    composite_dats = frozenset.union(*map(_collect_composite_dats, best_candidate.values()))
     replace_map = {
         comp_dat: materialize_composite_dat(comp_dat)
         for comp_dat in composite_dats
     }
-
-    # now apply to best layout candidate
-    best_layouts = {
+    best_candidate = {
         key: replace_expression(expr, replace_map)
-        for key, (expr, _) in best_candidate.items()
+        for key, expr in best_candidate.items()
     }
 
-    # now traverse the instruction tree and replace the layouts.
-    optimised_insn = _replace_with_real_dats(insn, best_layouts)
-
-    return optimised_insn
+    # Lastly propagate the materialised indirections back through the instruction tree
+    return concretize_materialized_indirections(insn, best_candidate)
 
 
-# TODO: I think loop_indices is the best name
+
+def collect_candidate_indirections(insn: Instruction, /, *, optimize: bool) -> ImmutableOrderedDict:
+    return _collect_candidate_indirections(insn, optimize=optimize, loop_indices=())
+
+
 @functools.singledispatch
-def _collect_candidate_indirections(obj: Any, /, *, outer_loops) -> ImmutableOrderedDict:
+def _collect_candidate_indirections(obj: Any, /, **kwargs) -> ImmutableOrderedDict:
     raise TypeError(f"No handler provided for {type(obj).__name__}")
 
 
 @_collect_candidate_indirections.register(InstructionList)
 def _(insn_list: InstructionList, /, **kwargs) -> ImmutableOrderedDict:
     return merge_dicts(
-        [_collect_candidate_indirections(insn, **kwargs) for insn in insn_list],
+        (_collect_candidate_indirections(insn, **kwargs) for insn in insn_list),
     )
 
 
 @_collect_candidate_indirections.register(Loop)
-def _(loop: Loop, /, *, outer_loops) -> ImmutableOrderedDict:
+def _(loop: Loop, /, *, optimize: bool, loop_indices: tuple[LoopIndex, ...]) -> ImmutableOrderedDict:
+    loop_indices_ = loop_indices + (loop.index,)
     return merge_dicts(
-        [
-            _collect_candidate_indirections(stmt, outer_loops=outer_loops + (loop.index,))
+        (
+            _collect_candidate_indirections(stmt, optimize=optimize, loop_indices=loop_indices_)
             for stmt in loop.statements
-        ],
+        ),
     )
 
 
-@_collect_candidate_indirections.register(AbstractAssignment)
-def _(assignment: BufferAssignment, /, *, outer_loops) -> ImmutableOrderedDict:
-    if isinstance(assignment, (PetscMatAssignment, NonEmptyPetscMatAssignment)):
-        pyop3.extras.debug.warn_todo("Map compression is now wrong for matrices as we now combine them later on")
+@_collect_candidate_indirections.register(Terminal)
+def _(terminal: Terminal, /, *, loop_indices: tuple[LoopIndex, ...], optimize: bool) -> ImmutableOrderedDict:
+    pyop3.extras.debug.warn_todo("Need special terminal class that asserts the existence of axis trees")
 
     candidates = {}
-    for i, arg in enumerate([assignment.assignee, assignment.expression]):
-        for key, value in _collect_array_candidate_indirections(arg, outer_loops).items():
-            candidates[assignment.id, i, key] = value
+    for i, arg in enumerate(terminal.arguments):
+        per_arg_candidates = collect_tensor_candidate_indirections(
+            arg, axis_trees=terminal.axis_trees, loop_indices=loop_indices, optimize=optimize
+        )
+        for arg_key, value in per_arg_candidates.items():
+            candidates[(terminal, i, arg_key)] = value
     return ImmutableOrderedDict(candidates)
-
-
-@_collect_candidate_indirections.register(ExplicitCalledFunction)
-def _(func: ExplicitCalledFunction, /, *, outer_loops) -> ImmutableOrderedDict:
-    # there should be no indirections here!
-    # candidates = {}
-    # for i, arg in enumerate(func.arguments):
-    #     for key, value in _collect_array_candidate_indirections(arg, loop_axes_acc).items():
-    #         candidates[func.id, i, key] = value
-    # return ImmutableOrderedDict(candidates)
-    return ImmutableOrderedDict()
 
 
 @PETSc.Log.EventDecorator()
@@ -702,24 +739,6 @@ def _(assignment: BufferAssignment, /, arg_layouts, seen_exprs_mut, *, loop_axes
 @_compute_indirection_cost_rec.register(ExplicitCalledFunction)
 def _(func: ExplicitCalledFunction, /, arg_layouts, seen_exprs_mut, *, loop_axes_acc, cache) -> int:
     return 0
-
-
-@functools.singledispatch
-def _collect_array_candidate_indirections(dat, loop_axes) -> ImmutableOrderedDict:
-    if isinstance(dat, numbers.Number):
-        return ImmutableOrderedDict()
-
-    raise NotImplementedError
-
-
-@_collect_array_candidate_indirections.register(Dat)
-def _(dat: Dat, loop_axes):
-    return dat.candidate_layouts(loop_axes)
-
-
-@_collect_array_candidate_indirections.register(Mat)
-def _(mat: Mat, loop_axes):
-    return mat.candidate_layouts(loop_axes)
 
 
 @functools.singledispatch
@@ -837,142 +856,75 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatBufferExp
 
 
 @functools.singledispatch
-def _replace_with_real_dats(obj, layouts) -> Instruction:
+def concretize_materialized_indirections(obj, layouts) -> Instruction:
     raise TypeError
 
 
-@_replace_with_real_dats.register(InstructionList)
-def _(insn_list: InstructionList, /, layouts) -> InstructionList:
-    return maybe_enlist((_replace_with_real_dats(insn, layouts) for insn in insn_list))
+@concretize_materialized_indirections.register(InstructionList)
+def _(insn_list: InstructionList, /, layouts: Mapping[Any, Any]) -> InstructionList:
+    return maybe_enlist(concretize_materialized_indirections(insn, layouts) for insn in insn_list)
 
 
-@_replace_with_real_dats.register(Loop)
-def _(loop: Loop, /, layouts) -> Loop:
-    return loop.copy(statements=[_replace_with_real_dats(stmt, layouts) for stmt in loop.statements])
+@concretize_materialized_indirections.register(Loop)
+def _(loop: Loop, /, layouts: Mapping[Any, Any]) -> Loop:
+    return loop.copy(statements=[concretize_materialized_indirections(stmt, layouts) for stmt in loop.statements])
 
 
-@_replace_with_real_dats.register(NonEmptyBufferAssignment)
-def _(assignment: NonEmptyBufferAssignment, /, layouts) -> NonEmptyBufferAssignment:
-    return NonEmptyBufferAssignment(
-        _compress_array_indirection_maps(assignment.assignee, layouts, (assignment.id, 0)),
-        _compress_array_indirection_maps(assignment.expression, layouts, (assignment.id, 1)),
-        assignment.assignment_type,
-        assignment.axis_trees,
+@concretize_materialized_indirections.register(Terminal)
+def _(terminal: Terminal, /, layouts: Mapping[Any, Any]) -> Terminal:
+    return terminal.reconstruct(
+        arguments=tuple(
+            concretize_materialized_tensor_indirections(arg, layouts, (terminal, i))
+            for i, arg in enumerate(terminal.arguments)
+        )
     )
 
 
-@_replace_with_real_dats.register(NonEmptyPetscMatAssignment)
-def _(assignment: NonEmptyPetscMatAssignment, /, layouts) -> NonEmptyPetscMatAssignment:
-    return type(assignment)(
-        _compress_array_indirection_maps(assignment.mat, layouts, (assignment.id, 0)),
-        _compress_array_indirection_maps(assignment.values, layouts, (assignment.id, 1)),
-        assignment.access_type,
-        assignment.row_axis_tree,
-        assignment.column_axis_tree,
-    )
-
-
-@_replace_with_real_dats.register(ExplicitCalledFunction)
-def _(func: ExplicitCalledFunction, /, layouts) -> ExplicitCalledFunction:
-    return func
-
-
-@functools.singledispatch
-def _compress_array_indirection_maps(dat, layouts, outer_key):
-    if not isinstance(dat, Array):
-        return dat
-
-    assert False
-
-
-@_compress_array_indirection_maps.register(Dat)
-def _(dat: Dat, layouts, outer_key):
-    newlayouts = {}
-    for leaf_path in dat.axes.leaf_paths:
-        chosen_layout = layouts[outer_key + ((dat, leaf_path),)]
-        # try:
-        #     chosen_layout = layouts[outer_key + ((dat, leaf_path),)]
-        # except KeyError:
-        #     # zero-sized axis, no layout needed
-        #     chosen_layout = -1
-        newlayouts[leaf_path] = chosen_layout
-
-    return _ConcretizedDat(dat, newlayouts)
-
-
-@_compress_array_indirection_maps.register(Mat)
-# @_compress_array_indirection_maps.register(Sparsity)
-def _(mat, layouts, outer_key) -> PetscMatBufferExpression:
-    # If we have a temporary then things are easy and we do not need to substitute anything
-    # (at least for now)
-    if strictly_all(isinstance(ax, AxisTree) for ax in {mat.raxes, mat.caxes}):
-        return PetscMatBufferExpression(mat.buffer, mat.raxes.layouts, mat.caxes.layouts, parent=mat.parent)
-
-    def collect(axes, newlayouts, counter):
-        for leaf_path in axes.leaf_paths:
-            chosen_layout = layouts[outer_key + ((mat, leaf_path, counter),)]
-            # try:
-            #     chosen_layout = layouts[outer_key + ((mat, leaf_path, counter),)]
-            # except KeyError:
-            #     # zero-sized axis, no layout needed
-            #     chosen_layout = -1
-            newlayouts[leaf_path] = chosen_layout
-
-    row_layouts = {}
-    col_layouts = {}
-    collect(mat.raxes.pruned, row_layouts, 0)
-    collect(mat.caxes.pruned, col_layouts, 1)
-
-    # will go away when we can assert using types
-    assert mat.parent is None
-    return PetscMatBufferExpression(mat.buffer, row_layouts, col_layouts)
-
-
-def concretize_arrays(insn: Instruction, /) -> Instruction:
-    return _concretize_arrays_rec(insn, ())
-
-
-@functools.singledispatch
-def _concretize_arrays_rec(insn:Instruction, /, loop_indices) -> Instruction:
-    raise TypeError
-
-
-@_concretize_arrays_rec.register(InstructionList)
-def _(insn_list: InstructionList, /, loop_indices):
-    return InstructionList([_concretize_arrays_rec(insn, loop_indices) for insn in insn_list])
-
-
-@_concretize_arrays_rec.register(Loop)
-def _(loop: Loop, /, loop_indices) -> Loop:
-    loop_indices_ = loop_indices + (loop.index,)
-    return loop.copy(statements=[_concretize_arrays_rec(stmt, loop_indices_) for stmt in loop.statements])
-
-
-@_concretize_arrays_rec.register(NonEmptyBufferAssignment)
-def _(assignment: NonEmptyBufferAssignment, /, loop_axes_acc) -> NonEmptyBufferAssignment:
-    return type(assignment)(
-        expr_concretize_arrays(assignment.assignee, loop_axes_acc),
-        expr_concretize_arrays(assignment.expression, loop_axes_acc),
-        assignment.assignment_type,
-        assignment.axis_trees,
-    )
-
-
-@_concretize_arrays_rec.register(NonEmptyPetscMatAssignment)
-def _(assignment: NonEmptyPetscMatAssignment, /, loop_axes_acc) -> NonEmptyPetscMatAssignment:
-    return type(assignment)(
-        expr_concretize_arrays(assignment.mat, loop_axes_acc),
-        expr_concretize_arrays(assignment.values, loop_axes_acc),
-        assignment.access_type,
-        assignment.row_axis_tree,
-        assignment.column_axis_tree,
-    )
-
-
-@_concretize_arrays_rec.register(ExplicitCalledFunction)
-@_concretize_arrays_rec.register(NullInstruction)
-def _(func: ExplicitCalledFunction, /, loop_axes_acc) -> ExplicitCalledFunction:
-    return func
+# def concretize_arrays(insn: Instruction, /) -> Instruction:
+#     return _concretize_arrays_rec(insn, ())
+#
+#
+# @functools.singledispatch
+# def _concretize_arrays_rec(insn:Instruction, /, loop_indices) -> Instruction:
+#     raise TypeError
+#
+#
+# @_concretize_arrays_rec.register(InstructionList)
+# def _(insn_list: InstructionList, /, loop_indices):
+#     return InstructionList([_concretize_arrays_rec(insn, loop_indices) for insn in insn_list])
+#
+#
+# @_concretize_arrays_rec.register(Loop)
+# def _(loop: Loop, /, loop_indices) -> Loop:
+#     loop_indices_ = loop_indices + (loop.index,)
+#     return loop.copy(statements=[_concretize_arrays_rec(stmt, loop_indices_) for stmt in loop.statements])
+#
+#
+# @_concretize_arrays_rec.register(NonEmptyBufferAssignment)
+# def _(assignment: NonEmptyBufferAssignment, /, loop_axes_acc) -> NonEmptyBufferAssignment:
+#     return type(assignment)(
+#         expr_concretize_arrays(assignment.assignee, loop_axes_acc),
+#         expr_concretize_arrays(assignment.expression, loop_axes_acc),
+#         assignment.assignment_type,
+#         assignment.axis_trees,
+#     )
+#
+#
+# @_concretize_arrays_rec.register(NonEmptyPetscMatAssignment)
+# def _(assignment: NonEmptyPetscMatAssignment, /, loop_axes_acc) -> NonEmptyPetscMatAssignment:
+#     return type(assignment)(
+#         expr_concretize_arrays(assignment.mat, loop_axes_acc),
+#         expr_concretize_arrays(assignment.values, loop_axes_acc),
+#         assignment.access_type,
+#         assignment.row_axis_tree,
+#         assignment.column_axis_tree,
+#     )
+#
+#
+# @_concretize_arrays_rec.register(ExplicitCalledFunction)
+# @_concretize_arrays_rec.register(NullInstruction)
+# def _(func: ExplicitCalledFunction, /, loop_axes_acc) -> ExplicitCalledFunction:
+#     return func
 
 
 @functools.singledispatch
@@ -994,9 +946,9 @@ def _(loop: Loop, /) -> Loop | NullInstruction:
 
 
 @drop_zero_sized_paths.register(BufferAssignment)
-def _(assignment: BufferAssignment, /) -> NonEmptyBufferAssignment | NullInstruction:
+def _(assignment: BufferAssignment, /) -> NonEmptyArrayBufferAssignment | NullInstruction:
     assignee = assignment.assignee
-    if isinstance(assignee, Dat):
+    if isinstance(assignee, DatBufferExpression):
         axis_trees = (assignee.axes,)
     else:
         assert isinstance(assignee, Mat)

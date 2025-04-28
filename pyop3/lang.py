@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import abc
 import collections
+from collections.abc import Hashable, Mapping
 import dataclasses
 import enum
 import functools
 import numbers
+from os import stat
 import textwrap
 from functools import cached_property
-from typing import Iterable, Tuple
+from typing import Any, Iterable, Tuple
 
 import immutabledict
 import loopy as lp
@@ -20,13 +22,15 @@ from cachetools import cachedmethod
 from petsc4py import PETSc
 from pyrsistent import PMap, pmap
 
+from pyop3 import utils
 from pyop3.axtree import AxisTree
 from pyop3.axtree.tree import ContextFree, ContextSensitive
 from pyop3.config import config
 from pyop3.dtypes import dtype_limits
 from pyop3.exceptions import Pyop3Exception
 from pyop3.utils import (
-    UniqueRecord,
+    RecordMixin,
+    # UniqueRecord,
     deprecated,
     OrderedSet,
     as_tuple,
@@ -176,10 +180,11 @@ class PreprocessedExpression:
     expression: Instruction
 
 
-class Instruction(UniqueRecord, abc.ABC):
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self._cache = collections.defaultdict(dict)
+@dataclasses.dataclass(frozen=True)
+class Instruction(RecordMixin, abc.ABC):
+
+    def __init__(self) -> None:
+        object.__setattr__(self, "_cache", collections.defaultdict(dict))
 
     def __call__(self, *, compiler_parameters=None, **kwargs):
         compiler_parameters = parse_compiler_parameters(compiler_parameters)
@@ -198,9 +203,9 @@ class Instruction(UniqueRecord, abc.ABC):
             expand_loop_contexts,
             expand_assignments,
             prepare_petsc_calls,
-            compress_indirection_maps,
-            concretize_arrays,
             drop_zero_sized_paths,
+            materialize_indirections,
+            concretize_layouts,
         )
 
         insn = self
@@ -212,16 +217,17 @@ class Instruction(UniqueRecord, abc.ABC):
         insn = expand_implicit_pack_unpack(insn)
 
         insn = expand_assignments(insn)  # specifically reshape bits
+        insn = concretize_layouts(insn)
 
         # do this as early as possible because we don't like dealing with mats
         insn = prepare_petsc_calls(insn)
 
-        insn = drop_zero_sized_paths(insn)
+        # TODO: Add this bit into concretize_layouts...
+        # insn = drop_zero_sized_paths(insn)
+        insn = materialize_indirections(insn, optimize=compiler_parameters.compress_indirection_maps)
 
-        if compiler_parameters.compress_indirection_maps:
-            insn = compress_indirection_maps(insn)
-
-        insn = concretize_arrays(insn)
+        # TODO: remove this one
+        # insn = concretize_arrays(insn)
 
         return PreprocessedExpression(insn)
 
@@ -252,24 +258,27 @@ class ContextAwareInstruction(Instruction):
 _DEFAULT_LOOP_NAME = "pyop3_loop"
 
 
+@dataclasses.dataclass(init=False, frozen=True)
 class Loop(Instruction):
-    fields = Instruction.fields | {"index", "statements", "name"}
 
-    # doubt that I need an ID here
-    id_generator = pytools.UniqueNameGenerator()
+    # {{{ Instance attrs
+
+    index: LoopIndex
+    statements: tuple[Instruction]
+
+    # }}}
 
     def __init__(
         self,
         index: LoopIndex,
-        statements: Iterable[Instruction],
-        *,
-        name: str = _DEFAULT_LOOP_NAME,
+        statements: Iterable[Instruction] | Instruction,
         **kwargs,
     ):
+        statements = as_tuple(statements)
+
         super().__init__(**kwargs)
-        self.index = index
-        self.statements = as_tuple(statements)
-        self.name = name
+        object.__setattr__(self, "index", index)
+        object.__setattr__(self, "statements", statements)
 
     def __str__(self) -> str:
         stmt_strs = [textwrap.indent(str(stmt), "    ") for stmt in self.statements]
@@ -530,33 +539,17 @@ class Loop(Instruction):
         return self.index.datamap | merge_dicts(stmt.datamap for stmt in self.statements)
 
 
-# get rid of this
-class ContextAwareLoop(ContextAwareInstruction):
-    fields = Instruction.fields | {"index", "statements"}
-
-    def __init__(self, index, statements, **kwargs):
-        assert False, "dead code"
-        super().__init__(**kwargs)
-        self.index = index
-        self.statements = statements
-
-    @cached_property
-    def datamap(self):
-        return self.index.datamap | merge_dicts(
-            stmt.datamap for stmts in self.statements.values() for stmt in stmts
-        )
-
-
+@dataclasses.dataclass(frozen=True)
 class InstructionList(Instruction):
     """
     A list of instructions.
     """
-    fields = Instruction.fields | {"instructions"}
 
-    def __init__(self, instructions, *, name=_DEFAULT_LOOP_NAME, **kwargs):
-        super().__init__(**kwargs)
-        self.instructions = tuple(instructions)
-        self.name = name
+    # {{{ Instance attrs
+
+    instructions: tuple[Instruction]
+
+    # }}}
 
     def __iter__(self):
         return iter(self.instructions)
@@ -567,11 +560,6 @@ class InstructionList(Instruction):
     @cached_property
     def datamap(self):
         return merge_dicts(insn.datamap for insn in self.instructions)
-
-    @property
-    @deprecated("instructions")
-    def loops(self):
-        return self.instructions
 
 
 def enlist(insn: Instruction) -> InstructionList:
@@ -620,20 +608,20 @@ def _has_nontrivial_stencil(array):
         raise TypeError
 
 
-class Terminal(Instruction, abc.ABC):
-    # @cached_property
-    # def datamap(self):
-    #     return merge_dicts(a.datamap for a, _ in self.function_arguments)
-    #
-    # @property
-    # @abc.abstractmethod
-    # def argument_shapes(self):
-    #     pass
-    #
-    # @abc.abstractmethod
-    # def with_arguments(self, arguments: Iterable[KernelArgument]):
-    #     pass
-    pass
+@dataclasses.dataclass(init=False, frozen=True)
+class Terminal(Instruction, metaclass=abc.ABCMeta):
+
+    # {{{ Instance attrs
+
+    arguments: tuple
+
+    # }}}
+
+    def __init__(self, arguments, **kwargs):
+        arguments = tuple(arguments)
+
+        object.__setattr__(self, "arguments", arguments)
+        super().__init__(**kwargs)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -694,13 +682,20 @@ class Function:
         return self.code.default_entrypoint.name
 
 
+@dataclasses.dataclass(init=False, frozen=True)
 class AbstractCalledFunction(Terminal, metaclass=abc.ABCMeta):
+
+    # {{{ Instance attrs
+
+    function: Function
+
+    # }}}
+
     def __init__(
         self, function: Function, arguments: Iterable[FunctionArgument], **kwargs
     ) -> None:
-        super().__init__(**kwargs)
-        self.function = function
-        self.arguments = arguments
+        object.__setattr__(self, "function", function)
+        super().__init__(arguments, **kwargs)
 
     def __str__(self) -> str:
         return f"{self.name}({', '.join(arg.name for arg in self.arguments)})"
@@ -708,8 +703,6 @@ class AbstractCalledFunction(Terminal, metaclass=abc.ABCMeta):
     @property
     def name(self):
         return self.function.name
-
-    fields = Terminal.fields | {"function", "arguments"}
 
     @property
     def argspec(self):
@@ -725,8 +718,6 @@ class AbstractCalledFunction(Terminal, metaclass=abc.ABCMeta):
             arg.shape if not isinstance(arg, lp.ValueArg) else ()
             for arg in self.function.code.default_entrypoint.args
         )
-
-
 
 
 class CalledFunction(AbstractCalledFunction):
@@ -759,14 +750,21 @@ def assignment_type_as_intent(assignment_type: AssignmentType) -> Intent:
             raise AssertionError(f"{assignment_type} not recognised")
 
 
-class AbstractAssignment(Terminal):
+@dataclasses.dataclass(init=False, frozen=True)
+class AbstractAssignment(Terminal, metaclass=abc.ABCMeta):
+
+    # {{{ Instance attrs
+
+    assignment_type: AssignmentType
+
+    # }}}
+
     def __init__(self, assignee, expression, assignment_type, **kwargs):
+        arguments = (assignee, expression)
         assignment_type = AssignmentType(assignment_type)
 
-        super().__init__(**kwargs)
-        self.assignee = assignee
-        self.expression = expression
-        self.assignment_type = assignment_type
+        object.__setattr__(self, "assignment_type", assignment_type)
+        super().__init__(arguments, **kwargs)
 
     def __str__(self) -> str:
         if self.assignment_type == AssignmentType.WRITE:
@@ -802,26 +800,31 @@ class AbstractAssignment(Terminal):
             else:
                 return f"{just_one(assignee_strs)} {operator} {just_one(expression_strs)}"
 
+    @property
+    def assignee(self):
+        return self.arguments[0]
 
+    @property
+    def expression(self):
+        return self.arguments[1]
+
+
+@dataclasses.dataclass(init=False, frozen=True)
 class AbstractBufferAssignment(AbstractAssignment, metaclass=abc.ABCMeta):
     pass
 
 
+@dataclasses.dataclass(init=False, frozen=True)
 class BufferAssignment(AbstractBufferAssignment):
-    fields = Terminal.fields | {"assignee", "expression", "assignment_type"}
-
-    # not really important any more
-    name = "pyop3_assignment"
-
     # def __init__(self, assignee, *args, **kwargs):
     #     if assignee.name == "t_5": # deebug
     #         breakpoint()
     #     super().__init__(assignee, *args, **kwargs)
 
-    @property
-    def arguments(self):
-        # FIXME Not sure this is right for complicated expressions
-        return (self.assignee, self.expression)
+    # @property
+    # def arguments(self):
+    #     # FIXME Not sure this is right for complicated expressions
+    #     return (self.assignee, self.expression)
 
     @property
     def arrays(self):
@@ -870,9 +873,10 @@ class BufferAssignment(AbstractBufferAssignment):
         return tuple(args)
 
     def with_axes(self, axes: AxisTree) -> NonEmptyAssignmentMixin:
-        return NonEmptyBufferAssignment(self.assignee, self.expression, self.assignment_type, axes)
+        return NonEmptyArrayBufferAssignment(self.assignee, self.expression, self.assignment_type, axes)
 
 
+@dataclasses.dataclass(init=False, frozen=True)
 class AbstractPetscMatAssignment(AbstractAssignment, metaclass=abc.ABCMeta):
     def __init__(self, mat, values, access_type):
         if access_type == ArrayAccessType.READ:
@@ -895,6 +899,7 @@ class AbstractPetscMatAssignment(AbstractAssignment, metaclass=abc.ABCMeta):
         self.access_type = access_type
 
 
+@dataclasses.dataclass(init=False, frozen=True)
 class PetscMatAssignment(AbstractPetscMatAssignment):
     def with_axes(self, row_axis_tree, col_axis_tree):
         return NonEmptyPetscMatAssignment(self.mat, self.values, self.access_type, row_axis_tree, col_axis_tree)
@@ -902,24 +907,28 @@ class PetscMatAssignment(AbstractPetscMatAssignment):
 
 # NOTE: These are internal classes, can be moved elsewhere
 class NonEmptyAssignmentMixin(abc.ABC):
-    @property
-    @abc.abstractmethod
-    def axis_trees(self) -> AxisTree:
-        pass
+    pass  # now on Terminal
+    # @property
+    # @abc.abstractmethod
+    # def axis_trees(self) -> AxisTree:
+    #     pass
 
 
-class NonEmptyBufferAssignment(AbstractBufferAssignment, NonEmptyAssignmentMixin):
-    fields = Terminal.fields | {"assignee", "expression", "assignment_type", "axis_trees"}
+@dataclasses.dataclass(init=False, frozen=True)
+class NonEmptyArrayBufferAssignment(AbstractBufferAssignment, NonEmptyAssignmentMixin):
+
+    _axis_trees: Any
 
     def __init__(self, assignee, expression, assignment_type, axis_trees, **kwargs):
         super().__init__(assignee, expression, assignment_type, **kwargs)
-        self._axis_trees = tuple(axis_trees)
+        object.__setattr__(self, "_axis_trees", tuple(axis_trees))
 
     @property
     def axis_trees(self) -> tuple[AxisTree]:
         return self._axis_trees
 
 
+@dataclasses.dataclass(init=False, frozen=True)
 class NonEmptyPetscMatAssignment(AbstractPetscMatAssignment, NonEmptyAssignmentMixin):
     def __init__(self, mat, values, access_type, row_axis_tree, column_axis_tree, **kwargs):
         super().__init__(mat, values, access_type, **kwargs)
@@ -937,39 +946,6 @@ class ArrayAccessType(enum.Enum):
     READ = "read"
     WRITE = "write"
     INC = "inc"
-
-
-# class PetscMatAccess(AbstractAssignment):
-#     fields = AbstractAssignment.fields | {"mat_arg", "array_arg", "access_type"}
-#
-#     def __init__(self, mat_arg, array_arg, access_type):
-#         from pyop3.array import Dat
-#
-#         access_type = PetscMatAccessType(access_type)
-#
-#         if isinstance(array_arg, numbers.Number):
-#             array_arg = Dat(
-#                 mat_arg.axes,
-#                 data=np.full(mat_arg.axes.size, array_arg, dtype=mat_arg.dtype),
-#                 prefix="t",
-#                 constant=True,
-#             )
-#
-#
-#         assert mat_arg.dtype == array_arg.dtype
-#
-#         self.mat_arg = mat_arg
-#         self.array_arg = array_arg
-#         self.access_type = access_type
-#
-#     @property
-#     def kernel_arguments(self):
-#         args = (self.mat_arg.mat,)
-#         if isinstance(self.array_arg, ContextSensitive):
-#             args += tuple(dat.buffer for dat in self.array_arg.context_map.values())
-#         else:
-#             args += (self.array_arg.buffer,)
-#         return args
 
 
 class OpaqueKernelArgument(KernelArgument, ContextFree):

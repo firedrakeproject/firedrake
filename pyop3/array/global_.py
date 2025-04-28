@@ -5,12 +5,13 @@ from typing import ClassVar
 import numpy as np
 from mpi4py import MPI
 
+from pyop3 import utils
 from pyop3.array.base import DistributedArray
 from pyop3.buffer import AbstractBuffer, ArrayBuffer
 from pyop3.sf import single_star_sf
 
 
-@dataclasses.dataclass(init=False, frozen=True)
+@utils.record(init=False)
 class Global(DistributedArray):
 
     # {{{ Instance attrs

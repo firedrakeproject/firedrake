@@ -14,7 +14,7 @@ from typing import Any, Collection, Hashable, Mapping, Sequence, Type, cast, Opt
 
 import numpy as np
 import pymbolic as pym
-from pyop3.array.dat import DatBufferExpression
+from pyop3.array.dat import DatBufferExpression, as_linear_buffer_expression
 from pyop3.exceptions import Pyop3Exception
 from pyop3.extras.debug import maybe_breakpoint
 import pytools
@@ -40,7 +40,7 @@ from pyop3.axtree.tree import (
     OWNED_REGION_LABEL,
 )
 from pyop3.dtypes import IntType
-from pyop3.expr_visitors import replace_terminals, replace as expr_replace
+from pyop3.expr_visitors import collect_axis_vars, replace_terminals, replace as expr_replace
 from pyop3.lang import KernelArgument
 from pyop3.sf import StarForest
 from pyop3.tree import (
@@ -165,13 +165,10 @@ class SubsetSliceComponent(SliceComponent):
     fields = SliceComponent.fields | {"array"}
 
     def __init__(self, component, array, **kwargs):
-        super().__init__(component, **kwargs)
-        self.array = array
+        array = as_linear_buffer_expression(array)
 
-    @property
-    def datamap(self) -> ImmutableOrderedDict:
-        assert False, "old"
-        return self.array.datamap
+        self.array = array
+        super().__init__(component, **kwargs)
 
     @property
     def is_full(self) -> bool:
@@ -1197,10 +1194,11 @@ def _(slice_: Slice, *, prev_axes, expr_replace_map, **_):
                 assert isinstance(slice_component, Subset)
 
                 # NOTE: This replacement could probably be done more eagerly
-                subset_axes = slice_component.array.axes
-                assert subset_axes.is_linear and subset_axes.depth == 1
-                subset_axis = subset_axes.root
-                replace_map = {subset_axis.label: AxisVar(axis.label)}
+                # subset_axes = slice_component.array.axes
+                # assert subset_axes.is_linear and subset_axes.depth == 1
+                # subset_axis = subset_axes.root
+                myvar = just_one(collect_axis_vars(slice_component.array.layout))
+                replace_map = {myvar.axis_label: AxisVar(axis.label)}
 
                 index_exprs_per_subslice.append(ImmutableOrderedDict({slice_.axis: replace_terminals(slice_component.array, replace_map)}))
 

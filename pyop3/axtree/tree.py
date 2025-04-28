@@ -236,6 +236,7 @@ class AxisComponentRegion:
 @functools.singledispatch
 def _parse_regions(obj: Any) -> tuple[AxisComponentRegion, ...]:
     from pyop3.array import Dat
+    from pyop3.array.dat import as_linear_buffer_expression
 
     if isinstance(obj, Dat):
         # Dats used as extents for axis component regions have a stricter
@@ -244,7 +245,8 @@ def _parse_regions(obj: Any) -> tuple[AxisComponentRegion, ...]:
         orig_dat = obj
         bf = orig_dat.buffer
         orig_dat = Dat(orig_dat.axes.undistribute(), buffer=type(bf)(bf._data,sf=None))
-        dat = orig_dat._as_expression_dat()
+        # dat = orig_dat._as_expression_dat()
+        dat = as_linear_buffer_expression(orig_dat)
         # debugging
         # interesting, this change breaks stuff!!!
         return (AxisComponentRegion(dat),)
@@ -1436,16 +1438,17 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def outer_loops(self):
         return ()
 
-    @cached_property
-    def datamap(self):
-        if self.is_empty:
-            dmap = {}
-        else:
-            dmap = postvisit(self, _collect_datamap, axes=self)
-        return ImmutableOrderedDict(dmap)
-
     def materialize(self):
         return self
+
+    def linearize(self, path: Mapping[str, str]) -> AxisTree:
+        """Return the axis tree dropping all components not specified in the path."""
+        if not self.is_valid_path(path):
+            raise ValueError("Provided path must go all the way from the root to a leaf")
+
+        visited_axes = self.path_with_nodes(self._node_from_path(path), and_components=True)
+        linear_axes = [Axis([component], axis.label) for axis, component in visited_axes.items()]
+        return AxisTree.from_iterable(linear_axes)
 
     # NOTE: should default to appending (assuming linear)
     def add_axis(self, axis, parent_axis, parent_component=None, *, uniquify=False):
@@ -1655,7 +1658,7 @@ class IndexedAxisTree(AbstractAxisTree):
     def outer_loops(self):
         return self._outer_loops
 
-    def materialize(self, *, local=False):
+    def materialize(self, *, local=False) -> AxisTree:
         if self.is_empty:
             return AxisTree()
         elif not local:

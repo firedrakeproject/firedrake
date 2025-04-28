@@ -54,8 +54,8 @@ def record_modified(func):
     return wrapper
 
 
-@utils.record
-class AbstractBuffer(KernelArgument, utils.RecordMixin, abc.ABC):
+@utils.record(init=False)
+class AbstractBuffer(KernelArgument, utils.RecordMixin, metaclass=abc.ABCMeta):
 
     # {{{ Instance attrs
 
@@ -85,8 +85,12 @@ class AbstractBuffer(KernelArgument, utils.RecordMixin, abc.ABC):
         pass
 
 
-@utils.record
-class NullBuffer(AbstractBuffer):
+class AbstractArrayBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
+    pass
+
+
+@utils.record(init=False)
+class NullBuffer(AbstractArrayBuffer):
     """A buffer that does not carry data.
 
     This is useful for handling temporaries when we generate code. For much
@@ -129,19 +133,15 @@ class NullBuffer(AbstractBuffer):
 
 
 
-@utils.record
-class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
+@utils.record()
+class ConcreteBufferMixin(metaclass=abc.ABCMeta):
     """Abstract class representing buffers that carry actual data."""
 
     # {{{ Instance attrs
 
-    constant: bool
+    constant: bool = False
 
     # }}}
-
-    def __init__(self, name: str | None = None, constant: bool = False, *, prefix: str | None = None):
-        object.__setattr__(self, "constant", constant)
-        super().__init__(name, prefix=prefix)
 
     @property
     @abc.abstractmethod
@@ -156,8 +156,8 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
 
 # NOTE: When GPU support is added, the host-device awareness and
 # copies should live in this class.
-@utils.record
-class ArrayBuffer(ConcreteBuffer):
+@utils.record(init=False)
+class ArrayBuffer(AbstractArrayBuffer, ConcreteBufferMixin):
     """A buffer whose underlying data structure is a numpy array."""
 
     # {{{ Instance attrs
@@ -174,9 +174,12 @@ class ArrayBuffer(ConcreteBuffer):
     # }}}
 
     def __init__(self, data: np.ndarray, sf: StarForest | None = None, **kwargs):
-        object.__setattr__(self, "_lazy_data", data)
-        object.__setattr__(self, "sf", sf)
+        constant = kwargs.pop("constant", ConcreteBufferMixin.__dataclass_fields__["constant"].default)
+
+        self._lazy_data = data
+        self.sf = sf
         super().__init__(**kwargs)
+        ConcreteBufferMixin.__init__(self, constant=constant)
 
         # counter used to keep track of modifications
         self._state = 0
@@ -426,8 +429,8 @@ class ArrayBuffer(ConcreteBuffer):
         self._broadcast_roots_to_leaves()
 
 
-@utils.record
-class AbstractPetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
+@utils.record(init=False)
+class AbstractPetscMatBuffer(AbstractBuffer, ConcreteBufferMixin, metaclass=abc.ABCMeta):
     """A buffer whose underlying data structure is a PETSc Mat."""
 
     # {{{ Instance attrs
@@ -526,7 +529,7 @@ class AbstractPetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
         return mat
 
 
-@utils.record
+@utils.record(init=False)
 class PetscMatBuffer(AbstractPetscMatBuffer):
     """A buffer whose underlying data structure is a PETSc Mat."""
 
@@ -548,7 +551,7 @@ class PetscMatBuffer(AbstractPetscMatBuffer):
 
 
 
-@utils.record
+@utils.record(init=False)
 class PetscMatPreallocatorBuffer(AbstractPetscMatBuffer):
     """A buffer whose underlying data structure is a PETSc Mat."""
 

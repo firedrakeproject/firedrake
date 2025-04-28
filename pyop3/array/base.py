@@ -16,7 +16,7 @@ from pyop3.lang import FunctionArgument, BufferAssignment
 
 
 # TODO: rename 'DataCarrier'? Or TENSOR!!!!!!! Array is overloaded
-@dataclasses.dataclass(init=False, frozen=True)
+@utils.record(init=False)
 class Array(ContextAware, FunctionArgument, Expression, utils.RecordMixin, abc.ABC):
 
     # {{{ Instance attrs
@@ -96,7 +96,7 @@ class Array(ContextAware, FunctionArgument, Expression, utils.RecordMixin, abc.A
 
 
 # TODO: make this a dataclass and accept the buffer there
-@dataclasses.dataclass(init=False, frozen=True)
+@utils.record(init=False)
 class DistributedArray(Array, abc.ABC):
 
     # {{{ abstract methods

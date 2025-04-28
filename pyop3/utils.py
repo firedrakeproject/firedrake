@@ -104,12 +104,12 @@ class Labelled(abc.ABC):
 
 
 # TODO is Identified really useful?
-class UniqueRecord(pytools.ImmutableRecord, Identified):
-    fields = {"id"}
-
-    def __init__(self, id=None):
-        pytools.ImmutableRecord.__init__(self)
-        Identified.__init__(self, id)
+# class UniqueRecord(pytools.ImmutableRecord, Identified):
+#     fields = {"id"}
+#
+#     def __init__(self, id=None):
+#         pytools.ImmutableRecord.__init__(self)
+#         Identified.__init__(self, id)
 
 
 class ValueMismatchException(Pyop3Exception):
@@ -504,12 +504,13 @@ class RecordMixin(abc.ABC):
         return new
 
 
-# testing...
-def record(cls):
-    cls = dataclasses.dataclass(init=False)(cls)
-    cls.__hash__ = object.__hash__
-    cls.__eq__ = object.__eq__
-    return cls
+def record(init=True):
+    def wrapper(cls):
+        cls = dataclasses.dataclass(init=init)(cls)
+        cls.__hash__ = object.__hash__
+        cls.__eq__ = object.__eq__
+        return cls
+    return wrapper
 
 
 def unique_comm(iterable) -> MPI.Comm | None:

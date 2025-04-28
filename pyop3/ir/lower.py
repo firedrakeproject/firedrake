@@ -51,8 +51,7 @@ from pyop3.lang import (
     parse_compiler_parameters,
     WRITE,
     AssignmentType,
-    NonEmptyBufferAssignment,
-    ContextAwareLoop,  # TODO: remove this class
+    NonEmptyArrayBufferAssignment,
     ExplicitCalledFunction,
     NonEmptyPetscMatAssignment,
     PreprocessedExpression,
@@ -585,7 +584,6 @@ def _(insn_list: InstructionList, /, loop_indices, ctx) -> None:
         _compile(insn, loop_indices, ctx)
 
 
-@_compile.register(ContextAwareLoop)  # remove
 @_compile.register(Loop)
 def _(
     loop,
@@ -739,7 +737,7 @@ def _(call: ExplicitCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> N
 
 
 # FIXME this is practically identical to what we do in build_loop
-@_compile.register(NonEmptyBufferAssignment)
+@_compile.register(NonEmptyArrayBufferAssignment)
 def parse_assignment(
     assignment,
     loop_indices,

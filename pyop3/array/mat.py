@@ -60,7 +60,7 @@ class PetscVecNest(PetscVec):
     ...
 
 
-@utils.record
+@utils.record(init=False)
 class Mat(DistributedArray):
 
     # {{{ Instance attributes
