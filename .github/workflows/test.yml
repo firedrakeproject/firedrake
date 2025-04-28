@@ -92,6 +92,7 @@ jobs:
             --no-binary h5py \
             --extra-index-url https://download.pytorch.org/whl/cpu \
             './firedrake-repo[ci]'
+          pip install --ignore-installed "fenics-ufl @ git+https://github.com/FEniCS/ufl.git@main"
           firedrake-clean
           pip list
 
