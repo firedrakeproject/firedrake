@@ -320,8 +320,10 @@ def set_quad_rule(params, cell, integral_type, functions):
         fiat_cell = as_fiat_cell(cell)
         finat_elements = set(create_element(f.ufl_element()) for f in functions
                              if f.ufl_element().family() != "Real")
-        fiat_cells = [fiat_cell] + [finat_el.complex for finat_el in finat_elements]
-        fiat_cell = max_complex(fiat_cells)
+        # infinite recursion: if integral_type is cell, and cell is triangle (say),
+        # use coefficient_split to remove component functions on quad.
+        #fiat_cells = [fiat_cell] + [finat_el.complex for finat_el in finat_elements]
+        #fiat_cell = max_complex(fiat_cells)
 
         integration_dim, _ = lower_integral_type(fiat_cell, integral_type)
         quad_rule = fem.get_quadrature_rule(fiat_cell, integration_dim, quadrature_degree, scheme)
