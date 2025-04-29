@@ -1034,7 +1034,9 @@ def test_bdy_control():
     adj_derivatives = J_hat.derivative(options={"riesz_representation": "l2"})
     assert np.allclose(adj_derivatives[0].dat.data_ro, der_analytical0.dat.data_ro)
     assert np.allclose(adj_derivatives[1].dat.data_ro, der_analytical1.dat.data_ro)
-    J_hat([Function(R, val=1.5), Function(R, val=2.5)])
+    a = Function(R, val=1.5)
+    b = Function(R, val=2.5)
+    J_hat([a, b])
     # Verify the updated boundary conditions are not modify
     # the original boundary conditions.
     assert a is not J_hat.controls[0].block_variable.output \
