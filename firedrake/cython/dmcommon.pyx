@@ -4015,7 +4015,8 @@ def submesh_update_facet_labels(PETSc.DM dm, PETSc.DM subdm):
         if sub_ext_facet_is.iset:
             CHKERR(ISRestoreIndices(sub_ext_facet_is.iset, &sub_ext_facet_indices))
     else:
-        raise NotImplementedError("Currently, only implemented for cell submesh")
+        pass
+        #raise NotImplementedError("Currently, only implemented for cell submesh")
     CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
     subdm.removeLabel("interior_facets")
     subdm.removeLabel("exterior_facets")
