@@ -8,7 +8,6 @@ for single-source-of-truth of hardcoded values (via CI).
 
 """
 
-import configparser
 import pathlib
 import re
 from collections.abc import Mapping
@@ -22,22 +21,15 @@ class InvalidConfigurationException(Exception):
 
 
 def main():
-    config = read_config()
-    check_min_python_version(config["min-python-version"])
-    check_petsc_version(config["petsc-version"])
-    check_petsc_version_spec(config["petsc-version-spec"])
+    check_min_python_version()
+    check_petsc_version()
+    check_petsc_version_spec()
 
 
-def read_config() -> Mapping[str, str]:
-    parser = configparser.ConfigParser()
-    parser.read_file(open(REPO_ROOT / "config.ini"))
-    return parser["config"]
-
-
-def check_min_python_version(min_python_version: str) -> None:
-    check_file_contains_pattern(
+def check_min_python_version() -> None:
+    min_python_version = check_file_contains_pattern(
         REPO_ROOT / "pyproject.toml",
-        f"requires-python = \">={min_python_version}\""
+        f"requires-python = \">=(.*)\""
     )
     check_file_contains_pattern(
         REPO_ROOT / "docs/source/install.rst",
@@ -45,10 +37,10 @@ def check_min_python_version(min_python_version: str) -> None:
     )
 
 
-def check_petsc_version(petsc_version: str) -> None:
-    check_file_contains_pattern(
+def check_petsc_version() -> None:
+    petsc_version = check_file_contains_pattern(
         REPO_ROOT / "scripts/firedrake-configure",
-        f"SUPPORTED_PETSC_VERSION = \"v{petsc_version}\"",
+        f"SUPPORTED_PETSC_VERSION = \"v(.*)\"",
     )
     check_file_contains_pattern(
         REPO_ROOT / "pyproject.toml",
@@ -62,7 +54,7 @@ def check_petsc_version(petsc_version: str) -> None:
     )
 
 
-def check_petsc_version_spec(petsc_version_spec: str) -> None:
+def check_petsc_version_spec() -> None:
     # TODO when https://github.com/firedrakeproject/firedrake/pull/4194 is merged
     pass
 
@@ -71,7 +63,24 @@ def check_file_contains_pattern(
     filename: pathlib.Path | str,
     pattern: str,
     num_expected_matches: int = 1,
-) -> None:
+) -> str:
+    """Check that the regex pattern exists in the file.
+
+    Parameters
+    ----------
+    filename :
+        The filename.
+    pattern :
+        The regular expression pattern to look for.
+    num_expected_matches :
+        The number of expected matches.
+
+    Returns
+    -------
+    str :
+        The matched value. This follows the semantics of `re.findall`.
+
+    """
     with open(filename) as f:
         text = f.read()
     matches = re.findall(pattern, text)
@@ -80,6 +89,10 @@ def check_file_contains_pattern(
             f"Expected to find {num_expected_matches} matches for '{pattern}' in "
             f"{filename} but found {len(matches)}"
         )
+
+    # all the matches should be the same so just return one of them
+    match, = set(matches)
+    return match
 
 
 if __name__ == "__main__":
