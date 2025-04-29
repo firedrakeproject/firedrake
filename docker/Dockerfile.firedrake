@@ -7,6 +7,10 @@ RUN pip install --verbose \
         --extra-index-url https://download.pytorch.org/whl/cpu \
         jax ngsPETSc torch vtk
 
+# Set PYTHONPATH so netgen can be found
+# (see https://github.com/NGSolve/netgen/issues/213)
+ENV PYTHONPATH=/usr/local/lib/python3.12/site-packages:$PYTHONPATH
+
 # Install Firedrake apps
 RUN pip install --verbose --src /opt \
         -e git+https://github.com/firedrakeproject/asQ.git#egg=asQ \
