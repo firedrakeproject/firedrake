@@ -1619,12 +1619,42 @@ class MeshTopology(AbstractMeshTopology):
             target = self.submesh_parent
         target_dim = target.topology_dm.getDimension()
         source_dim = source.topology_dm.getDimension()
-        if source_dim != target_dim:
-            raise NotImplementedError(f"Not implemented for (source_dim, target_dim) == ({source_dim}, {target_dim})")
-        if source_integral_type == "cell":
+        if target_dim == source_dim:
+            if source_integral_type == "cell":
+                target_integral_type_temp = "cell"
+            elif source_integral_type in ["interior_facet", "exterior_facet"]:
+                target_integral_type_temp = "facet"
+            else:
+                raise NotImplementedError("Unsupported combination")
+        elif target_dim - 1 == source_dim:
+            if source_integral_type == "cell":
+                target_integral_type_temp = "facet"
+            else:
+                raise NotImplementedError("Unsupported combination")
+        elif target_dim == source_dim - 1:
+            if source_integral_type in ["interior_facet", "exterior_facet"]:
+                target_integral_type_temp = "cell"
+            else:
+                raise NotImplementedError("Unsupported combination")
+        else:
+            raise NotImplementedError("Unsupported combination")
+        if target_integral_type_temp == "cell":
+            _cell_numbers = target.cell_closure[:, -1]
+            with self.topology_dm.getSubpointIS() as subpoints:
+                if reverse:
+                    _, target_indices_cell, source_indices_cell = np.intersect1d(subpoints[_cell_numbers], source_subset_points, return_indices=True)
+                else:
+                    target_subset_points = subpoints[source_subset_points]
+                    _, target_indices_cell, source_indices_cell = np.intersect1d(_cell_numbers, target_subset_points, return_indices=True)
+            n_cell = len(source_indices_cell)
+            n_cell_max = self._comm.allreduce(n_cell, op=MPI.MAX)
+            if n_cell_max > 0:
+                if n_cell > len(source_subset_points):
+                    raise RuntimeError("Found inconsistent data")
             target_integral_type = "cell"
-            target_subset_points = None
-        elif source_integral_type in ["interior_facet", "exterior_facet"]:
+            if reverse:
+                target_subset_points = _cell_numbers[target_indices_cell]
+        elif target_integral_type_temp == "facet":
             _exterior_facet_numbers, _, _ = target._exterior_facet_numbers_classes_set
             _interior_facet_numbers, _, _ = target._interior_facet_numbers_classes_set
             with self.topology_dm.getSubpointIS() as subpoints:
@@ -1655,13 +1685,11 @@ class MeshTopology(AbstractMeshTopology):
                 raise RuntimeError("Can not find a map from source to target.")
             if reverse:
                 if target_integral_type == "interior_facet":
-                    _interior_facet_numbers, _, _ = target._interior_facet_numbers_classes_set
                     target_subset_points = _interior_facet_numbers[target_indices_int]
                 elif target_integral_type == "exterior_facet":
-                    _exterior_facet_numbers, _, _ = target._exterior_facet_numbers_classes_set
                     target_subset_points = _exterior_facet_numbers[target_indices_ext]
         else:
-            raise NotImplementedError(f"Not implemented for (source_dim, target_dim, source_integral_type) == ({source_dim}, {target_dim}, {source_integral_type})")
+            raise NotImplementedError
         if reverse:
             map_ = getattr(self, f"submesh_parent_{source_integral_type}_child_{target_integral_type}_map")
         else:
@@ -1697,7 +1725,8 @@ class MeshTopology(AbstractMeshTopology):
             raise NotImplementedError("Currenlty can not return identity map")
         else:
             if base_integral_type == "cell":
-                base_subset_points = None
+                base_subset = base_mesh.measure_set(base_integral_type, base_subdomain_id, all_integer_subdomain_ids=base_all_integer_subdomain_ids)
+                base_subset_points = base_mesh.cell_closure[:, -1][base_subset.indices]
             elif base_integral_type in ["interior_facet", "exterior_facet"]:
                 base_subset = base_mesh.measure_set(base_integral_type, base_subdomain_id, all_integer_subdomain_ids=base_all_integer_subdomain_ids)
                 if base_integral_type == "interior_facet":
