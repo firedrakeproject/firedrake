@@ -1265,11 +1265,16 @@ class MeshTopology(AbstractMeshTopology):
         assert tdim == cell.topological_dimension()
         if self.submesh_parent is not None and \
            not dmcommon.is_mixed_cell_type(self.submesh_parent.topology_dm):
+            topology = FIAT.ufc_cell(cell).get_topology()
+            entity_per_cell = np.zeros(len(topology), dtype=IntType)
+            for d, ents in topology.items():
+                entity_per_cell[d] = len(ents)
             return dmcommon.submesh_create_cell_closure_cell_submesh(plex,
                                                                      self.submesh_parent.topology_dm,
                                                                      cell_numbering,
                                                                      self.submesh_parent._cell_numbering,
-                                                                     self.submesh_parent.cell_closure)
+                                                                     self.submesh_parent.cell_closure,
+                                                                     entity_per_cell)
         elif cell.is_simplex():
             topology = FIAT.ufc_cell(cell).get_topology()
             entity_per_cell = np.zeros(len(topology), dtype=IntType)
@@ -4705,10 +4710,13 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
     mesh.topology.init()
     plex = mesh.topology_dm
     dim = plex.getDimension()
-    if subdim != dim:
-        raise NotImplementedError(f"Found submesh dim ({subdim}) != parent dim ({dim})")
+    if subdim not in [dim, dim - 1]:
+        raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
     if label_name is None:
-        label_name = dmcommon.CELL_SETS_LABEL
+        if subdim == dim:
+            label_name = dmcommon.CELL_SETS_LABEL
+        elif subdim == dim - 1:
+            label_name = dmcommon.FACE_SETS_LABEL
     name = name or _generate_default_submesh_name(mesh.name)
     subplex = dmcommon.submesh_create(plex, label_name, subdomain_id)
     subplex.setName(_generate_default_mesh_topology_name(name))

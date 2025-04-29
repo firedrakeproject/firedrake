@@ -3858,7 +3858,8 @@ def submesh_update_facet_labels(PETSc.DM dm, PETSc.DM subdm):
         if sub_ext_facet_is.iset:
             CHKERR(ISRestoreIndices(sub_ext_facet_is.iset, &sub_ext_facet_indices))
     else:
-        raise NotImplementedError("Currently, only implemented for cell submesh")
+        pass
+        #raise NotImplementedError("Currently, only implemented for cell submesh")
     CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
     subdm.removeLabel("interior_facets")
     subdm.removeLabel("exterior_facets")
@@ -3870,7 +3871,8 @@ def submesh_create_cell_closure_cell_submesh(PETSc.DM subdm,
                                              PETSc.DM dm,
                                              PETSc.Section subcell_numbering,
                                              PETSc.Section cell_numbering,
-                                             np.ndarray cell_closure):
+                                             np.ndarray cell_closure,
+                                             np.ndarray entity_per_subcell):
     """Inherit cell_closure from parent.
 
     Parameters
@@ -3885,17 +3887,26 @@ def submesh_create_cell_closure_cell_submesh(PETSc.DM subdm,
         The cell_numbering of the parent mesh.
     cell_closure : numpy.ndarray
         The cell_closure of the parent mesh.
+    entity_per_subcell : numpy.ndarray
+        List of the number of entity points in each dimension on subcell.
 
     """
     cdef:
         PETSc.IS subpoint_is
         const PetscInt *subpoint_indices = NULL
         PetscInt *subpoint_indices_inv = NULL
+        PetscInt dim, subdim
         PetscInt subpStart, subpEnd, subp, subcStart, subcEnd, subc, subcell
         PetscInt pStart, pEnd, p, cStart, cEnd, c, cell
-        PetscInt nclosure, cl
+        PetscInt nclosure, cl, nsubclosure, subcl, nsupport
+        PetscInt *subclosure = NULL
+        const PetscInt *support
         np.ndarray subcell_closure
 
+    dim = get_topological_dimension(dm)
+    subdim = get_topological_dimension(subdm)
+    if subdim != dim and subdim !=  dim - 1:
+        raise NotImplementedError(f"subdim = {subdim} and dim = {dim}")
     get_chart(subdm.dm, &subpStart, &subpEnd)
     get_height_stratum(subdm.dm, 0, &subcStart, &subcEnd)
     get_chart(dm.dm, &pStart, &pEnd)
@@ -3905,21 +3916,41 @@ def submesh_create_cell_closure_cell_submesh(PETSc.DM subdm,
     CHKERR(PetscMalloc1(pEnd - pStart, &subpoint_indices_inv))
     for p in range(pStart, pEnd):
         subpoint_indices_inv[p - pStart] = -1
-    for subp in range(subpStart, subpEnd):
-        subpoint_indices_inv[subpoint_indices[subp] - pStart] = subp
+    subcell_closure = np.empty((subcEnd - subcStart, sum(entity_per_subcell)), dtype=IntType)
     nclosure = cell_closure.shape[1]
-    subcell_closure = np.empty((subcEnd - subcStart, nclosure), dtype=IntType)
+    nsubclosure = subcell_closure.shape[1]
     for subc in range(subcStart, subcEnd):
         c = subpoint_indices[subc]
+        if subdim == dim:
+            pass
+        elif subdim == dim - 1:
+            CHKERR(DMPlexGetSupportSize(dm.dm, c, &nsupport))
+            CHKERR(DMPlexGetSupport(dm.dm, c, &support))
+            if nsupport <= 0:
+                raise RuntimeError(f"Num. support = {nsupport} (<= 0) for parent facet {c}")
+            # Assume single cell type mesh and pick arbitrary side.
+            c = support[0]
         CHKERR(PetscSectionGetOffset(subcell_numbering.sec, subc, &subcell))
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
+        get_transitive_closure(subdm.dm, subc, PETSC_TRUE, &nsubclosure, &subclosure)
+        for subcl in range(nsubclosure):
+            subp = subclosure[2*subcl]
+            p = subpoint_indices[subp]
+            subpoint_indices_inv[p - pStart] = subp  # set to non-negative subp.
+        subcl = 0
         for cl in range(nclosure):
             p = cell_closure[cell, cl]
             subp = subpoint_indices_inv[p]
             if subp >= 0:
-                subcell_closure[subcell, cl] = subp
-            else:
-                raise RuntimeError(f"subcell = {subcell}, cell = {cell}, p = {p}, subp = {subp}")
+                subcell_closure[subcell, subcl] = subp
+                subcl += 1
+        if subcl != nsubclosure:
+            raise RuntimeError(f"subcl {(subcl)} != nsubclosure {(nsubclosure)}")
+        for subcl in range(nsubclosure):
+            subp = subclosure[2*subcl]
+            p = subpoint_indices[subp]
+            subpoint_indices_inv[p - pStart] = -1  # set back to -1.
+        restore_transitive_closure(subdm.dm, subc, PETSC_TRUE, &nsubclosure, &subclosure)
     CHKERR(PetscFree(subpoint_indices_inv))
     CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
     return subcell_closure
