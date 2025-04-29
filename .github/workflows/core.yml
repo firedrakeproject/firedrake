@@ -513,7 +513,7 @@ jobs:
         run: make lint GITHUB_ACTIONS_FORMATTING=1
 
   deploy_website:
-    name: Deploy GitHub pages
+    name: Deploy GitHub pages (optional)
     needs: test_linux
     if: |
       always() &&
@@ -532,12 +532,12 @@ jobs:
 
   upload_pypi:
     name: Upload to PyPI (optional)
+    needs: test_linux
     if: |
       always() &&
       inputs.upload_pypi &&
       inputs.target_branch == 'release' &&
       needs.test_linux.outputs.sdist_conclusion == 'success'
-    needs: test_linux
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -553,12 +553,12 @@ jobs:
 
   upload_testpypi:
     name: Upload to TestPyPI (optional)
+    needs: test_linux
     if: |
       always() &&
       inputs.upload_testpypi &&
       inputs.target_branch == 'release' &&
       needs.test_linux.outputs.sdist_conclusion == 'success'
-    needs: test_linux
     runs-on: ubuntu-latest
     environment:
       name: testpypi
