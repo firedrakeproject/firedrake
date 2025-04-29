@@ -1557,6 +1557,16 @@ class MeshTopology(AbstractMeshTopology):
         return self._submesh_make_entity_entity_map(_self_set, _parent_set, _self_numbers, _parent_numbers, True)
 
     @utils.cached_property
+    def submesh_child_cell_parent_interior_facet_map(self):
+        _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
+        return self._submesh_make_entity_entity_map(self.cell_set, _parent_set, self.cell_closure[:, -1], _parent_numbers, True)
+
+    @utils.cached_property
+    def submesh_child_cell_parent_exterior_facet_map(self):
+        _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
+        return self._submesh_make_entity_entity_map(self.cell_set, _parent_set, self.cell_closure[:, -1], _parent_numbers, True)
+
+    @utils.cached_property
     def submesh_parent_cell_child_cell_map(self):
         return self._submesh_make_entity_entity_map(self.submesh_parent.cell_set, self.cell_set, self.submesh_parent.cell_closure[:, -1], self.cell_closure[:, -1], False)
 
@@ -1581,6 +1591,16 @@ class MeshTopology(AbstractMeshTopology):
         _self_numbers, _, _self_set = self._interior_facet_numbers_classes_set
         _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
         return self._submesh_make_entity_entity_map(_parent_set, _self_set, _parent_numbers, _self_numbers, False)
+
+    @utils.cached_property
+    def submesh_parent_exterior_facet_child_cell_map(self):
+        _parent_numbers, _, _parent_set = self.submesh_parent._exterior_facet_numbers_classes_set
+        return self._submesh_make_entity_entity_map(_parent_set, self.cell_set, _parent_numbers, self.cell_closure[:, -1], False)
+
+    @utils.cached_property
+    def submesh_parent_interior_facet_child_cell_map(self):
+        _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
+        return self._submesh_make_entity_entity_map(_parent_set, self.cell_set, _parent_numbers, self.cell_closure[:, -1], False)
 
     def submesh_map_child_parent(self, source_integral_type, source_subset_points, reverse=False):
         """Return the map from submesh child entities to submesh parent entities or its reverse.
