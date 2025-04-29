@@ -6,7 +6,7 @@ on:
 
 jobs:
   deploy:
-    if: ! startsWith( github.ref_name, 'Zenodo' )
+    if: '!startsWith( github.ref_name, ''Zenodo'' )'
     uses: ./.github/workflows/core.yml
     with:
       target_branch: release
@@ -15,7 +15,7 @@ jobs:
     secrets: inherit
 
   docker:
-    if: ! startsWith( github.ref_name, 'Zenodo' )
+    if: '!startsWith( github.ref_name, ''Zenodo'' )'
     name: Build Docker containers
     uses: ./.github/workflows/docker.yml
     with:
