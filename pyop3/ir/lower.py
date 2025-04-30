@@ -688,7 +688,7 @@ def _(call: StandaloneCalledFunction, loop_indices, ctx: LoopyCodegenContext) ->
             if loopy_arg.shape is None:
                 shape = (temporary.alloc_size,)
             else:
-                if np.prod(loopy_arg.shape, dtype=int) != temporary.alloc_size:
+                if np.prod(loopy_arg.shape, dtype=int) != temporary.buffer.size:
                     raise RuntimeError("Shape mismatch between inner and outer kernels")
                 shape = loopy_arg.shape
 

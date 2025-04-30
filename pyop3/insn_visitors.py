@@ -873,7 +873,12 @@ def _(insn_list: InstructionList, /, layouts: Mapping[Any, Any]) -> InstructionL
 
 @concretize_materialized_indirections.register(Loop)
 def _(loop: Loop, /, layouts: Mapping[Any, Any]) -> Loop:
-    return loop.copy(statements=[concretize_materialized_indirections(stmt, layouts) for stmt in loop.statements])
+    return loop.__record_init__(statements=tuple(concretize_materialized_indirections(stmt, layouts) for stmt in loop.statements))
+
+
+@concretize_materialized_indirections.register(StandaloneCalledFunction)
+def _(func: StandaloneCalledFunction, /, layouts: Mapping[Any, Any]) -> StandaloneCalledFunction:
+    return func
 
 
 @concretize_materialized_indirections.register(NonEmptyArrayAssignment)

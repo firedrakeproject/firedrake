@@ -9,6 +9,7 @@ import operator
 from collections.abc import Iterable, Mapping
 from typing import Any, Optional
 
+import numpy as np
 from immutabledict import ImmutableOrderedDict
 from pyop3.array.dat import DatBufferExpression, PetscMatBufferExpression
 from pyop3.buffer import AbstractArrayBuffer, PetscMatBuffer, AbstractPetscMatBuffer
@@ -446,7 +447,7 @@ def _(dat_expr: NonlinearDatBufferExpression, /, *, axis_trees: Iterable[AxisTre
 
     axis_tree = just_one(axis_trees)
     return ImmutableOrderedDict({
-        (dat_expr, path): collect_candidate_indirections(layout, axis_tree, loop_indices)
+        (dat_expr, path): collect_candidate_indirections(layout, axis_tree.linearize(path), loop_indices)
         for path, layout in dat_expr.layouts.items()
     })
 
@@ -590,9 +591,9 @@ def _(op: Operator, /, visited_axes, loop_axes) -> tuple:
     # Only do this when the cost is large as small arrays will fit in cache
     # and not benefit from the optimisation.
     if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
-        compressed_expr = CompositeDat(op, visited_axes, loop_axes, IntType)
-        compressed_cost = extract_axes(op, visited_axes, loop_axes, {}).size
-        candidates.append((compressed_expr, compressed_cost))
+        axes = extract_axes(op, visited_axes, loop_axes, {})
+        compressed_expr = CompositeDat(axes, {visited_axes.leaf_path: op}, loop_axes, IntType)
+        candidates.append((compressed_expr, axes.size))
 
     return tuple(candidates)
 
@@ -612,8 +613,8 @@ def _(expr: LinearDatBufferExpression, /, visited_axes, loop_axes) -> tuple:
         candidates.append((candidate_expr, candidate_cost))
 
     if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
-        compressed_cost = extract_axes(expr, visited_axes, loop_axes, {}).size
-        candidates.append((CompositeDat(expr, visited_axes, loop_axes, IntType), compressed_cost))
+        axes = extract_axes(expr, visited_axes, loop_axes, {})
+        candidates.append((CompositeDat(axes, {visited_axes.leaf_path: expr}, loop_axes, IntType), axes.size))
     return tuple(candidates)
 
 
@@ -691,7 +692,7 @@ def _(buffer_expr: LinearDatBufferExpression, layouts, key):
 @concretize_materialized_tensor_indirections.register(NonlinearDatBufferExpression)
 def _(buffer_expr: NonlinearDatBufferExpression, layouts, key):
     new_layouts = {
-        layouts[key + (buffer_expr, leaf_path)]
+        leaf_path: layouts[key + ((buffer_expr, leaf_path),)]
         for leaf_path in buffer_expr.layouts.keys()
     }
     return NonlinearDatBufferExpression(buffer_expr.buffer, new_layouts)

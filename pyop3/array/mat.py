@@ -287,6 +287,7 @@ class Mat(DistributedArray):
     # NOTE: if this returns a 2-tuple then Dats should return a 1-tuple
     @property
     def leaf_layouts(self):
+        assert False, "old code?"
         from pyop3.insn_visitors import CompositeDat, materialize_composite_dat
 
         # NOTE: I don't think we need this any more... now that we have ConcretizedMat
