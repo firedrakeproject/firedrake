@@ -85,7 +85,7 @@ We define variables to store the time step and current time value::
               "ksp_type": "preonly",
               "pc_type": "lu"}
 
-Most of Irksome's magic happens in the :class:`.TimeStepper`.  It
+Most of Irksome's magic happens in the :class:`irksome.TimeStepper`.  It
 transforms our semidiscrete form `F` into a fully discrete form for
 the stage unknowns and sets up a variational problem to solve for the
 stages at each time step.::
@@ -93,7 +93,7 @@ stages at each time step.::
   stepper = TimeStepper(F, butcher_tableau, t, dt, u)
 
 This logic is pretty self-explanatory.  We use the
-:class:`.TimeStepper`'s :meth:`~.TimeStepper.advance` method, which solves the variational
+:class:`irksome.TimeStepper`'s :meth:`irksome.TimeStepper.advance` method, which solves the variational
 problem to compute the Runge-Kutta stage values and then updates the solution.::
 
   tfinal = 0.5
