@@ -337,6 +337,8 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
                 }
             elif integral_type == 'interior_facet_horiz':
                 self._entity_numbers[domain] = {'+': 1, '-': 0}
+            else:
+                self._entity_numbers[domain] = {None: None}
 
     def set_entity_orientations(self, domains):
         """Set entity orientations for each domain.
