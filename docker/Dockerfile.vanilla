@@ -38,12 +38,11 @@ RUN apt-get update \
 ENV OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 
 # Install PETSc. We set the compiler optimisation flags manually here to
-# remove the default of '-march=native' which is not suitable for Docker images.
-# We use 'sed' to make sure that the options are appended.
+# remove the default of '-march=native -mtune=native' which is not suitable for Docker images.
 RUN git clone --depth 1 --branch $(python3 /opt/firedrake-configure --show-petsc-version) https://gitlab.com/petsc/petsc.git /opt/petsc \
     && cd /opt/petsc \
     && python3 /opt/firedrake-configure --arch $ARCH --show-petsc-configure-options | \
-        sed "s/$/ --COPTFLAGS='-O3 -mtune=generic' --CXXOPTFLAGS='-O3 -mtune=generic' --FOPTFLAGS='-O3 -mtune=generic'/" | \
+        sed "s/-march=native -mtune=native/-mtune=generic/g" | \
         xargs -L1 ./configure --with-make-np=8 --download-slepc \
     && make \
     && make check \
