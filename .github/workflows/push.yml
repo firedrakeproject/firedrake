@@ -10,6 +10,7 @@ jobs:
   test:
     uses: ./.github/workflows/core.yml
     with:
+      source_ref: ${{ github.ref_name }}
       target_branch: ${{ github.ref_name }}
       test_macos: true
       deploy_website: true

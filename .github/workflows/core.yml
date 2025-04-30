@@ -3,6 +3,10 @@
 on:
   workflow_call:
     inputs:
+      source_ref:
+        description: The input Git ref to checkout
+        type: string
+        required: true
       target_branch:
         description: The target branch (usually 'master' or 'release')
         type: string
@@ -30,6 +34,10 @@ on:
 
   workflow_dispatch:
     inputs:
+      source_ref:
+        description: The input Git ref to checkout
+        type: string
+        required: true
       target_branch:
         description: The target branch (usually 'master' or 'release')
         type: string
@@ -74,6 +82,9 @@ jobs:
     runs-on: [self-hosted, Linux]
     container:
       image: ubuntu:latest
+    outputs:
+      sdist_conclusion: ${{ steps.report_sdist.outputs.conclusion }}
+      docs_conclusion: ${{ steps.report_docs.outputs.conclusion }}
     env:
       OMPI_ALLOW_RUN_AS_ROOT: 1
       OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
@@ -98,6 +109,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: firedrake-repo
+          ref: ${{ inputs.source_ref }}
 
       - name: Install system dependencies
         run: |
@@ -338,6 +350,7 @@ jobs:
           python -m build ./firedrake-repo --sdist
 
       - name: Upload sdist (release only)
+        id: upload_sdist
         if: |
           inputs.target_branch == 'release' &&
           matrix.arch == 'default' &&
@@ -347,14 +360,19 @@ jobs:
           name: dist
           path: firedrake-repo/dist/*
 
+      - name: Report sdist build status
+        id: report_sdist
+        if: success() || steps.upload_sdist.conclusion == 'success'
+        run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
+
       - name: Check bibtex
-        if: always() && matrix.arch == 'default'
+        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
         run: |
           . venv/bin/activate
           make -C firedrake-repo/docs validate-bibtex
 
       - name: Check documentation links
-        if: always() && matrix.arch == 'default'
+        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
         run: |
           . venv/bin/activate
           make -C firedrake-repo/docs linkcheck
@@ -373,11 +391,17 @@ jobs:
 
       - name: Upload documentation
         uses: actions/upload-pages-artifact@v3
+        id: upload_docs
         if: (success() || steps.build_docs.conclusion == 'success') && matrix.arch == 'default'
         with:
           name: github-pages
           path: firedrake-repo/docs/build/html
           retention-days: 1
+
+      - name: Report docs build status
+        id: report_docs
+        if: success() || steps.upload_docs.conclusion == 'success'
+        run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
 
       - name: Post-run cleanup
         if: always()
@@ -403,6 +427,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: firedrake-repo
+          ref: ${{ inputs.source_ref }}
 
       - name: Install system dependencies
         run: |
@@ -475,6 +500,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
@@ -485,10 +512,13 @@ jobs:
       - name: Lint codebase
         run: make lint GITHUB_ACTIONS_FORMATTING=1
 
-  deploy:
-    name: Deploy GitHub pages
+  deploy_website:
+    name: Deploy GitHub pages (optional)
     needs: test_linux
-    if: inputs.deploy_website
+    if: |
+      always() &&
+      inputs.deploy_website &&
+      needs.test_linux.outputs.docs_conclusion == 'success'
     permissions:
       pages: write
       id-token: write
@@ -502,8 +532,12 @@ jobs:
 
   upload_pypi:
     name: Upload to PyPI (optional)
-    if: inputs.upload_pypi && inputs.target_branch == 'release'
     needs: test_linux
+    if: |
+      always() &&
+      inputs.upload_pypi &&
+      inputs.target_branch == 'release' &&
+      needs.test_linux.outputs.sdist_conclusion == 'success'
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -519,8 +553,12 @@ jobs:
 
   upload_testpypi:
     name: Upload to TestPyPI (optional)
-    if: inputs.upload_testpypi && inputs.target_branch == 'release'
     needs: test_linux
+    if: |
+      always() &&
+      inputs.upload_testpypi &&
+      inputs.target_branch == 'release' &&
+      needs.test_linux.outputs.sdist_conclusion == 'success'
     runs-on: ubuntu-latest
     environment:
       name: testpypi
