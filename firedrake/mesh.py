@@ -4927,8 +4927,9 @@ class MeshSequenceTopology(object):
 
     def ufl_mesh(self):
         cell = self.ufl_cell()
+        dim = max(cell.topological_dimension() for cell in self.ufl_cell().cells)#???
         return ufl.MeshSequence(
-            [ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
+            [ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=dim))
              for cell in self.ufl_cell().cells]
         )
 
