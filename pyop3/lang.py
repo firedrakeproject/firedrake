@@ -12,7 +12,7 @@ import numbers
 from os import stat
 import textwrap
 from functools import cached_property
-from typing import Any, Iterable, Tuple
+from typing import Any, ClassVar, Iterable, Tuple
 
 import immutabledict
 import loopy as lp
@@ -24,7 +24,7 @@ from pyrsistent import PMap, pmap
 
 from pyop3 import utils
 from pyop3.axtree import AxisTree
-from pyop3.axtree.tree import ContextFree, ContextSensitive
+from pyop3.axtree.tree import UNIT_AXIS_TREE, ContextFree, ContextSensitive
 from pyop3.config import config
 from pyop3.dtypes import dtype_limits
 from pyop3.exceptions import Pyop3Exception
@@ -181,9 +181,10 @@ class PreprocessedExpression:
 class Instruction(abc.ABC):
 
     @property
-    @abc.abstractmethod
-    def _cache(self) -> dict:
-        pass
+    def _cache(self) -> collections.defaultdict[dict]:
+        if not hasattr(self, "_lazy_cache"):
+            object.__setattr__(self, "_lazy_cache", collections.defaultdict(dict))
+        return self._lazy_cache
 
     def __call__(self, *, compiler_parameters=None, **kwargs):
         compiler_parameters = parse_compiler_parameters(compiler_parameters)
@@ -201,7 +202,7 @@ class Instruction(abc.ABC):
             expand_implicit_pack_unpack,
             expand_loop_contexts,
             expand_assignments,
-            prepare_petsc_calls,
+            # prepare_petsc_calls,
             drop_zero_sized_paths,
             materialize_indirections,
             concretize_layouts,
@@ -219,7 +220,7 @@ class Instruction(abc.ABC):
         insn = concretize_layouts(insn)
 
         # do this as early as possible because we don't like dealing with mats
-        insn = prepare_petsc_calls(insn)
+        # insn = prepare_petsc_calls(insn)
 
         # TODO: Add this bit into concretize_layouts...
         # insn = drop_zero_sized_paths(insn)
@@ -257,7 +258,7 @@ class ContextAwareInstruction(Instruction):
 _DEFAULT_LOOP_NAME = "pyop3_loop"
 
 
-@dataclasses.dataclass(init=False, frozen=True)
+@utils.frozenrecord(init=False)
 class Loop(Instruction):
 
     # {{{ Instance attrs
@@ -271,11 +272,9 @@ class Loop(Instruction):
         self,
         index: LoopIndex,
         statements: Iterable[Instruction] | Instruction,
-        **kwargs,
     ):
         statements = as_tuple(statements)
 
-        super().__init__(**kwargs)
         object.__setattr__(self, "index", index)
         object.__setattr__(self, "statements", statements)
 
@@ -611,7 +610,7 @@ class Terminal(Instruction, metaclass=abc.ABCMeta):
 
     @property
     @abc.abstractmethod
-    def arguments(self) -> tuple:
+    def arguments(self) -> tuple[Any, ...]:
         pass
 
 
@@ -692,18 +691,14 @@ class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
     def __str__(self) -> str:
         return f"{self.name}({', '.join(arg.name for arg in self.arguments)})"
 
-    # {{{ Abstract methods
-
     @property
     @abc.abstractmethod
     def function(self) -> Function:
         pass
 
-    # }}}
-
     @property
     def axis_trees(self) -> tuple[AxisTree, ...]:
-        return ()
+        return (UNIT_AXIS_TREE,)
 
     @property
     def name(self):
@@ -725,12 +720,37 @@ class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
         )
 
 
+@utils.frozenrecord(init=False)
 class CalledFunction(AbstractCalledFunction):
-    pass
+
+    _function: Function
+    _arguments: tuple[Any]
+
+    function: ClassVar[property] = property(lambda self: self._function)
+    arguments: ClassVar[property] = property(lambda self: self._arguments)
+
+    def __init__(self, function: Function, arguments: Iterable):
+        arguments = tuple(arguments)
+
+        object.__setattr__(self, "_function", function)
+        object.__setattr__(self, "_arguments", arguments)
 
 
+@utils.frozenrecord(init=False)
 class StandaloneCalledFunction(AbstractCalledFunction):
     """A called function whose arguments do not need packing/unpacking."""
+
+    _function: Function
+    _arguments: Iterable[FunctionArgument]
+
+    function: ClassVar[property] = property(lambda self: self._function)
+    arguments: ClassVar[property] = property(lambda self: self._arguments)
+
+    def __init__(self, function: Function, arguments: Iterable):
+        arguments = tuple(arguments)
+
+        object.__setattr__(self, "_function", function)
+        object.__setattr__(self, "_arguments", arguments)
 
 
 # TODO: Make this a singleton like UNIT_AXIS_TREE
@@ -760,10 +780,29 @@ class AbstractAssignment(Terminal, metaclass=abc.ABCMeta):
 
     @property
     @abc.abstractmethod
+    def assignee(self) -> Any:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def expression(self) -> Any:
+        pass
+
+    @property
+    @abc.abstractmethod
     def assignment_type(self) -> AssignmentType:
         pass
 
     # }}}
+
+    # {{{ Interface impls
+
+    @property
+    def arguments(self) -> tuple[Any, Any]:
+        return (self.assignee, self.expression)
+
+    # }}}
+
 
     # {{{ Dunders
 
@@ -819,118 +858,157 @@ class AbstractAssignment(Terminal, metaclass=abc.ABCMeta):
         return self.arguments[1]
 
 
-class NonEmptyAssignment(AbstractAssignment, NonEmptyTerminal, metaclass=abc.ABCMeta):
-    pass
-
-
 class AbstractArrayAssignment(AbstractAssignment, metaclass=abc.ABCMeta):
     pass
 
 
-@dataclasses.dataclass(frozen=True)
+@utils.frozenrecord(init=False)
 class ArrayAssignment(AbstractArrayAssignment):
 
-    assignee: Any
-    # def __init__(self, assignee, *args, **kwargs):
-    #     if assignee.name == "t_5": # deebug
-    #         breakpoint()
-    #     super().__init__(assignee, *args, **kwargs)
+    # {{{ Instance attrs
 
-    @property
-    def arrays(self):
-        from pyop3.array import Dat
+    _assignee: Any
+    _expression: Any
+    _assignment_type: AssignmentType
 
-        arrays_ = [self.assignee]
-        if isinstance(self.expression, Dat):
-            arrays_.append(self.expression)
-        else:
-            if not isinstance(self.expression, numbers.Number):
-                raise NotImplementedError
-        return tuple(arrays_)
-
-    def with_arguments(self, arguments):
-        if len(arguments) != 2:
-            raise ValueError("Must provide 2 arguments")
-
-        assignee, expression = arguments
-        return self.copy(assignee=assignee, expression=expression)
-
-    @property
-    def _expression_kernel_arguments(self):
-        from pyop3.array import Dat
-
-        if isinstance(self.expression, Dat):
-            return ((self.expression, READ),)
-        elif isinstance(self.expression, numbers.Number):
-            return ()
-        else:
-            raise NotImplementedError("Complicated rvalues not yet supported")
-
-    def with_axes(self, axes: AxisTree) -> NonEmptyAssignmentMixin:
-        return NonEmptyArrayBufferAssignment(self.assignee, self.expression, self.assignment_type, axes)
-
-
-@dataclasses.dataclass(frozen=True)
-class NonEmptyArrayAssignment(AbstractArrayAssignment, NonEmptyAssignment):
-
-    assignee: Any
-    expression: Any
-    assignment_type: AssignmentType
-    axis_trees: tuple[AxisTree, ...]
-
-    # def __init__(self, assignee, expression, assignment_type, axis_trees, **kwargs):
-    #     super().__init__(assignee, expression, assignment_type, **kwargs)
-    #     object.__setattr__(self, "_axis_trees", tuple(axis_trees))
-    #
-    # @property
-    # def axis_trees(self) -> tuple[AxisTree]:
-    #     return self._axis_trees
-
-
-class AbstractPetscMatAssignment(AbstractAssignment, metaclass=abc.ABCMeta):
-
-    def __init__(self, mat, values, access_type):
-        if access_type == ArrayAccessType.READ:
-            assignment_type = AssignmentType.WRITE
-            assignee = values
-            expression = mat
-        elif access_type == ArrayAccessType.WRITE:
-            assignee = mat
-            expression = values
-            assignment_type = AssignmentType.WRITE
-        else:
-            assert access_type == ArrayAccessType.INC
-            assignee = mat
-            expression = values
-            assignment_type = AssignmentType.INC
-
-        super().__init__(assignee, expression, assignment_type)
-        self.mat = mat
-        self.values = values
-        self.access_type = access_type
-
-
-@dataclasses.dataclass(frozen=True)
-class PetscMatAssignment(AbstractPetscMatAssignment):
-    def with_axes(self, row_axis_tree, col_axis_tree):
-        return NonEmptyPetscMatAssignment(self.mat, self.values, self.access_type, row_axis_tree, col_axis_tree)
-
-
-@dataclasses.dataclass(frozen=True)
-class NonEmptyPetscMatAssignment(AbstractPetscMatAssignment, NonEmptyAssignment):
-    def __init__(self, mat, values, access_type, row_axis_tree, column_axis_tree, **kwargs):
-        super().__init__(mat, values, access_type, **kwargs)
-        # self._axis_trees = (row_axes, col_axes)
-        self.row_axis_tree = row_axis_tree
-        self.column_axis_tree = column_axis_tree
+    # }}}
 
     # {{{ Interface impls
 
-    @property
-    def axis_trees(self) -> tuple[AxisTree, AxisTree]:
-        return (self.row_axis_tree, self.column_axis_tree)
+    assignee: ClassVar[property] = property(lambda self: self._assignee)
+    expression: ClassVar[property] = property(lambda self: self._expression)
+    assignment_type: ClassVar[property] = property(lambda self: self._assignment_type)
 
     # }}}
+
+    def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str) -> None:
+        assignment_type = AssignmentType(assignment_type)
+
+        object.__setattr__(self, "_assignee", assignee)
+        object.__setattr__(self, "_expression", expression)
+        object.__setattr__(self, "_assignment_type", assignment_type)
+
+    # @property
+    # def arrays(self):
+    #     from pyop3.array import Dat
+    #
+    #     arrays_ = [self.assignee]
+    #     if isinstance(self.expression, Dat):
+    #         arrays_.append(self.expression)
+    #     else:
+    #         if not isinstance(self.expression, numbers.Number):
+    #             raise NotImplementedError
+    #     return tuple(arrays_)
+
+
+@utils.frozenrecord()
+class NonEmptyArrayAssignment(AbstractArrayAssignment, NonEmptyTerminal):
+
+    # {{{ Instance attrs
+
+    _assignee: Any
+    _expression: Any
+    _assignment_type: AssignmentType
+    _axis_trees: tuple[AxisTree, ...]
+
+    # }}}
+
+    # {{{ Interface impls
+
+    assignee: ClassVar[property] = property(lambda self: self._assignee)
+    expression: ClassVar[property] = property(lambda self: self._expression)
+    assignment_type: ClassVar[property] = property(lambda self: self._assignment_type)
+    axis_trees: ClassVar[property] = property(lambda self: self._axis_trees)
+
+    # }}}
+
+
+@utils.frozenrecord()
+class ConcretizedNonEmptyArrayAssignment(AbstractArrayAssignment):
+
+    # {{{ Instance attrs
+
+    _assignee: Any
+    _expression: Any
+    _assignment_type: AssignmentType
+    _axis_trees: tuple[AxisTree, ...]
+
+    # }}}
+
+    # {{{ Interface impls
+
+    assignee: ClassVar[property] = property(lambda self: self._assignee)
+    expression: ClassVar[property] = property(lambda self: self._expression)
+    assignment_type: ClassVar[property] = property(lambda self: self._assignment_type)
+    axis_trees: ClassVar[property] = property(lambda self: self._axis_trees)
+
+    # }}}
+
+
+# class AbstractPetscMatAssignment(AbstractAssignment, metaclass=abc.ABCMeta):
+#
+#     def __init__(self, mat, values, access_type):
+#         if access_type == ArrayAccessType.READ:
+#             assignment_type = AssignmentType.WRITE
+#             assignee = values
+#             expression = mat
+#         elif access_type == ArrayAccessType.WRITE:
+#             assignee = mat
+#             expression = values
+#             assignment_type = AssignmentType.WRITE
+#         else:
+#             assert access_type == ArrayAccessType.INC
+#             assignee = mat
+#             expression = values
+#             assignment_type = AssignmentType.INC
+#
+#         super().__init__(assignee, expression, assignment_type)
+#         self.mat = mat
+#         self.values = values
+#         self.access_type = access_type
+
+#     @property
+#     def mat(self) -> Any:
+#
+#
+#
+# @utils.frozenrecord()
+# class PetscMatAssignment(AbstractPetscMatAssignment):
+#
+#     # {{{ Instance attrs
+#
+#     _assignee: Any
+#     _expression: Any
+#     _assignment_type: AssignmentType
+#     _axis_trees: tuple[AxisTree, ...]
+#
+#     # }}}
+#
+#     # {{{ Interface impls
+#
+#     assignee: ClassVar[property] = property(lambda self: self._assignee)
+#     expression: ClassVar[property] = property(lambda self: self._expression)
+#     assignment_type: ClassVar[property] = property(lambda self: self._assignment_type)
+#     axis_trees: ClassVar[property] = property(lambda self: self._axis_trees)
+#
+#     # }}}
+#
+#
+# @utils.frozenrecord()
+# class NonEmptyPetscMatAssignment(AbstractPetscMatAssignment, NonEmptyAssignment):
+#     def __init__(self, mat, values, access_type, row_axis_tree, column_axis_tree, **kwargs):
+#         super().__init__(mat, values, access_type, **kwargs)
+#         # self._axis_trees = (row_axes, col_axes)
+#         self.row_axis_tree = row_axis_tree
+#         self.column_axis_tree = column_axis_tree
+#
+#     # {{{ Interface impls
+#
+#     @property
+#     def axis_trees(self) -> tuple[AxisTree, AxisTree]:
+#         return (self.row_axis_tree, self.column_axis_tree)
+#
+#     # }}}
 
 
 # TODO: With Python 3.11 can be made a StrEnum

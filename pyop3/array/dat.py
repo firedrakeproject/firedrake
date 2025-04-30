@@ -165,7 +165,7 @@ class _Dat(DistributedArray, KernelArgument, metaclass=abc.ABCMeta):
         return expr() if eager else expr
 
 
-@dataclasses.dataclass(init=False, eq=False)
+@utils.record(init=False)
 class Dat(_Dat):
     """Multi-dimensional, hierarchical array.
 
@@ -178,6 +178,8 @@ class Dat(_Dat):
 
     axes: AbstractAxisTree
     _buffer: AbstractBuffer
+    _name: str
+    _parent: Dat | None
 
     # TODO: These belong to the buffer
     max_value: int | None
@@ -188,6 +190,13 @@ class Dat(_Dat):
     # {{{ Class attrs
 
     DEFAULT_PREFIX: ClassVar[str] = "dat"
+
+    # }}}
+
+    # {{{ Interface impls
+
+    name: ClassVar[property] = property(lambda self: self._name)
+    parent: ClassVar[property] = property(lambda self: self._parent)
 
     # }}}
 
@@ -226,7 +235,11 @@ class Dat(_Dat):
             assert len(data.shape) == 1, "cant do nested shape"
             buffer = ArrayBuffer(data, axes.sf)
 
-        object.__setattr__(self, "axes", axes)
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        self._name = name
+        self._parent = parent
+        self.axes = axes
         object.__setattr__(self, "_buffer", buffer)
         object.__setattr__(self, "max_value", max_value)
 
@@ -237,7 +250,6 @@ class Dat(_Dat):
         #
         # where self.ordered_access would detect the use of a subset...
         object.__setattr__(self, "ordered", ordered)
-        super().__init__(name=name, prefix=prefix, parent=parent)
 
         # self._cache = {}
 
@@ -325,7 +337,7 @@ class Dat(_Dat):
                 raise NotImplementedError("Need axis forests")
             else:
                 indexed_axes = just_one(indexed_axess)
-                dat = self.reconstruct(axes=indexed_axes)
+                dat = self.__record_init__(axes=indexed_axes)
         else:
             # TODO: This is identical to what happens above, refactor
             axis_tree_context_map = {}
@@ -341,7 +353,7 @@ class Dat(_Dat):
                     indexed_axes = just_one(indexed_axess)
                     axis_tree_context_map[loop_context] = indexed_axes
             context_sensitive_axis_tree = ContextSensitiveAxisTree(axis_tree_context_map)
-            dat = self.reconstruct(axes=context_sensitive_axis_tree)
+            dat = self.__record_init__(axes=context_sensitive_axis_tree)
         # self._cache[key] = dat
         return dat
 
@@ -357,12 +369,13 @@ class Dat(_Dat):
         offset = self.axes.offset(indices, path, loop_exprs=loop_exprs)
         self.buffer.data_wo[offset] = value
 
+    # TODO: dont do this here
     def with_context(self, context):
-        return self.reconstruct(axes=self.axes.with_context(context))
+        return self.__record_init__(axes=self.axes.with_context(context))
 
     @property
     def context_free(self):
-        return self.reconstruct(axes=self.axes.context_free)
+        return self.__record_init__(axes=self.axes.context_free)
 
     @property
     def leaf_layouts(self):
@@ -528,7 +541,7 @@ class Dat(_Dat):
         """
         assert isinstance(axes, AxisTree), "not indexed"
 
-        return self.reconstruct(axes=axes, parent=self)
+        return self.__record_init__(axes=axes, parent=self)
 
     # NOTE: should this only accept AxisTrees, or are IndexedAxisTrees fine also?
     # is this ever used?
@@ -569,7 +582,7 @@ class DatBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
 
 
 
-@dataclasses.dataclass(init=False)
+@utils.record()
 class LinearDatBufferExpression(DatBufferExpression):
     """A dat with fixed (?) layout.
 
@@ -582,41 +595,16 @@ class LinearDatBufferExpression(DatBufferExpression):
 
     # {{{ Instance attrs
 
+    buffer: Any
     layout: Any
 
     # }}}
 
-    def __init__(self, buffer, layout):
-        super().__init__(buffer)
-        self.layout = layout
-
     def __str__(self) -> str:
         return f"{self.buffer.name}[{self.layout}]"
 
-    # # TODO: redo now that we have Record?
-    # def __hash__(self) -> int:
-    #     return hash((type(self), self.dat, self.layout))
-    #
-    # def __eq__(self, other) -> bool:
-    #     return type(other) is type(self) and other.dat == self.dat and other.layout == self.layout and other.name == self.name
-    #
-    # # NOTE: args, kwargs unused
-    # def get_value(self, indices, *args, **kwargs):
-    #     offset = self._get_offset(indices)
-    #     return self.buffer.data_ro[offset]
-    #
-    # # NOTE: args, kwargs unused
-    # def set_value(self, indices, value, *args, **kwargs):
-    #     offset = self._get_offset(indices)
-    #     self.buffer.data_wo[offset] = value
-    #
-    # def _get_offset(self, indices):
-    #     from pyop3.expr_visitors import evaluate
-    #
-    #     return evaluate(self.layout, indices)
 
-
-@dataclasses.dataclass(init=False)
+@utils.record(init=False)
 class NonlinearDatBufferExpression(DatBufferExpression):
     """A dat with fixed layouts.
 
@@ -627,6 +615,7 @@ class NonlinearDatBufferExpression(DatBufferExpression):
     """
     # {{{ Instance attrs
 
+    buffer: Any
     layouts: Any
 
     # }}}
@@ -634,7 +623,7 @@ class NonlinearDatBufferExpression(DatBufferExpression):
     def __init__(self, buffer, layouts):
         layouts = ImmutableOrderedDict(layouts)
 
-        super().__init__(buffer)
+        self.buffer = buffer
         object.__setattr__(self, "layouts", layouts)
 
     def __str__(self) -> str:

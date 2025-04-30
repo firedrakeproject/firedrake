@@ -80,6 +80,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
 
     """
     from pyop3 import Dat
+    from pyop3.array.dat import LinearDatBufferExpression, as_linear_buffer_expression
 
     if len(axis.components) > 1 and not all(_axis_component_has_fixed_size(c) for c in axis.components):
         # Fixing this would require deciding what to do with the start variable, which
@@ -128,7 +129,11 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
                     # 3. Non-constant stride, must tabulate
                     offset_dat = Dat(offset_axes, data=np.full(offset_axes.size, -1, dtype=IntType))
                     to_tabulate[subtree] = offset_dat
-                    component_layout = offset_dat * step + start
+
+                    # NOTE: This is really unpleasant, we want an expression type here but need
+                    # axes to do the tabulation.
+                    offset_dat_expr = as_linear_buffer_expression(offset_dat)
+                    component_layout = offset_dat_expr * step + start
 
         if not isinstance(component_layout, NaN):
             layout_expr_acc_ = layout_expr_acc + component_layout

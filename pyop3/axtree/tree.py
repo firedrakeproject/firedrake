@@ -1746,14 +1746,15 @@ class IndexedAxisTree(AbstractAxisTree):
         """Return a new "unindexed" axis tree with the same shape."""
         # "unindexed" axis tree
         # strip parallel semantics (in a bad way)
-        parent_to_children = collections.defaultdict(list)
-        for p, cs in self.node_map.items():
-            for c in cs:
-                if c is not None and c.sf is not None:
-                    c = c.copy(sf=None)
-                parent_to_children[p].append(c)
-
-        return AxisTree(parent_to_children)
+        # parent_to_children = collections.defaultdict(list)
+        # for p, cs in self.node_map.items():
+        #     for c in cs:
+        #         if c is not None and c.sf is not None:
+        #             c = c.copy(sf=None)
+        #         parent_to_children[p].append(c)
+        #
+        # return AxisTree(parent_to_children)
+        return AxisTree(self.node_map)
 
 
     @cached_property
@@ -2133,14 +2134,16 @@ def merge_trees2(tree1: AxisTree, tree2: AxisTree) -> AxisTree:
     """
     if tree1:
         if tree2:
+            # This is all quite magic. What this does is traverse the first tree
+            # and collate all the visited axes. Then, at each leaf of tree 1, we
+            # traverse tree 2 and build a per-leaf subtree as appropriate. These
+            # are then all stuck together in the final step.
+
             subtrees = _merge_trees(tree1, tree2)
 
-            # The algorithm proceeds by visiting each element in the second tree and
-            # attempting to add it to the tree. If the axis is already present then
-            # the axis is not added.
             merged = AxisTree(tree1.node_map)
             for leaf, subtree in subtrees:
-                merged = merged.add_subtree(subtree, *leaf)
+                merged = merged.add_subtree(subtree, *leaf, uniquify_ids=True)
         else:
             merged = tree1
     else:

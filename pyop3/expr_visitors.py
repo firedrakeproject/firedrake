@@ -178,7 +178,7 @@ def _(var: Any, /, visited_axes, loop_axes, cache) -> AxisTree:
 
 
 @extract_axes.register(LoopIndexVar)
-def _(loop_var: LoopIndexVar, /, visited_axes, loop_axes, cache) -> AxisTree:
+def _(loop_var: LoopIndexVar, /, visited_axes, loop_indices: tuple[LoopIndex, ...], cache) -> AxisTree:
     try:
         return cache[loop_var]
     except KeyError:
@@ -186,18 +186,20 @@ def _(loop_var: LoopIndexVar, /, visited_axes, loop_axes, cache) -> AxisTree:
 
     # replace LoopIndexVars in any component sizes with AxisVars
     loop_index_replace_map = {}
-    for loop_id, iterset in loop_axes.items():
-        for axis in iterset.nodes:
-            loop_index_replace_map[(loop_id, axis.label)] = AxisVar(f"{axis.label}_{loop_id}")
+    for loop_index in loop_indices:
+        for axis in loop_index.iterset.nodes:
+            loop_index_replace_map[(loop_index.id, axis.label)] = AxisVar(f"{axis.label}_{loop_index.id}")
 
-    axis = just_one(axis for axis in loop_axes[loop_var.loop_id].nodes if axis.label == loop_var.axis_label)
+
+    selected_axis = just_one(axis for loop_index in loop_indices for axis in loop_index.iterset.nodes if axis.label == loop_var.axis_label and loop_index.id == loop_var.loop_id
+                             )
 
     new_components = []
     for component in axis.components:
         if isinstance(component.count, numbers.Integral):
             new_component = component
         else:
-            new_count_axes = extract_axes(just_one(component.count.leaf_layouts.values()), visited_axes, loop_axes, cache)
+            new_count_axes = extract_axes(just_one(component.count.leaf_layouts.values()), visited_axes, loop_indices, cache)
             new_count = Dat(new_count_axes, data=component.count.buffer)
             new_component = AxisComponent(new_count, component.label)
         new_components.append(new_component)
@@ -210,8 +212,8 @@ def _(var: AxisVar, /, visited_axes, loop_axes, cache) -> AxisTree:
     try:
         return cache[var]
     except KeyError:
-        axis, component = just_one((a, c) for a, c in visited_axes.items() if a.label == var.axis_label)
-        tree = AxisTree(Axis(component, label=axis.label))
+        axis = utils.single_valued(axis for axis in visited_axes.nodes if axis.label == var.axis_label)
+        tree = AxisTree(axis)
         return cache.setdefault(var, tree)
 
 
@@ -371,6 +373,11 @@ def concretize_layouts(obj: Any, /) -> Any:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
+@concretize_layouts.register(BufferExpression)
+def _(expr: BufferExpression, /) -> BufferExpression:
+    return expr
+
+
 @concretize_layouts.register(numbers.Number)
 def _(num: numbers.Number, /) -> numbers.Number:
     return num
@@ -391,6 +398,27 @@ def _(mat: Mat, /) -> Any:
 
 
 @functools.singledispatch
+def collect_tensor_shape(obj: Any, /) -> tuple[AxisTree, ...] | None:
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
+
+
+@collect_tensor_shape.register(numbers.Number)
+@collect_tensor_shape.register(BufferExpression)
+def _(obj: Any, /) -> None:
+    return None
+
+
+@collect_tensor_shape.register(Dat)
+def _(dat: Dat, /) -> tuple[AxisTree]:
+    return (dat.axes.materialize(),)
+
+
+@collect_tensor_shape.register(Mat)
+def _(mat: Mat, /) -> tuple[AxisTree,AxisTree]:
+    return (mat.raxes.materialize(), mat.caxes.materialize())
+
+
+@functools.singledispatch
 def collect_tensor_candidate_indirections(obj: Any, /, **kwargs) -> ImmutableOrderedDict:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
@@ -408,6 +436,18 @@ def _(dat_expr: LinearDatBufferExpression, /, *, axis_trees: Iterable[AxisTree],
     axis_tree = just_one(axis_trees)
     return ImmutableOrderedDict({
         dat_expr: collect_candidate_indirections(dat_expr.layout, axis_tree, loop_indices)
+    })
+
+
+@collect_tensor_candidate_indirections.register(NonlinearDatBufferExpression)
+def _(dat_expr: NonlinearDatBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], optimize: bool) -> ImmutableOrderedDict:
+    if not isinstance(dat_expr.buffer, AbstractArrayBuffer):
+        raise NotImplementedError("Currently we assume that Dats are based on an underlying array buffer")
+
+    axis_tree = just_one(axis_trees)
+    return ImmutableOrderedDict({
+        (dat_expr, path): collect_candidate_indirections(layout, axis_tree, loop_indices)
+        for path, layout in dat_expr.layouts.items()
     })
 
 
@@ -550,7 +590,7 @@ def _(op: Operator, /, visited_axes, loop_axes) -> tuple:
     # Only do this when the cost is large as small arrays will fit in cache
     # and not benefit from the optimisation.
     if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
-        compressed_expr = CompositeDat(op, visited_axes, loop_axes)
+        compressed_expr = CompositeDat(op, visited_axes, loop_axes, IntType)
         compressed_cost = extract_axes(op, visited_axes, loop_axes, {}).size
         candidates.append((compressed_expr, compressed_cost))
 
@@ -573,7 +613,7 @@ def _(expr: LinearDatBufferExpression, /, visited_axes, loop_axes) -> tuple:
 
     if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
         compressed_cost = extract_axes(expr, visited_axes, loop_axes, {}).size
-        candidates.append((CompositeDat(expr, visited_axes, loop_axes), compressed_cost))
+        candidates.append((CompositeDat(expr, visited_axes, loop_axes, IntType), compressed_cost))
     return tuple(candidates)
 
 
@@ -642,19 +682,19 @@ def _(num: numbers.Number, /, *args, **kwargs) -> numbers.Number:
     return num
 
 
-@concretize_materialized_tensor_indirections.register(Dat)
-def _(dat: Dat, layouts, outer_key):
-    newlayouts = {}
-    for leaf_path in dat.axes.leaf_paths:
-        chosen_layout = layouts[outer_key + ((dat, leaf_path),)]
-        # try:
-        #     chosen_layout = layouts[outer_key + ((dat, leaf_path),)]
-        # except KeyError:
-        #     # zero-sized axis, no layout needed
-        #     chosen_layout = -1
-        newlayouts[leaf_path] = chosen_layout
+@concretize_materialized_tensor_indirections.register(LinearDatBufferExpression)
+def _(buffer_expr: LinearDatBufferExpression, layouts, key):
+    layout = layouts[key + (buffer_expr,)]
+    return LinearDatBufferExpression(buffer_expr.buffer, layout)
 
-    return NonlinearDatBufferExpression(dat.buffer, newlayouts)
+
+@concretize_materialized_tensor_indirections.register(NonlinearDatBufferExpression)
+def _(buffer_expr: NonlinearDatBufferExpression, layouts, key):
+    new_layouts = {
+        layouts[key + (buffer_expr, leaf_path)]
+        for leaf_path in buffer_expr.layouts.keys()
+    }
+    return NonlinearDatBufferExpression(buffer_expr.buffer, new_layouts)
 
 
 @concretize_materialized_tensor_indirections.register(Mat)

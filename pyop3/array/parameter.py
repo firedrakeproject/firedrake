@@ -9,7 +9,7 @@ from pyop3 import utils
 from pyop3.array.base import Array
 
 
-@dataclasses.dataclass(init=False, eq=False)
+@utils.record(init=False)
 class Parameter(Array):
     """Value that can be changed without triggering code generation."""
 
@@ -17,6 +17,7 @@ class Parameter(Array):
 
     # TODO: can be a scalar or numpy array
     value: Any
+    _name: str
 
     # }}}
 
@@ -26,25 +27,27 @@ class Parameter(Array):
 
     # }}}
 
-    def __init__(self, value: Sequence[Number] | Number, *, name: str | None =None, prefix: str | None=None) -> None:
-        if isinstance(value, Number):
-            value = utils.as_numpy_scalar(value)
-        else:
-            raise NotImplementedError("TODO")
+    # {{{ Interface impls
 
-        super().__init__(name, prefix=prefix)
-        object.__setattr__(self, "value", value)
-
-    # {{{ Array impls
-
-    @property
-    def dim(self) -> int:
-        return 0
+    name: ClassVar[property] = property(lambda self: self._name)
+    parent: ClassVar[None] = None
+    dim: ClassVar[int] = 0
 
     def getitem(self, strict=False):
         return self
 
     # }}}
+
+    def __init__(self, value: Sequence[Number] | Number, *, name: str | None =None, prefix: str | None=None) -> None:
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        if isinstance(value, Number):
+            value = utils.as_numpy_scalar(value)
+        else:
+            raise NotImplementedError("TODO")
+
+        self._name = name
+        self.value = value
 
     @property
     def dtype(self) -> np.dtype:

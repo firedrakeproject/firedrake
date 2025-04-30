@@ -5,7 +5,7 @@ import collections
 import functools
 import numbers
 import operator
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from os import access
 from typing import Any, Union
 
@@ -16,6 +16,7 @@ from pyop3.sf import local_sf
 from pyrsistent import pmap, PMap
 from immutabledict import ImmutableOrderedDict
 
+from pyop3 import utils
 from pyop3.array import Global, Dat, Array, Mat, NonlinearDatBufferExpression, LinearDatBufferExpression, PetscMatBufferExpression
 from pyop3.axtree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
 from pyop3.axtree.tree import Operator, AxisVar, IndexedAxisTree, prune_zero_sized_branches
@@ -25,6 +26,7 @@ from pyop3.itree import Map, TabulatedMapComponent, collect_loop_contexts
 from pyop3.itree.tree import LoopIndex, LoopIndexVar, Slice, AffineSliceComponent, IndexTree
 from pyop3.itree.parse import _as_context_free_indices
 from pyop3.expr_visitors import (
+    collect_tensor_shape,
     replace as replace_expression,
     replace_terminals,
     CompositeDat,
@@ -45,19 +47,22 @@ from pyop3.lang import (
     RW,
     WRITE,
     AbstractAssignment,
+    ArrayAssignment,
+    ConcretizedNonEmptyArrayAssignment,
+    NonEmptyTerminal,
     StandaloneCalledFunction,
     FunctionArgument,
-    NonEmptyPetscMatAssignment,
+    # NonEmptyPetscMatAssignment,
     NullInstruction,
-    BufferAssignment,
+    ArrayAssignment,
     AssignmentType,
     CalledFunction,
-    NonEmptyArrayBufferAssignment,
+    NonEmptyArrayAssignment,
     DummyKernelArgument,
     Instruction,
     Loop,
     InstructionList,
-    PetscMatAssignment,
+    # PetscMatAssignment,
     ArrayAccessType,
     Terminal,
     enlist,
@@ -135,8 +140,8 @@ def _(func: CalledFunction, /, *, loop_context_acc) -> CalledFunction:
     )
 
 
-@_expand_loop_contexts_rec.register(BufferAssignment)
-def _(assignment: BufferAssignment, /, *, loop_context_acc) -> BufferAssignment:
+@_expand_loop_contexts_rec.register(ArrayAssignment)
+def _(assignment: ArrayAssignment, /, *, loop_context_acc) -> ArrayAssignment:
     assignee = restrict_expression_to_context(assignment.assignee, loop_context_acc)
     expression = restrict_expression_to_context(assignment.expression, loop_context_acc)
 
@@ -149,7 +154,7 @@ def _(assignment: BufferAssignment, /, *, loop_context_acc) -> BufferAssignment:
     if size == 0:
         return NullInstruction()
     else:
-        return BufferAssignment(assignee, expression, assignment.assignment_type)
+        return ArrayAssignment(assignee, expression, assignment.assignment_type)
 
 
 class ImplicitPackUnpackExpander(Transformer):
@@ -171,7 +176,7 @@ class ImplicitPackUnpackExpander(Transformer):
     @_apply.register(Loop)
     def _(self, loop: Loop):
         new_statements = [s for stmt in loop.statements for s in enlist(self._apply(stmt))]
-        return loop.copy(statements=new_statements)
+        return loop.__record_init__(statements=new_statements)
 
     @_apply.register
     def _(self, insn_list: InstructionList):
@@ -185,7 +190,7 @@ class ImplicitPackUnpackExpander(Transformer):
     #     return (assignment,)
 
     @_apply.register
-    def _(self, assignment: BufferAssignment):
+    def _(self, assignment: ArrayAssignment):
         # I think this is fine...
         return assignment
 
@@ -262,22 +267,23 @@ class ImplicitPackUnpackExpander(Transformer):
                     temporary = Mat.null(raxes, caxes, dtype=arg.dtype, prefix="t")
 
                 if intent == READ:
-                    gathers.append(BufferAssignment(temporary, arg, "write"))
+                    gathers.append(ArrayAssignment(temporary, arg, "write"))
                 elif intent == WRITE:
                     # This is currently necessary because some local kernels
                     # (interpolation) actually increment values instead of setting
                     # them directly. This should ideally be addressed.
-                    gathers.append(BufferAssignment(temporary, 0, "write"))
-                    scatters.insert(0, BufferAssignment(arg, temporary, "write"))
+                    gathers.append(ArrayAssignment(temporary, 0, "write"))
+                    scatters.insert(0, ArrayAssignment(arg, temporary, "write"))
                 elif intent == RW:
-                    gathers.append(BufferAssignment(temporary, arg, "write"))
-                    scatters.insert(0, BufferAssignment(arg, temporary, "write"))
+                    gathers.append(ArrayAssignment(temporary, arg, "write"))
+                    scatters.insert(0, ArrayAssignment(arg, temporary, "write"))
                 else:
                     assert intent == INC
-                    gathers.append(BufferAssignment(temporary, 0, "write"))
-                    scatters.insert(0, BufferAssignment(arg, temporary, "inc"))
+                    gathers.append(ArrayAssignment(temporary, 0, "write"))
+                    scatters.insert(0, ArrayAssignment(arg, temporary, "inc"))
 
-                arguments.append(temporary)
+                function_arg = LinearDatBufferExpression(temporary.buffer, 0)
+                arguments.append(function_arg)
 
             else:
                 arguments.append(arg)
@@ -364,14 +370,14 @@ def _(loop: Loop, /) -> Loop:
 
 
 @expand_assignments.register(StandaloneCalledFunction)
-@expand_assignments.register(PetscMatAssignment)
+# @expand_assignments.register(PetscMatAssignment)
 @expand_assignments.register(NullInstruction)
 def _(func: StandaloneCalledFunction, /) -> StandaloneCalledFunction:
     return func
 
 
-@expand_assignments.register(BufferAssignment)
-def _(assignment: BufferAssignment, /) -> InstructionList:
+@expand_assignments.register(ArrayAssignment)
+def _(assignment: ArrayAssignment, /) -> InstructionList:
     # NOTE: This is incorrect, we only include this because if we have a 'basic' matrix assignment
     # like
     #
@@ -400,9 +406,9 @@ def _(assignment: BufferAssignment, /) -> InstructionList:
     )
 
     if bare_assignee == assignment.assignee:
-        bare_assignment = BufferAssignment(bare_assignee, bare_expression, assignment.assignment_type)
+        bare_assignment = ArrayAssignment(bare_assignee, bare_expression, assignment.assignment_type)
     else:
-        bare_assignment = BufferAssignment(bare_assignee, bare_expression, "write")
+        bare_assignment = ArrayAssignment(bare_assignee, bare_expression, "write")
 
     return maybe_enlist((*extra_input_insns, bare_assignment, *extra_output_insns))
 
@@ -453,12 +459,12 @@ def _(array: Array, /, access_type):
             raise NotImplementedError("Pretty sure this doesn't work as is")
 
         if access_type == ArrayAccessType.READ:
-            assignment = BufferAssignment(temp_initial, transformed_dat, "write")
+            assignment = ArrayAssignment(temp_initial, transformed_dat, "write")
         elif access_type == ArrayAccessType.WRITE:
-            assignment = BufferAssignment(transformed_dat, temp_initial, "write")
+            assignment = ArrayAssignment(transformed_dat, temp_initial, "write")
         else:
             assert access_type == ArrayAccessType.INC
-            assignment = BufferAssignment(transformed_dat, temp_initial, "inc")
+            assignment = ArrayAssignment(transformed_dat, temp_initial, "inc")
 
         return (temp_reshaped, extra_insns + (assignment,))
     else:
@@ -477,34 +483,36 @@ def _(insn_list: InstructionList, /) -> InstructionList:
 
 @concretize_layouts.register(Loop)
 def _(loop: Loop, /) -> Loop:
-    return loop.reconstruct(statements=tuple(map(concretize_layouts, loop.statements)))
+    return loop.__record_init__(statements=tuple(map(concretize_layouts, loop.statements)))
 
 
-# @prepare_petsc_calls.register(ExplicitCalledFunction)
-# @prepare_petsc_calls.register(NullInstruction)
-# def _(func: ExplicitCalledFunction, /) -> ExplicitCalledFunction:
-#     return func
-#     >>>
+@concretize_layouts.register(StandaloneCalledFunction)
+def _(func: StandaloneCalledFunction, /) -> StandaloneCalledFunction:
+    return func
 
 
-@concretize_layouts.register(Terminal)
-def _(terminal: Terminal, /) -> Terminal:
-    axis_tree = None
-    new_arguments = []
-    for argument in terminal.arguments:
-        new_argument, arg_axis_tree = concretize_expression_layouts(argument)
+@concretize_layouts.register(ArrayAssignment)
+def _(assignment: ArrayAssignment, /) -> NonEmptyArrayAssignment:
+    assignee = concretize_expression_layouts(assignment.assignee)
+    expression = concretize_expression_layouts(assignment.expression)
 
-        if axis_tree is None:
-            axis_tree = arg_axis_tree
-        else:
-            check things
+    # TODO: merge shape (*build* the axis tree by combining things)
+    # i.e. allow dat[i, j] = a[i] * b[j]?
+    axis_trees = utils.single_valued(filter(None, (collect_tensor_shape(arg) for arg in assignment.arguments)))
+
+    return NonEmptyArrayAssignment(assignee, expression, assignment.assignment_type, axis_trees)
 
 
-    # TODO: Need a new type of terminal here that carries additional shape information...
-    breakpoint()
-    return terminal.with_(
-        arguments=tuple(map(concretize_expression_layouts, terminal.arguments))
-    )
+# FIXME: single axis tree or multiple?
+# @functools.singledispatch
+# def cast_nonempty_terminal(terminal: Terminal, /, arguments: Iterable, axis_tree: AxisTree) -> NonEmptyTerminal:
+#     raise TypeError(f"No handler provided for {type(terminal).__name__}")
+#
+#
+# @cast_nonempty_terminal.register(ArrayAssignment)
+# def _(assignment: ArrayAssignment, /, arguments: Iterable[Any], axis_tree: AxisTree) -> NonEmptyArrayAssignment:
+#     assignee, expression = arguments
+#     return NonEmptyArrayAssignment(assignee, expression, assignment.assignment_type, axis_trees)
 
 
 @functools.singledispatch
@@ -535,8 +543,8 @@ def _(func: StandaloneCalledFunction, /) -> StandaloneCalledFunction:
 
 # NOTE: At present we assume that matrices are never part of the expression, only
 # the assignee. Ideally we should traverse the expression and emit extra READ instructions.
-@prepare_petsc_calls.register(BufferAssignment)
-def _(assignment: BufferAssignment, /) -> InstructionList:
+@prepare_petsc_calls.register(ArrayAssignment)
+def _(assignment: ArrayAssignment, /) -> InstructionList:
     if isinstance(assignment.assignee.buffer, AbstractPetscMatBuffer):
         mat = assignment.assignee
 
@@ -689,10 +697,8 @@ def _(loop: Loop, /, *, optimize: bool, loop_indices: tuple[LoopIndex, ...]) -> 
     )
 
 
-@_collect_candidate_indirections.register(Terminal)
-def _(terminal: Terminal, /, *, loop_indices: tuple[LoopIndex, ...], optimize: bool) -> ImmutableOrderedDict:
-    pyop3.extras.debug.warn_todo("Need special terminal class that asserts the existence of axis trees")
-
+@_collect_candidate_indirections.register(NonEmptyTerminal)
+def _(terminal: NonEmptyTerminal, /, *, loop_indices: tuple[LoopIndex, ...], optimize: bool) -> ImmutableOrderedDict:
     candidates = {}
     for i, arg in enumerate(terminal.arguments):
         per_arg_candidates = collect_tensor_candidate_indirections(
@@ -728,8 +734,8 @@ def _(loop: Loop, /, arg_layouts, seen_exprs_mut, *, loop_axes_acc, **kwargs) ->
     )
 
 
-@_compute_indirection_cost_rec.register(BufferAssignment)
-def _(assignment: BufferAssignment, /, arg_layouts, seen_exprs_mut, *, loop_axes_acc, cache) -> int:
+@_compute_indirection_cost_rec.register(ArrayAssignment)
+def _(assignment: ArrayAssignment, /, arg_layouts, seen_exprs_mut, *, loop_axes_acc, cache) -> int:
     return sum(
         _compute_array_indirection_cost(arg, arg_layouts, seen_exprs_mut, loop_axes_acc, (assignment.id, i), cache)
         for i, arg in enumerate([assignment.assignee, assignment.expression])
@@ -870,13 +876,14 @@ def _(loop: Loop, /, layouts: Mapping[Any, Any]) -> Loop:
     return loop.copy(statements=[concretize_materialized_indirections(stmt, layouts) for stmt in loop.statements])
 
 
-@concretize_materialized_indirections.register(Terminal)
-def _(terminal: Terminal, /, layouts: Mapping[Any, Any]) -> Terminal:
-    return terminal.reconstruct(
-        arguments=tuple(
-            concretize_materialized_tensor_indirections(arg, layouts, (terminal, i))
-            for i, arg in enumerate(terminal.arguments)
-        )
+@concretize_materialized_indirections.register(NonEmptyArrayAssignment)
+def _(assignment: NonEmptyArrayAssignment, /, layouts: Mapping[Any, Any]) -> ConcretizedNonEmptyArrayAssignment:
+    assignee, expression = (
+        concretize_materialized_tensor_indirections(arg, layouts, (assignment, i))
+        for i, arg in enumerate(assignment.arguments)
+    )
+    return ConcretizedNonEmptyArrayAssignment(
+        assignee, expression, assignment.assignment_type, assignment.axis_trees
     )
 
 
@@ -945,8 +952,8 @@ def _(loop: Loop, /) -> Loop | NullInstruction:
     return loop.copy(statements=statements) if statements else NullInstruction()
 
 
-@drop_zero_sized_paths.register(BufferAssignment)
-def _(assignment: BufferAssignment, /) -> NonEmptyArrayBufferAssignment | NullInstruction:
+@drop_zero_sized_paths.register(ArrayAssignment)
+def _(assignment: ArrayAssignment, /) -> NonEmptyArrayArrayAssignment | NullInstruction:
     assignee = assignment.assignee
     if isinstance(assignee, DatBufferExpression):
         axis_trees = (assignee.axes,)
@@ -961,16 +968,16 @@ def _(assignment: BufferAssignment, /) -> NonEmptyArrayBufferAssignment | NullIn
         return assignment.with_axes(nonzero_axis_trees)
 
 
-@drop_zero_sized_paths.register(PetscMatAssignment)
-def _(assignment: PetscMatAssignment, /) -> NonEmptyPetscMatAssignment | NullInstruction:
-    pruned_trees = []
-    for tree in (assignment.assignee.raxes, assignment.assignee.caxes):
-        pruned_tree = prune_zero_sized_branches(tree)
-        if pruned_tree.size == 0:
-            return NullInstruction()
-        else:
-            pruned_trees.append(pruned_tree)
-    return assignment.with_axes(*pruned_trees)
+# @drop_zero_sized_paths.register(PetscMatAssignment)
+# def _(assignment: PetscMatAssignment, /) -> NonEmptyPetscMatAssignment | NullInstruction:
+#     pruned_trees = []
+#     for tree in (assignment.assignee.raxes, assignment.assignee.caxes):
+#         pruned_tree = prune_zero_sized_branches(tree)
+#         if pruned_tree.size == 0:
+#             return NullInstruction()
+#         else:
+#             pruned_trees.append(pruned_tree)
+#     return assignment.with_axes(*pruned_trees)
 
 
 @drop_zero_sized_paths.register(StandaloneCalledFunction)

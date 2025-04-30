@@ -51,9 +51,9 @@ from pyop3.lang import (
     parse_compiler_parameters,
     WRITE,
     AssignmentType,
-    NonEmptyArrayAssignment,
+    ConcretizedNonEmptyArrayAssignment,
     StandaloneCalledFunction,
-    NonEmptyPetscMatAssignment,
+    # NonEmptyPetscMatAssignment,
     PreprocessedExpression,
     UnprocessedExpressionException,
     DummyKernelArgument,
@@ -737,22 +737,25 @@ def _(call: StandaloneCalledFunction, loop_indices, ctx: LoopyCodegenContext) ->
 
 
 # FIXME this is practically identical to what we do in build_loop
-@_compile.register(NonEmptyArrayAssignment)
+@_compile.register(ConcretizedNonEmptyArrayAssignment)
 def parse_assignment(
     assignment,
     loop_indices,
     codegen_ctx,
 ):
-    parse_assignment_properly_this_time(
-        assignment,
-        loop_indices,
-        codegen_ctx,
-        assignment.axis_trees,
-    )
+    if any(isinstance(arg, PetscMatBufferExpression) for arg in assignment.arguments):
+        _compile_petsc_mat(assignment, loop_indices, codegen_ctx)
+    else:
+        parse_assignment_properly_this_time(
+            assignment,
+            loop_indices,
+            codegen_ctx,
+            assignment.axis_trees,
+        )
 
 
-@_compile.register(NonEmptyPetscMatAssignment)
-def _(assignment: NonEmptyPetscMatAssignment, loop_indices, context):
+# @_compile.register(NonEmptyPetscMatAssignment)
+def _compile_petsc_mat(assignment: NonEmptyPetscMatAssignment, loop_indices, context):
     mat = assignment.mat
     array = assignment.values
 

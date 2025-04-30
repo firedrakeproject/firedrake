@@ -225,7 +225,7 @@ class TabulatedMapComponent(MapComponent):
             arity = just_one(array.axes.leaf_component.regions).size
 
         super().__init__(target_axis, target_component, label=label)
-        self.array = array
+        self.array = as_linear_buffer_expression(array)
         self._arity = arity
 
     @property
@@ -1257,17 +1257,20 @@ def _make_leaf_axis_from_called_map_new(map_, map_name, output_spec, linear_inpu
         linear_axis = Axis(component, axis.label)
         linear_axes = linear_input_axes.add_axis(linear_axis, linear_input_axes.leaf)
 
-        map_output_leaf = map_output.array.axes.leaf
-        leaf_axis, leaf_component_label = map_output_leaf
+        # map_output_leaf = map_output.array.axes.leaf
+        # leaf_axis, leaf_component_label = map_output_leaf
 
-        # paths_and_exprs = input_paths_and_exprs | {(linear_axis.id, component.label): (pmap({leaf_axis.label: leaf_component_label}), pmap({leaf_axis.label: AxisVar(leaf_axis)}))}
-        paths_and_exprs = input_paths_and_exprs | {(linear_axis.id, component.label): (ImmutableOrderedDict({leaf_axis.label: leaf_component_label}), ImmutableOrderedDict({leaf_axis: AxisVar(leaf_axis.label)}))}
+        # paths_and_exprs = input_paths_and_exprs | {(linear_axis.id, component.label): (ImmutableOrderedDict({leaf_axis.label: leaf_component_label}), ImmutableOrderedDict({leaf_axis: AxisVar(leaf_axis.label)}))}
 
         target_path = ImmutableOrderedDict({map_output.target_axis: map_output.target_component})
 
-        # target_exprs = pmap({map_output.target_axis: replace(map_output.array, linear_axes, paths_and_exprs)})
-        # target_exprs = pmap({map_output.target_axis: replace(map_output.array, linear_axes, paths_and_exprs)})
-        replace_map = merge_dicts(t for _, t in paths_and_exprs.values())
+        # myvar = just_one(collect_axis_vars(map_output.array.layout))
+        # replace_map = {myvar.axis_label: AxisVar(axis.label)}
+
+        # FIXME: I don't really need this stuff, 
+        # paths_and_exprs = input_paths_and_exprs | {"anything": ("anything", {leaf_axis: AxisVar(leaf_axis.label})}
+        # replace_map = merge_dicts(t for _, t in paths_and_exprs.values())
+        replace_map = merge_dicts(t for _, t in input_paths_and_exprs.values())
         target_exprs = ImmutableOrderedDict({map_output.target_axis: replace_terminals(map_output.array, replace_map)})
         targets[axis.id, component.label] = (target_path, target_exprs)
     targets = ImmutableOrderedDict(targets)
