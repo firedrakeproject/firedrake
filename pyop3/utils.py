@@ -491,26 +491,26 @@ def popfirst(dict_: dict) -> Any:
     return (key, dict_.pop(key))
 
 
-class RecordMixin(abc.ABC):
+# class RecordMixin(abc.ABC):
+#
+#     def reconstruct(self, **attrs) -> RecordMixin:
+#         for field in self.__dataclass_fields__.keys():
+#             if field not in attrs:
+#                 attrs[field] = getattr(self, field)
+#
+#         new = object.__new__(type(self))
+#         for attr, value in attrs.items():
+#             object.__setattr__(new, attr, value)
+#         return new
 
-    def reconstruct(self, **attrs) -> RecordMixin:
-        for field in self.__dataclass_fields__.keys():
-            if field not in attrs:
-                attrs[field] = getattr(self, field)
 
-        new = object.__new__(type(self))
-        for attr, value in attrs.items():
-            object.__setattr__(new, attr, value)
-        return new
-
-
-def record(init=True):
-    def wrapper(cls):
-        cls = dataclasses.dataclass(init=init)(cls)
-        cls.__hash__ = object.__hash__
-        cls.__eq__ = object.__eq__
-        return cls
-    return wrapper
+# def record(init=True):
+#     def wrapper(cls):
+#         cls = dataclasses.dataclass(init=init)(cls)
+#         cls.__hash__ = object.__hash__
+#         cls.__eq__ = object.__eq__
+#         return cls
+#     return wrapper
 
 
 def unique_comm(iterable) -> MPI.Comm | None:

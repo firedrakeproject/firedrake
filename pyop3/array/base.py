@@ -12,25 +12,13 @@ from pyop3 import utils
 from pyop3.axtree import ContextAware
 from pyop3.axtree.tree import Expression
 from pyop3.exceptions import InvalidIndexCountException
-from pyop3.lang import FunctionArgument, BufferAssignment
+from pyop3.lang import FunctionArgument, ArrayAssignment
 
 
 # TODO: rename 'DataCarrier'? Or TENSOR!!!!!!! Array is overloaded
-@utils.record(init=False)
-class Array(ContextAware, FunctionArgument, Expression, utils.RecordMixin, abc.ABC):
-
-    # {{{ Instance attrs
-
-    name: str
-    parent: Array | None
-
-    # }}}
-
-    # {{{ Class attrs
+class Array(ContextAware, FunctionArgument, Expression, abc.ABC):
 
     DEFAULT_PREFIX: ClassVar[str] = "array"
-
-    # }}}
 
     def __init__(self, name: str | None=None, *, prefix: str | None=None, parent: Array|None=None) -> None:
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
@@ -53,6 +41,16 @@ class Array(ContextAware, FunctionArgument, Expression, utils.RecordMixin, abc.A
     __iter__ = None
 
     # {{{ abstract methods
+
+    @property
+    @abc.abstractmethod
+    def name(self) -> str:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def parent(self) -> Array | None:
+        pass
 
     @property
     @abc.abstractmethod
@@ -91,13 +89,11 @@ class Array(ContextAware, FunctionArgument, Expression, utils.RecordMixin, abc.A
     # }}}
 
     def assign(self, other, /, *, eager=False):
-        expr = BufferAssignment(self, other, "write")
+        expr = ArrayAssignment(self, other, "write")
         return expr() if eager else expr
 
 
-# TODO: make this a dataclass and accept the buffer there
-@utils.record(init=False)
-class DistributedArray(Array, abc.ABC):
+class DistributedArray(Array, metaclass=abc.ABCMeta):
 
     # {{{ abstract methods
 

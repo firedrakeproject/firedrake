@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import collections
+import dataclasses
 import functools
 import itertools
 import numbers
@@ -23,13 +24,12 @@ from pyop3.utils import OrderedSet, just_one
 
 # should inherit from _Dat
 # or at least be an Expression!
-@utils.record()
+@dataclasses.dataclass(frozen=True)
 class CompositeDat:
-    def __init__(self, axis_tree, leaf_exprs, loop_indices, dtype):
-        object.__setattr__(self, "axis_tree", axis_tree)
-        object.__setattr__(self, "leaf_exprs", leaf_exprs)
-        object.__setattr__(self, "loop_indices", loop_indices)
-        object.__setattr__(self, "dtype", dtype)
+    axis_tree: AxisTree
+    leaf_exprs: Any
+    loop_indices: Any
+    dtype: np.dtype
 
     # def __str__(self) -> str:
     #     return f"acc({self.expr})"

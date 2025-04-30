@@ -54,8 +54,8 @@ def record_modified(func):
     return wrapper
 
 
-@utils.record(init=False)
-class AbstractBuffer(KernelArgument, utils.RecordMixin, metaclass=abc.ABCMeta):
+@dataclasses.dataclass(init=False, eq=False)
+class AbstractBuffer(KernelArgument, metaclass=abc.ABCMeta):
 
     # {{{ Instance attrs
 
@@ -89,7 +89,7 @@ class AbstractArrayBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
     pass
 
 
-@utils.record(init=False)
+@dataclasses.dataclass(init=False, eq=False)
 class NullBuffer(AbstractArrayBuffer):
     """A buffer that does not carry data.
 
@@ -133,7 +133,7 @@ class NullBuffer(AbstractArrayBuffer):
 
 
 
-@utils.record()
+@dataclasses.dataclass(eq=False)
 class ConcreteBufferMixin(metaclass=abc.ABCMeta):
     """Abstract class representing buffers that carry actual data."""
 
@@ -156,7 +156,7 @@ class ConcreteBufferMixin(metaclass=abc.ABCMeta):
 
 # NOTE: When GPU support is added, the host-device awareness and
 # copies should live in this class.
-@utils.record(init=False)
+@dataclasses.dataclass(init=False, eq=False)
 class ArrayBuffer(AbstractArrayBuffer, ConcreteBufferMixin):
     """A buffer whose underlying data structure is a numpy array."""
 
@@ -429,7 +429,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBufferMixin):
         self._broadcast_roots_to_leaves()
 
 
-@utils.record(init=False)
 class AbstractPetscMatBuffer(AbstractBuffer, ConcreteBufferMixin, metaclass=abc.ABCMeta):
     """A buffer whose underlying data structure is a PETSc Mat."""
 
@@ -529,7 +528,7 @@ class AbstractPetscMatBuffer(AbstractBuffer, ConcreteBufferMixin, metaclass=abc.
         return mat
 
 
-@utils.record(init=False)
+@dataclasses.dataclass(init=False, eq=False)
 class PetscMatBuffer(AbstractPetscMatBuffer):
     """A buffer whose underlying data structure is a PETSc Mat."""
 
@@ -551,7 +550,7 @@ class PetscMatBuffer(AbstractPetscMatBuffer):
 
 
 
-@utils.record(init=False)
+@dataclasses.dataclass(init=False, eq=False)
 class PetscMatPreallocatorBuffer(AbstractPetscMatBuffer):
     """A buffer whose underlying data structure is a PETSc Mat."""
 

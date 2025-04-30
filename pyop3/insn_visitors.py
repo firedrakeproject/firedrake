@@ -45,7 +45,7 @@ from pyop3.lang import (
     RW,
     WRITE,
     AbstractAssignment,
-    ExplicitCalledFunction,
+    StandaloneCalledFunction,
     FunctionArgument,
     NonEmptyPetscMatAssignment,
     NullInstruction,
@@ -282,7 +282,7 @@ class ImplicitPackUnpackExpander(Transformer):
             else:
                 arguments.append(arg)
 
-        return maybe_enlist((*gathers, ExplicitCalledFunction(terminal.function, arguments), *scatters))
+        return maybe_enlist((*gathers, StandaloneCalledFunction(terminal.function, arguments), *scatters))
 
 
 # class ExprMarker
@@ -363,10 +363,10 @@ def _(loop: Loop, /) -> Loop:
     )
 
 
-@expand_assignments.register(ExplicitCalledFunction)
+@expand_assignments.register(StandaloneCalledFunction)
 @expand_assignments.register(PetscMatAssignment)
 @expand_assignments.register(NullInstruction)
-def _(func: ExplicitCalledFunction, /) -> ExplicitCalledFunction:
+def _(func: StandaloneCalledFunction, /) -> StandaloneCalledFunction:
     return func
 
 
@@ -527,9 +527,9 @@ def _(loop: Loop, /) -> Loop:
     )
 
 
-@prepare_petsc_calls.register(ExplicitCalledFunction)
+@prepare_petsc_calls.register(StandaloneCalledFunction)
 @prepare_petsc_calls.register(NullInstruction)
-def _(func: ExplicitCalledFunction, /) -> ExplicitCalledFunction:
+def _(func: StandaloneCalledFunction, /) -> StandaloneCalledFunction:
     return func
 
 
@@ -736,8 +736,8 @@ def _(assignment: BufferAssignment, /, arg_layouts, seen_exprs_mut, *, loop_axes
     )
 
 
-@_compute_indirection_cost_rec.register(ExplicitCalledFunction)
-def _(func: ExplicitCalledFunction, /, arg_layouts, seen_exprs_mut, *, loop_axes_acc, cache) -> int:
+@_compute_indirection_cost_rec.register(StandaloneCalledFunction)
+def _(func: StandaloneCalledFunction, /, arg_layouts, seen_exprs_mut, *, loop_axes_acc, cache) -> int:
     return 0
 
 
@@ -973,7 +973,7 @@ def _(assignment: PetscMatAssignment, /) -> NonEmptyPetscMatAssignment | NullIns
     return assignment.with_axes(*pruned_trees)
 
 
-@drop_zero_sized_paths.register(ExplicitCalledFunction)
+@drop_zero_sized_paths.register(StandaloneCalledFunction)
 @drop_zero_sized_paths.register(NullInstruction)
-def _(func: ExplicitCalledFunction, /) -> ExplicitCalledFunction:
+def _(func: StandaloneCalledFunction, /) -> StandaloneCalledFunction:
     return func

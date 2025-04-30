@@ -29,8 +29,6 @@ from pyop3.config import config
 from pyop3.dtypes import dtype_limits
 from pyop3.exceptions import Pyop3Exception
 from pyop3.utils import (
-    RecordMixin,
-    # UniqueRecord,
     deprecated,
     OrderedSet,
     as_tuple,
@@ -180,11 +178,12 @@ class PreprocessedExpression:
     expression: Instruction
 
 
-@dataclasses.dataclass(frozen=True)
-class Instruction(RecordMixin, abc.ABC):
+class Instruction(abc.ABC):
 
-    def __init__(self) -> None:
-        object.__setattr__(self, "_cache", collections.defaultdict(dict))
+    @property
+    @abc.abstractmethod
+    def _cache(self) -> dict:
+        pass
 
     def __call__(self, *, compiler_parameters=None, **kwargs):
         compiler_parameters = parse_compiler_parameters(compiler_parameters)
@@ -608,20 +607,20 @@ def _has_nontrivial_stencil(array):
         raise TypeError
 
 
-@dataclasses.dataclass(init=False, frozen=True)
 class Terminal(Instruction, metaclass=abc.ABCMeta):
 
-    # {{{ Instance attrs
+    @property
+    @abc.abstractmethod
+    def arguments(self) -> tuple:
+        pass
 
-    arguments: tuple
 
-    # }}}
+class NonEmptyTerminal(Terminal, metaclass=abc.ABCMeta):
 
-    def __init__(self, arguments, **kwargs):
-        arguments = tuple(arguments)
-
-        object.__setattr__(self, "arguments", arguments)
-        super().__init__(**kwargs)
+    @property
+    @abc.abstractmethod
+    def axis_trees(self) -> AxisTree:
+        pass
 
 
 @dataclasses.dataclass(frozen=True)
@@ -682,23 +681,29 @@ class Function:
         return self.code.default_entrypoint.name
 
 
-@dataclasses.dataclass(init=False, frozen=True)
-class AbstractCalledFunction(Terminal, metaclass=abc.ABCMeta):
+class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
 
-    # {{{ Instance attrs
-
-    function: Function
-
-    # }}}
-
-    def __init__(
-        self, function: Function, arguments: Iterable[FunctionArgument], **kwargs
-    ) -> None:
-        object.__setattr__(self, "function", function)
-        super().__init__(arguments, **kwargs)
+    # def __init__(
+    #     self, function: Function, arguments: Iterable[FunctionArgument], **kwargs
+    # ) -> None:
+    #     object.__setattr__(self, "function", function)
+    #     super().__init__(arguments, **kwargs)
 
     def __str__(self) -> str:
         return f"{self.name}({', '.join(arg.name for arg in self.arguments)})"
+
+    # {{{ Abstract methods
+
+    @property
+    @abc.abstractmethod
+    def function(self) -> Function:
+        pass
+
+    # }}}
+
+    @property
+    def axis_trees(self) -> tuple[AxisTree, ...]:
+        return ()
 
     @property
     def name(self):
@@ -721,12 +726,11 @@ class AbstractCalledFunction(Terminal, metaclass=abc.ABCMeta):
 
 
 class CalledFunction(AbstractCalledFunction):
-    def with_arguments(self, arguments):
-        return self.copy(arguments=arguments)
+    pass
 
 
-class ExplicitCalledFunction(AbstractCalledFunction):
-    """A `CalledFunction` whose arguments do not need packing/unpacking."""
+class StandaloneCalledFunction(AbstractCalledFunction):
+    """A called function whose arguments do not need packing/unpacking."""
 
 
 # TODO: Make this a singleton like UNIT_AXIS_TREE
@@ -750,21 +754,25 @@ def assignment_type_as_intent(assignment_type: AssignmentType) -> Intent:
             raise AssertionError(f"{assignment_type} not recognised")
 
 
-@dataclasses.dataclass(init=False, frozen=True)
 class AbstractAssignment(Terminal, metaclass=abc.ABCMeta):
 
-    # {{{ Instance attrs
+    # {{{ Abstract methods
 
-    assignment_type: AssignmentType
+    @property
+    @abc.abstractmethod
+    def assignment_type(self) -> AssignmentType:
+        pass
 
     # }}}
 
-    def __init__(self, assignee, expression, assignment_type, **kwargs):
-        arguments = (assignee, expression)
-        assignment_type = AssignmentType(assignment_type)
+    # {{{ Dunders
 
-        object.__setattr__(self, "assignment_type", assignment_type)
-        super().__init__(arguments, **kwargs)
+    # def __init__(self, assignee, expression, assignment_type, **kwargs):
+    #     arguments = (assignee, expression)
+    #     assignment_type = AssignmentType(assignment_type)
+    #
+    #     object.__setattr__(self, "assignment_type", assignment_type)
+    #     super().__init__(arguments, **kwargs)
 
     def __str__(self) -> str:
         if self.assignment_type == AssignmentType.WRITE:
@@ -800,6 +808,8 @@ class AbstractAssignment(Terminal, metaclass=abc.ABCMeta):
             else:
                 return f"{just_one(assignee_strs)} {operator} {just_one(expression_strs)}"
 
+    # }}}
+
     @property
     def assignee(self):
         return self.arguments[0]
@@ -809,22 +819,22 @@ class AbstractAssignment(Terminal, metaclass=abc.ABCMeta):
         return self.arguments[1]
 
 
-@dataclasses.dataclass(init=False, frozen=True)
-class AbstractBufferAssignment(AbstractAssignment, metaclass=abc.ABCMeta):
+class NonEmptyAssignment(AbstractAssignment, NonEmptyTerminal, metaclass=abc.ABCMeta):
     pass
 
 
-@dataclasses.dataclass(init=False, frozen=True)
-class BufferAssignment(AbstractBufferAssignment):
+class AbstractArrayAssignment(AbstractAssignment, metaclass=abc.ABCMeta):
+    pass
+
+
+@dataclasses.dataclass(frozen=True)
+class ArrayAssignment(AbstractArrayAssignment):
+
+    assignee: Any
     # def __init__(self, assignee, *args, **kwargs):
     #     if assignee.name == "t_5": # deebug
     #         breakpoint()
     #     super().__init__(assignee, *args, **kwargs)
-
-    # @property
-    # def arguments(self):
-    #     # FIXME Not sure this is right for complicated expressions
-    #     return (self.assignee, self.expression)
 
     @property
     def arrays(self):
@@ -837,10 +847,6 @@ class BufferAssignment(AbstractBufferAssignment):
             if not isinstance(self.expression, numbers.Number):
                 raise NotImplementedError
         return tuple(arrays_)
-
-    @property
-    def argument_shapes(self):
-        return (None,) * len(self.kernel_arguments)
 
     def with_arguments(self, arguments):
         if len(arguments) != 2:
@@ -860,24 +866,29 @@ class BufferAssignment(AbstractBufferAssignment):
         else:
             raise NotImplementedError("Complicated rvalues not yet supported")
 
-    @property
-    def kernel_arguments(self):
-        from pyop3.array import Dat, Mat
-
-        args = OrderedSet()
-        for array, _ in self.function_arguments:
-            if isinstance(array, Dat):
-                args.add(array.buffer)
-            elif isinstance(array, Mat):
-                args.add(array.mat)
-        return tuple(args)
-
     def with_axes(self, axes: AxisTree) -> NonEmptyAssignmentMixin:
         return NonEmptyArrayBufferAssignment(self.assignee, self.expression, self.assignment_type, axes)
 
 
-@dataclasses.dataclass(init=False, frozen=True)
+@dataclasses.dataclass(frozen=True)
+class NonEmptyArrayAssignment(AbstractArrayAssignment, NonEmptyAssignment):
+
+    assignee: Any
+    expression: Any
+    assignment_type: AssignmentType
+    axis_trees: tuple[AxisTree, ...]
+
+    # def __init__(self, assignee, expression, assignment_type, axis_trees, **kwargs):
+    #     super().__init__(assignee, expression, assignment_type, **kwargs)
+    #     object.__setattr__(self, "_axis_trees", tuple(axis_trees))
+    #
+    # @property
+    # def axis_trees(self) -> tuple[AxisTree]:
+    #     return self._axis_trees
+
+
 class AbstractPetscMatAssignment(AbstractAssignment, metaclass=abc.ABCMeta):
+
     def __init__(self, mat, values, access_type):
         if access_type == ArrayAccessType.READ:
             assignment_type = AssignmentType.WRITE
@@ -899,46 +910,27 @@ class AbstractPetscMatAssignment(AbstractAssignment, metaclass=abc.ABCMeta):
         self.access_type = access_type
 
 
-@dataclasses.dataclass(init=False, frozen=True)
+@dataclasses.dataclass(frozen=True)
 class PetscMatAssignment(AbstractPetscMatAssignment):
     def with_axes(self, row_axis_tree, col_axis_tree):
         return NonEmptyPetscMatAssignment(self.mat, self.values, self.access_type, row_axis_tree, col_axis_tree)
 
 
-# NOTE: These are internal classes, can be moved elsewhere
-class NonEmptyAssignmentMixin(abc.ABC):
-    pass  # now on Terminal
-    # @property
-    # @abc.abstractmethod
-    # def axis_trees(self) -> AxisTree:
-    #     pass
-
-
-@dataclasses.dataclass(init=False, frozen=True)
-class NonEmptyArrayBufferAssignment(AbstractBufferAssignment, NonEmptyAssignmentMixin):
-
-    _axis_trees: Any
-
-    def __init__(self, assignee, expression, assignment_type, axis_trees, **kwargs):
-        super().__init__(assignee, expression, assignment_type, **kwargs)
-        object.__setattr__(self, "_axis_trees", tuple(axis_trees))
-
-    @property
-    def axis_trees(self) -> tuple[AxisTree]:
-        return self._axis_trees
-
-
-@dataclasses.dataclass(init=False, frozen=True)
-class NonEmptyPetscMatAssignment(AbstractPetscMatAssignment, NonEmptyAssignmentMixin):
+@dataclasses.dataclass(frozen=True)
+class NonEmptyPetscMatAssignment(AbstractPetscMatAssignment, NonEmptyAssignment):
     def __init__(self, mat, values, access_type, row_axis_tree, column_axis_tree, **kwargs):
         super().__init__(mat, values, access_type, **kwargs)
         # self._axis_trees = (row_axes, col_axes)
         self.row_axis_tree = row_axis_tree
         self.column_axis_tree = column_axis_tree
 
+    # {{{ Interface impls
+
     @property
     def axis_trees(self) -> tuple[AxisTree, AxisTree]:
         return (self.row_axis_tree, self.column_axis_tree)
+
+    # }}}
 
 
 # TODO: With Python 3.11 can be made a StrEnum

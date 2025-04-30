@@ -27,10 +27,9 @@ from pyop3.axtree.tree import AbstractAxisTree, Expression, ContextFree, Context
 from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer, AbstractPetscMatBuffer
 from pyop3.dtypes import ScalarType
 from pyop3.exceptions import Pyop3Exception
-from pyop3.lang import KernelArgument, BufferAssignment
+from pyop3.lang import KernelArgument, ArrayAssignment
 from pyop3.log import warning
 from pyop3.utils import (
-    RecordMixin,
     debug_assert,
     deprecated,
     just_one,
@@ -51,8 +50,7 @@ class FancyIndexWriteException(Exception):
     pass
 
 
-@utils.record(init=False)
-class _Dat(DistributedArray, KernelArgument, abc.ABC):
+class _Dat(DistributedArray, KernelArgument, metaclass=abc.ABCMeta):
 
     # {{{ Array impls
 
@@ -163,11 +161,11 @@ class _Dat(DistributedArray, KernelArgument, abc.ABC):
         if subset is None:
             subset = Ellipsis
 
-        expr = BufferAssignment(self[subset], 0, "write")
+        expr = ArrayAssignment(self[subset], 0, "write")
         return expr() if eager else expr
 
 
-@utils.record(init=False)
+@dataclasses.dataclass(init=False, eq=False)
 class Dat(_Dat):
     """Multi-dimensional, hierarchical array.
 
@@ -557,7 +555,7 @@ class Dat(_Dat):
 
 
 # TODO: Should inherit from Terminal (but Terminal has odd attrs)
-@utils.record(init=False)
+# @utils.record(init=False)
 class BufferExpression(Expression, metaclass=abc.ABCMeta):
     buffer: AbstractBuffer
 
@@ -566,12 +564,12 @@ class BufferExpression(Expression, metaclass=abc.ABCMeta):
 
 
 # TODO: just ArrayBufferExpression
-class DatBufferExpression(BufferExpression, abc.ABC):
+class DatBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
     pass
 
 
 
-@utils.record(init=False)
+@dataclasses.dataclass(init=False)
 class LinearDatBufferExpression(DatBufferExpression):
     """A dat with fixed (?) layout.
 
@@ -618,7 +616,7 @@ class LinearDatBufferExpression(DatBufferExpression):
     #     return evaluate(self.layout, indices)
 
 
-@utils.record(init=False)
+@dataclasses.dataclass(init=False)
 class NonlinearDatBufferExpression(DatBufferExpression):
     """A dat with fixed layouts.
 
@@ -646,7 +644,7 @@ class NonlinearDatBufferExpression(DatBufferExpression):
         )
 
 
-@utils.record(init=False)
+@dataclasses.dataclass(init=False)
 class PetscMatBufferExpression(BufferExpression):
 
     # {{{ Instance attrs

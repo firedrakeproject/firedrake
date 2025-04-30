@@ -51,8 +51,8 @@ from pyop3.lang import (
     parse_compiler_parameters,
     WRITE,
     AssignmentType,
-    NonEmptyArrayBufferAssignment,
-    ExplicitCalledFunction,
+    NonEmptyArrayAssignment,
+    StandaloneCalledFunction,
     NonEmptyPetscMatAssignment,
     PreprocessedExpression,
     UnprocessedExpressionException,
@@ -557,7 +557,7 @@ def _(assignment: AbstractAssignment, /) -> ImmutableOrderedDict:
 
 
 @_collect_temporary_shapes.register
-def _(call: ExplicitCalledFunction):
+def _(call: StandaloneCalledFunction):
     return ImmutableOrderedDict(
         {
             arg.buffer.name: lp_arg.shape
@@ -665,7 +665,7 @@ def parse_loop_properly_this_time(
 
 
 @_compile.register
-def _(call: ExplicitCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> None:
+def _(call: StandaloneCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> None:
     temporaries = []
     subarrayrefs = {}
     extents = {}
@@ -737,7 +737,7 @@ def _(call: ExplicitCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> N
 
 
 # FIXME this is practically identical to what we do in build_loop
-@_compile.register(NonEmptyArrayBufferAssignment)
+@_compile.register(NonEmptyArrayAssignment)
 def parse_assignment(
     assignment,
     loop_indices,

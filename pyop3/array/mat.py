@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import collections
+import dataclasses
 import numbers
 from functools import cached_property
 from itertools import product
@@ -28,7 +29,7 @@ from pyop3.axtree.tree import (
 )
 from pyop3.buffer import ArrayBuffer, NullBuffer, AbstractBuffer, AbstractPetscMatBuffer, PetscMatBuffer, PetscMatPreallocatorBuffer
 from pyop3.dtypes import IntType, ScalarType
-from pyop3.lang import Loop, BufferAssignment
+from pyop3.lang import Loop, ArrayAssignment
 from pyop3.utils import (
     deprecated,
     just_one,
@@ -60,7 +61,7 @@ class PetscVecNest(PetscVec):
     ...
 
 
-@utils.record(init=False)
+@dataclasses.dataclass(init=False, eq=False)
 class Mat(DistributedArray):
 
     # {{{ Instance attributes
