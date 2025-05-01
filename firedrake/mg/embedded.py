@@ -269,7 +269,7 @@ class TransferManager(object):
 
             # Transfer
             # u \in VDGs -> u \in VDGt
-            self.op(dgsource, dgtarget, transfer_op)
+            self.op(dgsource, dgtarget, transfer_op=transfer_op)
 
             # Project back
             # u \in VDGt -> u \in Vt
@@ -281,6 +281,7 @@ class TransferManager(object):
                     work = self.work_vec(Vt)
                     self.V_DG_mass(Vt, VDGt).multTranspose(dgv, work)
                     self.V_inv_mass_ksp(Vt).solve(work, t)
+
         self.cache_dat_versions(Vs, transfer_op, source, target)
 
     def prolong(self, uc, uf):

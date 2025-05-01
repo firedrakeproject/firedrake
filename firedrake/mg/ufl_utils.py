@@ -255,22 +255,27 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
                 add_hook(parentdm, teardown=teardown)
 
     def coarsen(fine, coarse):
-        pass
+        return
 
-    def inject_on_restrict(fine, restriction, rscale, injection, coarse):
         manager = get_transfer_manager(fine)
         cctx = get_appctx(coarse)
-        cmapping = cctx.F._cache["coefficient_mapping"]
+        cmapping = cctx._problem.F._cache["coefficient_mapping"]
         for f, c in cmapping.items():
             if is_dual(f):
                 manager.restrict(f, c)
             else:
                 manager.inject(f, c)
 
-        if cctx.pre_apply_bcs:
-            # Apply bcs on the injected state
-            for bc in cctx._problem.bcs:
-                bc.apply(cctx._x)
+
+    def inject_on_restrict(fine, restriction, rscale, injection, coarse):
+        manager = get_transfer_manager(fine)
+        cctx = get_appctx(coarse)
+        cmapping = cctx._problem.F._cache["coefficient_mapping"]
+        for f, c in cmapping.items():
+            if is_dual(f):
+                manager.restrict(f, c)
+            else:
+                manager.inject(f, c)
 
     V = context._problem.u.function_space()
     if not V.dm.getAttr("__coarsen_hooks__"):
