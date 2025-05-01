@@ -186,6 +186,7 @@ jobs:
           fi
 
           : # Install from an sdist so we can make sure that it is not ill-formed
+          pip install build
           python -m build ./firedrake-repo --sdist
 
           pip install --verbose $EXTRA_PIP_FLAGS \
