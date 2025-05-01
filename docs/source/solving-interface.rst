@@ -751,16 +751,21 @@ use:
 For nonlinear variational solves we have:
 
 * ``snes_type``: Newton linesearch
-* ``ksp_type``: GMRES, with a restart (``ksp_gmres_restart``) of 30
+* ``ksp_type``: ``preonly``
+* ``mat_type``: ``aij``
 * ``snes_rtol``: 1e-8
 * ``snes_atol``: 1e-50
 * ``snes_stol``: 1e-8
 * ``snes_max_it``: 50
+* ``snes_type`` : ``newtonls``
+* ``snes_linesearch_type`` : `basic`
 * ``ksp_rtol``: 1e-5
 * ``ksp_atol``: 1e-50
 * ``ksp_divtol``: 1e4
 * ``ksp_max_it``: 10000
-* ``pc_type``: ILU (Jacobi preconditioning for mixed problems)
+* ``pc_type``: ``lu``
+* 'pc_factor_mat_solver_type': 'mumps'
+* 'pc_factor_mat_mumps_icntl_14': 200
 
 To see the full view that PETSc has of solver objects, you can pass a
 view flag to the solve call.  For linear solves pass:
