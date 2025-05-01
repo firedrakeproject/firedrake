@@ -122,7 +122,7 @@ class FacetSplitPC(PCBase):
         scpc.setOptionsPrefix(options_prefix)
         scpc.setOperators(A=self.mixed_opmat, P=self.mixed_opmat)
         self.pc = scpc
-        with dmhooks.add_hooks(mixed_dm, self, appctx=self._ctx_ref, save=True):
+        with dmhooks.add_hooks(mixed_dm, self, appctx=self._ctx_ref, save=False):
             scpc.setFromOptions()
 
     def set_nullspaces(self, pc):
@@ -148,6 +148,10 @@ class FacetSplitPC(PCBase):
         self._permute_op()
         if self.reset_operators:
             self.pc.setOperators(A=self.mixed_opmat, P=self.mixed_opmat)
+
+            dm = self.pc.getDM()
+            with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
+                self.pc.setFromOptions()
 
     def prolong(self, x, y):
         if x is not y:
