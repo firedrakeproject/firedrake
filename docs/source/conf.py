@@ -162,6 +162,7 @@ linkcheck_ignore = [
     r'https://www.tuomaskarna.com',
     r'https://www.crosscountrytrains.co.uk/',
     r'https://www.siam.org/',
+    r'https://aims.ac.rw',
 ]
 linkcheck_timeout = 30
 
@@ -244,6 +245,13 @@ html_show_copyright = False
 # Output file base name for HTML help builder.
 htmlhelp_basename = 'Firedrakedoc'
 
+# Optional header warning about docs version
+rst_prolog = """
+.. only:: main
+
+    .. warning::
+        You are reading a version of the website built against the unstable ``main`` branch. This content is liable to change without notice and may be inappropriate for your use case.
+"""
 
 # -- Options for LaTeX output --------------------------------------------
 
