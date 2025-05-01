@@ -22,13 +22,13 @@ import loopy as lp
 import numpy as np
 import pymbolic as pym
 from immutabledict import ImmutableOrderedDict
-from pyop3.array.dat import DatBufferExpression, PetscMatBufferExpression
+from pyop3.array.dat import ArrayBufferExpression, MatPetscMatBufferExpression
 from pyop3.expr_visitors import collect_axis_vars, extract_axes
 
 import pyop2
 
 from pyop3 import utils
-from pyop3.array import Dat, _Dat, LinearDatBufferExpression, NonlinearDatBufferExpression, Parameter, Mat
+from pyop3.array import Dat, _Dat, LinearDatArrayBufferExpression, NonlinearDatArrayBufferExpression, Parameter, Mat
 from pyop3.array.base import Array
 from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent, relabel_path
 from pyop3.buffer import AbstractBuffer, AbstractPetscMatBuffer, ArrayBuffer, NullBuffer
@@ -743,7 +743,7 @@ def parse_assignment(
     loop_indices,
     codegen_ctx,
 ):
-    if any(isinstance(arg, PetscMatBufferExpression) for arg in assignment.arguments):
+    if any(isinstance(arg, MatPetscMatBufferExpression) for arg in assignment.arguments):
         _compile_petsc_mat(assignment, loop_indices, codegen_ctx)
     else:
         parse_assignment_properly_this_time(
@@ -774,7 +774,7 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
         expr_data = np.full((nrows, ncols), expr, dtype=mat.buffer.dtype)
         array_buffer = ArrayBuffer(expr_data, constant=True)
     else:
-        assert isinstance(array, DatBufferExpression)
+        assert isinstance(expr, ArrayBufferExpression)
         array_buffer = expr.buffer
 
     if not isinstance(mat.buffer, AbstractPetscMatBuffer):
@@ -782,7 +782,7 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
     else:
         # We need to know whether the matrix is the assignee or not because we need
         # to know whether to put MatGetValues or MatSetValues
-        setting_mat_values = False
+        setting_mat_values = True
 
     # tidy this up
     # if mat.mat.nested:
@@ -837,9 +837,9 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
     #     codegen_context.add_cinstruction(code)
     #     mat_name = submat_name
 
-    rmap_name = context.add_buffer(mat.row_layout.buffer, READ)
-
-    cmap_name = context.add_buffer(mat.column_layout.buffer, READ)
+    # rmap_name = context.add_buffer(mat.row_layout.buffer, READ)
+    #
+    # cmap_name = context.add_buffer(mat.column_layout.buffer, READ)
 
     # def get_linear_size(axis_tree, path):
     #     linear_size = 1
@@ -889,8 +889,10 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
     else:
         csize_var = csize
 
-    irow = str(pym.var(rmap_name)[lower_expr(mat.row_layout, READ, [], loop_indices, context)])
-    icol = str(pym.var(cmap_name)[lower_expr(mat.column_layout, READ, [], loop_indices, context)])
+    irow = lower_expr(mat.row_layout, READ, ((),), loop_indices, context)
+    # irow = str(pym.var(rmap_name)[lower_expr(mat.row_layout, READ, ((),), loop_indices, context)])
+    # icol = str(pym.var(cmap_name)[lower_expr(mat.column_layout, READ, ((),), loop_indices, context)])
+    icol = lower_expr(mat.column_layout, READ, ((),), loop_indices, context)
 
     # FIXME:
     blocked = False
@@ -1081,27 +1083,8 @@ def _(loop_var: LoopIndexVar, intent, iname_maps, loop_indices, *args, **kwargs)
     return loop_indices[(loop_var.loop_id, loop_var.axis_label)]
 
 
-def maybe_multiindex(buffer, offset_expr, context):
-    # hack to handle the fact that temporaries can have shape but we want to
-    # linearly index it here
-    if buffer.name in context._temporary_shapes:
-        shape = context._temporary_shapes[buffer.name]
-        rank = len(shape)
-        extra_indices = (0,) * (rank - 1)
-
-        # also has to be a scalar, not an expression
-        temp_offset_name = context.add_temporary("j")
-        temp_offset_var = pym.var(temp_offset_name)
-        context.add_assignment(temp_offset_var, offset_expr)
-        indices = extra_indices + (temp_offset_var,)
-    else:
-        indices = (offset_expr,)
-
-    return indices
-
-
-@lower_expr.register(NonlinearDatBufferExpression)
-def _(expr: NonlinearDatBufferExpression, /, intent, iname_maps, loop_indices, context, paths):
+@lower_expr.register(NonlinearDatArrayBufferExpression)
+def _(expr: NonlinearDatArrayBufferExpression, /, intent, iname_maps, loop_indices, context, paths):
     # TODO: I reuse this pattern when I construct the expression, refactor out to avoid the repetition
     # TODO: OR... could have a NonlinearMatExpression or similar?
     if len(paths) > 1:
@@ -1133,23 +1116,13 @@ def _(expr: NonlinearDatBufferExpression, /, intent, iname_maps, loop_indices, c
     return lower_buffer_access(expr.buffer, layout, intent, iname_map, loop_indices, context)
 
 
-@lower_expr.register(LinearDatBufferExpression)
-def _(expr: LinearDatBufferExpression, /, intent, iname_maps, loop_indices, context, **kwargs):
+@lower_expr.register(LinearDatArrayBufferExpression)
+def _(expr: LinearDatArrayBufferExpression, /, intent, iname_maps, loop_indices, context, **kwargs):
     return lower_buffer_access(expr.buffer, expr.layout, intent, just_one(iname_maps), loop_indices, context)
 
 
-def lower_buffer_access(buffer, layout, intent, iname_map, loop_indices, context):
-    name_in_kernel = context.add_buffer(buffer, intent)
-
-    offset_expr = lower_expr(layout, READ, [iname_map], loop_indices, context)
-    indices = maybe_multiindex(buffer, offset_expr, context)
-
-    return pym.subscript(pym.var(name_in_kernel), indices)
-
-
-
-@lower_expr.register(PetscMatBufferExpression)
-def _(expr: PetscMatBufferExpression, /, intent, iname_maps, loop_indices, context, paths):
+@lower_expr.register(MatPetscMatBufferExpression)
+def _(expr: MatPetscMatBufferExpression, /, intent, iname_maps, loop_indices, context, paths):
     assert False, "dont think I get here any more"
     name_in_kernel = context.add_buffer(expr.buffer, intent)
 
@@ -1169,15 +1142,32 @@ def _(expr: PetscMatBufferExpression, /, intent, iname_maps, loop_indices, conte
     return pym.subscript(pym.var(name_in_kernel), indices)
 
 
-# @lower_expr.register(_ExpressionDat)
-# def _(dat: _ExpressionDat, /, intent, iname_maps, loop_indices, context, paths=None):
-#     kernel_arg_name = context.add_buffer(dat.buffer, intent)
-#
-#     iname_map = just_one(iname_maps)
-#     offset_expr = lower_expr(dat.layout, READ, [iname_map], loop_indices, context)
-#     indices = maybe_multiindex(dat, offset_expr, context)
-#
-#     return pym.subscript(pym.var(kernel_arg_name), indices)
+def maybe_multiindex(buffer, offset_expr, context):
+    # hack to handle the fact that temporaries can have shape but we want to
+    # linearly index it here
+    if buffer.name in context._temporary_shapes:
+        shape = context._temporary_shapes[buffer.name]
+        rank = len(shape)
+        extra_indices = (0,) * (rank - 1)
+
+        # also has to be a scalar, not an expression
+        temp_offset_name = context.add_temporary("j")
+        temp_offset_var = pym.var(temp_offset_name)
+        context.add_assignment(temp_offset_var, offset_expr)
+        indices = extra_indices + (temp_offset_var,)
+    else:
+        indices = (offset_expr,)
+
+    return indices
+
+
+def lower_buffer_access(buffer, layout, intent, iname_map, loop_indices, context):
+    name_in_kernel = context.add_buffer(buffer, intent)
+
+    offset_expr = lower_expr(layout, READ, [iname_map], loop_indices, context)
+    indices = maybe_multiindex(buffer, offset_expr, context)
+
+    return pym.subscript(pym.var(name_in_kernel), indices)
 
 
 @functools.singledispatch
@@ -1195,7 +1185,7 @@ def _(param: Parameter, inames, loop_indices, context):
     return context.add_parameter(param)
 
 @register_extent.register(Dat)  # is this right? should this already be parsed?
-@register_extent.register(LinearDatBufferExpression)
+@register_extent.register(LinearDatArrayBufferExpression)
 def _(extent, /, intent, iname_replace_map, loop_indices, context):
     expr = lower_expr(extent, READ, [iname_replace_map], loop_indices, context)
     varname = context.add_temporary("p")

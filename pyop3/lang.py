@@ -575,13 +575,15 @@ def enlist(insn: Instruction) -> InstructionList:
 
 def maybe_enlist(instructions) -> Instruction:
     flattened_insns = []
-    for insn in instructions:
+    for insn in filter_null(instructions):
         if isinstance(insn, InstructionList):
             flattened_insns.extend(insn.instructions)
         else:
             flattened_insns.append(insn)
 
-    if len(flattened_insns) > 1:
+    if not flattened_insns:
+        return NullInstruction()
+    elif len(flattened_insns) > 1:
         return InstructionList(flattened_insns)
     else:
         return just_one(flattened_insns)
@@ -589,6 +591,10 @@ def maybe_enlist(instructions) -> Instruction:
 
 def non_null(instruction: Instruction) -> bool:
     return not isinstance(instruction, NullInstruction)
+
+
+def filter_null(iterable: Iterable[Instruction]):
+    return filter(non_null, iterable)
 
 
 # TODO singledispatch
@@ -864,12 +870,8 @@ class AbstractAssignment(Terminal, metaclass=abc.ABCMeta):
         return self.arguments[1]
 
 
-class AbstractArrayAssignment(AbstractAssignment, metaclass=abc.ABCMeta):
-    pass
-
-
 @utils.frozenrecord()
-class ArrayAssignment(AbstractArrayAssignment):
+class ArrayAssignment(AbstractAssignment):
 
     # {{{ Instance attrs
 
@@ -908,7 +910,7 @@ class ArrayAssignment(AbstractArrayAssignment):
 
 
 @utils.frozenrecord()
-class NonEmptyArrayAssignment(AbstractArrayAssignment, NonEmptyTerminal):
+class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
 
     # {{{ Instance attrs
 
@@ -930,7 +932,7 @@ class NonEmptyArrayAssignment(AbstractArrayAssignment, NonEmptyTerminal):
 
 
 @utils.frozenrecord()
-class ConcretizedNonEmptyArrayAssignment(AbstractArrayAssignment):
+class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
 
     # {{{ Instance attrs
 
@@ -949,72 +951,6 @@ class ConcretizedNonEmptyArrayAssignment(AbstractArrayAssignment):
     axis_trees: ClassVar[property] = property(lambda self: self._axis_trees)
 
     # }}}
-
-
-# class AbstractPetscMatAssignment(AbstractAssignment, metaclass=abc.ABCMeta):
-#
-#     def __init__(self, mat, values, access_type):
-#         if access_type == ArrayAccessType.READ:
-#             assignment_type = AssignmentType.WRITE
-#             assignee = values
-#             expression = mat
-#         elif access_type == ArrayAccessType.WRITE:
-#             assignee = mat
-#             expression = values
-#             assignment_type = AssignmentType.WRITE
-#         else:
-#             assert access_type == ArrayAccessType.INC
-#             assignee = mat
-#             expression = values
-#             assignment_type = AssignmentType.INC
-#
-#         super().__init__(assignee, expression, assignment_type)
-#         self.mat = mat
-#         self.values = values
-#         self.access_type = access_type
-
-#     @property
-#     def mat(self) -> Any:
-#
-#
-#
-# @utils.frozenrecord()
-# class PetscMatAssignment(AbstractPetscMatAssignment):
-#
-#     # {{{ Instance attrs
-#
-#     _assignee: Any
-#     _expression: Any
-#     _assignment_type: AssignmentType
-#     _axis_trees: tuple[AxisTree, ...]
-#
-#     # }}}
-#
-#     # {{{ Interface impls
-#
-#     assignee: ClassVar[property] = property(lambda self: self._assignee)
-#     expression: ClassVar[property] = property(lambda self: self._expression)
-#     assignment_type: ClassVar[property] = property(lambda self: self._assignment_type)
-#     axis_trees: ClassVar[property] = property(lambda self: self._axis_trees)
-#
-#     # }}}
-#
-#
-# @utils.frozenrecord()
-# class NonEmptyPetscMatAssignment(AbstractPetscMatAssignment, NonEmptyAssignment):
-#     def __init__(self, mat, values, access_type, row_axis_tree, column_axis_tree, **kwargs):
-#         super().__init__(mat, values, access_type, **kwargs)
-#         # self._axis_trees = (row_axes, col_axes)
-#         self.row_axis_tree = row_axis_tree
-#         self.column_axis_tree = column_axis_tree
-#
-#     # {{{ Interface impls
-#
-#     @property
-#     def axis_trees(self) -> tuple[AxisTree, AxisTree]:
-#         return (self.row_axis_tree, self.column_axis_tree)
-#
-#     # }}}
 
 
 # TODO: With Python 3.11 can be made a StrEnum

@@ -24,7 +24,7 @@ from pyop3.axtree import (
     as_axis_tree,
 )
 from pyop3.axtree.tree import AbstractAxisTree, Expression, ContextFree, ContextSensitiveAxisTree, subst_layouts
-from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer, AbstractPetscMatBuffer
+from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer, NullBuffer, AbstractPetscMatBuffer
 from pyop3.dtypes import ScalarType
 from pyop3.exceptions import Pyop3Exception
 from pyop3.lang import KernelArgument, ArrayAssignment
@@ -570,19 +570,30 @@ class Dat(_Dat):
 # TODO: Should inherit from Terminal (but Terminal has odd attrs)
 class BufferExpression(Expression, metaclass=abc.ABCMeta):
 
+    @property
     @abc.abstractmethod
     def buffer(self) -> AbstractBuffer:
         pass
 
 
-# TODO: just ArrayBufferExpression
+class ArrayBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
+    pass
+
+
+class PetscMatBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
+    pass
+
+
 class DatBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
     pass
 
 
+class DatArrayBufferExpression(DatBufferExpression, ArrayBufferExpression, metaclass=abc.ABCMeta):
+    pass
+
 
 @utils.record()
-class LinearDatBufferExpression(DatBufferExpression):
+class LinearDatArrayBufferExpression(DatArrayBufferExpression):
     """A dat with fixed (?) layout.
 
     It cannot be indexed.
@@ -610,7 +621,7 @@ class LinearDatBufferExpression(DatBufferExpression):
 
 
 @utils.record()
-class NonlinearDatBufferExpression(DatBufferExpression):
+class NonlinearDatArrayBufferExpression(DatArrayBufferExpression):
     """A dat with fixed layouts.
 
     This class is useful for describing dats whose layouts have been optimised.
@@ -644,12 +655,16 @@ class NonlinearDatBufferExpression(DatBufferExpression):
         )
 
 
+class MatBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
+    pass
+
+
 # TODO: new type to represent non-composite dat?
 
 @utils.record()
-class PetscMatBufferExpression(BufferExpression):
+class MatPetscMatBufferExpression(MatBufferExpression, PetscMatBufferExpression):
 
-    # {{{ Instance attrs
+    # {{{ instance attrs
 
     _buffer: AbstractPetscMatBuffer
     row_layout: CompositeDat
@@ -657,9 +672,9 @@ class PetscMatBufferExpression(BufferExpression):
 
     # }}}
 
-    # {{{ Interface impls
+    # {{{ interface impls
 
-    buffer: ClassVar[property] = property(lambda self: self._buffer)
+    buffer: ClassVar[property] = utils.attr("_buffer")
 
     # }}}
 
@@ -667,9 +682,31 @@ class PetscMatBufferExpression(BufferExpression):
         return f"{self.buffer.name}[{self.row_layout}, {self.column_layout}]"
 
 
-def as_linear_buffer_expression(dat: Dat) -> LinearDatBufferExpression:
+@utils.record()
+class MatArrayBufferExpression(MatBufferExpression, ArrayBufferExpression):
+
+    # {{{ instance attrs
+
+    _buffer: AbstractArrayBuffer
+    row_layouts: Any  # expr type (mapping)
+    column_layouts: Any  # expr type (mapping)
+
+    # }}}
+
+    # {{{ interface impls
+
+    buffer: ClassVar[property] = utils.attr("_buffer")
+
+    # }}}
+
+    # TODO:
+    # def __str__(self) -> str:
+    #     return f"{self.buffer.name}[{self.row_layout}, {self.column_layout}]"
+
+
+def as_linear_buffer_expression(dat: Dat) -> LinearDatArrayBufferExpression:
     if not dat.axes.is_linear:
         raise ValueError("The provided Dat must be linear")
 
     layout = just_one(dat.axes.leaf_subst_layouts.values())
-    return LinearDatBufferExpression(dat.buffer, layout)
+    return LinearDatArrayBufferExpression(dat.buffer, layout)

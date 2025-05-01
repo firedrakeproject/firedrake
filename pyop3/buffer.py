@@ -421,12 +421,20 @@ class AbstractPetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
     def mat(self) -> PETSc.Mat:
         pass
 
+    # {{{ interface impls
+
     @property
     def state(self) -> int:
         raise NotImplementedError("TODO")
 
     def inc_state(self) -> None:
         raise NotImplementedError("TODO")
+
+    # }}}
+
+    @property
+    def mat_type(self) -> str:
+        return self.mat.type
 
     def assemble(self) -> None:
         self.mat.assemble()
@@ -496,20 +504,26 @@ class PetscMatBuffer(AbstractPetscMatBuffer):
 
     # {{{ Instance attrs
 
-    # mat: PETSc.Mat = dataclasses.field(hash=False)
+    _mat: PETSc.Mat
+    _name: str
+    _constant: bool
 
     # }}}
 
     # {{{ interface impls
 
-
+    mat: ClassVar[property] = utils.attr("_mat")
+    name: ClassVar[property] = utils.attr("_name")
+    constant: ClassVar[property] = utils.attr("_constant")
 
     # }}}
 
-    def __init__(self, mat: PETSc.Mat, **kwargs):
-        object.__setattr__(self, "mat", mat)
-        super().__init__(**kwargs)
+    def __init__(self, mat: PETSc.Mat, *, name:str|None=None, prefix:str|None=None,constant:bool=False):
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
+        self._mat = mat
+        self._name = name
+        self._constant = constant
 
 
 @utils.record()
@@ -519,7 +533,7 @@ class PetscMatPreallocatorBuffer(AbstractPetscMatBuffer):
     # {{{ Instance attrs
 
     _mat: PETSc.Mat
-    target_mat_type: PETSc.Mat.Type | str  # TODO: make this a special type hint
+    target_mat_type: str
     _name: str
     _constant: bool
 
@@ -535,7 +549,7 @@ class PetscMatPreallocatorBuffer(AbstractPetscMatBuffer):
 
     # }}}
 
-    def __init__(self, mat: PETSc.Mat, target_mat_type: PETSc.Mat.Type | str, *, name:str|None=None, prefix:str|None=None,constant:bool=False):
+    def __init__(self, mat: PETSc.Mat, target_mat_type: str, *, name:str|None=None, prefix:str|None=None,constant:bool=False):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         self._mat = mat

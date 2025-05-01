@@ -5,9 +5,9 @@ from .dat import (  # noqa: F401
     Dat,
     BufferExpression,
     _Dat,
-    LinearDatBufferExpression,
-    PetscMatBufferExpression,
-    NonlinearDatBufferExpression,
+    LinearDatArrayBufferExpression,
+    MatPetscMatBufferExpression,
+    NonlinearDatArrayBufferExpression,
 )
 from .mat import Mat  # noqa: F401
 from .parameter import Parameter  # noqa: F401

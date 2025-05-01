@@ -224,9 +224,9 @@ class AxisComponentRegion:
     label: str | None = None
 
     def __post_init__(self):
-        from pyop3.array import LinearDatBufferExpression
+        from pyop3.array import LinearDatArrayBufferExpression
         if not isinstance(self.size, numbers.Integral):
-            assert isinstance(self.size, LinearDatBufferExpression)
+            assert isinstance(self.size, LinearDatArrayBufferExpression)
             assert self.size.buffer.sf is None
 
     def __str__(self) -> str:
@@ -386,9 +386,9 @@ class AxisComponent(LabelledNodeComponent):
 
     # TODO this is just a traversal - clean up
     def alloc_size(self, axtree, axis):
-        from pyop3.array import Dat, LinearDatBufferExpression
+        from pyop3.array import Dat, LinearDatArrayBufferExpression
 
-        if isinstance(self.count, (Dat, LinearDatBufferExpression)):
+        if isinstance(self.count, (Dat, LinearDatArrayBufferExpression)):
             # TODO: make max_value an attr of buffers
             # npoints = self.count.max_value
             npoints = max(self.count.buffer._data)

@@ -349,7 +349,7 @@ class Mat(DistributedArray):
         assert isinstance(row_axes, AxisTree), "not indexed"
         assert isinstance(col_axes, AxisTree), "not indexed"
 
-        return self.reconstruct(raxes=row_axes, caxes=col_axes, parent=self)
+        return self.__record_init__(raxes=row_axes, caxes=col_axes, parent=self)
 
 
     # # TODO: Make this generic to all 'Array's and implement for 'Dat'

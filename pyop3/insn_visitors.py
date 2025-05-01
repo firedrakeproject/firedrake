@@ -11,13 +11,13 @@ from typing import Any, Union
 
 import numpy as np
 from petsc4py import PETSc
-from pyop3.array.dat import DatBufferExpression
+from pyop3.array.dat import ArrayBufferExpression
 from pyop3.sf import local_sf
 from pyrsistent import pmap, PMap
 from immutabledict import ImmutableOrderedDict
 
 from pyop3 import utils
-from pyop3.array import Global, Dat, Array, Mat, NonlinearDatBufferExpression, LinearDatBufferExpression, PetscMatBufferExpression
+from pyop3.array import Global, Dat, Array, Mat, NonlinearDatArrayBufferExpression, LinearDatArrayBufferExpression, MatPetscMatBufferExpression
 from pyop3.axtree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
 from pyop3.axtree.tree import Operator, AxisVar, IndexedAxisTree, prune_zero_sized_branches
 from pyop3.buffer import AbstractBuffer, AbstractPetscMatBuffer, ArrayBuffer, NullBuffer, PetscMatBuffer
@@ -68,6 +68,7 @@ from pyop3.lang import (
     enlist,
     maybe_enlist,
     non_null,
+    filter_null,
 )
 from pyop3.utils import UniqueNameGenerator, just_one, single_valued, OrderedSet, merge_dicts, expand_collection_of_iterables, strictly_all
 
@@ -282,7 +283,7 @@ class ImplicitPackUnpackExpander(Transformer):
                     gathers.append(ArrayAssignment(temporary, 0, "write"))
                     scatters.insert(0, ArrayAssignment(arg, temporary, "inc"))
 
-                function_arg = LinearDatBufferExpression(temporary.buffer, 0)
+                function_arg = LinearDatArrayBufferExpression(temporary.buffer, 0)
                 arguments.append(function_arg)
 
             else:
@@ -429,7 +430,7 @@ def _(op: Operator, /, access_type):
 @_expand_reshapes.register(numbers.Number)
 @_expand_reshapes.register(AxisVar)
 @_expand_reshapes.register(LoopIndexVar)
-@_expand_reshapes.register(DatBufferExpression)
+@_expand_reshapes.register(ArrayBufferExpression)
 def _(var, /, access_type):
     return (var, ())
 
@@ -476,14 +477,22 @@ def concretize_layouts(obj: Any, /) -> Instruction:
     raise TypeError(f"No handler provided for {type(obj).__name__}")
 
 
+@concretize_layouts.register(NullInstruction)
+def _(null: NullInstruction, /) -> NullInstruction:
+    return null
+
+
 @concretize_layouts.register(InstructionList)
-def _(insn_list: InstructionList, /) -> InstructionList:
-    return type(insn_list)(map(concretize_layouts, insn_list))
+def _(insn_list: InstructionList, /) -> Instruction:
+    return maybe_enlist(
+        filter(non_null, (map(concretize_layouts, insn_list)))
+    )
 
 
 @concretize_layouts.register(Loop)
-def _(loop: Loop, /) -> Loop:
-    return loop.__record_init__(statements=tuple(map(concretize_layouts, loop.statements)))
+def _(loop: Loop, /) -> Instruction:
+    statements = tuple(filter_null(map(concretize_layouts, loop.statements)))
+    return loop.__record_init__(statements=statements) if statements else NullInstruction()
 
 
 @concretize_layouts.register(StandaloneCalledFunction)
@@ -503,98 +512,6 @@ def _(assignment: ArrayAssignment, /) -> NonEmptyArrayAssignment:
     return NonEmptyArrayAssignment(assignee, expression, assignment.assignment_type, axis_trees)
 
 
-# FIXME: single axis tree or multiple?
-# @functools.singledispatch
-# def cast_nonempty_terminal(terminal: Terminal, /, arguments: Iterable, axis_tree: AxisTree) -> NonEmptyTerminal:
-#     raise TypeError(f"No handler provided for {type(terminal).__name__}")
-#
-#
-# @cast_nonempty_terminal.register(ArrayAssignment)
-# def _(assignment: ArrayAssignment, /, arguments: Iterable[Any], axis_tree: AxisTree) -> NonEmptyArrayAssignment:
-#     assignee, expression = arguments
-#     return NonEmptyArrayAssignment(assignee, expression, assignment.assignment_type, axis_trees)
-
-
-# @functools.singledispatch
-# def prepare_petsc_calls(obj: Any, /) -> InstructionList:
-#     raise TypeError(f"No handler provided for {type(obj).__name__}")
-#
-#
-# @prepare_petsc_calls.register(InstructionList)
-# def _(insn_list: InstructionList, /) -> InstructionList:
-#     return type(insn_list)((prepare_petsc_calls(insn) for insn in insn_list))
-#
-#
-# @prepare_petsc_calls.register(Loop)
-# def _(loop: Loop, /) -> Loop:
-#     return Loop(
-#         loop.index,
-#         [
-#             stmt_ for stmt in loop.statements for stmt_ in enlist(prepare_petsc_calls(stmt))
-#         ]
-#     )
-#
-#
-# @prepare_petsc_calls.register(StandaloneCalledFunction)
-# @prepare_petsc_calls.register(NullInstruction)
-# def _(func: StandaloneCalledFunction, /) -> StandaloneCalledFunction:
-#     return func
-#
-#
-# # NOTE: At present we assume that matrices are never part of the expression, only
-# # the assignee. Ideally we should traverse the expression and emit extra READ instructions.
-# @prepare_petsc_calls.register(ArrayAssignment)
-# def _(assignment: ArrayAssignment, /) -> InstructionList:
-#     if isinstance(assignment.assignee.buffer, AbstractPetscMatBuffer):
-#         mat = assignment.assignee
-#
-#         if isinstance(mat, PetscMatBufferExpression):
-#             breakpoint()  # ugly...
-#             mat = mat.mat
-#
-#         # If we have an expression like
-#         #
-#         #     mat[f(p), f(p)] <- 666
-#         #
-#         # then we have to convert `666` into an appropriately sized temporary
-#         # for MatSetValues to work.
-#         if isinstance(assignment.expression, numbers.Number):
-#             # TODO: There must be a more elegant way of doing this
-#             expr_raxes = AxisTree(mat.raxes.node_map)
-#             expr_caxes = AxisTree(mat.caxes.node_map)
-#             # expr_sf = local_sf(expr_raxes.alloc_size*expr_caxes.alloc_size, comm=mat.comm)
-#             expr_data = np.full((expr_raxes.size, expr_caxes.size), assignment.expression, dtype=mat.dtype)
-#             expr_buffer = ArrayBuffer(expr_data, sf=None, constant=True)
-#             expression = Mat(
-#                 expr_raxes, expr_caxes, buffer=expr_buffer, prefix="t")
-#         else:
-#             assert (
-#                 # isinstance(assignment.expression, (Mat, _ConcretizedMat))
-#                 isinstance(assignment.expression, (Mat,))
-#                 and isinstance(assignment.expression.buffer, NullBuffer)
-#             )
-#             expression = assignment.expression
-#
-#         if assignment.assignment_type == AssignmentType.WRITE:
-#             access_type = ArrayAccessType.WRITE
-#         else:
-#             assert assignment.assignment_type == AssignmentType.INC
-#             access_type = ArrayAccessType.INC
-#
-#         assignment = PetscMatAssignment(mat, expression, access_type)
-#
-#     # NO! Do not do this here. If we have Mats on the RHS (which we get at high-order) then
-#     # we get a Mat -> Dat which does not work because the axes are not the same.
-#     # ~If we are doing a non-PETSc matrix assignment then we cast the buffer to a 'Dat'~
-#     # elif isinstance(assignment.assignee, (Sparsity, Mat)):
-#     #     assert isinstance(assignment.assignee.buffer, NullBuffer), "Must be a temporary"
-#     #     mat = assignment.assignee
-#     #     dat = Dat(mat.axes, data=mat.buffer, name=mat.name)
-#     #     assignment = BufferAssignment(dat, assignment.expression, assignment.assignment_type)
-#
-#     return assignment
-
-
 @PETSc.Log.EventDecorator()
 def materialize_indirections(insn: Instruction, *, compress: bool = False) -> Instruction:
     # try setting a 'global' cache here
@@ -602,6 +519,11 @@ def materialize_indirections(insn: Instruction, *, compress: bool = False) -> In
     mycache = {}
 
     expr_candidates = collect_candidate_indirections(insn, compress=compress)
+
+    if not expr_candidates:
+        # For things like null instructions there are no expression candidates
+        # to think about so we can stop early
+        return insn
 
     # Combine the best per-arg candidates into the initial overall best candidate
     best_candidate = {}
@@ -675,6 +597,11 @@ def collect_candidate_indirections(insn: Instruction, /, *, compress: bool) -> I
 @functools.singledispatch
 def _collect_candidate_indirections(obj: Any, /, **kwargs) -> ImmutableOrderedDict:
     raise TypeError(f"No handler provided for {type(obj).__name__}")
+
+
+@_collect_candidate_indirections.register(NullInstruction)
+def _(null: InstructionList, /, **kwargs) -> ImmutableOrderedDict:
+    return ImmutableOrderedDict()
 
 
 @_collect_candidate_indirections.register(InstructionList)
@@ -762,7 +689,7 @@ def _(op, /) -> frozenset:
     return frozenset()
 
 
-@_collect_composite_dats.register(LinearDatBufferExpression)
+@_collect_composite_dats.register(LinearDatArrayBufferExpression)
 def _(dat, /) -> frozenset:
     return _collect_composite_dats(dat.layout)
 
@@ -773,7 +700,7 @@ def _(dat, /) -> frozenset:
 
 
 # NOTE: Think this lives in expr_visitors or something
-def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatBufferExpression:
+def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatArrayBufferExpression:
     # axes = extract_axes(composite_dat, composite_dat.visited_axes, composite_dat.loop_axes, {})
     axes = composite_dat.axis_tree
     assert isinstance(axes, AxisTree)
@@ -859,7 +786,7 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatBufferExp
     newlayout = replace_terminals(layout, inv_map)
     newlayouts[path] = newlayout
 
-    return NonlinearDatBufferExpression(result.buffer, newlayouts)
+    return NonlinearDatArrayBufferExpression(result.buffer, newlayouts)
 
 
 @functools.singledispatch
@@ -961,7 +888,7 @@ def _(loop: Loop, /) -> Loop | NullInstruction:
 @drop_zero_sized_paths.register(ArrayAssignment)
 def _(assignment: ArrayAssignment, /) -> NonEmptyArrayArrayAssignment | NullInstruction:
     assignee = assignment.assignee
-    if isinstance(assignee, DatBufferExpression):
+    if isinstance(assignee, ArrayBufferExpression):
         axis_trees = (assignee.axes,)
     else:
         assert isinstance(assignee, Mat)
