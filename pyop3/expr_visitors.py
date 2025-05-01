@@ -13,6 +13,7 @@ import numpy as np
 from immutabledict import ImmutableOrderedDict
 from pyop3.array.dat import DatBufferExpression, PetscMatBufferExpression
 from pyop3.buffer import AbstractArrayBuffer, PetscMatBuffer, AbstractPetscMatBuffer
+from pyop3.itree.tree import LoopIndex
 from pyrsistent import pmap, PMap
 from petsc4py import PETSc
 
@@ -394,8 +395,8 @@ def _(dat: Dat, /) -> Any:
 
 
 @concretize_layouts.register(Mat)
-def _(mat: Mat, /) -> Any:
-    breakpoint()
+def _(mat: Mat, /) -> PetscMatBufferExpression:
+    return PetscMatBufferExpression(mat.buffer, mat.raxes.leaf_subst_layouts, mat.caxes.leaf_subst_layouts)
 
 
 @functools.singledispatch
@@ -430,36 +431,43 @@ def _(num: numbers.Number, /, **kwargs) -> ImmutableOrderedDict:
 
 
 @collect_tensor_candidate_indirections.register(LinearDatBufferExpression)
-def _(dat_expr: LinearDatBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], optimize: bool) -> ImmutableOrderedDict:
+def _(dat_expr: LinearDatBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], compress: bool) -> ImmutableOrderedDict:
     if not isinstance(dat_expr.buffer, AbstractArrayBuffer):
         raise NotImplementedError("Currently we assume that Dats are based on an underlying array buffer")
 
     axis_tree = just_one(axis_trees)
     return ImmutableOrderedDict({
-        dat_expr: collect_candidate_indirections(dat_expr.layout, axis_tree, loop_indices)
+        dat_expr: collect_candidate_indirections(dat_expr.layout, axis_tree, loop_indices, compress=compress)
     })
 
 
 @collect_tensor_candidate_indirections.register(NonlinearDatBufferExpression)
-def _(dat_expr: NonlinearDatBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], optimize: bool) -> ImmutableOrderedDict:
+def _(dat_expr: NonlinearDatBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], compress: bool) -> ImmutableOrderedDict:
     if not isinstance(dat_expr.buffer, AbstractArrayBuffer):
         raise NotImplementedError("Currently we assume that Dats are based on an underlying array buffer")
 
     axis_tree = just_one(axis_trees)
     return ImmutableOrderedDict({
-        (dat_expr, path): collect_candidate_indirections(layout, axis_tree.linearize(path), loop_indices)
+        (dat_expr, path): collect_candidate_indirections(layout, axis_tree.linearize(path), loop_indices, compress=compress)
         for path, layout in dat_expr.layouts.items()
     })
 
 
-@collect_tensor_candidate_indirections.register(Mat)
-def _(mat: Mat, loop_axes):
-    # think about the buffer type... 
-    if isinstance(mat.buffer, AbstractPetscMatBuffer):
-        breakpoint()
-    breakpoint()
-    return mat.candidate_layouts(loop_axes)
+@collect_tensor_candidate_indirections.register(PetscMatBufferExpression)
+def _(mat_expr: PetscMatBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool) -> ImmutableOrderedDict:
+    if isinstance(mat_expr.buffer, AbstractPetscMatBuffer):
+        candidates = {}
+        for i, axes in enumerate(axis_trees):
+            compressed_expr = CompositeDat(axes.materialize(), axes.leaf_subst_layouts, loop_indices, IntType)
 
+            cost = axes.size
+            for loop_index in loop_indices:
+                cost *= loop_index.iterset.size
+
+            candidates[mat_expr, i] = ((compressed_expr, cost),)
+        return ImmutableOrderedDict(candidates)
+    else:
+        raise NotImplementedError
 
 
 # TODO: rename to concretize_array_accesses or concretize_arrays
@@ -564,21 +572,21 @@ so memory optimisations are ineffectual.
 
 
 @functools.singledispatch
-def collect_candidate_indirections(obj: Any, /, *, visited_axes, loop_indices: tuple[LoopIndex, ...]) -> tuple[tuple[Any, int], ...]:
+def collect_candidate_indirections(obj: Any, /, visited_axes, loop_indices: tuple[LoopIndex, ...], *, compress: bool) -> tuple[tuple[Any, int], ...]:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
 @collect_candidate_indirections.register(numbers.Number)
 @collect_candidate_indirections.register(AxisVar)
 @collect_candidate_indirections.register(LoopIndexVar)
-def _(var: Any, /, visited_axes, loop_axes) -> tuple:
+def _(var: Any, /, *args, **kwargs) -> tuple[tuple[Any, int]]:
     return ((var, 0),)
 
 
 @collect_candidate_indirections.register(Operator)
-def _(op: Operator, /, visited_axes, loop_axes) -> tuple:
-    a_result = collect_candidate_indirections(op.a, visited_axes, loop_axes)
-    b_result = collect_candidate_indirections(op.b, visited_axes, loop_axes)
+def _(op: Operator, /, visited_axes, loop_axes, *, compress: bool) -> tuple:
+    a_result = collect_candidate_indirections(op.a, visited_axes, loop_axes, compress=compress)
+    b_result = collect_candidate_indirections(op.b, visited_axes, loop_axes, compress=compress)
 
     candidates = []
     for (a_expr, a_cost), (b_expr, b_cost) in itertools.product(a_result, b_result):
@@ -586,22 +594,23 @@ def _(op: Operator, /, visited_axes, loop_axes) -> tuple:
         candidate_cost = a_cost + b_cost
         candidates.append((candidate_expr, candidate_cost))
 
-    # Now also include a candidate representing the packing of the expression
-    # into a Dat. The cost for this is simply the size of the resulting array.
-    # Only do this when the cost is large as small arrays will fit in cache
-    # and not benefit from the optimisation.
-    if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
-        axes = extract_axes(op, visited_axes, loop_axes, {})
-        compressed_expr = CompositeDat(axes, {visited_axes.leaf_path: op}, loop_axes, IntType)
-        candidates.append((compressed_expr, axes.size))
+    if compress:
+        # Now also include a candidate representing the packing of the expression
+        # into a Dat. The cost for this is simply the size of the resulting array.
+        # Only do this when the cost is large as small arrays will fit in cache
+        # and not benefit from the optimisation.
+        if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
+            axes = extract_axes(op, visited_axes, loop_axes, {})
+            compressed_expr = CompositeDat(axes, {visited_axes.leaf_path: op}, loop_axes, IntType)
+            candidates.append((compressed_expr, axes.size))
 
     return tuple(candidates)
 
 
 @collect_candidate_indirections.register(LinearDatBufferExpression)
-def _(expr: LinearDatBufferExpression, /, visited_axes, loop_axes) -> tuple:
+def _(expr: LinearDatBufferExpression, /, visited_axes, loop_axes, *, compress: bool) -> tuple:
     candidates = []
-    for layout_expr, layout_cost in collect_candidate_indirections(expr.layout, visited_axes, loop_axes):
+    for layout_expr, layout_cost in collect_candidate_indirections(expr.layout, visited_axes, loop_axes, compress=compress):
         candidate_expr = LinearDatBufferExpression(expr.buffer, layout_expr)
         # The cost of an expression dat (i.e. the memory volume) is given by...
         # Remember that the axes here described the outer loops that exist and that
@@ -612,9 +621,11 @@ def _(expr: LinearDatBufferExpression, /, visited_axes, loop_axes) -> tuple:
         candidate_cost = dat_cost + layout_cost * INDIRECTION_PENALTY_FACTOR
         candidates.append((candidate_expr, candidate_cost))
 
-    if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
-        axes = extract_axes(expr, visited_axes, loop_axes, {})
-        candidates.append((CompositeDat(axes, {visited_axes.leaf_path: expr}, loop_axes, IntType), axes.size))
+    if compress:
+        if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
+            axes = extract_axes(expr, visited_axes, loop_axes, {})
+            candidates.append((CompositeDat(axes, {visited_axes.leaf_path: expr}, loop_axes, IntType), axes.size))
+
     return tuple(candidates)
 
 
@@ -698,32 +709,11 @@ def _(buffer_expr: NonlinearDatBufferExpression, layouts, key):
     return NonlinearDatBufferExpression(buffer_expr.buffer, new_layouts)
 
 
-@concretize_materialized_tensor_indirections.register(Mat)
-# @_compress_array_indirection_maps.register(Sparsity)
-def _(mat, layouts, outer_key) -> PetscMatBufferExpression:
-    # If we have a temporary then things are easy and we do not need to substitute anything
-    # (at least for now)
-    if strictly_all(isinstance(ax, AxisTree) for ax in {mat.raxes, mat.caxes}):
-        return PetscMatBufferExpression(mat.buffer, mat.raxes.layouts, mat.caxes.layouts, parent=mat.parent)
-
-    def collect(axes, newlayouts, counter):
-        for leaf_path in axes.leaf_paths:
-            chosen_layout = layouts[outer_key + ((mat, leaf_path, counter),)]
-            # try:
-            #     chosen_layout = layouts[outer_key + ((mat, leaf_path, counter),)]
-            # except KeyError:
-            #     # zero-sized axis, no layout needed
-            #     chosen_layout = -1
-            newlayouts[leaf_path] = chosen_layout
-
-    row_layouts = {}
-    col_layouts = {}
-    collect(mat.raxes.pruned, row_layouts, 0)
-    collect(mat.caxes.pruned, col_layouts, 1)
-
-    # will go away when we can assert using types
-    assert mat.parent is None
-    return PetscMatBufferExpression(mat.buffer, row_layouts, col_layouts)
+@concretize_materialized_tensor_indirections.register(PetscMatBufferExpression)
+def _(mat_expr: PetscMatBufferExpression, /, layouts, key) -> PetscMatBufferExpression:
+    row_layout = layouts[key + ((mat_expr, 0),)]
+    col_layout = layouts[key + ((mat_expr, 1),)]
+    return PetscMatBufferExpression(mat_expr.buffer, row_layout, col_layout)
 
 # @functools.singledispatch
 # def materialize(obj: Any, /, *args, **kwargs) -> ExpressionT:

@@ -596,14 +596,12 @@ def _(assignment: ArrayAssignment, /) -> InstructionList:
 
 
 @PETSc.Log.EventDecorator()
-def materialize_indirections(insn: Instruction, *, optimize: bool = False) -> Instruction:
+def materialize_indirections(insn: Instruction, *, compress: bool = False) -> Instruction:
     # try setting a 'global' cache here
     # TODO: formalise this.
     mycache = {}
 
-    # If 'optimize' is false here then only a single candidate layout will be returned for each
-    # instruction in this step. This renders many of the checks below redundant.
-    expr_candidates = collect_candidate_indirections(insn, optimize=optimize)
+    expr_candidates = collect_candidate_indirections(insn, compress=compress)
 
     # Combine the best per-arg candidates into the initial overall best candidate
     best_candidate = {}
@@ -670,8 +668,8 @@ def materialize_indirections(insn: Instruction, *, optimize: bool = False) -> In
 
 
 
-def collect_candidate_indirections(insn: Instruction, /, *, optimize: bool) -> ImmutableOrderedDict:
-    return _collect_candidate_indirections(insn, optimize=optimize, loop_indices=())
+def collect_candidate_indirections(insn: Instruction, /, *, compress: bool) -> ImmutableOrderedDict:
+    return _collect_candidate_indirections(insn, compress=compress, loop_indices=())
 
 
 @functools.singledispatch
@@ -687,22 +685,22 @@ def _(insn_list: InstructionList, /, **kwargs) -> ImmutableOrderedDict:
 
 
 @_collect_candidate_indirections.register(Loop)
-def _(loop: Loop, /, *, optimize: bool, loop_indices: tuple[LoopIndex, ...]) -> ImmutableOrderedDict:
+def _(loop: Loop, /, *, compress: bool, loop_indices: tuple[LoopIndex, ...]) -> ImmutableOrderedDict:
     loop_indices_ = loop_indices + (loop.index,)
     return merge_dicts(
         (
-            _collect_candidate_indirections(stmt, optimize=optimize, loop_indices=loop_indices_)
+            _collect_candidate_indirections(stmt, compress=compress, loop_indices=loop_indices_)
             for stmt in loop.statements
         ),
     )
 
 
 @_collect_candidate_indirections.register(NonEmptyTerminal)
-def _(terminal: NonEmptyTerminal, /, *, loop_indices: tuple[LoopIndex, ...], optimize: bool) -> ImmutableOrderedDict:
+def _(terminal: NonEmptyTerminal, /, *, loop_indices: tuple[LoopIndex, ...], compress: bool) -> ImmutableOrderedDict:
     candidates = {}
     for i, arg in enumerate(terminal.arguments):
         per_arg_candidates = collect_tensor_candidate_indirections(
-            arg, axis_trees=terminal.axis_trees, loop_indices=loop_indices, optimize=optimize
+            arg, axis_trees=terminal.axis_trees, loop_indices=loop_indices, compress=compress
         )
         for arg_key, value in per_arg_candidates.items():
             candidates[(terminal, i, arg_key)] = value

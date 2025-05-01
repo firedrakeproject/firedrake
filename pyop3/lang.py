@@ -217,6 +217,8 @@ class Instruction(abc.ABC):
         insn = expand_implicit_pack_unpack(insn)
 
         insn = expand_assignments(insn)  # specifically reshape bits
+
+        # TODO: remove zero-sized bits here!
         insn = concretize_layouts(insn)
 
         # do this as early as possible because we don't like dealing with mats
@@ -224,7 +226,7 @@ class Instruction(abc.ABC):
 
         # TODO: Add this bit into concretize_layouts...
         # insn = drop_zero_sized_paths(insn)
-        insn = materialize_indirections(insn, optimize=compiler_parameters.compress_indirection_maps)
+        insn = materialize_indirections(insn, compress=compiler_parameters.compress_indirection_maps)
 
         # TODO: remove this one
         # insn = concretize_arrays(insn)
@@ -756,6 +758,8 @@ class StandaloneCalledFunction(AbstractCalledFunction):
 # TODO: Make this a singleton like UNIT_AXIS_TREE
 class NullInstruction(Terminal):
     """An instruction that does nothing."""
+
+    arguments = ()
 
 
 # TODO: With Python 3.11 can be made a StrEnum

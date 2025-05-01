@@ -61,7 +61,7 @@ class PetscVecNest(PetscVec):
     ...
 
 
-@dataclasses.dataclass(init=False, eq=False)
+@utils.record(init=False)
 class Mat(DistributedArray):
 
     # {{{ Instance attributes
@@ -69,6 +69,8 @@ class Mat(DistributedArray):
     raxes: AbstractAxisTree
     caxes: AbstractAxisTree
     _buffer: AbstractBuffer
+    _name: str
+    _parent: Mat | None
 
     # }}}
 
@@ -80,8 +82,12 @@ class Mat(DistributedArray):
     # TODO: put on the buffer
     DEFAULT_MAT_TYPE: ClassVar[PETSc.Mat.Type] = PETSc.Mat.Type.AIJ
 
-    _row_suffix: ClassVar[str] = "_row"
-    _col_suffix: ClassVar[str] = "_col"
+    # }}}
+
+    # {{{ Interface impls
+
+    name: ClassVar[property] = property(lambda self: self._name)
+    parent: ClassVar[property] = property(lambda self: self._parent)
 
     # }}}
 
@@ -97,11 +103,13 @@ class Mat(DistributedArray):
     ):
         raxes = as_axis_tree(raxes)
         caxes = as_axis_tree(caxes)
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
-        object.__setattr__(self, "raxes", raxes)
-        object.__setattr__(self, "caxes", caxes)
-        object.__setattr__(self, "_buffer", buffer)
-        super().__init__(name, prefix=prefix, parent=parent)
+        self.raxes = raxes
+        self.caxes = caxes
+        self._buffer = buffer
+        self._name = name
+        self._parent = parent
 
         # self._cache = {}
 
@@ -238,7 +246,7 @@ class Mat(DistributedArray):
                 indexed_raxes = just_one(indexed_raxess)
                 indexed_caxes = just_one(indexed_caxess)
 
-            mat = self.reconstruct(raxes=indexed_raxes, caxes=indexed_caxes)
+            mat = self.__record_init__(raxes=indexed_raxes, caxes=indexed_caxes)
         else:
             # Otherwise we are context-sensitive
             cs_indexed_raxess = {}
@@ -265,7 +273,7 @@ class Mat(DistributedArray):
             cs_indexed_raxess = ContextSensitiveAxisTree(cs_indexed_raxess)
             cs_indexed_caxess = ContextSensitiveAxisTree(cs_indexed_caxess)
 
-            mat = self.reconstruct(raxes=cs_indexed_raxess, caxes=cs_indexed_caxess)
+            mat = self.__record_init__(raxes=cs_indexed_raxess, caxes=cs_indexed_caxess)
 
         # self._cache[cache_key] = mat
         return mat
@@ -273,16 +281,16 @@ class Mat(DistributedArray):
     def with_context(self, context):
         row_axes = self.raxes.with_context(context)
         col_axes = self.caxes.with_context(context)
-        return self.reconstruct(raxes=row_axes, caxes=col_axes)
+        return self.__record_init__(raxes=row_axes, caxes=col_axes)
 
     @property
     def context_free(self):
         row_axes = self.raxes.context_free
         col_axes = self.caxes.context_free
-        return self.reconstruct(raxes=row_axes, caxes=col_axes)
+        return self.__record_init__(raxes=row_axes, caxes=col_axes)
 
     def with_axes(self, row_axes, col_axes):
-        return self.reconstruct(raxes=row_axes, caxes=col_axes)
+        return self.__record_init__(raxes=row_axes, caxes=col_axes)
 
     # NOTE: if this returns a 2-tuple then Dats should return a 1-tuple
     @property
@@ -341,59 +349,59 @@ class Mat(DistributedArray):
         return self.reconstruct(raxes=row_axes, caxes=col_axes, parent=self)
 
 
-    # TODO: Make this generic to all 'Array's and implement for 'Dat'
-    def candidate_layouts(self, loop_axes):
-        # temporaries do not have indexed axes so we don't care, don't expect to have
-        # rows or cols indexed but not the other
-        if not isinstance(self.buffer, AbstractPetscMatBuffer):
-            candidatess = {}
-            for leaf_path, orig_layout in self.raxes.leaf_subst_layouts.items():
-                candidatess[(self, leaf_path, 0)] = ((orig_layout, 666),)
-            for leaf_path, orig_layout in self.caxes.leaf_subst_layouts.items():
-                candidatess[(self, leaf_path, 1)] = ((orig_layout, 666),)
-            return ImmutableOrderedDict(candidatess)
-
-        assert isinstance(self.buffer, AbstractPetscMatBuffer)
-
-        return self.default_candidate_layouts(loop_axes)
-
-    def default_candidate_layouts(self, loop_indices):
-        # NOTE: Needn't really return the cost here as no evaluation happens
-        from pyop3.expr_visitors import CompositeDat, extract_axes
-
-        candidatess = {}
-
-        def add_candidate(axes, row_or_col):
-            myaxes = AxisTree(axes.node_map)
-            compressed_expr = CompositeDat(myaxes, axes.leaf_subst_layouts, loop_indices, IntType)
-
-            cost = axes.size
-            for loop_index in loop_indices:
-                cost *= loop_index.iterset.size
-
-            # for leaf_path, orig_layout in axes.leaf_subst_layouts.items():
-            #
-            #     # NOTE: unsure if this is needed here
-            #     if leaf_path not in axes.pruned.leaf_paths:
-            #         # zero-sized, do nothing
-            #         continue
-            #
-            #     visited_axes = axes.path_with_nodes(axes._node_from_path(leaf_path), and_components=True)
-            #     compressed_expr = CompositeDat(orig_layout, visited_axes, loop_axes)
-            #
-            #     # NOTE: Probably retrievable from the materialized_dat
-            #     myaxes = extract_axes(compressed_expr, visited_axes, loop_axes, {})
-            #
-            #     compressed_cost = myaxes.size
-            #
-            #     assert myaxes.size > 0
-            #
-            candidatess[(self, "anything", row_or_col)] = ((compressed_expr, cost),)
-
-        add_candidate(self.raxes, 0)
-        add_candidate(self.caxes, 1)
-
-        return ImmutableOrderedDict(candidatess)
+    # # TODO: Make this generic to all 'Array's and implement for 'Dat'
+    # def candidate_layouts(self, loop_axes):
+    #     # temporaries do not have indexed axes so we don't care, don't expect to have
+    #     # rows or cols indexed but not the other
+    #     if not isinstance(self.buffer, AbstractPetscMatBuffer):
+    #         candidatess = {}
+    #         for leaf_path, orig_layout in self.raxes.leaf_subst_layouts.items():
+    #             candidatess[(self, leaf_path, 0)] = ((orig_layout, 666),)
+    #         for leaf_path, orig_layout in self.caxes.leaf_subst_layouts.items():
+    #             candidatess[(self, leaf_path, 1)] = ((orig_layout, 666),)
+    #         return ImmutableOrderedDict(candidatess)
+    #
+    #     assert isinstance(self.buffer, AbstractPetscMatBuffer)
+    #
+    #     return self.default_candidate_layouts(loop_axes)
+    #
+    # def default_candidate_layouts(self, loop_indices):
+    #     # NOTE: Needn't really return the cost here as no evaluation happens
+    #     from pyop3.expr_visitors import CompositeDat, extract_axes
+    #
+    #     candidatess = {}
+    #
+    #     def add_candidate(axes, row_or_col):
+    #         myaxes = AxisTree(axes.node_map)
+    #         compressed_expr = CompositeDat(myaxes, axes.leaf_subst_layouts, loop_indices, IntType)
+    #
+    #         cost = axes.size
+    #         for loop_index in loop_indices:
+    #             cost *= loop_index.iterset.size
+    #
+    #         # for leaf_path, orig_layout in axes.leaf_subst_layouts.items():
+    #         #
+    #         #     # NOTE: unsure if this is needed here
+    #         #     if leaf_path not in axes.pruned.leaf_paths:
+    #         #         # zero-sized, do nothing
+    #         #         continue
+    #         #
+    #         #     visited_axes = axes.path_with_nodes(axes._node_from_path(leaf_path), and_components=True)
+    #         #     compressed_expr = CompositeDat(orig_layout, visited_axes, loop_axes)
+    #         #
+    #         #     # NOTE: Probably retrievable from the materialized_dat
+    #         #     myaxes = extract_axes(compressed_expr, visited_axes, loop_axes, {})
+    #         #
+    #         #     compressed_cost = myaxes.size
+    #         #
+    #         #     assert myaxes.size > 0
+    #         #
+    #         candidatess[(self, "anything", row_or_col)] = ((compressed_expr, cost),)
+    #
+    #     add_candidate(self.raxes, 0)
+    #     add_candidate(self.caxes, 1)
+    #
+    #     return ImmutableOrderedDict(candidatess)
 
     @cached_property
     def size(self) -> Any:
@@ -595,8 +603,8 @@ class Mat(DistributedArray):
         # Since axes require unique labels, relabel the row and column axis trees
         # with different suffixes. This allows us to create a combined axis tree
         # without clashes.
-        raxes_relabel = relabel_axes(row_axes, cls._row_suffix)
-        caxes_relabel = relabel_axes(col_axes, cls._col_suffix)
+        raxes_relabel = relabel_axes(row_axes, "_row")
+        caxes_relabel = relabel_axes(col_axes, "_col")
 
         axes = raxes_relabel
         for leaf in raxes_relabel.leaves:

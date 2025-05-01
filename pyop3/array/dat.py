@@ -568,12 +568,11 @@ class Dat(_Dat):
 
 
 # TODO: Should inherit from Terminal (but Terminal has odd attrs)
-# @utils.record(init=False)
 class BufferExpression(Expression, metaclass=abc.ABCMeta):
-    buffer: AbstractBuffer
 
-    def __init__(self, buffer: AbstractBuffer) -> None:
-        self.buffer = buffer
+    @abc.abstractmethod
+    def buffer(self) -> AbstractBuffer:
+        pass
 
 
 # TODO: just ArrayBufferExpression
@@ -593,10 +592,16 @@ class LinearDatBufferExpression(DatBufferExpression):
 
     """
 
-    # {{{ Instance attrs
+    # {{{ instance attrs
 
-    buffer: Any
+    _buffer: Any  # array buffer type
     layout: Any
+
+    # }}}
+
+    # {{{ interface impls
+
+    buffer: ClassVar[property] = property(lambda self: self._buffer)
 
     # }}}
 
@@ -615,16 +620,22 @@ class NonlinearDatBufferExpression(DatBufferExpression):
     """
     # {{{ Instance attrs
 
-    buffer: Any
+    _buffer: Any  # array buffer type? may be null
     layouts: Any
 
     # }}}
 
-    def __init__(self, buffer, layouts):
+    # {{{ Interface impls
+
+    buffer: ClassVar[property] = property(lambda self: self._buffer)
+
+    # }}}
+
+    def __init__(self, buffer, layouts) -> None:
         layouts = ImmutableOrderedDict(layouts)
 
-        self.buffer = buffer
-        object.__setattr__(self, "layouts", layouts)
+        self._buffer = buffer
+        self.layouts = layouts
 
     def __str__(self) -> str:
         return "\n".join(
@@ -633,30 +644,25 @@ class NonlinearDatBufferExpression(DatBufferExpression):
         )
 
 
-@dataclasses.dataclass(init=False)
+@utils.record()
 class PetscMatBufferExpression(BufferExpression):
 
     # {{{ Instance attrs
 
-    row_layout: Any
-    column_layout: Any
+    _buffer: AbstractPetscMatBuffer
+    row_layout: Any  # ExpressionT
+    column_layout: Any  # ExpressionT
 
     # }}}
 
-    def __init__(self, buffer, row_layout, column_layout):
-        # debug
-        assert isinstance(buffer, AbstractPetscMatBuffer)
+    # {{{ Interface impls
 
-        object.__setattr__(self, "row_layouts", row_layout)
-        object.__setattr__(self, "column_layouts", column_layout)
-        super().__init__(buffer)
+    buffer: ClassVar[property] = property(lambda self: self._buffer)
+
+    # }}}
 
     def __str__(self) -> str:
-        return "\n".join(
-            f"{self.buffer.name}[{rl}, {cl}]"
-            for rl in self.row_layouts.values()
-            for cl in self.column_layouts.values()
-        )
+        return f"{self.buffer.name}[{self.row_layout}, {self.column_layout}]"
 
 
 def as_linear_buffer_expression(dat: Dat) -> LinearDatBufferExpression:

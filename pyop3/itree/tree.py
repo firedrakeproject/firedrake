@@ -40,7 +40,7 @@ from pyop3.axtree.tree import (
     OWNED_REGION_LABEL,
 )
 from pyop3.dtypes import IntType
-from pyop3.expr_visitors import collect_axis_vars, replace_terminals, replace as expr_replace
+# from pyop3.expr_visitors import replace_terminals, replace as expr_replace
 from pyop3.lang import KernelArgument
 from pyop3.sf import StarForest
 from pyop3.tree import (
@@ -338,6 +338,8 @@ class LoopIndex(Index, KernelArgument):
 
     @cached_property
     def axes(self) -> IndexedAxisTree:
+        from pyop3.expr_visitors import replace_terminals
+
         if not self.is_context_free:
             raise ContextSensitiveException("Expected a context-free index")
 
@@ -958,6 +960,8 @@ def _(
     cf_loop_index: LoopIndex,
     **_,
 ):
+    from pyop3.expr_visitors import replace_terminals
+
     # This function should return {None: [(path0, expr0), (path1, expr1)]}
     # where path0 and path1 are "equivalent"
     # This entails in inversion of loop_index.iterset.targets which has the form
@@ -1019,6 +1023,8 @@ def _(index: ScalarIndex, **_):
 
 @_index_axes_index.register(Slice)
 def _(slice_: Slice, *, prev_axes, expr_replace_map, **_):
+    from pyop3.expr_visitors import replace_terminals, collect_axis_vars
+
     # If we are just taking a component from a multi-component array,
     # e.g. mesh.points["cells"], then relabelling the axes just leads to
     # needless confusion. For instance if we had
@@ -1236,6 +1242,8 @@ def _(
 
 
 def _make_leaf_axis_from_called_map_new(map_, map_name, output_spec, linear_input_axes, input_paths_and_exprs):
+    from pyop3.expr_visitors import replace_terminals
+
     components = []
     replace_map = merge_dicts(t for _, t in input_paths_and_exprs.values())
     for map_output in output_spec:
@@ -1513,6 +1521,8 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
     indexed_axes_acc is a *linear* version of the visited indexed axis tree. It provides the necessary information for replace(...) to interpret the target_paths_and_exprs
 
     """
+    from pyop3.expr_visitors import replace_terminals
+
     assert not orig_axes.is_empty
 
     composed_target_paths_and_exprs = collections.defaultdict(dict)
@@ -1686,6 +1696,8 @@ def _compose_axes(
         *,
         indexed_axis=None,
 ):
+    from pyop3.expr_visitors import replace_terminals
+
     # This code attaches a target_path/target_expr to every node in the tree. Is
     # this strictly necessary?
 
@@ -2136,6 +2148,9 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
     {"a": 3, "b": 2}[:4:2] -> {"a": 2, "b": 0} ( [0, 2] )
 
     """
+    from pyop3.expr_visitors import replace as expr_replace
+
+
     size = sum(r.size for r in regions)
     start, stop, step = affine_component.with_size(size)
 
