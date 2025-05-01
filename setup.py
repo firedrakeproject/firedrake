@@ -12,7 +12,7 @@ import libsupermesh
 import pkgconfig
 from dataclasses import dataclass, field
 from setuptools import setup, find_packages, Extension
-from setuptools.command.build_py import build_py as _build_py
+from setuptools.command.sdist import sdist as _sdist
 from glob import glob
 from pathlib import Path
 from Cython.Build import cythonize
@@ -237,7 +237,7 @@ def extensions():
 
 
 # TODO: It would be good to have a single source of truth for these files
-FIREDRAKE_CHECK_TEST_FILES = (
+FIREDRAKE_CHECK_FILES = (
     "Makefile",
     "tests/firedrake/conftest.py",
     "tests/firedrake/regression/test_stokes_mini.py",
@@ -250,7 +250,7 @@ FIREDRAKE_CHECK_TEST_FILES = (
 )
 
 
-class build_py(_build_py):
+class sdist(_sdist):
     def run(self):
         self._copy_check_files()
         super().run()
@@ -258,13 +258,13 @@ class build_py(_build_py):
     def _copy_check_files(self):
         """Copy Makefile and tests into firedrake/_check."""
         dest_dir = Path("firedrake/_check")
-        for check_file in map(Path, FIREDRAKE_CHECK_TEST_FILES ):
+        for check_file in map(Path, FIREDRAKE_CHECK_FILES ):
             os.makedirs(dest_dir / check_file.parent, exist_ok=True)
             shutil.copy(check_file, dest_dir / check_file.parent)
 
 
 setup(
-    cmdclass={'build_py': build_py},
+    cmdclass={"sdist": sdist},
     packages=find_packages(),
     ext_modules=extensions(),
 )
