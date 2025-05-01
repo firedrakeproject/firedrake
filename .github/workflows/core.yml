@@ -185,13 +185,27 @@ jobs:
             EXTRA_PIP_FLAGS='--no-build-isolation'
           fi
 
+          : # Install from an sdist so we can make sure that it is not ill-formed
+          python -m build ./firedrake-repo --sdist
+
           pip install --verbose $EXTRA_PIP_FLAGS \
             --no-binary h5py \
             --extra-index-url https://download.pytorch.org/whl/cpu \
-            './firedrake-repo[ci,docs]'
+            './firedrake-repo/dist/firedrake-*.tar.gz[ci,docs]'
 
           firedrake-clean
           pip list
+
+      - name: Upload sdist (default ARCH only)
+        if: matrix.arch == 'default'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: firedrake-repo/dist/*
+
+      - name: Report sdist build status
+        id: report_sdist
+        run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
 
       - name: Run firedrake-check
         run: |
@@ -338,32 +352,6 @@ jobs:
         with:
           name: firedrake-logs-${{ matrix.arch }}
           path: pytest_*.log
-
-      - name: Build sdist (release only)
-        if: |
-          inputs.target_branch == 'release' &&
-          matrix.arch == 'default' &&
-          (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          pip install build
-          python -m build ./firedrake-repo --sdist
-
-      - name: Upload sdist (release only)
-        id: upload_sdist
-        if: |
-          inputs.target_branch == 'release' &&
-          matrix.arch == 'default' &&
-          (success() || steps.install.conclusion == 'success')
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: firedrake-repo/dist/*
-
-      - name: Report sdist build status
-        id: report_sdist
-        if: success() || steps.upload_sdist.conclusion == 'success'
-        run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
 
       - name: Check bibtex
         if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'

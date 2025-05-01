@@ -12,6 +12,7 @@ import libsupermesh
 import pkgconfig
 from dataclasses import dataclass, field
 from setuptools import setup, find_packages, Extension
+from setuptools.command.sdist import sdist as _sdist
 from glob import glob
 from pathlib import Path
 from Cython.Build import cythonize
@@ -247,23 +248,28 @@ FIREDRAKE_CHECK_TEST_FILES = (
 )
 
 
-# This diabolical function is needed to allow 'firedrake-check' to work. Since
-# installed packages are not allowed to contain files from outside that Python
-# package we cannot access the Makefile or test files once installation is
-# complete. Therefore, before we install, we create a dummy package, called
-# 'firedrake-check' containing said Makefile and tests.
-def make_firedrake_check_package():
-    package_dir = "firedrake_check"
-    logging.info(f"Creating '{package_dir}' package")
-    if os.path.exists(package_dir):
-        logging.info(f"'{package_dir}' already found, removing")
-        shutil.rmtree(package_dir)
+class sdist(_sdist):
+    def run(self):
+        self._make_firedrake_check_package()
+        super().run()
 
-    os.mkdir(package_dir)
-    with open(f"{package_dir}/__init__.py", "w") as f:
-        # set 'errors=True' to make sure that we propagate failures to the
-        # outer process
-        f.write("""import pathlib
+    def _make_firedrake_check_package(self):
+        # This diabolical function is needed to allow 'firedrake-check' to work. Since
+        # installed packages are not allowed to contain files from outside that Python
+        # package we cannot access the Makefile or test files once installation is
+        # complete. Therefore, before we install, we create a dummy package, called
+        # 'firedrake-check' containing said Makefile and tests.
+        package_dir = "firedrake_check"
+        logging.info(f"Creating '{package_dir}' package")
+        if os.path.exists(package_dir):
+            logging.info(f"'{package_dir}' already exists, skipping")
+            return
+
+        os.mkdir(package_dir)
+        with open(f"{package_dir}/__init__.py", "w") as f:
+            # set 'errors=True' to make sure that we propagate failures to the
+            # outer process
+            f.write("""import pathlib
 import subprocess
 
 def main():
@@ -271,22 +277,20 @@ def main():
     subprocess.run(f'make -C {dir} check'.split(), errors=True)
 """)
 
-    # copy Makefile and tests into dummy package
-    shutil.copy("Makefile", package_dir)
-    for test_file in FIREDRAKE_CHECK_TEST_FILES:
-        package_test_dir = os.path.join(package_dir, Path(test_file).parent)
-        os.makedirs(package_test_dir, exist_ok=True)
-        shutil.copy(test_file, package_test_dir)
+        # copy Makefile and tests into dummy package
+        shutil.copy("Makefile", package_dir)
+        for test_file in FIREDRAKE_CHECK_TEST_FILES:
+            package_test_dir = os.path.join(package_dir, Path(test_file).parent)
+            os.makedirs(package_test_dir, exist_ok=True)
+            shutil.copy(test_file, package_test_dir)
 
-    # Also copy conftest.py so any markers are recognised
-    conftest_dir = os.path.join(package_dir, "tests", "firedrake")
-    shutil.copy("tests/firedrake/conftest.py", conftest_dir)
-
-
-make_firedrake_check_package()
+        # Also copy conftest.py so any markers are recognised
+        conftest_dir = os.path.join(package_dir, "tests", "firedrake")
+        shutil.copy("tests/firedrake/conftest.py", conftest_dir)
 
 
 setup(
+    cmdclass={'sdist': sdist},
     packages=find_packages(),
     ext_modules=extensions()
 )
