@@ -9,7 +9,7 @@ from pyop3 import utils
 from pyop3.array.base import Array
 
 
-@utils.record(init=False)
+@utils.record()
 class Parameter(Array):
     """Value that can be changed without triggering code generation."""
 

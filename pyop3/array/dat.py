@@ -165,7 +165,7 @@ class _Dat(DistributedArray, KernelArgument, metaclass=abc.ABCMeta):
         return expr() if eager else expr
 
 
-@utils.record(init=False)
+@utils.record()
 class Dat(_Dat):
     """Multi-dimensional, hierarchical array.
 
@@ -609,7 +609,7 @@ class LinearDatBufferExpression(DatBufferExpression):
         return f"{self.buffer.name}[{self.layout}]"
 
 
-@utils.record(init=False)
+@utils.record()
 class NonlinearDatBufferExpression(DatBufferExpression):
     """A dat with fixed layouts.
 
@@ -644,14 +644,16 @@ class NonlinearDatBufferExpression(DatBufferExpression):
         )
 
 
+# TODO: new type to represent non-composite dat?
+
 @utils.record()
 class PetscMatBufferExpression(BufferExpression):
 
     # {{{ Instance attrs
 
     _buffer: AbstractPetscMatBuffer
-    row_layout: Any  # ExpressionT
-    column_layout: Any  # ExpressionT
+    row_layout: CompositeDat
+    column_layout: CompositeDat
 
     # }}}
 

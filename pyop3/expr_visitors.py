@@ -7,7 +7,7 @@ import itertools
 import numbers
 import operator
 from collections.abc import Iterable, Mapping
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 
 import numpy as np
 from immutabledict import ImmutableOrderedDict
@@ -26,12 +26,13 @@ from pyop3.utils import OrderedSet, just_one
 
 # should inherit from _Dat
 # or at least be an Expression!
-@dataclasses.dataclass(frozen=True)
+@utils.frozenrecord()
 class CompositeDat:
     axis_tree: AxisTree
     leaf_exprs: Any
     loop_indices: Any
-    dtype: np.dtype
+
+    dtype: ClassVar[np.dtype] = IntType
 
     # def __str__(self) -> str:
     #     return f"acc({self.expr})"
@@ -118,6 +119,14 @@ def _(dat: Dat, /) -> OrderedSet:
     for leaf in dat.axes.leaves:
         path = dat.axes.path(leaf)
         loop_indices |= collect_loop_index_vars(dat.axes.subst_layouts()[path])
+    return loop_indices
+
+
+@collect_loop_index_vars.register(CompositeDat)
+def _(dat: CompositeDat, /) -> OrderedSet:
+    loop_indices = OrderedSet()
+    for expr in dat.leaf_exprs.values():
+        loop_indices |= collect_loop_index_vars(expr)
     return loop_indices
 
 
@@ -375,14 +384,20 @@ def concretize_layouts(obj: Any, /) -> Any:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
+@concretize_layouts.register(Operator)
+def _(op: Operator, /) -> Operator:
+    return type(op)(*map(concretize_layouts, [op.a, op.b]))
+
+
 @concretize_layouts.register(BufferExpression)
 def _(expr: BufferExpression, /) -> BufferExpression:
     return expr
 
 
 @concretize_layouts.register(numbers.Number)
-def _(num: numbers.Number, /) -> numbers.Number:
-    return num
+@concretize_layouts.register(AxisVar)
+def _(var: Any, /) -> Any:
+    return var
 
 
 @concretize_layouts.register(Dat)
@@ -395,8 +410,15 @@ def _(dat: Dat, /) -> Any:
 
 
 @concretize_layouts.register(Mat)
-def _(mat: Mat, /) -> PetscMatBufferExpression:
-    return PetscMatBufferExpression(mat.buffer, mat.raxes.leaf_subst_layouts, mat.caxes.leaf_subst_layouts)
+def _(mat: Mat, /) -> BufferExpression:
+    if isinstance(mat.buffer, AbstractPetscMatBuffer):
+        layouts = [
+            CompositeDat(axis_tree.materialize(), axis_tree.leaf_subst_layouts, axis_tree.outer_loops)
+            for axis_tree in [mat.raxes, mat.caxes]
+        ]
+        return PetscMatBufferExpression(mat.buffer, *layouts)
+    else:
+        raise NotImplementedError
 
 
 @functools.singledispatch
@@ -404,7 +426,16 @@ def collect_tensor_shape(obj: Any, /) -> tuple[AxisTree, ...] | None:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
+@collect_tensor_shape.register(Operator)
+def _(op: Operator, /) -> tuple | None:
+    # TODO: should really merge trees or something...
+    trees = list(filter(None, map(collect_tensor_shape, [op.a, op.b])))
+    return (utils.single_valued(trees),) if trees else None
+
+
+# TODO: Return an empty tree?
 @collect_tensor_shape.register(numbers.Number)
+@collect_tensor_shape.register(AxisVar)
 @collect_tensor_shape.register(BufferExpression)
 def _(obj: Any, /) -> None:
     return None
@@ -425,8 +456,14 @@ def collect_tensor_candidate_indirections(obj: Any, /, **kwargs) -> ImmutableOrd
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
+@collect_tensor_candidate_indirections.register(Operator)
+def _(op: Operator, /, **kwargs) -> ImmutableOrderedDict:
+    return utils.merge_dicts((collect_tensor_candidate_indirections(operand, **kwargs) for operand in [op.a, op.b]))
+
+
 @collect_tensor_candidate_indirections.register(numbers.Number)
-def _(num: numbers.Number, /, **kwargs) -> ImmutableOrderedDict:
+@collect_tensor_candidate_indirections.register(AxisVar)
+def _(var: Any, /, **kwargs) -> ImmutableOrderedDict:
     return ImmutableOrderedDict()
 
 
@@ -455,19 +492,18 @@ def _(dat_expr: NonlinearDatBufferExpression, /, *, axis_trees: Iterable[AxisTre
 
 @collect_tensor_candidate_indirections.register(PetscMatBufferExpression)
 def _(mat_expr: PetscMatBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool) -> ImmutableOrderedDict:
-    if isinstance(mat_expr.buffer, AbstractPetscMatBuffer):
-        candidates = {}
-        for i, axes in enumerate(axis_trees):
-            compressed_expr = CompositeDat(axes.materialize(), axes.leaf_subst_layouts, loop_indices, IntType)
+    costs = []
+    layouts = [mat_expr.row_layout, mat_expr.column_layout]
+    for i, (axis_tree, layout) in enumerate(zip(axis_trees, layouts, strict=True)):
+        cost = axis_tree.size
+        for loop_index in layout.loop_indices:
+            cost *= loop_index.iterset.size
+        costs.append(cost)
 
-            cost = axes.size
-            for loop_index in loop_indices:
-                cost *= loop_index.iterset.size
-
-            candidates[mat_expr, i] = ((compressed_expr, cost),)
-        return ImmutableOrderedDict(candidates)
-    else:
-        raise NotImplementedError
+    return ImmutableOrderedDict({
+        (mat_expr, 0): ((mat_expr.row_layout, costs[0]),),
+        (mat_expr, 1): ((mat_expr.column_layout, costs[1]),),
+    })
 
 
 # TODO: rename to concretize_array_accesses or concretize_arrays
@@ -601,7 +637,7 @@ def _(op: Operator, /, visited_axes, loop_axes, *, compress: bool) -> tuple:
         # and not benefit from the optimisation.
         if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
             axes = extract_axes(op, visited_axes, loop_axes, {})
-            compressed_expr = CompositeDat(axes, {visited_axes.leaf_path: op}, loop_axes, IntType)
+            compressed_expr = CompositeDat(axes, {visited_axes.leaf_path: op}, loop_axes)
             candidates.append((compressed_expr, axes.size))
 
     return tuple(candidates)
@@ -624,7 +660,7 @@ def _(expr: LinearDatBufferExpression, /, visited_axes, loop_axes, *, compress: 
     if compress:
         if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
             axes = extract_axes(expr, visited_axes, loop_axes, {})
-            candidates.append((CompositeDat(axes, {visited_axes.leaf_path: expr}, loop_axes, IntType), axes.size))
+            candidates.append((CompositeDat(axes, {visited_axes.leaf_path: expr}, loop_axes), axes.size))
 
     return tuple(candidates)
 
@@ -689,9 +725,15 @@ def concretize_materialized_tensor_indirections(obj: Any, /, *args, **kwargs) ->
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
+@concretize_materialized_tensor_indirections.register(Operator)
+def _(op: Operator, /, *args, **kwargs) -> ImmutableOrderedDict:
+    return type(op)(*(concretize_materialized_tensor_indirections(operand, *args, **kwargs) for operand in [op.a, op.b]))
+
+
 @concretize_materialized_tensor_indirections.register(numbers.Number)
-def _(num: numbers.Number, /, *args, **kwargs) -> numbers.Number:
-    return num
+@concretize_materialized_tensor_indirections.register(AxisVar)
+def _(var: Any, /, *args, **kwargs) -> Any:
+    return var
 
 
 @concretize_materialized_tensor_indirections.register(LinearDatBufferExpression)
@@ -712,8 +754,26 @@ def _(buffer_expr: NonlinearDatBufferExpression, layouts, key):
 @concretize_materialized_tensor_indirections.register(PetscMatBufferExpression)
 def _(mat_expr: PetscMatBufferExpression, /, layouts, key) -> PetscMatBufferExpression:
     row_layout = layouts[key + ((mat_expr, 0),)]
-    col_layout = layouts[key + ((mat_expr, 1),)]
-    return PetscMatBufferExpression(mat_expr.buffer, row_layout, col_layout)
+    column_layout = layouts[key + ((mat_expr, 1),)]
+
+    # TODO: explain more
+
+    # convert the generic expressions to 
+    # for example:
+    #
+    #   map0[3*i0 + i1]
+    #   map0[3*i0 + i2 + 3]
+    #
+    # to the shared top-level layout:
+    #
+    #   map0[3*i0]
+    #
+    # which is what Mat{Get,Set}Values() needs.
+    layouts = [
+        LinearDatBufferExpression(layout.buffer, layout.layouts[ImmutableOrderedDict()])
+        for layout in [row_layout, column_layout]
+    ]
+    return PetscMatBufferExpression(mat_expr.buffer, *layouts)
 
 # @functools.singledispatch
 # def materialize(obj: Any, /, *args, **kwargs) -> ExpressionT:

@@ -7,7 +7,7 @@ import functools
 import itertools
 import numbers
 import warnings
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any, Collection, Hashable, Optional
 
 import numpy as np
@@ -499,12 +499,12 @@ def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
     return new
 
 
-def record(init: bool=True):
-    return _make_record(init=init, eq=False)
+def record():
+    return _make_record(eq=False)
 
 
-def frozenrecord(init: bool=True):
-    return _make_record(init=init, frozen=True)
+def frozenrecord():
+    return _make_record(frozen=True)
 
 
 def _make_record(**kwargs):
@@ -513,6 +513,10 @@ def _make_record(**kwargs):
         cls.__record_init__ = _record_init
         return cls
     return wrapper
+
+
+def attr(attr_name: str) -> property:
+    return property(lambda self: getattr(self, attr_name))
 
 
 def unique_comm(iterable) -> MPI.Comm | None:

@@ -61,7 +61,7 @@ class PetscVecNest(PetscVec):
     ...
 
 
-@utils.record(init=False)
+@utils.record()
 class Mat(DistributedArray):
 
     # {{{ Instance attributes
@@ -95,12 +95,15 @@ class Mat(DistributedArray):
         self,
         raxes,
         caxes,
-        buffer: AbstractBuffer | None = None,
+        buffer: AbstractBuffer,
         *,
         name=None,
         prefix=None,
         parent=None,
     ):
+        if not isinstance(buffer, AbstractBuffer):
+            raise TypeError(f"Provided buffer has the wrong type ({type(buffer).__name__})")
+
         raxes = as_axis_tree(raxes)
         caxes = as_axis_tree(caxes)
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)

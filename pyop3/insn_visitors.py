@@ -515,84 +515,84 @@ def _(assignment: ArrayAssignment, /) -> NonEmptyArrayAssignment:
 #     return NonEmptyArrayAssignment(assignee, expression, assignment.assignment_type, axis_trees)
 
 
-@functools.singledispatch
-def prepare_petsc_calls(obj: Any, /) -> InstructionList:
-    raise TypeError(f"No handler provided for {type(obj).__name__}")
-
-
-@prepare_petsc_calls.register(InstructionList)
-def _(insn_list: InstructionList, /) -> InstructionList:
-    return type(insn_list)((prepare_petsc_calls(insn) for insn in insn_list))
-
-
-@prepare_petsc_calls.register(Loop)
-def _(loop: Loop, /) -> Loop:
-    return Loop(
-        loop.index,
-        [
-            stmt_ for stmt in loop.statements for stmt_ in enlist(prepare_petsc_calls(stmt))
-        ]
-    )
-
-
-@prepare_petsc_calls.register(StandaloneCalledFunction)
-@prepare_petsc_calls.register(NullInstruction)
-def _(func: StandaloneCalledFunction, /) -> StandaloneCalledFunction:
-    return func
-
-
-# NOTE: At present we assume that matrices are never part of the expression, only
-# the assignee. Ideally we should traverse the expression and emit extra READ instructions.
-@prepare_petsc_calls.register(ArrayAssignment)
-def _(assignment: ArrayAssignment, /) -> InstructionList:
-    if isinstance(assignment.assignee.buffer, AbstractPetscMatBuffer):
-        mat = assignment.assignee
-
-        if isinstance(mat, PetscMatBufferExpression):
-            breakpoint()  # ugly...
-            mat = mat.mat
-
-        # If we have an expression like
-        #
-        #     mat[f(p), f(p)] <- 666
-        #
-        # then we have to convert `666` into an appropriately sized temporary
-        # for MatSetValues to work.
-        if isinstance(assignment.expression, numbers.Number):
-            # TODO: There must be a more elegant way of doing this
-            expr_raxes = AxisTree(mat.raxes.node_map)
-            expr_caxes = AxisTree(mat.caxes.node_map)
-            # expr_sf = local_sf(expr_raxes.alloc_size*expr_caxes.alloc_size, comm=mat.comm)
-            expr_data = np.full((expr_raxes.size, expr_caxes.size), assignment.expression, dtype=mat.dtype)
-            expr_buffer = ArrayBuffer(expr_data, sf=None, constant=True)
-            expression = Mat(
-                expr_raxes, expr_caxes, buffer=expr_buffer, prefix="t")
-        else:
-            assert (
-                # isinstance(assignment.expression, (Mat, _ConcretizedMat))
-                isinstance(assignment.expression, (Mat,))
-                and isinstance(assignment.expression.buffer, NullBuffer)
-            )
-            expression = assignment.expression
-
-        if assignment.assignment_type == AssignmentType.WRITE:
-            access_type = ArrayAccessType.WRITE
-        else:
-            assert assignment.assignment_type == AssignmentType.INC
-            access_type = ArrayAccessType.INC
-
-        assignment = PetscMatAssignment(mat, expression, access_type)
-
-    # NO! Do not do this here. If we have Mats on the RHS (which we get at high-order) then
-    # we get a Mat -> Dat which does not work because the axes are not the same.
-    # ~If we are doing a non-PETSc matrix assignment then we cast the buffer to a 'Dat'~
-    # elif isinstance(assignment.assignee, (Sparsity, Mat)):
-    #     assert isinstance(assignment.assignee.buffer, NullBuffer), "Must be a temporary"
-    #     mat = assignment.assignee
-    #     dat = Dat(mat.axes, data=mat.buffer, name=mat.name)
-    #     assignment = BufferAssignment(dat, assignment.expression, assignment.assignment_type)
-
-    return assignment
+# @functools.singledispatch
+# def prepare_petsc_calls(obj: Any, /) -> InstructionList:
+#     raise TypeError(f"No handler provided for {type(obj).__name__}")
+#
+#
+# @prepare_petsc_calls.register(InstructionList)
+# def _(insn_list: InstructionList, /) -> InstructionList:
+#     return type(insn_list)((prepare_petsc_calls(insn) for insn in insn_list))
+#
+#
+# @prepare_petsc_calls.register(Loop)
+# def _(loop: Loop, /) -> Loop:
+#     return Loop(
+#         loop.index,
+#         [
+#             stmt_ for stmt in loop.statements for stmt_ in enlist(prepare_petsc_calls(stmt))
+#         ]
+#     )
+#
+#
+# @prepare_petsc_calls.register(StandaloneCalledFunction)
+# @prepare_petsc_calls.register(NullInstruction)
+# def _(func: StandaloneCalledFunction, /) -> StandaloneCalledFunction:
+#     return func
+#
+#
+# # NOTE: At present we assume that matrices are never part of the expression, only
+# # the assignee. Ideally we should traverse the expression and emit extra READ instructions.
+# @prepare_petsc_calls.register(ArrayAssignment)
+# def _(assignment: ArrayAssignment, /) -> InstructionList:
+#     if isinstance(assignment.assignee.buffer, AbstractPetscMatBuffer):
+#         mat = assignment.assignee
+#
+#         if isinstance(mat, PetscMatBufferExpression):
+#             breakpoint()  # ugly...
+#             mat = mat.mat
+#
+#         # If we have an expression like
+#         #
+#         #     mat[f(p), f(p)] <- 666
+#         #
+#         # then we have to convert `666` into an appropriately sized temporary
+#         # for MatSetValues to work.
+#         if isinstance(assignment.expression, numbers.Number):
+#             # TODO: There must be a more elegant way of doing this
+#             expr_raxes = AxisTree(mat.raxes.node_map)
+#             expr_caxes = AxisTree(mat.caxes.node_map)
+#             # expr_sf = local_sf(expr_raxes.alloc_size*expr_caxes.alloc_size, comm=mat.comm)
+#             expr_data = np.full((expr_raxes.size, expr_caxes.size), assignment.expression, dtype=mat.dtype)
+#             expr_buffer = ArrayBuffer(expr_data, sf=None, constant=True)
+#             expression = Mat(
+#                 expr_raxes, expr_caxes, buffer=expr_buffer, prefix="t")
+#         else:
+#             assert (
+#                 # isinstance(assignment.expression, (Mat, _ConcretizedMat))
+#                 isinstance(assignment.expression, (Mat,))
+#                 and isinstance(assignment.expression.buffer, NullBuffer)
+#             )
+#             expression = assignment.expression
+#
+#         if assignment.assignment_type == AssignmentType.WRITE:
+#             access_type = ArrayAccessType.WRITE
+#         else:
+#             assert assignment.assignment_type == AssignmentType.INC
+#             access_type = ArrayAccessType.INC
+#
+#         assignment = PetscMatAssignment(mat, expression, access_type)
+#
+#     # NO! Do not do this here. If we have Mats on the RHS (which we get at high-order) then
+#     # we get a Mat -> Dat which does not work because the axes are not the same.
+#     # ~If we are doing a non-PETSc matrix assignment then we cast the buffer to a 'Dat'~
+#     # elif isinstance(assignment.assignee, (Sparsity, Mat)):
+#     #     assert isinstance(assignment.assignee.buffer, NullBuffer), "Must be a temporary"
+#     #     mat = assignment.assignee
+#     #     dat = Dat(mat.axes, data=mat.buffer, name=mat.name)
+#     #     assignment = BufferAssignment(dat, assignment.expression, assignment.assignment_type)
+#
+#     return assignment
 
 
 @PETSc.Log.EventDecorator()
@@ -812,7 +812,10 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatBufferExp
 
     mytree = AxisTree.from_iterable(mytree)
     looptree = mytree
-    mytree = mytree.add_subtree(composite_dat.axis_tree, mytree.leaf)
+    if mytree.size == 0:
+        mytree = composite_dat.axis_tree
+    else:
+        mytree = mytree.add_subtree(composite_dat.axis_tree, *mytree.leaf)
 
     if mytree.size == 0:
         return None

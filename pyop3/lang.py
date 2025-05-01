@@ -260,7 +260,7 @@ class ContextAwareInstruction(Instruction):
 _DEFAULT_LOOP_NAME = "pyop3_loop"
 
 
-@utils.frozenrecord(init=False)
+@utils.frozenrecord()
 class Loop(Instruction):
 
     # {{{ Instance attrs
@@ -539,17 +539,19 @@ class Loop(Instruction):
         return self.index.datamap | merge_dicts(stmt.datamap for stmt in self.statements)
 
 
-@dataclasses.dataclass(frozen=True)
+@utils.frozenrecord()
 class InstructionList(Instruction):
-    """
-    A list of instructions.
-    """
+    """A list of instructions."""
 
     # {{{ Instance attrs
 
     instructions: tuple[Instruction]
 
     # }}}
+
+    def __init__(self, instructions: Iterable[Instruction]) -> None:
+        instructions = tuple(instructions)
+        object.__setattr__(self, "instructions", instructions)
 
     def __iter__(self):
         return iter(self.instructions)
@@ -722,7 +724,7 @@ class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
         )
 
 
-@utils.frozenrecord(init=False)
+@utils.frozenrecord()
 class CalledFunction(AbstractCalledFunction):
 
     _function: Function
@@ -738,7 +740,7 @@ class CalledFunction(AbstractCalledFunction):
         object.__setattr__(self, "_arguments", arguments)
 
 
-@utils.frozenrecord(init=False)
+@utils.frozenrecord()
 class StandaloneCalledFunction(AbstractCalledFunction):
     """A called function whose arguments do not need packing/unpacking."""
 
@@ -866,7 +868,7 @@ class AbstractArrayAssignment(AbstractAssignment, metaclass=abc.ABCMeta):
     pass
 
 
-@utils.frozenrecord(init=False)
+@utils.frozenrecord()
 class ArrayAssignment(AbstractArrayAssignment):
 
     # {{{ Instance attrs

@@ -54,29 +54,14 @@ def record_modified(func):
     return wrapper
 
 
-@dataclasses.dataclass(init=False, eq=False)
 class AbstractBuffer(KernelArgument, metaclass=abc.ABCMeta):
 
-    # {{{ Instance attrs
-
-    name: str
-
-    # }}}
-
-    # {{{ Class attrs
-
-    DEFAULT_DTYPE: ClassVar[np.dtype] = ScalarType
-    DEFAULT_PREFIX: ClassVar[str] = "buffer"
-
-    # }}}
-
-    def __init__(self, name: str | None = None, *, prefix: str | None = None):
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-        object.__setattr__(self, "name", name)
+    DEFAULT_PREFIX = "buffer"
+    DEFAULT_DTYPE = ScalarType
 
     @property
     @abc.abstractmethod
-    def size(self) -> int:
+    def name(self) -> str:
         pass
 
     @property
@@ -86,10 +71,15 @@ class AbstractBuffer(KernelArgument, metaclass=abc.ABCMeta):
 
 
 class AbstractArrayBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
-    pass
+
+    @property
+    @abc.abstractmethod
+    def size(self) -> int:
+        pass
 
 
-@dataclasses.dataclass(init=False, eq=False)
+
+@utils.record()
 class NullBuffer(AbstractArrayBuffer):
     """A buffer that does not carry data.
 
@@ -100,70 +90,74 @@ class NullBuffer(AbstractArrayBuffer):
 
     """
 
-    # {{{ Instance attrs
+    # {{{ instance attrs
 
     _size: int
+    _name: str
     _dtype: np.dtype
 
     # }}}
 
-    # {{{ Class attrs
+    # {{{ class attrs
 
     DEFAULT_PREFIX: ClassVar[str] = "null"
 
     # }}}
 
-    def __init__(self, size: int, dtype: DTypeT | None = None, *, name: str | None = None, prefix: str | None = None):
-        dtype = utils.as_dtype(dtype, self.DEFAULT_DTYPE)
-        object.__setattr__(self, "_size", size)
-        object.__setattr__(self, "_dtype", dtype)
-        super().__init__(name, prefix=prefix)
+    # {{{ interface impls
 
-    # {{{ AbstractBuffer impls
-
-    @property
-    def size(self) -> int:
-        return self._size
-
-    @property
-    def dtype(self) -> np.dtype:
-        return self._dtype
+    size: ClassVar[property] = utils.attr("_size")
+    name: ClassVar[property] = utils.attr("_name")
+    dtype: ClassVar[property] = utils.attr("_dtype")
 
     # }}}
 
+    def __init__(self, size: int, dtype: DTypeT | None = None, *, name: str | None = None, prefix: str | None = None):
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+        dtype = utils.as_dtype(dtype, self.DEFAULT_DTYPE)
+
+        self._size = size
+        self._name = name
+        self._dtype = dtype
 
 
-@dataclasses.dataclass(eq=False)
-class ConcreteBufferMixin(metaclass=abc.ABCMeta):
+class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
     """Abstract class representing buffers that carry actual data."""
 
-    # {{{ Instance attrs
-
-    constant: bool = False
-
-    # }}}
+    @property
+    @abc.abstractmethod
+    def constant(self) -> bool:
+        pass
 
     @property
     @abc.abstractmethod
     def state(self) -> int:
-        pass
+        """Counter used to keep track of modifications."""
 
     @abc.abstractmethod
     def inc_state(self) -> None:
         pass
 
 
-
 # NOTE: When GPU support is added, the host-device awareness and
 # copies should live in this class.
-@dataclasses.dataclass(init=False, eq=False)
-class ArrayBuffer(AbstractArrayBuffer, ConcreteBufferMixin):
+@utils.record()
+class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     """A buffer whose underlying data structure is a numpy array."""
 
     # {{{ Instance attrs
 
     _lazy_data: np.ndarray = dataclasses.field(hash=False)  # FIXME: Clearly not lazy!
     sf: StarForest | None
+    _name: str
+    _constant: bool
+
+    _state: int = 0
+
+    # flags for tracking parallel correctness
+    _leaves_valid: bool = True
+    _pending_reduction: Callable | None = None
+    _finalizer: Callable | None = None
 
     # }}}
 
@@ -173,24 +167,33 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBufferMixin):
 
     # }}}
 
-    def __init__(self, data: np.ndarray, sf: StarForest | None = None, **kwargs):
-        constant = kwargs.pop("constant", ConcreteBufferMixin.__dataclass_fields__["constant"].default)
+    # {{{ interface impls
+
+    name: ClassVar[property] = utils.attr("_name")
+    constant: ClassVar[property] = utils.attr("_constant")
+    state: ClassVar[property] = utils.attr("_state")
+
+    @property
+    def size(self) -> int:
+        return self._data.size
+
+    @property
+    def dtype(self) -> np.dtype:
+        return self._data.dtype
+
+
+    def inc_state(self) -> None:
+        self._state += 1
+
+    # }}}
+
+    def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False):
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         self._lazy_data = data
         self.sf = sf
-        super().__init__(**kwargs)
-        ConcreteBufferMixin.__init__(self, constant=constant)
-
-        # counter used to keep track of modifications
-        self._state = 0
-
-        # flags for tracking parallel correctness
-        self._leaves_valid = True
-        self._pending_reduction = None
-        self._finalizer = None
-
-    __hash__ = object.__hash__
-    __eq__ = object.__eq__
+        self._name = name
+        self._constant = constant
 
     @classmethod
     def empty(cls, shape, dtype: DTypeT | None = None, **kwargs):
@@ -207,29 +210,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBufferMixin):
 
         data = np.zeros(shape, dtype=dtype)
         return cls(data, **kwargs)
-
-    # {{{ AbstractBuffer impls
-
-    @property
-    def size(self) -> int:
-        return self._data.size
-
-    @property
-    def dtype(self) -> np.dtype:
-        return self._data.dtype
-
-    # }}}
-
-    # {{{ ConcreteBuffer impls
-
-    @property
-    def state(self) -> int:
-        return self._state
-
-    def inc_state(self) -> None:
-        self._state += 1
-
-    # }}}
 
     @property
     def shape(self) -> tuple[int, ...]:
@@ -429,31 +409,17 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBufferMixin):
         self._broadcast_roots_to_leaves()
 
 
-class AbstractPetscMatBuffer(AbstractBuffer, ConcreteBufferMixin, metaclass=abc.ABCMeta):
+class AbstractPetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
     """A buffer whose underlying data structure is a PETSc Mat."""
 
-    # {{{ Instance attrs
+    DEFAULT_PREFIX = "petscmat"
 
-    mat: PETSc.Mat = dataclasses.field(hash=False)
-
-    # }}}
-
-    # {{{ Class attrs
-
-    DEFAULT_PREFIX: ClassVar[str] = "petscmat"
-
-    # }}}
-
-    def __init__(self, mat: PETSc.Mat, **kwargs):
-        object.__setattr__(self, "mat", mat)
-        super().__init__(**kwargs)
-
-    # {{{ TODO: redo inheritance because some buffer things do not make sense for matrices
-    # (like size)
+    dtype = ScalarType
 
     @property
-    def dtype(self) -> np.dtype:
-        return utils.as_dtype(self.mat.dtype)
+    @abc.abstractmethod
+    def mat(self) -> PETSc.Mat:
+        pass
 
     @property
     def state(self) -> int:
@@ -461,10 +427,6 @@ class AbstractPetscMatBuffer(AbstractBuffer, ConcreteBufferMixin, metaclass=abc.
 
     def inc_state(self) -> None:
         raise NotImplementedError("TODO")
-
-    @property
-    def size(self) -> int:
-        raise NotImplementedError("Does not make sense for this class, tidy things up")
 
     def assemble(self) -> None:
         self.mat.assemble()
@@ -528,7 +490,7 @@ class AbstractPetscMatBuffer(AbstractBuffer, ConcreteBufferMixin, metaclass=abc.
         return mat
 
 
-@dataclasses.dataclass(init=False, eq=False)
+@utils.record()
 class PetscMatBuffer(AbstractPetscMatBuffer):
     """A buffer whose underlying data structure is a PETSc Mat."""
 
@@ -538,39 +500,48 @@ class PetscMatBuffer(AbstractPetscMatBuffer):
 
     # }}}
 
-    # {{{ Class attrs
+    # {{{ interface impls
 
-    # DEFAULT_PREFIX: ClassVar[str] = "petscmat"
+
 
     # }}}
 
-    # def __init__(self, mat: PETSc.Mat, **kwargs):
-    #     object.__setattr__(self, "mat", mat)
-    #     super().__init__(**kwargs)
+    def __init__(self, mat: PETSc.Mat, **kwargs):
+        object.__setattr__(self, "mat", mat)
+        super().__init__(**kwargs)
 
 
 
-@dataclasses.dataclass(init=False, eq=False)
+@utils.record()
 class PetscMatPreallocatorBuffer(AbstractPetscMatBuffer):
     """A buffer whose underlying data structure is a PETSc Mat."""
 
     # {{{ Instance attrs
 
-    target_mat_type: PETSc.Mat.Type
+    _mat: PETSc.Mat
+    target_mat_type: PETSc.Mat.Type | str  # TODO: make this a special type hint
+    _name: str
+    _constant: bool
 
     _lazy_template: PETSc.Mat | None = None
 
     # }}}
 
-    # {{{ Class attrs
+    # {{{ interface impls
 
-    # DEFAULT_PREFIX: ClassVar[str] = "petscmat"
+    mat: ClassVar[property] = utils.attr("_mat")
+    name: ClassVar[property] = utils.attr("_name")
+    constant: ClassVar[property] = utils.attr("_constant")
 
     # }}}
 
-    def __init__(self, mat: PETSc.Mat, target_mat_type: PETSc.Mat.Type, **kwargs):
-        object.__setattr__(self, "target_mat_type", target_mat_type)
-        super().__init__(mat, **kwargs)
+    def __init__(self, mat: PETSc.Mat, target_mat_type: PETSc.Mat.Type | str, *, name:str|None=None, prefix:str|None=None,constant:bool=False):
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        self._mat = mat
+        self.target_mat_type = target_mat_type
+        self._name = name
+        self._constant = constant
 
     def materialize(self) -> PetscMatBuffer:
         if not self._lazy_template:

@@ -22,7 +22,7 @@ import loopy as lp
 import numpy as np
 import pymbolic as pym
 from immutabledict import ImmutableOrderedDict
-from pyop3.array.dat import PetscMatBufferExpression
+from pyop3.array.dat import DatBufferExpression, PetscMatBufferExpression
 from pyop3.expr_visitors import collect_axis_vars, extract_axes
 
 import pyop2
@@ -755,11 +755,34 @@ def parse_assignment(
 
 
 # @_compile.register(NonEmptyPetscMatAssignment)
-def _compile_petsc_mat(assignment: NonEmptyPetscMatAssignment, loop_indices, context):
-    mat = assignment.mat
-    array = assignment.values
+def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context):
+    mat = assignment.assignee
+    expr = assignment.expression
 
-    assert isinstance(mat.buffer, AbstractPetscMatBuffer)
+    row_axis_tree, column_axis_tree = assignment.axis_trees
+
+    if isinstance(expr, numbers.Number):
+        # If we have an expression like
+        #
+        #     mat[f(p), f(p)] <- 666
+        #
+        # then we have to convert `666` into an appropriately sized temporary
+        # for Mat{Get,Set}Values to work.
+        # TODO: There must be a more elegant way of doing this
+        nrows = row_axis_tree.size
+        ncols = column_axis_tree.size
+        expr_data = np.full((nrows, ncols), expr, dtype=mat.buffer.dtype)
+        array_buffer = ArrayBuffer(expr_data, constant=True)
+    else:
+        assert isinstance(array, DatBufferExpression)
+        array_buffer = expr.buffer
+
+    if not isinstance(mat.buffer, AbstractPetscMatBuffer):
+        raise NotImplementedError  # order must be different
+    else:
+        # We need to know whether the matrix is the assignee or not because we need
+        # to know whether to put MatGetValues or MatSetValues
+        setting_mat_values = False
 
     # tidy this up
     # if mat.mat.nested:
@@ -781,7 +804,7 @@ def _compile_petsc_mat(assignment: NonEmptyPetscMatAssignment, loop_indices, con
     mat_name = context.add_buffer(assignment.assignee.buffer, assignment_type_as_intent(assignment.assignment_type))
 
     # NOTE: Is this always correct? It is for now.
-    array_name = context.add_buffer(assignment.expression.buffer, READ)
+    array_name = context.add_buffer(array_buffer, READ)
 
     # TODO: The following code should be done in a loop per submat.
     # blocked = mat.mat.block_shape > 1
@@ -814,11 +837,9 @@ def _compile_petsc_mat(assignment: NonEmptyPetscMatAssignment, loop_indices, con
     #     codegen_context.add_cinstruction(code)
     #     mat_name = submat_name
 
-    row_layout = mat.row_layouts
-    rmap_name = context.add_buffer(row_layout.buffer, READ)
+    rmap_name = context.add_buffer(mat.row_layout.buffer, READ)
 
-    col_layout = mat.column_layouts
-    cmap_name = context.add_buffer(col_layout.buffer, READ)
+    cmap_name = context.add_buffer(mat.column_layout.buffer, READ)
 
     # def get_linear_size(axis_tree, path):
     #     linear_size = 1
@@ -844,8 +865,8 @@ def _compile_petsc_mat(assignment: NonEmptyPetscMatAssignment, loop_indices, con
     # where it can clearly be seen that, for each path, the size is 3.
     # rsize = get_linear_size(assignment.row_axis_tree, row_path)
     # csize = get_linear_size(assignment.column_axis_tree, col_path)
-    rsize = assignment.row_axis_tree.size
-    csize = assignment.column_axis_tree.size
+    rsize = row_axis_tree.size
+    csize = column_axis_tree.size
 
     # these sizes can be expressions that need evaluating
     if not isinstance(rsize, numbers.Integral):
@@ -868,23 +889,8 @@ def _compile_petsc_mat(assignment: NonEmptyPetscMatAssignment, loop_indices, con
     else:
         csize_var = csize
 
-    irow = str(pym.var(rmap_name)[lower_expr(row_layout.layouts[ImmutableOrderedDict()], READ, [], loop_indices, context)])
-    icol = str(pym.var(cmap_name)[lower_expr(col_layout.layouts[ImmutableOrderedDict()], READ, [], loop_indices, context)])
-
-    # irows = set()
-    # for mypath, inner_row_layout in mat.row_layouts.layouts.items():
-    #     # replace inner bits with zeros
-    #     rzeros = {var.axis_label: 0 for var in collect_axis_vars(inner_row_layout)}
-    #     irow = str(lower_expr(row_layout, READ, [rzeros], loop_indices, context, paths=[mypath]))
-    #     irows.add(irow)
-    # irow = just_one(irows)
-    #
-    # icols = set()
-    # for mypath, inner_col_layout in mat.column_layouts.layouts.items():
-    #     czeros = {var.axis_label: 0 for var in collect_axis_vars(inner_col_layout)}
-    #     icol = str(lower_expr(col_layout, READ, [czeros], loop_indices, context, paths=[mypath]))
-    #     icols.add(icol)
-    # icol = just_one(icols)
+    irow = str(pym.var(rmap_name)[lower_expr(mat.row_layout, READ, [], loop_indices, context)])
+    icol = str(pym.var(cmap_name)[lower_expr(mat.column_layout, READ, [], loop_indices, context)])
 
     # FIXME:
     blocked = False
@@ -893,15 +899,18 @@ def _compile_petsc_mat(assignment: NonEmptyPetscMatAssignment, loop_indices, con
     myargs = [
         assignment, mat_name, array_name, rsize_var, csize_var, irow, icol, blocked
     ]
-    match assignment.access_type:
-        case ArrayAccessType.READ:
-            call_str = _petsc_mat_load(*myargs)
-        case ArrayAccessType.WRITE:
-            call_str = _petsc_mat_store(*myargs)
-        case ArrayAccessType.INC:
-            call_str = _petsc_mat_add(*myargs)
-        case _:
-            raise AssertionError
+    if setting_mat_values:
+        match assignment.assignment_type:
+            case AssignmentType.WRITE:
+                call_str = _petsc_mat_store(*myargs)
+            case AssignmentType.INC:
+                call_str = _petsc_mat_add(*myargs)
+            case _:
+                raise AssertionError
+    else:
+        raise NotImplementedError
+        # call_str = _petsc_mat_load(*myargs)
+        # but check cannot do INC here without extra step
 
     context.add_cinstruction(call_str)
 

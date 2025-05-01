@@ -11,7 +11,7 @@ from pyop3.buffer import AbstractBuffer, ArrayBuffer
 from pyop3.sf import single_star_sf
 
 
-@dataclasses.dataclass(init=False, eq=False)
+@utils.record()
 class Global(DistributedArray):
 
     # {{{ Instance attrs

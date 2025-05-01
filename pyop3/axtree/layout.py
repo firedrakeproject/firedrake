@@ -55,11 +55,12 @@ class IntRef:
 
 
 def make_layouts(axes: AxisTree, loop_vars) -> ImmutableOrderedDict:
-    if axes.layout_axes.is_empty:
-        return ImmutableOrderedDict({ImmutableOrderedDict(): 0})
+    if not axes.layout_axes.is_empty:
+        inner_layouts = tabulate_again(axes.layout_axes)
+    else:
+        inner_layouts = ImmutableOrderedDict()
 
-    component_layouts = tabulate_again(axes.layout_axes)
-    return component_layouts
+    return ImmutableOrderedDict({ImmutableOrderedDict(): 0}) | inner_layouts
 
 
 def tabulate_again(axes):
