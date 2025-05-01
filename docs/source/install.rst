@@ -477,7 +477,7 @@ Developer install
    .. warning::
       You are currently looking at the documentation for the current stable
       release of Firedrake. For the most recent developer documentation you
-      should follow the instructions `here <https://firedrakeproject.org/firedrake/main/install>`__.
+      should follow the instructions `here <https://firedrakeproject.org/firedrake/install>`__.
 
 In order to install a development version of Firedrake the following steps
 should be followed:

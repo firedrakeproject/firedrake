@@ -515,16 +515,19 @@ jobs:
   deploy_website:
     name: Deploy GitHub pages (optional)
     needs: test_linux
+    # Only deploy the website for master here, the release branch is managed
+    # by https://github.com/firedrakeproject/firedrakeproject.github.io
     if: |
       always() &&
       inputs.deploy_website &&
+      inputs.target_branch == 'master' &&
       needs.test_linux.outputs.docs_conclusion == 'success'
     permissions:
       pages: write
       id-token: write
     environment:
       name: github-pages
-      url: http://firedrakeproject.github.io/firedrake/${{ inputs.target_branch }}
+      url: http://firedrakeproject.github.io/firedrake
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages
