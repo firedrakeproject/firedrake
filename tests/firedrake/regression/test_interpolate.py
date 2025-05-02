@@ -570,7 +570,7 @@ def test_interpolate_logical_not():
 
 @pytest.mark.parametrize("tdim,shape", [(1, tuple()), (2, tuple()), (3, tuple()),
                                         (1, (1,)), (2, (2,)), (2, (3,)), (3, (3,)),
-                                        (1, (1, 1)), (2, (2, 2)), (3, (3, 3))],
+                                        (1, (1, 2)), (2, (2, 3)), (3, (2, 3))],
                          ids=["1d-scalar", "2d-scalar", "3d-scalar", "1d-vector",
                               "2d-vector", "2d-3vector", "3d-vector", "1d-matrix",
                               "2d-matrix", "3d-matrix"])
@@ -580,22 +580,21 @@ def test_clement_interpolator_simplex(tdim, shape):
         2: UnitSquareMesh,
         3: UnitCubeMesh,
     }[tdim](*(5 for _ in range(tdim)))
+    x = SpatialCoordinate(mesh)
     if len(shape) == 0:
-        fs_constructor = FunctionSpace
-        expr = sum(SpatialCoordinate(mesh))
+        P0 = FunctionSpace(mesh, "DG", 0)
+        P1 = FunctionSpace(mesh, "CG", 1)
+        expr = sum(x)
     elif len(shape) == 1:
         dim = shape[0]
-        fs_constructor = lambda *args: VectorFunctionSpace(*args, dim=dim)
-        x = SpatialCoordinate(mesh)
-        if dim == tdim:
-            expr = as_vector(x)
-        else:
-            expr = as_vector([x[0] for _ in range(dim)])
+        P0 = VectorFunctionSpace(mesh, "DG", 0, dim=dim)
+        P1 = VectorFunctionSpace(mesh, "CG", 1, dim=dim)
+        expr = as_vector(x if dim == tdim else [x[0] for _ in range(dim)])
     else:
-        fs_constructor = lambda *args: TensorFunctionSpace(*args, shape=shape)
-        expr = as_matrix([list(SpatialCoordinate(mesh)) for _ in range(tdim)])
-    P0 = fs_constructor(mesh, "DG", 0)
-    P1 = fs_constructor(mesh, "CG", 1)
+        P0 = TensorFunctionSpace(mesh, "DG", 0, shape=shape)
+        P1 = TensorFunctionSpace(mesh, "CG", 1, shape=shape)
+        rows = [Constant(tuple(range(i+1, i+1+tdim))) for i in range(P1.block_size)]
+        expr = as_tensor(np.reshape([dot(row, x) for row in rows], shape))
 
     # Projecting into P0 space and then applying Clement interpolation should recover
     # the original function
