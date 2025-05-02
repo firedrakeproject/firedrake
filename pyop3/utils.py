@@ -341,8 +341,11 @@ def popwhen(predicate, iterable):
     raise KeyError("Predicate does not hold for any items in iterable")
 
 
-# NOTE: It might be more logical for drop_last to default to True
-def steps(sizes, *, drop_last=False):
+def steps(sizes, *, drop_last=None):
+    if drop_last is None:
+        pyop3.extras.warn_todo("The default here is changing!")
+        drop_last = False
+
     steps_ = np.concatenate([[0], np.cumsum(sizes)])
     return readonly(steps_[:-1]) if drop_last else readonly(steps_)
 

@@ -1111,36 +1111,31 @@ class AbstractMeshTopology(abc.ABC):
 
         closures = {}
         for dim in dims:
-            closure_data = self._plex_closures_default[dim]
+            flat_closure_data_plex = self._plex_closures_default[dim]
 
             if ordering == ClosureOrdering.FIAT:
                 # TODO If the plex is oriented at instantiation, these methods
                 # can be avoided and the default below used.
                 # See https://github.com/firedrakeproject/firedrake/pull/3332.
                 if self.ufl_cell().is_simplex():
-                    closure_data = self._reorder_closure_fiat_simplex(closure_data)
+                    flat_closure_data_fiat = self._reorder_closure_fiat_simplex(flat_closure_data_plex)
                 elif self.ufl_cell() == ufl.quadrilateral:
-                    closure_data = self._reorder_closure_fiat_quad(closure_data)
+                    flat_closure_data_fiat = self._reorder_closure_fiat_quad(flat_closure_data_plex)
                 else:
                     assert self.ufl_cell() == ufl.hexahedron
-                    closure_data = self._reorder_closure_fiat_hex(closure_data)
+                    flat_closure_data_fiat = self._reorder_closure_fiat_hex(flat_closure_data_plex)
 
             # Break apart the closure data per dimension and renumber it.
-            # NOTE: We could also just pass the closure through as-is (without renumbering).
-            # This would be less efficient as the loop extents would be runtime arrays.
-            closure_data_split = []
+            closure_data = []
             offset = 0
-            for map_dim, size in reversed(list(enumerate(self._closure_sizes[dim]))):
-                closure_data_XXX = closure_data[:, offset:offset+size]
-                closure_data_split.append(self._renumber_map(dim, map_dim, closure_data_XXX))
+            for map_dim, size in enumerate(self._closure_sizes[dim]):
+                map_data_per_dim = flat_closure_data[:, offset:offset+size]
+                map_data_per_dim_renum = self._renumber_map(dim, map_dim, map_data_per_dim)
+                closure_data.append(map_data_per_dim_renum)
                 offset += size
 
-            # TODO: Cleanup. This is here because we have a tricksy way of slicing out
-            # the right bits of the closure maps above.
-            closure_data_split = list(reversed(closure_data_split))
-
             map_components = []
-            for map_dim, map_data in enumerate(closure_data_split):
+            for map_dim, map_data in enumerate(closure_data):
                 _, size = map_data.shape
                 if size == 0:
                     continue
@@ -1276,41 +1271,53 @@ class AbstractMeshTopology(abc.ABC):
             np.empty_like(plex_closures[d]) for d in range(self.dimension+1)
         )
 
-        for ci in range(self.num_cells()):
+        # also in dmcommon.closure_ordering
+        nverts_per_cell, nedges_per_cell, nfacets_per_cell, _ = \
+            self._closure_sizes[self.dimension]
+        # I think that the offsets here aren't right. DMPlex does cell -> vert
+        # whilst fiat does vert -> cell
+        raise NotImplementedError("This is almost certainly wrong")
+        cell_offset = 0
+        facet_offset = cell_offset + 1
+        edge_offset = facet_offset + nfacets_per_cell
+        vert_offset = edge_offset + nedges_per_cell
+
+        for ci in range(self.num_cells):
             # vertices
-            fiat_closures[0][ci, 0] = plex_closures[0][ci, 0]
-            fiat_closures[0][ci, 1] = plex_closures[0][ci, 4]
-            fiat_closures[0][ci, 2] = plex_closures[0][ci, 1]
-            fiat_closures[0][ci, 3] = plex_closures[0][ci, 7]
-            fiat_closures[0][ci, 4] = plex_closures[0][ci, 3]
-            fiat_closures[0][ci, 5] = plex_closures[0][ci, 5]
-            fiat_closures[0][ci, 6] = plex_closures[0][ci, 2]
-            fiat_closures[0][ci, 7] = plex_closures[0][ci, 6]
+            # TODO: This could be a permutation...
+            fiat_closures[ci, vert_offset+0] = plex_closures[ci, vert_offset+0]
+            fiat_closures[ci, vert_offset+1] = plex_closures[ci, vert_offset+4]
+            fiat_closures[ci, vert_offset+2] = plex_closures[ci, vert_offset+1]
+            fiat_closures[ci, vert_offset+3] = plex_closures[ci, vert_offset+7]
+            fiat_closures[ci, vert_offset+4] = plex_closures[ci, vert_offset+3]
+            fiat_closures[ci, vert_offset+5] = plex_closures[ci, vert_offset+5]
+            fiat_closures[ci, vert_offset+6] = plex_closures[ci, vert_offset+2]
+            fiat_closures[ci, vert_offset+7] = plex_closures[ci, vert_offset+6]
 
             # edges
-            fiat_closures[1][ci, 0] = plex_closures[1][ci, 9]
-            fiat_closures[1][ci, 1] = plex_closures[1][ci, 10]
-            fiat_closures[1][ci, 2] = plex_closures[1][ci, 0]
-            fiat_closures[1][ci, 3] = plex_closures[1][ci, 7]
-            fiat_closures[1][ci, 4] = plex_closures[1][ci, 8]
-            fiat_closures[1][ci, 5] = plex_closures[1][ci, 11]
-            fiat_closures[1][ci, 6] = plex_closures[1][ci, 2]
-            fiat_closures[1][ci, 7] = plex_closures[1][ci, 5]
-            fiat_closures[1][ci, 8] = plex_closures[1][ci, 3]
-            fiat_closures[1][ci, 9] = plex_closures[1][ci, 4]
-            fiat_closures[1][ci, 10] = plex_closures[1][ci, 1]
-            fiat_closures[1][ci, 11] = plex_closures[1][ci, 6]
+            fiat_closures[ci, edge_offset+0] = plex_closures[ci, edge_offset+9]
+            fiat_closures[ci, edge_offset+1] = plex_closures[ci, edge_offset+10]
+            fiat_closures[ci, edge_offset+2] = plex_closures[ci, edge_offset+0]
+            fiat_closures[ci, edge_offset+3] = plex_closures[ci, edge_offset+7]
+            fiat_closures[ci, edge_offset+4] = plex_closures[ci, edge_offset+8]
+            fiat_closures[ci, edge_offset+5] = plex_closures[ci, edge_offset+11]
+            fiat_closures[ci, edge_offset+6] = plex_closures[ci, edge_offset+2]
+            fiat_closures[ci, edge_offset+7] = plex_closures[ci, edge_offset+5]
+            fiat_closures[ci, edge_offset+8] = plex_closures[ci, edge_offset+3]
+            fiat_closures[ci, edge_offset+9] = plex_closures[ci, edge_offset+4]
+            fiat_closures[ci, edge_offset+10] = plex_closures[ci, edge_offset+1]
+            fiat_closures[ci, edge_offset+11] = plex_closures[ci, edge_offset+6]
 
             # faces
-            fiat_closures[2][ci, 0] = plex_closures[2][ci, 5]
-            fiat_closures[2][ci, 1] = plex_closures[2][ci, 4]
-            fiat_closures[2][ci, 2] = plex_closures[2][ci, 2]
-            fiat_closures[2][ci, 3] = plex_closures[2][ci, 3]
-            fiat_closures[2][ci, 4] = plex_closures[2][ci, 0]
-            fiat_closures[2][ci, 5] = plex_closures[2][ci, 1]
+            fiat_closures[ci, facet_offset+0] = plex_closures[ci, facet_offset+5]
+            fiat_closures[ci, facet_offset+1] = plex_closures[ci, facet_offset+4]
+            fiat_closures[ci, facet_offset+2] = plex_closures[ci, facet_offset+2]
+            fiat_closures[ci, facet_offset+3] = plex_closures[ci, facet_offset+3]
+            fiat_closures[ci, facet_offset+4] = plex_closures[ci, facet_offset+0]
+            fiat_closures[ci, facet_offset+5] = plex_closures[ci, facet_offset+1]
 
             # cell
-            fiat_closures[3][ci, 0] = plex_closures[3][ci, 0]
+            fiat_closures[ci, cell_offset] = plex_closures[ci, cell_offset]
 
         return fiat_closures
 
@@ -2112,30 +2119,47 @@ class MeshTopology(AbstractMeshTopology):
 
     @utils.cached_property
     def entity_orientations(self):
-        # TODO: Make _plex_closures_default etc do a zip to make this cleaner
-        _closure_data, _closure_sizes = self._plex_closures_default
-        closure_data = _closure_data[self.dimension]
-        closure_sizes = _closure_sizes[self.dimension]
+        # TODO: cell numbering is not done...
+        breakpoint()
+        # FIXME: An awful lot of this is very very similar to what we do for closures
+        closure_data = self._plex_closures_default[self.dimension]
 
-        closure_data = self._reorder_closure_fiat_hex(closure_data)
+        if self.ufl_cell().is_simplex():
+            closure_data = self._reorder_closure_fiat_simplex(closure_data)
+        elif self.ufl_cell() == ufl.quadrilateral:
+            closure_data = self._reorder_closure_fiat_quad(closure_data)
+        else:
+            assert self.ufl_cell() == ufl.hexahedron
+            closure_data = self._reorder_closure_fiat_hex(closure_data)
 
-        orientations = [None] * (self.dimension+1)
+        breakpoint()
 
-        # vertices cannot have orientation
-        orientations[0] = np.zeros_like(closure_data[0])
+        # FIXME: also used in _reorder_closure_fiat_hex
+        # nverts_per_cell, nedges_per_cell, nfacets_per_cell, _ = \
+        #     self._closure_sizes[self.dimension]
+        # cell_offset = 0
+        # facet_offset = cell_offset + 1
+        # edge_offset = facet_offset + nfacets_per_cell
+        # vert_offset = edge_offset + nedges_per_cell
+        #
+        # orientations = np.empty_like(closure_data)
+        # # vertices do not have an orientation
+        # orientations[: vert_offset:vert_offset+nverts_per_cell] = 0
+        #
+        # for dim in range(1, self.dimension+1):
+        #     orientations[dim] = dmcommon.entity_orientations(self, closure_data[dim], closure_data[dim-1], dim-1)
+        #
+        # # reorder cells
+        # orientations_ = tuple(np.empty_like(o) for o in orientations)
+        # cell_renumbering = self.points.component_numbering(self.cell_label)
+        # for dim in range(self.dimension+1):
+        #     for old_pt, new_pt in enumerate(cell_renumbering):
+        #         orientations_[dim][new_pt] = orientations[dim][old_pt]
+        # orientations = orientations_
+        #
+        # return orientations
 
-        for dim in range(1, self.dimension+1):
-            orientations[dim] = dmcommon.entity_orientations(self, closure_data[dim], closure_data[dim-1], dim-1)
-
-        # reorder cells
-        orientations_ = tuple(np.empty_like(o) for o in orientations)
-        cell_renumbering = self.points.component_numbering(self.cell_label)
-        for dim in range(self.dimension+1):
-            for old_pt, new_pt in enumerate(cell_renumbering):
-                orientations_[dim][new_pt] = orientations[dim][old_pt]
-        orientations = orientations_
-
-        return orientations
+        return dmcommon.entity_orientations(self, closure_data)
 
     @utils.cached_property
     def entity_orientations_dat(self):
