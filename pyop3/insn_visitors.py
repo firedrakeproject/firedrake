@@ -19,7 +19,7 @@ from immutabledict import ImmutableOrderedDict
 from pyop3 import utils
 from pyop3.array import Global, Dat, Array, Mat, NonlinearDatArrayBufferExpression, LinearDatArrayBufferExpression, MatPetscMatBufferExpression
 from pyop3.axtree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
-from pyop3.axtree.tree import Operator, AxisVar, IndexedAxisTree, prune_zero_sized_branches
+from pyop3.axtree.tree import Operator, AxisVar, IndexedAxisTree, merge_axis_trees2, prune_zero_sized_branches
 from pyop3.buffer import AbstractBuffer, AbstractPetscMatBuffer, ArrayBuffer, NullBuffer, PetscMatBuffer
 from pyop3.dtypes import IntType
 from pyop3.itree import Map, TabulatedMapComponent, collect_loop_contexts
@@ -474,6 +474,14 @@ def _(array: Array, /, access_type):
 
 @functools.singledispatch
 def concretize_layouts(obj: Any, /) -> Instruction:
+    """Lock in the layout expressions that data arguments are accessed with.
+
+    For example this converts Dats to DatArrayBufferExpressions that cannot
+    be indexed further.
+
+    This function also trims expressions to remove any zero-sized bits.
+
+    """
     raise TypeError(f"No handler provided for {type(obj).__name__}")
 
 
@@ -490,7 +498,7 @@ def _(insn_list: InstructionList, /) -> Instruction:
 
 
 @concretize_layouts.register(Loop)
-def _(loop: Loop, /) -> Instruction:
+def _(loop: Loop, /) -> Loop | NullInstruction:
     statements = tuple(filter_null(map(concretize_layouts, loop.statements)))
     return loop.__record_init__(statements=statements) if statements else NullInstruction()
 
@@ -501,15 +509,34 @@ def _(func: StandaloneCalledFunction, /) -> StandaloneCalledFunction:
 
 
 @concretize_layouts.register(ArrayAssignment)
-def _(assignment: ArrayAssignment, /) -> NonEmptyArrayAssignment:
-    assignee = concretize_expression_layouts(assignment.assignee)
-    expression = concretize_expression_layouts(assignment.expression)
+def _(assignment: ArrayAssignment, /) -> NonEmptyArrayAssignment | NullInstruction:
+    # Determine the overall shape of the assignment by merging the shapes of the
+    # arguments. This allows for assignments with mismatching indices like:
+    #
+    #     dat1[i, j] = dat2[j]
+    axis_trees = []
+    axis_trees_per_arg = tuple(
+        trees
+        for trees in map(collect_tensor_shape, assignment.arguments)
+        if trees is not None
+    )
+    for arg_axis_trees in zip(*axis_trees_per_arg, strict=True):
+        merged_axis_tree = merge_axis_trees2(arg_axis_trees)
 
-    # TODO: merge shape (*build* the axis tree by combining things)
-    # i.e. allow dat[i, j] = a[i] * b[j]?
-    axis_trees = utils.single_valued(filter(None, (collect_tensor_shape(arg) for arg in assignment.arguments)))
+        # drop zero-sized bits
+        pruned_axis_tree = merged_axis_tree.prune()
 
-    return NonEmptyArrayAssignment(assignee, expression, assignment.assignment_type, axis_trees)
+        if not pruned_axis_tree:
+            # the assignment is zero-sized
+            return NullInstruction()
+
+        axis_trees.append(pruned_axis_tree)
+    axis_trees = tuple(axis_trees)
+
+    assignee = concretize_expression_layouts(assignment.assignee, axis_trees)
+    expression = concretize_expression_layouts(assignment.expression, axis_trees)
+
+    return NonEmptyArrayAssignment(assignee, expression, axis_trees, assignment.assignment_type)
 
 
 @PETSc.Log.EventDecorator()
@@ -818,102 +845,3 @@ def _(assignment: NonEmptyArrayAssignment, /, layouts: Mapping[Any, Any]) -> Con
     return ConcretizedNonEmptyArrayAssignment(
         assignee, expression, assignment.assignment_type, assignment.axis_trees
     )
-
-
-# def concretize_arrays(insn: Instruction, /) -> Instruction:
-#     return _concretize_arrays_rec(insn, ())
-#
-#
-# @functools.singledispatch
-# def _concretize_arrays_rec(insn:Instruction, /, loop_indices) -> Instruction:
-#     raise TypeError
-#
-#
-# @_concretize_arrays_rec.register(InstructionList)
-# def _(insn_list: InstructionList, /, loop_indices):
-#     return InstructionList([_concretize_arrays_rec(insn, loop_indices) for insn in insn_list])
-#
-#
-# @_concretize_arrays_rec.register(Loop)
-# def _(loop: Loop, /, loop_indices) -> Loop:
-#     loop_indices_ = loop_indices + (loop.index,)
-#     return loop.copy(statements=[_concretize_arrays_rec(stmt, loop_indices_) for stmt in loop.statements])
-#
-#
-# @_concretize_arrays_rec.register(NonEmptyBufferAssignment)
-# def _(assignment: NonEmptyBufferAssignment, /, loop_axes_acc) -> NonEmptyBufferAssignment:
-#     return type(assignment)(
-#         expr_concretize_arrays(assignment.assignee, loop_axes_acc),
-#         expr_concretize_arrays(assignment.expression, loop_axes_acc),
-#         assignment.assignment_type,
-#         assignment.axis_trees,
-#     )
-#
-#
-# @_concretize_arrays_rec.register(NonEmptyPetscMatAssignment)
-# def _(assignment: NonEmptyPetscMatAssignment, /, loop_axes_acc) -> NonEmptyPetscMatAssignment:
-#     return type(assignment)(
-#         expr_concretize_arrays(assignment.mat, loop_axes_acc),
-#         expr_concretize_arrays(assignment.values, loop_axes_acc),
-#         assignment.access_type,
-#         assignment.row_axis_tree,
-#         assignment.column_axis_tree,
-#     )
-#
-#
-# @_concretize_arrays_rec.register(ExplicitCalledFunction)
-# @_concretize_arrays_rec.register(NullInstruction)
-# def _(func: ExplicitCalledFunction, /, loop_axes_acc) -> ExplicitCalledFunction:
-#     return func
-
-
-@functools.singledispatch
-def drop_zero_sized_paths(insn: Instruction, /) -> Instruction:
-    raise TypeError
-
-
-@drop_zero_sized_paths.register(InstructionList)
-def _(insn_list: InstructionList, /) -> Instruction:
-    return maybe_enlist(
-        filter(non_null, (drop_zero_sized_paths(insn) for insn in insn_list))
-    )
-
-
-@drop_zero_sized_paths.register(Loop)
-def _(loop: Loop, /) -> Loop | NullInstruction:
-    statements = tuple(filter(non_null, (drop_zero_sized_paths(stmt) for stmt in loop.statements)))
-    return loop.copy(statements=statements) if statements else NullInstruction()
-
-
-@drop_zero_sized_paths.register(ArrayAssignment)
-def _(assignment: ArrayAssignment, /) -> NonEmptyArrayArrayAssignment | NullInstruction:
-    assignee = assignment.assignee
-    if isinstance(assignee, ArrayBufferExpression):
-        axis_trees = (assignee.axes,)
-    else:
-        assert isinstance(assignee, Mat)
-        axis_trees = (assignee.raxes, assignee.caxes)
-
-    nonzero_axis_trees = tuple(map(prune_zero_sized_branches, axis_trees))
-    if any(axis_tree.size == 0 for axis_tree in nonzero_axis_trees):
-        return NullInstruction()
-    else:
-        return assignment.with_axes(nonzero_axis_trees)
-
-
-# @drop_zero_sized_paths.register(PetscMatAssignment)
-# def _(assignment: PetscMatAssignment, /) -> NonEmptyPetscMatAssignment | NullInstruction:
-#     pruned_trees = []
-#     for tree in (assignment.assignee.raxes, assignment.assignee.caxes):
-#         pruned_tree = prune_zero_sized_branches(tree)
-#         if pruned_tree.size == 0:
-#             return NullInstruction()
-#         else:
-#             pruned_trees.append(pruned_tree)
-#     return assignment.with_axes(*pruned_trees)
-
-
-@drop_zero_sized_paths.register(StandaloneCalledFunction)
-@drop_zero_sized_paths.register(NullInstruction)
-def _(func: StandaloneCalledFunction, /) -> StandaloneCalledFunction:
-    return func

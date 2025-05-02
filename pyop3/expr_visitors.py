@@ -12,7 +12,7 @@ from typing import Any, ClassVar, Optional
 import numpy as np
 from immutabledict import ImmutableOrderedDict
 from pyop3.array import Global
-from pyop3.array.dat import ArrayBufferExpression, MatPetscMatBufferExpression, MatArrayBufferExpression
+from pyop3.array.dat import ArrayBufferExpression, DatArrayBufferExpression, DatBufferExpression, MatPetscMatBufferExpression, MatArrayBufferExpression, LinearBufferExpression, NonlinearBufferExpression
 from pyop3.buffer import AbstractArrayBuffer, PetscMatBuffer, AbstractPetscMatBuffer
 from pyop3.itree.tree import LoopIndex
 from pyrsistent import pmap, PMap
@@ -381,49 +381,85 @@ def _(op: Operator, /, replace_map) -> Operator:
 
 
 @functools.singledispatch
-def concretize_layouts(obj: Any, /) -> Any:
+def concretize_layouts(obj: Any, /, axis_trees: Iterable[AxisTree, ...]) -> Any:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
 @concretize_layouts.register(Operator)
-def _(op: Operator, /) -> Operator:
-    return type(op)(*map(concretize_layouts, [op.a, op.b]))
-
-
-@concretize_layouts.register(BufferExpression)
-def _(expr: BufferExpression, /) -> BufferExpression:
-    return expr
+def _(op: Operator, /, *args, **kwargs) -> Operator:
+    return type(op)(*(concretize_layouts(operand, *args, **kwargs) for operand in [op.a, op.b]))
 
 
 @concretize_layouts.register(numbers.Number)
 @concretize_layouts.register(AxisVar)
-def _(var: Any, /) -> Any:
+def _(var: Any, /, *args, **kwargs) -> Any:
     return var
 
 
 @concretize_layouts.register(Dat)
-def _(dat: Dat, /) -> Any:
+def _(dat: Dat, /, axis_trees: Iterable[AxisTree, ...]) -> DatArrayBufferExpression:
     if dat.axes.is_linear:
         layout = just_one(dat.axes.leaf_subst_layouts.values())
-        return LinearDatArrayBufferExpression(dat.buffer, layout)
+        expr = LinearDatArrayBufferExpression(dat.buffer, layout)
     else:
-        return NonlinearDatArrayBufferExpression(dat.buffer, dat.axes.leaf_subst_layouts)
+        expr = NonlinearDatArrayBufferExpression(dat.buffer, dat.axes.leaf_subst_layouts)
+    return concretize_layouts(expr, axis_trees)
 
 
 @concretize_layouts.register(Mat)
-def _(mat: Mat, /) -> BufferExpression:
+def _(mat: Mat, /, axis_trees: Iterable[AxisTree, ...]) -> BufferExpression:
     if isinstance(mat.buffer, AbstractPetscMatBuffer):
         layouts = [
             CompositeDat(axis_tree.materialize(), axis_tree.leaf_subst_layouts, axis_tree.outer_loops)
             for axis_tree in [mat.raxes, mat.caxes]
         ]
-        return MatPetscMatBufferExpression(mat.buffer, *layouts)
+        expr = MatPetscMatBufferExpression(mat.buffer, *layouts)
     else:
-        return MatArrayBufferExpression(
+        expr = MatArrayBufferExpression(
             mat.buffer,
             mat.raxes.leaf_subst_layouts,
             mat.caxes.leaf_subst_layouts
         )
+    return concretize_layouts(expr, axis_trees)
+
+
+@concretize_layouts.register(LinearBufferExpression)
+def _(dat_expr: LinearBufferExpression, /, axis_trees: Iterable[AxisTree, ...]) -> LinearBufferExpression:
+    # Nothing to do here. If we drop any zero-sized tree branches then the
+    # whole thing goes away and we won't hit this.
+    return dat_expr
+
+
+@concretize_layouts.register(NonlinearDatArrayBufferExpression)
+def _(dat_expr: NonlinearDatArrayBufferExpression, /, axis_trees: Iterable[AxisTree, ...]) -> NonlinearDatArrayBufferExpression:
+    axis_tree = just_one(axis_trees)
+    # NOTE: This assumes that we have uniform axis trees for all elements of the
+    # expression (i.e. not dat1[i] <- dat2[j]). When that assumption is eventually
+    # violated this will raise a KeyError.
+    pruned_layouts = {
+        path: layout
+        for path, layout in dat_expr.layouts.items()
+        if path in axis_tree.leaf_paths
+    }
+    return dat_expr.__record_init__(layouts=pruned_layouts)
+
+
+@concretize_layouts.register(MatArrayBufferExpression)
+def _(mat_expr: MatArrayBufferExpression, /, axis_trees: Iterable[AxisTree, ...]) -> MatArrayBufferExpression:
+    pruned_layoutss = []
+    orig_layoutss = [mat_expr.row_layouts, mat_expr.column_layouts]
+    for orig_layouts, axis_tree in zip(orig_layoutss, axis_trees, strict=True):
+        # NOTE: This assumes that we have uniform axis trees for all elements of the
+        # expression (i.e. not dat1[i] <- dat2[j]). When that assumption is eventually
+        # violated this will raise a KeyError.
+        pruned_layouts = {
+            path: layout
+            for path, layout in orig_layouts.items()
+            if path in axis_tree.leaf_paths
+        }
+        pruned_layoutss.append(pruned_layouts)
+    row_layouts, column_layouts = pruned_layoutss
+    return mat_expr.__record_init__(row_layouts=row_layouts, column_layouts=column_layouts)
 
 
 @functools.singledispatch

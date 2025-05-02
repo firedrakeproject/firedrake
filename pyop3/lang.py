@@ -202,8 +202,6 @@ class Instruction(abc.ABC):
             expand_implicit_pack_unpack,
             expand_loop_contexts,
             expand_assignments,
-            # prepare_petsc_calls,
-            drop_zero_sized_paths,
             materialize_indirections,
             concretize_layouts,
         )
@@ -873,7 +871,7 @@ class AbstractAssignment(Terminal, metaclass=abc.ABCMeta):
 @utils.frozenrecord()
 class ArrayAssignment(AbstractAssignment):
 
-    # {{{ Instance attrs
+    # {{{ instance attrs
 
     _assignee: Any
     _expression: Any
@@ -881,7 +879,7 @@ class ArrayAssignment(AbstractAssignment):
 
     # }}}
 
-    # {{{ Interface impls
+    # {{{ interface impls
 
     assignee: ClassVar[property] = property(lambda self: self._assignee)
     expression: ClassVar[property] = property(lambda self: self._expression)
@@ -896,37 +894,25 @@ class ArrayAssignment(AbstractAssignment):
         object.__setattr__(self, "_expression", expression)
         object.__setattr__(self, "_assignment_type", assignment_type)
 
-    # @property
-    # def arrays(self):
-    #     from pyop3.array import Dat
-    #
-    #     arrays_ = [self.assignee]
-    #     if isinstance(self.expression, Dat):
-    #         arrays_.append(self.expression)
-    #     else:
-    #         if not isinstance(self.expression, numbers.Number):
-    #             raise NotImplementedError
-    #     return tuple(arrays_)
-
 
 @utils.frozenrecord()
 class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
 
-    # {{{ Instance attrs
+    # {{{ instance attrs
 
     _assignee: Any
     _expression: Any
-    _assignment_type: AssignmentType
     _axis_trees: tuple[AxisTree, ...]
+    _assignment_type: AssignmentType
 
     # }}}
 
-    # {{{ Interface impls
+    # {{{ interface impls
 
     assignee: ClassVar[property] = property(lambda self: self._assignee)
     expression: ClassVar[property] = property(lambda self: self._expression)
-    assignment_type: ClassVar[property] = property(lambda self: self._assignment_type)
     axis_trees: ClassVar[property] = property(lambda self: self._axis_trees)
+    assignment_type: ClassVar[property] = property(lambda self: self._assignment_type)
 
     # }}}
 

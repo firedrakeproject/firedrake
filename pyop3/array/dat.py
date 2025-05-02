@@ -600,8 +600,16 @@ class DatArrayBufferExpression(DatBufferExpression, ArrayBufferExpression, metac
     pass
 
 
+class LinearBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
+    pass
+
+
+class NonlinearBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
+    pass
+
+
 @utils.record()
-class LinearDatArrayBufferExpression(DatArrayBufferExpression):
+class LinearDatArrayBufferExpression(DatArrayBufferExpression, LinearBufferExpression):
     """A dat with fixed (?) layout.
 
     It cannot be indexed.
@@ -629,7 +637,7 @@ class LinearDatArrayBufferExpression(DatArrayBufferExpression):
 
 
 @utils.record()
-class NonlinearDatArrayBufferExpression(DatArrayBufferExpression):
+class NonlinearDatArrayBufferExpression(DatArrayBufferExpression, NonlinearBufferExpression):
     """A dat with fixed layouts.
 
     This class is useful for describing dats whose layouts have been optimised.
@@ -668,7 +676,7 @@ class MatBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
 
 
 @utils.record()
-class MatPetscMatBufferExpression(MatBufferExpression, PetscMatBufferExpression):
+class MatPetscMatBufferExpression(MatBufferExpression, PetscMatBufferExpression, LinearBufferExpression):
 
     # {{{ instance attrs
 
@@ -689,7 +697,7 @@ class MatPetscMatBufferExpression(MatBufferExpression, PetscMatBufferExpression)
 
 
 @utils.record()
-class MatArrayBufferExpression(MatBufferExpression, ArrayBufferExpression):
+class MatArrayBufferExpression(MatBufferExpression, ArrayBufferExpression, NonlinearBufferExpression):
 
     # {{{ instance attrs
 

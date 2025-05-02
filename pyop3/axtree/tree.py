@@ -16,7 +16,7 @@ import typing
 from collections.abc import Iterable, Sized, Sequence
 from functools import cached_property
 from itertools import chain
-from typing import Any, FrozenSet, Hashable, Mapping, Optional, Tuple, Union
+from typing import Any, FrozenSet, Hashable, Mapping, Optional, Self, Tuple, Union
 
 import numpy as np
 import pyrsistent
@@ -194,6 +194,9 @@ class _UnitAxisTree:
     leaves = (None,)
     is_linear = True
     is_empty = False
+
+    def prune(self) -> Self:
+        return self
 
     def add_subtree(self, subtree, key):
         assert key is None
@@ -895,6 +898,9 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     @cached_property
     def pruned(self) -> AxisTree:
         return prune_zero_sized_branches(self)
+
+    def prune(self) -> AxisTree:
+        return self.pruned
 
     @property
     @abc.abstractmethod
@@ -1997,6 +2003,7 @@ def _(arg: numbers.Integral) -> AxisComponent:
     return AxisComponent(arg)
 
 
+# NOTE: Is this used any more?
 @cached_on(lambda trees: trees[0], key=lambda trees: tuple(trees[1:]))
 def merge_axis_trees(axis_trees):
     """
@@ -2104,6 +2111,17 @@ def _merge_targets(axis_trees, targetss, *, axis_tree_index=0, axis=None, suffix
             relabelled_targets.update(relabelled_targets_)
 
     return ImmutableOrderedDict(relabelled_targets)
+
+
+def merge_axis_trees2(trees: Iterable[AxisTree]) -> AxisTree:
+    if not trees:
+        raise ValueError
+
+    current_tree, *remaining_trees = trees
+    while remaining_trees:
+        next_tree, *remaining_trees = remaining_trees
+        current_tree = merge_trees2(current_tree, next_tree)
+    return current_tree
 
 
 @cached_on(lambda t1, t2: t1, key=lambda t1, t2: t2)
