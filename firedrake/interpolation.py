@@ -1678,13 +1678,11 @@ class ClementInterpolator(SameMeshInterpolator):
     For arguments, see :class:`.Interpolator`.
     """
 
-    def __new__(cls, expr, V, **kwargs):
-        target_mesh = as_domain(V)
-        source_mesh = extract_unique_domain(expr) or target_mesh
-        if target_mesh is source_mesh:
-            return object.__new__(ClementInterpolator)
-        else:
-            raise ValueError("Clément interpolation requires the source and target meshes to coincide.")
+    # NOTE: We need to overload the __new__ inherited from Interpolator because it will
+    # only ever return instances of SameMeshInterpolator or CrossMeshInterpolator, not
+    # ClementInterpolator.
+    def __new__(cls, *args, **kwargs):
+        return object.__new__(ClementInterpolator)
 
     @no_annotations
     def __init__(
@@ -1705,6 +1703,10 @@ class ClementInterpolator(SameMeshInterpolator):
             raise NotImplementedError("access other than op2.WRITE not implemented")
         if bcs:
             raise NotImplementedError("bcs not implemented")
+        target_mesh = as_domain(V)
+        source_mesh = extract_unique_domain(expr) or target_mesh
+        if target_mesh is not source_mesh:
+            raise ValueError("Clément interpolation requires the source and target meshes to coincide.")
         element = V.ufl_element()
         if element.family() != "Lagrange" or element.degree() != 1:
             raise ValueError("Clément interpolation must target a P1 space.")
