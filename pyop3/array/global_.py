@@ -7,26 +7,41 @@ from mpi4py import MPI
 
 from pyop3 import utils
 from pyop3.array.base import DistributedArray
-from pyop3.buffer import AbstractBuffer, ArrayBuffer
+from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer
 from pyop3.sf import single_star_sf
 
 
 @utils.record()
 class Global(DistributedArray):
 
-    # {{{ Instance attrs
+    # {{{ instance attrs
 
     _buffer: AbstractBuffer
+    _name: str
 
     # }}}
 
-    # {{{ Class attrs
+    # {{{ interface impls
+
+    buffer: ClassVar[ArrayBuffer] = utils.attr("_buffer")
+    name: ClassVar[str] = utils.attr("_name")
+    dim: ClassVar[int] = 0
+    parent: ClassVar[None] = None
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.buffer.comm
+
+    # }}}
+
+    # {{{ class attrs
 
     DEFAULT_PREFIX: ClassVar[str] = "global"
 
     # }}}
 
     def __init__(self, buffer: AbstractBuffer | None = None, *, value: numbers.Number | None = None, comm=None, name: str | None = None, prefix: str | None = None):
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
         if buffer is not None:
             assert value is None and comm is None
         else:
@@ -38,28 +53,8 @@ class Global(DistributedArray):
             else:
                 buffer = ArrayBuffer.zeros(1, sf=sf)
 
-        super().__init__(name, prefix=prefix)
-        object.__setattr__(self, "_buffer", buffer)
-
-    # {{{ Array impls
-
-    @property
-    def dim(self) -> int:
-        return 0
-
-    # }}}
-
-    # {{{ DistributedArray impls
-
-    @property
-    def buffer(self) -> AbstractBuffer:
-        return self._buffer
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.buffer.comm
-
-    # }}}
+        self._buffer = buffer
+        self._name = name
 
     @property
     def dtype(self):

@@ -11,6 +11,7 @@ from typing import Any, ClassVar, Optional
 
 import numpy as np
 from immutabledict import ImmutableOrderedDict
+from pyop3.array import Global
 from pyop3.array.dat import ArrayBufferExpression, MatPetscMatBufferExpression, MatArrayBufferExpression
 from pyop3.buffer import AbstractArrayBuffer, PetscMatBuffer, AbstractPetscMatBuffer
 from pyop3.itree.tree import LoopIndex
@@ -441,6 +442,7 @@ def _(op: Operator, /) -> tuple | None:
 @collect_tensor_shape.register(numbers.Number)
 @collect_tensor_shape.register(AxisVar)
 @collect_tensor_shape.register(BufferExpression)
+@collect_tensor_shape.register(Global)
 def _(obj: Any, /) -> None:
     return None
 
@@ -467,6 +469,7 @@ def _(op: Operator, /, **kwargs) -> ImmutableOrderedDict:
 
 @collect_tensor_candidate_indirections.register(numbers.Number)
 @collect_tensor_candidate_indirections.register(AxisVar)
+@collect_tensor_candidate_indirections.register(Global)
 def _(var: Any, /, **kwargs) -> ImmutableOrderedDict:
     return ImmutableOrderedDict()
 

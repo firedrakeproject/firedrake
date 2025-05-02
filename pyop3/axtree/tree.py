@@ -190,21 +190,10 @@ class _UnitAxisTree:
     def __str__(self) -> str:
         return "<UNIT>"
 
-    @property
-    def size(self) -> int:
-        return 1
-
-    @property
-    def leaves(self):
-        return (None,)
-
-    @property
-    def is_linear(self) -> bool:
-        return True
-
-    @property
-    def is_empty(self) -> bool:
-        return False
+    size = 1
+    leaves = (None,)
+    is_linear = True
+    is_empty = False
 
     def add_subtree(self, subtree, key):
         assert key is None
@@ -1815,17 +1804,12 @@ class UnitIndexedAxisTree:
     def __str__(self) -> str:
         return "<UNIT>"
 
-    @property
-    def size(self) -> int:
-        return 1
+    def materialize(self):
+        return UNIT_AXIS_TREE
 
-    @property
-    def is_linear(self) -> bool:
-        return True
-
-    @property
-    def is_empty(self) -> bool:
-        return False
+    size = 1
+    is_linear = True
+    is_empty = False
 
     @cached_property
     def _subst_layouts_default(self):
