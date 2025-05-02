@@ -1026,9 +1026,12 @@ def test_bdy_control():
     solver.solve()
     # Analytical solution of the analytical Laplace equation is:
     # u(x) = a + (b - a)/2 * x
-    u_analytical = a + (b - a)/2 * X[0]
-    der_analytical0 = assemble(derivative((u_analytical**2) * dx, a))
-    der_analytical1 = assemble(derivative((u_analytical**2) * dx, b))
+    def u_analytical(x, a, b):
+        return a + (b - a)/2 * x
+    der_analytical0 = assemble(derivative(
+        (u_analytical(X[0], a, b)**2) * dx, a))
+    der_analytical1 = assemble(derivative(
+        (u_analytical(X[0], a, b)**2) * dx, b))
     J = assemble(sol * sol * dx)
     J_hat = ReducedFunctional(J, [Control(a), Control(b)])
     adj_derivatives = J_hat.derivative(options={"riesz_representation": "l2"})
@@ -1037,7 +1040,10 @@ def test_bdy_control():
     a = Function(R, val=1.5)
     b = Function(R, val=2.5)
     J_hat([a, b])
-    # Verify the updated boundary conditions are not modify
-    # the original boundary conditions.
-    assert a is not J_hat.controls[0].block_variable.output \
-        and b is not J_hat.controls[1].block_variable.output
+    tape = get_working_tape()
+    # Check the checkpointed boundary conditions are not updating the
+    # user-defined boundary conditions ``bc_left`` and ``bc_right``.
+    # tape._blocks[0] is the DirichletBC block for the left boundary
+    assert tape._blocks[0]._outputs[0].checkpoint.checkpoint is not bc_left._original_arg
+    # tape._blocks[1] is the DirichletBC block for the right boundary
+    assert tape._blocks[1]._outputs[0].checkpoint.checkpoint is not bc_right._original_arg
