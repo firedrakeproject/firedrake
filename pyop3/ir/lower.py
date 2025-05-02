@@ -109,12 +109,15 @@ class LoopyCodegenContext(CodegenContext):
         self._dummy_names = {}
 
         # data argument name -> data argument
-        # NOTE: If PETSc Mats were hashable then this could be a WeakSet
+        # NOTE: If PETSc Mats were hashable then this could be a WeakSet (ordered)
         self.data_arguments = weakref.WeakValueDictionary()
         # data argument name -> name in kernel
         self.kernel_arg_names = {}
         # global buffer name -> intent
         self.global_buffer_intents = {}
+
+        # initializer hash -> temporary name
+        self._reusable_temporaries: dict[int, str] = {}
 
     @property
     def domains(self):
@@ -265,16 +268,29 @@ class LoopyCodegenContext(CodegenContext):
         self.kernel_arg_names[buffer.name] = name
         return name
 
-    def add_temporary(self, prefix="t", dtype=IntType, *, shape=(), **kwargs) -> str:
+    def add_temporary(self, prefix="t", dtype=IntType, *, shape=(), initializer: np.ndarray = None, read_only: bool = False) -> str:
+        # If multiple temporaries with the same initializer are used then they
+        # can be shared.
+        can_reuse = initializer is not None and read_only
+        if can_reuse:
+            key = initializer.data.tobytes()
+            if key in self._reusable_temporaries:
+                return self._reusable_temporaries[key]
+
         name = self.unique_name(prefix)
         arg = lp.TemporaryVariable(
             name,
             dtype=dtype,
             shape=shape,
+            initializer=initializer,
+            read_only=read_only,
             address_space=lp.AddressSpace.LOCAL,
-            **kwargs,
         )
         self._args.append(arg)
+
+        if can_reuse:
+            self._reusable_temporaries[key] = name
+
         return name
 
     def add_parameter(self, parameter: Parameter, *, prefix="p") -> str:
@@ -292,7 +308,6 @@ class LoopyCodegenContext(CodegenContext):
     def add_subkernel(self, subkernel):
         self._subkernels.append(subkernel)
 
-    # I am not sure that this belongs here, I generate names separately from adding domains etc
     def unique_name(self, prefix):
         return self._name_generator(prefix)
 
@@ -303,6 +318,10 @@ class LoopyCodegenContext(CodegenContext):
         yield
         self._within_inames = orig_within_inames
 
+    # FIXME, bad API but it is context-dependent
+    def set_temporary_shapes(self, shapes):
+        self._temporary_shapes = shapes
+
     @property
     def _depends_on(self):
         return frozenset({self._last_insn_id}) - {None}
@@ -310,10 +329,6 @@ class LoopyCodegenContext(CodegenContext):
     def _add_instruction(self, insn):
         self._insns.append(insn)
         self._last_insn_id = insn.id
-
-    # FIXME, bad API
-    def set_temporary_shapes(self, shapes):
-        self._temporary_shapes = shapes
 
 
 # bad name, bit misleading as this is just the loopy bit, further optimisation
