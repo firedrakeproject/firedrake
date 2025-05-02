@@ -10,7 +10,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any, ClassVar, Optional
 
 import numpy as np
-from immutabledict import ImmutableOrderedDict
+from immutabledict import immutabledict
 from pyop3.array import Global
 from pyop3.array.dat import ArrayBufferExpression, DatArrayBufferExpression, DatBufferExpression, MatPetscMatBufferExpression, MatArrayBufferExpression, LinearBufferExpression, NonlinearBufferExpression
 from pyop3.buffer import AbstractArrayBuffer, PetscMatBuffer, AbstractPetscMatBuffer
@@ -494,41 +494,41 @@ def _(mat: Mat, /) -> tuple[AxisTree,AxisTree]:
 
 
 @functools.singledispatch
-def collect_tensor_candidate_indirections(obj: Any, /, **kwargs) -> ImmutableOrderedDict:
+def collect_tensor_candidate_indirections(obj: Any, /, **kwargs) -> immutabledict:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
 @collect_tensor_candidate_indirections.register(Operator)
-def _(op: Operator, /, **kwargs) -> ImmutableOrderedDict:
+def _(op: Operator, /, **kwargs) -> immutabledict:
     return utils.merge_dicts((collect_tensor_candidate_indirections(operand, **kwargs) for operand in [op.a, op.b]))
 
 
 @collect_tensor_candidate_indirections.register(numbers.Number)
 @collect_tensor_candidate_indirections.register(AxisVar)
 @collect_tensor_candidate_indirections.register(Global)
-def _(var: Any, /, **kwargs) -> ImmutableOrderedDict:
-    return ImmutableOrderedDict()
+def _(var: Any, /, **kwargs) -> immutabledict:
+    return immutabledict()
 
 
 @collect_tensor_candidate_indirections.register(LinearDatArrayBufferExpression)
-def _(dat_expr: LinearDatArrayBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], compress: bool) -> ImmutableOrderedDict:
+def _(dat_expr: LinearDatArrayBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], compress: bool) -> immutabledict:
     axis_tree = just_one(axis_trees)
-    return ImmutableOrderedDict({
+    return immutabledict({
         dat_expr: collect_candidate_indirections(dat_expr.layout, axis_tree, loop_indices, compress=compress)
     })
 
 
 @collect_tensor_candidate_indirections.register(NonlinearDatArrayBufferExpression)
-def _(dat_expr: NonlinearDatArrayBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], compress: bool) -> ImmutableOrderedDict:
+def _(dat_expr: NonlinearDatArrayBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], compress: bool) -> immutabledict:
     axis_tree = just_one(axis_trees)
-    return ImmutableOrderedDict({
+    return immutabledict({
         (dat_expr, path): collect_candidate_indirections(layout, axis_tree.linearize(path), loop_indices, compress=compress)
         for path, layout in dat_expr.layouts.items()
     })
 
 
 @collect_tensor_candidate_indirections.register(MatPetscMatBufferExpression)
-def _(mat_expr: MatPetscMatBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool) -> ImmutableOrderedDict:
+def _(mat_expr: MatPetscMatBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool) -> immutabledict:
     costs = []
     layouts = [mat_expr.row_layout, mat_expr.column_layout]
     for i, (axis_tree, layout) in enumerate(zip(axis_trees, layouts, strict=True)):
@@ -537,7 +537,7 @@ def _(mat_expr: MatPetscMatBufferExpression, /, *, axis_trees, loop_indices: tup
             cost *= loop_index.iterset.size
         costs.append(cost)
 
-    return ImmutableOrderedDict({
+    return immutabledict({
         (mat_expr, 0): ((mat_expr.row_layout, costs[0]),),
         (mat_expr, 1): ((mat_expr.column_layout, costs[1]),),
     })
@@ -545,7 +545,7 @@ def _(mat_expr: MatPetscMatBufferExpression, /, *, axis_trees, loop_indices: tup
 
 # NOTE: This is a nonlinear type
 @collect_tensor_candidate_indirections.register(MatArrayBufferExpression)
-def _(mat_expr: MatArrayBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool) -> ImmutableOrderedDict:
+def _(mat_expr: MatArrayBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool) -> immutabledict:
     candidates = {}
     layoutss = [mat_expr.row_layouts, mat_expr.column_layouts]
     for i, (axis_tree, layouts) in enumerate(zip(axis_trees, layoutss, strict=True)):
@@ -553,7 +553,7 @@ def _(mat_expr: MatArrayBufferExpression, /, *, axis_trees, loop_indices: tuple[
             candidates[mat_expr, i, path] = collect_candidate_indirections(
                 layout, axis_tree.linearize(path), loop_indices, compress=compress
             )
-    return ImmutableOrderedDict(candidates)
+    return immutabledict(candidates)
 
 
 # TODO: account for non-affine accesses in arrays and selectively apply this
@@ -687,7 +687,7 @@ def concretize_materialized_tensor_indirections(obj: Any, /, *args, **kwargs) ->
 
 
 @concretize_materialized_tensor_indirections.register(Operator)
-def _(op: Operator, /, *args, **kwargs) -> ImmutableOrderedDict:
+def _(op: Operator, /, *args, **kwargs) -> immutabledict:
     return type(op)(*(concretize_materialized_tensor_indirections(operand, *args, **kwargs) for operand in [op.a, op.b]))
 
 
@@ -731,7 +731,7 @@ def _(mat_expr: MatPetscMatBufferExpression, /, layouts, key) -> MatPetscMatBuff
     #
     # which is what Mat{Get,Set}Values() needs.
     layouts = [
-        LinearDatArrayBufferExpression(layout.buffer, layout.layouts[ImmutableOrderedDict()])
+        LinearDatArrayBufferExpression(layout.buffer, layout.layouts[immutabledict()])
         for layout in [row_layout, column_layout]
     ]
     return MatPetscMatBufferExpression(mat_expr.buffer, *layouts)

@@ -12,7 +12,7 @@ from typing import Any, Collection, Hashable, Optional
 
 import numpy as np
 import pytools
-from immutabledict import ImmutableOrderedDict
+from immutabledict import immutabledict
 from pyrsistent import pmap
 
 from pyop3.config import config
@@ -241,11 +241,11 @@ single_valued = pytools.single_valued
 is_single_valued = pytools.is_single_valued
 
 
-def merge_dicts(dicts: Iterable[Mapping]) -> ImmutableOrderedDict:
+def merge_dicts(dicts: Iterable[Mapping]) -> immutabledict:
     merged = {}
     for dict_ in dicts:
         merged.update(dict_)
-    return ImmutableOrderedDict(merged)
+    return immutabledict(merged)
 
 
 def unique(iterable):
@@ -437,7 +437,7 @@ def debug_assert(predicate, msg=None):
             assert predicate()
 
 
-_ordered_mapping_types = (dict, collections.OrderedDict, ImmutableOrderedDict)
+_ordered_mapping_types = (dict, collections.OrderedDict, immutabledict)
 
 
 def is_ordered_mapping(obj: Mapping):
@@ -463,7 +463,7 @@ def expand_collection_of_iterables(compressed) -> tuple:
         compressed = dict(compressed)
 
     if not compressed:
-        return (ImmutableOrderedDict(),)
+        return (immutabledict(),)
     else:
         compressed_mut = dict(compressed)
         return _expand_dict_of_iterables_rec(compressed_mut)
@@ -476,12 +476,12 @@ def _expand_dict_of_iterables_rec(compressed_mut):
     if compressed_mut:
         subexpanded = _expand_dict_of_iterables_rec(compressed_mut)
         for item in items:
-            entry = ImmutableOrderedDict({key: item})
+            entry = immutabledict({key: item})
             for subentry in subexpanded:
                 expanded.append(entry | subentry)
     else:
         for item in items:
-            entry = ImmutableOrderedDict({key: item})
+            entry = immutabledict({key: item})
             expanded.append(entry)
 
     return tuple(expanded)

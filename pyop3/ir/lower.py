@@ -21,7 +21,7 @@ from petsc4py import PETSc
 import loopy as lp
 import numpy as np
 import pymbolic as pym
-from immutabledict import ImmutableOrderedDict
+from immutabledict import immutabledict
 from pyop3.array.dat import ArrayBufferExpression, MatArrayBufferExpression, MatPetscMatBufferExpression, OpaqueBufferExpression
 from pyop3.expr_visitors import collect_axis_vars, extract_axes
 
@@ -532,7 +532,7 @@ def _collect_temporary_shapes(expr):
 
 
 @_collect_temporary_shapes.register(InstructionList)
-def _(insn_list: InstructionList, /) -> ImmutableOrderedDict:
+def _(insn_list: InstructionList, /) -> immutabledict:
     return merge_dicts(_collect_temporary_shapes(insn) for insn in insn_list)
 
 
@@ -552,13 +552,13 @@ def _(loop: Loop, /):
 
 @_collect_temporary_shapes.register(AbstractAssignment)
 @_collect_temporary_shapes.register(NullInstruction)
-def _(assignment: AbstractAssignment, /) -> ImmutableOrderedDict:
-    return ImmutableOrderedDict()
+def _(assignment: AbstractAssignment, /) -> immutabledict:
+    return immutabledict()
 
 
 @_collect_temporary_shapes.register
 def _(call: StandaloneCalledFunction):
-    return ImmutableOrderedDict(
+    return immutabledict(
         {
             arg.buffer.name: lp_arg.shape
             for lp_arg, arg in zip(
@@ -610,8 +610,8 @@ def parse_loop_properly_this_time(
 ):
     if strictly_all(x is None for x in {axis, path, iname_map}):
         axis = axes.root
-        path = ImmutableOrderedDict()
-        iname_map = ImmutableOrderedDict()
+        path = immutabledict()
+        iname_map = immutabledict()
 
     for component in axis.components:
         path_ = path | {axis.label: component.label}
@@ -641,7 +641,7 @@ def parse_loop_properly_this_time(
             for index_exprs in axes.index_exprs:
                 for axis_label, index_expr in index_exprs.get(axis_key).items():
                     loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, [iname_replace_map_], loop_indices, codegen_context, paths=[path_])
-            loop_exprs = ImmutableOrderedDict(loop_exprs)
+            loop_exprs = immutabledict(loop_exprs)
 
             if subaxis := axes.child(axis, component):
                 parse_loop_properly_this_time(
@@ -950,8 +950,8 @@ def compile_array_assignment(
     if axis_tree is None:
         axis_tree, *axis_trees = axis_trees
 
-        paths += [ImmutableOrderedDict()]
-        iname_replace_maps += [ImmutableOrderedDict()]
+        paths += [immutabledict()]
+        iname_replace_maps += [immutabledict()]
 
         if axis_tree.is_empty or axis_tree is UNIT_AXIS_TREE or isinstance(axis, IndexedAxisTree):
             if axis_trees:

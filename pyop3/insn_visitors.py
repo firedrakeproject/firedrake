@@ -14,7 +14,7 @@ from petsc4py import PETSc
 from pyop3.array.dat import ArrayBufferExpression
 from pyop3.sf import local_sf
 from pyrsistent import pmap, PMap
-from immutabledict import ImmutableOrderedDict
+from immutabledict import immutabledict
 
 from pyop3 import utils
 from pyop3.array import Global, Dat, Array, Mat, NonlinearDatArrayBufferExpression, LinearDatArrayBufferExpression, MatPetscMatBufferExpression
@@ -617,29 +617,29 @@ def materialize_indirections(insn: Instruction, *, compress: bool = False) -> In
 
 
 
-def collect_candidate_indirections(insn: Instruction, /, *, compress: bool) -> ImmutableOrderedDict:
+def collect_candidate_indirections(insn: Instruction, /, *, compress: bool) -> immutabledict:
     return _collect_candidate_indirections(insn, compress=compress, loop_indices=())
 
 
 @functools.singledispatch
-def _collect_candidate_indirections(obj: Any, /, **kwargs) -> ImmutableOrderedDict:
+def _collect_candidate_indirections(obj: Any, /, **kwargs) -> immutabledict:
     raise TypeError(f"No handler provided for {type(obj).__name__}")
 
 
 @_collect_candidate_indirections.register(NullInstruction)
-def _(null: InstructionList, /, **kwargs) -> ImmutableOrderedDict:
-    return ImmutableOrderedDict()
+def _(null: InstructionList, /, **kwargs) -> immutabledict:
+    return immutabledict()
 
 
 @_collect_candidate_indirections.register(InstructionList)
-def _(insn_list: InstructionList, /, **kwargs) -> ImmutableOrderedDict:
+def _(insn_list: InstructionList, /, **kwargs) -> immutabledict:
     return merge_dicts(
         (_collect_candidate_indirections(insn, **kwargs) for insn in insn_list),
     )
 
 
 @_collect_candidate_indirections.register(Loop)
-def _(loop: Loop, /, *, compress: bool, loop_indices: tuple[LoopIndex, ...]) -> ImmutableOrderedDict:
+def _(loop: Loop, /, *, compress: bool, loop_indices: tuple[LoopIndex, ...]) -> immutabledict:
     loop_indices_ = loop_indices + (loop.index,)
     return merge_dicts(
         (
@@ -650,7 +650,7 @@ def _(loop: Loop, /, *, compress: bool, loop_indices: tuple[LoopIndex, ...]) -> 
 
 
 @_collect_candidate_indirections.register(NonEmptyTerminal)
-def _(terminal: NonEmptyTerminal, /, *, loop_indices: tuple[LoopIndex, ...], compress: bool) -> ImmutableOrderedDict:
+def _(terminal: NonEmptyTerminal, /, *, loop_indices: tuple[LoopIndex, ...], compress: bool) -> immutabledict:
     candidates = {}
     for i, arg in enumerate(terminal.arguments):
         per_arg_candidates = collect_tensor_candidate_indirections(
@@ -658,7 +658,7 @@ def _(terminal: NonEmptyTerminal, /, *, loop_indices: tuple[LoopIndex, ...], com
         )
         for arg_key, value in per_arg_candidates.items():
             candidates[(terminal, i, arg_key)] = value
-    return ImmutableOrderedDict(candidates)
+    return immutabledict(candidates)
 
 
 @PETSc.Log.EventDecorator()
@@ -807,7 +807,7 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatArrayBuff
             newlayouts[path] = newlayout
 
     # plus the empty layout
-    path = ImmutableOrderedDict()
+    path = immutabledict()
     fullpath = looptree.leaf_path
     layout = result.axes.subst_layouts()[fullpath]
     newlayout = replace_terminals(layout, inv_map)

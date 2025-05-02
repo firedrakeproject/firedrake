@@ -92,7 +92,7 @@ class CompilerParameters:
 DEFAULT_COMPILER_PARAMETERS = CompilerParameters()
 
 
-META_COMPILER_PARAMETERS = immutabledict.ImmutableOrderedDict({
+META_COMPILER_PARAMETERS = immutabledict.immutabledict({
     # TODO: when implemented should also set interleave_comp_comm to True
     "optimize": {"compress_indirection_maps": True}
 })

@@ -22,7 +22,7 @@ import numpy as np
 import pyrsistent
 from cachetools import cachedmethod
 from mpi4py import MPI
-from immutabledict import ImmutableOrderedDict
+from immutabledict import immutabledict
 from petsc4py import PETSc
 
 from pyop2.caching import cached_on, CacheMixin
@@ -97,7 +97,7 @@ class ContextSensitive(ContextAware, abc.ABC):
     #     """
     #
     def __init__(self, context_map) -> None:
-        self.context_map = ImmutableOrderedDict(context_map)
+        self.context_map = immutabledict(context_map)
 
     @cached_property
     def keys(self):
@@ -122,7 +122,7 @@ class ContextSensitive(ContextAware, abc.ABC):
         for loop_index, path in context.items():
             if loop_index in self.keys:
                 key.update({loop_index: tuple(path)})
-        return ImmutableOrderedDict(key)
+        return immutabledict(key)
 
     def _shared_attr(self, attr: str):
         return single_valued(getattr(a, attr) for a in self.context_map.values())
@@ -136,11 +136,11 @@ class ContextFree(ContextAware, abc.ABC):
         return self
 
     def filter_context(self, context):
-        return ImmutableOrderedDict()
+        return immutabledict()
 
     @property
     def context_map(self):
-        return ImmutableOrderedDict({ImmutableOrderedDict(): self})
+        return immutabledict({immutabledict(): self})
 
 
 class LoopIterable(abc.ABC):
@@ -533,7 +533,7 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
 
     @cached_property
     def count_per_component(self):
-        return ImmutableOrderedDict({c.label: c.count for c in self.components})
+        return immutabledict({c.label: c.count for c in self.components})
 
     @cached_property
     def owned(self):
@@ -685,7 +685,7 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
 
 # Do I ever want this? component_offsets is expensive so we don't want to
 # do it every time
-def axis_to_component_number(axis, number, context=ImmutableOrderedDict()):
+def axis_to_component_number(axis, number, context=immutabledict()):
     offsets = component_offsets(axis, context)
     return component_number_from_offsets(axis, number, offsets)
 
@@ -881,8 +881,8 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
             for index_tree in index_forest:
                 axis_trees[context].append(index_axes(index_tree, context, self))
 
-        if axis_trees.keys() == {ImmutableOrderedDict()}:
-            indexed_axis_trees = axis_trees[ImmutableOrderedDict()]
+        if axis_trees.keys() == {immutabledict()}:
+            indexed_axis_trees = axis_trees[immutabledict()]
             if len(indexed_axis_trees) > 1:
                 raise NotImplementedError("Need axis forests")
             else:
@@ -957,8 +957,8 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     # NOTE: Do we ever want non-leaf subst_layouts?
     @property
-    def leaf_subst_layouts(self) -> ImmutableOrderedDict:
-        return ImmutableOrderedDict({leaf_path: self.subst_layouts()[leaf_path] for leaf_path in self.leaf_paths})
+    def leaf_subst_layouts(self) -> immutabledict:
+        return immutabledict({leaf_path: self.subst_layouts()[leaf_path] for leaf_path in self.leaf_paths})
 
     # TODO: rename to iter
     def index(self) -> LoopIndex:
@@ -1006,7 +1006,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         """Return the axis tree discarding parallel overlap information."""
         return self._undistributed
 
-    def offset(self, indices, path=None, *, loop_exprs=ImmutableOrderedDict()):
+    def offset(self, indices, path=None, *, loop_exprs=immutabledict()):
         from pyop3.axtree.layout import eval_offset
         return eval_offset(
             self,
@@ -1135,7 +1135,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
             size_axes = Axis(component.count)
         else:
             path = self.path_with_nodes(axis, component, and_components=True)
-            size_axes = extract_axes(size_expr, path, ImmutableOrderedDict(), {})
+            size_axes = extract_axes(size_expr, path, immutabledict(), {})
         size_dat = Dat.empty(size_axes, dtype=IntType)
         size_dat.assign(size_expr, eager=True)
 
@@ -1217,17 +1217,17 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         targets = {}
 
         if axis is None:  # strictly_all
-            target_path_acc, target_exprs_acc = targets_per_axis.get(None, (ImmutableOrderedDict(), ImmutableOrderedDict()))
+            target_path_acc, target_exprs_acc = targets_per_axis.get(None, (immutabledict(), immutabledict()))
             targets[None] = (target_path_acc, target_exprs_acc)
 
             if self.is_empty:
-                return ImmutableOrderedDict(targets)
+                return immutabledict(targets)
             else:
                 axis = self.root
 
         for component in axis.components:
             axis_key = (axis.id, component.label)
-            axis_target_path, axis_target_exprs = targets_per_axis.get(axis_key, (ImmutableOrderedDict(), ImmutableOrderedDict()))
+            axis_target_path, axis_target_exprs = targets_per_axis.get(axis_key, (immutabledict(), immutabledict()))
             target_path_acc_ = target_path_acc | axis_target_path
             target_exprs_acc_ = target_exprs_acc | axis_target_exprs
             targets[axis.id, component.label] = (target_path_acc_, target_exprs_acc_)
@@ -1240,7 +1240,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
                     target_exprs_acc=target_exprs_acc_,
                 )
                 targets.update(targets_)
-        return ImmutableOrderedDict(targets)
+        return immutabledict(targets)
 
     # TODO: refactor/move
     def _match_path_and_exprs(self, tree):
@@ -1286,7 +1286,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     @cached_property
     def _source_path(self):
         if self.is_empty:
-            return ImmutableOrderedDict()
+            return immutabledict()
         else:
             return self._collect_source_path()
 
@@ -1299,16 +1299,16 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
         source_path = {}
         for component in axis.components:
-            source_path[axis.id, component.label] = ImmutableOrderedDict({axis.label: component.label})
+            source_path[axis.id, component.label] = immutabledict({axis.label: component.label})
 
             if subaxis := self.child(axis, component):
                 source_path.update(self._collect_source_path(axis=subaxis))
-        return ImmutableOrderedDict(source_path)
+        return immutabledict(source_path)
 
     @cached_property
     def _source_exprs(self):
         if self.is_empty:
-            return ImmutableOrderedDict()
+            return immutabledict()
         else:
             return self._collect_source_exprs()
 
@@ -1321,11 +1321,11 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
         source_exprs = {}
         for component in axis.components:
-            source_exprs[axis.id, component.label] = ImmutableOrderedDict({axis.label: AxisVar(axis.label)})
+            source_exprs[axis.id, component.label] = immutabledict({axis.label: AxisVar(axis.label)})
 
             if subaxis := self.child(axis, component):
                 source_exprs.update(self._collect_source_exprs(axis=subaxis))
-        return ImmutableOrderedDict(source_exprs)
+        return immutabledict(source_exprs)
 
     def _check_labels(self):
         def check(node, prev_labels):
@@ -1416,7 +1416,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     @cached_property
     def _source_path_and_exprs(self):
         # TODO: merge source path and source expr collection here
-        return ImmutableOrderedDict({key: (self._source_path[key], self._source_exprs[key]) for key in self._source_path})
+        return immutabledict({key: (self._source_path[key], self._source_exprs[key]) for key in self._source_path})
 
     @cached_property
     def paths_and_exprs(self):
@@ -1496,16 +1496,16 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
             layouts_ = {}
             for k, layout in layouts.items():
                 layouts_[k] = replace(layout, loop_vars)
-            layouts = ImmutableOrderedDict(layouts_)
+            layouts = immutabledict(layouts_)
 
         # for now
-        return ImmutableOrderedDict(layouts)
+        return immutabledict(layouts)
 
         # Have not considered how to do sparse things with external loops
         if self.layout_axes.depth > self.depth:
             return layouts
 
-        layouts_ = {ImmutableOrderedDict(): 0}
+        layouts_ = {immutabledict(): 0}
         for axis in self.nodes:
             for component in axis.components:
                 orig_path = self.path(axis, component)
@@ -1514,14 +1514,14 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
                 for ax, cpt in self.path_with_nodes(axis, component).items():
                     new_path.update(self.target_paths.get((ax.id, cpt), {}))
                     replace_map.update(self.layout_exprs.get((ax.id, cpt), {}))
-                new_path = ImmutableOrderedDict(new_path)
+                new_path = immutabledict(new_path)
 
                 orig_layout = layouts[orig_path]
                 new_layout = IndexExpressionReplacer(replace_map, loop_exprs)(
                     orig_layout
                 )
                 layouts_[new_path] = new_layout
-        return ImmutableOrderedDict(layouts_)
+        return immutabledict(layouts_)
 
     @property
     def _matching_target(self):
@@ -1547,7 +1547,7 @@ class IndexedAxisTree(AbstractAxisTree):
         targets = utils.unique(targets)
 
         if layout_exprs is None:
-            layout_exprs = ImmutableOrderedDict()
+            layout_exprs = immutabledict()
         if outer_loops is None:
             outer_loops = ()
 
@@ -1584,14 +1584,14 @@ class IndexedAxisTree(AbstractAxisTree):
     @cached_property
     def _target_paths(self):
         return frozenset({
-            ImmutableOrderedDict({key: path for key, (path, _) in target.items()})
+            immutabledict({key: path for key, (path, _) in target.items()})
             for target in self._targets
         })
 
     @cached_property
     def _target_exprs(self):
         return frozenset({
-            ImmutableOrderedDict({key: exprs for key, (_, exprs) in target.items()})
+            immutabledict({key: exprs for key, (_, exprs) in target.items()})
             for target in self._targets
         })
 
@@ -1739,7 +1739,7 @@ class IndexedAxisTree(AbstractAxisTree):
             loop_axes = ax_rec.add_subtree(loop_axes, *ax_rec.leaf)
             loop_vars.update(lv_rec)
 
-        return loop_axes, ImmutableOrderedDict(loop_vars)
+        return loop_axes, immutabledict(loop_vars)
 
     def materialize(self):
         """Return a new "unindexed" axis tree with the same shape."""
@@ -1757,7 +1757,7 @@ class IndexedAxisTree(AbstractAxisTree):
 
 
     @cached_property
-    def _matching_target(self) -> ImmutableOrderedDict:
+    def _matching_target(self) -> immutabledict:
         return find_matching_target(self)
 
     @cached_property
@@ -1822,8 +1822,8 @@ class UnitIndexedAxisTree:
         return subst_layouts(self, self._matching_target, self.layouts)
 
     @property
-    def leaf_subst_layouts(self) -> ImmutableOrderedDict:
-        return ImmutableOrderedDict({leaf_path: self._subst_layouts_default[leaf_path] for leaf_path in self.leaf_paths})
+    def leaf_subst_layouts(self) -> immutabledict:
+        return immutabledict({leaf_path: self._subst_layouts_default[leaf_path] for leaf_path in self.leaf_paths})
 
     @cached_property
     def _matching_target(self):
@@ -1831,7 +1831,7 @@ class UnitIndexedAxisTree:
 
     @property
     def leaf_paths(self):
-        return (ImmutableOrderedDict(),)
+        return (immutabledict(),)
 
     @property
     def leaves(self):
@@ -1839,7 +1839,7 @@ class UnitIndexedAxisTree:
 
     def path_with_nodes(self, leaf):
         assert leaf is None
-        return ImmutableOrderedDict()
+        return immutabledict()
 
     @property
     def layouts(self):
@@ -1857,11 +1857,11 @@ def find_matching_target(self):
             leaf_path = self.path_with_nodes(leaf)
 
             target_path = {}
-            target_path_, _ = target.get(None, (ImmutableOrderedDict(), ImmutableOrderedDict()))
+            target_path_, _ = target.get(None, (immutabledict(), immutabledict()))
             target_path.update(target_path_)
 
             for axis, component_label in leaf_path.items():
-                target_path_, _ = target.get((axis.id, component_label), (ImmutableOrderedDict(), ImmutableOrderedDict()))
+                target_path_, _ = target.get((axis.id, component_label), (immutabledict(), immutabledict()))
                 target_path.update(target_path_)
 
             # NOTE: We assume that if we get an empty target path then something has
@@ -2033,7 +2033,7 @@ def merge_axis_trees(axis_trees):
         return IndexedAxisTree(node_map, unindexed, targets=targets)
 
 
-def _merge_node_maps(axis_trees, *, axis_tree_index=0, axis=None, suffix="") -> tuple[Axis, ImmutableOrderedDict]:
+def _merge_node_maps(axis_trees, *, axis_tree_index=0, axis=None, suffix="") -> tuple[Axis, immutabledict]:
     assert axis_tree_index < len(axis_trees)
 
     axis_tree = axis_trees[axis_tree_index]
@@ -2066,10 +2066,10 @@ def _merge_node_maps(axis_trees, *, axis_tree_index=0, axis=None, suffix="") -> 
             relabelled_children.append(None)
 
     relabelled_subnode_map[relabelled_axis.id] = tuple(relabelled_children)
-    return (relabelled_axis, ImmutableOrderedDict(relabelled_subnode_map))
+    return (relabelled_axis, immutabledict(relabelled_subnode_map))
 
 
-def _merge_targets(axis_trees, targetss, *, axis_tree_index=0, axis=None, suffix="") -> ImmutableOrderedDict:
+def _merge_targets(axis_trees, targetss, *, axis_tree_index=0, axis=None, suffix="") -> immutabledict:
     from pyop3.expr_visitors import relabel as relabel_expression
 
     assert axis_tree_index < len(axis_trees)
@@ -2110,7 +2110,7 @@ def _merge_targets(axis_trees, targetss, *, axis_tree_index=0, axis=None, suffix
             )
             relabelled_targets.update(relabelled_targets_)
 
-    return ImmutableOrderedDict(relabelled_targets)
+    return immutabledict(relabelled_targets)
 
 
 def merge_axis_trees2(trees: Iterable[AxisTree]) -> AxisTree:
@@ -2165,7 +2165,7 @@ def merge_trees2(tree1: AxisTree, tree2: AxisTree) -> AxisTree:
 def _merge_trees(tree1, tree2, *, axis1=None, parents=None):
     if axis1 is None:  # strictly all
         axis1 = tree1.root
-        parents = ImmutableOrderedDict()
+        parents = immutabledict()
 
     subtrees = []
     for component1 in axis1.components:
@@ -2220,12 +2220,12 @@ def subst_layouts(
     layouts_subst = {}
     # if strictly_all(x is None for x in [axis, path, target_path_acc, index_exprs_acc]):
     if strictly_all(x is None for x in [axis, path]):
-        path = ImmutableOrderedDict()
+        path = immutabledict()
 
         # NOTE: I think I can get rid of this if I prescribe an empty axis tree to expression
         # arrays
         linear_axes_acc = AxisTree()
-        target_paths_and_exprs_acc = {None: targets.get(None, (ImmutableOrderedDict(), ImmutableOrderedDict()))}
+        target_paths_and_exprs_acc = {None: targets.get(None, (immutabledict(), immutabledict()))}
 
         accumulated_path = merge_dicts(p for p, _ in target_paths_and_exprs_acc.values())
 
@@ -2257,7 +2257,7 @@ def subst_layouts(
             linear_axes_acc_ = linear_axes_acc.add_axis(linear_axis, linear_axes_acc.leaf)
 
             target_paths_and_exprs_acc_ = target_paths_and_exprs_acc | {
-                (linear_axis.id, component.label): targets.get((axis.id, component.label), (ImmutableOrderedDict(), ImmutableOrderedDict()))
+                (linear_axis.id, component.label): targets.get((axis.id, component.label), (immutabledict(), immutabledict()))
             }
 
             accumulated_path = merge_dicts(p for p, _ in target_paths_and_exprs_acc_.values())
@@ -2282,7 +2282,7 @@ def subst_layouts(
                         target_paths_and_exprs_acc=target_paths_and_exprs_acc_,
                     )
                 )
-    return ImmutableOrderedDict(layouts_subst)
+    return immutabledict(layouts_subst)
 
 
 def prune_zero_sized_branches(axis_tree: AbstractAxisTree, *, _axis=None) -> AxisTree:

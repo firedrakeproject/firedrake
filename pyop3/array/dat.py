@@ -11,7 +11,7 @@ from typing import Any, ClassVar, Sequence
 import numpy as np
 import pymbolic as pym
 from cachetools import cachedmethod
-from immutabledict import ImmutableOrderedDict
+from immutabledict import immutabledict
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -330,7 +330,7 @@ class Dat(_Dat):
             # we need to consider each of these separately and produce an axis *forest*.
             indexed_axess = []
             for restricted_index_tree in index_trees:
-                indexed_axes = index_axes(restricted_index_tree, ImmutableOrderedDict(), self.axes)
+                indexed_axes = index_axes(restricted_index_tree, immutabledict(), self.axes)
                 indexed_axess.append(indexed_axes)
 
             if len(indexed_axess) > 1:
@@ -344,7 +344,7 @@ class Dat(_Dat):
             for loop_context, index_trees in index_forest.items():
                 indexed_axess = []
                 for index_tree in index_trees:
-                    indexed_axes = index_axes(index_tree, ImmutableOrderedDict(), self.axes)
+                    indexed_axes = index_axes(index_tree, immutabledict(), self.axes)
                     indexed_axess.append(indexed_axes)
 
                 if len(indexed_axess) > 1:
@@ -361,11 +361,11 @@ class Dat(_Dat):
     # to be iterable (which it's not). This avoids some confusing behaviour.
     __iter__ = None
 
-    def get_value(self, indices, path=None, *, loop_exprs=ImmutableOrderedDict()):
+    def get_value(self, indices, path=None, *, loop_exprs=immutabledict()):
         offset = self.axes.offset(indices, path, loop_exprs=loop_exprs)
         return self.buffer.data_ro[offset]
 
-    def set_value(self, indices, value, path=None, *, loop_exprs=ImmutableOrderedDict()):
+    def set_value(self, indices, value, path=None, *, loop_exprs=immutabledict()):
         offset = self.axes.offset(indices, path, loop_exprs=loop_exprs)
         self.buffer.data_wo[offset] = value
 
@@ -659,7 +659,7 @@ class NonlinearDatArrayBufferExpression(DatArrayBufferExpression, NonlinearBuffe
     # }}}
 
     def __init__(self, buffer, layouts) -> None:
-        layouts = ImmutableOrderedDict(layouts)
+        layouts = immutabledict(layouts)
 
         self._buffer = buffer
         self.layouts = layouts

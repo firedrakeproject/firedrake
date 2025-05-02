@@ -9,7 +9,7 @@ from itertools import product
 from typing import Any, ClassVar
 
 import numpy as np
-from immutabledict import ImmutableOrderedDict
+from immutabledict import immutabledict
 from mpi4py import MPI
 from petsc4py import PETSc
 from pyop3 import buffer
@@ -362,7 +362,7 @@ class Mat(DistributedArray):
     #             candidatess[(self, leaf_path, 0)] = ((orig_layout, 666),)
     #         for leaf_path, orig_layout in self.caxes.leaf_subst_layouts.items():
     #             candidatess[(self, leaf_path, 1)] = ((orig_layout, 666),)
-    #         return ImmutableOrderedDict(candidatess)
+    #         return immutabledict(candidatess)
     #
     #     assert isinstance(self.buffer, AbstractPetscMatBuffer)
     #
@@ -404,7 +404,7 @@ class Mat(DistributedArray):
     #     add_candidate(self.raxes, 0)
     #     add_candidate(self.caxes, 1)
     #
-    #     return ImmutableOrderedDict(candidatess)
+    #     return immutabledict(candidatess)
 
     @cached_property
     def size(self) -> Any:

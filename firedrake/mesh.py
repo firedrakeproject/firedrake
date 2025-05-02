@@ -16,7 +16,7 @@ import enum
 import numbers
 from functools import cached_property
 import abc
-from immutabledict import ImmutableOrderedDict
+from immutabledict import immutabledict
 import rtree
 from textwrap import dedent
 from pathlib import Path
@@ -1166,7 +1166,7 @@ class AbstractMeshTopology(abc.ABC):
                 )
 
             # 1-tuple here because in theory closure(cell) could map to other valid things (like points)
-            closures[ImmutableOrderedDict({self.name: str(dim)})] =  (tuple(map_components),)
+            closures[immutabledict({self.name: str(dim)})] =  (tuple(map_components),)
 
         return op3.Map(closures, name="closure")
 
@@ -1203,7 +1203,7 @@ class AbstractMeshTopology(abc.ABC):
                     op3.TabulatedMapComponent(self.name, str(map_dim), map_dat)
                 )
             # 1-tuple here because in theory star(cell) could map to other valid things (like points)
-            stars[ImmutableOrderedDict({self.name: str(dim)})] = (tuple(map_components),)
+            stars[immutabledict({self.name: str(dim)})] = (tuple(map_components),)
 
         return op3.Map(stars, name="star")
 
@@ -1376,7 +1376,7 @@ class AbstractMeshTopology(abc.ABC):
         #     ]
 
         # Add specific support maps for the different facet types
-        supports[ImmutableOrderedDict({self.name: "ext_facets"})] = [
+        supports[immutabledict({self.name: "ext_facets"})] = [
             op3.TabulatedMapComponent(
                 self.name,
                 self.cell_label,
@@ -1384,7 +1384,7 @@ class AbstractMeshTopology(abc.ABC):
                 label="XXX",  # needed?
             ),
         ]
-        supports[ImmutableOrderedDict({self.name: ("ext_facets", "owned")})] = [
+        supports[immutabledict({self.name: ("ext_facets", "owned")})] = [
             op3.TabulatedMapComponent(
                 self.name,
                 self.cell_label,
@@ -1392,7 +1392,7 @@ class AbstractMeshTopology(abc.ABC):
                 label="XXX",  # needed?
             ),
         ]
-        supports[ImmutableOrderedDict({self.name: "int_facets"})] = [
+        supports[immutabledict({self.name: "int_facets"})] = [
             op3.TabulatedMapComponent(
                 self.name,
                 self.cell_label,
@@ -1400,7 +1400,7 @@ class AbstractMeshTopology(abc.ABC):
                 label="XXX",  # needed?
             ),
         ]
-        supports[ImmutableOrderedDict({self.name: ("int_facets", "owned")})] = [
+        supports[immutabledict({self.name: ("int_facets", "owned")})] = [
             op3.TabulatedMapComponent(
                 self.name,
                 self.cell_label,
@@ -2141,7 +2141,7 @@ class MeshTopology(AbstractMeshTopology):
     def entity_orientations_dat(self):
         dats = []
         for dim in range(self.dimension+1):
-            closure_map = self._fiat_closure.connectivity[ImmutableOrderedDict({self.name: self.cell_label})][dim]
+            closure_map = self._fiat_closure.connectivity[immutabledict({self.name: self.cell_label})][dim]
             axes = op3.AxisTree.from_iterable((op3.Axis({self.cell_label: self.num_cells()}, self.name), op3.Axis({str(dim): closure_map.arity}, "closure")))
             dat = op3.Dat(axes, data=self.entity_orientations[dim].flatten(), prefix="ornt")
             dats.append(dat)

@@ -4,7 +4,7 @@ import numbers
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from immutabledict import ImmutableOrderedDict
+from immutabledict import immutabledict
 
 from pyop3.array.dat import Dat
 from pyop3.axtree import AxisTree
@@ -21,7 +21,7 @@ class IncompletelyIndexedException(Pyop3Exception):
 # NOTE: Now really should be plural: 'forests'
 # NOTE: Is this definitely the case? I think at the moment I always return just a single
 # tree per context.
-def as_index_forests(forest: Any, /, axes: AbstractAxisTree | None = None, *, strict: bool = False) -> ImmutableOrderedDict:
+def as_index_forests(forest: Any, /, axes: AbstractAxisTree | None = None, *, strict: bool = False) -> immutabledict:
     """Return a collection of index trees, split by loop context.
 
     Parameters
@@ -49,7 +49,7 @@ def as_index_forests(forest: Any, /, axes: AbstractAxisTree | None = None, *, st
         raise ValueError("Cannot do strict checking if no axes are provided to match against")
 
     if forest is Ellipsis:
-        return ImmutableOrderedDict({ImmutableOrderedDict(): (forest,)})
+        return immutabledict({immutabledict(): (forest,)})
 
     forests = {}
     compressed_loop_contexts = collect_loop_contexts(forest)
@@ -103,7 +103,7 @@ def as_index_forests(forest: Any, /, axes: AbstractAxisTree | None = None, *, st
             )
 
         forests[loop_context] = tuple(matched_forest)
-    return ImmutableOrderedDict(forests)
+    return immutabledict(forests)
 
 
 # old alias, remove
@@ -218,7 +218,7 @@ def _(dat: Dat, /, *args, **kwargs) -> tuple[IndexTree]:
 
     slice_cpt = Subset(target_axis.component.label, arg)
     slice_ = Slice(target_axis.label, [slice_cpt])
-    return {ImmutableOrderedDict(): IndexTree(slice_)}
+    return {immutabledict(): IndexTree(slice_)}
 
 
 @_as_index_forest.register(slice)
@@ -311,7 +311,7 @@ def _index_forest_from_iterable(indices, *, axes):
 def _index_tree_from_iterable(indices, *, axes, parent=None, unhandled_target_paths=None):
     if strictly_all(x is None for x in {parent, unhandled_target_paths}):
         parent = (None, None)
-        unhandled_target_paths = ImmutableOrderedDict()
+        unhandled_target_paths = immutabledict()
 
     unhandled_target_paths_mut = dict(unhandled_target_paths)
     parent_axis, parent_component = parent
@@ -389,7 +389,7 @@ def _complete_index_tree(
     """
     if strictly_all(x is None for x in {index, possible_target_paths_acc}):
         index = index_tree.root
-        possible_target_paths_acc = (ImmutableOrderedDict(),)
+        possible_target_paths_acc = (immutabledict(),)
 
     index_tree_ = IndexTree(index)
 
@@ -464,7 +464,7 @@ def  _index_tree_completely_indexes_axes(index_tree: IndexTree, axes, *, index=N
     """
     if strictly_all(x is None for x in {index, possible_target_paths_acc}):
         index = index_tree.root
-        possible_target_paths_acc = (ImmutableOrderedDict(),)
+        possible_target_paths_acc = (immutabledict(),)
 
     for component_label, equivalent_target_paths in zip(
         index.component_labels, index.leaf_target_paths, strict=True
