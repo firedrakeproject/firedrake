@@ -392,6 +392,22 @@ jobs:
         if: success() || steps.upload_docs.conclusion == 'success'
         run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
 
+      # Some files are automatically generated when we install or build the
+      # docs (e.g. CITATION.rst). These files are committed to the repository
+      # so uncommitted changes at this point reflect changes in the automatically
+      # generated files that ought to be committed.
+      - name: Check no untracked files
+        run: |
+          cd firedrake-repo
+          if [ -z "$( git status --porcelain )" ]; then
+            exit 0
+          else
+            echo Error: there are untracked files in the repository
+            echo The output from 'git status' is:
+            git status
+            exit 1
+          fi
+
       - name: Post-run cleanup
         if: always()
         run: find . -delete
