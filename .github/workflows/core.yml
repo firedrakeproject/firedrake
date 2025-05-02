@@ -106,38 +106,38 @@ jobs:
         # Make sure the current directory is empty
         run: find . -delete
 
-      - name: Install system dependencies
+      # Git is needed for actions/checkout and Python for firedrake-configure
+      - name: Install system dependencies (1)
         run: |
           apt-get update
-          apt-get -y install git python3 python3-venv
-          : # Dependencies needed to run the test suite
-          apt-get -y install parallel
-          : # Dependencies needed to build the documentation
-          apt-get -y install inkscape texlive-full
+          apt-get -y install git python3
 
       - uses: actions/checkout@v4
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
 
-      - name: Install system dependencies from firedrake-configure
+      - name: Install system dependencies (2)
         run: |
           apt-get -y install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
+          apt-get -y install python3-venv
+          : # Dependencies needed to run the test suite
+          apt-get -y install parallel
+          : # Dependencies needed to build the documentation
+          apt-get -y install inkscape texlive-full
 
       # Raise an error if any 'TODO RELEASE' comments remain
       - name: Check no 'TODO RELEASE' comments (release only)
         if: inputs.target_branch == 'release'
+        working-directory: firedrake-repo
         run: |
-          cd firedrake-repo
-          if [ -z "$( git grep 'TODO RELEASE' )" ]; then
+          if [ -z "$( grep -r --exclude-dir='.*' 'TODO RELEASE' )" ]; then
             exit 0
           else
             exit 1
           fi
 
-      # TODO: is there a 'blessed commit' or do we just point to 'main'?
-      # I prefer the latter because then failures are everyone's problem, not just mine!
       - name: Install PETSc
         run: |
           if [ ${{ inputs.target_branch }} = 'release' ]; then
@@ -401,8 +401,8 @@ jobs:
       # generated files that ought to be committed.
       - name: Check no untracked files
         if: always()
+        working-directory: firedrake-repo
         run: |
-          cd firedrake-repo
           if [ -z "$( git status --porcelain )" ]; then
             exit 0
           else
