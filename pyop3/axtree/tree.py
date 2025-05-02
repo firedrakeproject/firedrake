@@ -199,6 +199,10 @@ class _UnitAxisTree:
         return (None,)
 
     @property
+    def is_linear(self) -> bool:
+        return True
+
+    @property
     def is_empty(self) -> bool:
         return False
 
@@ -1814,6 +1818,10 @@ class UnitIndexedAxisTree:
     @property
     def size(self) -> int:
         return 1
+
+    @property
+    def is_linear(self) -> bool:
+        return True
 
     @property
     def is_empty(self) -> bool:

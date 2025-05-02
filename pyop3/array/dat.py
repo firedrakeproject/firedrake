@@ -659,8 +659,6 @@ class MatBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
     pass
 
 
-# TODO: new type to represent non-composite dat?
-
 @utils.record()
 class MatPetscMatBufferExpression(MatBufferExpression, PetscMatBufferExpression):
 
@@ -674,7 +672,7 @@ class MatPetscMatBufferExpression(MatBufferExpression, PetscMatBufferExpression)
 
     # {{{ interface impls
 
-    buffer: ClassVar[property] = utils.attr("_buffer")
+    buffer: ClassVar[AbstractPetscMatBuffer] = utils.attr("_buffer")
 
     # }}}
 
@@ -695,7 +693,7 @@ class MatArrayBufferExpression(MatBufferExpression, ArrayBufferExpression):
 
     # {{{ interface impls
 
-    buffer: ClassVar[property] = utils.attr("_buffer")
+    buffer: ClassVar[AbstractArrayBuffer] = utils.attr("_buffer")
 
     # }}}
 

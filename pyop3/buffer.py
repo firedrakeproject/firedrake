@@ -188,6 +188,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # }}}
 
     def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False):
+        data = data.flatten()
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         self._lazy_data = data
@@ -210,10 +211,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
         data = np.zeros(shape, dtype=dtype)
         return cls(data, **kwargs)
-
-    @property
-    def shape(self) -> tuple[int, ...]:
-        return self._data.shape
 
     @property
     def comm(self) -> MPI.Comm | None:

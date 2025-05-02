@@ -22,7 +22,7 @@ import loopy as lp
 import numpy as np
 import pymbolic as pym
 from immutabledict import ImmutableOrderedDict
-from pyop3.array.dat import ArrayBufferExpression, MatPetscMatBufferExpression
+from pyop3.array.dat import ArrayBufferExpression, MatArrayBufferExpression, MatPetscMatBufferExpression
 from pyop3.expr_visitors import collect_axis_vars, extract_axes
 
 import pyop2
@@ -1039,8 +1039,9 @@ def add_leaf_assignment(
     loop_indices,
 ):
     intent = assignment_type_as_intent(assignment.assignment_type)
-    lexpr = lower_expr(assignment.assignee, intent, iname_replace_maps, loop_indices, codegen_context, paths=paths)
-    rexpr = lower_expr(assignment.expression, READ, iname_replace_maps, loop_indices, codegen_context, paths=paths)
+    shape = tuple(axis_tree.size for axis_tree in assignment.axis_trees)
+    lexpr = lower_expr(assignment.assignee, intent, iname_replace_maps, loop_indices, codegen_context, paths=paths, shape=shape)
+    rexpr = lower_expr(assignment.expression, READ, iname_replace_maps, loop_indices, codegen_context, paths=paths, shape=shape)
 
     if assignment.assignment_type == AssignmentType.INC:
         rexpr = lexpr + rexpr
@@ -1048,98 +1049,73 @@ def add_leaf_assignment(
     codegen_context.add_assignment(lexpr, rexpr)
 
 
+# TODO: cleanup interface, more kwargs
+def lower_expr(expr, intent, iname_maps, loop_indices, ctx, *, paths=None, shape=None):
+    return _lower_expr(expr, intent, iname_maps, loop_indices, ctx, paths=paths, shape=shape)
+
+
 # NOTE: There is a difference here between `lower_expr` and `lower_expr_linear` (where paths are not relevant)
 @functools.singledispatch
-def lower_expr(obj: Any, /, *args, **kwargs):
+def _lower_expr(obj: Any, /, *args, **kwargs):
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@lower_expr.register(Add)
-def _(add: Add, /, *args, **kwargs):
-    return lower_expr(add.a, *args, **kwargs) + lower_expr(add.b, *args, **kwargs)
-
-
-@lower_expr.register(Mul)
-def _(mul: Mul, /, *args, **kwargs):
-    return lower_expr(mul.a, *args, **kwargs) * lower_expr(mul.b, *args, **kwargs)
-
-
-@lower_expr.register(numbers.Number)
+@_lower_expr.register(numbers.Number)
 def _(num: numbers.Number, /, *args, **kwargs):
     return num
 
 
-@lower_expr.register(AxisVar)
+@_lower_expr.register(Add)
+def _(add: Add, /, *args, **kwargs):
+    return _lower_expr(add.a, *args, **kwargs) + _lower_expr(add.b, *args, **kwargs)
+
+
+@_lower_expr.register(Mul)
+def _(mul: Mul, /, *args, **kwargs):
+    return _lower_expr(mul.a, *args, **kwargs) * _lower_expr(mul.b, *args, **kwargs)
+
+
+@_lower_expr.register(AxisVar)
 def _(axis_var: AxisVar, /, intent, iname_maps, *args, **kwargs):
-    if len(iname_maps) > 1:
-        raise NotImplementedError("not sure")
-    else:
-        iname_map = just_one(iname_maps)
-    return iname_map[axis_var.axis_label]
+    return just_one(iname_maps)[axis_var.axis_label]
 
 
-@lower_expr.register
-def _(loop_var: LoopIndexVar, intent, iname_maps, loop_indices, *args, **kwargs):
+@_lower_expr.register(LoopIndexVar)
+def _(loop_var: LoopIndexVar, /, intent, iname_maps, loop_indices, *args, **kwargs):
     return loop_indices[(loop_var.loop_id, loop_var.axis_label)]
 
 
-@lower_expr.register(NonlinearDatArrayBufferExpression)
-def _(expr: NonlinearDatArrayBufferExpression, /, intent, iname_maps, loop_indices, context, paths):
-    # TODO: I reuse this pattern when I construct the expression, refactor out to avoid the repetition
-    # TODO: OR... could have a NonlinearMatExpression or similar?
-    if len(paths) > 1:
-        path = {}
-        iname_map = {}
-        for i, (p, im) in enumerate(zip(paths, iname_maps, strict=True)):
-            path |= relabel_path(p, str(i))
-            iname_map |= {k+f"_{i}": v for k, v in im.items()}
-        path = ImmutableOrderedDict(path)
-    else:
-        path = just_one(paths)
-        iname_map = just_one(iname_maps)
-
-    # layouts = {}
-    # for row_path, row_layout in row_layouts.items():
-    #     for column_path, column_layout in col_layouts.items():
-    #         relabelled_row_path = 
-    #         relabelled_column_path = relabel_path(column_path, "1")
-    #
-    #         replace_map = {var.axis_label: AxisVar(var.axis_label+"_0") for var in collect_axis_vars(row_layout)}
-    #         relabelled_row_layout = replace_terminals(row_layout, replace_map)
-    #
-    #         replace_map = {var.axis_label: AxisVar(var.axis_label+"_1") for var in collect_axis_vars(column_layout)}
-    #         relabelled_column_layout = replace_terminals(row_layout, replace_map)
-    #
-    #         layouts[pmap(relabelled_row_path|relabelled_column_path)] = relabelled_row_layout * mat.caxes.size + relabelled_column_layout
-
-    layout = expr.layouts[path]
-    return lower_buffer_access(expr.buffer, layout, intent, iname_map, loop_indices, context)
-
-
-@lower_expr.register(LinearDatArrayBufferExpression)
+@_lower_expr.register(LinearDatArrayBufferExpression)
 def _(expr: LinearDatArrayBufferExpression, /, intent, iname_maps, loop_indices, context, **kwargs):
     return lower_buffer_access(expr.buffer, expr.layout, intent, just_one(iname_maps), loop_indices, context)
 
 
-@lower_expr.register(MatPetscMatBufferExpression)
-def _(expr: MatPetscMatBufferExpression, /, intent, iname_maps, loop_indices, context, paths):
-    assert False, "dont think I get here any more"
-    name_in_kernel = context.add_buffer(expr.buffer, intent)
+@_lower_expr.register(NonlinearDatArrayBufferExpression)
+def _(expr: NonlinearDatArrayBufferExpression, /, intent, iname_maps, loop_indices, context, paths, **kwargs):
+    path = just_one(paths)
+    iname_map = just_one(iname_maps)
+    return lower_buffer_access(expr.buffer, expr.layouts[path], intent, iname_map, loop_indices, context)
 
+
+@_lower_expr.register(MatArrayBufferExpression)
+def _(expr: MatArrayBufferExpression, /, intent, iname_maps, loop_indices, context, paths, shape):
     row_iname_map, col_iname_map = iname_maps
     row_path, col_path = paths
 
     row_layout_expr = expr.row_layouts[row_path]
-    row_offset_expr = lower_expr(row_layout_expr, READ, [row_iname_map], loop_indices, context)
+    row_offset_expr = _lower_expr(row_layout_expr, READ, [row_iname_map], loop_indices, context)
 
     col_layout_expr = expr.column_layouts[col_path]
-    col_offset_expr = lower_expr(col_layout_expr, READ, [col_iname_map], loop_indices, context)
+    col_offset_expr = _lower_expr(col_layout_expr, READ, [col_iname_map], loop_indices, context)
 
-    _, column_size = expr.buffer.shape
+    _, column_size = shape
     offset_expr = row_offset_expr * column_size + col_offset_expr
     indices = maybe_multiindex(expr.buffer, offset_expr, context)
 
+    name_in_kernel = context.add_buffer(expr.buffer, intent)
     return pym.subscript(pym.var(name_in_kernel), indices)
+    # TODO: use lower_buffer here too
+    # return lower_buffer_access(expr.buffer, merged_layout, intent, merged_iname_map, loop_indices, context)
 
 
 def maybe_multiindex(buffer, offset_expr, context):

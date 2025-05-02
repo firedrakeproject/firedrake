@@ -473,9 +473,6 @@ def _(var: Any, /, **kwargs) -> ImmutableOrderedDict:
 
 @collect_tensor_candidate_indirections.register(LinearDatArrayBufferExpression)
 def _(dat_expr: LinearDatArrayBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], compress: bool) -> ImmutableOrderedDict:
-    if not isinstance(dat_expr.buffer, AbstractArrayBuffer):
-        raise NotImplementedError("Currently we assume that Dats are based on an underlying array buffer")
-
     axis_tree = just_one(axis_trees)
     return ImmutableOrderedDict({
         dat_expr: collect_candidate_indirections(dat_expr.layout, axis_tree, loop_indices, compress=compress)
@@ -484,9 +481,6 @@ def _(dat_expr: LinearDatArrayBufferExpression, /, *, axis_trees: Iterable[AxisT
 
 @collect_tensor_candidate_indirections.register(NonlinearDatArrayBufferExpression)
 def _(dat_expr: NonlinearDatArrayBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], compress: bool) -> ImmutableOrderedDict:
-    if not isinstance(dat_expr.buffer, AbstractArrayBuffer):
-        raise NotImplementedError("Currently we assume that Dats are based on an underlying array buffer")
-
     axis_tree = just_one(axis_trees)
     return ImmutableOrderedDict({
         (dat_expr, path): collect_candidate_indirections(layout, axis_tree.linearize(path), loop_indices, compress=compress)
@@ -510,93 +504,17 @@ def _(mat_expr: MatPetscMatBufferExpression, /, *, axis_trees, loop_indices: tup
     })
 
 
-# TODO: rename to concretize_array_accesses or concretize_arrays
-# @functools.singledispatch
-# def concretize_arrays(obj: Any, /, *args, **kwargs) -> Expression:
-#     raise TypeError(f"No handler defined for {type(obj).__name__}")
-#
-#
-# @concretize_arrays.register(Dat)
-# def _(dat: Dat, /, loop_axes) -> NonlinearDatBufferExpression:
-#     selected_layouts = dat.axes.leaf_subst_layouts
-#     # selected_layouts = {}
-#     # for leaf_path in dat.axes.leaf_paths:
-#     #     possible_layouts = candidate_layouts[(dat, leaf_path)]
-#     #     selected_layout, _ = min(possible_layouts, key=lambda item: item[1])
-#     #     selected_layouts[leaf_path] = selected_layout
-#
-#     return NonlinearDatBufferExpression(dat.buffer, selected_layouts)
-#
-#
-# @concretize_arrays.register(Mat)
-# def _(mat: Mat, /, loop_axes) -> PetscMatBufferExpression:
-#     from pyop3.insn_visitors import materialize_composite_dat
-#
-#     # TODO: Add intermediate type to assert that there is no longer a parent attr
-#     assert mat.parent is None
-#
-#     # NOTE: default_candidate_layouts shouldn't return any cost because it doesn't matter here
-#     # Actually this might not be quite true: for non-PETSc matrices we have some amount of choice
-#
-#     # FIXME: this is bad for temporaries because it means we needlessly tabulate
-#     # layouts = mat.default_candidate_layouts(loop_axes)
-#     layouts = mat.candidate_layouts(loop_axes)
-#
-#     # FIXME: Different treatment for buffer and petsc mats here
-#     if isinstance(mat.buffer, AbstractPetscMatBuffer):
-#         row_layout = materialize_composite_dat(layouts[(mat, "anything", 0)][0][0])
-#         column_layout = materialize_composite_dat(layouts[(mat, "anything", 1)][0][0])
-#         return PetscMatBufferExpression(mat.buffer, row_layout, column_layout)
-#     else:
-#         row_layouts = {}
-#         for leaf_path in mat.raxes.pruned.leaf_paths:
-#             possible_row_layouts = layouts[(mat, leaf_path, 0)]
-#             selected_layout, _ = just_one(possible_row_layouts)
-#
-#             if isinstance(selected_layout, CompositeDat):
-#                 selected_layout = materialize_composite_dat(selected_layout)
-#
-#             row_layouts[leaf_path] = selected_layout
-#
-#         col_layouts = {}
-#         for leaf_path in mat.caxes.pruned.leaf_paths:
-#             possible_col_layouts = layouts[(mat, leaf_path, 1)]
-#             selected_layout, _ = just_one(possible_col_layouts)
-#
-#             if isinstance(selected_layout, CompositeDat):
-#                 selected_layout = materialize_composite_dat(selected_layout)
-#
-#             col_layouts[leaf_path] = selected_layout
-#
-#         # merge layouts
-#         layouts = {}
-#         for row_path, row_layout in row_layouts.items():
-#             for column_path, column_layout in col_layouts.items():
-#                 relabelled_row_path = relabel_path(row_path, "0")
-#                 relabelled_column_path = relabel_path(column_path, "1")
-#
-#                 replace_map = {var.axis_label: AxisVar(var.axis_label+"_0") for var in collect_axis_vars(row_layout)}
-#                 relabelled_row_layout = replace_terminals(row_layout, replace_map)
-#
-#                 replace_map = {var.axis_label: AxisVar(var.axis_label+"_1") for var in collect_axis_vars(column_layout)}
-#                 relabelled_column_layout = replace_terminals(column_layout, replace_map)
-#
-#                 layouts[ImmutableOrderedDict(relabelled_row_path|relabelled_column_path)] = relabelled_row_layout * mat.caxes.size + relabelled_column_layout
-#         # TODO: Is this the right type?
-#         return NonlinearDatBufferExpression(mat.buffer, layouts)
-
-
-# @concretize_arrays.register(numbers.Number)
-# @concretize_arrays.register(AxisVar)
-# @concretize_arrays.register(BufferExpression)
-# @concretize_arrays.register(LoopIndexVar)
-# def _(var: Any, /, loop_axes) -> Any:
-#     return var
-#
-#
-# @concretize_arrays.register(Operator)
-# def _(op: Operator, /, loop_axes) -> Operator:
-#     return type(op)(concretize_arrays(op.a, loop_axes), concretize_arrays(op.b, loop_axes))
+# NOTE: This is a nonlinear type
+@collect_tensor_candidate_indirections.register(MatArrayBufferExpression)
+def _(mat_expr: MatArrayBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool) -> ImmutableOrderedDict:
+    candidates = {}
+    layoutss = [mat_expr.row_layouts, mat_expr.column_layouts]
+    for i, (axis_tree, layouts) in enumerate(zip(axis_trees, layoutss, strict=True)):
+        for path, layout in layouts.items():
+            candidates[mat_expr, i, path] = collect_candidate_indirections(
+                layout, axis_tree.linearize(path), loop_indices, compress=compress
+            )
+    return ImmutableOrderedDict(candidates)
 
 
 # TODO: account for non-affine accesses in arrays and selectively apply this
@@ -779,45 +697,20 @@ def _(mat_expr: MatPetscMatBufferExpression, /, layouts, key) -> MatPetscMatBuff
     ]
     return MatPetscMatBufferExpression(mat_expr.buffer, *layouts)
 
-# @functools.singledispatch
-# def materialize(obj: Any, /, *args, **kwargs) -> ExpressionT:
-#     raise TypeError
-#
-#
-# @materialize.register(AxisVar)
-# @materialize.register(LoopIndexVar)
-# @materialize.register(numbers.Number)
-# def _(var: Any, /, *args, **kwargs):
-#     return var
-#
-#
-# @materialize.register(Operator)
-# def _(op: Operator, /, *args, **kwargs) -> Operator:
-#     return type(op)(materialize(op.a, *args, **kwargs), materialize(op.b, *args, **kwargs))
-#
-#
-# @materialize.register(CompositeDat)
-# def _(dat: CompositeDat, /, visited_axes, loop_axes) -> _ExpressionDat:
-#     axes = extract_axes(dat, visited_axes, loop_axes)
-#
-#     # dtype correct?
-#     result = Dat(axes, dtype=IntType)
-#
-#     # replace LoopIndexVars in the expression with AxisVars
-#     loop_index_replace_map = {}
-#     for loop_id, iterset in loop_axes.items():
-#         for axis in iterset.nodes:
-#             loop_index_replace_map[(loop_id, axis.label)] = AxisVar(f"{axis.label}_{loop_id}")
-#     expr = replace_terminals(dat.expr, loop_index_replace_map)
-#
-#     result.assign(expr, eager=True)
-#
-#     # now put the loop indices back
-#     inv_map = {axis_var.axis_label: LoopIndexVar(loop_id, axis_label) for (loop_id, axis_label), axis_var in loop_index_replace_map.items()}
-#     layout = just_one(result.axes.leaf_subst_layouts.values())
-#     newlayout = replace_terminals(layout, inv_map)
-#
-#     return _ExpressionDat(result, newlayout)
+
+@concretize_materialized_tensor_indirections.register(MatArrayBufferExpression)
+def _(buffer_expr: MatArrayBufferExpression, /, layouts, key):
+    new_buffer_layoutss = []
+    buffer_layoutss = [buffer_expr.row_layouts, buffer_expr.column_layouts]
+    for i, buffer_layouts in enumerate(buffer_layoutss):
+        new_buffer_layouts = {
+            path: layouts[key + ((buffer_expr, i, path),)]
+            for path in buffer_layouts.keys()
+        }
+        new_buffer_layoutss.append(new_buffer_layouts)
+    return MatArrayBufferExpression(buffer_expr.buffer, *new_buffer_layoutss)
+
+
 @functools.singledispatch
 def collect_axis_vars(obj: Any, /) -> OrderedSet:
     from pyop3.itree.tree import LoopIndexVar
