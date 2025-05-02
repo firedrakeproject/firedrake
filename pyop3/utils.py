@@ -347,6 +347,11 @@ def steps(sizes, *, drop_last=False):
     return readonly(steps_[:-1]) if drop_last else readonly(steps_)
 
 
+def strides(sizes, *, drop_last=True) -> np.ndarray[int]:
+    strides_ = np.concatenate([[1], np.cumprod(sizes)], dtype=int)
+    return readonly(strides_[:-1]) if drop_last else readonly(strides_)
+
+
 def pairwise(iterable):
     return zip(iterable, iterable[1:])
 

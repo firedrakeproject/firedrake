@@ -1087,35 +1087,32 @@ def _(loop_var: LoopIndexVar, /, intent, iname_maps, loop_indices, *args, **kwar
 
 @_lower_expr.register(LinearDatArrayBufferExpression)
 def _(expr: LinearDatArrayBufferExpression, /, intent, iname_maps, loop_indices, context, **kwargs):
-    return lower_buffer_access(expr.buffer, expr.layout, intent, just_one(iname_maps), loop_indices, context)
+    return lower_buffer_access(expr.buffer, [expr.layout], intent, iname_maps, loop_indices, context)
 
 
 @_lower_expr.register(NonlinearDatArrayBufferExpression)
 def _(expr: NonlinearDatArrayBufferExpression, /, intent, iname_maps, loop_indices, context, paths, **kwargs):
     path = just_one(paths)
-    iname_map = just_one(iname_maps)
-    return lower_buffer_access(expr.buffer, expr.layouts[path], intent, iname_map, loop_indices, context)
+    return lower_buffer_access(expr.buffer, [expr.layouts[path]], intent, iname_maps, loop_indices, context)
 
 
 @_lower_expr.register(MatArrayBufferExpression)
 def _(expr: MatArrayBufferExpression, /, intent, iname_maps, loop_indices, context, paths, shape):
-    row_iname_map, col_iname_map = iname_maps
-    row_path, col_path = paths
+    row_path, column_path = paths
+    layouts = (expr.row_layouts[row_path], expr.column_layouts[column_path])
+    return lower_buffer_access(expr.buffer, layouts, intent, iname_maps, loop_indices, context, shape=shape)
 
-    row_layout_expr = expr.row_layouts[row_path]
-    row_offset_expr = _lower_expr(row_layout_expr, READ, [row_iname_map], loop_indices, context)
 
-    col_layout_expr = expr.column_layouts[col_path]
-    col_offset_expr = _lower_expr(col_layout_expr, READ, [col_iname_map], loop_indices, context)
+def lower_buffer_access(buffer, layouts, intent, iname_maps, loop_indices, context, *, shape=None):
+    name_in_kernel = context.add_buffer(buffer, intent)
 
-    _, column_size = shape
-    offset_expr = row_offset_expr * column_size + col_offset_expr
-    indices = maybe_multiindex(expr.buffer, offset_expr, context)
+    offset_expr = 0
+    strides = reversed(utils.strides(shape)) if shape else (1,)
+    for stride, layout, iname_map in zip(strides, layouts, iname_maps, strict=True):
+        offset_expr += stride * lower_expr(layout, READ, [iname_map], loop_indices, context)
 
-    name_in_kernel = context.add_buffer(expr.buffer, intent)
+    indices = maybe_multiindex(buffer, offset_expr, context)
     return pym.subscript(pym.var(name_in_kernel), indices)
-    # TODO: use lower_buffer here too
-    # return lower_buffer_access(expr.buffer, merged_layout, intent, merged_iname_map, loop_indices, context)
 
 
 def maybe_multiindex(buffer, offset_expr, context):
@@ -1135,15 +1132,6 @@ def maybe_multiindex(buffer, offset_expr, context):
         indices = (offset_expr,)
 
     return indices
-
-
-def lower_buffer_access(buffer, layout, intent, iname_map, loop_indices, context):
-    name_in_kernel = context.add_buffer(buffer, intent)
-
-    offset_expr = lower_expr(layout, READ, [iname_map], loop_indices, context)
-    indices = maybe_multiindex(buffer, offset_expr, context)
-
-    return pym.subscript(pym.var(name_in_kernel), indices)
 
 
 @functools.singledispatch
