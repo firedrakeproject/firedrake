@@ -185,3 +185,34 @@ def test_adjoint_dependencies_set():
 
     J_hat = ReducedFunctional(J, Control(c))
     assert taylor_test(J_hat, c, Function(V).interpolate(0.1)) > 1.9
+
+
+def test_bcs():
+
+    enable_disk_checkpointing()
+
+    tape = get_working_tape()
+    tape.enable_checkpointing(SingleDiskStorageSchedule())
+
+    mesh = checkpointable_mesh(UnitSquareMesh(5, 5))
+    V = FunctionSpace(mesh, "CG", 2)
+    T = Function(V)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v)) * dx
+    x = SpatialCoordinate(mesh)
+    F = Function(V)
+    control = Control(F)
+    F.interpolate(sin(x[0] * pi) * sin(2 * x[1] * pi))
+    L = F * v * dx
+    uu = Function(V)
+    bcs = [DirichletBC(V, T, (1,))]
+    problem = LinearVariationalProblem(a, L, uu, bcs=bcs)
+    solver = LinearVariationalSolver(problem)
+
+    for i in tape.timestepper(iter(range(3))):
+        T.assign(T + 1.0)
+        solver.solve()
+    obj = assemble(uu * uu * dx)
+    rf = ReducedFunctional(obj, control)
+    assert np.allclose(rf(F), obj)
