@@ -580,7 +580,15 @@ class ArrayBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
     pass
 
 
-class PetscMatBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
+class OpaqueBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
+    """A buffer expression that is interfaced with using function calls.
+
+    An example of this is Mat{Get,Set}Values().
+
+    """
+
+
+class PetscMatBufferExpression(OpaqueBufferExpression, metaclass=abc.ABCMeta):
     pass
 
 

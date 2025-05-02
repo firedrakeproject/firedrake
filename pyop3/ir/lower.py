@@ -22,7 +22,7 @@ import loopy as lp
 import numpy as np
 import pymbolic as pym
 from immutabledict import ImmutableOrderedDict
-from pyop3.array.dat import ArrayBufferExpression, MatArrayBufferExpression, MatPetscMatBufferExpression
+from pyop3.array.dat import ArrayBufferExpression, MatArrayBufferExpression, MatPetscMatBufferExpression, OpaqueBufferExpression
 from pyop3.expr_visitors import collect_axis_vars, extract_axes
 
 import pyop2
@@ -640,7 +640,7 @@ def parse_loop_properly_this_time(
             axis_key = (axis.id, component.label)
             for index_exprs in axes.index_exprs:
                 for axis_label, index_expr in index_exprs.get(axis_key).items():
-                    loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, READ, [iname_replace_map_], loop_indices, codegen_context, paths=[path_])
+                    loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, [iname_replace_map_], loop_indices, codegen_context, paths=[path_])
             loop_exprs = ImmutableOrderedDict(loop_exprs)
 
             if subaxis := axes.child(axis, component):
@@ -736,25 +736,19 @@ def _(call: StandaloneCalledFunction, loop_indices, ctx: LoopyCodegenContext) ->
     ctx.add_subkernel(call.function.code)
 
 
-# FIXME this is practically identical to what we do in build_loop
 @_compile.register(ConcretizedNonEmptyArrayAssignment)
-def parse_assignment(
-    assignment,
-    loop_indices,
-    codegen_ctx,
-):
-    if any(isinstance(arg, MatPetscMatBufferExpression) for arg in assignment.arguments):
-        _compile_petsc_mat(assignment, loop_indices, codegen_ctx)
+def parse_assignment(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context: CodegenContext):
+    if any(isinstance(arg, OpaqueBufferExpression) for arg in assignment.arguments):
+        _compile_petsc_mat(assignment, loop_indices, context)
     else:
-        parse_assignment_properly_this_time(
+        compile_array_assignment(
             assignment,
             loop_indices,
-            codegen_ctx,
+            context,
             assignment.axis_trees,
         )
 
 
-# @_compile.register(NonEmptyPetscMatAssignment)
 def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context):
     mat = assignment.assignee
     expr = assignment.expression
@@ -889,10 +883,8 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
     else:
         csize_var = csize
 
-    irow = lower_expr(mat.row_layout, READ, ((),), loop_indices, context)
-    # irow = str(pym.var(rmap_name)[lower_expr(mat.row_layout, READ, ((),), loop_indices, context)])
-    # icol = str(pym.var(cmap_name)[lower_expr(mat.column_layout, READ, ((),), loop_indices, context)])
-    icol = lower_expr(mat.column_layout, READ, ((),), loop_indices, context)
+    irow = lower_expr(mat.row_layout, ((),), loop_indices, context)
+    icol = lower_expr(mat.column_layout, ((),), loop_indices, context)
 
     # FIXME:
     blocked = False
@@ -938,7 +930,7 @@ def _petsc_mat_add(assignment, mat_name, array_name, nrow, ncol, irow, icol, blo
         return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), ADD_VALUES);"
 
 # TODO now I attach a lot of info to the context-free array, do I need to pass axes around?
-def parse_assignment_properly_this_time(
+def compile_array_assignment(
     assignment,
     loop_indices,
     codegen_context,
@@ -1000,7 +992,7 @@ def parse_assignment_properly_this_time(
 
         with codegen_context.within_inames(within_inames):
             if subaxis := axis_tree.child(axis, component):
-                parse_assignment_properly_this_time(
+                compile_array_assignment(
                     assignment,
                     loop_indices,
                     codegen_context,
@@ -1011,7 +1003,7 @@ def parse_assignment_properly_this_time(
                     paths=new_paths,
                 )
             elif axis_trees:
-                parse_assignment_properly_this_time(
+                compile_array_assignment(
                     assignment,
                     loop_indices,
                     codegen_context,
@@ -1040,8 +1032,8 @@ def add_leaf_assignment(
 ):
     intent = assignment_type_as_intent(assignment.assignment_type)
     shape = tuple(axis_tree.size for axis_tree in assignment.axis_trees)
-    lexpr = lower_expr(assignment.assignee, intent, iname_replace_maps, loop_indices, codegen_context, paths=paths, shape=shape)
-    rexpr = lower_expr(assignment.expression, READ, iname_replace_maps, loop_indices, codegen_context, paths=paths, shape=shape)
+    lexpr = lower_expr(assignment.assignee, iname_replace_maps, loop_indices, codegen_context, intent=intent, paths=paths, shape=shape)
+    rexpr = lower_expr(assignment.expression, iname_replace_maps, loop_indices, codegen_context, paths=paths, shape=shape)
 
     if assignment.assignment_type == AssignmentType.INC:
         rexpr = lexpr + rexpr
@@ -1049,67 +1041,65 @@ def add_leaf_assignment(
     codegen_context.add_assignment(lexpr, rexpr)
 
 
-# TODO: cleanup interface, more kwargs
-def lower_expr(expr, intent, iname_maps, loop_indices, ctx, *, paths=None, shape=None):
-    return _lower_expr(expr, intent, iname_maps, loop_indices, ctx, paths=paths, shape=shape)
+def lower_expr(expr, iname_maps, loop_indices, ctx, *, intent=READ, paths=None, shape=None) -> pym.Expression:
+    return _lower_expr(expr, iname_maps, loop_indices, ctx, intent=intent, paths=paths, shape=shape)
 
 
-# NOTE: There is a difference here between `lower_expr` and `lower_expr_linear` (where paths are not relevant)
 @functools.singledispatch
-def _lower_expr(obj: Any, /, *args, **kwargs):
+def _lower_expr(obj: Any, /, *args, **kwargs) -> pym.Expression:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
 @_lower_expr.register(numbers.Number)
-def _(num: numbers.Number, /, *args, **kwargs):
+def _(num: numbers.Number, /, *args, **kwargs) -> numbers.Number:
     return num
 
 
 @_lower_expr.register(Add)
-def _(add: Add, /, *args, **kwargs):
+def _(add: Add, /, *args, **kwargs) -> pym.Expression:
     return _lower_expr(add.a, *args, **kwargs) + _lower_expr(add.b, *args, **kwargs)
 
 
 @_lower_expr.register(Mul)
-def _(mul: Mul, /, *args, **kwargs):
+def _(mul: Mul, /, *args, **kwargs) -> pym.Expression:
     return _lower_expr(mul.a, *args, **kwargs) * _lower_expr(mul.b, *args, **kwargs)
 
 
 @_lower_expr.register(AxisVar)
-def _(axis_var: AxisVar, /, intent, iname_maps, *args, **kwargs):
+def _(axis_var: AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
     return just_one(iname_maps)[axis_var.axis_label]
 
 
 @_lower_expr.register(LoopIndexVar)
-def _(loop_var: LoopIndexVar, /, intent, iname_maps, loop_indices, *args, **kwargs):
+def _(loop_var: LoopIndexVar, /, iname_maps, loop_indices, *args, **kwargs) -> pym.Expression:
     return loop_indices[(loop_var.loop_id, loop_var.axis_label)]
 
 
 @_lower_expr.register(LinearDatArrayBufferExpression)
-def _(expr: LinearDatArrayBufferExpression, /, intent, iname_maps, loop_indices, context, **kwargs):
-    return lower_buffer_access(expr.buffer, [expr.layout], intent, iname_maps, loop_indices, context)
+def _(expr: LinearDatArrayBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
+    return lower_buffer_access(expr.buffer, [expr.layout], iname_maps, loop_indices, context, intent=intent)
 
 
 @_lower_expr.register(NonlinearDatArrayBufferExpression)
-def _(expr: NonlinearDatArrayBufferExpression, /, intent, iname_maps, loop_indices, context, paths, **kwargs):
+def _(expr: NonlinearDatArrayBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, **kwargs) -> pym.Expression:
     path = just_one(paths)
-    return lower_buffer_access(expr.buffer, [expr.layouts[path]], intent, iname_maps, loop_indices, context)
+    return lower_buffer_access(expr.buffer, [expr.layouts[path]], iname_maps, loop_indices, context, intent=intent)
 
 
 @_lower_expr.register(MatArrayBufferExpression)
-def _(expr: MatArrayBufferExpression, /, intent, iname_maps, loop_indices, context, paths, shape):
+def _(expr: MatArrayBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
     row_path, column_path = paths
     layouts = (expr.row_layouts[row_path], expr.column_layouts[column_path])
-    return lower_buffer_access(expr.buffer, layouts, intent, iname_maps, loop_indices, context, shape=shape)
+    return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, shape=shape)
 
 
-def lower_buffer_access(buffer, layouts, intent, iname_maps, loop_indices, context, *, shape=None):
+def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indices, context, *, intent, shape=None) -> pym.Expression:
     name_in_kernel = context.add_buffer(buffer, intent)
 
     offset_expr = 0
     strides = reversed(utils.strides(shape)) if shape else (1,)
     for stride, layout, iname_map in zip(strides, layouts, iname_maps, strict=True):
-        offset_expr += stride * lower_expr(layout, READ, [iname_map], loop_indices, context)
+        offset_expr += stride * lower_expr(layout, [iname_map], loop_indices, context)
 
     indices = maybe_multiindex(buffer, offset_expr, context)
     return pym.subscript(pym.var(name_in_kernel), indices)
@@ -1151,7 +1141,7 @@ def _(param: Parameter, inames, loop_indices, context):
 @register_extent.register(Dat)  # is this right? should this already be parsed?
 @register_extent.register(LinearDatArrayBufferExpression)
 def _(extent, /, intent, iname_replace_map, loop_indices, context):
-    expr = lower_expr(extent, READ, [iname_replace_map], loop_indices, context)
+    expr = lower_expr(extent, [iname_replace_map], loop_indices, READ, context)
     varname = context.add_temporary("p")
     context.add_assignment(pym.var(varname), expr)
     return varname
