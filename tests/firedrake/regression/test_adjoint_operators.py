@@ -1005,6 +1005,7 @@ def test_cofunction_assign_functional():
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_bdy_control():
+    from firedrake.adjoint_utils.dirichletbc import DirichletBCBlock
     # Test for the case the boundary condition is a control for a
     # domain with length different from 1.
     mesh = IntervalMesh(10, 0, 2)
@@ -1043,7 +1044,8 @@ def test_bdy_control():
     tape = get_working_tape()
     # Check the checkpointed boundary conditions are not updating the
     # user-defined boundary conditions ``bc_left`` and ``bc_right``.
-    # tape._blocks[0] is the DirichletBC block for the left boundary
-    assert tape._blocks[0]._outputs[0].checkpoint.checkpoint is not bc_left._original_arg
+    assert isinstance(tape._blocks[0], DirichletBCBlock) and \
+        tape._blocks[0]._outputs[0].checkpoint.checkpoint is not bc_left._original_arg
     # tape._blocks[1] is the DirichletBC block for the right boundary
-    assert tape._blocks[1]._outputs[0].checkpoint.checkpoint is not bc_right._original_arg
+    assert isinstance(tape._blocks[1], DirichletBCBlock) and \
+        tape._blocks[1]._outputs[0].checkpoint.checkpoint is not bc_right._original_arg
