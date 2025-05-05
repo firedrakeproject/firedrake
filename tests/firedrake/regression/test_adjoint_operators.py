@@ -1025,6 +1025,7 @@ def test_bdy_control():
     problem = LinearVariationalProblem(lhs(F), rhs(F), sol, bcs=bc)
     solver = LinearVariationalSolver(problem)
     solver.solve()
+
     # Analytical solution of the analytical Laplace equation is:
     # u(x) = a + (b - a)/2 * x
     def u_analytical(x, a, b):
