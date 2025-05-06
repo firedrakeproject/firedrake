@@ -335,6 +335,7 @@ class _Facets(object):
         local_facet_start = offsets[-3]
         local_facet_end = offsets[-2]
         map_from_cell_to_facet_orientations = self.mesh.entity_orientations[:, local_facet_start:local_facet_end]
+
         # Make output data;
         # this is a map from an exterior/interior facet to the corresponding local facet orientation/orientations.
         # Halo data are required by design, but not actually used.
@@ -1264,21 +1265,19 @@ class MeshTopology(AbstractMeshTopology):
         assert tdim == cell.topological_dimension()
         # plex.viewFromOptions("-dm_view")
         closure, _ = plex.getTransitiveClosure(0)
+        if hasattr(cell, "to_fiat"):
+            plex.setName('firedrake_default_topology_fuse')
+
         if self.submesh_parent is not None:
             return dmcommon.submesh_create_cell_closure_cell_submesh(plex,
                                                                      self.submesh_parent.topology_dm,
                                                                      cell_numbering,
                                                                      self.submesh_parent._cell_numbering,
                                                                      self.submesh_parent.cell_closure)
-        elif cell.is_simplex():
-            topology = FIAT.ufc_cell(cell).get_topology()
-            entity_per_cell = np.zeros(len(topology), dtype=IntType)
-            for d, ents in topology.items():
-                entity_per_cell[d] = len(ents)
-            return dmcommon.closure_ordering(plex, vertex_numbering,
-                                             cell_numbering, entity_per_cell)
         # elif hasattr(cell, "to_fiat"):
-        #     #   TODO
+        #     breakpoint()
+        #     plex.setName('firedrake_default_topology_fuse')
+        #     #   TODO find better way of branching here
         #     topology = cell.to_fiat().topology
         #     # entity_per_cell = np.zeros(len(topology), dtype=IntType)
         #     # for d, ents in topology.items():
@@ -1287,7 +1286,15 @@ class MeshTopology(AbstractMeshTopology):
         #     #  cell_numbering, entity_per_cell)
         #     topology = FIAT.ufc_cell(cell).get_topology()
         #     closureSize = sum([len(ents) for _, ents in topology.items()])
+        #     breakpoint()
         #     return dmcommon.create_cell_closure(plex, cell_numbering, closureSize)
+        elif cell.is_simplex():
+            topology = FIAT.ufc_cell(cell).get_topology()
+            entity_per_cell = np.zeros(len(topology), dtype=IntType)
+            for d, ents in topology.items():
+                entity_per_cell[d] = len(ents)
+            return dmcommon.closure_ordering(plex, vertex_numbering,
+                                             cell_numbering, entity_per_cell)
         elif cell.cellname() == "quadrilateral":
             from firedrake_citations import Citations
             Citations().register("Homolya2016")

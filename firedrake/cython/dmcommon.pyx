@@ -368,15 +368,18 @@ cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
         #                         0       2
         #                         |       |
         #                         +---3---+
-        plex_cone_new[0] = plex_cone_old[0]
-        plex_cone_new[1] = plex_cone_old[2]
-        plex_cone_new[2] = plex_cone_old[1]
-        plex_cone_new[3] = plex_cone_old[3]
-        # print("SWITCHING")
-        #plex_cone_new[0] = plex_cone_old[0]
-        #plex_cone_new[1] = plex_cone_old[3]
-        #plex_cone_new[2] = plex_cone_old[2]
-        #plex_cone_new[3] = plex_cone_old[1]
+        if "fuse" in dm.name:
+            # FUSE rules
+            plex_cone_new[0] = plex_cone_old[0]
+            plex_cone_new[1] = plex_cone_old[3]
+            plex_cone_new[2] = plex_cone_old[2]
+            plex_cone_new[3] = plex_cone_old[1]
+        else:
+            # UFC rules
+            plex_cone_new[0] = plex_cone_old[0]
+            plex_cone_new[1] = plex_cone_old[2]
+            plex_cone_new[2] = plex_cone_old[1]
+            plex_cone_new[3] = plex_cone_old[3]
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.HEXAHEDRON:
         # UFCHexahedron:            +-------+     +-------+
         #                          /.       |    /   5   /|
@@ -1180,7 +1183,7 @@ def entity_orientations(mesh,
         entity_cone_map[i] = entity_cone_list[i]
     for i in range(len(entity_cone_list_offset)):
         entity_cone_map_offset[i] = entity_cone_list_offset[i]
-    #
+
     dm = mesh.topology_dm
     dim = dm.getDimension()
     numCells = cell_closure.shape[0]
@@ -1517,6 +1520,7 @@ def get_cell_nodes(mesh,
                     perm_offset += ceil_ndofs[i] * num_orientations_c[i]
                 else:
                     # FInAT element must eventually add entity_permutations() method
+                    
                     if extruded_periodic_1_layer:
                         for j in range(ceil_ndofs[i]):
                             cell_nodes[cell, flat_index[k]] = off + j % offset[flat_index[k]]
