@@ -231,34 +231,36 @@ class ExprAssembler(object):
                 # Only Expr resulting in a Matrix if assembled are BaseFormOperator
                 if not all(isinstance(op, matrix.AssembledMatrix) for op in (a, b)):
                     raise TypeError('Mismatching Sum shapes')
-                return get_assembler(ufl.FormSum((a, 1), (b, 1))).assemble()
+                return assemble(ufl.FormSum((a, 1), (b, 1)), tensor=tensor)
             elif isinstance(expr, ufl.algebra.Product):
                 a, b = expr.ufl_operands
                 scalar = [e for e in expr.ufl_operands if is_scalar_constant_expression(e)]
                 if scalar:
                     base_form = a if a is scalar else b
                     assembled_mat = assemble(base_form)
-                    return get_assembler(ufl.FormSum((assembled_mat, scalar[0]))).assemble()
+                    return assemble(ufl.FormSum((assembled_mat, scalar[0])), tensor=tensor)
                 a, b = [assemble(e) for e in (a, b)]
-                return get_assembler(ufl.action(a, b)).assemble()
+                return assemble(ufl.action(a, b), tensor=tensor)
         # -- Linear combination of Functions and 1-form BaseFormOperators -- #
         # Example: a * u1 + b * u2 + c * N(u1; v*) + d * N(u2; v*)
         # with u1, u2 Functions, N a BaseFormOperator, and a, b, c, d scalars or 0-form BaseFormOperators.
         else:
             base_form_operators = extract_base_form_operators(expr)
-            assembled_bfops = [firedrake.assemble(e) for e in base_form_operators]
             # Substitute base form operators with their output before examining the expression
             # which avoids conflict when determining function space, for example:
             # extract_coefficients(Interpolate(u, V2)) with u \in V1 will result in an output function space V1
             # instead of V2.
             if base_form_operators:
-                expr = ufl.replace(expr, dict(zip(base_form_operators, assembled_bfops)))
-            try:
-                coefficients = ufl.algorithms.extract_coefficients(expr)
-                V, = set(c.function_space() for c in coefficients) - {None}
-            except ValueError:
-                raise ValueError("Cannot deduce correct target space from pointwise expression")
-            return firedrake.Function(V).assign(expr)
+                assembled_bfops = {e: firedrake.assemble(e) for e in base_form_operators}
+                expr = ufl.replace(expr, assembled_bfops)
+            if tensor is None:
+                try:
+                    coefficients = ufl.algorithms.extract_coefficients(expr)
+                    V, = set(c.function_space() for c in coefficients) - {None}
+                except ValueError:
+                    raise ValueError("Cannot deduce correct target space from pointwise expression")
+                tensor = firedrake.Function(V)
+            return tensor.assign(expr)
 
 
 class AbstractFormAssembler(abc.ABC):
@@ -543,9 +545,9 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # Occur in situations such as Interpolate composition
                 expression = assembled_expression[0]
 
-            Interpolate = expr._ufl_expr_reconstruct_
+            reconstruct_interp = expr._ufl_expr_reconstruct_
             if (v, expression) != expr.argument_slots():
-                expr = Interpolate(expression, v=v)
+                expr = reconstruct_interp(expression, v=v)
 
             # Different assembly procedures:
             # 1) Interpolate(Argument(V1, 1), Argument(V2.dual(), 0)) -> Jacobian (Interpolate matrix)
@@ -568,7 +570,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                     cur += Vi.value_size
 
                 # Component-split of the primal expression interpolated into the dual argument-split
-                split_interp = sum(Interpolate(sub_expressions[i], v=vi) for (i,), vi in split_form(v))
+                split_interp = sum(reconstruct_interp(sub_expressions[i], v=vi) for (i,), vi in split_form(v))
                 return assemble(split_interp, tensor=tensor)
 
             # Dual interpolation into mixed target
