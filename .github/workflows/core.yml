@@ -190,6 +190,7 @@ jobs:
             --extra-index-url https://download.pytorch.org/whl/cpu \
             './firedrake-repo[ci,docs]'
 
+          pip install -I "fenics-ufl @ git+https://github.com/firedrakeproject/ufl.git@pbrubeck/fix/baseform"
           firedrake-clean
           pip list
 
