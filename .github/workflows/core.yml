@@ -237,63 +237,27 @@ jobs:
         timeout-minutes: 15
 
 
-      - name: Run Firedrake tests (nprocs = 1)
+      - name: Run Firedrake tests
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
+
+          : # Flag indicating if any of the subsequent steps fails
+          STATUS=0
+
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
-          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 60
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake || STATUS=$?
+          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake || STATUS=$?
+          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake || STATUS=$?
+          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake || STATUS=$?
+          firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake || STATUS=$?
+          firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake || STATUS=$?
+          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake || STATUS=$?
+          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake || STATUS=$?
 
-      - name: Run tests (nprocs = 2)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 30
-
-      - name: Run tests (nprocs = 3)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 60
-
-      - name: Run tests (nprocs = 4)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
-
-      - name: Run tests (nprocs = 5)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
-
-      - name: Run tests (nprocs = 6)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
-
-      - name: Run tests (nprocs = 7)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
-
-      - name: Run tests (nprocs = 8)
-        if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
+          exit $STATUS
+        timeout-minutes: 120
 
       - name: Run Gusto smoke tests
         # Only test Gusto in real mode
