@@ -39,6 +39,11 @@ ARCH_DEFAULT = FiredrakeArch.DEFAULT
 ARCH_COMPLEX = FiredrakeArch.COMPLEX
 
 
+# NOTE: When updating this variable corresponding changes must be made inside
+# pyproject.toml
+SUPPORTED_PETSC_VERSION = "v3.23.0"
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="""Print out the configuration options needed to install Firedrake
@@ -88,6 +93,12 @@ Please see https://firedrakeproject.org/install for more information."""
         help="Print out arguments to pass to PETSc configure.",
     )
     cmd_group.add_argument(
+        "--show-petsc-version",
+        "--petscver",  # alias
+        action="store_true",
+        help="Print out the officially supported PETSc version tag.",
+    )
+    cmd_group.add_argument(
         "--show-env",
         "--env",  # alias
         action="store_true",
@@ -113,6 +124,8 @@ Please see https://firedrakeproject.org/install for more information."""
         print(" ".join(SYSTEM_PACKAGES[package_manager, arch]), end="")
     elif args.show_petsc_configure_options:
         print(" ".join(PETSC_CONFIGURE_OPTIONS[package_manager, arch]), end="")
+    elif args.show_petsc_version:
+        print(SUPPORTED_PETSC_VERSION, end="")
     else:
         assert args.show_env
         print(" ".join(ENVIRONMENT_VARS[package_manager, arch]), end="")
@@ -160,6 +173,7 @@ BASE_LINUX_APT_PACKAGES = (
     "build-essential",
     "cmake",
     "flex",
+    "gfortran",
     "git",
     "libopenblas-dev",
     "libopenmpi-dev",
@@ -193,7 +207,16 @@ BASE_MACOS_HOMEBREW_PACKAGES = (
     "python",
 )
 
-PETSC_EXTRAS_MACOS_HOMEBREW_PACKAGES = ("hwloc", "hdf5-mpi")
+PETSC_EXTRAS_MACOS_HOMEBREW_PACKAGES = (
+    "fftw",
+    "hwloc",
+    "hdf5-mpi",
+    "metis",
+    "pnetcdf",
+    "scalapack",
+    "suitesparse",
+    "zlib",
+)
 
 COMMON_MACOS_HOMEBREW_PACKAGES = (
     BASE_MACOS_HOMEBREW_PACKAGES + PETSC_EXTRAS_MACOS_HOMEBREW_PACKAGES
@@ -239,7 +262,7 @@ PETSC_EXTERNAL_PACKAGE_SPECS = {
     "fftw": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_AUTODETECT,
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
     "hdf5": {
         LINUX_APT_X86_64: (
@@ -263,7 +286,7 @@ PETSC_EXTERNAL_PACKAGE_SPECS = {
     "metis": {
         LINUX_APT_X86_64: PETSC_DOWNLOAD,
         LINUX_APT_AARCH64: PETSC_DOWNLOAD,
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
     "mumps": {
         LINUX_APT_X86_64: PETSC_DOWNLOAD,
@@ -278,7 +301,7 @@ PETSC_EXTERNAL_PACKAGE_SPECS = {
     "pnetcdf": {
         LINUX_APT_X86_64: PETSC_DOWNLOAD,
         LINUX_APT_AARCH64: PETSC_DOWNLOAD,
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
     "ptscotch": {
         LINUX_APT_X86_64: PETSC_DOWNLOAD,
@@ -288,12 +311,12 @@ PETSC_EXTERNAL_PACKAGE_SPECS = {
     "scalapack": {
         LINUX_APT_X86_64: PETSC_DOWNLOAD,
         LINUX_APT_AARCH64: PETSC_DOWNLOAD,
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
     "suitesparse": {
         LINUX_APT_X86_64: PETSC_DOWNLOAD,
         LINUX_APT_AARCH64: PETSC_DOWNLOAD,
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
     "superlu_dist": {
         LINUX_APT_X86_64: PETSC_DOWNLOAD,
@@ -303,7 +326,7 @@ PETSC_EXTERNAL_PACKAGE_SPECS = {
     "zlib": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_AUTODETECT,
-        MACOS_HOMEBREW_ARM64: PETSC_AUTODETECT,
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew/opt/zlib",
     },
 }
 
@@ -372,6 +395,8 @@ def prepare_configure_options(
         # Avoid macos + openmpi + mumps segmentation violation issue;
         # see https://github.com/firedrakeproject/firedrake/issues/4102 and https://github.com/firedrakeproject/firedrake/issues/4113.
         configure_options.append("-download-mumps-avoid-mpi-in-place")
+        # PETSc does not support CMake 4.0 (hopefully fixed in v3.23.1)
+        configure_options.append("--download-cmake")
     else:
         configure_options.append("--FOPTFLAGS='-O3 -march=native -mtune=native'")
 

@@ -344,7 +344,9 @@ class BaseFormAssembler(AbstractFormAssembler):
     def allocate(self):
         rank = len(self._form.arguments())
         if rank == 2 and not self._diagonal:
-            if self._mat_type == "matfree":
+            if isinstance(self._form, matrix.MatrixBase):
+                return self._form
+            elif self._mat_type == "matfree":
                 return MatrixFreeAssembler(self._form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
                                            options_prefix=self._options_prefix,
                                            appctx=self._appctx).allocate()
@@ -1112,7 +1114,7 @@ class ZeroFormAssembler(ParloopFormAssembler):
 
     Parameters
     ----------
-    form : ufl.Form or slate.TensorBasehe
+    form : ufl.Form or slate.TensorBase
         0-form.
 
     Notes
@@ -1342,7 +1344,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                                                           self._sub_mat_type,
                                                           self._make_maps_and_regions())
         return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType,
-                             options_prefix=self._options_prefix)
+                             options_prefix=self._options_prefix,
+                             fc_params=self._form_compiler_params)
 
     @staticmethod
     def _make_sparsity(test, trial, mat_type, sub_mat_type, maps_and_regions):

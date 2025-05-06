@@ -121,7 +121,7 @@ class FDMPC(PCBase):
         Citations().register(self._citation)
         self.comm = pc.comm
         Amat, Pmat = pc.getOperators()
-        prefix = pc.getOptionsPrefix()
+        prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
         options = PETSc.Options(options_prefix)
 
@@ -720,10 +720,7 @@ class FDMPC(PCBase):
 
     @cached_property
     def insert_mode(self):
-        is_dg = {}
-        for Vsub in self.V:
-            element = Vsub.finat_element
-            is_dg[Vsub] = element.entity_dofs() == element.entity_closure_dofs()
+        is_dg = {Vsub: Vsub.finat_element.is_dg() for Vsub in self.V}
 
         insert_mode = {}
         for Vrow, Vcol in product(self.V, self.V):
@@ -1935,9 +1932,7 @@ class PoissonFDMPC(FDMPC):
 
         degree = max(e.degree() for e in line_elements)
         eta = float(self.appctx.get("eta", degree*(degree+1)))
-        element = V.finat_element
-        is_dg = element.entity_dofs() == element.entity_closure_dofs()
-
+        is_dg = V.finat_element.is_dg()
         Afdm = []  # sparse interval mass and stiffness matrices for each direction
         Dfdm = []  # tabulation of normal derivatives at the boundary for each direction
         bdof = []  # indices of point evaluation dofs for each direction

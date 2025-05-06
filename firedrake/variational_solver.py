@@ -4,12 +4,12 @@ from contextlib import ExitStack
 from types import MappingProxyType
 
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
-from firedrake import function
 from firedrake.petsc import (
     PETSc, OptionsManager, flatten_parameters, DEFAULT_KSP_PARAMETERS,
     DEFAULT_SNES_PARAMETERS
 )
 from firedrake.function import Function
+from firedrake.matrix import MatrixBase
 from firedrake.ufl_expr import TrialFunction, TestFunction, action
 from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
@@ -73,7 +73,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         self.output_space = V
         self.u = u
 
-        if not isinstance(self.u, function.Function):
+        if not isinstance(self.u, Function):
             raise TypeError("Provided solution is a '%s', not a Function" % type(self.u).__name__)
 
         # Use the user-provided Jacobian. If none is provided, derive
@@ -81,10 +81,14 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         self.J = J or ufl_expr.derivative(F, u)
         self.F = F
         self.Jp = Jp
-        if bcs:
-            for bc in bcs:
-                if isinstance(bc, EquationBC):
-                    restrict = False
+        if isinstance(J, MatrixBase):
+            if bcs:
+                raise RuntimeError("It is not possible to apply or change boundary conditions to an already assembled Jacobian; pass any necessary boundary conditions to `assemble` when assembling the Jacobian.")
+            if J.has_bcs:
+                # Use the bcs from the assembled Jacobian
+                bcs = J.bcs
+        if bcs and any(isinstance(bc, EquationBC) for bc in bcs):
+            restrict = False
         self.restrict = restrict
 
         if restrict and bcs:
@@ -126,6 +130,16 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     @utils.cached_property
     def dm(self):
         return self.u_restrict.function_space().dm
+
+    @staticmethod
+    def compute_bc_lifting(J, u):
+        """Return the action of the bilinear form J (without bcs) on a Function u."""
+        if isinstance(J, MatrixBase) and J.has_bcs:
+            # Extract the full form without bcs
+            if not isinstance(J.a, (ufl.BaseForm, slate.slate.TensorBase)):
+                raise TypeError(f"Could not remove bcs from {type(J).__name__}.")
+            J = J.a
+        return ufl_expr.action(J, u)
 
 
 class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
@@ -183,8 +197,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                before residual assembly.
         :kwarg post_function_callback: As above, but called immediately
                after residual assembly.
-        :kwarg pre_apply_bcs: If `False`, the problem is linearised
-               around the initial guess before imposing the boundary conditions.
+        :kwarg pre_apply_bcs: If `True`, the bcs are applied before the solve.
+               Otherwise, the problem is linearised around the initial guess
+               before imposing bcs, and the bcs are appended to the nonlinear system.
 
         Example usage of the ``solver_parameters`` option: to set the
         nonlinear solver type to just use a linear solver, use
@@ -219,6 +234,17 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         assert isinstance(problem, NonlinearVariationalProblem)
 
         solver_parameters = flatten_parameters(solver_parameters or {})
+
+        if isinstance(problem.J, MatrixBase):
+            solver_parameters.setdefault("mat_type", problem.J.mat_type)
+            if solver_parameters["mat_type"] != problem.J.mat_type:
+                raise ValueError("Cannot change the mat_type of an already assembled matrix.")
+
+        if isinstance(problem.Jp, MatrixBase):
+            solver_parameters.setdefault("pmat_type", problem.Jp.mat_type)
+            if solver_parameters["pmat_type"] != problem.Jp.mat_type:
+                raise ValueError("Cannot change the mat_type of an already assembled matrix.")
+
         solver_parameters = solving_utils.set_defaults(solver_parameters,
                                                        problem.J.arguments(),
                                                        ksp_defaults=self.DEFAULT_KSP_PARAMETERS,
@@ -364,19 +390,18 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
             that exclude Dirichlet boundary condition nodes,  internally for
             the test and trial spaces.
         """
-        # In the linear case, the Jacobian is the equation LHS.
-        J = a
+        # In the linear case, the Jacobian is the equation LHS (J=a).
         # Jacobian is checked in superclass, but let's check L here.
         if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)) and L == 0:
-            F = ufl_expr.action(J, u)
+            F = self.compute_bc_lifting(a, u)
         else:
             if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)):
                 raise TypeError("Provided RHS is a '%s', not a Form or Slate Tensor" % type(L).__name__)
             if len(L.arguments()) != 1 and not L.empty():
                 raise ValueError("Provided RHS is not a linear form")
-            F = ufl_expr.action(J, u) - L
+            F = self.compute_bc_lifting(a, u) - L
 
-        super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
+        super(LinearVariationalProblem, self).__init__(F, u, bcs=bcs, J=a, Jp=aP,
                                                        form_compiler_parameters=form_compiler_parameters,
                                                        is_linear=True, restrict=restrict)
         self._constant_jacobian = constant_jacobian
@@ -410,6 +435,8 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
            before residual assembly.
     :kwarg post_function_callback: As above, but called immediately
            after residual assembly.
+    :kwarg pre_apply_bcs: If `True`, the bcs are applied before the solve.
+           Otherwise, the bcs are included as part of the linear system.
 
     See also :class:`NonlinearVariationalSolver` for nonlinear problems.
     """

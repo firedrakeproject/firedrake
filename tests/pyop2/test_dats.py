@@ -36,6 +36,7 @@ import pytest
 import numpy as np
 
 from pyop2 import op2
+from pyop2.datatypes import ScalarType
 
 nelems = 5
 
@@ -47,7 +48,7 @@ def s():
 
 @pytest.fixture
 def d1(s):
-    return op2.Dat(s, list(range(nelems)), dtype=np.float64)
+    return op2.Dat(s, list(range(nelems)), dtype=ScalarType)
 
 
 @pytest.fixture
@@ -62,7 +63,7 @@ def s2(s):
 
 @pytest.fixture
 def vdat(s2):
-    return op2.Dat(s2, np.zeros(2 * nelems), dtype=np.float64)
+    return op2.Dat(s2, np.zeros(2 * nelems), dtype=ScalarType)
 
 
 class TestDat:
@@ -123,7 +124,7 @@ class TestDat:
     def test_dat_nbytes(self, dim):
         """Nbytes computes the number of bytes occupied by a Dat."""
         s = op2.Set(10)
-        assert op2.Dat(s**dim).nbytes == 10*8*dim
+        assert op2.Dat(s**dim).nbytes == 10*np.dtype(ScalarType).itemsize*dim
 
     def test_dat_save_and_load(self, tmpdir, d1, s, mdat):
         """The save method should dump Dat and MixedDat values to
