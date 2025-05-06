@@ -583,10 +583,11 @@ class BaseFormAssembler(AbstractFormAssembler):
 
             # Get the primal space
             V = expr.function_space()
-            if is_adjoint:
+            if is_adjoint or rank == 0:
                 V = V.dual()
+
             # Workaround: Renumber argument when needed since Interpolator assumes it takes a zero-numbered argument.
-            if not is_adjoint and rank != 1:
+            if not is_adjoint and rank == 2:
                 _, v1 = expr.arguments()
                 expression = ufl.replace(expression, {v1: v1.reconstruct(number=0)})
             # Get the interpolator
@@ -594,7 +595,10 @@ class BaseFormAssembler(AbstractFormAssembler):
             default_missing_val = interp_data.pop('default_missing_val', None)
             interpolator = firedrake.Interpolator(expression, V, **interp_data)
             # Assembly
-            if rank == 1:
+            if rank == 0:
+                Iu = interpolator._interpolate(default_missing_val=default_missing_val)
+                return assemble(ufl.Action(v, Iu), tensor=tensor)
+            elif rank == 1:
                 # Assembling the action of the Jacobian adjoint.
                 if is_adjoint:
                     return interpolator._interpolate(v, output=tensor, adjoint=True, default_missing_val=default_missing_val)
@@ -849,7 +853,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             return ufl.replace(B, reordered_arguments)
 
         # -- Case (5) -- #
-        if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator) and not expr.arguments():
+        if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator) and len(expr.arguments()) == 0:
             # We are assembling a BaseFormOperator of rank 0 (no arguments).
             # B(f, u*) be a BaseFormOperator with u* a Cofunction and f a Coefficient, then:
             #    B(f, u*) <=> Action(B(f, v*), f) where v* is a Coargument

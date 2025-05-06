@@ -87,7 +87,9 @@ class Interpolate(ufl.Interpolate):
         """
         # Check function space
         if isinstance(v, functionspaceimpl.WithGeometry):
-            v = Argument(v.dual(), 0)
+            expr_args = extract_arguments(expr)
+            is_adjoint = len(expr_args) and expr_args[0].number() == 0
+            v = Argument(v.dual(), 1 if is_adjoint else 0)
         super().__init__(expr, v)
 
         # -- Interpolate data (e.g. `subset` or `access`) -- #
