@@ -92,7 +92,7 @@ class FiredrakeJaxOperator:
             adj_input = float(adj_input)
 
         # Compute adjoint model of `F`: delegated to pyadjoint.ReducedFunctional
-        adj_output = self.F.derivative(adj_input=adj_input, options={'riesz_representation': None})
+        adj_output = self.F.derivative(adj_input=adj_input, apply_riesz=False)
 
         # Tuplify adjoint output
         adj_output = (adj_output,) if not isinstance(adj_output, collections.abc.Sequence) else adj_output

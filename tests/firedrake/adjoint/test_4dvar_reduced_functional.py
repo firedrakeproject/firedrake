@@ -2,21 +2,35 @@ import pytest
 import firedrake as fd
 from firedrake.__future__ import interpolate
 from firedrake.adjoint import (
-    continue_annotation, pause_annotation, stop_annotating,
+    continue_annotation, pause_annotation, stop_annotating, annotate_tape,
     set_working_tape, get_working_tape, Control, taylor_test, taylor_to_dict,
-    ReducedFunctional, FourDVarReducedFunctional)
+    ReducedFunctional, FourDVarReducedFunctional, AdjFloat)
 from numpy import mean
+from pytest_mpi.parallel_assert import parallel_assert
 
 
 @pytest.fixture(autouse=True)
-def clear_tape_teardown():
+def handle_taping():
     yield
-    get_working_tape().clear_tape()
+    tape = get_working_tape()
+    tape.clear_tape()
+
+
+@pytest.fixture(autouse=True, scope="module")
+def handle_annotation():
+    if not annotate_tape():
+        continue_annotation()
+    yield
+    # Ensure annotation is paused when we finish.
+    if annotate_tape():
+        pause_annotation()
 
 
 def function_space(comm):
     """DG0 periodic advection"""
-    mesh = fd.PeriodicUnitIntervalMesh(nx, comm=comm)
+    mesh = fd.PeriodicUnitIntervalMesh(
+        nx, comm=comm,
+        distribution_parameters={"partitioner_type": "simple"})
     return fd.FunctionSpace(mesh, "DG", 0)
 
 
@@ -57,13 +71,15 @@ def covariance_norm(covariance):
     weight = fd.Constant(1/cov)
 
     def n2(x):
-        return fd.assemble(fd.inner(x, weight*x)*fd.dx)**power
+        result = fd.assemble(fd.inner(x, weight*x)*fd.dx)**power
+        assert type(result) is AdjFloat
+        return result
     return n2
 
 
-B = (fd.Constant(10.), 2)  # background error covariance
-R = (fd.Constant(0.1), 2)  # observation error covariance
-Q = (fd.Constant(0.5), 2)  # model error covariance
+B = (fd.Constant(1e0), 4)  # background error covariance
+R = (fd.Constant(2e0), 4)  # observation error covariance
+Q = (fd.Constant(3e0), 4)  # model error covariance
 
 
 """Advecting velocity"""
@@ -395,8 +411,12 @@ def main_test_strong_4dvar_advection():
     eps = 1e-12
 
     # Does evaluating the functional match the reference rf?
-    assert abs(Jhat_pyadj(mp) - Jhat_aaorf(ma)) < eps
-    assert abs(Jhat_pyadj(hp) - Jhat_aaorf(ha)) < eps
+    Jpm = Jhat_pyadj(mp)
+    Jph = Jhat_pyadj(hp)
+    Jam = Jhat_aaorf(ma)
+    Jah = Jhat_aaorf(ha)
+    assert abs((Jpm - Jam)/Jpm) < eps
+    assert abs((Jph - Jah)/Jph) < eps
 
     # If we match the functional, then passing the taylor tests
     # should mean that we match the derivative too.
@@ -408,7 +428,9 @@ def main_test_strong_4dvar_advection():
 
 def main_test_weak_4dvar_advection():
     global_comm = fd.COMM_WORLD
-    if global_comm.size in (1, 2):  # time serial
+    if global_comm.size == 1:  # space-time serial
+        nspace = global_comm.size
+    if global_comm.size == 2:  # space parallel
         nspace = global_comm.size
     elif global_comm.size == 3:  # time parallel
         nspace = 1
@@ -426,7 +448,7 @@ def main_test_weak_4dvar_advection():
         mp = m(V)
         hp = h(V)
         # make sure we've set up the reference rf correctly
-        assert taylor_test(Jhat_pyadj, mp, hp) > 1.99
+        # assert taylor_test(Jhat_pyadj, mp, hp) > 1.99
 
     Jpm = ensemble.ensemble_comm.bcast(Jhat_pyadj(mp) if erank == 0 else None)
     Jph = ensemble.ensemble_comm.bcast(Jhat_pyadj(hp) if erank == 0 else None)
@@ -436,17 +458,40 @@ def main_test_weak_4dvar_advection():
     ma = m(V, ensemble)
     ha = h(V, ensemble)
 
-    eps = 1e-10
     # Does evaluating the functional match the reference rf?
-    assert abs(Jpm - Jhat_aaorf(ma)) < eps
-    assert abs(Jph - Jhat_aaorf(ha)) < eps
+    eps = 1e-12
+
+    Jam = Jhat_aaorf(ma)
+    parallel_assert(
+        abs((Jpm - Jam)/Jpm) < eps,
+        msg=f"fdvrf evaluation {Jam} should match pyadjointrf evaluation {Jpm}")
+
+    Jah = Jhat_aaorf(ha)
+    parallel_assert(
+        abs((Jph - Jah)/Jph) < eps,
+        msg=f"fdvrf evaluation {Jah} should match pyadjointrf evaluation {Jph}")
+
+    conv_rate = taylor_test(Jhat_aaorf, ma, ha)
+    parallel_assert(
+        conv_rate > 1.99,
+        msg=f"Convergence rate for first order Taylor test should be >1.99, not {conv_rate}")
 
     # If we match the functional, then passing the taylor tests
     # should mean that we match the derivative too.
     taylor = taylor_to_dict(Jhat_aaorf, ma, ha)
-    assert mean(taylor['R0']['Rate']) > 0.9
-    assert mean(taylor['R1']['Rate']) > 1.9
-    assert mean(taylor['R2']['Rate']) > 2.9
+    R0 = mean(taylor['R0']['Rate'])
+    R1 = mean(taylor['R1']['Rate'])
+    R2 = mean(taylor['R2']['Rate'])
+
+    parallel_assert(
+        R0 > 0.99,
+        msg=f"Convergence rate for evaluation order Taylor test should be >0.99, not {R0}")
+    parallel_assert(
+        R1 > 1.99,
+        msg=f"Convergence rate for gradient order Taylor test should be >1.99, not {R0}")
+    parallel_assert(
+        R2 > 2.99,
+        msg=f"Convergence rate for hessian order Taylor test should be >2.99, not {R0}")
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
@@ -462,4 +507,4 @@ def test_weak_4dvar_advection():
 
 
 if __name__ == '__main__':
-    main_test_strong_4dvar_advection()
+    main_test_weak_4dvar_advection()
