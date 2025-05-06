@@ -180,7 +180,7 @@ install Firedrake. To do this perform the following steps:
 #. Install Firedrake::
 
       $ pip cache remove petsc4py
-      $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[check]"
+      $ pip install --no-binary h5py 'firedrake[check]'
 
    .. note::
       Though not strictly necessary to install Firedrake's optional
@@ -189,12 +189,6 @@ install Firedrake. To do this perform the following steps:
       :ref:`below<firedrake_check>`).
 
 #. Firedrake is now installed and ready for use!
-
-.. warning::
-   Until Firedrake has versioned releases (slated for April/May 2025),
-   :doc:`firedrake-zenodo</zenodo>` will only work with *editable* installations of
-   Firedrake and its components. To install Firedrake in editable mode you
-   should follow the instructions :ref:`below<dev_install>`.
 
 
 .. _firedrake_check:
@@ -225,7 +219,7 @@ Updating Firedrake involves following the same steps as above when
 :ref:`installing Firedrake<install_firedrake>`. First, use ``firedrake-configure``
 to set the right environment variables and then run::
 
-     $ pip install --upgrade git+https://github.com/firedrakeproject/firedrake.git
+     $ pip install --upgrade firedrake
 
 Updating PETSc
 ~~~~~~~~~~~~~~
@@ -257,16 +251,18 @@ If you encounter the error:
       FileNotFoundError: [Errno 2] No such file or directory: '/tmp/.../petsc/conf/petscvariables'
 
 when running the ``pip install`` instruction this is usually a sign that the
-environment variable ``PETSC_DIR`` is not set correctly. You can check this
-by making sure that you can run the following command without error::
+environment variables ``PETSC_DIR`` or ``PETSC_ARCH`` are not set correctly.
+You can check this by making sure that you can run the following command
+without error::
 
-   $ ls $PETSC_DIR
+   $ ls $PETSC_DIR/$PETSC_ARCH/lib/petsc/conf/petscvariables 
 
-If this raises an error then you should re-``export`` the variable::
+If this raises an error then you should re-``export`` the variables necessary to
+build Firedrake as described :ref:`above<install_firedrake>`::
 
-   $ export PETSC_DIR=/path/to/petsc
+   $ export $(python3 firedrake-configure --show-env)
 
-and try the ``pip install`` again.
+and try the install again.
 
 Missing symbols post install
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -285,36 +281,6 @@ To resolve the problem you should first remove any existing cached packages::
    $ pip cache remove slepc4py
 
 before re-running the instruction to install Firedrake.
-
-.. _dev_install:
-
-Developer install
------------------
-
-By default Firedrake is installed just like any other Python package into
-your environment. If you want to be able to edit Firedrake itself then
-an *editable* installation is needed. To install Firedrake in editable
-mode you should follow the same
-:ref:`steps as for a non-editable install<install_firedrake>` but replace the
-final ``pip install`` command with::
-
-   $ git clone <firedrake url>
-   $ pip install --no-binary h5py --editable './firedrake[dev]'
-
-where ``<firedrake url>`` is ``https://github.com/firedrakeproject/firedrake.git``
-or ``git@github.com:firedrakeproject/firedrake.git`` as preferred.
-
-The same process applies for Firedrake's dependencies. For example, to install
-`FIAT <https://github.com/firedrakeproject/fiat.git>`_ in editable mode you
-should run::
-
-   $ git clone <fiat url>
-   $ pip install --editable ./fiat
-
-Note that editable versions of Firedrake's dependencies should be installed *after*
-Firedrake is installed. Otherwise installing Firedrake will overwrite
-whatever packages you just installed.
-
 
 .. _customising:
 
@@ -360,7 +326,7 @@ To install Firedrake with SLEPc support you should:
    and install Firedrake with the ``slepc`` optional dependency. For example::
 
    $ pip cache remove slepc4py
-   $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[check,slepc]"
+   $ pip install --no-binary h5py 'firedrake[check,slepc]'
 
 VTK
 ~~~
@@ -368,7 +334,7 @@ VTK
 To install Firedrake with VTK, it should be installed using the ``vtk`` optional
 dependency. For example::
 
-   $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[check,vtk]"
+   $ pip install --no-binary h5py 'firedrake[check,vtk]'
 
 At present VTK wheels are not available for ARM Linux machines. Depending on your
 Python version you may be able to work around this by downloading and pip installing
@@ -382,7 +348,7 @@ PyTorch
 To install Firedrake with `PyTorch <https://pytorch.org/>`_, it should be installed
 using the ``torch`` optional dependency. For example::
 
-   $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[check,torch]" --extra-index-url https://download.pytorch.org/whl/cpu
+   $ pip install --no-binary h5py 'firedrake[check,torch]' --extra-index-url https://download.pytorch.org/whl/cpu
 
 Observe that, in addition to specifying ``torch``, an additional
 argument (``--extra-index-url``) is needed. More information on installing
@@ -395,7 +361,7 @@ JAX
 To install Firedrake with JAX, it should be installed using the ``jax`` optional
 dependency. For example::
 
-   $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[check,jax]"
+   $ pip install --no-binary h5py 'firedrake[check,jax]'
 
 
 Netgen
@@ -404,7 +370,7 @@ Netgen
 To install Firedrake with `Netgen <https://ngsolve.org/>`_ support, it should be
 installed with the ``netgen`` optional dependency. For example::
 
-   $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git#[check,netgen]"
+   $ pip install --no-binary h5py 'firedrake[check,netgen]'
 
 
 Customising PETSc
@@ -500,6 +466,74 @@ Google Colab
 Firedrake can also be used inside the brower using Jupyter notebooks and
 `Google Colab <https://colab.research.google.com/>`_. For more information
 please see :doc:`here</notebooks>`.
+
+.. _dev_install:
+
+Developer install
+=================
+
+.. only:: release
+
+   .. warning::
+      You are currently looking at the documentation for the current stable
+      release of Firedrake. For the most recent developer documentation you
+      should follow the instructions `here <https://firedrakeproject.org/firedrake/main/install>`__.
+
+In order to install a development version of Firedrake the following steps
+should be followed:
+
+#. Install system dependencies :ref:`as before<install_system_dependencies>`
+
+#. Clone and build the *default branch* of PETSc:
+
+   .. code-block:: text
+
+      $ git clone https://gitlab.com/petsc/petsc.git
+      $ cd petsc
+      $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure
+      $ make PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-default all
+      $ make check
+      $ cd ..
+
+#. Clone Firedrake::
+
+   $ git clone <firedrake url>
+
+   where ``<firedrake url>`` is ``https://github.com/firedrakeproject/firedrake.git``
+   or ``git@github.com:firedrakeproject/firedrake.git`` as preferred.
+
+#. Set the necessary environment variables::
+
+   $ export $(python3 firedrake-configure --show-env)
+
+#. Install petsc4py and Firedrake's other build dependencies:
+
+   .. code-block:: text
+
+      $ pip cache remove petsc4py
+      $ pip install $PETSC_DIR/src/binding/petsc4py
+      $ pip install -r ./firedrake/requirements-build.txt
+
+#. Install Firedrake in editable mode without build isolation::
+
+   $ pip install --no-build-isolation --no-binary h5py --editable './firedrake[check]'
+
+Editing subpackages
+-------------------
+
+Firedrake dependencies can be cloned and installed in editable mode in an
+identical way to Firedrake. For example, to install
+`FIAT <https://github.com/firedrakeproject/fiat.git>`_ in editable mode you
+should run::
+
+   $ git clone <fiat url>
+   $ pip install --editable ./fiat
+
+For most packages it should not be necessary to pass ``--no-build-isolation``.
+
+It is important to note that these packages **must be installed after Firedrake**.
+This is because otherwise installing Firedrake will overwrite the just-installed
+package.
 
 .. _discussion: https://github.com/firedrakeproject/firedrake/discussions
 .. _issue: https://github.com/firedrakeproject/firedrake/issues
