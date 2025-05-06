@@ -95,10 +95,10 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, *,
         interface = firedrake_interface_loopy.KernelBuilder
     scalar_type = parameters["scalar_type"]
     integral_type = integral_data.integral_type
-    if integral_type.startswith("interior_facet") and diagonal:
-        raise NotImplementedError("Sorry, we can't assemble the diagonal of a form for interior facet integrals")
     mesh = integral_data.domain
     arguments = form_data.preprocessed_form.arguments()
+    if integral_type.startswith("interior_facet") and diagonal and any(a.function_space().finat_element.is_dg() for a in arguments):
+        raise NotImplementedError("Sorry, we can't assemble the diagonal of a form for interior facet integrals")
     kernel_name = f"{prefix}_{integral_type}_integral"
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
@@ -208,11 +208,13 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     # Collect required coefficients and determine numbering
     coefficients = extract_coefficients(expression)
     orig_coefficients = extract_coefficients(orig_expression)
-    coefficient_numbers = tuple(orig_coefficients.index(c) for c in coefficients)
+    coefficient_numbers = tuple(map(orig_coefficients.index, coefficients))
     builder.set_coefficient_numbers(coefficient_numbers)
 
+    elements = [f.ufl_element() for f in (*coefficients, *arguments)]
+
     needs_external_coords = False
-    if has_type(expression, GeometricQuantity) or any(fem.needs_coordinate_mapping(c.ufl_element()) for c in coefficients):
+    if has_type(expression, GeometricQuantity) or any(map(fem.needs_coordinate_mapping, elements)):
         # Create a fake coordinate coefficient for a domain.
         coords_coefficient = ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
         builder.domain_coordinate[domain] = coords_coefficient

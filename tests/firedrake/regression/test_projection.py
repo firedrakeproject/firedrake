@@ -194,7 +194,8 @@ def test_repeatable():
 
 
 @pytest.mark.parametrize('mat_type', ['aij', 'matfree'])
-def test_projector(mat_type):
+@pytest.mark.parametrize('quadrature_degree', (None, 5))
+def test_projector(mat_type, quadrature_degree):
     m = UnitSquareMesh(2, 2)
     Vc = FunctionSpace(m, "CG", 2)
     xs = SpatialCoordinate(m)
@@ -205,8 +206,16 @@ def test_projector(mat_type):
     Vd = FunctionSpace(m, "DG", 1)
     vo = Function(Vd)
 
-    P = Projector(v, vo, solver_parameters={"mat_type": mat_type})
+    fc_params = None
+    if quadrature_degree is not None:
+        fc_params = {"quadrature_degree": quadrature_degree}
+    P = Projector(v, vo, solver_parameters={"mat_type": mat_type},
+                  form_compiler_parameters=fc_params)
     P.project()
+
+    if mat_type == "matfree":
+        ctx = P.A.petscmat.getPythonContext()
+        assert ctx.fc_params.get("quadrature_degree") == quadrature_degree
 
     mass2 = assemble(vo*dx)
     assert np.abs(mass1-mass2) < 1.0e-10
@@ -382,3 +391,32 @@ def run_extr_trace_projection(x, degree=1, family='DGT'):
                          + area * (w - ref) * (w - ref) * ds_b
                          + area * (w('+') - ref('+')) * (w('+') - ref('+')) * dS_h
                          + area * (w('+') - ref('+')) * (w('+') - ref('+')) * dS_v))
+
+
+def test_project_scalar_boundary_quadrature():
+    msh = UnitSquareMesh(4, 4)
+    x = SpatialCoordinate(msh)
+    f = x[0]*(2-x[0])*x[1]*(2-x[1])
+
+    T = FunctionSpace(msh, "BQ", 8)
+    w = Function(T)
+    w.project(f, solver_parameters={'mat_type': 'matfree', 'ksp_type': 'preonly', 'pc_type': 'jacobi'})
+
+    err = w - f
+    err2 = inner(err, err)
+    error = sqrt(assemble(err2 * ds + err2('+') * dS))
+    assert error < 1E-8
+
+
+def test_project_vector_boundary_quadrature():
+    msh = UnitCubeMesh(4, 4, 4)
+    n = FacetNormal(msh)
+
+    T = VectorFunctionSpace(msh, "BQ", 0)
+    w = Function(T)
+    w.project(n, solver_parameters={'mat_type': 'matfree', 'ksp_type': 'preonly', 'pc_type': 'jacobi'})
+
+    err = w - n
+    err2 = inner(err, err)
+    error = sqrt(assemble(err2 * ds))
+    assert error < 1E-8

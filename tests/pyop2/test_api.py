@@ -40,6 +40,7 @@ import numpy as np
 from numpy.testing import assert_equal
 
 from pyop2 import exceptions, op2
+from pyop2.datatypes import ScalarType
 from pyop2.mpi import COMM_WORLD
 
 
@@ -684,7 +685,7 @@ class TestDatAPI:
         """Dat initilialised without the data should initialise data with the
         correct size and type."""
         d = op2.Dat(dset)
-        assert d.data.size == dset.size * dset.cdim and d.data.dtype == np.float64
+        assert d.data.size == dset.size * dset.cdim and d.data.dtype == ScalarType
 
     def test_dat_initialise_data_type(self, dset):
         """Dat intiialised without the data but with specified type should
@@ -738,12 +739,12 @@ class TestDatAPI:
     def test_dat_dtype(self, dset):
         "Default data type should be numpy.float64."
         d = op2.Dat(dset)
-        assert d.dtype == np.double
+        assert d.dtype == ScalarType
 
     def test_dat_float(self, dset):
         "Data type for float data should be numpy.float64."
         d = op2.Dat(dset, [1.0] * dset.size * dset.cdim)
-        assert d.dtype == np.double
+        assert d.dtype == np.float64
 
     def test_dat_int(self, dset):
         "Data type for int data should be numpy.int."
@@ -753,7 +754,7 @@ class TestDatAPI:
     def test_dat_convert_int_float(self, dset):
         "Explicit float type should override NumPy's default choice of int."
         d = op2.Dat(dset, [1] * dset.size * dset.cdim, np.double)
-        assert d.dtype == np.float64
+        assert d.dtype == np.double
 
     def test_dat_convert_float_int(self, dset):
         "Explicit int type should override NumPy's default choice of float."
@@ -1151,18 +1152,18 @@ class TestMatAPI:
             op2.Mat(sparsity, name=2)
 
     def test_mat_dtype(self, mat):
-        "Default data type should be numpy.float64."
-        assert mat.dtype == np.double
+        "Default data type should be ScalarType."
+        assert mat.dtype == ScalarType
 
     def test_mat_properties(self, sparsity):
         "Mat constructor should correctly set attributes."
-        m = op2.Mat(sparsity, 'double', 'bar')
+        m = op2.Mat(sparsity, ScalarType, 'bar')
         assert m.sparsity == sparsity and  \
-            m.dtype == np.float64 and m.name == 'bar'
+            m.dtype == ScalarType and m.name == 'bar'
 
     def test_mat_mixed(self, mmat):
-        "Default data type should be numpy.float64."
-        assert mmat.dtype == np.double
+        "Default data type should be ScalarType."
+        assert mmat.dtype == ScalarType
 
     def test_mat_illegal_maps(self, mat):
         "Mat arg constructor should reject invalid maps."
@@ -1597,7 +1598,7 @@ class TestParLoopAPI:
         s2 = op2.Set(10)
         m = op2.Map(s1, s2, 3)
         d = op2.Dat(s2 ** 1, [0] * 10, dtype=int)
-        k = op2.Kernel("static void k(int *x) {}", "k")
+        k = op2.Kernel("static void k(int64_t *x) {}", "k")
         op2.par_loop(k, s1, d(op2.READ, m))
 
     def test_frozen_dats_cannot_use_different_access_mode(self):
@@ -1605,7 +1606,7 @@ class TestParLoopAPI:
         s2 = op2.Set(3)
         m = op2.Map(s1, s2, 3, [0]*6)
         d = op2.Dat(s2**1, [0]*3, dtype=int)
-        k = op2.Kernel("static void k(int *x) {}", "k")
+        k = op2.Kernel("static void k(int64_t *x) {}", "k")
 
         with d.frozen_halo(op2.INC):
             op2.par_loop(k, s1, d(op2.INC, m))
