@@ -862,10 +862,18 @@ class AbstractMeshTopology(abc.ABC):
     # IMPORTANT: This used to return a mapping from point numbering to entity numbering
     # but now returns entity numbering to entity numbering
     @cachedmethod(lambda self: self._cache["_entity_numbering"])
-    def _entity_numbering(self, dim):
+    def _entity_numbering(self, dim, *, stratum_localize: bool = True):
+        """
+
+        stratum_localize :
+            Whether the 'localise' the destination points. That is, whether to
+            use the full plex numbering or just the numbering for a particular
+            entity.
+        """
         p_start, p_end = self.topology_dm.getDepthStratum(dim)
 
         numbering = self._dm_renumbering_inv.indices[p_start:p_end]
+
         # use argsort to convert a point numbering into an entity-wise one
         # for example, we might renumber point 3/vertex 5 into point 9/vertex 4.
         # Previously we would return the mapping point 3 -> vertex 4 whereas now
@@ -875,7 +883,13 @@ class AbstractMeshTopology(abc.ABC):
 
         # this is very inefficient
         sorted_arr = list(sorted(numbering))
-        return readonly(np.asarray([sorted_arr.index(x) for x in numbering], dtype=IntType))
+        numbering = np.asarray([sorted_arr.index(x) for x in numbering], dtype=IntType)
+
+        if not stratum_localize:
+            numbering += p_start
+
+        return readonly(numbering)
+
 
     @cached_property
     def _global_numbering(self):
@@ -1103,37 +1117,14 @@ class AbstractMeshTopology(abc.ABC):
 
     def _closure_map(self, ordering):
         if ordering == ClosureOrdering.PLEX:
-            dims = range(self.dimension+1)
+            closure_arrays = dict(enumerate(self._plex_closures_localized))
         else:
             assert ordering == ClosureOrdering.FIAT
             # FIAT ordering is only valid for cell closures
-            dims = (self.dimension,)
+            closure_arrays = {self.dimension: self._fiat_cell_closures_localized}
 
         closures = {}
-        for dim in dims:
-            flat_closure_data_plex = self._plex_closures_default[dim]
-
-            if ordering == ClosureOrdering.FIAT:
-                # TODO If the plex is oriented at instantiation, these methods
-                # can be avoided and the default below used.
-                # See https://github.com/firedrakeproject/firedrake/pull/3332.
-                if self.ufl_cell().is_simplex():
-                    flat_closure_data_fiat = self._reorder_closure_fiat_simplex(flat_closure_data_plex)
-                elif self.ufl_cell() == ufl.quadrilateral:
-                    flat_closure_data_fiat = self._reorder_closure_fiat_quad(flat_closure_data_plex)
-                else:
-                    assert self.ufl_cell() == ufl.hexahedron
-                    flat_closure_data_fiat = self._reorder_closure_fiat_hex(flat_closure_data_plex)
-
-            # Break apart the closure data per dimension and renumber it.
-            closure_data = []
-            offset = 0
-            for map_dim, size in enumerate(self._closure_sizes[dim]):
-                map_data_per_dim = flat_closure_data[:, offset:offset+size]
-                map_data_per_dim_renum = self._renumber_map(dim, map_dim, map_data_per_dim)
-                closure_data.append(map_data_per_dim_renum)
-                offset += size
-
+        for dim, closure_data in closure_arrays.items():
             map_components = []
             for map_dim, map_data in enumerate(closure_data):
                 _, size = map_data.shape
@@ -1325,13 +1316,13 @@ class AbstractMeshTopology(abc.ABC):
         return self._star(k=k)(index)
 
     # TODO: Cythonize
-    def _renumber_map(self, src_dim, dest_dim, map_pts, sizes=None):
+    def _renumber_map(self, map_pts, src_dim, dest_dim, sizes=None):
         """
         sizes :
             If `None` implies non-ragged
         """
         src_renumbering = self._entity_numbering(src_dim)
-        dest_renumbering = self._entity_numbering(dest_dim)
+        dest_renumbering = self._entity_numbering(dest_dim, stratum_localize=False)
 
         src_start, src_end = self.topology_dm.getDepthStratum(src_dim)
         dest_start, dest_end = self.topology_dm.getDepthStratum(dest_dim)
@@ -2035,7 +2026,7 @@ class MeshTopology(AbstractMeshTopology):
         return tuple(np.unique(pts) for pts in points)
 
     @cached_property
-    def _plex_closures_default(self) -> tuple:
+    def _plex_closures(self) -> tuple[np.ndarray, ...]:
         # TODO: Provide more detail about the return type
         """Memoized DMPlex point closures with default numbering.
 
@@ -2045,9 +2036,70 @@ class MeshTopology(AbstractMeshTopology):
             Closure data per dimension.
 
         """
+        # TODO: make memoize_closures nicer to reuse code
         return tuple(self._memoize_closures(dim) for dim in range(self.dimension+1))
 
-    def _memoize_closures(self, dim):
+    @cached_property
+    def _plex_closures_renumbered(self) -> tuple[np.ndarray, ...]:
+        raise NotImplementedError
+
+    @cached_property
+    def _plex_closures_localized(self) -> tuple[tuple[np.ndarray, ...], ...]:
+        raise NotImplementedError
+
+    @cached_property
+    def _fiat_cell_closures(self) -> np.ndarray:
+        """
+
+        Reorders verts -> cell from cell -> verts
+
+        """
+        plex_closures = self._plex_closures[self.dimension]
+        if self.ufl_cell().is_simplex():
+            return self._reorder_closure_fiat_simplex(plex_closures)
+        elif self.ufl_cell() == ufl.quadrilateral:
+            return self._reorder_closure_fiat_quad(plex_closures)
+        else:
+            assert self.ufl_cell() == ufl.hexahedron
+            return self._reorder_closure_fiat_hex(plex_closures)
+
+    @cached_property
+    def _fiat_cell_closures_renumbered(self) -> np.ndarray:
+        renumbered_closures = np.empty_like(self._fiat_cell_closures)
+        from_dim = self.dimension
+        offset = 0
+        for to_dim, size in enumerate(self._closure_sizes[from_dim]):
+            start = offset
+            stop = offset + size
+            renumbered_closures[:, start:stop] = self._renumber_map(
+                self._fiat_cell_closures[:, start:stop],
+                from_dim,
+                to_dim,
+            )
+            offset += size
+        return renumbered_closures
+
+    @cached_property
+    def _fiat_cell_closures_localized(self) -> tuple[np.ndarray, ...]:
+        """
+
+        Reorders verts -> cell from cell -> verts
+
+        """
+        localized_closures = []
+        from_dim = self.dimension
+        offset = 0
+        for to_dim, size in enumerate(self._closure_sizes[from_dim]):
+            stratum_offset, _ = self.topology_dm.getDepthStratum(to_dim)
+            localized_closures.append(self._fiat_cell_closures[:, offset:offset+size] - stratum_offset)
+            offset += size
+        return tuple(localized_closures)
+
+    @cached_property
+    def entity_orientations(self):
+        return dmcommon.entity_orientations(self, self._fiat_cell_closures)
+
+    def _memoize_closures(self, dim) -> np.ndarray:
         def closure_func(_pt):
             return self.topology_dm.getTransitiveClosure(_pt)[0]
 
@@ -2116,60 +2168,6 @@ class MeshTopology(AbstractMeshTopology):
                 map_pts[map_dim][offsets[map_dim][stratum_pt] + plex_pt_offsets[map_dim]] = map_pt
                 plex_pt_offsets[map_dim] += 1
         return map_pts, sizes
-
-    @utils.cached_property
-    def entity_orientations(self):
-        # TODO: cell numbering is not done...
-        breakpoint()
-        # FIXME: An awful lot of this is very very similar to what we do for closures
-        closure_data = self._plex_closures_default[self.dimension]
-
-        if self.ufl_cell().is_simplex():
-            closure_data = self._reorder_closure_fiat_simplex(closure_data)
-        elif self.ufl_cell() == ufl.quadrilateral:
-            closure_data = self._reorder_closure_fiat_quad(closure_data)
-        else:
-            assert self.ufl_cell() == ufl.hexahedron
-            closure_data = self._reorder_closure_fiat_hex(closure_data)
-
-        breakpoint()
-
-        # FIXME: also used in _reorder_closure_fiat_hex
-        # nverts_per_cell, nedges_per_cell, nfacets_per_cell, _ = \
-        #     self._closure_sizes[self.dimension]
-        # cell_offset = 0
-        # facet_offset = cell_offset + 1
-        # edge_offset = facet_offset + nfacets_per_cell
-        # vert_offset = edge_offset + nedges_per_cell
-        #
-        # orientations = np.empty_like(closure_data)
-        # # vertices do not have an orientation
-        # orientations[: vert_offset:vert_offset+nverts_per_cell] = 0
-        #
-        # for dim in range(1, self.dimension+1):
-        #     orientations[dim] = dmcommon.entity_orientations(self, closure_data[dim], closure_data[dim-1], dim-1)
-        #
-        # # reorder cells
-        # orientations_ = tuple(np.empty_like(o) for o in orientations)
-        # cell_renumbering = self.points.component_numbering(self.cell_label)
-        # for dim in range(self.dimension+1):
-        #     for old_pt, new_pt in enumerate(cell_renumbering):
-        #         orientations_[dim][new_pt] = orientations[dim][old_pt]
-        # orientations = orientations_
-        #
-        # return orientations
-
-        return dmcommon.entity_orientations(self, closure_data)
-
-    @utils.cached_property
-    def entity_orientations_dat(self):
-        dats = []
-        for dim in range(self.dimension+1):
-            closure_map = self._fiat_closure.connectivity[immutabledict({self.name: self.cell_label})][dim]
-            axes = op3.AxisTree.from_iterable((op3.Axis({self.cell_label: self.num_cells()}, self.name), op3.Axis({str(dim): closure_map.arity}, "closure")))
-            dat = op3.Dat(axes, data=self.entity_orientations[dim].flatten(), prefix="ornt")
-            dats.append(dat)
-        return tuple(dats)
 
     @PETSc.Log.EventDecorator()
     def _facets(self, kind):
