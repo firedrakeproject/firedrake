@@ -37,6 +37,7 @@ from firedrake.petsc import (
 from firedrake.adjoint_utils import MeshGeometryMixin
 from pyadjoint import stop_annotating
 import gem
+from fuse import constructCellComplex
 
 try:
     import netgen
@@ -1216,7 +1217,6 @@ class MeshTopology(AbstractMeshTopology):
 
         # TODO: this needs to be updated for mixed-cell meshes.
         nfacets = self._comm.allreduce(nfacets, op=MPI.MAX)
-
         # Note that the geometric dimension of the cell is not set here
         # despite it being a property of a UFL cell. It will default to
         # equal the topological dimension.
@@ -1224,7 +1224,8 @@ class MeshTopology(AbstractMeshTopology):
         # represent a mesh topology (as here) have geometric dimension
         # equal their topological dimension. This is reflected in the
         # corresponding UFL mesh.
-        return ufl.Cell(_cells[tdim][nfacets])
+        # return ufl.Cell(_cells[tdim][nfacets])
+        return constructCellComplex(_cells[tdim][nfacets])
 
     @utils.cached_property
     def _ufl_mesh(self):
@@ -1262,6 +1263,7 @@ class MeshTopology(AbstractMeshTopology):
 
         cell = self.ufl_cell()
         assert tdim == cell.topological_dimension()
+
         if self.submesh_parent is not None:
             return dmcommon.submesh_create_cell_closure_cell_submesh(plex,
                                                                      self.submesh_parent.topology_dm,
@@ -1273,10 +1275,16 @@ class MeshTopology(AbstractMeshTopology):
             entity_per_cell = np.zeros(len(topology), dtype=IntType)
             for d, ents in topology.items():
                 entity_per_cell[d] = len(ents)
-
             return dmcommon.closure_ordering(plex, vertex_numbering,
                                              cell_numbering, entity_per_cell)
-
+        # elif hasattr(cell, "to_fiat"):
+        #       TODO
+        #     topology = cell.to_fiat().topology
+        #     entity_per_cell = np.zeros(len(topology), dtype=IntType)
+        #     for d, ents in topology.items():
+        #         entity_per_cell[d] = len(ents)
+        #     return dmcommon.closure_ordering(plex, vertex_numbering,
+        #                                      cell_numbering, entity_per_cell)
         elif cell.cellname() == "quadrilateral":
             from firedrake_citations import Citations
             Citations().register("Homolya2016")
@@ -1332,7 +1340,6 @@ class MeshTopology(AbstractMeshTopology):
             op.Free()
         else:
             unique_markers = None
-
         local_facet_number, facet_cell = \
             dmcommon.facet_numbering(dm, kind, facets,
                                      self._cell_numbering,
@@ -1955,7 +1962,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @utils.cached_property
     def _ufl_cell(self):
-        return ufl.Cell(_cells[0][0])
+        return constructCellComplex(_cells[0][0])
 
     @utils.cached_property
     def _ufl_mesh(self):
