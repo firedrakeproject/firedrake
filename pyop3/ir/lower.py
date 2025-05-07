@@ -365,9 +365,9 @@ class CodegenResult:
             data_argument = kwargs.get(data_argument.name, data_argument)
             kernel_args.append(as_kernel_arg(data_argument))
 
-        if len(self.loopy_kernel.callables_table) > 1:
-            ccode = lp.generate_code_v2(self.loopy_kernel).device_code()
-            breakpoint()
+        # if len(self.loopy_kernel.callables_table) > 1:
+        #     ccode = lp.generate_code_v2(self.loopy_kernel).device_code()
+        #     breakpoint()
 
         executable(*kernel_args)
 

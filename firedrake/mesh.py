@@ -2091,7 +2091,7 @@ class MeshTopology(AbstractMeshTopology):
         offset = 0
         for to_dim, size in enumerate(self._closure_sizes[from_dim]):
             stratum_offset, _ = self.topology_dm.getDepthStratum(to_dim)
-            localized_closures.append(self._fiat_cell_closures[:, offset:offset+size] - stratum_offset)
+            localized_closures.append(self._fiat_cell_closures_renumbered[:, offset:offset+size] - stratum_offset)
             offset += size
         return tuple(localized_closures)
 

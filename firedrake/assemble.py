@@ -1021,9 +1021,9 @@ class ParloopFormAssembler(FormAssembler):
             )
 
         # debug
-        pyop3_compiler_parameters = {"optimize": True}
+        # pyop3_compiler_parameters = {"optimize": True}
         # pyop3_compiler_parameters = {"optimize": False, "attach_debugger": True}
-        # pyop3_compiler_parameters = {"optimize": False}
+        pyop3_compiler_parameters = {"optimize": False}
         pyop3_compiler_parameters.update(self._pyop3_compiler_parameters)
 
         if tensor is None:

@@ -295,6 +295,10 @@ class Mat(DistributedArray):
     def with_axes(self, row_axes, col_axes):
         return self.__record_init__(raxes=row_axes, caxes=col_axes)
 
+    @property
+    def leaf_layouts(self):
+        assert False, "unused"
+
     # }}}
 
     # {{{ DistributedArray impls
