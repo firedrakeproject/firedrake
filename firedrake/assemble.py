@@ -1836,7 +1836,6 @@ class ParloopBuilder:
         )
         called_kernel = DirectCalledFunction(kernel, args)
         loop = op3.loop(p, [*pack_insns, called_kernel, *unpack_insns])
-        # breakpoint()
         return loop
 
     @property
@@ -1993,6 +1992,7 @@ class ParloopBuilder:
     def fuse_orientations(self):
         Vs = self._indexed_function_spaces
         transform_kernels = []
+        no_dense = True
         for fs in Vs:
             if hasattr(fs.ufl_element(), "triple"):
                 os = fs.ufl_element().triple.matrices
@@ -2014,16 +2014,18 @@ class ParloopBuilder:
                 for val in sorted(os.keys()):
                     string += f"case {val}:\n a = mat{val};break;\n"
                     var_list += [f"mat{val}"]
-                    mat = numpy.array(os[val], dtype=ScalarType)
+                    if no_dense:
+                        mat = numpy.eye(n)
+                    else:
+                        mat = numpy.array(os[val], dtype=ScalarType)
                     args += [lp.TemporaryVariable(f"mat{val}", initializer=mat, dtype=ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
                 string += "default:\nbreak;\n }"
                 transform_insn = lp.CInstruction(tuple(), "".join(string), assignees=("a"), read_variables=frozenset(var_list), id="assign")
-
                 parent_knl = lp.make_kernel(
-                        "{:}",
-                        [transform_insn, "res[:] = matmul(a, b, res) {dep=assign}"],
-                        kernel_data=args
-                        ,target=lp.CWithGNULibcTarget())
+                    "{:}",
+                    [transform_insn, "res[:] = matmul(a, b, res) {dep=assign}"],
+                    kernel_data=args
+                    ,target=lp.CWithGNULibcTarget())
                 knl = lp.merge([parent_knl, child_knl])
                 print(lp.generate_code_v2(knl).device_code())
                 print(knl)

@@ -399,6 +399,7 @@ def _(
     # handle entity_dofs - this is done treating all nodes as equivalent so we have to
     # discard shape beforehand
     dof_numbering = _flatten_entity_dofs(V.finat_element.entity_dofs())
+    # breakpoint()
     perm = invert_permutation(dof_numbering)
 
     # skip if identity
@@ -411,6 +412,7 @@ def _(
 
     if plex.ufl_cell() == ufl.hexahedron:
         raise NotImplementedError
+        # FUSE TODO this should happen for all cells
         perms = _entity_permutations(V)
         mytree = _orientations(plex, perms, index, integral_type)
         mytree = _with_shape_indices(V, mytree, integral_type in {"exterior_facet", "interior_facet"})

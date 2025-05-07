@@ -86,7 +86,7 @@ def test_orientation_string():
 
 def test_minimal():
     # NB mesh size 3,3 fails - internal cell issue?
-    mesh = UnitSquareMesh(2, 2)
+    mesh = UnitSquareMesh(3, 3)
     V = FunctionSpace(mesh, "CG", 1)
 
     u = TrialFunction(V)
