@@ -324,30 +324,20 @@ def _partition_regions(regions: Sequence[AxisComponentRegion], sf: StarForest) -
 
 
 class AxisComponent(LabelledNodeComponent):
-    fields = LabelledNodeComponent.fields | {"regions", "unit"}
+    fields = LabelledNodeComponent.fields | {"regions"}
 
     def __init__(
         self,
         regions,
         label=None,
         *,
-        unit=False,
         sf=None,
     ):
         regions = _parse_regions(regions)
         sf = _parse_sf(sf, regions)
 
-        if unit:
-            raise NotImplementedError
-
-        # if unit and count != 1:
-        #     raise ValueError(
-        #         "Components may only be marked as 'unit' if they have length 1"
-        #     )
-
         super().__init__(label=label)
         self.regions = regions
-        self.unit = unit
         self.sf = sf
 
     def __str__(self) -> str:
@@ -361,36 +351,17 @@ class AxisComponent(LabelledNodeComponent):
         """Return whether or not this axis component has constant size between ranks."""
         raise NotImplementedError
 
-    # redone because otherwise getting a bizarre error (numpy types have confusing behaviour!)
-    # def __eq__(self, other):
-    #     if type(other) is not type(self):
-    #         return False
-    #     else:
-    #         return other._key == self._key
-    #         # return (
-    #         #     other.size == self.size
-    #         #     and other.label == self.label
-    #         #     and other.unit == self.unit
-    #         # )
-    #
-    # def __hash__(self):
-    #     return hash(self._key)
-    #
-    # @property
-    # def _key(self):
-    #     return (self.size, self.label, self.unit)
-
     # TODO this is just a traversal - clean up
     def alloc_size(self, axtree, axis):
         from pyop3.array import Dat, LinearDatArrayBufferExpression
 
-        if isinstance(self.count, (Dat, LinearDatArrayBufferExpression)):
+        if isinstance(self.local_size, (Dat, LinearDatArrayBufferExpression)):
             # TODO: make max_value an attr of buffers
             # npoints = self.count.max_value
-            npoints = max(self.count.buffer._data)
+            npoints = max(self.local_size.buffer._data)
         else:
-            assert isinstance(self.count, numbers.Integral)
-            npoints = self.count
+            assert isinstance(self.local_size, numbers.Integral)
+            npoints = self.local_size
 
         assert npoints is not None
 
@@ -403,30 +374,28 @@ class AxisComponent(LabelledNodeComponent):
         # Cast to an int as numpy integers cause loopy to break
         return strict_int(size)
 
-    @cached_property
-    def _collective_size(self):
-        """Return the size of an axis component in a format consistent over ranks."""
-        from pyop3.array import Parameter
+    @property
+    @deprecated("size")
+    def count(self) -> Any:
+        return self.size
 
-        local_size = self.size
+    @cached_property
+    def size(self) -> Any:
+        from pyop3 import Parameter
+
         if self.sf is not None:
-            if not isinstance(local_size, numbers.Integral):
+            if not isinstance(self.local_size, numbers.Integral):
                 raise NotImplementedError(
                     "Unsure what to do with non-integral sizes in parallel"
                 )
-            return Parameter(local_size)
+            return Parameter(self.local_size)
         else:
             # can be an integer or a Dat
-            return local_size
+            return self.local_size
 
     @cached_property
-    def count(self) -> Any:
+    def local_size(self) -> Any:
         return sum(reg.size for reg in self.regions)
-
-    # better than 'count'?
-    @property
-    def size(self):
-        return self.count
 
     @cached_property
     def _all_regions(self) -> tuple[AxisComponentRegion]:
@@ -658,11 +627,11 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
 
     @staticmethod
     def _parse_components(components):
-        if isinstance(components, collections.abc.Mapping):
+        if isinstance(components, Mapping):
             return tuple(
                 AxisComponent(count, clabel) for clabel, count in components.items()
             )
-        elif isinstance(components, collections.abc.Iterable):
+        elif isinstance(components, Iterable):
             return tuple(as_axis_component(c) for c in components)
         else:
             return (as_axis_component(components),)
@@ -1131,8 +1100,8 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         root = self.child(axis, component)
         size_expr = _axis_tree_size_rec(self, root)
 
-        if isinstance(size_expr, int):
-            size_axes = Axis(component.count)
+        if isinstance(size_expr, numbers.Integral):
+            size_axes = Axis(component.local_size)
         else:
             path = self.path_with_nodes(axis, component, and_components=True)
             size_axes = extract_axes(size_expr, path, immutabledict(), {})
@@ -1142,8 +1111,8 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         sizes = size_dat.buffer.data_ro_with_halos
 
         section = PETSc.Section().create(comm=self.comm)
-        section.setChart(0, component.count)
-        for point in range(component.count):
+        section.setChart(0, component.local_size)
+        for point in range(component.local_size):
             section.setDof(point, sizes[point])
         section.setUp()
         return section

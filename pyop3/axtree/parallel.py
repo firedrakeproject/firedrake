@@ -74,7 +74,7 @@ def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, axis: Axis) -> tuple[Sta
             else:
                 petsc_sf = component.sf.sf
 
-            size = component.size
+            size = component.local_size
             if subaxis := axis_tree.child(axis, component):
                 size *= _axis_tree_size_rec(axis_tree, subaxis)
 

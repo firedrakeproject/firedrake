@@ -361,13 +361,13 @@ class CodegenResult:
         # TODO: Check each of kwargs and make sure that the replacement is
         # valid (e.g. same size, same data type, same layout funcs).
         kernel_args = []
-        for data_argument in self.data_arguments:
+        for data_argument in self.data_arguments.values():
             data_argument = kwargs.get(data_argument.name, data_argument)
             kernel_args.append(as_kernel_arg(data_argument))
 
-        # if len(self.loopy_kernel.callables_table) > 1:
-        #     ccode = lp.generate_code_v2(self.loopy_kernel).device_code()
-        #     breakpoint()
+        if len(self.loopy_kernel.callables_table) > 1:
+            ccode = lp.generate_code_v2(self.loopy_kernel).device_code()
+            breakpoint()
 
         executable(*kernel_args)
 
@@ -531,11 +531,11 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
     translation_unit = translation_unit.with_entrypoints(entrypoint.name)
 
     data_argument_names = utils.invert_mapping(context.kernel_arg_names)
-    data_arguments = []
+    data_arguments = {}
     buffer_intents = {}
     for kernel_arg in entrypoint.args:
         data_argument_name = data_argument_names[kernel_arg.name]
-        data_arguments.append(context.data_arguments[data_argument_name])
+        data_arguments[kernel_arg.name] = context.data_arguments[data_argument_name]
 
     return CodegenResult(translation_unit, data_arguments, context.global_buffer_intents, compiler_parameters)
 
@@ -631,10 +631,10 @@ def parse_loop_properly_this_time(
     for component in axis.components:
         path_ = path | {axis.label: component.label}
 
-        if component._collective_size != 1:
+        if component.size != 1:
             iname = codegen_context.unique_name("i")
             domain_var = register_extent(
-                component._collective_size,
+                component.size,
                 iname_map,
                 loop_indices,
                 codegen_context,
@@ -984,11 +984,11 @@ def compile_array_assignment(
         axis = axis_tree.root
 
     for component in axis.components:
-        if component._collective_size != 1:
+        if component.size != 1:
             iname = codegen_context.unique_name("i")
 
             extent_var = register_extent(
-                component._collective_size,
+                component.size,
                 iname_replace_maps[-1],
                 loop_indices,
                 codegen_context,
@@ -1141,7 +1141,7 @@ def maybe_multiindex(buffer, offset_expr, context):
 
 @functools.singledispatch
 def register_extent(obj: Any, *args, **kwargs):
-    raise TypeError(f"No handler defined for {type(extent).__name__}")
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
 @register_extent.register(numbers.Integral)

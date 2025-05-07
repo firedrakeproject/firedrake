@@ -1151,7 +1151,7 @@ def _(slice_: Slice, *, prev_axes, expr_replace_map, **_):
             # and labelling the resultant axis component.
             component_label = slice_component.label
 
-        cpt = AxisComponent(indexed_regions, label=component_label, unit=target_component.unit, sf=sf)
+        cpt = AxisComponent(indexed_regions, label=component_label, sf=sf)
         components.append(cpt)
 
     axis = Axis(components, label=axis_label)

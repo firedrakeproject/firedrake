@@ -238,9 +238,10 @@ def _desugar_index(obj: Any, *args, **kwargs) -> Index:
 def _(int_: numbers.Integral, /, axes, *, parent=None) -> Index:
     axis = axes.child(*parent) if parent else axes.root
     if len(axis.components) > 1:
+        raise NotImplementedError("Use a string instead?")
         # Multi-component axis: take a slice from a matching component.
         component = just_one(c for c in axis.components if c.label == int_)
-        if component.unit:
+        if component.size == 1:
             index = ScalarIndex(axis.label, component.label, 0)
         else:
             index = Slice(axis.label, [AffineSliceComponent(component.label, label=component.label)], label=axis.label)
@@ -274,9 +275,7 @@ def _(label, /, axes, *, parent=None):
 
     # If the component is marked as "unit" then indexing in this way will
     # fully consume the axis.
-    # NOTE: Perhaps it would just be better to always do this if the axis
-    # is one-sized?
-    if component.unit:
+    if component.size == 1:
         index = ScalarIndex(axis.label, component.label, 0)
     else:
         index = Slice(axis.label, [AffineSliceComponent(component.label, label=component.label)], label=axis.label)

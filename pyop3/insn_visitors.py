@@ -754,11 +754,11 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatArrayBuff
     for loop_var, axis in zip(loop_axes, selected_loop_axes, strict=True):
         new_components = []
         component = just_one(axis.components)
-        if isinstance(component.count, numbers.Integral):
+        if isinstance(component.local_size, numbers.Integral):
             new_component = component
         else:
-            new_count_axes = extract_axes(just_one(component.count.leaf_layouts.values()), visited_axes, loop_axes, cache)
-            new_count = Dat(new_count_axes, data=component.count.buffer)
+            new_count_axes = extract_axes(just_one(component.local_size.leaf_layouts.values()), visited_axes, loop_axes, cache)
+            new_count = Dat(new_count_axes, data=component.local_size.buffer)
             new_component = AxisComponent(new_count, component.label)
         new_components.append(new_component)
         new_axis = Axis(new_components, f"{axis.label}_{loop_var.loop_id}")

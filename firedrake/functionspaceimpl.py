@@ -1182,7 +1182,7 @@ class MixedFunctionSpace(object):
         # to have a size of 1 and we want the axis to go away when we put axes["0"],
         # for example.
         root = op3.Axis(
-            [op3.AxisComponent(1, i, unit=True) for i, _ in enumerate(spaces)],
+            [op3.AxisComponent(1, i) for i, _ in enumerate(spaces)],
             "field",
         )
         axes = op3.AxisTree(root)
