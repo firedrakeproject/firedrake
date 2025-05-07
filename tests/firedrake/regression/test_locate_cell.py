@@ -42,12 +42,12 @@ def test_locate_cell(meshdata, point, value):
 
     assert np.allclose(value, value_at(point))
     cell = m.locate_cell(point)
-    assert ~np.allclose(value, value_at(point, cell_ignore=cell))
+    assert not np.allclose(value, value_at(point, cell_ignore=cell))
     value_at, l1_dist = value_at_and_dist(point)
     assert np.allclose(value, value_at)
     assert np.isclose(l1_dist, 0.0)
     value_at, l1_dist = value_at_and_dist(point, cell_ignore=cell)
-    assert ~np.allclose(value, value_at)
+    assert not np.allclose(value, value_at)
     assert l1_dist > 0.0
 
 

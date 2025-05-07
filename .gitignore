@@ -27,7 +27,8 @@ __pycache__/
 /docs/source/demos
 /firedrake/cython/*.c
 /firedrake.egg-info
-/firedrake_check/
+/firedrake/_check/Makefile
+/firedrake/_check/tests
 /docs/source/element_list.csv
 
 
