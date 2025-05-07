@@ -187,6 +187,7 @@ def test_adjoint_dependencies_set():
     assert taylor_test(J_hat, c, Function(V).interpolate(0.1)) > 1.9
 
 
+@pytest.mark.skipcomplex
 def test_bcs():
 
     enable_disk_checkpointing()
