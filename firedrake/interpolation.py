@@ -1497,7 +1497,15 @@ class VomOntoVomWrapper(object):
         self.dummy_mat = VomOntoVomDummyMat(
             original_vom.input_ordering_without_halos_sf, reduce, V, source_vom, expr, arguments
         )
-        self.handle = self.dummy_mat._create_petsc_mat(PETSc.Mat())
+        self.handle = self._create_petsc_mat()
+
+    def _create_petsc_mat(self):
+        A = PETSc.Mat().create(comm=self.V.comm)
+        A.setSizes([self.V.dim(), self.V.dim()])
+        A.setType(PETSc.Mat.Type.PYTHON)
+        A.setPythonContext(self.dummy_mat)
+        A.setUp()
+        return A
 
     @property
     def mpi_type(self):
@@ -1665,14 +1673,3 @@ class VomOntoVomDummyMat(object):
             # matrix will then have rows of zeros for those points.
             target_vec.zeroEntries()
             self.reduce(source_vec, target_vec)
-
-    def _create_petsc_mat(self, mat):
-        mat.create(comm=self.V.comm)
-        mat.setSizes([self.V.dim(), self.V.dim()])
-        mat.setType(PETSc.Mat.Type.PYTHON)
-        mat.setPythonContext(self.dummy_mat)
-        mat.setUp()
-        return mat
-
-    def copy(self, result, structure=None):
-        return self._create_petsc_mat(result)
