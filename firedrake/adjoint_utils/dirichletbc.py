@@ -44,9 +44,7 @@ class DirichletBCMixin(FloatingType):
 
     def _ad_restore_at_checkpoint(self, bv):
         if bv is not None:
-            bc = type(self)(
-                self.function_space(), bv.saved_output,
-                self.sub_domain)
+            bc = bc.reconstruct(g=bv.saved_output)
             bc.block = self.block
             return bc
         return self
