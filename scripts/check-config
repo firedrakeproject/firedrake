@@ -2,9 +2,9 @@
 
 """Script that makes sure that hardcoded version numbers are consistent.
 
-It reads in Firedrake's 'config.ini' file and makes sure that everywhere a
-version number is hardcoded that it matches the expected value. This allows
-for single-source-of-truth of hardcoded values (via CI).
+It looks at files in the Firedrake repository and makes sure that everywhere a
+version number is hardcoded that it matches. This allows for single-source-of-truth
+of hardcoded values (via CI).
 
 """
 
