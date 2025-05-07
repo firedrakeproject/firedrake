@@ -126,7 +126,7 @@ class Matrix(MatrixBase):
         # sets self._a, self._bcs, and self._mat_type
         MatrixBase.__init__(self, a, bcs, mat_type)
         self.M = pyop3_mat
-        self.petscmat = self.M.mat
+        self.petscmat = self.M.buffer.mat
         self.petscmat.setOptionsPrefix(options_prefix)
 
         # TODO can sniff from pyop3_mat

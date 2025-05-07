@@ -553,7 +553,7 @@ def create_cell_closure(PETSc.DM dm,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def closure_ordering(mesh, closure_data):
+def closure_ordering(mesh, closure_data_plex):
     """Apply FEniCS local numbering to a cell closure.
 
     The reordering is achieved by ordering vertices according to their global
@@ -564,13 +564,19 @@ def closure_ordering(mesh, closure_data):
     ----------
     mesh : MeshTopology
         The mesh providing the closures.
-    closure_data : np.ndarray
+    closure_data_plex : np.ndarray
         Array storing cell closure information.
 
     Returns
     -------
     np.ndarray :
         Array storing the reordered cell closures.
+
+    Notes
+    -----
+    The returned closure array stores entities in the preferred FIAT order
+    (vertices, edges, faces, cells) which differs from the input DMPlex order
+    (cells, faces, edges, vertices).
 
     """
     cdef:
@@ -594,10 +600,15 @@ def closure_ordering(mesh, closure_data):
 
     v_start, v_end = dm.getDepthStratum(0)
 
-    cell_offset = 0
-    facet_offset = cell_offset + 1
-    edge_offset = facet_offset + nfacets_per_cell
-    vert_offset = edge_offset + nedges_per_cell
+    cell_offset_plex = 0
+    facet_offset_plex = cell_offset_plex + 1
+    edge_offset_plex = facet_offset_plex + nfacets_per_cell
+    vert_offset_plex = edge_offset_plex + nedges_per_cell
+
+    vert_offset_fiat = 0
+    edge_offset_fiat = vert_offset_fiat + nverts_per_cell
+    facet_offset_fiat = edge_offset_fiat + nedges_per_cell
+    cell_offset_fiat = facet_offset_fiat + nfacets_per_cell
 
     CHKERR(PetscMalloc1(nverts_per_cell, &verts))
     CHKERR(PetscMalloc1(nedges_per_cell, &edges))
@@ -611,10 +622,10 @@ def closure_ordering(mesh, closure_data):
     # Must call this before loop collectively.
     mesh._global_numbering
 
-    closure_data_reord = np.empty_like(closure_data)
+    closure_data_reord = np.empty_like(closure_data_plex)
     for cell in range(*dm.getHeightStratum(0)):
         # 1. Order vertices
-        for vi, vert in enumerate(closure_data[cell, vert_offset:]):
+        for vi, vert in enumerate(closure_data_plex[cell, vert_offset_plex:]):
             verts[vi] = vert
             global_verts[vi] = mesh._global_numbering[vert]
 
@@ -625,13 +636,13 @@ def closure_ordering(mesh, closure_data):
         for vi in range(nverts_per_cell):
             # Correct 1D edge numbering
             vert = verts[vi] if tdim != 1 else verts[nverts_per_cell-vi-1]
-            closure_data_reord[cell, vert_offset+vi] = vert
+            closure_data_reord[cell, vert_offset_fiat+vi] = vert
 
         # 2. Order edges (3D only, in 2D facets and edges are equivalent)
         if tdim > 2:
             # Edges are tricky because we need a lexicographical sort with two
             # keys (the local numbers of the two non-incident vertices)
-            for ei, edge in enumerate(closure_data[cell, edge_offset:vert_offset]):
+            for ei, edge in enumerate(closure_data_plex[cell, edge_offset_plex:vert_offset_plex]):
                 edges[ei] = edge
 
                 # Collect incident vertices
@@ -643,7 +654,7 @@ def closure_ordering(mesh, closure_data):
                 for vi in range(nverts_per_cell):
                     incident = False
                     for vj in range(2):
-                        if edge_verts[vj] == closure_data_reord[cell, vert_offset+vi]:
+                        if edge_verts[vj] == closure_data_reord[cell, vert_offset_fiat+vi]:
                             incident = True
                             break
                     if not incident:
@@ -655,11 +666,11 @@ def closure_ordering(mesh, closure_data):
 
             # Insert into the closure
             for ei in range(nedges_per_cell):
-                closure_data_reord[cell, edge_offset+ei] = edges[ei]
+                closure_data_reord[cell, edge_offset_fiat+ei] = edges[ei]
 
         # 3. Order facets
         if tdim > 1:
-            for fi, facet in enumerate(closure_data[cell, facet_offset:edge_offset]):
+            for fi, facet in enumerate(closure_data_plex[cell, facet_offset_plex:edge_offset_plex]):
                 # Collect vertices that are in the closure of the facet
                 get_transitive_closure(
                     dm.dm, facet, PETSC_TRUE, &nfacet_closure, &facet_closure
@@ -675,17 +686,17 @@ def closure_ordering(mesh, closure_data):
                 for vi in range(nverts_per_cell):
                     incident = False
                     for vj in range(nverts_per_cell-1):
-                        if facet_verts[vj] == closure_data_reord[cell, vert_offset+vi]:
+                        if facet_verts[vj] == closure_data_reord[cell, vert_offset_fiat+vi]:
                             incident = True
                             break
                     # Only one non-incident vertex per facet, so the local facet
                     # number is the same as the non-incident vertex number
                     if not incident:
-                        closure_data_reord[cell, facet_offset+vi] = facet
+                        closure_data_reord[cell, facet_offset_fiat+vi] = facet
                         break
 
         # 4. And finally the cell
-        closure_data_reord[cell, 0] = closure_data[cell, 0]
+        closure_data_reord[cell, cell_offset_fiat] = closure_data_plex[cell, cell_offset_plex]
 
     # Cleanup
     CHKERR(PetscFree(verts))
@@ -1000,7 +1011,6 @@ cdef inline PetscInt _compute_orientation_interval_tensor_product(PetscInt *fiat
 
 cdef inline PetscInt _compute_orientation(PETSc.DM dm,
                                           np.ndarray cell_closure,
-                                          np.ndarray cell_closure_sub,
                                           PetscInt cell,
                                           PetscInt e,
                                           PetscInt *fiat_cone,
@@ -1036,8 +1046,7 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
         raise RuntimeError("FIAT entity cone size != plex point cone size")
     offset = entity_cone_map_offset[e]
     for i in range(coneSize):
-        fiat_cone[i] = cell_closure_sub[cell, entity_cone_map[offset + i]]
-
+        fiat_cone[i] = cell_closure[cell, entity_cone_map[offset + i]]
     if dm.getCellType(p) == PETSc.DM.PolytopeType.SEGMENT or \
        dm.getCellType(p) == PETSc.DM.PolytopeType.TRIANGLE or \
        dm.getCellType(p) == PETSc.DM.PolytopeType.TETRAHEDRON:
@@ -1062,10 +1071,7 @@ cdef inline PetscInt _compute_orientation(PETSc.DM dm,
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-def entity_orientations(mesh,
-                        np.ndarray cell_closure,
-                        np.ndarray cell_closure_sub,
-                        mydim):
+def entity_orientations(mesh, np.ndarray cell_closure):
     """Compute entity orientations.
 
     :arg mesh: The :class:`~.MeshTopology` object encapsulating the mesh topology
@@ -1092,50 +1098,21 @@ def entity_orientations(mesh,
     if type(mesh) is not firedrake.mesh.MeshTopology:
         raise TypeError(f"Unexpected mesh type: {type(mesh)}")
 
-    # FIXME: I think that this is the next thing to tackle. The connectivity is now a bit wrong
     # Make entity-cone map for the FIAT cell.
     def make_entity_cone_lists(fiat_cell):
-        # _dim = fiat_cell.get_dimension()
-        # _connectivity = fiat_cell.connectivity
-
-        # We have to adjust the connectivity here because we are using a tensor-product
-        # numbering instead of a flat numbering. FIAT does not currently support this.
-        # What we have here is fiat_cell.connectivity but swapping edges (2, 3) with (4, 5).
-        _connectivity = {
-            (1, 0): [(0, 1),
-                     (2, 3),
-                     # <swap>
-                     (0, 2),  # was 2
-                     (1, 3),  # was 3
-                     (4, 5),  # was 0
-                     (6, 7),  # was 1
-                     # </swap>
-                     (4, 6),
-                     (5, 7),
-                     (0, 4),
-                     (1, 5),
-                     (2, 6),
-                     (3, 7)],
-            (2, 1): [(0, 1, 2, 3),    # was (0, 1, 4, 5)
-                     (4, 5, 6, 7),    # was (2, 3, 6, 7)
-                     (0, 4, 8, 9),    # was (0, 2, 8, 9)
-                     (1, 5, 10, 11),  # was (1, 3, 10, 11)
-                     (2, 6, 8, 10),   # was (4, 6, 8, 10)
-                     (3, 7, 9, 11)],  # was (5, 7, 9, 11)
-            (3, 2): [(0, 1, 2, 3, 4, 5)],
-        }
-
+        _dim = fiat_cell.get_dimension()
+        _connectivity = fiat_cell.connectivity
         _list = []
-        _offset_list = []
+        _offset_list = [0 for _ in _connectivity[(0, 0)]]  # vertices have no cones
         _offset = 0
         _n = 0  # num. of entities up to dimension = _d
-        _d = mydim
-        _n1 = len(_offset_list)
-        for _conn in _connectivity[(_d + 1, _d)]:
-            _list += [_c + _n for _c in _conn]  # These are indices into cell_closure[some_cell]
-            _offset_list.append(_offset)
-            _offset += len(_conn)
-        _n = _n1
+        for _d in range(_dim):
+            _n1 = len(_offset_list)
+            for _conn in _connectivity[(_d + 1, _d)]:
+                _list += [_c + _n for _c in _conn]  # These are indices into cell_closure[some_cell]
+                _offset_list.append(_offset)
+                _offset += len(_conn)
+            _n = _n1
         _offset_list.append(_offset)
         return _list, _offset_list
 
@@ -1147,7 +1124,7 @@ def entity_orientations(mesh,
         entity_cone_map[i] = entity_cone_list[i]
     for i in range(len(entity_cone_list_offset)):
         entity_cone_map_offset[i] = entity_cone_list_offset[i]
-
+    #
     dm = mesh.topology_dm
     dim = dm.getDimension()
     numCells = cell_closure.shape[0]
@@ -1160,7 +1137,7 @@ def entity_orientations(mesh,
     CHKERR(PetscMalloc1(maxConeSize, &plex_cone_copy))  # work array
     for cell in range(numCells):
         for e in range(numEntities):
-            entity_orientations[cell, e] = _compute_orientation(dm, cell_closure, cell_closure_sub, cell, e,
+            entity_orientations[cell, e] = _compute_orientation(dm, cell_closure, cell, e,
                                                                 fiat_cone,
                                                                 plex_cone,
                                                                 plex_cone_copy,
@@ -2426,6 +2403,7 @@ def compute_dm_renumbering(
 
     for cell in range(cStart, cEnd):
         if reorder:
+            # is this wrong? invert! YES
             cell = reordering[cell]
 
         get_transitive_closure(dm.dm, cell, PETSC_TRUE, &nclosure, &closure)
@@ -2581,9 +2559,14 @@ def create_section_sf(sf: PETSc.SF, section: PETSc.Section) -> PETSc.SF:
     cdef:
         PETSc.SF sf_new
         PetscInt *remoteOffsets_c = NULL
+        PetscInt start_c, stop_c
 
     sf_new = PETSc.SF().create(comm=sf.comm)
-    CHKERR(PetscSFCreateRemoteOffsets(sf.sf, section.sec, section.sec, &remoteOffsets_c))
+    if sf.comm.size > 1:
+        CHKERR(PetscSFCreateRemoteOffsets(sf.sf, section.sec, section.sec, &remoteOffsets_c))
+    else:
+        start_c, stop_c = section.getChart()
+        CHKERR(PetscCalloc1(stop_c-start_c, &remoteOffsets_c))
     CHKERR(PetscSFCreateSectionSF(sf.sf, section.sec, remoteOffsets_c, section.sec, &sf_new.sf))
     return sf_new
 

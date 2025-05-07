@@ -404,9 +404,8 @@ def _(
 
     # skip if identity
     if not np.all(perm == np.arange(perm.size, dtype=IntType)):
-    # if False:  # debug
-        # breakpoint()  # hmm
-        perm_dat = op3.Dat(V._packed_nodal_axes.root.copy(label="mylabel"), data=perm, constant=True, prefix="p")
+        perm_buffer = op3.ArrayBuffer(perm, constant=True)
+        perm_dat = op3.Dat(V._packed_nodal_axes.root.copy(label="mylabel"), perm_buffer, prefix="p")
         perm_subset = op3.Slice("nodes_flat", [op3.Subset("XXX", perm_dat)], label="mylabel")
         indexed = indexed.reshape(V._packed_nodal_axes)[perm_subset]
 
@@ -445,7 +444,7 @@ def _(
     else:
         raise NotImplementedError
 
-    indexed = mat.getitem((rmap, cmap), strict=True)
+    indexed = mat.getitem(rmap, cmap, strict=True)
 
     row_perm = _flatten_entity_dofs(Vrow.finat_element.entity_dofs())
     row_perm = invert_permutation(row_perm)
@@ -458,17 +457,17 @@ def _(
         or np.any(col_perm != np.arange(col_perm.size, dtype=IntType))
     ):
         # NOTE: This construction is horrible
+        row_perm_buffer = op3.ArrayBuffer(row_perm, constant=True)
         row_perm_dat = op3.Dat(
             Vrow._packed_nodal_axes.root.copy(label="mylabel"),
-            data=row_perm,
-            constant=True
+            buffer=row_perm_buffer,
         )
         row_perm_subset = op3.Slice("nodes_flat", [op3.Subset("XXX", row_perm_dat)], label="mylabel")
 
+        col_perm_buffer = op3.ArrayBuffer(col_perm, constant=True)
         col_perm_dat = op3.Dat(
             Vcol._packed_nodal_axes.root.copy(label="mylabel"),
-            data=col_perm,
-            constant=True
+            buffer=col_perm_buffer,
         )
         col_perm_subset = op3.Slice("nodes_flat", [op3.Subset("XXX", col_perm_dat)], label="mylabel")
 
@@ -567,7 +566,7 @@ def _with_shape_indices(V: WithGeometry, indices: op3.IndexTree, and_support=Fal
             )
         )
         tree = field_indices
-        for leaf, subtree in op3.utils.checked_zip(field_indices.leaves, trees):
+        for leaf, subtree in zip(field_indices.leaves, trees, strict=True):
             tree = tree.add_subtree(subtree, *leaf, uniquify_ids=True)
     else:
         tree = op3.utils.just_one(trees)

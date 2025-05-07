@@ -10,7 +10,7 @@ from pyrsistent import pmap
 
 from pyop3.dtypes import IntType, as_numpy_dtype
 from pyop3.sf import StarForest
-from pyop3.utils import checked_zip, unique_comm
+from pyop3.utils import unique_comm
 
 
 def reduction_op(op, invec, inoutvec, datatype):
@@ -68,10 +68,13 @@ def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, axis: Axis) -> tuple[Sta
     for component in axis.components:
         if component.sf is not None:
             # do not recurse further
-            section = axis_tree.component_section((axis, component))
-            petsc_sf = create_section_sf(component.sf.sf, section)
+            if axis_tree.child(axis, component):
+                section = axis_tree.component_section((axis, component))
+                petsc_sf = create_section_sf(component.sf.sf, section)
+            else:
+                petsc_sf = component.sf.sf
 
-            size = component.size
+            size = component.local_size
             if subaxis := axis_tree.child(axis, component):
                 size *= _axis_tree_size_rec(axis_tree, subaxis)
 
@@ -100,7 +103,10 @@ def concatenate_star_forests(star_forests: Sequence[StarForest]) -> StarForest:
         nr, ilocal, iremote = sf.graph
         num_roots += nr
         ilocals.append(ilocal+size)
-        iremotes.append(iremote+size)
+        if iremote.size > 0:
+            iremote = iremote.copy()
+            iremote[:, 1] += size
+        iremotes.append(iremote)
         size += sf.size
     ilocal = np.concatenate(ilocals)
     iremote = np.concatenate(iremotes)

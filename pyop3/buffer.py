@@ -1,20 +1,24 @@
 from __future__ import annotations
 
 import abc
+import collections
 import contextlib
+import dataclasses
 import numbers
 from functools import cached_property
+from typing import ClassVar
 
 import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 from pyrsistent import freeze, pmap
 
-from pyop3.dtypes import IntType, ScalarType
+from pyop3 import utils
+from pyop3.dtypes import IntType, ScalarType, DTypeT
 from pyop3.lang import KernelArgument
 from pyop2.mpi import COMM_SELF
-from pyop3.sf import StarForest, serial_forest
-from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, readonly
+from pyop3.sf import StarForest
+from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
 
 
 class IncompatibleStarForestException(Exception):
@@ -45,31 +49,38 @@ def not_in_flight(func):
 
 def record_modified(func):
     def wrapper(self, *args, **kwargs):
-        self.state += 1
+        self.inc_state()
         return func(self, *args, **kwargs)
     return wrapper
 
 
-class Buffer(KernelArgument, abc.ABC):
+class AbstractBuffer(KernelArgument, metaclass=abc.ABCMeta):
+
+    DEFAULT_PREFIX = "buffer"
     DEFAULT_DTYPE = ScalarType
 
     @property
     @abc.abstractmethod
-    def dtype(self):
+    def name(self) -> str:
         pass
 
     @property
     @abc.abstractmethod
-    def datamap(self):
+    def dtype(self) -> np.dtype:
         pass
 
+
+class AbstractArrayBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
+
     @property
-    def kernel_dtype(self):
-        return self.dtype
+    @abc.abstractmethod
+    def size(self) -> int:
+        pass
 
 
-# TODO: Should this carry a size?
-class NullBuffer(Buffer):
+
+@utils.record()
+class NullBuffer(AbstractArrayBuffer):
     """A buffer that does not carry data.
 
     This is useful for handling temporaries when we generate code. For much
@@ -79,92 +90,131 @@ class NullBuffer(Buffer):
 
     """
 
-    def __init__(self, dtype=None):
-        if dtype is None:
-            dtype = self.DEFAULT_DTYPE
+    # {{{ instance attrs
+
+    _size: int
+    _name: str
+    _dtype: np.dtype
+
+    # }}}
+
+    # {{{ class attrs
+
+    DEFAULT_PREFIX: ClassVar[str] = "tmp"
+
+    # }}}
+
+    # {{{ interface impls
+
+    size: ClassVar[property] = utils.attr("_size")
+    name: ClassVar[property] = utils.attr("_name")
+    dtype: ClassVar[property] = utils.attr("_dtype")
+
+    # }}}
+
+    def __init__(self, size: int, dtype: DTypeT | None = None, *, name: str | None = None, prefix: str | None = None):
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+        dtype = utils.as_dtype(dtype, self.DEFAULT_DTYPE)
+
+        self._size = size
+        self._name = name
         self._dtype = dtype
 
-    @property
-    def dtype(self):
-        return self._dtype
+
+class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
+    """Abstract class representing buffers that carry actual data."""
 
     @property
-    def datamap(self):
-        return pmap()
+    @abc.abstractmethod
+    def constant(self) -> bool:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def state(self) -> int:
+        """Counter used to keep track of modifications."""
+
+    @abc.abstractmethod
+    def inc_state(self) -> None:
+        pass
 
 
-class DistributedBuffer(Buffer):
-    """An array distributed across multiple processors with ghost values."""
+# NOTE: When GPU support is added, the host-device awareness and
+# copies should live in this class.
+@utils.record()
+class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
+    """A buffer whose underlying data structure is a numpy array."""
 
-    # NOTE: When GPU support is added, the host-device awareness and
-    # copies should live in this class.
+    # {{{ Instance attrs
 
-    # NOTE: It is probably easiest to treat the data as being "moved into" the
-    # DistributedArray. But copies should ideally be avoided?
+    _lazy_data: np.ndarray = dataclasses.field(hash=False)  # FIXME: Clearly not lazy!
+    sf: StarForest | None
+    _name: str
+    _constant: bool
 
-    _prefix = "array"
-    _name_generator = UniqueNameGenerator()
+    _state: int = 0
 
-    def __init__(
-        self,
-        shape,
-        dtype=None,
-        sf=None,
-        *,
-        name=None,
-        prefix=None,
-        data=None,
-    ):
-        shape = as_tuple(shape)
+    # flags for tracking parallel correctness
+    _leaves_valid: bool = True
+    _pending_reduction: Callable | None = None
+    _finalizer: Callable | None = None
 
-        if not all(isinstance(s, numbers.Integral) for s in shape):
-            raise TypeError
+    # }}}
 
-        if dtype is None:
-            dtype = self.DEFAULT_DTYPE
+    # {{{ Class attrs
 
-        if name and prefix:
-            raise ValueError("Can only specify one of name and prefix")
+    DEFAULT_PREFIX: ClassVar[str] = "array"
 
-        if data is not None:
-            if data.shape != shape:
-                raise ValueError
-            if data.dtype != dtype:
-                raise ValueError
+    # }}}
 
-        if sf is None:
-            size = np.prod(shape, dtype=IntType)  # should be more obvious
-            sf = serial_forest(size)
+    # {{{ interface impls
 
-        self.shape = shape
-        self._dtype = dtype
+    name: ClassVar[property] = utils.attr("_name")
+    constant: ClassVar[property] = utils.attr("_constant")
+    state: ClassVar[property] = utils.attr("_state")
+
+    @property
+    def size(self) -> int:
+        return self._data.size
+
+    @property
+    def dtype(self) -> np.dtype:
+        return self._data.dtype
+
+
+    def inc_state(self) -> None:
+        self._state += 1
+
+    # }}}
+
+    def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False):
+        data = data.flatten()
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
         self._lazy_data = data
         self.sf = sf
+        self._name = name
+        self._constant = constant
 
-        self.name = name or self._name_generator(prefix or self._prefix)
+    @classmethod
+    def empty(cls, shape, dtype: DTypeT | None = None, **kwargs):
+        if dtype is None:
+            dtype = cls.DEFAULT_DTYPE
 
-        # counter used to keep track of modifications
-        self.state = 0
+        data = np.empty(shape, dtype=dtype)
+        return cls(data, **kwargs)
 
-        # flags for tracking parallel correctness
-        self._leaves_valid = True
-        self._pending_reduction = None
-        self._finalizer = None
+    @classmethod
+    def zeros(cls, shape, dtype=None, **kwargs):
+        if dtype is None:
+            dtype = cls.DEFAULT_DTYPE
 
-    # @classmethod
-    # def from_array(cls, array: np.ndarray, **kwargs):
-    #     return cls(array.shape, array.dtype, data=array, **kwargs)
-
-    @property
-    def comm(self):
-        if self.sf is not None:
-            return self.sf.comm
-        else:
-            return COMM_SELF
+        data = np.zeros(shape, dtype=dtype)
+        return cls(data, **kwargs)
 
     @property
-    def dtype(self):
-        return self._dtype
+    def comm(self) -> MPI.Comm | None:
+        return self.sf.comm if self.sf else None
 
     @property
     @not_in_flight
@@ -264,10 +314,6 @@ class DistributedBuffer(Buffer):
         return self._leaves_valid
 
     @property
-    def datamap(self):
-        return freeze({self.name: self})
-
-    @property
     def _data(self):
         if self._lazy_data is None:
             self._lazy_data = np.zeros(self.shape, dtype=self.dtype)
@@ -338,7 +384,7 @@ class DistributedBuffer(Buffer):
 
         if not self._leaves_valid:
             self.sf.broadcast_begin(self._data, MPI.REPLACE)
-        self._finalizer = self._broadcast_roots_to_leaves_end
+        object.__setattr__(self, "_finalizer", self._broadcast_roots_to_leaves_end)
 
     def _broadcast_roots_to_leaves_end(self):
         if self._finalizer is None:
@@ -360,18 +406,189 @@ class DistributedBuffer(Buffer):
         self._broadcast_roots_to_leaves()
 
 
-class PackedBuffer(Buffer):
-    """Abstract buffer originating from a function call.
+class AbstractPetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
+    """A buffer whose underlying data structure is a PETSc Mat."""
 
-    For example, the buffer returned from ``MatGetValues`` is such a "packed"
-    buffer.
+    DEFAULT_PREFIX = "petscmat"
 
-    """
+    dtype = ScalarType
 
-    def __init__(self, array):
-        self.array = array
-
-    # needed?
     @property
-    def dtype(self):
-        return self.array.dtype
+    @abc.abstractmethod
+    def mat(self) -> PETSc.Mat:
+        pass
+
+    # {{{ interface impls
+
+    @property
+    def state(self) -> int:
+        raise NotImplementedError("TODO")
+
+    def inc_state(self) -> None:
+        raise NotImplementedError("TODO")
+
+    # }}}
+
+    @property
+    def mat_type(self) -> str:
+        return self.mat.type
+
+    def assemble(self) -> None:
+        self.mat.assemble()
+
+    @classmethod
+    def _make_mat(cls, nrows, ncolumns, lgmaps, mat_type, block_shape=None):
+        if isinstance(mat_type, collections.abc.Mapping):
+            raise NotImplementedError("axes not around any more")
+            # TODO: This is very ugly
+            rsize = max(x or 0 for x, _ in mat_type.keys()) + 1
+            csize = max(y or 0 for _, y in mat_type.keys()) + 1
+            submats = np.empty((rsize, csize), dtype=object)
+            for (rkey, ckey), submat_type in mat_type.items():
+                subraxes = raxes[rkey] if rkey is not None else raxes
+                subcaxes = caxes[ckey] if ckey is not None else caxes
+                submat = cls._make_mat(
+                    subraxes, subcaxes, submat_type, block_shape=block_shape
+                    )
+                submats[rkey, ckey] = submat
+
+            # TODO: Internal comm? Set as mat property (then not a classmethod)?
+            comm = utils.single_valued([raxes.comm, caxes.comm])
+            return PETSc.Mat().createNest(submats, comm=comm)
+        else:
+            return cls._make_monolithic_mat(nrows, ncolumns, lgmaps, mat_type, block_shape=block_shape)
+
+    # TODO: Almost identical code to Sparsity
+    @classmethod
+    def _make_monolithic_mat(cls, nrows, ncolumns, lgmaps, mat_type: str, block_shape=None):
+        comm = utils.unique_comm(lgmaps)
+
+        if mat_type == "dat":
+            matdat = _MatDat(raxes, caxes)
+            if matdat.is_row_matrix:
+                assert not matdat.is_column_matrix
+                sizes = ((raxes.owned.size, None), (None, 1))
+            elif matdat.is_column_matrix:
+                sizes = ((None, 1), (caxes.owned.size, None))
+            else:
+                # 1x1 block
+                sizes = ((None, 1), (None, 1))
+            mat = PETSc.Mat().createPython(sizes, comm=comm)
+            mat.setPythonContext(matdat)
+        else:
+            mat = PETSc.Mat().create(comm)
+            mat.setType(mat_type)
+            mat.setBlockSize(block_shape)
+
+            # None is for the global size, PETSc will figure it out for us
+            sizes = ((nrows, None), (ncolumns, None))
+            mat.setSizes(sizes)
+
+            # rnum = global_numbering(nrows, row_sf)
+            # rlgmap = PETSc.LGMap().create(rnum, bsize=block_shape, comm=comm)
+            # cnum = global_numbering(ncolumns, column_sf)
+            # clgmap = PETSc.LGMap().create(cnum, bsize=block_shape, comm=comm)
+            rlgmap, clgmap = lgmaps
+            mat.setLGMap(rlgmap, clgmap)
+
+        mat.setUp()
+        return mat
+
+
+@utils.record()
+class PetscMatBuffer(AbstractPetscMatBuffer):
+    """A buffer whose underlying data structure is a PETSc Mat."""
+
+    # {{{ Instance attrs
+
+    _mat: PETSc.Mat
+    _name: str
+    _constant: bool
+
+    # }}}
+
+    # {{{ interface impls
+
+    mat: ClassVar[property] = utils.attr("_mat")
+    name: ClassVar[property] = utils.attr("_name")
+    constant: ClassVar[property] = utils.attr("_constant")
+
+    # }}}
+
+    def __init__(self, mat: PETSc.Mat, *, name:str|None=None, prefix:str|None=None,constant:bool=False):
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        self._mat = mat
+        self._name = name
+        self._constant = constant
+
+
+@utils.record()
+class PetscMatPreallocatorBuffer(AbstractPetscMatBuffer):
+    """A buffer whose underlying data structure is a PETSc Mat."""
+
+    # {{{ Instance attrs
+
+    _mat: PETSc.Mat
+    target_mat_type: str
+    _name: str
+    _constant: bool
+
+    _lazy_template: PETSc.Mat | None = None
+
+    # }}}
+
+    # {{{ interface impls
+
+    mat: ClassVar[property] = utils.attr("_mat")
+    name: ClassVar[property] = utils.attr("_name")
+    constant: ClassVar[property] = utils.attr("_constant")
+
+    # }}}
+
+    def __init__(self, mat: PETSc.Mat, target_mat_type: str, *, name:str|None=None, prefix:str|None=None,constant:bool=False):
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        self._mat = mat
+        self.target_mat_type = target_mat_type
+        self._name = name
+        self._constant = constant
+
+    def materialize(self) -> PetscMatBuffer:
+        if not self._lazy_template:
+            self.assemble()
+
+            nrows, ncolumns = self.mat.local_size
+            lgmaps = self.mat.getLGMap()
+            template = self._make_mat(nrows, ncolumns, lgmaps,
+                                     mat_type=self.target_mat_type, block_shape=self.mat.block_size
+                                     )
+            self._preallocate(self.mat, template, self.target_mat_type)
+            # template.preallocateWithMatPreallocator(self.mat)
+            # We can safely set these options since by using a sparsity we
+            # are asserting that we know where the non-zeros are going.
+            # NOTE: These may already get set by PETSc.
+            template.setOption(PETSc.Mat.Option.NEW_NONZERO_LOCATION_ERR, True)
+            #template.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, True)
+
+            template.assemble()
+            object.__setattr__(self, "_lazy_template", template)
+
+        mat = self._lazy_template.copy()
+        return PetscMatBuffer(mat)
+
+    # TODO: can detect mat_type from the template I reckon
+    def _preallocate(self, preallocator, template, mat_type):
+        if isinstance(mat_type, collections.abc.Mapping):
+            for (ridx, cidx), submat_type in mat_type.items():
+                if ridx is None:
+                    ridx = 0
+                if cidx is None:
+                    cidx = 0
+                subpreallocator = preallocator.getNestSubMatrix(ridx, cidx)
+                submat = template.getNestSubMatrix(ridx, cidx)
+                self._preallocate(subpreallocator, submat, submat_type)
+        else:
+            if mat_type != "dat":
+                # template.preallocateWithMatPreallocator(preallocator)
+                preallocator.preallocatorPreallocate(template)

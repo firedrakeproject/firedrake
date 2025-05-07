@@ -3,14 +3,17 @@ from __future__ import annotations
 import abc
 import collections
 import contextlib
+import ctypes
 import dataclasses
 import enum
 import functools
+import os
 import numbers
 import textwrap
-from functools import cached_property
-from typing import Any
+import warnings
 import weakref
+from collections.abc import Mapping
+from typing import Any
 
 from cachetools import cachedmethod
 from petsc4py import PETSc
@@ -18,36 +21,39 @@ from petsc4py import PETSc
 import loopy as lp
 import numpy as np
 import pymbolic as pym
-from pyrsistent import freeze, pmap, PMap
+from immutabledict import immutabledict
+from pyop3.array.dat import ArrayBufferExpression, MatArrayBufferExpression, MatPetscMatBufferExpression, OpaqueBufferExpression
+from pyop3.expr_visitors import collect_axis_vars
 
 import pyop2
 
-from pyop3.array import Dat, _Dat, _ExpressionDat, _ConcretizedDat, _ConcretizedMat
+from pyop3 import utils
+from pyop3.array import Dat, _Dat, LinearDatArrayBufferExpression, NonlinearDatArrayBufferExpression, Parameter, Mat
 from pyop3.array.base import Array
-from pyop3.array.petsc import Mat, AbstractMat
-from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent
-from pyop3.buffer import DistributedBuffer, NullBuffer, PackedBuffer
+from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent, relabel_path
+from pyop3.buffer import AbstractBuffer, AbstractPetscMatBuffer, ArrayBuffer, NullBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
-from pyop3.ir.transform import with_likwid_markers, with_petsc_event
-from pyop3.itree.tree import LoopIndexVar
+from pyop3.ir.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
+from pyop3.itree.tree import AffineSliceComponent, LoopIndexVar, Slice, IndexTree
 from pyop3.lang import (
+    Intent,
     INC,
     MAX_RW,
     MAX_WRITE,
     MIN_RW,
     MIN_WRITE,
-    NA,
     READ,
     RW,
     AbstractAssignment,
+    NullInstruction,
+    assignment_type_as_intent,
     parse_compiler_parameters,
     WRITE,
     AssignmentType,
-    NonEmptyBufferAssignment,
-    ContextAwareLoop,  # TODO: remove this class
-    DirectCalledFunction,
-    NonEmptyPetscMatAssignment,
+    ConcretizedNonEmptyArrayAssignment,
+    StandaloneCalledFunction,
+    # NonEmptyPetscMatAssignment,
     PreprocessedExpression,
     UnprocessedExpressionException,
     DummyKernelArgument,
@@ -57,18 +63,19 @@ from pyop3.lang import (
 )
 from pyop3.log import logger
 from pyop3.utils import (
-    Parameter,
     PrettyTuple,
     StrictlyUniqueDict,
     UniqueNameGenerator,
     as_tuple,
-    checked_zip,
     just_one,
+    maybe_generate_name,
     merge_dicts,
     single_valued,
     strictly_all,
     Identified,
 )
+
+import pyop3.extras.debug
 
 # FIXME this needs to be synchronised with TSFC, tricky
 # shared base package? or both set by Firedrake - better solution
@@ -76,6 +83,7 @@ LOOPY_TARGET = lp.CWithGNULibcTarget()
 LOOPY_LANG_VERSION = (2018, 2)
 
 
+# Is this still needed? Loopy may have fixed this
 class OpaqueType(lp.types.OpaqueType):
     def __repr__(self) -> str:
         return f"OpaqueType('{self.name}')"
@@ -92,8 +100,6 @@ class LoopyCodegenContext(CodegenContext):
         self._args = []
         self._subkernels = []
 
-        self.actual_to_kernel_rename_map = {}
-
         self._within_inames = frozenset()
         self._last_insn_id = None
 
@@ -102,9 +108,16 @@ class LoopyCodegenContext(CodegenContext):
         # TODO remove
         self._dummy_names = {}
 
-        self._seen_arrays = set()
+        # data argument name -> data argument
+        # NOTE: If PETSc Mats were hashable then this could be a WeakSet (ordered)
+        self.data_arguments = weakref.WeakValueDictionary()
+        # data argument name -> name in kernel
+        self.kernel_arg_names = {}
+        # global buffer name -> intent
+        self.global_buffer_intents = {}
 
-        self.datamap = weakref.WeakValueDictionary()
+        # initializer hash -> temporary name
+        self._reusable_temporaries: dict[int, str] = {}
 
     @property
     def domains(self):
@@ -116,18 +129,11 @@ class LoopyCodegenContext(CodegenContext):
 
     @property
     def arguments(self):
-        return tuple(self._args)
+        return tuple(sorted(self._args, key=lambda arg: arg.name))
 
     @property
     def subkernels(self):
         return tuple(self._subkernels)
-
-    @property
-    def kernel_to_actual_rename_map(self):
-        return {
-            kernel: actual
-            for actual, kernel in self.actual_to_kernel_rename_map.items()
-        }
 
     def add_domain(self, iname, *args):
         nargs = len(args)
@@ -190,63 +196,122 @@ class LoopyCodegenContext(CodegenContext):
             name = self._dummy_names.setdefault(arg, self._name_generator("dummy"))
         self._args.append(lp.ValueArg(name, dtype=dtype))
 
-    # TODO we pass a lot more data here than we need I think, need to use unique *buffers*
-    def add_array(self, array: Array) -> None:
-        if array.name in self._seen_arrays:
-            return
-        self._seen_arrays.add(array.name)
+    @functools.singledispatchmethod
+    def add_buffer(self, buffer: Any, intent: Intent | None = None) -> str:
+        raise TypeError(f"No handler defined for {type(buffer).__name__}")
 
-        self.datamap[array.name] = array
+    @add_buffer.register(ArrayBuffer)
+    def _(self, buffer: ArrayBuffer, intent: Intent| None = None) -> str:
+        if intent is None:
+            raise ValueError("Global data must declare intent")
 
-        if isinstance(array.buffer, NullBuffer):
-            name = self.unique_name("t")
-            shape = self._temporary_shapes.get(array.name, (array.alloc_size,))
-            arg = lp.TemporaryVariable(
-                name, dtype=array.dtype, shape=shape, read_only=array.constant, address_space=lp.AddressSpace.LOCAL,
-            )
-        # NOTE: It only makes sense to inject *buffers*, not, say, Dats
-        # except that isn't totally true. One could have dat[::2] as a constant and only
-        # want to inject the used entries
-        elif array.constant and array.buffer.shape[0] < config["max_static_array_size"]:
-            name = self.unique_name("t")
-            arg = lp.TemporaryVariable(
-                name,
-                dtype=array.dtype,
-                initializer=array.buffer.data_ro,
-                address_space=lp.AddressSpace.LOCAL,
+        if buffer.name in self.data_arguments:
+            if intent != self.global_buffer_intents[buffer.name]:
+                raise ValueError("Cannot have mismatching intents for the same global buffer")
+            return self.kernel_arg_names[buffer.name]
+
+        self.data_arguments[buffer.name] = buffer
+        self.global_buffer_intents[buffer.name] = intent
+
+        # Inject constant buffer data into the generated code if sufficiently small
+        # TODO: Need to consider 'constant-ness'. Something may be immutable but still
+        # not match across ranks.
+        # Maybe sf check is enough?
+        if buffer.constant and buffer.size < config["max_static_array_size"]:
+            assert not buffer.sf, "sufficient check?"
+            return self.add_temporary(
+                "t",
+                buffer.dtype,
+                initializer=buffer.data_ro,
+                shape=buffer.data_ro.shape,
                 read_only=True,
             )
-        elif isinstance(array.buffer, DistributedBuffer):
-            name = self.unique_name("buffer")
-            arg = lp.GlobalArg(name, dtype=self._dtype(array), shape=None)
-        else:
-            assert isinstance(array.buffer, PETSc.Mat)
-            name = self.unique_name("mat")
-            arg = lp.ValueArg(name, dtype=self._dtype(array))
 
-        self.actual_to_kernel_rename_map[array.name] = name
+        if isinstance(buffer.dtype, np.dtypes.IntDType):
+            name_in_kernel = self.unique_name("map")
+        else:
+            name_in_kernel = self.unique_name("dat")
+
+        # If the buffer is being passed straight through to a function then we
+        # have to make sure that the shapes match
+        shape = self._temporary_shapes.get(buffer.name, None)
+        arg = lp.GlobalArg(name_in_kernel, dtype=buffer.dtype, shape=shape)
+        self._args.append(arg)
+        self.kernel_arg_names[buffer.name] = name_in_kernel
+        return name_in_kernel
+
+    @add_buffer.register(AbstractPetscMatBuffer)
+    def _(self, buffer: AbstractPetscMatBuffer, intent: Intent | None = None) -> str:
+        if intent is None:
+            raise ValueError("Global data must declare intent")
+
+        # TODO: This is the same as for Buffer, refactor
+        if buffer.name in self.data_arguments:
+            if intent != self.global_buffer_intents[buffer.name]:
+                raise ValueError("Cannot have mismatching intents for the same global buffer")
+            return self.kernel_arg_names[buffer.name]
+
+        self.data_arguments[buffer.name] = buffer
+        self.global_buffer_intents[buffer.name] = intent
+
+        kernel_name = self.unique_name("mat")
+        arg = lp.ValueArg(kernel_name, dtype=OpaqueType("Mat"))
+        self._args.append(arg)
+        self.kernel_arg_names[buffer.name] = kernel_name
+        return kernel_name
+
+    @add_buffer.register(NullBuffer)
+    def _(self, buffer: NullBuffer, intent: Intent | None = None) -> str:
+        # NOTE: 'intent' is not important for temporaries
+        if buffer.name in self.data_arguments:
+            return self.kernel_arg_names[buffer.name]
+        self.data_arguments[buffer.name] = buffer
+
+        shape = self._temporary_shapes.get(buffer.name, (buffer.size,))
+        name = self.add_temporary("t", buffer.dtype, shape=shape)
+        self.kernel_arg_names[buffer.name] = name
+        return name
+
+    def add_temporary(self, prefix="t", dtype=IntType, *, shape=(), initializer: np.ndarray = None, read_only: bool = False) -> str:
+        # If multiple temporaries with the same initializer are used then they
+        # can be shared.
+        can_reuse = initializer is not None and read_only
+        if can_reuse:
+            key = initializer.data.tobytes()
+            if key in self._reusable_temporaries:
+                return self._reusable_temporaries[key]
+
+        name = self.unique_name(prefix)
+        arg = lp.TemporaryVariable(
+            name,
+            dtype=dtype,
+            shape=shape,
+            initializer=initializer,
+            read_only=read_only,
+            address_space=lp.AddressSpace.LOCAL,
+        )
         self._args.append(arg)
 
-    # can this now go? no, not all things are arrays
-    def add_temporary(self, name, dtype=IntType, shape=()):
-        temp = lp.TemporaryVariable(name, dtype=dtype, shape=shape)
-        self._args.append(temp)
+        if can_reuse:
+            self._reusable_temporaries[key] = name
 
-    def add_parameter(self, parameter: Parameter) -> str:
-        self.datamap[parameter.id] = parameter
+        return name
 
-        name = self.unique_name("p")
-        self.actual_to_kernel_rename_map[parameter.id] = name
+    def add_parameter(self, parameter: Parameter, *, prefix="p") -> str:
+        # TODO: This is the same as for Buffer, refactor
+        if parameter.name in self.data_arguments:
+            return self.data_arguments[parameter.name]
+        self.data_arguments[parameter.name] = parameter
 
-        loopy_arg = lp.ValueArg(name, dtype=parameter.box.dtype)
-        self._args.append(loopy_arg)
-
+        name = self.unique_name(prefix)
+        arg = lp.ValueArg(name, dtype=parameter.dtype)
+        self._args.append(arg)
+        self.kernel_arg_names[parameter.name] = name
         return name
 
     def add_subkernel(self, subkernel):
         self._subkernels.append(subkernel)
 
-    # I am not sure that this belongs here, I generate names separately from adding domains etc
     def unique_name(self, prefix):
         return self._name_generator(prefix)
 
@@ -257,61 +322,27 @@ class LoopyCodegenContext(CodegenContext):
         yield
         self._within_inames = orig_within_inames
 
+    # FIXME, bad API but it is context-dependent
+    def set_temporary_shapes(self, shapes):
+        self._temporary_shapes = shapes
+
     @property
     def _depends_on(self):
         return frozenset({self._last_insn_id}) - {None}
-
-    # TODO Perhaps this should be made more public so external users can register
-    # arguments. I don't want to make it a property to attach to the objects since
-    # that would "tie us in" to loopy more than I would like.
-    @functools.singledispatchmethod
-    def _dtype(self, array):
-        """Return the dtype corresponding to a given kernel argument.
-
-        This function is required because we need to distinguish between the
-        dtype of the data stored in the array and that of the array itself. For
-        basic arrays loopy can figure this out but for complex types like `PetscMat`
-        it would otherwise get this wrong.
-
-        """
-        raise TypeError(f"No handler provided for {type(array).__name__}")
-
-    @_dtype.register(_Dat)
-    def _(self, array):
-        return self._dtype(array.buffer)
-
-    @_dtype.register(DistributedBuffer)
-    def _(self, array):
-        return array.dtype
-
-    @_dtype.register
-    def _(self, array: PackedBuffer):
-        return self._dtype(array.array)
-
-    @_dtype.register
-    def _(self, array: AbstractMat):
-        return OpaqueType("Mat")
-
-    @_dtype.register(PETSc.Mat)
-    def _(self, mat):
-        return OpaqueType("Mat")
 
     def _add_instruction(self, insn):
         self._insns.append(insn)
         self._last_insn_id = insn.id
 
-    # FIXME, bad API
-    def set_temporary_shapes(self, shapes):
-        self._temporary_shapes = shapes
-
 
 # bad name, bit misleading as this is just the loopy bit, further optimisation
 # and lowering to go...
 class CodegenResult:
-    def __init__(self, ir, arg_replace_map, datamap, compiler_parameters):
-        self.ir = ir
-        self.arg_replace_map = arg_replace_map
-        self.datamap = datamap
+    # TODO: intents and datamap etc maybe all go together. All relate to the same objects
+    def __init__(self, loopy_kernel, data_arguments, global_buffer_intents, compiler_parameters):
+        self.loopy_kernel = loopy_kernel
+        self.data_arguments = data_arguments
+        self.global_buffer_intents = global_buffer_intents
         self.compiler_parameters = compiler_parameters
 
         # self._cache = collections.defaultdict(dict)
@@ -319,20 +350,30 @@ class CodegenResult:
     # @cachedmethod(lambda self: self._cache["CodegenResult._compile"])
     # not really needed, just a @property
     def _compile(self):
-        return compile_loopy(self.ir, pyop3_compiler_parameters=self.compiler_parameters)
+        return compile_loopy(self.loopy_kernel, pyop3_compiler_parameters=self.compiler_parameters)
 
     def __call__(self, **kwargs):
+        if not self.global_buffer_intents:
+            warnings.warn(
+                "Attempting to execute a kernel that does not touch any global "
+                "data, skipping"
+            )
+            return
+
+        executable = self._compile()
+
         # TODO: Check each of kwargs and make sure that the replacement is
         # valid (e.g. same size, same data type, same layout funcs).
-        data_args = []
-        for kernel_arg in self.ir.default_entrypoint.args:
-            actual_arg_name = self.arg_replace_map[kernel_arg.name]
-            array = kwargs.get(actual_arg_name, self.datamap[actual_arg_name])
-            data_args.append(as_kernel_arg(array))
+        kernel_args = []
+        for data_argument in self.data_arguments.values():
+            data_argument = kwargs.get(data_argument.name, data_argument)
+            kernel_args.append(as_kernel_arg(data_argument))
 
-        if len(data_args) > 0:
-            executable = self._compile()
-            executable(*data_args)
+        # if len(self.loopy_kernel.callables_table) > 1:
+        #     ccode = lp.generate_code_v2(self.loopy_kernel).device_code()
+        #     breakpoint()
+
+        executable(*kernel_args)
 
     def target_code(self, target):
         raise NotImplementedError("TODO")
@@ -404,7 +445,7 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
     else:
         cs_expr = (insn,)
 
-    ctx = LoopyCodegenContext()
+    context = LoopyCodegenContext()
     # NOTE: so I think LoopCollection is a better abstraction here - don't want to be
     # explicitly dealing with contexts at this point. Can always sniff them out again.
     # for context, ex in cs_expr:
@@ -432,20 +473,20 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
 
         for e in as_tuple(ex): # TODO: get rid of this loop
             # context manager?
-            ctx.set_temporary_shapes(_collect_temporary_shapes(e))
-            _compile(e, loop_indices, ctx)
+            context.set_temporary_shapes(_collect_temporary_shapes(e))
+            _compile(e, loop_indices, context)
 
     # add a no-op instruction touching all of the kernel arguments so they are
     # not silently dropped
     noop = lp.CInstruction(
         (),
         "",
-        read_variables=frozenset({a.name for a in ctx.arguments}),
+        read_variables=frozenset({a.name for a in context.arguments}),
         within_inames=frozenset(),
         within_inames_is_final=True,
-        depends_on=ctx._depends_on,
+        depends_on=context._depends_on,
     )
-    ctx._insns.append(noop)
+    context._insns.append(noop)
 
     preambles = [
         ("20_debug", "#include <stdio.h>"),  # dont always inject
@@ -466,9 +507,9 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
     ]
 
     translation_unit = lp.make_kernel(
-        ctx.domains,
-        ctx.instructions,
-        ctx.arguments,
+        context.domains,
+        context.instructions,
+        context.arguments,
         name=function_name,
         target=LOOPY_TARGET,
         lang_version=LOOPY_LANG_VERSION,
@@ -481,9 +522,11 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
         entrypoint = with_likwid_markers(entrypoint)
     if compiler_parameters.add_petsc_event:
         entrypoint = with_petsc_event(entrypoint)
+    if compiler_parameters.attach_debugger:
+        entrypoint = with_attach_debugger(entrypoint)
     translation_unit = translation_unit.with_kernel(entrypoint)
 
-    translation_unit = lp.merge((translation_unit, *ctx.subkernels))
+    translation_unit = lp.merge((translation_unit, *context.subkernels))
 
     # add callables
     # tu = lp.register_callable(tu, "bsearch", BinarySearchCallable())
@@ -491,7 +534,14 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
     # needed?
     translation_unit = translation_unit.with_entrypoints(entrypoint.name)
 
-    return CodegenResult(translation_unit, ctx.kernel_to_actual_rename_map, ctx.datamap, compiler_parameters)
+    data_argument_names = utils.invert_mapping(context.kernel_arg_names)
+    data_arguments = {}
+    buffer_intents = {}
+    for kernel_arg in entrypoint.args:
+        data_argument_name = data_argument_names[kernel_arg.name]
+        data_arguments[kernel_arg.name] = context.data_arguments[data_argument_name]
+
+    return CodegenResult(translation_unit, data_arguments, context.global_buffer_intents, compiler_parameters)
 
 
 # put into a class in transform.py?
@@ -501,7 +551,7 @@ def _collect_temporary_shapes(expr):
 
 
 @_collect_temporary_shapes.register(InstructionList)
-def _(insn_list: InstructionList, /) -> PMap:
+def _(insn_list: InstructionList, /) -> immutabledict:
     return merge_dicts(_collect_temporary_shapes(insn) for insn in insn_list)
 
 
@@ -520,17 +570,18 @@ def _(loop: Loop, /):
 
 
 @_collect_temporary_shapes.register(AbstractAssignment)
-def _(assignment: AbstractAssignment, /) -> PMap:
-    return pmap()
+@_collect_temporary_shapes.register(NullInstruction)
+def _(assignment: AbstractAssignment, /) -> immutabledict:
+    return immutabledict()
 
 
 @_collect_temporary_shapes.register
-def _(call: DirectCalledFunction):
-    return freeze(
+def _(call: StandaloneCalledFunction):
+    return immutabledict(
         {
-            arg.name: lp_arg.shape
-            for lp_arg, arg in checked_zip(
-                call.function.code.default_entrypoint.args, call.arguments
+            arg.buffer.name: lp_arg.shape
+            for lp_arg, arg in zip(
+                call.function.code.default_entrypoint.args, call.arguments, strict=True
             )
         }
     )
@@ -541,13 +592,17 @@ def _compile(expr: Any, loop_indices, ctx: LoopyCodegenContext) -> None:
     raise TypeError(f"No handler defined for {type(expr).__name__}")
 
 
+@_compile.register(NullInstruction)
+def _(null: NullInstruction, *args, **kwargs):
+    pass
+
+
 @_compile.register(InstructionList)
 def _(insn_list: InstructionList, /, loop_indices, ctx) -> None:
     for insn in insn_list:
         _compile(insn, loop_indices, ctx)
 
 
-@_compile.register(ContextAwareLoop)  # remove
 @_compile.register(Loop)
 def _(
     loop,
@@ -574,16 +629,16 @@ def parse_loop_properly_this_time(
 ):
     if strictly_all(x is None for x in {axis, path, iname_map}):
         axis = axes.root
-        path = pmap()
-        iname_map = pmap()
+        path = immutabledict()
+        iname_map = immutabledict()
 
     for component in axis.components:
         path_ = path | {axis.label: component.label}
 
-        if component._collective_size != 1:
+        if component.size != 1:
             iname = codegen_context.unique_name("i")
             domain_var = register_extent(
-                component._collective_size,
+                component.size,
                 iname_map,
                 loop_indices,
                 codegen_context,
@@ -604,9 +659,8 @@ def parse_loop_properly_this_time(
             axis_key = (axis.id, component.label)
             for index_exprs in axes.index_exprs:
                 for axis_label, index_expr in index_exprs.get(axis_key).items():
-                    # loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, [iname_map], loop_indices, codegen_context, paths=[path_])
                     loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, [iname_replace_map_], loop_indices, codegen_context, paths=[path_])
-            loop_exprs = pmap(loop_exprs)
+            loop_exprs = immutabledict(loop_exprs)
 
             if subaxis := axes.child(axis, component):
                 parse_loop_properly_this_time(
@@ -630,14 +684,14 @@ def parse_loop_properly_this_time(
 
 
 @_compile.register
-def _(call: DirectCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> None:
+def _(call: StandaloneCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> None:
     temporaries = []
     subarrayrefs = {}
     extents = {}
 
     # loopy args can contain ragged params too
     loopy_args = call.function.code.default_entrypoint.args[: len(call.arguments)]
-    for loopy_arg, arg, spec in checked_zip(loopy_args, call.arguments, call.argspec):
+    for loopy_arg, arg, spec in zip(loopy_args, call.arguments, call.argspec, strict=True):
         # this check fails because we currently assume that all arrays require packing
         # from pyop3.transform import _requires_pack_unpack
         # assert not _requires_pack_unpack(arg)
@@ -653,16 +707,17 @@ def _(call: DirectCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> Non
             if loopy_arg.shape is None:
                 shape = (temporary.alloc_size,)
             else:
-                if np.prod(loopy_arg.shape, dtype=int) != temporary.alloc_size:
+                if np.prod(loopy_arg.shape, dtype=int) != temporary.buffer.size:
                     raise RuntimeError("Shape mismatch between inner and outer kernels")
                 shape = loopy_arg.shape
 
-            temporaries.append((arg, indexed_temp, spec.access, shape))
+            temporaries.append((arg, indexed_temp, spec.intent, shape))
 
             # Register data
             # TODO This might be bad for temporaries
-            if isinstance(arg, _Dat):
-                ctx.add_array(arg)
+            # NOTE: not sure why I added this condition before
+            # if isinstance(arg, _Dat):
+            temp_name = ctx.add_buffer(arg.buffer, spec.intent)
 
             # this should already be done in an assignment
             # ctx.add_temporary(temporary.name, temporary.dtype, shape)
@@ -675,7 +730,6 @@ def _(call: DirectCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> Non
                 indices.append(pym.var(iname))
             indices = tuple(indices)
 
-            temp_name = ctx.actual_to_kernel_rename_map[temporary.name]
             subarrayrefs[arg] = lp.symbolic.SubArrayRef(
                 indices, pym.subscript(pym.var(temp_name), indices)
             )
@@ -684,16 +738,15 @@ def _(call: DirectCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> Non
     # probably best to combine them - could add a sensible check there too.
     assignees = tuple(
         subarrayrefs[arg]
-        for arg, spec in checked_zip(call.arguments, call.argspec)
-        # if spec.access in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE, NA}
-        if spec.access in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE}
+        for arg, spec in zip(call.arguments, call.argspec, strict=True)
+        if spec.intent in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE}
     )
     expression = pym.primitives.Call(
         pym.var(call.function.code.default_entrypoint.name),
         tuple(
             subarrayrefs[arg]
-            for arg, spec in checked_zip(call.arguments, call.argspec)
-            if spec.access in {READ, RW, INC, MIN_RW, MAX_RW, NA}
+            for arg, spec in zip(call.arguments, call.argspec, strict=True)
+            if spec.intent in {READ, RW, INC, MIN_RW, MAX_RW}
         )
         + tuple(extents.values()),
     )
@@ -702,27 +755,47 @@ def _(call: DirectCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> Non
     ctx.add_subkernel(call.function.code)
 
 
-# FIXME this is practically identical to what we do in build_loop
-@_compile.register(NonEmptyBufferAssignment)
-def parse_assignment(
-    assignment,
-    loop_indices,
-    codegen_ctx,
-):
-    parse_assignment_properly_this_time(
-        assignment,
-        loop_indices,
-        codegen_ctx,
-        assignment.axis_trees,
-    )
+@_compile.register(ConcretizedNonEmptyArrayAssignment)
+def parse_assignment(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context: CodegenContext):
+    if any(isinstance(arg, OpaqueBufferExpression) for arg in assignment.arguments):
+        _compile_petsc_mat(assignment, loop_indices, context)
+    else:
+        compile_array_assignment(
+            assignment,
+            loop_indices,
+            context,
+            assignment.axis_trees,
+        )
 
 
-@_compile.register(NonEmptyPetscMatAssignment)
-def _compile_petscmat(assignment, loop_indices, codegen_context):
-    mat = assignment.mat
-    array = assignment.values
+def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context):
+    mat = assignment.assignee
+    expr = assignment.expression
 
-    assert isinstance(mat, _ConcretizedMat)
+    row_axis_tree, column_axis_tree = assignment.axis_trees
+
+    if isinstance(expr, numbers.Number):
+        # If we have an expression like
+        #
+        #     mat[f(p), f(p)] <- 666
+        #
+        # then we have to convert `666` into an appropriately sized temporary
+        # for Mat{Get,Set}Values to work.
+        # TODO: There must be a more elegant way of doing this
+        nrows = row_axis_tree.size
+        ncols = column_axis_tree.size
+        expr_data = np.full((nrows, ncols), expr, dtype=mat.buffer.dtype)
+        array_buffer = ArrayBuffer(expr_data, constant=True)
+    else:
+        assert isinstance(expr, ArrayBufferExpression)
+        array_buffer = expr.buffer
+
+    if not isinstance(mat.buffer, AbstractPetscMatBuffer):
+        raise NotImplementedError  # order must be different
+    else:
+        # We need to know whether the matrix is the assignee or not because we need
+        # to know whether to put MatGetValues or MatSetValues
+        setting_mat_values = True
 
     # tidy this up
     # if mat.mat.nested:
@@ -741,23 +814,13 @@ def _compile_petscmat(assignment, loop_indices, codegen_context):
 
     # now emit the right line of code, this should properly be a lp.ScalarCallable
     # https://petsc.org/release/manualpages/Mat/MatGetValuesLocal/
-    codegen_context.add_array(mat)
-    codegen_context.add_array(array)
+    mat_name = context.add_buffer(assignment.assignee.buffer, assignment_type_as_intent(assignment.assignment_type))
 
-    mat_name = codegen_context.actual_to_kernel_rename_map[mat.name]
-    array_name = codegen_context.actual_to_kernel_rename_map[array.name]
+    # NOTE: Is this always correct? It is for now.
+    array_name = context.add_buffer(array_buffer, READ)
 
-    for row_path in assignment.row_axis_tree.leaf_paths:
-        for col_path in assignment.col_axis_tree.leaf_paths:
-            row_layout = mat.row_layouts[row_path]
-            codegen_context.add_array(row_layout)
-            rmap_name = codegen_context.actual_to_kernel_rename_map[row_layout.name]
-
-            col_layout = mat.col_layouts[col_path]
-            codegen_context.add_array(col_layout)
-            cmap_name = codegen_context.actual_to_kernel_rename_map[col_layout.name]
-
-            blocked = mat.mat.block_shape > 1
+    # TODO: The following code should be done in a loop per submat.
+    # blocked = mat.mat.block_shape > 1
     # if mat.nested:
     #     if len(mat.nest_labels) > 1:
     #         # Need to loop over the different nest labels and emit separate calls to
@@ -787,90 +850,106 @@ def _compile_petscmat(assignment, loop_indices, codegen_context):
     #     codegen_context.add_cinstruction(code)
     #     mat_name = submat_name
 
-    # TODO: The following code should be done in a loop per submat.
+    # rmap_name = context.add_buffer(mat.row_layout.buffer, READ)
+    #
+    # cmap_name = context.add_buffer(mat.column_layout.buffer, READ)
 
-            raxes = row_layout.dat.axes
-            row_subtree = raxes.subtree(raxes.child(raxes.root))
-            rsize = row_subtree.size
+    # def get_linear_size(axis_tree, path):
+    #     linear_size = 1
+    #     visited = axis_tree.path_with_nodes(axis_tree._node_from_path(path), and_components=True)
+    #     for axis, component in visited.items():
+    #         assert component.size > 0
+    #         linear_size *= component.size
+    #     return linear_size
 
-            caxes = col_layout.dat.axes
-            col_subtree = caxes.subtree(caxes.child(caxes.root))
-            csize = col_subtree.size
 
-            # these sizes can be expressions that need evaluating
-            if not isinstance(rsize, numbers.Integral):
-                raise NotImplementedError
-                rsize_var = register_extent(
-                    rsize,
-                    loop_indices,
-                    codegen_context,
-                )
-            else:
-                rsize_var = rsize
+    # This code figures out the sizes of the maps - it's simply the
+    # size of the assignment axes but linearised for the particular
+    # row and column paths.
+    # For example, if we have a P2 triangle then we have row and col maps
+    # with arities [3, 3] (and those values should be embedded in MatSetValues)
+    # 
+    # The indexed axis tree for the row (and col) looks like:
+    #
+    #   {closure: [{0: [(3, None)]}, {1: [(3, None)]}]}
+    #   ├──➤ {dof0: [[(1, None)]]}
+    #   └──➤ {dof1: [[(1, None)]]}
+    #
+    # where it can clearly be seen that, for each path, the size is 3.
+    # rsize = get_linear_size(assignment.row_axis_tree, row_path)
+    # csize = get_linear_size(assignment.column_axis_tree, col_path)
+    rsize = row_axis_tree.size
+    csize = column_axis_tree.size
 
-            if not isinstance(csize, numbers.Integral):
-                raise NotImplementedError
-                csize_var = register_extent(
-                    csize,
-                    loop_indices,
-                    codegen_context,
-                )
-            else:
-                csize_var = csize
+    # these sizes can be expressions that need evaluating
+    if not isinstance(rsize, numbers.Integral):
+        raise NotImplementedError
+        rsize_var = register_extent(
+            rsize,
+            loop_indices,
+            context,
+        )
+    else:
+        rsize_var = rsize
 
-            # replace inner bits with zeros
-            rzeros = {axis.label: 0 for axis in row_layout.dat.axes.nodes if axis is not row_layout.dat.axes.root}
-            irow = str(lower_expr(row_layout, [rzeros], loop_indices, codegen_context))
+    if not isinstance(csize, numbers.Integral):
+        raise NotImplementedError
+        csize_var = register_extent(
+            csize,
+            loop_indices,
+            context,
+        )
+    else:
+        csize_var = csize
 
-            czeros = {axis.label: 0 for axis in col_layout.dat.axes.nodes if axis is not col_layout.dat.axes.root}
-            icol = str(lower_expr(col_layout, [czeros], loop_indices, codegen_context))
+    irow = lower_expr(mat.row_layout, ((),), loop_indices, context)
+    icol = lower_expr(mat.column_layout, ((),), loop_indices, context)
 
-            array_row_layout = assignment.values.row_layouts[row_path]
-            array_row_expr = lower_expr(array_row_layout, [rzeros], loop_indices, codegen_context)
-            array_col_layout = assignment.values.col_layouts[col_path]
-            array_col_expr = lower_expr(array_col_layout, [czeros], loop_indices, codegen_context)
+    # FIXME:
+    blocked = False
 
-            array_indices = array_row_expr * csize + array_col_expr
-            array_expr = str(pym.subscript(pym.var(array_name), array_indices))
-
-            # hacky
-            myargs = [
-                assignment, mat_name, array_expr, rsize_var, csize_var, irow, icol, blocked
-            ]
-            access_type = assignment.access_type
-            if access_type == ArrayAccessType.READ:
-                call_str = _petsc_mat_load(*myargs)
-            elif access_type == ArrayAccessType.WRITE:
+    # hacky
+    myargs = [
+        assignment, mat_name, array_name, rsize_var, csize_var, irow, icol, blocked
+    ]
+    if setting_mat_values:
+        match assignment.assignment_type:
+            case AssignmentType.WRITE:
                 call_str = _petsc_mat_store(*myargs)
-            else:
-                assert access_type == ArrayAccessType.INC
+            case AssignmentType.INC:
                 call_str = _petsc_mat_add(*myargs)
+            case _:
+                raise AssertionError
+    else:
+        raise NotImplementedError
+        # call_str = _petsc_mat_load(*myargs)
+        # but check cannot do INC here without extra step
 
-            codegen_context.add_cinstruction(call_str)
+    context.add_cinstruction(call_str)
 
 
 def _petsc_mat_load(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
     if blocked:
-        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}));"
+        return f"MatGetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]));"
     else:
-        return f"MatGetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}));"
+        return f"MatGetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]));"
 
 
 def _petsc_mat_store(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
     if blocked:
-        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}), INSERT_VALUES);"
+        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), INSERT_VALUES);"
     else:
-        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}), INSERT_VALUES);"
+        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), INSERT_VALUES);"
 
 
 def _petsc_mat_add(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
     if blocked:
-        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}), ADD_VALUES);"
+        return f"MatSetValuesBlockedLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), ADD_VALUES);"
     else:
-        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}), ADD_VALUES);"
+        return f"MatSetValuesLocal({mat_name}, {nrow}, &({irow}), {ncol}, &({icol}), &({array_name}[0]), ADD_VALUES);"
 
 # TODO now I attach a lot of info to the context-free array, do I need to pass axes around?
-def parse_assignment_properly_this_time(
+def compile_array_assignment(
     assignment,
     loop_indices,
     codegen_context,
@@ -890,8 +969,8 @@ def parse_assignment_properly_this_time(
     if axis_tree is None:
         axis_tree, *axis_trees = axis_trees
 
-        paths += [pmap()]
-        iname_replace_maps += [pmap()]
+        paths += [immutabledict()]
+        iname_replace_maps += [immutabledict()]
 
         if axis_tree.is_empty or axis_tree is UNIT_AXIS_TREE or isinstance(axis, IndexedAxisTree):
             if axis_trees:
@@ -909,11 +988,11 @@ def parse_assignment_properly_this_time(
         axis = axis_tree.root
 
     for component in axis.components:
-        if component._collective_size != 1:
+        if component.size != 1:
             iname = codegen_context.unique_name("i")
 
             extent_var = register_extent(
-                component._collective_size,
+                component.size,
                 iname_replace_maps[-1],
                 loop_indices,
                 codegen_context,
@@ -932,7 +1011,7 @@ def parse_assignment_properly_this_time(
 
         with codegen_context.within_inames(within_inames):
             if subaxis := axis_tree.child(axis, component):
-                parse_assignment_properly_this_time(
+                compile_array_assignment(
                     assignment,
                     loop_indices,
                     codegen_context,
@@ -943,7 +1022,7 @@ def parse_assignment_properly_this_time(
                     paths=new_paths,
                 )
             elif axis_trees:
-                parse_assignment_properly_this_time(
+                compile_array_assignment(
                     assignment,
                     loop_indices,
                     codegen_context,
@@ -970,103 +1049,92 @@ def add_leaf_assignment(
     codegen_context,
     loop_indices,
 ):
-    lexpr = lower_expr(assignment.assignee, iname_replace_maps, loop_indices, codegen_context, paths=paths)
-    rexpr = lower_expr(assignment.expression, iname_replace_maps, loop_indices, codegen_context, paths=paths)
+    intent = assignment_type_as_intent(assignment.assignment_type)
+    shape = tuple(axis_tree.size for axis_tree in assignment.axis_trees)
+    lexpr = lower_expr(assignment.assignee, iname_replace_maps, loop_indices, codegen_context, intent=intent, paths=paths, shape=shape)
+    rexpr = lower_expr(assignment.expression, iname_replace_maps, loop_indices, codegen_context, paths=paths, shape=shape)
 
-    if assignment.assignment_type == AssignmentType.WRITE:
-        pass
-    else:
-        assert assignment.assignment_type == AssignmentType.INC
+    if assignment.assignment_type == AssignmentType.INC:
         rexpr = lexpr + rexpr
 
     codegen_context.add_assignment(lexpr, rexpr)
 
 
-# NOTE: This could really just be lower_expr itself
-def make_array_expr(array, path, inames, ctx):
-    assert False, "old code"
-    # TODO: This should be propagated as an option - we don't always want to optimise
-    # TODO: Disabled optimising for now since I can't get it to work without a
-    # symbolic language. That has to be future work.
-
-    # ultimately this can go when everything is just lower_expr
-    ctx.add_array(array)  # (lower_expr registers the rest)
-
-    array_offset = lower_expr(
-        array.layouts[path],
-        inames,
-        ctx,
-    )
-
-    # hack to handle the fact that temporaries can have shape but we want to
-    # linearly index it here
-    if array.name in ctx._temporary_shapes:
-        shape = ctx._temporary_shapes[array.name]
-        assert shape is not None
-        rank = len(shape)
-        extra_indices = (0,) * (rank - 1)
-
-        # also has to be a scalar, not an expression
-        temp_offset_name = ctx.unique_name("j")
-        temp_offset_var = pym.var(temp_offset_name)
-        ctx.add_temporary(temp_offset_name)
-        ctx.add_assignment(temp_offset_var, array_offset)
-        indices = extra_indices + (temp_offset_var,)
-    else:
-        indices = (array_offset,)
-
-    name = ctx.actual_to_kernel_rename_map[array.name]
-    return pym.subscript(pym.var(name), indices)
+def lower_expr(expr, iname_maps, loop_indices, ctx, *, intent=READ, paths=None, shape=None) -> pym.Expression:
+    return _lower_expr(expr, iname_maps, loop_indices, ctx, intent=intent, paths=paths, shape=shape)
 
 
-# NOTE: There is a difference here between `lower_expr` and `lower_expr_linear` (where paths are not relevant)
 @functools.singledispatch
-def lower_expr(obj: Any, /, *args, **kwargs):
+def _lower_expr(obj: Any, /, *args, **kwargs) -> pym.Expression:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@lower_expr.register(Add)
-def _(add: Add, /, *args, **kwargs):
-    return lower_expr(add.a, *args, **kwargs) + lower_expr(add.b, *args, **kwargs)
-
-
-@lower_expr.register(Mul)
-def _(mul: Mul, /, *args, **kwargs):
-    return lower_expr(mul.a, *args, **kwargs) * lower_expr(mul.b, *args, **kwargs)
-
-
-@lower_expr.register(numbers.Number)
-def _(num: numbers.Number, /, *args, **kwargs):
+@_lower_expr.register(numbers.Number)
+def _(num: numbers.Number, /, *args, **kwargs) -> numbers.Number:
     return num
 
 
-@lower_expr.register(AxisVar)
-def _(axis_var: AxisVar, /, iname_maps, loop_indices, context, paths=None):
-    if len(iname_maps) > 1:
-        raise NotImplementedError("not sure")
-    else:
-        iname_map = just_one(iname_maps)
-    return iname_map[axis_var.axis_label]
+@_lower_expr.register(Add)
+def _(add: Add, /, *args, **kwargs) -> pym.Expression:
+    return _lower_expr(add.a, *args, **kwargs) + _lower_expr(add.b, *args, **kwargs)
 
 
-@lower_expr.register
-def _(loop_var: LoopIndexVar, iname_maps, loop_indices, context, paths=None):
+@_lower_expr.register(Mul)
+def _(mul: Mul, /, *args, **kwargs) -> pym.Expression:
+    return _lower_expr(mul.a, *args, **kwargs) * _lower_expr(mul.b, *args, **kwargs)
+
+
+@_lower_expr.register(AxisVar)
+def _(axis_var: AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
+    return just_one(iname_maps)[axis_var.axis_label]
+
+
+@_lower_expr.register(LoopIndexVar)
+def _(loop_var: LoopIndexVar, /, iname_maps, loop_indices, *args, **kwargs) -> pym.Expression:
     return loop_indices[(loop_var.loop_id, loop_var.axis_label)]
 
 
-def maybe_multiindex(dat, offset_expr, context):
+@_lower_expr.register(LinearDatArrayBufferExpression)
+def _(expr: LinearDatArrayBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
+    return lower_buffer_access(expr.buffer, [expr.layout], iname_maps, loop_indices, context, intent=intent)
+
+
+@_lower_expr.register(NonlinearDatArrayBufferExpression)
+def _(expr: NonlinearDatArrayBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, **kwargs) -> pym.Expression:
+    path = just_one(paths)
+    return lower_buffer_access(expr.buffer, [expr.layouts[path]], iname_maps, loop_indices, context, intent=intent)
+
+
+@_lower_expr.register(MatArrayBufferExpression)
+def _(expr: MatArrayBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
+    row_path, column_path = paths
+    layouts = (expr.row_layouts[row_path], expr.column_layouts[column_path])
+    return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, shape=shape)
+
+
+def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indices, context, *, intent, shape=None) -> pym.Expression:
+    name_in_kernel = context.add_buffer(buffer, intent)
+
+    offset_expr = 0
+    strides = reversed(utils.strides(shape)) if shape else (1,)
+    for stride, layout, iname_map in zip(strides, layouts, iname_maps, strict=True):
+        offset_expr += stride * lower_expr(layout, [iname_map], loop_indices, context)
+
+    indices = maybe_multiindex(buffer, offset_expr, context)
+    return pym.subscript(pym.var(name_in_kernel), indices)
+
+
+def maybe_multiindex(buffer, offset_expr, context):
     # hack to handle the fact that temporaries can have shape but we want to
     # linearly index it here
-    if dat.name in context._temporary_shapes:
-        shape = context._temporary_shapes[dat.name]
-        assert shape is not None
+    if buffer.name in context._temporary_shapes:
+        shape = context._temporary_shapes[buffer.name]
         rank = len(shape)
         extra_indices = (0,) * (rank - 1)
 
         # also has to be a scalar, not an expression
-        temp_offset_name = context.unique_name("j")
+        temp_offset_name = context.add_temporary("j")
         temp_offset_var = pym.var(temp_offset_name)
-        context.add_temporary(temp_offset_name)
         context.add_assignment(temp_offset_var, offset_expr)
         indices = extra_indices + (temp_offset_var,)
     else:
@@ -1075,61 +1143,9 @@ def maybe_multiindex(dat, offset_expr, context):
     return indices
 
 
-@lower_expr.register(_ConcretizedDat)
-def _(dat: _ConcretizedDat, /, iname_maps, loop_indices, context, paths):
-    iname_map = just_one(iname_maps)
-    path = just_one(paths)
-
-    context.add_array(dat)
-
-    new_name = context.actual_to_kernel_rename_map[dat.name]
-
-    layout_expr = dat.layouts[path]
-    offset_expr = lower_expr(layout_expr, [iname_map], loop_indices, context)
-    indices = maybe_multiindex(dat, offset_expr, context)
-
-    return pym.subscript(pym.var(new_name), indices)
-
-
-@lower_expr.register(_ConcretizedMat)
-def _(mat: _ConcretizedMat, /, iname_maps, loop_indices, context, paths):
-    context.add_array(mat)
-
-    new_name = context.actual_to_kernel_rename_map[mat.name]
-
-    row_iname_map, col_iname_map = iname_maps
-    row_path, col_path = paths
-
-    row_layout_expr = mat.row_layouts[row_path]
-    col_layout_expr = mat.col_layouts[col_path]
-
-    row_offset_expr = lower_expr(row_layout_expr, [row_iname_map], loop_indices, context)
-    col_offset_expr = lower_expr(col_layout_expr, [col_iname_map], loop_indices, context)
-
-    offset_expr = row_offset_expr * mat.mat.caxes.size + col_offset_expr
-    indices = maybe_multiindex(mat, offset_expr, context)
-
-    rexpr = pym.subscript(pym.var(new_name), indices)
-    return rexpr
-
-
-@lower_expr.register(_ExpressionDat)
-def _(dat: _ExpressionDat, /, iname_maps, loop_indices, context, paths=None):
-    iname_map = just_one(iname_maps)
-
-    context.add_array(dat)
-
-    new_name = context.actual_to_kernel_rename_map[dat.name]
-
-    offset_expr = lower_expr(dat.layout, [iname_map], loop_indices, context)
-    indices = maybe_multiindex(dat, offset_expr, context)
-    rexpr = pym.subscript(pym.var(new_name), indices)
-    return rexpr
-
-
 @functools.singledispatch
 def register_extent(obj: Any, *args, **kwargs):
-    raise TypeError(f"No handler defined for {type(extent).__name__}")
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
 @register_extent.register(numbers.Integral)
@@ -1141,63 +1157,43 @@ def _(num: numbers.Integral, *args, **kwargs):
 def _(param: Parameter, inames, loop_indices, context):
     return context.add_parameter(param)
 
-@register_extent.register(Dat)
-@register_extent.register(_ExpressionDat)
-def _(extent, iname_replace_map, loop_indices, ctx):
-    expr = lower_expr(extent, [iname_replace_map], loop_indices, ctx)
-    varname = ctx.unique_name("p")
-    ctx.add_temporary(varname)
-    ctx.add_assignment(pym.var(varname), expr)
+@register_extent.register(Dat)  # is this right? should this already be parsed?
+@register_extent.register(LinearDatArrayBufferExpression)
+def _(extent, /, intent, iname_replace_map, loop_indices, context):
+    expr = lower_expr(extent, [iname_replace_map], loop_indices, READ, context)
+    varname = context.add_temporary("p")
+    context.add_assignment(pym.var(varname), expr)
     return varname
 
 
 # lives here??
 @functools.singledispatch
-def as_kernel_arg(obj: Any) -> int:
+def as_kernel_arg(obj: Any) -> numbers.Number:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@as_kernel_arg.register(numbers.Integral)
-def _(num: numbers.Integral) -> int:
-    return int(num)
+# @as_kernel_arg.register(numbers.Integral)
+# def _(num: numbers.Integral) -> int:
+#     return int(num)
 
 
 @as_kernel_arg.register(Parameter)
-def _(param: Parameter) -> int:
-    return as_kernel_arg(param.value)
-
-
-@as_kernel_arg.register(np.ndarray)
-def _(array: np.ndarray) -> int:
-    return array.ctypes.data
+def _(param: Parameter) -> np.number:
+    return param.value
 
 
 @as_kernel_arg.register
-def _(arg: _Dat):
-    # TODO if we use the right accessor here we modify the state appropriately
-    return as_kernel_arg(arg.buffer)
-
-
-@as_kernel_arg.register
-def _(arg: DistributedBuffer):
+def _(arg: ArrayBuffer) -> int:
     # TODO if we use the right accessor here we modify the state appropriately
     # NOTE: Do not use .data_rw accessor here since this would trigger a halo exchange
-    return as_kernel_arg(arg._data)
+    return arg._data.ctypes.data
 
 
-@as_kernel_arg.register
-def _(arg: PackedBuffer):
-    return as_kernel_arg(arg.array)
-
-
-@as_kernel_arg.register
-def _(array: AbstractMat):
-    return array.mat.handle
-
-
-@as_kernel_arg.register(PETSc.Mat)
+# NOTE: I think that we should probably have a MatBuffer or similar type so
+# array.buffer is universal
+@as_kernel_arg.register(AbstractPetscMatBuffer)
 def _(mat):
-    return mat.handle
+    return mat.mat.handle
 
 
 # FIXME: We assume COMM_SELF here, this is maybe OK if we make sure to use a
@@ -1220,12 +1216,13 @@ def compile_loopy(translation_unit, *, pyop3_compiler_parameters):
     :kwarg comm: Optional communicator to compile the code on (only
         rank 0 compiles code) (defaults to pyop2.mpi.COMM_WORLD).
     """
-    import ctypes, os
     from pyop2.utils import get_petsc_dir
     from pyop2.compilation import load
 
     code = lp.generate_code_v2(translation_unit).device_code()
-    argtypes = [ctypes.c_voidp for _ in translation_unit.default_entrypoint.args]
+    argtypes = [
+        cast_loopy_arg_to_ctypes_type(arg) for arg in translation_unit.default_entrypoint.args
+    ]
     restype = None
 
     # ideally move this logic somewhere else
@@ -1260,3 +1257,21 @@ def compile_loopy(translation_unit, *, pyop3_compiler_parameters):
     func.argtypes = argtypes
     func.restype = restype
     return func
+
+
+@functools.singledispatch
+def cast_loopy_arg_to_ctypes_type(obj: Any) -> type:
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
+
+
+@cast_loopy_arg_to_ctypes_type.register(lp.ArrayArg)
+def _(arg: lp.ArrayArg) -> type:
+    return ctypes.c_voidp
+
+
+@cast_loopy_arg_to_ctypes_type.register(lp.ValueArg)
+def _(arg: lp.ValueArg):
+    if isinstance(arg.dtype, OpaqueType):
+        return ctypes.c_voidp
+    else:
+        return np.ctypeslib.as_ctypes_type(arg.dtype)

@@ -2,18 +2,24 @@ from __future__ import annotations
 
 import abc
 import collections
+import dataclasses
 import numbers
 from functools import cached_property
 from itertools import product
+from typing import Any, ClassVar
 
 import numpy as np
-from immutabledict import ImmutableOrderedDict
+from immutabledict import immutabledict
+from mpi4py import MPI
 from petsc4py import PETSc
+from pyop3 import buffer
 from pyrsistent import freeze, pmap
 
-from pyop3.array.base import Array
-from pyop3.array.harray import Dat
+from pyop3 import utils
+from pyop3.array.base import Array, DistributedArray
+from pyop3.array.dat import Dat
 from pyop3.axtree.tree import (
+    AbstractAxisTree,
     merge_axis_trees,
     AxisTree,
     ContextSensitiveAxisTree,
@@ -21,11 +27,10 @@ from pyop3.axtree.tree import (
     IndexedAxisTree,
     as_axis_tree,
 )
-from pyop3.buffer import DistributedBuffer, NullBuffer
+from pyop3.buffer import ArrayBuffer, NullBuffer, AbstractBuffer, AbstractPetscMatBuffer, PetscMatBuffer, PetscMatPreallocatorBuffer
 from pyop3.dtypes import IntType, ScalarType
-from pyop3.lang import Loop, BufferAssignment
+from pyop3.lang import Loop, ArrayAssignment
 from pyop3.utils import (
-    Record,
     deprecated,
     just_one,
     merge_dicts,
@@ -56,100 +61,136 @@ class PetscVecNest(PetscVec):
     ...
 
 
-# BaseMat?
-class AbstractMat(Array, Record):
-    DEFAULT_MAT_TYPE = PETSc.Mat.Type.AIJ
+@utils.record()
+class Mat(DistributedArray):
 
-    prefix = "mat"
-    _prefix = "mat"
-    dtype = PETSc.ScalarType
+    # {{{ Instance attributes
 
-    # Make abstract property of some parent class?
-    constant = False
+    raxes: AbstractAxisTree
+    caxes: AbstractAxisTree
+    _buffer: AbstractBuffer
+    _name: str
+    _parent: Mat | None
 
-    _row_suffix = "_row"
-    _col_suffix = "_col"
+    # }}}
+
+    # {{{ Class attrs
+
+    DEFAULT_PREFIX: ClassVar[str] = "mat"
+    DEFAULT_BUFFER_TYPE: ClassVar[type] = PetscMatBuffer
+
+    # TODO: put on the buffer
+    DEFAULT_MAT_TYPE: ClassVar[PETSc.Mat.Type] = PETSc.Mat.Type.AIJ
+
+    # }}}
+
+    # {{{ Interface impls
+
+    name: ClassVar[property] = property(lambda self: self._name)
+    parent: ClassVar[property] = property(lambda self: self._parent)
+
+    # }}}
 
     def __init__(
         self,
         raxes,
         caxes,
-        mat_type=None,
-        mat=None,
+        buffer: AbstractBuffer,
         *,
         name=None,
         prefix=None,
-        block_shape=1,  # NOTE: Not sure about this default
         parent=None,
-        constant=False,
     ):
+        if not isinstance(buffer, AbstractBuffer):
+            raise TypeError(f"Provided buffer has the wrong type ({type(buffer).__name__})")
+
         raxes = as_axis_tree(raxes)
         caxes = as_axis_tree(caxes)
-        if mat_type is None:
-            mat_type = self.DEFAULT_MAT_TYPE
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
-        # TODO: Improve the parsing here
-        if mat is None:
-            # Add the elements to the rows.
-            mat = self._make_mat(
-                raxes, caxes, mat_type, block_shape=block_shape
-                )
-        elif isinstance(mat, np.ndarray):
-            mat = DistributedBuffer(
-                raxes.alloc_size * caxes.alloc_size,
-                # sf,
-                dtype=mat.dtype,
-                name="anything!",
-                data=mat,
-            )
-
-        super().__init__(name=name, prefix=prefix)
         self.raxes = raxes
         self.caxes = caxes
-        self.block_shape = block_shape
-        self.mat_type = mat_type
-        self.buffer = mat
-        self.parent = parent
-        self.constant = constant
-
+        self._buffer = buffer
+        self._name = name
+        self._parent = parent
 
         # self._cache = {}
 
-    @property
-    def _record_fields(self) -> frozenset:
-        return frozenset({"raxes", "caxes", "mat_type", "buffer", "name", "parent", "constant", "block_shape"})
-
-    # old alias
-    @property
-    def mat(self):
-        return self.buffer
-
     # NOTE: This is missing out on certain fields!
-    def __hash__(self) -> int:
-        return hash(
-            (
-                type(self), self.raxes, self.caxes, self.dtype, id(self.mat), self.name)
-        )
+    # def __hash__(self) -> int:
+    #     return hash(
+    #         (
+    #             type(self), self.raxes, self.caxes, self.dtype, id(self.mat), self.name)
+    #     )
+
+    # {{{ Class constructors
+
+    @classmethod
+    def empty(cls, row_axes, column_axes, *, buffer_type: type = PetscMatBuffer, buffer_kwargs: Mapping[str, Any] | None = None, **kwargs) -> Mat:
+        buffer_kwargs = buffer_kwargs or {}
+
+        if buffer_type is PetscMatBuffer:
+            # TODO: Move into a Buffer.zeros method or similar
+            mat_type = buffer_kwargs.pop("mat_type", cls.DEFAULT_MAT_TYPE)
+            block_shape = buffer_kwargs.pop("block_shape", 1)
+            mat = buffer_type._make_mat(
+                row_axes, column_axes, mat_type, block_shape=block_shape
+                )
+
+            buffer = PetscMatBuffer(mat, **buffer_kwargs)
+        elif buffer_type is PetscMatPreallocatorBuffer:
+            # TODO: Move into a Buffer.zeros method or similar
+            # mat_type = buffer_kwargs.pop("mat_type", cls.DEFAULT_MAT_TYPE)
+            block_shape = buffer_kwargs.pop("block_shape", 1)
+            nrows = row_axes.owned.size
+            ncolumns = column_axes.owned.size
+            rlgmap = PETSc.LGMap().create(row_axes.global_numbering, bsize=block_shape, comm=row_axes.comm)
+            clgmap = PETSc.LGMap().create(column_axes.global_numbering, bsize=block_shape, comm=column_axes.comm)
+            mat = buffer_type._make_mat(
+                nrows, ncolumns, (rlgmap, clgmap), mat_type=PETSc.Mat.Type.PREALLOCATOR, block_shape=block_shape
+                )
+
+            buffer = PetscMatPreallocatorBuffer(mat, **buffer_kwargs)
+        else:
+            raise ValueError
+
+        return cls(row_axes, column_axes, buffer=buffer, **kwargs)
+
+    @classmethod
+    def sparsity(cls, row_axes, column_axes, *, buffer_kwargs: Mapping[str, Any] | None = None, **kwargs) -> Mat:
+        # Not sure what the nicest interface is here...
+        # buffer_kwargs = dict(buffer_kwargs) if buffer_kwargs else {}
+        # if target_mat_type is not None:
+        #     buffer_kwargs["target_mat_type"] = target_mat_type
+        return cls.empty(row_axes, column_axes, buffer_type=PetscMatPreallocatorBuffer, buffer_kwargs=buffer_kwargs, **kwargs)
+
+    @classmethod
+    def null(cls, row_axes, column_axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Mat:
+        row_axes = as_axis_tree(row_axes)
+        column_axes = as_axis_tree(column_axes)
+        buffer = NullBuffer(row_axes.alloc_size*column_axes.alloc_size, dtype=dtype)
+        return cls(row_axes, column_axes, buffer=buffer, **kwargs)
+
+    # }}}
+
+    # {{{ Array impls
 
     @property
-    def block_raxes(self):
-        assert self.mat_type != "baij", "FIXME"
-        return self.raxes
+    def dim(self) -> int:
+        return 2
 
+    # NOTE: We overload here because PetscMat.dtype doesn't exist. We should wrap Mats in
+    # a different buffer type.
     @property
-    def block_caxes(self):
-        assert self.mat_type != "baij", "FIXME"
-        return self.caxes
+    def dtype(self) -> np.dtype:
+        return ScalarType
 
-    def getitem(self, indices, *, strict=False):
+    def getitem(self, row_index, column_index, *, strict=False):
         from pyop3.itree import as_index_forest, index_axes
         # does not work as indices may not be hashable, parse first?
         # cache_key = (indices, strict)
         # if cache_key in self._cache:
         #     return self._cache[cache_key]
-
-        if len(indices) != 2:
-            raise ValueError
 
         # Combine the loop contexts of the row and column indices. Consider
         # a loop over a multi-component axis with components "a" and "b":
@@ -180,8 +221,8 @@ class AbstractMat(Array, Record):
         #     {p: "b", q: "y"}: [rtree1, ctree1],
         #   }
 
-        rtrees = as_index_forest(indices[0], self.raxes, strict=strict)
-        ctrees = as_index_forest(indices[1], self.caxes, strict=strict)
+        rtrees = as_index_forest(row_index, self.raxes, strict=strict)
+        ctrees = as_index_forest(column_index, self.caxes, strict=strict)
         rcforest = {}
         for rctx, rtree in rtrees.items():
             for cctx, ctree in ctrees.items():
@@ -208,7 +249,7 @@ class AbstractMat(Array, Record):
                 indexed_raxes = just_one(indexed_raxess)
                 indexed_caxes = just_one(indexed_caxess)
 
-            mat = self.reconstruct(raxes=indexed_raxes, caxes=indexed_caxes)
+            mat = self.__record_init__(raxes=indexed_raxes, caxes=indexed_caxes)
         else:
             # Otherwise we are context-sensitive
             cs_indexed_raxess = {}
@@ -235,111 +276,64 @@ class AbstractMat(Array, Record):
             cs_indexed_raxess = ContextSensitiveAxisTree(cs_indexed_raxess)
             cs_indexed_caxess = ContextSensitiveAxisTree(cs_indexed_caxess)
 
-            mat = self.reconstruct(raxes=cs_indexed_raxess, caxes=cs_indexed_caxess)
+            mat = self.__record_init__(raxes=cs_indexed_raxess, caxes=cs_indexed_caxess)
 
         # self._cache[cache_key] = mat
         return mat
 
-    def reshape(self, row_axes: AxisTree, col_axes: AxisTree) -> AbstractMat:
-        """Return a reshaped view of the `Dat`.
-
-        TODO
-
-        """
-        # from pyop3.array.transforms import MatReshape
-
-        assert isinstance(row_axes, AxisTree), "not indexed"
-        assert isinstance(col_axes, AxisTree), "not indexed"
-
-        # NOTE: This will get nicer if we have a pyop3_init special method for this
-        # sort of object to facilitate reconstruction
-        return self.reconstruct(raxes=row_axes, caxes=col_axes, parent=self)
-
-
     def with_context(self, context):
         row_axes = self.raxes.with_context(context)
         col_axes = self.caxes.with_context(context)
-        return self.reconstruct(raxes=row_axes, caxes=col_axes)
+        return self.__record_init__(raxes=row_axes, caxes=col_axes)
 
     @property
     def context_free(self):
         row_axes = self.raxes.context_free
         col_axes = self.caxes.context_free
-        return self.reconstruct(raxes=row_axes, caxes=col_axes)
+        return self.__record_init__(raxes=row_axes, caxes=col_axes)
 
     def with_axes(self, row_axes, col_axes):
-        return self.reconstruct(raxes=row_axes, caxes=col_axes)
+        return self.__record_init__(raxes=row_axes, caxes=col_axes)
 
-    # NOTE: if this returns a 2-tuple then Dats should return a 1-tuple
     @property
     def leaf_layouts(self):
-        from pyop3.insn_visitors import CompositeDat, materialize_composite_dat
+        assert False, "unused"
 
-        # NOTE: I don't think we need this any more... now that we have ConcretizedMat
-        # replaced by candidate_layouts()
-        def materialize_(axes):
-            # use root
-            layout_expr = axes.subst_layouts()[pmap()]
-            visited_axes = {}  # guess, might be the full path
-            loop_axes = {loop.id: loop.iterset for loop in axes.outer_loops}
-            composite_dat = CompositeDat(layout_expr, visited_axes, loop_axes)
+    # }}}
 
-            materialized_dat = materialize_composite_dat(composite_dat)
-            return materialized_dat
+    # {{{ DistributedArray impls
 
-        return (materialize_(self.raxes), materialize_(self.caxes))
+    @property
+    def buffer(self) -> Any:
+        return self._buffer
 
-        breakpoint()
-        # return (
-        #     materialize_composite_dat()
-        # )
+    @property
+    def comm(self) -> MPI.Comm:
+        return single_valued([self.raxes.comm, self.caxes.comm])
 
-    # TODO: Make this generic to all 'Array's and implement for 'Dat'
-    def candidate_layouts(self, loop_axes):
-        # temporaries do not have indexed axes so we don't care, don't expect to have
-        # rows or cols indexed but not the other
-        if isinstance(self.buffer, NullBuffer):
-            candidatess = {}
-            for leaf_path, orig_layout in self.raxes.leaf_subst_layouts.items():
-                candidatess[(self, leaf_path, 0)] = ((orig_layout, 666),)
-            for leaf_path, orig_layout in self.caxes.leaf_subst_layouts.items():
-                candidatess[(self, leaf_path, 1)] = ((orig_layout, 666),)
-            return ImmutableOrderedDict(candidatess)
+    # }}}
 
-        assert isinstance(self.buffer, PETSc.Mat)
+    @property
+    def block_raxes(self):
+        assert self.mat_type != "baij", "FIXME"
+        return self.raxes
 
-        return self.default_candidate_layouts(loop_axes)
+    @property
+    def block_caxes(self):
+        assert self.mat_type != "baij", "FIXME"
+        return self.caxes
 
-    def default_candidate_layouts(self, loop_axes):
-        # NOTE: Needn't really return the cost here as no evaluation happens
-        from pyop3.expr_visitors import CompositeDat, extract_axes
 
-        candidatess = {}
+    def reshape(self, row_axes: AxisTree, col_axes: AxisTree) -> Mat:
+        """Return a reshaped view of the `Dat`.
 
-        def add_candidate(axes, row_or_col):
-            for leaf_path, orig_layout in axes.leaf_subst_layouts.items():
+        TODO
 
-                # NOTE: unsure if this is needed here
-                if leaf_path not in axes.pruned.leaf_paths:
-                    # zero-sized, do nothing
-                    continue
+        """
+        assert isinstance(row_axes, AxisTree), "not indexed"
+        assert isinstance(col_axes, AxisTree), "not indexed"
 
-                visited_axes = axes.path_with_nodes(axes._node_from_path(leaf_path), and_components=True)
-                compressed_expr = CompositeDat(orig_layout, visited_axes, loop_axes)
-
-                # NOTE: Probably retrievable from the materialized_dat
-                myaxes = extract_axes(compressed_expr, visited_axes, loop_axes, {})
-
-                compressed_cost = myaxes.size
-
-                assert myaxes.size > 0
-
-                candidatess[(self, leaf_path, row_or_col)] = ((compressed_expr, compressed_cost),)
-
-        add_candidate(self.raxes, 0)
-        add_candidate(self.caxes, 1)
-
-        return ImmutableOrderedDict(candidatess)
+        return self.__record_init__(raxes=row_axes, caxes=col_axes, _parent=self)
 
     @cached_property
     def size(self) -> Any:
@@ -349,21 +343,14 @@ class AbstractMat(Array, Record):
     def alloc_size(self) -> int:
         return self.raxes.alloc_size * self.caxes.alloc_size
 
-    # like Dat, bad name? handle?
-    @property
-    def array(self):
-        return self.mat
-
-    # old alias, deprecate?
-    @property
-    def handle(self):
-        return self.mat
-
+    # TODO: push onto buffer class
     def assemble(self):
-        self.mat.assemble()
+        self.buffer.mat.assemble()
 
     @property
     def nested(self):
+        pyop3.extras.debug.warn_todo("Not checking properly for nested")
+        return False
         return isinstance(self.mat_type, collections.abc.Mapping)
 
     @cached_property
@@ -481,67 +468,10 @@ class AbstractMat(Array, Record):
     @cached_property
     def rmap(self):
         return self.leaf_layouts[0]
-        # return self._make_map_part1(self.block_raxes)
 
     @cached_property
     def cmap(self):
         return self.leaf_layouts[1]
-        # return self._make_map_part1(self.block_caxes)
-    #
-    # # TODO: rename, also cache somewhere
-    # def _make_map_part1(self, axes):
-    #     from pyop3.expr_visitors import collect_loops
-    #     from pyop3.itree import Slice, AffineSliceComponent, IndexTree
-    #
-    #     loop_indices = collect_loops(self)
-    #
-    #     if len(loop_indices) > 1:
-    #         # should be straightforward enough to do
-    #         raise NotImplementedError
-    #     else:
-    #         loop_index = just_one(loop_indices)
-    #
-    #     # NOTE: It is safe to discard indexing information about the iterset here
-    #     # because we immediately index it with the loop and reinstate all the
-    #     # symbolic information.
-    #     iterset = AxisTree(loop_index.iterset.node_map)
-    #
-    #     rmap_axes = iterset.add_subtree(axes, iterset.leaf)
-    #     rmap = Dat(rmap_axes, dtype=IntType, prefix="map")
-    #
-    #
-    #
-    #     # index the map so it has the same indexing information as the original expression
-    #     rmap = rmap[loop_index]
-    #     # TODO: Need a nice way to cast indexed axes to a fresh axis tree
-    #     assert AxisTree(rmap.axes.node_map) == AxisTree(axes.node_map)
-    #
-    #     # now populate with values
-    #     loops = []
-    #     for leaf in axes.leaves:
-    #         leaf_layout_expr = axes.subst_layouts()[axes.path(leaf)]
-    #
-    #         slices = [
-    #             Slice(axis_label, AffineSliceComponent(component_label))
-    #             for axis_label, component_label in axes.path(leaf, ordered=True)
-    #         ]
-    #         # TODO: Ideally index tree parsing is done inside __getitem__
-    #         slices_tree = IndexTree.from_iterable(slices)
-    #         rmap_restrict = rmap[slices_tree]
-    #
-    #         loop = Loop(
-    #             loop_index,
-    #             rmap_restrict.assign(leaf_layout_expr)
-    #         )
-    #         loops.append(loop)
-    #
-    #     # TODO: Needn't be a loop list, outer loops will always be the same
-    #     loop_list = LoopList(loops)
-    #     loop_list()
-    #
-    #     # breakpoint()
-    #
-    #     return rmap
 
     @cached_property
     def row_lgmap_dat(self):
@@ -554,10 +484,6 @@ class AbstractMat(Array, Record):
         if self.nested or self.mat_type == "baij":
             raise NotImplementedError("Use a smaller set of axes here")
         return Dat(self.caxes, data=self.caxes.unindexed.global_numbering)
-
-    @cached_property
-    def comm(self):
-        return single_valued([self.raxes.comm, self.caxes.comm])
 
     @property
     def shape(self):
@@ -609,8 +535,8 @@ class AbstractMat(Array, Record):
         # Since axes require unique labels, relabel the row and column axis trees
         # with different suffixes. This allows us to create a combined axis tree
         # without clashes.
-        raxes_relabel = relabel_axes(row_axes, cls._row_suffix)
-        caxes_relabel = relabel_axes(col_axes, cls._col_suffix)
+        raxes_relabel = relabel_axes(row_axes, "_row")
+        caxes_relabel = relabel_axes(col_axes, "_col")
 
         axes = raxes_relabel
         for leaf in raxes_relabel.leaves:
@@ -619,114 +545,15 @@ class AbstractMat(Array, Record):
         return axes
 
     @classmethod
-    def _make_mat(cls, raxes, caxes, mat_type, block_shape=None):
-        if isinstance(mat_type, collections.abc.Mapping):
-            # TODO: This is very ugly
-            rsize = max(x or 0 for x, _ in mat_type.keys()) + 1
-            csize = max(y or 0 for _, y in mat_type.keys()) + 1
-            submats = np.empty((rsize, csize), dtype=object)
-            for (rkey, ckey), submat_type in mat_type.items():
-                subraxes = raxes[rkey] if rkey is not None else raxes
-                subcaxes = caxes[ckey] if ckey is not None else caxes
-                submat = cls._make_mat(
-                    subraxes, subcaxes, submat_type, block_shape=block_shape
-                    )
-                submats[rkey, ckey] = submat
-
-            # TODO: Internal comm? Set as mat property (then not a classmethod)?
-            comm = single_valued([raxes.comm, caxes.comm])
-            return PETSc.Mat().createNest(submats, comm=comm)
-        else:
-            return cls._make_monolithic_mat(raxes, caxes, mat_type, block_shape=block_shape)
-
-    @cached_property
-    def datamap(self):
-        return freeze({self.name: self}) | self.rmap.datamap | self.cmap.datamap
-
-    @property
-    def kernel_dtype(self):
-        raise NotImplementedError("opaque type?")
-
-
-# NOTE: Is it possible to remove this? Potentially an unnecessary type...
-class Sparsity(AbstractMat):
-    def materialize(self) -> PETSc.Mat:
-        if not hasattr(self, "_lazy_template"):
-            self.assemble()
-
-            template = Mat._make_mat(self.raxes, self.caxes,
-                                     self.mat_type, block_shape=self.block_shape
-                                     )
-            self._preallocate(self.mat, template, self.mat_type)
-            # template.preallocateWithMatPreallocator(self.mat)
-            # We can safely set these options since by using a sparsity we
-            # are asserting that we know where the non-zeros are going.
-            # NOTE: These may already get set by PETSc.
-            template.setOption(PETSc.Mat.Option.NEW_NONZERO_LOCATION_ERR, True)
-            #template.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, True)
-
-            template.assemble()
-            self._lazy_template = template
-        return self._lazy_template.copy()
-
-    def _preallocate(self, preallocator, template, mat_type):
-        if isinstance(mat_type, collections.abc.Mapping):
-            for (ridx, cidx), submat_type in mat_type.items():
-                if ridx is None:
-                    ridx = 0
-                if cidx is None:
-                    cidx = 0
-                subpreallocator = preallocator.getNestSubMatrix(ridx, cidx)
-                submat = template.getNestSubMatrix(ridx, cidx)
-                self._preallocate(subpreallocator, submat, submat_type)
-        else:
-            if mat_type != "dat":
-                # template.preallocateWithMatPreallocator(preallocator)
-                preallocator.preallocatorPreallocate(template)
-
-    @classmethod
-    def _make_monolithic_mat(cls, raxes, caxes, mat_type: str, block_shape=None):
-        # TODO: Internal comm?
-        comm = single_valued([raxes.comm, caxes.comm])
-
-        if mat_type == "dat":
-            matdat = _MatDat(raxes, caxes)
-            if matdat.is_row_matrix:
-                assert not matdat.is_column_matrix
-                sizes = ((raxes.owned.size, None), (None, 1))
-            elif matdat.is_column_matrix:
-                sizes = ((None, 1), (caxes.owned.size, None))
-            else:
-                # 1x1 block
-                sizes = ((None, 1), (None, 1))
-            mat = PETSc.Mat().createPython(sizes, comm=comm)
-            mat.setPythonContext(matdat)
-        else:
-            mat = PETSc.Mat().create(comm)
-            mat.setBlockSize(block_shape)
-            mat.setType(PETSc.Mat.Type.PREALLOCATOR)
-
-            # None is for the global size, PETSc will figure it out for us
-            sizes = ((raxes.owned.size, None), (caxes.owned.size, None))
-            mat.setSizes(sizes)
-
-            rlgmap = PETSc.LGMap().create(raxes.global_numbering, bsize=block_shape, comm=comm)
-            clgmap = PETSc.LGMap().create(caxes.global_numbering, bsize=block_shape, comm=comm)
-            mat.setLGMap(rlgmap, clgmap)
-
-        mat.setUp()
-        return mat
-
-
-class Mat(AbstractMat):
-    @classmethod
-    def from_sparsity(cls, sparsity, *, name=None):
-        mat = sparsity.materialize()
-        return cls(sparsity.raxes, sparsity.caxes, sparsity.mat_type, mat, name=name, block_shape=sparsity.block_shape)
+    def from_sparsity(cls, sparsity, **kwargs):
+        buffer = sparsity.buffer.materialize()
+        return cls(sparsity.raxes, sparsity.caxes, buffer, **kwargs)
 
     def zero(self, *, eager=False):
+        if not isinstance(self.buffer, PetscMatBuffer):
+            raise NotImplementedError("TODO")
         if eager:
-            self.mat.zeroEntries()
+            self.buffer.mat.zeroEntries()
         else:
             raise NotImplementedError
 
@@ -755,40 +582,6 @@ class Mat(AbstractMat):
             return mat.getPythonContext().dat.data_ro
         else:
             return mat[:, :]
-
-    # TODO: Almost identical code to Sparsity
-    @classmethod
-    def _make_monolithic_mat(cls, raxes, caxes, mat_type: str, block_shape=None):
-        # TODO: Internal comm?
-        comm = single_valued([raxes.comm, caxes.comm])
-
-        if mat_type == "dat":
-            matdat = _MatDat(raxes, caxes)
-            if matdat.is_row_matrix:
-                assert not matdat.is_column_matrix
-                sizes = ((raxes.owned.size, None), (None, 1))
-            elif matdat.is_column_matrix:
-                sizes = ((None, 1), (caxes.owned.size, None))
-            else:
-                # 1x1 block
-                sizes = ((None, 1), (None, 1))
-            mat = PETSc.Mat().createPython(sizes, comm=comm)
-            mat.setPythonContext(matdat)
-        else:
-            mat = PETSc.Mat().create(comm)
-            mat.setType(mat_type)
-            mat.setBlockSize(block_shape)
-
-            # None is for the global size, PETSc will figure it out for us
-            sizes = ((raxes.owned.size, None), (caxes.owned.size, None))
-            mat.setSizes(sizes)
-
-            rlgmap = PETSc.LGMap().create(raxes.global_numbering, bsize=block_shape, comm=comm)
-            clgmap = PETSc.LGMap().create(caxes.global_numbering, bsize=block_shape, comm=comm)
-            mat.setLGMap(rlgmap, clgmap)
-
-        mat.setUp()
-        return mat
 
 
 class _MatDat:

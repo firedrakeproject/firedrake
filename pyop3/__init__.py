@@ -36,8 +36,7 @@ del _init_likwid
 import pyop3.ir
 import pyop3.insn_visitors
 # TODO: delete old aliases
-from pyop3.array import Array, FancyIndexWriteException, Dat
-from pyop3.array.petsc import Mat, Sparsity  # noqa: F401
+from pyop3.array import Array, Parameter, FancyIndexWriteException, Dat, Global, Mat  # noqa: F401
 from pyop3.axtree import (  # noqa: F401
     Axis,
     AxisComponent,
@@ -45,7 +44,7 @@ from pyop3.axtree import (  # noqa: F401
     AxisVar,
     IndexedAxisTree,
 )
-from pyop3.buffer import DistributedBuffer, NullBuffer  # noqa: F401
+from pyop3.buffer import ArrayBuffer, NullBuffer  # noqa: F401
 from pyop3.dtypes import IntType, ScalarType  # noqa: F401
 from pyop3.itree import (  # noqa: F401
     AffineSliceComponent,
@@ -67,7 +66,6 @@ from pyop3.lang import (  # noqa: F401
     MAX_WRITE,
     MIN_RW,
     MIN_WRITE,
-    NA,
     READ,
     RW,
     WRITE,
@@ -75,12 +73,11 @@ from pyop3.lang import (  # noqa: F401
     Function,
     Loop,
     OpaqueKernelArgument,
-    BufferAssignment,
     do_loop,
     _loop as loop,
     AssignmentType,
 )
-from pyop3.sf import StarForest, serial_forest, single_star
+from pyop3.sf import StarForest, single_star_sf, local_sf
 from . import utils
 
 del _os

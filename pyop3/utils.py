@@ -2,21 +2,23 @@ from __future__ import annotations
 
 import abc
 import collections
+import dataclasses
 import functools
 import itertools
 import numbers
+import operator
 import warnings
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any, Collection, Hashable, Optional
 
 import numpy as np
 import pytools
-from immutabledict import ImmutableOrderedDict
+from immutabledict import immutabledict
 from pyrsistent import pmap
 
 from pyop3.config import config
 from pyop3.exceptions import Pyop3Exception
-from pyop3.dtypes import IntType
+from pyop3.dtypes import DTypeT, IntType
 
 from mpi4py import MPI
 
@@ -44,6 +46,35 @@ _unique_name_generator = UniqueNameGenerator()
 
 def unique_name(prefix: str) -> str:
     return _unique_name_generator(prefix)
+
+
+def maybe_generate_name(name, prefix, default_prefix, *, generator=_unique_name_generator):
+    if name is not None:
+        if prefix is not None:
+            raise ValueError("Can only specify one of 'name' and 'prefix'")
+        else:
+            return name
+    else:
+        if prefix is not None:
+            return generator(prefix)
+        else:
+            return generator(default_prefix)
+
+
+# NOTE: Python 3.13 has warnings.deprecated
+def deprecated(prefer=None, internal=False):
+    def decorator(fn):
+        def wrapper(*args, **kwargs):
+            msg = f"{fn.__qualname__} is deprecated and will be removed"
+            if prefer:
+                msg += f", please use {prefer} instead"
+            warning_type = DeprecationWarning if internal else FutureWarning
+            warnings.warn(msg, warning_type)
+            return fn(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
 
 
 class auto:
@@ -74,23 +105,12 @@ class Labelled(abc.ABC):
 
 
 # TODO is Identified really useful?
-class UniqueRecord(pytools.ImmutableRecord, Identified):
-    fields = {"id"}
-
-    def __init__(self, id=None):
-        pytools.ImmutableRecord.__init__(self)
-        Identified.__init__(self, id)
-
-
-class Parameter(Identified):
-    """Wrapper class for a scalar value that differs between ranks."""
-    def __init__(self, value):
-        super().__init__(id=None)  # generate a fresh ID
-        self.box = np.array([value])
-
-    @property
-    def value(self):
-        return just_one(self.box)
+# class UniqueRecord(pytools.ImmutableRecord, Identified):
+#     fields = {"id"}
+#
+#     def __init__(self, id=None):
+#         pytools.ImmutableRecord.__init__(self)
+#         Identified.__init__(self, id)
 
 
 class ValueMismatchException(Pyop3Exception):
@@ -197,14 +217,9 @@ class LengthMismatchException(Pyop3Exception):
     pass
 
 
+@deprecated("Use zip(strict=True) instead")
 def strict_zip(*iterables):
-    if not pytools.is_single_valued(len(it) for it in iterables):
-        raise LengthMismatchException("Zipped iterables have different lengths")
-    return zip(*iterables)
-
-
-# old alias, remove
-checked_zip = strict_zip
+    return zip(*iterables, strict=True)
 
 
 def rzip(*iterables):
@@ -227,16 +242,14 @@ single_valued = pytools.single_valued
 is_single_valued = pytools.is_single_valued
 
 
-def merge_dicts(dicts, *, ordered=False):
+def merge_dicts(dicts: Iterable[Mapping]) -> immutabledict:
     merged = {}
     for dict_ in dicts:
         merged.update(dict_)
-
-    mapping_type = ImmutableOrderedDict if ordered else pmap
-    return mapping_type(merged)
+    return immutabledict(merged)
 
 
-def unique(iterable):
+def unique(iterable) -> tuple[Any]:
     unique_items = []
     for item in iterable:
         if item not in unique_items:
@@ -248,6 +261,21 @@ def has_unique_entries(iterable):
     # duplicate the iterator in case it can only be iterated over once (e.g. a generator)
     it1, it2 = itertools.tee(iterable, 2)
     return len(unique(it1)) == len(list(it2))
+
+
+def reduce(func, *args, **kwargs):
+    if isinstance(func, str):
+        match func:
+            case "+":
+                func = operator.add
+            case "*":
+                func = operator.mul
+            case "|":
+                func = operator.or_
+            case _:
+                raise ValueError
+
+    return functools.reduce(func, *args, **kwargs)
 
 
 def is_sequence(item):
@@ -329,10 +357,18 @@ def popwhen(predicate, iterable):
     raise KeyError("Predicate does not hold for any items in iterable")
 
 
-# NOTE: It might be more logical for drop_last to default to True
-def steps(sizes, *, drop_last=False):
+def steps(sizes, *, drop_last=None):
+    if drop_last is None:
+        pyop3.extras.warn_todo("The default here is changing!")
+        drop_last = False
+
     steps_ = np.concatenate([[0], np.cumsum(sizes)])
     return readonly(steps_[:-1]) if drop_last else readonly(steps_)
+
+
+def strides(sizes, *, drop_last=True) -> np.ndarray[int]:
+    strides_ = np.concatenate([[1], np.cumprod(sizes)], dtype=int)
+    return readonly(strides_[:-1]) if drop_last else readonly(strides_)
 
 
 def pairwise(iterable):
@@ -351,13 +387,17 @@ def invert(p):
     return s
 
 
+def invert_mapping(mapping, *, mapping_type=dict):
+    return mapping_type((v, k) for k, v in mapping.items())
+
+
 @functools.singledispatch
 def strict_cast(obj: Any, dtype: type | np.dtype) -> Any:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
 @strict_cast.register(numbers.Integral)
-def _(num: numbers.Integral, dtype: type | np.dtype) -> np.number:
+def _(num: numbers.Integral, dtype: DTypeT) -> np.number:
     if not isinstance(dtype, np.dtype):
         dtype = np.dtype(dtype)
 
@@ -368,12 +408,16 @@ def _(num: numbers.Integral, dtype: type | np.dtype) -> np.number:
 
 
 @strict_cast.register(np.ndarray)
-def _(array: np.ndarray, dtype: type) -> np.ndarray:
+def _(array: np.ndarray, dtype: DTypeT) -> np.ndarray:
     return array.astype(dtype, casting="safe")
 
 
-def strict_int(num) -> IntType:
+def strict_int(num: numbers.Number) -> IntType:
     return strict_cast(num, IntType)
+
+
+def as_dtype(dtype: DTypeT | None, default: np.dtype) -> np.dtype:
+    return np.dtype(dtype) if dtype else default
 
 
 def apply_at(func, iterable, index):
@@ -404,22 +448,6 @@ def readonly(array):
     return view
 
 
-# NOTE: Python 3.13 has warnings.deprecated
-def deprecated(prefer=None, internal=False):
-    def decorator(fn):
-        def wrapper(*args, **kwargs):
-            msg = f"{fn.__qualname__} is deprecated and will be removed"
-            if prefer:
-                msg += f", please use {prefer} instead"
-            warning_type = DeprecationWarning if internal else FutureWarning
-            warnings.warn(msg, warning_type)
-            return fn(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
-
-
 def debug_assert(predicate, msg=None):
     if config["debug"]:
         if msg:
@@ -428,14 +456,14 @@ def debug_assert(predicate, msg=None):
             assert predicate()
 
 
-_ordered_mapping_types = (dict, collections.OrderedDict, ImmutableOrderedDict)
+_ordered_mapping_types = (dict, collections.OrderedDict, immutabledict)
 
 
 def is_ordered_mapping(obj: Mapping):
     return isinstance(obj, _ordered_mapping_types)
 
 
-def expand_collection_of_iterables(compressed, /, *, ordered: bool = True) -> tuple:
+def expand_collection_of_iterables(compressed) -> tuple:
     """
     Expand target paths written in 'compressed' form like:
 
@@ -453,34 +481,26 @@ def expand_collection_of_iterables(compressed, /, *, ordered: bool = True) -> tu
     if not isinstance(compressed, Mapping):
         compressed = dict(compressed)
 
-    if ordered and not is_ordered_mapping(compressed):
-        raise UnorderedCollectionException(
-            "Expected an ordered mapping, valid options include: "
-            f"{{{', '.join(type_.__name__ for type_ in _ordered_mapping_types)}}}"
-        )
-
-    mapping_type = ImmutableOrderedDict if ordered else pmap
-
     if not compressed:
-        return (mapping_type(),)
+        return (immutabledict(),)
     else:
         compressed_mut = dict(compressed)
-        return _expand_dict_of_iterables_rec(compressed_mut, mapping_type=mapping_type)
+        return _expand_dict_of_iterables_rec(compressed_mut)
 
 
-def _expand_dict_of_iterables_rec(compressed_mut, /, *, mapping_type):
+def _expand_dict_of_iterables_rec(compressed_mut):
     expanded = []
     key, items = popfirst(compressed_mut)
 
     if compressed_mut:
-        subexpanded = _expand_dict_of_iterables_rec(compressed_mut, mapping_type=mapping_type)
+        subexpanded = _expand_dict_of_iterables_rec(compressed_mut)
         for item in items:
-            entry = mapping_type({key: item})
+            entry = immutabledict({key: item})
             for subentry in subexpanded:
                 expanded.append(entry | subentry)
     else:
         for item in items:
-            entry = mapping_type({key: item})
+            entry = immutabledict({key: item})
             expanded.append(entry)
 
     return tuple(expanded)
@@ -495,31 +515,38 @@ def popfirst(dict_: dict) -> Any:
     return (key, dict_.pop(key))
 
 
-class Record(abc.ABC):
-    def __eq__(self, other) -> bool:
-        return (
-            type(self) is type(other)
-            and all(getattr(self, field) == getattr(other, field) for field in self._record_fields)
+def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
+    new = object.__new__(type(self))
+    for field in dataclasses.fields(self):
+        attr = attrs.pop(field.name, getattr(self, field.name))
+        object.__setattr__(new, field.name, attr)
+
+    if attrs:
+        raise ValueError(
+            f"Unrecognised arguments encountered during initialisation: {', '.join(attrs)}"
         )
 
-    @property
-    @abc.abstractmethod
-    def _record_fields(self) -> frozenset:
-        pass
+    return new
 
-    def _record_init(self, **kwargs) -> None:
-        for field in self._record_fields:
-            setattr(self, field, kwargs.pop(field))
-        assert not kwargs
 
-    def reconstruct(self, **kwargs):
-        for field in self._record_fields:
-            if field not in kwargs:
-                kwargs[field] = getattr(self, field)
+def record():
+    return _make_record(eq=False)
 
-        new = object.__new__(type(self))
-        new._record_init(**kwargs)
-        return new
+
+def frozenrecord():
+    return _make_record(frozen=True)
+
+
+def _make_record(**kwargs):
+    def wrapper(cls):
+        cls = dataclasses.dataclass(**kwargs)(cls)
+        cls.__record_init__ = _record_init
+        return cls
+    return wrapper
+
+
+def attr(attr_name: str) -> property:
+    return property(lambda self: getattr(self, attr_name))
 
 
 def unique_comm(iterable) -> MPI.Comm | None:
@@ -533,3 +560,7 @@ def unique_comm(iterable) -> MPI.Comm | None:
         elif item.comm != comm:
             raise ValueError("More than a single comm provided")
     return comm
+
+
+def as_numpy_scalar(value: numbers.Number) -> np.number:
+    return just_one(np.asarray([value]))

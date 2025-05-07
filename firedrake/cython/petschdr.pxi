@@ -25,6 +25,7 @@ cdef extern from "petsc.h":
 cdef extern from "petscsys.h" nogil:
     int PetscMalloc1(PetscInt,void*)
     int PetscMalloc2(PetscInt,void*,PetscInt,void*)
+    int PetscCalloc1(PetscInt,void*)
     int PetscFree(void*)
     int PetscFree2(void*,void*)
     int PetscSortIntWithArray(PetscInt,PetscInt[],PetscInt[])

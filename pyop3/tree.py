@@ -8,6 +8,7 @@ import operator
 from collections import defaultdict
 from collections.abc import Hashable, Sequence
 from functools import cached_property
+from immutabledict import immutabledict
 from itertools import chain
 from typing import Any, Dict, FrozenSet, List, Mapping, Optional, Tuple, Union
 
@@ -23,7 +24,6 @@ from pyop3.utils import (
     UniqueNameGenerator,
     apply_at,
     as_tuple,
-    checked_zip,
     deprecated,
     flatten,
     has_unique_entries,
@@ -419,11 +419,11 @@ class LabelledTree(AbstractTree):
             }
         )
 
-    def path(self, node, component=None, ordered=False):
+    def path(self, node, component=None, ordered=False) -> immutabledict:
         # TODO: make target always be a 2-tuple
         if node is None:
             assert component is None
-            return pmap()
+            return immutabledict()
 
         if isinstance(node, tuple):
             assert component is None
@@ -434,13 +434,13 @@ class LabelledTree(AbstractTree):
         if ordered:
             return path_
         else:
-            return pmap(path_)
+            return immutabledict(path_)
 
     def path_with_nodes(
         self, node, component_label=None, ordered=False, and_components=False
-    ):
+    ) -> immutabledict:
         if node is None:
-            return pmap()
+            return immutabledict()
 
         # TODO: make target always be a 2-tuple
         if isinstance(node, tuple):
@@ -458,14 +458,14 @@ class LabelledTree(AbstractTree):
         if ordered:
             return path_
         else:
-            return pmap(path_)
+            return immutabledict(path_)
 
     @cached_property
-    def leaf_paths(self):
+    def leaf_paths(self) -> tuple[immutabledict, ...]:
         return tuple(self.path(leaf) for leaf in self.leaves)
 
     @property
-    def leaf_path(self):
+    def leaf_path(self) -> immutabledict:
         return just_one(self.leaf_paths)
 
     @cached_property
@@ -596,7 +596,7 @@ class LabelledTree(AbstractTree):
 
             children = [None] * node.degree
             parent_to_children = {}
-            for cidx, subnode in checked_zip(cidxs, subnodes):
+            for cidx, subnode in zip(cidxs, subnodes, strict=True):
                 subnode_, sub_p2c = cls._from_nest(subnode)
                 children[cidx] = subnode_
                 parent_to_children.update(sub_p2c)

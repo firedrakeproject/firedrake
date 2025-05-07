@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import abc
 import collections
+from collections.abc import Hashable, Mapping
 import dataclasses
 import enum
 import functools
 import numbers
+from os import stat
 import textwrap
 from functools import cached_property
-from typing import Iterable, Tuple
+from typing import Any, ClassVar, Iterable, Tuple
 
 import immutabledict
 import loopy as lp
@@ -20,17 +22,17 @@ from cachetools import cachedmethod
 from petsc4py import PETSc
 from pyrsistent import PMap, pmap
 
+from pyop3 import utils
 from pyop3.axtree import AxisTree
-from pyop3.axtree.tree import ContextFree, ContextSensitive
+from pyop3.axtree.tree import UNIT_AXIS_TREE, ContextFree, ContextSensitive
+from pyop3.config import config
 from pyop3.dtypes import dtype_limits
 from pyop3.exceptions import Pyop3Exception
 from pyop3.utils import (
-    UniqueRecord,
     deprecated,
     OrderedSet,
     as_tuple,
     auto,
-    strict_zip,
     just_one,
     merge_dicts,
     single_valued,
@@ -52,43 +54,49 @@ class Intent(enum.Enum):
     MIN_RW = "min_rw"
     MAX_WRITE = "max_write"
     MAX_RW = "max_rw"
-    NA = "na"  # TODO prefer NONE
-
-
-# old alias
-Access = Intent
 
 
 READ = Intent.READ
 WRITE = Intent.WRITE
 RW = Intent.RW
 INC = Intent.INC
+
+# NOTE: I dont think that these are needed any more. Just RW access?
 MIN_RW = Intent.MIN_RW
 MIN_WRITE = Intent.MIN_WRITE
 MAX_RW = Intent.MAX_RW
 MAX_WRITE = Intent.MAX_WRITE
-NA = Intent.NA
 
 
-@dataclasses.dataclass(frozen=True)  # TODO: Add kw_only=True in Python 3.10
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class CompilerParameters:
     # Optimisation options
 
     compress_indirection_maps: bool = False
+    interleave_comp_comm: bool = False
 
     # Profiling options
 
     add_likwid_markers: bool = False
     add_petsc_event: bool = False
 
+    # Debugging options
+
+    attach_debugger: bool = False
+
+    def __post_init__(self):
+        if self.attach_debugger and not config["debug"]:
+            raise RuntimeError("Will only work in debug mode (PYOP3_DEBUG=1)")
+
 
 DEFAULT_COMPILER_PARAMETERS = CompilerParameters()
 
 
-MACRO_COMPILER_PARAMETERS = immutabledict.ImmutableOrderedDict({
+META_COMPILER_PARAMETERS = immutabledict.immutabledict({
+    # TODO: when implemented should also set interleave_comp_comm to True
     "optimize": {"compress_indirection_maps": True}
 })
-"""'Macro' compiler parameters that set multiple options at once."""
+"""'Meta' compiler parameters that set multiple options at once."""
 # NOTE: These must be boolean options
 
 
@@ -120,7 +128,7 @@ def parse_compiler_parameters(compiler_parameters) -> ParsedCompilerParameters:
         compiler_parameters = dict(compiler_parameters)
 
     parsed_parameters = dataclasses.asdict(DEFAULT_COMPILER_PARAMETERS)
-    for macro_param, specific_params in MACRO_COMPILER_PARAMETERS.items():
+    for macro_param, specific_params in META_COMPILER_PARAMETERS.items():
         # Do not rely on the truthiness of variables here. We want to make
         # sure that the user has provided a boolean value.
         if compiler_parameters.pop(macro_param, False) == True:
@@ -152,10 +160,12 @@ class KernelArgument(abc.ABC):
 
     """
 
-    @property
-    @abc.abstractmethod
-    def kernel_dtype(self):
-        pass
+    # needed? the motivation is that one can consider arrays as having 2 dtypes. E.g.
+    # 'double*' or 'double' (the whole thing or the entries)
+    # @property
+    # @abc.abstractmethod
+    # def kernel_dtype(self):
+    #     pass
 
 
 class UnprocessedExpressionException(Pyop3Exception):
@@ -168,10 +178,13 @@ class PreprocessedExpression:
     expression: Instruction
 
 
-class Instruction(UniqueRecord, abc.ABC):
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self._cache = collections.defaultdict(dict)
+class Instruction(abc.ABC):
+
+    @property
+    def _cache(self) -> collections.defaultdict[dict]:
+        if not hasattr(self, "_lazy_cache"):
+            object.__setattr__(self, "_lazy_cache", collections.defaultdict(dict))
+        return self._lazy_cache
 
     def __call__(self, *, compiler_parameters=None, **kwargs):
         compiler_parameters = parse_compiler_parameters(compiler_parameters)
@@ -189,34 +202,21 @@ class Instruction(UniqueRecord, abc.ABC):
             expand_implicit_pack_unpack,
             expand_loop_contexts,
             expand_assignments,
-            prepare_petsc_calls,
-            compress_indirection_maps,
-            concretize_arrays,
-            drop_zero_sized_paths,
+            materialize_indirections,
+            concretize_layouts,
         )
 
         insn = self
-
-        if isinstance(insn, NullInstruction):
-            raise NotImplementedError("crash gracefully, nothing to do")
 
         insn = expand_loop_contexts(insn)
         insn = expand_implicit_pack_unpack(insn)
 
         insn = expand_assignments(insn)  # specifically reshape bits
 
-        # do this as early as possible because we don't like dealing with mats
-        insn = prepare_petsc_calls(insn)
+        # TODO: remove zero-sized bits here!
+        insn = concretize_layouts(insn)
 
-        insn = drop_zero_sized_paths(insn)
-
-        if isinstance(insn, NullInstruction):
-            raise NotImplementedError("crash gracefully, nothing to do")
-
-        if compiler_parameters.compress_indirection_maps:
-            insn = compress_indirection_maps(insn)
-
-        insn = concretize_arrays(insn)
+        insn = materialize_indirections(insn, compress=compiler_parameters.compress_indirection_maps)
 
         return PreprocessedExpression(insn)
 
@@ -247,24 +247,25 @@ class ContextAwareInstruction(Instruction):
 _DEFAULT_LOOP_NAME = "pyop3_loop"
 
 
+@utils.frozenrecord()
 class Loop(Instruction):
-    fields = Instruction.fields | {"index", "statements", "name"}
 
-    # doubt that I need an ID here
-    id_generator = pytools.UniqueNameGenerator()
+    # {{{ Instance attrs
+
+    index: LoopIndex
+    statements: tuple[Instruction]
+
+    # }}}
 
     def __init__(
         self,
         index: LoopIndex,
-        statements: Iterable[Instruction],
-        *,
-        name: str = _DEFAULT_LOOP_NAME,
-        **kwargs,
+        statements: Iterable[Instruction] | Instruction,
     ):
-        super().__init__(**kwargs)
-        self.index = index
-        self.statements = as_tuple(statements)
-        self.name = name
+        statements = as_tuple(statements)
+
+        object.__setattr__(self, "index", index)
+        object.__setattr__(self, "statements", statements)
 
     def __str__(self) -> str:
         stmt_strs = [textwrap.indent(str(stmt), "    ") for stmt in self.statements]
@@ -279,16 +280,29 @@ class Loop(Instruction):
         # TODO just parse into ContextAwareLoop and call that
         from pyop3.ir.lower import compile
         from pyop3.itree.tree import partition_iterset
+        from pyop3.buffer import ArrayBuffer
 
         compiler_parameters = parse_compiler_parameters(compiler_parameters)
 
         code = self.compile(compiler_parameters)
 
-        if False:
-        # if self.is_parallel:
-            # FIXME: The partitioning code does not seem to always run properly
-            # so for now do all the transfers in advance.
-            # interleave computation and communication
+        initializers = []
+        reductions = []
+        broadcasts = []
+        if self.comm.size > 1:
+            for data_arg in code.data_arguments:
+                if not isinstance(data_arg, ArrayBuffer):
+                    continue
+
+                inits, reds, bcasts = Loop._buffer_exchanges(
+                    data_arg, code.global_buffer_intents[data_arg.name]
+                )
+                initializers.extend(inits)
+                reductions.extend(reds)
+                broadcasts.extend(bcasts)
+
+        # TODO: handle interleaving as a compiler_parameter somehow
+        if compiler_parameters.interleave_comp_comm:
             new_index, (icore, iroot, ileaf) = partition_iterset(
                 self.index, [a for a, _ in self.function_arguments]
             )
@@ -297,9 +311,6 @@ class Loop(Instruction):
             #
             # # substitute subsets into loopexpr, should maybe be done in partition_iterset
             # parallel_loop = self.copy(index=new_index)
-
-            # interleave communication and computation
-            initializers, reductions, broadcasts = self._array_updates()
 
             for init in initializers:
                 init()
@@ -340,8 +351,22 @@ class Loop(Instruction):
 
             # also may need to eagerly assemble Mats, or be clever and spike the accessors?
         else:
-            with PETSc.Log.Event(f"compute_{self.name}_serial"):
-                code(**kwargs)
+            # Unoptimised case: perform all transfers eagerly
+            for init in initializers:
+                init()
+            for red in reductions:
+                red()
+            for bcast in broadcasts:
+                bcast()
+
+            # TODO: reenable logging (what is 'self.name')?
+            # with PETSc.Log.Event(f"apply_{self.name}"):
+            code(**kwargs)
+
+    @property
+    def comm(self):
+        # maybe collect the comm by looking at everything?
+        return self.index.iterset.comm
 
     @cached_property
     def datamap(self) -> PMap:
@@ -349,10 +374,11 @@ class Loop(Instruction):
 
     @cached_property
     def is_parallel(self):
-        from pyop3.buffer import DistributedBuffer
+        assert False, "old code? if not then adapt for MatBuffer"
+        from pyop3.buffer import ArrayBuffer
 
         for arg in self.kernel_arguments:
-            if isinstance(arg, DistributedBuffer):
+            if isinstance(arg, ArrayBuffer):
                 # if arg.is_distributed:
                 if arg.comm.size > 1:
                     return True
@@ -389,8 +415,8 @@ class Loop(Instruction):
             Collections of callables to be executed at the right times.
 
         """
-        from pyop3 import DistributedBuffer, Dat, Mat
-        from pyop3.array.harray import ContextSensitiveDat
+        from pyop3.array import Dat, Mat
+        from pyop3.buffer import ArrayBuffer
 
         initializers = []
         reductions = []
@@ -398,7 +424,7 @@ class Loop(Instruction):
         for arg, intent in self.function_arguments:
             if isinstance(arg, Dat):
                 buffer = arg.buffer
-                if isinstance(buffer, DistributedBuffer) and buffer.is_distributed:
+                if isinstance(buffer, ArrayBuffer) and buffer.is_distributed:
                     # for now assume the most conservative case
                     touches_ghost_points = True
 
@@ -418,9 +444,15 @@ class Loop(Instruction):
 
         return initializers, reductions, broadcasts
 
+    # I hate staticmethods now, refactor
     @staticmethod
-    def _buffer_exchanges(buffer, intent, *, touches_ghost_points):
+    def _buffer_exchanges(buffer, intent):
         initializers, reductions, broadcasts = [], [], []
+
+        # Possibly instead of touches_ghost_points we could produce custom SFs for each loop
+        # (we have filter_star_forest())
+        # For now we just disregard the optimisation
+        touches_ghost_points = True
 
         if intent in {READ, RW}:
             if touches_ghost_points:
@@ -494,33 +526,19 @@ class Loop(Instruction):
         return self.index.datamap | merge_dicts(stmt.datamap for stmt in self.statements)
 
 
-# get rid of this
-class ContextAwareLoop(ContextAwareInstruction):
-    fields = Instruction.fields | {"index", "statements"}
-
-    def __init__(self, index, statements, **kwargs):
-        assert False, "dead code"
-        super().__init__(**kwargs)
-        self.index = index
-        self.statements = statements
-
-    @cached_property
-    def datamap(self):
-        return self.index.datamap | merge_dicts(
-            stmt.datamap for stmts in self.statements.values() for stmt in stmts
-        )
-
-
+@utils.frozenrecord()
 class InstructionList(Instruction):
-    """
-    A list of instructions.
-    """
-    fields = Instruction.fields | {"instructions"}
+    """A list of instructions."""
 
-    def __init__(self, instructions, *, name=_DEFAULT_LOOP_NAME, **kwargs):
-        super().__init__(**kwargs)
-        self.instructions = tuple(instructions)
-        self.name = name
+    # {{{ Instance attrs
+
+    instructions: tuple[Instruction]
+
+    # }}}
+
+    def __init__(self, instructions: Iterable[Instruction]) -> None:
+        instructions = tuple(instructions)
+        object.__setattr__(self, "instructions", instructions)
 
     def __iter__(self):
         return iter(self.instructions)
@@ -531,11 +549,6 @@ class InstructionList(Instruction):
     @cached_property
     def datamap(self):
         return merge_dicts(insn.datamap for insn in self.instructions)
-
-    @property
-    @deprecated("instructions")
-    def loops(self):
-        return self.instructions
 
 
 def enlist(insn: Instruction) -> InstructionList:
@@ -549,13 +562,15 @@ def enlist(insn: Instruction) -> InstructionList:
 
 def maybe_enlist(instructions) -> Instruction:
     flattened_insns = []
-    for insn in instructions:
+    for insn in filter_null(instructions):
         if isinstance(insn, InstructionList):
             flattened_insns.extend(insn.instructions)
         else:
             flattened_insns.append(insn)
 
-    if len(flattened_insns) > 1:
+    if not flattened_insns:
+        return NullInstruction()
+    elif len(flattened_insns) > 1:
         return InstructionList(flattened_insns)
     else:
         return just_one(flattened_insns)
@@ -563,6 +578,10 @@ def maybe_enlist(instructions) -> Instruction:
 
 def non_null(instruction: Instruction) -> bool:
     return not isinstance(instruction, NullInstruction)
+
+
+def filter_null(iterable: Iterable[Instruction]):
+    return filter(non_null, iterable)
 
 
 # TODO singledispatch
@@ -584,27 +603,27 @@ def _has_nontrivial_stencil(array):
         raise TypeError
 
 
-class Terminal(Instruction, abc.ABC):
-    # @cached_property
-    # def datamap(self):
-    #     return merge_dicts(a.datamap for a, _ in self.function_arguments)
-    #
-    # @property
-    # @abc.abstractmethod
-    # def argument_shapes(self):
-    #     pass
-    #
-    # @abc.abstractmethod
-    # def with_arguments(self, arguments: Iterable[KernelArgument]):
-    #     pass
-    pass
+class Terminal(Instruction, metaclass=abc.ABCMeta):
+
+    @property
+    @abc.abstractmethod
+    def arguments(self) -> tuple[Any, ...]:
+        pass
+
+
+class NonEmptyTerminal(Terminal, metaclass=abc.ABCMeta):
+
+    @property
+    @abc.abstractmethod
+    def axis_trees(self) -> AxisTree:
+        pass
 
 
 @dataclasses.dataclass(frozen=True)
 class ArgumentSpec:
-    access: Intent
+    intent: Intent
     dtype: np.dtype
-    space: Tuple[int]
+    space: Tuple[int]  # TODO: definitely am not using this...
 
 
 class FunctionArgument(abc.ABC):
@@ -646,8 +665,8 @@ class Function:
     @property
     def argspec(self):
         spec = []
-        for access, arg in strict_zip(
-            self._access_descrs, self.code.default_entrypoint.args
+        for access, arg in zip(
+            self._access_descrs, self.code.default_entrypoint.args, strict=True
         ):
             shape = arg.shape if not isinstance(arg, lp.ValueArg) else ()
             spec.append(ArgumentSpec(access, arg.dtype, shape))
@@ -658,22 +677,29 @@ class Function:
         return self.code.default_entrypoint.name
 
 
-class AbstractCalledFunction(Terminal, metaclass=abc.ABCMeta):
-    def __init__(
-        self, function: Function, arguments: Iterable[FunctionArgument], **kwargs
-    ) -> None:
-        super().__init__(**kwargs)
-        self.function = function
-        self.arguments = arguments
+class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
+
+    # def __init__(
+    #     self, function: Function, arguments: Iterable[FunctionArgument], **kwargs
+    # ) -> None:
+    #     object.__setattr__(self, "function", function)
+    #     super().__init__(arguments, **kwargs)
 
     def __str__(self) -> str:
         return f"{self.name}({', '.join(arg.name for arg in self.arguments)})"
 
     @property
+    @abc.abstractmethod
+    def function(self) -> Function:
+        pass
+
+    @property
+    def axis_trees(self) -> tuple[AxisTree, ...]:
+        return (UNIT_AXIS_TREE,)
+
+    @property
     def name(self):
         return self.function.name
-
-    fields = Terminal.fields | {"function", "arguments"}
 
     @property
     def argspec(self):
@@ -681,15 +707,7 @@ class AbstractCalledFunction(Terminal, metaclass=abc.ABCMeta):
 
     @cached_property
     def function_arguments(self):
-        return tuple((arg, spec.access) for arg, spec in strict_zip(self.arguments, self.argspec))
-
-    @cached_property
-    def kernel_arguments(self):
-        kargs = OrderedSet()
-        for func_arg in self.arguments:
-            for karg in _collect_kernel_arguments(func_arg):
-                kargs.add(karg)
-        return tuple(kargs)
+        return tuple((arg, spec.intent) for arg, spec in zip(self.arguments, self.argspec, strict=True))
 
     @property
     def argument_shapes(self):
@@ -699,21 +717,44 @@ class AbstractCalledFunction(Terminal, metaclass=abc.ABCMeta):
         )
 
 
-
-
+@utils.frozenrecord()
 class CalledFunction(AbstractCalledFunction):
-    def with_arguments(self, arguments):
-        return self.copy(arguments=arguments)
+
+    _function: Function
+    _arguments: tuple[Any]
+
+    function: ClassVar[property] = property(lambda self: self._function)
+    arguments: ClassVar[property] = property(lambda self: self._arguments)
+
+    def __init__(self, function: Function, arguments: Iterable):
+        arguments = tuple(arguments)
+
+        object.__setattr__(self, "_function", function)
+        object.__setattr__(self, "_arguments", arguments)
 
 
-class DirectCalledFunction(AbstractCalledFunction):
-    """A `CalledFunction` whose arguments do not need packing/unpacking."""
+@utils.frozenrecord()
+class StandaloneCalledFunction(AbstractCalledFunction):
+    """A called function whose arguments do not need packing/unpacking."""
+
+    _function: Function
+    _arguments: Iterable[FunctionArgument]
+
+    function: ClassVar[property] = property(lambda self: self._function)
+    arguments: ClassVar[property] = property(lambda self: self._arguments)
+
+    def __init__(self, function: Function, arguments: Iterable):
+        arguments = tuple(arguments)
+
+        object.__setattr__(self, "_function", function)
+        object.__setattr__(self, "_arguments", arguments)
 
 
 # TODO: Make this a singleton like UNIT_AXIS_TREE
 class NullInstruction(Terminal):
     """An instruction that does nothing."""
 
+    arguments = ()
 
 
 # TODO: With Python 3.11 can be made a StrEnum
@@ -722,14 +763,54 @@ class AssignmentType(enum.Enum):
     INC = "inc"
 
 
-class AbstractAssignment(Terminal):
-    def __init__(self, assignee, expression, assignment_type, **kwargs):
-        assignment_type = AssignmentType(assignment_type)
+def assignment_type_as_intent(assignment_type: AssignmentType) -> Intent:
+    match assignment_type:
+        case AssignmentType.WRITE:
+            return Intent.WRITE
+        case AssignmentType.INC:
+            return Intent.INC
+        case _:
+            raise AssertionError(f"{assignment_type} not recognised")
 
-        super().__init__(**kwargs)
-        self.assignee = assignee
-        self.expression = expression
-        self.assignment_type = assignment_type
+
+class AbstractAssignment(Terminal, metaclass=abc.ABCMeta):
+
+    # {{{ Abstract methods
+
+    @property
+    @abc.abstractmethod
+    def assignee(self) -> Any:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def expression(self) -> Any:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def assignment_type(self) -> AssignmentType:
+        pass
+
+    # }}}
+
+    # {{{ Interface impls
+
+    @property
+    def arguments(self) -> tuple[Any, Any]:
+        return (self.assignee, self.expression)
+
+    # }}}
+
+
+    # {{{ Dunders
+
+    # def __init__(self, assignee, expression, assignment_type, **kwargs):
+    #     arguments = (assignee, expression)
+    #     assignment_type = AssignmentType(assignment_type)
+    #
+    #     object.__setattr__(self, "assignment_type", assignment_type)
+    #     super().__init__(arguments, **kwargs)
 
     def __str__(self) -> str:
         if self.assignment_type == AssignmentType.WRITE:
@@ -749,7 +830,7 @@ class AbstractAssignment(Terminal):
             if len(expression_strs) > 1:
                 return "\n".join((
                     f"{assignee} {operator} {expression}"
-                    for assignee, expression in strict_zip(assignee_strs, expression_strs)
+                    for assignee, expression in zip(assignee_strs, expression_strs, strict=True)
                 ))
             else:
                 return "\n".join((
@@ -765,135 +846,86 @@ class AbstractAssignment(Terminal):
             else:
                 return f"{just_one(assignee_strs)} {operator} {just_one(expression_strs)}"
 
-
-class AbstractBufferAssignment(AbstractAssignment, metaclass=abc.ABCMeta):
-    pass
-
-
-class BufferAssignment(AbstractBufferAssignment):
-    fields = Terminal.fields | {"assignee", "expression", "assignment_type"}
-
-    # not really important any more
-    name = "pyop3_assignment"
-
-    # def __init__(self, assignee, *args, **kwargs):
-    #     if assignee.name == "t_5": # deebug
-    #         breakpoint()
-    #     super().__init__(assignee, *args, **kwargs)
+    # }}}
 
     @property
-    def arguments(self):
-        # FIXME Not sure this is right for complicated expressions
-        return (self.assignee, self.expression)
+    def assignee(self):
+        return self.arguments[0]
 
     @property
-    def arrays(self):
-        from pyop3.array import Dat
-
-        arrays_ = [self.assignee]
-        if isinstance(self.expression, Dat):
-            arrays_.append(self.expression)
-        else:
-            if not isinstance(self.expression, numbers.Number):
-                raise NotImplementedError
-        return tuple(arrays_)
-
-    @property
-    def argument_shapes(self):
-        return (None,) * len(self.kernel_arguments)
-
-    def with_arguments(self, arguments):
-        if len(arguments) != 2:
-            raise ValueError("Must provide 2 arguments")
-
-        assignee, expression = arguments
-        return self.copy(assignee=assignee, expression=expression)
-
-    @property
-    def _expression_kernel_arguments(self):
-        from pyop3.array import Dat
-
-        if isinstance(self.expression, Dat):
-            return ((self.expression, READ),)
-        elif isinstance(self.expression, numbers.Number):
-            return ()
-        else:
-            raise NotImplementedError("Complicated rvalues not yet supported")
-
-    @property
-    def kernel_arguments(self):
-        from pyop3.array.harray import Dat
-        from pyop3.array.petsc import Mat
-
-        args = OrderedSet()
-        for array, _ in self.function_arguments:
-            if isinstance(array, Dat):
-                args.add(array.buffer)
-            elif isinstance(array, Mat):
-                args.add(array.mat)
-        return tuple(args)
-
-    def with_axes(self, axes: AxisTree) -> NonEmptyAssignmentMixin:
-        return NonEmptyBufferAssignment(self.assignee, self.expression, self.assignment_type, axes)
+    def expression(self):
+        return self.arguments[1]
 
 
-class AbstractPetscMatAssignment(AbstractAssignment, metaclass=abc.ABCMeta):
-    def __init__(self, mat, values, access_type):
-        if access_type == ArrayAccessType.READ:
-            assignment_type = AssignmentType.WRITE
-            assignee = values
-            expression = mat
-        elif access_type == ArrayAccessType.WRITE:
-            assignee = mat
-            expression = values
-            assignment_type = AssignmentType.WRITE
-        else:
-            assert access_type == ArrayAccessType.INC
-            assignee = mat
-            expression = values
-            assignment_type = AssignmentType.INC
+@utils.frozenrecord()
+class ArrayAssignment(AbstractAssignment):
 
-        super().__init__(assignee, expression, assignment_type)
-        self.mat = mat
-        self.values = values
-        self.access_type = access_type
+    # {{{ instance attrs
 
+    _assignee: Any
+    _expression: Any
+    _assignment_type: AssignmentType
 
-class PetscMatAssignment(AbstractPetscMatAssignment):
-    def with_axes(self, row_axis_tree, col_axis_tree):
-        return NonEmptyPetscMatAssignment(self.mat, self.values, self.access_type, row_axis_tree, col_axis_tree)
+    # }}}
 
+    # {{{ interface impls
 
-# NOTE: These are internal classes, can be moved elsewhere
-class NonEmptyAssignmentMixin(abc.ABC):
-    @property
-    @abc.abstractmethod
-    def axis_trees(self) -> AxisTree:
-        pass
+    assignee: ClassVar[property] = property(lambda self: self._assignee)
+    expression: ClassVar[property] = property(lambda self: self._expression)
+    assignment_type: ClassVar[property] = property(lambda self: self._assignment_type)
+
+    # }}}
+
+    def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str) -> None:
+        assignment_type = AssignmentType(assignment_type)
+
+        object.__setattr__(self, "_assignee", assignee)
+        object.__setattr__(self, "_expression", expression)
+        object.__setattr__(self, "_assignment_type", assignment_type)
 
 
-class NonEmptyBufferAssignment(AbstractBufferAssignment, NonEmptyAssignmentMixin):
-    fields = Terminal.fields | {"assignee", "expression", "assignment_type", "axis_trees"}
+@utils.frozenrecord()
+class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
 
-    def __init__(self, assignee, expression, assignment_type, axis_trees, **kwargs):
-        super().__init__(assignee, expression, assignment_type, **kwargs)
-        self._axis_trees = tuple(axis_trees)
+    # {{{ instance attrs
 
-    @property
-    def axis_trees(self) -> tuple[AxisTree]:
-        return self._axis_trees
+    _assignee: Any
+    _expression: Any
+    _axis_trees: tuple[AxisTree, ...]
+    _assignment_type: AssignmentType
+
+    # }}}
+
+    # {{{ interface impls
+
+    assignee: ClassVar[property] = property(lambda self: self._assignee)
+    expression: ClassVar[property] = property(lambda self: self._expression)
+    axis_trees: ClassVar[property] = property(lambda self: self._axis_trees)
+    assignment_type: ClassVar[property] = property(lambda self: self._assignment_type)
+
+    # }}}
 
 
-class NonEmptyPetscMatAssignment(AbstractPetscMatAssignment, NonEmptyAssignmentMixin):
-    def __init__(self, mat, values, access_type, row_axis_tree, col_axis_tree, **kwargs):
-        super().__init__(mat, values, access_type, **kwargs)
-        # self._axis_trees = (row_axes, col_axes)
-        self.row_axis_tree = row_axis_tree
-        self.col_axis_tree = col_axis_tree
+@utils.frozenrecord()
+class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
 
-    @property
-    def axis_trees(self) -> tuple[AxisTree, AxisTree]:
-        return self._axis_trees
+    # {{{ Instance attrs
+
+    _assignee: Any
+    _expression: Any
+    _assignment_type: AssignmentType
+    _axis_trees: tuple[AxisTree, ...]
+
+    # }}}
+
+    # {{{ Interface impls
+
+    assignee: ClassVar[property] = property(lambda self: self._assignee)
+    expression: ClassVar[property] = property(lambda self: self._expression)
+    assignment_type: ClassVar[property] = property(lambda self: self._assignment_type)
+    axis_trees: ClassVar[property] = property(lambda self: self._axis_trees)
+
+    # }}}
 
 
 # TODO: With Python 3.11 can be made a StrEnum
@@ -901,39 +933,6 @@ class ArrayAccessType(enum.Enum):
     READ = "read"
     WRITE = "write"
     INC = "inc"
-
-
-# class PetscMatAccess(AbstractAssignment):
-#     fields = AbstractAssignment.fields | {"mat_arg", "array_arg", "access_type"}
-#
-#     def __init__(self, mat_arg, array_arg, access_type):
-#         from pyop3.array import Dat
-#
-#         access_type = PetscMatAccessType(access_type)
-#
-#         if isinstance(array_arg, numbers.Number):
-#             array_arg = Dat(
-#                 mat_arg.axes,
-#                 data=np.full(mat_arg.axes.size, array_arg, dtype=mat_arg.dtype),
-#                 prefix="t",
-#                 constant=True,
-#             )
-#
-#
-#         assert mat_arg.dtype == array_arg.dtype
-#
-#         self.mat_arg = mat_arg
-#         self.array_arg = array_arg
-#         self.access_type = access_type
-#
-#     @property
-#     def kernel_arguments(self):
-#         args = (self.mat_arg.mat,)
-#         if isinstance(self.array_arg, ContextSensitive):
-#             args += tuple(dat.buffer for dat in self.array_arg.context_map.values())
-#         else:
-#             args += (self.array_arg.buffer,)
-#         return args
 
 
 class OpaqueKernelArgument(KernelArgument, ContextFree):
@@ -967,6 +966,7 @@ def _loop(*args, **kwargs):
     return Loop(*args, **kwargs)
 
 
+# TODO: better to pass eager kwarg
 def do_loop(index, statements, *, compiler_parameters: Mapping | None = None):
     _loop(index, statements)(compiler_parameters=compiler_parameters)
 
@@ -985,31 +985,9 @@ def fix_intents(tunit, accesses):
     """
     kernel = tunit.default_entrypoint
     new_args = []
-    for arg, access in strict_zip(kernel.args, accesses):
+    for arg, access in zip(kernel.args, accesses, strict=True):
         assert isinstance(access, Intent)
-        is_input = access in {READ, RW, INC, MIN_RW, MAX_RW, NA}
+        is_input = access in {READ, RW, INC, MIN_RW, MAX_RW}
         is_output = access in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_WRITE, MAX_RW}
         new_args.append(arg.copy(is_input=is_input, is_output=is_output))
     return tunit.with_kernel(kernel.copy(args=new_args))
-
-
-@functools.singledispatch
-def _collect_kernel_arguments(func_arg: FunctionArgument) -> tuple:
-    from pyop3 import Dat, Mat  # cyclic import
-    from pyop3.buffer import DistributedBuffer, NullBuffer
-
-    if isinstance(func_arg, Dat):
-        return _collect_kernel_arguments(func_arg.buffer)
-    elif isinstance(func_arg, Mat):
-        return _collect_kernel_arguments(func_arg.mat)
-    elif isinstance(func_arg, DistributedBuffer):
-        return (func_arg,)
-    elif isinstance(func_arg, NullBuffer):
-        return ()
-    else:
-        raise TypeError(f"No handler defined for {type(func_arg).__name__}")
-
-
-@_collect_kernel_arguments.register
-def _(mat: PETSc.Mat) -> tuple:
-    return (mat,)

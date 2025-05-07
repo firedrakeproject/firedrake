@@ -8,15 +8,14 @@ import operator
 import sys
 import typing
 from collections import defaultdict
+from immutabledict import immutabledict
 from typing import Any, Optional
 
 import numpy as np
 import pymbolic as pym
 from petsc4py import PETSc
 from pyop3 import tree
-from pyrsistent import PMap, freeze, pmap
 
-from pyop3.array.harray import Dat, _ExpressionDat
 from pyop3.axtree.tree import (
     Axis,
     AxisComponent,
@@ -32,7 +31,6 @@ from pyop3.utils import (
     as_tuple,
     single_valued,
     is_single_valued,
-    strict_zip,
     just_one,
     OrderedSet,
     merge_dicts,
@@ -56,16 +54,17 @@ class IntRef:
         return self
 
 
-def make_layouts(axes: AxisTree, loop_vars) -> PMap:
-    if axes.layout_axes.is_empty:
-        return freeze({pmap(): 0})
+def make_layouts(axes: AxisTree, loop_vars) -> immutabledict:
+    if not axes.layout_axes.is_empty:
+        inner_layouts = tabulate_again(axes.layout_axes)
+    else:
+        inner_layouts = immutabledict()
 
-    component_layouts = tabulate_again(axes.layout_axes)
-    return component_layouts
+    return immutabledict({immutabledict(): 0}) | inner_layouts
 
 
 def tabulate_again(axes):
-    layouts, to_tabulate = _prepare_layouts(axes, axes.root, pmap(), 0, ())
+    layouts, to_tabulate = _prepare_layouts(axes, axes.root, immutabledict(), 0, ())
     starts = {array: 0 for array in to_tabulate.values()}
     for region in _collect_regions(axes):
         for tree, offset_dat in to_tabulate.items():
@@ -75,12 +74,15 @@ def tabulate_again(axes):
 
 # TODO: I think a better way to do this is to track 'free indices' and see if the 'needed indices' <= 'free'
 # at which point we can tabulate.
-def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free_axes) -> PMap:
+def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free_axes) -> immutabledict:
     """Traverse the axis tree and prepare zeroed arrays for offsets.
 
     Any axes that do not require tabulation will also be set at this point.
 
     """
+    from pyop3 import Dat
+    from pyop3.array.dat import LinearDatArrayBufferExpression, as_linear_buffer_expression
+
     if len(axis.components) > 1 and not all(_axis_component_has_fixed_size(c) for c in axis.components):
         # Fixing this would require deciding what to do with the start variable, which
         # might need tabulating itself.
@@ -128,7 +130,11 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
                     # 3. Non-constant stride, must tabulate
                     offset_dat = Dat(offset_axes, data=np.full(offset_axes.size, -1, dtype=IntType))
                     to_tabulate[subtree] = offset_dat
-                    component_layout = offset_dat * step + start
+
+                    # NOTE: This is really unpleasant, we want an expression type here but need
+                    # axes to do the tabulation.
+                    offset_dat_expr = as_linear_buffer_expression(offset_dat)
+                    component_layout = offset_dat_expr * step + start
 
         if not isinstance(component_layout, NaN):
             layout_expr_acc_ = layout_expr_acc + component_layout
@@ -149,7 +155,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
         else:
             assert not free_axes_
 
-    return pmap(layouts), to_tabulate
+    return immutabledict(layouts), to_tabulate
 
 
 def _collect_regions(axes: AxisTree, *, axis: Axis | None = None):
@@ -203,6 +209,7 @@ def _collect_regions(axes: AxisTree, *, axis: Axis | None = None):
 
 
 def _tabulate_offset_dat(offset_dat, axes, region, start):
+    from pyop3 import Dat
 
     # NOTE: We don't handle regions at all. What should be done?
 
@@ -211,11 +218,11 @@ def _tabulate_offset_dat(offset_dat, axes, region, start):
 
     # NOTE: If the step_expr is just an array we can avoid a loop here since we
     # would only be doing a copy.
-    step_dat = Dat(offset_dat.axes, dtype=IntType)
+    step_dat = Dat.empty(offset_dat.axes, dtype=IntType)
     step_dat.assign(step_expr, eager=True)
 
-    offsets = steps(step_dat.buffer.data_ro, drop_last=False)
-    offset_dat.buffer.data_wo[...] = offsets[:-1]
+    offsets = steps(step_dat.buffer._data, drop_last=False)
+    offset_dat.buffer._data[...] = offsets[:-1]
 
     return offsets[-1]
 
@@ -334,7 +341,7 @@ def _truncate_axis_tree_rec(axis_tree, axis) -> tuple[tuple[AxisTree, int]]:
         # The new candidate consists of the per-component subtrees stuck on to the
         # current axis.
         candidate_axis_tree = AxisTree(axis)
-        for component, subtree in strict_zip(axis.components, subaxis_trees):
+        for component, subtree in zip(axis.components, subaxis_trees, strict=True):
             candidate_axis_tree = candidate_axis_tree.add_subtree(subtree, axis, component)
         axis_candidate = (candidate_axis_tree, substep)
         axis_candidates.append(axis_candidate)
@@ -398,7 +405,7 @@ def _collect_offset_subaxes(axes, axis, component, *, visited):
     """
 
 
-def has_constant_step(axes: AxisTree, axis, cpt, inner_loop_vars, path=pmap()):
+def has_constant_step(axes: AxisTree, axis, cpt, inner_loop_vars, path=immutabledict()):
     if len(axis.components) > 1 and len(cpt._all_regions) > 1:
         # must interleave
         return False
@@ -538,8 +545,8 @@ def _axis_component_region_has_fixed_size(region: AxisComponentRegion) -> bool:
 
 
 def _region_size_needs_outer_index(region, free_axes):
-    from pyop3.array import Dat
-    from pyop3.array.harray import _ExpressionDat
+    from pyop3.array import Dat, LinearDatArrayBufferExpression
+    from pyop3.expr_visitors import collect_axis_vars
 
     free_axis_labels = frozenset(ax.label for ax in free_axes)
 
@@ -547,7 +554,7 @@ def _region_size_needs_outer_index(region, free_axes):
 
     if isinstance(size, Dat):
         if size.axes.is_empty:
-            leafpath = pmap()
+            leafpath = immutabledict()
         else:
             leafpath = just_one(size.axes.leaf_paths)
         layout = size.axes._subst_layouts_default[leafpath]
@@ -559,59 +566,20 @@ def _region_size_needs_outer_index(region, free_axes):
                 if axlabel not in free_axis_labels:
                     return True
 
-    elif isinstance(size, _ExpressionDat):
+    elif isinstance(size, LinearDatArrayBufferExpression):
         if not (set(v.axis_label for v in collect_axis_vars(size.layout)) <= free_axis_labels):
             return True
 
     return False
 
 
-@functools.singledispatch
-def collect_axis_vars(obj: Any, /) -> OrderedSet:
-    from pyop3.itree.tree import LoopIndexVar
-
-    if isinstance(obj, LoopIndexVar):
-        assert False
-    elif isinstance(obj, Operator):
-        return collect_axis_vars(obj.a) | collect_axis_vars(obj.b)
-
-    raise TypeError(f"No handler defined for {type(obj).__name__}")
-
-
-@collect_axis_vars.register(numbers.Number)
-def _(var):
-    return OrderedSet()
-
-@collect_axis_vars.register(AxisVar)
-def _(var):
-    return OrderedSet([var])
-
-
-@collect_axis_vars.register(Dat)
-def _(dat: Dat, /) -> OrderedSet:
-    loop_indices = OrderedSet()
-
-    if dat.parent:
-        loop_indices |= collect_axis_vars(dat.parent)
-
-    for leaf in dat.axes.leaves:
-        path = dat.axes.path(leaf)
-        loop_indices |= collect_axis_vars(dat.axes.subst_layouts()[path])
-    return loop_indices
-
-
-@collect_axis_vars.register(_ExpressionDat)
-def _(dat: _ExpressionDat, /) -> OrderedSet:
-    return collect_axis_vars(dat.layout)
-
-
 def step_size(
     axes: AxisTree,
     axis: Axis,
     component: AxisComponent,
-    indices=pmap(),
+    indices=immutabledict(),
     *,
-    loop_indices=pmap(),
+    loop_indices=immutabledict(),
 ):
     """Return the size of step required to stride over a multi-axis component.
 
@@ -687,9 +655,9 @@ def my_product(loops):
 def _axis_size(
     axes: AxisTree,
     axis: Axis,
-    indices=pmap(),
+    indices=immutabledict(),
     *,
-    loop_indices=pmap(),
+    loop_indices=immutabledict(),
 ):
     return sum(
         _axis_component_size(axes, axis, cpt, indices, loop_indices=loop_indices)
@@ -701,9 +669,9 @@ def _axis_component_size(
     axes: AxisTree,
     axis: Axis,
     component: AxisComponent,
-    indices=pmap(),
+    indices=immutabledict(),
     *,
-    loop_indices=pmap(),
+    loop_indices=immutabledict(),
 ):
     return sum(
         _axis_component_size_region(axes, axis, component, region, indices, loop_indices=loop_indices)
@@ -716,9 +684,9 @@ def _axis_component_size_region(
     axis: Axis,
     component: AxisComponent,
     region,
-    indices=pmap(),
+    indices=immutabledict(),
     *,
-    loop_indices=pmap(),
+    loop_indices=immutabledict(),
 ):
     count = _as_int(region.size, indices, loop_indices=loop_indices)
     if subaxis := axes.child(axis, component):
@@ -736,9 +704,9 @@ def _axis_component_size_region(
 
 
 @functools.singledispatch
-def _as_int(arg: Any, indices, path=None, *, loop_indices=pmap()):
+def _as_int(arg: Any, indices, path=None, *, loop_indices=immutabledict()):
     from pyop3.array import Dat
-    from pyop3.array.harray import _ExpressionDat
+    from pyop3.array.dat import _ExpressionDat
 
     if isinstance(arg, (Dat, _ExpressionDat)):
         # TODO this might break if we have something like [:, subset]
@@ -761,12 +729,12 @@ def eval_offset(
     indices,
     path=None,
     *,
-    loop_exprs=pmap(),
+    loop_exprs=immutabledict(),
 ):
     from pyop3.expr_visitors import evaluate as eval_expr
 
     if path is None:
-        path = pmap() if axes.is_empty else just_one(axes.leaf_paths)
+        path = immutabledict() if axes.is_empty else just_one(axes.leaf_paths)
 
     # if the provided indices are not a dict then we assume that they apply in order
     # as we go down the selected path of the tree
@@ -781,7 +749,7 @@ def eval_offset(
             indices_[axis_label] = index
         indices = indices_
 
-    layout_subst = layouts[freeze(path)]
+    layout_subst = layouts[immutabledict(path)]
 
     # offset = ExpressionEvaluator(indices, loop_exprs)(layout_subst)
     # offset = eval_expr(layout_subst, path, indices)

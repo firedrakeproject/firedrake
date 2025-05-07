@@ -4,7 +4,6 @@ import finat.ufl
 
 from tsfc.ufl_utils import TSFCConstantMixin
 import pyop3 as op3
-from pyop3.exceptions import DataValueError
 from pyop2.mpi import collective
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
@@ -196,7 +195,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
 
         """
         if self.ufl_shape and np.array(value).shape != self.ufl_shape:
-            raise DataValueError("Cannot assign to constant, value has incorrect shape")
+            raise ValueError("Cannot assign to constant, value has incorrect shape")
         self.dat.data_wo[...] = value
         return self
 

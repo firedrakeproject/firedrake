@@ -3,32 +3,33 @@ from __future__ import annotations
 import abc
 import collections
 import contextlib
+import dataclasses
 import sys
 from functools import cached_property
-from typing import Any, Sequence
+from typing import Any, ClassVar, Sequence
 
 import numpy as np
 import pymbolic as pym
 from cachetools import cachedmethod
-from immutabledict import ImmutableOrderedDict
+from immutabledict import immutabledict
+from mpi4py import MPI
 from petsc4py import PETSc
-from pyrsistent import freeze, pmap
 
-from pyop3.array.base import Array
+from pyop3 import utils
+from pyop3.array.base import DistributedArray
 from pyop3.axtree import (
     Axis,
     ContextSensitive,
     AxisTree,
     as_axis_tree,
 )
-from pyop3.axtree.tree import ContextFree, ContextSensitiveAxisTree, subst_layouts
-from pyop3.buffer import Buffer, DistributedBuffer
+from pyop3.axtree.tree import AbstractAxisTree, Expression, ContextFree, ContextSensitiveAxisTree, subst_layouts
+from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer, NullBuffer, AbstractPetscMatBuffer
 from pyop3.dtypes import ScalarType
 from pyop3.exceptions import Pyop3Exception
-from pyop3.lang import KernelArgument, BufferAssignment
+from pyop3.lang import KernelArgument, ArrayAssignment
 from pyop3.log import warning
 from pyop3.utils import (
-    Record,
     debug_assert,
     deprecated,
     just_one,
@@ -49,39 +50,28 @@ class FancyIndexWriteException(Exception):
     pass
 
 
-class _Dat(Array, KernelArgument, Record, abc.ABC):
+class _Dat(DistributedArray, KernelArgument, metaclass=abc.ABCMeta):
 
-    DEFAULT_DTYPE = Buffer.DEFAULT_DTYPE
+    # {{{ Array impls
 
-    @classmethod
-    def _parse_buffer(cls, data, dtype, size, name):
-        if data is not None:
-            if isinstance(data, Buffer):
-                return data
+    @property
+    def dim(self) -> int:
+        return 1
 
+    # }}}
 
-            assert isinstance(data, np.ndarray)
-            assert dtype is None or dtype == data.dtype
+    # {{{ DistributedArray impls
 
-            dtype = data.dtype
+    @property
+    def buffer(self) -> AbstractBuffer:
+        return self._buffer
 
-            # always deal with flattened data
-            if len(data.shape) > 1:
-                data = data.flatten()
-        elif dtype is None:
-            dtype = cls.DEFAULT_DTYPE
-            data = np.zeros(size, dtype=dtype)
-        else:
-            data = np.zeros(size, dtype=dtype)
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.buffer.comm
 
-        buffer = DistributedBuffer(
-            data.size,  # not a useful property anymore
-            dtype,
-            name=name,
-            data=data,
-        )
+    # }}}
 
-        return buffer
 
     @property
     def alloc_size(self):
@@ -171,10 +161,11 @@ class _Dat(Array, KernelArgument, Record, abc.ABC):
         if subset is None:
             subset = Ellipsis
 
-        expr = BufferAssignment(self[subset], 0, "write")
+        expr = ArrayAssignment(self[subset], 0, "write")
         return expr() if eager else expr
 
 
+@utils.record()
 class Dat(_Dat):
     """Multi-dimensional, hierarchical array.
 
@@ -183,35 +174,74 @@ class Dat(_Dat):
 
     """
 
-    _prefix = "dat"
+    # {{{ Instance attrs
+
+    axes: AbstractAxisTree
+    _buffer: AbstractBuffer
+    _name: str
+    _parent: Dat | None
+
+    # TODO: These belong to the buffer
+    max_value: int | None
+    ordered: bool
+
+    # }}}
+
+    # {{{ Class attrs
+
+    DEFAULT_PREFIX: ClassVar[str] = "dat"
+
+    # }}}
+
+    # {{{ Interface impls
+
+    name: ClassVar[property] = property(lambda self: self._name)
+    parent: ClassVar[property] = property(lambda self: self._parent)
+
+    # }}}
 
     def __init__(
         self,
         axes,
-        dtype=None,
+        buffer: ArrayBuffer | None = None,
         *,
-        data=None,
+        data: np.ndarray | None = None,
         max_value=None,
         name=None,
         prefix=None,
-        constant=False,
         ordered=False,
         parent=None,
     ):
+        """
+        NOTE: buffer and data are equivalent options. Only one can be specified. I include both
+        because dat.data is an actual attribute (that returns dat.buffer.data) and so is intuitive
+        to provide as input.
+
+        We could maybe do something similar with dtype...
+        """
         if ordered:
             # TODO: Belongs on the buffer and also will fail for non-numpy arrays
             debug_assert(lambda: (data == np.sort(data)).all())
 
-        super().__init__(name=name, prefix=prefix, parent=parent)
-
         axes = as_axis_tree(axes)
 
-        self.buffer = self._parse_buffer(data, dtype, axes.size, self.name)
-        self.axes = axes
-        self.max_value = max_value
+        assert buffer is None or data is None, "cant specify both"
+        if isinstance(buffer, ArrayBuffer):
+            assert buffer.sf == axes.sf
+        elif isinstance(buffer, NullBuffer):
+            pass
+        else:
+            assert buffer is None and data is not None
+            assert len(data.shape) == 1, "cant do nested shape"
+            buffer = ArrayBuffer(data, axes.sf)
 
-        # TODO This attr really belongs to the buffer not the array
-        self.constant = constant
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        self._name = name
+        self._parent = parent
+        self.axes = axes
+        object.__setattr__(self, "_buffer", buffer)
+        object.__setattr__(self, "max_value", max_value)
 
         # NOTE: This is a tricky one, is it an attribute of the dat or the buffer? What
         # if the Dat is indexed? Maybe it should be
@@ -219,13 +249,9 @@ class Dat(_Dat):
         #     return self.buffer.ordered and self.ordered_access
         #
         # where self.ordered_access would detect the use of a subset...
-        self.ordered = ordered
+        object.__setattr__(self, "ordered", ordered)
 
         # self._cache = {}
-
-    @property
-    def _record_fields(self) -> frozenset:
-        return frozenset({"axes", "buffer", "max_value", "name", "constant", "ordered", "parent"})
 
     def __str__(self) -> str:
         try:
@@ -241,25 +267,49 @@ class Dat(_Dat):
     def __getitem__(self, indices):
         return self.getitem(indices, strict=False)
 
-    # TODO: redo now that we have Record?
-    def __hash__(self) -> int:
-        return hash(
-            (
-                type(self), self.axes, self.dtype, self.buffer, self.max_value, self.name, self.constant, self.ordered)
-        )
+    # # TODO: redo now that we have Record?
+    # def __hash__(self) -> int:
+    #     return hash(
+    #         (
+    #             type(self), self.axes, self.dtype, self.buffer, self.max_value, self.name, self.ordered)
+    #     )
+
+
+    # {{{ Class constructors
+
+    @classmethod
+    def empty(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
+        axes = as_axis_tree(axes)
+        buffer = ArrayBuffer.empty(axes.alloc_size, dtype=dtype, sf=axes.sf)
+        return cls(axes, buffer=buffer, **kwargs)
+
+    @classmethod
+    def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
+        axes = as_axis_tree(axes)
+        # alloc_size?
+        buffer = ArrayBuffer.zeros(axes.size, dtype=dtype, sf=axes.sf)
+        return cls(axes, buffer=buffer, **kwargs)
+
+    @classmethod
+    def null(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
+        axes = as_axis_tree(axes)
+        buffer = NullBuffer(axes.alloc_size, dtype=dtype)
+        return cls(axes, buffer=buffer, **kwargs)
+
+    # }}}
 
     @cachedmethod(lambda self: self.axes._cache)
-    def getitem(self, indices, *, strict=False):
+    def getitem(self, index, *, strict=False):
         from pyop3.itree import as_index_forest, index_axes
 
-        if indices is Ellipsis:
+        if index is Ellipsis:
             return self
 
         # key = (indices, strict)
         # if key in self._cache:
         #     return self._cache[key]
 
-        index_forest = as_index_forest(indices, axes=self.axes, strict=strict)
+        index_forest = as_index_forest(index, axes=self.axes, strict=strict)
 
         if len(index_forest) == 1:
             # There is no outer loop context to consider. Needn't return a
@@ -280,21 +330,21 @@ class Dat(_Dat):
             # we need to consider each of these separately and produce an axis *forest*.
             indexed_axess = []
             for restricted_index_tree in index_trees:
-                indexed_axes = index_axes(restricted_index_tree, pmap(), self.axes)
+                indexed_axes = index_axes(restricted_index_tree, immutabledict(), self.axes)
                 indexed_axess.append(indexed_axes)
 
             if len(indexed_axess) > 1:
                 raise NotImplementedError("Need axis forests")
             else:
                 indexed_axes = just_one(indexed_axess)
-                dat = self.reconstruct(axes=indexed_axes)
+                dat = self.__record_init__(axes=indexed_axes)
         else:
             # TODO: This is identical to what happens above, refactor
             axis_tree_context_map = {}
             for loop_context, index_trees in index_forest.items():
                 indexed_axess = []
                 for index_tree in index_trees:
-                    indexed_axes = index_axes(index_tree, pmap(), self.axes)
+                    indexed_axes = index_axes(index_tree, immutabledict(), self.axes)
                     indexed_axess.append(indexed_axes)
 
                 if len(indexed_axess) > 1:
@@ -303,7 +353,7 @@ class Dat(_Dat):
                     indexed_axes = just_one(indexed_axess)
                     axis_tree_context_map[loop_context] = indexed_axes
             context_sensitive_axis_tree = ContextSensitiveAxisTree(axis_tree_context_map)
-            dat = self.reconstruct(axes=context_sensitive_axis_tree)
+            dat = self.__record_init__(axes=context_sensitive_axis_tree)
         # self._cache[key] = dat
         return dat
 
@@ -311,43 +361,24 @@ class Dat(_Dat):
     # to be iterable (which it's not). This avoids some confusing behaviour.
     __iter__ = None
 
-    def get_value(self, indices, path=None, *, loop_exprs=pmap()):
+    def get_value(self, indices, path=None, *, loop_exprs=immutabledict()):
         offset = self.axes.offset(indices, path, loop_exprs=loop_exprs)
         return self.buffer.data_ro[offset]
 
-    def set_value(self, indices, value, path=None, *, loop_exprs=pmap()):
+    def set_value(self, indices, value, path=None, *, loop_exprs=immutabledict()):
         offset = self.axes.offset(indices, path, loop_exprs=loop_exprs)
         self.buffer.data_wo[offset] = value
 
+    # TODO: dont do this here
     def with_context(self, context):
-        return self.reconstruct(axes=self.axes.with_context(context))
+        return self.__record_init__(axes=self.axes.with_context(context))
 
     @property
     def context_free(self):
-        return self.reconstruct(axes=self.axes.context_free)
+        return self.__record_init__(axes=self.axes.context_free)
 
     @property
     def leaf_layouts(self):
-        return self.axes.leaf_subst_layouts
-
-    # TODO: Array property
-    def candidate_layouts(self, loop_axes):
-        from pyop3.expr_visitors import collect_candidate_indirections
-
-        candidatess = {}
-        for leaf_path, orig_layout in self.axes.leaf_subst_layouts.items():
-            visited_axes = self.axes.path_with_nodes(self.axes._node_from_path(leaf_path), and_components=True)
-
-            # if extract_axes(orig_layout, visited_axes, loop_axes, {}).size == 0:
-            #     continue
-
-            candidatess[(self, leaf_path)] = collect_candidate_indirections(
-                orig_layout, visited_axes, loop_axes
-            )
-
-        return ImmutableOrderedDict(candidatess)
-
-    def default_candidate_layouts(self, loop_axes):
         return self.axes.leaf_subst_layouts
 
     @property
@@ -460,10 +491,10 @@ class Dat(_Dat):
     def vec(self):
         return self.vec_rw
 
-    def _as_expression_dat(self):
-        assert self.axes.is_linear
-        layout = just_one(self.axes.leaf_subst_layouts.values())
-        return _ExpressionDat(self, layout)
+    # def _as_expression_dat(self):
+    #     assert self.axes.is_linear
+    #     layout = just_one(self.axes.leaf_subst_layouts.values())
+    #     return LinearDatBufferExpression(self.buffer, layout)
 
     def _check_vec_dtype(self):
         if self.dtype != PETSc.ScalarType:
@@ -480,26 +511,21 @@ class Dat(_Dat):
     def sf(self):
         return self.buffer.sf
 
-    @property
-    def comm(self):
-        return self.buffer.comm
-
     # TODO update docstring
-    # TODO is this a property of the buffer?
-    @PETSc.Log.EventDecorator()
-    def assemble(self, update_leaves=False):
-        """Ensure that stored values are up-to-date.
-
-        This function is typically only required when accessing the `Dat` in a
-        write-only mode (`Access.WRITE`, `Access.MIN_WRITE` or `Access.MAX_WRITE`)
-        and only setting a subset of the values. Without `Dat.assemble` the non-subset
-        entries in the array would hold undefined values.
-
-        """
-        if update_leaves:
-            self.buffer._reduce_then_broadcast()
-        else:
-            self.buffer._reduce_leaves_to_roots()
+    # @PETSc.Log.EventDecorator()
+    # def assemble(self, update_leaves=False):
+    #     """Ensure that stored values are up-to-date.
+    #
+    #     This function is typically only required when accessing the `Dat` in a
+    #     write-only mode (`Access.WRITE`, `Access.MIN_WRITE` or `Access.MAX_WRITE`)
+    #     and only setting a subset of the values. Without `Dat.assemble` the non-subset
+    #     entries in the array would hold undefined values.
+    #
+    #     """
+    #     if update_leaves:
+    #         self.buffer._reduce_then_broadcast()
+    #     else:
+    #         self.buffer._reduce_leaves_to_roots()
 
     def materialize(self) -> Dat:
         """Return a new "unindexed" array with the same shape."""
@@ -515,7 +541,7 @@ class Dat(_Dat):
         """
         assert isinstance(axes, AxisTree), "not indexed"
 
-        return self.reconstruct(axes=axes, parent=self)
+        return self.__record_init__(axes=axes, _parent=self)
 
     # NOTE: should this only accept AxisTrees, or are IndexedAxisTrees fine also?
     # is this ever used?
@@ -538,132 +564,56 @@ class Dat(_Dat):
                 "New axis tree is a different size to the existing one."
             )
 
-        return self.reconstruct(axes=axes)
+        return self.__record_init__(axes=axes)
 
 
-class _ConcretizedDat2(_Dat, ContextFree, abc.ABC):
-
-    # unimplemented
-
-    @property
-    def leaf_layouts(self):
-        assert False, "shouldnt touch this I dont think"
-
-    def getitem(self, *args, **kwargs):
-        assert False, "shouldnt touch this I dont think"
-
-    # ///
-
-    parent = None
+# TODO: Should inherit from Terminal (but Terminal has odd attrs)
+class BufferExpression(Expression, metaclass=abc.ABCMeta):
 
     @property
-    def buffer(self):
-        return self.dat.buffer
+    @abc.abstractmethod
+    def buffer(self) -> AbstractBuffer:
+        pass
 
     @property
-    def dtype(self):
-        return self.dat.dtype
-
-    @property
-    def constant(self):
-        return self.dat.constant
-
-    def with_context(self, context):
-        return self
-
-    @property
-    def context_free(self):
-        return self
-
-    def filter_context(self, context):
-        return pmap()
-
-    # @property
-    # def context_map(self):
-    #     return ImmutableOrderedDict({pmap(): self})
+    def name(self) -> str:
+        return self.buffer.name
 
 
-# NOTE: I think that having dat.dat is a bad design pattern, instead pass the buffer or similar
-# NOTE: Should not be underscored, that would suggest module-only scope
-class _ConcretizedDat(_ConcretizedDat2):
-    """A dat with fixed layouts.
+class ArrayBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
+    pass
 
-    This class is useful for describing dats whose layouts have been optimised.
 
-    Unlike `_ExpressionDat` a `_ConcretizedDat` is permitted to be multi-component.
+class OpaqueBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
+    """A buffer expression that is interfaced with using function calls.
+
+    An example of this is Mat{Get,Set}Values().
 
     """
-    def __init__(self, dat, layouts):
-        super().__init__(name=dat.name)
-        self.dat = dat
-        self.layouts = pmap(layouts)
-
-    def __str__(self) -> str:
-        return "\n".join(
-            f"{self.name}[{layout}]"
-            for layout in self.layouts.values()
-        )
-
-    # TODO: redo now that we have Record?
-    def __hash__(self) -> int:
-        return hash((type(self), self.dat, self.layouts))
-
-    @property
-    def axes(self):
-        return self.dat.axes
-
-    @property
-    def _record_fields(self) -> frozenset:
-        return frozenset({"dat", "layouts", "name"})
 
 
-class _ConcretizedMat(_ConcretizedDat2):
-    """A dat with fixed layouts.
-
-    This class is useful for describing dats whose layouts have been optimised.
-
-    Unlike `_ExpressionDat` a `_ConcretizedDat` is permitted to be multi-component.
-
-    """
-    def __init__(self, mat, row_layouts, col_layouts, parent):
-        super().__init__(name=mat.name)
-        self.dat = mat  # only because I need to clean this up
-        self.mat = mat
-        self.row_layouts = pmap(row_layouts)
-        self.col_layouts = pmap(col_layouts)
-        self.parent = parent
-
-    def __str__(self) -> str:
-        return "\n".join(
-            f"{self.name}[{row_layout}, {col_layout}]"
-            for row_layout in self.row_layouts.values()
-            for col_layout in self.col_layouts.values()
-        )
-
-    # TODO: redo now that we have Record?
-    def __hash__(self) -> int:
-        return hash((type(self), self.dat, self.row_layouts, self.col_layouts))
-
-    @property
-    def axes(self):
-        return self.mat.axes
-
-    # @property
-    # def axes(self):
-    #     return self.dat.axes
-
-    @property
-    def _record_fields(self) -> frozenset:
-        return frozenset({"mat", "row_layouts", "col_layouts", "name"})
-
-    @property
-    def alloc_size(self) -> int:
-        return self.mat.alloc_size
+class PetscMatBufferExpression(OpaqueBufferExpression, metaclass=abc.ABCMeta):
+    pass
 
 
-# NOTE: I think that this is a bad name for this class. Dats and _ConcretizedDats
-# can also appear in expressions.
-class _ExpressionDat(_ConcretizedDat2):
+class DatBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
+    pass
+
+
+class DatArrayBufferExpression(DatBufferExpression, ArrayBufferExpression, metaclass=abc.ABCMeta):
+    pass
+
+
+class LinearBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
+    pass
+
+
+class NonlinearBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
+    pass
+
+
+@utils.record()
+class LinearDatArrayBufferExpression(DatArrayBufferExpression, LinearBufferExpression):
     """A dat with fixed (?) layout.
 
     It cannot be indexed.
@@ -672,41 +622,109 @@ class _ExpressionDat(_ConcretizedDat2):
     point it has a fixed set of axes.
 
     """
-    def __init__(self, dat, layout):
-        super().__init__(name=dat.name, parent=None)
 
-        self.dat = dat
-        self.layout = layout
+    # {{{ instance attrs
 
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.dat!r}, {self.layout!r})"
+    _buffer: Any  # array buffer type
+    layout: Any
+
+    # }}}
+
+    # {{{ interface impls
+
+    buffer: ClassVar[property] = utils.attr("_buffer")
+
+    # }}}
 
     def __str__(self) -> str:
         return f"{self.name}[{self.layout}]"
 
-    # TODO: redo now that we have Record?
-    def __hash__(self) -> int:
-        return hash((type(self), self.dat, self.layout))
 
-    def __eq__(self, other) -> bool:
-        return type(other) is type(self) and other.dat == self.dat and other.layout == self.layout and other.name == self.name
+@utils.record()
+class NonlinearDatArrayBufferExpression(DatArrayBufferExpression, NonlinearBufferExpression):
+    """A dat with fixed layouts.
 
-    # NOTE: args, kwargs unused
-    def get_value(self, indices, *args, **kwargs):
-        offset = self._get_offset(indices)
-        return self.buffer.data_ro[offset]
+    This class is useful for describing dats whose layouts have been optimised.
 
-    # NOTE: args, kwargs unused
-    def set_value(self, indices, value, *args, **kwargs):
-        offset = self._get_offset(indices)
-        self.buffer.data_wo[offset] = value
+    Unlike `_ExpressionDat` a `_ConcretizedDat` is permitted to be multi-component.
 
-    def _get_offset(self, indices):
-        from pyop3.expr_visitors import evaluate
+    """
+    # {{{ Instance attrs
 
-        return evaluate(self.layout, indices)
+    _buffer: Any  # array buffer type? may be null
+    layouts: Any
 
-    @property
-    def _record_fields(self) -> frozenset:
-        # NOTE: Including 'name' is a hack because of inheritance...
-        return frozenset({"dat", "layout", "name"})
+    # }}}
+
+    # {{{ Interface impls
+
+    buffer: ClassVar[property] = property(lambda self: self._buffer)
+
+    # }}}
+
+    def __init__(self, buffer, layouts) -> None:
+        layouts = immutabledict(layouts)
+
+        self._buffer = buffer
+        self.layouts = layouts
+
+    def __str__(self) -> str:
+        return "\n".join(
+            f"{self.buffer.name}[{layout}]"
+            for layout in self.layouts.values()
+        )
+
+
+class MatBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
+    pass
+
+
+@utils.record()
+class MatPetscMatBufferExpression(MatBufferExpression, PetscMatBufferExpression, LinearBufferExpression):
+
+    # {{{ instance attrs
+
+    _buffer: AbstractPetscMatBuffer
+    row_layout: CompositeDat
+    column_layout: CompositeDat
+
+    # }}}
+
+    # {{{ interface impls
+
+    buffer: ClassVar[AbstractPetscMatBuffer] = utils.attr("_buffer")
+
+    # }}}
+
+    def __str__(self) -> str:
+        return f"{self.buffer.name}[{self.row_layout}, {self.column_layout}]"
+
+
+@utils.record()
+class MatArrayBufferExpression(MatBufferExpression, ArrayBufferExpression, NonlinearBufferExpression):
+
+    # {{{ instance attrs
+
+    _buffer: AbstractArrayBuffer
+    row_layouts: Any  # expr type (mapping)
+    column_layouts: Any  # expr type (mapping)
+
+    # }}}
+
+    # {{{ interface impls
+
+    buffer: ClassVar[AbstractArrayBuffer] = utils.attr("_buffer")
+
+    # }}}
+
+    # TODO:
+    # def __str__(self) -> str:
+    #     return f"{self.buffer.name}[{self.row_layout}, {self.column_layout}]"
+
+
+def as_linear_buffer_expression(dat: Dat) -> LinearDatArrayBufferExpression:
+    if not dat.axes.is_linear:
+        raise ValueError("The provided Dat must be linear")
+
+    layout = just_one(dat.axes.leaf_subst_layouts.values())
+    return LinearDatArrayBufferExpression(dat.buffer, layout)

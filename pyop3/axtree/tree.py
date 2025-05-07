@@ -16,23 +16,21 @@ import typing
 from collections.abc import Iterable, Sized, Sequence
 from functools import cached_property
 from itertools import chain
-from typing import Any, FrozenSet, Hashable, Mapping, Optional, Tuple, Union
+from typing import Any, FrozenSet, Hashable, Mapping, Optional, Self, Tuple, Union
 
 import numpy as np
-import pymbolic as pym
 import pyrsistent
-import pytools
 from cachetools import cachedmethod
 from mpi4py import MPI
-from immutabledict import ImmutableOrderedDict
+from immutabledict import immutabledict
 from petsc4py import PETSc
-from pyrsistent import freeze, pmap, thaw, PMap
 
 from pyop2.caching import cached_on, CacheMixin
 from pyop3.exceptions import Pyop3Exception
 from pyop3.dtypes import IntType
-from pyop3.sf import StarForest, serial_forest
-from pyop2.mpi import COMM_SELF
+from pyop3.sf import StarForest, local_sf
+from pyop2.mpi import COMM_SELF, collective
+from pyop3 import utils
 from pyop3.tree import (
     LabelledNodeComponent,
     LabelledTree,
@@ -45,8 +43,6 @@ from pyop3.tree import (
 from pyop3.utils import (
     has_unique_entries,
     unique_comm,
-    strict_zip,
-    Parameter,
     debug_assert,
     deprecated,
     invert,
@@ -60,6 +56,9 @@ from pyop3.utils import (
 )
 
 import pyop3.extras.debug
+
+
+OWNED_REGION_LABEL = "owned"
 
 
 class ExpectedLinearAxisTreeException(Pyop3Exception):
@@ -97,11 +96,8 @@ class ContextSensitive(ContextAware, abc.ABC):
     #
     #     """
     #
-    def __init__(self, context_map):
-        # TODO: make a constant utils type
-        if isinstance(context_map, pyrsistent.PMap):
-            raise TypeError("context_map must be deterministically ordered")
-        self.context_map = context_map
+    def __init__(self, context_map) -> None:
+        self.context_map = immutabledict(context_map)
 
     @cached_property
     def keys(self):
@@ -125,8 +121,8 @@ class ContextSensitive(ContextAware, abc.ABC):
         key = {}
         for loop_index, path in context.items():
             if loop_index in self.keys:
-                key.update({loop_index: freeze(path)})
-        return freeze(key)
+                key.update({loop_index: tuple(path)})
+        return immutabledict(key)
 
     def _shared_attr(self, attr: str):
         return single_valued(getattr(a, attr) for a in self.context_map.values())
@@ -140,11 +136,11 @@ class ContextFree(ContextAware, abc.ABC):
         return self
 
     def filter_context(self, context):
-        return pmap()
+        return immutabledict()
 
     @property
     def context_map(self):
-        return ImmutableOrderedDict({pmap(): self})
+        return immutabledict({immutabledict(): self})
 
 
 class LoopIterable(abc.ABC):
@@ -194,17 +190,13 @@ class _UnitAxisTree:
     def __str__(self) -> str:
         return "<UNIT>"
 
-    @property
-    def size(self) -> int:
-        return 1
+    size = 1
+    leaves = (None,)
+    is_linear = True
+    is_empty = False
 
-    @property
-    def leaves(self):
-        return (None,)
-
-    @property
-    def is_empty(self) -> bool:
-        return False
+    def prune(self) -> Self:
+        return self
 
     def add_subtree(self, subtree, key):
         assert key is None
@@ -227,20 +219,30 @@ class AxisComponentRegion:
     size: Any  # IntType or Dat or UNIT
     label: str | None = None
 
+    def __post_init__(self):
+        from pyop3.array import LinearDatArrayBufferExpression
+        if not isinstance(self.size, numbers.Integral):
+            assert isinstance(self.size, LinearDatArrayBufferExpression)
+            assert self.size.buffer.sf is None
+
     def __str__(self) -> str:
         return f"({self.size}, {self.label})"
 
 
 @functools.singledispatch
 def _parse_regions(obj: Any) -> tuple[AxisComponentRegion, ...]:
-    from pyop3.array import Dat, _ExpressionDat
+    from pyop3.array import Dat
+    from pyop3.array.dat import as_linear_buffer_expression
 
     if isinstance(obj, Dat):
         # Dats used as extents for axis component regions have a stricter
         # set of requirements than generic Dats so we eagerly cast them to
         # the constrained type here.
         orig_dat = obj
-        dat = orig_dat._as_expression_dat()
+        bf = orig_dat.buffer
+        orig_dat = Dat(orig_dat.axes.undistribute(), buffer=type(bf)(bf._data,sf=None))
+        # dat = orig_dat._as_expression_dat()
+        dat = as_linear_buffer_expression(orig_dat)
         # debugging
         # interesting, this change breaks stuff!!!
         return (AxisComponentRegion(dat),)
@@ -263,7 +265,7 @@ def _(regions: Sequence[AxisComponentRegion]) -> tuple[AxisComponentRegion, ...]
 
 @_parse_regions.register(numbers.Integral)
 def _(num: numbers.Integral) -> tuple[AxisComponentRegion, ...]:
-    num = IntType(num)
+    num = IntType.type(num)
     return (AxisComponentRegion(num),)
 
 
@@ -322,30 +324,20 @@ def _partition_regions(regions: Sequence[AxisComponentRegion], sf: StarForest) -
 
 
 class AxisComponent(LabelledNodeComponent):
-    fields = LabelledNodeComponent.fields | {"regions", "unit"}
+    fields = LabelledNodeComponent.fields | {"regions"}
 
     def __init__(
         self,
         regions,
         label=None,
         *,
-        unit=False,
         sf=None,
     ):
         regions = _parse_regions(regions)
         sf = _parse_sf(sf, regions)
 
-        if unit:
-            raise NotImplementedError
-
-        # if unit and count != 1:
-        #     raise ValueError(
-        #         "Components may only be marked as 'unit' if they have length 1"
-        #     )
-
         super().__init__(label=label)
         self.regions = regions
-        self.unit = unit
         self.sf = sf
 
     def __str__(self) -> str:
@@ -359,34 +351,17 @@ class AxisComponent(LabelledNodeComponent):
         """Return whether or not this axis component has constant size between ranks."""
         raise NotImplementedError
 
-    # redone because otherwise getting a bizarre error (numpy types have confusing behaviour!)
-    # def __eq__(self, other):
-    #     if type(other) is not type(self):
-    #         return False
-    #     else:
-    #         return other._key == self._key
-    #         # return (
-    #         #     other.size == self.size
-    #         #     and other.label == self.label
-    #         #     and other.unit == self.unit
-    #         # )
-    #
-    # def __hash__(self):
-    #     return hash(self._key)
-    #
-    # @property
-    # def _key(self):
-    #     return (self.size, self.label, self.unit)
-
     # TODO this is just a traversal - clean up
     def alloc_size(self, axtree, axis):
-        from pyop3.array import Dat
+        from pyop3.array import Dat, LinearDatArrayBufferExpression
 
-        if isinstance(self.count, Dat):
-            npoints = self.count.max_value
+        if isinstance(self.local_size, (Dat, LinearDatArrayBufferExpression)):
+            # TODO: make max_value an attr of buffers
+            # npoints = self.count.max_value
+            npoints = max(self.local_size.buffer._data)
         else:
-            assert isinstance(self.count, numbers.Integral)
-            npoints = self.count
+            assert isinstance(self.local_size, numbers.Integral)
+            npoints = self.local_size
 
         assert npoints is not None
 
@@ -399,28 +374,38 @@ class AxisComponent(LabelledNodeComponent):
         # Cast to an int as numpy integers cause loopy to break
         return strict_int(size)
 
+    @property
+    @deprecated("size")
+    def count(self) -> Any:
+        return self.size
+
     @cached_property
-    def _collective_size(self):
-        """Return the size of an axis component in a format consistent over ranks."""
-        local_size = self.size
+    def size(self) -> Any:
+        from pyop3 import Parameter
+
         if self.sf is not None:
-            if not isinstance(local_size, numbers.Integral):
+            if not isinstance(self.local_size, numbers.Integral):
                 raise NotImplementedError(
                     "Unsure what to do with non-integral sizes in parallel"
                 )
-            return Parameter(local_size)
+            return Parameter(self.local_size)
         else:
             # can be an integer or a Dat
-            return local_size
+            return self.local_size
 
     @cached_property
-    def count(self) -> Any:
+    def local_size(self) -> Any:
         return sum(reg.size for reg in self.regions)
 
-    # better than 'count'?
-    @property
-    def size(self):
-        return self.count
+    @cached_property
+    @collective
+    def max_size(self):
+        if not isinstance(self.local_size, numbers.Integral):
+            raise NotImplementedError("Not sure what to do here yet")
+        if self.sf is not None:
+            return self.comm.reduce(self.local_size, MPI.MAX)
+        else:
+            return self.local_size
 
     @cached_property
     def _all_regions(self) -> tuple[AxisComponentRegion]:
@@ -450,6 +435,9 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
 
         super().__init__(label=label, id=id)
         CacheMixin.__init__(self)
+
+        if self.label == "firedrake_default_topology__id_LoopIndex_0__id_LoopIndex_0":
+            breakpoint()
 
         self.components = components
 
@@ -525,33 +513,9 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
         # hacky but right (no inner shape)
         return self.size
 
-    # # @parallel_only  # TODO
-    # @cached_property
-    # def owned_count(self):
-    #     return self.count - self.sf.nleaves
-
     @cached_property
     def count_per_component(self):
-        return freeze({c.label: c.count for c in self.components})
-
-    # @cached_property
-    # def owned_count_per_component(self):
-    #     return freeze(
-    #         {
-    #             clabel: count - self.ghost_count_per_component[clabel]
-    #             for clabel, count in self.count_per_component.items()
-    #         }
-    #     )
-
-    # @cached_property
-    # def ghost_count_per_component(self):
-    #     counts = np.zeros_like(self.components, dtype=int)
-    #     if self.comm.size > 1:
-    #         for leaf_index in self.sf.ileaf:
-    #             counts[self._axis_number_to_component_index(leaf_index)] += 1
-    #     return freeze(
-    #         {cpt.label: count for cpt, count in strict_zip(self.components, counts)}
-    #     )
+        return immutabledict({c.label: c.count for c in self.components})
 
     @cached_property
     def owned(self):
@@ -676,11 +640,11 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
 
     @staticmethod
     def _parse_components(components):
-        if isinstance(components, collections.abc.Mapping):
+        if isinstance(components, Mapping):
             return tuple(
                 AxisComponent(count, clabel) for clabel, count in components.items()
             )
-        elif isinstance(components, collections.abc.Iterable):
+        elif isinstance(components, Iterable):
             return tuple(as_axis_component(c) for c in components)
         else:
             return (as_axis_component(components),)
@@ -703,7 +667,7 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
 
 # Do I ever want this? component_offsets is expensive so we don't want to
 # do it every time
-def axis_to_component_number(axis, number, context=pmap()):
+def axis_to_component_number(axis, number, context=immutabledict()):
     offsets = component_offsets(axis, context)
     return component_number_from_offsets(axis, number, offsets)
 
@@ -727,6 +691,7 @@ def component_offsets(axis, context):
 
 
 # NOTE: does this sort of expression stuff live in here? Or expr.py perhaps? Definitely
+# TODO: define __str__ as an abc?
 class Expression(abc.ABC):
     def __add__(self, other):
         if other == 0:
@@ -899,8 +864,8 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
             for index_tree in index_forest:
                 axis_trees[context].append(index_axes(index_tree, context, self))
 
-        if axis_trees.keys() == {pmap()}:
-            indexed_axis_trees = axis_trees[pmap()]
+        if axis_trees.keys() == {immutabledict()}:
+            indexed_axis_trees = axis_trees[immutabledict()]
             if len(indexed_axis_trees) > 1:
                 raise NotImplementedError("Need axis forests")
             else:
@@ -916,6 +881,9 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     @cached_property
     def pruned(self) -> AxisTree:
         return prune_zero_sized_branches(self)
+
+    def prune(self) -> AxisTree:
+        return self.pruned
 
     @property
     @abc.abstractmethod
@@ -972,8 +940,8 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     # NOTE: Do we ever want non-leaf subst_layouts?
     @property
-    def leaf_subst_layouts(self) -> PMap:
-        return pmap({leaf_path: self.subst_layouts()[leaf_path] for leaf_path in self.leaf_paths})
+    def leaf_subst_layouts(self) -> immutabledict:
+        return immutabledict({leaf_path: self.subst_layouts()[leaf_path] for leaf_path in self.leaf_paths})
 
     # TODO: rename to iter
     def index(self) -> LoopIndex:
@@ -1012,7 +980,16 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
         axes = AxisTree(parent_to_children)
 
-    def offset(self, indices, path=None, *, loop_exprs=pmap()):
+    @property
+    @abc.abstractmethod
+    def _undistributed(self):
+        pass
+
+    def undistribute(self):
+        """Return the axis tree discarding parallel overlap information."""
+        return self._undistributed
+
+    def offset(self, indices, path=None, *, loop_exprs=immutabledict()):
         from pyop3.axtree.layout import eval_offset
         return eval_offset(
             self,
@@ -1120,32 +1097,36 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     def sf(self) -> StarForest:
         from pyop3.axtree.parallel import collect_star_forests, concatenate_star_forests
 
-        # for now
-        # # NOTE: what is global_size used for? very confusing name
-        # return serial_forest(self.global_size)
-        #
-        # if self.is_empty:
-        #     # no, this is probably not right. Could have a global
-        #     return serial_forest(self.global_size)
-
-        sfs = collect_star_forests(self)
-        return concatenate_star_forests(sfs)
+        has_sfs = bool(list(filter(None, (component.sf for axis in self.axes for component in axis.components))))
+        if has_sfs:
+            sfs = collect_star_forests(self)
+            return concatenate_star_forests(sfs)
+        else:
+            return None
+            return local_sf(self.size, self.comm)
 
     def component_section(self, component_spec) -> PETSc.Section:
         from pyop3.array import Dat
         from pyop3.axtree.layout import _axis_tree_size_rec
+        from pyop3.expr_visitors import extract_axes
 
         axis, component = component_spec
         root = self.child(axis, component)
         size_expr = _axis_tree_size_rec(self, root)
-        size_dat = Dat(Axis(component.count), dtype=IntType)
+
+        if isinstance(size_expr, numbers.Integral):
+            size_axes = Axis(component.local_size)
+        else:
+            path = self.path_with_nodes(axis, component, and_components=True)
+            size_axes = extract_axes(size_expr, path, immutabledict(), {})
+        size_dat = Dat.empty(size_axes, dtype=IntType)
         size_dat.assign(size_expr, eager=True)
 
-        sizes = size_dat.buffer.data_ro
+        sizes = size_dat.buffer.data_ro_with_halos
 
         section = PETSc.Section().create(comm=self.comm)
-        section.setChart(0, component.count)
-        for point in range(component.count):
+        section.setChart(0, component.local_size)
+        for point in range(component.local_size):
             section.setDof(point, sizes[point])
         section.setUp()
         return section
@@ -1153,6 +1134,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     # TODO: In serial should this be COMM_SELF, COMM_WORLD or None?
     # It is valid for bits of an axis tree to have no comm but I think
     # that the tree overall should have one...
+    # Should be COMM_WORLD I think
     @property
     def comm(self) -> MPI.Comm | None:
         return unique_comm(self.nodes)
@@ -1160,10 +1142,10 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     @cached_property
     def owned(self):
         """Return the owned portion of the axis tree."""
-        if not self.comm or self.comm.size == 1:
+        if self.comm.size == 1:
             return self
-
-        return self.with_region_label("owned")
+        else:
+            return self.with_region_label(OWNED_REGION_LABEL)
 
     def with_region_label(self, region_label: str) -> IndexedAxisTree:
         """TODO"""
@@ -1175,35 +1157,39 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     # NOTE: Unsure if this should be a method
     def _region_slice(self, region_label: str, *, axis: Axis | None = None) -> "IndexTree":
-        from pyop3.itree import AffineSliceComponent, IndexTree, Slice
+        from pyop3.itree import AffineSliceComponent, RegionSliceComponent, IndexTree, Slice
 
         if axis is None:
             axis = self.root
 
+        region_label_matches_all_components = True
+        region_label_matches_no_components = True
         slice_components = []
         for component in axis.components:
             if region_label in component._all_region_labels:
-                region_index = component._all_region_labels.index(region_label)
-                steps = steps_func([r.size for r in component._all_regions])
-                start, stop = steps[region_index:region_index+2]
-
-                # NOTE: I think slices and components should *always* preserve the axis labels
-                slice_component = AffineSliceComponent(
-                    component.label, start=start, stop=stop, label=f"{component.label}_{region_label}"
-                )
+                region_label_matches_no_components = False
+                slice_component = RegionSliceComponent(component.label, region_label, label=f"{component.label}_{region_label}")
             else:
-                slice_component = AffineSliceComponent(
-                    component.label, label=f"{component.label}_{region_label}"
-                )
+                region_label_matches_all_components = False
+                slice_component = AffineSliceComponent(component.label, label=component.label)
             slice_components.append(slice_component)
+
+        # do not change axis label if nothing changes
+        if region_label_matches_all_components:
+            axis_label = f"{axis.label}_{region_label}"
+        elif region_label_matches_no_components:
+            axis_label = axis.label
+        else:
+            # match some, generate something
+            axis_label = None
 
         # NOTE: Ultimately I don't think that this step will be necessary. When axes are reused more we can
         # start to think about keying certain things on the axis itself, rather than its label.
         # slice_ = Slice(axis.label, slice_components, label=axis.label)
-        slice_ = Slice(axis.label, slice_components, label=f"{axis.label}_{region_label}")
+        slice_ = Slice(axis.label, slice_components, label=axis_label)
 
         index_tree = IndexTree(slice_)
-        for component, slice_component in strict_zip(axis.components, slice_components):
+        for component, slice_component in zip(axis.components, slice_components, strict=True):
             if subaxis := self.child(axis, component):
                 subtree = self._region_slice(region_label, axis=subaxis)
                 index_tree = index_tree.add_subtree(subtree, slice_, slice_component.label)
@@ -1214,17 +1200,17 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         targets = {}
 
         if axis is None:  # strictly_all
-            target_path_acc, target_exprs_acc = targets_per_axis.get(None, (pmap(), pmap()))
+            target_path_acc, target_exprs_acc = targets_per_axis.get(None, (immutabledict(), immutabledict()))
             targets[None] = (target_path_acc, target_exprs_acc)
 
             if self.is_empty:
-                return pmap(targets)
+                return immutabledict(targets)
             else:
                 axis = self.root
 
         for component in axis.components:
             axis_key = (axis.id, component.label)
-            axis_target_path, axis_target_exprs = targets_per_axis.get(axis_key, (pmap(), pmap()))
+            axis_target_path, axis_target_exprs = targets_per_axis.get(axis_key, (immutabledict(), immutabledict()))
             target_path_acc_ = target_path_acc | axis_target_path
             target_exprs_acc_ = target_exprs_acc | axis_target_exprs
             targets[axis.id, component.label] = (target_path_acc_, target_exprs_acc_)
@@ -1237,7 +1223,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
                     target_exprs_acc=target_exprs_acc_,
                 )
                 targets.update(targets_)
-        return pmap(targets)
+        return immutabledict(targets)
 
     # TODO: refactor/move
     def _match_path_and_exprs(self, tree):
@@ -1283,7 +1269,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     @cached_property
     def _source_path(self):
         if self.is_empty:
-            return pmap()
+            return immutabledict()
         else:
             return self._collect_source_path()
 
@@ -1296,16 +1282,16 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
         source_path = {}
         for component in axis.components:
-            source_path[axis.id, component.label] = pmap({axis.label: component.label})
+            source_path[axis.id, component.label] = immutabledict({axis.label: component.label})
 
             if subaxis := self.child(axis, component):
                 source_path.update(self._collect_source_path(axis=subaxis))
-        return freeze(source_path)
+        return immutabledict(source_path)
 
     @cached_property
     def _source_exprs(self):
         if self.is_empty:
-            return pmap()
+            return immutabledict()
         else:
             return self._collect_source_exprs()
 
@@ -1318,11 +1304,11 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
         source_exprs = {}
         for component in axis.components:
-            source_exprs[axis.id, component.label] = pmap({axis.label: AxisVar(axis.label)})
+            source_exprs[axis.id, component.label] = immutabledict({axis.label: AxisVar(axis.label)})
 
             if subaxis := self.child(axis, component):
                 source_exprs.update(self._collect_source_exprs(axis=subaxis))
-        return freeze(source_exprs)
+        return immutabledict(source_exprs)
 
     def _check_labels(self):
         def check(node, prev_labels):
@@ -1341,7 +1327,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     def _alloc_size(self, axis=None):
         if self.is_empty:
-            breakpoint()
+            pyop3.extras.debug.warn_todo("think about zero-sized things, should this be allowed?")
             return 1
         axis = axis or self.root
         return sum(cpt.alloc_size(self, axis) for cpt in axis.components)
@@ -1384,6 +1370,24 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         return self
 
     @cached_property
+    def _undistributed(self):
+        undistributed_root, subnode_map = self._undistribute_rec(self.root)
+        node_map = {None: (undistributed_root,)} | subnode_map
+        return type(self)(node_map)
+
+    def _undistribute_rec(self, axis):
+        undistributed_axis = axis.copy(components=[c.copy(sf=None) for c in axis.components])
+        node_map = {undistributed_axis.id: []}
+        for component in axis.components:
+            if subaxis := self.child(axis, component):
+                undistributed_subaxis, subnode_map = self._undistribute_rec(subaxis)
+                node_map[undistributed_axis.id].append(undistributed_subaxis)
+                node_map.update(subnode_map)
+            else:
+                node_map[undistributed_axis.id].append(None)
+        return undistributed_axis, node_map
+
+    @cached_property
     def paths(self):
         return (self._source_path,)
 
@@ -1395,7 +1399,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     @cached_property
     def _source_path_and_exprs(self):
         # TODO: merge source path and source expr collection here
-        return ImmutableOrderedDict({key: (self._source_path[key], self._source_exprs[key]) for key in self._source_path})
+        return immutabledict({key: (self._source_path[key], self._source_exprs[key]) for key in self._source_path})
 
     @cached_property
     def paths_and_exprs(self):
@@ -1416,16 +1420,17 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def outer_loops(self):
         return ()
 
-    @cached_property
-    def datamap(self):
-        if self.is_empty:
-            dmap = {}
-        else:
-            dmap = postvisit(self, _collect_datamap, axes=self)
-        return freeze(dmap)
-
     def materialize(self):
         return self
+
+    def linearize(self, path: Mapping[str, str]) -> AxisTree:
+        """Return the axis tree dropping all components not specified in the path."""
+        if not self.is_valid_path(path):
+            raise ValueError("Provided path must go all the way from the root to a leaf")
+
+        visited_axes = self.path_with_nodes(self._node_from_path(path), and_components=True)
+        linear_axes = [Axis([component], axis.label) for axis, component in visited_axes.items()]
+        return AxisTree.from_iterable(linear_axes)
 
     # NOTE: should default to appending (assuming linear)
     def add_axis(self, axis, parent_axis, parent_component=None, *, uniquify=False):
@@ -1474,16 +1479,16 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
             layouts_ = {}
             for k, layout in layouts.items():
                 layouts_[k] = replace(layout, loop_vars)
-            layouts = freeze(layouts_)
+            layouts = immutabledict(layouts_)
 
         # for now
-        return freeze(layouts)
+        return immutabledict(layouts)
 
         # Have not considered how to do sparse things with external loops
         if self.layout_axes.depth > self.depth:
             return layouts
 
-        layouts_ = {pmap(): 0}
+        layouts_ = {immutabledict(): 0}
         for axis in self.nodes:
             for component in axis.components:
                 orig_path = self.path(axis, component)
@@ -1492,14 +1497,14 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
                 for ax, cpt in self.path_with_nodes(axis, component).items():
                     new_path.update(self.target_paths.get((ax.id, cpt), {}))
                     replace_map.update(self.layout_exprs.get((ax.id, cpt), {}))
-                new_path = freeze(new_path)
+                new_path = immutabledict(new_path)
 
                 orig_layout = layouts[orig_path]
                 new_layout = IndexExpressionReplacer(replace_map, loop_exprs)(
                     orig_layout
                 )
                 layouts_[new_path] = new_layout
-        return freeze(layouts_)
+        return immutabledict(layouts_)
 
     @property
     def _matching_target(self):
@@ -1521,10 +1526,11 @@ class IndexedAxisTree(AbstractAxisTree):
         layout_exprs=None,  # not used
         outer_loops=(),  # not used
     ):
-        assert has_unique_entries(targets)
+        # drop duplicate entries as they are necessarily equivalent
+        targets = utils.unique(targets)
 
         if layout_exprs is None:
-            layout_exprs = pmap()
+            layout_exprs = immutabledict()
         if outer_loops is None:
             outer_loops = ()
 
@@ -1561,14 +1567,14 @@ class IndexedAxisTree(AbstractAxisTree):
     @cached_property
     def _target_paths(self):
         return frozenset({
-            freeze({key: path for key, (path, _) in target.items()})
+            immutabledict({key: path for key, (path, _) in target.items()})
             for target in self._targets
         })
 
     @cached_property
     def _target_exprs(self):
         return frozenset({
-            freeze({key: exprs for key, (_, exprs) in target.items()})
+            immutabledict({key: exprs for key, (_, exprs) in target.items()})
             for target in self._targets
         })
 
@@ -1634,7 +1640,7 @@ class IndexedAxisTree(AbstractAxisTree):
     def outer_loops(self):
         return self._outer_loops
 
-    def materialize(self, *, local=False):
+    def materialize(self, *, local=False) -> AxisTree:
         if self.is_empty:
             return AxisTree()
         elif not local:
@@ -1653,6 +1659,10 @@ class IndexedAxisTree(AbstractAxisTree):
                 axes.add_subtree(subaxes, axis, component)
 
         return axes
+
+    @property
+    def _undistributed(self):
+        raise NotImplementedError("TODO")
 
     @cached_property
     def layout_axes(self) -> AxisTree:
@@ -1712,33 +1722,34 @@ class IndexedAxisTree(AbstractAxisTree):
             loop_axes = ax_rec.add_subtree(loop_axes, *ax_rec.leaf)
             loop_vars.update(lv_rec)
 
-        return loop_axes, freeze(loop_vars)
+        return loop_axes, immutabledict(loop_vars)
 
     def materialize(self):
         """Return a new "unindexed" axis tree with the same shape."""
         # "unindexed" axis tree
         # strip parallel semantics (in a bad way)
-        parent_to_children = collections.defaultdict(list)
-        for p, cs in self.node_map.items():
-            for c in cs:
-                if c is not None and c.sf is not None:
-                    c = c.copy(sf=None)
-                parent_to_children[p].append(c)
-
-        return AxisTree(parent_to_children)
+        # parent_to_children = collections.defaultdict(list)
+        # for p, cs in self.node_map.items():
+        #     for c in cs:
+        #         if c is not None and c.sf is not None:
+        #             c = c.copy(sf=None)
+        #         parent_to_children[p].append(c)
+        #
+        # return AxisTree(parent_to_children)
+        return AxisTree(self.node_map)
 
 
     @cached_property
-    def _matching_target(self) -> PMap:
+    def _matching_target(self) -> immutabledict:
         return find_matching_target(self)
 
     @cached_property
     def _buffer_slice(self) -> np.ndarray[IntType]:
         from pyop3 import Dat, do_loop
 
-        mask_dat = Dat(self.unindexed, dtype=bool, prefix="mask")
+        mask_dat = Dat.empty(self.unindexed.undistribute(), dtype=bool, prefix="mask")
         do_loop(p := self.index(), mask_dat[p].assign(1))
-        indices = just_one(np.nonzero(mask_dat.data_ro))
+        indices = just_one(np.nonzero(mask_dat.buffer.data_ro))
 
         # then convert to a slice if possible, do in Cython!!!
         slice_ = None
@@ -1772,8 +1783,8 @@ class UnitIndexedAxisTree:
         layout_exprs=None,  # not used
         outer_loops=(),  # not used?
     ):
-        # debug
-        assert has_unique_entries(targets)
+        # drop duplicate entries as they are necessarily equivalent
+        targets = utils.unique(targets)
 
         self.unindexed = unindexed
         self.targets = targets
@@ -1782,21 +1793,20 @@ class UnitIndexedAxisTree:
     def __str__(self) -> str:
         return "<UNIT>"
 
-    @property
-    def size(self) -> int:
-        return 1
+    def materialize(self):
+        return UNIT_AXIS_TREE
 
-    @property
-    def is_empty(self) -> bool:
-        return False
+    size = 1
+    is_linear = True
+    is_empty = False
 
     @cached_property
     def _subst_layouts_default(self):
         return subst_layouts(self, self._matching_target, self.layouts)
 
     @property
-    def leaf_subst_layouts(self) -> PMap:
-        return pmap({leaf_path: self._subst_layouts_default[leaf_path] for leaf_path in self.leaf_paths})
+    def leaf_subst_layouts(self) -> immutabledict:
+        return immutabledict({leaf_path: self._subst_layouts_default[leaf_path] for leaf_path in self.leaf_paths})
 
     @cached_property
     def _matching_target(self):
@@ -1804,7 +1814,7 @@ class UnitIndexedAxisTree:
 
     @property
     def leaf_paths(self):
-        return (pmap(),)
+        return (immutabledict(),)
 
     @property
     def leaves(self):
@@ -1812,7 +1822,7 @@ class UnitIndexedAxisTree:
 
     def path_with_nodes(self, leaf):
         assert leaf is None
-        return pmap()
+        return immutabledict()
 
     @property
     def layouts(self):
@@ -1830,11 +1840,11 @@ def find_matching_target(self):
             leaf_path = self.path_with_nodes(leaf)
 
             target_path = {}
-            target_path_, _ = target.get(None, (pmap(), pmap()))
+            target_path_, _ = target.get(None, (immutabledict(), immutabledict()))
             target_path.update(target_path_)
 
             for axis, component_label in leaf_path.items():
-                target_path_, _ = target.get((axis.id, component_label), (pmap(), pmap()))
+                target_path_, _ = target.get((axis.id, component_label), (immutabledict(), immutabledict()))
                 target_path.update(target_path_)
 
             # NOTE: We assume that if we get an empty target path then something has
@@ -1976,6 +1986,7 @@ def _(arg: numbers.Integral) -> AxisComponent:
     return AxisComponent(arg)
 
 
+# NOTE: Is this used any more?
 @cached_on(lambda trees: trees[0], key=lambda trees: tuple(trees[1:]))
 def merge_axis_trees(axis_trees):
     """
@@ -2005,7 +2016,7 @@ def merge_axis_trees(axis_trees):
         return IndexedAxisTree(node_map, unindexed, targets=targets)
 
 
-def _merge_node_maps(axis_trees, *, axis_tree_index=0, axis=None, suffix="") -> tuple[Axis, PMap]:
+def _merge_node_maps(axis_trees, *, axis_tree_index=0, axis=None, suffix="") -> tuple[Axis, immutabledict]:
     assert axis_tree_index < len(axis_trees)
 
     axis_tree = axis_trees[axis_tree_index]
@@ -2038,10 +2049,10 @@ def _merge_node_maps(axis_trees, *, axis_tree_index=0, axis=None, suffix="") -> 
             relabelled_children.append(None)
 
     relabelled_subnode_map[relabelled_axis.id] = tuple(relabelled_children)
-    return (relabelled_axis, pmap(relabelled_subnode_map))
+    return (relabelled_axis, immutabledict(relabelled_subnode_map))
 
 
-def _merge_targets(axis_trees, targetss, *, axis_tree_index=0, axis=None, suffix="") -> PMap:
+def _merge_targets(axis_trees, targetss, *, axis_tree_index=0, axis=None, suffix="") -> immutabledict:
     from pyop3.expr_visitors import relabel as relabel_expression
 
     assert axis_tree_index < len(axis_trees)
@@ -2082,7 +2093,18 @@ def _merge_targets(axis_trees, targetss, *, axis_tree_index=0, axis=None, suffix
             )
             relabelled_targets.update(relabelled_targets_)
 
-    return pmap(relabelled_targets)
+    return immutabledict(relabelled_targets)
+
+
+def merge_axis_trees2(trees: Iterable[AxisTree]) -> AxisTree:
+    if not trees:
+        raise ValueError
+
+    current_tree, *remaining_trees = trees
+    while remaining_trees:
+        next_tree, *remaining_trees = remaining_trees
+        current_tree = merge_trees2(current_tree, next_tree)
+    return current_tree
 
 
 @cached_on(lambda t1, t2: t1, key=lambda t1, t2: t2)
@@ -2105,14 +2127,16 @@ def merge_trees2(tree1: AxisTree, tree2: AxisTree) -> AxisTree:
     """
     if tree1:
         if tree2:
+            # This is all quite magic. What this does is traverse the first tree
+            # and collate all the visited axes. Then, at each leaf of tree 1, we
+            # traverse tree 2 and build a per-leaf subtree as appropriate. These
+            # are then all stuck together in the final step.
+
             subtrees = _merge_trees(tree1, tree2)
 
-            # The algorithm proceeds by visiting each element in the second tree and
-            # attempting to add it to the tree. If the axis is already present then
-            # the axis is not added.
             merged = AxisTree(tree1.node_map)
             for leaf, subtree in subtrees:
-                merged = merged.add_subtree(subtree, *leaf)
+                merged = merged.add_subtree(subtree, *leaf, uniquify_ids=True)
         else:
             merged = tree1
     else:
@@ -2124,7 +2148,7 @@ def merge_trees2(tree1: AxisTree, tree2: AxisTree) -> AxisTree:
 def _merge_trees(tree1, tree2, *, axis1=None, parents=None):
     if axis1 is None:  # strictly all
         axis1 = tree1.root
-        parents = pmap()
+        parents = immutabledict()
 
     subtrees = []
     for component1 in axis1.components:
@@ -2179,12 +2203,12 @@ def subst_layouts(
     layouts_subst = {}
     # if strictly_all(x is None for x in [axis, path, target_path_acc, index_exprs_acc]):
     if strictly_all(x is None for x in [axis, path]):
-        path = pmap()
+        path = immutabledict()
 
         # NOTE: I think I can get rid of this if I prescribe an empty axis tree to expression
         # arrays
         linear_axes_acc = AxisTree()
-        target_paths_and_exprs_acc = {None: targets.get(None, (pmap(), pmap()))}
+        target_paths_and_exprs_acc = {None: targets.get(None, (immutabledict(), immutabledict()))}
 
         accumulated_path = merge_dicts(p for p, _ in target_paths_and_exprs_acc.values())
 
@@ -2216,7 +2240,7 @@ def subst_layouts(
             linear_axes_acc_ = linear_axes_acc.add_axis(linear_axis, linear_axes_acc.leaf)
 
             target_paths_and_exprs_acc_ = target_paths_and_exprs_acc | {
-                (linear_axis.id, component.label): targets.get((axis.id, component.label), (pmap(), pmap()))
+                (linear_axis.id, component.label): targets.get((axis.id, component.label), (immutabledict(), immutabledict()))
             }
 
             accumulated_path = merge_dicts(p for p, _ in target_paths_and_exprs_acc_.values())
@@ -2241,7 +2265,7 @@ def subst_layouts(
                         target_paths_and_exprs_acc=target_paths_and_exprs_acc_,
                     )
                 )
-    return freeze(layouts_subst)
+    return immutabledict(layouts_subst)
 
 
 def prune_zero_sized_branches(axis_tree: AbstractAxisTree, *, _axis=None) -> AxisTree:
@@ -2275,7 +2299,11 @@ def prune_zero_sized_branches(axis_tree: AbstractAxisTree, *, _axis=None) -> Axi
 
     new_axis = Axis(new_components, _axis.label)
     new_axis_tree = AxisTree(new_axis)
-    for new_component, subtree in strict_zip(new_components, subtrees):
+    for new_component, subtree in zip(new_components, subtrees, strict=True):
         if subtree is not None:
             new_axis_tree = new_axis_tree.add_subtree(subtree, (new_axis, new_component))
     return new_axis_tree
+
+
+def relabel_path(path, suffix:str):
+    return {f"{axis_label}_{suffix}": component_label for axis_label, component_label in path.items()}

@@ -14,11 +14,11 @@ from typing import Any, Collection, Hashable, Mapping, Sequence, Type, cast, Opt
 
 import numpy as np
 import pymbolic as pym
+from pyop3.array.dat import ArrayBufferExpression, as_linear_buffer_expression
 from pyop3.exceptions import Pyop3Exception
 from pyop3.extras.debug import maybe_breakpoint
 import pytools
-from immutabledict import ImmutableOrderedDict
-from pyrsistent import PMap, freeze, pmap, thaw
+from immutabledict import immutabledict
 
 from pyop3.array import Dat, _Dat
 from pyop3.axtree import (
@@ -37,9 +37,10 @@ from pyop3.axtree.tree import (
     IndexedAxisTree,
     UnitIndexedAxisTree,
     LoopIndexVar,
+    OWNED_REGION_LABEL,
 )
 from pyop3.dtypes import IntType
-from pyop3.expr_visitors import replace_terminals, replace as expr_replace
+# from pyop3.expr_visitors import replace_terminals, replace as expr_replace
 from pyop3.lang import KernelArgument
 from pyop3.sf import StarForest
 from pyop3.tree import (
@@ -53,7 +54,6 @@ from pyop3.utils import (
     Labelled,
     as_tuple,
     expand_collection_of_iterables,
-    strict_zip,
     single_valued,
     just_one,
     merge_dicts,
@@ -78,7 +78,7 @@ class InvalidIndexTargetException(Pyop3Exception):
 # nonsense. Instead I think they should just advertise a degree and then attach
 # to matching index (instead of label).
 class IndexTree(MutableLabelledTreeMixin, LabelledTree):
-    def __init__(self, node_map=pmap()):
+    def __init__(self, node_map=immutabledict()):
         super().__init__(node_map)
 
     @classmethod
@@ -141,8 +141,8 @@ class AffineSliceComponent(SliceComponent):
         self.label_was_none = label_was_none
 
     @property
-    def datamap(self) -> PMap:
-        return pmap()
+    def datamap(self) -> immutabledict:
+        return immutabledict()
 
     @property
     def is_full(self) -> bool:
@@ -165,13 +165,10 @@ class SubsetSliceComponent(SliceComponent):
     fields = SliceComponent.fields | {"array"}
 
     def __init__(self, component, array, **kwargs):
-        super().__init__(component, **kwargs)
-        self.array = array
+        array = as_linear_buffer_expression(array)
 
-    @property
-    def datamap(self) -> PMap:
-        assert False, "old"
-        return self.array.datamap
+        self.array = array
+        super().__init__(component, **kwargs)
 
     @property
     def is_full(self) -> bool:
@@ -180,6 +177,23 @@ class SubsetSliceComponent(SliceComponent):
 
 # alternative name, better or worse? I think worse
 Subset = SubsetSliceComponent
+
+
+class RegionSliceComponent(SliceComponent):
+    """A slice component that takes all entries from a particular region.
+
+    This class differs from an affine slice in that it 'consumes' the region
+    label, and so breaks any recursive cycle where one might have something
+    like `axes.owned.buffer_slice` (which accesses `axes.owned.buffer_slice`...).
+
+    """
+    def __init__(self, component, region: str, *, label=None) -> None:
+        super().__init__(component, label=label)
+        self.region = region
+
+    @property
+    def is_full(self) -> bool:
+        return False
 
 
 class MapComponent(pytools.ImmutableRecord, Labelled, abc.ABC):
@@ -197,8 +211,8 @@ class MapComponent(pytools.ImmutableRecord, Labelled, abc.ABC):
         pass
 
     @property
-    def target_path(self) -> PMap:
-        return pmap({self.target_axis: self.target_component})
+    def target_path(self) -> immutabledict:
+        return immutabledict({self.target_axis: self.target_component})
 
 
 # TODO: Implement AffineMapComponent
@@ -211,7 +225,7 @@ class TabulatedMapComponent(MapComponent):
             arity = just_one(array.axes.leaf_component.regions).size
 
         super().__init__(target_axis, target_component, label=label)
-        self.array = array
+        self.array = as_linear_buffer_expression(array)
         self._arity = arity
 
     @property
@@ -324,6 +338,8 @@ class LoopIndex(Index, KernelArgument):
 
     @cached_property
     def axes(self) -> IndexedAxisTree:
+        from pyop3.expr_visitors import replace_terminals
+
         if not self.is_context_free:
             raise ContextSensitiveException("Expected a context-free index")
 
@@ -350,9 +366,9 @@ class LoopIndex(Index, KernelArgument):
                 new_path.update(orig_path)
                 for axis_label, orig_expr in orig_exprs.items():
                     new_exprs[axis_label] = replace_terminals(orig_expr, replace_map)
-            new_path = pmap(new_path)
-            new_exprs = pmap(new_exprs)
-            targets.append(pmap({None: (new_path, new_exprs)}))
+            new_path = immutabledict(new_path)
+            new_exprs = immutabledict(new_exprs)
+            targets.append(immutabledict({None: (new_path, new_exprs)}))
         return IndexedAxisTree({}, unindexed=None, targets=targets)
 
     # TODO: don't think this is useful any more, certainly a confusing name
@@ -433,7 +449,7 @@ class ScalarIndex(Index):
 
     @property
     def leaf_target_paths(self):
-        return ((freeze({self.axis: self.component}),),)
+        return ((immutabledict({self.axis: self.component}),),)
 
     @property
     def component_labels(self) -> tuple:
@@ -474,7 +490,7 @@ class Slice(Index):
         # targets only a single (axis, component) pair. There are no
         # 'equivalent' target paths.
         return tuple(
-            (pmap({self.axis: subslice.component}),)
+            (immutabledict({self.axis: subslice.component}),)
             for subslice in self.slices
         )
 
@@ -487,7 +503,7 @@ class Slice(Index):
         for path in paths:
             found = False
             for slice_component in self.slices:
-                if pmap({self.label: slice_component.label}) == path:
+                if immutabledict({self.label: slice_component.label}) == path:
                     new_slice_components.append(slice_component)
                     found = True
             if not found:
@@ -572,7 +588,7 @@ class Map(pytools.ImmutableRecord):
         #     raise DuplicateIndexException("The keys for each map given to the multi-map may not clash")
 
         super().__init__()
-        self.connectivity = ImmutableOrderedDict(connectivity)
+        self.connectivity = immutabledict(connectivity)
 
         # TODO delete entirely
         if name is None:
@@ -647,7 +663,7 @@ class Map(pytools.ImmutableRecord):
         for bit in self.connectivity.values():
             for map_cpt in bit:
                 data.update(map_cpt.datamap)
-        return pmap(data)
+        return immutabledict(data)
 
 
 class ContextSensitiveException(Pyop3Exception):
@@ -829,7 +845,7 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
             if not found:
                 assert False
 
-        targets = pmap(targets)
+        targets = immutabledict(targets)
 
         # Since maps are necessarily restricted to a single interpretation we only
         # have one possible interpretation of the targets.
@@ -884,7 +900,7 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
 
     @property
     def _connectivity_dict(self):
-        return pmap(self.connectivity)
+        return immutabledict(self.connectivity)
 
     # TODO cleanup
     def with_context(self, context, axes=None):
@@ -893,7 +909,7 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
         # cf_index = self.from_index.with_context(context, axes)
         cf_index = self.from_index
         leaf_target_paths = tuple(
-            freeze({mcpt.target_axis: mcpt.target_component})
+            immutabledict({mcpt.target_axis: mcpt.target_component})
             for path in cf_index.leaf_target_paths
             for mcpt in self.map.connectivity[path]
             # if axes is None we are *building* the axes from this map
@@ -944,6 +960,8 @@ def _(
     cf_loop_index: LoopIndex,
     **_,
 ):
+    from pyop3.expr_visitors import replace_terminals
+
     # This function should return {None: [(path0, expr0), (path1, expr1)]}
     # where path0 and path1 are "equivalent"
     # This entails in inversion of loop_index.iterset.targets which has the form
@@ -972,8 +990,8 @@ def _(
             new_path.update(orig_path)
             for axis_label, orig_expr in orig_exprs.items():
                 new_exprs[axis_label] = replace_terminals(orig_expr, replace_map)
-        new_path = pmap(new_path)
-        new_exprs = pmap(new_exprs)
+        new_path = immutabledict(new_path)
+        new_exprs = immutabledict(new_exprs)
         targets[None].append((new_path, new_exprs))
     targets[None] = tuple(targets[None])
 
@@ -982,7 +1000,7 @@ def _(
 
     return (
         axes,
-        pmap(targets),
+        immutabledict(targets),
         {},
         outer_loops,
         {},
@@ -991,9 +1009,9 @@ def _(
 
 @_index_axes_index.register(ScalarIndex)
 def _(index: ScalarIndex, **_):
-    target_path_and_exprs = pmap({None: ((just_one(just_one(index.leaf_target_paths)), pmap({index.axis: index.value})),)})
+    target_path_and_exprs = immutabledict({None: ((just_one(just_one(index.leaf_target_paths)), immutabledict({index.axis: index.value})),)})
     # index_exprs = pmap({None: (,)})
-    layout_exprs = pmap({None: 0})
+    layout_exprs = immutabledict({None: 0})
     return (
         AxisTree(Axis(1)),
         target_path_and_exprs,
@@ -1005,6 +1023,8 @@ def _(index: ScalarIndex, **_):
 
 @_index_axes_index.register(Slice)
 def _(slice_: Slice, *, prev_axes, expr_replace_map, **_):
+    from pyop3.expr_visitors import replace_terminals, collect_axis_vars
+
     # If we are just taking a component from a multi-component array,
     # e.g. mesh.points["cells"], then relabelling the axes just leads to
     # needless confusion. For instance if we had
@@ -1079,7 +1099,17 @@ def _(slice_: Slice, *, prev_axes, expr_replace_map, **_):
         # case that "owned" points preceded "ghost" points and so extracting the
         # "owned" region is no longer a trivial slice. We therefore choose to discard
         # this information.
-        orig_regions = target_component.regions
+
+        # DEBUG: using _all_regions breaks things because we only express owned-ness
+        # lazily from the SFs. We therefore have to special case the regionslice for
+        # owned around here.
+        if (
+            isinstance(slice_component, RegionSliceComponent)
+            and slice_component.region == OWNED_REGION_LABEL
+        ):
+            orig_regions = target_component._all_regions
+        else:
+            orig_regions = target_component.regions
         # TODO: Might be clearer to combine these steps
         regions = _prepare_regions_for_slice_component(slice_component, orig_regions)
         indexed_regions = _index_regions(slice_component, regions, parent_exprs=expr_replace_map)
@@ -1088,14 +1118,27 @@ def _(slice_: Slice, *, prev_axes, expr_replace_map, **_):
         indexed_size = sum(r.size for r in indexed_regions)
 
         if target_component.sf is not None:
-            if isinstance(slice_component, AffineSliceComponent):
-                indices = np.arange(*slice_component.with_size(orig_size), dtype=IntType)
+            # If we are specially filtering the owned entries we want to drop the SF
+            # to disallow things like `axes.owned.owned`.
+            if (
+                isinstance(slice_component, RegionSliceComponent)
+                and slice_component.region == OWNED_REGION_LABEL
+            ):
+                sf = None
             else:
-                assert isinstance(slice_component, SubsetSliceComponent)
-                indices = slice_component.array.buffer.data_ro
+                if isinstance(slice_component, RegionSliceComponent):
+                    region_index = target_component._all_region_labels.index(slice_component.region_label)
+                    steps = utils.steps([r.size for r in target_component._all_regions])
+                    start, stop = steps[region_index:region_index+2]
+                    indices = np.arange(start, stop, dtype=IntType)
+                elif isinstance(slice_component, AffineSliceComponent):
+                    indices = np.arange(*slice_component.with_size(orig_size), dtype=IntType)
+                else:
+                    assert isinstance(slice_component, SubsetSliceComponent)
+                    indices = slice_component.array.buffer.data_ro
 
-            petsc_sf = filter_sf(target_component.sf.sf, indices, 0, orig_size)
-            sf = StarForest(petsc_sf, indexed_size)
+                petsc_sf = filter_sf(target_component.sf.sf, indices, 0, orig_size)
+                sf = StarForest(petsc_sf, indexed_size)
         else:
             sf = None
 
@@ -1108,13 +1151,17 @@ def _(slice_: Slice, *, prev_axes, expr_replace_map, **_):
             # and labelling the resultant axis component.
             component_label = slice_component.label
 
-        cpt = AxisComponent(indexed_regions, label=component_label, unit=target_component.unit, sf=sf)
+        cpt = AxisComponent(indexed_regions, label=component_label, sf=sf)
         components.append(cpt)
 
     axis = Axis(components, label=axis_label)
     axes = AxisTree(axis)
 
-    for i, slice_component in enumerate(slice_.slices):
+    for slice_component in slice_.slices:
+        target_component = just_one(
+            c for c in target_axis.components if c.label == slice_component.component
+        )
+
         # don't do this here, just leave empty
         if False:
             pass
@@ -1123,59 +1170,53 @@ def _(slice_: Slice, *, prev_axes, expr_replace_map, **_):
             # index_exprs_per_subslice.append({})
             # layout_exprs_per_subslice.append({})
         else:
-            target_path_per_subslice.append(pmap({slice_.axis: slice_component.component}))
+            target_path_per_subslice.append(immutabledict({slice_.axis: slice_component.component}))
 
             newvar = AxisVar(axis.label)
-            if isinstance(slice_component, AffineSliceComponent):
+            if isinstance(slice_component, RegionSliceComponent):
+                if slice_component.region == OWNED_REGION_LABEL:
+                    region_index = target_component._all_region_labels.index(slice_component.region)
+                    steps = utils.steps([r.size for r in target_component._all_regions])
+                else:
+                    region_index = target_component.region_labels.index(slice_component.region)
+                    steps = utils.steps([r.size for r in target_component.regions])
+                start = steps[region_index]
                 index_exprs_per_subslice.append(
-                    freeze(
+                    immutabledict(
+                        {
+                            slice_.axis: newvar + start,
+                        }
+                    )
+                )
+            elif isinstance(slice_component, AffineSliceComponent):
+                index_exprs_per_subslice.append(
+                    immutabledict(
                         {
                             slice_.axis: newvar * slice_component.step + slice_component.start,
                         }
                     )
                 )
-                # layout_exprs_per_subslice.append(
-                #     pmap({slice_.label: (layout_var - slice_component.start) // slice_component.step})
-                # )
             else:
                 assert isinstance(slice_component, Subset)
 
-                # below is also used for maps - cleanup
-                # subset_array = slice_component.array
-                # subset_axes = subset_array.axes
-                #
-                # if isinstance(subset_axes, IndexedAxisTree):
-                #     raise NotImplementedError("Need more paths, not just 2")
-                #
-                # # must be single component
-                # assert subset_axes.leaf
-
-                # my_target_path = merge_dicts(just_one(subset_axes.paths).values())
-                # old_index_exprs = merge_dicts(just_one(subset_axes.index_exprs).values())
-                #
-                # my_index_exprs = {}
-                # index_expr_replace_map = {subset_axes.leaf_axis.label: newvar}
-                # replacer = IndexExpressionReplacer(index_expr_replace_map)
-                # for axlabel, index_expr in old_index_exprs.items():
-                #     my_index_exprs[axlabel] = replacer(index_expr)
-                # subset_var = ArrayVar(slice_component.array, my_index_exprs, my_target_path)
                 # NOTE: This replacement could probably be done more eagerly
-                subset_axes = slice_component.array.axes
-                assert subset_axes.is_linear and subset_axes.depth == 1
-                subset_axis = subset_axes.root
-                replace_map = {subset_axis.label: AxisVar(axis.label)}
+                # subset_axes = slice_component.array.axes
+                # assert subset_axes.is_linear and subset_axes.depth == 1
+                # subset_axis = subset_axes.root
+                myvar = just_one(collect_axis_vars(slice_component.array.layout))
+                replace_map = {myvar.axis_label: AxisVar(axis.label)}
 
-                index_exprs_per_subslice.append(freeze({slice_.axis: replace_terminals(slice_component.array, replace_map)}))
+                index_exprs_per_subslice.append(immutabledict({slice_.axis: replace_terminals(slice_component.array, replace_map)}))
 
     target_per_component = {}
     index_exprs_per_component = {}
     # layout_exprs_per_component = {}
-    for cpt, target_path, index_exprs in strict_zip(
+    for cpt, target_path, index_exprs in zip(
         components,
         target_path_per_subslice,
-        index_exprs_per_subslice,
+        index_exprs_per_subslice, strict=True
     ):
-        target_per_component[axis.id, cpt.label] = ((freeze(target_path), freeze(index_exprs)),)
+        target_per_component[axis.id, cpt.label] = ((immutabledict(target_path), immutabledict(index_exprs)),)
 
     return (
         axes,
@@ -1201,6 +1242,8 @@ def _(
 
 
 def _make_leaf_axis_from_called_map_new(map_, map_name, output_spec, linear_input_axes, input_paths_and_exprs):
+    from pyop3.expr_visitors import replace_terminals
+
     components = []
     replace_map = merge_dicts(t for _, t in input_paths_and_exprs.values())
     for map_output in output_spec:
@@ -1215,27 +1258,30 @@ def _make_leaf_axis_from_called_map_new(map_, map_name, output_spec, linear_inpu
     axis = Axis(components, label=map_name)
 
     targets = {}
-    for component, map_output in strict_zip(components, output_spec):
+    for component, map_output in zip(components, output_spec, strict=True):
         if not isinstance(map_output, TabulatedMapComponent):
             raise NotImplementedError("Currently we assume only arrays here")
 
         linear_axis = Axis(component, axis.label)
         linear_axes = linear_input_axes.add_axis(linear_axis, linear_input_axes.leaf)
 
-        map_output_leaf = map_output.array.axes.leaf
-        leaf_axis, leaf_component_label = map_output_leaf
+        # map_output_leaf = map_output.array.axes.leaf
+        # leaf_axis, leaf_component_label = map_output_leaf
 
-        # paths_and_exprs = input_paths_and_exprs | {(linear_axis.id, component.label): (pmap({leaf_axis.label: leaf_component_label}), pmap({leaf_axis.label: AxisVar(leaf_axis)}))}
-        paths_and_exprs = input_paths_and_exprs | {(linear_axis.id, component.label): (pmap({leaf_axis.label: leaf_component_label}), pmap({leaf_axis: AxisVar(leaf_axis.label)}))}
+        # paths_and_exprs = input_paths_and_exprs | {(linear_axis.id, component.label): (immutabledict({leaf_axis.label: leaf_component_label}), immutabledict({leaf_axis: AxisVar(leaf_axis.label)}))}
 
-        target_path = pmap({map_output.target_axis: map_output.target_component})
+        target_path = immutabledict({map_output.target_axis: map_output.target_component})
 
-        # target_exprs = pmap({map_output.target_axis: replace(map_output.array, linear_axes, paths_and_exprs)})
-        # target_exprs = pmap({map_output.target_axis: replace(map_output.array, linear_axes, paths_and_exprs)})
-        replace_map = merge_dicts(t for _, t in paths_and_exprs.values())
-        target_exprs = pmap({map_output.target_axis: replace_terminals(map_output.array, replace_map)})
+        # myvar = just_one(collect_axis_vars(map_output.array.layout))
+        # replace_map = {myvar.axis_label: AxisVar(axis.label)}
+
+        # FIXME: I don't really need this stuff, 
+        # paths_and_exprs = input_paths_and_exprs | {"anything": ("anything", {leaf_axis: AxisVar(leaf_axis.label})}
+        # replace_map = merge_dicts(t for _, t in paths_and_exprs.values())
+        replace_map = merge_dicts(t for _, t in input_paths_and_exprs.values())
+        target_exprs = immutabledict({map_output.target_axis: replace_terminals(map_output.array, replace_map)})
         targets[axis.id, component.label] = (target_path, target_exprs)
-    targets = pmap(targets)
+    targets = immutabledict(targets)
 
     return (axis, targets)
 
@@ -1319,7 +1365,7 @@ def index_axes(
 
             assert not match_found, "don't expect multiple hits"
             target_path_and_exprs = compose_targets(axes, orig_path, indexed_axes, indexed_path_and_exprs)
-            if (None, (pmap(), pmap())) in target_path_and_exprs.items():
+            if (None, (immutabledict(), immutabledict())) in target_path_and_exprs.items():
                 breakpoint()
             match_found = True
 
@@ -1329,7 +1375,7 @@ def index_axes(
     # If we have full slices we can get duplicate targets here. This is completely expected
     # but we make assumptions that an indexed tree has unique targets so we filter them here
     # NOTE: really bad code, could use ordered set or similar
-    all_target_paths_and_exprs += [pmap(indexed_axes._source_path_and_exprs)]
+    all_target_paths_and_exprs += [immutabledict(indexed_axes._source_path_and_exprs)]
     filtered = []
     for x in all_target_paths_and_exprs:
         if x not in filtered:
@@ -1357,7 +1403,7 @@ def _index_axes(
 ):
     if index is None:
         index = index_tree.root
-        expr_replace_map_acc = pmap()
+        expr_replace_map_acc = immutabledict()
 
     # Make the type checker happy
     index = cast(Index, index)
@@ -1379,8 +1425,8 @@ def _index_axes(
         leafkeys = [None]
 
     subaxes = {}
-    for leafkey, subindex in strict_zip(
-        leafkeys, index_tree.node_map[index.id]
+    for leafkey, subindex in zip(
+        leafkeys, index_tree.node_map[index.id], strict=True
     ):
         if subindex is None:
             continue
@@ -1419,7 +1465,7 @@ def _index_axes(
             if None in target_per_cpt_per_index:
                 existing = target_per_cpt_per_index.pop(None)
             else:
-                existing = [(pmap(), pmap())]
+                existing = [(immutabledict(), immutabledict())]
             new = subpathsandexprs.pop(None)
             target_per_cpt_per_index[None] = []
             for existing_path, existing_exprs in existing:
@@ -1434,7 +1480,7 @@ def _index_axes(
 
         outer_loops += subouterloops
 
-    target_path_per_component = ImmutableOrderedDict(target_per_cpt_per_index)
+    target_path_per_component = immutabledict(target_per_cpt_per_index)
 
     axes = axes_per_index
     for k, subax in subaxes.items():
@@ -1475,6 +1521,8 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
     indexed_axes_acc is a *linear* version of the visited indexed axis tree. It provides the necessary information for replace(...) to interpret the target_paths_and_exprs
 
     """
+    from pyop3.expr_visitors import replace_terminals
+
     assert not orig_axes.is_empty
 
     composed_target_paths_and_exprs = collections.defaultdict(dict)
@@ -1483,7 +1531,7 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
         visited_orig_axes = frozenset()
 
         indexed_axes_acc = AxisTree()
-        indexed_target_paths_and_exprs_acc = {None: indexed_target_paths_and_exprs.get(None, (pmap(), pmap()))}
+        indexed_target_paths_and_exprs_acc = {None: indexed_target_paths_and_exprs.get(None, (immutabledict(), immutabledict()))}
 
         # special handling for None entries
         none_mapped_target_path = {}
@@ -1525,13 +1573,13 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
         # Only store if non-empty
         if strictly_all((none_mapped_target_path, none_mapped_target_exprs)):
             composed_target_paths_and_exprs[None] = (
-                pmap(none_mapped_target_path), pmap(none_mapped_target_exprs)
+                immutabledict(none_mapped_target_path), immutabledict(none_mapped_target_exprs)
             )
         # if none_mapped_target_path:
         #     breakpoint()
 
         if indexed_axes.is_empty:
-            return freeze(composed_target_paths_and_exprs)
+            return immutabledict(composed_target_paths_and_exprs)
         else:
             axis = indexed_axes.root
 
@@ -1566,7 +1614,7 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
                 for orig_axis_label, orig_index_expr in orig_target_exprs.items():
                     new_exprs[orig_axis_label] = replace_terminals(orig_index_expr, replace_map)
 
-                composed_target_paths_and_exprs[axis.id, component.label] = (orig_target_path, freeze(new_exprs))
+                composed_target_paths_and_exprs[axis.id, component.label] = (orig_target_path, immutabledict(new_exprs))
 
         # now recurse
         if subaxis := indexed_axes.child(axis, component):
@@ -1582,7 +1630,7 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
             )
             composed_target_paths_and_exprs.update(composed_target_paths_)
 
-    return freeze(composed_target_paths_and_exprs)
+    return immutabledict(composed_target_paths_and_exprs)
 
 
 def _index_info_targets_axes(indexed_axes, index_info, orig_axes) -> bool:
@@ -1593,10 +1641,10 @@ def _index_info_targets_axes(indexed_axes, index_info, orig_axes) -> bool:
 
     """
     for indexed_leaf in indexed_axes.leaves:
-        none_target_path, _ = index_info.get(None, (pmap(), pmap()))
+        none_target_path, _ = index_info.get(None, (immutabledict(), immutabledict()))
         target_path_acc = dict(none_target_path)
         for axis, component_label in indexed_axes.path_with_nodes(indexed_leaf).items():
-            target_path, _ = index_info.get((axis.id, component_label), (pmap(), pmap()))
+            target_path, _ = index_info.get((axis.id, component_label), (immutabledict(), immutabledict()))
             target_path_acc |= target_path
 
         if not orig_axes.is_valid_path(target_path_acc):
@@ -1615,8 +1663,8 @@ def compose_axes(orig_axes, indexed_axes, indexed_target_paths, indexed_target_e
 
     composed_target_paths = []
     composed_target_exprs = []
-    for orig_paths, orig_index_exprs in strict_zip(
-        orig_axes.paths, orig_axes.index_exprs
+    for orig_paths, orig_index_exprs in zip(
+        orig_axes.paths, orig_axes.index_exprs, strict=True
     ):
         composed_target_paths_, composed_target_exprs_ = _compose_axes(
             orig_axes,
@@ -1648,6 +1696,8 @@ def _compose_axes(
         *,
         indexed_axis=None,
 ):
+    from pyop3.expr_visitors import replace_terminals
+
     # This code attaches a target_path/target_expr to every node in the tree. Is
     # this strictly necessary?
 
@@ -1678,7 +1728,7 @@ def _compose_axes(
 
         if indexed_axes.is_empty:
             # Can do nothing more, stop here.
-            return (freeze(composed_target_paths), freeze(composed_target_exprss))
+            return (immutabledict(composed_target_paths), immutabledict(composed_target_exprss))
         else:
             indexed_axis = indexed_axes.root
 
@@ -1752,32 +1802,32 @@ def _compose_axes(
             composed_target_exprss.update(subtarget_exprs)
 
     return (
-        freeze(composed_target_paths),
-        freeze(composed_target_exprss),
+        immutabledict(composed_target_paths),
+        immutabledict(composed_target_exprss),
     )
 
 
 @dataclasses.dataclass(frozen=True)
 class IndexIteratorEntry:
     index: LoopIndex
-    source_path: PMap
-    target_path: PMap
-    source_exprs: PMap
-    target_exprs: PMap
+    source_path: immutabledict
+    target_path: immutabledict
+    source_exprs: immutabledict
+    target_exprs: immutabledict
 
     @property
     def loop_context(self):
-        return freeze({self.index.id: (self.source_path, self.target_path)})
+        return immutabledict({self.index.id: (self.source_path, self.target_path)})
 
     @property
     def replace_map(self):
-        return freeze(
+        return immutabledict(
             {self.index.id: merge_dicts([self.source_exprs, self.target_exprs])}
         )
 
     @property
     def target_replace_map(self):
-        return freeze(
+        return immutabledict(
             {
                 self.index.id: {ax: expr for ax, expr in self.target_exprs.items()},
             }
@@ -1785,7 +1835,7 @@ class IndexIteratorEntry:
 
     @property
     def source_replace_map(self):
-        return freeze(
+        return immutabledict(
             {
                 self.index.id: {ax: expr for ax, expr in self.source_exprs.items()},
             }
@@ -1799,8 +1849,8 @@ def iter_axis_tree(
     index_exprs,
     outer_loops=(),
     axis=None,
-    path=pmap(),
-    indices=pmap(),
+    path=immutabledict(),
+    indices=immutabledict(),
     target_path=None,
     index_exprs_acc=None,
     no_index=False,
@@ -1819,20 +1869,20 @@ def iter_axis_tree(
         )
     if target_path is None:
         assert index_exprs_acc is None
-        target_path = target_paths.get(None, pmap())
+        target_path = target_paths.get(None, immutabledict())
 
         # Substitute the index exprs, which map target to source, into
         # indices, giving target index exprs
-        myindex_exprs = index_exprs.get(None, pmap())
+        myindex_exprs = index_exprs.get(None, immutabledict())
         # evaluator = ExpressionEvaluator(indices, outer_replace_map)
         new_exprs = {}
         for axlabel, index_expr in myindex_exprs.items():
             new_exprs[axlabel] = eval_expr(index_expr, indices)
-        index_exprs_acc = freeze(new_exprs)
+        index_exprs_acc = immutabledict(new_exprs)
 
     if axes.is_empty:
-        source_path = pmap()
-        source_exprs = pmap()
+        source_path = immutabledict()
+        source_exprs = immutabledict()
         yield IndexIteratorEntry(
             loop_index, source_path, target_path, source_exprs, index_exprs_acc
         )
@@ -1844,7 +1894,7 @@ def iter_axis_tree(
         # for efficiency do these outside the loop
         path_ = path | {axis.label: component.label}
         target_path_ = target_path | target_paths.get((axis.id, component.label), {})
-        myindex_exprs = index_exprs.get((axis.id, component.label), pmap())
+        myindex_exprs = index_exprs.get((axis.id, component.label), immutabledict())
         subaxis = axes.child(axis, component)
 
         # bit of a hack, I reckon this can go as we can just get it from component.count
@@ -1864,12 +1914,12 @@ def iter_axis_tree(
                         component.count.axes.target_exprs.get((cax.id, ccpt), {})
                     )
 
-            mypath = freeze(mypath)
-            myindices = freeze(myindices)
+            mypath = immutabledict(mypath)
+            myindices = immutabledict(myindices)
             replace_map = indices
         else:
-            mypath = pmap()
-            myindices = pmap()
+            mypath = immutabledict()
+            myindices = immutabledict()
             replace_map = None
 
         for pt in range(
@@ -2053,6 +2103,11 @@ def _prepare_regions_for_slice_component(slice_component, regions) -> tuple[Axis
     raise TypeError
 
 
+@_prepare_regions_for_slice_component.register(RegionSliceComponent)
+def _(region_component: RegionSliceComponent, regions):
+    return tuple(regions)
+
+
 @_prepare_regions_for_slice_component.register(AffineSliceComponent)
 def _(affine_component: AffineSliceComponent, regions):
     assert affine_component.step != 0
@@ -2074,6 +2129,12 @@ def _index_regions(*args, **kwargs) -> tuple[AxisComponentRegion, ...]:
     raise TypeError
 
 
+@_index_regions.register(RegionSliceComponent)
+def _(region_component: RegionSliceComponent, regions, *, parent_exprs) -> tuple[AxisComponentRegion, ...]:
+    selected_region = just_one(filter(lambda r: r.label == region_component.region, regions))
+    return (AxisComponentRegion(selected_region.size),)
+
+
 @_index_regions.register(AffineSliceComponent)
 def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple[AxisComponentRegion, ...]:
     """
@@ -2087,22 +2148,20 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
     {"a": 3, "b": 2}[:4:2] -> {"a": 2, "b": 0} ( [0, 2] )
 
     """
+    from pyop3.expr_visitors import replace as expr_replace
+
+
     size = sum(r.size for r in regions)
     start, stop, step = affine_component.with_size(size)
 
-    if any(isinstance(r.size, _Dat) for r in regions):
+    if any(isinstance(r.size, (Dat, ArrayBufferExpression)) for r in regions):
         if len(regions) > 1:
             raise NotImplementedError("Only single-region ragged components are supported")
         region = just_one(regions)
 
         # because .replace() swaps with vars, not labels
         replace_map = {AxisVar(axis): expr for (axis, expr) in parent_exprs.items()}
-        stop_new = expr_replace(stop, replace_map)
-
-        if not isinstance(stop, int):
-            breakpoint()
-        stop = stop_new
-
+        stop = expr_replace(stop, replace_map)
         return (AxisComponentRegion(stop, region.label),)
 
     indexed_regions = []

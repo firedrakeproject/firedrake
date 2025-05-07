@@ -4,15 +4,14 @@ import numbers
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from immutabledict import ImmutableOrderedDict
-from pyrsistent import PMap, pmap
+from immutabledict import immutabledict
 
-from pyop3.array.harray import Dat
+from pyop3.array.dat import Dat
 from pyop3.axtree import AxisTree
 from pyop3.axtree.tree import AbstractAxisTree, IndexedAxisTree
 from pyop3.exceptions import Pyop3Exception
 from pyop3.itree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map
-from pyop3.utils import OrderedSet, debug_assert, expand_collection_of_iterables, strictly_all, strict_zip, single_valued, just_one
+from pyop3.utils import OrderedSet, debug_assert, expand_collection_of_iterables, strictly_all, single_valued, just_one
 
 
 class IncompletelyIndexedException(Pyop3Exception):
@@ -22,7 +21,7 @@ class IncompletelyIndexedException(Pyop3Exception):
 # NOTE: Now really should be plural: 'forests'
 # NOTE: Is this definitely the case? I think at the moment I always return just a single
 # tree per context.
-def as_index_forests(forest: Any, /, axes: AbstractAxisTree | None = None, *, strict: bool = False) -> PMap:
+def as_index_forests(forest: Any, /, axes: AbstractAxisTree | None = None, *, strict: bool = False) -> immutabledict:
     """Return a collection of index trees, split by loop context.
 
     Parameters
@@ -50,13 +49,13 @@ def as_index_forests(forest: Any, /, axes: AbstractAxisTree | None = None, *, st
         raise ValueError("Cannot do strict checking if no axes are provided to match against")
 
     if forest is Ellipsis:
-        return ImmutableOrderedDict({pmap(): (forest,)})
+        return immutabledict({immutabledict(): (forest,)})
 
     forests = {}
     compressed_loop_contexts = collect_loop_contexts(forest)
     # We do not care about the ordering of `loop_context` (though we *do* care about
     # the order of iteration).
-    for loop_context in expand_collection_of_iterables(compressed_loop_contexts, ordered=False):
+    for loop_context in expand_collection_of_iterables(compressed_loop_contexts):
         forest_ = _as_index_forest(forest, axes, loop_context)
         matched_forest = []
 
@@ -104,7 +103,7 @@ def as_index_forests(forest: Any, /, axes: AbstractAxisTree | None = None, *, st
             )
 
         forests[loop_context] = tuple(matched_forest)
-    return ImmutableOrderedDict(forests)
+    return immutabledict(forests)
 
 
 # old alias, remove
@@ -219,7 +218,7 @@ def _(dat: Dat, /, *args, **kwargs) -> tuple[IndexTree]:
 
     slice_cpt = Subset(target_axis.component.label, arg)
     slice_ = Slice(target_axis.label, [slice_cpt])
-    return {pmap(): IndexTree(slice_)}
+    return {immutabledict(): IndexTree(slice_)}
 
 
 @_as_index_forest.register(slice)
@@ -239,9 +238,10 @@ def _desugar_index(obj: Any, *args, **kwargs) -> Index:
 def _(int_: numbers.Integral, /, axes, *, parent=None) -> Index:
     axis = axes.child(*parent) if parent else axes.root
     if len(axis.components) > 1:
+        raise NotImplementedError("Use a string instead?")
         # Multi-component axis: take a slice from a matching component.
         component = just_one(c for c in axis.components if c.label == int_)
-        if component.unit:
+        if component.size == 1:
             index = ScalarIndex(axis.label, component.label, 0)
         else:
             index = Slice(axis.label, [AffineSliceComponent(component.label, label=component.label)], label=axis.label)
@@ -275,9 +275,7 @@ def _(label, /, axes, *, parent=None):
 
     # If the component is marked as "unit" then indexing in this way will
     # fully consume the axis.
-    # NOTE: Perhaps it would just be better to always do this if the axis
-    # is one-sized?
-    if component.unit:
+    if component.size == 1:
         index = ScalarIndex(axis.label, component.label, 0)
     else:
         index = Slice(axis.label, [AffineSliceComponent(component.label, label=component.label)], label=axis.label)
@@ -312,7 +310,7 @@ def _index_forest_from_iterable(indices, *, axes):
 def _index_tree_from_iterable(indices, *, axes, parent=None, unhandled_target_paths=None):
     if strictly_all(x is None for x in {parent, unhandled_target_paths}):
         parent = (None, None)
-        unhandled_target_paths = pmap()
+        unhandled_target_paths = immutabledict()
 
     unhandled_target_paths_mut = dict(unhandled_target_paths)
     parent_axis, parent_component = parent
@@ -357,8 +355,9 @@ def _index_tree_from_iterable(indices, *, axes, parent=None, unhandled_target_pa
 
     else:
         index_tree = IndexTree(index)
-        for component_label, equiv_target_paths in strict_zip(
-            index.component_labels, index.leaf_target_paths
+        for component_label, equiv_target_paths in zip(
+            index.component_labels, index.leaf_target_paths,
+            strict=True
         ):
             # Here we only care about targeting the most recent axis tree.
             unhandled_target_paths_ = unhandled_target_paths | equiv_target_paths[-1]
@@ -389,12 +388,12 @@ def _complete_index_tree(
     """
     if strictly_all(x is None for x in {index, possible_target_paths_acc}):
         index = index_tree.root
-        possible_target_paths_acc = (pmap(),)
+        possible_target_paths_acc = (immutabledict(),)
 
     index_tree_ = IndexTree(index)
 
-    for component_label, equivalent_target_paths in strict_zip(
-        index.component_labels, index.leaf_target_paths
+    for component_label, equivalent_target_paths in zip(
+        index.component_labels, index.leaf_target_paths, strict=True
     ):
         possible_target_paths_acc_ = tuple(
             possible_target_path | target_path
@@ -436,8 +435,8 @@ def _complete_index_tree_slices(axes, target_paths, *, axis=None) -> IndexTree:
         )
         index_tree = IndexTree(slice_)
 
-        for axis_component, slice_component_label in strict_zip(
-            axis.components, slice_.component_labels
+        for axis_component, slice_component_label in zip(
+            axis.components, slice_.component_labels, strict=True
         ):
             if subaxis := axes.child(axis, axis_component):
                 subindex_tree = _complete_index_tree_slices(axes, target_paths, axis=subaxis)
@@ -464,10 +463,10 @@ def  _index_tree_completely_indexes_axes(index_tree: IndexTree, axes, *, index=N
     """
     if strictly_all(x is None for x in {index, possible_target_paths_acc}):
         index = index_tree.root
-        possible_target_paths_acc = (pmap(),)
+        possible_target_paths_acc = (immutabledict(),)
 
-    for component_label, equivalent_target_paths in strict_zip(
-        index.component_labels, index.leaf_target_paths
+    for component_label, equivalent_target_paths in zip(
+        index.component_labels, index.leaf_target_paths, strict=True
     ):
         possible_target_paths_acc_ = tuple(
             possible_target_path_acc | possible_target_path

@@ -136,7 +136,7 @@ class StarForest:
         return (dtype, from_buffer, to_buffer, op)
 
 
-def single_star(comm, size=1, root=0):
+def single_star_sf(comm, size=1, root=0):
     """Construct a star forest containing a single star.
 
     The single star has leaves on all ranks apart from the "root" rank that
@@ -145,19 +145,19 @@ def single_star(comm, size=1, root=0):
 
     """
     if comm.rank == root:
-        # there are no leaves on the root process
         nroots = size
-        ilocal = []
-        iremote = []
+        # there are no leaves on the root process
+        ilocal = np.empty(0, dtype=np.int32)
+        iremote = np.empty(0, dtype=np.int32)
     else:
         nroots = 0
         ilocal = np.arange(size, dtype=np.int32)
-        iremote = [(root, i) for i in ilocal]
+        iremote = np.stack([np.full(size, root, dtype=np.int32), ilocal], axis=1)
     return StarForest.from_graph(size, nroots, ilocal, iremote, comm)
 
 
-def serial_forest(size: IntType) -> StarForest:
-    nroots = IntType(0)
+def local_sf(size: IntType, comm: MPI.Comm) -> StarForest:
+    nroots = IntType.type(0)
     ilocal = np.empty(0, dtype=IntType)
     iremote = np.empty(0, dtype=IntType)
-    return StarForest.from_graph(size, nroots, ilocal, iremote, MPI.COMM_SELF)
+    return StarForest.from_graph(size, nroots, ilocal, iremote, comm)

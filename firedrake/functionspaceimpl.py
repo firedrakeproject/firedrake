@@ -733,6 +733,7 @@ class FunctionSpace:
         iset.setBlockSize(self._cdim)
         return (iset,)
 
+    # TODO: cythonize
     @utils.cached_property
     def local_section(self):
         section = PETSc.Section().create(comm=self.comm)
@@ -858,12 +859,12 @@ class FunctionSpace:
 
     def make_dat(self, val=None, valuetype=None, name=None):
         """Return a new Dat storing DoFs for the function space."""
-        return op3.Dat(
-            self.axes,
-            data=val.flatten() if val is not None else None,
-            dtype=valuetype,
-            name=name
-        )
+        if val is not None:
+            if valuetype is not None:
+                assert val.dtype == valuetype
+            return op3.Dat(self.axes, data=val.flatten(), name=name)
+        else:
+            return op3.Dat.zeros(self.axes, dtype=valuetype, name=name)
 
     # this is redundant
     def cell_closure_map(self, cell):
@@ -1181,7 +1182,7 @@ class MixedFunctionSpace(object):
         # to have a size of 1 and we want the axis to go away when we put axes["0"],
         # for example.
         root = op3.Axis(
-            [op3.AxisComponent(1, i, unit=True) for i, _ in enumerate(spaces)],
+            [op3.AxisComponent(1, i) for i, _ in enumerate(spaces)],
             "field",
         )
         axes = op3.AxisTree(root)

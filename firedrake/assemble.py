@@ -1020,7 +1020,10 @@ class ParloopFormAssembler(FormAssembler):
                 "Use assemble instead."
             )
 
+        # debug
         pyop3_compiler_parameters = {"optimize": True}
+        # pyop3_compiler_parameters = {"optimize": False, "attach_debugger": True}
+        # pyop3_compiler_parameters = {"optimize": False}
         pyop3_compiler_parameters.update(self._pyop3_compiler_parameters)
 
         if tensor is None:
@@ -1177,13 +1180,7 @@ class ZeroFormAssembler(ParloopFormAssembler):
         # revisit in a refactor
         comm = self._form.ufl_domains()[0]._comm
 
-        # TODO this is more convoluted than strictly needed, add a factory method?
-        sf = op3.sf.single_star(comm)
-        axis = op3.Axis([op3.AxisComponent(1, sf=sf)])
-        return op3.Dat(
-            axis,
-            data=numpy.asarray([0.0], dtype=utils.ScalarType),
-        )
+        return op3.Global(comm=comm)
 
     def _apply_bc(self, tensor, bc):
         pass
@@ -1198,9 +1195,10 @@ class ZeroFormAssembler(ParloopFormAssembler):
 
     def result(self, tensor):
         # NOTE: If we could return the tensor here then that would avoid a
-        # halo exchange. That would be a very significant API change though.
-        tensor.assemble(update_leaves=True)
-        return op3.utils.just_one(tensor.buffer._data)
+        # reduction. That would be a very significant API change though (but more consistent?).
+        # It would be even nicer to return a firedrake.Constant.
+        # Return with halo data here because non-root ranks have no owned data.
+        return op3.utils.just_one(tensor.buffer.data_ro_with_halos)
 
 
 class OneFormAssembler(ParloopFormAssembler):
@@ -1419,11 +1417,13 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         if any(len(a.function_space()) > 1 for a in [test, trial]) and mat_type == "baij":
             raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
 
-        sparsity = op3.Sparsity(
+        sparsity = op3.Mat.sparsity(
             test.function_space().axes,
             trial.function_space().axes,
-            mat_type=mat_type,
-            block_shape=test.function_space().value_size
+            buffer_kwargs={
+                "target_mat_type": mat_type,
+                "block_shape": test.function_space().value_size,
+            },
         )
 
         if type(test.function_space().ufl_element()) is finat.ufl.MixedElement:
@@ -1440,7 +1440,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
         for rindex, cindex in diag_blocks:
             op3.do_loop(
-                p := test.ufl_domain().points.index(),
+                p := extract_unique_domain(test).points.index(),
                 sparsity[rindex, cindex][p, p].assign(666, eager=False)
             )
 
@@ -1459,6 +1459,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             )
 
         sparsity.assemble()
+        op3.extras.debug.enable_conditional_breakpoints()
         return sparsity
 
     def _make_maps_and_regions(self):
@@ -1535,7 +1536,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     def _make_maps_and_regions_default(test, trial, allocation_integral_types):
         assert allocation_integral_types is not None
 
-        mesh = op3.utils.single_valued(a.ufl_domain() for a in {test, trial})
+        mesh = op3.utils.single_valued(extract_unique_domain(a) for a in {test, trial})
         plex = mesh.topology
         Vrow = test.function_space()
         Vcol = trial.function_space()
@@ -1681,8 +1682,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         else:
             mat = tensor.M
 
-        if mat.handle.getType() == "python":
-            mat_context = mat.handle.getPythonContext()
+        if mat.buffer.mat.getType() == "python":
+            mat_context = mat.buffer.mat.getPythonContext()
             if isinstance(mat_context, _GlobalMatPayload):
                 mat = mat_context.global_
             else:
