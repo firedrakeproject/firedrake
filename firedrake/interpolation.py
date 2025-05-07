@@ -1669,10 +1669,7 @@ class VomOntoVomDummyMat(object):
     def _create_petsc_mat(self, mat):
         mat.create(comm=self.V.comm)
         mat.setSizes([self.V.dim(), self.V.dim()])
-        mat.setType(PETSc.Mat.Type.PYTHON)
-        mat.setPythonContext(self.dummy_mat)
+        mat.setType(mat.Type.PYTHON)
+        mat.setPythonContext(self)
         mat.setUp()
         return mat
-
-    def copy(self, result, structure=None):
-        return self._create_petsc_mat(result)
