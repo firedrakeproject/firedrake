@@ -6,6 +6,7 @@ import dataclasses
 import functools
 import itertools
 import numbers
+import operator
 import warnings
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any, Collection, Hashable, Optional
@@ -260,6 +261,21 @@ def has_unique_entries(iterable):
     # duplicate the iterator in case it can only be iterated over once (e.g. a generator)
     it1, it2 = itertools.tee(iterable, 2)
     return len(unique(it1)) == len(list(it2))
+
+
+def reduce(func, *args, **kwargs):
+    if isinstance(func, str):
+        match func:
+            case "+":
+                func = operator.add
+            case "*":
+                func = operator.mul
+            case "|":
+                func = operator.or_
+            case _:
+                raise ValueError
+
+    return functools.reduce(func, *args, **kwargs)
 
 
 def is_sequence(item):

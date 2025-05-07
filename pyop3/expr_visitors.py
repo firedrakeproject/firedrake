@@ -29,53 +29,87 @@ from pyop3.utils import OrderedSet, just_one
 # should inherit from _Dat
 # or at least be an Expression!
 class CompositeDat(abc.ABC):
+
+    dtype = IntType
+
+    @property
+    @abc.abstractmethod
+    def axis_tree(self) -> AxisTree:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def loop_indices(self) -> tuple[LoopIndex, ...]:
+        pass
+
     @property
     @abc.abstractmethod
     def leaf_exprs(self) -> immutabledict:
         pass
 
 
-
 @utils.frozenrecord()
 class LinearCompositeDat(CompositeDat):
-    axis_tree: AxisTree
-    leaf_expr: Any
-    loop_axes: tuple[Axis]
 
-    dtype: ClassVar[np.dtype] = IntType
+    # {{{ instance attrs
+
+    _axis_tree: AxisTree
+    leaf_expr: Any
+    _loop_indices: tuple[Axis]
+
+    # }}}
+
+    # {{{ interface impls
+
+    axis_tree = utils.attr("_axis_tree")
+    loop_indices = utils.attr("_loop_indices")
 
     @property
     def leaf_exprs(self) -> immutabledict:
         return immutabledict({self.axis_tree.leaf_path: self.leaf_expr})
 
-    def __init__(self, axis_tree, leaf_expr, loop_axes):
-        assert axis_tree.is_linear
-        loop_axes = tuple(loop_axes)
+    # }}}
 
-        object.__setattr__(self, "axis_tree", axis_tree)
+    def __init__(self, axis_tree, leaf_expr, loop_indices):
+        assert axis_tree.is_linear
+        assert all(isinstance(index, LoopIndex) for index in loop_indices)
+
+        loop_indices = tuple(loop_indices)
+
+        object.__setattr__(self, "_axis_tree", axis_tree)
         object.__setattr__(self, "leaf_expr", leaf_expr)
-        object.__setattr__(self, "loop_axes", loop_axes)
+        object.__setattr__(self, "_loop_indices", loop_indices)
 
 
 @utils.frozenrecord()
 class NonlinearCompositeDat(CompositeDat):
-    axis_tree: AxisTree
+
+    # {{{ instance attrs
+
+    _axis_tree: AxisTree
     _leaf_exprs: immutabledict
-    loop_axes: tuple[Axis]
+    _loop_indices: tuple[LoopIndex]
 
-    dtype: ClassVar[np.dtype] = IntType
+    # }}}
 
+    # {{{ interface impls
+
+    axis_tree = utils.attr("_axis_tree")
     leaf_exprs: ClassVar[immutabledict] = utils.attr("_leaf_exprs")
+    loop_indices = utils.attr("_loop_indices")
 
-    def __init__(self, axis_tree, leaf_exprs, loop_axes):
+    # }}}
+
+    def __init__(self, axis_tree, leaf_exprs, loop_indices):
         assert set(axis_tree.leaf_paths) == leaf_exprs.keys()
+        assert all(isinstance(index, LoopIndex) for index in loop_indices)
 
         leaf_exprs = immutabledict(leaf_exprs)
-        loop_axes = tuple(loop_axes)
+        loop_indices = tuple(loop_indices)
 
-        object.__setattr__(self, "axis_tree", axis_tree)
+        object.__setattr__(self, "_axis_tree", axis_tree)
         object.__setattr__(self, "_leaf_exprs", leaf_exprs)
-        object.__setattr__(self, "loop_axes", loop_axes)
+        object.__setattr__(self, "_loop_indices", loop_indices)
 
     # def __str__(self) -> str:
     #     return f"acc({self.expr})"
@@ -461,8 +495,6 @@ def _(dat: Dat, /, axis_trees: Iterable[AxisTree, ...]) -> DatArrayBufferExpress
 @concretize_layouts.register(Mat)
 def _(mat: Mat, /, axis_trees: Iterable[AxisTree, ...]) -> BufferExpression:
     if isinstance(mat.buffer, AbstractPetscMatBuffer):
-        # TODO: dont use outer loops here, cast to axes
-        breakpoint()
         layouts = [
             NonlinearCompositeDat(axis_tree.materialize(), axis_tree.leaf_subst_layouts, axis_tree.outer_loops)
             for axis_tree in [mat.raxes, mat.caxes]
@@ -840,39 +872,35 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatArrayBuff
     # TODO: This is almost certainly the wrong place to do this
     # axes = axes.undistribute()
 
-    loop_vars = OrderedSet()
-    for leaf_expr in composite_dat.leaf_exprs.values():
-        loop_vars |= collect_loop_index_vars(leaf_expr)
-    selected_loop_axes = composite_dat.loop_axes
+    loop_vars = utils.reduce("|", map(collect_loop_index_vars, composite_dat.leaf_exprs.values()))
+    # selected_loop_axes = composite_dat.loop_axes
 
-    # all_loop_axes = {
-    #     (index.id, axis.label): axis
-    #     for index in composite_dat.loop_indices
-    #     for axis in index.iterset.axes
-    # }
-    #
-    # selected_loop_axes = []
-    # for loop_var in loop_axes:
-    #     selected = all_loop_axes[loop_var.loop_id, loop_var.axis_label]
-    #     selected_loop_axes.append(selected)
+    all_loop_axes = {
+        (index.id, axis.label): axis
+        for index in composite_dat.loop_indices
+        for axis in index.iterset.axes
+    }
 
-    # mytree = []
-    # for loop_var, axis in zip(loop_vars, selected_loop_axes, strict=True):
-    #     new_components = []
-    #     component = just_one(axis.components)
-    #     if isinstance(component.local_size, numbers.Integral):
-    #         new_component = component
-    #     else:
-    #         breakpoint()
-    #         # no idea about this... maybe not needed and can just use the size here!
-    #         new_count_axes = extract_axes(just_one(component.local_size.leaf_layouts.values()), visited_axes, loop_vars, cache)
-    #         new_count = Dat(new_count_axes, data=component.local_size.buffer)
-    #         new_component = AxisComponent(new_count, component.label)
-    #     new_components.append(new_component)
-    #     new_axis = Axis(new_components, f"{axis.label}_{loop_var.loop_id}")
-    #     mytree.append(new_axis)
+    mytree = []
+    for loop_var in loop_vars:
+        axis = all_loop_axes[loop_var.loop_id, loop_var.axis_label]
 
-    mytree = AxisTree.from_iterable(composite_dat.loop_axes)
+        new_components = []
+        component = just_one(axis.components)
+        if isinstance(component.local_size, numbers.Integral):
+            new_component = component
+        else:
+            breakpoint()
+            # no idea about this... maybe not needed and can just use the size here!
+            new_count_axes = extract_axes(just_one(component.local_size.leaf_layouts.values()), visited_axes, loop_vars, cache)
+            new_count = Dat(new_count_axes, data=component.local_size.buffer)
+            new_component = AxisComponent(new_count, component.label)
+        new_components.append(new_component)
+        new_axis = Axis(new_components, f"{axis.label}_{loop_var.loop_id}")
+        mytree.append(new_axis)
+
+    # mytree = AxisTree.from_iterable(composite_dat.loop_axes)
+    mytree = AxisTree.from_iterable(mytree)
     looptree = mytree
     if mytree.size == 0:
         mytree = composite_dat.axis_tree
@@ -924,7 +952,7 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatArrayBuff
         layout = newlayouts[axes.leaf_path]
         return LinearDatArrayBufferExpression(result.buffer, layout)
     else:
-        assert isinstance(composite_dat, NonlinearDatArrayBufferExpression)
+        assert isinstance(composite_dat, NonlinearCompositeDat)
         return NonlinearDatArrayBufferExpression(result.buffer, newlayouts)
 
 
