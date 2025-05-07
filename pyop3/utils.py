@@ -518,8 +518,14 @@ def popfirst(dict_: dict) -> Any:
 def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
     new = object.__new__(type(self))
     for field in dataclasses.fields(self):
-        attr = attrs.get(field.name, getattr(self, field.name))
+        attr = attrs.pop(field.name, getattr(self, field.name))
         object.__setattr__(new, field.name, attr)
+
+    if attrs:
+        raise ValueError(
+            f"Unrecognised arguments encountered during initialisation: {', '.join(attrs)}"
+        )
+
     return new
 
 

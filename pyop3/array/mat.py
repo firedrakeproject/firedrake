@@ -333,7 +333,7 @@ class Mat(DistributedArray):
         assert isinstance(row_axes, AxisTree), "not indexed"
         assert isinstance(col_axes, AxisTree), "not indexed"
 
-        return self.__record_init__(raxes=row_axes, caxes=col_axes, parent=self)
+        return self.__record_init__(raxes=row_axes, caxes=col_axes, _parent=self)
 
     @cached_property
     def size(self) -> Any:

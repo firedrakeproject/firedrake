@@ -691,6 +691,7 @@ def component_offsets(axis, context):
 
 
 # NOTE: does this sort of expression stuff live in here? Or expr.py perhaps? Definitely
+# TODO: define __str__ as an abc?
 class Expression(abc.ABC):
     def __add__(self, other):
         if other == 0:

@@ -667,9 +667,9 @@ def _(var: Any, /, *args, **kwargs) -> tuple[tuple[Any, int]]:
 
 
 @collect_candidate_indirections.register(Operator)
-def _(op: Operator, /, visited_axes, loop_axes, *, compress: bool) -> tuple:
-    a_result = collect_candidate_indirections(op.a, visited_axes, loop_axes, compress=compress)
-    b_result = collect_candidate_indirections(op.b, visited_axes, loop_axes, compress=compress)
+def _(op: Operator, /, visited_axes, loop_indices, *, compress: bool) -> tuple:
+    a_result = collect_candidate_indirections(op.a, visited_axes, loop_indices, compress=compress)
+    b_result = collect_candidate_indirections(op.b, visited_axes, loop_indices, compress=compress)
 
     candidates = []
     for (a_expr, a_cost), (b_expr, b_cost) in itertools.product(a_result, b_result):
@@ -683,8 +683,8 @@ def _(op: Operator, /, visited_axes, loop_axes, *, compress: bool) -> tuple:
         # Only do this when the cost is large as small arrays will fit in cache
         # and not benefit from the optimisation.
         if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
-            op_axes, op_loop_axes = extract_axes(op, visited_axes, loop_axes, {})
-            compressed_expr = LinearCompositeDat(op_axes, op, op_loop_axes)
+            op_axes, op_loop_axes = extract_axes(op, visited_axes, loop_indices, {})
+            compressed_expr = LinearCompositeDat(op_axes, op, loop_indices)
 
             op_cost = op_axes.size
             for loop_axis in op_loop_axes:
@@ -697,13 +697,13 @@ def _(op: Operator, /, visited_axes, loop_axes, *, compress: bool) -> tuple:
 
 
 @collect_candidate_indirections.register(LinearDatArrayBufferExpression)
-def _(expr: LinearDatArrayBufferExpression, /, visited_axes, loop_axes, *, compress: bool) -> tuple:
+def _(expr: LinearDatArrayBufferExpression, /, visited_axes, loop_indices, *, compress: bool) -> tuple:
     # The cost of an expression dat (i.e. the memory volume) is given by...
     # Remember that the axes here described the outer loops that exist and that
     # index expressions that do not access data (e.g. 2i+j) have a cost of zero.
     # dat[2i+j] would have a cost equal to ni*nj as those would be the outer loops
 
-    dat_axes, dat_loop_axes = extract_axes(expr.layout, visited_axes, loop_axes, cache={})
+    dat_axes, dat_loop_axes = extract_axes(expr.layout, visited_axes, loop_indices, cache={})
     dat_cost = dat_axes.size
     for loop_axis in dat_loop_axes:
         # NOTE: This makes (and asserts) a strong assumption that loops are
@@ -711,7 +711,7 @@ def _(expr: LinearDatArrayBufferExpression, /, visited_axes, loop_axes, *, compr
         dat_cost *= loop_axis.component.max_size
 
     candidates = []
-    for layout_expr, layout_cost in collect_candidate_indirections(expr.layout, visited_axes, loop_axes, compress=compress):
+    for layout_expr, layout_cost in collect_candidate_indirections(expr.layout, visited_axes, loop_indices, compress=compress):
         candidate_expr = LinearDatArrayBufferExpression(expr.buffer, layout_expr)
 
         # TODO: Only apply penalty for non-affine layouts
@@ -720,7 +720,7 @@ def _(expr: LinearDatArrayBufferExpression, /, visited_axes, loop_axes, *, compr
 
     if compress:
         if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
-            candidates.append((LinearCompositeDat(dat_axes, expr, dat_loop_axes), dat_cost))
+            candidates.append((LinearCompositeDat(dat_axes, expr, loop_indices), dat_cost))
 
     return tuple(candidates)
 

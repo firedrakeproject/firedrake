@@ -174,7 +174,7 @@ class ImplicitPackUnpackExpander(Transformer):
 
     # TODO Can I provide a generic "operands" thing? Put in the parent class?
     @_apply.register(Loop)
-    def _(self, loop: Loop):
+    def _(self, loop: Loop) -> Loop:
         new_statements = [s for stmt in loop.statements for s in enlist(self._apply(stmt))]
         return loop.__record_init__(statements=new_statements)
 

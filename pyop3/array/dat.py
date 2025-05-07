@@ -541,7 +541,7 @@ class Dat(_Dat):
         """
         assert isinstance(axes, AxisTree), "not indexed"
 
-        return self.__record_init__(axes=axes, parent=self)
+        return self.__record_init__(axes=axes, _parent=self)
 
     # NOTE: should this only accept AxisTrees, or are IndexedAxisTrees fine also?
     # is this ever used?
@@ -564,7 +564,7 @@ class Dat(_Dat):
                 "New axis tree is a different size to the existing one."
             )
 
-        return self.reconstruct(axes=axes)
+        return self.__record_init__(axes=axes)
 
 
 # TODO: Should inherit from Terminal (but Terminal has odd attrs)
@@ -574,6 +574,10 @@ class BufferExpression(Expression, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def buffer(self) -> AbstractBuffer:
         pass
+
+    @property
+    def name(self) -> str:
+        return self.buffer.name
 
 
 class ArrayBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
@@ -628,12 +632,12 @@ class LinearDatArrayBufferExpression(DatArrayBufferExpression, LinearBufferExpre
 
     # {{{ interface impls
 
-    buffer: ClassVar[property] = property(lambda self: self._buffer)
+    buffer: ClassVar[property] = utils.attr("_buffer")
 
     # }}}
 
     def __str__(self) -> str:
-        return f"{self.buffer.name}[{self.layout}]"
+        return f"{self.name}[{self.layout}]"
 
 
 @utils.record()

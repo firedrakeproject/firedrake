@@ -129,7 +129,7 @@ class LoopyCodegenContext(CodegenContext):
 
     @property
     def arguments(self):
-        return tuple(self._args)
+        return tuple(sorted(self._args, key=lambda arg: arg.name))
 
     @property
     def subkernels(self):
@@ -227,14 +227,18 @@ class LoopyCodegenContext(CodegenContext):
                 read_only=True,
             )
 
-        kernel_name = self.unique_name("buffer")
+        if isinstance(buffer.dtype, np.dtypes.IntDType):
+            name_in_kernel = self.unique_name("map")
+        else:
+            name_in_kernel = self.unique_name("dat")
+
         # If the buffer is being passed straight through to a function then we
         # have to make sure that the shapes match
         shape = self._temporary_shapes.get(buffer.name, None)
-        arg = lp.GlobalArg(kernel_name, dtype=buffer.dtype, shape=shape)
+        arg = lp.GlobalArg(name_in_kernel, dtype=buffer.dtype, shape=shape)
         self._args.append(arg)
-        self.kernel_arg_names[buffer.name] = kernel_name
-        return kernel_name
+        self.kernel_arg_names[buffer.name] = name_in_kernel
+        return name_in_kernel
 
     @add_buffer.register(AbstractPetscMatBuffer)
     def _(self, buffer: AbstractPetscMatBuffer, intent: Intent | None = None) -> str:

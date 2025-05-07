@@ -100,7 +100,7 @@ class NullBuffer(AbstractArrayBuffer):
 
     # {{{ class attrs
 
-    DEFAULT_PREFIX: ClassVar[str] = "null"
+    DEFAULT_PREFIX: ClassVar[str] = "tmp"
 
     # }}}
 
