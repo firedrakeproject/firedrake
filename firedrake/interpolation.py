@@ -1494,9 +1494,17 @@ class VomOntoVomWrapper(object):
         self.arguments = arguments
         self.reduce = reduce
         # note that interpolation doesn't include halo cells
-        self.handle = VomOntoVomDummyMat(
+        self._dummy_mat = VomOntoVomDummyMat(
             original_vom.input_ordering_without_halos_sf, reduce, V, source_vom, expr, arguments
         )
+        self.handle = self._create_petsc_mat()
+
+    def _create_petsc_mat(self):
+        A = PETSc.Mat().create(comm=self.V.comm)
+        A.setType(PETSc.Mat.Type.PYTHON)
+        A.setPythonContext(self._dummy_mat)
+        A.setUp()
+        return A
 
     @property
     def mpi_type(self):
