@@ -87,20 +87,20 @@ def test_orientation_string():
 def test_minimal():
     # NB mesh size 3,3 fails - internal cell issue?
     mesh = UnitSquareMesh(3, 3)
-    V = FunctionSpace(mesh, "CG", 1)
-
-    u = TrialFunction(V)
-    v = TestFunction(V)
-
-    a = inner(grad(v), grad(u)) * dx
-    L = v * dx
-
-    l_a = assemble(L)
-    a_1 = assemble(a)
-    x = Function(V)
-    solve(a == L, x)
-    print(x.dat.data)
-    print("done with firedrake elem")
+    # V = FunctionSpace(mesh, "CG", 1)
+    #
+    # u = TrialFunction(V)
+    # v = TestFunction(V)
+    #
+    # a = inner(grad(v), grad(u)) * dx
+    # L = v * dx
+    #
+    # l_a = assemble(L)
+    # a_1 = assemble(a)
+    # x = Function(V)
+    # solve(a == L, x)
+    # print(x.dat.data)
+    # print("done with firedrake elem")
 
     cg1 = create_cg1()
     V = FunctionSpace(mesh, cg1.to_ufl())

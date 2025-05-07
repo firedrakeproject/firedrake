@@ -1809,8 +1809,7 @@ class ParloopBuilder:
                 scratch = op3.Dat.null(op3.Axis(100), dtype=temp.dtype)
                 unpack_insns.append(op3.ArrayAssignment(o_temp, o_packed, op3.AssignmentType.WRITE))
                 function_args = [o_temp, temp, scratch, transformed_temp]
-                called_func = op3.Function(
-                    transform_kernels[0], function_args, [None]*len(function_args))
+                called_func = transform_kernels[0](*function_args)
                 unpack_insns.append(called_func)
                 unpack_insns.append(op3.ArrayAssignment(op3_arg, transformed_temp, op3.AssignmentType.INC))
             else:
@@ -1835,7 +1834,7 @@ class ParloopBuilder:
         kernel = op3.Function(
             self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]]
         )
-        called_kernel = DirectCalledFunction(kernel, args)
+        called_kernel = kernel(*args)
         loop = op3.loop(p, [*pack_insns, called_kernel, *unpack_insns])
         return loop
 
