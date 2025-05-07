@@ -10,7 +10,6 @@ of hardcoded values (via CI).
 
 import pathlib
 import re
-from collections.abc import Mapping
 
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent
@@ -28,12 +27,12 @@ def main():
 
 
 def check_firedrake_version():
-    firedrake_version  = check_file_contains_pattern(
+    firedrake_version = check_file_contains_pattern(
         REPO_ROOT / "pyproject.toml",
-        f"version = \"(.*)\""
+        "version = \"(.*)\""
     )
     check_file_contains_pattern(
-        REPO_ROOT / "docs/source/install.rst",
+        REPO_ROOT/"docs/source/install.rst",
         f"https://raw.githubusercontent.com/firedrakeproject/firedrake/refs/tags/{firedrake_version}/scripts/firedrake-configure"
     )
 
@@ -41,7 +40,7 @@ def check_firedrake_version():
 def check_min_python_version() -> None:
     min_python_version = check_file_contains_pattern(
         REPO_ROOT / "pyproject.toml",
-        f"requires-python = \">=(.*)\""
+        "requires-python = \">=(.*)\""
     )
     check_file_contains_pattern(
         REPO_ROOT / "docs/source/install.rst",
@@ -52,7 +51,7 @@ def check_min_python_version() -> None:
 def check_petsc_version() -> None:
     petsc_version = check_file_contains_pattern(
         REPO_ROOT / "scripts/firedrake-configure",
-        f"SUPPORTED_PETSC_VERSION = \"v(.*)\"",
+        "SUPPORTED_PETSC_VERSION = \"v(.*)\"",
     )
     check_file_contains_pattern(
         REPO_ROOT / "pyproject.toml",
