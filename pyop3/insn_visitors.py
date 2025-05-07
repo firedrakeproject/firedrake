@@ -139,11 +139,6 @@ def _(func: CalledFunction, /, *, loop_context_acc) -> CalledFunction:
         [arg.with_context(loop_context_acc) for arg in func.arguments],
     )
 
-@_expand_loop_contexts_rec.register(DirectCalledFunction)
-def _(func: CalledFunction, /, *, loop_context_acc) -> CalledFunction:
-    return func
-
-
 @_expand_loop_contexts_rec.register(ArrayAssignment)
 def _(assignment: ArrayAssignment, /, *, loop_context_acc) -> ArrayAssignment:
     assignee = restrict_expression_to_context(assignment.assignee, loop_context_acc)
@@ -175,10 +170,6 @@ class ImplicitPackUnpackExpander(Transformer):
     @_apply.register(NullInstruction)
     def _(self, insn, /):
         return insn
-
-    @_apply.register(DirectCalledFunction)
-    def _(self, /, expr):
-        return expr
 
     # TODO Can I provide a generic "operands" thing? Put in the parent class?
     @_apply.register(Loop)

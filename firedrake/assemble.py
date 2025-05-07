@@ -1783,38 +1783,38 @@ class ParloopBuilder:
         
         p = self._iterset.index()
         o_packed = orientations[p]
-        o_temp = op3.Dat(
-                op3.AxisTree(o_packed.axes.node_map),
-                data=op3.NullBuffer(o_packed.dtype),
+        o_temp = op3.Dat.null(
+                o_packed.axes.materialize(),
+                dtype=o_packed.dtype,
                 prefix="t"
             )
         args = []
         pack_insns = []
         unpack_insns = []
-        from pyop3.lang import DirectCalledFunction
         for tsfc_arg in self._kinfo.arguments:
             op3_arg = self._as_parloop_arg(tsfc_arg, p)
-            temp = op3.Dat(
-                op3.AxisTree(op3_arg.axes.node_map),
-                data=op3.NullBuffer(op3_arg.dtype),
+            temp = op3.Dat.null(
+                op3_arg.axes.materialize(),
+                dtype=op3_arg.dtype,
                 prefix="t"
             )
-            transformed_temp = op3.Dat(
-                op3.AxisTree(op3_arg.axes.node_map),
-                data=op3.NullBuffer(op3_arg.dtype),
+            transformed_temp = op3.Dat.null(
+                op3_arg.axes.materialize(),
+                dtype=op3_arg.dtype,
                 prefix="t"
             )
 
             #transformed_temp = temp.copy() should exist, sorry
             if isinstance(tsfc_arg, kernel_args.OutputKernelArg):
-                scratch = op3.Dat(op3.Axis(100), data=op3.NullBuffer(temp.dtype))
-                unpack_insns.append(op3.BufferAssignment(o_temp, o_packed, op3.AssignmentType.WRITE))
-                called_func = DirectCalledFunction(transform_kernels[0], [o_temp, temp, scratch, transformed_temp])
+                scratch = op3.Dat.null(op3.Axis(100), dtype=temp.dtype)
+                unpack_insns.append(op3.ArrayAssignment(o_temp, o_packed, op3.AssignmentType.WRITE))
+                function_args = [o_temp, temp, scratch, transformed_temp]
+                called_func = op3.Function(
+                    transform_kernels[0], function_args, [None]*len(function_args))
                 unpack_insns.append(called_func)
-                unpack_insns.append(op3.BufferAssignment(op3_arg, transformed_temp, op3.AssignmentType.INC))
+                unpack_insns.append(op3.ArrayAssignment(op3_arg, transformed_temp, op3.AssignmentType.INC))
             else:
-                pack_insns.append(op3.BufferAssignment(temp, op3_arg, op3.AssignmentType.WRITE))
-                
+                pack_insns.append(op3.ArrayAssignment(temp, op3_arg, op3.AssignmentType.WRITE))
 
             args.append(temp)
         # temp_initial = Dat(
