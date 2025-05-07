@@ -29,15 +29,14 @@ from pyop3.expr_visitors import (
     collect_tensor_shape,
     replace as replace_expression,
     replace_terminals,
+    collect_composite_dats,
     CompositeDat,
+    materialize_composite_dat,
     collect_candidate_indirections,
-    collect_loop_index_vars as expr_collect_loops,
     concretize_layouts as concretize_expression_layouts,
     extract_axes,
     restrict_to_context as restrict_expression_to_context,
     collect_candidate_indirections as collect_expression_candidate_indirections,
-    compute_indirection_cost as compute_expression_indirection_cost,
-    # concretize_arrays as concretize_expression_layouts,
     collect_tensor_candidate_indirections,
     concretize_materialized_tensor_indirections,
 )
@@ -602,7 +601,7 @@ def materialize_indirections(insn: Instruction, *, compress: bool = False) -> In
     best_candidate = {key: expr for key, (expr, _) in best_candidate.items()}
 
     # Materialise any symbolic (composite) dats
-    composite_dats = frozenset.union(*map(_collect_composite_dats, best_candidate.values()))
+    composite_dats = frozenset.union(*map(collect_composite_dats, best_candidate.values()))
     replace_map = {
         comp_dat: materialize_composite_dat(comp_dat)
         for comp_dat in composite_dats
@@ -659,161 +658,6 @@ def _(terminal: NonEmptyTerminal, /, *, loop_indices: tuple[LoopIndex, ...], com
         for arg_key, value in per_arg_candidates.items():
             candidates[(terminal, i, arg_key)] = value
     return immutabledict(candidates)
-
-
-@PETSc.Log.EventDecorator()
-def _compute_indirection_cost(insn: Instruction, arg_layouts, *, cache) -> int:
-    seen_exprs_mut = set()
-    return _compute_indirection_cost_rec(insn, arg_layouts, seen_exprs_mut, loop_axes_acc=pmap(), cache=cache)
-
-
-@functools.singledispatch
-def _compute_indirection_cost_rec(obj: Any, /, arg_layouts, seen_exprs_mut, *, loop_axes_acc, cache) -> int:
-    raise TypeError(f"No handler provided for {type(obj).__name__}")
-
-
-@_compute_indirection_cost_rec.register(InstructionList)
-def _(insn_list: InstructionList, /, *args, **kwargs) -> int:
-    return sum(_compute_indirection_cost_rec(insn, *args, **kwargs) for insn in insn_list)
-
-
-@_compute_indirection_cost_rec.register(Loop)
-def _(loop: Loop, /, arg_layouts, seen_exprs_mut, *, loop_axes_acc, **kwargs) -> int:
-    loop_axes_acc_ = loop_axes_acc | {loop.index.id: loop.index.iterset}
-    return sum(
-        _compute_indirection_cost_rec(stmt, arg_layouts, seen_exprs_mut, loop_axes_acc=loop_axes_acc_, **kwargs)
-        for stmt in loop.statements
-    )
-
-
-@_compute_indirection_cost_rec.register(ArrayAssignment)
-def _(assignment: ArrayAssignment, /, arg_layouts, seen_exprs_mut, *, loop_axes_acc, cache) -> int:
-    return sum(
-        _compute_array_indirection_cost(arg, arg_layouts, seen_exprs_mut, loop_axes_acc, (assignment.id, i), cache)
-        for i, arg in enumerate([assignment.assignee, assignment.expression])
-    )
-
-
-@_compute_indirection_cost_rec.register(StandaloneCalledFunction)
-def _(func: StandaloneCalledFunction, /, arg_layouts, seen_exprs_mut, *, loop_axes_acc, cache) -> int:
-    return 0
-
-
-@functools.singledispatch
-def _collect_composite_dats(obj: Any) -> frozenset:
-    raise TypeError
-
-
-@_collect_composite_dats.register(Operator)
-def _(op, /) -> frozenset:
-    return _collect_composite_dats(op.a) | _collect_composite_dats(op.b)
-
-
-@_collect_composite_dats.register(AxisVar)
-@_collect_composite_dats.register(LoopIndexVar)
-@_collect_composite_dats.register(numbers.Number)
-def _(op, /) -> frozenset:
-    return frozenset()
-
-
-@_collect_composite_dats.register(LinearDatArrayBufferExpression)
-def _(dat, /) -> frozenset:
-    return _collect_composite_dats(dat.layout)
-
-
-@_collect_composite_dats.register(CompositeDat)
-def _(dat, /) -> frozenset:
-    return frozenset({dat})
-
-
-# NOTE: Think this lives in expr_visitors or something
-def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatArrayBufferExpression:
-    # axes = extract_axes(composite_dat, composite_dat.visited_axes, composite_dat.loop_axes, {})
-    axes = composite_dat.axis_tree
-    assert isinstance(axes, AxisTree)
-    # TODO: This is almost certainly the wrong place to do this
-    # axes = axes.undistribute()
-
-    # step 0: we only want some of the loop index bits
-    loop_axes = OrderedSet()
-    for leaf_expr in composite_dat.leaf_exprs.values():
-        loop_axes |= expr_collect_loops(leaf_expr)
-
-    all_loop_axes = {
-        (index.id, axis.label): axis
-        for index in composite_dat.loop_indices
-        for axis in index.iterset.axes
-    }
-
-    selected_loop_axes = []
-    for loop_var in loop_axes:
-        selected = all_loop_axes[loop_var.loop_id, loop_var.axis_label]
-        selected_loop_axes.append(selected)
-
-    mytree = []
-    for loop_var, axis in zip(loop_axes, selected_loop_axes, strict=True):
-        new_components = []
-        component = just_one(axis.components)
-        if isinstance(component.local_size, numbers.Integral):
-            new_component = component
-        else:
-            new_count_axes = extract_axes(just_one(component.local_size.leaf_layouts.values()), visited_axes, loop_axes, cache)
-            new_count = Dat(new_count_axes, data=component.local_size.buffer)
-            new_component = AxisComponent(new_count, component.label)
-        new_components.append(new_component)
-        new_axis = Axis(new_components, f"{axis.label}_{loop_var.loop_id}")
-        mytree.append(new_axis)
-
-    mytree = AxisTree.from_iterable(mytree)
-    looptree = mytree
-    if mytree.size == 0:
-        mytree = composite_dat.axis_tree
-    else:
-        mytree = mytree.add_subtree(composite_dat.axis_tree, *mytree.leaf)
-
-    if mytree.size == 0:
-        return None
-
-    # step 2: assign
-    result = Dat.empty(mytree, dtype=IntType)
-
-    # replace LoopIndexVars in the expression with AxisVars
-    loop_index_replace_map = {
-        (index.id, axis.label): AxisVar(f"{axis.label}_{index.id}")
-        for index in composite_dat.loop_indices
-        for axis in index.iterset.axes
-    }
-    for path, expr in composite_dat.leaf_exprs.items():
-        expr = replace_terminals(expr, loop_index_replace_map)
-        myslices = []
-        for axis, component in path.items():
-            myslice = Slice(axis, [AffineSliceComponent(component)])
-            myslices.append(myslice)
-        iforest = IndexTree.from_iterable(myslices)
-
-        result[iforest].assign(expr, eager=True)
-
-    # step 3: replace axis vars with loop indices in the layouts
-    # NOTE: We need *all* the layouts here because matrices do not want the full path here. Instead
-    # they want to abort once the loop indices are handled.
-    newlayouts = {}
-    inv_map = {axis_var.axis_label: LoopIndexVar(loop_id, axis_label) for (loop_id, axis_label), axis_var in loop_index_replace_map.items()}
-    for mynode in composite_dat.axis_tree.nodes:
-        for component in mynode.components:
-            path = composite_dat.axis_tree.path(mynode, component)
-            fullpath = looptree.leaf_path | path
-            layout = result.axes.subst_layouts()[fullpath]
-            newlayout = replace_terminals(layout, inv_map)
-            newlayouts[path] = newlayout
-
-    # plus the empty layout
-    path = immutabledict()
-    fullpath = looptree.leaf_path
-    layout = result.axes.subst_layouts()[fullpath]
-    newlayout = replace_terminals(layout, inv_map)
-    newlayouts[path] = newlayout
-
-    return NonlinearDatArrayBufferExpression(result.buffer, newlayouts)
 
 
 @functools.singledispatch

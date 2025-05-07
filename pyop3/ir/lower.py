@@ -23,7 +23,7 @@ import numpy as np
 import pymbolic as pym
 from immutabledict import immutabledict
 from pyop3.array.dat import ArrayBufferExpression, MatArrayBufferExpression, MatPetscMatBufferExpression, OpaqueBufferExpression
-from pyop3.expr_visitors import collect_axis_vars, extract_axes
+from pyop3.expr_visitors import collect_axis_vars
 
 import pyop2
 

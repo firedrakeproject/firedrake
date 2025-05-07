@@ -248,7 +248,7 @@ def merge_dicts(dicts: Iterable[Mapping]) -> immutabledict:
     return immutabledict(merged)
 
 
-def unique(iterable):
+def unique(iterable) -> tuple[Any]:
     unique_items = []
     for item in iterable:
         if item not in unique_items:

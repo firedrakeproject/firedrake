@@ -295,26 +295,6 @@ class Mat(DistributedArray):
     def with_axes(self, row_axes, col_axes):
         return self.__record_init__(raxes=row_axes, caxes=col_axes)
 
-    # NOTE: if this returns a 2-tuple then Dats should return a 1-tuple
-    @property
-    def leaf_layouts(self):
-        assert False, "old code?"
-        from pyop3.insn_visitors import CompositeDat, materialize_composite_dat
-
-        # NOTE: I don't think we need this any more... now that we have ConcretizedMat
-        # replaced by candidate_layouts()
-        def materialize_(axes):
-            # use root
-            layout_expr = axes.subst_layouts()[pmap()]
-            visited_axes = {}  # guess, might be the full path
-            loop_axes = {loop.id: loop.iterset for loop in axes.outer_loops}
-            composite_dat = CompositeDat(layout_expr, visited_axes, loop_axes)
-
-            materialized_dat = materialize_composite_dat(composite_dat)
-            return materialized_dat
-
-        return (materialize_(self.raxes), materialize_(self.caxes))
-
     # }}}
 
     # {{{ DistributedArray impls
@@ -350,61 +330,6 @@ class Mat(DistributedArray):
         assert isinstance(col_axes, AxisTree), "not indexed"
 
         return self.__record_init__(raxes=row_axes, caxes=col_axes, parent=self)
-
-
-    # # TODO: Make this generic to all 'Array's and implement for 'Dat'
-    # def candidate_layouts(self, loop_axes):
-    #     # temporaries do not have indexed axes so we don't care, don't expect to have
-    #     # rows or cols indexed but not the other
-    #     if not isinstance(self.buffer, AbstractPetscMatBuffer):
-    #         candidatess = {}
-    #         for leaf_path, orig_layout in self.raxes.leaf_subst_layouts.items():
-    #             candidatess[(self, leaf_path, 0)] = ((orig_layout, 666),)
-    #         for leaf_path, orig_layout in self.caxes.leaf_subst_layouts.items():
-    #             candidatess[(self, leaf_path, 1)] = ((orig_layout, 666),)
-    #         return immutabledict(candidatess)
-    #
-    #     assert isinstance(self.buffer, AbstractPetscMatBuffer)
-    #
-    #     return self.default_candidate_layouts(loop_axes)
-    #
-    # def default_candidate_layouts(self, loop_indices):
-    #     # NOTE: Needn't really return the cost here as no evaluation happens
-    #     from pyop3.expr_visitors import CompositeDat, extract_axes
-    #
-    #     candidatess = {}
-    #
-    #     def add_candidate(axes, row_or_col):
-    #         myaxes = AxisTree(axes.node_map)
-    #         compressed_expr = CompositeDat(myaxes, axes.leaf_subst_layouts, loop_indices, IntType)
-    #
-    #         cost = axes.size
-    #         for loop_index in loop_indices:
-    #             cost *= loop_index.iterset.size
-    #
-    #         # for leaf_path, orig_layout in axes.leaf_subst_layouts.items():
-    #         #
-    #         #     # NOTE: unsure if this is needed here
-    #         #     if leaf_path not in axes.pruned.leaf_paths:
-    #         #         # zero-sized, do nothing
-    #         #         continue
-    #         #
-    #         #     visited_axes = axes.path_with_nodes(axes._node_from_path(leaf_path), and_components=True)
-    #         #     compressed_expr = CompositeDat(orig_layout, visited_axes, loop_axes)
-    #         #
-    #         #     # NOTE: Probably retrievable from the materialized_dat
-    #         #     myaxes = extract_axes(compressed_expr, visited_axes, loop_axes, {})
-    #         #
-    #         #     compressed_cost = myaxes.size
-    #         #
-    #         #     assert myaxes.size > 0
-    #         #
-    #         candidatess[(self, "anything", row_or_col)] = ((compressed_expr, cost),)
-    #
-    #     add_candidate(self.raxes, 0)
-    #     add_candidate(self.caxes, 1)
-    #
-    #     return immutabledict(candidatess)
 
     @cached_property
     def size(self) -> Any:

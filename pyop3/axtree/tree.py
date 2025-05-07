@@ -29,7 +29,7 @@ from pyop2.caching import cached_on, CacheMixin
 from pyop3.exceptions import Pyop3Exception
 from pyop3.dtypes import IntType
 from pyop3.sf import StarForest, local_sf
-from pyop2.mpi import COMM_SELF
+from pyop2.mpi import COMM_SELF, collective
 from pyop3 import utils
 from pyop3.tree import (
     LabelledNodeComponent,
@@ -398,6 +398,16 @@ class AxisComponent(LabelledNodeComponent):
         return sum(reg.size for reg in self.regions)
 
     @cached_property
+    @collective
+    def max_size(self):
+        if not isinstance(self.local_size, numbers.Integral):
+            raise NotImplementedError("Not sure what to do here yet")
+        if self.sf is not None:
+            return self.comm.reduce(self.local_size, MPI.MAX)
+        else:
+            return self.local_size
+
+    @cached_property
     def _all_regions(self) -> tuple[AxisComponentRegion]:
         """Return axis component regions having expanded star forests into owned and ghost."""
         return _partition_regions(self.regions, self.sf) if self.sf else self.regions
@@ -425,6 +435,9 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
 
         super().__init__(label=label, id=id)
         CacheMixin.__init__(self)
+
+        if self.label == "firedrake_default_topology__id_LoopIndex_0__id_LoopIndex_0":
+            breakpoint()
 
         self.components = components
 

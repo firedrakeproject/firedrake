@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import abc
 import collections
 import dataclasses
 import functools
@@ -14,7 +15,7 @@ from immutabledict import immutabledict
 from pyop3.array import Global
 from pyop3.array.dat import ArrayBufferExpression, DatArrayBufferExpression, DatBufferExpression, MatPetscMatBufferExpression, MatArrayBufferExpression, LinearBufferExpression, NonlinearBufferExpression
 from pyop3.buffer import AbstractArrayBuffer, PetscMatBuffer, AbstractPetscMatBuffer
-from pyop3.itree.tree import LoopIndex
+from pyop3.itree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree
 from pyrsistent import pmap, PMap
 from petsc4py import PETSc
 
@@ -27,13 +28,54 @@ from pyop3.utils import OrderedSet, just_one
 
 # should inherit from _Dat
 # or at least be an Expression!
+class CompositeDat(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def leaf_exprs(self) -> immutabledict:
+        pass
+
+
+
 @utils.frozenrecord()
-class CompositeDat:
+class LinearCompositeDat(CompositeDat):
     axis_tree: AxisTree
-    leaf_exprs: Any
-    loop_indices: Any
+    leaf_expr: Any
+    loop_axes: tuple[Axis]
 
     dtype: ClassVar[np.dtype] = IntType
+
+    @property
+    def leaf_exprs(self) -> immutabledict:
+        return immutabledict({self.axis_tree.leaf_path: self.leaf_expr})
+
+    def __init__(self, axis_tree, leaf_expr, loop_axes):
+        assert axis_tree.is_linear
+        loop_axes = tuple(loop_axes)
+
+        object.__setattr__(self, "axis_tree", axis_tree)
+        object.__setattr__(self, "leaf_expr", leaf_expr)
+        object.__setattr__(self, "loop_axes", loop_axes)
+
+
+@utils.frozenrecord()
+class NonlinearCompositeDat(CompositeDat):
+    axis_tree: AxisTree
+    _leaf_exprs: immutabledict
+    loop_axes: tuple[Axis]
+
+    dtype: ClassVar[np.dtype] = IntType
+
+    leaf_exprs: ClassVar[immutabledict] = utils.attr("_leaf_exprs")
+
+    def __init__(self, axis_tree, leaf_exprs, loop_axes):
+        assert set(axis_tree.leaf_paths) == leaf_exprs.keys()
+
+        leaf_exprs = immutabledict(leaf_exprs)
+        loop_axes = tuple(loop_axes)
+
+        object.__setattr__(self, "axis_tree", axis_tree)
+        object.__setattr__(self, "_leaf_exprs", leaf_exprs)
+        object.__setattr__(self, "loop_axes", loop_axes)
 
     # def __str__(self) -> str:
     #     return f"acc({self.expr})"
@@ -123,8 +165,13 @@ def _(dat: Dat, /) -> OrderedSet:
     return loop_indices
 
 
-@collect_loop_index_vars.register(CompositeDat)
-def _(dat: CompositeDat, /) -> OrderedSet:
+@collect_loop_index_vars.register(LinearCompositeDat)
+def _(dat: LinearCompositeDat, /) -> OrderedSet:
+    return collect_loop_index_vars(dat.leaf_expr)
+
+
+@collect_loop_index_vars.register(NonlinearCompositeDat)
+def _(dat: NonlinearCompositeDat, /) -> OrderedSet:
     loop_indices = OrderedSet()
     for expr in dat.leaf_exprs.values():
         loop_indices |= collect_loop_index_vars(expr)
@@ -173,79 +220,84 @@ def _(array: Array, /, loop_context):
 
 
 # NOTE: bad name?? something 'shape'? 'make'?
-# always return an AxisTree?
 
 # NOTE: visited_axes is more like visited_components! Only need axis labels and component information
 @functools.singledispatch
-def extract_axes(obj: Any, /, visited_axes, loop_axes, cache) -> AbstractAxisTree:
+def extract_axes(obj: Any, /, visited_axes, loop_axes, cache) -> tuple[AxisTree, tuple[Axis, ...]]:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
 @extract_axes.register(numbers.Number)
-def _(var: Any, /, visited_axes, loop_axes, cache) -> AxisTree:
+def _(var: Any, /, visited_axes, loop_axes, cache) -> tuple[AxisTree, tuple[Axis, ...]]:
     try:
         return cache[var]
     except KeyError:
-        return cache.setdefault(var, AxisTree())
+        return cache.setdefault(var, (AxisTree(), ()))
 
 
 @extract_axes.register(LoopIndexVar)
-def _(loop_var: LoopIndexVar, /, visited_axes, loop_indices: tuple[LoopIndex, ...], cache) -> AxisTree:
+def _(loop_var: LoopIndexVar, /, visited_axes, loop_indices: tuple[LoopIndex, ...], cache) -> tuple[AxisTree, tuple[Axis, ...]]:
     try:
         return cache[loop_var]
     except KeyError:
         pass
 
-    # replace LoopIndexVars in any component sizes with AxisVars
-    loop_index_replace_map = {}
-    for loop_index in loop_indices:
-        for axis in loop_index.iterset.nodes:
-            loop_index_replace_map[(loop_index.id, axis.label)] = AxisVar(f"{axis.label}_{loop_index.id}")
-
-
-    selected_axis = just_one(axis for loop_index in loop_indices for axis in loop_index.iterset.nodes if axis.label == loop_var.axis_label and loop_index.id == loop_var.loop_id
-                             )
+    axis = just_one(
+        axis_
+        for loop_index in loop_indices
+        for axis_ in loop_index.iterset.nodes 
+        if loop_index.id == loop_var.loop_id and axis_.label == loop_var.axis_label
+    )
 
     new_components = []
     for component in axis.components:
         if isinstance(component.local_size, numbers.Integral):
             new_component = component
         else:
+            # use a linearbufferexpression here, no need to create axes
+            raise NotImplementedError
             new_count_axes = extract_axes(just_one(component.local_size.leaf_layouts.values()), visited_axes, loop_indices, cache)
             new_count = Dat(new_count_axes, data=component.local_size.buffer)
             new_component = AxisComponent(new_count, component.label)
         new_components.append(new_component)
     new_axis = Axis(new_components, f"{axis.label}_{loop_var.loop_id}")
-    return cache.setdefault(loop_var, new_axis.as_tree())
+    return cache.setdefault(loop_var, (AxisTree(), (new_axis,)))
 
 
 @extract_axes.register(AxisVar)
-def _(var: AxisVar, /, visited_axes, loop_axes, cache) -> AxisTree:
+def _(var: AxisVar, /, visited_axes, loop_axes, cache) -> tuple[AxisTree, tuple[Axis, ...]]:
     try:
         return cache[var]
     except KeyError:
-        axis = utils.single_valued(axis for axis in visited_axes.nodes if axis.label == var.axis_label)
-        tree = AxisTree(axis)
-        return cache.setdefault(var, tree)
+        pass
+
+    axis = utils.single_valued(
+        axis for axis in visited_axes.nodes if axis.label == var.axis_label
+    )
+    return cache.setdefault(var, (axis.as_tree(), ()))
 
 
 @extract_axes.register(Operator)
-def _(op: Operator, /, visited_axes, loop_axes, cache):
-    return merge_trees2(extract_axes(op.a, visited_axes, loop_axes, cache), extract_axes(op.b, visited_axes, loop_axes, cache))
+def _(op: Operator, /, *args, **kwargs) -> tuple[AxisTree, tuple[Axis, ...]]:
+    tree_a, loops_a = extract_axes(op.a, *args, **kwargs)
+    tree_b, loops_b = extract_axes(op.b, *args, **kwargs)
+    return merge_trees2(tree_a, tree_b), utils.unique(loops_a + loops_b)
 
 
 @extract_axes.register(Array)
 def _(array: Array, /, visited_axes, loop_axes, cache):
+    assert False, "used?"
     return array.axes
 
 
 @extract_axes.register(LinearDatArrayBufferExpression)
-def _(expr, /, visited_axes, loop_axes, cache):
-    return extract_axes(expr.layout, visited_axes, loop_axes, cache)
+def _(expr, /, *args, **kwargs) -> tuple[AxisTree, tuple[Axis, ...]]:
+    return extract_axes(expr.layout, *args, **kwargs)
 
 
 @extract_axes.register(CompositeDat)
 def _(dat, /, visited_axes, loop_axes, cache):
+    assert False, "used?"
     assert visited_axes == dat.visited_axes
     assert loop_axes == dat.loop_axes
     return extract_axes(dat.expr, visited_axes, loop_axes, cache)
@@ -409,8 +461,10 @@ def _(dat: Dat, /, axis_trees: Iterable[AxisTree, ...]) -> DatArrayBufferExpress
 @concretize_layouts.register(Mat)
 def _(mat: Mat, /, axis_trees: Iterable[AxisTree, ...]) -> BufferExpression:
     if isinstance(mat.buffer, AbstractPetscMatBuffer):
+        # TODO: dont use outer loops here, cast to axes
+        breakpoint()
         layouts = [
-            CompositeDat(axis_tree.materialize(), axis_tree.leaf_subst_layouts, axis_tree.outer_loops)
+            NonlinearCompositeDat(axis_tree.materialize(), axis_tree.leaf_subst_layouts, axis_tree.outer_loops)
             for axis_tree in [mat.raxes, mat.caxes]
         ]
         expr = MatPetscMatBufferExpression(mat.buffer, *layouts)
@@ -597,88 +651,46 @@ def _(op: Operator, /, visited_axes, loop_axes, *, compress: bool) -> tuple:
         # Only do this when the cost is large as small arrays will fit in cache
         # and not benefit from the optimisation.
         if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
-            axes = extract_axes(op, visited_axes, loop_axes, {})
-            compressed_expr = CompositeDat(axes, {visited_axes.leaf_path: op}, loop_axes)
-            candidates.append((compressed_expr, axes.size))
+            op_axes, op_loop_axes = extract_axes(op, visited_axes, loop_axes, {})
+            compressed_expr = LinearCompositeDat(op_axes, op, op_loop_axes)
+
+            op_cost = op_axes.size
+            for loop_axis in op_loop_axes:
+                # NOTE: This makes (and asserts) a strong assumption that loops are
+                # linear by now. It may be good to encode this into the type system.
+                op_cost *= loop_axis.component.max_size
+            candidates.append((compressed_expr, op_cost))
 
     return tuple(candidates)
 
 
 @collect_candidate_indirections.register(LinearDatArrayBufferExpression)
 def _(expr: LinearDatArrayBufferExpression, /, visited_axes, loop_axes, *, compress: bool) -> tuple:
+    # The cost of an expression dat (i.e. the memory volume) is given by...
+    # Remember that the axes here described the outer loops that exist and that
+    # index expressions that do not access data (e.g. 2i+j) have a cost of zero.
+    # dat[2i+j] would have a cost equal to ni*nj as those would be the outer loops
+
+    dat_axes, dat_loop_axes = extract_axes(expr.layout, visited_axes, loop_axes, cache={})
+    dat_cost = dat_axes.size
+    for loop_axis in dat_loop_axes:
+        # NOTE: This makes (and asserts) a strong assumption that loops are
+        # linear by now. It may be good to encode this into the type system.
+        dat_cost *= loop_axis.component.max_size
+
     candidates = []
     for layout_expr, layout_cost in collect_candidate_indirections(expr.layout, visited_axes, loop_axes, compress=compress):
         candidate_expr = LinearDatArrayBufferExpression(expr.buffer, layout_expr)
-        # The cost of an expression dat (i.e. the memory volume) is given by...
-        # Remember that the axes here described the outer loops that exist and that
-        # index expressions that do not access data (e.g. 2i+j) have a cost of zero.
-        # dat[2i+j] would have a cost equal to ni*nj as those would be the outer loops
-        dat_cost = extract_axes(expr.layout, visited_axes, loop_axes, cache={}).size
+
         # TODO: Only apply penalty for non-affine layouts
         candidate_cost = dat_cost + layout_cost * INDIRECTION_PENALTY_FACTOR
         candidates.append((candidate_expr, candidate_cost))
 
     if compress:
         if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
-            axes = extract_axes(expr, visited_axes, loop_axes, {})
-            candidates.append((CompositeDat(axes, {visited_axes.leaf_path: expr}, loop_axes), axes.size))
+            candidates.append((LinearCompositeDat(dat_axes, expr, dat_loop_axes), dat_cost))
 
     return tuple(candidates)
-
-
-@functools.singledispatch
-def compute_indirection_cost(obj: Any, /, visited_axes, loop_axes, seen_exprs_mut, cache) -> int:
-    raise TypeError(f"No handler defined for {type(obj).__name__}")
-
-
-@compute_indirection_cost.register(AxisVar)
-@compute_indirection_cost.register(LoopIndexVar)
-@compute_indirection_cost.register(numbers.Number)
-def _(var: Any, /, visited_axes, loop_axes, seen_exprs_mut, cache) -> int:
-    return 0
-
-
-@compute_indirection_cost.register(Operator)
-def _(op: Operator, /, visited_axes, loop_axes, seen_exprs_mut, cache) -> int:
-    if seen_exprs_mut is not None:
-        if op in seen_exprs_mut:
-            return 0
-        else:
-            seen_exprs_mut.add(op)
-
-    return (
-        compute_indirection_cost(op.a, visited_axes, loop_axes, seen_exprs_mut, cache)
-        + compute_indirection_cost(op.b, visited_axes, loop_axes, seen_exprs_mut, cache)
-    )
-
-
-@compute_indirection_cost.register(LinearDatArrayBufferExpression)
-def _(expr: LinearDatArrayBufferExpression, /, visited_axes, loop_axes, seen_exprs_mut, cache) -> int:
-    if seen_exprs_mut is not None:
-        if expr in seen_exprs_mut:
-            return 0
-        else:
-            seen_exprs_mut.add(expr)
-
-    # The cost of a buffer expression (i.e. the memory volume) is given by...
-    # Remember that the axes here described the outer loops that exist and that
-    # index expressions that do not access data (e.g. 2i+j) have a cost of zero.
-    # dat[2i+j] would have a cost equal to ni*nj as those would be the outer loops
-    # TODO: Add penalty for non-affine layouts
-    layout_cost = compute_indirection_cost(expr.layout, visited_axes, loop_axes, seen_exprs_mut, cache)
-    dat_cost = extract_axes(expr.layout, visited_axes, loop_axes, cache=cache).size
-    return dat_cost + layout_cost * INDIRECTION_PENALTY_FACTOR
-
-
-@compute_indirection_cost.register(CompositeDat)
-def _(dat: CompositeDat, /, visited_axes, loop_axes, seen_exprs_mut, cache) -> int:
-    if seen_exprs_mut is not None:
-        if dat in seen_exprs_mut:
-            return 0
-        else:
-            seen_exprs_mut.add(dat)
-
-    return extract_axes(dat.expr, visited_axes, loop_axes, cache).size
 
 
 @functools.singledispatch
@@ -794,3 +806,125 @@ def _(dat: NonlinearDatArrayBufferExpression, /) -> OrderedSet:
     for layout_expr in dat.layouts.values():
         result |= collect_axis_vars(layout_expr)
     return result
+
+
+@functools.singledispatch
+def collect_composite_dats(obj: Any) -> frozenset:
+    raise TypeError
+
+
+@collect_composite_dats.register(Operator)
+def _(op, /) -> frozenset:
+    return collect_composite_dats(op.a) | collect_composite_dats(op.b)
+
+
+@collect_composite_dats.register(AxisVar)
+@collect_composite_dats.register(LoopIndexVar)
+@collect_composite_dats.register(numbers.Number)
+def _(op, /) -> frozenset:
+    return frozenset()
+
+
+@collect_composite_dats.register(LinearDatArrayBufferExpression)
+def _(dat, /) -> frozenset:
+    return collect_composite_dats(dat.layout)
+
+
+@collect_composite_dats.register(CompositeDat)
+def _(dat, /) -> frozenset:
+    return frozenset({dat})
+
+
+def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatArrayBufferExpression:
+    axes = composite_dat.axis_tree
+    # TODO: This is almost certainly the wrong place to do this
+    # axes = axes.undistribute()
+
+    loop_vars = OrderedSet()
+    for leaf_expr in composite_dat.leaf_exprs.values():
+        loop_vars |= collect_loop_index_vars(leaf_expr)
+    selected_loop_axes = composite_dat.loop_axes
+
+    # all_loop_axes = {
+    #     (index.id, axis.label): axis
+    #     for index in composite_dat.loop_indices
+    #     for axis in index.iterset.axes
+    # }
+    #
+    # selected_loop_axes = []
+    # for loop_var in loop_axes:
+    #     selected = all_loop_axes[loop_var.loop_id, loop_var.axis_label]
+    #     selected_loop_axes.append(selected)
+
+    # mytree = []
+    # for loop_var, axis in zip(loop_vars, selected_loop_axes, strict=True):
+    #     new_components = []
+    #     component = just_one(axis.components)
+    #     if isinstance(component.local_size, numbers.Integral):
+    #         new_component = component
+    #     else:
+    #         breakpoint()
+    #         # no idea about this... maybe not needed and can just use the size here!
+    #         new_count_axes = extract_axes(just_one(component.local_size.leaf_layouts.values()), visited_axes, loop_vars, cache)
+    #         new_count = Dat(new_count_axes, data=component.local_size.buffer)
+    #         new_component = AxisComponent(new_count, component.label)
+    #     new_components.append(new_component)
+    #     new_axis = Axis(new_components, f"{axis.label}_{loop_var.loop_id}")
+    #     mytree.append(new_axis)
+
+    mytree = AxisTree.from_iterable(composite_dat.loop_axes)
+    looptree = mytree
+    if mytree.size == 0:
+        mytree = composite_dat.axis_tree
+    else:
+        mytree = mytree.add_subtree(composite_dat.axis_tree, *mytree.leaf)
+
+    if mytree.size == 0:
+        return None
+
+    # step 2: assign
+    result = Dat.empty(mytree, dtype=IntType)
+
+    # replace LoopIndexVars in the expression with AxisVars
+    loop_index_replace_map = {
+        (loop_var.loop_id, loop_var.axis_label): AxisVar(f"{loop_var.axis_label}_{loop_var.loop_id}")
+        for loop_var in loop_vars
+    }
+    for path, expr in composite_dat.leaf_exprs.items():
+        expr = replace_terminals(expr, loop_index_replace_map)
+        myslices = []
+        for axis, component in path.items():
+            myslice = Slice(axis, [AffineSliceComponent(component)])
+            myslices.append(myslice)
+        iforest = IndexTree.from_iterable(myslices)
+
+        result[iforest].assign(expr, eager=True)
+
+    # step 3: replace axis vars with loop indices in the layouts
+    # NOTE: We need *all* the layouts here because matrices do not want the full path here. Instead
+    # they want to abort once the loop indices are handled.
+    newlayouts = {}
+    inv_map = {axis_var.axis_label: LoopIndexVar(loop_id, axis_label) for (loop_id, axis_label), axis_var in loop_index_replace_map.items()}
+    for mynode in composite_dat.axis_tree.nodes:
+        for component in mynode.components:
+            path = composite_dat.axis_tree.path(mynode, component)
+            fullpath = looptree.leaf_path | path
+            layout = result.axes.subst_layouts()[fullpath]
+            newlayout = replace_terminals(layout, inv_map)
+            newlayouts[path] = newlayout
+
+    # plus the empty layout
+    path = immutabledict()
+    fullpath = looptree.leaf_path
+    layout = result.axes.subst_layouts()[fullpath]
+    newlayout = replace_terminals(layout, inv_map)
+    newlayouts[path] = newlayout
+
+    if isinstance(composite_dat, LinearCompositeDat):
+        layout = newlayouts[axes.leaf_path]
+        return LinearDatArrayBufferExpression(result.buffer, layout)
+    else:
+        assert isinstance(composite_dat, NonlinearDatArrayBufferExpression)
+        return NonlinearDatArrayBufferExpression(result.buffer, newlayouts)
+
+
