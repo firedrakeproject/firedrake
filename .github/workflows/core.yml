@@ -111,10 +111,16 @@ jobs:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
 
-      - name: Install system dependencies
+      - name: Install Python
         run: |
           apt-get update
           apt-get -y install python3 python3-venv
+
+      - name: Validate single source of truth
+        run: ./firedrake-repo/scripts/check-config
+
+      - name: Install system dependencies
+        run: |
           apt-get -y install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
           : # Dependencies needed to run the test suite
