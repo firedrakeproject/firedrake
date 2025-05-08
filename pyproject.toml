@@ -1,7 +1,7 @@
 [project]
 name = "firedrake"
 # <year>.<month>.<patch>
-version = "2025.4.0"
+version = "2025.4.0.post0"
 description = "An automated system for the portable solution of partial differential equations using the finite element method"
 readme = "README.rst"
 license = {file = "LICENSE"}
@@ -24,8 +24,6 @@ dependencies = [
   "h5py>3.12.1",
   "libsupermesh",
   "loopy>2024.1",
-  # NOTE: If changing the PETSc/SLEPc version then firedrake-configure also needs
-  # changing (as well as other references to petsc4py and slepc4py here)
   "petsc4py==3.23.1",
   "numpy",
   "packaging",
@@ -58,7 +56,7 @@ Repository = "https://github.com/firedrakeproject/firedrake"
 Issues = "https://github.com/firedrakeproject/firedrake/issues/new/choose"
 
 [project.scripts]
-firedrake-check = "firedrake_check:main"
+firedrake-check = "firedrake._check:main"
 firedrake-clean = "firedrake.scripts.firedrake_clean:main"
 firedrake-preprocess-bibtex = "firedrake.scripts.firedrake_preprocess_bibtex:main"
 firedrake-status = "firedrake.scripts.firedrake_status:main"
@@ -160,11 +158,7 @@ firedrake = [
   "evaluate.h",
   "locate.c",
   "icons/*.png",
-]
-firedrake_check = [
-  "Makefile",
-  "tests/firedrake/conftest.py",
-  "tests/*/*/*.py",
+  "_check/**",
 ]
 pyop2 = [
   "*.h",

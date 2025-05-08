@@ -111,10 +111,16 @@ jobs:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
 
-      - name: Install system dependencies
+      - name: Install Python
         run: |
           apt-get update
           apt-get -y install python3 python3-venv
+
+      - name: Validate single source of truth
+        run: ./firedrake-repo/scripts/check-config
+
+      - name: Install system dependencies
+        run: |
           apt-get -y install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
           : # Dependencies needed to run the test suite
@@ -185,13 +191,28 @@ jobs:
             EXTRA_PIP_FLAGS='--no-build-isolation'
           fi
 
+          : # Install from an sdist so we can make sure that it is not ill-formed
+          pip install build
+          python -m build ./firedrake-repo --sdist
+
           pip install --verbose $EXTRA_PIP_FLAGS \
             --no-binary h5py \
             --extra-index-url https://download.pytorch.org/whl/cpu \
-            './firedrake-repo[ci,docs]'
+            "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci,docs]"
 
           firedrake-clean
           pip list
+
+      - name: Upload sdist (default ARCH only)
+        if: matrix.arch == 'default'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: firedrake-repo/dist/*
+
+      - name: Report sdist build status
+        id: report_sdist
+        run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
 
       - name: Run firedrake-check
         run: |
@@ -338,32 +359,6 @@ jobs:
         with:
           name: firedrake-logs-${{ matrix.arch }}
           path: pytest_*.log
-
-      - name: Build sdist (release only)
-        if: |
-          inputs.target_branch == 'release' &&
-          matrix.arch == 'default' &&
-          (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          pip install build
-          python -m build ./firedrake-repo --sdist
-
-      - name: Upload sdist (release only)
-        id: upload_sdist
-        if: |
-          inputs.target_branch == 'release' &&
-          matrix.arch == 'default' &&
-          (success() || steps.install.conclusion == 'success')
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: firedrake-repo/dist/*
-
-      - name: Report sdist build status
-        id: report_sdist
-        if: success() || steps.upload_sdist.conclusion == 'success'
-        run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
 
       - name: Check bibtex
         if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
@@ -515,16 +510,19 @@ jobs:
   deploy_website:
     name: Deploy GitHub pages (optional)
     needs: test_linux
+    # Only deploy the website for master here, the release branch is managed
+    # by https://github.com/firedrakeproject/firedrakeproject.github.io
     if: |
       always() &&
       inputs.deploy_website &&
+      inputs.target_branch == 'master' &&
       needs.test_linux.outputs.docs_conclusion == 'success'
     permissions:
       pages: write
       id-token: write
     environment:
       name: github-pages
-      url: http://firedrakeproject.github.io/firedrake/${{ inputs.target_branch }}
+      url: http://firedrakeproject.github.io/firedrake
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages
