@@ -24,7 +24,7 @@ dependencies = [
   "h5py>3.12.1",
   "libsupermesh",
   "loopy>2024.1",
-  "petsc4py==3.23.0",
+  "petsc4py==3.23.1",
   "numpy",
   "packaging",
   "pkgconfig",
@@ -90,7 +90,7 @@ netgen = [
   "ngsPETSc",
 ]
 slepc = [
-  "slepc4py==3.23.0",
+  "slepc4py==3.23.1",
 ]
 torch = [  # requires passing '--extra-index-url' to work
   "torch",
@@ -112,7 +112,7 @@ ci = [
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.23.0",
+  "slepc4py==3.23.1",
   "torch",  # requires passing '--extra-index-url' to work
   "vtk",
 ]
@@ -126,7 +126,7 @@ docker = [  # Used in firedrake-vanilla container
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.23.0",
+  "slepc4py==3.23.1",
 ]
 
 [build-system]
@@ -139,7 +139,7 @@ requires = [
   "pkgconfig",
   "pybind11",
   "setuptools>61.2",
-  "petsc4py==3.23.0",
+  "petsc4py==3.23.1",
   "rtree>=1.2",
 ]
 build-backend = "setuptools.build_meta"
