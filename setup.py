@@ -12,6 +12,7 @@ import libsupermesh
 import pkgconfig
 from dataclasses import dataclass, field
 from setuptools import setup, find_packages, Extension
+from setuptools.command.editable_wheel import editable_wheel as _editable_wheel
 from setuptools.command.sdist import sdist as _sdist
 from glob import glob
 from pathlib import Path
@@ -250,21 +251,28 @@ FIREDRAKE_CHECK_FILES = (
 )
 
 
-class sdist(_sdist):
+def copy_check_files():
+    """Copy Makefile and tests into firedrake/_check."""
+    dest_dir = Path("firedrake/_check")
+    for check_file in map(Path, FIREDRAKE_CHECK_FILES):
+        os.makedirs(dest_dir / check_file.parent, exist_ok=True)
+        shutil.copy(check_file, dest_dir / check_file.parent)
+
+
+class editable_wheel(_editable_wheel):
     def run(self):
-        self._copy_check_files()
+        copy_check_files()
         super().run()
 
-    def _copy_check_files(self):
-        """Copy Makefile and tests into firedrake/_check."""
-        dest_dir = Path("firedrake/_check")
-        for check_file in map(Path, FIREDRAKE_CHECK_FILES ):
-            os.makedirs(dest_dir / check_file.parent, exist_ok=True)
-            shutil.copy(check_file, dest_dir / check_file.parent)
+
+class sdist(_sdist):
+    def run(self):
+        copy_check_files()
+        super().run()
 
 
 setup(
-    cmdclass={"sdist": sdist},
+    cmdclass={"editable_wheel": editable_wheel, "sdist": sdist},
     packages=find_packages(),
     ext_modules=extensions(),
 )
