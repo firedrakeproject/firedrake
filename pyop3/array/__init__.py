@@ -4,7 +4,6 @@ from .dat import (  # noqa: F401
     FancyIndexWriteException,
     Dat,
     BufferExpression,
-    _Dat,
     LinearDatArrayBufferExpression,
     MatPetscMatBufferExpression,
     NonlinearDatArrayBufferExpression,

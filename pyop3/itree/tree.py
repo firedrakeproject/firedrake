@@ -20,7 +20,7 @@ from pyop3.extras.debug import maybe_breakpoint
 import pytools
 from immutabledict import immutabledict
 
-from pyop3.array import Dat, _Dat
+from pyop3.array import Dat
 from pyop3.axtree import (
     Axis,
     AxisComponent,
@@ -1899,10 +1899,7 @@ def iter_axis_tree(
 
         # bit of a hack, I reckon this can go as we can just get it from component.count
         # inside as_int
-        if isinstance(component.count, _Dat):
-            if not isinstance(component.count, Dat):
-                raise NotImplementedError("What happens here?")
-
+        if isinstance(component.count, Dat):
             mypath = component.count.axes.target_path.get(None, {})
             myindices = component.count.axes.target_exprs.get(None, {})
             if not component.count.axes.is_empty:

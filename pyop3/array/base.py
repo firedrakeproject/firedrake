@@ -63,6 +63,10 @@ class Array(ContextAware, FunctionArgument, Expression, abc.ABC):
         pass
 
     @abc.abstractmethod
+    def copy(self) -> Array:
+        pass
+
+    @abc.abstractmethod
     def getitem(self, *indices, strict=False):
         pass
 
@@ -89,7 +93,13 @@ class Array(ContextAware, FunctionArgument, Expression, abc.ABC):
     # }}}
 
     def assign(self, other, /, *, eager=False):
-        expr = ArrayAssignment(self, other, "write")
+        return self._assign(other, "write", eager=eager)
+
+    def iassign(self, other, /, *, eager=False):
+        return self._assign(other, "inc", eager=eager)
+
+    def _assign(self, other, mode, /, *, eager=False):
+        expr = ArrayAssignment(self, other, mode)
         return expr() if eager else expr
 
     def iassign(self, other, /, *, eager=False):

@@ -50,123 +50,8 @@ class FancyIndexWriteException(Exception):
     pass
 
 
-class _Dat(DistributedArray, KernelArgument, metaclass=abc.ABCMeta):
-
-    # {{{ Array impls
-
-    @property
-    def dim(self) -> int:
-        return 1
-
-    # }}}
-
-    # {{{ DistributedArray impls
-
-    @property
-    def buffer(self) -> AbstractBuffer:
-        return self._buffer
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.buffer.comm
-
-    # }}}
-
-
-    @property
-    def alloc_size(self):
-        return self.axes.alloc_size
-
-    @property
-    def size(self):
-        return self.axes.size
-
-    @property
-    def kernel_dtype(self):
-        # TODO Think about the fact that the dtype refers to either to dtype of the
-        # array entries (e.g. double), or the dtype of the whole thing (double*)
-        return self.dtype
-
-    @classmethod
-    def from_list(cls, data, axis_labels, name=None, dtype=ScalarType, inc=0):
-        """Return a multi-array formed from a list of lists.
-
-        The returned array must have one axis component per axis. These are
-        permitted to be ragged.
-
-        """
-        flat, count = cls._get_count_data(data)
-        flat = np.array(flat, dtype=dtype)
-
-        if isinstance(count, Sequence):
-            count = cls.from_list(count, axis_labels[:-1], name, dtype, inc + 1)
-            subaxis = Axis(count, axis_labels[-1])
-            axes = count.axes.add_axis(subaxis, count.axes.leaf)
-        else:
-            axes = AxisTree(Axis(count, axis_labels[-1]))
-
-        assert axes.depth == len(axis_labels)
-        return cls(axes, data=flat, dtype=dtype)
-
-    @classmethod
-    def _get_count_data(cls, data):
-        # recurse if list of lists
-        if not strictly_all(isinstance(d, collections.abc.Iterable) for d in data):
-            return data, len(data)
-        else:
-            flattened = []
-            count = []
-            for d in data:
-                x, y = cls._get_count_data(d)
-                flattened.extend(x)
-                count.append(y)
-            return flattened, count
-
-    def select_axes(self, indices):
-        selected = []
-        current_axis = self.axes
-        for idx in indices:
-            selected.append(current_axis)
-            current_axis = current_axis.get_part(idx.npart).subaxis
-        return tuple(selected)
-
-    # better to call copy
-    def copy2(self):
-        assert False, "old?"
-        return type(self)(
-            self.axes,
-            data=self.buffer.copy(),
-            max_value=self.max_value,
-            name=f"{self.name}_copy",
-            constant=self.constant,
-        )
-
-    # assign is a much better name for this
-    def copy(self, other, subset=Ellipsis):
-        """Copy the contents of the array into another."""
-        # NOTE: Is copy_to/copy_into a clearer name for this?
-        # TODO: Check that self and other are compatible, should have same axes and dtype
-        # for sure
-        # TODO: We can optimise here and copy the private data attribute and set halo
-        # validity. Here we do the simple but hopefully correct thing.
-        # None is an old potential argument here.
-        if subset is Ellipsis or subset is None:
-            other.data_wo[...] = self.data_ro
-        else:
-            self[subset].assign(other[subset])
-
-    @PETSc.Log.EventDecorator()
-    def zero(self, *, subset=Ellipsis, eager=False):
-        # old Firedrake code may hit this, should probably raise a warning
-        if subset is None:
-            subset = Ellipsis
-
-        expr = ArrayAssignment(self[subset], 0, "write")
-        return expr() if eager else expr
-
-
 @utils.record()
-class Dat(_Dat):
+class Dat(DistributedArray, KernelArgument):
     """Multi-dimensional, hierarchical array.
 
     Parameters
@@ -195,10 +80,17 @@ class Dat(_Dat):
 
     # {{{ Interface impls
 
-    name: ClassVar[property] = property(lambda self: self._name)
-    parent: ClassVar[property] = property(lambda self: self._parent)
+    name: ClassVar[str] = utils.attr("_name")
+    parent: ClassVar[Dat | None] = utils.attr("_parent")
+    buffer: ClassVar[AbstractBuffer] = utils.attr("_buffer")
+    dim = 1
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.buffer.comm
 
     # }}}
+
 
     def __init__(
         self,
@@ -368,6 +260,80 @@ class Dat(_Dat):
     def set_value(self, indices, value, path=None, *, loop_exprs=immutabledict()):
         offset = self.axes.offset(indices, path, loop_exprs=loop_exprs)
         self.buffer.data_wo[offset] = value
+
+    @property
+    def alloc_size(self):
+        return self.axes.alloc_size
+
+    @property
+    def size(self):
+        return self.axes.size
+
+    @property
+    def kernel_dtype(self):
+        # TODO Think about the fact that the dtype refers to either to dtype of the
+        # array entries (e.g. double), or the dtype of the whole thing (double*)
+        return self.dtype
+
+    @classmethod
+    def from_list(cls, data, axis_labels, name=None, dtype=ScalarType, inc=0):
+        """Return a multi-array formed from a list of lists.
+
+        The returned array must have one axis component per axis. These are
+        permitted to be ragged.
+
+        """
+        flat, count = cls._get_count_data(data)
+        flat = np.array(flat, dtype=dtype)
+
+        if isinstance(count, Sequence):
+            count = cls.from_list(count, axis_labels[:-1], name, dtype, inc + 1)
+            subaxis = Axis(count, axis_labels[-1])
+            axes = count.axes.add_axis(subaxis, count.axes.leaf)
+        else:
+            axes = AxisTree(Axis(count, axis_labels[-1]))
+
+        assert axes.depth == len(axis_labels)
+        return cls(axes, data=flat, dtype=dtype)
+
+    @classmethod
+    def _get_count_data(cls, data):
+        # recurse if list of lists
+        if not strictly_all(isinstance(d, collections.abc.Iterable) for d in data):
+            return data, len(data)
+        else:
+            flattened = []
+            count = []
+            for d in data:
+                x, y = cls._get_count_data(d)
+                flattened.extend(x)
+                count.append(y)
+            return flattened, count
+
+    def select_axes(self, indices):
+        selected = []
+        current_axis = self.axes
+        for idx in indices:
+            selected.append(current_axis)
+            current_axis = current_axis.get_part(idx.npart).subaxis
+        return tuple(selected)
+
+    def copy(self) -> Dat:
+        if self.parent is not None:
+            raise RuntimeError
+
+        name = f"{self.name}_copy"
+        buffer = self._buffer.copy()
+        return self.__record_init__(_name=name, _buffer=buffer)
+
+    @PETSc.Log.EventDecorator()
+    def zero(self, *, subset=Ellipsis, eager=False):
+        # old Firedrake code may hit this, should probably raise a warning
+        if subset is None:
+            subset = Ellipsis
+
+        expr = ArrayAssignment(self[subset], 0, "write")
+        return expr() if eager else expr
 
     # TODO: dont do this here
     def with_context(self, context):

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import Sequence
 import dataclasses
 from numbers import Number
@@ -35,6 +37,13 @@ class Parameter(Array):
 
     def getitem(self, strict=False):
         return self
+
+    def copy(self) -> Parameter:
+        if not isinstance(value, numbers.Number):
+            raise NotImplementedError
+
+        name = f"{self.name}_copy"
+        return self.__record_init__(_name=name)
 
     # }}}
 
