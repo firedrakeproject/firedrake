@@ -1801,12 +1801,6 @@ class ParloopBuilder:
                     dtype=op3_arg.dtype,
                     prefix="t"
                 )
-                #transformed_temp = temp.copy() should exist, sorry
-                transformed_temp = op3.Dat.null(
-                    op3_arg.axes.materialize(),
-                    dtype=op3_arg.dtype,
-                    prefix="t"
-                )
             else:
                 assert isinstance(op3_arg, op3.Mat)
                 temp = op3.Mat.null(
@@ -1815,13 +1809,7 @@ class ParloopBuilder:
                     dtype=op3_arg.dtype,
                     prefix="t"
                 )
-                #transformed_temp = temp.copy() should exist, sorry
-                transformed_temp = op3.Mat.null(
-                    op3_arg.raxes.materialize(),
-                    op3_arg.caxes.materialize(),
-                    dtype=op3_arg.dtype,
-                    prefix="t"
-                )
+            transformed_temp = temp.copy()
 
             if isinstance(tsfc_arg, kernel_args.OutputKernelArg):
                 scratch = op3.Dat.null(op3.Axis(100), dtype=temp.dtype)
