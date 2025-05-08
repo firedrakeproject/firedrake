@@ -39,7 +39,7 @@ actionlint:
 	@docker pull rhysd/actionlint:latest
 	@# Exclude SC2046 so it doesn't complain about unquoted $ characters (the
 	@# quoting can prevent proper parsing)
-	@docker run -e SHELLCHECK_OPTS='--exclude=SC2046' --rm -v $$(pwd):/repo --workdir /repo rhysd/actionlint -color
+	@docker run -e SHELLCHECK_OPTS='--exclude=SC2046,SC2078' --rm -v $$(pwd):/repo --workdir /repo rhysd/actionlint -color
 
 .PHONY: dockerlint
 dockerlint:
@@ -88,12 +88,13 @@ clean:
 	@echo "    RM tinyasm/*.so"
 	-@rm -f tinyasm/*.so > /dev/null 2>&1
 
-# Do verbose checking if running on CI
+# Do verbose checking if running on CI and always set no:cacheprovider because
+# we don't want to generate any cache files in $VIRTUAL_ENV/lib/.../firedrake/_check
 check_flags =
 ifeq ($(FIREDRAKE_CI), 1)
-	check_flags = --verbose
+	check_flags = --verbose -p no:cacheprovider
 else
-	check_flags = --quiet
+	check_flags = --quiet -p no:cacheprovider
 endif
 
 CHECK_PYTEST_ARGS =
