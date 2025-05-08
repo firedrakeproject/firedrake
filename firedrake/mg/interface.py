@@ -28,7 +28,7 @@ def check_arguments(coarse, fine, needs_dual=False):
         raise ValueError("Coarse argument must be from coarser space")
     if hierarchy is not fhierarchy:
         raise ValueError("Can't transfer between functions from different hierarchies")
-    if coarse.ufl_shape != fine.ufl_shape:
+    if cfs.value_shape != ffs.value_shape:
         raise ValueError("Mismatching function space shapes")
 
 
@@ -64,11 +64,11 @@ def prolong(coarse, fine):
         next_level += 1
         if j == repeat - 1:
             next = fine
-            Vf = fine.function_space()
         else:
             Vf = firedrake.FunctionSpace(meshes[next_level], element)
             next = firedrake.Function(Vf)
 
+        Vf = next.function_space()
         coarse_coords = Vc.mesh().coordinates
         fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
         fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
@@ -166,14 +166,14 @@ def inject(fine, coarse):
         for in_, out in zip(fine.subfunctions, coarse.subfunctions):
             manager = firedrake.dmhooks.get_transfer_manager(in_.function_space().dm)
             manager.inject(in_, out)
-        return
+        return coarse
 
     if Vc.ufl_element().family() == "Real" or Vf.ufl_element().family() == "Real":
         assert Vc.ufl_element().family() == "Real"
         assert Vf.ufl_element().family() == "Real"
         with coarse.dat.vec_wo as dest, fine.dat.vec_ro as src:
             src.copy(dest)
-        return
+        return coarse
 
     # Algorithm:
     # Loop over coarse nodes
@@ -197,30 +197,26 @@ def inject(fine, coarse):
 
     element = Vc.ufl_element()
     meshes = hierarchy._meshes
-
     for j in range(repeat):
         next_level -= 1
         if j == repeat - 1:
-            coarse.dat.zero()
             next = coarse
-            Vc = next.function_space()
         else:
             Vc = firedrake.FunctionSpace(meshes[next_level], element)
             next = firedrake.Function(Vc)
+        Vc = next.function_space()
         if not dg:
             node_locations = utils.physical_node_locations(Vc)
-
             fine_coords = Vf.mesh().coordinates
             coarse_node_to_fine_nodes = utils.coarse_node_to_fine_node_map(Vc, Vf)
             coarse_node_to_fine_coords = utils.coarse_node_to_fine_node_map(Vc, fine_coords.function_space())
-
             # Have to do this, because the node set core size is not right for
             # this expanded stencil
             for d in [fine, fine_coords]:
                 d.dat.global_to_local_begin(op2.READ)
                 d.dat.global_to_local_end(op2.READ)
             op2.par_loop(kernel, next.node_set,
-                         next.dat(op2.INC),
+                         next.dat(op2.WRITE),
                          node_locations.dat(op2.READ),
                          fine.dat(op2.READ, coarse_node_to_fine_nodes),
                          fine_coords.dat(op2.READ, coarse_node_to_fine_coords))

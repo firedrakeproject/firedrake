@@ -69,8 +69,6 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
 
 static inline void to_reference_coords_kernel(PetscScalar *X, const PetscScalar *x0, const PetscScalar *C)
 {
-    const int space_dim = %(geometric_dimension)d;
-
     /*
      * Mapping coordinates from physical to reference space
      */
@@ -400,7 +398,7 @@ def inject_kernel(Vf, Vc):
         return cache[key]
     except KeyError:
         ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1] * level_ratio
-        if Vc.finat_element.entity_dofs() == Vc.finat_element.entity_closure_dofs():
+        if Vc.finat_element.is_dg():
             return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
 
         coordinates = Vf.mesh().coordinates
@@ -408,7 +406,6 @@ def inject_kernel(Vf, Vc):
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
 
         coords_element = create_element(coordinates.ufl_element())
-        Vf_element = create_element(Vf.ufl_element())
         kernel = """
         %(to_reference)s
         %(evaluate)s
@@ -464,9 +461,9 @@ def inject_kernel(Vf, Vc):
             "celldist_l1_c_expr": celldist_l1_c_expr(Vc.finat_element.cell, X="Xref"),
             "tdim": Vc.mesh().topological_dimension(),
             "ncandidate": ncandidate,
-            "Rdim": numpy.prod(Vf.value_shape),
+            "Rdim": Vf.block_size,
             "Xf_cell_inc": coords_element.space_dimension(),
-            "f_cell_inc": Vf_element.space_dimension()
+            "f_cell_inc": Vf.finat_element.space_dimension() * Vf.block_size
         }
         return cache.setdefault(key, (op2.Kernel(kernel, name="pyop2_kernel_inject"), False))
 

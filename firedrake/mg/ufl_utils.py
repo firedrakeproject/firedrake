@@ -256,7 +256,6 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
 
     def coarsen(fine, coarse):
         return
-
         manager = get_transfer_manager(fine)
         cctx = get_appctx(coarse)
         cmapping = cctx._problem.F._cache["coefficient_mapping"]
@@ -265,7 +264,6 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
                 manager.restrict(f, c)
             else:
                 manager.inject(f, c)
-
 
     def inject_on_restrict(fine, restriction, rscale, injection, coarse):
         manager = get_transfer_manager(fine)
@@ -297,8 +295,8 @@ class Interpolation(object):
     def __init__(self, coarse, fine, manager, cbcs=None, fbcs=None):
         self.cprimal = coarse
         self.fprimal = fine
-        self.cdual = coarse.riesz_representation(riesz_map="l2")
-        self.fdual = fine.riesz_representation(riesz_map="l2")
+        self.cdual = firedrake.Cofunction(coarse.function_space().dual(), val=coarse.dat)
+        self.fdual = firedrake.Cofunction(fine.function_space().dual(), val=fine.dat)
         self.cbcs = cbcs or []
         self.fbcs = fbcs or []
         self.manager = manager
@@ -306,6 +304,8 @@ class Interpolation(object):
     def mult(self, mat, x, y, inc=False):
         with self.cprimal.dat.vec_wo as v:
             x.copy(v)
+        for bc in self.cbcs:
+            bc.zero(self.cprimal)
         self.manager.prolong(self.cprimal, self.fprimal)
         for bc in self.fbcs:
             bc.zero(self.fprimal)
@@ -325,6 +325,8 @@ class Interpolation(object):
     def multTranspose(self, mat, x, y, inc=False):
         with self.fdual.dat.vec_wo as v:
             x.copy(v)
+        for bc in self.fbcs:
+            bc.zero(self.fdual)
         self.manager.restrict(self.fdual, self.cdual)
         for bc in self.cbcs:
             bc.zero(self.cdual)
@@ -349,12 +351,10 @@ class Injection(object):
         self.cbcs = cbcs or []
         self.manager = manager
 
-    def multTranspose(self, mat, x, y):
+    def mult(self, mat, x, y):
         with self.ffn.dat.vec_wo as v:
             x.copy(v)
         self.manager.inject(self.ffn, self.cfn)
-        for bc in self.cbcs:
-            bc.apply(self.cfn)
         with self.cfn.dat.vec_ro as v:
             v.copy(y)
 
@@ -365,8 +365,8 @@ def create_interpolation(dmc, dmf):
 
     manager = get_transfer_manager(dmf)
 
-    V_c = cctx._problem.u.function_space()
-    V_f = fctx._problem.u.function_space()
+    V_c = cctx._x.function_space()
+    V_f = fctx._x.function_space()
 
     row_size = V_f.dof_dset.layout_vec.getSizes()
     col_size = V_c.dof_dset.layout_vec.getSizes()
@@ -391,11 +391,11 @@ def create_injection(dmc, dmf):
 
     manager = get_transfer_manager(dmf)
 
-    V_c = cctx._problem.u.function_space()
-    V_f = fctx._problem.u.function_space()
+    V_c = cctx._x.function_space()
+    V_f = fctx._x.function_space()
 
-    row_size = V_f.dof_dset.layout_vec.getSizes()
-    col_size = V_c.dof_dset.layout_vec.getSizes()
+    row_size = V_c.dof_dset.layout_vec.getSizes()
+    col_size = V_f.dof_dset.layout_vec.getSizes()
 
     cfn = firedrake.Function(V_c)
     ffn = firedrake.Function(V_f)
