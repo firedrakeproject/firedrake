@@ -92,6 +92,10 @@ class Array(ContextAware, FunctionArgument, Expression, abc.ABC):
         expr = ArrayAssignment(self, other, "write")
         return expr() if eager else expr
 
+    def iassign(self, other, /, *, eager=False):
+        expr = ArrayAssignment(self, other, "inc")
+        return expr() if eager else expr
+
 
 class DistributedArray(Array, metaclass=abc.ABCMeta):
 

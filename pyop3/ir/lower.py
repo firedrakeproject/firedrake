@@ -684,58 +684,28 @@ def parse_loop_properly_this_time(
 
 
 @_compile.register
-def _(call: StandaloneCalledFunction, loop_indices, ctx: LoopyCodegenContext) -> None:
-    temporaries = []
+def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext) -> None:
     subarrayrefs = {}
-    extents = {}
-
-    # loopy args can contain ragged params too
-    loopy_args = call.function.code.default_entrypoint.args[: len(call.arguments)]
+    loopy_args = call.function.code.default_entrypoint.args
     for loopy_arg, arg, spec in zip(loopy_args, call.arguments, call.argspec, strict=True):
         # this check fails because we currently assume that all arrays require packing
         # from pyop3.transform import _requires_pack_unpack
         # assert not _requires_pack_unpack(arg)
-        # old names
-        temporary = arg
-        indexed_temp = arg
 
-        if isinstance(arg, DummyKernelArgument):
-            ctx.add_dummy_argument(arg, loopy_arg.dtype)
-            name = ctx._dummy_names[arg]
-            subarrayrefs[arg] = pym.var(name)
-        else:
-            if loopy_arg.shape is None:
-                shape = (temporary.alloc_size,)
-            else:
-                if np.prod(loopy_arg.shape, dtype=int) != temporary.buffer.size:
-                    raise RuntimeError("Shape mismatch between inner and outer kernels")
-                shape = loopy_arg.shape
+        name_in_kernel = context.add_buffer(arg.buffer, spec.intent)
 
-            temporaries.append((arg, indexed_temp, spec.intent, shape))
+        # subarrayref nonsense/magic
+        indices = []
+        for s in loopy_arg.shape:
+            iname = context.unique_name("i")
+            context.add_domain(iname, s)
+            indices.append(pym.var(iname))
+        indices = tuple(indices)
 
-            # Register data
-            # TODO This might be bad for temporaries
-            # NOTE: not sure why I added this condition before
-            # if isinstance(arg, _Dat):
-            temp_name = ctx.add_buffer(arg.buffer, spec.intent)
+        subarrayrefs[arg] = lp.symbolic.SubArrayRef(
+            indices, pym.var(name_in_kernel)[indices]
+        )
 
-            # this should already be done in an assignment
-            # ctx.add_temporary(temporary.name, temporary.dtype, shape)
-
-            # subarrayref nonsense/magic
-            indices = []
-            for s in shape:
-                iname = ctx.unique_name("i")
-                ctx.add_domain(iname, s)
-                indices.append(pym.var(iname))
-            indices = tuple(indices)
-
-            subarrayrefs[arg] = lp.symbolic.SubArrayRef(
-                indices, pym.subscript(pym.var(temp_name), indices)
-            )
-
-    # TODO this is pretty much the same as what I do in fix_intents in loopexpr.py
-    # probably best to combine them - could add a sensible check there too.
     assignees = tuple(
         subarrayrefs[arg]
         for arg, spec in zip(call.arguments, call.argspec, strict=True)
@@ -747,12 +717,11 @@ def _(call: StandaloneCalledFunction, loop_indices, ctx: LoopyCodegenContext) ->
             subarrayrefs[arg]
             for arg, spec in zip(call.arguments, call.argspec, strict=True)
             if spec.intent in {READ, RW, INC, MIN_RW, MAX_RW}
-        )
-        + tuple(extents.values()),
+        ),
     )
 
-    ctx.add_function_call(assignees, expression)
-    ctx.add_subkernel(call.function.code)
+    context.add_function_call(assignees, expression)
+    context.add_subkernel(call.function.code)
 
 
 @_compile.register(ConcretizedNonEmptyArrayAssignment)

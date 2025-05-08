@@ -1780,7 +1780,7 @@ class ParloopBuilder:
         cells_axis_component = op3.utils.just_one(c for c in self._mesh.points.root.components if c.label == str(self._mesh.dimension))
         cells_axis = op3.Axis([cells_axis_component.copy(sf=None)], self._mesh.name)
         orientations = op3.Dat(cells_axis, data=numpy.zeros(cells_axis.size, dtype=numpy.uint8), name="orts")
-        
+
         p = self._iterset.index()
         o_packed = orientations[p]
         o_temp = op3.Dat.null(
@@ -1793,50 +1793,56 @@ class ParloopBuilder:
         unpack_insns = []
         for tsfc_arg in self._kinfo.arguments:
             op3_arg = self._as_parloop_arg(tsfc_arg, p)
-            temp = op3.Dat.null(
-                op3_arg.axes.materialize(),
-                dtype=op3_arg.dtype,
-                prefix="t"
-            )
-            transformed_temp = op3.Dat.null(
-                op3_arg.axes.materialize(),
-                dtype=op3_arg.dtype,
-                prefix="t"
-            )
 
-            #transformed_temp = temp.copy() should exist, sorry
+            # TODO: Probably want abstract {dat,mat}.materialize() (or similar) method
+            if isinstance(op3_arg, op3.Dat):
+                temp = op3.Dat.null(
+                    op3_arg.axes.materialize(),
+                    dtype=op3_arg.dtype,
+                    prefix="t"
+                )
+                #transformed_temp = temp.copy() should exist, sorry
+                transformed_temp = op3.Dat.null(
+                    op3_arg.axes.materialize(),
+                    dtype=op3_arg.dtype,
+                    prefix="t"
+                )
+            else:
+                assert isinstance(op3_arg, op3.Mat)
+                temp = op3.Mat.null(
+                    op3_arg.raxes.materialize(),
+                    op3_arg.caxes.materialize(),
+                    dtype=op3_arg.dtype,
+                    prefix="t"
+                )
+                #transformed_temp = temp.copy() should exist, sorry
+                transformed_temp = op3.Mat.null(
+                    op3_arg.raxes.materialize(),
+                    op3_arg.caxes.materialize(),
+                    dtype=op3_arg.dtype,
+                    prefix="t"
+                )
+
             if isinstance(tsfc_arg, kernel_args.OutputKernelArg):
                 scratch = op3.Dat.null(op3.Axis(100), dtype=temp.dtype)
-                unpack_insns.append(op3.ArrayAssignment(o_temp, o_packed, op3.AssignmentType.WRITE))
                 function_args = [o_temp, temp, scratch, transformed_temp]
-                called_func = transform_kernels[0](*function_args)
-                unpack_insns.append(called_func)
-                unpack_insns.append(op3.ArrayAssignment(op3_arg, transformed_temp, op3.AssignmentType.INC))
+
+                unpack_insns.extend([
+                    o_temp.assign(o_packed),
+                    transform_kernels[0](*function_args),
+                    op3_arg.iassign(transformed_temp),
+                ])
             else:
                 pack_insns.append(op3.ArrayAssignment(temp, op3_arg, op3.AssignmentType.WRITE))
 
             args.append(temp)
-        # temp_initial = Dat(
-        #         AxisTree(array.parent.axes.node_map),
-        #         data=NullBuffer(array.dtype),
-        #         prefix="t"
-        #     )
 
-        # axes = op3.AxisTree.from_nest({op3.Axis(10): op3.Axis(10)})
-        # a = op3.Dat(axes, name="a", data=numpy.zeros(axes.size), dtype=op3.ScalarType)
-        # b = op3.Dat(axes, name="b", data=numpy.zeros(axes.size), dtype=op3.ScalarType)
-        # res = op3.Dat(axes, name="res", data=numpy.zeros(axes.size), dtype=op3.ScalarType)
-        # need to think about the b argument and how to get the orientation argument
-        # loop2 = op3.loop(p, transform_kernels[0](orientation, b[p], a, res))
-        
         self._kinfo.kernel.code = self._kinfo.kernel.code.with_entrypoints({self._kinfo.kernel.name})
-        
+
         kernel = op3.Function(
             self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]]
         )
-        called_kernel = kernel(*args)
-        loop = op3.loop(p, [*pack_insns, called_kernel, *unpack_insns])
-        return loop
+        return op3.loop(p, [*pack_insns, kernel(*args), *unpack_insns])
 
     @property
     def test_function_space(self):
@@ -1987,7 +1993,6 @@ class ParloopBuilder:
                 self._subdomain_id,
                 self._all_integer_subdomain_ids
             )
-    
 
     def fuse_orientations(self):
         Vs = self._indexed_function_spaces
