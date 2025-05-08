@@ -176,7 +176,8 @@ def test_restricted_function_space_coord_change(j):
     compare_function_space_assembly(new_V, new_V_restricted, [bc])
 
 
-def test_poisson_restricted_mixed_space():
+@pytest.mark.parametrize("assembled_rhs", [False, True], ids=("Form", "Cofunction"))
+def test_poisson_restricted_mixed_space(assembled_rhs):
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "RT", 1)
     Q = FunctionSpace(mesh, "DG", 0)
@@ -186,6 +187,8 @@ def test_poisson_restricted_mixed_space():
     v, q = TestFunctions(Z)
     a = inner(u, v)*dx + inner(p, div(v))*dx + inner(div(u), q)*dx
     L = inner(1, q)*dx
+    if assembled_rhs:
+        L = assemble(L)
 
     bcs = [DirichletBC(Z.sub(0), 0, [1])]
 
