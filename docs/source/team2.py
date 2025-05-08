@@ -86,16 +86,3 @@ with open("AUTHORS.rst", "w") as fh:
         institution_set=institution_set,
         individual_set=individual_set
     ))
-
-# Create citations file for the Github repository
-citation_rst = env.get_template("citation.rst_t")
-institution_list = [inst[0] for inst in team["dev-institution"].items()]
-institution = ' and '.join(institution_list)
-author_list = list(team['active-team'].keys())
-author_list += list(team['inactive-team'].keys())
-author = ' and '.join(author_list)
-with open("CITATION.rst", "w") as fh:
-    fh.write(citation_rst.render(
-        author=author,
-        institution=institution
-    ))

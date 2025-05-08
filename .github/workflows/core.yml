@@ -396,7 +396,7 @@ jobs:
         run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
 
       # Some files are automatically generated when we install or build the
-      # docs (e.g. CITATION.rst). These files are committed to the repository
+      # docs (e.g. AUTHORS.rst). These files are committed to the repository
       # so uncommitted changes at this point reflect changes in the automatically
       # generated files that ought to be committed.
       - name: Check no untracked files

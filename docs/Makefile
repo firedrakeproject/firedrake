@@ -82,7 +82,7 @@ source/element_list.csv: source/element_list.py
 	cd source; python element_list.py
 
 source/team.rst: source/team2.py
-	cd source; python team2.py; mv AUTHORS.rst CITATION.rst ../..
+	cd source; python team2.py; mv AUTHORS.rst ../..
 
 source/firedrake_citations.rst:
 	sphinx-apidoc -f -T -o source/ ../firedrake_citations
