@@ -89,7 +89,13 @@ class Array(ContextAware, FunctionArgument, Expression, abc.ABC):
     # }}}
 
     def assign(self, other, /, *, eager=False):
-        expr = ArrayAssignment(self, other, "write")
+        return self._assign(other, "write", eager=eager)
+
+    def iassign(self, other, /, *, eager=False):
+        return self._assign(other, "inc", eager=eager)
+
+    def _assign(self, other, mode, /, *, eager=False):
+        expr = ArrayAssignment(self, other, mode)
         return expr() if eager else expr
 
 

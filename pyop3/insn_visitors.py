@@ -283,10 +283,9 @@ class ImplicitPackUnpackExpander(Transformer):
                     scatters.insert(0, ArrayAssignment(arg, temporary, "inc"))
 
                 function_arg = LinearDatArrayBufferExpression(temporary.buffer, 0)
-                arguments.append(function_arg)
-
             else:
-                arguments.append(arg)
+                function_arg = LinearDatArrayBufferExpression(arg.buffer, 0)
+            arguments.append(function_arg)
 
         return maybe_enlist((*gathers, StandaloneCalledFunction(terminal.function, arguments), *scatters))
 
