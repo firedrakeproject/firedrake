@@ -84,10 +84,15 @@ class Mat(DistributedArray):
 
     # }}}
 
-    # {{{ Interface impls
+    # {{{ interface impls
 
     name: ClassVar[property] = property(lambda self: self._name)
     parent: ClassVar[property] = property(lambda self: self._parent)
+
+    def copy(self) -> Mat:
+        name = f"{self.name}_copy"
+        buffer = self._buffer.copy()
+        return self.__record_init__(_name=name, _buffer=buffer)
 
     # }}}
 

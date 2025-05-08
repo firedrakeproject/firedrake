@@ -63,6 +63,10 @@ class Array(ContextAware, FunctionArgument, Expression, abc.ABC):
         pass
 
     @abc.abstractmethod
+    def copy(self) -> Array:
+        pass
+
+    @abc.abstractmethod
     def getitem(self, *indices, strict=False):
         pass
 

@@ -69,6 +69,10 @@ class AbstractBuffer(KernelArgument, metaclass=abc.ABCMeta):
     def dtype(self) -> np.dtype:
         pass
 
+    @abc.abstractmethod
+    def copy(self) -> AbstractBuffer:
+        pass
+
 
 class AbstractArrayBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
 
@@ -110,6 +114,10 @@ class NullBuffer(AbstractArrayBuffer):
     name: ClassVar[property] = utils.attr("_name")
     dtype: ClassVar[property] = utils.attr("_dtype")
 
+    def copy(self) -> NullBuffer:
+        name = f"{self.name}_copy"
+        return self.__record_init__(_name=name)
+
     # }}}
 
     def __init__(self, size: int, dtype: DTypeT | None = None, *, name: str | None = None, prefix: str | None = None):
@@ -147,7 +155,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # {{{ Instance attrs
 
-    _lazy_data: np.ndarray = dataclasses.field(hash=False)  # FIXME: Clearly not lazy!
+    _lazy_data: np.ndarray
     sf: StarForest | None
     _name: str
     _constant: bool
@@ -184,6 +192,13 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     def inc_state(self) -> None:
         self._state += 1
+
+    def copy(self) -> ArrayBuffer:
+        # Make sure that there are no pending transfers before we copy
+        self.assemble()
+        name = f"{self.name}_copy"
+        data = self._lazy_data.copy()
+        return self.__record_init__(_name=name, _lazy_data=data)
 
     # }}}
 
@@ -300,14 +315,9 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._leaves_valid = False
         return self._data
 
-    def copy(self):
-        return type(self)(
-            self.shape,
-            self.sf,
-            dtype=self.dtype,
-            data=self.data.copy(),
-            name=f"{self.name}_copy",
-        )
+    @not_in_flight
+    def assemble(self) -> None:
+        self._reduce_then_broadcast()
 
     @property
     def leaves_valid(self) -> bool:
@@ -425,6 +435,9 @@ class AbstractPetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
         raise NotImplementedError("TODO")
 
     def inc_state(self) -> None:
+        raise NotImplementedError("TODO")
+
+    def copy(self) -> AbstractPetscMatBuffer:
         raise NotImplementedError("TODO")
 
     # }}}

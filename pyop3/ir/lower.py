@@ -28,7 +28,7 @@ from pyop3.expr_visitors import collect_axis_vars
 import pyop2
 
 from pyop3 import utils
-from pyop3.array import Dat, _Dat, LinearDatArrayBufferExpression, NonlinearDatArrayBufferExpression, Parameter, Mat
+from pyop3.array import Dat, LinearDatArrayBufferExpression, NonlinearDatArrayBufferExpression, Parameter, Mat
 from pyop3.array.base import Array
 from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent, relabel_path
 from pyop3.buffer import AbstractBuffer, AbstractPetscMatBuffer, ArrayBuffer, NullBuffer
