@@ -1,3 +1,4 @@
+from re import M
 import numpy
 from functools import partial, singledispatch
 import os
@@ -11,6 +12,7 @@ import finat.ufl
 from ufl.algorithms import extract_arguments, extract_coefficients, replace
 from ufl.domain import as_domain, extract_unique_domain
 
+from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
 from pyop2 import op2
 from pyop2.caching import memory_and_disk_cache
 
@@ -1495,9 +1497,9 @@ class VomOntoVomWrapper(object):
         self.reduce = reduce
         # note that interpolation doesn't include halo cells
         self.dummy_mat = VomOntoVomDummyMat(
-            original_vom.input_ordering_without_halos_sf, reduce, V, source_vom, expr, arguments
+            original_vom.input_ordering_without_halos_sf, reduce, V, source_vom, target_vom, expr, arguments
         )
-        self.handle = self.dummy_mat._create_petsc_mat(PETSc.Mat())
+        self.handle = self.dummy_mat._create_petsc_mat()
 
     @property
     def mpi_type(self):
@@ -1544,11 +1546,12 @@ class VomOntoVomDummyMat(object):
         The arguments in the expression.
     """
 
-    def __init__(self, sf, forward_reduce, V, source_vom, expr, arguments):
+    def __init__(self, sf, forward_reduce, V, source_vom, target_vom, expr, arguments):
         self.sf = sf
         self.forward_reduce = forward_reduce
         self.V = V
         self.source_vom = source_vom
+        self.target_vom = target_vom
         self.expr = expr
         self.arguments = arguments
 
@@ -1666,9 +1669,12 @@ class VomOntoVomDummyMat(object):
             target_vec.zeroEntries()
             self.reduce(source_vec, target_vec)
 
-    def _create_petsc_mat(self, mat):
-        mat.create(comm=self.V.comm)
-        mat.setSizes([self.V.dim(), self.V.dim()])
+    def _create_petsc_mat(self):
+        mat = PETSc.Mat().create(comm=self.V.comm)
+        source_size = self.V.dof_dset.layout_vec.getSizes()
+        target_fs = self.V.reconstruct(mesh=self.target_vom)
+        target_size = target_fs.dof_dest.layout_vec.getSizes()
+        mat.setSizes([target_size, source_size])
         mat.setType(mat.Type.PYTHON)
         mat.setPythonContext(self)
         mat.setUp()
