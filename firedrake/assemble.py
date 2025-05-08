@@ -616,14 +616,14 @@ class BaseFormAssembler(AbstractFormAssembler):
     def update_tensor(assembled_base_form, tensor):
         if isinstance(tensor, (firedrake.Function, firedrake.Cofunction)):
             if isinstance(assembled_base_form, ufl.ZeroBaseForm):
-                tensor.dat.zero()
+                tensor.dat.zero(eager=True)
             else:
-                assembled_base_form.dat.copy(tensor.dat)
+                assembled_base_form.dat.assign(tensor.dat, eager=True)
         elif isinstance(tensor, matrix.MatrixBase):
             if isinstance(assembled_base_form, ufl.ZeroBaseForm):
                 tensor.petscmat.zeroEntries()
             else:
-                assembled_base_form.petscmat.copy(tensor.petscmat)
+                assembled_base_form.petscmat.assign(tensor.petscmat, eager=True)
         else:
             raise NotImplementedError("Cannot update tensor of type %s" % type(tensor))
 

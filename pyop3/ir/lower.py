@@ -207,6 +207,32 @@ class LoopyCodegenContext(CodegenContext):
 
         if buffer.name in self.data_arguments:
             if intent != self.global_buffer_intents[buffer.name]:
+                # TODO: clever logic for:
+                # * dat1.assign(dat1)
+                # * dat1.assign(2*dat1)
+                # * ? dat1.assign(dat2) ?
+                # We have to be careful because loop-carried dependencies will ruin us.
+                # I think it's only allowed if we don't do indirections. I.e.
+                #   dat1[i] = 2 * dat1[i]
+                # is OK but
+                #   dat1[map[i]] = 2 * dat1[map[i]]
+                # isn't. However
+                #   dat1[4*i] = 2 * dat1[4*i]
+                # is OK! And
+                #   dat1[3*i] = 2 * dat1[4*i]
+                # isn't.
+
+                # The idea:
+                # * If always the same intent then things are fine
+                # * If read + {write,inc} then set to RW
+                # * If inc + write then set to RW
+                # * But only do this if the index expression for each buffer is the
+                #   same and there is no overlap (e.g. dat[i-1:i+1] isn't OK).
+                #   * Not that the sizes must be 1, can be vector-valued. Only the
+                #     shared index must be the unit...
+                # * If a loop-carried dependency is detected then crash. We will never
+                #   support them - only for  kernel fusion where we might have time tiling.
+                raise NotImplementedError("TODO NEXT: think about accessors and loop carried dependencies")
                 raise ValueError("Cannot have mismatching intents for the same global buffer")
             return self.kernel_arg_names[buffer.name]
 

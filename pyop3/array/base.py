@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import abc
 import dataclasses
+import numbers
+from collections.abc import Iterable
 from typing import Any, ClassVar
 
 import numpy as np
@@ -99,8 +101,18 @@ class Array(ContextAware, FunctionArgument, Expression, abc.ABC):
         return self._assign(other, "inc", eager=eager)
 
     def _assign(self, other, mode, /, *, eager=False):
+        # TODO: If eager should try and convert to some sort of maxpy operation
+        # instead of doing a full code generation pass. Would have to make sure
+        # that nothing is indexed. This could also catch the case of x.assign(x).
+        # This will need to include expanding things like a(x + y) into ax + ay
+        # (distributivity).
         expr = ArrayAssignment(self, other, mode)
         return expr() if eager else expr
+
+    # TODO:
+    # Note that this will only really work for vectors
+    def maxpy(self, alpha: Iterable[numbers.Number], x: Iterable):
+        raise NotImplementedError
 
 
 class DistributedArray(Array, metaclass=abc.ABCMeta):
