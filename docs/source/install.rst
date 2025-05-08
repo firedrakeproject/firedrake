@@ -179,7 +179,7 @@ install Firedrake. To do this perform the following steps:
 #. Install Firedrake::
 
       $ pip cache remove petsc4py
-      $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git@release#[check]"
+      $ pip install --no-binary h5py 'firedrake[check]'
 
    .. note::
       Though not strictly necessary to install Firedrake's optional
@@ -218,7 +218,7 @@ Updating Firedrake involves following the same steps as above when
 :ref:`installing Firedrake<install_firedrake>`. First, use ``firedrake-configure``
 to set the right environment variables and then run::
 
-     $ pip install --upgrade git+https://github.com/firedrakeproject/firedrake.git@release
+     $ pip install --upgrade firedrake
 
 Updating PETSc
 ~~~~~~~~~~~~~~
@@ -325,7 +325,7 @@ To install Firedrake with SLEPc support you should:
    and install Firedrake with the ``slepc`` optional dependency. For example::
 
    $ pip cache remove slepc4py
-   $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git@release#[check,slepc]"
+   $ pip install --no-binary h5py 'firedrake[check,slepc]'
 
 VTK
 ~~~
@@ -333,7 +333,7 @@ VTK
 To install Firedrake with VTK, it should be installed using the ``vtk`` optional
 dependency. For example::
 
-   $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git@release#[check,vtk]"
+   $ pip install --no-binary h5py 'firedrake[check,vtk]'
 
 At present VTK wheels are not available for ARM Linux machines. Depending on your
 Python version you may be able to work around this by downloading and pip installing
@@ -347,7 +347,7 @@ PyTorch
 To install Firedrake with `PyTorch <https://pytorch.org/>`_, it should be installed
 using the ``torch`` optional dependency. For example::
 
-   $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git@release#[check,torch]" --extra-index-url https://download.pytorch.org/whl/cpu
+   $ pip install --no-binary h5py 'firedrake[check,torch]' --extra-index-url https://download.pytorch.org/whl/cpu
 
 Observe that, in addition to specifying ``torch``, an additional
 argument (``--extra-index-url``) is needed. More information on installing
@@ -360,7 +360,7 @@ JAX
 To install Firedrake with JAX, it should be installed using the ``jax`` optional
 dependency. For example::
 
-   $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git@release#[check,jax]"
+   $ pip install --no-binary h5py 'firedrake[check,jax]'
 
 
 Netgen
@@ -369,7 +369,7 @@ Netgen
 To install Firedrake with `Netgen <https://ngsolve.org/>`_ support, it should be
 installed with the ``netgen`` optional dependency. For example::
 
-   $ pip install --no-binary h5py "firedrake @ git+https://github.com/firedrakeproject/firedrake.git@release#[check,netgen]"
+   $ pip install --no-binary h5py 'firedrake[check,netgen]'
 
 
 Customising PETSc

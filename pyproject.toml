@@ -60,7 +60,7 @@ Repository = "https://github.com/firedrakeproject/firedrake"
 Issues = "https://github.com/firedrakeproject/firedrake/issues/new/choose"
 
 [project.scripts]
-firedrake-check = "firedrake_check:main"
+firedrake-check = "firedrake._check:main"
 firedrake-clean = "firedrake.scripts.firedrake_clean:main"
 firedrake-preprocess-bibtex = "firedrake.scripts.firedrake_preprocess_bibtex:main"
 pyop2-clean = "pyop2.compilation:clear_compiler_disk_cache"
@@ -167,11 +167,7 @@ firedrake = [
   "evaluate.h",
   "locate.c",
   "icons/*.png",
-]
-firedrake_check = [
-  "Makefile",
-  "tests/firedrake/conftest.py",
-  "tests/*/*/*.py",
+  "_check/**",
 ]
 pyop2 = [
   "*.h",

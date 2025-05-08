@@ -163,7 +163,7 @@ linkcheck_ignore = [
     r'https://www.tuomaskarna.com',
     r'https://www.crosscountrytrains.co.uk/',
     r'https://www.siam.org/',
-    r'https://aims.ac.rw/',
+    r'https://aims.ac.rw',
 ]
 linkcheck_timeout = 30
 
