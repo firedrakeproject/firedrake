@@ -75,6 +75,7 @@ class FacetSplitPC(PCBase):
             self.needs_zeroing = len(indices) < V.dof_count
             self.subset = PETSc.IS().createGeneral(indices, comm=PETSc.COMM_SELF)
 
+        self.reset_operators = False
         if mat_type != "submatrix":
             from firedrake.assemble import get_assembler
             form_assembler = get_assembler(mixed_operator, bcs=mixed_bcs,
@@ -82,20 +83,22 @@ class FacetSplitPC(PCBase):
                                            mat_type=mat_type,
                                            options_prefix=options_prefix)
             self.P = form_assembler.allocate()
-            self._assemble_mixed_op = form_assembler.assemble
-            self._assemble_mixed_op(tensor=self.P)
             self.mixed_opmat = self.P.petscmat
-            self.set_nullspaces(pc)
-            self.work_vecs = self.mixed_opmat.createVecs()
+            self._permute_op = partial(form_assembler.assemble, tensor=self.P)
         elif self.subset:
+            self.mixed_opmat = PETSc.Mat()
             global_indices = V.dof_dset.lgmap.apply(self.subset.indices)
             self._global_iperm = PETSc.IS().createGeneral(global_indices, comm=pc.comm)
-            self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self._global_iperm, self._global_iperm)
-            self.mixed_opmat = self._permute_op()
-            self.set_nullspaces(pc)
-            self.work_vecs = self.mixed_opmat.createVecs()
+            self._permute_op = partial(self.mixed_opmat.createSubMatrixVirtual, P, self._global_iperm, self._global_iperm)
+            self.reset_operators = True
         else:
             self.mixed_opmat = P
+            self._permute_op = lambda *args: None
+
+        aux = self._permute_op()
+        if aux is not None:
+            self.set_nullspaces(pc)
+            self.work_vecs = self.mixed_opmat.createVecs()
 
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line.  Since PC allows the user to specify
@@ -142,14 +145,13 @@ class FacetSplitPC(PCBase):
         Pmat.setTransposeNullSpace(_restrict_nullspace(P.getTransposeNullSpace()))
 
     def update(self, pc):
-        if hasattr(self, "_permute_op"):
-            for mat in self.pc.getOperators():
-                mat.destroy()
-            P = self._permute_op()
-            self.pc.setOperators(A=P, P=P)
-            self.mixed_opmat = P
-        elif hasattr(self, "P"):
-            self._assemble_mixed_op(tensor=self.P)
+        self._permute_op()
+        if self.reset_operators:
+            self.pc.setOperators(A=self.mixed_opmat, P=self.mixed_opmat)
+
+            dm = self.pc.getDM()
+            with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
+                self.pc.setFromOptions()
 
     def prolong(self, x, y):
         if x is not y:
