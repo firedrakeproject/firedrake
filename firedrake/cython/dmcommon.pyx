@@ -3923,3 +3923,106 @@ def submesh_create_cell_closure_cell_submesh(PETSc.DM subdm,
     CHKERR(PetscFree(subpoint_indices_inv))
     CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
     return subcell_closure
+
+
+def make_geometry_dm(coordinates) -> PETSc.DM:
+    cdef:
+        PETSc.DM topology_dm, geometry_dm
+        PETSc.Section vector_section
+        PetscInt gdim
+
+    topology_dm = coordinates.function_space().mesh().topology_dm
+    geometry_dm = topology_dm.clone()
+    coordinate_element = coordinates.ufl_element()
+    gdim = topology_dm.getCoordinateDim()
+
+    # the existing section has the correct numbering but is scalar, expand to gdim
+    scalar_dm = coordinates.function_space().dm
+    scalar_section = scalar_dm.getLocalSection()
+    p_start, p_end = scalar_section.getChart()
+
+    vector_section = PETSc.Section().create(comm=scalar_section.comm)
+    vector_section.setNumFields(1)
+    vector_section.setFieldComponents(0, gdim)
+    vector_section.setChart(p_start, p_end)
+    vector_section.setPermutation(scalar_section.getPermutation())
+
+    for p in range(p_start, p_end):
+        scalar_ndof = scalar_section.getDof(p)
+        CHKERR(PetscSectionSetDof(vector_section.sec, p, scalar_ndof*gdim))
+        CHKERR(PetscSectionSetFieldDof(vector_section.sec, p, 0, scalar_ndof*gdim))
+    vector_section.setUp()
+
+    if coordinate_element.family() == "Lagrange":
+        # apparently gdim ignored in this call and set explicitly below
+        CHKERR(DMSetCoordinateSection(geometry_dm.dm, gdim, vector_section.sec))
+        geometry_dm.setCoordinateDim(gdim)
+        geometry_dm.setCoordinatesLocal(coordinates.dat._vec)
+    else:
+        geometry_dm.setCellCoordinateDM(geometry_dm.getCoordinateDM().clone())
+        geometry_dm.setCellCoordinateSection(gdim, vector_section)  # gdim ignored
+        geometry_dm.setCoordinateDim(gdim)
+        geometry_dm.setCellCoordinatesLocal(coordinates.dat._vec)
+
+    return geometry_dm
+
+
+def dmplex_migrate(PETSc.DM dm, PETSc.SF sf) -> PETSc.DM:
+    cdef:
+        PETSc.DM migrated_dm
+
+    migrated_dm = PETSc.DMPlex().create(comm=dm.comm)
+    CHKERR(DMPlexMigrate(dm.dm, sf.sf, migrated_dm.dm))
+    return migrated_dm
+
+
+# not used currently
+def densify_sf(PETSc.DM topology_dm, PETSc.SF sparse_sf) -> PETSc.SF:
+    cdef:
+        PETSc.SF dense_sf
+        PetscInt dof_nroots, dof_nleaves
+        PetscInt *ilocal_new = NULL
+        PetscSFNode *iremote_new = NULL
+        PETSc.SF point_sf
+        PetscInt nroots, nleaves
+        const PetscInt *ilocal = NULL
+        const PetscSFNode *iremote = NULL
+        PETSc.Section local_sec
+        PetscInt pStart, pEnd, p, dof, off, m, n, i, j
+        np.ndarray local_offsets
+        np.ndarray remote_offsets
+
+    pStart, pEnd = topology_dm.getChart()
+    nPoints = pEnd - pStart
+    CHKERR(PetscSFGetGraph(sparse_sf.sf, &nroots, &nleaves, &ilocal, &iremote))
+
+    CHKERR(PetscMalloc1(nPoints, &ilocal_new))
+    CHKERR(PetscMalloc1(nPoints, &iremote_new))
+    for p in range(pStart, pEnd):
+        ilocal_new[p] = p
+        iremote_new[p].rank = topology_dm.comm.rank
+        iremote_new[p].index = p
+
+    for i in range(nleaves):
+        p = ilocal[i] if ilocal else i
+        iremote_new[p].rank = iremote[i].rank
+        iremote_new[p].index = iremote[i].index
+
+    dense_sf = PETSc.SF().create(comm=sparse_sf.comm)
+    CHKERR(PetscSFSetGraph(dense_sf.sf, nPoints, nPoints, ilocal_new, PETSC_OWN_POINTER, iremote_new, PETSC_OWN_POINTER))
+    return dense_sf
+
+
+# not used currently
+def dmplex_create_overlap_migration_sf(PETSc.DM topology_dm, PETSc.SF overlap_sf) -> PETSc.SF:
+    cdef:
+        PETSc.SF migration_sf
+
+    migration_sf = PETSc.SF().create(comm=topology_dm.comm)
+    CHKERR(DMPlexCreateOverlapMigrationSF(topology_dm.dm, overlap_sf.sf, &migration_sf.sf))
+    return migration_sf
+
+
+# not used currently
+def set_label(PETSc.DM dm, PETSc.DMLabel label) -> None:
+    CHKERR(DMSetLabel(dm.dm, label.dmlabel))
