@@ -180,6 +180,7 @@ install Firedrake. To do this perform the following steps:
 #. Install Firedrake::
 
       $ pip cache remove petsc4py
+      $ pip cache remove firedrake
       $ pip install --no-binary h5py 'firedrake[check]'
 
    .. note::
