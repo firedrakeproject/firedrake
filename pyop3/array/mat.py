@@ -27,7 +27,7 @@ from pyop3.axtree.tree import (
     IndexedAxisTree,
     as_axis_tree,
 )
-from pyop3.buffer import ArrayBuffer, NullBuffer, AbstractBuffer, AbstractPetscMatBuffer, PetscMatBuffer, PetscMatPreallocatorBuffer
+from pyop3.buffer import ArrayBuffer, NullBuffer, AbstractBuffer, PetscMatBuffer, AllocatedPetscMatBuffer, PetscMatPreallocatorBuffer
 from pyop3.dtypes import IntType, ScalarType
 from pyop3.lang import Loop, ArrayAssignment
 from pyop3.utils import (
@@ -134,7 +134,7 @@ class Mat(DistributedArray):
     def empty(cls, row_axes, column_axes, *, buffer_type: type = PetscMatBuffer, buffer_kwargs: Mapping[str, Any] | None = None, **kwargs) -> Mat:
         buffer_kwargs = buffer_kwargs or {}
 
-        if buffer_type is PetscMatBuffer:
+        if buffer_type is AllocatedPetscMatBuffer:
             # TODO: Move into a Buffer.zeros method or similar
             mat_type = buffer_kwargs.pop("mat_type", cls.DEFAULT_MAT_TYPE)
             block_shape = buffer_kwargs.pop("block_shape", 1)

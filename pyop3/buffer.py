@@ -416,7 +416,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._broadcast_roots_to_leaves()
 
 
-class AbstractPetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
+class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
     """A buffer whose underlying data structure is a PETSc Mat."""
 
     DEFAULT_PREFIX = "petscmat"
@@ -437,7 +437,7 @@ class AbstractPetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
     def inc_state(self) -> None:
         raise NotImplementedError("TODO")
 
-    def copy(self) -> AbstractPetscMatBuffer:
+    def copy(self) -> PetscMatBuffer:
         raise NotImplementedError("TODO")
 
     # }}}
@@ -509,7 +509,7 @@ class AbstractPetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
 
 
 @utils.record()
-class PetscMatBuffer(AbstractPetscMatBuffer):
+class AllocatedPetscMatBuffer(PetscMatBuffer):
     """A buffer whose underlying data structure is a PETSc Mat."""
 
     # {{{ Instance attrs
@@ -537,7 +537,7 @@ class PetscMatBuffer(AbstractPetscMatBuffer):
 
 
 @utils.record()
-class PetscMatPreallocatorBuffer(AbstractPetscMatBuffer):
+class PetscMatPreallocatorBuffer(PetscMatBuffer):
     """A buffer whose underlying data structure is a PETSc Mat."""
 
     # {{{ Instance attrs
@@ -567,7 +567,7 @@ class PetscMatPreallocatorBuffer(AbstractPetscMatBuffer):
         self._name = name
         self._constant = constant
 
-    def materialize(self) -> PetscMatBuffer:
+    def materialize(self) -> AllocatedPetscMatBuffer:
         if not self._lazy_template:
             self.assemble()
 
@@ -588,7 +588,7 @@ class PetscMatPreallocatorBuffer(AbstractPetscMatBuffer):
             object.__setattr__(self, "_lazy_template", template)
 
         mat = self._lazy_template.copy()
-        return PetscMatBuffer(mat)
+        return AllocatedPetscMatBuffer(mat)
 
     # TODO: can detect mat_type from the template I reckon
     def _preallocate(self, preallocator, template, mat_type):

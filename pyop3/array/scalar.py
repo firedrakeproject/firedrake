@@ -7,14 +7,14 @@ from typing import ClassVar
 import numpy as np
 from mpi4py import MPI
 
-from pyop3 import utils
+from pyop3 import dtypes, exceptions as exc, utils
 from pyop3.array.base import DistributedArray
 from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer
 from pyop3.sf import single_star_sf
 
 
 @utils.record()
-class Global(DistributedArray):
+class Scalar(DistributedArray):
 
     # {{{ instance attrs
 
@@ -30,11 +30,7 @@ class Global(DistributedArray):
     dim: ClassVar[int] = 0
     parent: ClassVar[None] = None
 
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.buffer.comm
-
-    def copy(self) -> Global:
+    def copy(self) -> Scalar:
         name = f"{self.name}_copy"
         buffer = self._buffer.copy()
         return self.__record_init__(_name=name, _buffer=buffer)
@@ -43,25 +39,33 @@ class Global(DistributedArray):
 
     # {{{ class attrs
 
-    DEFAULT_PREFIX: ClassVar[str] = "global"
+    DEFAULT_PREFIX: ClassVar[str] = "scalar"
+    DEFAULT_DTYPE: ClassVar[np.dtype] = dtypes.ScalarType
 
     # }}}
 
-    def __init__(self, buffer: AbstractBuffer | None = None, *, value: numbers.Number | None = None, comm=None, name: str | None = None, prefix: str | None = None):
+    def __init__(self, value: numbers.Number | None = None, comm: MPI.Comm | None=None, *, buffer: AbstractBuffer | None = None, name: str | None = None, prefix: str | None = None):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
         if buffer is not None:
-            assert value is None and comm is None
+            if value is not None or comm is not None:
+                raise ValueError("Since 'buffer' is given, 'value' and 'comm' should not be passed")
         else:
-            assert comm is not None
+            if comm is None:
+                comm = MPI.COMM_SELF
             sf = single_star_sf(comm)
+
             if value is not None:
                 data = np.asarray([value])
                 buffer = ArrayBuffer(data, sf=sf)
             else:
-                buffer = ArrayBuffer.zeros(1, sf=sf)
+                buffer = ArrayBuffer.empty(1, sf=sf, dtype=self.DEFAULT_DTYPE)
 
-        self._buffer = buffer
+        if buffer.size != 1:
+            raise exc.SizeMismatchException("Expected a buffer with unit size")
+
         self._name = name
+        self._buffer = buffer
 
     @property
     def dtype(self):

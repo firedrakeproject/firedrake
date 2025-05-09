@@ -12,9 +12,9 @@ from typing import Any, ClassVar, Optional
 
 import numpy as np
 from immutabledict import immutabledict
-from pyop3.array import Global
+from pyop3.array import Scalar
 from pyop3.array.dat import ArrayBufferExpression, DatArrayBufferExpression, DatBufferExpression, MatPetscMatBufferExpression, MatArrayBufferExpression, LinearBufferExpression, NonlinearBufferExpression
-from pyop3.buffer import AbstractArrayBuffer, PetscMatBuffer, AbstractPetscMatBuffer
+from pyop3.buffer import AbstractArrayBuffer, AllocatedPetscMatBuffer, PetscMatBuffer
 from pyop3.itree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree
 from pyrsistent import pmap, PMap
 from petsc4py import PETSc
@@ -494,7 +494,7 @@ def _(dat: Dat, /, axis_trees: Iterable[AxisTree, ...]) -> DatArrayBufferExpress
 
 @concretize_layouts.register(Mat)
 def _(mat: Mat, /, axis_trees: Iterable[AxisTree, ...]) -> BufferExpression:
-    if isinstance(mat.buffer, AbstractPetscMatBuffer):
+    if isinstance(mat.buffer, PetscMatBuffer):
         layouts = [
             NonlinearCompositeDat(axis_tree.materialize(), axis_tree.leaf_subst_layouts, axis_tree.outer_loops)
             for axis_tree in [mat.raxes, mat.caxes]
@@ -564,7 +564,7 @@ def _(op: Operator, /) -> tuple | None:
 @collect_tensor_shape.register(numbers.Number)
 @collect_tensor_shape.register(AxisVar)
 @collect_tensor_shape.register(BufferExpression)
-@collect_tensor_shape.register(Global)
+@collect_tensor_shape.register(Scalar)
 def _(obj: Any, /) -> None:
     return None
 
@@ -591,7 +591,7 @@ def _(op: Operator, /, **kwargs) -> immutabledict:
 
 @collect_tensor_candidate_indirections.register(numbers.Number)
 @collect_tensor_candidate_indirections.register(AxisVar)
-@collect_tensor_candidate_indirections.register(Global)
+@collect_tensor_candidate_indirections.register(Scalar)
 def _(var: Any, /, **kwargs) -> immutabledict:
     return immutabledict()
 
@@ -925,8 +925,10 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatArrayBuff
             myslice = Slice(axis, [AffineSliceComponent(component)])
             myslices.append(myslice)
         iforest = IndexTree.from_iterable(myslices)
+        assignee = result[iforest]
 
-        result[iforest].assign(expr, eager=True)
+        if assignee.size > 0:
+            assignee.assign(expr, eager=True)
 
     # step 3: replace axis vars with loop indices in the layouts
     # NOTE: We need *all* the layouts here because matrices do not want the full path here. Instead

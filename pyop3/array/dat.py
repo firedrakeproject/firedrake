@@ -24,7 +24,7 @@ from pyop3.axtree import (
     as_axis_tree,
 )
 from pyop3.axtree.tree import AbstractAxisTree, Expression, ContextFree, ContextSensitiveAxisTree, subst_layouts
-from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer, NullBuffer, AbstractPetscMatBuffer
+from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer, NullBuffer, PetscMatBuffer
 from pyop3.dtypes import ScalarType
 from pyop3.exceptions import Pyop3Exception
 from pyop3.lang import KernelArgument, ArrayAssignment
@@ -159,14 +159,6 @@ class Dat(DistributedArray, KernelArgument):
     def __getitem__(self, indices):
         return self.getitem(indices, strict=False)
 
-    # # TODO: redo now that we have Record?
-    # def __hash__(self) -> int:
-    #     return hash(
-    #         (
-    #             type(self), self.axes, self.dtype, self.buffer, self.max_value, self.name, self.ordered)
-    #     )
-
-
     # {{{ Class constructors
 
     @classmethod
@@ -248,10 +240,6 @@ class Dat(DistributedArray, KernelArgument):
             dat = self.__record_init__(axes=context_sensitive_axis_tree)
         # self._cache[key] = dat
         return dat
-
-    # Since __getitem__ is implemented, this class is implicitly considered
-    # to be iterable (which it's not). This avoids some confusing behaviour.
-    __iter__ = None
 
     def get_value(self, indices, path=None, *, loop_exprs=immutabledict()):
         offset = self.axes.offset(indices, path, loop_exprs=loop_exprs)
@@ -650,7 +638,7 @@ class MatPetscMatBufferExpression(MatBufferExpression, PetscMatBufferExpression,
 
     # {{{ instance attrs
 
-    _buffer: AbstractPetscMatBuffer
+    _buffer: PetscMatBuffer
     row_layout: CompositeDat
     column_layout: CompositeDat
 
@@ -658,7 +646,7 @@ class MatPetscMatBufferExpression(MatBufferExpression, PetscMatBufferExpression,
 
     # {{{ interface impls
 
-    buffer: ClassVar[AbstractPetscMatBuffer] = utils.attr("_buffer")
+    buffer: ClassVar[PetscMatBuffer] = utils.attr("_buffer")
 
     # }}}
 

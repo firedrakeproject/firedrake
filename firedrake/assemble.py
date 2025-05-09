@@ -1038,9 +1038,9 @@ class ParloopFormAssembler(FormAssembler):
 
             if isinstance(self, ExplicitMatrixAssembler):
                 with _modified_lgmaps(subtensor, lgmaps) as tensor_mod:
-                    parloop(**{self._tensor_name: tensor_mod}, compiler_parameters=pyop3_compiler_parameters)
+                    parloop(**{self._tensor_name: tensor_mod.buffer}, compiler_parameters=pyop3_compiler_parameters)
             else:
-                parloop(**{self._tensor_name: subtensor}, compiler_parameters=pyop3_compiler_parameters)
+                parloop(**{self._tensor_name: subtensor.buffer}, compiler_parameters=pyop3_compiler_parameters)
 
         for bc in self._bcs:
             self._apply_bc(tensor, bc)
@@ -1077,7 +1077,7 @@ class ParloopFormAssembler(FormAssembler):
                 )
                 parloops_.append((parloop_builder.build(), parloop_builder.collect_lgmaps(tensor)))
             self._parloops = parloops_
-            self._tensor_name = self._as_pyop3_type(tensor).name
+            self._tensor_name = self._as_pyop3_type(tensor).buffer.name
         return self._parloops
 
     @cached_property
@@ -1180,7 +1180,7 @@ class ZeroFormAssembler(ParloopFormAssembler):
         # revisit in a refactor
         comm = self._form.ufl_domains()[0]._comm
 
-        return op3.Global(comm=comm)
+        return op3.Scalar(0.0, comm=comm)
 
     def _apply_bc(self, tensor, bc):
         pass

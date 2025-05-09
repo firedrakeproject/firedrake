@@ -17,10 +17,10 @@ from pyrsistent import pmap, PMap
 from immutabledict import immutabledict
 
 from pyop3 import utils
-from pyop3.array import Global, Dat, Array, Mat, NonlinearDatArrayBufferExpression, LinearDatArrayBufferExpression, MatPetscMatBufferExpression
+from pyop3.array import Scalar, Dat, Array, Mat, NonlinearDatArrayBufferExpression, LinearDatArrayBufferExpression, MatPetscMatBufferExpression
 from pyop3.axtree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
 from pyop3.axtree.tree import Operator, AxisVar, IndexedAxisTree, merge_axis_trees2, prune_zero_sized_branches
-from pyop3.buffer import AbstractBuffer, AbstractPetscMatBuffer, ArrayBuffer, NullBuffer, PetscMatBuffer
+from pyop3.buffer import AbstractBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer, AllocatedPetscMatBuffer
 from pyop3.dtypes import IntType
 from pyop3.itree import Map, TabulatedMapComponent, collect_loop_contexts
 from pyop3.itree.tree import LoopIndex, LoopIndexVar, Slice, AffineSliceComponent, IndexTree
@@ -327,9 +327,9 @@ def _requires_pack_unpack(arg: FunctionArgument) -> bool:
     raise TypeError
 
 
-@_requires_pack_unpack.register(Global)
-def _(glob: Global) -> bool:
-    return not isinstance(glob.buffer, AbstractBuffer)
+@_requires_pack_unpack.register(Scalar)
+def _(scalar: Scalar) -> bool:
+    return False
 
 
 @_requires_pack_unpack.register(Dat)
@@ -341,7 +341,7 @@ def _(dat: Dat) -> bool:
 
 @_requires_pack_unpack.register(Mat)
 def _(mat: Mat) -> bool:
-    return not (not isinstance(mat.buffer, AbstractPetscMatBuffer) and _layouts_match(mat.raxes) and _layouts_match(mat.caxes))
+    return not (not isinstance(mat.buffer, PetscMatBuffer) and _layouts_match(mat.raxes) and _layouts_match(mat.caxes))
 
 
 def _layouts_match(axis_tree) -> bool:

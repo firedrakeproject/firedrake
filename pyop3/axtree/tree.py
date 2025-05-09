@@ -381,14 +381,14 @@ class AxisComponent(LabelledNodeComponent):
 
     @cached_property
     def size(self) -> Any:
-        from pyop3 import Parameter
+        from pyop3 import Scalar
 
         if self.sf is not None:
             if not isinstance(self.local_size, numbers.Integral):
                 raise NotImplementedError(
                     "Unsure what to do with non-integral sizes in parallel"
                 )
-            return Parameter(self.local_size)
+            return Scalar(self.local_size)
         else:
             # can be an integer or a Dat
             return self.local_size

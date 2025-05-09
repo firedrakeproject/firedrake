@@ -13,6 +13,7 @@ import textwrap
 import warnings
 import weakref
 from collections.abc import Mapping
+from functools import cached_property
 from typing import Any
 
 from cachetools import cachedmethod
@@ -28,10 +29,10 @@ from pyop3.expr_visitors import collect_axis_vars
 import pyop2
 
 from pyop3 import utils
-from pyop3.array import Dat, LinearDatArrayBufferExpression, NonlinearDatArrayBufferExpression, Parameter, Mat
+from pyop3.array import LinearDatArrayBufferExpression, NonlinearDatArrayBufferExpression, Scalar
 from pyop3.array.base import Array
 from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent, relabel_path
-from pyop3.buffer import AbstractBuffer, AbstractPetscMatBuffer, ArrayBuffer, NullBuffer
+from pyop3.buffer import AbstractBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
 from pyop3.ir.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
@@ -146,14 +147,6 @@ class LoopyCodegenContext(CodegenContext):
         self._domains.append(domain_str)
 
     def add_assignment(self, assignee, expression, prefix="insn"):
-        # TODO recover this functionality, in other words we should produce
-        # non-renamed expressions. This means that the Renamer can also register
-        # arguments so we only use the ones we actually need!
-
-        # renamer = Renamer(self.actual_to_kernel_rename_map)
-        # assignee = renamer(assignee)
-        # expression = renamer(expression)
-
         insn = lp.Assignment(
             assignee,
             expression,
@@ -196,107 +189,91 @@ class LoopyCodegenContext(CodegenContext):
             name = self._dummy_names.setdefault(arg, self._name_generator("dummy"))
         self._args.append(lp.ValueArg(name, dtype=dtype))
 
-    @functools.singledispatchmethod
-    def add_buffer(self, buffer: Any, intent: Intent | None = None) -> str:
-        raise TypeError(f"No handler defined for {type(buffer).__name__}")
+    # @functools.singledispatchmethod
+    # def add_buffer(self, buffer: Any, intent: Intent | None = None) -> str:
+    #     raise TypeError(f"No handler defined for {type(buffer).__name__}")
 
-    @add_buffer.register(ArrayBuffer)
-    def _(self, buffer: ArrayBuffer, intent: Intent| None = None) -> str:
-        if intent is None:
-            raise ValueError("Global data must declare intent")
-
-        if buffer.name in self.data_arguments:
-            if intent != self.global_buffer_intents[buffer.name]:
-                # TODO: clever logic for:
-                # * dat1.assign(dat1)
-                # * dat1.assign(2*dat1)
-                # * ? dat1.assign(dat2) ?
-                # We have to be careful because loop-carried dependencies will ruin us.
-                # I think it's only allowed if we don't do indirections. I.e.
-                #   dat1[i] = 2 * dat1[i]
-                # is OK but
-                #   dat1[map[i]] = 2 * dat1[map[i]]
-                # isn't. However
-                #   dat1[4*i] = 2 * dat1[4*i]
-                # is OK! And
-                #   dat1[3*i] = 2 * dat1[4*i]
-                # isn't.
-
-                # The idea:
-                # * If always the same intent then things are fine
-                # * If read + {write,inc} then set to RW
-                # * If inc + write then set to RW
-                # * But only do this if the index expression for each buffer is the
-                #   same and there is no overlap (e.g. dat[i-1:i+1] isn't OK).
-                #   * Not that the sizes must be 1, can be vector-valued. Only the
-                #     shared index must be the unit...
-                # * If a loop-carried dependency is detected then crash. We will never
-                #   support them - only for  kernel fusion where we might have time tiling.
-                raise NotImplementedError("TODO NEXT: think about accessors and loop carried dependencies")
-                raise ValueError("Cannot have mismatching intents for the same global buffer")
-            return self.kernel_arg_names[buffer.name]
-
-        self.data_arguments[buffer.name] = buffer
-        self.global_buffer_intents[buffer.name] = intent
-
-        # Inject constant buffer data into the generated code if sufficiently small
-        # TODO: Need to consider 'constant-ness'. Something may be immutable but still
-        # not match across ranks.
-        # Maybe sf check is enough?
-        if buffer.constant and buffer.size < config["max_static_array_size"]:
-            assert not buffer.sf, "sufficient check?"
-            return self.add_temporary(
-                "t",
-                buffer.dtype,
-                initializer=buffer.data_ro,
-                shape=buffer.data_ro.shape,
-                read_only=True,
-            )
-
-        if isinstance(buffer.dtype, np.dtypes.IntDType):
-            name_in_kernel = self.unique_name("map")
+    def add_buffer(self, buffer: AbstractBuffer, intent: Intent | None = None) -> str:
+        # TODO: make a singledispatchmethod
+        if isinstance(buffer, NullBuffer):
+            # 'intent' is not important for temporaries
+            if buffer.name in self.data_arguments:
+                return self.kernel_arg_names[buffer.name]
+            shape = self._temporary_shapes.get(buffer.name, (buffer.size,))
+            name_in_kernel = self.add_temporary("t", buffer.dtype, shape=shape)
         else:
-            name_in_kernel = self.unique_name("dat")
+            if intent is None:
+                raise ValueError("Global data must declare intent")
 
-        # If the buffer is being passed straight through to a function then we
-        # have to make sure that the shapes match
-        shape = self._temporary_shapes.get(buffer.name, None)
-        arg = lp.GlobalArg(name_in_kernel, dtype=buffer.dtype, shape=shape)
-        self._args.append(arg)
+            if buffer.name in self.data_arguments:
+                if intent != self.global_buffer_intents[buffer.name]:
+                    # TODO: clever logic for:
+                    # * dat1.assign(dat1)
+                    # * dat1.assign(2*dat1)
+                    # * ? dat1.assign(dat2) ?
+                    # We have to be careful because loop-carried dependencies will ruin us.
+                    # I think it's only allowed if we don't do indirections. I.e.
+                    #   dat1[i] = 2 * dat1[i]
+                    # is OK but
+                    #   dat1[map[i]] = 2 * dat1[map[i]]
+                    # isn't. However
+                    #   dat1[4*i] = 2 * dat1[4*i]
+                    # is OK! And
+                    #   dat1[3*i] = 2 * dat1[4*i]
+                    # isn't.
+
+                    # The idea:
+                    # * If always the same intent then things are fine
+                    # * If read + {write,inc} then set to RW
+                    # * If inc + write then set to RW
+                    # * But only do this if the index expression for each buffer is the
+                    #   same and there is no overlap (e.g. dat[i-1:i+1] isn't OK).
+                    #   * Not that the sizes must be 1, can be vector-valued. Only the
+                    #     shared index must be the unit...
+                    # * If a loop-carried dependency is detected then crash. We will never
+                    #   support them - only for  kernel fusion where we might have time tiling.
+                    raise NotImplementedError("TODO NEXT: think about accessors and loop carried dependencies")
+                    raise ValueError("Cannot have mismatching intents for the same global buffer")
+                return self.kernel_arg_names[buffer.name]
+
+            if isinstance(buffer, ArrayBuffer):
+                # Inject constant buffer data into the generated code if sufficiently small
+                # TODO: Need to consider 'constant-ness'. Something may be immutable but still
+                # not match across ranks.
+                # Maybe sf check is enough?
+                if buffer.constant and buffer.size < config["max_static_array_size"]:
+                    assert not buffer.sf, "sufficient check?"
+                    return self.add_temporary(
+                        "t",
+                        buffer.dtype,
+                        initializer=buffer.data_ro,
+                        shape=buffer.data_ro.shape,
+                        read_only=True,
+                    )
+
+                if isinstance(buffer.dtype, np.dtypes.IntDType):
+                    name_in_kernel = self.unique_name("idat")
+                else:
+                    name_in_kernel = self.unique_name("dat")
+
+                # If the buffer is being passed straight through to a function then we
+                # have to make sure that the shapes match
+                shape = self._temporary_shapes.get(buffer.name, None)
+                arg = lp.GlobalArg(name_in_kernel, dtype=buffer.dtype, shape=shape)
+            else:
+                assert isinstance(buffer, PetscMatBuffer)
+
+                name_in_kernel = self.unique_name("mat")
+                arg = lp.ValueArg(name_in_kernel, dtype=OpaqueType("Mat"))
+
+            # self.data_arguments[buffer.name] = buffer
+            self.global_buffer_intents[buffer.name] = intent
+            self._args.append(arg)
+
+        # why here?
+        self.data_arguments[buffer.name] = buffer
         self.kernel_arg_names[buffer.name] = name_in_kernel
         return name_in_kernel
-
-    @add_buffer.register(AbstractPetscMatBuffer)
-    def _(self, buffer: AbstractPetscMatBuffer, intent: Intent | None = None) -> str:
-        if intent is None:
-            raise ValueError("Global data must declare intent")
-
-        # TODO: This is the same as for Buffer, refactor
-        if buffer.name in self.data_arguments:
-            if intent != self.global_buffer_intents[buffer.name]:
-                raise ValueError("Cannot have mismatching intents for the same global buffer")
-            return self.kernel_arg_names[buffer.name]
-
-        self.data_arguments[buffer.name] = buffer
-        self.global_buffer_intents[buffer.name] = intent
-
-        kernel_name = self.unique_name("mat")
-        arg = lp.ValueArg(kernel_name, dtype=OpaqueType("Mat"))
-        self._args.append(arg)
-        self.kernel_arg_names[buffer.name] = kernel_name
-        return kernel_name
-
-    @add_buffer.register(NullBuffer)
-    def _(self, buffer: NullBuffer, intent: Intent | None = None) -> str:
-        # NOTE: 'intent' is not important for temporaries
-        if buffer.name in self.data_arguments:
-            return self.kernel_arg_names[buffer.name]
-        self.data_arguments[buffer.name] = buffer
-
-        shape = self._temporary_shapes.get(buffer.name, (buffer.size,))
-        name = self.add_temporary("t", buffer.dtype, shape=shape)
-        self.kernel_arg_names[buffer.name] = name
-        return name
 
     def add_temporary(self, prefix="t", dtype=IntType, *, shape=(), initializer: np.ndarray = None, read_only: bool = False) -> str:
         # If multiple temporaries with the same initializer are used then they
@@ -307,9 +284,9 @@ class LoopyCodegenContext(CodegenContext):
             if key in self._reusable_temporaries:
                 return self._reusable_temporaries[key]
 
-        name = self.unique_name(prefix)
+        name_in_kernel = self.unique_name(prefix)
         arg = lp.TemporaryVariable(
-            name,
+            name_in_kernel,
             dtype=dtype,
             shape=shape,
             initializer=initializer,
@@ -319,21 +296,9 @@ class LoopyCodegenContext(CodegenContext):
         self._args.append(arg)
 
         if can_reuse:
-            self._reusable_temporaries[key] = name
+            self._reusable_temporaries[key] = name_in_kernel
 
-        return name
-
-    def add_parameter(self, parameter: Parameter, *, prefix="p") -> str:
-        # TODO: This is the same as for Buffer, refactor
-        if parameter.name in self.data_arguments:
-            return self.data_arguments[parameter.name]
-        self.data_arguments[parameter.name] = parameter
-
-        name = self.unique_name(prefix)
-        arg = lp.ValueArg(name, dtype=parameter.dtype)
-        self._args.append(arg)
-        self.kernel_arg_names[parameter.name] = name
-        return name
+        return name_in_kernel
 
     def add_subkernel(self, subkernel):
         self._subkernels.append(subkernel)
@@ -361,48 +326,107 @@ class LoopyCodegenContext(CodegenContext):
         self._last_insn_id = insn.id
 
 
-# bad name, bit misleading as this is just the loopy bit, further optimisation
-# and lowering to go...
-class CodegenResult:
+class DummyModuleExecutor:
+    def __call__(self, **kwargs):
+        pass
+
+
+class ModuleExecutor:
+    """
+    Notes
+    -----
+    This class has a large number of cached properties to reduce latency when it
+    is called.
+
+    """
+
     # TODO: intents and datamap etc maybe all go together. All relate to the same objects
-    def __init__(self, loopy_kernel, data_arguments, global_buffer_intents, compiler_parameters):
-        self.loopy_kernel = loopy_kernel
+    def __init__(self, loopy_code: lp.TranslationUnit, data_arguments, global_buffer_intents, compiler_parameters):
+        self.loopy_code = loopy_code
         self.data_arguments = data_arguments
         self.global_buffer_intents = global_buffer_intents
         self.compiler_parameters = compiler_parameters
 
+        # TODO: better name: buffers?
+        self.buffer_map = self.data_arguments
+
         # self._cache = collections.defaultdict(dict)
 
-    # @cachedmethod(lambda self: self._cache["CodegenResult._compile"])
-    # not really needed, just a @property
-    def _compile(self):
-        return compile_loopy(self.loopy_kernel, pyop3_compiler_parameters=self.compiler_parameters)
+    @property
+    def loopy_kernel(self) -> lp.LoopKernel:
+        return self.loopy_code.default_entrypoint
+
+    @cached_property
+    def _buffers(self) -> tuple[AbstractBuffer]:
+        return tuple(self.buffer_map.values())
+
+    @cached_property
+    def executable(self):
+        return compile_loopy(self.loopy_code, pyop3_compiler_parameters=self.compiler_parameters)
 
     def __call__(self, **kwargs):
-        if not self.global_buffer_intents:
-            warnings.warn(
-                "Attempting to execute a kernel that does not touch any global "
-                "data, skipping"
-            )
-            return
+        if not kwargs:  # shortcut for the most common case
+            buffers = self._buffers
+            exec_arguments = self._default_exec_arguments
+        else:
+            buffers = list(self._buffers)
+            exec_arguments = list(self._default_exec_arguments)
 
-        executable = self._compile()
+            # TODO:
+            # if config.debug:
+            if False:
+                for buffer_name, replacement_buffer in kwargs.items():
+                    self._check_buffer_is_valid(self.buffer_map[buffer_name], replacement_buffer)
 
-        # TODO: Check each of kwargs and make sure that the replacement is
-        # valid (e.g. same size, same data type, same layout funcs).
-        kernel_args = []
-        for data_argument in self.data_arguments.values():
-            data_argument = kwargs.get(data_argument.name, data_argument)
-            kernel_args.append(as_kernel_arg(data_argument))
+            for buffer_name, replacement_buffer in kwargs.items():
+                index = self._buffer_indices[buffer_name]
+                buffers[index] = replacement_buffer
+                exec_arguments[index] = self._as_exec_argument(replacement_buffer)
+
+        for index in self._modified_buffer_indices:
+            buffers[index].inc_state()
 
         # if len(self.loopy_kernel.callables_table) > 1:
         #     ccode = lp.generate_code_v2(self.loopy_kernel).device_code()
         #     breakpoint()
 
-        executable(*kernel_args)
+        self.executable(*exec_arguments)
 
-    def target_code(self, target):
-        raise NotImplementedError("TODO")
+    @cached_property
+    def _buffer_indices(self) -> immutabledict[str, int]:
+        return immutabledict({
+            buffer.name: i for i, buffer in enumerate(self._buffers)
+        })
+
+    @cached_property
+    def _modified_buffer_indices(self) -> tuple[int]:
+        return tuple(
+            i
+            for i, intent in enumerate(self.global_buffer_intents.values())
+            if intent != READ
+        )
+
+    @cached_property
+    def _default_exec_arguments(self) -> tuple[numbers.Number]:
+        return tuple(self._as_exec_argument(buffer) for buffer in self._buffers)
+
+    def _as_exec_argument(self, buffer: AbstractBuffer) -> numbers.Number:
+        if isinstance(buffer, ArrayBuffer):
+            # NOTE: Use the private accessor ._data here to avoid triggering
+            # a halo exchange
+            return buffer._data.ctypes.data
+        else:
+            assert isinstance(buffer, PetscMatBuffer)
+            return buffer.mat.handle
+
+    def _check_buffer_is_valid(self, orig_buffer: AbstractBuffer, new_buffer: AbstractBuffer, /) -> None:
+        valid = (
+            type(new_buffer) is type(orig_buffer)
+            and new_buffer.size == orig_buffer.size
+            and new_buffer.dtype == orig_buffer.dtype
+        )
+        if not valid:
+            raise exc.BufferMismatchException()
 
 
 class BinarySearchCallable(lp.ScalarCallable):
@@ -502,6 +526,12 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
             context.set_temporary_shapes(_collect_temporary_shapes(e))
             _compile(e, loop_indices, context)
 
+    if not context.global_buffer_intents:
+        warnings.warn(
+            "The generated kernel does not modify any global data, this may indicate that something has gone wrong"
+        )
+        return DummyModuleExecutor()
+
     # add a no-op instruction touching all of the kernel arguments so they are
     # not silently dropped
     noop = lp.CInstruction(
@@ -567,7 +597,7 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
         data_argument_name = data_argument_names[kernel_arg.name]
         data_arguments[kernel_arg.name] = context.data_arguments[data_argument_name]
 
-    return CodegenResult(translation_unit, data_arguments, context.global_buffer_intents, compiler_parameters)
+    return ModuleExecutor(translation_unit, data_arguments, context.global_buffer_intents, compiler_parameters)
 
 
 # put into a class in transform.py?
@@ -784,7 +814,7 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
         assert isinstance(expr, ArrayBufferExpression)
         array_buffer = expr.buffer
 
-    if not isinstance(mat.buffer, AbstractPetscMatBuffer):
+    if not isinstance(mat.buffer, PetscMatBuffer):
         raise NotImplementedError  # order must be different
     else:
         # We need to know whether the matrix is the assignee or not because we need
@@ -1147,47 +1177,12 @@ def _(num: numbers.Integral, *args, **kwargs):
     return num
 
 
-@register_extent.register(Parameter)
-def _(param: Parameter, inames, loop_indices, context):
-    return context.add_parameter(param)
-
-@register_extent.register(Dat)  # is this right? should this already be parsed?
-@register_extent.register(LinearDatArrayBufferExpression)
-def _(extent, /, intent, iname_replace_map, loop_indices, context):
-    expr = lower_expr(extent, [iname_replace_map], loop_indices, READ, context)
-    varname = context.add_temporary("p")
-    context.add_assignment(pym.var(varname), expr)
-    return varname
-
-
-# lives here??
-@functools.singledispatch
-def as_kernel_arg(obj: Any) -> numbers.Number:
-    raise TypeError(f"No handler defined for {type(obj).__name__}")
-
-
-# @as_kernel_arg.register(numbers.Integral)
-# def _(num: numbers.Integral) -> int:
-#     return int(num)
-
-
-@as_kernel_arg.register(Parameter)
-def _(param: Parameter) -> np.number:
-    return param.value
-
-
-@as_kernel_arg.register
-def _(arg: ArrayBuffer) -> int:
-    # TODO if we use the right accessor here we modify the state appropriately
-    # NOTE: Do not use .data_rw accessor here since this would trigger a halo exchange
-    return arg._data.ctypes.data
-
-
-# NOTE: I think that we should probably have a MatBuffer or similar type so
-# array.buffer is universal
-@as_kernel_arg.register(AbstractPetscMatBuffer)
-def _(mat):
-    return mat.mat.handle
+@register_extent.register(Scalar)
+def _(param: Scalar, inames, loop_indices, context):
+    name_in_kernel = context.add_buffer(param.buffer, READ)
+    extent_name = context.add_temporary("p")
+    context.add_assignment(pym.var(extent_name), pym.var(name_in_kernel)[0])
+    return extent_name
 
 
 # FIXME: We assume COMM_SELF here, this is maybe OK if we make sure to use a

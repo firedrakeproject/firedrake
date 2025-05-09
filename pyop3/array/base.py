@@ -125,12 +125,11 @@ class DistributedArray(Array, metaclass=abc.ABCMeta):
     def buffer(self) -> Any:
         pass
 
-    @property
-    @abc.abstractmethod
-    def comm(self) -> MPI.Comm:
-        pass
-
     # }}}
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.buffer.comm
 
     @property
     def dtype(self) -> np.dtype:
