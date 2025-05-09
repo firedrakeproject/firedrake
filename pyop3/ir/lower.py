@@ -15,6 +15,7 @@ import weakref
 from collections.abc import Mapping
 from functools import cached_property
 from typing import Any
+from weakref import WeakValueDictionary
 
 from cachetools import cachedmethod
 from petsc4py import PETSc
@@ -31,7 +32,7 @@ import pyop2
 from pyop3 import utils
 from pyop3.tensor import LinearDatArrayBufferExpression, NonlinearDatArrayBufferExpression, Scalar
 from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent, relabel_path
-from pyop3.buffer import AbstractBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
+from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
 from pyop3.ir.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
@@ -89,6 +90,12 @@ class OpaqueType(lp.types.OpaqueType):
         return f"OpaqueType('{self.name}')"
 
 
+@dataclasses.dataclass(frozen=True)
+class GlobalBufferArgSpec:
+    buffer: ConcreteBuffer
+    intent: Intent
+
+
 class CodegenContext(abc.ABC):
     pass
 
@@ -96,8 +103,8 @@ class CodegenContext(abc.ABC):
 class LoopyCodegenContext(CodegenContext):
     def __init__(self):
         self._domains = []
-        self._insns = []
-        self._args = []
+        self._instructions = []
+        self._arguments = []
         self._subkernels = []
 
         self._within_inames = frozenset()
@@ -105,34 +112,30 @@ class LoopyCodegenContext(CodegenContext):
 
         self._name_generator = UniqueNameGenerator()
 
-        # TODO remove
-        self._dummy_names = {}
+        # buffer name -> name in kernel
+        self._kernel_names = {}
 
-        # data argument name -> data argument
-        # NOTE: If PETSc Mats were hashable then this could be a WeakSet (ordered)
-        self.data_arguments = weakref.WeakValueDictionary()
-        # data argument name -> name in kernel
-        self.kernel_arg_names = {}
-        # global buffer name -> intent
+        # buffer name -> buffer
+        self.global_buffers = weakref.WeakValueDictionary()
         self.global_buffer_intents = {}
 
         # initializer hash -> temporary name
         self._reusable_temporaries: dict[int, str] = {}
 
     @property
-    def domains(self):
+    def domains(self) -> tuple:
         return tuple(self._domains)
 
     @property
-    def instructions(self):
-        return tuple(self._insns)
+    def instructions(self) -> tuple:
+        return tuple(self._instructions)
 
     @property
-    def arguments(self):
-        return tuple(sorted(self._args, key=lambda arg: arg.name))
+    def arguments(self) -> tuple:
+        return tuple(sorted(self._arguments, key=lambda arg: arg.name))
 
     @property
-    def subkernels(self):
+    def subkernels(self) -> tuple:
         return tuple(self._subkernels)
 
     def add_domain(self, iname, *args):
@@ -180,31 +183,19 @@ class LoopyCodegenContext(CodegenContext):
         )
         self._add_instruction(insn)
 
-    # TODO wrap into add_array
-    def add_dummy_argument(self, arg, dtype):
-        if arg in self._dummy_names:
-            name = self._dummy_names[arg]
-        else:
-            name = self._dummy_names.setdefault(arg, self._name_generator("dummy"))
-        self._args.append(lp.ValueArg(name, dtype=dtype))
-
-    # @functools.singledispatchmethod
-    # def add_buffer(self, buffer: Any, intent: Intent | None = None) -> str:
-    #     raise TypeError(f"No handler defined for {type(buffer).__name__}")
-
     def add_buffer(self, buffer: AbstractBuffer, intent: Intent | None = None) -> str:
         # TODO: make a singledispatchmethod
         if isinstance(buffer, NullBuffer):
             # 'intent' is not important for temporaries
-            if buffer.name in self.data_arguments:
-                return self.kernel_arg_names[buffer.name]
+            if buffer.name in self._kernel_names:
+                return self._kernel_names[buffer.name]
             shape = self._temporary_shapes.get(buffer.name, (buffer.size,))
             name_in_kernel = self.add_temporary("t", buffer.dtype, shape=shape)
         else:
             if intent is None:
                 raise ValueError("Global data must declare intent")
 
-            if buffer.name in self.data_arguments:
+            if buffer.name in self._kernel_names:
                 if intent != self.global_buffer_intents[buffer.name]:
                     # TODO: clever logic for:
                     # * dat1.assign(dat1)
@@ -233,7 +224,7 @@ class LoopyCodegenContext(CodegenContext):
                     #   support them - only for  kernel fusion where we might have time tiling.
                     raise NotImplementedError("TODO NEXT: think about accessors and loop carried dependencies")
                     raise ValueError("Cannot have mismatching intents for the same global buffer")
-                return self.kernel_arg_names[buffer.name]
+                return self._kernel_names[buffer.name]
 
             if isinstance(buffer, ArrayBuffer):
                 # Inject constant buffer data into the generated code if sufficiently small
@@ -258,20 +249,18 @@ class LoopyCodegenContext(CodegenContext):
                 # If the buffer is being passed straight through to a function then we
                 # have to make sure that the shapes match
                 shape = self._temporary_shapes.get(buffer.name, None)
-                arg = lp.GlobalArg(name_in_kernel, dtype=buffer.dtype, shape=shape)
+                loopy_arg = lp.GlobalArg(name_in_kernel, dtype=buffer.dtype, shape=shape)
             else:
                 assert isinstance(buffer, PetscMatBuffer)
 
                 name_in_kernel = self.unique_name("mat")
-                arg = lp.ValueArg(name_in_kernel, dtype=OpaqueType("Mat"))
+                loopy_arg = lp.ValueArg(name_in_kernel, dtype=OpaqueType("Mat"))
 
-            # self.data_arguments[buffer.name] = buffer
+            self.global_buffers[buffer.name] = buffer
             self.global_buffer_intents[buffer.name] = intent
-            self._args.append(arg)
+            self._arguments.append(loopy_arg)
 
-        # why here?
-        self.data_arguments[buffer.name] = buffer
-        self.kernel_arg_names[buffer.name] = name_in_kernel
+        self._kernel_names[buffer.name] = name_in_kernel
         return name_in_kernel
 
     def add_temporary(self, prefix="t", dtype=IntType, *, shape=(), initializer: np.ndarray = None, read_only: bool = False) -> str:
@@ -292,7 +281,7 @@ class LoopyCodegenContext(CodegenContext):
             read_only=read_only,
             address_space=lp.AddressSpace.LOCAL,
         )
-        self._args.append(arg)
+        self._arguments.append(arg)
 
         if can_reuse:
             self._reusable_temporaries[key] = name_in_kernel
@@ -321,7 +310,7 @@ class LoopyCodegenContext(CodegenContext):
         return frozenset({self._last_insn_id}) - {None}
 
     def _add_instruction(self, insn):
-        self._insns.append(insn)
+        self._instructions.append(insn)
         self._last_insn_id = insn.id
 
 
@@ -340,16 +329,11 @@ class ModuleExecutor:
     """
 
     # TODO: intents and datamap etc maybe all go together. All relate to the same objects
-    def __init__(self, loopy_code: lp.TranslationUnit, data_arguments, global_buffer_intents, compiler_parameters):
+    def __init__(self, loopy_code: lp.TranslationUnit, buffer_map: WeakValueDictionary[str, ConcretBuffer], buffer_intents: Mapping[str, Intent], compiler_parameters: Mapping):
         self.loopy_code = loopy_code
-        self.data_arguments = data_arguments
-        self.global_buffer_intents = global_buffer_intents
+        self.buffer_map = buffer_map
+        self.buffer_intents = buffer_intents
         self.compiler_parameters = compiler_parameters
-
-        # TODO: better name: buffers?
-        self.buffer_map = self.data_arguments
-
-        # self._cache = collections.defaultdict(dict)
 
     @property
     def loopy_kernel(self) -> lp.LoopKernel:
@@ -401,7 +385,7 @@ class ModuleExecutor:
     def _modified_buffer_indices(self) -> tuple[int]:
         return tuple(
             i
-            for i, intent in enumerate(self.global_buffer_intents.values())
+            for i, intent in enumerate(self.buffer_intents.values())
             if intent != READ
         )
 
@@ -525,7 +509,7 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
             context.set_temporary_shapes(_collect_temporary_shapes(e))
             _compile(e, loop_indices, context)
 
-    if not context.global_buffer_intents:
+    if not context.global_buffers:
         warnings.warn(
             "The generated kernel does not modify any global data, this may indicate that something has gone wrong"
         )
@@ -541,7 +525,7 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
         within_inames_is_final=True,
         depends_on=context._depends_on,
     )
-    context._insns.append(noop)
+    context._instructions.append(noop)
 
     preambles = [
         ("20_debug", "#include <stdio.h>"),  # dont always inject
@@ -569,8 +553,8 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
         target=LOOPY_TARGET,
         lang_version=LOOPY_LANG_VERSION,
         preambles=preambles,
-        # options=lp.Options(check_dep_resolution=False),
     )
+    translation_unit = lp.merge((translation_unit, *context.subkernels))
 
     entrypoint = translation_unit.default_entrypoint
     if compiler_parameters.add_likwid_markers:
@@ -581,22 +565,14 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
         entrypoint = with_attach_debugger(entrypoint)
     translation_unit = translation_unit.with_kernel(entrypoint)
 
-    translation_unit = lp.merge((translation_unit, *context.subkernels))
-
-    # add callables
-    # tu = lp.register_callable(tu, "bsearch", BinarySearchCallable())
-
-    # needed?
-    translation_unit = translation_unit.with_entrypoints(entrypoint.name)
-
-    data_argument_names = utils.invert_mapping(context.kernel_arg_names)
-    data_arguments = {}
-    buffer_intents = {}
+    # Sort the buffers by where they appear in the kernel signature
+    kernel_to_buffer_names = utils.invert_mapping(context._kernel_names)
+    sorted_buffers = WeakValueDictionary()
     for kernel_arg in entrypoint.args:
-        data_argument_name = data_argument_names[kernel_arg.name]
-        data_arguments[kernel_arg.name] = context.data_arguments[data_argument_name]
+        buffer_name = kernel_to_buffer_names[kernel_arg.name]
+        sorted_buffers[kernel_arg.name] = context.global_buffers[buffer_name]
 
-    return ModuleExecutor(translation_unit, data_arguments, context.global_buffer_intents, compiler_parameters)
+    return ModuleExecutor(translation_unit, sorted_buffers, context.global_buffer_intents, compiler_parameters)
 
 
 # put into a class in transform.py?
@@ -775,7 +751,8 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
     )
 
     context.add_function_call(assignees, expression)
-    context.add_subkernel(call.function.code)
+    subkernel = call.function.code.with_entrypoints(frozenset())
+    context.add_subkernel(subkernel)
 
 
 @_compile.register(ConcretizedNonEmptyArrayAssignment)

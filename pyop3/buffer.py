@@ -435,7 +435,9 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
         raise NotImplementedError("TODO")
 
     def inc_state(self) -> None:
-        raise NotImplementedError("TODO")
+        import pyop3.extras.debug
+
+        pyop3.extras.debug.warn_todo("inc_state for PETSc matrices")
 
     def copy(self) -> PetscMatBuffer:
         raise NotImplementedError("TODO")

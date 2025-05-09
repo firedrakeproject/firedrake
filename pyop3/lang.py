@@ -306,7 +306,7 @@ class Loop(Instruction):
             new_index, (icore, iroot, ileaf) = partition_iterset(
                 self.index, [a for a, _ in self.function_arguments]
             )
-            #
+            #buffer_intents
             # assert self.index.id == new_index.id
             #
             # # substitute subsets into loopexpr, should maybe be done in partition_iterset
