@@ -1673,7 +1673,7 @@ class VomOntoVomDummyMat(object):
         mat = PETSc.Mat().create(comm=self.V.comm)
         source_size = self.V.dof_dset.layout_vec.getSizes()
         target_fs = self.V.reconstruct(mesh=self.target_vom)
-        target_size = target_fs.dof_dest.layout_vec.getSizes()
+        target_size = target_fs.dof_dset.layout_vec.getSizes()
         mat.setSizes([target_size, source_size])
         mat.setType(mat.Type.PYTHON)
         mat.setPythonContext(self)
