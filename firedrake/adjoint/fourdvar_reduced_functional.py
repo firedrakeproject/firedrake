@@ -846,7 +846,7 @@ def covariance_norm(x, covariance, form='diffusion'):
     return result
 
 
-class CovarianceOperatorBase(ABC)
+class CovarianceOperatorBase(ABC):
     @abstractmethod
     def norm(self, x):
         """Calculate (x^T)(B^-1)(x) : V x V -> V x V* -> R
@@ -855,7 +855,7 @@ class CovarianceOperatorBase(ABC)
 
     @abstractmethod
     def action(self, x):
-        """Calculate B*x : V -> V*
+        """Calculate B*x : V* -> V
         """
         pass
 
@@ -866,7 +866,7 @@ class CovarianceOperatorBase(ABC)
 
 
 class FormCovarianceOperator(CovarianceOperatorBase):
-    def __init__(self, V, sigma, bcs=bcs, implicit=True,
+    def __init__(self, V, sigma, bcs=None, implicit=True,
                  options_prefix=None, solver_parameters=None):
         self.V = V
         self.sigma = sigma
@@ -892,15 +892,16 @@ class FormCovarianceOperator(CovarianceOperatorBase):
             options_prefix=options_prefix,
             solver_parameters=solver_parameters)
 
-        self._assemble_one_form = get_assembler(
-            self.one_form, bcs=self.bcs).assemble
-
-        self._assemble_norm = get_assembler(
-            self.one_form(self.x)).assemble
-
         if implicit:
             self._assemble_xBx = get_assembler(
                 inner(self._b, self._sol)*dx).assemble
+
+            self._assemble_one_form = get_assembler(
+                self.one_form, bcs=self.bcs).assemble
+
+        else:
+            self._assemble_norm = get_assembler(
+                self.one_form(self.x)).assemble
 
     @property
     @abstractmethod
@@ -920,22 +921,28 @@ class FormCovarianceOperator(CovarianceOperatorBase):
             self.x.assign(x)
             return self._assemble_norm()
 
-    def action(self, x, tensor=None):
+    def action(self, x, tensor=None, apply_riesz=True):
         # B : V* -> V
         if x.function_space() != self.V.dual():
             raise ValueError("Covariance operator acts on a Cofunction")
         if tensor is None:
-            tensor = Function(self.V)
+            tensor = Function(self.V if apply_riesz else self.V.dual())
 
         if self.implicit:  # L*x
             self.x.assign(x.riesz_representation())
             Bx = self._assemble_one_form()
-            return tensor.assign(Bx.riesz_representation())
+            if apply_riesz:
+                return tensor.assign(Bx.riesz_representation())
+            else:
+                return tensor.assign(Bx)
 
         else:  # L^{-1}*x
             self._b.assign(x)
             self.solver.solve()
-            return tensor.assign(self._sol)
+            if apply_riesz:
+                return tensor.assign(self._sol)
+            else:
+                return tensor.assign(self._sol.riesz_representation())
 
     @cached_property
     def reduced_functional(self):
@@ -947,21 +954,22 @@ class MassCovarianceOperator(CovarianceOperatorBase):
     def one_form(self):
         x = self.x
         v = TestFunction(V)
-        w = sigma if self.implicit else 1/sigma
+        w = self.sigma if self.implicit else 1/self.sigma
         return inner(x*w, v)*dx
 
 
 class DiffusionCovarianceOperator(CovarianceOperatorBase):
-    def __init__(self, V, sigma, L, bcs=bcs, implicit=True,
+    def __init__(self, V, sigma, L, bcs=None, implicit=True,
                  options_prefix=None, solver_parameters=None):
         self.L = L
-        super().__init__(V, simgma, bcs=bcs, implicit=implicit,
+        super().__init__(V, sigma, bcs=bcs, implicit=implicit,
                          options_prefix=options_prefix,
                          solver_parameters=solver_parameters)
 
     @property
     def one_form(self):
         L = self.L
+        sigma = self.sigma
         nu = Constant(L*L/2)
         lambda_g = Constant(L*sqrt(2*pi))
         self.nu = nu
@@ -1061,7 +1069,7 @@ class CovarianceOperator:
 
     @cached_property
     def reduced_functional(self):
-        return CovarianceReducedFunctional(self)
+        return CovarianceReducedFunctional(self)  # TODO: ref cycle
 
 
 class CovarianceReducedFunctional(ReducedFunctional):
