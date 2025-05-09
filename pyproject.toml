@@ -63,7 +63,6 @@ Issues = "https://github.com/firedrakeproject/firedrake/issues/new/choose"
 firedrake-check = "firedrake._check:main"
 firedrake-clean = "firedrake.scripts.firedrake_clean:main"
 firedrake-preprocess-bibtex = "firedrake.scripts.firedrake_preprocess_bibtex:main"
-firedrake-status = "firedrake.scripts.firedrake_status:main"
 pyop2-clean = "pyop2.compilation:clear_compiler_disk_cache"
 spydump = "pyop2.scripts.spydump:main"
 
