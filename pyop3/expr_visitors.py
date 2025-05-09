@@ -20,7 +20,7 @@ from pyrsistent import pmap, PMap
 from petsc4py import PETSc
 
 from pyop3 import utils
-from pyop3.tensor import Array, Dat, Mat, LinearDatArrayBufferExpression, BufferExpression, NonlinearDatArrayBufferExpression
+from pyop3.tensor import Tensor, Dat, Mat, LinearDatArrayBufferExpression, BufferExpression, NonlinearDatArrayBufferExpression
 from pyop3.axtree.tree import AxisVar, Expression, Operator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
@@ -248,8 +248,8 @@ def _(op: Operator, /, loop_context):
     return type(op)(restrict_to_context(op.a, loop_context), restrict_to_context(op.b, loop_context))
 
 
-@restrict_to_context.register(Array)
-def _(array: Array, /, loop_context):
+@restrict_to_context.register(Tensor)
+def _(array: Tensor, /, loop_context):
     return array.with_context(loop_context)
 
 
@@ -318,8 +318,8 @@ def _(op: Operator, /, *args, **kwargs) -> tuple[AxisTree, tuple[Axis, ...]]:
     return merge_trees2(tree_a, tree_b), utils.unique(loops_a + loops_b)
 
 
-@extract_axes.register(Array)
-def _(array: Array, /, visited_axes, loop_axes, cache):
+@extract_axes.register(Tensor)
+def _(array: Tensor, /, visited_axes, loop_axes, cache):
     assert False, "used?"
     return array.axes
 

@@ -30,7 +30,6 @@ import pyop2
 
 from pyop3 import utils
 from pyop3.tensor import LinearDatArrayBufferExpression, NonlinearDatArrayBufferExpression, Scalar
-from pyop3.tensor.base import Array
 from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent, relabel_path
 from pyop3.buffer import AbstractBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
 from pyop3.config import config

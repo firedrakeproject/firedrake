@@ -17,7 +17,7 @@ from pyrsistent import pmap, PMap
 from immutabledict import immutabledict
 
 from pyop3 import utils
-from pyop3.tensor import Scalar, Dat, Array, Mat, NonlinearDatArrayBufferExpression, LinearDatArrayBufferExpression, MatPetscMatBufferExpression
+from pyop3.tensor import Scalar, Dat, Tensor, Mat, NonlinearDatArrayBufferExpression, LinearDatArrayBufferExpression, MatPetscMatBufferExpression
 from pyop3.axtree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
 from pyop3.axtree.tree import Operator, AxisVar, IndexedAxisTree, merge_axis_trees2, prune_zero_sized_branches
 from pyop3.buffer import AbstractBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer, AllocatedPetscMatBuffer
@@ -434,8 +434,8 @@ def _(var, /, access_type):
 
 
 # TODO: Add intermediate type here to assert that there is no longer a parent attr
-@_expand_reshapes.register(Array)
-def _(array: Array, /, access_type):
+@_expand_reshapes.register(Tensor)
+def _(array: Tensor, /, access_type):
     if array.parent:
         # .materialize?
         if isinstance(array, Dat):

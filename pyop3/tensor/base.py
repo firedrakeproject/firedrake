@@ -17,8 +17,7 @@ from pyop3.exceptions import InvalidIndexCountException
 from pyop3.lang import FunctionArgument, ArrayAssignment
 
 
-# TODO: rename 'DataCarrier'? Or TENSOR!!!!!!! Array is overloaded
-class Array(ContextAware, FunctionArgument, Expression, abc.ABC):
+class Tensor(ContextAware, FunctionArgument, Expression, abc.ABC):
 
     DEFAULT_PREFIX: ClassVar[str] = "array"
 
@@ -61,7 +60,7 @@ class Array(ContextAware, FunctionArgument, Expression, abc.ABC):
 
     @property
     @abc.abstractmethod
-    def dtype(self) -> np.dtype:
+    def buffer(self) -> Any:
         pass
 
     @abc.abstractmethod
@@ -94,6 +93,14 @@ class Array(ContextAware, FunctionArgument, Expression, abc.ABC):
 
     # }}}
 
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.buffer.comm
+
+    @property
+    def dtype(self) -> np.dtype:
+        return self.buffer.dtype
+
     def assign(self, other, /, *, eager=False):
         return self._assign(other, "write", eager=eager)
 
@@ -113,24 +120,3 @@ class Array(ContextAware, FunctionArgument, Expression, abc.ABC):
     # Note that this will only really work for vectors
     def maxpy(self, alpha: Iterable[numbers.Number], x: Iterable):
         raise NotImplementedError
-
-
-class DistributedArray(Array, metaclass=abc.ABCMeta):
-
-    # {{{ abstract methods
-
-    # NOTE: Why is this not an attr of the parent class?
-    @property
-    @abc.abstractmethod
-    def buffer(self) -> Any:
-        pass
-
-    # }}}
-
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.buffer.comm
-
-    @property
-    def dtype(self) -> np.dtype:
-        return self.buffer.dtype

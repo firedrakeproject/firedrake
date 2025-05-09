@@ -16,7 +16,7 @@ from pyop3 import buffer
 from pyrsistent import freeze, pmap
 
 from pyop3 import utils
-from pyop3.tensor.base import Array, DistributedArray
+from .base import Tensor
 from pyop3.tensor.dat import Dat
 from pyop3.axtree.tree import (
     AbstractAxisTree,
@@ -43,26 +43,8 @@ from pyop3.utils import (
 import pyop3.extras.debug
 
 
-class PetscObject(Array, abc.ABC):
-    dtype = ScalarType
-
-
-class PetscVec(PetscObject):
-    def __new__(cls, *args, **kwargs):
-        # dispatch to different vec types based on -vec_type
-        raise NotImplementedError
-
-
-class PetscVecStandard(PetscVec):
-    ...
-
-
-class PetscVecNest(PetscVec):
-    ...
-
-
 @utils.record()
-class Mat(DistributedArray):
+class Mat(Tensor):
 
     # {{{ Instance attributes
 
