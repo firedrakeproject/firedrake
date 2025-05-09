@@ -2,7 +2,6 @@ from functools import wraps
 from pyadjoint.adjfloat import AdjFloat
 from pyadjoint.tape import get_working_tape, annotate_tape
 from pyadjoint.overloaded_type import OverloadedType, create_overloaded_object
-from pyadjoint.reduced_functional_numpy import gather
 
 from firedrake.functionspace import FunctionSpace
 from firedrake.adjoint_utils.blocks import ConstantAssignBlock
@@ -58,15 +57,8 @@ class ConstantMixin(OverloadedType):
 
         return wrapper
 
-    def get_derivative(self, options={}):
-        return self._ad_convert_type(self.adj_value, options=options)
-
-    def _ad_convert_type(self, value, options={}):
-        if value is None:
-            # TODO: Should the default be 0 constant here or return just None?
-            return type(self)(numpy.zeros(self.ufl_shape))
-        value = gather(value)
-        return self._constant_from_values(value)
+    def _ad_init_zero(self, dual=False):
+        return type(self)(numpy.zeros(self.ufl_shape))
 
     def _ad_function_space(self, mesh):
         element = self.ufl_element()
