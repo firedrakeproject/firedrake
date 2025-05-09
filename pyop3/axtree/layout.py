@@ -81,7 +81,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
 
     """
     from pyop3 import Dat
-    from pyop3.array.dat import LinearDatArrayBufferExpression, as_linear_buffer_expression
+    from pyop3.tensor.dat import LinearDatArrayBufferExpression, as_linear_buffer_expression
 
     if len(axis.components) > 1 and not all(_axis_component_has_fixed_size(c) for c in axis.components):
         # Fixing this would require deciding what to do with the start variable, which
@@ -545,7 +545,7 @@ def _axis_component_region_has_fixed_size(region: AxisComponentRegion) -> bool:
 
 
 def _region_size_needs_outer_index(region, free_axes):
-    from pyop3.array import Dat, LinearDatArrayBufferExpression
+    from pyop3.tensor import Dat, LinearDatArrayBufferExpression
     from pyop3.expr_visitors import collect_axis_vars
 
     free_axis_labels = frozenset(ax.label for ax in free_axes)
@@ -705,7 +705,8 @@ def _axis_component_size_region(
 
 @functools.singledispatch
 def _as_int(arg: Any, indices, path=None, *, loop_indices=immutabledict()):
-    from pyop3.array import Dat
+    assert False, "not used?"
+    from pyop3 import Dat
     from pyop3.array.dat import _ExpressionDat
 
     if isinstance(arg, (Dat, _ExpressionDat)):

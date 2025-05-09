@@ -12,15 +12,15 @@ from typing import Any, ClassVar, Optional
 
 import numpy as np
 from immutabledict import immutabledict
-from pyop3.array import Scalar
-from pyop3.array.dat import ArrayBufferExpression, DatArrayBufferExpression, DatBufferExpression, MatPetscMatBufferExpression, MatArrayBufferExpression, LinearBufferExpression, NonlinearBufferExpression
+from pyop3.tensor import Scalar
+from pyop3.tensor.dat import ArrayBufferExpression, DatArrayBufferExpression, DatBufferExpression, MatPetscMatBufferExpression, MatArrayBufferExpression, LinearBufferExpression, NonlinearBufferExpression
 from pyop3.buffer import AbstractArrayBuffer, AllocatedPetscMatBuffer, PetscMatBuffer
 from pyop3.itree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree
 from pyrsistent import pmap, PMap
 from petsc4py import PETSc
 
 from pyop3 import utils
-from pyop3.array import Array, Dat, Mat, LinearDatArrayBufferExpression, BufferExpression, NonlinearDatArrayBufferExpression
+from pyop3.tensor import Array, Dat, Mat, LinearDatArrayBufferExpression, BufferExpression, NonlinearDatArrayBufferExpression
 from pyop3.axtree.tree import AxisVar, Expression, Operator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one

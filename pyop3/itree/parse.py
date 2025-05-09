@@ -6,7 +6,7 @@ from typing import Any
 
 from immutabledict import immutabledict
 
-from pyop3.array.dat import Dat
+from pyop3.tensor.dat import Dat
 from pyop3.axtree import AxisTree
 from pyop3.axtree.tree import AbstractAxisTree, IndexedAxisTree
 from pyop3.exceptions import Pyop3Exception

@@ -415,7 +415,7 @@ class Loop(Instruction):
             Collections of callables to be executed at the right times.
 
         """
-        from pyop3.array import Dat, Mat
+        from pyop3 import Dat, Mat
         from pyop3.buffer import ArrayBuffer
 
         initializers = []
@@ -582,25 +582,6 @@ def non_null(instruction: Instruction) -> bool:
 
 def filter_null(iterable: Iterable[Instruction]):
     return filter(non_null, iterable)
-
-
-# TODO singledispatch
-# TODO perhaps this is simply "has non unit stride"?
-def _has_nontrivial_stencil(array):
-    """
-
-    This is a proxy for 'this array touches halo points'.
-
-    """
-    # FIXME This is WRONG, there are cases (e.g. support(extfacet)) where
-    # the halo might be touched but the size (i.e. map arity) is 1. I need
-    # to look at index_exprs probably.
-    from pyop3.array import Dat
-
-    if isinstance(array, Dat):
-        return _has_nontrivial_stencil(array)
-    else:
-        raise TypeError
 
 
 class Terminal(Instruction, metaclass=abc.ABCMeta):

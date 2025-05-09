@@ -16,8 +16,8 @@ from pyop3 import buffer
 from pyrsistent import freeze, pmap
 
 from pyop3 import utils
-from pyop3.array.base import Array, DistributedArray
-from pyop3.array.dat import Dat
+from pyop3.tensor.base import Array, DistributedArray
+from pyop3.tensor.dat import Dat
 from pyop3.axtree.tree import (
     AbstractAxisTree,
     merge_axis_trees,

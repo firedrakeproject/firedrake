@@ -8,7 +8,7 @@ import numpy as np
 from mpi4py import MPI
 
 from pyop3 import dtypes, exceptions as exc, utils
-from pyop3.array.base import DistributedArray
+from pyop3.tensor.base import DistributedArray
 from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer
 from pyop3.sf import single_star_sf
 

@@ -16,7 +16,7 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 from pyop3 import utils
-from pyop3.array.base import DistributedArray
+from pyop3.tensor.base import DistributedArray
 from pyop3.axtree import (
     Axis,
     ContextSensitive,

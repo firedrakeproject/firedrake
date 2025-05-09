@@ -14,13 +14,13 @@ from typing import Any, Collection, Hashable, Mapping, Sequence, Type, cast, Opt
 
 import numpy as np
 import pymbolic as pym
-from pyop3.array.dat import ArrayBufferExpression, as_linear_buffer_expression
+from pyop3.tensor.dat import ArrayBufferExpression, as_linear_buffer_expression
 from pyop3.exceptions import Pyop3Exception
 from pyop3.extras.debug import maybe_breakpoint
 import pytools
 from immutabledict import immutabledict
 
-from pyop3.array import Dat
+from pyop3.tensor import Dat
 from pyop3.axtree import (
     Axis,
     AxisComponent,
@@ -1984,7 +1984,7 @@ def partition_iterset(index: LoopIndex, arrays):
     the SF and are marked CORE.
 
     """
-    from pyop3.array import Mat
+    from pyop3 import Mat
 
     # take first
     # if index.iterset.depth > 1:

@@ -11,13 +11,13 @@ from typing import Any, Union
 
 import numpy as np
 from petsc4py import PETSc
-from pyop3.array.dat import ArrayBufferExpression
+from pyop3.tensor.dat import ArrayBufferExpression
 from pyop3.sf import local_sf
 from pyrsistent import pmap, PMap
 from immutabledict import immutabledict
 
 from pyop3 import utils
-from pyop3.array import Scalar, Dat, Array, Mat, NonlinearDatArrayBufferExpression, LinearDatArrayBufferExpression, MatPetscMatBufferExpression
+from pyop3.tensor import Scalar, Dat, Array, Mat, NonlinearDatArrayBufferExpression, LinearDatArrayBufferExpression, MatPetscMatBufferExpression
 from pyop3.axtree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
 from pyop3.axtree.tree import Operator, AxisVar, IndexedAxisTree, merge_axis_trees2, prune_zero_sized_branches
 from pyop3.buffer import AbstractBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer, AllocatedPetscMatBuffer

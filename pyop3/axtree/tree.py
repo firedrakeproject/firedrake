@@ -220,7 +220,7 @@ class AxisComponentRegion:
     label: str | None = None
 
     def __post_init__(self):
-        from pyop3.array import LinearDatArrayBufferExpression
+        from pyop3.tensor.dat import LinearDatArrayBufferExpression
         if not isinstance(self.size, numbers.Integral):
             assert isinstance(self.size, LinearDatArrayBufferExpression)
             assert self.size.buffer.sf is None
@@ -231,8 +231,8 @@ class AxisComponentRegion:
 
 @functools.singledispatch
 def _parse_regions(obj: Any) -> tuple[AxisComponentRegion, ...]:
-    from pyop3.array import Dat
-    from pyop3.array.dat import as_linear_buffer_expression
+    from pyop3 import Dat
+    from pyop3.tensor.dat import as_linear_buffer_expression
 
     if isinstance(obj, Dat):
         # Dats used as extents for axis component regions have a stricter
@@ -353,7 +353,7 @@ class AxisComponent(LabelledNodeComponent):
 
     # TODO this is just a traversal - clean up
     def alloc_size(self, axtree, axis):
-        from pyop3.array import Dat, LinearDatArrayBufferExpression
+        from pyop3.tensor import Dat, LinearDatArrayBufferExpression
 
         if isinstance(self.local_size, (Dat, LinearDatArrayBufferExpression)):
             # TODO: make max_value an attr of buffers
@@ -648,47 +648,6 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
             return tuple(as_axis_component(c) for c in components)
         else:
             return (as_axis_component(components),)
-
-    # @staticmethod
-    # def _parse_numbering(numbering):
-    #     from pyop3.array import Dat
-    #
-    #     if numbering is None:
-    #         return None
-    #     elif isinstance(numbering, Dat):
-    #         return numbering
-    #     elif isinstance(numbering, collections.abc.Collection):
-    #         return Dat(len(numbering), data=numbering, dtype=IntType)
-    #     else:
-    #         raise TypeError(
-    #             f"{type(numbering).__name__} is not a supported type for numbering"
-    #         )
-
-
-# Do I ever want this? component_offsets is expensive so we don't want to
-# do it every time
-def axis_to_component_number(axis, number, context=immutabledict()):
-    offsets = component_offsets(axis, context)
-    return component_number_from_offsets(axis, number, offsets)
-
-
-# TODO move into layout.py
-def component_number_from_offsets(axis, number, offsets):
-    cidx = None
-    for i, (min_, max_) in enumerate(pairwise(offsets)):
-        if min_ <= number < max_:
-            cidx = i
-            break
-    assert cidx is not None
-    return axis.components[cidx], number - offsets[cidx]
-
-
-# TODO move into layout.py
-def component_offsets(axis, context):
-    from pyop3.axtree.layout import _as_int
-
-    return steps_func([_as_int(c.count, context) for c in axis.components])
-
 
 # NOTE: does this sort of expression stuff live in here? Or expr.py perhaps? Definitely
 # TODO: define __str__ as an abc?
@@ -1062,7 +1021,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     @cached_property
     def global_size(self):
-        from pyop3.array import Dat
+        from pyop3 import Dat
         from pyop3.axtree.layout import _axis_size, my_product
 
         if not self.outer_loops:
@@ -1106,7 +1065,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
             return local_sf(self.size, self.comm)
 
     def component_section(self, component_spec) -> PETSc.Section:
-        from pyop3.array import Dat
+        from pyop3 import Dat
         from pyop3.axtree.layout import _axis_tree_size_rec
         from pyop3.expr_visitors import extract_axes
 
@@ -1968,7 +1927,7 @@ def _(component: AxisComponent) -> Axis:
 
 @functools.singledispatch
 def as_axis_component(arg: Any) -> AxisComponent:
-    from pyop3.array import Dat  # cyclic import
+    from pyop3 import Dat  # cyclic import
 
     if isinstance(arg, Dat):
         return AxisComponent(arg)
