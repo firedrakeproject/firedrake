@@ -566,3 +566,44 @@ def test_interpolate_logical_not():
     a = assemble(interpolate(conditional(Not(x < .2), 1, 0), V))
     b = assemble(interpolate(conditional(x >= .2, 1, 0), V))
     assert np.allclose(a.dat.data, b.dat.data)
+
+
+@pytest.mark.parametrize("tdim,shape", [(1, tuple()), (2, tuple()), (3, tuple()),
+                                        (1, (1,)), (2, (2,)), (2, (3,)), (3, (3,)),
+                                        (1, (1, 2)), (2, (2, 3)), (3, (2, 3))],
+                         ids=["1d-scalar", "2d-scalar", "3d-scalar", "1d-vector",
+                              "2d-vector", "2d-3vector", "3d-vector", "1d-matrix",
+                              "2d-matrix", "3d-matrix"])
+def test_clement_interpolator_simplex(tdim, shape):
+    mesh = {
+        1: UnitIntervalMesh,
+        2: UnitSquareMesh,
+        3: UnitCubeMesh,
+    }[tdim](*(5 for _ in range(tdim)))
+    x = SpatialCoordinate(mesh)
+    if len(shape) == 0:
+        P0 = FunctionSpace(mesh, "DG", 0)
+        P1 = FunctionSpace(mesh, "CG", 1)
+        expr = sum(x)
+    elif len(shape) == 1:
+        dim = shape[0]
+        P0 = VectorFunctionSpace(mesh, "DG", 0, dim=dim)
+        P1 = VectorFunctionSpace(mesh, "CG", 1, dim=dim)
+        expr = as_vector(x if dim == tdim else [x[0] for _ in range(dim)])
+    else:
+        P0 = TensorFunctionSpace(mesh, "DG", 0, shape=shape)
+        P1 = TensorFunctionSpace(mesh, "CG", 1, shape=shape)
+        rows = [Constant(tuple(range(i+1, i+1+tdim))) for i in range(P1.block_size)]
+        expr = as_tensor(np.reshape([dot(row, x) for row in rows], shape))
+
+    # Projecting into P0 space and then applying Clement interpolation should recover
+    # the original function
+    x_P0 = assemble(project(expr, P0))
+    interpolator = ClementInterpolator(TestFunction(P0), P1)
+    x_P1 = interpolator.interpolate(x_P0)
+    x_P1_direct = Function(P1).interpolate(expr)
+
+    # Account for the fact that the Clement interpolant breaks down at domain boundaries
+    DirichletBC(P1, x_P1_direct, "on_boundary").apply(x_P1)
+
+    assert np.isclose(errornorm(x_P1_direct, x_P1), 0)
