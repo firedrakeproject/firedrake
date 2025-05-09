@@ -183,6 +183,15 @@ install Firedrake. To do this perform the following steps:
       $ pip cache remove firedrake
       $ pip install --no-binary h5py 'firedrake[check]'
 
+   .. important::
+      The ``pip install`` instruction does not currently work due to `this issue
+      <https://gitlab.com/petsc/petsc/-/issues/1759>`__. To fix it you should
+      first:
+
+      1. Run ``echo 'Cython<3.1' > constraints.txt``
+      1. Run ``export PIP_CONSTRAINT=constraints.txt``
+      1. Continue as usual
+
    .. note::
       Though not strictly necessary to install Firedrake's optional
       dependencies with ``[check]`` it is recommended because it allows you
