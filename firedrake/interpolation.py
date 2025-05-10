@@ -1501,7 +1501,6 @@ class VomOntoVomWrapper(object):
             original_vom.input_ordering_without_halos_sf, reduce, V, source_vom, target_vom, expr, arguments
         )
         self.handle = self.dummy_mat._create_petsc_mat()
-    
 
     @property
     def mpi_type(self):
@@ -1676,12 +1675,12 @@ class VomOntoVomDummyMat(object):
 
     def _create_petsc_mat(self):
         mat = PETSc.Mat().create(comm=self.V.comm)
-        source_size = self.V.dof_dset.layout_vec.getSizes()
-        target_fs = self.V.reconstruct(mesh=self.target_vom)
-        target_size = target_fs.dof_dset.layout_vec.getSizes()
-        print("source size", source_size)
-        print("target size", target_size)
-        mat.setSizes([source_size, target_size])
+        element = self.V.ufl_element()  # Could be vector/tensor valued
+        P0DG_source = firedrake.FunctionSpace(self.source_vom, element)
+        P0DG_target = P0DG_source.reconstruct(mesh=self.target_vom)
+        source_size = P0DG_source.dof_dset.layout_vec.getSizes()
+        target_size = P0DG_target.dof_dset.layout_vec.getSizes()
+        mat.setSizes([target_size, source_size])
         mat.setType(PETSc.Mat().Type.PYTHON)
         mat.setPythonContext(self)
         mat.setUp()
