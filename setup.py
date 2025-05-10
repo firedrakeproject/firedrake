@@ -13,6 +13,7 @@ import pkgconfig
 from dataclasses import dataclass, field
 from setuptools import setup, find_packages, Extension
 from setuptools.command.sdist import sdist as _sdist
+from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
 from glob import glob
 from pathlib import Path
 from Cython.Build import cythonize
@@ -249,22 +250,27 @@ FIREDRAKE_CHECK_FILES = (
     "tests/firedrake/regression/test_interpolate_cross_mesh.py",
 )
 
+def copy_check_files():
+    dest_dir = Path("firedrake/_check")
+    for check_file in map(Path, FIREDRAKE_CHECK_FILES):
+        os.makedirs(dest_dir / check_file.parent, exist_ok=True)
+        shutil.copy(check_file, dest_dir / check_file.parent)
 
 class sdist(_sdist):
     def run(self):
-        self._copy_check_files()
+        copy_check_files()
         super().run()
 
-    def _copy_check_files(self):
-        """Copy Makefile and tests into firedrake/_check."""
-        dest_dir = Path("firedrake/_check")
-        for check_file in map(Path, FIREDRAKE_CHECK_FILES ):
-            os.makedirs(dest_dir / check_file.parent, exist_ok=True)
-            shutil.copy(check_file, dest_dir / check_file.parent)
-
+class bdist_wheel(_bdist_wheel):
+    def run(self):
+        copy_check_files()
+        super().run()
 
 setup(
-    cmdclass={"sdist": sdist},
+    cmdclass={
+        "sdist": sdist,
+        "bdist_wheel": bdist_wheel,
+    },
     packages=find_packages(),
     ext_modules=extensions(),
 )
