@@ -12,6 +12,7 @@ class FieldsplitSNES(SNESBase):
     # TODO:
     #   - Allow setting field grouping/ordering like fieldsplit
 
+    @PETSc.Log.EventDecorator()
     def initialize(self, snes):
         from firedrake.variational_solver import NonlinearVariationalSolver  # ImportError if we do this at file level
         ctx = get_appctx(snes.dm)
@@ -49,6 +50,7 @@ class FieldsplitSNES(SNESBase):
     def update(self, snes):
         pass
 
+    @PETSc.Log.EventDecorator()
     def step(self, snes, x, f, y):
         # store current value of outer solution
         self.sol_outer.assign(self.sol)
