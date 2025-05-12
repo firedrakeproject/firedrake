@@ -1,4 +1,3 @@
-from re import M
 import numpy
 from functools import partial, singledispatch
 import os
@@ -12,7 +11,6 @@ import finat.ufl
 from ufl.algorithms import extract_arguments, extract_coefficients, replace
 from ufl.domain import as_domain, extract_unique_domain
 
-from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
 from pyop2 import op2
 from pyop2.caching import memory_and_disk_cache
 
