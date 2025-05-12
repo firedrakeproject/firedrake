@@ -81,13 +81,12 @@ def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, axis: Axis) -> tuple[Sta
             sf = StarForest(petsc_sf, size)
             sfs.append(sf)
         elif subaxis := axis_tree.child(axis, component):
-            raise NotImplementedError("TODO")
-
-            if component.count > 5:
+            if component.count > 1:
                 raise NotImplementedError("This will be very inefficient")
 
+            # FIXME: Only need to call the inner bit once and repeatedly add?
             for point in range(component.count):
-                graphs.extend(
+                sfs.extend(
                     _collect_sf_graphs_rec(axis_tree, subaxis)
                 )
     return tuple(sfs)

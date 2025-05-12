@@ -1182,26 +1182,29 @@ class MixedFunctionSpace(object):
         # to have a size of 1 and we want the axis to go away when we put axes["0"],
         # for example.
         root = op3.Axis(
-            [op3.AxisComponent(1, i) for i, _ in enumerate(spaces)],
+            [op3.AxisComponent(1, str(i)) for i, _ in enumerate(spaces)],
             "field",
         )
         axes = op3.AxisTree(root)
         for i, space in enumerate(spaces):
             # Relabel the "dof" axes by adding a suffix. This is to ensure
             # that no clashes occur during indexing.
-            space_axes = space.flat_axes.relabel({
-                ax.label: f"{ax.label}_{i}"
-                for ax in space.flat_axes.nodes
-                if ax.label.startswith("dof")
-            })
-            axes = axes.add_subtree(space_axes, root, i, uniquify=True)
+            # space_axes = space.flat_axes.relabel({
+            #     ax.label: f"{ax.label}_{i}"
+            #     for ax in space.flat_axes.nodes
+            #     if ax.label.startswith("dof")
+            # })
+            # axes = axes.add_subtree(space_axes, root, i, uniquify=True)
+            axes = axes.add_subtree(space.flat_axes, root, str(i), uniquify=True)
         # breakpoint()
         self.flat_axes = axes
 
-        field_slice = op3.Slice("field", [op3.AffineSliceComponent(s.index, label=s.index) for s in self._spaces], label="field")
+        field_slice = op3.Slice("field", [op3.AffineSliceComponent(str(s.index), label=str(s.index)) for s in self._spaces], label="field")
         axes_index_tree = op3.IndexTree(field_slice)
         for space, field_slice_component in zip(self._spaces, field_slice.slices):
-            subindex_tree = space._strata_index_tree(suffix=f"_{space.index}")
+            # not sure why I thought a suffix was necessary here
+            # subindex_tree = space._strata_index_tree(suffix=f"_{space.index}")
+            subindex_tree = space._strata_index_tree()
             axes_index_tree = axes_index_tree.add_subtree(subindex_tree, field_slice, field_slice_component, uniquify_ids=True)
         self.axes = axes[axes_index_tree]
 
@@ -1383,12 +1386,12 @@ class MixedFunctionSpace(object):
         if val is not None and val.size != self.axes.size:
             raise ValueError("Provided array has the wrong number of entries")
 
-        return op3.Dat(
-            self.axes,
-            data=val,
-            dtype=valuetype,
-            name=name,
-        )
+        if val is not None:
+            if valuetype is not None:
+                assert val.dtype == valuetype
+            return op3.Dat(self.axes, data=val.flatten(), name=name)
+        else:
+            return op3.Dat.zeros(self.axes, dtype=valuetype, name=name)
 
     @utils.cached_property
     def dm(self):

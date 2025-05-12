@@ -1274,7 +1274,7 @@ class OneFormAssembler(ParloopFormAssembler):
     @staticmethod
     def _as_pyop3_type(tensor, indices=None):
         if indices is not None and any(index is not None for index in indices):
-            i, = indices
+            i, = map(str, indices)
             return tensor.dat[i]
         else:
             return tensor.dat
@@ -1953,8 +1953,9 @@ class ParloopBuilder:
             return tensor
         elif rank == 1 or rank == 2 and self._diagonal:
             V, = Vs
+            dat = OneFormAssembler._as_pyop3_type(tensor, self._indices)
 
-            return pack_pyop3_tensor(tensor.dat, V, index, self._integral_type)
+            return pack_pyop3_tensor(dat, V, index, self._integral_type)
         elif rank == 2:
             if all(_is_real_space(V) for V in Vs):
                 just_one = op3.utils.just_one

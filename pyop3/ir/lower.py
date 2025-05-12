@@ -29,7 +29,7 @@ from pyop3.expr_visitors import collect_axis_vars
 
 import pyop2
 
-from pyop3 import utils
+from pyop3 import exceptions as exc, utils
 from pyop3.tensor import LinearDatArrayBufferExpression, NonlinearDatArrayBufferExpression, Scalar
 from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent, relabel_path
 from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
@@ -90,6 +90,10 @@ class OpaqueType(lp.types.OpaqueType):
         return f"OpaqueType('{self.name}')"
 
 
+class CodeGenerationException(exc.Pyop3Exception):
+    pass
+
+
 @dataclasses.dataclass(frozen=True)
 class GlobalBufferArgSpec:
     buffer: ConcreteBuffer
@@ -121,6 +125,9 @@ class LoopyCodegenContext(CodegenContext):
 
         # initializer hash -> temporary name
         self._reusable_temporaries: dict[int, str] = {}
+
+        # assignee name -> indirection expression
+        self._assignees = {}
 
     @property
     def domains(self) -> tuple:
@@ -184,6 +191,21 @@ class LoopyCodegenContext(CodegenContext):
         self._add_instruction(insn)
 
     def add_buffer(self, buffer: AbstractBuffer, intent: Intent | None = None) -> str:
+        # TODO: This should check to make that we do not encounter any
+        # loop-carried dependencies. For that to work we need to track the intent and
+        # the indirection expression. Something like:
+        #
+        #   for i
+        #     dat1[i] = ???
+        #     dat2[i] = dat1[map1[i]]
+        #
+        # is illegal, but
+        #
+        #   for i
+        #     dat1[2*i] = ???
+        #     dat2[i] = dat1[2*i]
+        #
+        # is not.
         # TODO: make a singledispatchmethod
         if isinstance(buffer, NullBuffer):
             # 'intent' is not important for temporaries
@@ -197,33 +219,9 @@ class LoopyCodegenContext(CodegenContext):
 
             if buffer.name in self._kernel_names:
                 if intent != self.global_buffer_intents[buffer.name]:
-                    # TODO: clever logic for:
-                    # * dat1.assign(dat1)
-                    # * dat1.assign(2*dat1)
-                    # * ? dat1.assign(dat2) ?
-                    # We have to be careful because loop-carried dependencies will ruin us.
-                    # I think it's only allowed if we don't do indirections. I.e.
-                    #   dat1[i] = 2 * dat1[i]
-                    # is OK but
-                    #   dat1[map[i]] = 2 * dat1[map[i]]
-                    # isn't. However
-                    #   dat1[4*i] = 2 * dat1[4*i]
-                    # is OK! And
-                    #   dat1[3*i] = 2 * dat1[4*i]
-                    # isn't.
-
-                    # The idea:
-                    # * If always the same intent then things are fine
-                    # * If read + {write,inc} then set to RW
-                    # * If inc + write then set to RW
-                    # * But only do this if the index expression for each buffer is the
-                    #   same and there is no overlap (e.g. dat[i-1:i+1] isn't OK).
-                    #   * Not that the sizes must be 1, can be vector-valued. Only the
-                    #     shared index must be the unit...
-                    # * If a loop-carried dependency is detected then crash. We will never
-                    #   support them - only for  kernel fusion where we might have time tiling.
-                    raise NotImplementedError("TODO NEXT: think about accessors and loop carried dependencies")
-                    raise ValueError("Cannot have mismatching intents for the same global buffer")
+                    # We are accessing a buffer with different intents so have to
+                    # pessimally claim RW access
+                    self.global_buffer_intents[buffer.name] = RW
                 return self._kernel_names[buffer.name]
 
             if isinstance(buffer, ArrayBuffer):

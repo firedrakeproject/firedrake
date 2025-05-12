@@ -485,18 +485,58 @@ def _(
     return indexed
 
 def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.IndexTree:
-    plex = V.mesh().topology
+    mesh = V.mesh()
 
-    indices = op3.IndexTree.from_nest({
-        plex._fiat_closure(cell): [
-            op3.Slice(f"dof{d}", [op3.AffineSliceComponent("XXX")])
-            for d in range(plex.dimension+1)
-        ]
-    })
-    return _with_shape_indices(V, indices)
+    # mixed
+    if isinstance(V.topological, MixedFunctionSpace):
+        field_slice = op3.Slice(
+            "field",
+            [op3.AffineSliceComponent(str(i)) for i, _ in enumerate(V)]
+        )
+        index_tree = op3.IndexTree(field_slice)
+
+        for i, (Vsub, ileaf) in enumerate(zip(V, index_tree.leaves, strict=True)):
+            closure_tree = op3.IndexTree.from_nest({
+                mesh._fiat_closure(cell): [
+                    op3.Slice(f"dof{d}", [op3.AffineSliceComponent("XXX")])
+                    for d in range(mesh.dimension+1)
+                ]
+            })
+            subspace_tree = closure_tree
+
+            tensor_slices = tuple(
+                op3.Slice(f"dim{i}", [op3.AffineSliceComponent("XXX")])
+                for i, dim in enumerate(Vsub.shape)
+            )
+            shape_tree = op3.IndexTree.from_iterable(tensor_slices)
+
+            for leaf in closure_tree.leaves:
+                subspace_tree = subspace_tree.add_subtree(shape_tree, leaf, uniquify_ids=True)
+
+            index_tree.add_subtree(subspace_tree, ileaf)
+    else:
+        closure_tree = op3.IndexTree.from_nest({
+            mesh._fiat_closure(cell): [
+                op3.Slice(f"dof{d}", [op3.AffineSliceComponent("XXX")])
+                for d in range(mesh.dimension+1)
+            ]
+        })
+        index_tree = closure_tree
+
+        tensor_slices = tuple(
+            op3.Slice(f"dim{i}", [op3.AffineSliceComponent("XXX")])
+            for i, dim in enumerate(V.shape)
+        )
+        shape_tree = op3.IndexTree.from_iterable(tensor_slices)
+
+        for leaf in closure_tree.leaves:
+            index_tree = index_tree.add_subtree(shape_tree, leaf, uniquify_ids=True)
+
+    return index_tree
 
 
 def _facet_integral_pack_indices(V: WithGeometry, facet: op3.LoopIndex) -> op3.IndexTree:
+    raise NotImplementedError("TODO, reuse cell packing code")
     plex = V.ufl_domain().topology
 
     indices = op3.IndexTree.from_nest({
@@ -514,12 +554,12 @@ def _facet_integral_pack_indices(V: WithGeometry, facet: op3.LoopIndex) -> op3.I
 def _with_shape_indices(V: WithGeometry, indices: op3.IndexTree, and_support=False):
     is_mixed = isinstance(V.topological, MixedFunctionSpace)
 
-    if is_mixed:
-        spaces = V.topological._spaces
-        trees = (indices,) * len(spaces)
-    else:
-        spaces = (V.topological,)
-        trees = (indices,)
+    # if is_mixed:
+    #     spaces = V.topological._spaces
+    #     trees = (indices,) * len(spaces)
+    # else:
+    #     spaces = (V.topological,)
+    #     trees = (indices,)
 
     # Add tensor shape innermost, this applies to cells, edges etc equally
     trees_ = []

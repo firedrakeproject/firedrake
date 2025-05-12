@@ -13,6 +13,8 @@ from pyop3.exceptions import Pyop3Exception
 from pyop3.itree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map
 from pyop3.utils import OrderedSet, debug_assert, expand_collection_of_iterables, strictly_all, single_valued, just_one
 
+import pyop3.extras.debug
+
 
 class IncompletelyIndexedException(Pyop3Exception):
     """Exception raised when an axis tree is incompletely indexed by an index tree/forest."""
@@ -445,7 +447,10 @@ def _complete_index_tree_slices(axes, target_paths, *, axis=None) -> IndexTree:
         return index_tree
     else:
         # Axis found, pass things through
-        target_component = single_valued(tp[axis.label] for tp in target_paths_)
+        target_components = [tp[axis.label] for tp in target_paths_]
+        if len(target_components) > 1:
+            pyop3.extras.debug.warn_todo("Multiple targets, assert that these are equal")
+        target_component = target_components[0]
         if subaxis := axes.child(axis, target_component):
             return _complete_index_tree_slices(axes, target_paths_, axis=subaxis)
         else:

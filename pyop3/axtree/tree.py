@@ -436,9 +436,6 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
         super().__init__(label=label, id=id)
         CacheMixin.__init__(self)
 
-        if self.label == "firedrake_default_topology__id_LoopIndex_0__id_LoopIndex_0":
-            breakpoint()
-
         self.components = components
 
     def __eq__(self, other):
@@ -688,9 +685,26 @@ class Expression(abc.ABC):
 
         return FloorDiv(self, other)
 
+    # def __le__(self, other):
+    #     from pyop3.expr_visitors import estimate
+    #     return estimate(self) <= estimate(other)
+    #
+    # def __ge__(self, other):
+    #     from pyop3.expr_visitors import estimate
+    #     return estimate(self) >= estimate(other)
+
+    def __lt__(self, other):
+        from pyop3.expr_visitors import estimate
+        return estimate(self) < estimate(other)
+
+    def __gt__(self, other):
+        from pyop3.expr_visitors import estimate
+        return estimate(self) > estimate(other)
 
 
-class Operator(Expression, abc.ABC):
+
+
+class Operator(Expression, metaclass=abc.ABCMeta):
     def __init__(self, a, b, /):
         self.a = a
         self.b = b
@@ -996,28 +1010,9 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     @cached_property
     def size(self):
-        from pyop3.axtree.layout import axis_tree_size
+        from pyop3.axtree.layout import _axis_tree_size
 
-        return axis_tree_size(self)
-
-    # TODO: Get this working properly. Care has to be taken for ragged things.
-    # Likely need to consider 'dependent' axes and such. And use codegen.
-    #
-    # @cached_property
-    # def _component_sizes(self):
-    #     sizes = {}
-    #     return sizes
-    #
-    # def _compute_component_sizes(self, *, axis):
-    #     sizes = {}
-    #     for component in axis.components:
-    #         if subaxis := self.child(axis, component):
-    #             subsizes = self._compute_component_sizes(axis=subaxis)
-    #             ...
-    #         else:
-    #             sizes[axis.id, component.label] = component.count
-    #     return pmap(sizes)
-
+        return _axis_tree_size(self)
 
     @cached_property
     def global_size(self):

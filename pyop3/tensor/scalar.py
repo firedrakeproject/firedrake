@@ -67,10 +67,6 @@ class Scalar(Tensor):
         self._name = name
         self._buffer = buffer
 
-    @property
-    def dtype(self):
-        return self.buffer.dtype
-
     def getitem(self, *, strict=False):
         return self
 
@@ -88,3 +84,7 @@ class Scalar(Tensor):
     @property
     def leaf_layouts(self):  # or all layouts?
         raise NotImplementedError
+
+    @property
+    def value(self):
+        return utils.just_one(self.buffer._data)

@@ -146,7 +146,11 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
 
         # NOTE: Not strictly necessary but it means we don't currently break with ragged
         if i < len(axis.components) - 1:
-            start += _axis_component_size(axes, axis, component)
+            # start += _axis_component_size(axes, axis, component)
+            if subaxis := axes.child(axis, component):
+                start += component.local_size * _axis_tree_size(axes.subtree(subaxis))
+            else:
+                start += component.local_size
 
         if subaxis := axes.child(axis, component):
             sublayouts, subdats = _prepare_layouts(axes, subaxis, path_acc_, layout_expr_acc_, free_axes_)
@@ -227,44 +231,12 @@ def _tabulate_offset_dat(offset_dat, axes, region, start):
     return offsets[-1]
 
 
-    # trimmed_axes, extra_step = _drop_constant_subaxes(axes, axis, component)
-    #
-    # # this is really bloody close - just need the Python iteration to be less rubbish
-    # # TODO: handle iteration over empty trees
-    # if partial_axes.is_empty:
-    #     offset = 0
-    #
-    #     for axindex in axis.iter(no_index=True):  # FIXME: Should make this single component only
-    #         offsets.set_value(axindex.source_exprs, offset)
-    #         offset += step_size(
-    #             trimmed_axes,
-    #             axis,
-    #             component,
-    #             indices=axindex.source_exprs,
-    #         )
-    # else:
-    #     for multiindex in partial_axes.iter():
-    #         offset = 0
-    #
-    #         for axindex in axis.iter({multiindex}, no_index=True):  # FIXME: Should make this single component only
-    #             offsets.set_value(multiindex.source_exprs | axindex.source_exprs, offset)
-    #             offset += step_size(
-    #                 trimmed_axes,
-    #                 axis,
-    #                 component,
-    #                 indices=multiindex.source_exprs|axindex.source_exprs,
-    #             )
-    #
-    # # if extra_step != 1:
-    # #     offsets *= extra_step
-    #
-    # return offsets, extra_step
-
-
 # NOTE: This is a very generic operation and I probably do something very similar elsewhere
 def _axis_tree_size(axes):
-    assert not axes.is_empty
-    return _axis_tree_size_rec(axes, axes.root)
+    if axes.is_empty:
+        return 0
+    else:
+        return _axis_tree_size_rec(axes, axes.root)
 
 
 def _axis_tree_size_rec(axis_tree: AxisTree, axis: Axis):
@@ -275,9 +247,9 @@ def _axis_tree_size_rec(axis_tree: AxisTree, axis: Axis):
     for component in axis.components:
         if subaxis := axis_tree.child(axis, component):
             subtree_size = _axis_tree_size_rec(axis_tree, subaxis)
-            tree_size += component.size * subtree_size
+            tree_size += component.local_size * subtree_size
         else:
-            tree_size += component.size
+            tree_size += component.local_size
     return tree_size
 
 
@@ -349,7 +321,7 @@ def _truncate_axis_tree_rec(axis_tree, axis) -> tuple[tuple[AxisTree, int]]:
     # Lastly, we can also consider the case where the entire subtree (at this
     # point) is dropped. This is only valid for constant-sized axes.
     if not _axis_needs_outer_index(axis_tree, axis, (axis,)):
-        step = _axis_size(axis_tree, axis)
+        step = _axis_tree_size(axis_tree.subtree(axis))
         axis_candidate = (AxisTree(), step)
         axis_candidates.append(axis_candidate)
 
@@ -659,6 +631,7 @@ def _axis_size(
     *,
     loop_indices=immutabledict(),
 ):
+    assert False, "old code, do not use"
     return sum(
         _axis_component_size(axes, axis, cpt, indices, loop_indices=loop_indices)
         for cpt in axis.components

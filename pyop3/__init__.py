@@ -77,6 +77,7 @@ from pyop3.lang import (  # noqa: F401
     _loop as loop,
 )
 from pyop3.sf import StarForest, single_star_sf, local_sf
+import pyop3.sf
 from . import utils
 
 del _os

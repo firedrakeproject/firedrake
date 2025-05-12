@@ -958,3 +958,26 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatArrayBuff
         return NonlinearDatArrayBufferExpression(result.buffer, newlayouts)
 
 
+@functools.singledispatch
+def estimate(expr: Any) -> numbers.Number:
+    raise TypeError
+
+
+@estimate.register(numbers.Number)
+def _(num):
+    return num
+
+
+@estimate.register(Scalar)
+def _(scalar) -> np.number:
+    return scalar.value
+
+
+@estimate.register(Mul)
+def _(mul: Mul) -> int:
+    return estimate(mul.a) * estimate(mul.b)
+
+
+@estimate.register(BufferExpression)
+def _(buffer_expr: BufferExpression) -> numbers.Number:
+    return buffer_expr.buffer.max_value or 1

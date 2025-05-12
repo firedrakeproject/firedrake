@@ -118,15 +118,15 @@ class CoordinatelessFunction(ufl.Coefficient):
         if len(self.function_space()) > 1:
             subfuncs = []
             for subspace in self.function_space():
-                subdat = self.dat[subspace.index]
+                subdat = self.dat[str(subspace.index)]
                 # relabel the axes (remove suffix)
-                subaxes = subdat.axes.relabel({
-                    label: label.removesuffix(f"_{subspace.index}")
-                    for label in subdat.axes.node_labels
-                    if label.startswith("dof")
-                })
-                # .with_axes
-                subdat = op3.Dat(subaxes, data=subdat.buffer, name=subdat.name)
+                # subaxes = subdat.axes.relabel({
+                #     label: label.removesuffix(f"_{subspace.index}")
+                #     for label in subdat.axes.node_labels
+                #     if label.startswith("dof")
+                # })
+                # # .with_axes
+                # subdat = op3.Dat(subaxes, data=subdat.buffer, name=subdat.name)
                 subfunc = CoordinatelessFunction(
                     subspace, subdat, name=f"{self.name()}[{subspace.index}]"
                 )

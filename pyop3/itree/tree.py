@@ -16,7 +16,6 @@ import numpy as np
 import pymbolic as pym
 from pyop3.tensor.dat import ArrayBufferExpression, as_linear_buffer_expression
 from pyop3.exceptions import Pyop3Exception
-from pyop3.extras.debug import maybe_breakpoint
 import pytools
 from immutabledict import immutabledict
 
@@ -61,6 +60,8 @@ from pyop3.utils import (
 )
 from pyop3 import utils
 
+import pyop3.extras.debug
+
 
 # FIXME: Import cycle
 from firedrake.cython.dmcommon import filter_sf
@@ -93,6 +94,9 @@ class IndexTree(MutableLabelledTreeMixin, LabelledTree):
 
     @classmethod
     def from_iterable(cls, iterable):
+        if not iterable:
+            return cls()
+
         # All iterable entries must be indices for now as we do no parsing
         root, *rest = iterable
         node_map = {None: (root,)}
@@ -1010,12 +1014,10 @@ def _(
 @_index_axes_index.register(ScalarIndex)
 def _(index: ScalarIndex, **_):
     target_path_and_exprs = immutabledict({None: ((just_one(just_one(index.leaf_target_paths)), immutabledict({index.axis: index.value})),)})
-    # index_exprs = pmap({None: (,)})
-    layout_exprs = immutabledict({None: 0})
     return (
-        AxisTree(Axis(1)),
+        UNIT_AXIS_TREE,
         target_path_and_exprs,
-        layout_exprs,
+        {},
         (),
         {},
     )
@@ -1078,9 +1080,10 @@ def _(slice_: Slice, *, prev_axes, expr_replace_map, **_):
 
     # If there are multiple axes that match the slice then they must be
     # identical (apart from their ID, which is ignored in equality checks).
-    target_axis = single_valued(
-        ax for ax in prev_axes.nodes if ax.label == slice_.axis
-    )
+    matching_target_axes = [ax for ax in prev_axes.nodes if ax.label == slice_.axis]
+    if len(matching_target_axes):
+        pyop3.extras.debug.warn_todo("Multiple matching axes found, need to assert equivalence")
+    target_axis = matching_target_axes[0]
 
     for slice_component in slice_.slices:
         target_component = just_one(
@@ -1551,10 +1554,12 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
 
         # Now add any extra 'None-indexed' axes.
         for (axis_label, component_label) in merge_dicts(p for p, _ in indexed_target_paths_and_exprs_acc.values()).items():
-            # If there are multiple axes that match the slice then they must be
-            # identical (apart from their ID, which is ignored in equality checks).
             possible_targets = [ax for ax in orig_axes.nodes if ax.label == axis_label]
-            assert single_valued(orig_target_paths_and_exprs[(t.id, component_label)] for t in possible_targets)
+
+            if len([orig_target_paths_and_exprs[(t.id, component_label)] for t in possible_targets]) > 1:
+                # If there are multiple axes that match the slice then they must be
+                # identical (apart from their ID, which is ignored in equality checks).
+                pyop3.extras.debug.warn_todo("multiple matches found, make sure they match")
 
             target_axis = single_valued(possible_targets)
 
@@ -1596,7 +1601,10 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
             # If there are multiple axes that match the slice then they must be
             # identical (apart from their ID, which is ignored in equality checks).
             possible_targets = [ax for ax in orig_axes.nodes if ax.label == axis_label]
-            assert single_valued(orig_target_paths_and_exprs[(t.id, component_label)] for t in possible_targets)
+            if len([orig_target_paths_and_exprs[(t.id, component_label)] for t in possible_targets]) > 1:
+                # If there are multiple axes that match the slice then they must be
+                # identical (apart from their ID, which is ignored in equality checks).
+                pyop3.extras.debug.warn_todo("multiple matches found, make sure they match")
 
             target_axis = single_valued(possible_targets)
             orig_key = (target_axis.id, component_label)

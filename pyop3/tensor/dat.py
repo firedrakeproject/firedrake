@@ -66,8 +66,6 @@ class Dat(Tensor, KernelArgument):
     _name: str
     _parent: Dat | None
 
-    # TODO: These belong to the buffer
-    max_value: int | None
     ordered: bool
 
     # }}}
@@ -98,7 +96,6 @@ class Dat(Tensor, KernelArgument):
         buffer: ArrayBuffer | None = None,
         *,
         data: np.ndarray | None = None,
-        max_value=None,
         name=None,
         prefix=None,
         ordered=False,
@@ -132,8 +129,7 @@ class Dat(Tensor, KernelArgument):
         self._name = name
         self._parent = parent
         self.axes = axes
-        object.__setattr__(self, "_buffer", buffer)
-        object.__setattr__(self, "max_value", max_value)
+        self._buffer = buffer
 
         # NOTE: This is a tricky one, is it an attribute of the dat or the buffer? What
         # if the Dat is indexed? Maybe it should be
@@ -182,7 +178,8 @@ class Dat(Tensor, KernelArgument):
 
     # }}}
 
-    @cachedmethod(lambda self: self.axes._cache)
+    # For some reason this is breaking stuff
+    # @cachedmethod(lambda self: self.axes._cache)
     def getitem(self, index, *, strict=False):
         from pyop3.itree import as_index_forest, index_axes
 
