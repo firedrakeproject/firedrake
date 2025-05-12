@@ -24,7 +24,7 @@ dependencies = [
   "h5py>3.12.1",
   "libsupermesh",
   "loopy>2024.1",
-  "petsc4py==3.23.1",
+  "petsc4py==3.23.2",
   "numpy",
   "packaging",
   "pkgconfig",
@@ -139,7 +139,7 @@ requires = [
   "pkgconfig",
   "pybind11",
   "setuptools>61.2",
-  "petsc4py==3.23.1",
+  "petsc4py==3.23.2",
   "rtree>=1.2",
 ]
 build-backend = "setuptools.build_meta"

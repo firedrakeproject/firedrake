@@ -58,11 +58,12 @@ def check_petsc_version() -> None:
         f"petsc4py=={petsc_version}",
         2,
     )
-    check_file_contains_pattern(
-        REPO_ROOT / "pyproject.toml",
-        f"slepc4py=={petsc_version}",
-        3,
-    )
+    # TODO: Add back once slepc4py 3.23.2 is released
+    # check_file_contains_pattern(
+    #     REPO_ROOT / "pyproject.toml",
+    #     f"slepc4py=={petsc_version}",
+    #     3,
+    # )
 
 
 def check_petsc_version_spec() -> None:
