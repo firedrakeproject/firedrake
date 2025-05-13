@@ -61,7 +61,9 @@ choose units such that :math:`q,m` are absorbed into the definition of
 :math:`f`.
 
 To proceed, we need to develop variational formulations of these
-equations. For the density we will use a discontinuous Galerkin formulation,
+equations.
+
+For the density we will use a discontinuous Galerkin formulation,
 and the continuity equation becomes 
 
 .. math::
@@ -76,8 +78,36 @@ and the continuity equation becomes
    \vec{n} \, \mathrm{d} s
    \qquad \forall q \in V,
 
-where :math:`\Gamma_\mathrm{int}` is the 
-   
+where :math:`\Omega` is the computational domain in :math:`(x,v)`
+space, :math:`V` is the discontinuous finite element space,
+:math:`\Gamma_\mathrm{int}` is the set of interior cell edges,
+:math:`\Gamma_{\mathrlap{\mathrm{ext, inflow}}}` is the part of
+exterior boundary where :math:`\vec{u}\cdot\vec{n}<0`,
+:math:`\Gamma_{\mathrlap{\mathrm{ext, outflow}}}` is the part of
+exterior boundary where :math:`\vec{u}\cdot\vec{n}>0`, :math:`n` is
+the normal to each edge, :math:`\tilde{f}` is the upwind value of
+:math:`f`, and :math:`f_{\mathrm{in}}` is the inflow boundary value
+for :math:`f`. See the Discontinuous Galerkin advection
+:doc:`demo<DG_advection.py>` for more details. The unapproximated
+problem should have :math:`-\infty < x_2 < \infty`, but we approximate
+the problem by solving in the domain :math:`\Omega=I_1\times [-H/2, H/2]`,
+where :math:`I` is some chosen interval.
+
+For the Poisson equation, we will use a regular Galerkin formulation.
+The difficulty in the formulation is the integral over :math:`x_2`. We
+deal with this by considering a space `\bar{W}` which is restricted
+to functions that are constant in the vertical. Multiplying by a
+test function :math:\psi\in \bar{W}` and integrating by parts gives
+
+.. math::
+
+   \int \psi_{x_1}\phi_{x_1} \mathrm{d} x
+   = \int \int f(x,v,t) \psi \mathrm{d} x\mathrm{d} v, \quad
+   \forall \psi \in \bar{W}.
+
+Since the left hand side integrand is independent of :math:`v`, we
+can integrate over :math:`v` and divide by 
+     
 As usual, to implement this problem, we start by importing the
 Firedrake namespace. ::
 
