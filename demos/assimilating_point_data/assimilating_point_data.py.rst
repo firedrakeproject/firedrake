@@ -105,11 +105,12 @@ where :math:`v` is a test function in :math:`\operatorname{P2CG}(\Omega)`.
 Firedrake implementation
 ------------------------
 
-We begin by importing Firedrake, Firedrake-Adjoint, and Numpy ::
+We begin by importing Firedrake, Firedrake-Adjoint, and Numpy and starting the tape::
 
     import firedrake as fd
-    import firedrake_adjoint as fda
     import numpy as np
+    from firedrake.__future__ import interpolate
+    fd.adjoint.continue_annotation()
 
 We'll then create our mesh and define the solution and control function spaces ::
 
@@ -117,39 +118,35 @@ We'll then create our mesh and define the solution and control function spaces :
     V = fd.FunctionSpace(mesh, "CG", 2)  # solution space
     Q = fd.FunctionSpace(mesh, "CG", 2)  # control space
 
-Now we'll create our :math:`q_{\text{true}}` field ::
+Now we'll create our :math:`q_{\text{true}}` and :math:`u_{\text{true}}` fields. 
+To get our :math:`u_{\text{true}}` field we solve the PDE with :math:`q_{\text{true}}`. 
+We don't want to write this to the tape, so we use a `stop_annotating` context manager::
 
-    rng = np.random.default_rng(seed=42)
-    degree = 5
-    x = fd.SpatialCoordinate(mesh)
-    q_true = fd.Function(Q)
-    for k in range(degree):
-        for l in range(int(np.sqrt(degree**2 - k**2))):
-            Z = np.sqrt(1 + k**2 + l**2)
-            phi = 2 * fd.pi * (k * x[0] + l * x[1])
+    with fd.adjoint.stop_annotating():
+      rng = np.random.default_rng(seed=42)
+      degree = 5
+      x = fd.SpatialCoordinate(mesh)
+      q_true = fd.Function(Q)
+      for k in range(degree):
+          for l in range(int(np.sqrt(degree**2 - k**2))):
+              Z = np.sqrt(1 + k**2 + l**2)
+              phi = 2 * fd.pi * (k * x[0] + l * x[1])
 
-            A_kl = rng.standard_normal() / Z
-            B_kl = rng.standard_normal() / Z
+              A_kl = rng.standard_normal() / Z
+              B_kl = rng.standard_normal() / Z
 
-            expr = fd.Constant(A_kl) * fd.cos(phi) + fd.Constant(B_kl) * fd.sin(phi)
-            mode = fd.interpolate(expr, Q)
+              expr = fd.Constant(A_kl) * fd.cos(phi) + fd.Constant(B_kl) * fd.sin(phi)
+              mode = interpolate(expr, Q)
 
-            q_true += mode
-
-and to get our :math:`u_{\text{true}}` field we solve the PDE with :math:`q_{\text{true}}` ::
-  
-    u_true = fd.Function(V)
-    v = fd.TestFunction(V)
-    f = fd.Constant(1.0)
-    k0 = fd.Constant(0.5)
-    bc = fd.DirichletBC(V, 0, 'on_boundary')
-    F = (k0 * fd.exp(q_true) * fd.inner(fd.grad(u_true), fd.grad(v)) - f * v) * fd.dx
-    fd.solve(F == 0, u_true, bc)
-
-We need to clear the tape now ::
-  
-    tape = fda.get_working_tape()
-    tape.clear_tape()
+              q_true += mode
+    
+      u_true = fd.Function(V)
+      v = fd.TestFunction(V)
+      f = fd.Constant(1.0)
+      k0 = fd.Constant(0.5)
+      bc = fd.DirichletBC(V, 0, 'on_boundary')
+      F = (k0 * fd.exp(q_true) * fd.inner(fd.grad(u_true), fd.grad(v)) - f * v) * fd.dx
+      fd.solve(F == 0, u_true, bc)
 
 Now we'll randomly generate our point data observations and add some Gaussian noise ::
 
@@ -179,16 +176,16 @@ Now we write down our misfit functional ::
     u_obs = fd.Function(P0DG)
     u_obs.dat.data[:] = u_obs_vals
     
-    misfit_expr = (u_obs - fd.interpolate(u, P0DG))**2
+    misfit_expr = (u_obs - fd.assemble(interpolate(u, P0DG)))**2
     regularisation_expr = alpha**2 * fd.inner(fd.grad(q), fd.grad(q))
 
-    J = fd.assemble(misfit_expr * fd.dx + regularisation_expr * fd.dx)
+    J = fd.assemble(misfit_expr * fd.dx) + fd.assemble(regularisation_expr * fd.dx)
   
 We now minimise our functional :math:`J` ::
 
-    q_hat = fda.Control(q)
-    J_hat = fda.ReducedFunctional(J, q_hat)
+    q_hat = fd.adjoint.Control(q)
+    J_hat = fd.adjoint.ReducedFunctional(J, q_hat)
 
-    q_min = fda.minimize(
+    q_min = fd.adjoint.minimize(
         J_hat, method='Newton-CG', options={'disp': True}
     )
