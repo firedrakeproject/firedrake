@@ -46,7 +46,7 @@ In this demo we specialise to :math:`d=1`, and the equations become
 
 .. math::
    f_t + (fv)_x + (-f\phi_x/m)_v = 0, \quad
-   -\phi_{xx} = \int f(x,v,t)\mathrm{d} v,
+   -\phi_{xx} = q\int f(x,v,t)\mathrm{d} v,
 
 with coordinates :math:`(x,v)\in \mathbb{R}^2`. From now on we will
 relabel these coordinates :math:`(x,v)\mapsto (x_1,x_2)`, obtaining
@@ -54,10 +54,15 @@ the equivalent form,
 
 .. math::
    f_t + \nabla\cdot(\vec{u}f) = 0, \quad \vec{u} = (v,-\phi_x/m), \quad
-   -\phi_{x_1x_1} = \int f(x_1,x_2,t)\mathrm{d} x_2.
+   -\phi_{x_1x_1} = q\int f(x_1,x_2,t)\mathrm{d} x_2,
+
+where :math:`\nabla=(\partial_{x_1},\partial{x_2})`. From now we will
+choose units such that :math:`q,m` are absorbed into the definition of
+:math:`f`.
 
 To proceed, we need to develop variational formulations of these
-equations. The continuity equation becomes 
+equations. For the density we will use a discontinuous Galerkin formulation,
+and the continuity equation becomes 
 
 .. math::
 
@@ -69,9 +74,10 @@ equations. The continuity equation becomes
    \vec{n} \, \mathrm{d} s\\
    &\quad- \int_{\Gamma_{\mathrlap{\mathrm{ext, outflow}}}} q f \vec{u} \cdot
    \vec{n} \, \mathrm{d} s
-   \qquad \forall q \in V.
+   \qquad \forall q \in V,
 
-
+where :math:`\Gamma_\mathrm{int}` is the 
+   
 As usual, to implement this problem, we start by importing the
 Firedrake namespace. ::
 
