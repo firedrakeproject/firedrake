@@ -345,4 +345,30 @@ Finally we output to the VTK file if it is time to do that. ::
         dumpn = 0
         outfile.write(fn, phi)
 
+Images of the solution at shown below.
+
+.. figure:: vlasov_0s_LR.png
+   :align: center
+
+   Solution at :math:`t = 0.`
+
+.. figure:: vlasov_15_LR.png
+   :align: center
+
+   Solution at :math:`t = 15.`
+
+We also present solutions at double the resolution, by doubling the number
+of horizontal cells and the number of layers, halving the timestep (by doubling the number of steps), and doubling ``nsteps``.
+
+.. figure:: vlasov_0s_HR.png
+   :align: center
+
+   Solution at :math:`t = 0.`
+
+.. figure:: vlasov_15_HR.png
+   :align: center
+
+   Solution at :math:`t = 15.`
+
+   
 A Python script version of this demo can be found :demo:`here <vp1d.py>`.
