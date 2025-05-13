@@ -137,7 +137,7 @@ We don't want to write this to the tape, so we use a `stop_annotating` context m
               B_kl = rng.standard_normal() / Z
 
               expr = fd.Constant(A_kl) * fd.cos(phi) + fd.Constant(B_kl) * fd.sin(phi)
-              mode = interpolate(expr, Q)
+              mode = fd.assemble(interpolate(expr, Q))
 
               q_true += mode
     
@@ -162,7 +162,7 @@ Now we'll randomly generate our point data observations and add some Gaussian no
 
 We can now solve the model PDE with :math:`q=0` as an initial guess ::
 
-    u = fd.TrialFunction(V)
+    u = fd.Function(V)
     v = fd.TestFunction(V)
     q = fd.Function(Q)
     bc = fd.DirichletBC(V, 0, 'on_boundary')
