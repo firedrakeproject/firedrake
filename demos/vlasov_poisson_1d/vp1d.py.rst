@@ -97,7 +97,7 @@ For the Poisson equation, we will use a regular Galerkin formulation.
 The difficulty in the formulation is the integral over :math:`x_2`. We
 deal with this by considering a space :math:`\bar{W}` which is restricted
 to functions that are constant in the vertical. Multiplying by a
-test function :math:\psi\in \bar{W}` and integrating by parts gives
+test function :math:`\psi\in \bar{W}` and integrating by parts gives
 
 .. math::
 
@@ -257,12 +257,19 @@ Now we express the equation in UFL. ::
   un = 0.5*(dot(u, n) + abs(dot(u, n)))
   df = TrialFunction(V)
   df_a = q*df*dx
+
+The problem is defined on an extruded mesh, so the interior facets are
+separated into horizontal and vertical ones. ::
+
   dS = dS_h + dS_v
 
   df_L = dtc*(div(u*q)*fstar*dx
      - (q('+') - q('-'))*(un('+')*fstar('+') - un('-')*fstar('-'))*dS
      - conditional(dot(u, n) > 0, q*dot(u, n)*fstar, 0.)*ds_tb
       )
+
+We then use this to build a solver. ::
+
   df_problem = LinearVariationalProblem(df_a, df_L, df_out)
   df_solver = LinearVariationalSolver(df_problem)
 
