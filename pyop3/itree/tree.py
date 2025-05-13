@@ -1505,7 +1505,7 @@ def _index_axes(
 
 
 # NOTE: should be similar to index_exprs
-def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexed_target_paths_and_exprs, *, axis=None, indexed_axes_acc=None, indexed_target_paths_and_exprs_acc=None, visited_orig_axes=None):
+def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexed_target_paths_and_exprs, *, axis=None, indexed_target_paths_and_exprs_acc=None, visited_orig_axes=None):
     """
 
     Traverse ``indexed_axes``, picking up bits from indexed_target_paths and keep
@@ -1522,8 +1522,6 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
 
     ---
 
-    indexed_axes_acc is a *linear* version of the visited indexed axis tree. It provides the necessary information for replace(...) to interpret the target_paths_and_exprs
-
     """
     from pyop3.expr_visitors import replace_terminals
 
@@ -1534,7 +1532,6 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
     if axis is None:  # strictly_all
         visited_orig_axes = frozenset()
 
-        indexed_axes_acc = AxisTree()
         indexed_target_paths_and_exprs_acc = {None: indexed_target_paths_and_exprs.get(None, (immutabledict(), immutabledict()))}
 
         # special handling for None entries
@@ -1562,7 +1559,10 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
                 # identical (apart from their ID, which is ignored in equality checks).
                 pyop3.extras.debug.warn_todo("multiple matches found, make sure they match")
 
-            target_axis = single_valued(possible_targets)
+            if len(possible_targets) > 1:
+                breakpoint()
+                pyop3.extras.debug.warn_todo("multiple matches found, make sure they match")
+            target_axis = possible_targets[0]
 
             if target_axis.label in visited_orig_axes:
                 continue
@@ -1592,9 +1592,9 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
     for component in axis.components:
         # FIXME: This is not necessary
         linear_axis = Axis([component], axis.label)
-        indexed_axes_acc_ = indexed_axes_acc.add_axis(linear_axis, indexed_axes_acc.leaf)
 
-        indexed_target_paths_and_exprs_acc_ = indexed_target_paths_and_exprs_acc | {(linear_axis.id, component.label): indexed_target_paths_and_exprs[axis.id, component.label]}
+        # indexed_target_paths_and_exprs_acc_ = indexed_target_paths_and_exprs_acc | {(linear_axis.id, component.label): indexed_target_paths_and_exprs[axis.id, component.label]}
+        indexed_target_paths_and_exprs_acc_ = {(linear_axis.id, component.label): indexed_target_paths_and_exprs[axis.id, component.label]}
 
         visited_orig_axes_ = visited_orig_axes
 
@@ -1607,7 +1607,9 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
                 # identical (apart from their ID, which is ignored in equality checks).
                 pyop3.extras.debug.warn_todo("multiple matches found, make sure they match")
 
-            target_axis = single_valued(possible_targets)
+            if len(possible_targets) > 1:
+                raise NotImplementedError("This is an issue, these are distinct and that matters")
+            target_axis = possible_targets[0]
             orig_key = (target_axis.id, component_label)
 
             if target_axis.label in visited_orig_axes_:
@@ -1633,7 +1635,6 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
                 indexed_axes,
                 indexed_target_paths_and_exprs,
                 axis=subaxis,
-                indexed_axes_acc=indexed_axes_acc_,
                 indexed_target_paths_and_exprs_acc=indexed_target_paths_and_exprs_acc_,
                 visited_orig_axes=visited_orig_axes_,
             )

@@ -14,6 +14,7 @@ from petsc4py import PETSc
 from pyrsistent import freeze, pmap
 
 from pyop3 import utils
+from pyop3.config import config
 from pyop3.dtypes import IntType, ScalarType, DTypeT
 from pyop3.lang import KernelArgument
 from pyop2.mpi import COMM_SELF
@@ -227,12 +228,18 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._constant = constant
         self._max_value = max_value
 
+        # if self.name == "array_74":
+        #     breakpoint()
+
     @classmethod
     def empty(cls, shape, dtype: DTypeT | None = None, **kwargs):
         if dtype is None:
             dtype = cls.DEFAULT_DTYPE
 
-        data = np.empty(shape, dtype=dtype)
+        if config["debug"]:
+            data = np.full(shape, 666, dtype=dtype)
+        else:
+            data = np.empty(shape, dtype=dtype)
         return cls(data, **kwargs)
 
     @classmethod
