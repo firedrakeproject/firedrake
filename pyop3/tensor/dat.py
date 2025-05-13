@@ -167,7 +167,7 @@ class Dat(Tensor, KernelArgument):
     def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
         axes = as_axis_tree(axes)
         # alloc_size?
-        buffer = ArrayBuffer.zeros(axes.size, dtype=dtype, sf=axes.sf)
+        buffer = ArrayBuffer.zeros(axes.alloc_size, dtype=dtype, sf=axes.sf)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod

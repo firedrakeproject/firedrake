@@ -1701,11 +1701,13 @@ class IndexedAxisTree(AbstractAxisTree):
     def _buffer_slice(self) -> np.ndarray[IntType]:
         from pyop3 import Dat, do_loop
 
-        mask_dat = Dat.empty(self.unindexed.undistribute(), dtype=bool, prefix="mask")
+        mask_dat = Dat.zeros(self.unindexed.undistribute(), dtype=bool, prefix="mask")
+        pyop3.extras.debug.enable_conditional_breakpoints()
         do_loop(p := self.index(), mask_dat[p].assign(1))
         indices = just_one(np.nonzero(mask_dat.buffer.data_ro))
 
         # then convert to a slice if possible, do in Cython!!!
+        pyop3.extras.debug.warn_todo("Convert to cython")
         slice_ = None
         n = len(indices)
 
