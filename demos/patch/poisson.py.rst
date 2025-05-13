@@ -158,4 +158,32 @@ latter options do the same operations, just via different code paths.::
           its = run_solve(deg, method)
           print(f"     {deg} |    {its}")
 
+For Jacobi, we expect output such as
+
+======== ================
+ Degree    Iterations
+======== ================
+   1         8
+   2         8   
+   3         10
+   4         11
+   5         14
+   6         16
+   7         19
+======== ================
+
+While for either PatchPC or ASMStarPC, we expect
+
+======== ================
+ Degree    Iterations
+======== ================
+   1         8
+   2         8   
+   3         8
+   4         8
+   5         8
+   6         8
+   7         8
+======== ================
+
 A runnable python version of this demo can be found :demo:`here<poisson.py>`.

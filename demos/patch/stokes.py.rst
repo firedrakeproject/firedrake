@@ -157,4 +157,6 @@ latter options do the same operations, just via different code paths.::
           its = run_solve(msh, params)
           print(f"{lvl}     | {its}")
 
+For either set of options, we expect 10 iterations to convergence for each mesh level.
+
 A runnable python version of this demo can be found :demo:`here<stokes.py>`.
