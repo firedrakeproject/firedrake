@@ -52,7 +52,6 @@ Integrating a function over a vertex-only mesh is equivalent to summing the func
 
     \int_{\Omega_{v}} f \, dx = \sum_{i=1}^{N} f(X_{i}).
 
-
 We can interpolate a function defined on some function space on the parent mesh :math:`u\in\operatorname{FS}(\Omega)` into the function space :math:`\operatorname{P0DG}(\Omega_{v})` by evaluating the function :math:`u` at the vertices :math:`X_i` of the mesh.
 This is done by the interpolation operator
 
@@ -60,15 +59,6 @@ This is done by the interpolation operator
 
     \mathcal{I}_{\operatorname{P0DG}(\Omega_{v})}&\rightarrow\operatorname{FS}(\Omega)
     \mathcal{I}_{\operatorname{P0DG}(\Omega_{v})}(u)&\mapsto u_{v}.
-
-
-Finally we can write down our misfit term as
-
-.. math::
-
-    J_{\text{model-data misfit}} &= \sum_{i=1}^{N} \lVert u_{\text{obs}}^i-u(X_{i}) \rVert_{L^2}^2
-    &= \int_{\Omega_{v}} (u_{\text{obs}}^i-\mathcal{I}_{\operatorname{P0DG}(\Omega_{v})}(u))^2 \, dx
-    &= \sum_{i=1}^{N} (u_{\text{obs}}^i-u(X_{i))^2
 
 
 Unknown conductivity
@@ -92,7 +82,7 @@ We assume that the conductivity is of the form
 
     k=k_{0}e^{q}
 
-with :math:`k_{0}=\frac{1}{2}`, where :math:`q` is the log-conductivity field. We want to estimate the log-conductivity field :math:`q` from the (noisy) point observations :math:`u_{\text{obs}}^i`.
+with :math:`k_{0}=\frac{1}{2}`, where :math:`q` is the log-conductivity field. We want to estimate the log-conductivity field :math:`q` from the (noisy) point observations :math:`u_{\text{obs}}^i`, which are taken at the locations :math:`X_i`.
 We take the true conductivity :math:`q_{\text{true}}` to be in :math:`\operatorname{P2CG}(\Omega)`, and solve the PDE on the same function space for :math:`u_{\text{true}}\in\operatorname{P2CG}(\Omega)`.
 The PDE can be written in weak form as
 
@@ -100,7 +90,23 @@ The PDE can be written in weak form as
 
     k_{0}e^{q}\int_{\Omega}\nabla u\cdot\nabla v \, dx = \int_{\Omega} fv\,dx
 
-where :math:`v` is a test function in :math:`\operatorname{P2CG}(\Omega)`.
+where :math:`v` is a test function in :math:`\operatorname{P2CG}(\Omega)`. 
+
+Our :math:`J_{\text{model-data misfit}}` term is then 
+
+.. math::
+
+    J_{\text{model-data misfit}} &= \sum_{i=1}^{N} \lVert u_{\text{obs}}^i-u(X_{i}) \rVert_{L^2}^2
+    &= \int_{\Omega_{v}} (u_{\text{obs}}^i-\mathcal{I}_{\operatorname{P0DG}(\Omega_{v})}(u))^2 \, dx
+    &= \sum_{i=1}^{N} (u_{\text{obs}}^i-u(X_{i))^2.
+
+For the regularisation term :math:`J_{\text{regularisation}}` we take 
+
+.. math::
+
+    J_{\text{regularisation}} = \alpha^2\int_{\Omega} \lVert \nabla q \rVert_{L^2}^2 \, dx.
+
+This ensures the smoothness of the solution :math:`u`, and :math:`\alpha` gives a weighting to this assertion.
 
 Firedrake implementation
 ------------------------
