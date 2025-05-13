@@ -41,11 +41,41 @@ potential determined by the Poisson equation,
    -\nabla^2\phi = q\int_{\mathbb{R}^d} f(x,v,t)\mathrm{d} v,
 
 where :math:`q` is the electric charge per plasma particle.
-   
+
+In this demo we specialise to :math:`d=1`, and the equations become
+
+.. math::
+   f_t + (fv)_x + (-f\phi_x/m)_v = 0, \quad
+   -\phi_{xx} = \int f(x,v,t)\mathrm{d} v,
+
+with coordinates :math:`(x,v)\in \mathbb{R}^2`. From now on we will
+relabel these coordinates :math:`(x,v)\mapsto (x_1,x_2)`, obtaining
+the equivalent form,
+
+.. math::
+   f_t + \nabla\cdot(uf) = 0, \quad u = (v,-\phi_x/m), \quad
+   -\phi_{x_1x_1} = \int f(x_1,x_2,t)\mathrm{d} x_2.
+
+To proceed, we need to develop variational formulations of these
+equations. The continuity equation becomes 
+
+.. math::
+
+   \int_\Omega \! q \frac{\partial f}{\partial t} \, \mathrm{d} x
+   &= \int_\Omega \! f \nabla \cdot (q \vec{u}) \, \mathrm{d} x\\
+   &\quad- \int_{\Gamma_\mathrm{int}} \! \widetilde{f}(q_+ \vec{u} \cdot \vec{n}_+
+     + q_- \vec{u} \cdot \vec{n}_-) \, \mathrm{d} S\\
+   &\quad- \int_{\Gamma_{\mathrlap{\mathrm{ext, inflow}}}} q f_\mathrm{in} \vec{u} \cdot
+   \vec{n} \, \mathrm{d} s\\
+   &\quad- \int_{\Gamma_{\mathrlap{\mathrm{ext, outflow}}}} q f \vec{u} \cdot
+   \vec{n} \, \mathrm{d} s
+   \qquad \forall q \in V.
+
+
 As usual, to implement this problem, we start by importing the
 Firedrake namespace. ::
 
   from firedrake import *
 
 
-A python script version of this demo can be found :demo:`here <vp1d.py>`.
+A Python script version of this demo can be found :demo:`here <vp1d.py>`.
