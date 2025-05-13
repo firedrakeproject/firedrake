@@ -367,10 +367,11 @@ class ModuleExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
+        ccode = lambda: lp.generate_code_v2(self.loopy_code).device_code()
+
         # if len(self.loopy_code.callables_table) > 1:
-        #     ccode = lp.generate_code_v2(self.loopy_code).device_code()
         #     breakpoint()
-        pyop3.extras.debug.maybe_breakpoint()
+        # pyop3.extras.debug.maybe_breakpoint()
 
         self.executable(*exec_arguments)
 

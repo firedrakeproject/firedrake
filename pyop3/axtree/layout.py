@@ -14,7 +14,7 @@ from typing import Any, Optional
 import numpy as np
 import pymbolic as pym
 from petsc4py import PETSc
-from pyop3 import tree
+from pyop3 import tree, utils
 
 from pyop3.axtree.tree import (
     Axis,
@@ -64,17 +64,19 @@ def make_layouts(axes: AxisTree, loop_vars) -> immutabledict:
 
 
 def tabulate_again(axes):
-    layouts, to_tabulate = _prepare_layouts(axes, axes.root, immutabledict(), 0, ())
+    to_tabulate = {}
+    layouts = _prepare_layouts(axes, axes.root, immutabledict(), 0, (), to_tabulate)
     starts = {array: 0 for array in to_tabulate.values()}
     for region in _collect_regions(axes):
         for tree, offset_dat in to_tabulate.items():
             starts[offset_dat] += _tabulate_offset_dat(offset_dat, tree, region, starts[offset_dat])
+    utils.debug_assert(lambda: all((dat.buffer._data >= 0).all() for dat in to_tabulate.values()))
     return layouts
 
 
 # TODO: I think a better way to do this is to track 'free indices' and see if the 'needed indices' <= 'free'
 # at which point we can tabulate.
-def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free_axes) -> immutabledict:
+def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free_axes, to_tabulate) -> immutabledict:
     """Traverse the axis tree and prepare zeroed arrays for offsets.
 
     Any axes that do not require tabulation will also be set at this point.
@@ -91,7 +93,6 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
         )
 
     layouts = {}
-    to_tabulate = {}
     start = 0
     for i, component in enumerate(axis.components):
         path_acc_ = path_acc | {axis.label: component.label}
@@ -113,7 +114,9 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
 
             if subtree in to_tabulate:
                 # We have already seen an identical tree elsewhere, don't need to create a new array here
-                component_layout = to_tabulate[subtree]
+                offset_dat = to_tabulate[subtree]
+                offset_dat_expr = as_linear_buffer_expression(offset_dat)
+                component_layout = offset_dat_expr * step + start
             else:
                 if _tabulation_needs_subaxes(axes, axis, component, free_axes_):
                     # 1. Needs subindices to be able to tabulate anything, pass down
@@ -153,13 +156,14 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
                 start += component.local_size
 
         if subaxis := axes.child(axis, component):
-            sublayouts, subdats = _prepare_layouts(axes, subaxis, path_acc_, layout_expr_acc_, free_axes_)
+            sublayouts = _prepare_layouts(axes, subaxis, path_acc_, layout_expr_acc_, free_axes_, to_tabulate)
             layouts |= sublayouts
-            to_tabulate |= subdats
+            # to_tabulate |= subdats
         else:
             assert not free_axes_
 
-    return immutabledict(layouts), to_tabulate
+    # return immutabledict(layouts), to_tabulate
+    return immutabledict(layouts)
 
 
 def _collect_regions(axes: AxisTree, *, axis: Axis | None = None):

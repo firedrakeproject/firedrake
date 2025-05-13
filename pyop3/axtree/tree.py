@@ -1724,6 +1724,7 @@ class IndexedAxisTree(AbstractAxisTree):
                     break
             slice_ = slice(indices[0], indices[-1]+1, step)
 
+        debug_assert(lambda: max(indices) <= self.alloc_size)
         assert slice_ is not None
         return slice_
 
