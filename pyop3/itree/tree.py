@@ -1552,7 +1552,8 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
             none_mapped_target_exprs[orig_axis_label] = replace_terminals(orig_index_expr, myreplace_map)
 
         # Now add any extra 'None-indexed' axes.
-        for orig_key in indexed_target_paths_and_exprs.get(None, ()):
+        # for orig_key in indexed_target_paths_and_exprs.get(None, ()):
+        orig_keys, replace_map = indexed_target_paths_and_exprs.get(None, [(), None])
             # possible_targets = [ax for ax in orig_axes.nodes if ax.label == axis_label]
             #
             # if len([orig_target_paths_and_exprs[(t.id, component_label)] for t in possible_targets]) > 1:
@@ -1569,6 +1570,7 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
             #     continue
             # visited_orig_axes |= {target_axis.label}
 
+        for orig_key in orig_keys:
             if orig_key in orig_target_paths_and_exprs:
                 orig_target_path, orig_target_exprs = orig_target_paths_and_exprs[orig_key]
 
@@ -1600,7 +1602,7 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
 
         # for orig_key in indexed_target_paths_and_exprss[axis.id, component.label]  merge_dicts(p for p, _ in indexed_target_paths_and_exprs_acc_.values()).items():
         # for orig_key, SOMETHING in indexed_target_paths_and_exprs.get((axis.id, component.label), ()):
-        orig_keys, SOMETHING = indexed_target_paths_and_exprs.get((axis.id, component.label), ())
+        orig_keys, SOMETHING = indexed_target_paths_and_exprs.get((axis.id, component.label), ((), None))
             # If there are multiple axes that match the slice then they must be
             # identical (apart from their ID, which is ignored in equality checks).
             # possible_targets = [ax for ax in orig_axes.nodes if ax.label == axis_label]
