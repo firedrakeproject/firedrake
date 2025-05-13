@@ -178,7 +178,7 @@ and a continuous finite element space for the electostatic potential.
 The space is continuous in the horizontal and constant in the vertical,
 specified through the `vfamily`. ::
   
-  Vbar = FunctionSpace(mesh, 'CG', 1, vfamily='R', vdegree=0)
+  Wbar = FunctionSpace(mesh, 'CG', 1, vfamily='R', vdegree=0)
 
 We create a :class:`~.Function` to store the solution at the current
 time, and then set its initial condition. ::
@@ -199,7 +199,7 @@ equation. ::
 
 We create a :class:`~.Function` to store the electrostatic potential. ::
 
-  phi = Function(Vbar)
+  phi = Function(Wbar)
 
 The next task is to create the solver for the electrostatic potential, which
 will be called every timestep. 
@@ -207,16 +207,16 @@ will be called every timestep.
 We create a :class:`~.Function` to store the right had side of the Poisson
 equation. This will enable us to reuse the solver. ::
 
-  f_in = Function(V)
+  fstar = Function(V)
 
 Now we express the Poisson equation in UFL. ::
   
-  psi = TestFunction(Vbar)
-  dphi = TrialFunction(Vbar)
-  phi_eqn = dphi.dx(0)*psi.dx(0)*dx - H*(f_in-fbar)*psi*dx
+  psi = TestFunction(Wbar)
+  dphi = TrialFunction(Wbar)
+  phi_eqn = dphi.dx(0)*psi.dx(0)*dx - H*(fstar-fbar)*psi*dx
 
-To deal with :math:`\mathcirc{\bar{W}}`, we will precondition the
-problem with a shifted version, which is well-posed on :math:`\bar{W}`.
+To deal with :math:`\mathring{\bar{W}}`, we will precondition the
+problem with a shifted version, which is well-posed on :math:`\bar{W}`. ::
   
   shift_eqn = dphi.dx(0)*psi.dx(0)*dx + dphi*psi*dx
 
@@ -239,10 +239,18 @@ constant functions. ::
   phi_solver = LinearVariationalSolver(phi_problem,
                                        nullspace=nullspace,
 				       solver_parameters=params)
+
+Now we move onto the solver to compute :math:`\partial f/\partial t`. We
+define a symbolic :math:`\Delta t` which we will update later. ::
+  
   dtc = Constant(0)
 
-  # Solver for DG advection
+The solver will take in `f_star` and return :math:`\Delta t\partial f/\partial t` in `df_out`. ::
+
   df_out = Function(V)
+
+Now we express the equation in UFL. ::
+  
   q = TestFunction(V)
   u = as_vector([v, -phi.dx(0)])
   n = FacetNormal(mesh)
@@ -250,10 +258,10 @@ constant functions. ::
   df = TrialFunction(V)
   df_a = q*df*dx
   dS = dS_h + dS_v
-  f_bc = Function(V).assign(0.)
-  df_L = dtc*(div(u*q)*f_in*dx
-     - (q('+') - q('-'))*(un('+')*f_in('+') - un('-')*f_in('-'))*dS
-     - conditional(dot(u, n) > 0, q*dot(u, n)*f_in, 0.)*ds_tb
+
+  df_L = dtc*(div(u*q)*fstar*dx
+     - (q('+') - q('-'))*(un('+')*fstar('+') - un('-')*fstar('-'))*dS
+     - conditional(dot(u, n) > 0, q*dot(u, n)*fstar, 0.)*ds_tb
       )
   df_problem = LinearVariationalProblem(df_a, df_L, df_out)
   df_solver = LinearVariationalSolver(df_problem)
@@ -271,23 +279,23 @@ constant functions. ::
   f2 = Function(V)
 
   outfile = VTKFile("vlasov.pvd")
-  f_in.assign(fn)
+  fstar.assign(fn)
   phi_solver.solve()
   outfile.write(fn, phi)
   phi.assign(.0)
   
   for step in ProgressBar("Timestep").iter(range(nsteps)):
-    f_in.assign(fn)
+    fstar.assign(fn)
     phi_solver.solve()
     df_solver.solve()
     f1.assign(fn + df_out)
 
-    f_in.assign(f1)
+    fstar.assign(f1)
     phi_solver.solve()
     df_solver.solve()
     f2.assign(3*fn/4 + (f1 + df_out)/4)
 
-    f_in.assign(f2)
+    fstar.assign(f2)
     phi_solver.solve()
     df_solver.solve()
     fn.assign(fn/3 + 2*(f2 + df_out)/3)
