@@ -164,7 +164,10 @@ Now we'll randomly generate our point data observations and add some Gaussian no
     u_range = U.max() - U.min()
     sigma = fd.Constant(u_range / signal_to_noise)
     zeta = rng.standard_normal(len(X_i))
-    u_obs_vals = np.array(u_true.at(X_i)) + float(sigma) * zeta
+
+    vom = fd.VertexOnlyMesh(mesh, X_i)
+    P0DG = fd.FunctionSpace(vom, 'DG', 0)
+    u_obs_vals = fd.assemble(interpolate(u_true, P0DG)).dat.data_ro + float(sigma) * zeta
 
 We can now solve the model PDE with :math:`q=0` as an initial guess ::
 
@@ -178,8 +181,6 @@ We can now solve the model PDE with :math:`q=0` as an initial guess ::
 Now we write down our misfit functional ::
 
     alpha = fd.Constant(0.02)
-    point_cloud = fd.VertexOnlyMesh(mesh, X_i)
-    P0DG = fd.FunctionSpace(point_cloud, 'DG', 0)
     u_obs = fd.Function(P0DG)
     u_obs.dat.data[:] = u_obs_vals
     
