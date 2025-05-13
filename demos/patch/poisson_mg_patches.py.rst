@@ -8,7 +8,11 @@ based on local patch-based decompositions through two different paths.
 This demonstration illustrates basic usage of these methods for the Poisson
 problem.  Here, multigrid with point Jacobi relaxation works, but the iteration
 count degrades with polynomial degree, while vertex star patches give
-degree-indendent iteration counts.
+degree-indendent iteration counts.  Here, all the degrees of freedom in the cells
+(but not on the boundary) around each vertex are included in a patch
+
+.. figure:: star.svg
+   :align: center
 
 For many problems, point Jacobi is even worse, and patches are required even to
 get a convergent method.  We refer the reader to other demos.
@@ -21,13 +25,13 @@ exact solution and forcing data.::
   mesh = UnitSquareMesh(4, 4)
   mh = MeshHierarchy(mesh, 1)
   mesh = mh[-1]
-  x, y = SpatialCoordinate(mesh)
 
 Next, this function solves the Poisson equation discretized with
 a user-provided degree of Lagrange elements and set of solver
 parameters and returns the iteration count required for convergence.
 To stress-test the solver, the forcing function is taken as a randomly
 generated cofunction.::
+
 
   def run_solve(deg, params):
       V = FunctionSpace(mesh, "CG", deg)
@@ -68,6 +72,7 @@ This forces the matrix to be assembled.::
 This function creates multigrid parameters using a given set of
 relaxation options and matrix assembled type.::
 
+
   def mg_params(relax, mat_type="aij"):
       if mat_type == "aij":
           coarse = lu
@@ -92,54 +97,47 @@ automatically assembly the diagonal for us.
 Point Jacobi, however, will require more multigrid iterations as the polynomial
 degree increases.::
 
+
   jacobi_relax = mg_params({"pc_type": "jacobi"}, mat_type="matfree")
 
 These options specify an additive Schwarz relaxation through PatchPC.
 PatchPC builds the patch operators by assembling the bilineary form over
 each subdomain.  Hence, it does not require the global stiffness
-matrix to be assembled.::
+matrix to be assembled.
+These options tell the patch mechanism to use vertex star patches, storing
+the element matrices in a dense format.  The patch problems are solved by
+LU factorizations without a Krylov iterations.  As an optimizations,
+patch is told to precompute all the element matrices and store the inverses
+in dense format.::
 
-  patch_relax = mg_params(
-      {"pc_type": "python",
-       "pc_python_type": "firedrake.PatchPC",
-       "patch": {
-
-These two options specify the star (all cells that contain) around each vertex::
-
-           "pc_patch_construct_type": "star",
-           "pc_patch_construct_dim": 0,
-
-Store the local patch matrices as dense matrices::
-
-           "pc_patch_sub_mat_type": "seqdense",
-
-Solve the local patch problems with LU factorization.::
-
-           "sub_ksp_type": "preonly",
-           "sub_pc_type": "lu",
-
-These options tell the system to precompute the patch matrices, save them,
-and keep the inverses as dense matrices.::
-
-           "pc_patch_dense_inverse": True,
-           "pc_patch_save_operators": True,
-           "pc_patch_precompute_element_tensors": None}},
+  patch_relax = mg_params({
+      "pc_type": "python",
+      "pc_python_type": "firedrake.PatchPC",
+      "patch": {
+          "pc_patch": {
+	      "construct_type": "star",
+              "construct_dim": 0,
+              "sub_mat_type": "seqdense",
+	      "dense_inverse": True,
+	      "save_operators": True,
+	      "precompute_element_tensors": True},
+          "sub_ksp_type": "preonly",
+          "sub_pc_type": "lu"}},
       mat_type="matfree")
 
 ASMStarPC, on the other hand, does no re-discretization, but extracts the
-patch operators for each patch from the already-assembled global stiffness matrix.::
+patch operators for each patch from the already-assembled global stiffness matrix.
 
-  asm_relax = mg_params(
-      {"pc_type": "python",
-       "pc_python_type": "firedrake.ASMStarPC",
 
 The tinyasm backend uses LAPACK to invert all the patch operators.  If this option
 is not specified, PETSc's ASM framework will set up a small KSP for each patch.
 This can be useful when the patches become larger and one wants to use a sparse
 direct or Krylov method on each one.::
 
-      "pc_star_backend_type": "tinyasm"
-       })
+  asm_relax = mg_params({
+      "pc_type": "python",
+      "pc_python_type": "firedrake.ASMStarPC",
+      "pc_star_backend_type": "tinyasm"})
 
 Now, for each parameter choice, we report the iteration count for the Poisson problem
 over a range of polynomial degrees.  We see that the Jacobi relaxation leads to growth
@@ -164,7 +162,7 @@ For Jacobi, we expect output such as
  Degree    Iterations
 ======== ================
    1         8
-   2         8   
+   2         8
    3         10
    4         11
    5         14
@@ -178,7 +176,7 @@ While for either PatchPC or ASMStarPC, we expect
  Degree    Iterations
 ======== ================
    1         8
-   2         8   
+   2         8
    3         8
    4         8
    5         8
