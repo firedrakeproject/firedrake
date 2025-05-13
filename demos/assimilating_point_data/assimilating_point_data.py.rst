@@ -27,6 +27,9 @@ Here :math:`J_{\text{regularisation}}` is a regularisation term, which is there 
 The :math:`J_{\text{model-data misfit}}` term is taken to be the :math:`L^2` norm of the difference between the observations :math:`u_{\text{obs}}^i` and the model solution :math:`u` point evaluated 
 at the observation locations: :math:`u(X_i)`, i.e. :math:`\lVert u_{\text{obs}}^i-u(X_{i}) \rVert_{L^2}`.
 
+The aim is to minimise the misfit functional :math:`J`. This is possible because point evaluation as implemented using the vertex-only mesh formalism is differentiable 
+
+
 Vertex-only mesh formalism
 ----------------------------
 
@@ -70,3 +73,34 @@ Finally we can write down our misfit term as
 
 Unknown conductivity
 --------------------
+
+We consider the PDE 
+
+.. math::
+
+    -\nabla\cdot k\nabla u=1
+
+defined on the domain :math:`\Omega`. Our solution field is :math:`u:\Omega\rightarrow\mathbb{R}` and :math:`k` is the conductivity. We take the Dirichlet boundary condition
+
+.. math::
+
+    u=0 \text{ on } \partial\Omega.
+
+We assume that the conductivity is of the form
+
+.. math::
+
+    k=k_{0}e^{q}
+
+with :math:`k_{0}=\frac{1}{2}`, where :math:`q` is the log-conductivity field. We want to estimate the log-conductivity field :math:`q` from the (noisy) point observations :math:`u_{\text{obs}}^i`.
+We take the true conductivity :math:`q_{\text{true}}` to be in :math:`\operatorname{P2CG}(\Omega)`, and solve the PDE on the same function space for :math:`u_{\text{true}}\in\operatorname{P2CG}(\Omega)`.
+The PDE can be written in weak form as
+
+.. math::
+
+    k_{0}e^{q}\int_{\Omega}\nabla u\cdot\nabla v \, dx = \int_{\Omega} fv\,dx
+
+where :math:`v` is a test function in :math:`\operatorname{P2CG}(\Omega)`.
+
+Firedrake implementation
+------------------------
