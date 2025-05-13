@@ -72,18 +72,18 @@ and the continuity equation becomes
    &= \int_\Omega \! f \nabla \cdot (q \vec{u}) \, \mathrm{d} x\\
    &\quad- \int_{\Gamma_\mathrm{int}} \! \widetilde{f}(q_+ \vec{u} \cdot \vec{n}_+
      + q_- \vec{u} \cdot \vec{n}_-) \, \mathrm{d} S\\
-   &\quad- \int_{\Gamma_{\mathrlap{\mathrm{ext, inflow}}}} q f_\mathrm{in} \vec{u} \cdot
+   &\quad- \int_{\Gamma_I} q f_\mathrm{in} \vec{u} \cdot
    \vec{n} \, \mathrm{d} s\\
-   &\quad- \int_{\Gamma_{\mathrlap{\mathrm{ext, outflow}}}} q f \vec{u} \cdot
+   &\quad- \int_{\Gamma_O} q f \vec{u} \cdot
    \vec{n} \, \mathrm{d} s
    \qquad \forall q \in V,
 
 where :math:`\Omega` is the computational domain in :math:`(x,v)`
 space, :math:`V` is the discontinuous finite element space,
 :math:`\Gamma_\mathrm{int}` is the set of interior cell edges,
-:math:`\Gamma_{\mathrlap{\mathrm{ext, inflow}}}` is the part of
+:math:`\Gamma_I` is the part of
 exterior boundary where :math:`\vec{u}\cdot\vec{n}<0`,
-:math:`\Gamma_{\mathrlap{\mathrm{ext, outflow}}}` is the part of
+:math:`\Gamma_O` is the part of
 exterior boundary where :math:`\vec{u}\cdot\vec{n}>0`, :math:`n` is
 the normal to each edge, :math:`\tilde{f}` is the upwind value of
 :math:`f`, and :math:`f_{\mathrm{in}}` is the inflow boundary value
@@ -151,15 +151,14 @@ the vertical. Here we will use periodic boundary conditions in the
 :math:`x_1` direction, ::
   
   ncells = 50
-  L = 4*pi
+  L = 8*pi
   base_mesh = PeriodicIntervalMesh(ncells, L)
 
 The mesh is then extruded upwards in the "velocity" direction. ::
   
   H = 10.0
   nlayers = 50
-  mesh = ExtrudedMesh(base_mesh, layers=nlayers,
-                      layer_height=H/nlayers)
+  mesh = ExtrudedMesh(base_mesh, layers=nlayers, layer_height=H/nlayers)
 
 We want to have :math:`v=0` in the middle of the domain, so that we
 can have negative and positive velocities. This requires to edit the
@@ -181,15 +180,19 @@ specified through the ``vfamily``. ::
   Wbar = FunctionSpace(mesh, 'CG', 1, vfamily='R', vdegree=0)
 
 We create a :class:`~.Function` to store the solution at the current
-time, and then set its initial condition. ::
+time, and then set its initial condition,
+
+.. math::
+
+   f(x,v,0) = \frac{1}{\sqrt{2\pi}}v^2\exp(-v^2/2)(1+ A\cos(kx)),
+   \quad A=0.05, \quad k=0.5.
+
+::
   
   fn = Function(V)
   A = Constant(0.05)
   k = Constant(0.5)
-  fn.interpolate(
-     v**2*exp(-v**2/2)
-     *(1 + A*cos(k*x))/(2*pi)**0.5
-  )
+  fn.interpolate(v**2*exp(-v**2/2)*(1 + A*cos(k*x))/(2*pi)**0.5)
 
 We will need the (conserved) average :math:`\bar{f}` for the Poisson
 equation. ::
