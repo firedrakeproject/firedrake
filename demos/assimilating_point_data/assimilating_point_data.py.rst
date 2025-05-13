@@ -171,10 +171,10 @@ Now we solve the PDE with :math:`q=0` as an initial guess ::
     F = (k0 * fd.exp(q) * fd.inner(fd.grad(u), fd.grad(v)) - f * v) * fd.dx
     fd.solve(F == 0, u, bc)
 
-We randomly generate our observation locations and create a vertex-only mesh with its associated :math:`\operatorname{P0DG}` function space ::
+We randomly generate our observation locations and create the vertex-only mesh :math:`\Omega_{v}=\{X_{i}\}_{i=1}^{N}` and its associated function space :math:`\operatorname{P0DG}(\Omega_{v})`.::
 
-    num_obs = 1000
-    X_i = rng.random((num_obs, 2))
+    N = 1000
+    X_i = rng.random((N, 2))
     Omega_v = fd.VertexOnlyMesh(mesh, X_i)
     P0DG = fd.FunctionSpace(Omega_v, 'DG', 0)
 
@@ -227,4 +227,3 @@ We can compare our result to `q_true` by calculating the error between `q_min` a
 
 .. bibliography:: demo_references.bib
    :filter: docname in docnames
-   
