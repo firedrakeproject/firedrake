@@ -110,7 +110,8 @@ We begin by importing Firedrake, Firedrake-Adjoint, and Numpy and starting the t
     import firedrake as fd
     import numpy as np
     from firedrake.__future__ import interpolate
-    fd.adjoint.continue_annotation()
+    from firedrake.adjoint import continue_annotation
+    continue_annotation()
 
 We'll then create our mesh and define the solution and control function spaces ::
 
