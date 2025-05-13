@@ -63,9 +63,6 @@ from pyop3 import utils
 import pyop3.extras.debug
 
 
-# FIXME: Import cycle
-from firedrake.cython.dmcommon import filter_sf
-
 bsearch = pym.var("mybsearch")
 
 class InvalidIndexTargetException(Pyop3Exception):
@@ -1026,6 +1023,10 @@ def _(index: ScalarIndex, **_):
 @_index_axes_index.register(Slice)
 def _(slice_: Slice, *, prev_axes, expr_replace_map, **_):
     from pyop3.expr_visitors import replace_terminals, collect_axis_vars
+
+    # TODO: move this code
+    from firedrake.cython.dmcommon import filter_sf
+
 
     # If we are just taking a component from a multi-component array,
     # e.g. mesh.points["cells"], then relabelling the axes just leads to

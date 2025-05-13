@@ -3,6 +3,7 @@ This module provides the implementations of :class:`~.FunctionSpace`
 and :class:`~.MixedFunctionSpace` objects, along with some utility
 classes for attaching extra information to instances of these.
 """
+from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
