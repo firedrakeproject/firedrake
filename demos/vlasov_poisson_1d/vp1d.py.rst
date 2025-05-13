@@ -333,8 +333,10 @@ The third stage. ::
     phi_solver.solve()
     df_solver.solve()
     fn.assign(fn/3 + 2*(f2 + df_out)/3)
-
     t += dt
+
+Finally we output to the VTK file if it is time to do that. ::
+
     dumpn += 1
     if dumpn % ndump == 0:
         dumpn = 0
