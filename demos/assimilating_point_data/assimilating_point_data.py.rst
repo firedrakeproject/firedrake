@@ -27,7 +27,7 @@ Here :math:`J_{\text{regularisation}}` is a regularisation term, which is there 
 The :math:`J_{\text{model-data misfit}}` term is taken to be the :math:`L^2` norm of the difference between the observations :math:`u_{\text{obs}}^i` and the model solution :math:`u` point evaluated 
 at the observation locations: :math:`u(X_i)`, i.e. :math:`\lVert u_{\text{obs}}^i-u(X_{i}) \rVert_{L^2}`.
 
-The aim is to minimise the misfit functional :math:`J`. This is possible because point evaluation as implemented using the vertex-only mesh formalism is differentiable 
+The aim is to find the value of :math:`q` which minimises the misfit functional :math:`J`.
 
 
 Vertex-only mesh formalism
@@ -58,8 +58,8 @@ This is done by the interpolation operator
 .. math::
 
     \begin{align}
-    \mathcal{I}_{\operatorname{P0DG}(\Omega_{v})}:\operatorname{P0DG}(\Omega)&\rightarrow\operatorname{FS}(\Omega)\\
-    \mathcal{I}_{\operatorname{P0DG}(\Omega_{v})}(u)&\mapsto u_{v}.
+    \mathcal{I}_{\operatorname{P0DG}(\Omega_{v})}:\operatorname{FS}(\Omega)&\rightarrow\operatorname{P0DG}(\Omega)\\
+    u&\mapsto u_{v}.
     \end{align}
 
 Unknown conductivity
@@ -99,7 +99,7 @@ Our :math:`J_{\text{model-data misfit}}` term is then
 
     \begin{align}
     J_{\text{model-data misfit}} &= \sum_{i=1}^{N} \lVert u_{\text{obs}}^i-u(X_{i}) \rVert_{L^2}^2\\
-    &= \int_{\Omega_{v}} (u_{\text{obs}}^i-\mathcal{I}_{\operatorname{P0DG}(\Omega_{v})}(u))^2 \, dx\\
+    &= \sum_{i=1}^{N}\int_{\Omega_{v}} (u_{\text{obs}}^i-\mathcal{I}_{\operatorname{P0DG}(\Omega_{v})}(u))^2 \, dx\\
     &= \sum_{i=1}^{N} (u_{\text{obs}}^i-u(X_{i}))^2.
     \end{align}
 
@@ -205,4 +205,3 @@ We can calculate the error between `q_min` and `q_true` ::
 
     q_err = fd.Function(Q).assign(q_min - q_true)
     L2_err = fd.norm(q_err, "L2")
-
