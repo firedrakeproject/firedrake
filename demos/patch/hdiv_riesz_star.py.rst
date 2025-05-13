@@ -1,8 +1,8 @@
-Using patch relaxation for H(div) and H(curl)
-=============================================
+Using patch relaxation for H(div)
+=================================
 
 Multigrid in H(div) and H(curl) also requires relaxation based on topological patches.
-Here, we demonstrate how to do this in a few cases.::
+Here, we demonstrate how to do this in the former case.::
 
   from firedrake import *
 
@@ -10,7 +10,7 @@ Here, we demonstrate how to do this in a few cases.::
   mh = MeshHierarchy(mesh, 3)
   mesh = mh[-1]
 
-First, we consider the Riesz map on H(div), discretized with lowest order
+We consider the Riesz map on H(div), discretized with lowest order
 Raviart--Thomas elements.  We force the system with a random right-hand side and
 impose homogeneous Dirichlet boundary conditions::
 
@@ -55,10 +55,10 @@ Arnold, Falk, and Winther show that either vertex (`construct_dim=0`) or edge pa
       }
 
 
-Now, for each parameter choice, we report the iteration count for the Poisson problem
-over a range of polynomial degrees.  We see that the Jacobi relaxation leads to growth
-in iteration count, while both PatchPC and ASMStarPC do not.  Mathematically, the two
-latter options do the same operations, just via different code paths.::
+Now, for each parameter choice, we report the iteration count for the Riesz map
+over a range of meshes.  We see that vertex patches give lower iteration counts than
+edge patches, but they are more expensive.::
+
 
   for cdim in (0, 1):
       print(f"Relaxation with patches of dimension {cdim}")
@@ -67,7 +67,7 @@ latter options do the same operations, just via different code paths.::
           its = run_solve(msh, asm_params(cdim))
           print(f"{lvl}     | {its}")
 
-For vertex patches, we expect output of the form
+For vertex patches, we expect output like,
 
 ======== ============
  Level    Iterations
@@ -87,6 +87,6 @@ and with edge patches
   3        32
 ======== ============
 
-and we expect further leveling off with mesh refinement.
+and additional mesh refinement will lead to these numbers leveling off.
 
 A runnable python version of this demo can be found :demo:`here<riesz.py>`.
