@@ -1,12 +1,14 @@
 Shape optimization
 ==================
 
-Shape optimization is about modifying the shape of a domain so that an
-objective function is minimized. In this demo, we consider an objective
-function constrained to a boundary value problem and implement a simple
-mesh-moving shape optimization strategy using Firedrake and pyadjoint.  This
-tutorial was contributed by `Alberto Paganini <mailto:apaganini@le.ac.uk>`__
-and was written during the `ccp-dcm hackaton
+Shape optimization is about modifying the shape of a domain :math:`\Omega` so
+that an objective function :math:`J(\Omega)` is minimized. In this demo, we
+consider an objective function constrained to a boundary value problem and
+implement a simple mesh-moving shape optimization strategy using Firedrake and
+pyadjoint.  This tutorial was contributed by `Alberto Paganini
+<mailto:apaganini@le.ac.uk>`__ with support from `Ado Farsi
+<mailto:ado.farsi@imperial.ac.uk>`__ and `Mirko Ciceri
+<mailto:mc5823@ic.ac.uk>`__, and was written during the `ccp-dcm hackaton
 <https://ccp-dcm.github.io/exeter_hackathon>`__ at Dartington Hall.
 
 Let
@@ -15,16 +17,17 @@ Let
 
    J(\Omega) = \int_\Omega \big(u(\mathbf{x}) - u_t(\mathbf{x})\big)^2 \,\mathrm{d}\mathbf{x}\,.
 
-where :math:`u:\mathbb{R}^2\to\mathbb{R}` is the solution to the scalar
-boundary value problem
+measure the difference between a steady-steate temperature profile
+:math:`u:\mathbb{R}^2\to\mathbb{R}` and a target steady-state temperature
+profile :math:`u_t:\mathbb{R}^2\to\mathbb{R}`. Specifically, the function
+:math:`u` is the solution to the steady-state heat equation
 
 .. math::
 
     -\Delta u = 4 \quad \text{in }\Omega\,, \qquad u = 0 \quad \text{on } \partial\Omega
 
 
-and :math:`u_t:\mathbb{R}^2\to\mathbb{R}` is a target function. In particular,
-we consider
+and the target temperature profile :math:`u_t` is
 
 .. math::
 
