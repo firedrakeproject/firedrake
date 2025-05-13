@@ -24,3 +24,6 @@ element systems.
    Rayleigh-Benard convection.<demos/rayleigh-benard.py>
    Netgen support.<demos/netgen_mesh.py>
    Full-waveform inversion: spatial and wave sources parallelism.<demos/full_waveform_inversion.py>
+   Degree-independent multigrid convergence using patch relaxation.<demos/poisson_mg_patches.py>
+   Monlithic multigrid with Vanka relaxation for Stokes.<demos/stokes_vanka_patches.py>
+   Vertex star relaxation for H(div) multigrid relaxation.<demos/hdiv_riesz_star.py>
