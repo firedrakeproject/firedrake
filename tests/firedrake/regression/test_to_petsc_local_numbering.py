@@ -11,12 +11,10 @@ from firedrake.functionspace import FunctionSpace
 from firedrake.petsc import PETSc
 from firedrake.utility_meshes import UnitCubeMesh, UnitIntervalMesh, UnitSquareMesh
 
-def sensor(*args):
-    """Sensor function that sums over the coordinate directions."""
-    return sum(args)
 
+@pytest.mark.parametrize("sensor", [sum, np.prod])
 @pytest.mark.parametrize("dim", range(1, 4))
-def test_sensor(dim, tol=1.0e-10):
+def test_sensor(dim, sensor, tol=1.0e-10):
     """
     Check that an a sensor function computed in Firedrake and transferred to PETSc with
     to_petsc_local_numbering gives the same result as computing the sensor in PETSc.
@@ -37,7 +35,7 @@ def test_sensor(dim, tol=1.0e-10):
 
     # Create a Function in Firedrake, interpolate the sensor, and extract the
     # corresponding reordered PETSc vector
-    f_fd = Function(fs).interpolate(sensor(*ufl.SpatialCoordinate(mesh)))
+    f_fd = Function(fs).interpolate(sensor(ufl.SpatialCoordinate(mesh)))
     with f_fd.dat.vec_ro as v_fd:
         got = v_fd.copy()
         got[:] = to_petsc_local_numbering(v_fd, fs)
@@ -52,7 +50,7 @@ def test_sensor(dim, tol=1.0e-10):
         expected_arr = expected.getArray()
         for v in range(*plex.getDepthStratum(0)):
             off = coord_section.getOffset(v)
-            expected_arr[off//dim] = sensor(*coords_arr[off:off+dim])
+            expected_arr[off//dim] = sensor(coords_arr[off:off+dim])
 
         # Take the difference between the two vectors for an error check
         got[:] -= expected
