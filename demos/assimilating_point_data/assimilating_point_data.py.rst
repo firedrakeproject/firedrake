@@ -124,30 +124,30 @@ To get our :math:`u_{\text{true}}` field we solve the PDE with :math:`q_{\text{t
 We don't want to write this to the tape, so we use a `stop_annotating` context manager::
 
     with fd.adjoint.stop_annotating():
-      rng = np.random.default_rng(seed=42)
-      degree = 5
-      x = fd.SpatialCoordinate(mesh)
-      q_true = fd.Function(Q)
-      for k in range(degree):
-          for l in range(int(np.sqrt(degree**2 - k**2))):
-              Z = np.sqrt(1 + k**2 + l**2)
-              phi = 2 * fd.pi * (k * x[0] + l * x[1])
+        rng = np.random.default_rng(seed=42)
+        degree = 5
+        x = fd.SpatialCoordinate(mesh)
+        q_true = fd.Function(Q)
+        for k in range(degree):
+            for l in range(int(np.sqrt(degree**2 - k**2))):
+                Z = np.sqrt(1 + k**2 + l**2)
+                phi = 2 * fd.pi * (k * x[0] + l * x[1])
 
-              A_kl = rng.standard_normal() / Z
-              B_kl = rng.standard_normal() / Z
+                A_kl = rng.standard_normal() / Z
+                B_kl = rng.standard_normal() / Z
 
-              expr = fd.Constant(A_kl) * fd.cos(phi) + fd.Constant(B_kl) * fd.sin(phi)
-              mode = fd.assemble(interpolate(expr, Q))
+                expr = fd.Constant(A_kl) * fd.cos(phi) + fd.Constant(B_kl) * fd.sin(phi)
+                mode = fd.assemble(interpolate(expr, Q))
 
-              q_true += mode
-    
-      u_true = fd.Function(V)
-      v = fd.TestFunction(V)
-      f = fd.Constant(1.0)
-      k0 = fd.Constant(0.5)
-      bc = fd.DirichletBC(V, 0, 'on_boundary')
-      F = (k0 * fd.exp(q_true) * fd.inner(fd.grad(u_true), fd.grad(v)) - f * v) * fd.dx
-      fd.solve(F == 0, u_true, bc)
+                q_true += mode
+
+        u_true = fd.Function(V)
+        v = fd.TestFunction(V)
+        f = fd.Constant(1.0)
+        k0 = fd.Constant(0.5)
+        bc = fd.DirichletBC(V, 0, 'on_boundary')
+        F = (k0 * fd.exp(q_true) * fd.inner(fd.grad(u_true), fd.grad(v)) - f * v) * fd.dx
+        fd.solve(F == 0, u_true, bc)
 
 Now we'll randomly generate our point data observations and add some Gaussian noise ::
 
