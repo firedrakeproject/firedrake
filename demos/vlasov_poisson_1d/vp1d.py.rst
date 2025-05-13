@@ -110,8 +110,8 @@ can integrate over :math:`v` and divide by :math:`H`, to obtain
 
 .. math::
 
-   \int_\Omega \psi_{x_1}\phi_{x_1} \mathrm{d} x
-   = \int Hf \psi \mathrm{d} x, \quad
+   \int_\Omega \psi_{x_1}\phi_{x_1}/H \mathrm{d} x
+   = \int f \psi \mathrm{d} x, \quad
    \forall \psi \in \bar{W},
 
 which is now in a form which we can implement easily in Firedrake. One
@@ -295,25 +295,40 @@ We set up some :class:`~.Function`\s to store Runge-Kutta stage variables. ::
   f1 = Function(V)
   f2 = Function(V)
 
+We set up a ``VTKFile`` object to write output every ``ndump``
+timesteps. ::
 
-  
   outfile = VTKFile("vlasov.pvd")
+
+We want to output the initial condition, so need to solve for the electrostatic
+potential that corresponds to the initial density. ::
+
   fstar.assign(fn)
   phi_solver.solve()
   outfile.write(fn, phi)
   phi.assign(.0)
-  
+
+Now we start the timeloop using a lovely progress bar. ::
+
   for step in ProgressBar("Timestep").iter(range(nsteps)):
+
+Each Runge-Kutta stage involves solving for :math:`\phi` before solving
+for :math:`\partial f/\partial t`. Here is the first stage. ::
+  
     fstar.assign(fn)
     phi_solver.solve()
     df_solver.solve()
     f1.assign(fn + df_out)
 
+The second stage. ::
+    
     fstar.assign(f1)
     phi_solver.solve()
     df_solver.solve()
     f2.assign(3*fn/4 + (f1 + df_out)/4)
 
+The third stage. ::
+    
     fstar.assign(f2)
     phi_solver.solve()
     df_solver.solve()
