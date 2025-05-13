@@ -1,10 +1,8 @@
 1D Vlasov-Poisson Equation
 ===========================
 
-.. rst-class:: emphasis
-
    This tutorial was contributed by `Colin Cotter
-   <mailto:colin.cotter@imperial.ac.uk> and Werner Bauer`__.
+   <mailto:colin.cotter@imperial.ac.uk>`__ and Werner Bauer.
 
 .. math::
    m_t + mu_x + (mu)_x = 0, \quad u - \alpha^2u_{xx} = m,
@@ -17,8 +15,3 @@ Firedrake namespace. ::
 
 
 A python script version of this demo can be found :demo:`here <vp1d.py>`.
-
-.. rubric:: References
-
-.. bibliography:: demo_references.bib
-   :filter: docname in docnames
