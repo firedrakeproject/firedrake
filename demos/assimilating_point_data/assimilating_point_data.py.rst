@@ -6,6 +6,10 @@ Assimilating point data
     This example is based on work done by Reuben Nixon-Hill et al. in :cite:`Nixon-Hill:2024`, and was written up by Leo Collins.
 
 
+This demo will show how to use Firedrake-adjoint to assimilate point data into a PDE model. 
+In Firedrake we represent point data as functions in the function space of zero-order discontinuous Lagrange polynomials :math:`\operatorname{P0DG}(\Omega_{v})`, where :math:`\Omega_{v}` is a vertex-only mesh consisting of the observation locations.
+
+
 General theory
 --------------
 
@@ -27,7 +31,7 @@ Here :math:`J_{\text{regularisation}}` is a regularisation term, which is there 
 The :math:`J_{\text{model-data misfit}}` term is taken to be the :math:`L^2` norm of the difference between the observations :math:`u_{\text{obs}}^i` and the model solution :math:`u` point evaluated 
 at the observation locations: :math:`u(X_i)`, i.e. :math:`\lVert u_{\text{obs}}^i-u(X_{i}) \rVert_{L^2}`.
 
-The aim is to find the value of :math:`q` which minimises the misfit functional :math:`J`.
+The aim is to find the value of :math:`q` which minimises the misfit functional :math:`J`. Firedrake-adjoint will compute :math:`\frac{d J}{d q}` automatically, and we can use this to find the minimum of :math:`J` using a gradient-based method such as Newton-CG.
 
 
 Vertex-only mesh formalism
@@ -65,13 +69,13 @@ This is done by the interpolation operator
 Unknown conductivity
 --------------------
 
-We consider the PDE 
+We consider the steady-state heat equation 
 
 .. math::
 
-    -\nabla\cdot k\nabla u=1
+    -k\nabla^{2} u=f
 
-defined on the domain :math:`\Omega`. Our solution field is :math:`u:\Omega\rightarrow\mathbb{R}` and :math:`k` is the conductivity. We take the Dirichlet boundary condition
+defined on the domain :math:`\Omega`. Our solution field is :math:`u:\Omega\rightarrow\mathbb{R}`, :math:`f=1` is a forcing function, and :math:`k` is the thermal conductivity. We take the Dirichlet boundary condition
 
 .. math::
 
@@ -84,7 +88,7 @@ We assume that the conductivity is of the form
     k=k_{0}e^{q}
 
 with :math:`k_{0}=\frac{1}{2}`, where :math:`q` is the log-conductivity field. We want to estimate the log-conductivity field :math:`q` from the (noisy) point observations :math:`u_{\text{obs}}^i`, which are taken at the locations :math:`X_i`.
-We take the true conductivity :math:`q_{\text{true}}` to be in :math:`\operatorname{P2CG}(\Omega)`, and solve the PDE on the same function space for :math:`u_{\text{true}}\in\operatorname{P2CG}(\Omega)`.
+We assume that the true conductivity :math:`q_{\text{true}}` is a finite element function in :math:`\operatorname{P2CG}(\Omega)`, and solve the PDE on the same function space for :math:`u_{\text{true}}\in\operatorname{P2CG}(\Omega)`.
 The PDE can be written in weak form as
 
 .. math::
@@ -159,21 +163,7 @@ We don't want to write this to the tape, so we use a `stop_annotating` context m
         F = (k0 * fd.exp(q_true) * fd.inner(fd.grad(u_true), fd.grad(v)) - f * v) * fd.dx
         fd.solve(F == 0, u_true, bc)
 
-Now we'll randomly generate our point data observations and add some Gaussian noise ::
-
-    num_obs = 10
-    X_i = rng.random((num_obs, 2))
-    signal_to_noise = 20
-    U = u_true.dat.data_ro[:]
-    u_range = U.max() - U.min()
-    sigma = fd.Constant(u_range / signal_to_noise)
-    zeta = rng.standard_normal(len(X_i))
-
-    vom = fd.VertexOnlyMesh(mesh, X_i)
-    P0DG = fd.FunctionSpace(vom, 'DG', 0)
-    u_obs_vals = fd.assemble(interpolate(u_true, P0DG)).dat.data_ro + float(sigma) * zeta
-
-We can now solve the model PDE with :math:`q=0` as an initial guess ::
+Now we solve the PDE with :math:`q=0` as an initial guess ::
 
     u = fd.Function(V)
     q = fd.Function(Q)
@@ -181,27 +171,53 @@ We can now solve the model PDE with :math:`q=0` as an initial guess ::
     F = (k0 * fd.exp(q) * fd.inner(fd.grad(u), fd.grad(v)) - f * v) * fd.dx
     fd.solve(F == 0, u, bc)
 
-Now we write down our misfit functional ::
+We randomly generate our observation locations and create a vertex-only mesh with its associated :math:`\operatorname{P0DG}` function space ::
 
-    alpha = fd.Constant(0.02)
+    num_obs = 1000
+    X_i = rng.random((num_obs, 2))
+    Omega_v = fd.VertexOnlyMesh(mesh, X_i)
+    P0DG = fd.FunctionSpace(Omega_v, 'DG', 0)
+
+To evaluate `u_true` at the points :math:`X_{i}`, we interpolate it into :math:`\operatorname{P0DG}`. The resulting `Function` will have the values of `u_true` at the points :math:`X_i`. ::
+
+    u_obs_vals = fd.assemble(interpolate(u_true, P0DG)).dat.data
+
+We add some Gaussian noise to our observations ::
+
+    signal_to_noise = 20
+    U = u_true.dat.data_ro[:]
+    u_range = U.max() - U.min()
+    sigma = fd.Constant(u_range / signal_to_noise)
+    zeta = rng.standard_normal(len(X_i))
+    u_obs_vals += float(sigma) * zeta
+
+Finally, we store our point observations in a `Function` in :math:`\operatorname{P0DG}`. ::
+
     u_obs = fd.Function(P0DG)
     u_obs.dat.data[:] = u_obs_vals
+
+Next, we write down our misfit functional and assemble. ::
+
+    alpha = fd.Constant(0.02)
     
     misfit_expr = (u_obs - fd.assemble(interpolate(u, P0DG)))**2
     regularisation_expr = alpha**2 * fd.inner(fd.grad(q), fd.grad(q))
 
     J = fd.assemble(misfit_expr * fd.dx) + fd.assemble(regularisation_expr * fd.dx)
   
-We now minimise our functional :math:`J` ::
+We construct our control variable :math:`\hat{q}` and our reduced functional :math:`\hat{J}`  ::
 
     q_hat = fd.adjoint.Control(q)
     J_hat = fd.adjoint.ReducedFunctional(J, q_hat)
+
+Finally, we can minimise our reduced functional :math:`\hat{J}` and obtain our optimal control :math:`q_{\text{min}}`. ::
 
     q_min = fd.adjoint.minimize(
         J_hat, method='Newton-CG', options={'disp': True}
     )
 
-We can calculate the error between `q_min` and `q_true` ::
+We can compare our result to `q_true` by calculating the error between `q_min` and `q_true` ::
 
     q_err = fd.Function(Q).assign(q_min - q_true)
     L2_err = fd.norm(q_err, "L2")
+    print(f"L2 error: {L2_err:.3e}")
