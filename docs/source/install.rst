@@ -179,7 +179,23 @@ install Firedrake. To do this perform the following steps:
 #. Install Firedrake::
 
       $ pip cache remove petsc4py
+      $ pip cache remove firedrake
       $ pip install --no-binary h5py 'firedrake[check]'
+
+   .. warning::
+      The ``pip install`` instruction above does not currently work due to
+      `this issue <https://gitlab.com/petsc/petsc/-/issues/1759>`__. To fix it you should
+      first:
+
+      1. Run::
+
+         $ echo 'Cython<3.1' > constraints.txt
+
+      2. Run::
+
+         $ export PIP_CONSTRAINT=constraints.txt
+
+      3. Continue the installation as usual
 
    .. note::
       Though not strictly necessary to install Firedrake's optional
@@ -476,7 +492,7 @@ Developer install
    .. warning::
       You are currently looking at the documentation for the current stable
       release of Firedrake. For the most recent developer documentation you
-      should follow the instructions `here <https://firedrakeproject.org/firedrake/main/install>`__.
+      should follow the instructions `here <https://firedrakeproject.org/firedrake/install>`__.
 
 In order to install a development version of Firedrake the following steps
 should be followed:
