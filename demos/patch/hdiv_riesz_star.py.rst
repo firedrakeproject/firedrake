@@ -1,6 +1,9 @@
 Using patch relaxation for H(div)
 =================================
 
+Contributed by `Robert Kirby <https://sites.baylor.edu/robert_kirby/>`_
+and `Pablo Brubeck <https://www.maths.ox.ac.uk/people/pablo.brubeckmartinez/>`_.
+
 Multigrid in H(div) and H(curl) also requires relaxation based on topological patches.
 Here, we demonstrate how to do this in the former case.::
 

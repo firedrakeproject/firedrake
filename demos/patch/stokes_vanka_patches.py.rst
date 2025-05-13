@@ -1,6 +1,9 @@
 Using Vanka relaxation for Stokes flow
 ======================================
 
+Contributed by `Robert Kirby <https://sites.baylor.edu/robert_kirby/>`_
+and `Pablo Brubeck <https://www.maths.ox.ac.uk/people/pablo.brubeckmartinez/>`_.
+
 Vanka relaxation enables monolithic multigrid algorithms for Stokes flow and
 other coupled problems.  Here, specially chosen patches are used to define
 additive Schwarz methods.  For Stokes discretization with continuous pressure

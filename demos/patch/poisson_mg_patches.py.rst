@@ -1,6 +1,9 @@
 Using patch relaxation for multigrid
 ====================================
 
+Contributed by `Robert Kirby <https://sites.baylor.edu/robert_kirby/>`_
+and `Pablo Brubeck <https://www.maths.ox.ac.uk/people/pablo.brubeckmartinez/>`_.
+
 Simple relaxation like point Jacobi are not optimal or even suitable
 smoothers for all applications.  Firedrake supports additive Schwarz methods
 based on local patch-based decompositions through two different paths.
