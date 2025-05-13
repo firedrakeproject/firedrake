@@ -104,3 +104,91 @@ where :math:`v` is a test function in :math:`\operatorname{P2CG}(\Omega)`.
 
 Firedrake implementation
 ------------------------
+
+We begin by importing Firedrake ::
+
+    import firedrake as fd
+    import firedrake_adjoint as fda
+
+We'll then create our mesh and define the solution and control function spaces ::
+
+    mesh = fd.UnitSquareMesh(32, 32)
+    V = fd.FunctionSpace(mesh, "CG", 2)  # solution space
+    Q = fd.FunctionSpace(mesh, "CG", 2)  # control space
+
+Now we'll create our :math:`q_{\text{true}}` field ::
+
+    from numpy import random
+    rng = random.default_rng(seed=42)
+    degree = 5
+    x = fd.SpatialCoordinate(mesh)
+    q_true = fd.Function(Q)
+    for k in range(degree):
+        for l in range(int(np.sqrt(degree**2 - k**2))):
+            Z = np.sqrt(1 + k**2 + l**2)
+            phi = 2 * fd.pi * (k * x[0] + l * x[1])
+
+            A_kl = rng.standard_normal() / Z
+            B_kl = rng.standard_normal() / Z
+
+            expr = fd.Constant(A_kl) * fd.cos(phi) + fd.Constant(B_kl) * fd.sin(phi)
+            mode = fd.interpolate(expr, Q)
+
+            q_true += mode
+
+and to get our :math:`u_{\text{true}}` field we solve the PDE with :math:`q_{\text{true}}` ::
+  
+    u_true = fd.Function(V)
+    v = fd.TestFunction(V)
+    f = fd.Constant(1.0)
+    k0 = fd.Constant(0.5)
+    bc = fd.DirichletBC(V, 0, 'on_boundary')
+    F = (k0 * fd.exp(q_true) * fd.inner(fd.grad(u_true), fd.grad(v)) - f * v) * dx
+    fd.solve(F == 0, u_true, bc)
+
+We need to clear the tape now ::
+  
+    tape = fda.get_working_tape()
+    tape.clear_tape()
+
+Now we'll randomly generate our point data observations and add some Gaussian noise ::
+
+    num_obs = 10
+    X_i = np.random.random_sample((num_points, 2))
+    signal_to_noise = 20
+    U = u_true.dat.data_ro[:]
+    u_range = U.max() - U.min()
+    sigma = fd.Constant(u_range / signal_to_noise)
+    zeta = rng.standard_normal(len(xs))
+    u_obs_vals = np.array(u_true.at(xs)) + float(sigma) * zeta
+
+We can now solve the model PDE with :math:`q=0` as an initial guess ::
+
+    u = fd.TrialFunction(V)
+    v = fd.TestFunction(V)
+    q = fd.Function(Q)
+    bc = fd.DirichletBC(V, 0, 'on_boundary')
+    F = (k0 * fd.exp(q) * fd.inner(fd.grad(u), fd.grad(v)) - f * v) * dx
+    fd.solve(F == 0, u, bc)
+
+Now we write down our misfit functional ::
+
+    alpha = fd.Constant(0.02)
+    point_cloud = fd.VertexOnlyMesh(mesh, xs)
+    P0DG = fd.FunctionSpace(point_cloud, 'DG', 0)
+    u_obs = fd.Function(P0DG)
+    u_obs.dat.data[:] = u_obs_vals
+    
+    misfit_expr = (u_obs - fd.interpolate(u, P0DG))**2
+    regularisation_expr = alpha**2 * fd.inner(fd.grad(q), fd.grad(q))
+
+    J = fd.assemble(misfit_expr * dx + regularisation_expr * dx)
+  
+We now minimise our functional :math:`J` ::
+
+    q_hat = fda.Control(q)
+    J_hat = fda.ReducedFunctional(J, q_hat)
+
+    q_min = fda.minimize(
+        J_hat, method='Newton-CG', options={'disp': True}
+    )
