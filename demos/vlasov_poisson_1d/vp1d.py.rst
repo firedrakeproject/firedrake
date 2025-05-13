@@ -95,19 +95,47 @@ where :math:`I` is some chosen interval.
 
 For the Poisson equation, we will use a regular Galerkin formulation.
 The difficulty in the formulation is the integral over :math:`x_2`. We
-deal with this by considering a space `\bar{W}` which is restricted
+deal with this by considering a space :math:`\bar{W}` which is restricted
 to functions that are constant in the vertical. Multiplying by a
 test function :math:\psi\in \bar{W}` and integrating by parts gives
 
 .. math::
 
-   \int \psi_{x_1}\phi_{x_1} \mathrm{d} x
-   = \int \int f(x,v,t) \psi \mathrm{d} x\mathrm{d} v, \quad
+   \int \psi_{x_1}\phi_{x_1} \mathrm{d} x_1
+   = \int \int f(x_1,x_2,t) \psi \mathrm{d} x_1\mathrm{d} x_2, \quad
    \forall \psi \in \bar{W}.
 
 Since the left hand side integrand is independent of :math:`v`, we
-can integrate over :math:`v` and divide by 
-     
+can integrate over :math:`v` and divide by :math:`H`, to obtain
+
+.. math::
+
+   \int_\Omega \mathrm{d} x
+   = \int Hf \psi \mathrm{d} x, \quad
+   \forall \psi \in \bar{W},
+
+which is now in a form which we can implement easily in Firedrake. One
+final issue is that this problem only has a solution up to an additive
+constant, so we further restrict :math:`\phi \in \mathring{\bar{W}}`,
+where :math:`\mathring{\bar{W}}` is the space
+
+.. math::
+   \mathring{\bar{W}} = \{ w\in \bar{W}: \bar{w}=0\},
+
+where
+
+.. math::
+
+   \bar{w} = \frac{\int_{\Omega} w \mathrm{d} x}{\int_{\Omega} 1 \mathrm{d} x}.
+   
+Then we seek the solution of 
+
+.. math::
+
+   \int_\Omega \mathrm{d} x
+   = \int H(f-\bar{f}) \psi \mathrm{d} x, \quad
+   \forall \psi \in \mathring{\bar{W}}.
+
 As usual, to implement this problem, we start by importing the
 Firedrake namespace. ::
 
