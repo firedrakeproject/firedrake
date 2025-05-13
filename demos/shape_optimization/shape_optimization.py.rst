@@ -17,7 +17,7 @@ Let
 
    J(\Omega) = \int_\Omega \big(u(\mathbf{x}) - u_t(\mathbf{x})\big)^2 \,\mathrm{d}\mathbf{x}\,.
 
-measure the difference between a steady-steate temperature profile
+measure the difference between a steady-state temperature profile
 :math:`u:\mathbb{R}^2\to\mathbb{R}` and a target steady-state temperature
 profile :math:`u_t:\mathbb{R}^2\to\mathbb{R}`. Specifically, the function
 :math:`u` is the solution to the steady-state heat equation
