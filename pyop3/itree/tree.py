@@ -1363,14 +1363,14 @@ def index_axes(
 
         match_found = False
         for indexed_path_and_exprs in indexed_target_paths_and_exprs:
-            # catch invalid indexed_target_paths_and_exprs
-            if not _index_info_targets_axes(indexed_axes, indexed_path_and_exprs, axes):
+            try:
+                indexed_path_and_exprs_fixup = _index_info_targets_axes(indexed_axes, indexed_path_and_exprs, axes)
+            except MyBadError:
+                # does not match, continue
                 continue
 
             assert not match_found, "don't expect multiple hits"
-            target_path_and_exprs = compose_targets(axes, orig_path, indexed_axes, indexed_path_and_exprs)
-            if (None, (immutabledict(), immutabledict())) in target_path_and_exprs.items():
-                breakpoint()
+            target_path_and_exprs = compose_targets(axes, orig_path, indexed_axes, indexed_path_and_exprs_fixup)
             match_found = True
 
             all_target_paths_and_exprs.append(target_path_and_exprs)
@@ -1504,8 +1504,7 @@ def _index_axes(
     )
 
 
-# NOTE: should be similar to index_exprs
-def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexed_target_paths_and_exprs, *, axis=None, indexed_target_paths_and_exprs_acc=None, visited_orig_axes=None):
+def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexed_target_paths_and_exprs, *, axis=None):
     """
 
     Traverse ``indexed_axes``, picking up bits from indexed_target_paths and keep
@@ -1530,9 +1529,9 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
     composed_target_paths_and_exprs = collections.defaultdict(dict)
 
     if axis is None:  # strictly_all
-        visited_orig_axes = frozenset()
+        # visited_orig_axes = frozenset()
 
-        indexed_target_paths_and_exprs_acc = {None: indexed_target_paths_and_exprs.get(None, (immutabledict(), immutabledict()))}
+        # indexed_target_paths_and_exprs_acc = {None: indexed_target_paths_and_exprs.get(None, (immutabledict(), immutabledict()))}
 
         # special handling for None entries
         none_mapped_target_path = {}
@@ -1545,30 +1544,31 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
         # if None in indexed_target_paths_and_exprs:
         #     breakpoint()
 
-        myreplace_map = merge_dicts(e for _, e in indexed_target_paths_and_exprs_acc.values())
+        # myreplace_map = merge_dicts(e for _, e in indexed_target_paths_and_exprs_acc.values())
+        # myreplace_map = merge_dicts(e for _, e in indexed_target_paths_and_exprs.get(None, [({}, {})]))
+        myreplace_map = indexed_target_paths_and_exprs.get(None, ({}, {}))[1]
         none_mapped_target_path |= orig_none_mapped_target_path
         for orig_axis_label, orig_index_expr in orig_none_mapped_target_exprs.items():
             none_mapped_target_exprs[orig_axis_label] = replace_terminals(orig_index_expr, myreplace_map)
 
         # Now add any extra 'None-indexed' axes.
-        for (axis_label, component_label) in merge_dicts(p for p, _ in indexed_target_paths_and_exprs_acc.values()).items():
-            possible_targets = [ax for ax in orig_axes.nodes if ax.label == axis_label]
+        for orig_key in indexed_target_paths_and_exprs.get(None, ()):
+            # possible_targets = [ax for ax in orig_axes.nodes if ax.label == axis_label]
+            #
+            # if len([orig_target_paths_and_exprs[(t.id, component_label)] for t in possible_targets]) > 1:
+            #     # If there are multiple axes that match the slice then they must be
+            #     # identical (apart from their ID, which is ignored in equality checks).
+            #     pyop3.extras.debug.warn_todo("multiple matches found, make sure they match")
+            #
+            # if len(possible_targets) > 1:
+            #     breakpoint()
+            #     pyop3.extras.debug.warn_todo("multiple matches found, make sure they match")
+            # target_axis = possible_targets[0]
+            #
+            # if target_axis.label in visited_orig_axes:
+            #     continue
+            # visited_orig_axes |= {target_axis.label}
 
-            if len([orig_target_paths_and_exprs[(t.id, component_label)] for t in possible_targets]) > 1:
-                # If there are multiple axes that match the slice then they must be
-                # identical (apart from their ID, which is ignored in equality checks).
-                pyop3.extras.debug.warn_todo("multiple matches found, make sure they match")
-
-            if len(possible_targets) > 1:
-                breakpoint()
-                pyop3.extras.debug.warn_todo("multiple matches found, make sure they match")
-            target_axis = possible_targets[0]
-
-            if target_axis.label in visited_orig_axes:
-                continue
-            visited_orig_axes |= {target_axis.label}
-
-            orig_key = (target_axis.id, component_label)
             if orig_key in orig_target_paths_and_exprs:
                 orig_target_path, orig_target_exprs = orig_target_paths_and_exprs[orig_key]
 
@@ -1591,36 +1591,42 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
 
     for component in axis.components:
         # FIXME: This is not necessary
-        linear_axis = Axis([component], axis.label)
+        # linear_axis = Axis([component], axis.label)
 
         # indexed_target_paths_and_exprs_acc_ = indexed_target_paths_and_exprs_acc | {(linear_axis.id, component.label): indexed_target_paths_and_exprs[axis.id, component.label]}
-        indexed_target_paths_and_exprs_acc_ = {(linear_axis.id, component.label): indexed_target_paths_and_exprs[axis.id, component.label]}
+        # indexed_target_paths_and_exprs_acc_ = {(linear_axis.id, component.label): indexed_target_paths_and_exprs[axis.id, component.label]}
 
-        visited_orig_axes_ = visited_orig_axes
+        # visited_orig_axes_ = visited_orig_axes
 
-        for (axis_label, component_label) in merge_dicts(p for p, _ in indexed_target_paths_and_exprs_acc_.values()).items():
+        # for orig_key in indexed_target_paths_and_exprss[axis.id, component.label]  merge_dicts(p for p, _ in indexed_target_paths_and_exprs_acc_.values()).items():
+        # for orig_key, SOMETHING in indexed_target_paths_and_exprs.get((axis.id, component.label), ()):
+        orig_keys, SOMETHING = indexed_target_paths_and_exprs.get((axis.id, component.label), ())
             # If there are multiple axes that match the slice then they must be
             # identical (apart from their ID, which is ignored in equality checks).
-            possible_targets = [ax for ax in orig_axes.nodes if ax.label == axis_label]
-            if len([orig_target_paths_and_exprs[(t.id, component_label)] for t in possible_targets]) > 1:
-                # If there are multiple axes that match the slice then they must be
-                # identical (apart from their ID, which is ignored in equality checks).
-                pyop3.extras.debug.warn_todo("multiple matches found, make sure they match")
+            # possible_targets = [ax for ax in orig_axes.nodes if ax.label == axis_label]
+            # if len([orig_target_paths_and_exprs[(t.id, component_label)] for t in possible_targets]) > 1:
+            #     # If there are multiple axes that match the slice then they must be
+            #     # identical (apart from their ID, which is ignored in equality checks).
+            #     pyop3.extras.debug.warn_todo("multiple matches found, make sure they match")
+            #
+            # if len(possible_targets) > 1:
+            #     raise NotImplementedError("This is an issue, these are distinct and that matters")
+            # target_axis = possible_targets[0]
+            # orig_key = (target_axis.id, component_label)
 
-            if len(possible_targets) > 1:
-                raise NotImplementedError("This is an issue, these are distinct and that matters")
-            target_axis = possible_targets[0]
-            orig_key = (target_axis.id, component_label)
+            # if target_axis.label in visited_orig_axes_:
+            #     continue
+            # visited_orig_axes_ |= {target_axis.label}
 
-            if target_axis.label in visited_orig_axes_:
-                continue
-            visited_orig_axes_ |= {target_axis.label}
+            # breakpoint()
+        # replace_map = merge_dicts(t for _, t in indexed_target_paths_and_exprs_acc_.values())
+        replace_map = SOMETHING
 
+        for orig_key in orig_keys:
             if orig_key in orig_target_paths_and_exprs:  # redundant?
                 orig_target_path, orig_target_exprs = orig_target_paths_and_exprs[orig_key]
 
                 # now index exprs
-                replace_map = merge_dicts(t for _, t in indexed_target_paths_and_exprs_acc_.values())
                 new_exprs = {}
                 for orig_axis_label, orig_index_expr in orig_target_exprs.items():
                     new_exprs[orig_axis_label] = replace_terminals(orig_index_expr, replace_map)
@@ -1635,12 +1641,16 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
                 indexed_axes,
                 indexed_target_paths_and_exprs,
                 axis=subaxis,
-                indexed_target_paths_and_exprs_acc=indexed_target_paths_and_exprs_acc_,
-                visited_orig_axes=visited_orig_axes_,
+                # indexed_target_paths_and_exprs_acc=indexed_target_paths_and_exprs_acc_,
+                # visited_orig_axes=visited_orig_axes_,
             )
             composed_target_paths_and_exprs.update(composed_target_paths_)
 
     return immutabledict(composed_target_paths_and_exprs)
+
+
+class MyBadError(Exception):
+    pass
 
 
 def _index_info_targets_axes(indexed_axes, index_info, orig_axes) -> bool:
@@ -1649,18 +1659,50 @@ def _index_info_targets_axes(indexed_axes, index_info, orig_axes) -> bool:
     This is useful for when multiple interpretations of axis information are
     provided (e.g. with loop indices) and we want to filter for the right one.
 
+    ---
+
+    UPDATE
+
+    Look at the full target tree to resolve ambiguity in indexing things. For example
+    consider a mixed space. A slice over the mesh is not clear as it may refer to the
+    axis of either space. Here we construct the full path and pull out the axes that
+    are actually desired.
+
     """
+    result = {}
     for indexed_leaf in indexed_axes.leaves:
+        full_indexed_path = indexed_axes.path_with_nodes(indexed_leaf)
+
+        # 1. get the actual axes that are visited
         none_target_path, _ = index_info.get(None, (immutabledict(), immutabledict()))
         target_path_acc = dict(none_target_path)
-        for axis, component_label in indexed_axes.path_with_nodes(indexed_leaf).items():
+        for axis, component_label in full_indexed_path.items():
             target_path, _ = index_info.get((axis.id, component_label), (immutabledict(), immutabledict()))
             target_path_acc |= target_path
 
         if not orig_axes.is_valid_path(target_path_acc):
-            return False
+            raise MyBadError
 
-    return True
+        # now construct the mapping to specific axes, not path elements
+        full_target_path = orig_axes.path_with_nodes(orig_axes._node_from_path(target_path_acc))
+
+        if None in index_info:
+            target_path, target_exprs = index_info[None]
+            target_ids = []
+            for target_axis, target_component in target_path.items():
+                orig_axis, orig_component_label = just_one((ax, cpt) for ax, cpt in full_target_path.items() if ax.label == target_axis)
+                target_ids.append((orig_axis.id, orig_component_label))
+            result[None] = (tuple(target_ids), target_exprs)
+
+        for indexed_axis, indexed_component_label in full_indexed_path.items():
+            target_path, target_exprs = index_info.get((indexed_axis.id, indexed_component_label), (immutabledict(), immutabledict()))
+            target_ids = []
+            for target_axis, target_component in target_path.items():
+                orig_axis, orig_component_label = just_one((ax, cpt) for ax, cpt in full_target_path.items() if ax.label == target_axis)
+                target_ids.append((orig_axis.id, orig_component_label))
+            result[indexed_axis.id, indexed_component_label] = (tuple(target_ids), target_exprs)
+
+    return immutabledict(result)
 
 
 # TODO: just get rid of this, assuming the new system works
