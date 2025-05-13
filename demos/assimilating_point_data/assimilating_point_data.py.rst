@@ -105,10 +105,11 @@ where :math:`v` is a test function in :math:`\operatorname{P2CG}(\Omega)`.
 Firedrake implementation
 ------------------------
 
-We begin by importing Firedrake ::
+We begin by importing Firedrake, Firedrake-Adjoint, and Numpy ::
 
     import firedrake as fd
     import firedrake_adjoint as fda
+    import numpy as np
 
 We'll then create our mesh and define the solution and control function spaces ::
 
@@ -118,8 +119,7 @@ We'll then create our mesh and define the solution and control function spaces :
 
 Now we'll create our :math:`q_{\text{true}}` field ::
 
-    from numpy import random
-    rng = random.default_rng(seed=42)
+    rng = np.random.default_rng(seed=42)
     degree = 5
     x = fd.SpatialCoordinate(mesh)
     q_true = fd.Function(Q)
@@ -143,7 +143,7 @@ and to get our :math:`u_{\text{true}}` field we solve the PDE with :math:`q_{\te
     f = fd.Constant(1.0)
     k0 = fd.Constant(0.5)
     bc = fd.DirichletBC(V, 0, 'on_boundary')
-    F = (k0 * fd.exp(q_true) * fd.inner(fd.grad(u_true), fd.grad(v)) - f * v) * dx
+    F = (k0 * fd.exp(q_true) * fd.inner(fd.grad(u_true), fd.grad(v)) - f * v) * fd.dx
     fd.solve(F == 0, u_true, bc)
 
 We need to clear the tape now ::
@@ -154,13 +154,13 @@ We need to clear the tape now ::
 Now we'll randomly generate our point data observations and add some Gaussian noise ::
 
     num_obs = 10
-    X_i = np.random.random_sample((num_points, 2))
+    X_i = rng.random((num_obs, 2))
     signal_to_noise = 20
     U = u_true.dat.data_ro[:]
     u_range = U.max() - U.min()
     sigma = fd.Constant(u_range / signal_to_noise)
-    zeta = rng.standard_normal(len(xs))
-    u_obs_vals = np.array(u_true.at(xs)) + float(sigma) * zeta
+    zeta = rng.standard_normal(len(X_i))
+    u_obs_vals = np.array(u_true.at(X_i)) + float(sigma) * zeta
 
 We can now solve the model PDE with :math:`q=0` as an initial guess ::
 
@@ -168,13 +168,13 @@ We can now solve the model PDE with :math:`q=0` as an initial guess ::
     v = fd.TestFunction(V)
     q = fd.Function(Q)
     bc = fd.DirichletBC(V, 0, 'on_boundary')
-    F = (k0 * fd.exp(q) * fd.inner(fd.grad(u), fd.grad(v)) - f * v) * dx
+    F = (k0 * fd.exp(q) * fd.inner(fd.grad(u), fd.grad(v)) - f * v) * fd.dx
     fd.solve(F == 0, u, bc)
 
 Now we write down our misfit functional ::
 
     alpha = fd.Constant(0.02)
-    point_cloud = fd.VertexOnlyMesh(mesh, xs)
+    point_cloud = fd.VertexOnlyMesh(mesh, X_i)
     P0DG = fd.FunctionSpace(point_cloud, 'DG', 0)
     u_obs = fd.Function(P0DG)
     u_obs.dat.data[:] = u_obs_vals
@@ -182,7 +182,7 @@ Now we write down our misfit functional ::
     misfit_expr = (u_obs - fd.interpolate(u, P0DG))**2
     regularisation_expr = alpha**2 * fd.inner(fd.grad(q), fd.grad(q))
 
-    J = fd.assemble(misfit_expr * dx + regularisation_expr * dx)
+    J = fd.assemble(misfit_expr * fd.dx + regularisation_expr * fd.dx)
   
 We now minimise our functional :math:`J` ::
 
