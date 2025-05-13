@@ -154,58 +154,88 @@ the vertical. Here we will use periodic boundary conditions in the
   L = 4*pi
   base_mesh = PeriodicIntervalMesh(ncells, L)
 
-    H = 10.0
+The mesh is then extruded upwards in the "velocity" direction. ::
+  
+  H = 10.0
   nlayers = 50
-
-  # extruded mesh in x-v coordinates
   mesh = ExtrudedMesh(base_mesh, layers=nlayers,
                       layer_height=H/nlayers)
 
-  # move the mesh in the vertical so v=0 is in the middle
+We want to have :math:`v=0` in the middle of the domain, so that we
+can have negative and positive velocities. This requires to edit the
+coordinate field. ::
+		      
   Vc = mesh.coordinates.function_space()
   x, v = SpatialCoordinate(mesh)
   X = Function(Vc).interpolate(as_vector([x, v-H/2]))
   mesh.coordinates.assign(X)
 
-  # Space for the number density
+Now we build a discontinuous finite element space for the density, ::
+  
   V = FunctionSpace(mesh, 'DG', 1)
 
-  # Space for the electric field (independent of v)
+and a continuous finite element space for the electostatic potential.
+The space is continuous in the horizontal and constant in the vertical,
+specified through the `vfamily`. ::
+  
   Vbar = FunctionSpace(mesh, 'CG', 1, vfamily='R', vdegree=0)
 
-  x, v = SpatialCoordinate(mesh)
-
-  # initial condition
+We create a :class:`~.Function` to store the solution at the current
+time, and then set its initial condition. ::
+  
+  fn = Function(V)
   A = Constant(0.05)
   k = Constant(0.5)
-  fn = Function(V).interpolate(
+  fn.interpolate(
      v**2*exp(-v**2/2)
      *(1 + A*cos(k*x))/(2*pi)**0.5
   )
 
-  # remove the mean
+We will need the (conserved) average :math:`\bar{f}` for the Poisson
+equation. ::
+
   One = Function(V).assign(1.0)
   fbar = assemble(fn*dx)/assemble(One*dx)
-  
-  # electrostatic potential
+
+We create a :class:`~.Function` to store the electrostatic potential. ::
+
   phi = Function(Vbar)
+
+The next task is to create the solver for the electrostatic potential, which
+will be called every timestep. 
   
-  # input for electrostatic solver
+We create a :class:`~.Function` to store the right had side of the Poisson
+equation. This will enable us to reuse the solver. ::
+
   f_in = Function(V)
-  # Solver for electrostatic potential
+
+Now we express the Poisson equation in UFL. ::
+  
   psi = TestFunction(Vbar)
   dphi = TrialFunction(Vbar)
   phi_eqn = dphi.dx(0)*psi.dx(0)*dx - H*(f_in-fbar)*psi*dx
+
+To deal with :math:`\mathcirc{\bar{W}}`, we will precondition the
+problem with a shifted version, which is well-posed on :math:`\bar{W}`.
+  
   shift_eqn = dphi.dx(0)*psi.dx(0)*dx + dphi*psi*dx
-  nullspace = VectorSpaceBasis(constant=True)
+
+We use these to define a :class:`~.LinearVariationalProblem`. ::
+  
   phi_problem = LinearVariationalProblem(lhs(phi_eqn), rhs(phi_eqn),
-  phi, aP=shift_eqn)
+                                         phi, aP=shift_eqn)
+
+Now we build the :class:`~.LinearVariationalSolver`. The problem
+is preconditioned by the shifted operator which is solved using a direct
+solver, and we need to tell the solver about the nullspace of globally
+constant functions. ::
+					 
   params = {
      'ksp_type': 'gmres',
      'pc_type': 'lu',
      'ksp_rtol': 1.0e-8,
      }
-
+  nullspace = VectorSpaceBasis(constant=True)
   phi_solver = LinearVariationalSolver(phi_problem,
                                        nullspace=nullspace,
 				       solver_parameters=params)
