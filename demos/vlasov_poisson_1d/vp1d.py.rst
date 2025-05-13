@@ -38,15 +38,15 @@ is the mass per plasma particle, and :math:`\phi` is the electrostatic
 potential determined by the Poisson equation,
 
 .. math::
-   -\nabla^2\phi = q\int_{\mathbb{R}^d} f(\vec{x},\vec{v},t)\mathrm{d} v,
+   -\nabla^2\phi = q_0\int_{\mathbb{R}^d} f(\vec{x},\vec{v},t)\mathrm{d} v,
 
-where :math:`q` is the electric charge per plasma particle.
+where :math:`q_0` is the electric charge per plasma particle.
 
 In this demo we specialise to :math:`d=1`, and the equations become
 
 .. math::
    f_t + (fv)_x + (-f\phi_x/m)_v = 0, \quad
-   -\phi_{xx} = q\int f(x,v,t)\mathrm{d} v,
+   -\phi_{xx} = q_0\int f(x,v,t)\mathrm{d} v,
 
 with coordinates :math:`(x,v)\in \mathbb{R}^2`. From now on we will
 relabel these coordinates :math:`(x,v)\mapsto (x_1,x_2)`, obtaining
@@ -54,10 +54,10 @@ the equivalent form,
 
 .. math::
    f_t + \nabla\cdot(\vec{u}f) = 0, \quad \vec{u} = (v,-\phi_x/m), \quad
-   -\phi_{x_1x_1} = q\int f(x_1,x_2,t)\mathrm{d} x_2,
+   -\phi_{x_1x_1} = q_0\int f(x_1,x_2,t)\mathrm{d} x_2,
 
 where :math:`\nabla=(\partial_{x_1},\partial{x_2})`. From now we will
-choose units such that :math:`q,m` are absorbed into the definition of
+choose units such that :math:`q_0,m` are absorbed into the definition of
 :math:`f`.
 
 To proceed, we need to develop variational formulations of these
@@ -122,7 +122,7 @@ where
 .. math::
    \mathring{\bar{W}} = \{ w\in \bar{W}: \bar{w}=0\},
 
-where
+where here the bar indicates a spatial average,
 
 .. math::
 
@@ -136,7 +136,7 @@ Then we seek the solution of
    = \int H(f-\bar{f}) \psi \mathrm{d} x, \quad
    \forall \psi \in \mathring{\bar{W}}.
 
-To discretise in time, we will use an SSPRK3 time discretisation.  At
+To discretise in time, we will use an SSPRK3 time discretisation, similar to the DG advection :doc:`demo<DG_advection.py>`.  At
 each Runge-Kutta stage, we must solve for the electrostatic potential,
 and then use it to compute :math:`\vec{u}`, in order to compute
 :math:`\partial f/\partial t`.
@@ -176,7 +176,7 @@ Now we build a discontinuous finite element space for the density, ::
 
 and a continuous finite element space for the electostatic potential.
 The space is continuous in the horizontal and constant in the vertical,
-specified through the `vfamily`. ::
+specified through the ``vfamily``. ::
   
   Wbar = FunctionSpace(mesh, 'CG', 1, vfamily='R', vdegree=0)
 
@@ -245,11 +245,12 @@ define a symbolic :math:`\Delta t` which we will update later. ::
   
   dtc = Constant(0)
 
-The solver will take in `f_star` and return :math:`\Delta t\partial f/\partial t` in `df_out`. ::
+The solver will take in ``fstar`` and return :math:`\Delta t\partial f/\partial t` in ``df_out``. ::
 
   df_out = Function(V)
 
-Now we express the equation in UFL. ::
+Now we express the equation in UFL, starting with the left hand side
+bilinear form ::
   
   q = TestFunction(V)
   u = as_vector([v, -phi.dx(0)])
@@ -263,6 +264,10 @@ separated into horizontal and vertical ones. ::
 
   dS = dS_h + dS_v
 
+Now we build the right hand side linear form. A conditional operator
+is used to deal with the inflow and outflow parts of the exterior
+boundary. Due to the periodic boundary conditions in :math:`x_1`, the only exterior boundary is at the top and bottom of the domain, with measure `ds_tb`. ::
+  
   df_L = dtc*(div(u*q)*fstar*dx
      - (q('+') - q('-'))*(un('+')*fstar('+') - un('-')*fstar('-'))*dS
      - conditional(dot(u, n) > 0, q*dot(u, n)*fstar, 0.)*ds_tb
@@ -273,18 +278,25 @@ We then use this to build a solver. ::
   df_problem = LinearVariationalProblem(df_a, df_L, df_out)
   df_solver = LinearVariationalSolver(df_problem)
 
+We are getting close to the time loop. We set up some timestepping
+parameters. ::
+  
   T = 50.0 # maximum timestep
   t = 0. # model time
-  ndump = 100
-  dumpn = 0
+  ndump = 100 # frequency of file dumps
+  dumpn = 0 # dump counter
   nsteps = 5000
   dt = T/nsteps
   dtc.assign(dt)
 
+We set up some :class:`~.Function`\s to store Runge-Kutta stage variables. ::
+  
   # RK stage variables
   f1 = Function(V)
   f2 = Function(V)
 
+
+  
   outfile = VTKFile("vlasov.pvd")
   fstar.assign(fn)
   phi_solver.solve()
