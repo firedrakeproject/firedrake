@@ -12,23 +12,33 @@ If :math:`\{\phi_i\}` is a basis for a finite vector space :math:`V` then there 
 
     \phi_i^*(\phi_j) = \delta_{ij}
 
-The basis :math:`\{\phi_i^*\}` is termed the *dual basis*. Where it is necessary to make the distinction, we will refer to the space to which a dual space is dual as the *primal space* and its basis as the *primal basis*. 
+The basis :math:`\{\phi_i^*\}` is termed the *dual basis*. Where it is
+necessary to make the distinction, we will refer to the space to which a dual
+space is dual as the *primal space* and its basis as the *primal basis*. 
 
-Since UFL function spaces are finite-dimensional Hilbert spaces which result from the discretisation of infinite-dimensional Hilbert spaces, all of the function spaces with which we are concerned are reflexive, ie :math:`(V^*)^*` is isomorphic to
-V under the canonical map. That is, we can identify :math:`(V^*)^*` and :math:`V`:
+Since UFL function spaces are finite-dimensional Hilbert spaces which result
+from the discretisation of infinite-dimensional Hilbert spaces, all of the
+function spaces with which we are concerned are reflexive, ie :math:`(V^*)^*`
+is isomorphic to V under the canonical map. That is, we can identify
+:math:`(V^*)^*` and :math:`V`:
 
 .. math::
 
-    (V^*)^* = V
+    (V^*)^* \equiv V
 
-A form defined over an unknown :math:`a` in the primal space :math:`V` is a known object in the dual space:
+A form defined over an unknown :math:`a` in the primal space :math:`V` is a
+known object in the dual space. For example:
 
 .. math::
-    h(a) &= \int_\Omega \phi_i \text{ d}x a_i \\
-    &= \int_\Omega  \phi_i \text{ d}x I_{ij} a_j = \int_\Omega \phi_i \text{ d}x \phi_i^*(\phi_j) a_j \\
-    &= \int_\Omega \phi_i \text{ d}x \phi_i^*(\phi_j a_j ) = \int_\Omega \phi_i \text{ d}x \phi_i^*(a) 
+    h(a) &= \int_\Omega \phi_i\, \mathrm{ d}x\  a_i \\
+    &= \int_\Omega  \phi_i\, \mathrm{ d}x\ I_{ij}\ a_j \\
+    &= \int_\Omega \phi_i\, \mathrm{ d}x\ \phi_i^*(\phi_j)\ a_j \\
+    &= \int_\Omega \phi_i\, \mathrm{ d}x\ \phi_i^*(\phi_j\ a_j ) \\
+    &= \int_\Omega \phi_i\, \mathrm{ d}x\ \phi_i^*(a)\\
+    &= h_i \phi_i^*(a)
 
-with basis coefficients :math:`h_i = \int_\Omega \phi_i \text{ d}x`.
+with basis coefficients :math:`h_i = \displaystyle\int_\Omega \phi_i \text{
+d}x`.
 
 
 
@@ -36,7 +46,7 @@ with basis coefficients :math:`h_i = \int_\Omega \phi_i \text{ d}x`.
 Dual objects in UFL
 --------------------------
 
-For an arbitrary ``V`` of type :py:class:`~.ufl.FunctionSpace`, the corresponding dual space :math:`V^*` can be obtained by calling the :py:meth:`~.ufl.FunctionSpace.dual` method:
+For an arbitrary :py:class:`~.ufl.FunctionSpace`, ``V``, the corresponding dual space :math:`V^*` can be obtained by calling the :py:meth:`~.ufl.FunctionSpace.dual` method:
 
 .. code-block:: python3
 
@@ -72,6 +82,7 @@ represents the integration of the unknown function ``a`` over the domain. It's t
 ``cf`` is a known object in the dual space, and the dual equivalent of :py:class:`~.ufl.Coefficient`. The more consistent name ``Cocoefficient`` was rejected as confusing and risible. :py:class:`~.ufl.Cofunction` objects can be combined with symbolic :py:class:`~.ufl.Form` objects:
 
 .. code-block::
+
     v = TestFunction(V) 
     a = v * dx
     b = assemble(a)
