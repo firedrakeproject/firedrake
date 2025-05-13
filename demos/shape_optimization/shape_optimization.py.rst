@@ -40,7 +40,7 @@ choose an initial guess (in this case, a unit disc centred at the origin)::
   from firedrake.adjoint import *
   mesh = UnitDiskMesh(refinement_level=3)
 
-Then, we start annotating and turn the mesh coordinates into a control variable::
+Then, we :ref:`start annotating <adjoint-taping>` and turn the mesh coordinates into a control variable::
 
   continue_annotation()
   Q = mesh.coordinates.function_space()
