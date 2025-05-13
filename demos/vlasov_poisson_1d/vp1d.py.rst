@@ -18,27 +18,27 @@ The Vlasov equation models the (collisionless) conservation of plasma
 particles, according to 
 
 .. math::
-   f_t + \nabla_x \cdot (vf) + \nabla_v \cdot (af) = 0,
+   f_t + \nabla_{\vec{x}} \cdot (\vec{v}f) + \nabla_{\vec{v}} \cdot (\vec{a}f) = 0,
 
 where
 
 .. math::
-   \nabla_x = (\partial_{x_1},\ldots, \partial_{x_d}), \quad
-   \nabla_v = (\partial_{v_1},\ldots, \partial_{v_d}).
+   \nabla_{\vec{x}} = (\partial_{x_1},\ldots, \partial_{x_d}), \quad
+   \nabla_{\vec{v}} = (\partial_{v_1},\ldots, \partial_{v_d}).
 
-To close the system, we need a formula for the acceleration :math:`a`.
+To close the system, we need a formula for the acceleration :math:`\vec{a}`.
 In the (single species) Vlasov-Poisson model, the acceleration is
 determined by the electrostatic force,
 
 .. math::
-   a = -\frac{1}{m}\nabla\phi,
+   \vec{a} = -\frac{1}{m}\nabla\phi,
 
 where :math:`m`
 is the mass per plasma particle, and :math:`\phi` is the electrostatic
 potential determined by the Poisson equation,
 
 .. math::
-   -\nabla^2\phi = q\int_{\mathbb{R}^d} f(x,v,t)\mathrm{d} v,
+   -\nabla^2\phi = q\int_{\mathbb{R}^d} f(\vec{x},\vec{v},t)\mathrm{d} v,
 
 where :math:`q` is the electric charge per plasma particle.
 
@@ -53,7 +53,7 @@ relabel these coordinates :math:`(x,v)\mapsto (x_1,x_2)`, obtaining
 the equivalent form,
 
 .. math::
-   f_t + \nabla\cdot(uf) = 0, \quad u = (v,-\phi_x/m), \quad
+   f_t + \nabla\cdot(\vec{u}f) = 0, \quad \vec{u} = (v,-\phi_x/m), \quad
    -\phi_{x_1x_1} = \int f(x_1,x_2,t)\mathrm{d} x_2.
 
 To proceed, we need to develop variational formulations of these
