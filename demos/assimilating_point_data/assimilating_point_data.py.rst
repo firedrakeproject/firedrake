@@ -222,6 +222,7 @@ We can compare our result to `q_true` by calculating the error between `q_min` a
     L2_err = fd.norm(q_err, "L2")
     print(f"L2 error: {L2_err:.3e}")
 
+A python script version of this demo can be found :demo:`here <assimilating_point_data.py>`.
 
 .. rubric:: References
 
