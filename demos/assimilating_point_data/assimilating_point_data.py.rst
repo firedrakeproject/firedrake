@@ -17,7 +17,7 @@ We have a model
 
 where :math:`u` is our solution, :math:`m` are the model parameters, and :math:`F` is our model, for example a PDE. 
 We have a set of :math:`N` observations :math:`u_{\text{obs}}^i` at locations :math:`X_i`, for :math:`i=1,\ldots,N`.
-We want our solution field :math:`u` to match the observations at the locations :math:`X_i`, so we define a "misfit" (or "objective") function
+We want our solution field :math:`u` to match the observations at the locations :math:`X_i`, so we define a "misfit" (or "objective") functional
 
 .. math::
 
@@ -57,9 +57,10 @@ This is done by the interpolation operator
 
 .. math::
 
-    \mathcal{I}_{\operatorname{P0DG}(\Omega_{v})}&\rightarrow\operatorname{FS}(\Omega)
+    \begin{align}
+    \mathcal{I}_{\operatorname{P0DG}(\Omega_{v})}:\operatorname{P0DG}(\Omega)&\rightarrow\operatorname{FS}(\Omega)\\
     \mathcal{I}_{\operatorname{P0DG}(\Omega_{v})}(u)&\mapsto u_{v}.
-
+    \end{align}
 
 Unknown conductivity
 --------------------
@@ -96,9 +97,11 @@ Our :math:`J_{\text{model-data misfit}}` term is then
 
 .. math::
 
-    J_{\text{model-data misfit}} &= \sum_{i=1}^{N} \lVert u_{\text{obs}}^i-u(X_{i}) \rVert_{L^2}^2
-    &= \int_{\Omega_{v}} (u_{\text{obs}}^i-\mathcal{I}_{\operatorname{P0DG}(\Omega_{v})}(u))^2 \, dx
-    &= \sum_{i=1}^{N} (u_{\text{obs}}^i-u(X_{i))^2.
+    \begin{align}
+    J_{\text{model-data misfit}} &= \sum_{i=1}^{N} \lVert u_{\text{obs}}^i-u(X_{i}) \rVert_{L^2}^2\\
+    &= \int_{\Omega_{v}} (u_{\text{obs}}^i-\mathcal{I}_{\operatorname{P0DG}(\Omega_{v})}(u))^2 \, dx\\
+    &= \sum_{i=1}^{N} (u_{\text{obs}}^i-u(X_{i}))^2.
+    \end{align}
 
 For the regularisation term :math:`J_{\text{regularisation}}` we take 
 
@@ -147,6 +150,7 @@ We don't want to write this to the tape, so we use a `stop_annotating` context m
 
                 q_true += mode
 
+        # Now we solve the PDE with q_true to get u_true
         u_true = fd.Function(V)
         v = fd.TestFunction(V)
         f = fd.Constant(1.0)
@@ -172,7 +176,6 @@ Now we'll randomly generate our point data observations and add some Gaussian no
 We can now solve the model PDE with :math:`q=0` as an initial guess ::
 
     u = fd.Function(V)
-    v = fd.TestFunction(V)
     q = fd.Function(Q)
     bc = fd.DirichletBC(V, 0, 'on_boundary')
     F = (k0 * fd.exp(q) * fd.inner(fd.grad(u), fd.grad(v)) - f * v) * fd.dx
@@ -197,3 +200,9 @@ We now minimise our functional :math:`J` ::
     q_min = fd.adjoint.minimize(
         J_hat, method='Newton-CG', options={'disp': True}
     )
+
+We can calculate the error between `q_min` and `q_true` ::
+
+    q_err = fd.Function(Q).assign(q_min - q_true)
+    L2_err = fd.norm(q_err, "L2")
+
