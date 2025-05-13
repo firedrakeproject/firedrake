@@ -90,10 +90,13 @@ optimization algorithm with fixed step size.::
   File.write(mesh.coordinates)
   print("J(final) =", Jred(dT))
 
-<video width="640" height="360" controls loop autoplay muted>
-  <source src="shape_optimization.avi" type="video/avi">
-  Your browser does not support the video tag.
-</video>
+.. only:: html
+
+  .. container:: youtube
+
+    .. vimeo:: 1083822714?loop=1
+       :width: 600px
+
 
 **Remark:** mesh-moving shape optimization can lead to mesh tangling, which
 invalidates finite element computations. For faster and more robust shape
