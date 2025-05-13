@@ -3,7 +3,7 @@ Assimilating point data
 
 .. rst-class:: emphasis
 
-    This example is based on work done by Reuben Nixon-Hill et al. in :cite:`Nixon-Hill:2024`, and was written up by Leo Collins.
+    This example is based on work done by Reuben Nixon-Hill et al. in :cite:`Nixon-Hill:2024`, and was written up by Leo Collins. The paper contains an additional example of assimilating point data in a model of the Larsen C ice shelf using the Icepack library :cite:`Shapero:2021`, which is built on Firedrake. 
 
 
 This demo will show how to use Firedrake-adjoint to assimilate point data into a PDE model. 
@@ -62,7 +62,7 @@ This is done by the interpolation operator
 .. math::
 
     \begin{align}
-    \mathcal{I}_{\operatorname{P0DG}(\Omega_{v})}:\operatorname{FS}(\Omega)&\rightarrow\operatorname{P0DG}(\Omega)\\
+    \mathcal{I}_{\operatorname{P0DG}(\Omega_{v})}:\operatorname{FS}(\Omega)&\rightarrow\operatorname{P0DG}(\Omega_v)\\
     u&\mapsto u_{v}.
     \end{align}
 
@@ -221,3 +221,10 @@ We can compare our result to `q_true` by calculating the error between `q_min` a
     q_err = fd.Function(Q).assign(q_min - q_true)
     L2_err = fd.norm(q_err, "L2")
     print(f"L2 error: {L2_err:.3e}")
+
+
+.. rubric:: References
+
+.. bibliography:: demo_references.bib
+   :filter: docname in docnames
+   
