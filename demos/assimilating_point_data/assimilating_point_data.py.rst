@@ -114,7 +114,7 @@ We begin by importing Firedrake, Firedrake-Adjoint, and Numpy and starting the t
 
 We'll then create our mesh and define the solution and control function spaces ::
 
-    mesh = fd.UnitSquareMesh(32, 32)
+    mesh = fd.UnitSquareMesh(10, 10)
     V = fd.FunctionSpace(mesh, "CG", 2)  # solution space
     Q = fd.FunctionSpace(mesh, "CG", 2)  # control space
 
