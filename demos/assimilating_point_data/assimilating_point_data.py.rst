@@ -37,7 +37,7 @@ We now note that if we change the model parameters :math:`q`, then the solution 
 
     \hat{J}(q) = J(u(q),q)
 
-We call :math:`\hat{J}` the reduced functional. The aim is to find the value of :math:`q` which minimises the misfit functional :math:`J`. Firedrake-adjoint will compute :math:`\frac{d J}{d q}` automatically, and we can use this to find the minimum of :math:`J` using a gradient-based method such as Newton-CG.
+We call :math:`\hat{J}` the reduced functional. The aim is to find the value of :math:`q` which minimises the :math:`\hat{J}`. Firedrake-adjoint will compute :math:`\frac{d \hat{J}}{d q}` automatically, and we can use this to find the minimum of :math:`\hat{J}` using a gradient-based method such as Newton-CG.
 
 
 Point data as finite element functions
