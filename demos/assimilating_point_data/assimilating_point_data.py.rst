@@ -3,7 +3,7 @@ Assimilating point data
 
 .. rst-class:: emphasis
 
-    This example is based on work done by Reuben Nixon-Hill et al. in :cite:`Nixon-Hill:2024`, and was written up by Leo Collins. The paper contains an additional example of assimilating point data in a model of the Larsen C ice shelf using the Icepack library :cite:`Shapero:2021`, which is built on Firedrake. 
+    This example is taken from work done by Reuben Nixon-Hill et al. in :cite:`Nixon-Hill:2024`, and was written up by Leo Collins. The paper contains an additional example of assimilating point data in a model of the Larsen C ice shelf using the `Icepack <https://icepack.github.io/>`_ library :cite:`Shapero:2021`, which is built on Firedrake. 
 
 
 This demo will show how to use Firedrake-adjoint to assimilate point data into a PDE model. 
