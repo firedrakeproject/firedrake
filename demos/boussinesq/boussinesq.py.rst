@@ -92,7 +92,7 @@ to prevent hydrostatic equilibrium and allow for a non-trivial velocity solution
 Next we set up the discrete function spaces.
 We use lowest-order Taylor--Hood elements for the velocity and pressure,
 and continuous piecewise-linear elements for the temperature.
-We introduce a Lagrange multiplier to enforce the integral constraint on :math:`T`.::
+We introduce a Lagrange multiplier to enforce the integral constraint on :math:`T`::
 
     U = VectorFunctionSpace(mesh, "CG", degree=2)
     V = FunctionSpace(mesh, "CG", degree=1)
@@ -264,3 +264,6 @@ The temperature and stream lines for :math:`T_0=1` and :math:`T_0=10000` are dis
 | .. image:: T0_1.png     | .. image:: T0_10000.png |
 |    :width: 100%         |    :width: 100%         |
 +-------------------------+-------------------------+
+
+A Python script version of this demo can be found :demo:`here
+<boussinesq.py>`.
