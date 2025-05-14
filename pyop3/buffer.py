@@ -87,6 +87,10 @@ class AbstractArrayBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
     def max_value(self) -> np.number:
         pass
 
+    @property
+    @abc.abstractmethod
+    def ordered(self) -> bool:
+        pass
 
 
 @utils.record()
@@ -106,6 +110,7 @@ class NullBuffer(AbstractArrayBuffer):
     _name: str
     _dtype: np.dtype
     _max_value: np.number | None
+    _ordered: bool
 
     # }}}
 
@@ -121,6 +126,7 @@ class NullBuffer(AbstractArrayBuffer):
     name: ClassVar[property] = utils.attr("_name")
     dtype: ClassVar[property] = utils.attr("_dtype")
     max_value: ClassVar[property] = utils.attr("_max_value")
+    ordered: ClassVar[property] = utils.attr("_ordered")
 
     def copy(self) -> NullBuffer:
         name = f"{self.name}_copy"
@@ -128,7 +134,7 @@ class NullBuffer(AbstractArrayBuffer):
 
     # }}}
 
-    def __init__(self, size: int, dtype: DTypeT | None = None, *, name: str | None = None, prefix: str | None = None, max_value: numbers.Number | None = None):
+    def __init__(self, size: int, dtype: DTypeT | None = None, *, name: str | None = None, prefix: str | None = None, max_value: numbers.Number | None = None, ordered:bool=False):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
         dtype = utils.as_dtype(dtype, self.DEFAULT_DTYPE)
         if max_value is not None:
@@ -138,6 +144,7 @@ class NullBuffer(AbstractArrayBuffer):
         self._name = name
         self._dtype = dtype
         self._max_value = max_value
+        self._ordered = ordered
 
 
 class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
@@ -170,6 +177,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     sf: StarForest | None
     _name: str
     _constant: bool
+    _ordered: bool
 
     _max_value: np.number | None = None
 
@@ -194,6 +202,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     constant: ClassVar[property] = utils.attr("_constant")
     state: ClassVar[property] = utils.attr("_state")
     max_value: ClassVar[property] = utils.attr("_max_value")
+    ordered: ClassVar[property] = utils.attr("_ordered")
 
     @property
     def size(self) -> int:
@@ -216,17 +225,21 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # }}}
 
-    def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, max_value: numbers.Number | None=None):
+    def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, max_value: numbers.Number | None=None, ordered:bool=False):
         data = data.flatten()
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
         if max_value is not None:
             max_value = utils.as_numpy_scalar(max_value)
+        if ordered:
+            utils.debug_assert(lambda: (data == np.sort(data)).all())
+
 
         self._lazy_data = data
         self.sf = sf
         self._name = name
         self._constant = constant
         self._max_value = max_value
+        self._ordered = ordered
 
         # if self.name == "array_51":
         #     breakpoint()

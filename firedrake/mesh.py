@@ -1050,9 +1050,9 @@ class AbstractMeshTopology(abc.ABC):
                 subsets.append(slice_component)
         else:
             for dim in self._plex_strata_ordering:
-                indices = self._entity_indices[dim]
+                indices = op3.ArrayBuffer(self._entity_indices[dim], ordered=True)
                 subset_axes = op3.Axis({str(dim): indices.size}, self.name)
-                subset_array = op3.Dat(subset_axes, data=indices, ordered=True)
+                subset_array = op3.Dat(subset_axes, buffer=indices)
                 subset = op3.Subset("mylabel", subset_array, label=str(dim))
                 subsets.append(subset)
 

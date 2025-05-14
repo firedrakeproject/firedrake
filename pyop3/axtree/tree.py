@@ -59,6 +59,7 @@ import pyop3.extras.debug
 
 
 OWNED_REGION_LABEL = "owned"
+GHOST_REGION_LABEL = "ghost"
 
 
 class ExpectedLinearAxisTreeException(Pyop3Exception):
@@ -1101,6 +1102,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         else:
             return self.with_region_label(OWNED_REGION_LABEL)
 
+    # TODO: This assumes that we only have single regions and not nests of them
     def with_region_label(self, region_label: str) -> IndexedAxisTree:
         """TODO"""
         if region_label not in self._all_region_labels:

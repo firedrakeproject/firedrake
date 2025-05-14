@@ -66,8 +66,6 @@ class Dat(Tensor, KernelArgument):
     _name: str
     _parent: Dat | None
 
-    ordered: bool
-
     # }}}
 
     # {{{ Class attrs
@@ -98,7 +96,6 @@ class Dat(Tensor, KernelArgument):
         data: np.ndarray | None = None,
         name=None,
         prefix=None,
-        ordered=False,
         parent=None,
     ):
         """
@@ -108,10 +105,6 @@ class Dat(Tensor, KernelArgument):
 
         We could maybe do something similar with dtype...
         """
-        if ordered:
-            # TODO: Belongs on the buffer and also will fail for non-numpy arrays
-            debug_assert(lambda: (data == np.sort(data)).all())
-
         axes = as_axis_tree(axes)
 
         assert buffer is None or data is None, "cant specify both"
@@ -130,14 +123,6 @@ class Dat(Tensor, KernelArgument):
         self._parent = parent
         self.axes = axes
         self._buffer = buffer
-
-        # NOTE: This is a tricky one, is it an attribute of the dat or the buffer? What
-        # if the Dat is indexed? Maybe it should be
-        #
-        #     return self.buffer.ordered and self.ordered_access
-        #
-        # where self.ordered_access would detect the use of a subset...
-        object.__setattr__(self, "ordered", ordered)
 
         # self._cache = {}
 

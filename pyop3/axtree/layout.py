@@ -43,17 +43,6 @@ from pyop3.utils import (
 import pyop3.extras.debug
 
 
-class IntRef:
-    """Pass-by-reference integer."""
-
-    def __init__(self, value):
-        self.value = value
-
-    def __iadd__(self, other):
-        self.value += other
-        return self
-
-
 def make_layouts(axes: AxisTree, loop_vars) -> immutabledict:
     if not axes.layout_axes.is_empty:
         inner_layouts = tabulate_again(axes.layout_axes)
@@ -64,13 +53,24 @@ def make_layouts(axes: AxisTree, loop_vars) -> immutabledict:
 
 
 def tabulate_again(axes):
-    to_tabulate = {}
+    to_tabulate = []
+    # ah have I screwed up? parallel + mixed -> how do starts work?
     layouts = _prepare_layouts(axes, axes.root, immutabledict(), 0, (), to_tabulate)
-    starts = {array: 0 for array in to_tabulate.values()}
-    for region in _collect_regions(axes):
-        for tree, offset_dat in to_tabulate.items():
-            starts[offset_dat] += _tabulate_offset_dat(offset_dat, tree, region, starts[offset_dat])
-    utils.debug_assert(lambda: all((dat.buffer._data >= 0).all() for dat in to_tabulate.values()))
+    # starts = {dat: 0 for dat, _ in to_tabulate}
+    start = 0
+
+    # this is done at the root of the tree, so can treat in a flattened manner...
+    offsets = [0] * len(to_tabulate)
+    for region_set in _collect_regions(axes):
+        for i, (offset_dat, mapping) in enumerate(to_tabulate):
+            region = just_one(filter(None, region_set.values()))
+            offset = offsets[i]
+            region_indices, region_size = mapping[region]
+            offset_dat[offset:offset+region_indices.size] = region_indices + start
+
+            start += region_size
+            offsets[i] += region_indices.size
+    # utils.debug_assert(lambda: all((dat.buffer._data >= 0).all() for dat in to_tabulate.values()))
     return layouts
 
 
@@ -112,8 +112,12 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
 
             free_axes_ = free_axes + (linear_axis,)
 
-            if subtree in to_tabulate:
+            # TODO: non-region tabulated bits can get reused - this is different to the
+            # 'to_tabulate' list which is for *regions*
+            # if subtree in to_tabulate:
+            if False:
                 # We have already seen an identical tree elsewhere, don't need to create a new array here
+                raise NotImplementedError()
                 offset_dat = to_tabulate[subtree]
                 offset_dat_expr = as_linear_buffer_expression(offset_dat)
                 component_layout = offset_dat_expr * step + start
@@ -130,9 +134,13 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
                         step = 1
                     component_layout = AxisVar(axis.label) * step + start
                 else:
+                    if not _axis_contains_multiple_regions(axes, axis):
+                        raise NotImplementedError("I think I can eagerly tabulate that here!")
                     # 3. Non-constant stride, must tabulate
                     offset_dat = Dat(offset_axes, data=np.full(offset_axes.size, -1, dtype=IntType))
-                    to_tabulate[subtree] = offset_dat
+
+                    steps = _tabulate_steps(offset_axes, subtree)
+                    to_tabulate.append((offset_dat.buffer._data, steps))
 
                     # NOTE: This is really unpleasant, we want an expression type here but need
                     # axes to do the tabulation.
@@ -216,23 +224,50 @@ def _collect_regions(axes: AxisTree, *, axis: Axis | None = None):
     return tuple(merged_regions)
 
 
-def _tabulate_offset_dat(offset_dat, axes, region, start):
+def _tabulate_steps(offset_axes, subtree):
     from pyop3 import Dat
 
-    # NOTE: We don't handle regions at all. What should be done?
+    step_expr = _axis_tree_size(subtree)
+    assert not isinstance(step_expr, numbers.Integral), "Constant steps should already be handled"
+
+    step_dat = Dat.empty(offset_axes, dtype=IntType)
+    step_dat.assign(step_expr, eager=True)
+
+    offsets = steps(step_dat.buffer._data, drop_last=False)
+    ptr = 0
+
+    # split this up per region
+    region_steps = {}
+    for region_set in _collect_regions(offset_axes):
+        regions = tuple(filter(None, (region_label for region_label in region_set.values())))
+        if len(regions) > 1:
+            raise NotImplementedError("Currently we assume that we don't nest regions")
+        else:
+            region = just_one(regions)
+        region_size = offset_axes.with_region_label(region).size
+        region_steps[region] = (offsets[ptr:ptr+region_size], offsets[ptr+region_size])
+        ptr += region_size
+
+    return region_steps
+
+
+def _tabulate_offset_dat(offset_dat, axes):
+    from pyop3 import Dat
+
+    breakpoint()
 
     step_expr = _axis_tree_size(axes)
     assert not isinstance(step_expr, numbers.Integral), "Constant steps should already be handled"
 
-    # NOTE: If the step_expr is just an array we can avoid a loop here since we
-    # would only be doing a copy.
     step_dat = Dat.empty(offset_dat.axes, dtype=IntType)
     step_dat.assign(step_expr, eager=True)
 
     offsets = steps(step_dat.buffer._data, drop_last=False)
-    offset_dat.buffer._data[...] = offsets[:-1]
+    offset_dat.buffer._data[...] = offsets[:-1] + start
+    breakpoint()
 
-    return offsets[-1]
+    return regions
+    return offsets[-1] + start
 
 
 # NOTE: This is a very generic operation and I probably do something very similar elsewhere

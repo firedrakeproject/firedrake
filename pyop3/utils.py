@@ -22,6 +22,8 @@ from pyop3.dtypes import DTypeT, IntType
 
 from mpi4py import MPI
 
+import pyop3.extras.debug
+
 
 class UnorderedCollectionException(Pyop3Exception):
     """Exception raised when an ordered collection is required."""
@@ -359,7 +361,7 @@ def popwhen(predicate, iterable):
 
 def steps(sizes, *, drop_last=None):
     if drop_last is None:
-        pyop3.extras.warn_todo("The default here is changing!")
+        pyop3.extras.debug.warn_todo("The default here is changing!")
         drop_last = False
 
     steps_ = np.concatenate([[0], np.cumsum(sizes)])

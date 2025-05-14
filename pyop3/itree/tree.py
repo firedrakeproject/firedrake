@@ -37,6 +37,7 @@ from pyop3.axtree.tree import (
     UnitIndexedAxisTree,
     LoopIndexVar,
     OWNED_REGION_LABEL,
+    GHOST_REGION_LABEL,
 )
 from pyop3.dtypes import IntType
 # from pyop3.expr_visitors import replace_terminals, replace as expr_replace
@@ -1104,16 +1105,18 @@ def _(slice_: Slice, *, prev_axes, expr_replace_map, **_):
         # "owned" region is no longer a trivial slice. We therefore choose to discard
         # this information.
 
-        # DEBUG: using _all_regions breaks things because we only express owned-ness
-        # lazily from the SFs. We therefore have to special case the regionslice for
-        # owned around here.
+        # # DEBUG: using _all_regions breaks things because we only express owned-ness
+        # # lazily from the SFs. We therefore have to special case the regionslice for
+        # # owned around here.
         if (
             isinstance(slice_component, RegionSliceComponent)
-            and slice_component.region == OWNED_REGION_LABEL
+            and slice_component.region in {OWNED_REGION_LABEL, GHOST_REGION_LABEL}
         ):
             orig_regions = target_component._all_regions
         else:
             orig_regions = target_component.regions
+
+
         # TODO: Might be clearer to combine these steps
         regions = _prepare_regions_for_slice_component(slice_component, orig_regions)
         indexed_regions = _index_regions(slice_component, regions, parent_exprs=expr_replace_map)
@@ -1126,13 +1129,13 @@ def _(slice_: Slice, *, prev_axes, expr_replace_map, **_):
             # to disallow things like `axes.owned.owned`.
             if (
                 isinstance(slice_component, RegionSliceComponent)
-                and slice_component.region == OWNED_REGION_LABEL
+                and slice_component.region in {OWNED_REGION_LABEL, GHOST_REGION_LABEL}
             ):
                 sf = None
             else:
                 if isinstance(slice_component, RegionSliceComponent):
                     region_index = target_component._all_region_labels.index(slice_component.region_label)
-                    steps = utils.steps([r.size for r in target_component._all_regions])
+                    steps = utils.steps([r.size for r in target_component._all_regions], drop_last=False)
                     start, stop = steps[region_index:region_index+2]
                     indices = np.arange(start, stop, dtype=IntType)
                 elif isinstance(slice_component, AffineSliceComponent):
@@ -1178,12 +1181,12 @@ def _(slice_: Slice, *, prev_axes, expr_replace_map, **_):
 
             newvar = AxisVar(axis.label)
             if isinstance(slice_component, RegionSliceComponent):
-                if slice_component.region == OWNED_REGION_LABEL:
+                if slice_component.region in {OWNED_REGION_LABEL, GHOST_REGION_LABEL}:
                     region_index = target_component._all_region_labels.index(slice_component.region)
-                    steps = utils.steps([r.size for r in target_component._all_regions])
+                    steps = utils.steps([r.size for r in target_component._all_regions], drop_last=False)
                 else:
                     region_index = target_component.region_labels.index(slice_component.region)
-                    steps = utils.steps([r.size for r in target_component.regions])
+                    steps = utils.steps([r.size for r in target_component.regions], drop_last=False)
                 start = steps[region_index]
                 index_exprs_per_subslice.append(
                     immutabledict(
@@ -2168,7 +2171,7 @@ def _(affine_component: AffineSliceComponent, regions):
 @_prepare_regions_for_slice_component.register(Subset)
 def _(subset: Subset, regions) -> tuple:
     # We must lose all region information if we are not accessing entries in order
-    if len(regions) > 1 and not subset.array.ordered:
+    if len(regions) > 1 and not subset.array.buffer.ordered:
         size = sum(r.size for r in regions)
         return (AxisComponentRegion(size),)
     else:
