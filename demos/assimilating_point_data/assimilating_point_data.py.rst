@@ -202,7 +202,7 @@ Finally, we store our point observations in a :class:`~.Function` in :math:`\ope
     u_obs = Function(P0DG)
     u_obs.dat.data[:] = u_obs_vals
 
-Next, we write down our misfit functional and assemble. ::
+Next, we write down our misfit functional :math:`J` and assemble. ::
 
     alpha = Constant(0.02)
     
