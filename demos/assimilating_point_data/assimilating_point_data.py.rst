@@ -134,7 +134,7 @@ We'll then create our mesh and define the solution and control function spaces :
 
 Now we'll create our :math:`q_{\text{true}}` and :math:`u_{\text{true}}` fields. 
 To get our :math:`u_{\text{true}}` field we solve the PDE with :math:`q_{\text{true}}`. 
-We don't want to write this to the tape, so we use a `stop_annotating` context manager::
+We don't want to write this to the tape, so we use a :class:`~.stop_annotating` context manager::
 
     with fd.adjoint.stop_annotating():
         rng = np.random.default_rng(seed=42)
