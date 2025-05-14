@@ -35,9 +35,9 @@ impose homogeneous Dirichlet boundary conditions::
 
       return solver.snes.getLinearSolveIterations()
 
-
-Having done both ASMStarPC and PatchPC in other demos, here we simply opt for the former.
+Having done both :class:`~.ASMStarPC` and :class:`~.PatchPC` in other demos, here we simply opt for the former.
 Arnold, Falk, and Winther show that either vertex (`construct_dim=0`) or edge patches (`construct_dim=1`)  will be acceptable in three dimensions.::
+
 
   def asm_params(construct_dim):
       return {
@@ -56,7 +56,6 @@ Arnold, Falk, and Winther show that either vertex (`construct_dim=0`) or edge pa
 	      "pc_type": "cholesky",
 	  }
       }
-
 
 Now, for each parameter choice, we report the iteration count for the Riesz map
 over a range of meshes.  We see that vertex patches give lower iteration counts than
@@ -92,4 +91,4 @@ and with edge patches
 
 and additional mesh refinement will lead to these numbers leveling off.
 
-A runnable python version of this demo can be found :demo:`here<riesz.py>`.
+A runnable python version of this demo can be found :demo:`here<hdiv_riesz_star.py>`.

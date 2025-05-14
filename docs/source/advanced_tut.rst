@@ -26,4 +26,5 @@ element systems.
    Full-waveform inversion: spatial and wave sources parallelism.<demos/full_waveform_inversion.py>
    Degree-independent multigrid convergence using patch relaxation.<demos/poisson_mg_patches.py>
    Monlithic multigrid with Vanka relaxation for Stokes.<demos/stokes_vanka_patches.py>
-   Vertex star relaxation for H(div) multigrid relaxation.<demos/hdiv_riesz_star.py>
+   Vertex/edge star multigrid relaxation for H(div).<demos/hdiv_riesz_star.py>
+   Auxiliary space patch relaxation multigrid for H(curl).<demos/hcurl_riesz_star.py>
