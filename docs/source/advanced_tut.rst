@@ -24,3 +24,4 @@ element systems.
    Rayleigh-Benard convection.<demos/rayleigh-benard.py>
    Netgen support.<demos/netgen_mesh.py>
    Full-waveform inversion: spatial and wave sources parallelism.<demos/full_waveform_inversion.py>
+   Shape optimisation.<demos/shape_optimization.py>
