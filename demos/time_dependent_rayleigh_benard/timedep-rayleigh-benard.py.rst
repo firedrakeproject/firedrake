@@ -94,10 +94,15 @@ Like Navier-Stokes, the pressure is only defined up to a constant.::
 
   nullspace = [(1, VectorSpaceBasis(constant=True))]
 
+Set up the Butcher tableau to use for time-stepping::
+
+  num_stages = 2
+  butcher_tableau = RadauIIA(num_stages)
+  
 We are going to carry out time stepping via Irksome, but we need
 to say how to solve the rather interesting stage-coupled system. ::
 
-  exclude_inds = "1,2,4,5"
+  exclude_inds = ",".join([str(3*i+j) for i in range(num_stages) for j in (1, 2)])
   params = {
       "mat_type": "aij",
       "snes_type": "newtonls",
@@ -130,7 +135,6 @@ to say how to solve the rather interesting stage-coupled system. ::
           "mat_mumps_icntl_14": 200}
   }
 
-  butcher_tableau = RadauIIA(2)
   stepper = TimeStepper(F, butcher_tableau, t, dt, upT, bcs=bcs,
                         nullspace=nullspace, solver_parameters=params)
 
