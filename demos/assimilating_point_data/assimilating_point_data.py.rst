@@ -10,40 +10,46 @@ This demo will show how to use Firedrake-adjoint to assimilate point data into a
 In Firedrake we represent point data as functions in the function space of zero-order discontinuous Lagrange polynomials :math:`\operatorname{P0DG}(\Omega_{v})`, where :math:`\Omega_{v}` is a vertex-only mesh consisting of the observation locations.
 
 
-General theory
---------------
+Adjoint background
+------------------
 
-We have a model
+We have a model (typically a PDE)
 
 .. math::
 
-    F(u,m)=0
+    F(u,q)=0
 
-where :math:`u` is our solution, :math:`m` are the model parameters, and :math:`F` is our model, for example a PDE. 
+where :math:`u` is our solution, :math:`q` are the model parameters, and :math:`F` is our model, for example a PDE. 
 We have a set of :math:`N` observations :math:`u_{\text{obs}}^i` at locations :math:`X_i`, for :math:`i=1,\ldots,N`.
 We want our solution field :math:`u` to match the observations at the locations :math:`X_i`, so we define a "misfit" (or "objective") functional
 
 .. math::
 
-    J=J_{\text{model-data misfit}} + J_{\text{regularisation}}.
+    J(u,q)=J_{\text{model-data misfit}}(u) + J_{\text{regularisation}}(q).
 
 Here :math:`J_{\text{regularisation}}` is a regularisation term, which is there to ensure that the problem is well-posed. Often this uses some known properties of the model, such as smoothness requirements.
 The :math:`J_{\text{model-data misfit}}` term is taken to be the :math:`L^2` norm of the difference between the observations :math:`u_{\text{obs}}^i` and the model solution :math:`u` point evaluated 
 at the observation locations: :math:`u(X_i)`, i.e. :math:`\lVert u_{\text{obs}}^i-u(X_{i}) \rVert_{L^2}`.
 
-The aim is to find the value of :math:`q` which minimises the misfit functional :math:`J`. Firedrake-adjoint will compute :math:`\frac{d J}{d q}` automatically, and we can use this to find the minimum of :math:`J` using a gradient-based method such as Newton-CG.
+We now note that if we change the model parameters :math:`q`, then the solution :math:`u` to the PDE will change, so we can write :math:`u` as a function of :math:`q`. We then write our functional :math:`J` as
+
+.. math::
+
+    \hat{J}(q) = J_{\text{model-data misfit}}(u(q)) + J_{\text{regularisation}}(q).
+
+We call :math:`\hat{J}` the reduced functional. The aim is to find the value of :math:`q` which minimises the misfit functional :math:`J`. Firedrake-adjoint will compute :math:`\frac{d J}{d q}` automatically, and we can use this to find the minimum of :math:`J` using a gradient-based method such as Newton-CG.
 
 
-Vertex-only mesh formalism
-----------------------------
+Point data as finite element functions
+--------------------------------------
 
-Our mesh consists of the our observation locations :math:`X_i`,
+We have our point data :math:`u_{\text{obs}}^i` observed at locations :math:`X_i`. In Firedrake, we represent our observation locations as a vertex-only mesh ,
 
 .. math::
 
     \Omega_{v}=\{X_i\}_{i=1}^{N}
 
-which is embedded in the parent mesh :math:`\Omega`, and our observations :math:`u_{\text{obs}}^i` live in the function space of zero-order discontinuous Lagrange polynomials,
+which is embedded in the parent mesh :math:`\Omega`, and our observations :math:`u_{\text{obs}}^i` as functions in the function space of zero-order discontinuous Lagrange polynomials on :math:`\Omega_{v}`,
 
 .. math::
   
@@ -66,16 +72,16 @@ This is done by the interpolation operator
     u&\mapsto u_{v}.
     \end{align}
 
-Unknown conductivity
+Unknown thermal conductivity
 --------------------
 
-We consider the steady-state heat equation 
+As a concrete example, we consider the steady-state heat equation 
 
 .. math::
 
     -k\nabla^{2} u=f
 
-defined on the domain :math:`\Omega`. Our solution field is :math:`u:\Omega\rightarrow\mathbb{R}`, :math:`f=1` is a forcing function, and :math:`k` is the thermal conductivity. We take the Dirichlet boundary condition
+defined on the domain :math:`\Omega`. Our solution field is :math:`u:\Omega\rightarrow\mathbb{R}`, :math:`f=1` is a forcing function, and :math:`k` is the thermal conductivity. We use the Dirichlet boundary condition
 
 .. math::
 
