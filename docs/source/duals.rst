@@ -66,7 +66,7 @@ Consequently,
 is a symbolic expression for the integral of ``c`` over the domain and represents a scalar value. ``f_0`` is a Python object of type :py:class:`~.ufl.Form`, once assembled, it is a scalar object.
 
 
-Conversely, :py:class:`~.Argument` defines a placeholder symbol ``a`` for an *unknown* function in ``V``. :py:class:`~firedrake.ufl_expr.TestFunction` and :py:class:`~firedrake.ufl_expr.TestFunction` are syntactic sugar for ``Argument(V, 0)`` and ``Argument(V, 1)`` respectively.
+Conversely, :py:class:`~.Argument` defines a placeholder symbol ``a`` for an *unknown* function in ``V``. :py:class:`~firedrake.ufl_expr.TestFunction` and :py:class:`~firedrake.ufl_expr.TrialFunction` are syntactic sugar for ``Argument(V, 0)`` and ``Argument(V, 1)`` respectively.
 
 .. code-block:: python3
 
@@ -102,9 +102,9 @@ A :py:class:`~.Coargument` can be constructed by either calling :py:class:`~.ufl
 
 .. code-block::
 
-    v = Argument (V , 1) # type Argument
-    u = Argument (V.dual() , 2) # type Coargument
-    w = Coargument (V.dual() , 3) # type Coargument
+    v = Argument(V, 1) # type Argument
+    u = Argument(V.dual(), 2) # type Coargument
+    w = Coargument(V.dual(), 3) # type Coargument
 
 
 There is a further dual-related type avalilable in UFL. In :py:class:`~.ufl.Cofunction`, we have represented an assembled 1-form. However, commonly we also assemble 2-forms. :py:class:`~.Matrix` allows an analogous use, and assembled 2-forms can be naturally combined with 2-forms that have not yet been assembled:
