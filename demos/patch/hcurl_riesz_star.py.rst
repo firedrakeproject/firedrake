@@ -74,14 +74,17 @@ using the auxiliary Lagrange space in a multigrid hierarchy. ::
       return {
           "pc_type": "python",
           "pc_python_type": "firedrake.HiptmairPC",
-          "hiptmair_mg_levels": asm_params(1),
           "hiptmair_mg_coarse": asm_params(0),
+          "hiptmair_mg_levels": asm_params(1),
+          "hiptmair_mg_levels_ksp_type": "richardson",
+          "hiptmair_mg_levels_ksp_max_it": 1,
+          "hiptmair_mg_coarse_ksp_type": "preonly",
       }
 
 
 Now, for each parameter choice, we report the iteration count for the Riesz map
-over a range of meshes.  We see that the auxiliary space approach gives lower
-iteration counts than vertex patches, while being cheaper to invert.::
+over a range of meshes.  We see that vertex patches approach give lower
+iteration counts than the Hiptmair approach, but they are more expensive.::
 
   names = {
       "Vertex Star": mg_params(asm_params(0)),
@@ -110,9 +113,9 @@ and with Hiptmair (edge patches + vertex patches on gradients of Lagrange)
 ======== ============
  Level    Iterations
 ======== ============
-  1        10
-  2        12
-  3        13
+  1        18
+  2        20
+  3        21
 ======== ============
 
 and additional mesh refinement will lead to these numbers leveling off.

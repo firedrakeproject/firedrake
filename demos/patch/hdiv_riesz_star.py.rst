@@ -39,22 +39,28 @@ Having done both :class:`~.ASMStarPC` and :class:`~.PatchPC` in other demos, her
 Arnold, Falk, and Winther show that either vertex (`construct_dim=0`) or edge patches (`construct_dim=1`)  will be acceptable in three dimensions.::
 
 
-  def asm_params(construct_dim):
+  def mg_params(relax):
       return {
           "ksp_type": "cg",
-	  "pc_type": "mg",
-	  "mg_levels": {
-	      "ksp_type": "chebyshev",
-	      "ksp_max_it": 1,
-	      "pc_type": "python",
-              "pc_python_type": "firedrake.ASMStarPC",
-              "pc_star_construct_dim": construct_dim,
-              "pc_star_backend_type": "tinyasm"
-	  },
-	  "mg_coarse": {
-	      "ksp_type": "preonly",
-	      "pc_type": "cholesky",
-	  }
+          "pc_type": "mg",
+          "mg_levels": {
+              "ksp_type": "chebyshev",
+              "ksp_max_it": 1,
+              **relax
+          },
+          "mg_coarse": {
+              "ksp_type": "preonly",
+              "pc_type": "cholesky"
+          }
+      }
+
+
+  def asm_params(construct_dim):
+      return {
+          "pc_type": "python",
+          "pc_python_type": "firedrake.ASMStarPC",
+          "pc_star_construct_dim": construct_dim,
+          "pc_star_backend_type": "tinyasm"
       }
 
 Now, for each parameter choice, we report the iteration count for the Riesz map
@@ -63,10 +69,11 @@ edge patches, but they are more expensive.::
 
 
   for cdim in (0, 1):
+      params = mg_params(asm_params(cdim))
       print(f"Relaxation with patches of dimension {cdim}")
       print("Level | Iterations")
       for lvl, msh in enumerate(mh[1:], start=1):
-          its = run_solve(msh, asm_params(cdim))
+          its = run_solve(msh, params)
           print(f"{lvl}     | {its}")
 
 For vertex patches, we expect output like,
