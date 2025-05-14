@@ -27,6 +27,8 @@ temperature. ::
       warning("Unable to import irksome.")
       sys.exit(0)
 
+We solve the system with a multigrid method, so we need to set up a mesh hiearchy::
+      
   Nbase = 8
   ref_levels = 2
   N = Nbase * 2**ref_levels
@@ -92,7 +94,7 @@ third boundary conditions below::
 
 Like Navier-Stokes, the pressure is only defined up to a constant.::
 
-  nullspace = [(1, VectorSpaceBasis(constant=True))]
+  nullspace = [(1, VectorSpaceBasis(constant=True), 1)]
 
 Set up the Butcher tableau to use for time-stepping::
 
@@ -100,9 +102,20 @@ Set up the Butcher tableau to use for time-stepping::
   butcher_tableau = RadauIIA(num_stages)
   
 We are going to carry out time stepping via Irksome, but we need
-to say how to solve the rather interesting stage-coupled system. ::
+to say how to solve the rather interesting stage-coupled system.
+We will use an outer Newton method with linesearch.
+The linear solver will be flexible GMRES.  We adapt the the tolerance of
+the inner solver via the Eisenstant-Walker trick using `snes_ksp_ew`.
+The linear solver will be preconditioned with a multigrid method.
+As a relaxation scheme, we apply several iterations (accelerated via GMRES)
+of a Vanka-type patch smoother via `ASMVankaPC`.  This smoother sets up a sequence of local problems involving all degrees of freedom for each field for each
+Runge--Kutta stage on the cells containing a vertex in the mesh.
+We use `exclude_inds` to indicate that we use velocity degrees of freedom on
+the patch boundary but exclude the pressure and temperature degrees of freedom.
+::
 
   exclude_inds = ",".join([str(3*i+j) for i in range(num_stages) for j in (1, 2)])
+
   params = {
       "mat_type": "aij",
       "snes_type": "newtonls",
