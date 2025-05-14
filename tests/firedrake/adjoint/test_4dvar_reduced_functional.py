@@ -46,40 +46,41 @@ def timestepper(V):
         u = fd.as_vector([vconst])
         n = fd.FacetNormal(V.mesh())
         un = fd.Constant(0.5)*(fd.dot(u, n) + abs(fd.dot(u, n)))
+        xi = fd.Constant(0.1)
         return (- q*fd.div(phi*u)*fd.dx
-                + fd.jump(phi)*fd.jump(un*q)*fd.dS)
+                + fd.jump(phi)*fd.jump(un*q)*fd.dS
+                # + xi*fd.inner(q**3 - q, phi)*fd.dx
+                + xi*fd.inner(q*q, phi)*fd.dx
+        )
 
     # midpoint rule
-    q = fd.TrialFunction(V)
     phi = fd.TestFunction(V)
 
-    qh = fd.Constant(0.5)*(q + qn)
-    eqn = mass(q - qn, phi) + fd.Constant(dt)*tendency(qh, phi)
+    # qh = fd.Constant(0.5)*(qn1 + qn)
+    qh = qn1
+    eqn = mass(qn1 - qn, phi) + fd.Constant(dt)*tendency(qh, phi)
 
-    stepper = fd.LinearVariationalSolver(
-        fd.LinearVariationalProblem(
-            fd.lhs(eqn), fd.rhs(eqn), qn1,
-            constant_jacobian=True))
+    solver_parameters = {
+        "snes_rtol": 1e-10,
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+    }
+    stepper = fd.NonlinearVariationalSolver(
+        fd.NonlinearVariationalProblem(eqn, qn1),
+        solver_parameters=solver_parameters)
 
     return qn, qn1, stepper
 
 
-def covariance_norm(covariance):
+def covariance_norm(sigma, x):
     """generate weighted inner products to pass to FourDVarReducedFunctional.
     Use the quadratic norm so Hessian is not linear."""
-    cov, power = covariance
-    weight = fd.Constant(1/cov)
-
-    def n2(x):
-        result = fd.assemble(fd.inner(x, weight*x)*fd.dx)**power
-        assert type(result) is AdjFloat
-        return result
-    return n2
+    return fd.assemble(fd.inner(sigma*x, x*sigma)*fd.dx)
 
 
-B = (fd.Constant(1e0), 4)  # background error covariance
-R = (fd.Constant(2e0), 4)  # observation error covariance
-Q = (fd.Constant(3e0), 4)  # model error covariance
+B = fd.Constant(1e-12)  # background error covariance
+R = fd.Constant(2e0)    # observation error covariance
+Q = fd.Constant(3e-12)  # model error covariance
 
 
 """Advecting velocity"""
@@ -87,7 +88,7 @@ velocity = 1
 vconst = fd.Constant(velocity)
 
 """Number of cells"""
-nx = 16
+nx = 32
 
 """Timestep size"""
 cfl = 2.3523
@@ -116,7 +117,7 @@ def analytic_solution(V, t, mag=1.0, phase=0.0):
     """Exact advection of sin wave after time t"""
     x, = fd.SpatialCoordinate(V.mesh())
     return fd.Function(V).interpolate(
-        mag*fd.sin(2*fd.pi*((x + phase) - vconst*t)))
+        0.5 + mag*fd.sin(2*fd.pi*((x + phase) - vconst*t)))
 
 
 def analytic_series(V, tshift=0.0, mag=1.0, phase=0.0, ensemble=None):
@@ -200,30 +201,29 @@ def strong_fdvar_pyadjoint(V):
     obs_errors = observation_errors(V)
 
     continue_annotation()
-    set_working_tape()
+    with set_working_tape() as tape:
 
-    # background functional
-    J = covariance_norm(B)(control - bkg)
+        # background functional
+        J = covariance_norm(B, control - bkg)
 
-    # initial observation functional
-    J += covariance_norm(R)(obs_errors(0)(control))
+        # initial observation functional
+        J += covariance_norm(R, obs_errors(0)(control))
 
-    qn.assign(control)
+        qn.assign(control)
 
-    # record observation stages
-    for i in range(1, len(observation_times)):
+        # record observation stages
+        for i in range(1, len(observation_times)):
 
-        for _ in range(observation_frequency):
-            qn1.assign(qn)
-            stepper.solve()
-            qn.assign(qn1)
+            for _ in range(observation_frequency):
+                qn1.assign(qn)
+                stepper.solve()
+                qn.assign(qn1)
 
-        # observation functional
-        J += covariance_norm(R)(obs_errors(i)(qn))
+            # observation functional
+            J += covariance_norm(R, obs_errors(i)(qn))
 
+        Jhat = ReducedFunctional(J, Control(control), tape=tape)
     pause_annotation()
-
-    Jhat = ReducedFunctional(J, Control(control))
 
     return Jhat
 
@@ -285,7 +285,7 @@ def weak_fdvar_pyadjoint(V):
     # Prior
     bkg = background(V)
 
-    controls[0].assign(bkg)
+    controls.assign(bkg)
 
     # generate ground truths
     obs_errors = observation_errors(V)
@@ -295,10 +295,10 @@ def weak_fdvar_pyadjoint(V):
     set_working_tape()
 
     # background error
-    J = covariance_norm(B)(controls[0] - bkg)
+    J = covariance_norm(B, controls[0] - bkg)
 
     # initial observation error
-    J += covariance_norm(R)(obs_errors(0)(controls[0]))
+    J += covariance_norm(R, obs_errors(0)(controls[0]))
 
     # record observation stages
     for i in range(1, len(controls)):
@@ -319,10 +319,10 @@ def weak_fdvar_pyadjoint(V):
             controls[i].assign(qn)
 
         # model error for this stage
-        J += covariance_norm(Q)(qn - controls[i])
+        J += covariance_norm(Q, qn - controls[i])
 
         # observation error
-        J += covariance_norm(R)(obs_errors(i)(controls[i]))
+        J += covariance_norm(R, obs_errors(i)(controls[i]))
 
     pause_annotation()
 
@@ -403,6 +403,13 @@ def main_test_strong_4dvar_advection():
     # make sure we've set up the reference rf correctly
     assert taylor_test(Jhat_pyadj, mp, hp) > 1.99
 
+    # If we match the functional, then passing the taylor tests
+    # should mean that we match the derivative too.
+    taylor = taylor_to_dict(Jhat_pyadj, mp, hp)
+    assert mean(taylor['R0']['Rate']) > 0.9, taylor['R0']
+    assert mean(taylor['R1']['Rate']) > 1.9, taylor['R1']
+    assert mean(taylor['R2']['Rate']) > 2.9, taylor['R2']
+
     Jhat_aaorf = strong_fdvar_firedrake(V)
 
     ma = m(V)[0]
@@ -421,9 +428,9 @@ def main_test_strong_4dvar_advection():
     # If we match the functional, then passing the taylor tests
     # should mean that we match the derivative too.
     taylor = taylor_to_dict(Jhat_aaorf, ma, ha)
-    assert mean(taylor['R0']['Rate']) > 0.9
-    assert mean(taylor['R1']['Rate']) > 1.9
-    assert mean(taylor['R2']['Rate']) > 2.9
+    assert mean(taylor['R0']['Rate']) > 0.9, taylor['R0']
+    assert mean(taylor['R1']['Rate']) > 1.9, taylor['R1']
+    assert mean(taylor['R2']['Rate']) > 2.9, taylor['R2']
 
 
 def main_test_weak_4dvar_advection():

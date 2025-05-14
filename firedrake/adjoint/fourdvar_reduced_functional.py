@@ -157,10 +157,14 @@ class FourDVarReducedFunctional(AbstractReducedFunctional):
             if self.trank == 0:
 
                 # RF to recalculate inner product |x_0 - x_b|_B
-                self.background_norm = CovarianceNormReducedFunctional(
+                # self.background_norm = CovarianceNormReducedFunctional(
+                #     self.background._ad_init_zero(),
+                #     background_covariance, form="diffusion",
+                #     control_name="bkg_err_vec_copy")
+
+                self.background_norm = CovarianceReducedFunctional(
                     self.background._ad_init_zero(),
-                    background_covariance, form="diffusion",
-                    control_name="bkg_err_vec_copy")
+                    background_covariance)
 
                 if self.initial_observations:
 
@@ -172,10 +176,14 @@ class FourDVarReducedFunctional(AbstractReducedFunctional):
                         control_name="Control_0_obs_copy")
 
                     # RF to recalculate inner product |H(x_0) - y_0|_R
-                    self.initial_observation_norm = CovarianceNormReducedFunctional(
+                    # self.initial_observation_norm = CovarianceNormReducedFunctional(
+                    #     self.initial_observation_error.functional,
+                    #     observation_covariance, form="mass",
+                    #     control_name="obs_err_vec_0_copy")
+
+                    self.initial_observation_norm = CovarianceReducedFunctional(
                         self.initial_observation_error.functional,
-                        observation_covariance, form="mass",
-                        control_name="obs_err_vec_0_copy")
+                        observation_covariance)
 
                     self.observation_rfs.append(self.initial_observation_error)
                     self.observation_norms.append(self.initial_observation_norm)
@@ -215,25 +223,21 @@ class FourDVarReducedFunctional(AbstractReducedFunctional):
             # Strong constraint functional to be converted to ReducedFunctional later
 
             # penalty for straying from prior
-            # self.background_norm = CovarianceNormReducedFunctional(
-            #     control.control._ad_init_zero(),
-            #     background_covariance,
-            #     form="diffusion")
-            self.background_norm = background_covariance.reduced_functional
+            self.background_norm = CovarianceReducedFunctional(
+                control.control._ad_init_zero(),
+                background_covariance)
 
             bkg_err = Function(self.control_space)
             bkg_err.assign(control.control - self.background)
-            self._accumulate_functional(background_covariance.norm(bkg_err))
-            # self._accumulate_functional(
-            #     covariance_norm(bkg_err, background_covariance, form="diffusion"))
+            self._accumulate_functional(
+                weighted_norm(bkg_err, background_covariance))
 
             # penalty for not hitting observations at initial time
             if self.initial_observations:
                 self._accumulate_functional(
-                    observation_covariance.norm(
-                        observation_error(control.control)))
-                    # covariance_norm(observation_error(control.control),
-                    #                 observation_covariance, form="mass"))
+                    weighted_norm(
+                        observation_error(control.control),
+                        observation_covariance))
 
     @property
     def controls(self):
@@ -283,7 +287,7 @@ class FourDVarReducedFunctional(AbstractReducedFunctional):
             The computed value. Typically of instance of :class:`pyadjoint.AdjFloat`.
 
         """
-        value = values[0] if isinstance(values, list) else values
+        value = values[0] if isinstance(values, (list, tuple)) else values
 
         if not isinstance(value, type(self.control.control)):
             raise ValueError(f"Value must be of type {type(self.control.control)} not type {type(value)}")
@@ -315,6 +319,7 @@ class FourDVarReducedFunctional(AbstractReducedFunctional):
             The derivative with respect to the control.
             Should be an instance of the same type as the control.
         """
+        adj_input = adj_input[0] if isinstance(adj_input, (list, tuple)) else adj_input
         adj_args = {'adj_input': adj_input, 'apply_riesz': apply_riesz}
         return (
             self.Jobservations.derivative(**adj_args)
@@ -325,6 +330,7 @@ class FourDVarReducedFunctional(AbstractReducedFunctional):
     @stop_annotating()
     @PETSc.Log.EventDecorator()
     def tlm(self, m_dot: OverloadedType):
+        m_dot = m_dot[0] if isinstance(m_dot, (list, tuple)) else m_dot
         return self.Jmodel.tlm(m_dot) + self.Jobservations.tlm(m_dot)
 
     @sc_passthrough
@@ -350,8 +356,7 @@ class FourDVarReducedFunctional(AbstractReducedFunctional):
             The action of the Hessian in the direction m_dot.
             Should be an instance of the same type as the control.
         """
-        if isinstance(m_dot, list):
-            m_dot = m_dot[0]
+        m_dot = m_dot[0] if isinstance(m_dot, (list, tuple)) else m_dot
 
         if evaluate_tlm:
             self.tlm(m_dot)
@@ -653,12 +658,10 @@ class StrongObservationStage:
         if hasattr(self.aaorf, "_strong_reduced_functional"):
             raise ValueError("Cannot add observations once strong"
                              " constraint ReducedFunctional instantiated")
-        # self.aaorf._accumulate_functional(
-        #     covariance_norm(observation_error(state),
-        #                     observation_covariance, form="mass"))
         self.aaorf._accumulate_functional(
-            observation_covariance.norm(
-                observation_error(state)))
+            weighted_norm(
+                observation_error(state),
+                observation_covariance))
 
         # save the user's state to hand back for beginning of next stage
         self.state = state
@@ -772,10 +775,14 @@ class WeakObservationStage:
             'control_name': f"model_err_vec_{self.global_index}_copy"
         } if self.global_index else {}
 
-        self.model_norm = CovarianceNormReducedFunctional(
+        # self.model_norm = CovarianceNormReducedFunctional(
+        #     state._ad_init_zero(),
+        #     forward_model_covariance,
+        #     **names, form="diffusion")
+
+        self.model_norm = CovarianceReducedFunctional(
             state._ad_init_zero(),
-            forward_model_covariance,
-            **names, form="diffusion")
+            forward_model_covariance)
 
         # Observations after tape cut because this is now a control, not a state
 
@@ -794,10 +801,14 @@ class WeakObservationStage:
         names = {
             'control_name': "obs_err_vec_{self.global_index}_copy"
         } if self.global_index else {}
-        self.observation_norm = CovarianceNormReducedFunctional(
+        # self.observation_norm = CovarianceNormReducedFunctional(
+        #     self.observation_error.functional,
+        #     observation_covariance,
+        #     **names, form="mass")
+
+        self.observation_norm = CovarianceReducedFunctional(
             self.observation_error.functional,
-            observation_covariance,
-            **names, form="mass")
+            observation_covariance)
 
         # remove the stage initial condition "control" now we've finished recording
         delattr(self, "control")
@@ -807,6 +818,7 @@ class WeakObservationStage:
 
 
 def covariance_norm(x, covariance, form='diffusion'):
+    pass
     # if isinstance(covariance, Collection):
     #     covariance, power = covariance
     # else:
@@ -1072,12 +1084,16 @@ class CovarianceOperator:
         return CovarianceReducedFunctional(self)  # TODO: ref cycle
 
 
+def weighted_norm(x, w):
+    return assemble(inner(w*x, x*w)*dx)
+
+
 class CovarianceReducedFunctional(ReducedFunctional):
-    def __init__(self, covariance):
+    def __init__(self, v, covariance):
         self.covariance = covariance
         rf = isolated_rf(
-            lambda x: covariance.norm(x),
-            covariance.x._ad_copy())
+            lambda x: weighted_norm(x, covariance),
+            v._ad_init_zero())
         super().__init__(
             rf.functional, rf.controls[0], tape=rf.tape)
 
