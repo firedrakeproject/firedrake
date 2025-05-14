@@ -35,7 +35,7 @@ We now note that if we change the model parameters :math:`q`, then the solution 
 
 .. math::
 
-    \hat{J}(q) = J_{\text{model-data misfit}}(u(q)) + J_{\text{regularisation}}(q).
+    \hat{J}(q) = J(u(q),q)
 
 We call :math:`\hat{J}` the reduced functional. The aim is to find the value of :math:`q` which minimises the misfit functional :math:`J`. Firedrake-adjoint will compute :math:`\frac{d J}{d q}` automatically, and we can use this to find the minimum of :math:`J` using a gradient-based method such as Newton-CG.
 
@@ -140,7 +140,7 @@ We'll then create our mesh and define the solution and control function spaces :
 
 Now we'll create our :math:`q_{\text{true}}` and :math:`u_{\text{true}}` fields. 
 To get our :math:`u_{\text{true}}` field we solve the PDE with :math:`q_{\text{true}}`. 
-We don't want to write this to the tape, so we use a :class:`~.stop_annotating` context manager::
+We don't want to write this to the tape, so we use a :class:`~pyadjoint.stop_annotating` context manager::
 
     with fd.adjoint.stop_annotating():
         rng = np.random.default_rng(seed=42)
@@ -177,14 +177,14 @@ Now we solve the PDE with :math:`q=0` as an initial guess ::
     F = (k0 * fd.exp(q) * fd.inner(fd.grad(u), fd.grad(v)) - f * v) * fd.dx
     fd.solve(F == 0, u, bc)
 
-We randomly generate our observation locations and create the vertex-only mesh :math:`\Omega_{v}=\{X_{i}\}_{i=1}^{N}` and its associated function space :math:`\operatorname{P0DG}(\Omega_{v})`.::
+We randomly generate our observation locations and create the vertex-only mesh :math:`\Omega_{v}=\{X_{i}\}_{i=1}^{N}` and its associated function space :math:`\operatorname{P0DG}(\Omega_{v})`. ::
 
     N = 1000
     X_i = rng.random((N, 2))
     Omega_v = fd.VertexOnlyMesh(mesh, X_i)
     P0DG = fd.FunctionSpace(Omega_v, 'DG', 0)
 
-To evaluate `u_true` at the points :math:`X_{i}`, we interpolate it into :math:`\operatorname{P0DG}`. The resulting :class:`~.Function` will have the values of `u_true` at the points :math:`X_i`. ::
+To evaluate :obj:`!u_true` at the points :math:`X_{i}`, we interpolate it into :math:`\operatorname{P0DG}`. The resulting :class:`~.Function` will have the values of :obj:`!u_true` at the points :math:`X_i`. ::
 
     u_obs_vals = fd.assemble(interpolate(u_true, P0DG)).dat.data
 
@@ -222,7 +222,7 @@ Finally, we can minimise our reduced functional :math:`\hat{J}` and obtain our o
         J_hat, method='Newton-CG', options={'disp': True}
     )
 
-We can compare our result to `q_true` by calculating the error between `q_min` and `q_true` ::
+We can compare our result to :obj:`!q_true` by calculating the error between :obj:`!q_min` and :obj:`!q_true` ::
 
     q_err = fd.Function(Q).assign(q_min - q_true)
     L2_err = fd.norm(q_err, "L2")
