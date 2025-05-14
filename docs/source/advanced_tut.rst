@@ -22,5 +22,6 @@ element systems.
    Block preconditioning for the Stokes equation.<demos/stokes.py>
    A pressure-convection-diffusion preconditioner for the Navier-Stokes equations.</demos/navier_stokes.py>
    Rayleigh-Benard convection.<demos/rayleigh-benard.py>
+   Time-dependent Rayleigh-Benard convection using Irksome.<demos/timedep-rayleigh-benard.py>
    Netgen support.<demos/netgen_mesh.py>
    Full-waveform inversion: spatial and wave sources parallelism.<demos/full_waveform_inversion.py>
