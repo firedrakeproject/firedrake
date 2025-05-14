@@ -178,7 +178,7 @@ We randomly generate our observation locations and create the vertex-only mesh :
     Omega_v = fd.VertexOnlyMesh(mesh, X_i)
     P0DG = fd.FunctionSpace(Omega_v, 'DG', 0)
 
-To evaluate `u_true` at the points :math:`X_{i}`, we interpolate it into :math:`\operatorname{P0DG}`. The resulting `Function` will have the values of `u_true` at the points :math:`X_i`. ::
+To evaluate `u_true` at the points :math:`X_{i}`, we interpolate it into :math:`\operatorname{P0DG}`. The resulting :class:`~.Function` will have the values of `u_true` at the points :math:`X_i`. ::
 
     u_obs_vals = fd.assemble(interpolate(u_true, P0DG)).dat.data
 
@@ -191,7 +191,7 @@ We add some Gaussian noise to our observations ::
     zeta = rng.standard_normal(len(X_i))
     u_obs_vals += float(sigma) * zeta
 
-Finally, we store our point observations in a `Function` in :math:`\operatorname{P0DG}`. ::
+Finally, we store our point observations in a :class:`~.Function` in :math:`\operatorname{P0DG}`. ::
 
     u_obs = fd.Function(P0DG)
     u_obs.dat.data[:] = u_obs_vals
