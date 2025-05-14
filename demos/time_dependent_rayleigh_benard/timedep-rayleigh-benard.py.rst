@@ -125,8 +125,7 @@ to say how to solve the rather interesting stage-coupled system. ::
           "pc_type": "python",
           "pc_python_type": "firedrake.ASMVankaPC",
           "pc_vanka_construct_dim": 0,
-          "pc_vanka_sub_sub_pc_type": "lu",
-          "pc_vanka_sub_sub_pc_factor_mat_solver_type": "umfpack",
+	  "pc_vanka_backend_type": "tinyasm",
           "pc_vanka_exclude_subspaces": exclude_inds},
       "mg_coarse": {
           "ksp_type": "preonly",
