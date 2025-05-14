@@ -45,24 +45,24 @@ patches yield a robust method.::
           "ksp_type": "cg",
           "pc_type": "mg",
           "mg_levels": {
-               "ksp_type": "chebyshev",
-               "ksp_max_it": 1,
-                **relax
+              "ksp_type": "chebyshev",
+              "ksp_max_it": 1,
+              **relax
           },
           "mg_coarse": {
               "ksp_type": "preonly",
-               "pc_type": "cholesky"
+              "pc_type": "cholesky"
           }
       }
 
 
   def asm_params(construct_dim):
       return {
-	        "pc_type": "python",
-     "pc_python_type": "firedrake.ASMStarPC",
-     "pc_star_construct_dim": construct_dim,
-     "pc_star_backend_type": "tinyasm"
-     }
+          "pc_type": "python",
+          "pc_python_type": "firedrake.ASMStarPC",
+          "pc_star_construct_dim": construct_dim,
+          "pc_star_backend_type": "tinyasm"
+      }
 
 Hiptmair proposed a finer space decomposition for Nedelec elements using edge
 patches and vertex patches on the gradient of a Lagrange space. The python type
@@ -72,10 +72,10 @@ using the auxiliary Lagrange space in a multigrid hierarchy. ::
 
   def hiptmair_params():
       return {
-           "pc_type": "python",
-     "pc_python_type": "firedrake.HiptmairPC",
-     "hiptmair_mg_levels": asm_params(1),
-     "hiptmair_mg_coarse": asm_params(0),
+          "pc_type": "python",
+          "pc_python_type": "firedrake.HiptmairPC",
+          "hiptmair_mg_levels": asm_params(1),
+          "hiptmair_mg_coarse": asm_params(0),
       }
 
 
@@ -84,8 +84,8 @@ over a range of meshes.  We see that the auxiliary space approach gives lower
 iteration counts than vertex patches, while being cheaper to invert.::
 
   names = {
-     "Vertex Star": mg_params(asm_params(0)),
-     "Hiptmair": mg_params(hiptmair_params()),
+      "Vertex Star": mg_params(asm_params(0)),
+      "Hiptmair": mg_params(hiptmair_params()),
   }
 
   for name, parameters in names.items():
