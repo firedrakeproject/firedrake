@@ -38,7 +38,7 @@ is the mass per plasma particle, and :math:`\phi` is the electrostatic
 potential determined by the Poisson equation,
 
 .. math::
-   -\nabla^2\phi = q_0\int_{\mathbb{R}^d} f(\vec{x},\vec{v},t)\mathrm{d} v,
+   -\nabla^2\phi = q_0\int_{\mathbb{R}^d} f(\vec{x},\vec{v},t)\,\mathrm{d} v,
 
 where :math:`q_0` is the electric charge per plasma particle.
 
@@ -46,7 +46,7 @@ In this demo we specialise to :math:`d=1`, and the equations become
 
 .. math::
    f_t + (fv)_x + (-f\phi_x/m)_v = 0, \quad
-   -\phi_{xx} = q_0\int f(x,v,t)\mathrm{d} v,
+   -\phi_{xx} = q_0\int f(x,v,t)\,\mathrm{d} v,
 
 with coordinates :math:`(x,v)\in \mathbb{R}^2`. From now on we will
 relabel these coordinates :math:`(x,v)\mapsto (x_1,x_2)`, obtaining
@@ -54,7 +54,7 @@ the equivalent form,
 
 .. math::
    f_t + \nabla\cdot(\vec{u}f) = 0, \quad \vec{u} = (v,-\phi_x/m), \quad
-   -\phi_{x_1x_1} = q_0\int f(x_1,x_2,t)\mathrm{d} x_2,
+   -\phi_{x_1x_1} = q_0\int f(x_1,x_2,t)\,\mathrm{d} x_2,
 
 where :math:`\nabla=(\partial_{x_1},\partial{x_2})`. From now we will
 choose units such that :math:`q_0,m` are absorbed into the definition of
@@ -101,8 +101,8 @@ test function :math:`\psi\in \bar{W}` and integrating by parts gives
 
 .. math::
 
-   \int \psi_{x_1}\phi_{x_1} \mathrm{d} x_1
-   = \int \int f(x_1,x_2,t) \psi \mathrm{d} x_1\mathrm{d} x_2, \quad
+   \int \psi_{x_1}\phi_{x_1}\, x_1
+   = \int \int f(x_1,x_2,t) \psi\, \mathrm{d} x_1\,\mathrm{d} x_2, \quad
    \forall \psi \in \bar{W}.
 
 Since the left hand side integrand is independent of :math:`v`, we
@@ -110,8 +110,8 @@ can integrate over :math:`v` and divide by :math:`H`, to obtain
 
 .. math::
 
-   \int_\Omega \psi_{x_1}\phi_{x_1}/H \mathrm{d} x
-   = \int f \psi \mathrm{d} x, \quad
+   \int_\Omega \psi_{x_1}\phi_{x_1}/H\, \mathrm{d} x
+   = \int f \psi\, \mathrm{d} x, \quad
    \forall \psi \in \bar{W},
 
 which is now in a form which we can implement easily in Firedrake. One
@@ -126,14 +126,14 @@ where here the bar indicates a spatial average,
 
 .. math::
 
-   \bar{w} = \frac{\int_{\Omega} w \mathrm{d} x}{\int_{\Omega} 1 \mathrm{d} x}.
+   \bar{w} = \frac{\int_{\Omega} w\, \mathrm{d} x}{\int_{\Omega} 1 \mathrm{d} x}.
    
 Then we seek the solution of 
 
 .. math::
 
-   \int_\Omega \psi_{x_1}\phi_{x_1}\mathrm{d} x
-   = \int H(f-\bar{f}) \psi \mathrm{d} x, \quad
+   \int_\Omega \psi_{x_1}\phi_{x_1}\,\mathrm{d} x
+   = \int H(f-\bar{f}) \psi\, \mathrm{d} x, \quad
    \forall \psi \in \mathring{\bar{W}}.
 
 To discretise in time, we will use an SSPRK3 time discretisation, similar to the DG advection :doc:`demo<DG_advection.py>`.  At
