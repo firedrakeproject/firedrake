@@ -294,7 +294,6 @@ parameters. ::
 
 We set up some :class:`~.Function`\s to store Runge-Kutta stage variables. ::
   
-  # RK stage variables
   f1 = Function(V)
   f2 = Function(V)
 
@@ -317,33 +316,37 @@ Now we start the timeloop using a lovely progress bar. ::
 
 Each Runge-Kutta stage involves solving for :math:`\phi` before solving
 for :math:`\partial f/\partial t`. Here is the first stage. ::
-  
-    fstar.assign(fn)
-    phi_solver.solve()
-    df_solver.solve()
-    f1.assign(fn + df_out)
+
+  #
+      fstar.assign(fn)
+      phi_solver.solve()
+      df_solver.solve()
+      f1.assign(fn + df_out)
 
 The second stage. ::
-    
-    fstar.assign(f1)
-    phi_solver.solve()
-    df_solver.solve()
-    f2.assign(3*fn/4 + (f1 + df_out)/4)
+
+  #
+      fstar.assign(f1)
+      phi_solver.solve()
+      df_solver.solve()
+      f2.assign(3*fn/4 + (f1 + df_out)/4)
 
 The third stage. ::
-    
-    fstar.assign(f2)
-    phi_solver.solve()
-    df_solver.solve()
-    fn.assign(fn/3 + 2*(f2 + df_out)/3)
-    t += dt
+
+  #
+      fstar.assign(f2)
+      phi_solver.solve()
+      df_solver.solve()
+      fn.assign(fn/3 + 2*(f2 + df_out)/3)
+      t += dt
 
 Finally we output to the VTK file if it is time to do that. ::
 
-    dumpn += 1
-    if dumpn % ndump == 0:
-        dumpn = 0
-        outfile.write(fn, phi)
+  #
+      dumpn += 1
+      if dumpn % ndump == 0:
+          dumpn = 0
+          outfile.write(fn, phi)
 
 Images of the solution at shown below.
 
