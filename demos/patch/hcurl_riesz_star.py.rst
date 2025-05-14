@@ -58,11 +58,11 @@ patches yield a robust method.::
 
   def asm_params(construct_dim):
       return {
-	        "pc_type": "python",
-     "pc_python_type": "firedrake.ASMStarPC",
-     "pc_star_construct_dim": construct_dim,
-     "pc_star_backend_type": "tinyasm"
-     }
+          "pc_type": "python",
+          "pc_python_type": "firedrake.ASMStarPC",
+          "pc_star_construct_dim": construct_dim,
+          "pc_star_backend_type": "tinyasm"
+      }
 
 Hiptmair proposed a finer space decomposition for Nedelec elements using edge
 patches and vertex patches on the gradient of a Lagrange space. The python type
@@ -72,10 +72,10 @@ using the auxiliary Lagrange space in a multigrid hierarchy. ::
 
   def hiptmair_params():
       return {
-           "pc_type": "python",
-     "pc_python_type": "firedrake.HiptmairPC",
-     "hiptmair_mg_levels": asm_params(1),
-     "hiptmair_mg_coarse": asm_params(0),
+         "pc_type": "python",
+         "pc_python_type": "firedrake.HiptmairPC",
+         "hiptmair_mg_levels": asm_params(1),
+         "hiptmair_mg_coarse": asm_params(0),
       }
 
 
