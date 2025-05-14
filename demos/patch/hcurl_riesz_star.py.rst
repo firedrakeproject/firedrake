@@ -1,5 +1,5 @@
-Using patch relaxation for H(div)
-=================================
+Using patch relaxation for H(curl)
+==================================
 
 Contributed by `Robert Kirby <https://sites.baylor.edu/robert_kirby/>`_
 and `Pablo Brubeck <https://www.maths.ox.ac.uk/people/pablo.brubeckmartinez/>`_.
@@ -13,7 +13,7 @@ Here, we demonstrate how to do this in the latter case.::
   mh = MeshHierarchy(mesh, 3)
   mesh = mh[-1]
 
-We consider the Riesz map on H(div), discretized with lowest order
+We consider the Riesz map on H(curl), discretized with lowest order
 Nedelec elements.  We force the system with a random right-hand side and
 impose homogeneous Dirichlet boundary conditions::
 
@@ -105,7 +105,7 @@ For vertex patches, we expect output like,
   3        16
 ======== ============
 
-and with Hiptmair (edge patches + vertex patches on gradients of H1)
+and with Hiptmair (edge patches + vertex patches on gradients of Lagrange)
 
 ======== ============
  Level    Iterations
@@ -117,4 +117,4 @@ and with Hiptmair (edge patches + vertex patches on gradients of H1)
 
 and additional mesh refinement will lead to these numbers leveling off.
 
-A runnable python version of this demo can be found :demo:`here<hdiv_riesz_star.py>`.
+A runnable python version of this demo can be found :demo:`here<hcurl_riesz_star.py>`.
