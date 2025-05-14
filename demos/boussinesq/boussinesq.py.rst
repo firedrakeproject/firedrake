@@ -1,5 +1,5 @@
 Steady Boussinesq problem with integral constraints
-=========================
+===================================================
 
 .. rst-class:: emphasis
 
