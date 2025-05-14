@@ -67,7 +67,7 @@ patches yield a robust method.::
 Hiptmair proposed a finer space decomposition for Nedelec elements using edge
 patches on the original Nedelec space and vertex patches on the gradient of a Lagrange space. The python type
 preconditioner :class:`~.HiptmairPC` automatically sets up an additive two-level method
-using the auxiliary Lagrange space in a multigrid hierarchy. Therefore, the overall multigrid relaxation composes the edge patches with the auxiliary space relaxation. For the latter, the residual on each level is restricted from H(curl)* into H1* via the adjoint of the gradient, where a vertex patch relaxation is applied to obtain a correction that is prolongoned from H1 into H(curl) via the gradient. ::
+using the auxiliary Lagrange space in a multigrid hierarchy. Therefore, the overall multigrid relaxation composes the edge patches with the auxiliary space relaxation. For the latter, the residual on each level is restricted from the dual of H(curl) into the dual of H1 via the adjoint of the gradient, where a vertex patch relaxation is applied to obtain a correction that is prolonged from H1 into H(curl) via the gradient. ::
 
 
   def hiptmair_params():
