@@ -126,106 +126,104 @@ Firedrake implementation
 
 We begin by importing Firedrake, Firedrake-Adjoint, and Numpy and starting the tape::
 
-    import firedrake as fd
+    from firedrake import *
     import numpy as np
     from firedrake.__future__ import interpolate
-    from firedrake.adjoint import continue_annotation
+    from firedrake.adjoint import *
     continue_annotation()
 
 We'll then create our mesh and define the solution and control function spaces ::
 
-    mesh = fd.UnitSquareMesh(10, 10)
-    V = fd.FunctionSpace(mesh, "CG", 2)  # solution space
-    Q = fd.FunctionSpace(mesh, "CG", 2)  # control space
+    mesh = UnitSquareMesh(10, 10)
+    V = FunctionSpace(mesh, "CG", 2)  # solution space
+    Q = FunctionSpace(mesh, "CG", 2)  # control space
 
 Now we'll create our :math:`q_{\text{true}}` and :math:`u_{\text{true}}` fields. 
 To get our :math:`u_{\text{true}}` field we solve the PDE with :math:`q_{\text{true}}`. 
 We don't want to write this to the tape, so we use a :class:`~pyadjoint.stop_annotating` context manager::
 
-    with fd.adjoint.stop_annotating():
+    with stop_annotating():
         rng = np.random.default_rng(seed=42)
         degree = 5
-        x = fd.SpatialCoordinate(mesh)
-        q_true = fd.Function(Q)
+        x = SpatialCoordinate(mesh)
+        q_true = Function(Q)
         for k in range(degree):
             for l in range(int(np.sqrt(degree**2 - k**2))):
                 Z = np.sqrt(1 + k**2 + l**2)
-                phi = 2 * fd.pi * (k * x[0] + l * x[1])
+                phi = 2 * pi * (k * x[0] + l * x[1])
 
                 A_kl = rng.standard_normal() / Z
                 B_kl = rng.standard_normal() / Z
 
-                expr = fd.Constant(A_kl) * fd.cos(phi) + fd.Constant(B_kl) * fd.sin(phi)
-                mode = fd.assemble(interpolate(expr, Q))
+                expr = Constant(A_kl) * cos(phi) + Constant(B_kl) * sin(phi)
+                mode = assemble(interpolate(expr, Q))
 
                 q_true += mode
 
         # Now we solve the PDE with q_true to get u_true
-        u_true = fd.Function(V)
-        v = fd.TestFunction(V)
-        f = fd.Constant(1.0)
-        k0 = fd.Constant(0.5)
-        bc = fd.DirichletBC(V, 0, 'on_boundary')
-        F = (k0 * fd.exp(q_true) * fd.inner(fd.grad(u_true), fd.grad(v)) - f * v) * fd.dx
-        fd.solve(F == 0, u_true, bc)
+        u_true = Function(V)
+        v = TestFunction(V)
+        f = Constant(1.0)
+        k0 = Constant(0.5)
+        bc = DirichletBC(V, 0, 'on_boundary')
+        F = (k0 * exp(q_true) * inner(grad(u_true), grad(v)) - f * v) * dx
+        solve(F == 0, u_true, bc)
 
 Now we solve the PDE with :math:`q=0` as an initial guess ::
 
-    u = fd.Function(V)
-    q = fd.Function(Q)
-    bc = fd.DirichletBC(V, 0, 'on_boundary')
-    F = (k0 * fd.exp(q) * fd.inner(fd.grad(u), fd.grad(v)) - f * v) * fd.dx
-    fd.solve(F == 0, u, bc)
+    u = Function(V)
+    q = Function(Q)
+    bc = DirichletBC(V, 0, 'on_boundary')
+    F = (k0 * exp(q) * inner(grad(u), grad(v)) - f * v) * dx
+    solve(F == 0, u, bc)
 
 We randomly generate our observation locations and create the vertex-only mesh :math:`\Omega_{v}=\{X_{i}\}_{i=1}^{N}` and its associated function space :math:`\operatorname{P0DG}(\Omega_{v})`. ::
 
     N = 1000
     X_i = rng.random((N, 2))
-    Omega_v = fd.VertexOnlyMesh(mesh, X_i)
-    P0DG = fd.FunctionSpace(Omega_v, 'DG', 0)
+    Omega_v = VertexOnlyMesh(mesh, X_i)
+    P0DG = FunctionSpace(Omega_v, 'DG', 0)
 
 To evaluate :obj:`!u_true` at the points :math:`X_{i}`, we interpolate it into :math:`\operatorname{P0DG}`. The resulting :class:`~.Function` will have the values of :obj:`!u_true` at the points :math:`X_i`. ::
 
-    u_obs_vals = fd.assemble(interpolate(u_true, P0DG)).dat.data
+    u_obs_vals = assemble(interpolate(u_true, P0DG)).dat.data
 
 We add some Gaussian noise to our observations ::
 
     signal_to_noise = 20
     U = u_true.dat.data_ro[:]
     u_range = U.max() - U.min()
-    sigma = fd.Constant(u_range / signal_to_noise)
+    sigma = Constant(u_range / signal_to_noise)
     zeta = rng.standard_normal(len(X_i))
     u_obs_vals += float(sigma) * zeta
 
 Finally, we store our point observations in a :class:`~.Function` in :math:`\operatorname{P0DG}`. ::
 
-    u_obs = fd.Function(P0DG)
+    u_obs = Function(P0DG)
     u_obs.dat.data[:] = u_obs_vals
 
 Next, we write down our misfit functional and assemble. ::
 
-    alpha = fd.Constant(0.02)
+    alpha = Constant(0.02)
     
-    misfit_expr = (u_obs - fd.assemble(interpolate(u, P0DG)))**2
-    regularisation_expr = alpha**2 * fd.inner(fd.grad(q), fd.grad(q))
+    misfit_expr = (u_obs - assemble(interpolate(u, P0DG)))**2
+    regularisation_expr = alpha**2 * inner(grad(q), grad(q))
 
-    J = fd.assemble(misfit_expr * fd.dx) + fd.assemble(regularisation_expr * fd.dx)
+    J = assemble(misfit_expr * dx) + assemble(regularisation_expr * dx)
   
 We construct our control variable :math:`\hat{q}` and our reduced functional :math:`\hat{J}`  ::
 
-    q_hat = fd.adjoint.Control(q)
-    J_hat = fd.adjoint.ReducedFunctional(J, q_hat)
+    q_hat = Control(q)
+    J_hat = ReducedFunctional(J, q_hat)
 
 Finally, we can minimise our reduced functional :math:`\hat{J}` and obtain our optimal control :math:`q_{\text{min}}`. ::
 
-    q_min = fd.adjoint.minimize(
-        J_hat, method='Newton-CG', options={'disp': True}
-    )
+    q_min = minimize(J_hat, method='Newton-CG', options={'disp': True})
 
 We can compare our result to :obj:`!q_true` by calculating the error between :obj:`!q_min` and :obj:`!q_true` ::
 
-    q_err = fd.Function(Q).assign(q_min - q_true)
-    L2_err = fd.norm(q_err, "L2")
+    q_err = Function(Q).assign(q_min - q_true)
+    L2_err = norm(q_err, "L2")
     print(f"L2 error: {L2_err:.3e}")
 
 A python script version of this demo can be found :demo:`here <assimilating_point_data.py>`.
