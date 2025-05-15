@@ -91,7 +91,7 @@ for :math:`f`. See the Discontinuous Galerkin advection
 :doc:`demo<DG_advection.py>` for more details. The unapproximated
 problem should have :math:`-\infty < x_2 < \infty`, i.e. unbounded velocities, but we approximate
 the problem by solving in the domain :math:`\Omega=I_1\times [-H/2, H/2]`,
-where :math:`I` is some chosen interval.
+where :math:`I` is some chosen interval in the spatial dimension.
 
 For the Poisson equation, we will use a regular Galerkin formulation.
 The difficulty in the formulation is the integral over :math:`x_2`. We
