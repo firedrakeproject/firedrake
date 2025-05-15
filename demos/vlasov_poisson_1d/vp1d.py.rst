@@ -105,8 +105,8 @@ test function :math:`\psi\in \bar{W}` and integrating by parts gives
    = \int \int f(x_1,x_2,t) \psi\, \mathrm{d} x_1\,\mathrm{d} x_2, \quad
    \forall \psi \in \bar{W}.
 
-Since the left hand side integrand is independent of :math:`v`, we
-can integrate over :math:`v` and divide by :math:`H`, to obtain
+Since the left hand side integrand is independent of :math:`v=x_2`, we
+can integrate over :math:`x_2` and divide by :math:`H`, to obtain
 
 .. math::
 
