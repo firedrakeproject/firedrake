@@ -164,10 +164,8 @@ We want to have :math:`v=0` in the middle of the domain, so that we
 can have negative and positive velocities. This requires to edit the
 coordinate field. ::
 		      
-  Vc = mesh.coordinates.function_space()
   x, v = SpatialCoordinate(mesh)
-  X = Function(Vc).interpolate(as_vector([x, v-H/2]))
-  mesh.coordinates.assign(X)
+  mesh.coordinates.interpolate(as_vector([x, v-H/2]))
 
 Now we build a discontinuous finite element space for the density, ::
   
