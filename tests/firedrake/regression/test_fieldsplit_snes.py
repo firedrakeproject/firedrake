@@ -93,3 +93,108 @@ def test_fieldsplit_snes():
     for i in range(nsteps):
         w.assign(wn)
         solver.solve()
+
+
+def M(u, v):
+    return inner(u, v)*dx
+
+
+def A(u, v, nu):
+    return (
+        inner(dot(u, nabla_grad(u)), v)*dx
+        + nu*inner(grad(u), grad(v))*dx
+    )
+
+class AuxiliaryBurgersSNES(AuxiliaryOperatorSNES):
+    def form(self, snes, u, v):
+        appctx = self.get_appctx(snes)
+        nu = appctx["nu"]
+        dt = appctx["dt"]
+        un = appctx["un"]
+        un1 = appctx["un1"]
+        uh = (u + un)/2
+        F = M(u - un, v) + dt*A(uh, v, nu)
+        self.un = un
+        self.un1 = un1
+        return F, None, u
+
+
+def test_auxiliary_snes():
+    re = Constant(100)
+    re_aux = Constant(50)
+
+    nu = Constant(1/re)
+    nu_aux = Constant(1/re_aux)
+
+    nx = 50
+    dt = Constant(0.1)  # CFL = dt*nx
+
+    mesh = PeriodicUnitIntervalMesh(nx)
+    x, = SpatialCoordinate(mesh)
+
+    V = VectorFunctionSpace(mesh, "CG", 2)
+
+    # current and next timestep
+    ic = as_vector([1.0 + 0.5*sin(2*pi*x)])
+    un = Function(V).project(ic)
+    un1 = Function(V).project(ic)
+
+    v = TestFunction(V)
+
+    # Implicit midpoint rule
+    uh = (un + un1)/2
+    F = M(un1 - un, v) + dt*A(uh, v, nu)
+
+    solver_parameters = {
+        'snes': {
+            'view': ':snes_view.log',
+            'converged_reason': None,
+            'monitor': None,
+            'rtol': 1e-8,
+            'atol': 0,
+            'max_it': 3,
+            'convergence_test': 'skip',
+            'linesearch_type': 'l2',
+            'linesearch_damping': 1.0,
+            'linesearch_monitor': None,
+        },
+        'snes_type': 'nrichardson',
+        'npc_snes_type': 'python',
+        'npc_snes_python_type': f'{__name__}.AuxiliaryBurgersSNES',
+        'npc_aux': {
+            'snes': {
+                'converged_reason': None,
+                'monitor': None,
+                'rtol': 1e-4,
+                'atol': 0,
+                'max_it': 2,
+                'convergence_test': 'skip',
+            },
+            'snes_type': 'newtonls',
+            'mat_type': 'aij',
+            'ksp_type': 'preonly',
+            'pc_type': 'lu',
+            'pc_factor_mat_solver_type': 'petsc',
+        },
+    }
+
+    appctx = {
+        "nu": nu_aux,
+        "dt": dt,
+        "un": un,
+        "un1": un1,
+    }
+
+    solver = NonlinearVariationalSolver(
+        NonlinearVariationalProblem(F, un1),
+        solver_parameters=solver_parameters,
+        options_prefix="fd", appctx=appctx)
+
+    nsteps = 1
+    for i in range(nsteps):
+        solver.solve()
+        un.assign(un1)
+
+
+if __name__ == "__main__":
+    test_auxiliary_snes()
