@@ -248,7 +248,8 @@ define a symbolic :math:`\Delta t` which we will update later. ::
   
   dtc = Constant(0)
 
-The solver will take in ``fstar`` and return :math:`\Delta t\partial f/\partial t` in ``df_out``. ::
+At each stage, the solver will take in the intermediate solution ``fstar`` and
+return the stage increment :math:`\Delta t\partial f/\partial t` in ``df_out``. ::
 
   df_out = Function(V)
 
