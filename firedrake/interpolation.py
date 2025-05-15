@@ -1616,7 +1616,7 @@ class VomOntoVomDummyMat(object):
         )
 
     def broadcast(self, source_vec, target_vec):
-        source_arr = source_vec.getArray()
+        source_arr = source_vec.getArray(readonly=True)
         target_arr = target_vec.getArray()
         self.sf.bcastBegin(
             self.mpi_type,
