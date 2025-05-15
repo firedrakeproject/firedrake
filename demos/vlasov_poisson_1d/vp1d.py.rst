@@ -83,7 +83,7 @@ space, :math:`V` is the discontinuous finite element space,
 :math:`\Gamma_\mathrm{int}` is the set of interior cell edges,
 :math:`\Gamma_I` is the inlet part of
 exterior boundary where :math:`\vec{u}\cdot\vec{n}<0`,
-:math:`\Gamma_O` is the part of
+:math:`\Gamma_O` is the outlet part of
 exterior boundary where :math:`\vec{u}\cdot\vec{n}>0`, :math:`n` is
 the normal to each edge, :math:`\tilde{f}` is the upwind value of
 :math:`f`, and :math:`f_{\mathrm{in}}` is the inflow boundary value
