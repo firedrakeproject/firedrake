@@ -42,6 +42,7 @@ SERIAL_DEMOS = [
     Demo(("poisson", "poisson_mixed"), ["vtk"]),
     Demo(("quasigeostrophy_1layer", "qg_1layer_wave"), ["hypre", "vtk"]),
     Demo(("saddle_point_pc", "saddle_point_systems"), ["hypre", "mumps"]),
+    Demo(("vlasov_poisson_1d", "vp1d"), [])
 ]
 PARALLEL_DEMOS = [
     Demo(("full_waveform_inversion", "full_waveform_inversion"), ["adjoint"]),
