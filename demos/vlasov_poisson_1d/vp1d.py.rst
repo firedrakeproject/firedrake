@@ -171,7 +171,7 @@ coordinate field. ::
 
 Now we build a discontinuous finite element space for the density, ::
   
-  V = FunctionSpace(mesh, 'DG', 1)
+  V = FunctionSpace(mesh, 'DQ', 1)
 
 and a continuous finite element space for the electostatic potential.
 The space is continuous in the horizontal and constant in the vertical,
