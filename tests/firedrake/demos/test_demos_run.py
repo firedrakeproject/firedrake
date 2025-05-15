@@ -42,7 +42,7 @@ SERIAL_DEMOS = [
     Demo(("patches", "poisson_mg_patches"), []),
     Demo(("patches", "stokes_vanka_patches"), []),
     Demo(("patches", "hcurl_riesz_star"), []),
-    Demo(("patches", "hdiv_riesz_star"), []),    
+    Demo(("patches", "hdiv_riesz_star"), []),
     Demo(("quasigeostrophy_1layer", "qg_1layer_wave"), ["hypre", "vtk"]),
     Demo(("saddle_point_pc", "saddle_point_systems"), ["hypre", "mumps"]),
 ]
