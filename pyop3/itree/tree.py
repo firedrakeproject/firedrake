@@ -1083,7 +1083,8 @@ def _(slice_: Slice, *, prev_axes, expr_replace_map, **_):
     # If there are multiple axes that match the slice then they must be
     # identical (apart from their ID, which is ignored in equality checks).
     matching_target_axes = [ax for ax in prev_axes.nodes if ax.label == slice_.axis]
-    if len(matching_target_axes):
+    if len(matching_target_axes) > 1:
+        raise NotImplementedError("oh dear")
         pyop3.extras.debug.warn_todo("Multiple matching axes found, need to assert equivalence")
     target_axis = matching_target_axes[0]
 
@@ -1325,6 +1326,12 @@ def index_axes(
             return axes
         else:
             raise ValueError
+
+    # Determine the symbolic targets addressed by the index tree
+
+    # Resolve the symbolic targets into actual axes of the original tree
+
+    # Construct the new, indexed, axis tree
 
     (
         indexed_axes,
@@ -1914,6 +1921,7 @@ def iter_axis_tree(
     index_exprs_acc=None,
     no_index=False,
 ):
+    assert False, "old code"
     from pyop3.expr_visitors import evaluate as eval_expr
 
     # this is a hack, sometimes things are indexed
