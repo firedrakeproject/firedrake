@@ -17,13 +17,15 @@ from petsc4py import PETSc
 from pyop3 import tree, utils
 
 from pyop3.axtree.tree import (
+    UNIT_AXIS_TREE,
     Axis,
     AxisComponent,
     AxisComponentRegion,
     AxisTree,
     AxisVar,
     NaN,
-    Operator
+    Operator,
+    LoopIndexVar,
 )
 from pyop3.dtypes import IntType
 from pyop3.utils import (
@@ -54,9 +56,8 @@ def make_layouts(axes: AxisTree, loop_vars) -> immutabledict:
 
 def tabulate_again(axes):
     to_tabulate = []
-    # ah have I screwed up? parallel + mixed -> how do starts work?
-    layouts = _prepare_layouts(axes, axes.root, immutabledict(), 0, (), to_tabulate)
-    # starts = {dat: 0 for dat, _ in to_tabulate}
+    tabulated = {}
+    layouts = _prepare_layouts(axes, axes.root, immutabledict(), 0, (), to_tabulate, tabulated)
     start = 0
 
     # this is done at the root of the tree, so can treat in a flattened manner...
@@ -76,7 +77,7 @@ def tabulate_again(axes):
 
 # TODO: I think a better way to do this is to track 'free indices' and see if the 'needed indices' <= 'free'
 # at which point we can tabulate.
-def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free_axes, to_tabulate) -> immutabledict:
+def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free_axes, to_tabulate, tabulated) -> immutabledict:
     """Traverse the axis tree and prepare zeroed arrays for offsets.
 
     Any axes that do not require tabulation will also be set at this point.
@@ -112,13 +113,9 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
 
             free_axes_ = free_axes + (linear_axis,)
 
-            # TODO: non-region tabulated bits can get reused - this is different to the
-            # 'to_tabulate' list which is for *regions*
-            # if subtree in to_tabulate:
-            if False:
+            if subtree in tabulated:
                 # We have already seen an identical tree elsewhere, don't need to create a new array here
-                raise NotImplementedError()
-                offset_dat = to_tabulate[subtree]
+                offset_dat = tabulated[subtree]
                 offset_dat_expr = as_linear_buffer_expression(offset_dat)
                 component_layout = offset_dat_expr * step + start
             else:
@@ -134,16 +131,17 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
                         step = 1
                     component_layout = AxisVar(axis.label) * step + start
                 else:
-                    if not _axis_contains_multiple_regions(axes, axis):
-                        raise NotImplementedError("I think I can eagerly tabulate that here!")
                     # 3. Non-constant stride, must tabulate
                     offset_dat = Dat(offset_axes, data=np.full(offset_axes.size, -1, dtype=IntType))
 
-                    steps = _tabulate_steps(offset_axes, subtree)
-                    to_tabulate.append((offset_dat.buffer._data, steps))
+                    if _axis_contains_multiple_regions(axes, axis):
+                        steps = _tabulate_steps(offset_axes, subtree)
+                        to_tabulate.append((offset_dat.buffer._data, steps))
+                    else:
+                        steps = _tabulate_steps(offset_axes, subtree, regions=False)
+                        offset_dat.buffer._data[...] = steps
+                        tabulated[subtree] = offset_dat
 
-                    # NOTE: This is really unpleasant, we want an expression type here but need
-                    # axes to do the tabulation.
                     offset_dat_expr = as_linear_buffer_expression(offset_dat)
                     component_layout = offset_dat_expr * step + start
 
@@ -164,7 +162,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
                 start += component.local_size
 
         if subaxis := axes.child(axis, component):
-            sublayouts = _prepare_layouts(axes, subaxis, path_acc_, layout_expr_acc_, free_axes_, to_tabulate)
+            sublayouts = _prepare_layouts(axes, subaxis, path_acc_, layout_expr_acc_, free_axes_, to_tabulate, tabulated)
             layouts |= sublayouts
             # to_tabulate |= subdats
         else:
@@ -224,7 +222,7 @@ def _collect_regions(axes: AxisTree, *, axis: Axis | None = None):
     return tuple(merged_regions)
 
 
-def _tabulate_steps(offset_axes, subtree):
+def _tabulate_steps(offset_axes, subtree, regions=True):
     from pyop3 import Dat
 
     step_expr = _axis_tree_size(subtree)
@@ -234,6 +232,10 @@ def _tabulate_steps(offset_axes, subtree):
     step_dat.assign(step_expr, eager=True)
 
     offsets = steps(step_dat.buffer._data, drop_last=False)
+
+    if not regions:
+        return offsets[:-1]
+
     ptr = 0
 
     # split this up per region
@@ -251,25 +253,6 @@ def _tabulate_steps(offset_axes, subtree):
     return region_steps
 
 
-def _tabulate_offset_dat(offset_dat, axes):
-    from pyop3 import Dat
-
-    breakpoint()
-
-    step_expr = _axis_tree_size(axes)
-    assert not isinstance(step_expr, numbers.Integral), "Constant steps should already be handled"
-
-    step_dat = Dat.empty(offset_dat.axes, dtype=IntType)
-    step_dat.assign(step_expr, eager=True)
-
-    offsets = steps(step_dat.buffer._data, drop_last=False)
-    offset_dat.buffer._data[...] = offsets[:-1] + start
-    breakpoint()
-
-    return regions
-    return offsets[-1] + start
-
-
 # NOTE: This is a very generic operation and I probably do something very similar elsewhere
 def _axis_tree_size(axes):
     if axes.is_empty:
@@ -279,6 +262,10 @@ def _axis_tree_size(axes):
 
 
 def _axis_tree_size_rec(axis_tree: AxisTree, axis: Axis):
+    from pyop3 import Dat, Scalar, loop as loop_
+    from pyop3.tensor.dat import as_linear_buffer_expression
+    from pyop3.expr_visitors import extract_axes, replace_terminals
+
     # The size of an axis tree is simply the product of the sizes of the
     # different nested subaxes. This remains the case even for ragged
     # inner axes.
@@ -286,9 +273,52 @@ def _axis_tree_size_rec(axis_tree: AxisTree, axis: Axis):
     for component in axis.components:
         if subaxis := axis_tree.child(axis, component):
             subtree_size = _axis_tree_size_rec(axis_tree, subaxis)
-            tree_size += component.local_size * subtree_size
         else:
-            tree_size += component.local_size
+            subtree_size = 1
+
+        # the size is the sum of the array...
+
+        # don't want to have <num> * <array> because (for example) the size of 3 * [1, 2, 1] is 4!
+        if not isinstance(subtree_size, numbers.Integral):
+            # Consider the following case:
+            #
+            #   subtree size: [[2, 1, 0], [2, 4, 1]][i, j]
+            #   component size: 3 (j)
+            #
+            # We need a new size array with free index i:
+            #
+            #   size = [3, 7][i]
+            #
+            # and therefore need to execute the loop:
+            #
+            #   for i
+            #     for j
+            #       size[i] += subtree[i, j]
+            all_axes_that_we_need = extract_axes(subtree_size, axis_tree, (), {})[0]
+            if all_axes_that_we_need.depth > 1:
+                raise NotImplementedError("Not currently expected to work with multiply ragged extents")
+                # outer_axes = all_axes_that_we_need - axis.label
+                # component_size = Dat(axis.linearise(component_label), dtype=IntType)
+                # Loop(i := outer_axes.iter(),
+                #      Loop(j := component_size.axes.iter(),
+                #         component_size[i].assign(subtree_size[i][j])
+                #     )
+                # )()
+            j = all_axes_that_we_need.index()
+
+            inv_map = {
+                ax.label: LoopIndexVar(j.id, ax.label)
+                for ax in all_axes_that_we_need.nodes
+            }
+
+            mysize = replace_terminals(subtree_size, inv_map)
+            component_size = Dat.zeros(UNIT_AXIS_TREE, dtype=IntType)
+            loop_(
+                j, component_size.iassign(mysize)
+            )()
+            tree_size += as_linear_buffer_expression(component_size)
+        else:
+            tree_size += component.local_size * subtree_size
     return tree_size
 
 
@@ -327,6 +357,7 @@ def _drop_constant_subaxes(axis_tree, axis, component) -> tuple[AxisTree, int]:
         # return AxisTree(axis), 1
         return AxisTree(), 1
 
+
 def _truncate_axis_tree_rec(axis_tree, axis) -> tuple[tuple[AxisTree, int]]:
     # NOTE: Do a post-order traversal. Need to look at the subaxes before looking
     # at this one.
@@ -336,6 +367,7 @@ def _truncate_axis_tree_rec(axis_tree, axis) -> tuple[tuple[AxisTree, int]]:
             candidates = _truncate_axis_tree_rec(axis_tree, subaxis)
         else:
             # there is nothing below here, cannot truncate anything
+            # TODO: should this be a unit tree?
             candidates = ((AxisTree(), 1),)
         candidates_per_component.append(candidates)
 
@@ -361,6 +393,7 @@ def _truncate_axis_tree_rec(axis_tree, axis) -> tuple[tuple[AxisTree, int]]:
     # point) is dropped. This is only valid for constant-sized axes.
     if not _axis_needs_outer_index(axis_tree, axis, (axis,)):
         step = _axis_tree_size(axis_tree.subtree(axis))
+        # TODO: should this be a unit tree?
         axis_candidate = (AxisTree(), step)
         axis_candidates.append(axis_candidate)
 

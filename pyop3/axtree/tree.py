@@ -28,7 +28,7 @@ from petsc4py import PETSc
 from pyop2.caching import cached_on, CacheMixin
 from pyop3.exceptions import Pyop3Exception
 from pyop3.dtypes import IntType
-from pyop3.sf import StarForest, local_sf
+from pyop3.sf import StarForest, local_sf, single_star_sf
 from pyop2.mpi import COMM_SELF, collective
 from pyop3 import utils
 from pyop3.tree import (
@@ -192,9 +192,11 @@ class _UnitAxisTree:
         return "<UNIT>"
 
     size = 1
+    alloc_size = 1
     leaves = (None,)
     is_linear = True
     is_empty = False
+    sf = single_star_sf(MPI.COMM_SELF) # no idea if this is right
 
     def prune(self) -> Self:
         return self
@@ -202,6 +204,16 @@ class _UnitAxisTree:
     def add_subtree(self, subtree, key):
         assert key is None
         return subtree
+
+    def with_context(self, *args, **kwargs):
+        return self
+
+    def materialize(self):
+        return self
+
+    @property
+    def leaf_subst_layouts(self):
+        return immutabledict({immutabledict(): 0})
 
 
 
@@ -1086,13 +1098,9 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         section.setUp()
         return section
 
-    # TODO: In serial should this be COMM_SELF, COMM_WORLD or None?
-    # It is valid for bits of an axis tree to have no comm but I think
-    # that the tree overall should have one...
-    # Should be COMM_WORLD I think
     @property
-    def comm(self) -> MPI.Comm | None:
-        return unique_comm(self.nodes)
+    def comm(self) -> MPI.Comm:
+        return unique_comm(self.nodes) or MPI.COMM_SELF
 
     @cached_property
     def owned(self):
@@ -1704,7 +1712,6 @@ class IndexedAxisTree(AbstractAxisTree):
         from pyop3 import Dat, do_loop
 
         mask_dat = Dat.zeros(self.unindexed.undistribute(), dtype=bool, prefix="mask")
-        pyop3.extras.debug.enable_conditional_breakpoints()
         do_loop(p := self.index(), mask_dat[p].assign(1))
         indices = just_one(np.nonzero(mask_dat.buffer.data_ro))
 
@@ -1894,7 +1901,8 @@ def _(axes_per_context: collections.abc.Mapping) -> ContextSensitiveAxisTree:
     return ContextSensitiveAxisTree(axes_per_context)
 
 
-@as_axis_tree.register
+@as_axis_tree.register(AxisTree)
+@as_axis_tree.register(_UnitAxisTree)
 def _(axes: AxisTree) -> AxisTree:
     return axes
 

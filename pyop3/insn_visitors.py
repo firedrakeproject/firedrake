@@ -144,17 +144,7 @@ def _(func: CalledFunction, /, *, loop_context_acc) -> CalledFunction:
 def _(assignment: ArrayAssignment, /, *, loop_context_acc) -> ArrayAssignment:
     assignee = restrict_expression_to_context(assignment.assignee, loop_context_acc)
     expression = restrict_expression_to_context(assignment.expression, loop_context_acc)
-
-    try:
-        size = assignee.size
-    except AttributeError:
-        size = expression.size
-        # still might fail?
-
-    if size == 0:
-        return NullInstruction()
-    else:
-        return ArrayAssignment(assignee, expression, assignment.assignment_type)
+    return ArrayAssignment(assignee, expression, assignment.assignment_type)
 
 
 class ImplicitPackUnpackExpander(Transformer):

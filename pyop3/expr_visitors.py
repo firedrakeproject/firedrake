@@ -13,7 +13,7 @@ from typing import Any, ClassVar, Optional
 import numpy as np
 from immutabledict import immutabledict
 from pyop3.tensor import Scalar
-from pyop3.tensor.dat import ArrayBufferExpression, DatArrayBufferExpression, DatBufferExpression, MatPetscMatBufferExpression, MatArrayBufferExpression, LinearBufferExpression, NonlinearBufferExpression
+from pyop3.tensor.dat import ArrayBufferExpression, ScalarArrayBufferExpression, DatArrayBufferExpression, DatBufferExpression, MatPetscMatBufferExpression, MatArrayBufferExpression, LinearBufferExpression, NonlinearBufferExpression
 from pyop3.buffer import AbstractArrayBuffer, AllocatedPetscMatBuffer, PetscMatBuffer
 from pyop3.itree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree
 from pyrsistent import pmap, PMap
@@ -482,6 +482,12 @@ def _(var: Any, /, *args, **kwargs) -> Any:
     return var
 
 
+@concretize_layouts.register(Scalar)
+def _(scalar: Scalar, /, axis_trees: Iterable[AxisTree, ...]) -> ScalarArrayBufferExpression:
+    assert not axis_trees
+    return ScalarArrayBufferExpression(scalar.buffer)
+
+
 @concretize_layouts.register(Dat)
 def _(dat: Dat, /, axis_trees: Iterable[AxisTree, ...]) -> DatArrayBufferExpression:
     if dat.axes.is_linear:
@@ -592,6 +598,7 @@ def _(op: Operator, /, **kwargs) -> immutabledict:
 @collect_tensor_candidate_indirections.register(numbers.Number)
 @collect_tensor_candidate_indirections.register(AxisVar)
 @collect_tensor_candidate_indirections.register(Scalar)
+@collect_tensor_candidate_indirections.register(ScalarArrayBufferExpression)
 def _(var: Any, /, **kwargs) -> immutabledict:
     return immutabledict()
 
@@ -958,6 +965,7 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatArrayBuff
         return NonlinearDatArrayBufferExpression(result.buffer, newlayouts)
 
 
+# TODO: Better to just return the actual value probably...
 @functools.singledispatch
 def estimate(expr: Any) -> numbers.Number:
     raise TypeError
@@ -980,4 +988,9 @@ def _(mul: Mul) -> int:
 
 @estimate.register(BufferExpression)
 def _(buffer_expr: BufferExpression) -> numbers.Number:
-    return buffer_expr.buffer.max_value or 1
+    buffer = buffer_expr.buffer
+    if buffer.size > 10:
+        return buffer.max_value or 10
+    else:
+        return max(buffer.data_ro)
+    

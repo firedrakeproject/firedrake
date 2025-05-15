@@ -947,6 +947,10 @@ def _loop(*args, **kwargs):
     return Loop(*args, **kwargs)
 
 
+# alias
+loop_ = _loop
+
+
 # TODO: better to pass eager kwarg
 def do_loop(index, statements, *, compiler_parameters: Mapping | None = None):
     _loop(index, statements)(compiler_parameters=compiler_parameters)

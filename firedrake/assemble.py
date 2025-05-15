@@ -1021,9 +1021,9 @@ class ParloopFormAssembler(FormAssembler):
             )
 
         # debug
-        pyop3_compiler_parameters = {"optimize": True}
+        # pyop3_compiler_parameters = {"optimize": True}
         # pyop3_compiler_parameters = {"optimize": False, "attach_debugger": True}
-        # pyop3_compiler_parameters = {"optimize": False}
+        pyop3_compiler_parameters = {"optimize": False}
         pyop3_compiler_parameters.update(self._pyop3_compiler_parameters)
 
         if tensor is None:
@@ -1198,7 +1198,7 @@ class ZeroFormAssembler(ParloopFormAssembler):
         # reduction. That would be a very significant API change though (but more consistent?).
         # It would be even nicer to return a firedrake.Constant.
         # Return with halo data here because non-root ranks have no owned data.
-        return op3.utils.just_one(tensor.buffer.data_ro_with_halos)
+        return tensor.value
 
 
 class OneFormAssembler(ParloopFormAssembler):

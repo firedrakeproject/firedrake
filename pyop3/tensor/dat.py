@@ -532,6 +532,31 @@ class PetscMatBufferExpression(OpaqueBufferExpression, metaclass=abc.ABCMeta):
     pass
 
 
+class ScalarBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
+    pass
+
+
+class ScalarArrayBufferExpression(ScalarBufferExpression, ArrayBufferExpression):
+
+    # {{{ instance attrs
+
+    _buffer: Any  # array buffer type
+
+    # }}}
+
+    # {{{ interface impls
+
+    buffer: ClassVar[property] = utils.attr("_buffer")
+
+    # }}}
+
+    def __init__(self, buffer) -> None:
+        self._buffer = buffer
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class DatBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
     pass
 

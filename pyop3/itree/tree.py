@@ -1716,6 +1716,7 @@ def expand_compressed_target_paths(compressed_target_paths):
 
 
 def compose_axes(orig_axes, indexed_axes, indexed_target_paths, indexed_target_exprs):
+    assert False, "not used"
     assert not orig_axes.is_empty
 
     composed_target_paths = []
@@ -1753,6 +1754,7 @@ def _compose_axes(
         *,
         indexed_axis=None,
 ):
+    assert False, "not used"
     from pyop3.expr_visitors import replace_terminals
 
     # This code attaches a target_path/target_expr to every node in the tree. Is
