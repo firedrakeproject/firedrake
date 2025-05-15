@@ -1515,7 +1515,7 @@ class VomOntoVomWrapper(object):
     def forward_operation(self, target_dat):
         coeff = self.dummy_mat.expr_as_coeff()
         with coeff.dat.vec_ro as coeff_vec, target_dat.vec_wo as target_vec:
-            self.dummy_mat.mult(coeff_vec, target_vec)
+            self.handle.mult(coeff_vec, target_vec)
 
 
 class VomOntoVomDummyMat(object):
