@@ -89,7 +89,7 @@ the normal to each edge, :math:`\tilde{f}` is the upwind value of
 :math:`f`, and :math:`f_{\mathrm{in}}` is the inflow boundary value
 for :math:`f`. See the Discontinuous Galerkin advection
 :doc:`demo<DG_advection.py>` for more details. The unapproximated
-problem should have :math:`-\infty < x_2 < \infty`, but we approximate
+problem should have :math:`-\infty < x_2 < \infty`, i.e. unbounded velocities, but we approximate
 the problem by solving in the domain :math:`\Omega=I_1\times [-H/2, H/2]`,
 where :math:`I` is some chosen interval.
 
