@@ -81,7 +81,7 @@ and the continuity equation becomes
 where :math:`\Omega` is the computational domain in :math:`(x,v)`
 space, :math:`V` is the discontinuous finite element space,
 :math:`\Gamma_\mathrm{int}` is the set of interior cell edges,
-:math:`\Gamma_I` is the part of
+:math:`\Gamma_I` is the inlet part of
 exterior boundary where :math:`\vec{u}\cdot\vec{n}<0`,
 :math:`\Gamma_O` is the part of
 exterior boundary where :math:`\vec{u}\cdot\vec{n}>0`, :math:`n` is
