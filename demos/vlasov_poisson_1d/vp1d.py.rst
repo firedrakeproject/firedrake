@@ -218,8 +218,20 @@ Now we express the Poisson equation in UFL. ::
   dphi = TrialFunction(Wbar)
   phi_eqn = dphi.dx(0)*psi.dx(0)*dx - H*(fstar-fbar)*psi*dx
 
-To deal with :math:`\mathring{\bar{W}}`, we will precondition the
-problem with a shifted version, which is well-posed on :math:`\bar{W}`. ::
+To deal mathematically with the null space of the potential, we expressed the
+problem in :math:`\mathring{\bar{W}}`. Programmatically we will express the
+problem in :math:`\bar{W}` and deal with the null space by defining a basis
+for the space of globally constant functions, which we will later pass to PETSc
+so the solver can remove it from the solution. ::
+
+  nullspace = VectorSpaceBasis(constant=True, comm=COMM_WORLD)
+
+However, the null space also means that the assembled matrix of the
+Poisson problem will be singular, which will prevent us from using a
+direct solver. To deal with this, we will precondition the Poisson problem
+with a version shifted by :math:`\int_{\Omega}\phi\psi\mathrf{d}x`. The
+shifted problem is well-posed on :math:`\bar{W}`, so the assembled matrix
+will be non-singular and so solvable with direct methods. ::
   
   shift_eqn = dphi.dx(0)*psi.dx(0)*dx + dphi*psi*dx
 
@@ -230,15 +242,14 @@ We use these to define a :class:`~.LinearVariationalProblem`. ::
 
 Now we build the :class:`~.LinearVariationalSolver`. The problem
 is preconditioned by the shifted operator which is solved using a direct
-solver, and we need to tell the solver about the nullspace of globally
-constant functions. ::
+solver, and we pass the nullspace of globally constant functions to
+the solver. ::
 					 
   params = {
      'ksp_type': 'gmres',
      'pc_type': 'lu',
      'ksp_rtol': 1.0e-8,
      }
-  nullspace = VectorSpaceBasis(constant=True)
   phi_solver = LinearVariationalSolver(phi_problem,
                                        nullspace=nullspace,
 				       solver_parameters=params)
