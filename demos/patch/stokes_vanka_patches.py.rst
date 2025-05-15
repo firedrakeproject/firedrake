@@ -14,7 +14,7 @@ of the patch but not pressures.
    :align: center
 
 In practice, we arrive at mesh-independent multigrid convergence using these relaxation.
-We can construct Vanka patches either through firedrake.PatchPC, in which the bilinear form
+We can construct Vanka patches either through :class:`~.PatchPC`, in which the bilinear form
 is assembled on each vertex patch, or through firedrake.ASMVankaPC, in which the patch
 operators are extracted from the globally assembled stiffness matrix.::
 
@@ -62,7 +62,7 @@ on the coarsest level of the multigrid hierarchy.::
   }
 
 When we use a matrix-free method, there will not be an assembled matrix to factor
-This forces the matrix to be assembled.::
+on the coarse level. This forces the matrix to be assembled.::
 
   assembled_ldlt = {
       "ksp_type": "preonly",
@@ -94,8 +94,8 @@ relaxation options and matrix assembled type.::
       }
 
 
-These options specify an additive Schwarz relaxation through PatchPC.
-PatchPC builds the patch operators by assembling the bilineary form over
+These options specify an additive Schwarz relaxation through :class:`~.PatchPC`.
+:class:`~.PatchPC` builds the patch operators by assembling the bilineary form over
 each subdomain.  Hence, it does not require the global stiffness
 matrix to be assembled.  These are quite similar to the options used in
 <poisson_mg_patches.py>::
@@ -115,7 +115,7 @@ matrix to be assembled.  These are quite similar to the options used in
            "pc_patch_precompute_element_tensors": None}},
       mat_type="matfree")
 
-ASMStarPC, on the other hand, does no re-discretization, but extracts the
+:class:`~.ASMStarPC`, on the other hand, does no re-discretization, but extracts the
 patch operators for each patch from the already-assembled global stiffness matrix.::
 
   asm_relax = mg_params(
@@ -133,7 +133,7 @@ direct or Krylov method on each one.
 
 Now, for each parameter choice, we report the iteration count for the Poisson problem
 over a range of polynomial degrees.  We see that the Jacobi relaxation leads to growth
-in iteration count, while both PatchPC and ASMStarPC do not.  Mathematically, the two
+in iteration count, while both :class:`~.PatchPC` and :class:`~.ASMStarPC` do not.  Mathematically, the two
 latter options do the same operations, just via different code paths.::
 
   names = {"ASM Vanka": asm_relax,

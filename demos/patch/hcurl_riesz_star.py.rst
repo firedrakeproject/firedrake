@@ -1,5 +1,5 @@
-Using patch relaxation for H(div)
-=================================
+Using patch relaxation for H(curl)
+==================================
 
 Contributed by `Robert Kirby <https://sites.baylor.edu/robert_kirby/>`_
 and `Pablo Brubeck <https://www.maths.ox.ac.uk/people/pablo.brubeckmartinez/>`_.
@@ -13,7 +13,7 @@ Here, we demonstrate how to do this in the latter case.::
   mh = MeshHierarchy(mesh, 3)
   mesh = mh[-1]
 
-We consider the Riesz map on H(div), discretized with lowest order
+We consider the Riesz map on H(curl), discretized with lowest order
 Nedelec elements.  We force the system with a random right-hand side and
 impose homogeneous Dirichlet boundary conditions::
 
@@ -45,13 +45,13 @@ patches yield a robust method.::
           "ksp_type": "cg",
           "pc_type": "mg",
           "mg_levels": {
-               "ksp_type": "chebyshev",
-               "ksp_max_it": 1,
-                **relax
+              "ksp_type": "chebyshev",
+              "ksp_max_it": 1,
+              **relax
           },
           "mg_coarse": {
               "ksp_type": "preonly",
-               "pc_type": "cholesky"
+              "pc_type": "cholesky"
           }
       }
 
@@ -65,27 +65,30 @@ patches yield a robust method.::
       }
 
 Hiptmair proposed a finer space decomposition for Nedelec elements using edge
-patches and vertex patches on the gradient of a Lagrange space. The python type
-preconditioner :class:`~.HiptmairPC` automatically sets up a two-level method
-using the auxiliary Lagrange space in a multigrid hierarchy. ::
+patches on the original Nedelec space and vertex patches on the gradient of a Lagrange space. The python type
+preconditioner :class:`~.HiptmairPC` automatically sets up an additive two-level method
+using the auxiliary Lagrange space in a multigrid hierarchy. Therefore, the overall multigrid relaxation composes the edge patches with the auxiliary space relaxation. For the latter, the residual on each level is restricted from the dual of H(curl) into the dual of H1 via the adjoint of the gradient, where a vertex patch relaxation is applied to obtain a correction that is prolonged from H1 into H(curl) via the gradient. ::
 
 
   def hiptmair_params():
       return {
-         "pc_type": "python",
-         "pc_python_type": "firedrake.HiptmairPC",
-         "hiptmair_mg_levels": asm_params(1),
-         "hiptmair_mg_coarse": asm_params(0),
+          "pc_type": "python",
+          "pc_python_type": "firedrake.HiptmairPC",
+          "hiptmair_mg_coarse": asm_params(0),
+          "hiptmair_mg_levels": asm_params(1),
+          "hiptmair_mg_levels_ksp_type": "richardson",
+          "hiptmair_mg_levels_ksp_max_it": 1,
+          "hiptmair_mg_coarse_ksp_type": "preonly",
       }
 
 
 Now, for each parameter choice, we report the iteration count for the Riesz map
-over a range of meshes.  We see that the auxiliary space approach gives lower
-iteration counts than vertex patches, while being cheaper to invert.::
+over a range of meshes.  We see that vertex patches approach give lower
+iteration counts than the Hiptmair approach, but they are more expensive.::
 
   names = {
-     "Vertex Star": mg_params(asm_params(0)),
-     "Hiptmair": mg_params(hiptmair_params()),
+      "Vertex Star": mg_params(asm_params(0)),
+      "Hiptmair": mg_params(hiptmair_params()),
   }
 
   for name, parameters in names.items():
@@ -105,16 +108,16 @@ For vertex patches, we expect output like,
   3        16
 ======== ============
 
-and with Hiptmair (edge patches + vertex patches on gradients of H1)
+and with Hiptmair (edge patches + vertex patches on gradients of Lagrange)
 
 ======== ============
  Level    Iterations
 ======== ============
-  1        10
-  2        12
-  3        13
+  1        18
+  2        20
+  3        21
 ======== ============
 
 and additional mesh refinement will lead to these numbers leveling off.
 
-A runnable python version of this demo can be found :demo:`here<hdiv_riesz_star.py>`.
+A runnable python version of this demo can be found :demo:`here<hcurl_riesz_star.py>`.
