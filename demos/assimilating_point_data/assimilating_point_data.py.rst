@@ -13,13 +13,12 @@ In Firedrake we represent point data as functions in the function space of zero-
 Adjoint background
 ------------------
 
-We have a model (typically a PDE)
+We have a model given by a weak form of a PDE, given model parameters :math:`q\in M`, find :math:`u\in V` such that
 
 .. math::
 
-    F(u,q)=0
-
-where :math:`u` is our solution, :math:`q` are the model parameters, and :math:`F` is our model, for example a PDE. 
+    F(u,q;v)=0\qquad\forall v\in V,
+ 
 We have a set of :math:`N` observations :math:`u_{\text{obs}}^i` at locations :math:`X_i`, for :math:`i=1,\ldots,N`.
 We want our solution field :math:`u` to match the observations at the locations :math:`X_i`, so we define a "misfit" (or "objective") functional
 
