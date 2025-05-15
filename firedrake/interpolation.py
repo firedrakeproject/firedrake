@@ -1670,6 +1670,9 @@ class VomOntoVomDummyMat(object):
             target_vec.zeroEntries()
             self.reduce(source_vec, target_vec)
 
+    def duplicate(self, mat=None, op=None):
+        return self._create_petsc_mat()
+
     def _create_petsc_mat(self):
         mat = PETSc.Mat().create(comm=self.V.comm)
         element = self.V.ufl_element()
