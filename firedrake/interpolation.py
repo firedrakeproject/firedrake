@@ -1631,7 +1631,7 @@ class VomOntoVomDummyMat(object):
             MPI.REPLACE,
         )
 
-    def mult(self, source_vec, target_vec):
+    def mult(self, mat, source_vec, target_vec):
         # need to evaluate expression before doing mult
         coeff = self.expr_as_coeff(source_vec)
         with coeff.dat.vec_ro as coeff_vec:
