@@ -310,7 +310,8 @@ potential that corresponds to the initial density. ::
   outfile.write(fn, phi)
   phi.assign(.0)
 
-Now we start the timeloop using a lovely progress bar. ::
+Now we start the timeloop using a lovely progress bar. Note that
+we have 5000 timesteps so this may take a few minutes to run::
 
   for step in ProgressBar("Timestep").iter(range(nsteps)):
 
