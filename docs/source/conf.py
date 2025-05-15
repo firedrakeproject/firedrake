@@ -421,9 +421,19 @@ intersphinx_mapping = {
 bibtex_bibfiles = ['demos/demo_references.bib', '_static/bibliography.bib', '_static/firedrake-apps.bib', '_static/references.bib']
 
 #  -- Options for sphinx.ext.extlinks ------------------------------------
-extlinks = {
-    'demo': ('https://firedrakeproject.org/demos/%s', None)
-}
+extlinks = {}
+if tags.has('master'):
+    extlinks['demo'] = (
+        'https://firedrakeproject.org/firedrake/demos/%s', None
+    )
+elif tags.has('release'):
+    extlinks['demo'] = (
+        'https://firedrakeproject.org/demos/%s', None
+    )
+else:
+    extlinks['demo'] = (
+        '%s', None
+    )
 
 #  -- Options for sphinx_reredirects ------------------------------------
 redirects = {
