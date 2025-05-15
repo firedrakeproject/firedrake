@@ -1665,3 +1665,17 @@ class VomOntoVomDummyMat(object):
             # matrix will then have rows of zeros for those points.
             target_vec.zeroEntries()
             self.reduce(source_vec, target_vec)
+
+    def _create_petsc_mat(self):
+        mat = PETSc.Mat().create(comm=self.V.comm)
+        element = self.V.ufl_element()
+        P0DG_source = firedrake.FunctionSpace(self.source_vom, element)
+        P0DG_target = firedrake.FunctionSpace(self.target_vom, element)
+        source_size = P0DG_source.dof_dset.layout_vec.getSizes()
+        target_size = P0DG_target.dof_dset.layout_vec.getSizes()
+        mat.setSizes((target_size, source_size))
+        mat.setType(PETSc.Mat().Type.PYTHON)
+        mat.setPythonContext(self)
+        mat.setUp()
+        return mat
+    
