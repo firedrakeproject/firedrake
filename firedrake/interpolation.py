@@ -1685,4 +1685,4 @@ class VomOntoVomDummyMat(object):
         mat.setPythonContext(self)
         mat.setUp()
         return mat
-    
+ 
