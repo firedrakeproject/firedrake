@@ -218,7 +218,7 @@ and can be set globally or for individual surfaces.
   7: BAMG, 8: Frontal-Delaunay for Quads, 9: Packing of Parallelograms, 11: Quasi-structured Quad
 * 3D: Delaunay (default) 3: Initial mesh only 4: Frontal 7: MMG3D 9: R-tree 10: HXT
 
-For more information see the `Gmesh documentation on algorithms <http://gmsh.info/doc/texinfo/gmsh.html#index-Mesh_002eAlgorithm?>`_.
+For more information see the `Gmesh documentation on algorithms <https://gmsh.info/doc/texinfo/gmsh.html#Choosing-the-right-unstructured-algorithm>`_.
 
 When writing the mesh to file, the format is determined by the file extension. For example,
 `.msh2` for Gmsh 2.x, `.msh` for GMSH 4.x.
