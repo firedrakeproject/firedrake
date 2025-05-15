@@ -1494,9 +1494,10 @@ class VomOntoVomWrapper(object):
         self.arguments = arguments
         self.reduce = reduce
         # note that interpolation doesn't include halo cells
-        self.handle = VomOntoVomDummyMat(
+        self.dummy_mat = VomOntoVomDummyMat(
             original_vom.input_ordering_without_halos_sf, reduce, V, source_vom, target_vom, expr, arguments
         )
+        self.handle = self.dummy_mat._create_petsc_mat()
 
     @property
     def mpi_type(self):
@@ -1505,16 +1506,16 @@ class VomOntoVomWrapper(object):
 
         Should correspond to the underlying data type of the PETSc Vec.
         """
-        return self.handle.mpi_type
+        return self.dummy_mat.mpi_type
 
     @mpi_type.setter
     def mpi_type(self, val):
-        self.handle.mpi_type = val
+        self.dummy_mat.mpi_type = val
 
     def forward_operation(self, target_dat):
-        coeff = self.handle.expr_as_coeff()
+        coeff = self.dummy_mat.expr_as_coeff()
         with coeff.dat.vec_ro as coeff_vec, target_dat.vec_wo as target_vec:
-            self.handle.mult(coeff_vec, target_vec)
+            self.dummy_mat.mult(coeff_vec, target_vec)
 
 
 class VomOntoVomDummyMat(object):
