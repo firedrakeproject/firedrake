@@ -13,7 +13,7 @@ For more details about Gmsh, please
 refer to the `Gmsh documentation <http://gmsh.info/#Documentation>`_.
 The Gmsh syntax used in this document is for Gmsh version 4.4.1 .
 
-.. code-block:: none
+.. code-block:: python
 
    import matplotlib.pyplot as plt
    from firedrake import *
@@ -28,11 +28,11 @@ red refer to Gmsh curve tags (see below).
    :width: 400px
    :align: center
 
-Relative to a central origin, the rectangle is parameterised by its length L, and width, W.
-Likewise, the disc is parameterised its radius, R. The target element size is set to be
-finer around the disc compared to the background rectangle.
+Relative to a central origin, ``(x0, y0, z0)``, the rectangle is parameterised by its length ``L``,
+and width, ``W``. Likewise, the disc is parameterised its radius, ``R``. The target element size is
+set to ``dx_rec=0.5`` and ``dx_disc=0.1`` to generate finer triangles around the disc.
 
-.. code-block:: none
+.. code-block:: python
 
    x0, y0, z0 = 0., 0., 0.
    L = 12.
@@ -49,29 +49,30 @@ which is the geometry recipe for Gmsh.
 
 We begin by defining the four corners of a bounding rectangle. We specify the x,y,
 and z(=0) coordinates, as well as the target element size at these 
-corners (which we set to 0.5).
+corners.
 
 .. code-block:: none
 
-  Point(1) = {x0 - L/2, y0 + W/2, z0, dx_rec};
-  Point(2) = {x0 - L/2, y0 - W/2, z0, dx_rec};
-  Point(3) = {x0 + L/2, y0 - W/2, z0, dx_rec};
-  Point(4) = {x0 + L/2, y0 + W/2, z0, dx_rec};
+   Point(1) = {-6,  2, 0, 0.5};
+   Point(2) = {-6, -2, 0, 0.5};
+   Point(3) = { 6, -2, 0, 0.5};
+   Point(4) = { 6,  2, 0, 0.5};
 
 .. note::
-   Gmsh tracks most objects through a combination of its dimension
-   and an integer tag which must be unique to the object. For example,
-   ``Point(1)`` has dimension 0 and a unique tag 1.
+   Gmsh tracks most objects through a combination of its dimension, ``dim``
+   and an integer tag, ``tag``, which must be unique to the object. For example,
+   ``Point(1)`` has dimension 0 and a unique tag 1, while ``Line(1)`` has
+   dimension 1 and a unique tag 1.
 
 Then, we define 5 points to describe a circle.
 
 .. code-block:: none
 
-  Point(5) = {x0, y0, z0, dx_disc};
-  Point(6) = {x0 + R, y0, z0, dx_disc};
-  Point(7) = {x0 - R, y0, z0, dx_disc};
-  Point(8) = {x0, y0 + R, z0, dx_disc};
-  Point(9) = {x0, y0 - R, z0, dx_disc};
+   Point(5) = { 0,  0, 0, 0.1};
+   Point(6) = { 1,  0, 0, 0.1};
+   Point(7) = {-1,  0, 0, 0.1};
+   Point(8) = { 0,  1, 0, 0.1};
+   Point(9) = { 0, -1, 0, 0.1};
 
 Then, we create 8 edges: 4 for the rectangle and 4 for the circle.
 Note that the Gmsh command ``Circle`` requires the arc to be
@@ -105,7 +106,7 @@ Then, we define two plane surfaces: the rectangle without the disc first, and th
   Plane Surface(2) = {10};
 
 Finally, we group together some edges and define ``Physical`` entities.
-Firedrake uses the tags of these physical identities to distinguish
+Firedrake uses the ``tag`` of each physical entity to distinguish
 between parts of the mesh (see the concrete example at the end of this page).
 
 .. code-block:: none
@@ -138,7 +139,7 @@ and improved readibility of the mesh generation code.
 
 We first need to ``initialize`` the Gmsh API and create a new empty mesh model. 
 
-.. code-block:: none
+.. code-block:: python
 
    gmsh.initialize()
    model = gmsh.model
@@ -146,70 +147,71 @@ We first need to ``initialize`` the Gmsh API and create a new empty mesh model.
 
 As before, we define the four rectangle corner points and target element size.
 
-.. code-block:: none
+.. code-block:: python
 
    rectangle_points = [
-   model.geo.addPoint(x0 - L/2, y0 + W/2, z0, dx_rec, 1), # top left
-   model.geo.addPoint(x0 - L/2, y0 - W/2, z0, dx_rec, 2), # bottom left
-   model.geo.addPoint(x0 + L/2, y0 - W/2, z0, dx_rec, 3), # bottom right
-   model.geo.addPoint(x0 + L/2, y0 + W/2, z0, dx_rec, 4)  # top right
+   model.geo.addPoint(x0 - L/2, y0 + W/2, z0, dx_rec, tag = 1), # top left
+   model.geo.addPoint(x0 - L/2, y0 - W/2, z0, dx_rec, tag = 2), # bottom left
+   model.geo.addPoint(x0 + L/2, y0 - W/2, z0, dx_rec, tag = 3), # bottom right
+   model.geo.addPoint(x0 + L/2, y0 + W/2, z0, dx_rec, tag = 4)  # top right
    ]
 
 Then, we define 5 points to describe a circle.
 
-.. code-block:: none
+.. code-block:: python
 
-   center = model.geo.addPoint(x0, y0, z0, 5)
+   center = model.geo.addPoint(x0, y0, z0, tag = 5)
    circle_points = [
-   model.geo.addPoint(x0 - R, y0, z0, dx_disc, 6),
-   model.geo.addPoint(x0, y0 + R, z0, dx_disc, 7),
-   model.geo.addPoint(x0 + R, y0, z0, dx_disc, 8),
-   model.geo.addPoint(x0, y0 - R, z0, dx_disc, 9)
+   model.geo.addPoint(x0 - R, y0, z0, dx_disc, tag = 6),
+   model.geo.addPoint(x0, y0 + R, z0, dx_disc, tag = 7),
+   model.geo.addPoint(x0 + R, y0, z0, dx_disc, tag = 8),
+   model.geo.addPoint(x0, y0 - R, z0, dx_disc, tag = 9)
    ]
 
 Then, we create 8 edges: 4 for the rectangle and 4 for the circle.
 
-.. code-block:: none
+.. code-block:: python
 
    rectangle_lines = [
-   model.geo.addLine(rectangle_points[0], rectangle_points[1], 1), # left
-   model.geo.addLine(rectangle_points[1], rectangle_points[2], 2), # bottom
-   model.geo.addLine(rectangle_points[2], rectangle_points[3], 3), # right
-   model.geo.addLine(rectangle_points[3], rectangle_points[0], 4)  # top
+   model.geo.addLine(rectangle_points[0], rectangle_points[1], tag = 1), # left
+   model.geo.addLine(rectangle_points[1], rectangle_points[2], tag = 2), # bottom
+   model.geo.addLine(rectangle_points[2], rectangle_points[3], tag = 3), # right
+   model.geo.addLine(rectangle_points[3], rectangle_points[0], tag = 4)  # top
    ]
 
    circle_arcs =[
-   model.geo.addCircleArc(circle_points[0], center, circle_points[1], 5),
-   model.geo.addCircleArc(circle_points[1], center, circle_points[2], 6),
-   model.geo.addCircleArc(circle_points[2], center, circle_points[3], 7),
-   model.geo.addCircleArc(circle_points[3], center, circle_points[0], 8)
+   model.geo.addCircleArc(circle_points[0], center, circle_points[1], tag = 5),
+   model.geo.addCircleArc(circle_points[1], center, circle_points[2], tag = 6),
+   model.geo.addCircleArc(circle_points[2], center, circle_points[3], tag = 7),
+   model.geo.addCircleArc(circle_points[3], center, circle_points[0], tag = 8)
    ]
 
 We then combine the edges into a closed loop for both the rectangle and
 the circle used to define a surface for the area outside and inside the 
 inscribed circle, respectively. In the ``addPlaneSurface`` function by 
 convention, the first ``Curve Loop`` defines the outer boundary and
-anything after in the list is treated as a hole in the domain. These need
-to be registered to the model with ``syncronize`` before we can use them.
+anything after in the list is treated as the boundary of a hole (or holes)
+in the domain. The integerThese need to be registered to the model with ``syncronize`` 
+before we can use them.
 
-.. code-block:: none
+.. code-block:: python
 
-   rectangle_loop = model.geo.addCurveLoop(rectangle_lines, 9)
-   circle_loop = model.geo.addCurveLoop(circle_arcs, 10)
+   rectangle_loop = model.geo.addCurveLoop(rectangle_lines, tag = 9)
+   circle_loop = model.geo.addCurveLoop(circle_arcs, tag = 10)
 
-   punched_surface = model.geo.addPlaneSurface([rectangle_loop,circle_loop], 1)
-   circle_surface = model.geo.addPlaneSurface([circle_loop], 2)
+   punched_surface = model.geo.addPlaneSurface([rectangle_loop,circle_loop], tag = 1)
+   circle_surface = model.geo.addPlaneSurface([circle_loop], tag = 2)
    model.geo.synchronize()
    
 Finally, we group together some edges and define ``Physical`` entities.
 
-.. code-block:: none
+.. code-block:: python
 
-   model.addPhysicalGroup(1, [rectangle_lines[1], rectangle_lines[3]], 11, name = "HorEdges")
-   model.addPhysicalGroup(1, [rectangle_lines[0], rectangle_lines[2]], 12, name = "VerEdges")
-   model.addPhysicalGroup(1, circle_arcs, 13, name = "Circle")
-   model.addPhysicalGroup(2, [punched_surface], 3, name = "PunchedDom")
-   model.addPhysicalGroup(2, [circle_surface], 4, name = "Disc")
+   model.addPhysicalGroup(dim = 1, tags = [rectangle_lines[1], rectangle_lines[3]], tag = 11, name="HorEdges")
+   model.addPhysicalGroup(dim = 1, tags = [rectangle_lines[0], rectangle_lines[2]], tag = 12, name="VerEdges")
+   model.addPhysicalGroup(dim = 1, tags = circle_arcs, tag = 13, name="Circle")
+   model.addPhysicalGroup(dim = 2, tags = [punched_surface], tag = 3, name="PunchedDom")
+   model.addPhysicalGroup(dim = 2, tags = [circle_surface], tag = 4, name="Disc")
 
 A number of meshing options are available. In particular, the algorithm for mesh generation
 and can be set globally or for individual surfaces.
@@ -218,92 +220,99 @@ and can be set globally or for individual surfaces.
   7: BAMG, 8: Frontal-Delaunay for Quads, 9: Packing of Parallelograms, 11: Quasi-structured Quad
 * 3D: Delaunay (default) 3: Initial mesh only 4: Frontal 7: MMG3D 9: R-tree 10: HXT
 
-For more information see the `Gmesh documentation on algorithms <https://gmsh.info/doc/texinfo/gmsh.html#Choosing-the-right-unstructured-algorithm>`_.
+For more information see the `Gmesh documentation <https://gmsh.info/doc/texinfo/gmsh.html#Choosing-the-right-unstructured-algorithm>`_.
 
 When writing the mesh to file, the format is determined by the file extension. For example,
 `.msh2` for Gmsh 2.x, `.msh` for GMSH 4.x.
 
-.. code-block:: none
+.. code-block:: python
 
    gmsh.option.setNumber("Mesh.Algorithm", 6)
    gmsh.option.setNumber("Mesh.MshFileVersion", 4.1)
    gmsh.model.mesh.generate(2)
    gmsh.write('gmsh_api_demo.msh')
-   gmsh.finalize()
-
-.. note::
    
-   Best practice is to shut down the Gmsh API kernel after finalising the mesh.
+   We close the Gmsh API kernel after finalising the mesh.
+
+   .. code-block:: python
+
+      gmsh.finalize()
 
 Using OpenCASCADE through Gmsh
 ------------------------------
 
 Using OpenCASCADE through Gmsh, we define higher level geometries such as rectangles 
-and discs directly. It also has addition 3D capability not illustrated here.
+and discs directly. It also has additional 3D capability, and integration not illustrated
+here. Please see the  `Gmsh documentation <https://gmsh.info/doc/texinfo/gmsh.html#Namespace-gmsh_002fmodel_002focc>`_
+for more details.
 
 As with the Gmsh API, we ``initialize`` and start constructing a new mesh model.
 
-.. code-block:: none
+.. code-block:: python
 
    gmsh.initialize()
+   model = gmsh.model
    gmsh.model.add("gmsh_occ_demo")
 
 We first use OpenCASCADE to create a rectangle and a cylinder object. This automates
 the create of points, lines, and surfaces. Both objects need to be registered to the 
 model with ``syncronize`` before we can use them.
 
-.. code-block:: none
+.. code-block:: python
 
-   rectangle_obj = gmsh.model.occ.addRectangle(x0 - L/2, y0 - W/2, z0, L, W, 1)
-   cylinder_obj = gmsh.model.occ.addCylinder(x0, y0, z0, 0, 0, 1, R, 2)
-   gmsh.model.occ.synchronize()
+   rectangle_obj_tag = model.occ.addRectangle(x0 - L/2, y0 - W/2, z0, L, W, tag = 1)
+   disc_obj_tag = model.occ.addDisk(x0, y0, z0, rx = R, ry = R, tag = 2)
+   model.occ.synchronize()
 
-As the default behavior of the ``cut`` function, utilized to create the hole, is to 
-delete the original objects, we set ``removeTool=False`` to retain the cylinder object.
-We also save the tag of the combined object for later use and register the new object 
-to the model with ``syncronize``.
+To create the whole, we use the method ``occ.cut`` with the option ``removeTool=False`` to 
+retain the disc interior (which would be otherwise deleted by default). The ``occ.cut`` method
+takes and returns a list of tuples ``(dimension, tag)`` as do other functions such as 
+``getBoundary`` used below. We save the tag of the combined object for later use 
+and register the new object to the model with ``syncronize``.
 
-.. code-block:: none
+.. code-block:: python
 
-   punched_surface = gmsh.model.occ.cut([(2, rectangle_obj)], [(3, cylinder_obj)], removeTool = False)
+   punched_surface = model.occ.cut([(2, rectangle_obj_tag)], [(2, disc_obj_tag)], removeTool=False)
    punched_surface_tag = punched_surface[0][0][1]
-   gmsh.model.occ.synchronize()
+   model.occ.synchronize()
 
-We then extact the boundary from the objects. The ``getBoundary`` function takes and
-returns a list of tuples ``(dimension, tag)``. We extract the cylinder surface and points
-along with the punched surface lines to define the ``Physical`` groups.
+We then extact the boundary from the objects.  We extract the the punched surface
+lines along with disc points to define the ``Physical`` groups. It returns boundaries
+per entity (``combined = false``) or as a single shape (``combined = true``), and 
+adjust the signs to reflect orientation if ``oriented = true``. The boundary operator 
+is applied down to point-level, or dimension 0, when ``recursive = True``.
 
-.. code-block:: none
+.. code-block:: python
 
-   circle_surface = gmsh.model.getBoundary([(3, cylinder_obj)], True, True, False)
-   punched_lines = gmsh.model.getBoundary([(2, punched_surface_tag)], True, True, False)
-   circle_points = gmsh.model.getBoundary([(3, cylinder_obj)], True, True, True)
+   punched_lines = model.getBoundary([(2, punched_surface_tag)],
+                                        combined = True, oriented = True, recursive = False)
+   disc_points = model.getBoundary([(2, disc_obj_tag)],
+                                        combined = True, oriented = True, recursive = True)
 
 We set the mesh resolution using ``setSize``. The choice here is to first set all the
 zero-dimensional points to the background size, and then override the mesh size for the 
 points on the circle boundary. Another strategy documented in the Gmsh manual is to
 identify the desired points by a bounding box search.
 
-.. code-block:: none
+.. code-block:: python
 
-   gmsh.model.mesh.setSize(gmsh.model.occ.getEntities(0), dx_rec)
-   gmsh.model.mesh.setSize(circle_points, dx_disc)
+   model.mesh.setSize(gmsh.model.occ.getEntities(0), dx_rec)
+   model.mesh.setSize(disc_points, dx_disc)
 
 We parse just the line tags to create a list of physical group tags. In this case the
 assignment of the lines was done manually through trial and inspection. 
 TODO: add a function to automatically assign the lines to the correct physical group.
 
-.. code-block:: none
+.. code-block:: python
 
-   circle_surface_tags = [abs(line) for dim,line in circle_surface]
    punched_line_tags = [abs(line) for dim,line in punched_lines]
-   gmsh.model.addPhysicalGroup(1, [punched_line_tags[1], punched_line_tags[4]], 11, name = "HorEdges")
-   gmsh.model.addPhysicalGroup(1, [punched_line_tags[2], punched_line_tags[3]], 12, name = "VertEdges")
-   gmsh.model.addPhysicalGroup(1, [punched_line_tags[0]], 13, name = "CircleEdge")
-   gmsh.model.addPhysicalGroup(2, [punched_surface_tag], 3, name = "PunchedDom")
-   model.addPhysicalGroup(2, [circle_surface_tags[-1]], 4, name = "Disc")
+   model.addPhysicalGroup(dim = 1, tags = [punched_line_tags[1], punched_line_tags[4]], tag = 11, name="HorEdges")
+   model.addPhysicalGroup(dim = 1, tags = [punched_line_tags[2], punched_line_tags[3]], tag = 12, name="VertEdges")
+   model.addPhysicalGroup(dim = 1, tags = [punched_line_tags[0]], tag = 13, name="CircleEdge")
+   model.addPhysicalGroup(dim = 2, tags = [punched_surface_tag], tag = 3, name="PunchedDom")
+   model.addPhysicalGroup(dim = 2, tags = [disc_obj_tag], tag = 4, name="Disc")
 
-.. code-block:: none
+.. code-block:: python
 
    gmsh.option.setNumber("Mesh.Algorithm", 6)
    gmsh.model.mesh.generate(2)
@@ -314,7 +323,7 @@ Compare Meshes
 --------------
 We can load and check the generated meshes in Firedrake
 
-.. code-block:: none
+.. code-block:: python
 
    meshes = [Mesh('gmsh_occ_demo.msh', name = "Gmsh API"),
 			    Mesh('gmsh_api_demo.msh', name = "Gmsh OpenCASCADE")]
