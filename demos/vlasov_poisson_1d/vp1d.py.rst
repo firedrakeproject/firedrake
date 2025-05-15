@@ -101,7 +101,7 @@ test function :math:`\psi\in \bar{W}` and integrating by parts gives
 
 .. math::
 
-   \int \psi_{x_1}\phi_{x_1}\, x_1
+   \int \psi_{x_1}\phi_{x_1}\, \mathrm{d} x_1
    = \int \int f(x_1,x_2,t) \psi\, \mathrm{d} x_1\,\mathrm{d} x_2, \quad
    \forall \psi \in \bar{W}.
 
