@@ -202,7 +202,7 @@ equation. ::
 
 We create a :class:`~.Function` to store the electrostatic potential. ::
 
-  phi = Function(Wbar)
+  phi = Function(Wbar, name="potential")
 
 The next task is to create the solver for the electrostatic potential, which
 will be called every timestep. 
