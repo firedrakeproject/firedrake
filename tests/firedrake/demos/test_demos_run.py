@@ -42,7 +42,7 @@ SERIAL_DEMOS = [
     Demo(("poisson", "poisson_mixed"), ["vtk"]),
     Demo(("quasigeostrophy_1layer", "qg_1layer_wave"), ["hypre", "vtk"]),
     Demo(("saddle_point_pc", "saddle_point_systems"), ["hypre", "mumps"]),
-    Demo(("time_dependent_rayleigh_benard", "timedep-rayleigh-benard.py"), ["mumps"])
+    Demo(("time_dependent_rayleigh_benard", "timedep-rayleigh-benard"), ["mumps"])
 ]
 PARALLEL_DEMOS = [
     Demo(("full_waveform_inversion", "full_waveform_inversion"), ["adjoint"]),
