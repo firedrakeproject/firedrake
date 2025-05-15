@@ -28,3 +28,4 @@ element systems.
    Monlithic multigrid with Vanka relaxation for Stokes.<demos/stokes_vanka_patches.py>
    Vertex/edge star multigrid relaxation for H(div).<demos/hdiv_riesz_star.py>
    Auxiliary space patch relaxation multigrid for H(curl).<demos/hcurl_riesz_star.py>
+   Steady Boussinesq problem with integral constraints.<demos/boussinesq.py>

@@ -403,6 +403,7 @@ texinfo_documents = [(
 intersphinx_mapping = {
     'pyop2': ('https://op2.github.io/PyOP2', None),
     'ufl': ('https://fenics.readthedocs.io/projects/ufl/en/latest/', None),
+    'ufl': ('https://docs.fenicsproject.org/ufl/main/', None),
     'FIAT': ('https://fenics.readthedocs.io/projects/fiat/en/latest/', None),
     'FInAT': ('https://finat.github.io/FInAT/', None),
     'mpi4py': ('https://mpi4py.readthedocs.io/en/stable/', None),
