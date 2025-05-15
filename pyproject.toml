@@ -24,7 +24,7 @@ dependencies = [
   "h5py>3.12.1",
   "libsupermesh",
   "loopy>2024.1",
-  "petsc4py==3.23.1",
+  "petsc4py==3.23.2",
   "numpy",
   "packaging",
   "pkgconfig",
@@ -130,7 +130,7 @@ docker = [  # Used in firedrake-vanilla container
 
 [build-system]
 requires = [
-  "Cython>=3.0",
+  "Cython>=3.0,<3.1",
   "libsupermesh",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
@@ -138,7 +138,7 @@ requires = [
   "pkgconfig",
   "pybind11",
   "setuptools>61.2",
-  "petsc4py==3.23.1",
+  "petsc4py==3.23.2",
   "rtree>=1.2",
 ]
 build-backend = "setuptools.build_meta"
