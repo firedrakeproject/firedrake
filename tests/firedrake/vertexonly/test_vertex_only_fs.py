@@ -159,7 +159,7 @@ def functionspace_tests(vm):
             g2 = assemble(I2_io.interpolate(h_star, adjoint=True))
             assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
         except PETSc.Error as e:
-            raise e.__cause__ from None 
+            raise e.__cause__ from None
 
     I_io_adjoint = Interpolator(TestFunction(W), V)
     I2_io_adjoint = Interpolator(2*TestFunction(W), V)
