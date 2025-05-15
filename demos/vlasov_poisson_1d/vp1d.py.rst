@@ -189,7 +189,7 @@ time, and then set its initial condition,
 
 ::
   
-  fn = Function(V)
+  fn = Function(V, name="density")
   A = Constant(0.05)
   k = Constant(0.5)
   fn.interpolate(v**2*exp(-v**2/2)*(1 + A*cos(k*x))/(2*pi)**0.5)
