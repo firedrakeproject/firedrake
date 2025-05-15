@@ -56,7 +56,7 @@ the equivalent form,
    f_t + \nabla\cdot(\vec{u}f) = 0, \quad \vec{u} = (v,-\phi_x/m), \quad
    -\phi_{x_1x_1} = q_0\int f(x_1,x_2,t)\,\mathrm{d} x_2,
 
-where :math:`\nabla=(\partial_{x_1},\partial{x_2})`. From now we will
+where :math:`\nabla=(\partial_{x_1},\partial_{x_2})`. From now on we will
 choose units such that :math:`q_0,m` are absorbed into the definition of
 :math:`f`.
 
