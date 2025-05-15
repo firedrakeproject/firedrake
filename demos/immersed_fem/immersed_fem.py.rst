@@ -43,6 +43,7 @@ finer around the disc compared to the background rectangle.
 
 Constructing a GEO file
 -----------------------
+
 The first thing we need to do is to create a Gmsh ``gmsh.geo``,
 which is the geometry recipe for Gmsh.
 
@@ -130,6 +131,7 @@ you can type the following command in the terminal
 
 Using the Gmsh API
 ------------------
+
 We can alternatively use python commands enabled through the Gmsh API to build, save, and
 read the mesh into Firedrake from within a python script. This allows for parameter flexibility
 and improved readibility of the mesh generation code.
@@ -215,6 +217,7 @@ and can be set globally or for individual surfaces.
 * 2D: 1: MeshAdapt, 2: Automatic, 3: Initial mesh only, 5: Delaunay, 6: Frontal-Delaunay (default),\
   7: BAMG, 8: Frontal-Delaunay for Quads, 9: Packing of Parallelograms, 11: Quasi-structured Quad
 * 3D: Delaunay (default) 3: Initial mesh only 4: Frontal 7: MMG3D 9: R-tree 10: HXT
+
 For more information see the `Gmesh documentation on algorithms <http://gmsh.info/doc/texinfo/gmsh.html#index-Mesh_002eAlgorithm?>`_.
 
 When writing the mesh to file, the format is determined by the file extension. For example,
@@ -233,7 +236,8 @@ When writing the mesh to file, the format is determined by the file extension. F
    Best practice is to shut down the Gmsh API kernel after finalising the mesh.
 
 Using OpenCASCADE through Gmsh
--------------------------------
+------------------------------
+
 Using OpenCASCADE through Gmsh, we define higher level geometries such as rectangles 
 and discs directly. It also has addition 3D capability not illustrated here.
 
@@ -307,13 +311,13 @@ TODO: add a function to automatically assign the lines to the correct physical g
    gmsh.finalize()
 
 Compare Meshes
------------
+--------------
 We can load and check the generated meshes in Firedrake
 
 .. code-block:: none
 
    meshes = [Mesh('gmsh_occ_demo.msh', name = "Gmsh API"),
-			 Mesh('gmsh_api_demo.msh', name = "Gmsh OpenCASCADE")]
+			    Mesh('gmsh_api_demo.msh', name = "Gmsh OpenCASCADE")]
    fig, ax = plt.subplots(len(meshes), 1, figsize = (8, len(meshes)*3), tight_layout=True)
    for m, ax in zip(meshes, ax):
       triplot(m, axes=ax)
