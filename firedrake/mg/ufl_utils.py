@@ -109,7 +109,6 @@ def coarsen_form(form, self, coefficient_mapping=None):
                                  domain=new_mesh)
         integrals.append(new_itg)
     form = ufl.Form(integrals)
-    form._cache["coefficient_mapping"] = coefficient_mapping
     return form
 
 
@@ -118,7 +117,6 @@ def coarsen_formsum(form, self, coefficient_mapping=None):
     return type(form)(*[(self(ci, self, coefficient_mapping=coefficient_mapping),
                          self(wi, self, coefficient_mapping=coefficient_mapping))
                         for ci, wi in zip(form.components(), form.weights())])
-
 
 @coarsen.register(firedrake.DirichletBC)
 def coarsen_bc(bc, self, coefficient_mapping=None):
@@ -237,6 +235,7 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
                            transfer_manager=context.transfer_manager,
                            pre_apply_bcs=context.pre_apply_bcs)
     coarse._fine = context
+    coarse._coefficient_mapping = coefficient_mapping
     context._coarse = coarse
 
     # Now that we have the coarse snescontext, push it to the coarsened DMs
@@ -258,7 +257,7 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
         return
         manager = get_transfer_manager(fine)
         cctx = get_appctx(coarse)
-        cmapping = cctx._problem.F._cache["coefficient_mapping"]
+        cmapping = cctx._coefficient_mapping
         for f, c in cmapping.items():
             if is_dual(f):
                 manager.restrict(f, c)
@@ -268,7 +267,7 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     def inject_on_restrict(fine, restriction, rscale, injection, coarse):
         manager = get_transfer_manager(fine)
         cctx = get_appctx(coarse)
-        cmapping = cctx._problem.F._cache["coefficient_mapping"]
+        cmapping = cctx._coefficient_mapping
         for f, c in cmapping.items():
             if is_dual(f):
                 manager.restrict(f, c)
@@ -276,7 +275,7 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
                 manager.inject(f, c)
 
     V = context._problem.u.function_space()
-    if not V.dm.getAttr("__coarsen_hooks__"):
+    if V.dm.getAttr("__coarsen_hooks__"):
         V.dm.addCoarsenHook(coarsen, inject_on_restrict)
         V.dm.setAttr("__coarsen_hooks__", True)
 

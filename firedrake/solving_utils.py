@@ -247,6 +247,7 @@ class _SNESContext(object):
         self._splits = {}
         self._coarse = None
         self._fine = None
+        self._coefficient_mapping = {}
 
         self._nullspace = None
         self._nullspace_T = None

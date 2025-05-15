@@ -594,6 +594,7 @@ class FunctionSpace(object):
         dmhooks.attach_hooks(dm, level=level,
                              sf=self.mesh().topology_dm.getPointSF(),
                              section=self.global_numbering)
+
         # Remember the function space so we can get from DM back to FunctionSpace.
         dmhooks.set_function_space(dm, self)
         return dm

@@ -419,11 +419,13 @@ def coarsen(dm, comm):
     Vc = coarsen(V, coarsen)
     cdm = Vc.dm
     parent = get_parent(dm)
-    add_hook(parent, setup=partial(push_parent, cdm, parent), teardown=partial(pop_parent, cdm, parent),
+    add_hook(parent, setup=partial(push_parent, cdm, parent),
+             teardown=partial(pop_parent, cdm, parent),
              call_setup=True)
     if len(V) > 1:
         for V_, Vc_ in zip(V, Vc):
-            add_hook(parent, setup=partial(push_parent, Vc_.dm, parent), teardown=partial(pop_parent, Vc_.dm, parent),
+            add_hook(parent, setup=partial(push_parent, Vc_.dm, parent),
+                     teardown=partial(pop_parent, Vc_.dm, parent),
                      call_setup=True)
     add_hook(parent, setup=partial(push_ctx_coarsener, cdm, coarsen),
              teardown=partial(pop_ctx_coarsener, cdm, coarsen),
@@ -473,6 +475,7 @@ def attach_hooks(dm, level=None, sf=None, section=None):
         data layout.
     """
     from firedrake.mg.ufl_utils import create_interpolation, create_injection
+
     # Data layout
     if sf is not None:
         dm.setPointSF(sf)
