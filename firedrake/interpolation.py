@@ -1640,7 +1640,10 @@ class VomOntoVomDummyMat(object):
             else:
                 self.broadcast(coeff_vec, target_vec)
 
-    def multHermitian(self, source_vec, target_vec):
+    def multHermitian(self, mat, source_vec, target_vec):
+        self.multTranspose(mat, source_vec, target_vec)
+
+    def multTranspose(self, mat, source_vec, target_vec):
         # can only do adjoint if our expression exclusively contains a
         # single argument, making the application of the adjoint operator
         # straightforward (haven't worked out how to do this otherwise!)
