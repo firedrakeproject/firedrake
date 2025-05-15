@@ -31,6 +31,7 @@ from pyop3.axtree import (
 from pyop3.axtree.layout import _as_int
 from pyop3.axtree.tree import (
     UNIT_AXIS_TREE,
+    AbstractAxisTree,
     ContextSensitiveLoopIterable,
     AxisComponentRegion,
     IndexedAxisTree,
@@ -938,6 +939,34 @@ class InvalidIndexException(Pyop3Exception):
 
 
 @functools.singledispatch
+def collect_index_target_paths(index: Index) -> tuple[tuple[immutabledict[str, str], ...], ...]:
+    raise TypeError(f"No handler defined for {type(index).__name__}")
+
+
+@collect_index_target_paths.register(LoopIndex)
+def _(loop_index: LoopIndex) -> tuple[tuple[immutabledict[str, str], ...], ...]:
+    def accumulate_target_path(iterset_target):
+        return merge_dicts(path for (path, _) in iterset_target.values())
+
+    # TODO: It would be nice to have a better attribute through which to
+    # collect this
+    return (
+        tuple(
+            accumulate_target_path(iterset_target)
+            for iterset_target in loop_index.iterset.paths_and_exprs
+        ),
+    )
+
+
+@collect_index_target_paths.register(Slice)
+def _(slice_: Slice) -> tuple[tuple[immutabledict[str, str]], ...]:
+    return tuple(
+        (immutabledict({slice_.axis: slice_component.component}),)
+        for slice_component in slice_.slices
+    )
+
+
+@functools.singledispatch
 def _index_axes_index(index, *args, **kwargs):
     """TODO.
 
@@ -1327,18 +1356,44 @@ def index_axes(
         else:
             raise ValueError
 
-    # Determine the symbolic targets addressed by the index tree
+    # determine the symbolic targets addressed by the index tree
+    target_paths_compressed = collect_index_tree_target_paths(index_tree)
+
+    # Unpack the target paths from
+    # 
+    #     {index1: [component1, component2], index2: [component3]}
+    #
+    # to
+    # 
+    #     ({index1: component1, index2: component3},
+    #      {index1: component2, index2: component3})
+    #
+    # (where each 'component' is also a tuple of *equivalent targets*).
+    target_paths = expand_collection_of_iterables(target_paths_compressed)
 
     # Resolve the symbolic targets into actual axes of the original tree
 
+    if axes is None:
+        raise NotImplementedError("TODO")
+
+    axis_tree_targets = []
+    for index_targets in target_paths: 
+        # Of the many combinations of targets addressable by the provided index tree
+        # only one is expected to actually match the given axis tree.
+        axis_tree_target = matching_target(index_targets, axes)
+        axis_tree_targets.append(axis_tree_target)
+
+    breakpoint()
+
     # Construct the new, indexed, axis tree
+    raise NotImplementedError("TODO")
 
     (
         indexed_axes,
         indexed_target_paths_and_exprs_compressed,
         _,
         outer_loops,
-        partial_linear_index_trees,
+        _,
     ) = _index_axes(
         index_tree,
         loop_indices=loop_context,
@@ -1405,6 +1460,17 @@ def index_axes(
         outer_loops=outer_loops,
     )
 
+
+def collect_index_tree_target_paths(index_tree: IndexTree) -> immutabledict:
+    return collect_index_tree_target_paths_rec(index_tree, index=index_tree.root)
+
+
+def collect_index_tree_target_paths_rec(index_tree: IndexTree, *, index: Index) -> immutabledict[Index, Any]:
+    target_paths = {index: collect_index_target_paths(index)}
+    # TODO: index_tree.child?
+    for subindex in filter(None, index_tree.node_map[index.id]):
+        target_paths |= collect_index_tree_target_paths_rec(index_tree, index=subindex)
+    return immutabledict(target_paths)
 
 
 def _index_axes(
@@ -1663,6 +1729,32 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
 
 class MyBadError(Exception):
     pass
+
+
+def matching_target(index_targets, orig_axes: AbstractAxisTree) -> Any | None:
+    """TODO
+
+    This is useful for when multiple interpretations of axis information are
+    provided (e.g. with loop indices) and we want to filter for the right one.
+
+
+    Look at the full target tree to resolve ambiguity in indexing things. For example
+    consider a mixed space. A slice over the mesh is not clear as it may refer to the
+    axis of either space. Here we construct the full path and pull out the axes that
+    are actually desired.
+
+    """
+    matching_target_axess = []
+    for candidate in expand_collection_of_iterables(index_targets):
+        full_target_path = merge_dicts(candidate.values())
+
+        if full_target_path not in orig_axes.leaf_paths:
+            # not a match
+            continue
+
+        matching_target_axes = orig_axes.path_with_nodes(orig_axes._node_from_path(full_target_path))
+        matching_target_axess.append(matching_target_axes)
+    return just_one(matching_target_axess)
 
 
 def _index_info_targets_axes(indexed_axes, index_info, orig_axes) -> bool:
