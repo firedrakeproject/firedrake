@@ -83,7 +83,7 @@ difference is applied horizontally, perpendicular to gravity.  It
 tends to make prettier pictures for low Rayleigh numbers, but also
 tends to take more Newton iterations since the coupling terms in the
 Jacobian are a bit stronger.  Switching to the first case would be a
-simple change of bits of the boundary associated with the second and
+simple change of the boundary subdomains associated with the second and
 third boundary conditions below::
 
   bcs = [
