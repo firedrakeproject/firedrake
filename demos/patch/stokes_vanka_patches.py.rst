@@ -148,4 +148,12 @@ latter options do the same operations, just via different code paths.::
 
 For either set of options, we expect 10 iterations to convergence for each mesh level.
 
+======== ============
+ Level    Iterations
+======== ============
+  1        10
+  2        10
+  3        10
+======== ============
+
 A runnable python version of this demo can be found :demo:`here<stokes.py>`.
