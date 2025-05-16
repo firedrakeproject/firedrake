@@ -25,7 +25,7 @@ element systems.
    Netgen support.<demos/netgen_mesh.py>
    Full-waveform inversion: spatial and wave sources parallelism.<demos/full_waveform_inversion.py>
    Degree-independent multigrid convergence using patch relaxation.<demos/poisson_mg_patches.py>
-   Monlithic multigrid with Vanka relaxation for Stokes.<demos/stokes_vanka_patches.py>
+   Monolithic multigrid with Vanka relaxation for Stokes.<demos/stokes_vanka_patches.py>
    Vertex/edge star multigrid relaxation for H(div).<demos/hdiv_riesz_star.py>
    Auxiliary space patch relaxation multigrid for H(curl).<demos/hcurl_riesz_star.py>
    Steady Boussinesq problem with integral constraints.<demos/boussinesq.py>
