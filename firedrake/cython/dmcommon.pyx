@@ -368,18 +368,20 @@ cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
         #                         0       2
         #                         |       |
         #                         +---3---+
-        if "fuse" in dm.name:
-            # FUSE rules
-            plex_cone_new[0] = plex_cone_old[0]
-            plex_cone_new[1] = plex_cone_old[3]
-            plex_cone_new[2] = plex_cone_old[2]
-            plex_cone_new[3] = plex_cone_old[1]
-        else:
-            # UFC rules
-            plex_cone_new[0] = plex_cone_old[0]
-            plex_cone_new[1] = plex_cone_old[2]
-            plex_cone_new[2] = plex_cone_old[1]
-            plex_cone_new[3] = plex_cone_old[3]
+        #if "fuse" in dm.name:
+        # FUSE rules
+        print("FUSE")
+        #plex_cone_new[0] = plex_cone_old[0]
+        #plex_cone_new[1] = plex_cone_old[3]
+        #plex_cone_new[2] = plex_cone_old[2]
+        #plex_cone_new[3] = plex_cone_old[1]
+        #else:
+        # UFC rules
+        #print("UFC")
+        plex_cone_new[0] = plex_cone_old[0]
+        plex_cone_new[1] = plex_cone_old[2]
+        plex_cone_new[2] = plex_cone_old[1]
+        plex_cone_new[3] = plex_cone_old[3]
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.HEXAHEDRON:
         # UFCHexahedron:            +-------+     +-------+
         #                          /.       |    /   5   /|
