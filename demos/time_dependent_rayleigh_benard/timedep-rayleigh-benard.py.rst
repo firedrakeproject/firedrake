@@ -126,7 +126,6 @@ the patch boundary but exclude the pressure and temperature degrees of freedom.
       "ksp_monitor": None,
       "ksp_max_it": 200,
       "ksp_atol": 1.e-12,
-      "ksp_gmres_restart": 30,
       "snes_rtol": 1.e-10,
       "snes_atol": 1.e-10,
       "snes_ksp_ew": None,
