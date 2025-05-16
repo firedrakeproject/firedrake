@@ -207,7 +207,7 @@ will be called every timestep.
   
 We create a :class:`~.Function` to store the intermediate densities at each
 Runge-Kutta stage. The right hand side of the Poisson equation will be
-evaluated using this :class:`~Function` to obtain the potential at each
+evaluated using this :class:`~.Function` to obtain the potential at each
 stage. Defining this beforehand will enable us to reuse the solver. ::
 
   fstar = Function(V)
