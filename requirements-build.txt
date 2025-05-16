@@ -11,3 +11,4 @@ rtree>=1.2
 
 # Transitive build dependencies
 hatchling
+meson-python
