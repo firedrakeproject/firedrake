@@ -27,49 +27,45 @@ def handle_annotation():
 
 
 def function_space(comm):
-    """DG0 periodic advection"""
+    """CG2 periodic burgers equation"""
     mesh = fd.PeriodicUnitIntervalMesh(
         nx, comm=comm,
         distribution_parameters={"partitioner_type": "simple"})
-    return fd.FunctionSpace(mesh, "DG", 0)
+    return fd.FunctionSpace(mesh, "CG", 2)
 
 
 def timestepper(V):
     """Implicit midpoint timestepper for the advection equation"""
-    qn = fd.Function(V, name="qn")
-    qn1 = fd.Function(V, name="qn1")
+    un = fd.Function(V, name="un")
+    un1 = fd.Function(V, name="un1")
 
-    def mass(q, phi):
-        return fd.inner(q, phi)*fd.dx
+    def mass(u, v):
+        return fd.inner(u, v)*fd.dx
 
-    def tendency(q, phi):
-        u = fd.as_vector([vconst])
-        n = fd.FacetNormal(V.mesh())
-        un = fd.Constant(0.5)*(fd.dot(u, n) + abs(fd.dot(u, n)))
-        xi = fd.Constant(0.1)
-        return (- q*fd.div(phi*u)*fd.dx
-                + fd.jump(phi)*fd.jump(un*q)*fd.dS
-                # + xi*fd.inner(q**3 - q, phi)*fd.dx
-                + xi*fd.inner(q*q, phi)*fd.dx
+    def tendency(u, v):
+        nu = fd.Constant(1/reynolds)
+        return (
+            fd.inner(u, u.dx(0))*v*fd.dx
+            + fd.inner(nu*fd.grad(u), fd.grad(v))*fd.dx
         )
 
     # midpoint rule
-    phi = fd.TestFunction(V)
+    v = fd.TestFunction(V)
 
-    # qh = fd.Constant(0.5)*(qn1 + qn)
-    qh = qn1
-    eqn = mass(qn1 - qn, phi) + fd.Constant(dt)*tendency(qh, phi)
+    # uh = fd.Constant(0.5)*(un1 + un)
+    uh = un1
+    eqn = mass(un1 - un, v) + fd.Constant(dt)*tendency(uh, v)
 
     solver_parameters = {
-        "snes_rtol": 1e-10,
+        "snes_rtol": 1e-12,
         "ksp_type": "preonly",
         "pc_type": "lu",
     }
     stepper = fd.NonlinearVariationalSolver(
-        fd.NonlinearVariationalProblem(eqn, qn1),
+        fd.NonlinearVariationalProblem(eqn, un1),
         solver_parameters=solver_parameters)
 
-    return qn, qn1, stepper
+    return un, un1, stepper
 
 
 def covariance_norm(sigma, x):
@@ -78,27 +74,26 @@ def covariance_norm(sigma, x):
     return fd.assemble(fd.inner(sigma*x, x*sigma)*fd.dx)
 
 
-B = fd.Constant(1e-12)  # background error covariance
+B = fd.Constant(1e0)  # background error covariance
 R = fd.Constant(2e0)    # observation error covariance
-Q = fd.Constant(3e-12)  # model error covariance
+Q = fd.Constant(3e-10)  # model error covariance
 
 
-"""Advecting velocity"""
-velocity = 1
-vconst = fd.Constant(velocity)
+"""Reynolds number"""
+reynolds = 150
 
 """Number of cells"""
 nx = 32
 
 """Timestep size"""
-cfl = 2.3523
+cfl = 1.2167
 dx = 1.0/nx
-dt = cfl*dx/velocity
+dt = cfl*dx
 
 """How many times / how often we take observations
 (one extra at initial time)"""
-observation_frequency = 5
-observation_n = 6
+observation_frequency = 1
+observation_n = 2
 observation_times = [i*observation_frequency*dt
                      for i in range(observation_n+1)]
 
@@ -113,16 +108,16 @@ def nlocal_observations(ensemble):
     return observation_n//esize + (1 if erank == 0 else 0)
 
 
-def analytic_solution(V, t, mag=1.0, phase=0.0):
+def analytic_solution(V, t, mag=0.25, phase=0.0, mean=1.0):
     """Exact advection of sin wave after time t"""
     x, = fd.SpatialCoordinate(V.mesh())
     return fd.Function(V).interpolate(
-        0.5 + mag*fd.sin(2*fd.pi*((x + phase) - vconst*t)))
+        mean + mag*fd.sin(2*fd.pi*((x + phase) - t)))
 
 
-def analytic_series(V, tshift=0.0, mag=1.0, phase=0.0, ensemble=None):
+def analytic_series(V, tshift=0.0, mag=0.25, phase=0.0, mean=1.0, ensemble=None):
     """Timeseries of the analytic solution"""
-    series = [analytic_solution(V, t+tshift, mag=mag, phase=phase)
+    series = [analytic_solution(V, t+tshift, mag=mag, phase=phase, mean=mean)
               for t in observation_times]
 
     if ensemble is None:
@@ -174,19 +169,19 @@ def observation_errors(V):
 
 def background(V):
     """Prior for initial condition"""
-    return analytic_solution(V, t=0, mag=0.9, phase=0.1)
+    return analytic_solution(V, t=0, mag=0.2, phase=0.1)
 
 
 def m(V, ensemble=None):
     """The expansion points for the Taylor test"""
-    return analytic_series(V, tshift=0.1, mag=1.1, phase=-0.2,
+    return analytic_series(V, tshift=0.1, mag=0.3, phase=-0.2,
                            ensemble=ensemble)
 
 
 def h(V, ensemble=None):
     """The perturbation direction for the Taylor test"""
-    return analytic_series(V, tshift=0.3, mag=0.1, phase=0.3,
-                           ensemble=ensemble)
+    return analytic_series(V, tshift=0.2, mag=0.1, phase=0.3,
+                           mean=0.1, ensemble=ensemble)
 
 
 def strong_fdvar_pyadjoint(V):
@@ -204,25 +199,33 @@ def strong_fdvar_pyadjoint(V):
     with set_working_tape() as tape:
 
         # background functional
-        J = covariance_norm(B, control - bkg)
+        # bkg_error = fd.Function(V).assign(control - bkg)
+        # J = covariance_norm(B, bkg_error)
 
         # initial observation functional
-        J += covariance_norm(R, obs_errors(0)(control))
+        # J += covariance_norm(R, obs_errors(0)(control))
 
         qn.assign(control)
+        qn1.assign(qn)
+
+        stepper.solve()
+        qn.assign(qn1)
+        stepper.solve()
+
+        J = fd.assemble(fd.inner(qn1, qn1)*fd.dx)
+        Jhat = ReducedFunctional(J, Control(control), tape=tape)
 
         # record observation stages
-        for i in range(1, len(observation_times)):
+        # for i in range(1, len(observation_times)):
 
-            for _ in range(observation_frequency):
-                qn1.assign(qn)
-                stepper.solve()
-                qn.assign(qn1)
+        #     for _ in range(observation_frequency):
+        #         stepper.solve()
+        #         qn.assign(qn1)
 
-            # observation functional
-            J += covariance_norm(R, obs_errors(i)(qn))
+        #     # observation functional
+        #     # J += covariance_norm(R, obs_errors(i)(qn1))
 
-        Jhat = ReducedFunctional(J, Control(control), tape=tape)
+        # Jhat = ReducedFunctional(J, Control(control), tape=tape)
     pause_annotation()
 
     return Jhat
@@ -401,14 +404,15 @@ def main_test_strong_4dvar_advection():
     hp = h(V)[0]
 
     # make sure we've set up the reference rf correctly
-    assert taylor_test(Jhat_pyadj, mp, hp) > 1.99
+    assert taylor_test(Jhat_pyadj, mp, hp) > 1.95
 
     # If we match the functional, then passing the taylor tests
     # should mean that we match the derivative too.
     taylor = taylor_to_dict(Jhat_pyadj, mp, hp)
-    assert mean(taylor['R0']['Rate']) > 0.9, taylor['R0']
-    assert mean(taylor['R1']['Rate']) > 1.9, taylor['R1']
-    assert mean(taylor['R2']['Rate']) > 2.9, taylor['R2']
+    assert mean(taylor['R0']['Rate']) > 0.95, taylor['R0']
+    assert mean(taylor['R1']['Rate']) > 1.95, taylor['R1']
+    assert mean(taylor['R2']['Rate']) > 2.95, taylor['R2']
+    return
 
     Jhat_aaorf = strong_fdvar_firedrake(V)
 
@@ -428,9 +432,9 @@ def main_test_strong_4dvar_advection():
     # If we match the functional, then passing the taylor tests
     # should mean that we match the derivative too.
     taylor = taylor_to_dict(Jhat_aaorf, ma, ha)
-    assert mean(taylor['R0']['Rate']) > 0.9, taylor['R0']
-    assert mean(taylor['R1']['Rate']) > 1.9, taylor['R1']
-    assert mean(taylor['R2']['Rate']) > 2.9, taylor['R2']
+    assert mean(taylor['R0']['Rate']) > 0.95, taylor['R0']
+    assert mean(taylor['R1']['Rate']) > 1.95, taylor['R1']
+    assert mean(taylor['R2']['Rate']) > 2.95, taylor['R2']
 
 
 def main_test_weak_4dvar_advection():

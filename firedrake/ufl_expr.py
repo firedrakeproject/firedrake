@@ -342,13 +342,9 @@ def adjoint(form, reordered_arguments=None, derivatives_expanded=None):
         # given.  To avoid that, always pass reordered_arguments with
         # firedrake.Argument objects.
         if reordered_arguments is None:
-            v, u = extract_arguments(form)
-            reordered_arguments = (Argument(u.function_space(),
-                                            number=v.number(),
-                                            part=v.part()),
-                                   Argument(v.function_space(),
-                                            number=u.number(),
-                                            part=u.part()))
+            v, u = form.arguments()
+            reordered_arguments = (u.reconstruct(number=v.number()),
+                                   v.reconstruct(number=u.number()))
         return ufl.adjoint(form, reordered_arguments, derivatives_expanded=derivatives_expanded)
 
 

@@ -7,13 +7,12 @@ on:
   workflow_call:
     inputs:
       target:
-        description: 'Target docker image name to upload to'
+        description: Docker image name
         required: true
         type: string
       tag:
-        description: 'Optional tag (defaults to `latest`)'
-        required: false
-        default: 'latest'
+        description: Docker image tag
+        required: true
         type: string
     secrets:
       # Docker login information
@@ -28,8 +27,7 @@ jobs:
     steps:
       - name: Pre-cleanup
         if: always()
-        run: |
-          rm -rf ${{ runner.temp }}/digests
+        run: rm -rf ${{ runner.temp }}/digests
 
       - name: Download digests
         uses: actions/download-artifact@v4
@@ -47,10 +45,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # NOTE: This action pushes a new image with the given tag but also updates
+      # the 'latest' tag.
       - name: Merge and push the per-platform images
         working-directory: ${{ runner.temp }}/digests
         run: |
-          docker buildx imagetools create -t firedrakeproject/${{ inputs.target }}:${{ inputs.tag }} $(printf 'firedrakeproject/${{ inputs.target }}@sha256:%s ' *)
+          docker buildx imagetools create \
+            -t firedrakeproject/${{ inputs.target }}:${{ inputs.tag }} \
+            -t firedrakeproject/${{ inputs.target }}:latest \
+            $(printf 'firedrakeproject/${{ inputs.target }}@sha256:%s ' *)
 
       - name: Inspect image
         run: |
@@ -58,5 +61,4 @@ jobs:
 
       - name: Post-cleanup
         if: always()
-        run: |
-          rm -rf ${{ runner.temp }}/digests
+        run: rm -rf ${{ runner.temp }}/digests
