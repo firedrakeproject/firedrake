@@ -92,10 +92,11 @@ using a sparse direct LU factorization. ::
   print(f"LU iterations {its}")
 
 
-On this Cartesian mesh, the sparse operator constructed by :class:`~.FDMPC`
+.. note::
+    On this Cartesian mesh, the sparse operator constructed by :class:`~.FDMPC`
 corresponds to the original operator. This does not hold true on non-Cartesian
 meshes or more general PDEs, as the FDM basis will fail to diagonalise the
-problem.  For such cases, the :class:`~.FDMPC` will produce a sparse
+problem.  For such cases, :class:`~.FDMPC` will produce a sparse
 approximation of the original operator.
 
 Moving on to a more complicated solver, we'll employ a two-level solver with
