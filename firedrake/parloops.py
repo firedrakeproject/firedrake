@@ -14,7 +14,6 @@ import ufl
 from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
 from pyop2.caching import serial_cache
 from pyop3.expr_visitors import evaluate as eval_expr
-from pyop3.itree.tree import compose_axes
 from pyop3.utils import readonly, invert as invert_permutation
 from pyrsistent import freeze, pmap
 from ufl.indexed import Indexed
