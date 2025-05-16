@@ -229,7 +229,7 @@ so the solver can remove it from the solution. ::
 However, the null space also means that the assembled matrix of the
 Poisson problem will be singular, which will prevent us from using a
 direct solver. To deal with this, we will precondition the Poisson problem
-with a version shifted by :math:`\int_{\Omega}\phi\psi\mathrf{d}x`. The
+with a version shifted by :math:`\int_{\Omega}\phi\psi\mathrm{d}x`. The
 shifted problem is well-posed on :math:`\bar{W}`, so the assembled matrix
 will be non-singular and so solvable with direct methods. ::
   
