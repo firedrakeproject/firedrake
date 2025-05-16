@@ -9,8 +9,8 @@ Here, we demonstrate how to do this in the former case.::
 
   from firedrake import *
 
-  mesh = UnitCubeMesh(2, 2, 2)
-  mh = MeshHierarchy(mesh, 3)
+  base = UnitCubeMesh(2, 2, 2)
+  mh = MeshHierarchy(base, 3)
   mesh = mh[-1]
 
 We consider the Riesz map on H(div), discretized with lowest order
@@ -22,13 +22,13 @@ impose homogeneous Dirichlet boundary conditions::
       V = FunctionSpace(mesh, "RT", 1)
       u = TrialFunction(V)
       v = TestFunction(V)
-      uu = Function(V)
+      uh = Function(V)
       a = inner(div(u), div(v)) * dx + inner(u, v) * dx
       rg = RandomGenerator(PCG64(seed=123456789))
       L = rg.uniform(V.dual(), -1, 1)
       bcs = DirichletBC(V, 0, "on_boundary")
 
-      problem = LinearVariationalProblem(a, L, uu, bcs)
+      problem = LinearVariationalProblem(a, L, uh, bcs)
       solver = LinearVariationalSolver(problem, solver_parameters=params)
 
       solver.solve()

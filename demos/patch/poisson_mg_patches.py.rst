@@ -25,8 +25,8 @@ exact solution and forcing data.::
 
   from firedrake import *
 
-  mesh = UnitSquareMesh(4, 4)
-  mh = MeshHierarchy(mesh, 1)
+  base = UnitSquareMesh(4, 4)
+  mh = MeshHierarchy(base, 1)
   mesh = mh[-1]
 
 Next, this function solves the Poisson equation discretized with
@@ -40,13 +40,13 @@ generated cofunction.::
       V = FunctionSpace(mesh, "CG", deg)
       u = TrialFunction(V)
       v = TestFunction(V)
-      uu = Function(V)
+      uh = Function(V)
       a = inner(grad(u), grad(v)) * dx
       rg = RandomGenerator(PCG64(seed=123456789))
       L = rg.uniform(V.dual(), -1, 1)
       bcs = DirichletBC(V, 0, "on_boundary")
 
-      problem = LinearVariationalProblem(a, L, uu, bcs)
+      problem = LinearVariationalProblem(a, L, uh, bcs)
       solver = LinearVariationalSolver(problem, solver_parameters=params)
 
       solver.solve()
@@ -96,7 +96,7 @@ relaxation options and matrix assembled type.::
 
 The simplest parameter case will use point Jacobi smoothing on each level.
 Here, a matrix-free implementation is appropriate, and Firedrake will
-automatically assembly the diagonal for us.
+automatically assemble the diagonal for us.
 Point Jacobi, however, will require more multigrid iterations as the polynomial
 degree increases.::
 
@@ -104,12 +104,12 @@ degree increases.::
   jacobi_relax = mg_params({"pc_type": "jacobi"}, mat_type="matfree")
 
 These options specify an additive Schwarz relaxation through :class:`~.PatchPC`.
-:class:`~.PatchPC` builds the patch operators by assembling the bilineary form over
+:class:`~.PatchPC` builds the patch operators by assembling the bilinear form over
 each subdomain.  Hence, it does not require the global stiffness
 matrix to be assembled.
 These options tell the patch mechanism to use vertex star patches, storing
 the element matrices in a dense format.  The patch problems are solved by
-LU factorizations without a Krylov iterations.  As an optimizations,
+LU factorizations without a Krylov iteration.  As an optimization,
 patch is told to precompute all the element matrices and store the inverses
 in dense format.::
 
@@ -129,13 +129,13 @@ in dense format.::
       mat_type="matfree")
 
 :class:`~.ASMStarPC`, on the other hand, does no re-discretization, but extracts the
-patch operators for each patch from the already-assembled global stiffness matrix.
+submatrices for each patch from the already-assembled global stiffness matrix.
 
 
 The tinyasm backend uses LAPACK to invert all the patch operators.  If this option
 is not specified, PETSc's ASM framework will set up a small KSP for each patch.
 This can be useful when the patches become larger and one wants to use a sparse
-direct or Krylov method on each one.::
+direct solver or a Krylov iteration on each one.::
 
   asm_relax = mg_params({
       "pc_type": "python",

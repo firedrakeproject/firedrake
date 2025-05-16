@@ -6,7 +6,7 @@ and `Pablo Brubeck <https://www.maths.ox.ac.uk/people/pablo.brubeckmartinez/>`_.
 
 Vanka relaxation enables monolithic multigrid algorithms for Stokes flow and
 other coupled problems.  Here, specially chosen patches are used to define
-additive Schwarz methods.  For Stokes discretization with continuous pressure
+additive Schwarz methods.  For a Stokes discretization with continuous pressure
 spaces, we orient those patches around vertices, taking velocity values on the boundary
 of the patch but not pressures.
 
@@ -20,8 +20,8 @@ operators are extracted from the globally assembled stiffness matrix.::
 
   from firedrake import *
 
-  mesh = UnitSquareMesh(4, 4)
-  mh = MeshHierarchy(mesh, 3)
+  base = UnitSquareMesh(4, 4)
+  mh = MeshHierarchy(base, 3)
   mesh = mh[-1]
 
 Next, this function solves the Stokes equation discretized with Taylor-Hood
