@@ -19,6 +19,7 @@ DEMO_DIR = join(CWD, "..", "..", "..", "demos")
 
 SERIAL_DEMOS = [
     Demo(("benney_luke", "benney_luke"), ["vtk"]),
+    Demo(("boussinesq", "boussinesq"), []),
     Demo(("burgers", "burgers"), ["vtk"]),
     Demo(("camassa-holm", "camassaholm"), ["vtk"]),
     Demo(("DG_advection", "DG_advection"), ["matplotlib"]),
