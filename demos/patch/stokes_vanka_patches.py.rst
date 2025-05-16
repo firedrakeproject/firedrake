@@ -15,7 +15,7 @@ of the patch but not pressures.
 
 In practice, we arrive at mesh-independent multigrid convergence using these relaxation.
 We can construct Vanka patches either through :class:`~.PatchPC`, in which the bilinear form
-is assembled on each vertex patch, or through firedrake.ASMVankaPC, in which the patch
+is assembled on each vertex patch, or through :class:`~.ASMVankaPC`, in which the patch
 operators are extracted from the globally assembled stiffness matrix.::
 
   from firedrake import *
