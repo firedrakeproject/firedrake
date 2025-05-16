@@ -22,7 +22,8 @@ import gem
 import finat
 
 import firedrake
-from firedrake import tsfc_interface, utils, functionspaceimpl
+from firedrake import tsfc_interface, utils, functionspaceimpl, parloops
+import firedrake.function as ffunc
 from firedrake.ufl_expr import Argument, action, adjoint as expr_adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError
 from firedrake.petsc import PETSc
@@ -38,6 +39,7 @@ __all__ = (
     "DofNotDefinedError",
     "CrossMeshInterpolator",
     "SameMeshInterpolator",
+    "ClementInterpolator",
 )
 
 
@@ -1663,3 +1665,96 @@ class VomOntoVomDummyMat(object):
             # matrix will then have rows of zeros for those points.
             target_vec.zeroEntries()
             self.reduce(source_vec, target_vec)
+
+
+class ClementInterpolator(SameMeshInterpolator):
+    r"""
+    Compute the Clément interpolant of a :math:`\mathbb{P}0` source field, i.e., take
+    the volume average over neighbouring cells at each vertex.
+
+    See :cite:`Clement1975` for details.
+
+    For arguments, see :class:`.Interpolator`.
+    """
+
+    # NOTE: We need to overload the __new__ inherited from Interpolator because it will
+    # only ever return instances of SameMeshInterpolator or CrossMeshInterpolator, not
+    # ClementInterpolator.
+    def __new__(cls, *args, **kwargs):
+        return object.__new__(ClementInterpolator)
+
+    @no_annotations
+    def __init__(
+        self,
+        expr,
+        V,
+        subset=None,
+        freeze_expr=False,
+        access=op2.WRITE,
+        bcs=None,
+        allow_missing_dofs=False,
+    ):
+        if subset:
+            raise NotImplementedError("subset not implemented")
+        if freeze_expr:
+            raise NotImplementedError("freeze_expr not implemented")
+        if access != op2.WRITE:
+            raise NotImplementedError("access other than op2.WRITE not implemented")
+        if bcs:
+            raise NotImplementedError("bcs not implemented")
+        target_mesh = as_domain(V)
+        source_mesh = extract_unique_domain(expr) or target_mesh
+        if target_mesh is not source_mesh:
+            raise ValueError("Clément interpolation requires the source and target meshes to coincide.")
+        element = V.ufl_element()
+        if element.family() != "Lagrange" or element.degree() != 1:
+            raise ValueError("Clément interpolation must target a P1 space.")
+        super().__init__(expr, V, subset=subset, freeze_expr=freeze_expr, access=access,
+                         bcs=bcs, allow_missing_dofs=allow_missing_dofs)
+
+    @PETSc.Log.EventDecorator()
+    def interpolate(self, function, output=None, adjoint=False):
+        """
+        Compute the Clément interpolant applied to a source function.
+
+        Parameters
+        ----------
+        function: firedrake.function.Function or firedrake.cofunction.Cofunction
+                  Function to be interpolated.
+        output: firedrake.function.Function or firedrake.cofunction.Cofunction
+                A function to contain the output.
+        adjoint: bool
+                   Set to true to apply the adjoint of the interpolation
+                   operator.
+
+        Returns
+        -------
+        firedrake.function.Function or firedrake.cofunction.Cofunction
+            The resulting interpolated function.
+        """
+        if adjoint:
+            raise NotImplementedError("Adjoint of Clément interpolation not implemented.")
+        Vs = function.function_space()
+        element = Vs.ufl_element()
+        if not (element.family() == "Discontinuous Lagrange" and element.degree() == 0):
+            raise ValueError("Source function must live in P0 space.")
+        rank = len(Vs.value_shape)
+        if rank != len(self.V.value_shape):
+            raise ValueError(f"Rank-{rank} input inconsistent with target space.")
+        mesh = self.V.mesh()
+        if output is None:
+            output = ffunc.Function(self.V)
+
+        # Take the weighted average of the source function over the neighbouring cells
+        domain = f"{{[i, j]: 0 <= i < out.dofs and 0 <= j < {Vs.block_size}}}"
+        instructions = "out[i, j] = out[i, j] + vol[0] * f[0, j]"
+        keys = {"f": (function, op2.READ), "vol": (mesh.cell_volume, op2.READ), "out": (output, op2.RW)}
+        parloops.par_loop((domain, instructions), ufl.dx(domain=mesh), keys)
+
+        # Divide by the volume of the patch of neighbouring cells
+        domain = f"{{[j]: 0 <= j < {Vs.block_size}}}"
+        instructions = "out[0, j] = out[0, j] / patch[0]"
+        keys = {"patch": (mesh.patch_volume, op2.READ), "out": (output, op2.RW)}
+        parloops.par_loop((domain, instructions), parloops.direct, keys)
+
+        return output
