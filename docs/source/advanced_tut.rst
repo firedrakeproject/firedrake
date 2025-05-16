@@ -25,3 +25,4 @@ element systems.
    Netgen support.<demos/netgen_mesh.py>
    Full-waveform inversion: spatial and wave sources parallelism.<demos/full_waveform_inversion.py>
    1D Vlasov-Poisson equation using vertical independent function spaces.<demos/vp1d.py>
+   Steady Boussinesq problem with integral constraints.<demos/boussinesq.py>
