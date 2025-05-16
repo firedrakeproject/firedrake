@@ -4,11 +4,14 @@ Using fast diagonalisation solvers in Firedrake
 Contributed by `Pablo Brubeck <https://www.maths.ox.ac.uk/people/pablo.brubeckmartinez/>`_.
 
 In this demo we show how to efficiently solve the Poisson equation using
-high-order tensor-product elements. This is accomplished through a special basis,
-obtained from the fast diagonalisation method (FDM).  We first construct an
-auxiliary operator that is sparse in this basis, with as many zeros as a
+high-order tensor-product elements. This is accomplished through a special
+basis, obtained from the fast diagonalisation method (FDM). We first construct
+an auxiliary operator that is sparse in this basis, with as many zeros as a
 low-order method.  We then combine this with an additive Schwarz method.
-Finally, we show how to do static condensation using fieldsplit.
+Finally, we show how to do static condensation using fieldsplit. A detailed
+description of these solvers is found in :cite:`Brubeck:2022` and
+:cite:`Brubeck:2024`.
+
 
 Creating an extruded mesh
 -------------------------
@@ -17,19 +20,20 @@ The fast diagonalisation method produces a basis of discrete eigenfunctions.
 These are polynomials, and can be efficiently computed on tensor
 product-elements by solving an eigenproblem on the interval. Therefore, we will
 require quadrilateral or hexahedral meshes.  Currently, the solver only supports
-extruded hexahedral meshes, so we must create an :func:`~ExtrudedMesh`. ::
+extruded hexahedral meshes, so we must create an :func:`~.ExtrudedMesh`. ::
 
   from firedrake import *
 
   base = UnitSquareMesh(8, 8, quadrilateral=True)
   mesh = ExtrudedMesh(base, 8)
 
+
 Defining the problem: the Poisson equation
 ------------------------------------------
 
 Having defined the mesh we now need to set up our problem.  The crucial step
 for fast diagonalisation is a special choice of basis functions. We obtain them
-by passing `variant="fdm"` to the :func:`~FunctionSpace` constructor.  The
+by passing ``variant="fdm"`` to the :func:`~.FunctionSpace` constructor.  The
 solvers in this demo work also with other element variants, but each iteration
 would involve an additional a basis transformation.  To stress-test the solver,
 we prescribe a random :class:`~.Cofunction` as right-hand side.
@@ -56,7 +60,7 @@ function that takes in set of parameters and uses them on a
       return solver.snes.getLinearSolveIterations()
 
 Specifying the solver
-~~~~~~~~~~~~~~~~~~~~~
+---------------------
 
 The solver avoids the assembly of a matrix with dense element submatrices, and
 instead applies a matrix-free conjugate gradient method with a preconditioner
@@ -87,10 +91,17 @@ using a sparse direct LU factorization. ::
   its = run_solve(5, fdm_lu_params)
   print(f"LU iterations {its}")
 
-Moving on to a more complicated solver, we'll employ a two-level with a Q1
-coarse space via :class:`~.P1PC`.  As the fine level relaxation we define an
-additive Schwarz method on vertex-star patches implemented via
-:class:`~.ASMExtrudedStarPC` as we have an extruded mesh::
+
+On this Cartesian mesh, the sparse operator constructed by :class:`~.FDMPC`
+corresponds to the original operator. This does not hold true on non-Cartesian
+meshes or more general PDEs, as the FDM basis will fail to diagonalise the
+problem.  For such cases, the :class:`~.FDMPC` will produce a sparse
+approximation of the original operator.
+
+Moving on to a more complicated solver, we'll employ a two-level solver with
+the lowest-order coarse space via :class:`~.P1PC`.  As the fine level
+relaxation we define an additive Schwarz method on vertex-star patches
+implemented via :class:`~.ASMExtrudedStarPC` as we have an extruded mesh::
 
   asm_params = {
       "pc_type": "python",
@@ -100,8 +111,6 @@ additive Schwarz method on vertex-star patches implemented via
       "pmg_mg_levels": {
           "ksp_max_it": 1,
           "ksp_type": "chebyshev",
-          "ksp_chebyshev_esteig": "0.125,0.625,0.125,1.125",
-          "ksp_convergence_test": "skip",
           "pc_type": "python",
           "pc_python_type": "firedrake.ASMExtrudedStarPC",
           "sub_sub_pc_type": "lu",
@@ -121,23 +130,27 @@ We observe degree-independent iteration counts:
 ======== ============
  Degree   Iterations
 ======== ============
-  3        15
-  4        16
-  5        15
+  3        13
+  4        13
+  5        12
 ======== ============
 
 Static condensation
 -------------------
 
 Finally, we construct :class:`~.FDMPC` solver parameters using static
-condensation.  The fast diagonalisation basis diagonalizes the operator on cell
+condensation.  The fast diagonalisation basis diagonalises the operator on cell
 interiors. So we define a solver that splits the interior and facet degrees of
 freedom via :class:`~.FacetSplitPC` and fieldsplit options.  We set the option
-`fdm_static_condensation` to tell :class:`~.FDMPC` to assemble a 2-by-2 block
+``fdm_static_condensation`` to tell :class:`~.FDMPC` to assemble a 2-by-2 block
 preconditioner where the lower-right block is replaced by the Schur complement
-resulting from eliminating the interior degrees of freedom.  We use
-point-Jacobi to invert the diagonal, and we may apply the two-level additive
-Schwarz method on the facets. ::
+resulting from eliminating the interior degrees of freedom.  The Krylov
+solver is posed on the full set of degrees of freedom, and the preconditioner
+applies a symmetrized multiplicative sweep on the interior and the facet
+degrees of freedom. In general, we are not able to fully eliminate the
+interior, as the sparse operator constructed by :class:`~.FDMPC` is only an
+approximation on non-Cartesian meshes.  We apply point-Jacobi on the interior
+block, and the two-level additive Schwarz method on the facets. ::
 
 
   def fdm_static_condensation_params(relax):
@@ -171,10 +184,16 @@ We also observe degree-independent iteration counts:
 ======== ============
  Degree   Iterations
 ======== ============
-  3        12
-  4        12
-  5        12
+  3        10
+  4        10
+  5        10
 ======== ============
 
 A runnable python version of this demo can be found :demo:`here
 <fast_diagonalisation_poisson.py>`.
+
+
+.. rubric:: References
+
+.. bibliography:: demo_references.bib
+   :filter: docname in docnames
