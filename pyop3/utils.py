@@ -244,10 +244,13 @@ single_valued = pytools.single_valued
 is_single_valued = pytools.is_single_valued
 
 
-def merge_dicts(dicts: Iterable[Mapping]) -> immutabledict:
+def merge_dicts(dicts: Iterable[Mapping], *, allow_duplicates=False) -> immutabledict:
     merged = {}
     for dict_ in dicts:
         merged.update(dict_)
+    if not allow_duplicates and len(merged) != sum(map(len, dicts)):
+        pyop3.extras.debug.warn_todo("duplicates found, this will become a hard error")
+        # raise ValueError("Duplicates found")
     return immutabledict(merged)
 
 

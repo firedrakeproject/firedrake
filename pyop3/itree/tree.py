@@ -1312,7 +1312,21 @@ def index_axes(
 
     # Resolve the symbolic targets into actual axes of the original tree
     axis_tree_targets = []
-    for index_targets in target_paths: 
+    # for leaf_path, index_targets in zip(index_tree.leaf_node_paths, target_paths, strict=True): 
+    #     # When we expand target_paths_compressed some of the entries are
+    #     # nonsense because the collect together indices on distinct branches
+    #     # of the tree. We drop those here
+    #     filtered_index_targets = {
+    #         index: entry
+    #         for index, entry in index_targets.items()
+    #         if index in leaf_path
+    #     }
+    #
+    #     # Of the many combinations of targets addressable by the provided index tree
+    #     # only one is expected to actually match the given axis tree.
+    #     axis_tree_target = matching_target(filtered_index_targets, orig_axes)
+    #     axis_tree_targets.append(axis_tree_target)
+    for index_targets in target_paths:
         # Of the many combinations of targets addressable by the provided index tree
         # only one is expected to actually match the given axis tree.
         axis_tree_target = matching_target(index_targets, orig_axes)
@@ -1336,9 +1350,9 @@ def index_axes(
     compressed_target_axes = immutabledict(compressed_target_axes)
 
     # construct the new, indexed, axis tree
-    indexed_axes, target_exprs, outer_loops = make_indexed_axis_tree(index_tree, compressed_target_axes)
+    indexed_axes, target_paths_and_exprs_compressed, outer_loops = make_indexed_axis_tree(index_tree, compressed_target_axes, target_paths_compressed)
 
-    raise NotImplementedError("TODO: need to produce the full merged targets")
+    indexed_target_paths_and_exprs = expand_collection_of_iterables(target_paths_and_exprs_compressed)
 
     # If the original axis tree is unindexed then no composition is required.
     if orig_axes is None or isinstance(orig_axes, AxisTree):
@@ -1411,18 +1425,29 @@ def collect_index_tree_target_paths_rec(index_tree: IndexTree, *, index: Index) 
     return immutabledict(target_paths)
 
 
-def make_indexed_axis_tree(index_tree: IndexTree, target_axes):
-    return make_indexed_axis_tree_rec(index_tree, target_axes, index=index_tree.root, seen_target_exprs=immutabledict())
+def make_indexed_axis_tree(index_tree: IndexTree, target_axes, target_paths):
+    return make_indexed_axis_tree_rec(index_tree, target_axes, target_paths, index=index_tree.root, seen_target_exprs=immutabledict())
 
 
-def make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index: Index, seen_target_exprs):
+def make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, target_paths, *, index: Index, seen_target_exprs):
     index_axis_tree, index_target_exprs, index_outer_loops = _index_axes_index(
         index, target_axes,
         seen_target_exprs=seen_target_exprs,
     )
 
+    # merge target paths and exprs (ugly but currently necessary)
+    # we want this to look like: {axis_key: [targets1, targets2]}
+    # where targets1 and targets2 are *distinct* and refer to leaves of the axis tree
+    # These then consist of the tuple targets1 := (path-and-exprs1, path-and-exprs2)
+    # where those are 'equivalent'.
+    target_paths_and_exprs = defaultdict(list)
+    for equivalent_paths, (axis_key, equivalent_exprs) in zip(target_paths[index], index_target_exprs.items(), strict=True):
+        equivalents = []
+        for path, exprs in zip(equivalent_paths, equivalent_exprs, strict=True):
+            equivalents.append((path, exprs))
+        target_paths_and_exprs[axis_key].append(equivalents)
+
     axis_tree = index_axis_tree
-    target_exprs = defaultdict(list, index_target_exprs)
     outer_loops = list(index_outer_loops)
     for leaf, subindex in zip(
         index_axis_tree.leaves, index_tree.node_map[index.id], strict=True
@@ -1430,10 +1455,10 @@ def make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index: Ind
         if subindex is None:
             continue
 
-        leaf_key = (leaf[0].id, leaf[1])if leaf is not None else None
+        leaf_key = (leaf[0].id, leaf[1]) if leaf is not None else None
         seen_target_exprs_ = seen_target_exprs | merge_dicts(target_exprs[leaf_key])
 
-        subaxis_tree, subtarget_exprs, sub_outer_loops = make_indexed_axis_tree_rec(
+        subaxis_tree, subtarget_paths_and_exprs, sub_outer_loops = make_indexed_axis_tree_rec(
             index_tree,
             target_axes,
             index=subindex,
@@ -1444,18 +1469,17 @@ def make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index: Ind
 
         # If a subtree has no shape (e.g. if it is a loop index) then append
         # index information to the existing 'None' entry.
-        if None in subtarget_exprs:
-            subtarget_exprs = dict(subtarget_exprs)
-            target_exprs[None].extend(
-                subtarget_exprs.pop(None)
+        if None in subtarget_paths_and_exprs:
+            subtarget_paths_and_exprs = dict(subtarget_paths_and_exprs)
+            target_paths_and_exprs[None].extend(
+                subtarget_paths_and_exprs.pop(None)
             )
-        target_exprs |= subtarget_exprs
+        target_paths_and_exprs |= subtarget_paths_and_exprs
 
         outer_loops += sub_outer_loops
-
-    target_exprs = immutabledict(target_exprs)
     outer_loops = tuple(outer_loops)
-    return (axis_tree, target_exprs, outer_loops)
+
+    return (axis_tree, target_paths_and_exprs, outer_loops)
 
 
 def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexed_target_paths_and_exprs, *, axis=None):
