@@ -74,6 +74,15 @@ def _skip_test_dependency(dependency):
         except ImportError:
             return skip
 
+    elif dependence == "irksome":
+        try:
+            import irksome  # noqa: F401
+            del irksome
+            return not skip
+        except ImportError:
+            return skip
+
+
     elif dependency in ("mumps", "hypre"):
         return dependency not in get_external_packages()
 
