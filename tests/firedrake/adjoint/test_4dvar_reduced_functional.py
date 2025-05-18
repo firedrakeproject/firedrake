@@ -3,9 +3,8 @@ import firedrake as fd
 from firedrake.__future__ import interpolate
 from firedrake.adjoint import (
     continue_annotation, pause_annotation, stop_annotating, annotate_tape,
-    set_working_tape, get_working_tape, Control, taylor_test, taylor_to_dict,
-    ReducedFunctional, FourDVarReducedFunctional, AdjFloat)
-from numpy import mean
+    set_working_tape, get_working_tape, taylor_test, taylor_to_dict,
+    Control, ReducedFunctional, FourDVarReducedFunctional)
 from pytest_mpi.parallel_assert import parallel_assert
 
 
@@ -52,18 +51,22 @@ def timestepper(V):
     # midpoint rule
     v = fd.TestFunction(V)
 
-    # uh = fd.Constant(0.5)*(un1 + un)
-    uh = un1
+    uh = fd.Constant(0.5)*(un1 + un)
     eqn = mass(un1 - un, v) + fd.Constant(dt)*tendency(uh, v)
 
-    solver_parameters = {
+    params = {
         "snes_rtol": 1e-12,
         "ksp_type": "preonly",
         "pc_type": "lu",
     }
-    stepper = fd.NonlinearVariationalSolver(
-        fd.NonlinearVariationalProblem(eqn, un1),
-        solver_parameters=solver_parameters)
+
+    # stepper = fd.NonlinearVariationalSolver(
+    #     fd.NonlinearVariationalProblem(eqn, un1),
+    #     solver_parameters=params)
+
+    from types import SimpleNamespace
+    stepper = SimpleNamespace(
+        solve=lambda: fd.solve(eqn == 0, un1, solver_parameters=params))
 
     return un, un1, stepper
 
@@ -74,26 +77,26 @@ def covariance_norm(sigma, x):
     return fd.assemble(fd.inner(sigma*x, x*sigma)*fd.dx)
 
 
-B = fd.Constant(1e0)  # background error covariance
-R = fd.Constant(2e0)    # observation error covariance
-Q = fd.Constant(3e-10)  # model error covariance
+B = fd.Constant(3e0)  # background error covariance
+R = fd.Constant(2e0)  # observation error covariance
+Q = fd.Constant(1e0)  # model error covariance
 
 
 """Reynolds number"""
-reynolds = 150
+reynolds = 100
 
 """Number of cells"""
 nx = 32
 
 """Timestep size"""
-cfl = 1.2167
-dx = 1.0/nx
-dt = cfl*dx
+cfl = 2.3167
+dy = 1.0/nx
+dt = cfl*dy
 
 """How many times / how often we take observations
 (one extra at initial time)"""
-observation_frequency = 1
-observation_n = 2
+observation_frequency = 4
+observation_n = 6
 observation_times = [i*observation_frequency*dt
                      for i in range(observation_n+1)]
 
@@ -199,33 +202,26 @@ def strong_fdvar_pyadjoint(V):
     with set_working_tape() as tape:
 
         # background functional
-        # bkg_error = fd.Function(V).assign(control - bkg)
-        # J = covariance_norm(B, bkg_error)
+        bkg_error = fd.Function(V).assign(control - bkg)
+        J = covariance_norm(B, bkg_error)
 
         # initial observation functional
-        # J += covariance_norm(R, obs_errors(0)(control))
+        J += covariance_norm(R, obs_errors(0)(control))
 
         qn.assign(control)
         qn1.assign(qn)
 
-        stepper.solve()
-        qn.assign(qn1)
-        stepper.solve()
-
-        J = fd.assemble(fd.inner(qn1, qn1)*fd.dx)
-        Jhat = ReducedFunctional(J, Control(control), tape=tape)
-
         # record observation stages
-        # for i in range(1, len(observation_times)):
+        for i in range(1, len(observation_times)):
 
-        #     for _ in range(observation_frequency):
-        #         stepper.solve()
-        #         qn.assign(qn1)
+            for _ in range(observation_frequency):
+                stepper.solve()
+                qn.assign(qn1)
 
-        #     # observation functional
-        #     # J += covariance_norm(R, obs_errors(i)(qn1))
+            # observation functional
+            J += covariance_norm(R, obs_errors(i)(qn))
 
-        # Jhat = ReducedFunctional(J, Control(control), tape=tape)
+        Jhat = ReducedFunctional(J, Control(control), tape=tape)
     pause_annotation()
 
     return Jhat
@@ -261,10 +257,10 @@ def strong_fdvar_firedrake(V):
         for stage, ctx in stages:
             # start forward model
             qn.assign(stage.control)
+            qn1.assign(qn)
 
             # propogate
             for _ in range(observation_frequency):
-                qn1.assign(qn)
                 stepper.solve()
                 qn.assign(qn1)
 
@@ -281,14 +277,12 @@ def weak_fdvar_pyadjoint(V):
     """Build a pyadjoint ReducedFunctional for the weak constraint 4DVar system"""
     qn, qn1, stepper = timestepper(V)
 
-    # One control for each observation time
-    controls = [fd.Function(V)
-                for _ in range(len(observation_times))]
-
     # Prior
     bkg = background(V)
 
-    controls.assign(bkg)
+    # One control for each observation time with prior initial guess
+    controls = [fd.Function(V).assign(bkg)
+                for _ in range(len(observation_times))]
 
     # generate ground truths
     obs_errors = observation_errors(V)
@@ -306,18 +300,18 @@ def weak_fdvar_pyadjoint(V):
     # record observation stages
     for i in range(1, len(controls)):
         qn.assign(controls[i-1])
+        qn1.assign(qn)
 
         # forward model propogation
         for _ in range(observation_frequency):
-            qn1.assign(qn)
             stepper.solve()
             qn.assign(qn1)
 
         # we need to smuggle the state over to next
-        # control without the tape seeing so that we
-        # can continue the timeseries through the next
-        # stage but with the tape thinking that the
-        # forward model in each stage is independent.
+        # control without the tape seeing. This means
+        # we can continue the timeseries through the next
+        # stage but have the tape think that the forward
+        # model in each stage is independent.
         with stop_annotating():
             controls[i].assign(qn)
 
@@ -377,10 +371,10 @@ def weak_fdvar_firedrake(V, ensemble):
         for stage, ctx in stages:
             # start forward model
             qn.assign(stage.control)
+            qn1.assign(qn)
 
             # propogate
             for _ in range(observation_frequency):
-                qn1.assign(qn)
                 stepper.solve()
                 qn.assign(qn1)
 
@@ -406,16 +400,16 @@ def main_test_strong_4dvar_advection():
     # make sure we've set up the reference rf correctly
     assert taylor_test(Jhat_pyadj, mp, hp) > 1.95
 
-    # If we match the functional, then passing the taylor tests
-    # should mean that we match the derivative too.
+    # If we match the functional, then passing the taylor
+    # tests means that we should match the derivative too.
     taylor = taylor_to_dict(Jhat_pyadj, mp, hp)
-    assert mean(taylor['R0']['Rate']) > 0.95, taylor['R0']
-    assert mean(taylor['R1']['Rate']) > 1.95, taylor['R1']
-    assert mean(taylor['R2']['Rate']) > 2.95, taylor['R2']
-    return
+    assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
+    assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
+    assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
 
     Jhat_aaorf = strong_fdvar_firedrake(V)
 
+    # Only need the initial condition for SC4DVar control
     ma = m(V)[0]
     ha = h(V)[0]
 
@@ -429,12 +423,12 @@ def main_test_strong_4dvar_advection():
     assert abs((Jpm - Jam)/Jpm) < eps
     assert abs((Jph - Jah)/Jph) < eps
 
-    # If we match the functional, then passing the taylor tests
-    # should mean that we match the derivative too.
+    # If we match the functional, then passing the taylor
+    # tests means that we should match the derivative too.
     taylor = taylor_to_dict(Jhat_aaorf, ma, ha)
-    assert mean(taylor['R0']['Rate']) > 0.95, taylor['R0']
-    assert mean(taylor['R1']['Rate']) > 1.95, taylor['R1']
-    assert mean(taylor['R2']['Rate']) > 2.95, taylor['R2']
+    assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
+    assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
+    assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
 
 
 def main_test_weak_4dvar_advection():
@@ -459,10 +453,19 @@ def main_test_weak_4dvar_advection():
         mp = m(V)
         hp = h(V)
         # make sure we've set up the reference rf correctly
-        # assert taylor_test(Jhat_pyadj, mp, hp) > 1.99
+        assert taylor_test(Jhat_pyadj, mp, hp) > 1.95
 
-    Jpm = ensemble.ensemble_comm.bcast(Jhat_pyadj(mp) if erank == 0 else None)
-    Jph = ensemble.ensemble_comm.bcast(Jhat_pyadj(hp) if erank == 0 else None)
+        # If we match the functional, then passing the taylor
+        # tests means that we should match the derivative too.
+        taylor = taylor_to_dict(Jhat_pyadj, mp, hp)
+        assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
+        assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
+        assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
+
+    Jpm = ensemble.ensemble_comm.bcast(
+        Jhat_pyadj(mp) if erank == 0 else None)
+    Jph = ensemble.ensemble_comm.bcast(
+        Jhat_pyadj(hp) if erank == 0 else None)
 
     Jhat_aaorf = weak_fdvar_firedrake(V, ensemble)
 
@@ -484,25 +487,25 @@ def main_test_weak_4dvar_advection():
 
     conv_rate = taylor_test(Jhat_aaorf, ma, ha)
     parallel_assert(
-        conv_rate > 1.99,
-        msg=f"Convergence rate for first order Taylor test should be >1.99, not {conv_rate}")
+        conv_rate > 1.95,
+        msg=f"Convergence rate for first order Taylor test should be >1.95, not {conv_rate}")
 
-    # If we match the functional, then passing the taylor tests
-    # should mean that we match the derivative too.
+    # If we match the functional, then passing the taylor
+    # tests means that we should match the derivative too.
     taylor = taylor_to_dict(Jhat_aaorf, ma, ha)
-    R0 = mean(taylor['R0']['Rate'])
-    R1 = mean(taylor['R1']['Rate'])
-    R2 = mean(taylor['R2']['Rate'])
+    R0 = min(taylor['R0']['Rate'])
+    R1 = min(taylor['R1']['Rate'])
+    R2 = min(taylor['R2']['Rate'])
 
     parallel_assert(
-        R0 > 0.99,
-        msg=f"Convergence rate for evaluation order Taylor test should be >0.99, not {R0}")
+        R0 > 0.95,
+        msg=f"Convergence rate for evaluation order Taylor test should be >0.95, not {R0} from {taylor['R0'] = }")
     parallel_assert(
-        R1 > 1.99,
-        msg=f"Convergence rate for gradient order Taylor test should be >1.99, not {R0}")
+        R1 > 1.95,
+        msg=f"Convergence rate for gradient order Taylor test should be >1.95, not {R1} from {taylor['R1'] = }")
     parallel_assert(
-        R2 > 2.99,
-        msg=f"Convergence rate for hessian order Taylor test should be >2.99, not {R0}")
+        R2 > 2.95,
+        msg=f"Convergence rate for hessian order Taylor test should be >2.95, not {R2} from {taylor['R2'] = }")
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
