@@ -204,7 +204,7 @@ and can be set globally or for individual surfaces.
   7: BAMG, 8: Frontal-Delaunay for Quads, 9: Packing of Parallelograms, 11: Quasi-structured Quad
 * 3D: Delaunay (default) 3: Initial mesh only 4: Frontal 7: MMG3D 9: R-tree 10: HXT
 
-For more information see the `Gmesh documentation <https://gmsh.info/doc/texinfo/gmsh.html#Choosing-the-right-unstructured-algorithm>`_.
+For more information see the `Gmsh algorithm overview <https://gmsh.info/doc/texinfo/gmsh.html#Choosing-the-right-unstructured-algorithm>`_.
 
 When writing the mesh to file, the format is determined by the file extension. For example,
 `.msh2` for Gmsh 2.x, `.msh` for GMSH 4.x. ::
@@ -223,8 +223,8 @@ Using OpenCASCADE through Gmsh
 
 Using OpenCASCADE through Gmsh, we define higher level geometries such as rectangles 
 and discs directly. It also has additional 3D capability, and integration not illustrated
-here. Please see the  `Gmsh documentation <https://gmsh.info/doc/texinfo/gmsh.html#Namespace-gmsh_002fmodel_002focc>`_
-for more details.
+here. Please see the  `OpenCASCADE documentation <https://gmsh.info/doc/texinfo/gmsh.html#Namespace-gmsh_002fmodel_002focc>`_
+in Gmsh for more details.
 
 As with the Gmsh API, we ``initialize`` and start constructing a new mesh model. ::
 
@@ -339,7 +339,7 @@ The following Firedrake code shows how to solve this variational problem
 using linear Lagrangian finite elements. ::
 
    # load the mesh generated with Gmsh
-   mesh = Mesh('immersed_domain.msh')
+   mesh = Mesh('gmsh_occ_demo.msh')
 
    # define the space of linear Lagrangian finite elements
    V = FunctionSpace(mesh, "CG", 1)
