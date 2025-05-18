@@ -34,11 +34,11 @@ def _test_submesh_interpolate_cell_cell(mesh, subdomain_cond, fe_fesub):
     indicator_function = Function(DG0).interpolate(subdomain_cond)
     label_value = 999
     mesh.mark_entities(indicator_function, label_value)
-    msub = Submesh(mesh, dim, label_value)
+    subm = Submesh(mesh, dim, label_value)
     V = FunctionSpace(mesh, family, degree)
     V_ = FunctionSpace(mesh, family_sub, degree_sub)
-    Vsub = FunctionSpace(msub, family_sub, degree_sub)
-    Vsub_ = FunctionSpace(msub, family, degree)
+    Vsub = FunctionSpace(subm, family_sub, degree_sub)
+    Vsub_ = FunctionSpace(subm, family, degree)
     f = Function(V).interpolate(_get_expr(V))
     gsub_ = Function(Vsub_).interpolate(_get_expr(Vsub_))
     gsub = Function(Vsub).interpolate(gsub_)
@@ -124,3 +124,52 @@ def test_submesh_interpolate_cell_cell_quad_3_processes(fe_fesub, condx, condy, 
     cond = conditional(condx(x, 0.5), 1,
            conditional(condy(y, 0.5), 1, 0))  # noqa: E128
     _test_submesh_interpolate_cell_cell(mesh, cond, fe_fesub)
+
+
+@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parametrize('hexahedral', [False, True])
+@pytest.mark.parametrize('direction', ['x', 'y', 'z'])
+@pytest.mark.parametrize('facet_type', ['interior', 'exterior'])
+def test_submesh_interpolate_3Dcell_2Dfacet(hexahedral, direction, facet_type):
+    distribution_parameters = {
+        "partition": True,
+        "overlap_type": (DistributedMeshOverlapType.FACET, 2),
+    }
+    if hexahedral:
+        mesh = Mesh(
+            join(cwd, "..", "meshes", "cube_hex.msh"),
+            distribution_parameters=distribution_parameters,
+        )
+        V = FunctionSpace(mesh, "CG", 2)
+    else:
+        mesh = UnitCubeMesh(8, 8, 8)
+        V = FunctionSpace(mesh, "HDiv Trace", 0)
+    x, y, z = SpatialCoordinate(mesh)
+    facet_function = Function(V).interpolate(
+        conditional(
+            {
+                ('x', 'interior'): And(x > .499, x < .501),
+                ('y', 'interior'): And(y > .499, y < .501),
+                ('z', 'interior'): And(z > .499, z < .501),
+                ('x', 'exterior'): x > .999,
+                ('y', 'exterior'): y > .999,
+                ('z', 'exterior'): z > .999,
+            }[(direction, facet_type)],
+            1., 0.,
+        )
+    )
+    facet_value = 999
+    mesh = RelabeledMesh(mesh, [facet_function], [facet_value])
+    subm = Submesh(mesh, mesh.topological_dimension() - 1, facet_value)
+    DG3d = FunctionSpace(mesh, "DG", 3)
+    x, y, z = SpatialCoordinate(mesh)
+    dg3d = Function(DG3d).interpolate(x + y**2 + z**3)
+    DG2d = FunctionSpace(subm, "DG", 3)
+    x, y, z = SpatialCoordinate(subm)
+    dg2d = Function(DG2d).interpolate(x + y**2 + z**3)
+    dg2d_ = Function(DG2d).interpolate(dg3d)
+    value3d_int = assemble(inner(dg3d('+'), dg3d('-')) * dS(facet_value))
+    value3d_ext = assemble(inner(dg3d, dg3d) * ds(facet_value))
+    value2d = assemble(inner(dg2d, dg2d) * dx)
+    value2d_ = assemble(inner(dg2d_, dg2d_) * dx)
+    assert abs(value2d - (value3d_int + value3d_ext)) < 1.e-14
