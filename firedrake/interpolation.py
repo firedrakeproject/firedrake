@@ -1580,3 +1580,20 @@ class VomOntoVomDummyMat(object):
             # matrix will then have rows of zeros for those points.
             target_vec.zeroEntries()
             self.reduce(source_vec, target_vec)
+
+    def _create_petsc_mat(self):
+        element = self.V.ufl_element()
+        P0DG_source = firedrake.FunctionSpace(self.source_vom, element)
+        P0DG_target = firedrake.FunctionSpace(self.target_vom, element)
+        source_size = P0DG_source.dof_dset.layout_vec.getSizes()
+        target_size = P0DG_target.dof_dset.layout_vec.getSizes()
+        mat = PETSc.Mat().createConstantDiagonal((target_size, source_size), 1.0, self.V.comm)
+        mat.convert(mat_type=PETSc.Mat().Type.AIJ)
+        perm = self.sf.getGraph()[2][:,1]
+        col_is = PETSc.IS().createGeneral(perm)
+        col_is.setPermutation()
+        row_is = PETSc.IS().createGeneral(numpy.arange(perm.shape[0], dtype=numpy.int32))
+        row_is.setIdentity()
+        row_is.setPermutation()
+        mat = mat.permute(row_is, col_is)
+        return mat
