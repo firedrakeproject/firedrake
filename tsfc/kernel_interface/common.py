@@ -299,17 +299,16 @@ def set_quad_rule(params, cell, integral_type, functions):
     # Check if the integral has a quad degree or quad element attached,
     # otherwise use the estimated polynomial degree attached by compute_form_data
     quad_rule = params.get("quadrature_rule", "default")
+    elements = []
+    for f in functions:
+        e = f.ufl_element()
+        if type(e) is MixedElement:
+            elements.extend(e.sub_elements)
+        else:
+            elements.append(e)
     try:
         quadrature_degree = params["quadrature_degree"]
     except KeyError:
-        elements = []
-        for f in functions:
-            e = f.ufl_element()
-            if type(e) is MixedElement:
-                elements.extend(e.sub_elements)
-            else:
-                elements.append(e)
-
         quad_data = set((e.degree(), e.quadrature_scheme() or "default") for e in elements
                         if e.family() in {"Quadrature", "Boundary Quadrature"})
         if len(quad_data) == 0:
