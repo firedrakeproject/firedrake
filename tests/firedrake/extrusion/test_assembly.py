@@ -60,3 +60,16 @@ def test_hcurl_assembly(extmesh, hfamily, hdegree, vfamily, vdegree):
 
     assemble(inner(u, v)*dx)
     assemble(inner(grad(u), grad(v))*dx)
+
+
+def test_mixed_rspace_assembly(extmesh):
+    mesh = extmesh(4, 4, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(mesh, 'R', 0)
+    Z = V * R
+
+    z = Function(Z)
+    u, p = split(z)
+    v, q = TestFunctions(Z)
+
+    assemble(inner(u, v)*dx + inner(p, q)*dx)
