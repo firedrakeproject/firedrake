@@ -1592,11 +1592,13 @@ class VomOntoVomDummyMat(object):
         target_size = P0DG_target.dof_dset.layout_vec.getSizes()
         mat = PETSc.Mat().createConstantDiagonal((target_size, source_size), 1.0, self.V.comm)
         mat.convert(mat_type=PETSc.Mat().Type.AIJ)
-        perm = self.sf.getGraph()[2][:,1]
-        col_is = PETSc.IS().createGeneral(perm)
-        col_is.setPermutation()
-        row_is = PETSc.IS().createGeneral(numpy.arange(perm.shape[0], dtype=numpy.int32))
-        row_is.setIdentity()
-        row_is.setPermutation()
+        # perm = self.sf.getGraph()[2][:,1]
+        nroots, ilocal, iremote = self.sf.getGraph()
+        root_indices = numpy.arange(nroots, dtype=numpy.int32)
+        perm = numpy.empty_like(ilocal, dtype=numpy.int32)
+        self.sf.bcastBegin(MPI.INT, root_indices, perm, MPI.REPLACE)
+        self.sf.bcastEnd(MPI.INT, root_indices, perm, MPI.REPLACE)
+        col_is = PETSc.IS().createGeneral(perm, comm=self.V.comm)
+        row_is = PETSc.IS().createGeneral(numpy.arange(perm.shape[0], dtype=numpy.int32), comm=self.V.comm)
         mat = mat.permute(row_is, col_is)
         return mat
