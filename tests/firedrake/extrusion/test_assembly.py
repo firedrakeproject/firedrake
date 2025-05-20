@@ -62,14 +62,19 @@ def test_hcurl_assembly(extmesh, hfamily, hdegree, vfamily, vdegree):
     assemble(inner(grad(u), grad(v))*dx)
 
 
-def test_mixed_rspace_assembly(extmesh):
+def test_mixed_real_space_assembly(extmesh):
     mesh = extmesh(4, 4, 2)
-    V = FunctionSpace(mesh, "CG", 1)
+    V = FunctionSpace(mesh, 'DG', 0)
     R = FunctionSpace(mesh, 'R', 0)
     Z = V * R
 
     z = Function(Z)
+    z.assign(42)
     u, p = split(z)
     v, q = TestFunctions(Z)
+    result = assemble(inner(u, v)*dx + inner(p, q)*dx)
 
-    assemble(inner(u, v)*dx + inner(p, q)*dx)
+    for j in range(len(Z)):
+        zj = z.subfunctions[j]
+        expected = assemble(inner(zj, TestFunction(zj.function_space()))*dx)
+        assert np.allclose(result.dat[j].data_ro, expected.dat.data_ro)
