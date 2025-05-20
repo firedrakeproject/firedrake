@@ -257,7 +257,6 @@ definite, and therefore can choose the conjugate gradient method,
 rather than GMRES.
 
 .. code-block:: python3
-   
    solve(a == L, solver_parameters={'ksp_type': 'cg'})
 
 To change the preconditioner used, we set the ``'pc_type'`` option.
@@ -284,7 +283,9 @@ do this, we set the ``pc_type`` to ``'lu'`` and tell PETSc to use a
               'mat_type': 'aij',
               'ksp_type': 'preonly',
               'ksp_rtol': 1e-7,
-              'pc_type': 'lu'
+              'pc_type': 'lu',
+              'pc_factor_mat_solver_type' : 'mumps',
+              'pc_factor_mat_mumps_icntl_14' : 200
           })
 
 In a similar manner, we can use Jacobi preconditioned Richardson
@@ -294,7 +295,9 @@ iterations with:
 
    solve(a == L,
          solver_parameters={'ksp_type': 'richardson',
-                            'pc_type': 'jacobi'})
+                            'pc_type': 'jacobi',
+                            'pc_factor_mat_solver_type' : 'mumps',
+                            'pc_factor_mat_mumps_icntl_14' : 200})
 
 .. note::
 
@@ -746,11 +749,12 @@ use:
 * ``ksp_divtol``: ``1e4``
 * ``ksp_max_it``: ``10000``
 * ``pc_type``: ``lu``
+* ``pc_factor_mat_solver_type`` : ``mumps``
+* ``pc_factor_mat_mumps_icntl_14``: 200
 
 
 For nonlinear variational solves we have:
 
-* ``snes_type``: Newton linesearch
 * ``ksp_type``: ``preonly``
 * ``mat_type``: ``aij``
 * ``snes_rtol``: 1e-8
