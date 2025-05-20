@@ -1671,15 +1671,23 @@ class VomOntoVomDummyMat(object):
         P0DG_target = firedrake.FunctionSpace(self.target_vom, element)
         source_size = P0DG_source.dof_dset.layout_vec.getSizes()
         target_size = P0DG_target.dof_dset.layout_vec.getSizes()
+        # We create an identity matrix and use `MatPermute` to get the permutation matrix
         mat = PETSc.Mat().createConstantDiagonal((target_size, source_size), 1.0, self.V.comm)
-        mat.convert(mat_type=PETSc.Mat().Type.AIJ)
-        # perm = self.sf.getGraph()[2][:,1]
-        nroots, ilocal, iremote = self.sf.getGraph()
-        root_indices = numpy.arange(nroots, dtype=numpy.int32)
-        perm = numpy.empty_like(ilocal, dtype=numpy.int32)
-        self.sf.bcastBegin(MPI.INT, root_indices, perm, MPI.REPLACE)
-        self.sf.bcastEnd(MPI.INT, root_indices, perm, MPI.REPLACE)
-        col_is = PETSc.IS().createGeneral(perm, comm=self.V.comm)
-        row_is = PETSc.IS().createGeneral(numpy.arange(perm.shape[0], dtype=numpy.int32), comm=self.V.comm)
+        mat.convert(mat_type=mat.Type.BAIJ)
+        _, _, iremote = self.sf.getGraph()
+        SF = PETSc.SF().create(comm=self.V.comm)
+        local_sizes = self.V.comm.allgather(source_size[0])
+        start = sum(local_sizes[:self.V.comm.rank])
+        end = start + source_size[0]
+        contiguous_indices = numpy.arange(start, end, dtype=numpy.int32)
+        SF.setGraph(source_size[0], contiguous_indices, iremote)
+        root_indices = numpy.arange(target_size[1], dtype=numpy.int32)
+        result = numpy.zeros_like(root_indices, dtype=numpy.int32)
+        SF.reduceBegin(MPI.INT, root_indices, result, MPI.REPLACE)
+        SF.reduceEnd(MPI.INT, root_indices, result, MPI.REPLACE)
+        perm = result[:target_size[0]]
+        row_is = PETSc.IS().createGeneral(perm, comm=self.V.comm)
+        col_is = PETSc.IS().createGeneral(numpy.arange(target_size[1], dtype=numpy.int32), comm=self.V.comm)
         mat = mat.permute(row_is, col_is)
+        mat.view()
         return mat
