@@ -603,3 +603,8 @@ for low species concentrations and sharp solution gradients.
 | .. image:: benzene_0.png  | .. image:: benzene_4.png  |
 |    :width: 100%           |    :width: 100%           |
 +---------------------------+---------------------------+
+
+.. rubric:: References
+
+.. bibliography:: demo_references.bib
+   :filter: docname in docnames
