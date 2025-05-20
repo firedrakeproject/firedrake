@@ -1666,28 +1666,31 @@ class VomOntoVomDummyMat(object):
             self.reduce(source_vec, target_vec)
 
     def _create_petsc_mat(self):
+        """Creates the PETSc matrix that represents the interpolation operator from a vertex-only mesh to
+        its input ordering vertex-only mesh"""
         element = self.V.ufl_element()
         P0DG_source = firedrake.FunctionSpace(self.source_vom, element)
         P0DG_target = firedrake.FunctionSpace(self.target_vom, element)
-        source_size = P0DG_source.dof_dset.layout_vec.getSizes()
-        target_size = P0DG_target.dof_dset.layout_vec.getSizes()
+        source_size = P0DG_source.dof_dset.layout_vec.getSizes()  # (local_souce_size, global_source_size)
+        target_size = P0DG_target.dof_dset.layout_vec.getSizes()  # (local_target_size, global_target_size)
         # We create an identity matrix and use `MatPermute` to get the permutation matrix
         mat = PETSc.Mat().createConstantDiagonal((target_size, source_size), 1.0, self.V.comm)
-        mat.convert(mat_type=mat.Type.BAIJ)
-        _, _, iremote = self.sf.getGraph()
+        mat.convert(mat_type=mat.Type.BAIJ)  # `MatPermute` only seems to work in parallel with BAIJ
+        # We create a new SF and set the indices of the leaves to be contiguous
         SF = PETSc.SF().create(comm=self.V.comm)
         local_sizes = self.V.comm.allgather(source_size[0])
         start = sum(local_sizes[:self.V.comm.rank])
         end = start + source_size[0]
         contiguous_indices = numpy.arange(start, end, dtype=numpy.int32)
+        _, _, iremote = self.sf.getGraph()
         SF.setGraph(source_size[0], contiguous_indices, iremote)
+        # We reduce the array [0, 1, 2, ... , global_target_size - 1] to get the permutation of the rows
         root_indices = numpy.arange(target_size[1], dtype=numpy.int32)
-        result = numpy.zeros_like(root_indices, dtype=numpy.int32)
-        SF.reduceBegin(MPI.INT, root_indices, result, MPI.REPLACE)
-        SF.reduceEnd(MPI.INT, root_indices, result, MPI.REPLACE)
-        perm = result[:target_size[0]]
+        perm = numpy.zeros(target_size[0], dtype=numpy.int32)
+        SF.reduceBegin(MPI.INT, root_indices, perm, MPI.REPLACE)
+        SF.reduceEnd(MPI.INT, root_indices, perm, MPI.REPLACE)
         row_is = PETSc.IS().createGeneral(perm, comm=self.V.comm)
+        # For the columns we use the identity permutation
         col_is = PETSc.IS().createGeneral(numpy.arange(target_size[1], dtype=numpy.int32), comm=self.V.comm)
         mat = mat.permute(row_is, col_is)
-        mat.view()
         return mat
