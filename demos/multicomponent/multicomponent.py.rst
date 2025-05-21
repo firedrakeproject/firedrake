@@ -3,12 +3,17 @@ Multicomponent flow -- microfluidic non-ideal mixing of hydrocarbons
 
 .. rst-class:: emphasis
 
-    We show how Firedrake can be used to simulate multicomponent flow;
+    We show how Firedrake can be used to simulate multicomponent flow,
     specifically the microfluidic non-ideal mixing of benzene and cyclohexane.
 
     The demo was contributed by `Aaron Baier-Reinio
     <mailto:baierreinio@maths.ox.ac.uk>`__ and `Kars Knook
     <mailto:knook@maths.ox.ac.uk>`__.
+
+Multicomponent fluids are those composed of two or more species. Solving the equations
+describing such fluids is challenging, because there are many variables to solve for, the
+equations are nonlinear, and because the system possesses subtle properties like the
+mass-average constraint and the mole fraction sum.
 
 We consider a steady, isothermal, nonreacting mixture of benzene and cyclohexane in
 a two-dimensional microfluidic container :math:`\Omega \subset \mathbb{R}^2`.
@@ -133,11 +138,11 @@ We also choose a reference length of :math:`L^{\textrm{ref}} = 2 \cdot 10^{-3}` 
 It is then natural to define the reference pressure as
 :math:`p^{\textrm{ref}} = \eta \cdot v^{\textrm{ref}} / L^{\textrm{ref}}`. ::
 
-    # The (dimensionful) Stokes viscosities
+    # The (dimensional) Stokes viscosities
     eta = Constant(6e-4)            # Shear viscosity, Pa s
     zeta = Constant(1e-7)           # Bulk viscosity, Pa s
 
-    # Non-dimensionalised Lame parameter, dimensionless
+    # Non-dimensionalised Lamé parameter, dimensionless
     lame_ND = (zeta / eta) - 1.0
 
     # Reference quantities used for non-dimensionalisation
@@ -465,7 +470,7 @@ At the continuous level the OSM equations imply that
     \nabla (x_1 + \ldots + x_n) = 0 \quad \textrm{in}\ \Omega.
 
 Hence, at the discrete level, we expect :math:`x_1 + \ldots + x_n` to approximately be a constant.
-However, we have not yet incoporated any equations to make this constant be one.
+However, we have not yet incorporated any equations to make this constant be one.
 We accomplish this by enforcing that :math:`\int_{\Omega} (x_1 + \ldots + x_n - 1) \mathrm{d} x = 0`::
 
     tot_res += inner(x_1 + x_2 - 1, s_1) * dx
@@ -535,7 +540,7 @@ We provide a naive initial guess based on an equimolar constant distribution of 
     x_2.interpolate(Constant(0.5))
     rho_inv.interpolate(1.0 / ((M_1_ND * c_1) + (M_2_ND * c_2)))
 
-and define the nonlinear variational solver object, which by defualt uses Newton's method::
+and define the nonlinear variational solver object, which by default uses Newton's method::
 
     NLVP = NonlinearVariationalProblem(tot_res, sln, bcs=flux_bcs+aux_point_bcs)
     NLVS = NonlinearVariationalSolver(NLVP)
