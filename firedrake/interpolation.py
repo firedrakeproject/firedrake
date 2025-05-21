@@ -1693,4 +1693,5 @@ class VomOntoVomDummyMat(object):
         # For the columns we use the identity permutation
         col_is = PETSc.IS().createGeneral(numpy.arange(target_size[1], dtype=numpy.int32), comm=self.V.comm)
         mat = mat.permute(row_is, col_is)
+        mat.convert(mat_type=mat.Type.AIJ)
         return mat
