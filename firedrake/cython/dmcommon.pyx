@@ -1913,6 +1913,7 @@ def _set_dg_coordinates(PETSc.DM dm,
         PetscScalar *dg_coords
         const PetscScalar *firedrake_dg_coords
         PetscInt n, gdim, cStart, cEnd, c, offset, firedrake_offset, i, j, coord_size, ndof
+        PETSc.FE coord_fe
 
     gdim = firedrake_dg_coord_vec.getBlockSize()
     coord_dm = dm.getCoordinateDM()
@@ -1945,6 +1946,7 @@ def _set_dg_coordinates(PETSc.DM dm,
                                           dg_coord_vec,
                                           True)
     dm.setCellCoordinatesLocal(dg_coord_vec)
+    dm.createCoordinateSpace(1, True, False)
 
 
 @cython.boundscheck(False)
@@ -3691,7 +3693,8 @@ def create_halo_exchange_sf(PETSc.DM dm):
 @cython.wraparound(False)
 def submesh_create(PETSc.DM dm,
                    label_name,
-                   PetscInt label_value):
+                   PetscInt label_value,
+                   PetscBool ignore_label_halo):
     """Create submesh.
 
     Parameters
@@ -3702,6 +3705,8 @@ def submesh_create(PETSc.DM dm,
         Name of the label
     label_value : int
         Value in the label
+    ignore_label_halo : bool
+        If labeled points in the halo are ignored.
 
     """
     cdef:
@@ -3710,7 +3715,7 @@ def submesh_create(PETSc.DM dm,
         PETSc.SF ownership_transfer_sf = PETSc.SF()
 
     label = dm.getLabel(label_name)
-    CHKERR(DMPlexFilter(dm.dm, label.dmlabel, label_value, PETSC_FALSE, PETSC_TRUE, &ownership_transfer_sf.sf, &subdm.dm))
+    CHKERR(DMPlexFilter(dm.dm, label.dmlabel, label_value, ignore_label_halo, PETSC_TRUE, &ownership_transfer_sf.sf, &subdm.dm))
     submesh_update_facet_labels(dm, subdm)
     submesh_correct_entity_classes(dm, subdm, ownership_transfer_sf)
     return subdm
@@ -3923,3 +3928,36 @@ def submesh_create_cell_closure_cell_submesh(PETSc.DM subdm,
     CHKERR(PetscFree(subpoint_indices_inv))
     CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
     return subcell_closure
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def get_dm_cell_types(PETSc.DM dm):
+    """Return all cell types in the mesh.
+
+    Parameters
+    ----------
+    dm : PETSc.DM
+        The parent dm.
+
+    Returns
+    -------
+    tuple
+        Tuple of all cell types in the mesh.
+
+    """
+    cdef:
+        PetscInt cStart, cEnd, c
+        np.ndarray found, found_all
+        PetscDMPolytopeType celltype
+
+    cStart, cEnd = dm.getHeightStratum(0)
+    found = np.zeros((DM_NUM_POLYTOPES, ), dtype=IntType)
+    found_all = np.zeros((DM_NUM_POLYTOPES, ), dtype=IntType)
+    for c in range(cStart, cEnd):
+        CHKERR(DMPlexGetCellType(dm.dm, c, &celltype))
+        found[celltype] = 1
+    dm.comm.tompi4py().Allreduce(found, found_all, op=MPI.MAX)
+    return tuple(
+        polytope_type_enum for polytope_type_enum, found in enumerate(found_all) if found
+    )
