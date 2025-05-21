@@ -249,7 +249,7 @@ Our implementation of the non-dimensionalised volumetric equation of state
 
     c_tot, c_1, c_2 = conc_relation(x_1, x_2)
 
-Moreover, to express that :math:`\rho^{-1} = \sum_{j=1}^n M_j c_j`, we simply take the
+Moreover, to express that :math:`1 / \rho^{-1} = \sum_{j=1}^n M_j c_j`, we simply take the
 :math:`L^2`-projection of this expression (in non-dimensionalised form)::
 
     rho_inv_terms = inner(1.0 / rho_inv, r) * dx
@@ -358,14 +358,14 @@ introducing an augmentation parameter
 
 One can non-dimensionalise :ref:`eq 5. <eq:osm>` by introducing a dimensionless Péclet number
 :math:`\mathrm{Pe} = v^{\textrm{ref}} L^{\textrm{ref}} / \mathscr{D}_{\textrm{sm}}`
-and pressure diffusion numbers :math:`\mathrm{Me} = p^{\textrm{ref}} / RT c^{\textrm{ref}}`.
+and pressure diffusion number :math:`\mathrm{Me} = p^{\textrm{ref}} / RT c^{\textrm{ref}}`.
 Moreover, :ref:`eq 5. <eq:osm>` can be cast into a variational form by
 testing against functions :math:`K_i` and integrating by parts the two gradient terms
 on the left-hand side (the boundary terms drop out owing to our BCs below).
 This leads to the following implementation::
 
     D_sm = Constant(2.1e-9)                         # Stefan--Maxwell diffusivity, m^2 / s
-    Pe = v_ref * L_ref / D_sm                       # Peclet number, dimensionless
+    Pe = v_ref * L_ref / D_sm                       # Péclet number, dimensionless
     Me = p_ref / (RT * c_ref)                       # Pressure diffusion number, dimensionless
 
     gamma = Constant(1e-1)                          # Augmentation parameter, dimensionless
@@ -413,8 +413,8 @@ The magnitudes of the parabolic profiles are :math:`M_i c_i^\text{ref} v_i^\text
 :math:`v_i^\text{ref}` are reference velocities that we are free to choose.
 Elsewhere on the boundary we enforce :math:`J_i \cdot N = 0`. Finally, instead of specifying
 the value of the barycentric velocity :math:`v` on the inflows and outflow, we enforce :math:`\rho v \cdot N = (J_1 + J_2 )\cdot N`
-and :math:`\rho v \times N = 0` in these regions. This means that :math:`v` equals an unknown quantity,
-so we need to use :code:`EquationBC` instead of :code:`DirichletBC`. ::
+and :math:`\rho v \times N = 0` in these regions. To enforce that :math:`v` is equal to an unknown quantity,
+we must use :class:`~.EquationBC` instead of :class:`~.DirichletBC`. ::
 
     # Reference species velocities, which we choose to symmetrize so that the molar fluxes agree
     v_ref_1 = Constant(0.4e-6)                      # Reference inflow velocity of benzene, m / s
@@ -432,7 +432,7 @@ so we need to use :code:`EquationBC` instead of :code:`DirichletBC`. ::
     J_2_outflow_bc_func = -M_2_ND * (v_ref_2 / v_ref) * (c_pure_2 / c_ref) * parabola_outflow
     rho_v_outflow_bc_func = J_1_outflow_bc_func + J_2_outflow_bc_func
 
-    # Boundary conditions on the bulk velocity are enforced via EquationBC
+    # Boundary conditions on the barycentric velocity are enforced via EquationBC
     v_inflow_1_bc = EquationBC(inner(v - rho_inv * rho_v_inflow_1_bc_func, u) * ds(*inlet_1_id) == 0,
                                sln, inlet_1_id, V=Z_h.sub(2))
     v_inflow_2_bc = EquationBC(inner(v - rho_inv * rho_v_inflow_2_bc_func, u) * ds(*inlet_2_id) == 0,
@@ -471,20 +471,20 @@ At the continuous level the OSM equations imply that
 
 Hence, at the discrete level, we expect :math:`x_1 + \ldots + x_n` to approximately be a constant.
 However, we have not yet incorporated any equations to make this constant be one.
-We accomplish this by enforcing that :math:`\int_{\Omega} (x_1 + \ldots + x_n - 1) \mathrm{d} x = 0`::
+We accomplish this by enforcing that :math:`\int_{\Omega} (x_1 + \ldots + x_n - 1) \ {\rm d} x = 0`::
 
     tot_res += inner(x_1 + x_2 - 1, s_1) * dx
 
 Moreover, the steady SOSM problem still does not have a unique solution
 since we have not specified how much mass of fluid is present in :math:`\Omega`.
 For uniqueness we must pin this down by imposing one more constraint.
-Instead of directly imposing the value of :math:`\int_{\Omega} \rho \mathrm{d} x`,
+Instead of directly imposing the value of :math:`\int_{\Omega} \rho \ {\rm d} x`,
 to demonstrate the flexibility of our approach we enforce that, on the outflow,
 the species have equal average densities::
 
     tot_res += inner((M_1_ND * c_1) - (M_2_ND * c_2), s_2) * ds(*outlet_id)
 
-Analogously to :doc:`the steady Boussinesq demo<demos/boussinesq.py>` we use
+Analogously to :doc:`the steady Boussinesq demo <boussinesq.py>` we use
 :code:`FixAtPointBC` to remove the pressure nullspace and pin the
 :math:`\mu_{i, \textrm{aux}}` at a DOF (by carefully studying which rows in the
 discretised Jacobian are linearly dependent, one checks that it is
@@ -533,7 +533,7 @@ mathematically valid to do this)::
 Solving the system using Newton's method
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-We provide a naive initial guess based on an equimolar constant distribution of benzene and cyclohexane::
+We provide a naive initial guess based on an equimolar spatially uniform distribution of benzene and cyclohexane::
 
     J_1, J_2, v, mu_aux_1, mu_aux_2, p, x_1, x_2, rho_inv, l_1, l_2 = sln.subfunctions
     x_1.interpolate(Constant(0.5))
@@ -551,8 +551,8 @@ to find a better initial guess. We start by solving the problem for :math:`v_1^\
 with the naive initial guess and use its solution as initial guess for the problem with 
 :math:`v_1^\text{ref}=0.1\times 10^{-5}`. We repeat this trick with :math:`v_1^\text{ref}=0.2\times 10^{-5}`
 and :math:`v_1^\text{ref}=0.3\times 10^{-5}` before solving for :math:`v_1^\text{ref}=0.4\times 10^{-5}`. 
-We can reuse the nonlinear variational solver object each iteration, but have to reassign :code:`v_ref_1` 
-to the new value before calling the :code:`solve()` method. Finally, we write each solution to the same 
+We can reuse the nonlinear variational solver object each iteration, but have to reassign :code:`v_ref_1`
+and :code:`v_ref` before calling the :code:`solve()` method. Finally, we write each solution to the same 
 VTK file using the :code:`time` keyword argument. ::
 
     from firedrake.output import VTKFile
@@ -599,10 +599,10 @@ VTK file using the :code:`time` keyword argument. ::
         outfile.write(J_1, J_2, v, mu_1_out, mu_2_out, p, x_1, x_2, rho_inv, \
                         rho_out, c_tot_out, c_1_out, c_2_out, time=i)
 
-The mole fraction and stream lines of benzene for :math:`v_1^\text{ref}=0.4\times 10^{-6}` 
+The mole fraction and streamlines of benzene for :math:`v_1^\text{ref}=0.4\times 10^{-6}` 
 and :math:`v_1^\text{ref}=0.4\times 10^{-5}` are displayed below on the left and right respectively.
-Thanks to parameter continuation and higher-order discretisation methods, we can effectively solve 
-for low species concentrations and sharp solution gradients.
+Owing to parameter continuation and the high-order discretisation, we can robustly solve the problem
+even in the presence of low species concentrations and sharp solution gradients.
 
 +---------------------------+---------------------------+
 | .. image:: benzene_0.png  | .. image:: benzene_4.png  |
