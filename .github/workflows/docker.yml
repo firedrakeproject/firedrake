@@ -7,14 +7,18 @@ on:
         description: Docker image tag
         type: string
     secrets:
-      # Docker login information
       DOCKERHUB_USER:
         required: true
       DOCKERHUB_TOKEN:
         required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Docker image tag
+        type: string
 
 jobs:
-  # Firedrake container (just Firedrake)
+  # Firedrake only
   docker_build_vanilla:
     strategy:
       fail-fast: false
@@ -48,7 +52,7 @@ jobs:
       tag: ${{ inputs.tag }}
     secrets: inherit
 
-  # # Firedrake container (Firedrake and friends)
+  # Firedrake and friends
   docker_build_firedrake:
     needs: docker_merge_vanilla
     uses: ./.github/workflows/docker_build.yml
@@ -72,27 +76,7 @@ jobs:
       tag: ${{ inputs.tag }}
     secrets: inherit
 
-  # # Firedrake container with TeX
-  docker_build_docdeps:
-    needs: docker_merge_vanilla
-    uses: ./.github/workflows/docker_build.yml
-    with:
-      os: Linux
-      platform: linux/amd64
-      target: firedrake-docdeps
-      tag: ${{ inputs.tag }}
-      dockerfile: docker/Dockerfile.docdeps
-    secrets: inherit
-
-  docker_merge_docdeps:
-    uses: ./.github/workflows/docker_merge.yml
-    needs: docker_build_docdeps
-    with:
-      target: firedrake-docdeps
-      tag: ${{ inputs.tag }}
-    secrets: inherit
-
-  # # Firedrake container with Jupyter notebooks
+  # Firedrake with Jupyter notebooks
   docker_build_jupyter:
     needs: docker_merge_firedrake
     uses: ./.github/workflows/docker_build.yml
