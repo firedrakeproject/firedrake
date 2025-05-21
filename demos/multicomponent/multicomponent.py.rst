@@ -10,9 +10,10 @@ Multicomponent flow -- microfluidic non-ideal mixing of hydrocarbons
     <mailto:baierreinio@maths.ox.ac.uk>`__ and `Kars Knook
     <mailto:knook@maths.ox.ac.uk>`__.
 
-Multicomponent fluids are those composed of two or more species; solving the equations describing such fluids
-is challenging, because there are many variables to solve for, and because the system possesses subtle properties
-like the mass-average constraint and the mole fraction sum that are important to retain on discretisation.
+Multicomponent fluids are those composed of two or more species. Solving the equations
+describing such fluids is challenging, because there are many variables to solve for, the
+equations are nonlinear, and because the system possesses subtle properties like the
+mass-average constraint and the mole fraction sum.
 
 We consider a steady, isothermal, nonreacting mixture of benzene and cyclohexane in
 a two-dimensional microfluidic container :math:`\Omega \subset \mathbb{R}^2`.
