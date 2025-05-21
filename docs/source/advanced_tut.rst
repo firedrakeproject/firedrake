@@ -25,3 +25,4 @@ element systems.
    Netgen support.<demos/netgen_mesh.py>
    Full-waveform inversion: spatial and wave sources parallelism.<demos/full_waveform_inversion.py>
    Steady multicomponent flow -- microfluidic mixing of hydrocarbons.<demos/multicomponent.py>
+   Steady Boussinesq problem with integral constraints.<demos/boussinesq.py>
