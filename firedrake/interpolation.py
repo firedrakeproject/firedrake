@@ -1668,23 +1668,19 @@ class VomOntoVomDummyMat(object):
     def _create_petsc_mat(self):
         """Creates the PETSc matrix that represents the interpolation operator from a vertex-only mesh to
         its input ordering vertex-only mesh"""
-        element = self.V.ufl_element()
-        P0DG_source = firedrake.FunctionSpace(self.source_vom, element)
-        P0DG_target = firedrake.FunctionSpace(self.target_vom, element)
-        source_size = P0DG_source.dof_dset.layout_vec.getSizes()  # (local_souce_size, global_source_size)
-        target_size = P0DG_target.dof_dset.layout_vec.getSizes()  # (local_target_size, global_target_size)
-        # print(f"rank {self.V.comm.rank} source size: {source_size}")
-        # print(f"rank {self.V.comm.rank} target size: {target_size}")
+        nroots = self.sf.getGraph()[0]
+        nleaves = len(self.sf.getGraph()[1])
+        source_size = (nroots, self.V.comm.allreduce(nroots, op=MPI.SUM))
+        target_size = (nleaves, self.V.comm.allreduce(nleaves, op=MPI.SUM))
         mat = PETSc.Mat().createAIJ((target_size, source_size), nnz=1, comm=self.V.comm)
         mat.setUp()
-        local_sizes = self.V.comm.allgather(source_size[0])
+        local_sizes = self.V.comm.allgather(nroots)
         start = sum(local_sizes[:self.V.comm.rank])
-        end = start + source_size[0]
+        end = start + nroots
         contiguous_indices = numpy.arange(start, end, dtype=numpy.int32)
         perm = numpy.zeros(target_size[0], dtype=numpy.int32)
         self.sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
         self.sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
-        print(f"rank {self.V.comm.rank} perm: {perm}")
         rows = numpy.arange(target_size[0] + 1, dtype=numpy.int32)
         mat.setValuesCSR(rows, perm, numpy.ones_like(perm, dtype=numpy.int32))
         mat.assemble()
