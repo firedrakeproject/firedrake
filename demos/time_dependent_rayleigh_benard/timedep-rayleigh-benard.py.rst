@@ -21,7 +21,7 @@ temperature. ::
   from matplotlib.animation import FuncAnimation
 
   try:
-      from irksome import Dt, RadauIIA, TimeStepper
+      from irksome import Dt, MeshConstant, RadauIIA, TimeStepper
   except ImportError:
       import sys
       warning("Unable to import irksome.")
@@ -61,8 +61,9 @@ Along with gravity, which points down. ::
 
 Set up variables for time and time-step size. ::
 
-  t = Constant(0.0)
-  dt = Constant(1.0 / N)
+  MC = MeshConstant(msh)
+  t = MC.Constant(0.0)
+  dt = MC.Constant(1.0 / N)
 
   F = (
       inner(Dt(u), v)*dx
