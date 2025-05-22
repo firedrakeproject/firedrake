@@ -83,7 +83,6 @@ from firedrake.utility_meshes import *
 from firedrake.variational_solver import *
 from firedrake.eigensolver import *
 from firedrake.vector import *
-from firedrake.version import __version__ as ver, __version_info__, check  # noqa: F401
 from firedrake.ensemble import *
 from firedrake.randomfunctiongen import *
 from firedrake.external_operators import *
@@ -104,12 +103,7 @@ import sys
 sys.modules["firedrake.plot"] = plot
 from firedrake.plot import *
 
-check()
-del check, sys
-
-from firedrake._version import get_versions
-__version__ = get_versions()['version']
-del get_versions
+del sys
 
 
 def set_blas_num_threads():
@@ -172,6 +166,3 @@ if _is_logging:
     _init_event.end()
     del _init_event
 del _is_logging
-
-from . import _version
-__version__ = _version.get_versions()['version']

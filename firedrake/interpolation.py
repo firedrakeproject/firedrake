@@ -85,14 +85,11 @@ class Interpolate(ufl.Interpolate):
                               the :meth:`interpolate` method or (b) set to zero.
                               Ignored if interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`.
         """
-
         # Check function space
         if isinstance(v, functionspaceimpl.WithGeometry):
-            v = Argument(v.dual(), 0)
-
-        # Get the primal space (V** = V)
-        vv = v if not isinstance(v, ufl.Form) else v.arguments()[0]
-        self._function_space = vv.function_space().dual()
+            expr_args = extract_arguments(ufl.as_ufl(expr))
+            is_adjoint = len(expr_args) and expr_args[0].number() == 0
+            v = Argument(v.dual(), 1 if is_adjoint else 0)
         super().__init__(expr, v)
 
         # -- Interpolate data (e.g. `subset` or `access`) -- #
@@ -101,8 +98,7 @@ class Interpolate(ufl.Interpolate):
                             "allow_missing_dofs": allow_missing_dofs,
                             "default_missing_val": default_missing_val}
 
-    def function_space(self):
-        return self._function_space
+    function_space = ufl.Interpolate.ufl_function_space
 
     def _ufl_expr_reconstruct_(self, expr, v=None, **interp_data):
         interp_data = interp_data or self.interp_data.copy()
@@ -293,9 +289,7 @@ class Interpolator(abc.ABC):
         expr_args = extract_arguments(expr)
         if expr_args and expr_args[0].number() == 0:
             v, = expr_args
-            expr = replace(expr, {v: Argument(v.function_space(),
-                                              number=1,
-                                              part=v.part())})
+            expr = replace(expr, {v: v.reconstruct(number=1)})
         self.expr_renumbered = expr
 
     def _interpolate_future(self, *function, transpose=None, adjoint=False, default_missing_val=None):
@@ -870,7 +864,7 @@ class SameMeshInterpolator(Interpolator):
                 raise ValueError("The expression had arguments: we therefore need to be given a Function (not an expression) to interpolate!")
             if adjoint:
                 mul = assembled_interpolator.handle.multHermitian
-                V = self.arguments[0].function_space()
+                V = self.arguments[0].function_space().dual()
             else:
                 mul = assembled_interpolator.handle.mult
                 V = self.V
@@ -1123,34 +1117,14 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     name = kernel.name
     kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
                         flop_count=kernel.flop_count, events=(kernel.event,))
+
     parloop_args = [kernel, cell_set]
 
     coefficients = tsfc_interface.extract_numbered_coefficients(expr, coefficient_numbers)
     if needs_external_coords:
         coefficients = [source_mesh.coordinates] + coefficients
 
-    if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
-        if target_mesh is not source_mesh:
-            # NOTE: TSFC will sometimes drop run-time arguments in generated
-            # kernels if they are deemed not-necessary.
-            # FIXME: Checking for argument name in the inner kernel to decide
-            # whether to add an extra coefficient is a stopgap until
-            # compile_expression_dual_evaluation
-            #   (a) outputs a coefficient map to indicate argument ordering in
-            #       parloops as `compile_form` does and
-            #   (b) allows the dual evaluation related coefficients to be supplied to
-            #       them rather than having to be added post-hoc (likely by
-            #       replacing `to_element` with a CoFunction/CoArgument as the
-            #       target `dual` which would contain `dual` related
-            #       coefficient(s))
-            if rt_var_name in [arg.name for arg in kernel.code[name].args]:
-                # Add the coordinates of the target mesh quadrature points in the
-                # source mesh's reference cell as an extra argument for the inner
-                # loop. (With a vertex only mesh this is a single point for each
-                # vertex cell.)
-                coefficients.append(target_mesh.reference_coordinates)
-
-    if tensor in set((c.dat for c in coefficients)):
+    if any(c.dat == tensor for c in coefficients):
         output = tensor
         tensor = op2.Dat(tensor.dataset)
         if access is not op2.WRITE:
@@ -1196,6 +1170,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     if needs_cell_sizes:
         cs = source_mesh.cell_sizes
         parloop_args.append(cs.dat(op2.READ, cs.cell_node_map()))
+
     for coefficient in coefficients:
         if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
             coeff_mesh = extract_unique_domain(coefficient)
@@ -1226,6 +1201,30 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     for const in extract_firedrake_constants(expr):
         parloop_args.append(const.dat(op2.READ))
+
+    # Finally, add the target mesh reference coordinates if they appear in the kernel
+    if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
+        if target_mesh is not source_mesh:
+            # NOTE: TSFC will sometimes drop run-time arguments in generated
+            # kernels if they are deemed not-necessary.
+            # FIXME: Checking for argument name in the inner kernel to decide
+            # whether to add an extra coefficient is a stopgap until
+            # compile_expression_dual_evaluation
+            #   (a) outputs a coefficient map to indicate argument ordering in
+            #       parloops as `compile_form` does and
+            #   (b) allows the dual evaluation related coefficients to be supplied to
+            #       them rather than having to be added post-hoc (likely by
+            #       replacing `to_element` with a CoFunction/CoArgument as the
+            #       target `dual` which would contain `dual` related
+            #       coefficient(s))
+            if any(arg.name == rt_var_name for arg in kernel.code[name].args):
+                # Add the coordinates of the target mesh quadrature points in the
+                # source mesh's reference cell as an extra argument for the inner
+                # loop. (With a vertex only mesh this is a single point for each
+                # vertex cell.)
+                target_ref_coords = target_mesh.reference_coordinates
+                m_ = target_ref_coords.cell_node_map()
+                parloop_args.append(target_ref_coords.dat(op2.READ, m_))
 
     parloop = op2.ParLoop(*parloop_args)
     parloop_compute_callable = parloop.compute
