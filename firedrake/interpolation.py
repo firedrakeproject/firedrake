@@ -1677,21 +1677,21 @@ class VomOntoVomDummyMat(object):
         mat = PETSc.Mat().createConstantDiagonal((target_size, source_size), 1.0, self.V.comm)
         mat.convert(mat_type=mat.Type.BAIJ)  # `MatPermute` only seems to work in parallel with BAIJ
         # We create a new SF and set the indices of the leaves to be contiguous
-        SF = PETSc.SF().create(comm=self.V.comm)
+        # SF = PETSc.SF().create(comm=self.V.comm)
         local_sizes = self.V.comm.allgather(source_size[0])
         start = sum(local_sizes[:self.V.comm.rank])
         end = start + source_size[0]
         contiguous_indices = numpy.arange(start, end, dtype=numpy.int32)
-        _, _, iremote = self.sf.getGraph()
-        SF.setGraph(source_size[0], contiguous_indices, iremote)
+        # _, _, iremote = self.sf.getGraph()
+        # SF.setGraph(source_size[0], contiguous_indices, iremote)
         # We reduce the array [0, 1, 2, ... , global_target_size - 1] to get the permutation of the rows
-        root_indices = numpy.arange(target_size[1], dtype=numpy.int32)
-        perm = numpy.zeros(target_size[0], dtype=numpy.int32)
-        SF.reduceBegin(MPI.INT, root_indices, perm, MPI.REPLACE)
-        SF.reduceEnd(MPI.INT, root_indices, perm, MPI.REPLACE)
-        row_is = PETSc.IS().createGeneral(perm, comm=self.V.comm)
+        # root_indices = numpy.arange(target_size[1], dtype=numpy.int32)
+        perm = numpy.zeros(source_size[0], dtype=numpy.int32)
+        self.sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
+        self.sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
+        col_is = PETSc.IS().createGeneral(perm, comm=self.V.comm)
         # For the columns we use the identity permutation
-        col_is = PETSc.IS().createGeneral(numpy.arange(target_size[1], dtype=numpy.int32), comm=self.V.comm)
+        row_is = PETSc.IS().createGeneral(numpy.arange(target_size[1], dtype=numpy.int32), comm=self.V.comm)
         mat = mat.permute(row_is, col_is)
         mat.convert(mat_type=mat.Type.AIJ)
         return mat
