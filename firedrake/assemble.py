@@ -1776,61 +1776,71 @@ class ParloopBuilder:
     def build(self) -> op3.Loop:
         """Construct the parloop."""
         transform_kernels = self.fuse_orientations()
-        # print(transform_kernels)
-        cells_axis_component = op3.utils.just_one(c for c in self._mesh.points.root.components if c.label == str(self._mesh.dimension))
-        cells_axis = op3.Axis([cells_axis_component.copy(sf=None)], self._mesh.name)
-        orientations = op3.Dat(cells_axis, data=numpy.zeros(cells_axis.size, dtype=numpy.uint8), name="orts")
+        if len(transform_kernels) > 0:
+            cells_axis_component = op3.utils.just_one(c for c in self._mesh.points.root.components if c.label == str(self._mesh.dimension))
+            cells_axis = op3.Axis([cells_axis_component.copy(sf=None)], self._mesh.name)
+            orientations = op3.Dat(cells_axis, data=numpy.zeros(cells_axis.size, dtype=numpy.uint8), name="orts")
 
-        p = self._iterset.index()
-        o_packed = orientations[p]
-        o_temp = op3.Dat.null(
+            p = self._iterset.index()
+            o_packed = orientations[p]
+            o_temp = op3.Dat.null(
                 o_packed.axes.materialize(),
                 dtype=o_packed.dtype,
-                prefix="t"
+                prefix="t")
+            args = []
+            pack_insns = []
+            unpack_insns = []
+            for tsfc_arg in self._kinfo.arguments:
+                op3_arg = self._as_parloop_arg(tsfc_arg, p)
+
+                # TODO: Probably want abstract {dat,mat}.materialize() (or similar) method
+                if isinstance(op3_arg, op3.Dat):
+                    temp = op3.Dat.null(
+                        op3_arg.axes.materialize(),
+                        dtype=op3_arg.dtype,
+                        prefix="t"
+                    )
+                else:
+                    assert isinstance(op3_arg, op3.Mat)
+                    temp = op3.Mat.null(
+                        op3_arg.raxes.materialize(),
+                        op3_arg.caxes.materialize(),
+                        dtype=op3_arg.dtype,
+                        prefix="t"
+                    )
+                transformed_temp = temp.copy()
+
+                if isinstance(tsfc_arg, kernel_args.OutputKernelArg):
+                    scratch = op3.Dat.null(op3.Axis(100), dtype=temp.dtype)
+                    function_args = [o_temp, temp, scratch, transformed_temp]
+
+                    unpack_insns.extend([
+                        o_temp.assign(o_packed),
+                        transform_kernels[0](*function_args),
+                        op3_arg.iassign(transformed_temp),
+                    ])
+                else:
+                    pack_insns.append(op3.ArrayAssignment(temp, op3_arg, op3.AssignmentType.WRITE))
+
+                args.append(temp)
+
+            self._kinfo.kernel.code = self._kinfo.kernel.code.with_entrypoints({self._kinfo.kernel.name})
+
+            kernel = op3.Function(
+                self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]]
             )
-        args = []
-        pack_insns = []
-        unpack_insns = []
-        for tsfc_arg in self._kinfo.arguments:
-            op3_arg = self._as_parloop_arg(tsfc_arg, p)
-
-            # TODO: Probably want abstract {dat,mat}.materialize() (or similar) method
-            if isinstance(op3_arg, op3.Dat):
-                temp = op3.Dat.null(
-                    op3_arg.axes.materialize(),
-                    dtype=op3_arg.dtype,
-                    prefix="t"
-                )
-            else:
-                assert isinstance(op3_arg, op3.Mat)
-                temp = op3.Mat.null(
-                    op3_arg.raxes.materialize(),
-                    op3_arg.caxes.materialize(),
-                    dtype=op3_arg.dtype,
-                    prefix="t"
-                )
-            transformed_temp = temp.copy()
-
-            if isinstance(tsfc_arg, kernel_args.OutputKernelArg):
-                scratch = op3.Dat.null(op3.Axis(100), dtype=temp.dtype)
-                function_args = [o_temp, temp, scratch, transformed_temp]
-
-                unpack_insns.extend([
-                    o_temp.assign(o_packed),
-                    transform_kernels[0](*function_args),
-                    op3_arg.iassign(transformed_temp),
-                ])
-            else:
-                pack_insns.append(op3.ArrayAssignment(temp, op3_arg, op3.AssignmentType.WRITE))
-
-            args.append(temp)
-
-        self._kinfo.kernel.code = self._kinfo.kernel.code.with_entrypoints({self._kinfo.kernel.name})
-
-        kernel = op3.Function(
-            self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]]
-        )
-        return op3.loop(p, [*pack_insns, kernel(*args), *unpack_insns])
+            return op3.loop(p, [*pack_insns, kernel(*args), *unpack_insns])
+        else:
+            p = self._iterset.index()
+            args = []
+            for tsfc_arg in self._kinfo.arguments:
+                arg = self._as_parloop_arg(tsfc_arg, p)
+                args.append(arg)
+            self._kinfo.kernel.code = self._kinfo.kernel.code.with_entrypoints({self._kinfo.kernel.name})
+            kernel = op3.Function(
+                self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]]
+            )
+            return op3.loop(p, kernel(*args))
 
     @property
     def test_function_space(self):
@@ -1993,17 +2003,17 @@ class ParloopBuilder:
                 os = os[t_dim][0]
                 n = os[next(iter(os.keys()))].shape[0]
                 child_knl = lp.make_function(
-                        f"{{[i, j]:0<=i, j < {n}}}",
-                        """
+                    f"{{[i, j]:0<=i, j < {n}}}",
+                    """
                         res[j] =  res[j] + a[i, j]*b[i]
-                        """, name="matmul",target=lp.CWithGNULibcTarget())
+                    """, name="matmul", target=lp.CWithGNULibcTarget())
                 args = [lp.GlobalArg("o", dtype=numpy.uint8, shape=(1,)),
                         lp.GlobalArg("b", dtype=ScalarType, shape=(n, )),
-                        lp.GlobalArg("a", dtype=ScalarType, shape =(n, n)),
-                        lp.GlobalArg("res", dtype=ScalarType, shape =(n,)),]
+                        lp.GlobalArg("a", dtype=ScalarType, shape=(n, n)),
+                        lp.GlobalArg("res", dtype=ScalarType, shape=(n,)),]
 
                 var_list = ["o"]
-                string = [f"\nswitch (*o) {{ \n"]
+                string = ["\nswitch (*o) { \n"]
                 for val in sorted(os.keys()):
                     string += f"case {val}:\n a = mat{val};break;\n"
                     var_list += [f"mat{val}"]
@@ -2017,8 +2027,8 @@ class ParloopBuilder:
                 parent_knl = lp.make_kernel(
                     "{:}",
                     [transform_insn, "res[:] = matmul(a, b, res) {dep=assign}"],
-                    kernel_data=args
-                    ,target=lp.CWithGNULibcTarget())
+                    kernel_data=args,
+                    target=lp.CWithGNULibcTarget())
                 knl = lp.merge([parent_knl, child_knl])
                 print(lp.generate_code_v2(knl).device_code())
                 print(knl)
