@@ -9,7 +9,6 @@ from loopy.translation_unit import TranslationUnit
 from loopy.tools import LoopyKeyBuilder
 import numpy as np
 
-from pyop2 import version
 from pyop2.configuration import configuration
 from pyop2.datatypes import ScalarType
 from pyop2.exceptions import NameTypeError
@@ -126,7 +125,7 @@ class LocalKernel(abc.ABC):
 
         key = (code_key, self.name, self.cpp, self.flop_count,
                self.headers, self.include_dirs, self.ldargs, sorted(self.opts.items()),
-               self.requires_zeroed_output_arguments, self.user_code, version.__version__)
+               self.requires_zeroed_output_arguments, self.user_code)
         return hashlib.md5(str(key).encode()).hexdigest()
 
     @property
