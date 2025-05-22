@@ -22,6 +22,7 @@ from pyop2.mpi import (
     MPI, COMM_WORLD, internal_comm, is_pyop2_comm, temp_internal_comm
 )
 from pyop2.utils import as_tuple
+from petsctools  import OptionsManager, get_external_packages
 
 import firedrake.cython.dmcommon as dmcommon
 import firedrake.cython.extrusion_numbering as extnum
@@ -31,9 +32,7 @@ import firedrake.utils as utils
 from firedrake.utils import as_cstr, IntType, RealType
 from firedrake.logging import info_red
 from firedrake.parameters import parameters
-from firedrake.petsc import (
-    PETSc, OptionsManager, get_external_packages, DEFAULT_PARTITIONER
-)
+from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
 from pyadjoint import stop_annotating
 import gem

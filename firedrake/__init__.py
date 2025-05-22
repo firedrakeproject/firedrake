@@ -30,8 +30,9 @@ setup_cache_dirs()
 
 
 # Initialise PETSc events for both import and entire duration of program
+import petsctools
 from firedrake import petsc
-_is_logging = "log_view" in petsc.OptionsManager.commandline_options
+_is_logging = "log_view" in petsctools.OptionsManager.commandline_options
 if _is_logging:
     _main_event = petsc.PETSc.Log.Event("firedrake")
     _main_event.begin()
@@ -42,6 +43,7 @@ if _is_logging:
     import atexit
     atexit.register(lambda: _main_event.end())
     del atexit
+del petsctools
 del petsc
 
 from ufl import *

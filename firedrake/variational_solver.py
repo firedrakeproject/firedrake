@@ -2,12 +2,10 @@ import ufl
 from itertools import chain
 from contextlib import ExitStack
 from types import MappingProxyType
+from petsctools import OptionsManager, flatten_parameters
 
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
-from firedrake.petsc import (
-    PETSc, OptionsManager, flatten_parameters, DEFAULT_KSP_PARAMETERS,
-    DEFAULT_SNES_PARAMETERS
-)
+from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
 from firedrake.function import Function
 from firedrake.interpolation import Interpolate
 from firedrake.matrix import MatrixBase
