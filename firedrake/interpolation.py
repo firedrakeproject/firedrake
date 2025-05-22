@@ -1592,25 +1592,19 @@ class VomOntoVomDummyMat(object):
         P0DG_target = firedrake.FunctionSpace(self.target_vom, element)
         source_size = P0DG_source.dof_dset.layout_vec.getSizes()  # (local_souce_size, global_source_size)
         target_size = P0DG_target.dof_dset.layout_vec.getSizes()  # (local_target_size, global_target_size)
-        # We create an identity matrix and use `MatPermute` to get the permutation matrix
-        mat = PETSc.Mat().createConstantDiagonal((target_size, source_size), 1.0, self.V.comm)
-        mat.convert(mat_type=mat.Type.BAIJ)  # `MatPermute` only seems to work in parallel with BAIJ
-        # We create a new SF and set the indices of the leaves to be contiguous
-        # SF = PETSc.SF().create(comm=self.V.comm)
+        # print(f"rank {self.V.comm.rank} source size: {source_size}")
+        # print(f"rank {self.V.comm.rank} target size: {target_size}")
+        mat = PETSc.Mat().createAIJ((target_size, source_size), nnz=1, comm=self.V.comm)
+        mat.setUp()
         local_sizes = self.V.comm.allgather(source_size[0])
         start = sum(local_sizes[:self.V.comm.rank])
         end = start + source_size[0]
         contiguous_indices = numpy.arange(start, end, dtype=numpy.int32)
-        # _, _, iremote = self.sf.getGraph()
-        # SF.setGraph(source_size[0], contiguous_indices, iremote)
-        # We reduce the array [0, 1, 2, ... , global_target_size - 1] to get the permutation of the rows
-        # root_indices = numpy.arange(target_size[1], dtype=numpy.int32)
-        perm = numpy.zeros(source_size[0], dtype=numpy.int32)
+        perm = numpy.zeros(target_size[0], dtype=numpy.int32)
         self.sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
         self.sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
-        col_is = PETSc.IS().createGeneral(perm, comm=self.V.comm)
-        # For the columns we use the identity permutation
-        row_is = PETSc.IS().createGeneral(numpy.arange(target_size[1], dtype=numpy.int32), comm=self.V.comm)
-        mat = mat.permute(row_is, col_is)
-        mat.convert(mat_type=mat.Type.AIJ)
-        return mat
+        print(f"rank {self.V.comm.rank} perm: {perm}")
+        rows = numpy.arange(target_size[0] + 1, dtype=numpy.int32)
+        mat.setValuesCSR(rows, perm, numpy.ones_like(perm, dtype=numpy.int32))
+        mat.assemble()
+        return mat.createTranspose(mat)
