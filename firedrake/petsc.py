@@ -1,14 +1,9 @@
-import functools
 import gc
-import itertools
-import os
-import subprocess
 from copy import deepcopy
 from types import MappingProxyType
 from typing import Any
 from warnings import warn
 
-import petsc4py
 import petsctools
 from mpi4py import MPI
 from petsc4py import PETSc
