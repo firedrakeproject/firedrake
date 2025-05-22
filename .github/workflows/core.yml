@@ -484,6 +484,10 @@ jobs:
           : # like h5py or mpi4py if changing HDF5/MPI libraries.
           pip cache remove petsc4py
 
+          : # Hotfix for petsc4py build, see https://gitlab.com/petsc/petsc/-/issues/1759
+          echo 'Cython<3.1' > constraints.txt
+          export PIP_CONSTRAINT=constraints.txt
+
           if [ ${{ inputs.target_branch }} = 'release' ]; then
             EXTRA_PIP_FLAGS=''
           else

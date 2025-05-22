@@ -126,6 +126,16 @@ def coarsen_bc(bc, self, coefficient_mapping=None):
     return type(bc)(V, val, subdomain)
 
 
+@coarsen.register(firedrake.EquationBC)
+def coarsen_equation_bc(ebc, self, coefficient_mapping=None):
+    eq = self(ebc._F.f, self, coefficient_mapping=coefficient_mapping)
+    u = self(ebc._F.u, self, coefficient_mapping=coefficient_mapping)
+    sub_domain = ebc._F.sub_domain
+    V = self(ebc._F.function_space(), self, coefficient_mapping=coefficient_mapping)
+
+    return type(ebc)(eq == 0, u, sub_domain, V=V)
+
+
 @coarsen.register(firedrake.functionspaceimpl.WithGeometryBase)
 def coarsen_function_space(V, self, coefficient_mapping=None):
     if hasattr(V, "_coarse"):
@@ -311,7 +321,8 @@ class Interpolation(object):
             x.copy(v)
         self.manager.prolong(self.cprimal, self.fprimal)
         for bc in self.fbcs:
-            bc.zero(self.fprimal)
+            if isinstance(bc, firedrake.DirichletBC):
+                bc.zero(self.fprimal)
         with self.fprimal.dat.vec_ro as v:
             if inc:
                 y.axpy(1.0, v)
@@ -330,7 +341,8 @@ class Interpolation(object):
             x.copy(v)
         self.manager.restrict(self.fdual, self.cdual)
         for bc in self.cbcs:
-            bc.zero(self.cdual)
+            if isinstance(bc, firedrake.DirichletBC):
+                bc.zero(self.cdual)
         with self.cdual.dat.vec_ro as v:
             if inc:
                 y.axpy(1.0, v)
