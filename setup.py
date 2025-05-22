@@ -1,13 +1,9 @@
-import logging
 import os
 import pkgconfig
 import platform
 import shutil
 import site
 from dataclasses import dataclass, field
-from setuptools import setup, find_packages, Extension
-from setuptools.command.editable_wheel import editable_wheel as _editable_wheel
-from setuptools.command.sdist import sdist as _sdist
 from glob import glob
 from pathlib import Path
 
@@ -18,6 +14,8 @@ import petsctools
 import rtree
 from Cython.Build import cythonize
 from setuptools import setup, find_packages, Extension
+from setuptools.command.editable_wheel import editable_wheel as _editable_wheel
+from setuptools.command.sdist import sdist as _sdist
 
 
 # Ensure that the PETSc getting linked against is compatible
