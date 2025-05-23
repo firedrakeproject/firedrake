@@ -25,8 +25,8 @@ fully implicit Runge--Kutta method in `Irksome <https://www.firedrakeproject.org
       from irksome import Dt, MeshConstant, RadauIIA, TimeStepper
   except ImportError:
       import sys
-      warning("Unable to import irksome.")
-      sys.exit(0)
+      warning("Unable to import irksome.  See https://www.firedrakeproject.org/Irksome/ for installation instructions")
+      quit()
 
 We solve the system with a multigrid method, so we need to set up a mesh hiearchy::
       
@@ -66,6 +66,19 @@ Set up variables for time and time-step size. ::
   t = MC.Constant(0.0)
   dt = MC.Constant(1.0 / N)
 
+The PDE system is given by
+
+.. math::
+   \begin{aligned}
+   \frac{\partial \mathbf{u}}{\partial t} - \Delta \mathbf{u} + \mathbf{u} \cdot \nabla \mathbf{u}
+   + \nabla & = \frac{Ra}{Pr} T \mathbf{g} \\
+   \nabla \cdot \mathbf{u} & = 0 \\
+   \frac{\partial T}{\partial t} + \mathbf{u} \cdot \nabla T
+   - \frac{1}{Pr} \Delta T & = 0
+
+and we can write a Galerkin variational form in the usual way, leading to
+the UFL representation::
+  
   F = (
       inner(Dt(u), v)*dx
       + inner(grad(u), grad(v))*dx
