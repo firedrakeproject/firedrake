@@ -12,7 +12,8 @@ convection-diffusion equation for temperature.
 
 We will set up the problem using Taylor-Hood elements for
 the Navier-Stokes part, and piecewise linear elements for the
-temperature. ::
+temperature.  The system will be integrated forward in time with a multi-stage
+fully implicit Runge--Kutta method in `Irksome <https://www.firedrakeproject.org/Irksome/>`_.::
 
   from firedrake import *
   from firedrake.pyplot import FunctionPlotter, tripcolor
