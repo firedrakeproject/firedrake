@@ -120,7 +120,7 @@ We are going to carry out time stepping via Irksome, but we need
 to say how to solve the rather interesting stage-coupled system.
 We will use an outer Newton method with linesearch.
 The linear solver will be flexible GMRES.  We adapt the the tolerance of
-the inner solver via the Eisenstant-Walker trick using `snes_ksp_ew`.
+the inner solver via the Eisenstant-Walker trick using ``snes_ksp_ew``.
 The linear solver will be preconditioned with a multigrid method.
 As a relaxation scheme, we apply several iterations (accelerated via GMRES)
 of a Vanka-type patch smoother via :class:`~.ASMVankaPC`.  This smoother sets up a sequence of local problems involving all degrees of freedom for each field for each
