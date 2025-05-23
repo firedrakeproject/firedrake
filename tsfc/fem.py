@@ -720,7 +720,6 @@ def translate_coefficient(terminal, mt, ctx):
                 per_derivative[alpha].append(table)
 
     # Merge entity tabulations for each derivative
-    import pdb;pdb.set_trace()
     if len(entity_ids) == 1:
         def take_singleton(xs):
             x, = xs  # asserts singleton
