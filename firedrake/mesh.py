@@ -306,27 +306,36 @@ class _Facets(object):
         local_facet_end = offsets[-2]
         map_from_cell_to_facet_orientations = self.mesh.entity_orientations[:, local_facet_start:local_facet_end]
         # Make output data;
-        # this is a map from an exterior/interior facet to the corresponding local facet orientation/orientations.
-        # local facet orientation/orientations of a halo facet is/are required for mixed cell problems solved
-        # using submesh.
+        # this is a map from an exterior/interior facet to the corresponding
+        # local facet orientation/orientations.
+        # The local facet orientation/orientations of a halo facet is/are also
+        # used in some submesh problems.
         #
         #  Example:
         #
-        #  +-----+         quad      : rank 0
-        #  |     | \       tri       : rank 1
-        #  |     |   \     interface : rank 1
-        #  +-----+----+    form = FacetNormal(quad)[0] * ds_tri(interface)
+        #         +-------+-------+
+        #         |       |       |
+        #  meshA  |   g   g   o   |
+        #         |       |       |
+        #         +-------+-------+
+        #                 +-------+
+        #                 |       |
+        #  meshB          o   o   |    o: owned
+        #                 |       |    g: ghost
+        #                 +-------+
         #
-        # Set local facet orientations.
-        local_facets = self.local_facet_dat.data_ro_with_halos
-        # -- Reshape as (-1, self._rank) to uniformly handle exterior and interior facets.
-        local_facets = local_facets.reshape((-1, self._rank))
-        shape = local_facets.shape
-        data = np.take_along_axis(
-            map_from_cell_to_facet_orientations[self.facet_cell],
-            local_facets.reshape(shape + (1, )),  # reshape as required by take_along_axis.
+        #  form = FacetNormal(meshA)[0] * ds(meshB, interface)
+        #
+        # Reshape local_facets as (-1, self._rank) to uniformly handle exterior and interior facets.
+        local_facets = self.local_facet_dat.data_ro_with_halos.reshape((-1, self._rank))
+        # Make slice for masking out rows for which orientations are not needed.
+        slice_ = (self.facet_cell != -1).all(axis=1)
+        data = np.full_like(local_facets, np.iinfo(dtype).max)
+        data[slice_, :] = np.take_along_axis(
+            map_from_cell_to_facet_orientations[self.facet_cell[slice_, :]],
+            local_facets.reshape(local_facets.shape + (1, ))[slice_, :, :],  # reshape as required by take_along_axis.
             axis=2,
-        ).reshape(shape)
+        ).reshape((-1, self._rank))
         return op2.Dat(
             self.local_facet_dat.dataset,
             data,
