@@ -1182,22 +1182,35 @@ class MixedFunctionSpace(object):
         # The fields of a mixed space are marked as "unit" because they are guaranteed
         # to have a size of 1 and we want the axis to go away when we put axes["0"],
         # for example.
+
+
+        # just for now
+        # root = spaces[0].flat_axes.root
+        # space_axis = op3.Axis(
+        #     [op3.AxisComponent(1, str(i)) for i, _ in enumerate(spaces)],
+        #     "field",
+        # )
+        # axes = root.as_tree()
+        # # axes = axes.add_axis(space_axis, root.id, root.component.label)
+        #
+        # subtree = space_axis.as_tree()
+        # for i, space in enumerate(spaces):
+        #     dof_axis = space.flat_axes.child(space.flat_axes.root, space.flat_axes.root.component)
+        #     subtree = subtree.add_axis(dof_axis, subtree.root.id, str(i))
+        #
+        # axes = axes.add_subtree(subtree, axes.leaf, uniquify_ids=True)
+        #
+        # breakpoint()
+        # print(axes)
+
+
         root = op3.Axis(
             [op3.AxisComponent(1, str(i)) for i, _ in enumerate(spaces)],
             "field",
         )
         axes = op3.AxisTree(root)
         for i, space in enumerate(spaces):
-            # Relabel the "dof" axes by adding a suffix. This is to ensure
-            # that no clashes occur during indexing.
-            # space_axes = space.flat_axes.relabel({
-            #     ax.label: f"{ax.label}_{i}"
-            #     for ax in space.flat_axes.nodes
-            #     if ax.label.startswith("dof")
-            # })
-            # axes = axes.add_subtree(space_axes, root, i, uniquify=True)
             axes = axes.add_subtree(space.flat_axes, root, str(i), uniquify=True)
-        # breakpoint()
         self.flat_axes = axes
 
         field_slice = op3.Slice("field", [op3.AffineSliceComponent(str(s.index), label=str(s.index)) for s in self._spaces], label="field")
