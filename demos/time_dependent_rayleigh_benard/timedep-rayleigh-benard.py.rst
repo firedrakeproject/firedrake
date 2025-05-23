@@ -123,7 +123,7 @@ The linear solver will be flexible GMRES.  We adapt the the tolerance of
 the inner solver via the Eisenstant-Walker trick using `snes_ksp_ew`.
 The linear solver will be preconditioned with a multigrid method.
 As a relaxation scheme, we apply several iterations (accelerated via GMRES)
-of a Vanka-type patch smoother via `ASMVankaPC`.  This smoother sets up a sequence of local problems involving all degrees of freedom for each field for each
+of a Vanka-type patch smoother via :class:`~.ASMVankaPC`.  This smoother sets up a sequence of local problems involving all degrees of freedom for each field for each
 Runge--Kutta stage on the cells containing a vertex in the mesh.
 We use `exclude_inds` to indicate that we use velocity degrees of freedom on
 the patch boundary but exclude the pressure and temperature degrees of freedom.
