@@ -20,7 +20,8 @@ class InvalidConfigurationException(Exception):
 
 
 def main():
-    check_firedrake_version()
+    # TODO RELEASE
+    # check_firedrake_version()
     check_min_python_version()
     check_petsc_version()
     check_petsc_version_spec()

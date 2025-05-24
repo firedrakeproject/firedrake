@@ -42,7 +42,9 @@ class DirichletBCMixin(FloatingType):
 
         return deps[0]
 
-    def _ad_restore_at_checkpoint(self, checkpoint):
-        if checkpoint is not None:
-            self.set_value(checkpoint.saved_output)
+    def _ad_restore_at_checkpoint(self, bv):
+        if bv is not None:
+            bc = self.reconstruct(g=bv.saved_output)
+            bc.block = self.block
+            return bc
         return self

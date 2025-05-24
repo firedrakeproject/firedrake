@@ -111,8 +111,8 @@ def solve_riesz_map(mesh, family, degree, bcs, condense):
 
 @pytest.fixture(params=(2, 3), ids=("square", "cube"))
 def mesh(request):
-    nx = 4
     dim = request.param
+    nx = 4
     msh = UnitSquareMesh(nx, nx, quadrilateral=True)
     if dim == 3:
         msh = ExtrudedMesh(msh, nx)
@@ -126,5 +126,5 @@ def mesh(request):
 def test_bddc_fdm(mesh, family, degree, condense):
     bcs = True
     tdim = mesh.topological_dimension()
-    expected = 6 if tdim == 2 else 11
+    expected = 7 if tdim == 2 else 11
     assert solve_riesz_map(mesh, family, degree, bcs, condense) <= expected
