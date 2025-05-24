@@ -138,7 +138,7 @@ the patch boundary but exclude the pressure and temperature degrees of freedom.
       "snes_linesearch_type": "l2",
       "snes_monitor": None,
       "ksp_type": "fgmres",
-      "ksp_monitor": None,
+      "ksp_converged_reason": None,
       "ksp_max_it": 200,
       "ksp_atol": 1.e-12,
       "snes_rtol": 1.e-10,
@@ -187,8 +187,10 @@ Now that the stepper is set up, let's run over many time steps::
   colors = tripcolor(Tzero, num_sample_points=nsp, vmin=0, vmax=1, axes=axes)
   fig.colorbar(colors)
 
+
   def animate(q):
       colors.set_array(fn_plotter(q))
+
 
   interval = 1e3 * plot_freq * float(dt)
   animation = FuncAnimation(fig, animate, frames=Ts, interval=interval)
