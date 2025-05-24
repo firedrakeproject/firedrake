@@ -1,5 +1,5 @@
-Rayleigh-Benard Convection
-==========================
+Time-dependent Rayleigh-Benard Convection using Irksome
+=======================================================
 
 Contributed by `Robert Kirby <https://sites.baylor.edu/robert_kirby/>`_
 and `Pablo Brubeck <https://www.maths.ox.ac.uk/people/pablo.brubeckmartinez/>`_.
@@ -17,19 +17,17 @@ fully implicit Runge--Kutta method in `Irksome <https://www.firedrakeproject.org
 
   from firedrake import *
   from firedrake.pyplot import FunctionPlotter, tripcolor
-  import math
   import matplotlib.pyplot as plt
   from matplotlib.animation import FuncAnimation
 
   try:
       from irksome import Dt, MeshConstant, RadauIIA, TimeStepper
   except ImportError:
-      import sys
       warning("Unable to import irksome.  See https://www.firedrakeproject.org/Irksome/ for installation instructions")
       quit()
 
 We solve the system with a multigrid method, so we need to set up a mesh hiearchy::
-      
+
   Nbase = 8
   ref_levels = 2
   N = Nbase * 2**ref_levels
@@ -78,7 +76,7 @@ The PDE system is given by
 
 and we can write a Galerkin variational form in the usual way, leading to
 the UFL representation::
-  
+
   F = (
       inner(Dt(u), v)*dx
       + inner(grad(u), grad(v))*dx
@@ -115,12 +113,14 @@ Set up the Butcher tableau to use for time-stepping::
 
   num_stages = 2
   butcher_tableau = RadauIIA(num_stages)
-  
+
 We are going to carry out time stepping via Irksome, but we need
 to say how to solve the rather interesting stage-coupled system.
 We will use an outer Newton method with linesearch.
 The linear solver will be flexible GMRES.  We adapt the the tolerance of
-the inner solver via the Eisenstant-Walker trick using `snes_ksp_ew`.
+the inner solver via the Eisenstant-Walker trick using ``snes_ksp_ew``.
+See the `PETSc docs <https://petsc.org/release/manualpages/SNES/SNESKSPSetUseEW/>`_ for further information.
+
 The linear solver will be preconditioned with a multigrid method.
 As a relaxation scheme, we apply several iterations (accelerated via GMRES)
 of a Vanka-type patch smoother via :class:`~.ASMVankaPC`.  This smoother sets up a sequence of local problems involving all degrees of freedom for each field for each
@@ -170,8 +170,7 @@ Now that the stepper is set up, let's run over many time steps::
   plot_freq = 10
   Ts = []
   cur_step = 0
-  while float(t) < 1.0:
-      print(f"t = {float(t)}")
+  for _ in ProgressBar("Integrating Rayleigh-Benard").iter(range(N)):
       stepper.advance()
 
       t.assign(float(t) + float(dt))
@@ -179,7 +178,7 @@ Now that the stepper is set up, let's run over many time steps::
       if cur_step % plot_freq == 0:
           Ts.append(upT.subfunctions[2].copy(deepcopy=True))
 
-     
+
   nsp = 16
   fn_plotter = FunctionPlotter(msh, num_sample_points=nsp)
   fig, axes = plt.subplots()
@@ -191,11 +190,11 @@ Now that the stepper is set up, let's run over many time steps::
   def animate(q):
       colors.set_array(fn_plotter(q))
 
-The last step is to make the animation and save it to a file. ::
-
   interval = 1e3 * plot_freq * float(dt)
   animation = FuncAnimation(fig, animate, frames=Ts, interval=interval)
   try:
       animation.save("benard_temp.mp4", writer="ffmpeg")
   except:
       print("Failed to write movie! Try installing `ffmpeg`.")
+
+A python script version of this demo can be found :demo:`here <timedep-rayleigh-benard.py>`.
