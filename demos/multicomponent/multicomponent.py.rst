@@ -1,5 +1,5 @@
 Multicomponent flow -- microfluidic non-ideal mixing of hydrocarbons
-===================================================
+====================================================================
 
 .. rst-class:: emphasis
 
@@ -94,11 +94,11 @@ We first define the finite element spaces and trial/test functions::
 
     # The mixed space
     Z_h = J_h * J_h * V_h * U_h * U_h * P_h * X_h * X_h * R_h * L_h * L_h
-    PETSc.Sys.Print("Mesh has %d cells, with %d finite element DOFs" % (mesh.num_cells(), Z_h.dim()))
+    PETSc.Sys.Print(f"Mesh has {mesh.num_cells()} cells, with {Z_h.dim()} finite element DOFs")
 
     # The trial functions
-    sln = Function(Z_h)
-    J_1, J_2, v, mu_aux_1, mu_aux_2, p, x_1, x_2, rho_inv, l_1, l_2 = split(sln)
+    solution = Function(Z_h)
+    J_1, J_2, v, mu_aux_1, mu_aux_2, p, x_1, x_2, rho_inv, l_1, l_2 = split(solution)
 
     # Lagrange multiplier trick for enforcing integral constraints
     mu_1 = mu_aux_1 + l_1
@@ -434,10 +434,10 @@ we must use :class:`~.EquationBC` instead of :class:`~.DirichletBC`. ::
 
     # Boundary conditions on the barycentric velocity are enforced via EquationBC
     v_inflow_1_bc = EquationBC(inner(v - rho_inv * rho_v_inflow_1_bc_func, u) * ds(*inlet_1_id) == 0,
-                               sln, inlet_1_id, V=Z_h.sub(2))
+                               solution, inlet_1_id, V=Z_h.sub(2))
     v_inflow_2_bc = EquationBC(inner(v - rho_inv * rho_v_inflow_2_bc_func, u) * ds(*inlet_2_id) == 0,
-                               sln, inlet_2_id, V=Z_h.sub(2))
-    v_outflow_bc = EquationBC(inner(v - rho_inv * rho_v_outflow_bc_func, u) * ds(*outlet_id) == 0, sln,
+                               solution, inlet_2_id, V=Z_h.sub(2))
+    v_outflow_bc = EquationBC(inner(v - rho_inv * rho_v_outflow_bc_func, u) * ds(*outlet_id) == 0, solution,
                               outlet_id, V=Z_h.sub(2))
 
     # The boundary conditions on the fluxes and barycentric velocity
@@ -490,7 +490,7 @@ Analogously to :doc:`the steady Boussinesq demo <boussinesq.py>` we use
 discretised Jacobian are linearly dependent, one checks that it is
 mathematically valid to do this)::
 
-    import firedrake.utils as firedrake_utils
+    import functools
 
     class FixAtPointBC(firedrake.DirichletBC):
         r'''A special BC object for pinning a function at a point.
@@ -506,7 +506,7 @@ mathematically valid to do this)::
                 bc_point = as_vector(bc_point)
             self.bc_point = bc_point
 
-        @firedrake_utils.cached_property
+        @functools.cached_property
         def nodes(self):
             V = self.function_space()
             x = firedrake.SpatialCoordinate(V.mesh())
@@ -535,14 +535,14 @@ Solving the system using Newton's method
 
 We provide a naive initial guess based on an equimolar spatially uniform distribution of benzene and cyclohexane::
 
-    J_1, J_2, v, mu_aux_1, mu_aux_2, p, x_1, x_2, rho_inv, l_1, l_2 = sln.subfunctions
+    J_1, J_2, v, mu_aux_1, mu_aux_2, p, x_1, x_2, rho_inv, l_1, l_2 = solution.subfunctions
     x_1.interpolate(Constant(0.5))
     x_2.interpolate(Constant(0.5))
     rho_inv.interpolate(1.0 / ((M_1_ND * c_1) + (M_2_ND * c_2)))
 
 and define the nonlinear variational solver object, which by default uses Newton's method::
 
-    NLVP = NonlinearVariationalProblem(tot_res, sln, bcs=flux_bcs+aux_point_bcs)
+    NLVP = NonlinearVariationalProblem(tot_res, solution, bcs=flux_bcs+aux_point_bcs)
     NLVS = NonlinearVariationalSolver(NLVP)
 
 Newton's method applied directly to the problem with :math:`v_1^\text{ref}=0.4\times 10^{-5}`
@@ -556,7 +556,7 @@ and :code:`v_ref` before calling the :code:`solve()` method. Finally, we write e
 VTK file using the :code:`time` keyword argument. ::
 
     from firedrake.output import VTKFile
-    outfile = VTKFile("out/sln.pvd")
+    outfile = VTKFile("out/solution.pvd")
     cont_vals = [1.0, 2.5, 5, 7.5, 10.0]
     n_cont = len(cont_vals)
 
