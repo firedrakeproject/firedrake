@@ -48,7 +48,8 @@ class Interpolate(ufl.Interpolate):
                  subset=None,
                  access=op2.WRITE,
                  allow_missing_dofs=False,
-                 default_missing_val=None):
+                 default_missing_val=None,
+                 matfree=True):
         """Symbolic representation of the interpolation operator.
 
         Parameters
@@ -85,6 +86,10 @@ class Interpolate(ufl.Interpolate):
                               then the values are either (a) unchanged if some ``output`` is given to
                               the :meth:`interpolate` method or (b) set to zero.
                               Ignored if interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`.
+        matfree : bool
+                If ``False``, then construct the permutation matrix for interpolating
+                between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
+                and reduce operations.
         """
         # Check function space
         if isinstance(v, functionspaceimpl.WithGeometry):
@@ -97,7 +102,8 @@ class Interpolate(ufl.Interpolate):
         self.interp_data = {"subset": subset,
                             "access": access,
                             "allow_missing_dofs": allow_missing_dofs,
-                            "default_missing_val": default_missing_val}
+                            "default_missing_val": default_missing_val,
+                            "matfree": matfree}
 
     function_space = ufl.Interpolate.ufl_function_space
 
@@ -239,6 +245,9 @@ class Interpolator(abc.ABC):
         Ignored if interpolating within the same mesh or onto a
         :func:`.VertexOnlyMesh` (the behaviour of a :func:`.VertexOnlyMesh` in
         this scenario is, at present, set when it is created).
+    :kwarg matfree: If ``False``, then construct the permutation matrix for interpolating
+        between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
+        and reduce operations.
 
     This object can be used to carry out the same interpolation
     multiple times (for example in a timestepping loop).
@@ -275,6 +284,7 @@ class Interpolator(abc.ABC):
         access=op2.WRITE,
         bcs=None,
         allow_missing_dofs=False,
+        matfree=True
     ):
         self.expr = expr
         self.V = V
@@ -283,6 +293,7 @@ class Interpolator(abc.ABC):
         self.access = access
         self.bcs = bcs
         self._allow_missing_dofs = allow_missing_dofs
+        self.matfree = matfree
         self.callable = None
         # Cope with the different convention of `Interpolate` and `Interpolator`:
         #  -> Interpolate(Argument(V1, 1), Argument(V2.dual(), 0))
@@ -329,7 +340,8 @@ class Interpolator(abc.ABC):
                              subset=self.subset,
                              access=self.access,
                              allow_missing_dofs=self._allow_missing_dofs,
-                             default_missing_val=default_missing_val)
+                             default_missing_val=default_missing_val,
+                             matfree=self.matfree)
         if transpose is not None:
             warnings.warn("'transpose' argument is deprecated, use 'adjoint' instead", FutureWarning)
             adjoint = transpose or adjoint
@@ -737,10 +749,21 @@ class SameMeshInterpolator(Interpolator):
     """
 
     @no_annotations
-    def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE, bcs=None, **kwargs):
-        super().__init__(expr, V, subset, freeze_expr, access, bcs)
+    def __init__(self, expr, V, 
+                 subset=None, 
+                 freeze_expr=False, 
+                 access=op2.WRITE, 
+                 bcs=None, 
+                 matfree=True, 
+                 **kwargs):
+        super().__init__(expr, V, 
+                         subset=subset, 
+                         freeze_expr=freeze_expr, 
+                         access=access, 
+                         bcs=bcs,
+                         matfree=matfree)
         try:
-            self.callable, arguments = make_interpolator(expr, V, subset, access, bcs=bcs)
+            self.callable, arguments = make_interpolator(expr, V, subset, access, bcs=bcs, matfree=matfree)
         except FIAT.hdiv_trace.TraceError:
             raise NotImplementedError("Can't interpolate onto traces sorry")
         self.arguments = arguments
@@ -811,7 +834,7 @@ class SameMeshInterpolator(Interpolator):
 
 
 @PETSc.Log.EventDecorator()
-def make_interpolator(expr, V, subset, access, bcs=None):
+def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
     assert isinstance(expr, ufl.classes.Expr)
     arguments = extract_arguments(expr)
     target_mesh = as_domain(V)
@@ -886,8 +909,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
         raise ValueError("Cannot interpolate an expression with %d arguments" % len(arguments))
 
     if vom_onto_other_vom:
-        # To interpolate between vertex-only meshes we use a PETSc SF
-        wrapper = VomOntoVomWrapper(V, source_mesh, target_mesh, expr, arguments)
+        wrapper = VomOntoVomWrapper(V, source_mesh, target_mesh, expr, arguments, matfree)
         # NOTE: get_dat_mpi_type ensures we get the correct MPI type for the
         # data, including the correct data size and dimensional information
         # (so for vector function spaces in 2 dimensions we might need a
@@ -904,6 +926,8 @@ def make_interpolator(expr, V, subset, access, bcs=None):
                 return f
         else:
             assert len(arguments) == 1
+            if matfree:
+                raise ValueError("Pass matfree=False to assemble interpolation matrix")
             assert tensor is None
             # we know we will be outputting either a function or a cofunction,
             # both of which will use a dat as a data carrier. At present, the
@@ -915,7 +939,10 @@ def make_interpolator(expr, V, subset, access, bcs=None):
             wrapper.mpi_type, _ = get_dat_mpi_type(temp_source_func.dat)
 
             # Leave wrapper inside a callable so we can access the handle
-            # property (which is pretending to be a petsc mat)
+            # property. If matfree is True, then the handle is a PETSc SF 
+            # pretending to be a PETSc Mat. If matfree is False, then this
+            # will be a PETSc Mat representing the equivalent permutation
+            # matrix 
             def callable():
                 return wrapper
 
@@ -1391,9 +1418,14 @@ class VomOntoVomWrapper(object):
     arguments : list of `ufl.Argument`
         The arguments in the expression. These are not extracted from expr here
         since, where we use this, we already have them.
+    matfree : bool
+        If ``False``, the matrix representating the permutation of the points is
+        constructed and used to perform the interpolation. If ``True``, then the
+        interpolation is performed using the broadcast and reduce operations on the
+        PETSc Star Forest.
     """
 
-    def __init__(self, V, source_vom, target_vom, expr, arguments):
+    def __init__(self, V, source_vom, target_vom, expr, arguments, matfree):
         reduce = False
         if source_vom.input_ordering is target_vom:
             reduce = True
@@ -1414,7 +1446,12 @@ class VomOntoVomWrapper(object):
         self.dummy_mat = VomOntoVomDummyMat(
             original_vom.input_ordering_without_halos_sf, reduce, V, source_vom, target_vom, expr, arguments
         )
-        self.handle = self.dummy_mat._create_petsc_mat()
+        if matfree:
+            # If matfree, we use the SF to perform the interpolation
+            self.handle = self.dummy_mat
+        else:
+            # Otherwise we create the permutation matrix
+            self.handle = self.dummy_mat._create_petsc_mat()
 
     @property
     def mpi_type(self):
