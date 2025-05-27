@@ -36,6 +36,8 @@ We solve the system with a multigrid method, so we need to set up a mesh hiearch
   mh = MeshHierarchy(base_msh, ref_levels)
   msh = mh[-1]
 
+  MC = MeshConstant(msh)
+
   V = VectorFunctionSpace(msh, "CG", 2)
   W = FunctionSpace(msh, "CG", 1)
   Q = FunctionSpace(msh, "CG", 1)
@@ -51,16 +53,15 @@ dissipation and heat conduction and the
 Prandtl number (Pr), which measures the ratio of viscosity to heat
 conduction. ::
 
-  Ra = Constant(2000.0)
-  Pr = Constant(6.8)
+  Ra = MC.Constant(2000.0)
+  Pr = MC.Constant(6.8)
 
 Along with gravity, which points down. ::
 
-  g = Constant((0, -1))
+  g = MC.Constant((0, -1))
 
 Set up variables for time and time-step size. ::
 
-  MC = MeshConstant(msh)
   t = MC.Constant(0.0)
   dt = MC.Constant(1.0 / N)
 
