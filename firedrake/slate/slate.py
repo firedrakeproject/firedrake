@@ -1091,9 +1091,10 @@ class Inverse(UnaryOp):
         performing a specific unary operation on a tensor.
         """
         tensor, = self.operands
+        args = tensor.arguments
         return [
             arg.reconstruct(arg.function_space().dual())
-            for arg in tensor.arguments()[::-1]
+            for arg in reversed(args)
         ]
 
     def _output_string(self, prec=None):
