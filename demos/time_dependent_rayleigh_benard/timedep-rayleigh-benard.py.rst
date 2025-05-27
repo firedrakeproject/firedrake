@@ -73,6 +73,7 @@ The PDE system is given by
    \nabla \cdot \mathbf{u} & = 0 \\
    \frac{\partial T}{\partial t} + \mathbf{u} \cdot \nabla T
    - \frac{1}{Pr} \Delta T & = 0
+   \end{aligned}
 
 and we can write a Galerkin variational form in the usual way, leading to
 the UFL representation::
