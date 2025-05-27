@@ -1084,14 +1084,17 @@ class Inverse(UnaryOp):
         is defined on.
         """
         tensor, = self.operands
-        return tensor.arg_function_spaces[::-1]
+        return [fs.dual() for fs in tensor.arg_function_spaces[::-1]]
 
     def arguments(self):
         """Returns the expected arguments of the resulting tensor of
         performing a specific unary operation on a tensor.
         """
         tensor, = self.operands
-        return tensor.arguments()[::-1]
+        return [
+            arg.reconstruct(arg.function_space().dual())
+            for arg in tensor.arguments()[::-1]
+        ]
 
     def _output_string(self, prec=None):
         """Creates a string representation of the inverse of a tensor."""
