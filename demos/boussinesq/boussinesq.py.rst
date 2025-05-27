@@ -60,12 +60,12 @@ We must still impose the integral constraint on :math:`T` to obtain a unique sol
 but the value of :math:`T_0` now affects the model in a non-trivial way since :math:`\mu(T)` and 
 :math:`T` are coupled (c.f. the figures at the bottom of the demo).
 **In particular, this is not a "trivial" situation like the incompressible
-Stokes problem where the discretized Jacobians have a nullspace corresponding to the constant pressures.
+Stokes problem where the discretised Jacobians have a nullspace corresponding to the constant pressures.
 Instead, we have an integral constraint on** :math:`T` **even though
-the discretized Jacobians do not have a nullspace corresponding to the constant temperatures.**
+the discretised Jacobians do not have a nullspace corresponding to the constant temperatures.**
 
 We build the mesh using :doc:`netgen <netgen_mesh.py>`, choosing a trapezoidal geometry
-to prevent hydrostatic equilibrium and allow for a non-trivial velocity solution.::
+to prevent hydrostatic equilibrium and allow for a non-trivial velocity solution. ::
 
     from firedrake import *
     import netgen.occ as ngocc
@@ -101,7 +101,7 @@ We introduce a Lagrange multiplier to enforce the integral constraint on :math:`
 
     Z = U * V * W * R
 
-The trial and test functions are:::
+The trial and test functions are::
 
     z = Function(Z)
     (u, p, T_aux, l) = split(z)
@@ -110,14 +110,14 @@ The trial and test functions are:::
     T = T_aux + l
 
 The test Lagrange multiplier :code:`s` will allow us to impose the integral constraint on the temperature.
-We use the trial Lagrange multiplier :code:`l` by decomposing the discretized temperature field :code:`T`
+We use the trial Lagrange multiplier :code:`l` by decomposing the discretised temperature field :code:`T`
 as :code:`T = T_aux + l` where :code:`T_aux` is the trial function from :code:`W`.
 The value of :code:`l` will then be determined by the integral constraint on :code:`T`.
 
 The remaining problem data to be specified is the Neumann data,
 viscosity, acceleration due to gravity and :math:`T_0`.
 For the Neumann data we choose a parabolic profile on the left and right edges,
-and zero data on the top and bottom.::
+and zero data on the top and bottom. ::
 
     g_left = y*(y-2)                # Neumann data on the left
     g_right = -8*y*(y-1)            # Neumann data on the right
@@ -125,7 +125,7 @@ and zero data on the top and bottom.::
     f = as_vector([0, -1])          # Acceleration due to gravity
     T0 = Constant(1)                # Mean of the temperature
 
-The nonlinear form for the problem is:::
+The nonlinear form for the problem is::
 
     F = (mu * inner(sym(grad(u)), sym(grad(v))) * dx    # Viscous terms
      - inner(p, div(v)) * dx                            # Pressure gradient
@@ -158,7 +158,7 @@ cannot always be sure that the linear solver at hand is correctly utilising the 
 :code:`nullspace` and :code:`transpose_nullspace`.
 
 To directly eliminate the nullspace we introduce a class :code:`FixAtPointBC` which
-implements a boundary condition that fixes a field at a single point.::
+implements a boundary condition that fixes a field at a single point. ::
 
     import firedrake.utils as firedrake_utils
 
@@ -194,7 +194,7 @@ implements a boundary condition that fixes a field at a single point.::
             nodes = nodes[nodes >= 0]
             return nodes
 
-We use this to fix the pressure and auxiliary temperature at the origin:::
+We use this to fix the pressure and auxiliary temperature at the origin::
 
     aux_bcs = [FixAtPointBC(Z.sub(1), 0, as_vector([0, 0])), 
                FixAtPointBC(Z.sub(2), 0, as_vector([0, 0]))]
@@ -210,16 +210,16 @@ point if a mesh vertex then CG fields will be fixed at exactly the supplied poin
     A :code:`FixAtPointBC` does more than just fix the corresponding trial function
     at the chosen DOF. It also ensures that the corresponding test function
     (which is equal to one at that DOF and zero at all others)
-    will no longer be used in the discretized variational problem.
+    will no longer be used in the discretised variational problem.
     One must be sure that it is mathematically acceptable to do this.
 
     In the present setting this is acceptable owing to the homogeneous Dirichlet
     boundary conditions on :math:`u` and compatibility condition :math:`\int_{\Gamma} g \ {\rm d} s = 0`
-    on the Neumann data. The former ensures that the rows in the discretized Jacobian
+    on the Neumann data. The former ensures that the rows in the discretised Jacobian
     corresponding to the incompressibility constraint are linearly dependent
     (if there are :math:`M` rows, only :math:`M-1` of them are linearly independent, since
     the boundary conditions on :math:`u` ensure that 
-    :math:`\int_{\Omega} \nabla \cdot u {\rm d} x = 0` automatically).
+    :math:`\int_{\Omega} \nabla \cdot u \ {\rm d} x = 0` automatically).
     Similarily the rows in the Jacobian corresponding to the temperature advection-diffusion
     equation are linearly independent (again, if there are :math:`M` rows, 
     only :math:`M-1` of them are linearly independent).
