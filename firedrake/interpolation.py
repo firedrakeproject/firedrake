@@ -1438,7 +1438,7 @@ class VomOntoVomWrapper(object):
         )
         if matfree:
             # If matfree, we use the SF to perform the interpolation
-            self.handle = self.dummy_mat
+            self.handle = self.dummy_mat._wrap_dummy_mat()
         else:
             # Otherwise we create the permutation matrix
             self.handle = self.dummy_mat._create_permutation_mat()
