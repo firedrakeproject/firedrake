@@ -1727,13 +1727,17 @@ class VomOntoVomDummyMat(object):
         rows = numpy.arange(self.target_size[0] + 1, dtype=numpy.int32)
         mat.setValuesCSR(rows, perm, numpy.ones_like(perm, dtype=numpy.int32))
         mat.assemble()
-        if self.reduce:
+        if self.forward_reduce:
             mat.transpose()
         return mat
 
     def _wrap_dummy_mat(self):
         mat = PETSc.Mat().create(comm=self.V.comm)
-        mat.setSizes((self.target_size, self.source_size))
+        if self.forward_reduce:
+            mat_size = (self.source_size, self.target_size)
+        else:
+            mat_size = (self.target_size, self.source_size)
+        mat.setSizes(mat_size)
         mat.setType(mat.Type.PYTHON)
         mat.setPythonContext(self)
         mat.setUp()
