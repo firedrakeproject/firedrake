@@ -9,6 +9,7 @@ from itertools import chain
 import firedrake
 from firedrake.utils import unique
 from firedrake.petsc import PETSc
+from firedrake.bcs import EquationBC
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
                                get_parent, add_hook)
 
@@ -203,7 +204,11 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
         V.dm.addCoarsenHook(None, inject_on_restrict)
 
     # Build set of coefficients we need to coarsen
-    forms = (problem.F, problem.J, problem.Jp)
+    forms = [problem.F, problem.J, problem.Jp]
+    for bc in problem.bcs:
+        if isinstance(bc, EquationBC):
+            forms += [bc._F.f, bc._J.f, bc._Jp.f]
+
     coefficients = unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
     # Coarsen them, and remember where from.
     if coefficient_mapping is None:
@@ -213,7 +218,7 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
 
     u = coefficient_mapping[problem.u]
 
-    bcs = [self(bc, self) for bc in problem.bcs]
+    bcs = [self(bc, self, coefficient_mapping=coefficient_mapping) for bc in problem.bcs]
     J = self(problem.J, self, coefficient_mapping=coefficient_mapping)
     Jp = self(problem.Jp, self, coefficient_mapping=coefficient_mapping)
     F = self(problem.F, self, coefficient_mapping=coefficient_mapping)
