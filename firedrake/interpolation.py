@@ -1526,7 +1526,7 @@ class VomOntoVomWrapper(object):
             self.handle = self.dummy_mat
         else:
             # Otherwise we create the permutation matrix
-            self.handle = self.dummy_mat._create_petsc_mat()
+            self.handle = self.dummy_mat._create_permutation_mat()
 
     @property
     def mpi_type(self):
@@ -1581,6 +1581,12 @@ class VomOntoVomDummyMat(object):
         self.target_vom = target_vom
         self.expr = expr
         self.arguments = arguments
+        # Calculate correct local and global sizes for the matrix
+        nroots, leaves, _ = sf.getGraph()
+        nleaves = len(leaves)
+        self.local_sizes = V.comm.allgather(nroots)
+        self.source_size = (nroots, sum(self.local_sizes))
+        self.target_size = (nleaves, self.V.comm.allreduce(nleaves, op=MPI.SUM))
 
     @property
     def mpi_type(self):
@@ -1696,25 +1702,39 @@ class VomOntoVomDummyMat(object):
             target_vec.zeroEntries()
             self.reduce(source_vec, target_vec)
 
-    def _create_petsc_mat(self):
-        """Creates the PETSc matrix that represents the interpolation operator from a vertex-only mesh to
-        its input ordering vertex-only mesh"""
+    def _get_sizes(self):
         nroots, leaves, _ = self.sf.getGraph()
         nleaves = len(leaves)
         local_sizes = self.V.comm.allgather(nroots)
         source_size = (nroots, sum(local_sizes))
         target_size = (nleaves, self.V.comm.allreduce(nleaves, op=MPI.SUM))
-        mat = PETSc.Mat().createAIJ((target_size, source_size), nnz=1, comm=self.V.comm)
+        return source_size, target_size
+
+    def _create_permutation_mat(self):
+        """Creates the PETSc matrix that represents the interpolation operator from a vertex-only mesh to
+        its input ordering vertex-only mesh"""
+        mat = PETSc.Mat().createAIJ((self.target_size, self.source_size), nnz=1, comm=self.V.comm)
         mat.setUp()
-        start = sum(local_sizes[:self.V.comm.rank])
-        end = start + nroots
+        start = sum(self.local_sizes[:self.V.comm.rank])
+        end = start + self.source_size[0]
         contiguous_indices = numpy.arange(start, end, dtype=numpy.int32)
-        perm = numpy.zeros(target_size[0], dtype=numpy.int32)
+        perm = numpy.zeros(self.target_size[0], dtype=numpy.int32)
         self.sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
         self.sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
-        rows = numpy.arange(target_size[0] + 1, dtype=numpy.int32)
+        rows = numpy.arange(self.target_size[0] + 1, dtype=numpy.int32)
         mat.setValuesCSR(rows, perm, numpy.ones_like(perm, dtype=numpy.int32))
         mat.assemble()
         if self.reduce:
             mat.transpose()
         return mat
+
+    def _wrap_dummy_mat(self):
+        mat = PETSc.Mat().create(comm=self.V.comm)
+        mat.setSizes((self.target_size, self.source_size))
+        mat.setType(mat.Type.PYTHON)
+        mat.setPythonContext(self)
+        mat.setUp()
+        return mat
+    
+    def duplicate(self, mat=None, op=None):
+        return self._wrap_dummy_mat()
