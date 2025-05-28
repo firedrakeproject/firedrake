@@ -155,8 +155,11 @@ def functionspace_tests(vm, petsc_raises):
     assert np.allclose(g.dat.data_ro_with_halos, np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
     with petsc_raises(NotImplementedError):
         # Can't use adjoint on interpolators with expressions yet
-        g2 = assemble(I2_io.interpolate(h_star, adjoint=True))
-        assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
+        try:
+            g2 = assemble(I2_io.interpolate(h_star, adjoint=True))
+            assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
+        except PETSc.Error as e:
+            raise e.__cause__ from None
 
     I_io_adjoint = Interpolator(TestFunction(W), V)
     I2_io_adjoint = Interpolator(2*TestFunction(W), V)
@@ -166,8 +169,11 @@ def functionspace_tests(vm, petsc_raises):
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
     with petsc_raises(NotImplementedError):
         # Can't use adjoint on interpolators with expressions yet
-        h2 = assemble(I2_io_adjoint.interpolate(g, adjoint=True))
-        assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
+        try:
+            h2 = assemble(I2_io_adjoint.interpolate(g, adjoint=True))
+            assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
+        except PETSc.Error as e:
+            raise e.__cause__ from None
     g = assemble(I_io_adjoint.interpolate(h))
     assert np.allclose(g.dat.data_ro_with_halos, np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
     g2 = assemble(I2_io_adjoint.interpolate(h))
@@ -259,18 +265,24 @@ def vectorfunctionspace_tests(vm, petsc_raises):
     assert np.allclose(g.dat.data_ro_with_halos, 2*vm.coordinates.dat.data_ro_with_halos)
     with petsc_raises(NotImplementedError):
         # Can't use adjoint on interpolators with expressions yet
-        g2 = assemble(I2_io.interpolate(h_star, adjoint=True))
-        assert np.allclose(g2.dat.data_ro_with_halos, 4*vm.coordinates.dat.data_ro_with_halos)
+        try:
+            g2 = assemble(I2_io.interpolate(h_star, adjoint=True))
+            assert np.allclose(g2.dat.data_ro_with_halos, 4*vm.coordinates.dat.data_ro_with_halos)
+        except PETSc.Error as e:
+            raise e.__cause__ from None
 
     I_io_adjoint = Interpolator(TestFunction(W), V)
     I2_io_adjoint = Interpolator(2*TestFunction(W), V)
     h_star = assemble(I_io_adjoint.interpolate(g, adjoint=True))
     assert np.allclose(h_star.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
     assert np.all(h_star.dat.data_ro_with_halos[~idxs_to_include] == 0)
-    with petsc_raises(NotImplementedError):
+    with pytest.raises(NotImplementedError):
+        try:
         # Can't use adjoint on interpolators with expressions yet
-        h2 = assemble(I2_io_adjoint.interpolate(g, adjoint=True))
-        assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
+            h2 = assemble(I2_io_adjoint.interpolate(g, adjoint=True))
+            assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
+        except PETSc.Error as e:
+            raise e.__cause__ from None
 
     h = h_star.riesz_representation(riesz_map="l2")
     g = assemble(I_io_adjoint.interpolate(h))
