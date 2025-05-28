@@ -129,12 +129,15 @@ def coarsen_bc(bc, self, coefficient_mapping=None):
 
 @coarsen.register(firedrake.EquationBC)
 def coarsen_equation_bc(ebc, self, coefficient_mapping=None):
-    eq = self(ebc._F.f, self, coefficient_mapping=coefficient_mapping)
+    F = self(ebc._F.f, self, coefficient_mapping=coefficient_mapping)
+    J = self(ebc._J.f, self, coefficient_mapping=coefficient_mapping)
+    Jp = self(ebc._Jp.f, self, coefficient_mapping=coefficient_mapping)
     u = self(ebc._F.u, self, coefficient_mapping=coefficient_mapping)
     sub_domain = ebc._F.sub_domain
+    bcs = [self(bc, self, coefficient_mapping=coefficient_mapping) for bc in ebc._F.bcs]
     V = self(ebc._F.function_space(), self, coefficient_mapping=coefficient_mapping)
 
-    return type(ebc)(eq == 0, u, sub_domain, V=V)
+    return type(ebc)(F == 0, u, sub_domain, V=V, bcs=bcs, J=J, Jp=Jp)
 
 
 @coarsen.register(firedrake.functionspaceimpl.WithGeometryBase)
@@ -205,9 +208,16 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
 
     # Build set of coefficients we need to coarsen
     forms = [problem.F, problem.J, problem.Jp]
-    for bc in problem.bcs:
+    # We need forms from EquationBCs, too.
+    # EquationBC can have an EquationBC on the boundary,
+    # so we need to keep looping until we've treated them all
+    bcs_to_consider = list(problem.bcs)
+    while len(bcs_to_consider) > 0:
+        bc = bcs_to_consider.pop()
+
         if isinstance(bc, EquationBC):
             forms += [bc._F.f, bc._J.f, bc._Jp.f]
+            bcs_to_consider += bc._F.sorted_equation_bcs()
 
     coefficients = unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
     # Coarsen them, and remember where from.
