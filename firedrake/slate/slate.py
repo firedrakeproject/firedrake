@@ -1314,12 +1314,12 @@ class Solve(BinaryOp):
         if A.shape[1] != B.shape[0]:
             raise ValueError(f"Illegal op on a {A.shape}-tensor with a {B.shape}-tensor.")
 
-        fsA = A.arg_function_spaces[1]
+        fsA = A.arg_function_spaces[0]
         fsB = B.arg_function_spaces[0]
 
-        assert fsA.dual() == fsB, (
+        assert fsA == fsB, (
             "Cannot perform argument contraction over middle indices. "
-            "They should be in dual function spaces."
+            "They must be in the same function space."
         )
 
         # For matrices smaller than 5x5, exact formulae can be used
@@ -1341,7 +1341,7 @@ class Solve(BinaryOp):
 
         super(Solve, self).__init__(A_factored, B)
 
-        Ainv_args = [a.reconstruct(a.function_space().dual()) for a in reversed(A.arguments())]
+        Ainv_args = tuple(a.reconstruct(a.function_space().dual()) for a in reversed(A.arguments()))
         self._args = Ainv_args[:-1] + B.arguments()[1:]
         self._arg_fs = [arg.function_space() for arg in self._args]
 

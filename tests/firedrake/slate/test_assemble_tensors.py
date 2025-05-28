@@ -130,6 +130,24 @@ def test_assemble_matrix(rank_two_tensor):
     assert np.allclose(M.M.values, assemble(rank_two_tensor.form).M.values, rtol=1e-14)
 
 
+def test_assemble_solve(mesh):
+    V = FunctionSpace(mesh, "DG", 0)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    M = inner(u, v)*dx
+    f = Cofunction(V.dual())
+    f.dat.data[...] = 1
+
+    u1 = Function(V)
+    u2 = Function(V)
+    # Assemble a SLATE tensor into f
+    assemble(Inverse(Tensor(M)) * AssembledVector(f), tensor=u1)
+    # Assemble a different tensor into f
+    solve(M == f, u2)
+    assert np.allclose(u1.dat.data, u2.dat.data, rtol=1e-14)
+
+
 def test_assemble_vector_into_tensor(mesh):
     V = FunctionSpace(mesh, "DG", 1)
     v = TestFunction(V)
