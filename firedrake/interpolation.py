@@ -1509,13 +1509,12 @@ class VomOntoVomWrapper(object):
             )
         self.V = V
         self.source_vom = source_vom
-        self.target_vom = target_vom
         self.expr = expr
         self.arguments = arguments
         self.reduce = reduce
         # note that interpolation doesn't include halo cells
         self.dummy_mat = VomOntoVomDummyMat(
-            original_vom.input_ordering_without_halos_sf, reduce, V, source_vom, target_vom, expr, arguments
+            original_vom.input_ordering_without_halos_sf, reduce, V, source_vom, expr, arguments
         )
         if matfree:
             # If matfree, we use the SF to perform the interpolation
@@ -1569,12 +1568,11 @@ class VomOntoVomDummyMat(object):
         The arguments in the expression.
     """
 
-    def __init__(self, sf, forward_reduce, V, source_vom, target_vom, expr, arguments):
+    def __init__(self, sf, forward_reduce, V, source_vom, expr, arguments):
         self.sf = sf
         self.forward_reduce = forward_reduce
         self.V = V
         self.source_vom = source_vom
-        self.target_vom = target_vom
         self.expr = expr
         self.arguments = arguments
         # Calculate correct local and global sizes for the matrix
