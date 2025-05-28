@@ -499,6 +499,7 @@ class CrossMeshInterpolator(Interpolator):
         access=op2.WRITE,
         bcs=None,
         allow_missing_dofs=False,
+        matfree=True
     ):
         if subset:
             raise NotImplementedError("subset not implemented")
@@ -519,7 +520,7 @@ class CrossMeshInterpolator(Interpolator):
                 "Can only interpolate into spaces with point evaluation nodes."
             )
 
-        super().__init__(expr, V, subset, freeze_expr, access, bcs, allow_missing_dofs)
+        super().__init__(expr, V, subset, freeze_expr, access, bcs, allow_missing_dofs, matfree)
 
         self.arguments = extract_arguments(expr)
         self.nargs = len(self.arguments)
@@ -834,19 +835,10 @@ class SameMeshInterpolator(Interpolator):
     """
 
     @no_annotations
-    def __init__(self, expr, V, 
-                 subset=None, 
-                 freeze_expr=False, 
-                 access=op2.WRITE, 
-                 bcs=None, 
-                 matfree=True, 
-                 **kwargs):
-        super().__init__(expr, V, 
-                         subset=subset, 
-                         freeze_expr=freeze_expr, 
-                         access=access, 
-                         bcs=bcs,
-                         matfree=matfree)
+    def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE, 
+                 bcs=None, matfree=True, **kwargs):
+        super().__init__(expr, V, subset=subset, freeze_expr=freeze_expr, 
+                         access=access, bcs=bcs, matfree=matfree)
         try:
             self.callable, arguments = make_interpolator(expr, V, subset, access, bcs=bcs, matfree=matfree)
         except FIAT.hdiv_trace.TraceError:
@@ -1011,8 +1003,6 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
                 return f
         else:
             assert len(arguments) == 1
-            if matfree:
-                raise ValueError("Pass matfree=False to assemble interpolation matrix")
             assert tensor is None
             # we know we will be outputting either a function or a cofunction,
             # both of which will use a dat as a data carrier. At present, the
@@ -1709,13 +1699,13 @@ class VomOntoVomDummyMat(object):
     def _create_petsc_mat(self):
         """Creates the PETSc matrix that represents the interpolation operator from a vertex-only mesh to
         its input ordering vertex-only mesh"""
-        nroots = self.sf.getGraph()[0]
-        nleaves = len(self.sf.getGraph()[1])
-        source_size = (nroots, self.V.comm.allreduce(nroots, op=MPI.SUM))
+        nroots, leaves, _ = self.sf.getGraph()
+        nleaves = len(leaves)
+        local_sizes = self.V.comm.allgather(nroots)
+        source_size = (nroots, sum(local_sizes))
         target_size = (nleaves, self.V.comm.allreduce(nleaves, op=MPI.SUM))
         mat = PETSc.Mat().createAIJ((target_size, source_size), nnz=1, comm=self.V.comm)
         mat.setUp()
-        local_sizes = self.V.comm.allgather(nroots)
         start = sum(local_sizes[:self.V.comm.rank])
         end = start + nroots
         contiguous_indices = numpy.arange(start, end, dtype=numpy.int32)
@@ -1725,4 +1715,6 @@ class VomOntoVomDummyMat(object):
         rows = numpy.arange(target_size[0] + 1, dtype=numpy.int32)
         mat.setValuesCSR(rows, perm, numpy.ones_like(perm, dtype=numpy.int32))
         mat.assemble()
-        return mat.createTranspose(mat)
+        if self.reduce:
+            mat.transpose()
+        return mat
