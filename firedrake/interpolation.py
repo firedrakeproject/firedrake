@@ -1648,10 +1648,11 @@ class VomOntoVomDummyMat(object):
 
     def _wrap_dummy_mat(self):
         mat = PETSc.Mat().create(comm=self.V.comm)
+        dim = self.V.value_size
         if self.forward_reduce:
-            mat_size = (self.source_size, self.target_size)
+            mat_size = (tuple(dim * i for i in self.source_size), tuple(dim * i for i in self.target_size))
         else:
-            mat_size = (self.target_size, self.source_size)
+            mat_size = (tuple(dim * i for i in self.target_size), tuple(dim * i for i in self.source_size))
         mat.setSizes(mat_size)
         mat.setType(mat.Type.PYTHON)
         mat.setPythonContext(self)
