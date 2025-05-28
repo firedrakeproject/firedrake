@@ -372,8 +372,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         subset=None,
         allow_missing_dofs=False,
         default_missing_val=None,
-        ad_block_tag=None,
-        matfree=True
+        ad_block_tag=None
     ):
         r"""Interpolate an expression onto this :class:`Function`.
 
@@ -397,17 +396,13 @@ class Function(ufl.Coefficient, FunctionMixin):
             within the same mesh or onto a :func:`.VertexOnlyMesh`.
         :kwarg ad_block_tag: An optional string for tagging the resulting assemble block on
             the Pyadjoint tape.
-        :kwarg matfree: If ``False``, then construct the permutation matrix for interpolating
-            between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
-            and reduce operations.
         :returns: this :class:`Function` object"""
         from firedrake import interpolation, assemble
         V = self.function_space()
         interp = interpolation.Interpolate(expression, V,
                                            subset=subset,
                                            allow_missing_dofs=allow_missing_dofs,
-                                           default_missing_val=default_missing_val,
-                                           matfree=matfree)
+                                           default_missing_val=default_missing_val)
         return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
 
     def zero(self, subset=None):
