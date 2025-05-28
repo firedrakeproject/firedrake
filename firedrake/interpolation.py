@@ -1635,7 +1635,7 @@ class VomOntoVomDummyMat(object):
         return coeff
 
     def reduce(self, source_vec, target_vec):
-        source_arr = source_vec.getArray()
+        source_arr = source_vec.getArray(readonly=True)
         target_arr = target_vec.getArray()
         self.sf.reduceBegin(
             self.mpi_type,
@@ -1651,7 +1651,7 @@ class VomOntoVomDummyMat(object):
         )
 
     def broadcast(self, source_vec, target_vec):
-        source_arr = source_vec.getArray()
+        source_arr = source_vec.getArray(readonly=True)
         target_arr = target_vec.getArray()
         self.sf.bcastBegin(
             self.mpi_type,
@@ -1666,7 +1666,7 @@ class VomOntoVomDummyMat(object):
             MPI.REPLACE,
         )
 
-    def mult(self, source_vec, target_vec):
+    def mult(self, mat, source_vec, target_vec):
         # need to evaluate expression before doing mult
         coeff = self.expr_as_coeff(source_vec)
         with coeff.dat.vec_ro as coeff_vec:
@@ -1675,7 +1675,10 @@ class VomOntoVomDummyMat(object):
             else:
                 self.broadcast(coeff_vec, target_vec)
 
-    def multHermitian(self, source_vec, target_vec):
+    def multHermitian(self, mat, source_vec, target_vec):
+        self.multTranspose(mat, source_vec, target_vec)
+
+    def multTranspose(self, mat, source_vec, target_vec):
         # can only do adjoint if our expression exclusively contains a
         # single argument, making the application of the adjoint operator
         # straightforward (haven't worked out how to do this otherwise!)
