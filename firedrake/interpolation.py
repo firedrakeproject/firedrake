@@ -1739,6 +1739,6 @@ class VomOntoVomDummyMat(object):
         mat.setPythonContext(self)
         mat.setUp()
         return mat
-    
+
     def duplicate(self, mat=None, op=None):
         return self._wrap_dummy_mat()
