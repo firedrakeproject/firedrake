@@ -835,9 +835,9 @@ class SameMeshInterpolator(Interpolator):
     """
 
     @no_annotations
-    def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE, 
+    def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE,
                  bcs=None, matfree=True, **kwargs):
-        super().__init__(expr, V, subset=subset, freeze_expr=freeze_expr, 
+        super().__init__(expr, V, subset=subset, freeze_expr=freeze_expr,
                          access=access, bcs=bcs, matfree=matfree)
         try:
             self.callable, arguments = make_interpolator(expr, V, subset, access, bcs=bcs, matfree=matfree)
@@ -1014,10 +1014,10 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
             wrapper.mpi_type, _ = get_dat_mpi_type(temp_source_func.dat)
 
             # Leave wrapper inside a callable so we can access the handle
-            # property. If matfree is True, then the handle is a PETSc SF 
+            # property. If matfree is True, then the handle is a PETSc SF
             # pretending to be a PETSc Mat. If matfree is False, then this
             # will be a PETSc Mat representing the equivalent permutation
-            # matrix 
+            # matrix
             def callable():
                 return wrapper
 
