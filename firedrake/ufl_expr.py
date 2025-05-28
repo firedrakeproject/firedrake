@@ -379,7 +379,7 @@ def extract_domains(func):
     list of firedrake.mesh.MeshGeometry
         Extracted domains.
     """
-    if isinstance(func, (function.Function, cofunction.Cofunction)):
+    if isinstance(func, (function.Function, cofunction.Cofunction, Argument, Coargument)):
         return [func.function_space().mesh()]
     else:
         return ufl.domain.extract_domains(func)
@@ -398,7 +398,7 @@ def extract_unique_domain(func):
     list of firedrake.mesh.MeshGeometry
         Extracted domains.
     """
-    if isinstance(func, (function.Function, cofunction.Cofunction)):
+    if isinstance(func, (function.Function, cofunction.Cofunction, Argument, Coargument)):
         return func.function_space().mesh()
     else:
         return ufl.domain.extract_unique_domain(func)

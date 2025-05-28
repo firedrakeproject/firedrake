@@ -464,7 +464,7 @@ class AssembledVector(TensorBase):
         if isinstance(tensor, BaseForm):
             return tuple(a.function_space() for a in tensor.arguments())
         else:
-            return (tensor.ufl_function_space(),)
+            return (tensor.ufl_function_space().dual(),)
 
     @cached_property
     def _argument(self):
@@ -1084,14 +1084,14 @@ class Inverse(UnaryOp):
         is defined on.
         """
         tensor, = self.operands
-        return tensor.arg_function_spaces[::-1]
+        return tuple(V.dual() for V in reversed(tensor.arg_function_spaces))
 
     def arguments(self):
         """Returns the expected arguments of the resulting tensor of
         performing a specific unary operation on a tensor.
         """
         tensor, = self.operands
-        return tensor.arguments()[::-1]
+        return tuple(a.reconstruct(a.function_space().dual()) for a in reversed(tensor.arguments()))
 
     def _output_string(self, prec=None):
         """Creates a string representation of the inverse of a tensor."""
@@ -1219,7 +1219,7 @@ class Add(BinaryOp):
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
 
-        assert all(space_equivalence(fsA, fsB) for fsA, fsB in
+        assert all(fsA == fsB for fsA, fsB in
                    zip(A.arg_function_spaces, B.arg_function_spaces)), (
             "Function spaces associated with operands must match."
         )
@@ -1267,9 +1267,9 @@ class Mul(BinaryOp):
         fsA = A.arg_function_spaces[-1]
         fsB = B.arg_function_spaces[0]
 
-        assert space_equivalence(fsA, fsB), (
+        assert fsA == fsB.dual(), (
             "Cannot perform argument contraction over middle indices. "
-            "They must be in the same function space."
+            "They should be in dual function spaces."
         )
 
         super(Mul, self).__init__(A, B)
@@ -1314,12 +1314,12 @@ class Solve(BinaryOp):
         if A.shape[1] != B.shape[0]:
             raise ValueError(f"Illegal op on a {A.shape}-tensor with a {B.shape}-tensor.")
 
-        fsA = A.arg_function_spaces[0]
+        fsA = A.arg_function_spaces[1]
         fsB = B.arg_function_spaces[0]
 
-        assert space_equivalence(fsA, fsB), (
+        assert fsA.dual() == fsB, (
             "Cannot perform argument contraction over middle indices. "
-            "They must be in the same function space."
+            "They should be in dual function spaces."
         )
 
         # For matrices smaller than 5x5, exact formulae can be used
@@ -1341,7 +1341,8 @@ class Solve(BinaryOp):
 
         super(Solve, self).__init__(A_factored, B)
 
-        self._args = A_factored.arguments()[::-1][:-1] + B.arguments()[1:]
+        Ainv_args = [a.reconstruct(a.function_space().dual()) for a in reversed(A.arguments())]
+        self._args = Ainv_args[:-1] + B.arguments()[1:]
         self._arg_fs = [arg.function_space() for arg in self._args]
 
     @cached_property
@@ -1398,19 +1399,6 @@ class DiagonalTensor(UnaryOp):
         """Creates a string representation of the diagonal of a tensor."""
         tensor, = self.operands
         return "(%s).diag" % tensor
-
-
-def space_equivalence(A, B):
-    """Checks that two function spaces are equivalent.
-
-    :arg A: A function space.
-    :arg B: Another function space.
-
-    Returns `True` if they have matching meshes, elements, and rank. Otherwise,
-    `False` is returned.
-    """
-
-    return A.mesh() == B.mesh() and A.ufl_element() == B.ufl_element()
 
 
 def as_slate(F):
