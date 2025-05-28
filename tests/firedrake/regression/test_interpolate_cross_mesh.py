@@ -779,7 +779,9 @@ def test_interpolate_matrix_cross_mesh():
     # B is the interpolation matrix from P0DG to vom.input_ordering
     # C is direct assignment to the function in V
     interp_mat = assemble(Action(B, A))
-    f_interp2 = assemble(interp_mat @ f)
+    f_at_points_correct_order3 = assemble(interp_mat @ f)
+    f_interp2 = Function(V)
+    f_interp2.dat.data_wo[:] = f_at_points_correct_order3.dat.data_ro[:]
     assert np.allclose(f_interp2.dat.data_ro, g.dat.data_ro)
 
 
