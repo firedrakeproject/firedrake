@@ -188,9 +188,6 @@ def interpolate(
         to zero. Ignored if interpolating within the same mesh or onto a
         :func:`.VertexOnlyMesh`.
     :kwarg ad_block_tag: An optional string for tagging the resulting assemble block on the Pyadjoint tape.
-    :kwarg matfree: If ``False``, then construct the permutation matrix for interpolating
-        between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
-        and reduce operations.
     :returns: a new :class:`.Function` in the space ``V`` (or ``V`` if
         it was a Function).
 
