@@ -120,7 +120,7 @@ def set_blas_num_threads():
 
     """
     from ctypes import cdll
-    from firedrake.petsc import get_blas_library
+    from petsctools import get_blas_library
 
     try:
         blas_lib_path = get_blas_library()

@@ -135,7 +135,7 @@ def garbage_view(obj: Any):
         raise FiredrakePETScError("No comm found, cannot view garbage")
 
 
-external_packages = get_external_packages()
+external_packages = petsctools.get_external_packages()
 
 # Setup default partitioner
 # Manually define the priority until
@@ -188,7 +188,7 @@ else:
 # Parameters must be flattened for `set_defaults` in `solving_utils.py` to
 # mutate options dictionaries "correctly".
 # TODO: refactor `set_defaults` in `solving_utils.py`
-_DEFAULT_KSP_PARAMETERS = flatten_parameters({
+_DEFAULT_KSP_PARAMETERS = petsctools.flatten_parameters({
     "mat_type": "aij",
     "ksp_type": "preonly",
     "ksp_rtol": 1e-7,
