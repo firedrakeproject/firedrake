@@ -1499,8 +1499,8 @@ class VomOntoVomDummyMat(object):
         # Calculate correct local and global sizes for the matrix
         nroots, leaves, _ = sf.getGraph()
         nleaves = len(leaves)
-        self.local_sizes = V.comm.allgather(nroots)
-        self.source_size = (nroots, sum(self.local_sizes))
+        self._local_sizes = V.comm.allgather(nroots)
+        self.source_size = (nroots, sum(self._local_sizes))
         self.target_size = (nleaves, self.V.comm.allreduce(nleaves, op=MPI.SUM))
 
     @property
@@ -1633,14 +1633,14 @@ class VomOntoVomDummyMat(object):
         its input ordering vertex-only mesh"""
         mat = PETSc.Mat().createAIJ((self.target_size, self.source_size), nnz=1, comm=self.V.comm)
         mat.setUp()
-        start = sum(self.local_sizes[:self.V.comm.rank])
+        start = sum(self._local_sizes[:self.V.comm.rank])
         end = start + self.source_size[0]
-        contiguous_indices = numpy.arange(start, end, dtype=numpy.int32)
-        perm = numpy.zeros(self.target_size[0], dtype=numpy.int32)
+        contiguous_indices = numpy.arange(start, end, dtype=utils.IntType)
+        perm = numpy.zeros(self.target_size[0], dtype=utils.IntType)
         self.sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
         self.sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
-        rows = numpy.arange(self.target_size[0] + 1, dtype=numpy.int32)
-        mat.setValuesCSR(rows, perm, numpy.ones_like(perm, dtype=numpy.int32))
+        rows = numpy.arange(self.target_size[0] + 1, dtype=utils.IntType)
+        mat.setValuesCSR(rows, perm, numpy.ones_like(perm, dtype=utils.IntType))
         mat.assemble()
         if self.forward_reduce:
             mat.transpose()
@@ -1649,10 +1649,12 @@ class VomOntoVomDummyMat(object):
     def _wrap_dummy_mat(self):
         mat = PETSc.Mat().create(comm=self.V.comm)
         dim = self.V.value_size
+        source_size = tuple(dim * i for i in self.source_size)
+        target_size = tuple(dim * i for i in self.target_size)
         if self.forward_reduce:
-            mat_size = (tuple(dim * i for i in self.source_size), tuple(dim * i for i in self.target_size))
+            mat_size = (source_size, target_size)
         else:
-            mat_size = (tuple(dim * i for i in self.target_size), tuple(dim * i for i in self.source_size))
+            mat_size = (target_size, source_size)
         mat.setSizes(mat_size)
         mat.setType(mat.Type.PYTHON)
         mat.setPythonContext(self)
