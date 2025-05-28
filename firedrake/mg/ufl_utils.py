@@ -134,7 +134,7 @@ def coarsen_equation_bc(ebc, self, coefficient_mapping=None):
     Jp = self(ebc._Jp.f, self, coefficient_mapping=coefficient_mapping)
     u = self(ebc._F.u, self, coefficient_mapping=coefficient_mapping)
     sub_domain = ebc._F.sub_domain
-    bcs = [self(bc, self, coefficient_mapping=coefficient_mapping) for bc in ebc._F.bcs]
+    bcs = [self(bc, self, coefficient_mapping=coefficient_mapping) for bc in ebc.bcs]
     V = self(ebc._F.function_space(), self, coefficient_mapping=coefficient_mapping)
 
     return type(ebc)(F == 0, u, sub_domain, V=V, bcs=bcs, J=J, Jp=Jp)

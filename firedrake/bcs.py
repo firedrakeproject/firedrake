@@ -496,6 +496,7 @@ class EquationBC(object):
             if V is None:
                 V = eq.lhs.arguments()[0].function_space()
             bcs = solving._extract_bcs(bcs)
+            self.bcs = bcs
             # Jp_eq_J is progressively evaluated as the tree is constructed
             self.Jp_eq_J = Jp is None and all([bc.Jp_eq_J for bc in bcs])
 
