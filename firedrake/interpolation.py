@@ -155,8 +155,7 @@ def interpolate(
     access=op2.WRITE,
     allow_missing_dofs=False,
     default_missing_val=None,
-    ad_block_tag=None,
-    matfree=True
+    ad_block_tag=None
 ):
     """Interpolate an expression onto a new function in V.
 
@@ -215,7 +214,7 @@ def interpolate(
 
     """
     return Interpolator(
-        expr, V, subset=subset, access=access, allow_missing_dofs=allow_missing_dofs, matfree=matfree
+        expr, V, subset=subset, access=access, allow_missing_dofs=allow_missing_dofs
     ).interpolate(default_missing_val=default_missing_val, ad_block_tag=ad_block_tag)
 
 
