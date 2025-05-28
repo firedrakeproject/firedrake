@@ -135,6 +135,7 @@ nitpick_ignore_regex = [
     (r'py:.*', r'ufl\..*'),
     (r'py:.*', r'PETSc\..*'),
     (r'py:.*', r'progress\..*'),
+    (r'py:.*', r'petsctools\..*'),
     # Ignore undocumented PyOP2
     ('py:class', 'pyop2.caching.Cached'),
     # Ignore mission docs from Firedrake internal "private" code
