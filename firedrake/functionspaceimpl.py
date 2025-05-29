@@ -970,7 +970,7 @@ class FunctionSpace:
         return self._shared_data.boundary_nodes(self, sub_domain)
 
     @PETSc.Log.EventDecorator()
-    def mask_lgmap(self, bcs, axes, indices, bsize) -> PETSc.LGMap:
+    def mask_lgmap(self, bcs, axes, bsize) -> PETSc.LGMap:
         """Return a map from process-local to global DoF numbering.
 
         # update this#
@@ -995,7 +995,7 @@ class FunctionSpace:
         if not bcs:
             if self.value_size > 1:
                 raise NotImplementedError
-            return PETSc.LGMap().create(indices.buffer.data_ro, bsize=1, comm=self.comm)
+            return axes.lgmap
 
         for bc in bcs:
             fs = bc.function_space()
@@ -1011,6 +1011,7 @@ class FunctionSpace:
         else:
             idat = indices.copy2()
 
+        # Set constrained values in the lgmap to -1
         for bc in bcs:
             p = self._mesh.points[bc.constrained_points].index()
 

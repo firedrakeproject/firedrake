@@ -205,7 +205,7 @@ class _FacetContext:
 
     @utils.cached_property
     def set(self):
-        return self._owned_facet_dat.axes
+        return self.mesh.points[self.facet_subset].owned
 
     @PETSc.Log.EventDecorator()
     def measure_set(self, integral_type, subdomain_id,
@@ -403,13 +403,24 @@ class _FacetContext:
         )
 
     @cached_property
-    def _facet_data(self) -> np.ndarray:
-        facets = np.empty_like(self._facet_data_default)
-        f_start = self.mesh.points.component_offset(self.mesh.facet_label)
-        facet_numbering = self.mesh.points.component_numbering(self.mesh.facet_label)
-        for fi, facet in enumerate(self._facet_data_default):
-            facets[fi] = facet_numbering[facet - f_start]
-        return facets
+    def facet_indices_renumbered(self) -> np.ndarray:
+        dim = self.mesh.topology.dimension - 1
+        facet_indices_localized = self.facet_indices - self.mesh.strata_offsets[dim]
+        return self.mesh._entity_numbering(dim)[facet_indices_localized]
+        # facets = np.empty_like(self._facet_data_default)
+        # f_start = self.mesh.points.component_offset(self.mesh.facet_label)
+        # facet_numbering = self.mesh.points.component_numbering(self.mesh.facet_label)
+        # for fi, facet in enumerate(self._facet_data_default):
+        #     facets[fi] = facet_numbering[facet - f_start]
+        # return facets
+
+    @cached_property
+    def facet_subset(self) -> op3.Slice:
+        dim = self.mesh.topology.dimension - 1
+        indices = self.facet_indices_renumbered
+        subset_dat = op3.Dat(op3.Axis(indices.size), data=indices, prefix="subset")
+        subset = op3.Subset(str(dim), subset_dat)
+        return op3.Slice(self.mesh.topology.points.root.label, [subset])
 
     @cached_property
     def _owned_facet_data(self) -> np.ndarray:
@@ -417,7 +428,7 @@ class _FacetContext:
         return self._facet_data[self._facet_data < nowned_facets]
 
     @cached_property
-    def _facet_data_default(self) -> np.ndarray:
+    def facet_indices(self) -> np.ndarray:
         """Return the numbers of the exterior facets."""
         if self._facet_type == "exterior":
             return dmcommon.facets_with_label(self.mesh, "exterior_facets")
@@ -2003,29 +2014,61 @@ class MeshTopology(AbstractMeshTopology):
         cell = self._ufl_cell
         return ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
 
-    def subdomain_points(self, subdomain_id):
-        if subdomain_id == ("on_boundary",):
+    def subdomain_subset(self, subdomain_ids) -> op3.Slice:
+        """
+        The union is taken
+        """
+        if subdomain_ids == "on_boundary":
             label = "exterior_facets"
-            label_values = (1,)
+            subdomain_ids = (1,)
         else:
-            label = "Face Sets"
-            label_values = subdomain_id
+            label = dmcommon.FACE_SETS_LABEL
 
-        dm = self.topology_dm
+        if isinstance(subdomain_ids, numbers.Integral):
+            subdomain_ids = (subdomain_ids,)
 
-        if not dm.hasLabel(label):
-            return tuple(np.empty(0, dtype=IntType) for _ in range(self.dimension+1))
+        # if not dm.hasLabel(label):
+        #     raise RuntimeError(f"Label {label} does not exist")
+            # return tuple(np.empty(0, dtype=IntType) for _ in range(self.dimension+1))
 
-        # this is a very slow way to do this, should consider the fact that usually
-        # we know only a particular stratum (e.g. facets) is labelled
-        points = tuple([] for _ in range(self.dimension+1))
-        for label_value in label_values:
-            for pt in dm.getStratumIS(label, label_value).indices:
-                dim_cpt, dim_pt = self.points.axis_to_component_number(pt)
-                dim_pt_renum = self.points.default_to_applied_component_number(dim_cpt, dim_pt)
-                dim = int(dim_cpt.label)
-                points[dim].append(dim_pt_renum)
-        return tuple(np.unique(pts) for pts in points)
+        points = np.sort(
+            np.unique(
+                np.concatenate([
+                    self.topology_dm.getStratumIS(label, subdomain_id).indices
+                    for subdomain_id in subdomain_ids
+                ])
+            )
+        )
+
+        # split by dimension, recalling that DMPlex numbers strata in a special order
+        point_offsets = np.searchsorted(points, self.strata_offsets)
+        points_split_plex_order = np.array(
+            [
+                points[start:stop]
+                for start, stop in op3.utils.pairwise(point_offsets, final=-1)
+            ],
+            dtype=object,
+        )
+
+        # order by dimension, not by DMPlex convention
+        dim_to_plex_strata = op3.utils.invert(self._plex_strata_ordering)
+        points_split = tuple(points_split_plex_order[dim_to_plex_strata])
+
+        # now renumber
+        points_renum = tuple(
+            self._entity_numbering(dim)[pts - self.strata_offsets[dim_to_plex_strata[dim]]]
+            for dim, pts in enumerate(points_split)
+        )
+
+        # this is a tuple of arrays, not a subset
+        return points_renum
+
+    @cached_property
+    def strata_offsets(self) -> tuple[int, ...]:
+        return tuple(
+            self.topology_dm.getDepthStratum(dim)[0]
+            for dim in range(self.dimension+1)
+        )
 
     @cached_property
     def _plex_closures(self) -> tuple[np.ndarray, ...]:

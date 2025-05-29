@@ -271,55 +271,64 @@ def _axis_tree_size_rec(axis_tree: AxisTree, axis: Axis):
     # inner axes.
     tree_size = 0
     for component in axis.components:
-        if subaxis := axis_tree.child(axis, component):
-            subtree_size = _axis_tree_size_rec(axis_tree, subaxis)
-        else:
-            subtree_size = 1
-
-        # the size is the sum of the array...
-
-        # don't want to have <num> * <array> because (for example) the size of 3 * [1, 2, 1] is 4!
-        if not isinstance(subtree_size, numbers.Integral):
-            # Consider the following case:
-            #
-            #   subtree size: [[2, 1, 0], [2, 4, 1]][i, j]
-            #   component size: 3 (j)
-            #
-            # We need a new size array with free index i:
-            #
-            #   size = [3, 7][i]
-            #
-            # and therefore need to execute the loop:
-            #
-            #   for i
-            #     for j
-            #       size[i] += subtree[i, j]
-            all_axes_that_we_need = extract_axes(subtree_size, axis_tree, (), {})[0]
-            if all_axes_that_we_need.depth > 1:
-                raise NotImplementedError("Not currently expected to work with multiply ragged extents")
-                # outer_axes = all_axes_that_we_need - axis.label
-                # component_size = Dat(axis.linearise(component_label), dtype=IntType)
-                # Loop(i := outer_axes.iter(),
-                #      Loop(j := component_size.axes.iter(),
-                #         component_size[i].assign(subtree_size[i][j])
-                #     )
-                # )()
-            j = all_axes_that_we_need.index()
-
-            inv_map = {
-                ax.label: LoopIndexVar(j.id, ax.label)
-                for ax in all_axes_that_we_need.nodes
-            }
-
-            mysize = replace_terminals(subtree_size, inv_map)
-            component_size = Dat.zeros(UNIT_AXIS_TREE, dtype=IntType)
-            loop_(
-                j, component_size.iassign(mysize)
-            )()
-            tree_size += as_linear_buffer_expression(component_size)
-        else:
-            tree_size += component.local_size * subtree_size
+        tree_size += axis_tree_component_size(axis_tree, axis, component)
     return tree_size
+
+
+def axis_tree_component_size(axis_tree, axis, component):
+    from pyop3 import Dat, Scalar, loop as loop_
+    from pyop3.tensor.dat import as_linear_buffer_expression
+    from pyop3.expr_visitors import extract_axes, replace_terminals
+
+    if subaxis := axis_tree.child(axis, component):
+        subtree_size = _axis_tree_size_rec(axis_tree, subaxis)
+    else:
+        subtree_size = 1
+
+    # the size is the sum of the array...
+
+    # don't want to have <num> * <array> because (for example) the size of 3 * [1, 2, 1] is 4!
+    if not isinstance(subtree_size, numbers.Integral):
+        # Consider the following case:
+        #
+        #   subtree size: [[2, 1, 0], [2, 4, 1]][i, j]
+        #   component size: 3 (j)
+        #
+        # We need a new size array with free index i:
+        #
+        #   size = [3, 7][i]
+        #
+        # and therefore need to execute the loop:
+        #
+        #   for i
+        #     for j
+        #       size[i] += subtree[i, j]
+        all_axes_that_we_need = extract_axes(subtree_size, axis_tree, (), {})[0]
+        if all_axes_that_we_need.depth > 1:
+            raise NotImplementedError("Not currently expected to work with multiply ragged extents")
+            # outer_axes = all_axes_that_we_need - axis.label
+            # component_size = Dat(axis.linearise(component_label), dtype=IntType)
+            # Loop(i := outer_axes.iter(),
+            #      Loop(j := component_size.axes.iter(),
+            #         component_size[i].assign(subtree_size[i][j])
+            #     )
+            # )()
+        j = all_axes_that_we_need.index()
+
+        inv_map = {
+            ax.label: LoopIndexVar(j.id, ax.label)
+            for ax in all_axes_that_we_need.nodes
+        }
+
+        mysize = replace_terminals(subtree_size, inv_map)
+        component_size = Dat.zeros(UNIT_AXIS_TREE, dtype=IntType)
+        loop_(
+            j, component_size.iassign(mysize)
+        )()
+        # return as_linear_buffer_expression(component_size)
+        return just_one(component_size.buffer._data)
+    else:
+        return component.local_size * subtree_size
 
 
 def _drop_constant_subaxes(axis_tree, axis, component) -> tuple[AxisTree, int]:

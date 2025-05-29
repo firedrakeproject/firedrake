@@ -129,10 +129,10 @@ class Mat(Tensor):
             # TODO: Move into a Buffer.zeros method or similar
             # mat_type = buffer_kwargs.pop("mat_type", cls.DEFAULT_MAT_TYPE)
             block_shape = buffer_kwargs.pop("block_shape", 1)
-            nrows = row_axes.owned.size
-            ncolumns = column_axes.owned.size
-            rlgmap = PETSc.LGMap().create(row_axes.global_numbering, bsize=block_shape, comm=row_axes.comm)
-            clgmap = PETSc.LGMap().create(column_axes.global_numbering, bsize=block_shape, comm=column_axes.comm)
+            nrows = row_axes.unindexed.owned.size
+            ncolumns = column_axes.unindexed.owned.size
+            rlgmap = PETSc.LGMap().create(row_axes.unindexed.global_numbering, bsize=block_shape, comm=row_axes.comm)
+            clgmap = PETSc.LGMap().create(column_axes.unindexed.global_numbering, bsize=block_shape, comm=column_axes.comm)
             mat = buffer_type._make_mat(
                 nrows, ncolumns, (rlgmap, clgmap), mat_type=PETSc.Mat.Type.PREALLOCATOR, block_shape=block_shape
                 )
@@ -411,6 +411,7 @@ class Mat(Tensor):
 
     @cached_property
     def _block_raxes(self):
+        assert False, "old code"
         block_raxes, target_paths, index_exprs = self._collect_block_axes(self.raxes)
         block_raxes_unindexed, _, _ = self._collect_block_axes(self.raxes.unindexed)
         return IndexedAxisTree(
@@ -452,25 +453,25 @@ class Mat(Tensor):
                 index_exprs.update(subindex_exprs)
         return axis_tree, target_paths, index_exprs
 
-    @cached_property
-    def rmap(self):
-        return self.leaf_layouts[0]
+    # @cached_property
+    # def rmap(self):
+    #     return self.leaf_layouts[0]
+    #
+    # @cached_property
+    # def cmap(self):
+    #     return self.leaf_layouts[1]
 
-    @cached_property
-    def cmap(self):
-        return self.leaf_layouts[1]
-
-    @cached_property
-    def row_lgmap_dat(self):
-        if self.nested or self.mat_type == "baij":
-            raise NotImplementedError("Use a smaller set of axes here")
-        return Dat(self.raxes, data=self.raxes.unindexed.global_numbering)
-
-    @cached_property
-    def column_lgmap_dat(self):
-        if self.nested or self.mat_type == "baij":
-            raise NotImplementedError("Use a smaller set of axes here")
-        return Dat(self.caxes, data=self.caxes.unindexed.global_numbering)
+    # @cached_property
+    # def row_lgmap_dat(self):
+    #     if self.nested or self.mat_type == "baij":
+    #         raise NotImplementedError("Use a smaller set of axes here")
+    #     return Dat(self.raxes, data=self.raxes.unindexed.global_numbering)
+    #
+    # @cached_property
+    # def column_lgmap_dat(self):
+    #     if self.nested or self.mat_type == "baij":
+    #         raise NotImplementedError("Use a smaller set of axes here")
+    #     return Dat(self.caxes, data=self.caxes.unindexed.global_numbering)
 
     @property
     def shape(self):

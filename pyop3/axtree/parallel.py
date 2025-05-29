@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import numbers
 from collections.abc import Sequence
 
 import numpy as np
@@ -62,7 +63,7 @@ def collect_star_forests(axis_tree: AbstractAxisTree) -> tuple[StarForest, ...]:
 def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, axis: Axis) -> tuple[StarForest, ...]:
     # TODO: not in firedrake
     from firedrake.cython.dmcommon import create_section_sf
-    from pyop3.axtree.layout import _axis_tree_size_rec
+    from pyop3.axtree.layout import axis_tree_component_size
 
     sfs = []
     for component in axis.components:
@@ -74,9 +75,10 @@ def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, axis: Axis) -> tuple[Sta
             else:
                 petsc_sf = component.sf.sf
 
-            size = component.local_size
-            if subaxis := axis_tree.child(axis, component):
-                size *= _axis_tree_size_rec(axis_tree, subaxis)
+            size = axis_tree_component_size(axis_tree, axis, component)
+
+            if not isinstance(size, numbers.Integral):
+                raise NotImplementedError("Assume that star forests have integer size")
 
             sf = StarForest(petsc_sf, size)
             sfs.append(sf)

@@ -376,8 +376,19 @@ def strides(sizes, *, drop_last=True) -> np.ndarray[int]:
     return readonly(strides_[:-1]) if drop_last else readonly(strides_)
 
 
-def pairwise(iterable):
-    return zip(iterable, iterable[1:])
+_nothing = object()
+"""Sentinel value indicating nothing should be done.
+
+This is useful in cases where `None` holds some meaning.
+
+"""
+
+
+def pairwise(iterable, *, final=_nothing):
+    if final is not _nothing:
+        return itertools.zip_longest(iterable, iterable[1:], fillvalue=final)
+    else:
+        return zip(iterable, iterable[1:])
 
 
 # stolen from stackoverflow

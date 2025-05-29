@@ -198,6 +198,8 @@ class _UnitAxisTree:
     is_empty = False
     sf = single_star_sf(MPI.COMM_SELF) # no idea if this is right
 
+    unindexed = property(lambda self: self)
+
     def prune(self) -> Self:
         return self
 
@@ -986,22 +988,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         )
 
     @cached_property
-    def global_numbering(self) -> np.ndarray[IntType]:
-        # NOTE: Identical code is used elsewhere
-        if not self.comm:  # maybe goes away if we disallow comm=None
-            numbering = np.arange(self.size, dtype=IntType)
-        else:
-            start = self.sf.comm.exscan(self.owned.size) or 0
-            numbering = np.arange(start, start + self.size, dtype=IntType)
-
-            # set ghost entries to -1 to make sure they are overwritten
-            # TODO: if config.debug:
-            numbering[self.owned.size:] = -1
-            self.sf.broadcast(numbering, MPI.REPLACE)
-            debug_assert(lambda: (numbering >= 0).all())
-        return numbering
-
-    @cached_property
     def leaf_target_paths(self):
         return tuple(
             merge_dicts(
@@ -1084,8 +1070,9 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         if isinstance(size_expr, numbers.Integral):
             size_axes = Axis(component.local_size)
         else:
-            path = self.path_with_nodes(axis, component, and_components=True)
-            size_axes = extract_axes(size_expr, path, immutabledict(), {})
+            # path = self.path_with_nodes(axis, component, and_components=True)
+            # size_axes = extract_axes(size_expr, ???, (), {})
+            size_axes, _ = extract_axes(size_expr, self, (), {})
         size_dat = Dat.empty(size_axes, dtype=IntType)
         size_dat.assign(size_expr, eager=True)
 
@@ -1306,6 +1293,19 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
                         region_labels.add(region.label)
         return frozenset(region_labels)
 
+    # {{{ parallel
+
+    @cached_property
+    def lgmap(self) -> PETSc.LGMap:
+        return PETSc.LGMap().create(self.lgmap_dat.data_ro_with_halos, bsize=1, comm=self.comm)
+
+    @property
+    @abc.abstractmethod
+    def lgmap_dat(self) -> Dat:
+        pass
+
+    # }}}
+
 
 class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     @classmethod
@@ -1477,6 +1477,31 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     @cached_property
     def _buffer_slice(self) -> slice:
         return slice(self.size)
+
+    @cached_property
+    def global_numbering(self) -> np.ndarray[IntType]:
+        # NOTE: Identical code is used elsewhere
+        if not self.comm:  # maybe goes away if we disallow comm=None
+            numbering = np.arange(self.size, dtype=IntType)
+        else:
+            start = self.sf.comm.exscan(self.owned.size) or 0
+            numbering = np.arange(start, start + self.size, dtype=IntType)
+
+            # set ghost entries to -1 to make sure they are overwritten
+            # TODO: if config.debug:
+            numbering[self.owned.size:] = -1
+            self.sf.broadcast(numbering, MPI.REPLACE)
+            debug_assert(lambda: (numbering >= 0).all())
+        return numbering
+
+    # TODO: Think of good names for these types (and global_numbering)
+    @cached_property
+    def lgmap_dat(self) -> Dat:
+        from pyop3 import Dat
+
+        # NOTE: This could perhaps use 'self' instead of 'self.localize' and
+        # just pass arange. The SF could then do the copies internally.
+        return Dat(self._undistributed, data=self.global_numbering, prefix="lgmap")
 
 
 class IndexedAxisTree(AbstractAxisTree):
@@ -1736,6 +1761,15 @@ class IndexedAxisTree(AbstractAxisTree):
         debug_assert(lambda: max(indices) <= self.alloc_size)
         assert slice_ is not None
         return slice_
+
+    # {{{ parallel
+
+    @cached_property
+    def lgmap_dat(self) -> Dat:
+        return self.unindexed.lgmap_dat.__record_init__(axes=self)
+
+    # }}}
+
 
 
 # TODO: Choose a suitable base class

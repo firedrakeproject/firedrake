@@ -91,7 +91,7 @@ class Dat(Tensor, KernelArgument):
     def __init__(
         self,
         axes,
-        buffer: ArrayBuffer | None = None,
+        buffer: AbstractBuffer | None = None,
         *,
         data: np.ndarray | None = None,
         name=None,
@@ -145,20 +145,20 @@ class Dat(Tensor, KernelArgument):
     @classmethod
     def empty(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = ArrayBuffer.empty(axes.alloc_size, dtype=dtype, sf=axes.sf)
+        buffer = ArrayBuffer.empty(axes.unindexed.alloc_size, dtype=dtype, sf=axes.sf)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
     def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
         axes = as_axis_tree(axes)
         # alloc_size?
-        buffer = ArrayBuffer.zeros(axes.alloc_size, dtype=dtype, sf=axes.sf)
+        buffer = ArrayBuffer.zeros(axes.unindexed.alloc_size, dtype=dtype, sf=axes.sf)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
     def null(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = NullBuffer(axes.alloc_size, dtype=dtype)
+        buffer = NullBuffer(axes.unindexed.alloc_size, dtype=dtype)
         return cls(axes, buffer=buffer, **kwargs)
 
     # }}}

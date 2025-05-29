@@ -1870,16 +1870,16 @@ class ParloopBuilder:
                 i = Ellipsis if i is None else i
                 j = Ellipsis if j is None else j
 
-                if matrix.M.mat_type == "aij":
+                if matrix.M.buffer.mat_type in {"seqaij", "mpiaij"}:
                     row_bsize = 1
                     col_bsize = 1
                 else:
-                    assert matrix.M.mat_type == "baij"
+                    assert matrix.M.buffer.mat_type == "baij"
                     row_bsize = self.test_function_space[ibc].value_size
                     col_bsize = self.trial_function_space[jbc].value_size
 
                 submat = matrix.M[i, j]
-                rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, submat.raxes, submat.row_lgmap_dat, row_bsize)
+                rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, submat.raxes, row_bsize)
                 clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, submat.caxes, submat.column_lgmap_dat, col_bsize)
                 lgmaps.append((i, j, rlgmap, clgmap))
 

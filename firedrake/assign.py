@@ -5,7 +5,6 @@ import operator
 import finat.ufl
 import numpy as np
 import pyop3 as op3
-from pyop3.exceptions import DataValueError
 import pytools
 from pyadjoint.tape import annotate_tape
 from pyop2.utils import cached_property
@@ -259,7 +258,7 @@ class Assigner:
         else:
             cdim = self._assignee.function_space().value_size
             if rvalue.shape != (cdim,):
-                raise DataValueError("Assignee and assignment values are different shapes")
+                raise ValueError("Assignee and assignment values are different shapes")
             assignee.reshape((-1, cdim))[...] = rvalue
 
     def _compute_rvalue(self, func_data):
