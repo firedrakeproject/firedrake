@@ -266,21 +266,19 @@ If you encounter the error:
 
    FileNotFoundError: [Errno 2] No such file or directory: '/tmp/.../petsc/conf/petscvariables'
 
-when running the ``pip install`` instruction this is usually a sign that the
-environment variables ``PETSC_DIR`` or ``PETSC_ARCH`` are not set correctly.
-You can check this by making sure that you can run the following command
-without error::
+when running the ``pip install`` instruction this is usually a sign that either:
+you are using a cached version of petsc4py that is linked incorrectly, or that
+the environment variables ``PETSC_DIR`` or ``PETSC_ARCH`` are not set correctly.
+To fix this we suggest purging the pip cache before re-exporting the environment
+variables::
 
-   $ ls $PETSC_DIR/$PETSC_ARCH/lib/petsc/conf/petscvariables 
-
-If this raises an error then you should make sure the pip cache is empty and
-re-``export`` the variables necessary to build Firedrake as described
-:ref:`above<install_firedrake>`::
-
-   $ pip cache remove petsc4py
+   $ pip cache purge
    $ export $(python3 firedrake-configure --show-env)
 
-and try the install again.
+You can check that ``PETSC_DIR`` and ``PETSC_ARCH`` are set correctly by making
+sure that you can run the following command without error::
+
+   $ ls $PETSC_DIR/$PETSC_ARCH/lib/petsc/conf/petscvariables 
 
 Missing symbols post install
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -293,10 +291,7 @@ the wrong compiled library. This is usually caused by issues with caching.
 To resolve the problem you should first remove any existing cached packages::
 
    $ pip uninstall -y h5py mpi4py petsc4py slepc4py
-   $ pip cache remove h5py
-   $ pip cache remove mpi4py
-   $ pip cache remove petsc4py
-   $ pip cache remove slepc4py
+   $ pip cache purge
 
 before re-running the instruction to install Firedrake.
 
