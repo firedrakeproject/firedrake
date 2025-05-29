@@ -512,6 +512,8 @@ class EquationBC(object):
                         raise ValueError("Provided BC RHS is not a linear form")
                     F = ufl_expr.action(J, u) - L
                 self.is_linear = True
+                self.lhs = J
+                self.rhs = L
             # nonlinear
             else:
                 if eq.rhs != 0:

@@ -129,7 +129,6 @@ def coarsen_bc(bc, self, coefficient_mapping=None):
 
 @coarsen.register(firedrake.EquationBC)
 def coarsen_equation_bc(ebc, self, coefficient_mapping=None):
-    F = self(ebc._F.f, self, coefficient_mapping=coefficient_mapping)
     J = self(ebc._J.f, self, coefficient_mapping=coefficient_mapping)
     Jp = self(ebc._Jp.f, self, coefficient_mapping=coefficient_mapping)
     u = self(ebc._F.u, self, coefficient_mapping=coefficient_mapping)
@@ -137,7 +136,13 @@ def coarsen_equation_bc(ebc, self, coefficient_mapping=None):
     bcs = [self(bc, self, coefficient_mapping=coefficient_mapping) for bc in ebc.bcs]
     V = self(ebc._F.function_space(), self, coefficient_mapping=coefficient_mapping)
 
-    return type(ebc)(F == 0, u, sub_domain, V=V, bcs=bcs, J=J, Jp=Jp)
+    if ebc.is_linear:
+        lhs = self(ebc.lhs, self, coefficient_mapping=coefficient_mapping)
+        rhs = self(ebc.rhs, self, coefficient_mapping=coefficient_mapping)
+        return type(ebc)(lhs == rhs, u, sub_domain, V=V, bcs=bcs, J=J, Jp=Jp)
+    else:
+        F = self(ebc._F.f, self, coefficient_mapping=coefficient_mapping)
+        return type(ebc)(F == 0, u, sub_domain, V=V, bcs=bcs, J=J, Jp=Jp)
 
 
 @coarsen.register(firedrake.functionspaceimpl.WithGeometryBase)
