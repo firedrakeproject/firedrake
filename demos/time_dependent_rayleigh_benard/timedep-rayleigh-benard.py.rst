@@ -171,12 +171,12 @@ Now that the stepper is set up, let's run over many time steps::
 
   plot_freq = 10
   Ts = []
-  cur_step = 0
-  for _ in ProgressBar("Integrating Rayleigh-Benard").iter(range(N)):
+
+  for cur_step in ProgressBar("Integrating Rayleigh-Benard").iter(range(N)):
       stepper.advance()
 
-      t.assign(float(t) + float(dt))
-      cur_step += 1
+      t += dt
+
       if cur_step % plot_freq == 0:
           Ts.append(upT.subfunctions[2].copy(deepcopy=True))
 

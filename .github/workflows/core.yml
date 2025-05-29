@@ -191,7 +191,6 @@ jobs:
               "$PETSC_DIR"/"$PETSC_ARCH"/externalpackages/git.slepc/src/binding/slepc4py
             pip install --no-deps ngsPETSc netgen-mesher netgen-occt
 
-            pip install https://github.com/firedrakeproject/Irksome.git
             : # We have to pass '--no-build-isolation' to use a custom petsc4py
             EXTRA_PIP_FLAGS='--no-build-isolation'
           fi
