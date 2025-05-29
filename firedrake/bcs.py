@@ -488,7 +488,6 @@ class EquationBC(object):
     def __init__(self, *args, bcs=None, J=None, Jp=None, V=None, is_linear=False, Jp_eq_J=False):
         from firedrake.variational_solver import check_pde_args, is_form_consistent
         if isinstance(args[0], ufl.classes.Equation):
-            self.function_arg = firedrake.Constant(0) # so line 286 of mg/ufl_utils.py runs
             # initial construction from equation
             eq = args[0]
             u = args[1]

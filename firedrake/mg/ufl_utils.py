@@ -298,7 +298,7 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     # Now that we have the coarse snescontext, push it to the coarsened DMs
     # Otherwise they won't have the right transfer manager when they are
     # coarsened in turn
-    for val in chain(coefficient_mapping.values(), (bc.function_arg for bc in problem.bcs)):
+    for val in chain(coefficient_mapping.values(), (bc._F.u if isinstance(bc, EquationBC) else bc.function_arg for bc in problem.bcs)):
         if isinstance(val, (firedrake.Function, firedrake.Cofunction)):
             V = val.function_space()
             coarseneddm = V.dm
