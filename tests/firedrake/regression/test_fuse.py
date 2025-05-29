@@ -1,6 +1,8 @@
 from test_helmholtz import helmholtz
 from test_poisson_strong_bcs import run_test
-from fuse.cells import firedrake_triangle
+from test_steady_advection_3D import run_near_to_far
+from fuse.cells import ufc_triangle
+from firedrake import *
 import pytest
 import numpy as np
 
@@ -11,16 +13,25 @@ import numpy as np
                           for d in (1, 2, 3)
                           for q in [False, True]])
 def test_poisson_analytic(params, degree, quadrilateral):
-    assert (run_test(2, degree, parameters=params, quadrilateral=False) < 1.e-9)
+    assert (run_test(2, degree, parameters=params, quadrilateral=quadrilateral) < 1.e-9)
 
 
 @pytest.mark.parametrize(['conv_num', 'degree'],
                          [(p, d)
                           for p, d in zip([1.8, 2.8, 3.8], [1, 2, 3])])
 def test_helmholtz(mocker, conv_num, degree):
-    # mocker.patch('firedrake.mesh.as_cell', return_value=firedrake_triangle().to_ufl("triangle"))
+    # mocker.patch('firedrake.mesh.as_cell', return_value=ufc_triangle().to_ufl("triangle"))
     diff = np.array([helmholtz(i, degree=degree)[0] for i in range(3, 6)])
     print("l2 error norms:", diff)
     conv = np.log2(diff[:-1] / diff[1:])
     print("convergence order:", conv)
     assert (np.array(conv) > conv_num).all()
+
+
+def test_3D_advection():
+    mesh = UnitTetrahedronMesh()
+    dg0 = FunctionSpace(mesh, "DG", 0)
+    dg1 = FunctionSpace(mesh, "DG", 1)
+    rt1 = FunctionSpace(mesh, "RT", 1)
+
+    run_near_to_far(mesh, dg0, rt1)

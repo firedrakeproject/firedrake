@@ -1274,20 +1274,12 @@ class MeshTopology(AbstractMeshTopology):
                                                                      cell_numbering,
                                                                      self.submesh_parent._cell_numbering,
                                                                      self.submesh_parent.cell_closure)
-        # elif hasattr(cell, "to_fiat"):
-        #     breakpoint()
-        #     plex.setName('firedrake_default_topology_fuse')
-        #     #   TODO find better way of branching here
-        #     topology = cell.to_fiat().topology
-        #     # entity_per_cell = np.zeros(len(topology), dtype=IntType)
-        #     # for d, ents in topology.items():
-        #     #     entity_per_cell[d] = len(ents)
-        #     # return dmcommon.closure_ordering(plex, vertex_numbering,
-        #     #  cell_numbering, entity_per_cell)
-        #     topology = FIAT.ufc_cell(cell).get_topology()
-        #     closureSize = sum([len(ents) for _, ents in topology.items()])
-        #     breakpoint()
-        #     return dmcommon.create_cell_closure(plex, cell_numbering, closureSize)
+        elif hasattr(cell, "to_fiat") and cell.cellname() == "tetrahedron":
+            plex.setName('firedrake_default_topology_fuse')
+            #   TODO find better way of branching here
+            topology = cell.to_fiat().topology
+            closureSize = sum([len(ents) for _, ents in topology.items()])
+            return dmcommon.create_cell_closure(plex, cell_numbering, closureSize)
         elif cell.is_simplex():
             topology = FIAT.ufc_cell(cell).get_topology()
             entity_per_cell = np.zeros(len(topology), dtype=IntType)

@@ -10,7 +10,8 @@ from firedrake import *
 
 @pytest.fixture(scope='module')
 def mesh():
-    return UnitCubeMesh(3, 3, 3)
+    return UnitTetrahedronMesh()
+    # return UnitCubeMesh(3, 3, 3)
 
 
 @pytest.fixture(scope='module')
@@ -50,6 +51,7 @@ def run_near_to_far(mesh, DG0, W):
 
     L = -inflow * inner(dot(u0, n), phi) * ds(3)  # inflow at near wall
 
+
     out = Function(DG0)
     solve(a == L, out)
 
@@ -85,6 +87,9 @@ def run_up_to_down(mesh, DG1, W):
     a3 = inner(un * D, phi) * ds(5)  # outflow at lower wall
     a = a1 + a2 + a3
 
+    W = VectorFunctionSpace(mesh, DG1.ufl_element())
+    X = assemble(interpolate(mesh.coordinates, W))
+    print(X.dat.data)
     L = -inflow * inner(dot(u0, n), phi) * ds(6)  # inflow at upper wall
 
     out = Function(DG1)
