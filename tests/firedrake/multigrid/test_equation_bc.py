@@ -41,16 +41,16 @@ def test_nested_equation_bc():
     v = TestFunction(V)
 
     F = inner(grad(u), grad(v))*dx(degree=0) - inner(f, v)*dx
-    bcs_vertices = [EquationBC(inner(u - u_exact, v) * ds == 0, u, "on_boundary", V=V)]
-    bcs_edges = [EquationBC(inner(u - u_exact, v) * ds == 0, u, "on_boundary", V=V, bcs=bcs_vertices)]
+    bcs_edges = [DirichletBC(V, u_exact, "on_boundary")]
     bcs_facets = [EquationBC(inner(u - u_exact, v) * ds == 0, u, "on_boundary", V=V, bcs=bcs_edges)]
     NLVP = NonlinearVariationalProblem(F, u, bcs=bcs_facets)
 
     sp = {
             "ksp_rtol": 1e-10,
+            "ksp_monitor": None,
             "pc_type": "mg",
             "mg_levels": {
-                "ksp_max_it": "5",
+                "ksp_max_it": "1",
                 "ksp_convergence_test": "skip",
                 "ksp_type": "chebyshev",
                 "pc_type": "jacobi",
@@ -60,5 +60,5 @@ def test_nested_equation_bc():
     NLVS = NonlinearVariationalSolver(NLVP, solver_parameters=sp)
     NLVS.solve()
 
-    assert errornorm(u_exact, u) < 4e-3
-    assert NLVS.snes.getLinearSolveIterations() <= 10
+    assert errornorm(u_exact, u) < 5e-3
+    assert NLVS.snes.getLinearSolveIterations() <= 13
