@@ -142,7 +142,7 @@ class Coargument(ufl.argument.Coargument):
             raise TypeError(f"Expecting an int, not {number}")
         if function_space.value_shape != self.function_space().value_shape:
             raise ValueError("Cannot reconstruct an Coargument with a different value shape.")
-        return Coargument(function_space, number, part=part)
+        return Argument(function_space, number, part=part)
 
     def equals(self, other):
         if type(other) is not Coargument:

@@ -60,7 +60,7 @@ class RemoveNegativeRestrictions(MultiFunction):
     """UFL MultiFunction which removes any negative restrictions
     in a form.
     """
-    expr = MultiFunction.reuse_if_untouched
+    ufl_type = MultiFunction.reuse_if_untouched
 
     def negative_restricted(self, o):
         return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
