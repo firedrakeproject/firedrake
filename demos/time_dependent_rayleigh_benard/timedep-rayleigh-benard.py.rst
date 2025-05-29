@@ -107,9 +107,12 @@ third boundary conditions below::
       DirichletBC(Z.sub(2), Constant(0.0), (4,))
   ]
 
-Like Navier-Stokes, the pressure is only defined up to a constant.::
+Like Navier-Stokes, the pressure is only defined up to a constant.
+Irksome takes list of tuples indicating which field index (piece of
+`Z`) and the null space basis to impose on it, and then manipulates this
+into a suitable null space to attach to the internal variational solver::
 
-  nullspace = [(1, VectorSpaceBasis(constant=True), 1)]
+  nullspace = [(1, VectorSpaceBasis(constant=True))]
 
 Set up the Butcher tableau to use for time-stepping::
 
