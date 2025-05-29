@@ -206,6 +206,10 @@ jobs:
             --extra-index-url https://download.pytorch.org/whl/cpu \
             "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci,docs]"
 
+          : # DO NOT MERGE
+          pip uninstall -y fenics-ufl
+          pip install "fenics-ufl @ git+https://github.com/schnellerhase/fenics-ufl.git@mypy"
+
           firedrake-clean
           pip list
 
