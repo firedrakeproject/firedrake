@@ -58,7 +58,7 @@ conduction. ::
 
 Along with gravity, which points down. ::
 
-  g = MC.Constant((0, -1))
+  g = Constant((0, -1))
 
 Set up variables for time and time-step size. ::
 
