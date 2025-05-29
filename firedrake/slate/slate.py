@@ -1219,7 +1219,7 @@ class Add(BinaryOp):
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
 
-        assert all(fsA == fsB for fsA, fsB in
+        assert all(space_equivalence(fsA, fsB) for fsA, fsB in
                    zip(A.arg_function_spaces, B.arg_function_spaces)), (
             "Function spaces associated with operands must match."
         )
@@ -1267,7 +1267,7 @@ class Mul(BinaryOp):
         fsA = A.arg_function_spaces[-1]
         fsB = B.arg_function_spaces[0]
 
-        assert fsA == fsB.dual(), (
+        assert space_equivalence(fsA, fsB.dual()), (
             "Cannot perform argument contraction over middle indices. "
             "They should be in dual function spaces."
         )
@@ -1317,7 +1317,7 @@ class Solve(BinaryOp):
         fsA = A.arg_function_spaces[0]
         fsB = B.arg_function_spaces[0]
 
-        assert fsA == fsB, (
+        assert space_equivalence(fsA, fsB), (
             "Cannot perform argument contraction over middle indices. "
             "They must be in the same function space."
         )
@@ -1399,6 +1399,19 @@ class DiagonalTensor(UnaryOp):
         """Creates a string representation of the diagonal of a tensor."""
         tensor, = self.operands
         return "(%s).diag" % tensor
+
+
+def space_equivalence(A, B):
+    """Checks that two function spaces are equivalent.
+
+    :arg A: A function space.
+    :arg B: Another function space.
+
+    Returns `True` if they have matching meshes, elements, and rank. Otherwise,
+    `False` is returned.
+    """
+
+    return A.mesh() == B.mesh() and A.ufl_element() == B.ufl_element()
 
 
 def as_slate(F):
