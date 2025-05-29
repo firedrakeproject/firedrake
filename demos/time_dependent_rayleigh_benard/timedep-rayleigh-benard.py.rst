@@ -53,17 +53,17 @@ dissipation and heat conduction and the
 Prandtl number (Pr), which measures the ratio of viscosity to heat
 conduction. ::
 
-  Ra = Constant(2000.0)
-  Pr = Constant(6.8)
+  Ra = MC.Constant(2000.0)
+  Pr = MC.Constant(6.8)
 
 Along with gravity, which points down. ::
 
-  g = Constant((0, -1))
+  g = MC.Constant((0, -1))
 
 Set up variables for time and time-step size. ::
 
-  t = Constant(0.0)
-  dt = Constant(1.0 / N)
+  t = MC.Constant(0.0)
+  dt = MC.Constant(1.0 / N)
 
 The PDE system is given by
 
