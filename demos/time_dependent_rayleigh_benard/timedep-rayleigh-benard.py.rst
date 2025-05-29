@@ -53,8 +53,8 @@ dissipation and heat conduction and the
 Prandtl number (Pr), which measures the ratio of viscosity to heat
 conduction. ::
 
-  Ra = MC.Constant(2000.0)
-  Pr = MC.Constant(6.8)
+  Ra = Constant(2000.0)
+  Pr = Constant(6.8)
 
 Along with gravity, which points down. ::
 
@@ -62,8 +62,8 @@ Along with gravity, which points down. ::
 
 Set up variables for time and time-step size. ::
 
-  t = MC.Constant(0.0)
-  dt = MC.Constant(1.0 / N)
+  t = Constant(0.0)
+  dt = Constant(1.0 / N)
 
 The PDE system is given by
 
@@ -178,7 +178,7 @@ Now that the stepper is set up, let's run over many time steps::
   for cur_step in ProgressBar("Integrating Rayleigh-Benard").iter(range(N)):
       stepper.advance()
 
-      t += dt
+      t.assign(float(t) + float(dt))
 
       if cur_step % plot_freq == 0:
           Ts.append(upT.subfunctions[2].copy(deepcopy=True))
