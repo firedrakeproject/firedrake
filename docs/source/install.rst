@@ -315,13 +315,14 @@ If you are running on macOS and encounter error messages during PETSc
    *********************************************************************************************
 
 then this is usually a sign that your Homebrew and/or Xcode are too old. We
-recommend making that they are both up-to-date before trying again.
+recommend making sure that they are both up-to-date before trying again.
 
 For Homebrew it is sometimes useful to run the command::
 
    $ brew doctor
 
-as this can flag issues with your system.
+as this can flag issues with your system that should be resolved before
+installing Firedrake.
 
 .. _customising:
 
