@@ -162,8 +162,7 @@ the patch boundary but exclude the pressure and temperature degrees of freedom.
       "mg_coarse": {
           "ksp_type": "preonly",
           "pc_type": "lu",
-          "pc_factor_mat_solver_type": "mumps",
-          "mat_mumps_icntl_14": 200}
+          "pc_factor_mat_solver_type": "umfpack"}
   }
 
   stepper = TimeStepper(F, butcher_tableau, t, dt, upT, bcs=bcs,
