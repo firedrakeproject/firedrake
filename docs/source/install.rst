@@ -262,9 +262,9 @@ No such file or directory: '/tmp/.../petsc/conf/petscvariables'
 
 If you encounter the error:
 
-   .. code-block:: text
+.. code-block:: text
 
-      FileNotFoundError: [Errno 2] No such file or directory: '/tmp/.../petsc/conf/petscvariables'
+   FileNotFoundError: [Errno 2] No such file or directory: '/tmp/.../petsc/conf/petscvariables'
 
 when running the ``pip install`` instruction this is usually a sign that the
 environment variables ``PETSC_DIR`` or ``PETSC_ARCH`` are not set correctly.
@@ -273,9 +273,11 @@ without error::
 
    $ ls $PETSC_DIR/$PETSC_ARCH/lib/petsc/conf/petscvariables 
 
-If this raises an error then you should re-``export`` the variables necessary to
-build Firedrake as described :ref:`above<install_firedrake>`::
+If this raises an error then you should make sure the pip cache is empty and
+re-``export`` the variables necessary to build Firedrake as described
+:ref:`above<install_firedrake>`::
 
+   $ pip cache remove petsc4py
    $ export $(python3 firedrake-configure --show-env)
 
 and try the install again.
@@ -297,6 +299,29 @@ To resolve the problem you should first remove any existing cached packages::
    $ pip cache remove slepc4py
 
 before re-running the instruction to install Firedrake.
+
+Unable to configure PETSc on macOS
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you are running on macOS and encounter error messages during PETSc
+``configure`` like the following:
+
+.. code-block:: text
+
+   *********************************************************************************************
+              UNABLE to CONFIGURE with GIVEN OPTIONS (see configure.log for details):
+   ---------------------------------------------------------------------------------------------
+            Cannot use scalapack without Fortran, make sure you do NOT have --with-fc=0
+   *********************************************************************************************
+
+then this is usually a sign that your Homebrew and/or Xcode are too old. We
+recommend making that they are both up-to-date before trying again.
+
+For Homebrew it is sometimes useful to run the command::
+
+   $ brew doctor
+
+as this can flag issues with your system.
 
 .. _customising:
 
