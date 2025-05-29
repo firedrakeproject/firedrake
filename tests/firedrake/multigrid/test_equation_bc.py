@@ -1,5 +1,4 @@
 from firedrake import *
-import pytest
 
 
 def test_poisson():
@@ -28,11 +27,11 @@ def test_poisson():
 
 
 def test_nested_equation_bc():
-    mesh = UnitCubeMesh(2,2,2)
+    mesh = UnitCubeMesh(2, 2, 2)
     mesh_hierarchy = MeshHierarchy(mesh, 2)
     mesh = mesh_hierarchy[-1]
 
-    (x,y,z) = SpatialCoordinate(mesh)
+    (x, y, z) = SpatialCoordinate(mesh)
     u_exact = x*y*z
     f = -div(grad(u_exact))
 
@@ -46,16 +45,16 @@ def test_nested_equation_bc():
     NLVP = NonlinearVariationalProblem(F, u, bcs=bcs_facets)
 
     sp = {
-            "ksp_rtol": 1e-10,
-            "ksp_monitor": None,
-            "pc_type": "mg",
-            "mg_levels": {
-                "ksp_max_it": "1",
-                "ksp_convergence_test": "skip",
-                "ksp_type": "chebyshev",
-                "pc_type": "jacobi",
-                },
-            }
+        "ksp_rtol": 1e-10,
+        "ksp_monitor": None,
+        "pc_type": "mg",
+        "mg_levels": {
+            "ksp_max_it": "1",
+            "ksp_convergence_test": "skip",
+            "ksp_type": "chebyshev",
+            "pc_type": "jacobi",
+        },
+    }
 
     NLVS = NonlinearVariationalSolver(NLVP, solver_parameters=sp)
     NLVS.solve()
