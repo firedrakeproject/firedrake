@@ -8,54 +8,57 @@ def test_poisson():
     mesh = mesh_hierarchy[-1]
 
     x = SpatialCoordinate(mesh)
-    u_exact = sin(pi*x[0])
+    u_exact = x[0]*(x[0]-1)
     f = -div(grad(u_exact))
 
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
     v = TestFunction(V)
 
-    F = (inner(grad(u), grad(v)) - inner(f, v)) * dx
+    F = inner(grad(u), grad(v))*dx(degree=0) - inner(f, v)*dx
     bcs = [EquationBC(inner(u, v) * ds == 0, u, "on_boundary", V=V)]
     NLVP = NonlinearVariationalProblem(F, u, bcs=bcs)
 
-    sp = {"pc_type": "mg",}
+    sp = {"pc_type": "mg"}
 
     NLVS = NonlinearVariationalSolver(NLVP, solver_parameters=sp)
     NLVS.solve()
 
-    assert sqrt(assemble(inner(u - u_exact, u - u_exact) * dx)) < 1e-2
+    assert errornorm(u_exact, u) < 5e-4
 
 
 def test_nested_equation_bc():
-    mesh = UnitCubeMesh(10,10,10)
-    mesh_hierarchy = MeshHierarchy(mesh, 1)
+    mesh = UnitCubeMesh(2,2,2)
+    mesh_hierarchy = MeshHierarchy(mesh, 2)
     mesh = mesh_hierarchy[-1]
 
     (x,y,z) = SpatialCoordinate(mesh)
-    u_exact = sin(pi*x)*sin(pi*y)*sin(pi*z)
+    u_exact = x*y*z
     f = -div(grad(u_exact))
 
     V = FunctionSpace(mesh, "CG", 1)
-    print(f"# DoFs = {V.dim()}")
     u = Function(V)
     v = TestFunction(V)
 
-    F = (inner(grad(u), grad(v)) - inner(f, v)) * dx
-    bcs_vertices = [EquationBC(inner(u, v) * ds == 0, u, "on_boundary", V=V)]
-    bcs_edges = [EquationBC(inner(u, v) * ds == 0, u, "on_boundary", V=V, bcs=bcs_vertices)]
-    bcs_facets = [EquationBC(inner(u, v) * ds == 0, u, "on_boundary", V=V, bcs=bcs_edges)]
+    F = inner(grad(u), grad(v))*dx(degree=0) - inner(f, v)*dx
+    bcs_vertices = [EquationBC(inner(u - u_exact, v) * ds == 0, u, "on_boundary", V=V)]
+    bcs_edges = [EquationBC(inner(u - u_exact, v) * ds == 0, u, "on_boundary", V=V, bcs=bcs_vertices)]
+    bcs_facets = [EquationBC(inner(u - u_exact, v) * ds == 0, u, "on_boundary", V=V, bcs=bcs_edges)]
     NLVP = NonlinearVariationalProblem(F, u, bcs=bcs_facets)
 
     sp = {
+            "ksp_rtol": 1e-10,
             "pc_type": "mg",
             "mg_levels": {
-                "ksp_type": "richardson",
-                "pc_type": "ilu",
+                "ksp_max_it": "5",
+                "ksp_convergence_test": "skip",
+                "ksp_type": "chebyshev",
+                "pc_type": "jacobi",
                 },
             }
 
     NLVS = NonlinearVariationalSolver(NLVP, solver_parameters=sp)
     NLVS.solve()
 
-    assert sqrt(assemble(inner(u - u_exact, u - u_exact) * dx)) < 1e-2
+    assert errornorm(u_exact, u) < 4e-3
+    assert NLVS.snes.getLinearSolveIterations() <= 10
