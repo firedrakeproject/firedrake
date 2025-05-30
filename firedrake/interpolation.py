@@ -629,10 +629,10 @@ class CrossMeshInterpolator(Interpolator):
                     # so the sub_interpolators are already prepared to interpolate
                     # without needing to be given a Function
                     assert not self.nargs
-                    interp = sub_interpolator._interpolate_future(adjoint=adjoint, **kwargs)
+                    interp = sub_interpolator.interpolate(adjoint=adjoint, **kwargs)
                     assemble(interp, tensor=output_sub_func)
                 else:
-                    interp = sub_interpolator._interpolate_future(adjoint=adjoint, **kwargs)
+                    interp = sub_interpolator.interpolate(adjoint=adjoint, **kwargs)
                     assemble(action(interp, f_src_sub_func), tensor=output_sub_func)
             return output
 
