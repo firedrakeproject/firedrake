@@ -415,22 +415,9 @@ class LoopIndex(Index, KernelArgument):
     # 2. axes[p].index() is context-sensitive if p is context-sensitive
     # I think this can be resolved by considering axes[p] and axes as "iterset"
     # and handling that separately.
-    def with_context(self, context, *args):
-        iterset = self.iterset.with_context(context)
-        source_path, path = context[self.id]
-
-        # think I want this sorted...
-        slices = []
-        axis = iterset.root
-        while axis is not None:
-            cpt = source_path[axis.label]
-            slices.append(Slice(axis.label, AffineSliceComponent(cpt)))
-            axis = iterset.child(axis, cpt)
-
-        # the iterset is a single-component full slice of the overall iterset
-        iterset_ = iterset[slices]
-        # return eLoopIndex(iterset_, source_path, path, id=self.id)
-        return LoopIndex(iterset_, id=self.id)
+    def with_context(self, context, *args) -> LoopIndex:
+        from pyop3.itree.parse import _as_context_free_indices
+        return utils.just_one(_as_context_free_indices(self, context))
 
     # unsure if this is required
     @property

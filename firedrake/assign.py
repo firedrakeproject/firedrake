@@ -246,10 +246,10 @@ class Assigner:
             else:
                 assignee = lhs[subset].data_wo
         except op3.FancyIndexWriteException:
-            if not isinstance(rvalue, numbers.Number):
-                # convert rvalue to a pyop3 object
-                axes = op3.AxisTree(self._assignee.function_space().axes[subset].node_map)
-                rvalue = op3.Dat(axes, data=rvalue)
+            # if not isinstance(rvalue, numbers.Number):
+            #     # convert rvalue to a pyop3 object
+            #     axes = op3.AxisTree(self._assignee.function_space().axes[subset].node_map)
+            #     rvalue = op3.Dat(axes, data=rvalue)
             lhs[subset].assign(rvalue)
             return
 
@@ -268,14 +268,7 @@ class Assigner:
         const_data = np.array([c.dat.data_ro for c in self._constants], dtype=ScalarType)
         const_rvalue = const_data.T @ self._constant_weights
 
-        retval = func_rvalue + const_rvalue
-        # This is a (bad) trick to handle some cases where we are assigning
-        # numbers to arrays. Currently this will only work with scalars.
-        # The proper fix is for pyop3 to work with array expressions.
-        if isinstance(retval, np.ndarray) and retval.shape == (1,):
-            return retval[0]
-        else:
-            return retval
+        return func_rvalue + const_rvalue
 
     @cached_property
     def _weighted_coefficients(self):

@@ -256,7 +256,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         expr = ufl.as_ufl(expr)
         if isinstance(expr, ufl.classes.Zero):
             with stop_annotating(modifies=(self,)):
-                self.dat.zero(subset=subset)
+                self.dat[subset].zero(eager=True)
             return self
         elif (isinstance(expr, Cofunction)
               and expr.function_space() == self.function_space()):
@@ -273,7 +273,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
                         self, expr, rhs_from_assemble=expr_from_assemble)
                 )
 
-            expr.dat.copy(self.dat, subset=subset)
+            self.dat[subset].assign(expr.dat[subset], eager=True)
             return self
         elif isinstance(expr, BaseForm):
             # Enable c.assign(B) where c is a Cofunction and B an appropriate

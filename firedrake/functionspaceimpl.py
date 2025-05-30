@@ -1005,31 +1005,37 @@ class FunctionSpace:
                 raise RuntimeError("Dirichlet BC defined on a different function space")
 
         unblocked = any(bc.function_space().component is not None for bc in bcs)
+        idat = axes.lgmap_dat.copy()
         if unblocked:
-            idat = indices.copy2()
             bsize = 1
         else:
-            idat = indices.copy2()
+            pass
+
+        if bsize > 1:
+            raise NotImplementedError("Might need to filter the original lgmap")
 
         # Set constrained values in the lgmap to -1
         for bc in bcs:
-            p = self._mesh.points[bc.constrained_points].index()
+            p = self._mesh.points[bc.subset].index()
 
-            index_forest = {}
-            component = bc.function_space().component
-            for ctx, index_tree in op3.as_index_forest(p).items():
-                dof_slice = op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
-                index_tree = index_tree.add_node(dof_slice, *index_tree.leaf)
+            # index_forest = {}
+            # component = bc.function_space().component
+            # for ctx, index_tree in op3.as_index_forest(p).items():
+            #     dof_slice = op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
+            #     index_tree = index_tree.add_node(dof_slice, *index_tree.leaf)
+            #
+            #     if component is not None:
+            #         assert unblocked
+            #         component_slice = op3.ScalarIndex("dim0", "XXX", component)
+            #         index_tree = index_tree.add_node(component_slice, *index_tree.leaf)
+            #
+            #     index_forest[ctx] = index_tree
 
-                if component is not None:
-                    assert unblocked
-                    component_slice = op3.ScalarIndex("dim0", "XXX", component)
-                    index_tree = index_tree.add_node(component_slice, *index_tree.leaf)
-
-                index_forest[ctx] = index_tree
-            op3.do_loop(
-                p, idat[index_forest].assign(-1, eager=False)
-            )
+            # TODO: can this just be 'p'?
+            # op3.do_loop(
+            #     p, idat[index_forest].assign(-1, eager=False)
+            # )
+            op3.do_loop(p, idat[p].assign(-1))
         return PETSc.LGMap().create(idat.data_ro, bsize=bsize, comm=self.comm)
 
     @utils.cached_property

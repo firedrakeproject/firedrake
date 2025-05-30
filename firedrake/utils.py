@@ -1,5 +1,6 @@
 # Some generic python utilities not really specific to our work.
 import collections.abc
+
 from decorator import decorator
 from pyop2.utils import cached_property  # noqa: F401
 from pyop2.datatypes import ScalarType, as_cstr
@@ -7,7 +8,13 @@ from pyop2.datatypes import RealType     # noqa: F401
 from pyop2.datatypes import IntType      # noqa: F401
 from pyop2.datatypes import as_ctypes    # noqa: F401
 from pyop2.mpi import MPI
+from pyop3.utils import (  # noqa: F401
+    just_one,
+    single_valued,
+)
+
 from firedrake.petsc import get_petsc_variables
+
 
 
 # MPI key value for storing a per communicator universal identifier

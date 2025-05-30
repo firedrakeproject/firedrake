@@ -161,6 +161,12 @@ class Dat(Tensor, KernelArgument):
         buffer = NullBuffer(axes.unindexed.alloc_size, dtype=dtype)
         return cls(axes, buffer=buffer, **kwargs)
 
+    @classmethod
+    def from_array(cls, array: np.ndarray, *, buffer_kwargs, **kwargs) -> Dat:
+        axes = Axis(array.size)
+        buffer = ArrayBuffer(array, **buffer_kwargs)
+        return cls(axes, buffer=buffer, **kwargs)
+
     # }}}
 
     # For some reason this is breaking stuff
