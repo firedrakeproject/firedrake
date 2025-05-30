@@ -745,10 +745,9 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
     get_depth_stratum(plex.dm, 0, &vStart, &vEnd)
 
     ncells = cEnd - cStart
+    entity_per_cell = 4 + 4 + 1
 
-    cell_closure = tuple(
-        np.empty((ncells, n), dtype=IntType) for n in [4, 4, 1]
-    )
+    cell_closure = np.empty((ncells, entity_per_cell), dtype=IntType)
     for c in range(cStart, cEnd):
         get_transitive_closure(plex.dm, c, PETSC_TRUE, &nclosure, &closure)
 
@@ -772,7 +771,7 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
             pt = closure[2*p]
             if vStart <= pt < vEnd:
                 c_vertices[vi] = pt
-                g_vertices[vi] = mesh.debug_global_numbering[pt]
+                g_vertices[vi] = mesh._global_numbering[pt]
                 vi += 1
             elif fStart <= pt < fEnd:
                 c_facets[fi] = pt
@@ -858,21 +857,15 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
         #   o--2--o
         #
         # So let us permute.
-        cell = mesh.points.default_to_applied_component_number(mesh.cell_label, c)
-
-        def renum(pt):
-            stratum, stratum_pt = mesh.points.axis_to_component_number(pt)
-            return mesh.points.default_to_applied_component_number(stratum, stratum_pt)
-
-        cell_closure[0][cell, 0] = renum(vertices[0])
-        cell_closure[0][cell, 1] = renum(vertices[1])
-        cell_closure[0][cell, 2] = renum(vertices[3])
-        cell_closure[0][cell, 3] = renum(vertices[2])
-        cell_closure[1][cell, 0] = renum(facets[0])
-        cell_closure[1][cell, 1] = renum(facets[2])
-        cell_closure[1][cell, 2] = renum(facets[3])
-        cell_closure[1][cell, 3] = renum(facets[1])
-        cell_closure[2][cell] = cell  # already renumbered
+        cell_closure[c, 0] = vertices[0]
+        cell_closure[c, 1] = vertices[1]
+        cell_closure[c, 2] = vertices[3]
+        cell_closure[c, 3] = vertices[2]
+        cell_closure[c, 4 + 0] = facets[0]
+        cell_closure[c, 4 + 1] = facets[2]
+        cell_closure[c, 4 + 2] = facets[3]
+        cell_closure[c, 4 + 3] = facets[1]
+        cell_closure[c, 8] = c
 
     if closure != NULL:
         restore_transitive_closure(plex.dm, 0, PETSC_TRUE, &nclosure, &closure)
@@ -3144,7 +3137,7 @@ def quadrilateral_facet_orientations(
         np.ndarray[np.int8_t, ndim=1, mode="c"] result
 
     plex = mesh.topology_dm
-    vertex_numbering = mesh.debug_global_numbering
+    vertex_numbering = mesh._global_numbering
     comm = plex.comm.tompi4py()
 
     # Get communication lists
@@ -3346,7 +3339,7 @@ def orientations_facet2cell(mesh, np.ndarray cell_ranks, np.ndarray facet_orient
                 v = cone[0]
             else:
                 v = cone[1]
-            cell_orientations[c] = mesh.debug_global_numbering[v]
+            cell_orientations[c] = mesh._global_numbering[v]
 
     return cell_orientations
 

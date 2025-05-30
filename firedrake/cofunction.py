@@ -231,7 +231,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @utils.known_pyop2_safe
-    def assign(self, expr, subset=None, expr_from_assemble=False):
+    def assign(self, expr, subset=Ellipsis, expr_from_assemble=False):
         r"""Set the :class:`Cofunction` value to the pointwise value of
         expr. expr may only contain :class:`Cofunction`\s on the same
         :class:`.FunctionSpace` as the :class:`Cofunction` being assigned to.

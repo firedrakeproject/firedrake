@@ -42,7 +42,7 @@ class BCBase:
     @PETSc.Log.EventDecorator()
     def __init__(self, V, sub_domain):
         self._function_space = V
-        self.sub_domain = (sub_domain, ) if isinstance(sub_domain, str) else as_tuple(sub_domain)
+        self.sub_domain = (sub_domain,) if isinstance(sub_domain, str) else as_tuple(sub_domain)
         # If this BC is defined on a subspace (IndexedFunctionSpace or
         # ComponentFunctionSpace, possibly recursively), pull out the appropriate
         # indices.
@@ -179,54 +179,63 @@ class BCBase:
         if isinstance(self._function_space.finat_element, finat.Hermite) and tdim == 1:
             raise NotImplementedError("TODO, need to have inner slice with stride 2")
 
+        # 'subdomain_id' has the form
+        #
+        #     (A, B, C)
+        #
+        # where each entry is either itself a tuple or a string. For instance
+        # 'A' may be
+        #
+        #     (1, 2, 3)
+        #
+        # or a special string like "on_boundary".
+        #
+        # The points constrained by the boundary condition is the *intersection
+        # of the inner entries* (e.g. 1 ∩ 2 ∩ 3), but the *union of the outer
+        # entries* (e.g. A ∪ B ∪ C).
+
+
         # very convoluted
-        if isinstance(self.sub_domain, str):
-            subdomain_ids = ((self.sub_domain,),)
-        else:
-            subdomain_ids = tuple(as_tuple(s) for s in as_tuple(self.sub_domain))
+        # if isinstance(self.sub_domain, str):
+        #     subdomain_ids = ((self.sub_domain,),)
+        # else:
+        #     subdomain_ids = tuple(as_tuple(s) for s in as_tuple(self.sub_domain))
 
         # This check should be moved into __init__
         mesh = self.function_space().mesh().topology
         valid_markers = set(mesh.interior_facets.unique_markers)
         valid_markers |= set(mesh.exterior_facets.unique_markers)
 
-        # 'subdomain_ids' has the form
-        #
-        #     (A, B, C)
-        #
-        # where each entry is itself a tuple. For instance 'A' may be
-        #
-        #     (1, 2, 3)
-        #
-        # The points constrained by the boundary condition is the *intersection
-        # of the inner entries* (e.g. 1 ∩ 2 ∩ 3), but the *union of the outer
-        # entries* (e.g. A ∪ B ∪ C).
-
         subsets_ = []
-        for intersecting_subdomain_ids in subdomain_ids:
-            if (
-                len(intersecting_subdomain_ids) > 1
-                and not isinstance(
-                    self._function_space.finat_element,
-                    (finat.Lagrange, finat.GaussLobattoLegendre)
-                )
-            ):
-                raise TypeError(
-                    "subdomain intersection conditions have only "
-                    "been tested with CG Lagrange elements"
-                )
-
-            # TODO: Where should this check go?
-            if intersecting_subdomain_ids not in {("on_boundary",), ("top",), ("bottom",)}:
-                invalid = set(intersecting_subdomain_ids) - valid_markers
-                if invalid:
-                    raise LookupError(f"BC construction got invalid markers {invalid}. "
-                                      f"Valid markers are '{valid_markers}'")
-
+        for intersecting_subdomain_ids in self.sub_domain:
             subdomain_subsets = tuple([] for _ in range(tdim+1))
-            for subdomain_id in intersecting_subdomain_ids:
-                for dim, subset in enumerate(mesh.subdomain_subset(subdomain_id)):
-                    subdomain_subsets[dim].append(subset)
+            # TODO: Where should this check go?
+            if isinstance(intersecting_subdomain_ids, str):
+                subdomain_id = intersecting_subdomain_ids
+
+                if intersecting_subdomain_ids not in {"on_boundary", "top", "bottom"}:
+                    invalid = set(intersecting_subdomain_ids) - valid_markers
+                    if invalid:
+                        raise LookupError(f"BC construction got invalid markers {invalid}. "
+                                          f"Valid markers are '{valid_markers}'")
+
+            else:
+                if (
+                    isinstance(intersecting_subdomain_ids, tuple)
+                    and len(intersecting_subdomain_ids) > 1
+                    and not isinstance(
+                        self._function_space.finat_element,
+                        (finat.Lagrange, finat.GaussLobattoLegendre)
+                    )
+                ):
+                    raise TypeError(
+                        "subdomain intersection conditions have only "
+                        "been tested with CG Lagrange elements"
+                    )
+
+            for dim, subset in enumerate(mesh.subdomain_subset(intersecting_subdomain_ids)):
+                subdomain_subsets[dim].append(subset)
+
             subdomain_subsets = tuple(
                 functools.reduce(np.union1d, subset_data) for subset_data in subdomain_subsets
             )

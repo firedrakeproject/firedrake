@@ -1629,16 +1629,16 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 #     continue
 
                 # If setting a block then use an identity matrix
-                size = utils.single_valued([
-                    ax.size for ax in {assignee.raxes, assignee.caxes}
-                ])
-                if size > 1:
-                    expression = op3.Dat.from_array(
-                        numpy.eye(size, dtype=utils.ScalarType).flatten(),
-                        buffer_kwargs={"constant": True},
-                    )
-                else:
-                    expression = self.weight
+                size = utils.single_valued((
+                    axes.size for axes in {assignee.raxes, assignee.caxes}
+                ))
+                expr_data = numpy.eye(size, dtype=utils.ScalarType).flatten() * self.weight
+                expr_buffer = op3.ArrayBuffer(expr_data, constant=True)
+                expression = op3.Mat(
+                    assignee.raxes.materialize(),
+                    assignee.caxes.materialize(),
+                    buffer=expr_buffer,
+                )
 
                 op3.do_loop(
                     p.with_context(context), assignee.assign(expression)

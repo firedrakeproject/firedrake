@@ -1209,26 +1209,20 @@ class AbstractMeshTopology(abc.ABC):
     def _reorder_closure_fiat_simplex(self, closure_data):
         return dmcommon.closure_ordering(self, closure_data)
 
-    def _reorder_closure_fiat_quad(self, closure_data, closure_sizes):
+    def _reorder_closure_fiat_quad(self, closure_data):
         from firedrake_citations import Citations
 
         Citations().register("Homolya2016")
         Citations().register("McRae2016")
 
         cell_ranks = dmcommon.get_cell_remote_ranks(self.topology_dm)
-        facet_orientations = dmcommon.quadrilateral_facet_orientations(
-            self, cell_ranks
-        )
+        facet_orientations = dmcommon.quadrilateral_facet_orientations(self, cell_ranks)
         cell_orientations = dmcommon.orientations_facet2cell(
             self, cell_ranks, facet_orientations,
         )
-        dmcommon.exchange_cell_orientations(
-            self, cell_orientations
-        )
+        dmcommon.exchange_cell_orientations(self, cell_orientations)
 
-        return dmcommon.quadrilateral_closure_ordering(
-            self, cell_orientations
-        )
+        return dmcommon.quadrilateral_closure_ordering(self, cell_orientations)
 
     def _reorder_closure_fiat_hex(self, plex_closures):
         """
