@@ -5,6 +5,7 @@ classes for attaching extra information to instances of these.
 """
 from __future__ import annotations
 
+import numbers
 from collections import OrderedDict
 from dataclasses import dataclass
 from functools import cached_property
@@ -747,13 +748,27 @@ class FunctionSpace:
         dm = self._mesh.topology_dm
         section.setChart(*dm.getChart())
 
-        if self._mesh._dm_renumbering is not None:
+        if (numbering := self._mesh._dm_renumbering) is not None:
+            assert len(numbering.indices) == self._mesh.num_points
             section.setPermutation(self._mesh._dm_renumbering)
 
-        for dim in range(dm.getDimension()+1):
-            ndofs, = set(len(values) for values in entity_dofs[dim].values())
-            for pt in range(*dm.getDepthStratum(dim)):
-                section.setDof(pt, ndofs)
+        # NOTE: Not safe to loop over dimension here because for extruded meshes
+        # this doesn't guarantee anything
+        ndofs = {}
+        for entity_key, entities in entity_dofs.items():
+            if isinstance(entity_key, tuple):
+                # convert to a lexicographic order (i.e. (1, 1) goes to 11 etc)
+                flat_entity_key = int("".join(map(str, entity_key)))
+            else:
+                assert isinstance(entity_key, numbers.Integral)
+                flat_entity_key = entity_key
+            ndofs[flat_entity_key] = utils.single_valued(map(len, entities.values()))
+
+        entity_label = dm.getLabel("entity")
+        for pt in range(*dm.getChart()):
+            entity_key = entity_label.getValue(pt)
+            section.setDof(pt, ndofs[entity_key])
+        breakpoint()
         section.setUp()
 
         return section

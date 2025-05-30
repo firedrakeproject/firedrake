@@ -57,12 +57,16 @@ cdef extern from "petscdmplex.h" nogil:
     int DMPlexGetSubpointMap(PETSc.PetscDM,PETSc.PetscDMLabel*)
     int DMPlexSetSubpointMap(PETSc.PetscDM,PETSc.PetscDMLabel)
 
+    int DMPlexExtrude(PETSc.PetscDM,PetscInt,PetscReal,PetscBool,PetscBool,PetscBool,const PetscReal*,const PetscReal*,PETSc.PetscDM*)
+
 cdef extern from "petscdmlabel.h" nogil:
     struct _n_DMLabel
     ctypedef _n_DMLabel* DMLabel "DMLabel"
     int DMLabelCreateIndex(DMLabel, PetscInt, PetscInt)
     int DMLabelDestroyIndex(DMLabel)
     int DMLabelDestroy(DMLabel*)
+    int DMLabelReset(DMLabel)
+    int DMLabelDuplicate(DMLabel,DMLabel*)
     int DMLabelHasPoint(DMLabel, PetscInt, PetscBool*)
     int DMLabelSetValue(DMLabel, PetscInt, PetscInt)
     int DMLabelGetValue(DMLabel, PetscInt, PetscInt*)

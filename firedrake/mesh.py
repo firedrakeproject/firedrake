@@ -731,6 +731,7 @@ class AbstractMeshTopology(abc.ABC):
         self._comm = internal_comm(self.user_comm, self)
 
         dmcommon.label_facets(self.topology_dm)
+        dmcommon.label_strata(self.topology_dm)
         mylabel = self.topology_dm.getLabel("exterior_facets")
         self._distribute()
         self._grown_halos = False
@@ -2636,8 +2637,6 @@ class ExtrudedMeshTopology(MeshTopology):
         :arg name:           optional name of the extruded mesh topology.
         """
 
-        raise NotImplementedError("TODO extruded meshes need fixing")
-
         # TODO: refactor to call super().__init__
 
         from firedrake_citations import Citations
@@ -2645,6 +2644,9 @@ class ExtrudedMeshTopology(MeshTopology):
         Citations().register("Bercea2016")
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
+
+        if layers.shape:
+            raise NotImplementedError("TODO pyop3")
 
         if isinstance(mesh.topology, VertexOnlyMeshTopology):
             raise NotImplementedError("Extrusion not implemented for VertexOnlyMeshTopology")
@@ -2661,11 +2663,9 @@ class ExtrudedMeshTopology(MeshTopology):
         # TODO: These attributes are copied so that FunctionSpaceBase can
         # access them directly.  Eventually we would want a better refactoring
         # of responsibilities between mesh and function space.
-        self.topology_dm = mesh.topology_dm
+        # self.topology_dm = mesh.topology_dm
         r"The PETSc DM representation of the mesh topology."
-        self._dm_renumbering = mesh._dm_renumbering
         self._cell_numbering = mesh._cell_numbering
-        self._entity_classes = mesh._entity_classes
         self._distribution_parameters = mesh._distribution_parameters
         self._subsets = {}
         if layers.shape:
@@ -2686,9 +2686,10 @@ class ExtrudedMeshTopology(MeshTopology):
             """
         else:
             self.variable_layers = False
-        self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers, extruded_periodic=periodic)
+        # self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers, extruded_periodic=periodic)
         # submesh
         self.submesh_parent = None
+        self.layers = layers
 
     @utils.cached_property
     def _ufl_cell(self):
@@ -2700,11 +2701,58 @@ class ExtrudedMeshTopology(MeshTopology):
         return ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
 
     @utils.cached_property
+    def flat_points(self) -> op3.Axis:
+        if self.layers.shape:
+            raise NotImplementedError
+        else:
+            nlayers = int(self.layers)
+
+        base_mesh_axis = self._base_mesh.flat_points
+        npoints = base_mesh_axis.component.local_size * nlayers
+
+        base_point_sf = base_mesh_axis.component.sf
+        section = PETSc.Section().create(comm=base_point_sf.comm)
+        section.setChart(0, base_point_sf.size)
+        for pt in range(base_point_sf.size):
+            section.setDof(pt, nlayers)
+        point_sf = op3.StarForest(dmcommon.create_section_sf(base_point_sf.sf, section), npoints)
+
+        return op3.Axis(
+            [op3.AxisComponent(npoints, "mylabel", sf=point_sf)],
+            label=f"{self.name}_flat",
+        )
+
+    @utils.cached_property
+    def topology_dm(self):
+        if self.layers.shape:
+            raise NotImplementedError
+        else:
+            nlayers = int(self.layers)
+
+        return dmcommon.extrude_plex(self._base_mesh.topology_dm, nlayers)
+
+    @utils.cached_property
+    def _dm_renumbering(self):
+        if self.layers.shape:
+            raise NotImplementedError("Gets a little more complicated when things are ragged")
+        else:
+            nlayers = int(self.layers)
+
+        # we always have 2n+1 entities when we extrude
+        base_indices = self._base_mesh._dm_renumbering.indices
+        indices = np.empty((base_indices.size, (2*nlayers+1)), dtype=base_indices.dtype)
+        for i in range(base_indices.size):
+            for j in range(2*nlayers+1):
+                indices[i, j] = base_indices[i] * (2*nlayers+1) + j
+        return PETSc.IS().createGeneral(indices, comm=self._comm)
+
+    @utils.cached_property
     def cell_closure(self):
         """2D array of ordered cell closures
 
         Each row contains ordered cell entities for a cell, one row per cell.
         """
+        raise NotImplementedError
         return self._base_mesh.cell_closure
 
     @utils.cached_property
@@ -2784,18 +2832,18 @@ class ExtrudedMeshTopology(MeshTopology):
                 nodes_per_entity = sum(nodes[:, i]*(self.layers - i) for i in range(2))
             return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
 
-    @utils.cached_property
-    def layers(self):
-        """Return the layers parameter used to construct the mesh topology,
-        which is the number of layers represented by the number of occurences
-        of the base mesh for non-variable layer mesh and an array of size
-        (num_cells, 2), each row representing the
-        (first layer index, last layer index + 1) pair for the associated cell,
-        for variable layer mesh."""
-        if self.variable_layers:
-            return self.cell_set.layers_array
-        else:
-            return self.cell_set.layers
+    # @utils.cached_property
+    # def layers(self):
+    #     """Return the layers parameter used to construct the mesh topology,
+    #     which is the number of layers represented by the number of occurences
+    #     of the base mesh for non-variable layer mesh and an array of size
+    #     (num_cells, 2), each row representing the
+    #     (first layer index, last layer index + 1) pair for the associated cell,
+    #     for variable layer mesh."""
+    #     if self.variable_layers:
+    #         return self.cell_set.layers_array
+    #     else:
+    #         return self.cell_set.layers
 
     def entity_layers(self, height, label=None):
         """Return the number of layers on each entity of a given plex

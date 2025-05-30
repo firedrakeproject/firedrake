@@ -1631,6 +1631,27 @@ def facet_closure_nodes(V, sub_domain):
     return np.unique(nodes)
 
 
+def label_strata(PETSc.DM plex) -> None:
+    """Label points in the DMPlex with their stratum.
+
+    This allows us to determine the different facet types if the mesh is extruded.
+
+    """
+    cdef:
+        char *label_name_c = <char *>"entity"
+        PetscInt dim_c, d_c, p_start_c, p_end_c, p_c
+        DMLabel label_c
+
+    plex.createLabel(label_name_c)
+    CHKERR(DMGetLabel(plex.dm, label_name_c, &label_c))
+
+    dim_c = get_topological_dimension(plex)
+    for d_c in range(dim_c+1):
+        get_depth_stratum(plex.dm, d_c, &p_start_c, &p_end_c)
+        for p_c in range(p_start_c, p_end_c):
+            CHKERR(DMLabelSetValue(label_c, p_c, d_c))
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def label_facets(PETSc.DM plex):
@@ -3972,3 +3993,67 @@ def submesh_create_cell_closure_cell_submesh(PETSc.DM subdm,
     CHKERR(PetscFree(subpoint_indices_inv))
     CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
     return subcell_closure
+
+
+def extrude_plex(plex: PETSc.DM, nlayers: IntType) -> PETSc.DM:
+    cdef:
+        PetscBool periodic, symmetric, tensor
+        PetscReal thickness
+        const PetscReal *normal=NULL
+        const PetscReal *thicknesses=NULL
+
+        PETSc.DM  extruded_plex
+
+    extruded_plex = PETSc.DMPlex()
+
+    thickness = -1  # PETSC_DETERMINE
+    tensor = PETSC_TRUE
+    symmetric = PETSC_TRUE
+    periodic = PETSC_FALSE
+    CHKERR(DMPlexExtrude(
+        plex.dm, nlayers, thickness, tensor, symmetric, periodic, normal, thicknesses, &extruded_plex.dm
+    ))
+
+    label_extruded_entities(extruded_plex)
+
+    return extruded_plex
+
+
+def label_extruded_entities(PETSc.DM plex) -> None:
+    """Label points with a tensor-like entity label.
+
+    Since labels store integers the label is stored in lexicographic form. That
+    is, (1, 1) is stored as 11 and so on.
+
+    Note that this routine modifies the 'entity' label of the DMPlex in-place.
+
+    """
+    cdef:
+        char          *label_name_c = <char *>"entity"
+        DMLabel label_c, orig_label_c
+        PetscInt      dim_c, d_c, p_start_c, p_end_c, p_c, base_entity_c, entity_c
+
+    CHKERR(DMGetLabel(plex.dm, label_name_c, &label_c))
+    CHKERR(DMLabelDuplicate(label_c, &orig_label_c))
+    CHKERR(DMLabelReset(label_c))
+
+    dim_c = get_topological_dimension(plex)
+    for d_c in range(dim_c+1):
+        get_depth_stratum(plex.dm, d_c, &p_start_c, &p_end_c)
+        for p_c in range(p_start_c, p_end_c):
+            CHKERR(DMLabelGetValue(orig_label_c, p_c, &base_entity_c))
+
+            if base_entity_c >= 10:
+                raise NotImplementedError("Not currently considering nested extrusion")
+
+            if base_entity_c == d_c:
+                # transformed to entity with equal dimension, append 0
+                entity_c = base_entity_c * 10
+            else:
+                # transformed to entity with one greater dimension, append 1
+                assert base_entity_c + 1 == d_c
+                entity_c = base_entity_c * 10 + 1
+
+            CHKERR(DMLabelSetValue(label_c, p_c, entity_c))
+
+    CHKERR(DMLabelDestroy(&orig_label_c))
