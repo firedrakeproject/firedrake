@@ -27,6 +27,7 @@ from firedrake.ufl_expr import Argument, action, adjoint as expr_adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, MeshTopology, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype as get_dat_mpi_type
+from firedrake.cofunction import Cofunction
 from mpi4py import MPI
 
 from pyadjoint import stop_annotating, no_annotations
@@ -142,20 +143,12 @@ class Interpolate(ufl.Interpolate):
 
 
 @PETSc.Log.EventDecorator()
-def interpolate(
-    expr,
-    V,
-    subset=None,
-    access=op2.WRITE,
-    allow_missing_dofs=False,
-    default_missing_val=None,
-    ad_block_tag=None
-):
+def interpolate(expr, V, *args, **kwargs):
     """Interpolate an expression onto a new function in V.
 
     :arg expr: a UFL expression.
     :arg V: the :class:`.FunctionSpace` to interpolate into (or else
-        an existing :class:`.Function`).
+        an existing :class:`.Function` or :class:`.Cofunction`).
     :kwarg subset: An optional :class:`pyop2.types.set.Subset` to apply the
         interpolation over. Cannot, at present, be used when interpolating
         across meshes unless the target mesh is a :func:`.VertexOnlyMesh`.
@@ -182,8 +175,7 @@ def interpolate(
         to zero. Ignored if interpolating within the same mesh or onto a
         :func:`.VertexOnlyMesh`.
     :kwarg ad_block_tag: An optional string for tagging the resulting assemble block on the Pyadjoint tape.
-    :returns: a new :class:`.Function` in the space ``V`` (or ``V`` if
-        it was a Function).
+    :returns: Symbolic interpolate expression
 
     .. note::
 
@@ -204,9 +196,13 @@ def interpolate(
        performance by using an :class:`Interpolator` instead.
 
     """
-    return Interpolator(
-        expr, V, subset=subset, access=access, allow_missing_dofs=allow_missing_dofs
-    ).interpolate(default_missing_val=default_missing_val, ad_block_tag=ad_block_tag)
+    default_missing_val = kwargs.pop("default_missing_val", None)
+    if isinstance(V, Cofunction):
+        adjoint = bool(extract_arguments(expr))
+        return Interpolator(
+            expr, V.function_space().dual(), *args, **kwargs
+        ).interpolate(V, adjoint=adjoint, default_missing_val=default_missing_val)
+    return Interpolator(expr, V, *args, **kwargs).interpolate(default_missing_val=default_missing_val)
 
 
 class Interpolator(abc.ABC):
