@@ -262,10 +262,10 @@ class BCBase:
         for idx in self._indices:
             r = r.sub(idx)
 
-        if r.function_space() != self._function_space:
+        if r.function_space().axes != self._function_space.axes:
             raise RuntimeError(f"{r} defined on an incompatible FunctionSpace")
 
-        r.dat[self.subset].zero(eager=True)
+        r.zero(subset=self.subset)
 
     @PETSc.Log.EventDecorator()
     def set(self, r, val):

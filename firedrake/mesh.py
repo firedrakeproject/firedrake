@@ -2040,23 +2040,17 @@ class MeshTopology(AbstractMeshTopology):
             )
         )
 
-        # split by dimension, recalling that DMPlex numbers strata in a special order
+        # split by dimension
         point_offsets = np.searchsorted(points, self.strata_offsets)
-        points_split_plex_order = np.array(
-            [
-                points[start:stop]
-                for start, stop in op3.utils.pairwise(point_offsets, final=-1)
-            ],
-            dtype=object,
-        )
-
-        # order by dimension, not by DMPlex convention
-        dim_to_plex_strata = op3.utils.invert(self._plex_strata_ordering)
-        points_split = tuple(points_split_plex_order[dim_to_plex_strata])
+        points_split = []
+        for dim in range(self.dimension+1):
+            p_start, p_end = self.topology_dm.getDepthStratum(dim)
+            start, stop = np.searchsorted(points, [p_start, p_end])
+            points_split.append(points[start:stop])
 
         # now renumber
         points_renum = tuple(
-            self._entity_numbering(dim)[pts - self.strata_offsets[dim_to_plex_strata[dim]]]
+            self._entity_numbering(dim)[pts - self.strata_offsets[dim]]
             for dim, pts in enumerate(points_split)
         )
 
