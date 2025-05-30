@@ -292,7 +292,7 @@ class Interpolator(abc.ABC):
             expr = replace(expr, {v: v.reconstruct(number=1)})
         self.expr_renumbered = expr
 
-    def _interpolate_future(self, *function, transpose=None, adjoint=False, default_missing_val=None):
+    def interpolate(self, *function, transpose=None, adjoint=False, default_missing_val=None):
         """Define the :class:`Interpolate` object corresponding to the interpolation operation of interest.
 
         Parameters
@@ -346,79 +346,6 @@ class Interpolator(abc.ABC):
             interp = action(interp, f)
         # Return the `ufl.Interpolate` object
         return interp
-
-    @PETSc.Log.EventDecorator()
-    def interpolate(self, *function, output=None, transpose=None, adjoint=False, default_missing_val=None,
-                    ad_block_tag=None):
-        """Compute the interpolation by assembling the appropriate :class:`Interpolate` object.
-
-        Parameters
-        ----------
-        *function: firedrake.function.Function or firedrake.cofunction.Cofunction
-                   If the expression being interpolated contains an argument,
-                   then the function value to interpolate.
-        output: firedrake.function.Function or firedrake.cofunction.Cofunction
-                A function to contain the output.
-        transpose : bool
-                   Deprecated, use adjoint instead.
-        adjoint: bool
-                   Set to true to apply the adjoint of the interpolation
-                   operator.
-        default_missing_val: bool
-                             For interpolation across meshes: the
-                             optional value to assign to DoFs in the target mesh that are
-                             outside the source mesh. If this is not set then the values are
-                             either (a) unchanged if some ``output`` is specified to the
-                             :meth:`interpolate` method or (b) set to zero. This does not affect
-                             adjoint interpolation. Ignored if interpolating within the same
-                             mesh or onto a :func:`.VertexOnlyMesh`.
-        ad_block_tag: str
-                      An optional string for tagging the resulting assemble block on the Pyadjoint tape.
-
-        Returns
-        -------
-        firedrake.function.Function or firedrake.cofunction.Cofunction
-            The resulting interpolated function.
-        """
-        from firedrake.assemble import assemble
-
-        warnings.warn("""The use of `interpolate` to perform the numerical interpolation is deprecated.
-This feature will be removed very shortly.
-
-Instead, import `interpolate` from the `firedrake.__future__` module to update
-the interpolation's behaviour to return the symbolic `ufl.Interpolate` object associated
-with this interpolation.
-
-You can then assemble the resulting object to get the interpolated quantity
-of interest. For example,
-
-```
-from firedrake.__future__ import interpolate
-...
-
-assemble(interpolate(expr, V))
-```
-
-Alternatively, you can also perform other symbolic operations on the interpolation operator, such as taking
-the derivative, and then assemble the resulting form.
-""", FutureWarning)
-        if transpose is not None:
-            warnings.warn("'transpose' argument is deprecated, use 'adjoint' instead", FutureWarning)
-            adjoint = transpose or adjoint
-
-        # Get the Interpolate object
-        interp = self._interpolate_future(*function, adjoint=adjoint,
-                                          default_missing_val=default_missing_val)
-
-        if isinstance(self.V, firedrake.Function) and not output:
-            # V can be the Function to interpolate into (e.g. see `Function.interpolate``).
-            output = self.V
-
-        # Assemble the `ufl.Interpolate` object, which will then call `Interpolator._interpolate`
-        # to perform the interpolation. Having this structure ensures consistency between
-        # `Interpolator` and `Interp`. This mechanism handles annotation since performing interpolation will drop an
-        # `AssembleBlock` on the tape.
-        return assemble(interp, tensor=output, ad_block_tag=ad_block_tag)
 
     @abc.abstractmethod
     def _interpolate(self, *args, **kwargs):
