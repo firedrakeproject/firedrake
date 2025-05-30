@@ -28,10 +28,13 @@ def test_helmholtz(mocker, conv_num, degree):
     assert (np.array(conv) > conv_num).all()
 
 
-def test_3D_advection():
-    mesh = UnitTetrahedronMesh()
-    dg0 = FunctionSpace(mesh, "DG", 0)
-    dg1 = FunctionSpace(mesh, "DG", 1)
-    rt1 = FunctionSpace(mesh, "RT", 1)
+@pytest.mark.parametrize(['conv_num', 'degree'],
+                         [(p, d)
+                          for p, d in zip([ 2.8, 3.8], [2, 3])])
+def test_helmholtz_3d(mocker, conv_num, degree):
+    diff = np.array([helmholtz(i, degree=degree, mesh=UnitCubeMesh(2 ** i, 2 ** i, 2 ** i))[0] for i in range(2, 4)])
+    print("l2 error norms:", diff)
+    conv = np.log2(diff[:-1] / diff[1:])
+    print("convergence order:", conv)
+    assert (np.array(conv) > conv_num).all()
 
-    run_near_to_far(mesh, dg0, rt1)

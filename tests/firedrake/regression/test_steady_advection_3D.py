@@ -10,8 +10,7 @@ from firedrake import *
 
 @pytest.fixture(scope='module')
 def mesh():
-    return UnitTetrahedronMesh()
-    # return UnitCubeMesh(3, 3, 3)
+    return UnitCubeMesh(3, 3, 3)
 
 
 @pytest.fixture(scope='module')
