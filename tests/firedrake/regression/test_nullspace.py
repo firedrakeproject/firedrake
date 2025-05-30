@@ -1,5 +1,4 @@
 from firedrake import *
-from firedrake.__future__ import *
 from firedrake.petsc import PETSc
 import pytest
 import numpy as np
