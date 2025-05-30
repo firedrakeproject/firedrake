@@ -135,7 +135,7 @@ Using Firedrake, we specify the mass matrix using the special quadrature rule wi
     m = (u - 2.0 * u_n + u_nm1) / Constant(dt * dt) * v * dxlump
 
 .. note::
-    Mass lumping is a common technique in finite elements to produce a diagonal mass matrix that can be trivially inverted resulting in a in very efficient explicit time integration scheme. It's usually done with nodal basis functions and an inexact quadrature rule for the mass matrix. A diagonal matrix is obtained when the integration points coincide with the nodes of the basis function. However, when using elements of :math:`p \ge 2`, this technique does not result in a stable and accurate finite element scheme and new elements must be found such as those detailed in :cite:Chin:1999 .
+    Mass lumping is a common technique in finite elements to produce a diagonal mass matrix that can be trivially inverted resulting in a very efficient explicit time integration scheme. It's usually done with nodal basis functions and an inexact quadrature rule for the mass matrix. A diagonal matrix is obtained when the integration points coincide with the nodes of the basis function. However, when using elements of :math:`p \ge 2`, this technique does not result in a stable and accurate finite element scheme and new elements must be found such as those detailed in :cite:Chin:1999 .
 
 The stiffness matrix :math:`a(u,v)` is formed using a standard quadrature rule and is treated explicitly::
 

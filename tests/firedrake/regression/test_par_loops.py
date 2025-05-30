@@ -2,7 +2,6 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.utils import ScalarType_c
-from firedrake.__future__ import *
 
 
 @pytest.fixture(scope="module")
