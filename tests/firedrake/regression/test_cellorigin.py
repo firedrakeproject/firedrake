@@ -2,7 +2,6 @@ import pytest
 import numpy as np
 from ufl.geometry import CellOrigin
 from firedrake import *
-from firedrake.__future__ import *
 
 
 @pytest.fixture(params=["interval", "triangle", "quadrilateral", "tetrahedron"])
