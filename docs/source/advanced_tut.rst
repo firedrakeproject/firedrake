@@ -30,3 +30,4 @@ element systems.
    Vertex/edge star multigrid relaxation for H(div).<demos/hdiv_riesz_star.py>
    Auxiliary space patch relaxation multigrid for H(curl).<demos/hcurl_riesz_star.py>
    Steady Boussinesq problem with integral constraints.<demos/boussinesq.py>
+   Assimilating point data.<demos/assimilating_point_data.py>
