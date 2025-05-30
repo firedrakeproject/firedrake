@@ -1,7 +1,6 @@
 from firedrake import *
 import pytest
 import numpy
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(params=["aij", "nest", "matfree"])
@@ -16,7 +15,7 @@ def element_pair(request):
     return request.param
 
 
-# @pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel(nprocs=3)
 def test_stokes_hdiv_parallel(mat_type, element_pair):
     err_u = []
     err_p = []

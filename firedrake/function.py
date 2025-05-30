@@ -116,14 +116,6 @@ class CoordinatelessFunction(ufl.Coefficient):
             subfuncs = []
             for subspace in self.function_space():
                 subdat = self.dat[str(subspace.index)]
-                # relabel the axes (remove suffix)
-                # subaxes = subdat.axes.relabel({
-                #     label: label.removesuffix(f"_{subspace.index}")
-                #     for label in subdat.axes.node_labels
-                #     if label.startswith("dof")
-                # })
-                # # .with_axes
-                # subdat = op3.Dat(subaxes, data=subdat.buffer, name=subdat.name)
                 subfunc = CoordinatelessFunction(
                     subspace, subdat, name=f"{self.name()}[{subspace.index}]"
                 )
@@ -140,51 +132,27 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     @utils.cached_property
     def _components(self):
-        if self.function_space()._cdim == 1:
+        if self.function_space().rank == 0:
             return (self,)
         else:
-            if len(self.function_space().shape) > 1:
-                # This all gets a lot easier if one could insert slices *above*
-                # the relevant indices. Then we could just index with a ScalarIndex.
-                # Instead we have to construct the whole IndexTree and for simplicity
-                # this is disabled for tensor things.
-                raise NotImplementedError
-
-            # TODO: Ultimately we want to remove all this extra code when we can index
-            # things more flexibly.
-            root_axis = self.dat.axes.root
-            root_index = op3.Slice(
-                root_axis.label,
-                [op3.AffineSliceComponent(c.label) for c in root_axis.components],
-            )
-            root_index_tree = op3.IndexTree(root_index)
-            for axis_component, component in zip(root_axis.components, root_index.component_labels):
-                dof_axis = self.dat.axes.child(root_axis, axis_component)
-                subtree = op3.IndexTree(op3.Slice(dof_axis.label, [op3.AffineSliceComponent("XXX")]))
-                root_index_tree = root_index_tree.add_subtree(subtree, root_index, component, uniquify_ids=True)
-
-            subfuncs = []
-            # This flattens any tensor shape, which pyop3 can now do "properly"
-            for i, j in enumerate(np.ndindex(self.function_space().shape)):
-
-                # just one-tuple supported for now
-                j, = j
-
-                indices = root_index_tree
-                subtree = op3.IndexTree(op3.ScalarIndex("dim0", "XXX", j))
-                for leaf in root_index_tree.leaves:
-                    indices = indices.add_subtree(subtree, *leaf, uniquify_ids=True)
-
-                subfunc = CoordinatelessFunction(
-                    self.function_space().sub(i),
-                    # FIXME: (06/12/24) This doesnt yet work because we assume certain ordering
-                    # constraints when indexing (see compose_targets)
-                    # val=self.dat[subtree],
-                    val=self.dat.getitem(indices, strict=True),
-                    name=f"view[{i}]({self.name()})"
-                )
-                subfuncs.append(subfunc)
-            return tuple(subfuncs)
+            if self.function_space()._cdim == 1:
+                return (CoordinatelessFunction(self.function_space().sub(0), val=self.dat,
+                                               name=f"view[0]({self.name()})"),)
+            else:
+                components = []
+                for i, j in enumerate(np.ndindex(self.function_space().shape)):
+                    indices = op3.IndexTree.from_iterable((
+                        op3.ScalarIndex(f"dim{i_}", "XXX", j_)
+                        for i_, j_ in enumerate(j)
+                    ))
+                    subdat = self.dat[indices]
+                    component = CoordinatelessFunction(
+                        self.function_space().sub(i),
+                        val=subdat,
+                        name=f"view[{i}]({self.name()})"
+                    )
+                    components.append(component)
+                return tuple(components)
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):

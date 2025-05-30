@@ -198,7 +198,6 @@ def test_tensor_function_zero(W):
     assert np.allclose(f.dat.data_ro, 0.0)
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 def test_tensor_function_zero_with_subset(W):
     f = Function(W)
     # create an arbitrary subset consisting of the first three nodes
@@ -221,25 +220,33 @@ def test_component_function_zero(W):
 
     g = f.sub(0).zero()
     assert f.sub(0) is g
-    for i, j in np.ndindex(f.dat.data_ro.shape[1:]):
+
+    f_data = f.dat.data_ro.reshape((-1, *W.shape))
+    for i, j in np.ndindex(W.shape):
         expected = 0.0 if i == 0 and j == 0 else 1.0
-        assert np.allclose(f.dat.data_ro[..., i, j], expected)
+        assert np.allclose(f_data[..., i, j], expected)
 
 
 def test_component_function_zero_with_subset(W):
     f = Function(W)
-    # create an arbitrary subset consisting of the first three nodes
-    assert W.node_set.size > 3
-    subset = op2.Subset(W.node_set, [0, 1, 2])
-
     f.assign(1)
     assert np.allclose(f.dat.data_ro, 1.0)
 
+    # create an arbitrary subset consisting of the first three vertices
+    mesh_axis = W.axes.root
+    subset_dat = op3.Dat.from_array(np.asarray([0, 1, 2], dtype=utils.IntType))
+    subset = op3.Slice(mesh_axis.label, [op3.Subset("0", subset_dat)])
+
+    # make sure there are more than 3 vertices
+    assert mesh_axis.components[1].size > 3
+
     f.sub(0).zero(subset=subset)
-    for i, j in np.ndindex(f.dat.data_ro.shape[1:]):
+
+    f_data = f.dat.data_ro.reshape((-1, *W.shape))
+    for i, j in np.ndindex(W.shape):
         expected = 0.0 if i == 0 and j == 0 else 1.0
-        assert np.allclose(f.dat.data_ro[:3, i, j], expected)
-        assert np.allclose(f.dat.data_ro[3:, i, j], 1.0)
+        assert np.allclose(f_data[:3, i, j], expected)
+        assert np.allclose(f_data[3:, i, j], 1.0)
 
 
 @pytest.mark.parametrize("value", [

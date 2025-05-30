@@ -162,7 +162,9 @@ class Dat(Tensor, KernelArgument):
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
-    def from_array(cls, array: np.ndarray, *, buffer_kwargs, **kwargs) -> Dat:
+    def from_array(cls, array: np.ndarray, *, buffer_kwargs=None, **kwargs) -> Dat:
+        buffer_kwargs = buffer_kwargs or {}
+
         axes = Axis(array.size)
         buffer = ArrayBuffer(array, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)

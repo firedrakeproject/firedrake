@@ -564,7 +564,7 @@ class Mat(Tensor):
             ridx, cidx = map(_zero_if_none, map(just_one, just_one(self.nest_labels)))
             mat = self.mat.getNestSubMatrix(ridx, cidx)
         else:
-            mat = self.mat
+            mat = self.buffer.mat
 
         if mat.getType() == PETSc.Mat.Type.PYTHON:
             return mat.getPythonContext().dat.data_ro

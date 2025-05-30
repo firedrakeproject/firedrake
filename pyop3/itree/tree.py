@@ -433,7 +433,7 @@ class ScalarIndex(Index):
     fields = {"axis", "component", "value", "id"}
 
     def __init__(self, axis, component, value, *, id=None):
-        super().__init__(label="XXX", id=id)
+        super().__init__(id=id)
         self.axis = axis
         self.component = component
         self.value = value
@@ -1536,9 +1536,7 @@ def make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index: Ind
         # index information to the existing 'None' entry.
         if None in subtarget_paths_and_exprs:
             subtarget_paths_and_exprs = dict(subtarget_paths_and_exprs)
-            target_paths_and_exprs[None].extend(
-                subtarget_paths_and_exprs.pop(None)
-            )
+            target_paths_and_exprs[None] += subtarget_paths_and_exprs.pop(None)
         target_paths_and_exprs |= subtarget_paths_and_exprs
 
         outer_loops += sub_outer_loops
