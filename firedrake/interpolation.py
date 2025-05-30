@@ -314,11 +314,6 @@ class Interpolator(abc.ABC):
         -------
         firedrake.interpolation.Interpolate or ufl.action.Action or ufl.adjoint.Adjoint
             The symbolic object representing the interpolation operation.
-
-        Notes
-        -----
-        This method is the default future behaviour of interpolation. In a future release, the
-        ``Interpolator.interpolate`` method will be replaced by this method.
         """
 
         V = self.V
