@@ -217,8 +217,6 @@ The receiver mesh is required in order to interpolate the wave equation solution
 
 We are now able to proceed with the synthetic data computations and record them on the receivers::
 
-    from firedrake.__future__ import interpolate
-
     true_data_receivers = []
     total_steps = int(final_time / dt) + 1
     f = Cofunction(V.dual())  # Wave equation forcing term.
