@@ -144,7 +144,7 @@ class Interpolate(ufl.Interpolate):
 
 @PETSc.Log.EventDecorator()
 def interpolate(expr, V, *args, **kwargs):
-    """Interpolate an expression onto a new function in V.
+    """Returns a UFL expression for the interpolation operation of ``expr`` into ``V``.
 
     :arg expr: a UFL expression.
     :arg V: the :class:`.FunctionSpace` to interpolate into (or else
@@ -175,7 +175,7 @@ def interpolate(expr, V, *args, **kwargs):
         to zero. Ignored if interpolating within the same mesh or onto a
         :func:`.VertexOnlyMesh`.
     :kwarg ad_block_tag: An optional string for tagging the resulting assemble block on the Pyadjoint tape.
-    :returns: Symbolic interpolate expression
+    :returns: A synbolic :class:`.Interpolate` object
 
     .. note::
 
