@@ -24,7 +24,7 @@ import finat
 import firedrake
 from firedrake import tsfc_interface, utils, functionspaceimpl
 from firedrake.ufl_expr import Argument, action, adjoint as expr_adjoint
-from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError
+from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, MeshTopology, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype as get_dat_mpi_type
 from mpi4py import MPI
@@ -257,14 +257,10 @@ class Interpolator(abc.ABC):
     def __new__(cls, expr, V, **kwargs):
         target_mesh = as_domain(V)
         source_mesh = extract_unique_domain(expr) or target_mesh
-        submesh_interp_implemented = \
-            all(isinstance(m.topology, firedrake.mesh.MeshTopology) for m in [target_mesh, source_mesh]) and \
-            target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1] and \
-            target_mesh.topological_dimension() == source_mesh.topological_dimension()
-        if target_mesh is source_mesh or submesh_interp_implemented:
+        if target_mesh is source_mesh or all(isinstance(m.topology, MeshTopology) for m in [target_mesh, source_mesh]) and target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1]:
             return object.__new__(SameMeshInterpolator)
         else:
-            if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
+            if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
                 return object.__new__(SameMeshInterpolator)
             else:
                 return object.__new__(CrossMeshInterpolator)
