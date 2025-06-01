@@ -485,7 +485,6 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
 
     def set_coefficients(self, coefficients):
         self.coefficients = []
-        self.coefficient_split = {}
         self.kernel_args = []
         for i, coefficient in enumerate(coefficients):
             if type(coefficient.ufl_element()) == finat.ufl.MixedElement:

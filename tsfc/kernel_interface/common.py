@@ -131,9 +131,6 @@ class KernelBuilderMixin(object):
 
         See :meth:`create_context` for typical calling sequence.
         """
-        # Split Coefficients
-        if self.coefficient_split:
-            integrand = ufl_utils.split_coefficients(integrand, self.coefficient_split)
         # Compile: ufl -> gem
         info = self.integral_data_info
         functions = [*info.arguments, self.coordinate(info.domain), *info.coefficients]

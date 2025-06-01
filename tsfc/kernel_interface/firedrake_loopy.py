@@ -25,10 +25,6 @@ ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'needs_cel
                                                    'flop_count', 'event'])
 
 
-def make_builder(*args, **kwargs):
-    return partial(KernelBuilder, *args, **kwargs)
-
-
 class Kernel:
     __slots__ = ("ast", "arguments", "integral_type", "oriented", "subdomain_id",
                  "domain_number", "needs_cell_sizes", "tabulations",
@@ -261,7 +257,6 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
 
         self.diagonal = diagonal
         self.local_tensor = None
-        self.coefficient_split = {}
         self.coefficient_number_index_map = OrderedDict()
         self.dont_split = frozenset(dont_split)
 
@@ -314,38 +309,20 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         self.return_variables = return_variables
         self.argument_multiindices = argument_multiindices
 
-    def set_coefficients(self, integral_data, form_data):
-        """Prepare the coefficients of the form.
-
-        :arg integral_data: UFL integral data
-        :arg form_data: UFL form data
-        """
-        # enabled_coefficients is a boolean array that indicates which
-        # of reduced_coefficients the integral requires.
-        n, k = 0, 0
-        for i in range(len(integral_data.enabled_coefficients)):
-            if integral_data.enabled_coefficients[i]:
-                original = form_data.reduced_coefficients[i]
-                coefficient = form_data.function_replace_map[original]
-                if type(coefficient.ufl_element()) == ufl_MixedElement:
-                    if original in self.dont_split:
-                        self.coefficient_split[coefficient] = [coefficient]
-                        self._coefficient(coefficient, f"w_{k}")
-                        self.coefficient_number_index_map[coefficient] = (n, 0)
-                        k += 1
-                    else:
-                        self.coefficient_split[coefficient] = []
-                        for j, element in enumerate(coefficient.ufl_element().sub_elements):
-                            c = Coefficient(FunctionSpace(extract_unique_domain(coefficient), element))
-                            self.coefficient_split[coefficient].append(c)
-                            self._coefficient(c, f"w_{k}")
-                            self.coefficient_number_index_map[c] = (n, j)
-                            k += 1
-                else:
-                    self._coefficient(coefficient, f"w_{k}")
-                    self.coefficient_number_index_map[coefficient] = (n, 0)
+    def set_coefficients(self):
+        """Prepare the coefficients of the form."""
+        info = self.integral_data_info
+        k = 0
+        for n, coeff in enumerate(info.coefficients):
+            if coeff in info.coefficient_split:
+                for i, c in enumerate(info.coefficient_split[coeff]):
+                    self.coefficient_number_index_map[c] = (n, i)
+                    self._coefficient(c, f"w_{k}")
                     k += 1
-                n += 1
+            else:
+                self.coefficient_number_index_map[coeff] = (n, 0)
+                self._coefficient(coeff, f"w_{k}")
+                k += 1
 
     def set_constants(self, constants):
         for i, const in enumerate(constants):

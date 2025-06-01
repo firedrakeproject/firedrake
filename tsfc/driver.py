@@ -7,6 +7,7 @@ from finat.physically_mapped import DirectlyDefinedElement, PhysicallyMappedElem
 import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
+from ufl.algorithms.apply_coefficient_split import apply_coefficient_split
 from ufl.classes import Form, GeometricQuantity
 from ufl.domain import extract_unique_domain
 
@@ -28,7 +29,7 @@ sys.setrecursionlimit(3000)
 TSFCIntegralDataInfo = collections.namedtuple("TSFCIntegralDataInfo",
                                               ["domain", "integral_type", "subdomain_id", "domain_number",
                                                "arguments",
-                                               "coefficients", "coefficient_numbers"])
+                                               "coefficients", "coefficient_split", "coefficient_numbers"])
 TSFCIntegralDataInfo.__doc__ = """
     Minimal set of objects for kernel builders.
 
@@ -47,7 +48,7 @@ TSFCIntegralDataInfo.__doc__ = """
     """
 
 
-def compile_form(form, prefix="form", parameters=None, interface=None, diagonal=False):
+def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), diagonal=False):
     """Compiles a UFL form into a set of assembly kernels.
 
     :arg form: UFL form
@@ -64,13 +65,35 @@ def compile_form(form, prefix="form", parameters=None, interface=None, diagonal=
 
     # Determine whether in complex mode:
     complex_mode = parameters and is_complex(parameters.get("scalar_type"))
-    fd = ufl_utils.compute_form_data(form, complex_mode=complex_mode)
+    form_data = ufl_utils.compute_form_data(form, complex_mode=complex_mode)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
-
+    # Set coefficient_split.
+    coefficient_split = {}
+    for i, o in enumerate(form_data.reduced_coefficients):
+        c = form_data.function_replace_map[o]
+        mesh = extract_unique_domain(c, expand_mesh_sequence=False)
+        elem = c.ufl_element()
+        i_orig = form_data.original_coefficient_positions[i]
+        if type(elem) == finat.ufl.MixedElement and i_orig not in dont_split_numbers:
+            mesh = [mesh] * len(elem.sub_elements)
+            coefficient_split[c] = [
+                ufl.Coefficient(ufl.FunctionSpace(m, e)) for m, e in zip(mesh, elem.sub_elements)
+            ]
+    form_data.coefficient_split = coefficient_split
+    # Rewrite all integrands using symbolic coefficients and split mixed coefficients.
+    for integral_data in form_data.integral_data:
+        new_integrals = []
+        for integral in integral_data.integrals:
+            integrand = ufl.replace(integral.integrand(), form_data.function_replace_map)
+            integrand = apply_coefficient_split(integrand, form_data.coefficient_split)
+            if not isinstance(integrand, ufl.classes.Zero):
+                new_integrals.append(integral.reconstruct(integrand=integrand))
+        integral_data.integrals = new_integrals
+    # 
     kernels = []
-    for integral_data in fd.integral_data:
+    for integral_data in form_data.integral_data:
         start = time.time()
-        kernel = compile_integral(integral_data, fd, prefix, parameters, interface=interface, diagonal=diagonal)
+        kernel = compile_integral(integral_data, form_data, prefix, parameters, diagonal=diagonal)
         if kernel is not None:
             kernels.append(kernel)
         logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
@@ -79,20 +102,17 @@ def compile_form(form, prefix="form", parameters=None, interface=None, diagonal=
     return kernels
 
 
-def compile_integral(integral_data, form_data, prefix, parameters, interface, *, diagonal=False):
+def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=False):
     """Compiles a UFL integral into an assembly kernel.
 
     :arg integral_data: UFL integral data
     :arg form_data: UFL form data
     :arg prefix: kernel name will start with this string
     :arg parameters: parameters object
-    :arg interface: backend module for the kernel interface
     :arg diagonal: Are we building a kernel for the diagonal of a rank-2 element tensor?
     :returns: a kernel constructed by the kernel interface
     """
     parameters = preprocess_parameters(parameters)
-    if interface is None:
-        interface = firedrake_interface_loopy.KernelBuilder
     scalar_type = parameters["scalar_type"]
     integral_type = integral_data.integral_type
     mesh = integral_data.domain
@@ -103,27 +123,38 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, *,
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
     domain_number = domain_numbering[integral_data.domain]
-    coefficients = [form_data.function_replace_map[c] for c in integral_data.integral_coefficients]
     # This is which coefficient in the original form the
     # current coefficient is.
     # Consider f*v*dx + g*v*ds, the full form contains two
     # coefficients, but each integral only requires one.
-    coefficient_numbers = tuple(form_data.original_coefficient_positions[i]
-                                for i, (_, enabled) in enumerate(zip(form_data.reduced_coefficients, integral_data.enabled_coefficients))
-                                if enabled)
-    integral_data_info = TSFCIntegralDataInfo(domain=integral_data.domain,
-                                              integral_type=integral_data.integral_type,
-                                              subdomain_id=integral_data.subdomain_id,
-                                              domain_number=domain_number,
-                                              arguments=arguments,
-                                              coefficients=coefficients,
-                                              coefficient_numbers=coefficient_numbers)
-    builder = interface(integral_data_info,
-                        scalar_type,
-                        diagonal=diagonal)
+    coefficients = []
+    coefficient_split = {}
+    coefficient_numbers = []
+    for i, (coeff_orig, enabled) in enumerate(zip(form_data.reduced_coefficients, integral_data.enabled_coefficients)):
+        if enabled:
+            coeff = form_data.function_replace_map[coeff_orig]
+            coefficients.append(coeff)
+            if coeff in form_data.coefficient_split:
+                coefficient_split[coeff] = form_data.coefficient_split[coeff]
+            coefficient_numbers.append(form_data.original_coefficient_positions[i])
+    integral_data_info = TSFCIntegralDataInfo(
+        domain=integral_data.domain,
+        integral_type=integral_data.integral_type,
+        subdomain_id=integral_data.subdomain_id,
+        domain_number=domain_number,
+        arguments=arguments,
+        coefficients=coefficients,
+        coefficient_split=coefficient_split,
+        coefficient_numbers=coefficient_numbers,
+    )
+    builder = firedrake_interface_loopy.KernelBuilder(
+        integral_data_info,
+        scalar_type,
+        diagonal=diagonal,
+    )
     builder.set_coordinates(mesh)
     builder.set_cell_sizes(mesh)
-    builder.set_coefficients(integral_data, form_data)
+    builder.set_coefficients()
     # TODO: We do not want pass constants to kernels that do not need them
     # so we should attach the constants to integral data instead
     builder.set_constants(form_data.constants)
@@ -131,8 +162,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, *,
     for integral in integral_data.integrals:
         params = parameters.copy()
         params.update(integral.metadata())  # integral metadata overrides
-        integrand = ufl.replace(integral.integrand(), form_data.function_replace_map)
-        integrand_exprs = builder.compile_integrand(integrand, params, ctx)
+        integrand_exprs = builder.compile_integrand(integral.integrand(), params, ctx)
         integral_exprs = builder.construct_integrals(integrand_exprs, params)
         builder.stash_integrals(integral_exprs, params, ctx)
     return builder.construct_kernel(kernel_name, ctx, parameters["add_petsc_events"])
