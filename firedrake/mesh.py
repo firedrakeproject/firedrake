@@ -1467,8 +1467,6 @@ class MeshTopology(AbstractMeshTopology):
                           "pyop2_owned",
                           "pyop2_ghost"):
             raise ValueError(f"Label name {label_name} is reserved")
-        if not isinstance(tf, function.CoordinatelessFunction):
-            raise TypeError(f"tf must be an instance of CoordinatelessFunction: {type(tf)} is not CoordinatelessFunction")
         tV = tf.function_space()
         elem = tV.ufl_element()
         if tV.mesh() is not self:
@@ -2222,7 +2220,7 @@ class MeshGeometryCargo:
         This function is separate to __init__ because of the two-step process we have
         for initialising a :class:`MeshGeometry`.
         """
-        self.topology = coordinates.function_space().mesh()
+        self.topology = coordinates.function_space().mesh().topology
         self.coordinates = coordinates
         self.geometric_shared_data_cache = defaultdict(dict)
 
@@ -2301,10 +2299,10 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             del self._callback
             # Finish the initialisation of mesh topology
             self.topology.init()
-            coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
+            coordinates_fs = functionspace.FunctionSpace(self, self.ufl_coordinate_element())
             coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
                                                          (self.num_vertices(), self.geometric_dimension()))
-            coordinates = function.CoordinatelessFunction(coordinates_fs,
+            coordinates = function.Function(coordinates_fs,
                                                           val=coordinates_data,
                                                           name=_generate_default_mesh_coordinates_name(self.name))
             self.__init__(coordinates)
@@ -2865,6 +2863,68 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
     return mesh
 
 
+def make_mesh_from_coordinates_begin(element, comm):
+    """Given a coordinate field build a new mesh, using said coordinate field.
+
+    Parameters
+    ----------
+    coordinates : CoordinatelessFunction
+        The `CoordinatelessFunction` from which mesh is made.
+    name : str
+        The name of the mesh.
+    tolerance : numbers.Number
+        The tolerance; see `Mesh`.
+    comm: mpi4py.Intracomm
+        Communicator.
+
+    Returns
+    -------
+    MeshGeometry
+        The mesh.
+
+    """
+    return MeshGeometry.__new__(MeshGeometry, element, comm)
+
+
+@PETSc.Log.EventDecorator()
+def make_mesh_from_coordinates_end(mesh, coordinates, name, tolerance=0.5):
+    """Given a coordinate field build a new mesh, using said coordinate field.
+
+    Parameters
+    ----------
+    coordinates : CoordinatelessFunction
+        The `CoordinatelessFunction` from which mesh is made.
+    name : str
+        The name of the mesh.
+    tolerance : numbers.Number
+        The tolerance; see `Mesh`.
+    comm: mpi4py.Intracomm
+        Communicator.
+
+    Returns
+    -------
+    MeshGeometry
+        The mesh.
+
+    """
+    # if hasattr(coordinates, '_as_mesh_geometry'):
+    #     mesh = coordinates._as_mesh_geometry()
+    #     if mesh is not None:
+    #         return mesh
+
+    V = coordinates.function_space()
+    element = coordinates.ufl_element()
+    if V.rank != 1 or len(element.reference_value_shape) != 1:
+        raise ValueError("Coordinates must be from a rank-1 FunctionSpace with rank-1 value_shape.")
+    assert V.mesh().ufl_cell().topological_dimension() <= V.value_size
+
+    mesh.__init__(coordinates)
+    mesh.name = name
+    # Mark mesh as being made from coordinates
+    mesh._made_from_coordinates = True
+    mesh._tolerance = tolerance
+
+
 def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
     """Make mesh from tpology.
 
@@ -2885,18 +2945,22 @@ def make_mesh_from_mesh_topology(topology, name, tolerance=0.5):
     """
     # Construct coordinate element
     # TODO: meshfile might indicates higher-order coordinate element
-    cell = topology.ufl_cell()
-    geometric_dim = topology.topology_dm.getCoordinateDim()
-    if not topology.topology_dm.getCoordinatesLocalized():
-        element = finat.ufl.VectorElement("Lagrange", cell, 1, dim=geometric_dim)
-    else:
-        element = finat.ufl.VectorElement("DQ" if cell in [ufl.quadrilateral, ufl.hexahedron] else "DG", cell, 1, dim=geometric_dim, variant="equispaced")
+    element = make_coordinate_element(topology)
     # Create mesh object
     mesh = MeshGeometry.__new__(MeshGeometry, element, topology.comm)
     mesh._init_topology(topology)
     mesh.name = name
     mesh._tolerance = tolerance
     return mesh
+
+
+def make_coordinate_element(topology):
+    cell = topology.ufl_cell()
+    geometric_dim = topology.topology_dm.getCoordinateDim()
+    if not topology.topology_dm.getCoordinatesLocalized():
+        return finat.ufl.VectorElement("Lagrange", cell, 1, dim=geometric_dim)
+    else:
+        return finat.ufl.VectorElement("DQ" if cell in [ufl.quadrilateral, ufl.hexahedron] else "DG", cell, 1, dim=geometric_dim, variant="equispaced")
 
 
 def make_vom_from_vom_topology(topology, name, tolerance=0.5):
@@ -2929,13 +2993,13 @@ def make_vom_from_vom_topology(topology, name, tolerance=0.5):
     # Save vertex reference coordinate (within reference cell) in function
     parent_tdim = topology._parent_mesh.ufl_cell().topological_dimension()
     if parent_tdim > 0:
-        reference_coordinates_fs = functionspace.VectorFunctionSpace(topology, "DG", 0, dim=parent_tdim)
+        reference_coordinates_fs = functionspace.VectorFunctionSpace(vmesh, "DG", 0, dim=parent_tdim)
         reference_coordinates_data = dmcommon.reordered_coords(topology.topology_dm, reference_coordinates_fs.dm.getDefaultSection(),
                                                                (topology.num_vertices(), parent_tdim),
                                                                reference_coord=True)
-        reference_coordinates = function.CoordinatelessFunction(reference_coordinates_fs,
-                                                                val=reference_coordinates_data,
-                                                                name=_generate_default_mesh_reference_coordinates_name(name))
+        reference_coordinates = function.Function(reference_coordinates_fs,
+                                                  val=reference_coordinates_data,
+                                                  name=_generate_default_mesh_reference_coordinates_name(name))
         refCoordV = functionspaceimpl.WithGeometry.create(reference_coordinates_fs, vmesh)
         vmesh.reference_coordinates = function.Function(refCoordV, val=reference_coordinates)
     else:
@@ -3040,8 +3104,6 @@ def Mesh(meshfile, **kwargs):
             return afile.load_mesh(name=name, reorder=reorder,
                                    distribution_parameters=distribution_parameters)
     elif isinstance(meshfile, function.Function):
-        coordinates = meshfile.topological
-    elif isinstance(meshfile, function.CoordinatelessFunction):
         coordinates = meshfile
     else:
         coordinates = None

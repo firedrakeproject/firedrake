@@ -7,11 +7,11 @@ from pyop2.mpi import COMM_WORLD, internal_comm, MPI
 from firedrake.cython import hdf5interface as h5i
 from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc, OptionsManager
-from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, DEFAULT_MESH_NAME, make_mesh_from_coordinates, DistributedMeshOverlapType
+from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, DEFAULT_MESH_NAME, make_coordinate_element, make_mesh_from_coordinates_begin, make_mesh_from_coordinates_end, DistributedMeshOverlapType
 from firedrake.functionspace import FunctionSpace
 from firedrake import functionspaceimpl as impl
 from firedrake.functionspacedata import get_global_numbering, create_element
-from firedrake.function import Function, CoordinatelessFunction
+from firedrake.function import Function
 from firedrake import extrusion_utils as eutils
 from firedrake.embedding import get_embedding_element_for_checkpointing, get_embedding_method_for_checkpointing
 from firedrake.parameters import parameters
@@ -976,7 +976,7 @@ class CheckpointFile(object):
     @PETSc.Log.EventDecorator("SaveFunctionTopology")
     def _save_function_topology(self, tf, idx=None):
         # -- Save function space topology --
-        tV = tf.function_space()
+        tV = tf.function_space().topological
         self._save_function_space_topology(tV)
         # -- Save function topology --
         if idx is not None:
@@ -1078,8 +1078,12 @@ class CheckpointFile(object):
             path = self._path_to_mesh(tmesh_name, name)
             coord_element = self._load_ufl_element(path, PREFIX + "_coordinate_element")
             coord_name = self.get_attr(path, PREFIX + "_coordinates")
-            coordinates = self._load_function_topology(tmesh, coord_element, coord_name)
-            mesh = make_mesh_from_coordinates(coordinates, name)
+
+            element = make_coordinate_element(tmesh)
+            mesh = make_mesh_from_coordinates_begin(element, self._comm)
+            coordinates = self._load_function_topology(mesh, coord_element, coord_name)
+            make_mesh_from_coordinates_end(mesh, coordinates, name)
+
             if self.has_attr(path, PREFIX + "_radial_coordinates"):
                 radial_coord_element = self._load_ufl_element(path, PREFIX + "_radial_coordinate_element")
                 radial_coord_name = self.get_attr(path, PREFIX + "_radial_coordinates")
@@ -1110,8 +1114,12 @@ class CheckpointFile(object):
             tmesh.init()
             coord_element = self._load_ufl_element(path, PREFIX + "_coordinate_element")
             coord_name = self.get_attr(path, PREFIX + "_coordinates")
-            coordinates = self._load_function_topology(tmesh, coord_element, coord_name)
-            mesh = make_mesh_from_coordinates(coordinates, name)
+
+            element = make_coordinate_element(tmesh)
+            mesh = make_mesh_from_coordinates_begin(element, self._comm)
+            coordinates = self._load_function_topology(mesh, coord_element, coord_name)
+            make_mesh_from_coordinates_end(mesh, coordinates, name)
+
             # Load plex coordinates for a complete representation of plex.
             tmesh.topology_dm.coordinatesLoad(self.viewer, tmesh.sfXC)
             # Load cell_orientations for immersed meshes.
@@ -1119,7 +1127,7 @@ class CheckpointFile(object):
             if path in self.h5pyfile:
                 cell = tmesh.ufl_cell()
                 element = finat.ufl.FiniteElement("DP" if cell.is_simplex() else "DQ", cell, 0)
-                cell_orientations_tV = self._load_function_space_topology(tmesh, element)
+                cell_orientations_tV = self._load_function_space_topology(mesh, element)
                 tmesh_key = self._generate_mesh_key_from_names(tmesh.name,
                                                                tmesh._distribution_name,
                                                                tmesh._permutation_name)
@@ -1144,7 +1152,7 @@ class CheckpointFile(object):
                 reflected_indices = (reflected == 1)
                 cell_orientations[reflected_indices] = 1 - cell_orientations[reflected_indices]
                 cell_orientations_name = self.get_attr(path, PREFIX_IMMERSED + "_cell_orientations")
-                mesh._cell_orientations = CoordinatelessFunction(cell_orientations_tV, val=cell_orientations, name=cell_orientations_name, dtype=np.int32)
+                mesh._cell_orientations = Function(cell_orientations_tV, val=cell_orientations, name=cell_orientations_name, dtype=np.int32)
         return mesh
 
     @PETSc.Log.EventDecorator("LoadMeshTopology")
@@ -1269,10 +1277,12 @@ class CheckpointFile(object):
         return V
 
     @PETSc.Log.EventDecorator("LoadFunctionSpaceTopology")
-    def _load_function_space_topology(self, tmesh, element):
+    def _load_function_space_topology(self, mesh, element):
+        tmesh = mesh.topology
         tmesh.init()
+
         if element.family() == "Real":
-            return impl.RealFunctionSpace(tmesh, element, "unused_name")
+            return FunctionSpace(mesh, element, "unused_name")
         tmesh_key = self._generate_mesh_key_from_names(tmesh.name,
                                                        tmesh._distribution_name,
                                                        tmesh._permutation_name)
@@ -1298,7 +1308,7 @@ class CheckpointFile(object):
                     # The same section has already been cached.
                     dm.setSection(cached_section)
             self._function_load_utils[tmesh_key + sd_key] = (dm, gsf, lsf)
-        return impl.FunctionSpace(tmesh, element)
+        return FunctionSpace(mesh, element)
 
     @PETSc.Log.EventDecorator("LoadFunction")
     def load_function(self, mesh, name, idx=None):
@@ -1345,8 +1355,7 @@ class CheckpointFile(object):
                 return f
             else:
                 tf_name = self.get_attr(path, PREFIX + "_vec")
-                tf = self._load_function_topology(tV.mesh(), tV.ufl_element(), tf_name, idx=idx)
-                return Function(V, val=tf, name=name)
+                return self._load_function_topology(tV.mesh(), tV.ufl_element(), tf_name, idx=idx)
         else:
             raise RuntimeError(f"""
                 Function ({name}) not found under either of the following path in {self.filename}:
@@ -1356,11 +1365,13 @@ class CheckpointFile(object):
             """)
 
     @PETSc.Log.EventDecorator("LoadFunctionTopology")
-    def _load_function_topology(self, tmesh, element, tf_name, idx=None):
-        tV = self._load_function_space_topology(tmesh, element)
+    def _load_function_topology(self, mesh, element, tf_name, idx=None):
+        tmesh = mesh.topology
+        V = self._load_function_space_topology(mesh, element)
+        tV = V.topological
         topology_dm = tmesh.topology_dm
         dm_name = self._get_dm_name_for_checkpointing(tmesh, element)
-        tf = CoordinatelessFunction(tV, name=tf_name)
+        tf = Function(V, name=tf_name)
         path = self._path_to_vec(tmesh.name, dm_name, tf_name)
         if idx is not None:
             self.viewer.pushTimestepping()
