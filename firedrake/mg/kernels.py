@@ -559,6 +559,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
                                 domain_number=0,
                                 arguments=(ufl.TestFunction(Vc), ),
                                 coefficients=(),
+                                coefficient_split={},
                                 coefficient_numbers=())
 
     coarse_builder = firedrake_interface.KernelBuilder(info, parameters["scalar_type"])
