@@ -7,7 +7,7 @@ from finat.physically_mapped import DirectlyDefinedElement, PhysicallyMappedElem
 import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
-from ufl.algorithms.apply_coefficient_split import apply_coefficient_split
+from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
 from ufl.classes import Form, GeometricQuantity
 from ufl.domain import extract_unique_domain
 
@@ -81,11 +81,12 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
             ]
     form_data.coefficient_split = coefficient_split
     # Rewrite all integrands using symbolic coefficients and split mixed coefficients.
+    coeff_splitter = CoefficientSplitter(form_data.coefficient_split)
     for integral_data in form_data.integral_data:
         new_integrals = []
         for integral in integral_data.integrals:
             integrand = ufl.replace(integral.integrand(), form_data.function_replace_map)
-            integrand = apply_coefficient_split(integrand, form_data.coefficient_split)
+            integrand = coeff_splitter(integrand)
             if not isinstance(integrand, ufl.classes.Zero):
                 new_integrals.append(integral.reconstruct(integrand=integrand))
         integral_data.integrals = new_integrals
@@ -257,7 +258,8 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     builder.set_constants(constants)
 
     # Split mixed coefficients
-    expression = apply_coefficient_split(expression, builder.coefficient_split)
+    coeff_splitter = CoefficientSplitter(builder.coefficient_split)
+    expression = coeff_splitter(expression)
 
     # Set up kernel config for translation of UFL expression to gem
     kernel_cfg = dict(interface=builder,
