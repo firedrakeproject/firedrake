@@ -9,8 +9,7 @@ def interpolate(expr, V, *args, **kwargs):
 
 
 @deprecated("""The symbolic `Interpolator` has been moved into `firedrake.interpolation` 
-            and is now the default method for interpolating in Firedrake. The need to 
-            `from firedrake.__future__ import Interpolator` is now unnecessary.""")
+            The need to `from firedrake.__future__ import Interpolator` is now unnecessary.""")
 class Interpolator(Interpolator_default):
     def __new__(cls, *args, **kwargs):
         return Interpolator_default(*args, **kwargs)
