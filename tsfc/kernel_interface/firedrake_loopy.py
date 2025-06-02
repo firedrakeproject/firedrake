@@ -1,9 +1,7 @@
 import numpy
 from collections import namedtuple, OrderedDict
-from functools import partial
 
 from ufl import Coefficient, FunctionSpace
-from ufl.domain import extract_unique_domain
 from finat.ufl import MixedElement as ufl_MixedElement, FiniteElement
 
 import gem

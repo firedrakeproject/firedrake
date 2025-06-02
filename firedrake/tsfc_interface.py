@@ -7,9 +7,7 @@ passing to the backends.
 from os import path, environ, getuid, makedirs
 import tempfile
 import collections
-import functools
 
-from tsfc.kernel_interface.firedrake_loopy import KernelBuilder
 import ufl
 import finat.ufl
 from ufl import conj, Form, ZeroBaseForm

@@ -89,7 +89,7 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
             if not isinstance(integrand, ufl.classes.Zero):
                 new_integrals.append(integral.reconstruct(integrand=integrand))
         integral_data.integrals = new_integrals
-    # 
+    # Create local kernels.
     kernels = []
     for integral_data in form_data.integral_data:
         start = time.time()
@@ -257,7 +257,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     builder.set_constants(constants)
 
     # Split mixed coefficients
-    expression = ufl_utils.split_coefficients(expression, builder.coefficient_split)
+    expression = apply_coefficient_split(expression, builder.coefficient_split)
 
     # Set up kernel config for translation of UFL expression to gem
     kernel_cfg = dict(interface=builder,

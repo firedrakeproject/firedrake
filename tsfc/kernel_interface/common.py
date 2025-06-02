@@ -14,7 +14,7 @@ from gem.node import traversal
 from gem.optimise import constant_fold_zero
 from gem.optimise import remove_componenttensors as prune
 from numpy import asarray
-from tsfc import fem, ufl_utils
+from tsfc import fem
 from finat.element_factory import as_fiat_cell, create_element
 from tsfc.kernel_interface import KernelInterface
 from tsfc.logging import logger
