@@ -112,7 +112,7 @@ jobs:
       # The mirror was chosen from https://launchpad.net/ubuntu/+archivemirrors.
       - name: Configure apt
         run: |
-          sed -i 's|http://archive.ubuntu.com/ubuntu|http://www.mirrorservice.org/sites/archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list
+          sed -i 's|http://archive.ubuntu.com/ubuntu|http://www.mirrorservice.org/sites/archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources
           apt-get update
 
       # Git is needed for actions/checkout and Python for firedrake-configure
