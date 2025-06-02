@@ -23,6 +23,7 @@ def main():
     check_firedrake_version()
     check_min_python_version()
     check_petsc_version()
+    check_slepc_version()
     check_petsc_version_spec()
 
 
@@ -58,9 +59,12 @@ def check_petsc_version() -> None:
         f"petsc4py=={petsc_version}",
         2,
     )
+
+
+def check_slepc_version() -> None:
     check_file_contains_pattern(
         REPO_ROOT / "pyproject.toml",
-        f"slepc4py=={petsc_version}",
+        f"slepc4py==(.*)",
         3,
     )
 
