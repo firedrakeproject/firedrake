@@ -4,6 +4,7 @@ import numpy
 import islpy as isl
 
 import finat
+import pyop3 as op3
 from pyop2 import op2
 from pyop2.caching import serial_cache
 from firedrake.petsc import PETSc
@@ -65,7 +66,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         layer_height = numpy.cumsum(numpy.concatenate(([0], layer_height)))
 
     layer_heights = layer_height.size
-    layer_height = op2.Global(layer_heights, layer_height, dtype=RealType, comm=extruded_topology._comm)
+    layer_height = op3.Dat.from_array(layer_height)
 
     if kernel is not None:
         op2.ParLoop(kernel,
@@ -222,15 +223,30 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     else:
         raise NotImplementedError('Unsupported extrusion type "%s"' % extrusion_type)
 
-    ast = lp.make_function(domains, instructions, data, name=name, target=target,
+    ast = lp.make_kernel(domains, instructions, data, name=name, target=target,
                            seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
-    kernel = op2.Kernel(ast, name)
-    op2.ParLoop(kernel,
-                ext_coords.cell_set,
-                ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
-                base_coords.dat(op2.READ, base_coords.cell_node_map()),
-                layer_height(op2.READ),
-                pass_layer_arg=True).compute()
+    kernel = op3.Function(ast, [op3.WRITE, op3.READ, op3.READ, op3.READ])
+
+    extr_mesh = ext_coords.function_space().mesh()
+    base_mesh = extr_mesh._base_mesh
+    iterset = extr_mesh.cells.owned
+
+    # trick to pass the right layer through to the local kernel
+    my_layer_data = numpy.empty((base_mesh.num_cells, extr_mesh.layers), dtype=IntType)
+    for base_cell, extr_cell in numpy.ndindex(my_layer_data.shape):
+        my_layer_data[base_cell, extr_cell] = extr_cell
+    my_layer_dat = op3.Dat(iterset.materialize(), data=my_layer_data.flatten())
+
+    op3.do_loop(
+        p := iterset.index(),
+        kernel(ext_coords.dat[extr_mesh.closure(p, "fiat")], base_coords.dat[extr_mesh.base_mesh_closure(p, "fiat")], layer_height, my_layer_data[p]),
+    )
+    # op2.ParLoop(kernel,
+    #             ext_coords.cell_set,
+    #             ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
+    #             base_coords.dat(op2.READ, base_coords.cell_node_map()),
+    #             layer_height(op2.READ),
+    #             pass_layer_arg=True).compute()
 
 
 def flat_entity_dofs(entity_dofs):

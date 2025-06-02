@@ -786,28 +786,6 @@ class AbstractMeshTopology(abc.ABC):
             self._dm_renumbering = dm_renumbering
             self._dm_renumbering_inv = dm_renumbering_inv
 
-            p_start, p_end = topology_dm.getChart()
-            n_points = p_end - p_start
-
-            # NOTE: In serial the point SF isn't set up in a valid state so we do this. It
-            # would be nice to avoid this branch.
-            if self.comm.size > 1:
-                point_sf = self.topology_dm.getPointSF()
-            else:
-                point_sf = op3.local_sf(self.num_points, self._comm).sf
-
-            point_sf_renum = dmcommon.renumber_sf(point_sf, dm_renumbering)
-
-            # TODO: Allow the label here to be None
-            flat_points = op3.Axis(
-                [op3.AxisComponent(n_points, "mylabel", sf=point_sf_renum)],
-                label=f"{self.name}_flat",
-            )
-
-            # TODO: AxisForest?
-            self.flat_points = flat_points
-            self.points = flat_points[self._strata_slice]  # or strata_axis?
-
         self._callback = callback
         # Set/Generate names to be used when checkpointing.
         self._distribution_name = distribution_name or _generate_default_mesh_topology_distribution_name(self.topology_dm.comm.size, self._distribution_parameters)
@@ -845,6 +823,20 @@ class AbstractMeshTopology(abc.ABC):
     def _add_overlap(self):
         """Add overlap."""
         pass
+
+    @property
+    @abc.abstractmethod
+    def flat_points(self):
+        pass
+
+    @property
+    @abc.abstractmethod
+    def _strata_slice(self):  # or strata_axis?
+        pass
+
+    @utils.cached_property
+    def points(self):
+        return self.flat_points[self._strata_slice]
 
     # @abc.abstractmethod
     # def _mark_entity_classes(self):
@@ -1039,22 +1031,11 @@ class AbstractMeshTopology(abc.ABC):
         """
         pass
 
-    @cached_property
-    def _entity_indices(self):
-        # TODO: Explain why, at this point, we only care about interleaving and the ordering
-        # does not really matter
-        indices = []
-        perm = self._dm_renumbering.indices
-        for dim in range(self.dimension+1):
-            p_start, p_end = self.topology_dm.getDepthStratum(dim)
-            ixs = np.argwhere((p_start <= perm) & (perm < p_end)).astype(IntType, casting="same_kind").flatten()
-            indices.append(readonly(ixs))
-        return tuple(indices)
-
-    @cached_property
+    @utils.cached_property
     def _strata_slice(self):
         subsets = []
         if self._dm_renumbering is None:
+            raise NotImplementedError("TODO")
             for dim in self._plex_strata_ordering:
                 start, end = self.topology_dm.getDepthStratum(dim)
                 slice_component = op3.AffineSliceComponent("mylabel", start, end, label=str(dim))
@@ -1062,14 +1043,20 @@ class AbstractMeshTopology(abc.ABC):
         else:
             for dim in self._plex_strata_ordering:
                 indices = op3.ArrayBuffer(self._entity_indices[dim], ordered=True)
-                subset_axes = op3.Axis({str(dim): indices.size}, self.name)
+                subset_axes = op3.Axis({dim: indices.size}, self.name)
                 subset_array = op3.Dat(subset_axes, buffer=indices)
-                subset = op3.Subset("mylabel", subset_array, label=str(dim))
+                subset = op3.Subset("mylabel", subset_array, label=dim)
                 subsets.append(subset)
 
         return op3.Slice(f"{self.name}_flat", subsets, label=self.name)
 
     @property
+    @abc.abstractmethod
+    def _entity_indices(self):
+        pass
+
+    @property
+    @abc.abstractmethod
     def _plex_strata_ordering(self):
         """Map from entity dimension to ordering in the DMPlex numbering.
 
@@ -1077,15 +1064,6 @@ class AbstractMeshTopology(abc.ABC):
         then faces and lastly edges.
 
         """
-        if self.dimension == 0:
-            return (0,)
-        elif self.dimension == 1:
-            return (1, 0)
-        elif self.dimension == 2:
-            return (2, 0, 1)
-        else:
-            assert self.dimension == 3
-            return (3, 0, 2, 1)  # I think, 1 and 2 might need swapping
 
     def closure(self, index, ordering=ClosureOrdering.PLEX):
         # if ordering is a string (e.g. "fiat") then convert to an enum
@@ -1935,6 +1913,50 @@ class MeshTopology(AbstractMeshTopology):
         plex.reorderSetDefault(PETSc.DMPlex.ReorderDefaultFlag.FALSE)
         super().__init__(plex, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm)
 
+    @cached_property
+    def flat_points(self):
+        p_start, p_end = self.topology_dm.getChart()
+        n_points = p_end - p_start
+
+        # NOTE: In serial the point SF isn't set up in a valid state so we do this. It
+        # would be nice to avoid this branch.
+        if self.comm.size > 1:
+            point_sf = self.topology_dm.getPointSF()
+        else:
+            point_sf = op3.local_sf(self.num_points, self._comm).sf
+
+        point_sf_renum = dmcommon.renumber_sf(point_sf, self._dm_renumbering)
+
+        # TODO: Allow the label here to be None
+        return op3.Axis(
+            [op3.AxisComponent(n_points, "mylabel", sf=point_sf_renum)],
+            label=f"{self.name}_flat",
+        )
+
+    @cached_property
+    def _entity_indices(self):
+        # TODO: Explain why, at this point, we only care about interleaving and the ordering
+        # does not really matter
+        indices = []
+        perm = self._dm_renumbering.indices
+        for dim in range(self.dimension+1):
+            p_start, p_end = self.topology_dm.getDepthStratum(dim)
+            ixs = np.argwhere((p_start <= perm) & (perm < p_end)).astype(IntType, casting="same_kind").flatten()
+            indices.append(readonly(ixs))
+        return tuple(indices)
+
+    @property
+    def _plex_strata_ordering(self):
+        if self.dimension == 0:
+            return (0,)
+        elif self.dimension == 1:
+            return (1, 0)
+        elif self.dimension == 2:
+            return (2, 0, 1)
+        else:
+            assert self.dimension == 3
+            return (3, 0, 2, 1)  # I think, 1 and 2 might need swapping
+
     def _distribute(self):
         # Distribute/redistribute the dm to all ranks
         distribute = self._distribution_parameters["partition"]
@@ -1951,6 +1973,25 @@ class MeshTopology(AbstractMeshTopology):
             # does not inherit partitioner from the old dm.
             # It probably makes sense as chaco does not work
             # once distributed.
+
+    @property
+    def cell_label(self):
+        return str(self.dimension)
+
+    # should error
+    @property
+    def facet_label(self):
+        return str(self.dimension - 1)
+
+    # should error
+    @property
+    def edge_label(self):
+        return "1"
+
+    # TODO I prefer "vertex_label"
+    @property
+    def vert_label(self):
+        return "0"
 
     def _add_overlap(self):
         overlap_type, overlap = self._distribution_parameters["overlap_type"]
@@ -2347,7 +2388,8 @@ class MeshTopology(AbstractMeshTopology):
     # Think this should be put in AbstractMeshTopology class
     @cached_property
     def cells(self):
-        return self.points[self.cell_label]
+        cell_slice = op3.Slice(self.name, [op3.AffineSliceComponent(self.cell_label, label=self.cell_label)])
+        return self.points[cell_slice]
 
     @cached_property
     def vertices(self):
@@ -2636,8 +2678,6 @@ class ExtrudedMeshTopology(MeshTopology):
         :arg name:           optional name of the extruded mesh topology.
         """
 
-        raise NotImplementedError("TODO extruded meshes need fixing")
-
         # TODO: refactor to call super().__init__
 
         from firedrake_citations import Citations
@@ -2653,6 +2693,7 @@ class ExtrudedMeshTopology(MeshTopology):
 
         mesh.init()
         self._base_mesh = mesh
+        self.layers = layers
         self.user_comm = mesh.comm
         self._comm = internal_comm(mesh._comm, self)
         if name is not None and name == mesh.name:
@@ -2663,9 +2704,7 @@ class ExtrudedMeshTopology(MeshTopology):
         # of responsibilities between mesh and function space.
         self.topology_dm = mesh.topology_dm
         r"The PETSc DM representation of the mesh topology."
-        self._dm_renumbering = mesh._dm_renumbering
         self._cell_numbering = mesh._cell_numbering
-        self._entity_classes = mesh._entity_classes
         self._distribution_parameters = mesh._distribution_parameters
         self._subsets = {}
         if layers.shape:
@@ -2686,7 +2725,6 @@ class ExtrudedMeshTopology(MeshTopology):
             """
         else:
             self.variable_layers = False
-        self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers, extruded_periodic=periodic)
         # submesh
         self.submesh_parent = None
 
@@ -2698,6 +2736,91 @@ class ExtrudedMeshTopology(MeshTopology):
     def _ufl_mesh(self):
         cell = self._ufl_cell
         return ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
+
+    @utils.cached_property
+    def flat_points(self):
+        if self.layers.shape:
+            raise NotImplementedError
+        else:
+            nlayers = int(self.layers)
+
+        base_mesh_axis = self._base_mesh.flat_points
+        npoints = base_mesh_axis.component.local_size * (2*nlayers+1)
+
+        base_point_sf = base_mesh_axis.component.sf
+        section = PETSc.Section().create(comm=base_point_sf.comm)
+        section.setChart(0, base_point_sf.size)
+        for pt in range(base_point_sf.size):
+            section.setDof(pt, nlayers)
+        point_sf = op3.StarForest(dmcommon.create_section_sf(base_point_sf.sf, section), npoints)
+
+        return op3.Axis(
+            [op3.AxisComponent(npoints, "mylabel", sf=point_sf)],
+            label=f"{self.name}_flat",
+        )
+
+    @property
+    def cell_label(self):
+        return (self._base_mesh.dimension, 1)
+
+    @property
+    def facet_label(self):
+        raise NotImplementedError
+
+    @property
+    def edge_label(self):
+        raise NotImplementedError
+
+    @property
+    def vert_label(self):
+        return (0, 0)
+
+    @utils.cached_property
+    def _dm_renumbering(self):
+        if self.layers.shape:
+            raise NotImplementedError("Gets a little more complicated when things are ragged")
+        else:
+            nlayers = int(self.layers)
+
+        # we always have 2n+1 entities when we extrude
+        base_indices = self._base_mesh._dm_renumbering.indices
+        indices = np.empty((base_indices.size, (2*nlayers+1)), dtype=base_indices.dtype)
+        for i in range(base_indices.size):
+            for j in range(2*nlayers+1):
+                indices[i, j] = base_indices[i] * (2*nlayers+1) + j
+        return PETSc.IS().createGeneral(indices, comm=self._comm)
+
+    @cached_property
+    def _entity_indices(self):
+        if self.layers.shape:
+            raise NotImplementedError("Gets a little more complicated when things are ragged")
+        else:
+            nlayers = int(self.layers)
+
+        indices = {}
+        for base_dim in range(self._base_mesh.dimension+1):
+            base_indices = self._base_mesh._entity_indices[base_dim]
+            for extr_dim in range(2):
+                dim = (base_dim, extr_dim)
+
+                num_extr_pts = nlayers+1 if extr_dim == 0 else nlayers
+
+                # extend the base indices
+                idxs = np.empty((base_indices.size, num_extr_pts), dtype=base_indices.dtype)
+                for i in range(base_indices.size):
+                    for j in range(num_extr_pts):
+                        idxs[i, j] = base_indices[i] * (2*nlayers+1) + 2*j
+                indices[dim] = idxs.flatten()
+        return indices
+
+    # TODO: I don't think that the specific ordering actually matters here...
+    @property
+    def _plex_strata_ordering(self):
+        return tuple(
+            (base_dim, extr_dim)
+            for base_dim in self._base_mesh._plex_strata_ordering
+            for extr_dim in range(2)
+        )
 
     @utils.cached_property
     def cell_closure(self):
@@ -2784,18 +2907,18 @@ class ExtrudedMeshTopology(MeshTopology):
                 nodes_per_entity = sum(nodes[:, i]*(self.layers - i) for i in range(2))
             return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
 
-    @utils.cached_property
-    def layers(self):
-        """Return the layers parameter used to construct the mesh topology,
-        which is the number of layers represented by the number of occurences
-        of the base mesh for non-variable layer mesh and an array of size
-        (num_cells, 2), each row representing the
-        (first layer index, last layer index + 1) pair for the associated cell,
-        for variable layer mesh."""
-        if self.variable_layers:
-            return self.cell_set.layers_array
-        else:
-            return self.cell_set.layers
+    # @utils.cached_property
+    # def layers(self):
+    #     """Return the layers parameter used to construct the mesh topology,
+    #     which is the number of layers represented by the number of occurences
+    #     of the base mesh for non-variable layer mesh and an array of size
+    #     (num_cells, 2), each row representing the
+    #     (first layer index, last layer index + 1) pair for the associated cell,
+    #     for variable layer mesh."""
+    #     if self.variable_layers:
+    #         return self.cell_set.layers_array
+    #     else:
+    #         return self.cell_set.layers
 
     def entity_layers(self, height, label=None):
         """Return the number of layers on each entity of a given plex
@@ -3012,24 +3135,25 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return self.cells
 
     @property
+    @abc.abstractmethod
     def cell_label(self):
-        return str(self.dimension)
+        pass
 
-    # should error
     @property
+    @abc.abstractmethod
     def facet_label(self):
-        return str(self.dimension - 1)
+        pass
 
-    # should error
     @property
+    @abc.abstractmethod
     def edge_label(self):
-        return "1"
+        pass
 
     # TODO I prefer "vertex_label"
     @property
+    @abc.abstractmethod
     def vert_label(self):
-        return "0"
-
+        pass
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_cell_list(self):

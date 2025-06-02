@@ -5,6 +5,7 @@ classes for attaching extra information to instances of these.
 """
 from __future__ import annotations
 
+import functools
 from collections import OrderedDict
 from dataclasses import dataclass
 from functools import cached_property
@@ -23,6 +24,7 @@ from pyop2.utils import as_tuple
 from firedrake import dmhooks, utils
 from firedrake.extrusion_utils import is_real_tensor_product_element
 from firedrake.functionspacedata import get_shared_data, create_element
+from firedrake.mesh import MeshTopology, ExtrudedMeshTopology
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
 
@@ -75,6 +77,14 @@ def check_element(element, top=True):
         inner = ()
     for e in inner:
         check_element(e, top=False)
+
+
+@functools.lru_cache()
+def flatten_entity_dofs(element):
+    ndofs = {}
+    for entity_key, entities in element.entity_dofs().items():
+        ndofs[entity_key] = utils.single_valued(map(len, entities.values()))
+    return ndofs
 
 
 class WithGeometryBase:
@@ -593,7 +603,7 @@ class FunctionSpace:
         strata_slice = self._mesh._strata_slice
         index_tree = op3.IndexTree(strata_slice)
         for slice_component in strata_slice.slices:
-            dim = int(slice_component.label)
+            dim = slice_component.label
             ndofs = single_valued(len(v) for v in self.finat_element.entity_dofs()[dim].values())
             subslice = op3.Slice(f"dof{suffix}", [op3.AffineSliceComponent("XXX", stop=ndofs, label="XXX")], label=f"dof{slice_component.label}{suffix}")
             index_tree = index_tree.add_node(subslice, strata_slice, slice_component.label)
@@ -742,20 +752,40 @@ class FunctionSpace:
             # If real we don't need to populate the section
             return section
 
-        entity_dofs = self.finat_element.entity_dofs()
-
-        dm = self._mesh.topology_dm
-        section.setChart(*dm.getChart())
-
         if self._mesh._dm_renumbering is not None:
             section.setPermutation(self._mesh._dm_renumbering)
 
-        for dim in range(dm.getDimension()+1):
-            ndofs, = set(len(values) for values in entity_dofs[dim].values())
-            for pt in range(*dm.getDepthStratum(dim)):
-                section.setDof(pt, ndofs)
-        section.setUp()
+        entity_dofs = flatten_entity_dofs(self.finat_element)
 
+        if type(self._mesh.topology) is MeshTopology:
+            dm = self._mesh.topology_dm
+            section.setChart(*dm.getChart())
+
+            for dim in range(dm.getDimension()+1):
+                ndofs = entity_dofs[dim]
+                for pt in range(*dm.getDepthStratum(dim)):
+                    section.setDof(pt, ndofs)
+        else:
+            assert type(self._mesh.topology) is ExtrudedMeshTopology
+            base_dm = self._mesh._base_mesh.topology_dm
+            nlayers = self._mesh.layers
+
+            section.setChart(0, self._mesh._base_mesh.num_points * (2*nlayers+1))
+
+            pt = 0
+            for base_dim in range(base_dm.getDimension()+1):
+                for base_pt in range(*base_dm.getDepthStratum(base_dim)):
+                    for col_pt in range(2*nlayers+1):
+                        if col_pt % 2 == 0:
+                            # a 'vertex'
+                            ndofs = entity_dofs[(base_dim, 0)]
+                        else:
+                            # an 'edge'
+                            ndofs = entity_dofs[(base_dim, 1)]
+                        section.setDof(pt, ndofs)
+                        pt += 1
+
+        section.setUp()
         return section
 
     # TODO: This is identical to value_size, remove
