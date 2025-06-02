@@ -330,7 +330,10 @@ jobs:
           matrix.arch == 'default'
         run: |
           . venv/bin/activate
-          git clone --depth 1 https://github.com/firedrakeproject/gusto.git gusto-repo
+          git clone https://github.com/firedrakeproject/gusto.git gusto-repo
+          cd gusto-repo
+          git checkout ksagiyam/submesh_core
+          cd ..
           pip install --verbose ./gusto-repo
           python -m pytest -n 8 --verbose \
             gusto-repo/integration-tests/balance/test_saturated_balance.py \
