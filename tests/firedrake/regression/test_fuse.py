@@ -5,6 +5,8 @@ from fuse.cells import ufc_triangle
 from firedrake import *
 import pytest
 import numpy as np
+import firedrake.cython.dmcommon as dmcommon
+from firedrake.utils import IntType
 
 
 @pytest.mark.parametrize(['params', 'degree', 'quadrilateral'],
@@ -38,3 +40,26 @@ def test_helmholtz_3d(mocker, conv_num, degree):
     print("convergence order:", conv)
     assert (np.array(conv) > conv_num).all()
 
+
+def test_reorder_closure():
+    mesh = UnitTetrahedronMesh()
+    mesh.init()
+    plex = mesh.topology_dm
+    tdim = plex.getDimension()
+
+    # Cell numbering and global vertex numbering
+    cell_numbering = mesh._cell_numbering
+    vertex_numbering = mesh._vertex_numbering.createGlobalSection(plex.getPointSF())
+
+    cell = mesh.ufl_cell()
+    plex.setName('firedrake_default_topology_fuse')
+    #   TODO find better way of branching here
+    topology = cell.to_fiat().topology
+    closureSize = sum([len(ents) for _, ents in topology.items()])
+    verts_per_entity = np.zeros(len(topology), dtype=IntType)
+    entity_per_cell = np.zeros(len(topology), dtype=IntType)
+    for d, ents in topology.items():
+        verts_per_entity[d] = len(ents[0])
+        entity_per_cell[d] = len(ents)
+    print(entity_per_cell)
+    print(dmcommon.derive_closure_ordering(plex, cell_numbering, closureSize, entity_per_cell, verts_per_entity))

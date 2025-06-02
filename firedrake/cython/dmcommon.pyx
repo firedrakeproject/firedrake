@@ -627,6 +627,65 @@ def create_cell_closure(PETSc.DM dm,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def derive_closure_ordering(PETSc.DM dm,
+                            PETSc.Section cell_numbering,
+                            _closureSize,
+                            np.ndarray entity_per_cell,
+                            np.ndarray verts_per_entity):
+    """Create a map from FIAT local entity numbers to DMPlex point numbers for each cell.
+
+    :arg dm: The DM object encapsulating the mesh topology
+    :arg cell_numbering: Section describing the global cell numbering
+    :arg _closureSize: Number of entities in the cell
+    """
+    cdef:
+        PetscInt c, cStart, cEnd, cell, i
+        PetscInt closureSize = _closureSize, closureSize1
+        PetscInt nface_vertices
+        PetscInt *closure = NULL
+        PetscInt *subclosure = NULL
+        PetscInt *fiat_closure = NULL
+        np.ndarray cell_closure
+
+    get_height_stratum(dm.dm, 0, &cStart, &cEnd)
+    if cEnd == cStart:
+        return np.empty((cEnd - cStart, closureSize), dtype=IntType)
+
+    for c in range(cStart, cEnd):
+        get_transitive_closure(dm.dm, c, PETSC_TRUE, &closureSize1, &closure)
+        if closureSize1 != closureSize:
+            raise RuntimeError(f"point 0 and point {c} have different cell types")
+        restore_transitive_closure(dm.dm, c, PETSC_TRUE, &closureSize1, &closure)
+
+
+    cell_closure = np.empty((cEnd - cStart, closureSize), dtype=IntType)
+    CHKERR(PetscMalloc1(closureSize, &fiat_closure))
+    for c in range(cStart, cEnd):
+        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
+        get_transitive_closure(dm.dm, c, PETSC_TRUE, &closureSize1, &closure)
+        for i in range(closureSize):
+            print("loop", c, i, closure[i * 2])
+            get_transitive_closure(dm.dm, closure[i * 2], PETSC_TRUE, &closureSize1, &subclosure)
+            d = np.where(entity_per_cell == closureSize1)[0]
+            print("closure", closureSize1)
+            CHKERR(DMPlexGetConeSize(dm.dm, closure[2*i], &nface_vertices))
+            print("Face", nface_vertices)
+            #
+            for j in range(closureSize1, closureSize1 - nface_vertices + 1, -1):
+                print("j", j)
+                print(subclosure[2 * j])
+            restore_transitive_closure(dm.dm, closure[i * 2], PETSC_TRUE, &closureSize1, &subclosure)
+        _reorder_plex_closure(dm, c, closure, fiat_closure)
+        restore_transitive_closure(dm.dm, c, PETSC_TRUE, &closureSize1, &closure)
+        for i in range(closureSize):
+            cell_closure[cell, i] = fiat_closure[i]
+    CHKERR(PetscFree(fiat_closure))
+    return cell_closure
+
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def closure_ordering(PETSc.DM dm,
                      PETSc.Section vertex_numbering,
                      PETSc.Section cell_numbering,
