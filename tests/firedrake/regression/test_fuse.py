@@ -103,15 +103,17 @@ def test_minimal():
     print("done with firedrake elem")
 
     cg1 = create_cg1()
+    cg3 = construct_cg3()
     V = FunctionSpace(mesh, cg1.to_ufl())
+    U = FunctionSpace(mesh, cg3.to_ufl())
     u = TrialFunction(V)
-    v = TestFunction(V)
+    v = TestFunction(U)
 
     a = inner(grad(v), grad(u)) * dx
     L = v * dx
 
     l_a = assemble(L)
-    # a_2 = assemble(a)
+    a_2 = assemble(a)
 
     # x = Function(V)
     # solve(a == L, x)

@@ -1775,8 +1775,8 @@ class ParloopBuilder:
 
     def build(self) -> op3.Loop:
         """Construct the parloop."""
-        transform_kernels = self.fuse_orientations()
-        if len(transform_kernels) > 0:
+        transform_kernel, form_shapes = self.fuse_orientations()
+        if transform_kernel:
             cells_axis_component = op3.utils.just_one(c for c in self._mesh.points.root.components if c.label == str(self._mesh.dimension))
             cells_axis = op3.Axis([cells_axis_component.copy(sf=None)], self._mesh.name)
             orientations = op3.Dat(cells_axis, data=numpy.zeros(cells_axis.size, dtype=numpy.uint8), name="orts")
@@ -1811,12 +1811,15 @@ class ParloopBuilder:
                 transformed_temp = temp.copy()
 
                 if isinstance(tsfc_arg, kernel_args.OutputKernelArg):
-                    scratch = op3.Dat.null(op3.Axis(100), dtype=temp.dtype)
-                    function_args = [o_temp, temp, scratch, transformed_temp]
-
+                    function_args = [o_temp, temp]
+                    for n in form_shapes:
+                        function_args += [op3.Dat.null(op3.Axis(n*n), dtype=temp.dtype)]
+                    for n in form_shapes:
+                        function_args += [temp.copy()]
+                    transformed_temp = function_args[-1]
                     unpack_insns.extend([
                         o_temp.assign(o_packed),
-                        transform_kernels[0](*function_args),
+                        transform_kernel(*function_args),
                         op3_arg.iassign(transformed_temp),
                     ])
                 else:
@@ -1994,50 +1997,100 @@ class ParloopBuilder:
 
     def fuse_orientations(self):
         Vs = self._indexed_function_spaces
-        transform_kernels = []
-        no_dense = True
-        for fs in Vs:
-            if hasattr(fs.ufl_element(), "triple"):
-                os = fs.ufl_element().triple.matrices
-                t_dim = fs.ufl_element().cell._tdim
-                os = os[t_dim][0]
-                n = os[next(iter(os.keys()))].shape[0]
-                child_knl = lp.make_function(
-                    f"{{[i, j]:0<=i, j < {n}}}",
-                    """
-                        res[j] =  res[j] + a[i, j]*b[i]
-                    """, name="matmul", target=lp.CWithGNULibcTarget())
-                args = [lp.GlobalArg("o", dtype=numpy.uint8, shape=(1,)),
-                        lp.GlobalArg("b", dtype=ScalarType, shape=(n, )),
-                        lp.GlobalArg("a", dtype=ScalarType, shape=(n, n)),
-                        lp.GlobalArg("res", dtype=ScalarType, shape=(n,)),]
+        no_dense = False
+        fuse_defined_spaces = [hasattr(Vs[i].ufl_element(), "triple") for i in range(len(Vs))]
+        if len(Vs) == 1 and all(fuse_defined_spaces):
+            fs = Vs[0]
+            os = fs.ufl_element().triple.matrices
+            t_dim = fs.ufl_element().cell._tdim
+            os = os[t_dim][0]
+            n = os[next(iter(os.keys()))].shape[0]
+            child_knl = lp.make_function(
+                f"{{[i, j]:0<=i, j < {n}}}",
+                """
+                    res[j] =  res[j] + a[i, j]*b[i]
+                """, name="matmul", target=lp.CWithGNULibcTarget())
+            args = [lp.GlobalArg("o", dtype=numpy.uint8, shape=(1,)),
+                    lp.GlobalArg("b", dtype=ScalarType, shape=(n, )),
+                    lp.GlobalArg("a", dtype=ScalarType, shape=(n, n)),
+                    lp.GlobalArg("res", dtype=ScalarType, shape=(n,)),]
 
-                var_list = ["o"]
-                string = ["\nswitch (*o) { \n"]
-                for val in sorted(os.keys()):
-                    string += f"case {val}:\n a = mat{val};break;\n"
-                    var_list += [f"mat{val}"]
+            var_list = ["o"]
+            string = ["\nswitch (*o) { \n"]
+            for val in sorted(os.keys()):
+                string += f"case {val}:\n a = mat{val};break;\n"
+                var_list += [f"mat{val}"]
+                if no_dense:
+                    mat = numpy.eye(n)
+                else:
+                    mat = numpy.array(os[val], dtype=ScalarType)
+                args += [lp.TemporaryVariable(f"mat{val}", initializer=mat, dtype=ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
+            string += "default:\nbreak;\n }"
+            transform_insn = lp.CInstruction(tuple(), "".join(string), assignees=("a"), read_variables=frozenset(var_list), id="assign")
+            parent_knl = lp.make_kernel(
+                "{:}",
+                [transform_insn, "res[:] = matmul(a, b, res) {dep=assign}"],
+                kernel_data=args,
+                target=lp.CWithGNULibcTarget())
+            knl = lp.merge([parent_knl, child_knl])
+            print(lp.generate_code_v2(knl).device_code())
+            print(knl)
+            transform = op3.Function(knl, [op3.READ, op3.READ, op3.WRITE, op3.WRITE])
+            return transform, (n,)
+        elif len(Vs) == 2 and any(fuse_defined_spaces):
+            if not all(fuse_defined_spaces):
+                raise NotImplementedError("Fuse-defined elements cannot be combined with FIAT elements")
+            shapes = [0] * len(Vs)
+            os = [None] * len(Vs)
+            args = [lp.GlobalArg("o", dtype=numpy.uint8, shape=(1,))]
+            child_knls = [None] * len(Vs)
+            for i in range(len(Vs)):
+                fs = Vs[i]
+                temp_os = fs.ufl_element().triple.matrices
+                t_dim = fs.ufl_element().cell._tdim
+                os[i] = temp_os[t_dim][0]
+                n = os[i][next(iter(os[i].keys()))].shape[0]
+                shapes[i] = n
+                args += [lp.GlobalArg(f"a{i}", dtype=ScalarType, shape=(n, n))]
+
+            args += [lp.GlobalArg("b", dtype=ScalarType, shape=tuple(shapes)), lp.GlobalArg("temp", dtype=ScalarType, shape=tuple(shapes)), lp.GlobalArg("res", dtype=ScalarType, shape=tuple(shapes))]
+            child_knls[0] = lp.make_function(
+                f"{{[i, j, k]:0<=i, k < {shapes[0]} and 0<= j < {shapes[1]}}}",
+                """
+                    res[k, j] =  res[k, j] + a[k, i]*b[i, j]
+                """, name=f"matmul{0}", target=lp.CWithGNULibcTarget())
+            child_knls[1] = lp.make_function(
+                f"{{[i, j, k]:0<=k < {shapes[0]} and 0<=  j, i < {shapes[1]}}}",
+                """
+                    res[k, j] =  res[k, j] + a[k, i]*b[i, j]
+                """, name=f"matmul{1}", target=lp.CWithGNULibcTarget())
+
+            var_list = ["o"]
+            string = "\nswitch (*o) { \n"
+            for val in sorted(os[0].keys()):
+                string += f"case {val}:\n"
+                for i in range(len(Vs)):
+                    string += f"a{i} = mat{i}_{val};"
+                    var_list += [f"mat{i}_{val}"]
                     if no_dense:
-                        mat = numpy.eye(n)
+                        mat = numpy.eye(shapes[i])
                     else:
-                        mat = numpy.array(os[val], dtype=ScalarType)
-                    args += [lp.TemporaryVariable(f"mat{val}", initializer=mat, dtype=ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
-                string += "default:\nbreak;\n }"
-                transform_insn = lp.CInstruction(tuple(), "".join(string), assignees=("a"), read_variables=frozenset(var_list), id="assign")
-                parent_knl = lp.make_kernel(
-                    "{:}",
-                    [transform_insn, "res[:] = matmul(a, b, res) {dep=assign}"],
-                    kernel_data=args,
-                    target=lp.CWithGNULibcTarget())
-                knl = lp.merge([parent_knl, child_knl])
-                print(lp.generate_code_v2(knl).device_code())
-                print(knl)
-                transform = op3.Function(knl, [op3.READ, op3.READ, op3.WRITE, op3.WRITE])
-                transform_kernels += [transform]
-            else:
-                transform_kernels = []
-                # raise NotImplementedError("Dense orientations only needed for FUSE elements")
-        return transform_kernels
+                        mat = numpy.array(os[i][val], dtype=ScalarType)
+                    args += [lp.TemporaryVariable(f"mat{i}_{val}", initializer=mat, dtype=ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
+                string += "break;\n"
+            string += "default:\nbreak;\n }"
+            transform_insn = lp.CInstruction(tuple(), "".join(string), assignees=("a0", "a1"), read_variables=frozenset(var_list), id="assign")
+            parent_knl = lp.make_kernel(
+                "{:}",
+                [transform_insn, "temp[:, :] = matmul0(a0, b, temp) {dep=assign}", "res[:, :] = matmul1(temp, a1, res) {dep=assign}"],
+                kernel_data=args,
+                target=lp.CWithGNULibcTarget())
+            knl = lp.merge([parent_knl, child_knls[0], child_knls[1]])
+            print(lp.generate_code_v2(knl).device_code())
+            print(knl)
+            transform = op3.Function(knl, [op3.READ, op3.WRITE, op3.WRITE, op3.READ, op3.WRITE, op3.WRITE])
+            return transform, shapes
+        return None, tuple()
 
     @functools.singledispatchmethod
     def _as_parloop_arg(self, tsfc_arg, index):
