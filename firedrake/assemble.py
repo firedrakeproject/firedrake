@@ -1808,15 +1808,18 @@ class ParloopBuilder:
                         dtype=op3_arg.dtype,
                         prefix="t"
                     )
+                
                 transformed_temp = temp.copy()
 
                 if isinstance(tsfc_arg, kernel_args.OutputKernelArg):
-                    function_args = [o_temp, temp]
+                    function_args = [o_temp]
                     for n in form_shapes:
                         function_args += [op3.Dat.null(op3.Axis(n*n), dtype=temp.dtype)]
-                    for n in form_shapes:
+                    function_args += [temp]
+                    for n in form_shapes[:-1]:
                         function_args += [temp.copy()]
-                    transformed_temp = function_args[-1]
+                    function_args += [transformed_temp]
+
                     unpack_insns.extend([
                         o_temp.assign(o_packed),
                         transform_kernel(*function_args),
@@ -2011,8 +2014,8 @@ class ParloopBuilder:
                     res[j] =  res[j] + a[i, j]*b[i]
                 """, name="matmul", target=lp.CWithGNULibcTarget())
             args = [lp.GlobalArg("o", dtype=numpy.uint8, shape=(1,)),
-                    lp.GlobalArg("b", dtype=ScalarType, shape=(n, )),
                     lp.GlobalArg("a", dtype=ScalarType, shape=(n, n)),
+                    lp.GlobalArg("b", dtype=ScalarType, shape=(n, )),
                     lp.GlobalArg("res", dtype=ScalarType, shape=(n,)),]
 
             var_list = ["o"]
@@ -2033,9 +2036,9 @@ class ParloopBuilder:
                 kernel_data=args,
                 target=lp.CWithGNULibcTarget())
             knl = lp.merge([parent_knl, child_knl])
-            print(lp.generate_code_v2(knl).device_code())
-            print(knl)
-            transform = op3.Function(knl, [op3.READ, op3.READ, op3.WRITE, op3.WRITE])
+            # print(lp.generate_code_v2(knl).device_code())
+            # print(knl)
+            transform = op3.Function(knl, [op3.READ, op3.WRITE, op3.READ, op3.WRITE])
             return transform, (n,)
         elif len(Vs) == 2 and any(fuse_defined_spaces):
             if not all(fuse_defined_spaces):
@@ -2086,8 +2089,8 @@ class ParloopBuilder:
                 kernel_data=args,
                 target=lp.CWithGNULibcTarget())
             knl = lp.merge([parent_knl, child_knls[0], child_knls[1]])
-            print(lp.generate_code_v2(knl).device_code())
-            print(knl)
+            # print(lp.generate_code_v2(knl).device_code())
+            # print(knl)
             transform = op3.Function(knl, [op3.READ, op3.WRITE, op3.WRITE, op3.READ, op3.WRITE, op3.WRITE])
             return transform, shapes
         return None, tuple()
