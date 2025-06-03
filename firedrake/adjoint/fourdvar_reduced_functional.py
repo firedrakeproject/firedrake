@@ -223,21 +223,26 @@ class FourDVarReducedFunctional(AbstractReducedFunctional):
             # Strong constraint functional to be converted to ReducedFunctional later
 
             # penalty for straying from prior
-            self.background_norm = CovarianceReducedFunctional(
-                control.control._ad_init_zero(),
-                background_covariance)
+            # self.background_norm = CovarianceReducedFunctional(
+            #     control.control._ad_init_zero(),
+            #     background_covariance)
 
             bkg_err = Function(self.control_space)
             bkg_err.assign(control.control - self.background)
+            # self._accumulate_functional(
+            #     weighted_norm(bkg_err, background_covariance))
             self._accumulate_functional(
-                weighted_norm(bkg_err, background_covariance))
+                background_covariance.norm(bkg_err))
 
             # penalty for not hitting observations at initial time
             if self.initial_observations:
+                # self._accumulate_functional(
+                #     weighted_norm(
+                #         observation_error(control.control),
+                #         observation_covariance))
                 self._accumulate_functional(
-                    weighted_norm(
-                        observation_error(control.control),
-                        observation_covariance))
+                    observation_covariance.norm(
+                        observation_error(control.control)))
 
     @property
     def controls(self):
@@ -362,7 +367,7 @@ class FourDVarReducedFunctional(AbstractReducedFunctional):
             self.tlm(m_dot)
 
         hess_args = {'m_dot': None, 'hessian_input': hessian_input,
-                     'evaluate_tlm': False, 'apply_riesz': False}
+                     'evaluate_tlm': False, 'apply_riesz': apply_riesz}
 
         return (
             self.Jobservations.hessian(**hess_args)
@@ -658,10 +663,13 @@ class StrongObservationStage:
         if hasattr(self.aaorf, "_strong_reduced_functional"):
             raise ValueError("Cannot add observations once strong"
                              " constraint ReducedFunctional instantiated")
+        # self.aaorf._accumulate_functional(
+        #     weighted_norm(
+        #         observation_error(state),
+        #         observation_covariance))
         self.aaorf._accumulate_functional(
-            weighted_norm(
-                observation_error(state),
-                observation_covariance))
+            observation_covariance.norm(
+                observation_error(state)))
 
         # save the user's state to hand back for beginning of next stage
         self.state = state
@@ -1092,7 +1100,7 @@ class CovarianceReducedFunctional(ReducedFunctional):
     def __init__(self, v, covariance):
         self.covariance = covariance
         rf = isolated_rf(
-            lambda x: weighted_norm(x, covariance),
+            lambda x: covariance.norm(x),
             v._ad_init_zero())
         super().__init__(
             rf.functional, rf.controls[0], tape=rf.tape)

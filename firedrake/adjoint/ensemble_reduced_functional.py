@@ -136,6 +136,8 @@ class EnsembleReduceReducedFunctional(AbstractReducedFunctional, FunctionOrFloat
 
     @no_annotations
     def __call__(self, values):
+        for c, v in zip(self.controls, Enlist(values)):
+            c.update(v)
         if self.reduction_rf:
             return self.reduction_rf(self._allgather(_local_subs(values)))
         else:
@@ -256,6 +258,8 @@ class EnsembleBcastReducedFunctional(AbstractReducedFunctional, FunctionOrFloatM
 
     @no_annotations
     def __call__(self, values):
+        for c, v in zip(self.controls, Enlist(values)):
+            c.update(v)
         val = self._bcast(values, root=self.root)
         J = self.functional._ad_init_zero()
         _set_local_subs(J, [val for _ in range(self.nlocal_outputs)])
@@ -337,6 +341,9 @@ class EnsembleTransformReducedFunctional(AbstractReducedFunctional):
 
     @no_annotations
     def __call__(self, values):
+        for c, v in zip(self.controls, Enlist(values)):
+            c.update(v)
+
         J = self.functional._ad_init_zero()
 
         with self._local_data(values, output=J) as (local_vals, output):
@@ -576,6 +583,9 @@ class EnsembleReducedFunctional(AbstractReducedFunctional):
             The computed value. Typically of instance of :class:`pyadjoint.AdjFloat`.
 
         """
+        for c, v in zip(self.controls, Enlist(values)):
+            c.update(v)
+
         if self.bcast_control:
             values = self.controls.delist(
                 [bcast(val) for bcast, val in zip(self.bcast_rfs, Enlist(values))])

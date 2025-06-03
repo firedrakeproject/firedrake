@@ -64,7 +64,7 @@ class EnsembleFunctionMixin(OverloadedType):
     def _ad_create_checkpoint(self):
         if disk_checkpointing():
             raise NotImplementedError(
-                "Disk checkpointing not implemented for EnsembleFunctions")
+                f"Disk checkpointing not implemented for {type(self).__name__}")
         else:
             return self.copy()
 
@@ -72,7 +72,7 @@ class EnsembleFunctionMixin(OverloadedType):
         if type(checkpoint) is type(self):
             return checkpoint
         raise NotImplementedError(
-            "Disk checkpointing not implemented for EnsembleFunctions")
+            f"Disk checkpointing not implemented for {type(self).__name__}")
 
     def _ad_from_petsc(self, vec):
         with self.vec_wo() as self_v:

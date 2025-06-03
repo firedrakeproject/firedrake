@@ -77,13 +77,15 @@ class AllAtOnceReducedFunctional(AbstractReducedFunctional):
     @stop_annotating()
     @PETSc.Log.EventDecorator()
     def __call__(self, values: OverloadedType):
-        x = values
+        x = values[0] if isinstance(values, (list, tuple)) else values
+        self.controls[0].update(x)
         mx = self.Jm(self.forward_halos(x))
         return self.Jerr([x, mx])
 
     @stop_annotating()
     @PETSc.Log.EventDecorator()
     def derivative(self, adj_input: float = 1.0, apply_riesz: bool = False):
+        adj_input = adj_input[0] if isinstance(adj_input, (list, tuple)) else adj_input
         dJx, dJmx0 = self.Jerr.derivative(
             adj_input=adj_input,
             apply_riesz=False)
@@ -100,7 +102,7 @@ class AllAtOnceReducedFunctional(AbstractReducedFunctional):
     @stop_annotating()
     @PETSc.Log.EventDecorator()
     def tlm(self, m_dot: OverloadedType):
-        x = m_dot
+        x = m_dot[0] if isinstance(m_dot, (list, tuple)) else m_dot
         mx = self.Jm.tlm(self.forward_halos(x))
         dx = self.Jerr.tlm([x, mx])
         return dx
@@ -112,6 +114,8 @@ class AllAtOnceReducedFunctional(AbstractReducedFunctional):
         if evaluate_tlm:
             self.tlm(m_dot)
         hess_args = {'m_dot': None, 'evaluate_tlm': False, 'apply_riesz': False}
+
+        hessian_input = hessian_input[0] if isinstance(hessian_input, (list, tuple)) else hessian_input
 
         hx, hmx = self.Jerr.hessian(
             **hess_args, hessian_input=hessian_input)

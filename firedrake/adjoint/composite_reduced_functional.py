@@ -2,6 +2,7 @@ from pyadjoint import (
     OverloadedType, Control, ReducedFunctional,
     stop_annotating, pause_annotation, continue_annotation,
     annotate_tape, set_working_tape)
+from pyadjoint.reduced_functional import AbstractReducedFunctional
 from pyadjoint.enlisting import Enlist
 
 
@@ -59,7 +60,7 @@ def identity_reduced_functional(value):
     return isolated_rf(lambda v: v._ad_init_zero()._ad_add(v), value)
 
 
-class CompositeReducedFunctional:
+class CompositeReducedFunctional(AbstractReducedFunctional):
     """Class representing the composition of two reduced functionals.
 
     For two reduced functionals J1: X->Y and J2: Y->Z, this is a convenience
@@ -78,6 +79,10 @@ class CompositeReducedFunctional:
     def __init__(self, rf1, rf2):
         self.rf1 = rf1
         self.rf2 = rf2
+
+    @property
+    def controls(self):
+        return self.rf1.controls
 
     def __call__(self, values: OverloadedType):
         """Computes the reduced functional with supplied control value.

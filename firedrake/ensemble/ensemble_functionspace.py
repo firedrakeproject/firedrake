@@ -191,9 +191,13 @@ class EnsembleFunctionSpaceBase:
         `firedrake.EnsembleFunction` or `firedrake.EnsembleCofunction` in this function space.
         """
         vec = PETSc.Vec().create(comm=self.global_comm)
-        vec.setSizes((self.nlocal_dofs, self.nglobal_dofs))
+        vec.setSizes((self.nlocal_rank_dofs, self.nglobal_dofs))
         vec.setUp()
         return vec
+
+    @cached_property
+    def layout_vec(self):
+        return self.create_vec()
 
     def local_to_global_ises(self, i):
         # COMM_SELF or global_comm?

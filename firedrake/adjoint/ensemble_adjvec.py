@@ -1,6 +1,7 @@
 from pyadjoint.overloaded_type import OverloadedType
 from pyadjoint.adjfloat import AdjFloat
 from firedrake.ensemble import Ensemble
+from firedrake.adjoint_utils.checkpointing import disk_checkpointing
 
 
 class EnsembleAdjVec(OverloadedType):
@@ -68,3 +69,16 @@ class EnsembleAdjVec(OverloadedType):
             [s._ad_convert_riesz(v, riesz_map=riesz_map)
              for s, v in zip(self.subvec, self._maybe_scalar(value))],
             ensemble=self.ensemble)
+
+    def _ad_create_checkpoint(self):
+        if disk_checkpointing():
+            raise NotImplementedError(
+                f"Disk checkpointing not implemented for {type(self).__name__}")
+        else:
+            return self._ad_copy()
+
+    def _ad_restore_at_checkpoint(self, checkpoint):
+        if type(checkpoint) is type(self):
+            return checkpoint
+        raise NotImplementedError(
+            f"Disk checkpointing not implemented for {type(self).__name__}")

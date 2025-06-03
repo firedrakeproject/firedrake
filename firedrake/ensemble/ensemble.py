@@ -301,7 +301,7 @@ class Ensemble(object):
         return requests
 
     @contextmanager
-    def sequential(self, synchronise=False, **kwargs):
+    def sequential(self, *, synchronise=False, **kwargs):
         """
         Context manager for executing code on each ensemble
         member consecutively by `ensemble_comm.rank`.
