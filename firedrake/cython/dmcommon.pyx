@@ -666,14 +666,11 @@ def derive_closure_ordering(PETSc.DM dm,
         for i in range(closureSize):
             print("loop", c, i, closure[i * 2])
             get_transitive_closure(dm.dm, closure[i * 2], PETSC_TRUE, &closureSize1, &subclosure)
-            d = np.where(entity_per_cell == closureSize1)[0]
-            print("closure", closureSize1)
             CHKERR(DMPlexGetConeSize(dm.dm, closure[2*i], &nface_vertices))
             print("Face", nface_vertices)
-            #
-            for j in range(closureSize1, closureSize1 - nface_vertices + 1, -1):
-                print("j", j)
-                print(subclosure[2 * j])
+            #, closureSize1 - nface_vertices, -1
+            for j in range(closureSize1):
+                print(j, subclosure[2 * j])
             restore_transitive_closure(dm.dm, closure[i * 2], PETSC_TRUE, &closureSize1, &subclosure)
         _reorder_plex_closure(dm, c, closure, fiat_closure)
         restore_transitive_closure(dm.dm, c, PETSC_TRUE, &closureSize1, &closure)
