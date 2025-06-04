@@ -405,7 +405,7 @@ Altogether, our total residual is the sum of forms built above::
             + div_mass_avg_terms
 
 Boundary conditions
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~
 
 Let :math:`N` denote the outward unit normal on :math:`\partial \Omega`.
 We enforce parabolic profiles on :math:`J_i \cdot N` at inflow :math:`i` and on the outflow.
@@ -531,7 +531,7 @@ mathematically valid to do this)::
                     FixAtPointBC(Z_h.sub(5), Constant(0.0), aux_point)]
 
 Solving the system using Newton's method
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 We provide a naive initial guess based on an equimolar spatially uniform distribution of benzene and cyclohexane::
 
