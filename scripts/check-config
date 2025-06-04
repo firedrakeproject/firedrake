@@ -64,7 +64,7 @@ def check_petsc_version() -> None:
 def check_slepc_version() -> None:
     check_file_contains_pattern(
         REPO_ROOT / "pyproject.toml",
-        f"slepc4py==(.*)",
+        "slepc4py==(.*)",
         3,
     )
 
