@@ -225,10 +225,15 @@ to set the right environment variables and then run::
 Updating PETSc
 ~~~~~~~~~~~~~~
 
-To update PETSc you simply need to run::
+To update PETSc you should:
+
+#. Re-download ``firedrake-configure``.
+
+#. Run::
 
    $ cd /path/to/petsc
-   $ git pull
+   $ git fetch
+   $ git checkout -b $(python3 /path/to/firedrake-configure --show-petsc-version)
    $ make
 
 Note that this will only recompile PETSc's source code, not that of the external
