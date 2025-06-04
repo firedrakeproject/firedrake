@@ -362,13 +362,6 @@ def get_basemesh_nodes(W):
     # For every base mesh entity, what's the layer offset?
     layer_offsets = numpy.full(W.node_set.total_size, -1, dtype=IntType)
     layer_offsets[W.cell_node_map().values_with_halo] = W.offset
-
-    if W.offset_quotient is None:
-        layer_quotients = None
-    else:
-        layer_quotients = numpy.full(W.node_set.total_size, -1, dtype=IntType)
-        layer_quotients[W.cell_node_map().values_with_halo] = W.offset_quotient
-
     nlayers = W.mesh().layers
 
     for p in range(pstart, pend):
@@ -381,8 +374,6 @@ def get_basemesh_nodes(W):
             layer_offset = layer_offsets[off]
             assert layer_offset >= 0
             dof_per_layer = dof - (nlayers - 1) * layer_offset
-            if layer_quotients is not None:
-                dof_per_layer -= layer_quotients[off]
 
         basemeshoff[p - pstart] = off
         basemeshdof[p - pstart] = dof_per_layer
@@ -408,7 +399,7 @@ class ASMExtrudedStarPC(ASMStarPC):
         nlayers = mesh.layers
         if not mesh.cell_set._extruded:
             return super(ASMExtrudedStarPC, self).get_patches(V)
-        periodic = V[0].offset_quotient is not None
+        periodic = mesh.extruded_periodic
 
         # Obtain the topological entities to use to construct the stars
         opts = PETSc.Options(self.prefix)
@@ -459,36 +450,31 @@ class ASMExtrudedStarPC(ASMStarPC):
                 points, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
                 points = order_points(mesh_dm, points, ordering, self.prefix)
                 points -= pstart  # offset by chart start
-                for k in range(nlayers-interval_depth):
+
+                num_layers = nlayers
+                if periodic or interval_depth:
+                    num_layers -= 1
+
+                for k in range(num_layers):
                     if interval_depth == 1:
                         # extrude by 1D interior
-                        planes = [1]
-                        layers = [k]
-                    elif k == 0:
+                        layers = [(k, 1)]
+                    elif k == 0 and not periodic:
                         # extrude by 1D vertex-star on the bottom
-                        if periodic:
-                            planes = [1, 1, 0]
-                            layers = [nlayers-2, k, k]
-                        else:
-                            planes = [1, 0]
-                            layers = [k, k]
-                    elif k == nlayers - 1:
+                        layers = [(k, 1), (k, 0)]
+                    elif k == nlayers - 1 and not periodic:
                         # extrude by 1D vertex-star on the top
-                        if periodic:
-                            continue
-                        else:
-                            planes = [1, 0]
-                            layers = [k-1, k]
+                        layers = [(k-1, 1), (k, 0)]
                     else:
                         # extrude by 1D vertex-star
-                        planes = [1, 1, 0]
-                        layers = [k-1, k, k]
+                        kprev = (k-1) % (nlayers-1) if periodic else k-1
+                        layers = [(kprev, 1), (k, 1), (k, 0)]
 
                     indices = []
                     # Get DoF indices for patch
                     for i, W in enumerate(V):
                         iset = V_ises[i]
-                        for layer, plane in zip(layers, planes):
+                        for layer, extrusion_dim in layers:
                             for p in points:
                                 # How to walk up one layer
                                 blayer_offset = basemeshlayeroffsets[i][p]
@@ -504,12 +490,12 @@ class ASMExtrudedStarPC(ASMStarPC):
                                 # entity
                                 dof = basemeshdof[i][p]
                                 # Hard-code taking the star
-                                if plane == 0:
+                                if extrusion_dim == 0:
                                     begin = off + layer * blayer_offset
                                     end = off + layer * blayer_offset + dof
                                 else:
                                     begin = off + layer * blayer_offset + dof
-                                    end = off + (layer + plane) * blayer_offset
+                                    end = off + (layer + 1) * blayer_offset
                                 zlice = slice(W.block_size * begin, W.block_size * end)
                                 indices.extend(iset[zlice])
 
