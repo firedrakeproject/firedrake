@@ -141,9 +141,9 @@ def test_assemble_solve(mesh):
 
     u1 = Function(V)
     u2 = Function(V)
-    # Assemble a SLATE tensor into f
+    # Assemble a SLATE tensor into u1
     assemble(Inverse(Tensor(M)) * AssembledVector(f), tensor=u1)
-    # Assemble a different tensor into f
+    # Solve in the usual way
     solve(M == f, u2)
     assert np.allclose(u1.dat.data, u2.dat.data, rtol=1e-14)
 
