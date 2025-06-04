@@ -247,14 +247,10 @@ class ImplicitPackUnpackExpander(Transformer):
             if _requires_pack_unpack(arg):
                 # TODO: Make generic across Array types
                 if isinstance(arg, Dat):
-                    # arg.axes.materialize(),  # TODO
-                    axes = AxisTree(arg.axes.node_map)
-                    temporary = Dat.null(axes, dtype=arg.dtype, prefix="t")
+                    temporary = Dat.null(arg.axes.materialize(), dtype=arg.dtype, prefix="t")
                 else:
                     assert isinstance(arg, Mat)
-                    raxes = AxisTree(arg.raxes.node_map)
-                    caxes = AxisTree(arg.caxes.node_map)
-                    temporary = Mat.null(raxes, caxes, dtype=arg.dtype, prefix="t")
+                    temporary = Mat.null(arg.raxes.materialize(), arg.caxes.materialize(), dtype=arg.dtype, prefix="t")
 
                 if intent == READ:
                     gathers.append(ArrayAssignment(temporary, arg, "write"))

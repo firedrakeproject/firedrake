@@ -2884,39 +2884,105 @@ class ExtrudedMeshTopology(MeshTopology):
             nlayers = int(self.layers)
 
         closures = {}
-        for base_dim in range(self._base_mesh.dimension+1):
-            base_closures = self._base_mesh._fiat_cell_closures_localized[base_dim]
-            for extr_dim in range(2):
-                dim = (base_dim, extr_dim)
+        for base_dest_dim in range(self._base_mesh.dimension+1):
+            base_closures = self._base_mesh._fiat_cell_closures_localized[base_dest_dim]
+            for extr_dest_dim in range(2):
+                dest_dim = (base_dest_dim, extr_dest_dim)
+                closure_size = self._closure_sizes[(1, 1)][dest_dim]
 
-                num_extr_pts = nlayers+1 if extr_dim == 0 else nlayers
+                n_base_cells = base_closures.shape[0]  # always the same
+                idxs = np.empty((n_base_cells, nlayers, closure_size), dtype=base_closures.dtype)
 
-                # extend the base indices
-                idxs = np.empty((*base_closures.shape, num_extr_pts), dtype=base_closures.dtype)
-                for is_ in np.ndindex(base_closures.shape):
-                    for j in range(num_extr_pts):
-                        idxs[*is_, j] = base_closures[is_] * num_extr_pts + j
-                closures[dim] = idxs
+                num_extr_pts = nlayers+1 if extr_dest_dim == 0 else nlayers
+
+                if extr_dest_dim == 0:
+                    # 'vertex' extrusion, twice as many points in the closure
+                    for ci in range(n_base_cells):
+                        for j in range(nlayers):
+                            for k in range(closure_size//2):
+                                idxs[ci, j, 2*k] = base_closures[ci, k] * num_extr_pts + j
+                                idxs[ci, j, 2*k+1] = base_closures[ci, k] * num_extr_pts + j + 1
+                else:
+                    # 'edge' extrusion, only one point in the closure
+                    for ci in range(n_base_cells):
+                        for j in range(nlayers):
+                            for k in range(closure_size):
+                                idxs[ci, j, k] = base_closures[ci, k] * num_extr_pts + j
+                closures[dest_dim] = idxs.reshape((-1, closure_size))
         return closures
 
-        # TODO: This logic is duplicated elsewhere (and should be put in Cython)
-        base_closures = self._base_mesh._fiat_cell_closures
-        closures = np.empty((*base_closures.shape, (2*nlayers+1)), dtype=base_closures.dtype)
-        for is_ in np.ndindex(base_closures.shape):
-            for j in range(2*nlayers+1):
-                closures[*is_, j] = base_closures[*is_] * (2*nlayers+1) + j
-        return readonly(closures)
+    @cached_property
+    def _base_fiat_cell_closure_data_localized(self):
+        if self.layers.shape:
+            raise NotImplementedError
+        else:
+            nlayers = int(self.layers)
 
-        self._fiat_cell_closures_renumbered
-        raise NotImplementedError
-        localized_closures = []
-        from_dim = self.dimension
-        offset = 0
-        for to_dim, size in self._closure_sizes[from_dim].items():
-            stratum_offset, _ = self.topology_dm.getDepthStratum(to_dim)
-            localized_closures.append(self._fiat_cell_closures_renumbered[:, offset:offset+size] - stratum_offset)
-            offset += size
-        return tuple(localized_closures)
+        closures = {}
+        for base_dest_dim in range(self._base_mesh.dimension+1):
+            base_closures = self._base_mesh._fiat_cell_closures_localized[base_dest_dim]
+            for extr_dest_dim in range(2):
+                dest_dim = (base_dest_dim, extr_dest_dim)
+                closure_size = self._closure_sizes[(1, 1)][dest_dim]
+
+                num_extr_pts = nlayers+1 if extr_dest_dim == 0 else nlayers
+
+                if extr_dest_dim == 0:
+                    # 'vertex' extrusion, twice as many points in the closure
+                    idxs = np.empty((*base_closures.shape, 2*num_extr_pts), dtype=base_closures.dtype)
+                    for is_ in np.ndindex(base_closures.shape):
+                        for j in range(num_extr_pts):
+                            idxs[*is_, 2*j] = base_closures[is_]
+                            idxs[*is_, 2*j+1] = base_closures[is_]
+                else:
+                    # 'edge' extrusion, only one point in the closure
+                    idxs = np.empty((*base_closures.shape, num_extr_pts), dtype=base_closures.dtype)
+                    for is_ in np.ndindex(base_closures.shape):
+                        for j in range(num_extr_pts):
+                            idxs[*is_, j] = base_closures[is_]
+                closures[dest_dim] = idxs.reshape((-1, closure_size))
+        return closures
+
+    # NOTE: This is very similar to the other closure stuff that we do.
+    @cached_property
+    def base_mesh_closure(self):
+        closures = {}
+
+        dim = (1, 1)
+        closure_data = self._base_fiat_cell_closure_data_localized
+
+        map_components = []
+        for map_dim, map_data in closure_data.items():
+            *_, size = map_data.shape
+            if size == 0:
+                continue
+
+            # target_axis = self.name
+            # target_dim = map_dim
+            target_axis = self._base_mesh.name
+            target_dim = int(map_dim[0])
+
+            # Discard any parallel information, the maps are purely local
+            outer_axis_component = just_one(c for c in self.points.root.components if c.label == dim)
+            outer_axis = op3.Axis([outer_axis_component.copy(sf=None)], self.name)
+
+            # NOTE: currently we must label the innermost axis of the map to be the same as the resulting
+            # indexed axis tree. I don't yet know whether to raise an error if this is not upheld or to
+            # fix automatically internally via additional replace() arguments.
+            map_axes = op3.AxisTree.from_nest(
+                {outer_axis: op3.Axis({target_dim: size}, "closure")}
+            )
+            map_dat = op3.Dat(
+                map_axes, data=map_data.flatten(), prefix="closure"
+            )
+            map_components.append(
+                op3.TabulatedMapComponent(target_axis, target_dim, map_dat, label=map_dim)
+            )
+
+            # 1-tuple here because in theory closure(cell) could map to other valid things (like points)
+            closures[immutabledict({self.name: dim})] =  (tuple(map_components),)
+
+        return op3.Map(closures, name="closure")
 
     @utils.cached_property
     def entity_orientations(self):

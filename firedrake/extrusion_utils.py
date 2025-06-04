@@ -84,16 +84,17 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     data.append(lp.GlobalArg("ext_coords", dtype=ScalarType, shape=ext_shape))
     data.append(lp.GlobalArg("base_coords", dtype=ScalarType, shape=base_shape))
     data.append(lp.GlobalArg("layer_height", dtype=RealType, shape=(layer_heights,)))
-    data.append(lp.ValueArg('layer'))
+    # data.append(lp.ValueArg('layer'))
+    data.append(lp.GlobalArg('layer', dtype=IntType, shape=(1,)))
     base_coord_dim = base_coords.function_space().value_size
     # Deal with tensor product cells
     adim = len(ext_shape) - 2
 
     # handle single or variable layer heights
     if layer_heights == 1:
-        height_var = "layer_height[0] * (layer + l)"
+        height_var = "layer_height[0] * (layer[0] + l)"
     else:
-        height_var = "layer_height[layer + l]"
+        height_var = "layer_height[layer[0] + l]"
 
     def _get_arity_axis_inames(_base):
         return tuple(_base + str(i) for i in range(adim))
@@ -113,7 +114,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         if layer_heights == 1:
             domains.extend(_get_lp_domains(('l',), (2,)))
         else:
-            domains.append("[layer] -> { [l] : 0 <= l <= 1 & 0 <= l + layer < %d}" % layer_heights)
+            domains.append("[layer] -> { [l] : 0 <= l <= 1 & 0 <= l + layer[0] < %d}" % layer_heights)
         instructions = """
         ext_coords[{dd}, l, c] = base_coords[{dd}, c]
         ext_coords[{dd}, l, {base_coord_dim}] = ({hv})
@@ -129,7 +130,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         if layer_heights == 1:
             domains.extend(_get_lp_domains(('l',), (2,)))
         else:
-            domains.append("[layer] -> { [l] : 0 <= l <= 1 & 0 <= l + layer < %d}" % layer_heights)
+            domains.append("[layer] -> { [l] : 0 <= l <= 1 & 0 <= l + layer[0] < %d}" % layer_heights)
         instructions = """
         <{RealType}> tt[{dd}] = 0
         <{RealType}> bc[{dd}] = 0
@@ -242,9 +243,9 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         p := iterset.index(),
         kernel(
             ext_coords.dat[extr_mesh.closure(p)],
-            base_coords.dat[extr_mesh.base_mesh_closure(p, "fiat")],
+            base_coords.dat[extr_mesh.base_mesh_closure(p)],
             layer_height,
-            my_layer_data[p]
+            my_layer_dat[p]
         ),
     )
     # op2.ParLoop(kernel,

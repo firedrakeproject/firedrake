@@ -369,8 +369,8 @@ class ModuleExecutor:
 
         ccode = lambda: lp.generate_code_v2(self.loopy_code).device_code()
 
-        # if len(self.loopy_code.callables_table) > 1:
-        #     breakpoint()
+        if len(self.loopy_code.callables_table) > 1:
+            breakpoint()
         # pyop3.extras.debug.maybe_breakpoint()
 
         self.executable(*exec_arguments)
@@ -614,6 +614,7 @@ def _(call: StandaloneCalledFunction):
             for lp_arg, arg in zip(
                 call.function.code.default_entrypoint.args, call.arguments, strict=True
             )
+            if isinstance(lp_arg, lp.ArrayArg)
         }
     )
 
@@ -723,6 +724,9 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
         # from pyop3.transform import _requires_pack_unpack
         # assert not _requires_pack_unpack(arg)
         name_in_kernel = context.add_buffer(arg.buffer, spec.intent)
+
+        if not isinstance(loopy_arg, lp.ArrayArg):
+            raise NotImplementedError
 
         # subarrayref nonsense/magic
         indices = []

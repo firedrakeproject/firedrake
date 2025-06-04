@@ -184,7 +184,7 @@ class UnrecognisedAxisException(ValueError):
 
 
 # TODO: This is going to need some (trivial) tree manipulation routines
-class _UnitAxisTree:
+class _UnitAxisTree(CacheMixin):
     def __repr__(self) -> str:
         return f"{type(self).__name__}()"
 
@@ -2126,8 +2126,8 @@ def merge_trees2(tree1: AxisTree, tree2: AxisTree) -> AxisTree:
         is added to axis_a: things should split up.
 
     """
-    if tree1:
-        if tree2:
+    if tree1 and not isinstance(tree1, _UnitAxisTree):
+        if tree2 and not isinstance(tree2, _UnitAxisTree):
             # This is all quite magic. What this does is traverse the first tree
             # and collate all the visited axes. Then, at each leaf of tree 1, we
             # traverse tree 2 and build a per-leaf subtree as appropriate. These
