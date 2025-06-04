@@ -94,10 +94,10 @@ using a sparse direct LU factorization. ::
 
 .. note::
     On this Cartesian mesh, the sparse operator constructed by :class:`~.FDMPC`
-corresponds to the original operator. This does not hold true on non-Cartesian
-meshes or more general PDEs, as the FDM basis will fail to diagonalise the
-problem.  For such cases, :class:`~.FDMPC` will produce a sparse
-approximation of the original operator.
+    corresponds to the original operator. This is no longer the case with non-Cartesian
+    meshes or more general PDEs, as the FDM basis will fail to diagonalise the
+    problem.  For such cases, :class:`~.FDMPC` will produce a sparse
+    approximation of the original operator.
 
 Moving on to a more complicated solver, we'll employ a two-level solver with
 the lowest-order coarse space via :class:`~.P1PC`.  As the fine level
