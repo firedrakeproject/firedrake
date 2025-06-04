@@ -361,7 +361,14 @@ def get_basemesh_nodes(W):
 
     # For every base mesh entity, what's the layer offset?
     layer_offsets = numpy.full(W.node_set.total_size, -1, dtype=IntType)
-    layer_offsets[W.cell_node_map().values_with_halo] = W.cell_node_map().offset
+    layer_offsets[W.cell_node_map().values_with_halo] = W.offset
+
+    if W.offset_quotient is None:
+        layer_quotients = None
+    else:
+        layer_quotients = numpy.full(W.node_set.total_size, -1, dtype=IntType)
+        layer_quotients[W.cell_node_map().values_with_halo] = W.offset_quotient
+
     nlayers = W.mesh().layers
 
     for p in range(pstart, pend):
@@ -374,6 +381,8 @@ def get_basemesh_nodes(W):
             layer_offset = layer_offsets[off]
             assert layer_offset >= 0
             dof_per_layer = dof - (nlayers - 1) * layer_offset
+            if layer_quotients is not None:
+                dof_per_layer -= layer_quotients[off]
 
         basemeshoff[p - pstart] = off
         basemeshdof[p - pstart] = dof_per_layer
@@ -399,6 +408,7 @@ class ASMExtrudedStarPC(ASMStarPC):
         nlayers = mesh.layers
         if not mesh.cell_set._extruded:
             return super(ASMExtrudedStarPC, self).get_patches(V)
+        periodic = V[0].offset_quotient is not None
 
         # Obtain the topological entities to use to construct the stars
         opts = PETSc.Options(self.prefix)
@@ -453,21 +463,32 @@ class ASMExtrudedStarPC(ASMStarPC):
                     if interval_depth == 1:
                         # extrude by 1D interior
                         planes = [1]
+                        layers = [k]
                     elif k == 0:
                         # extrude by 1D vertex-star on the bottom
-                        planes = [1, 0]
+                        if periodic:
+                            planes = [1, 1, 0]
+                            layers = [nlayers-2, k, k]
+                        else:
+                            planes = [1, 0]
+                            layers = [k, k]
                     elif k == nlayers - 1:
                         # extrude by 1D vertex-star on the top
-                        planes = [-1, 0]
+                        if periodic:
+                            continue
+                        else:
+                            planes = [1, 0]
+                            layers = [k-1, k]
                     else:
                         # extrude by 1D vertex-star
-                        planes = [-1, 1, 0]
+                        planes = [1, 1, 0]
+                        layers = [k-1, k, k]
 
                     indices = []
                     # Get DoF indices for patch
                     for i, W in enumerate(V):
                         iset = V_ises[i]
-                        for plane in planes:
+                        for layer, plane in zip(layers, planes):
                             for p in points:
                                 # How to walk up one layer
                                 blayer_offset = basemeshlayeroffsets[i][p]
@@ -484,11 +505,11 @@ class ASMExtrudedStarPC(ASMStarPC):
                                 dof = basemeshdof[i][p]
                                 # Hard-code taking the star
                                 if plane == 0:
-                                    begin = off + k * blayer_offset
-                                    end = off + k * blayer_offset + dof
+                                    begin = off + layer * blayer_offset
+                                    end = off + layer * blayer_offset + dof
                                 else:
-                                    begin = off + min(k, k+plane) * blayer_offset + dof
-                                    end = off + max(k, k+plane) * blayer_offset
+                                    begin = off + layer * blayer_offset + dof
+                                    end = off + (layer + plane) * blayer_offset
                                 zlice = slice(W.block_size * begin, W.block_size * end)
                                 indices.extend(iset[zlice])
 
