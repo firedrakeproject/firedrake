@@ -15,16 +15,17 @@ the Navier-Stokes part, and piecewise linear elements for the
 temperature.  The system will be integrated forward in time with a multi-stage
 fully implicit Runge--Kutta method in `Irksome <https://www.firedrakeproject.org/Irksome/>`_.::
 
-  from firedrake import *
-  from firedrake.pyplot import FunctionPlotter, tripcolor
-  import matplotlib.pyplot as plt
-  from matplotlib.animation import FuncAnimation
-
   try:
       from irksome import Dt, MeshConstant, RadauIIA, TimeStepper
   except ImportError:
       warning("Unable to import irksome.  See https://www.firedrakeproject.org/Irksome/ for installation instructions")
       quit()
+
+
+  from firedrake import *
+  from firedrake.pyplot import FunctionPlotter, tripcolor
+  import matplotlib.pyplot as plt
+  from matplotlib.animation import FuncAnimation
 
 We solve the system with a multigrid method, so we need to set up a mesh hiearchy::
 
