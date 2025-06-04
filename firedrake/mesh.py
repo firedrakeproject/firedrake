@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import collections
 import ctypes
 import functools
 import os
@@ -1065,10 +1066,7 @@ class AbstractMeshTopology(abc.ABC):
 
         """
 
-    def closure(self, index, ordering=ClosureOrdering.PLEX):
-        # if ordering is a string (e.g. "fiat") then convert to an enum
-        ordering = ClosureOrdering(ordering)
-
+    def closure(self, index, ordering: ClosureOrdering | str = ClosureOrdering.FIAT):
         if ordering == ClosureOrdering.PLEX:
             return self._plex_closure(index)
         elif ordering == ClosureOrdering.FIAT:
@@ -1076,27 +1074,25 @@ class AbstractMeshTopology(abc.ABC):
             # if len(target_paths) != 1 or target_paths[0] != {self.name: self.cell_label}:
             #     raise ValueError("FIAT closure ordering is only valid for cell closures")
             return self._fiat_closure(index)
-        else:
-            raise ValueError(f"'{ordering}' is not a recognised closure ordering option")
 
     @cached_property
-    def _closure_sizes(self):
-        # Determine the closure size for the given dimension. For triangles
-        # this would be:
-        #
-        #     (1, 0, 0) if dim == 0 (vertex)
-        #     (2, 1, 0) if dim == 1 (edge)
-        #     (3, 3, 1) if dim == 2 (cell)
-        sizes = [[] for _ in range(self.dimension+1)]
-        for dim in range(self.dimension+1):
-            cell_connectivity = as_fiat_cell(self.ufl_cell()).connectivity
-            for d in range(dim+1):
-                # This tells us the points with dimension d that lie in the closure
-                # of the different points with dimension dim. We just want to know
-                # how many there are (e.g. each edge is connected to 2 vertices).
-                closures = cell_connectivity[dim, d]
-                sizes[dim].append(single_valued(map(len, closures)))
-        return tuplify(sizes)
+    def _closure_sizes(self) -> immutabledict:
+        # This tells us the points with dimension d that lie in the closure
+        # of the different points with dimension dim. We just want to know
+        # how many there are (e.g. each edge is connected to 2 vertices).
+        cell_connectivity = as_fiat_cell(self.ufl_cell()).connectivity
+
+    #     # Determine the closure size for the given dimension. For triangles
+    #     # this would be:
+    #     #
+    #     #     (1, 0, 0) if dim == 0 (vertex)
+    #     #     (2, 1, 0) if dim == 1 (edge)
+    #     #     (3, 3, 1) if dim == 2 (cell)
+
+        sizes = collections.defaultdict(dict)
+        for (from_dim, to_dim), closures in cell_connectivity.items():
+            sizes[from_dim][to_dim] = single_valued(map(len, closures))
+        return immutabledict(sizes)
 
     @cached_property
     def _plex_closure(self):
@@ -1106,27 +1102,36 @@ class AbstractMeshTopology(abc.ABC):
     def _fiat_closure(self):
         return self._closure_map(ClosureOrdering.FIAT)
 
+    # TODO: remove _fiat_closure and _plex_closure and just cache this method
     def _closure_map(self, ordering):
+        # if ordering is a string (e.g. "fiat") then convert to an enum
+        ordering = ClosureOrdering(ordering)
+
         if ordering == ClosureOrdering.PLEX:
             closure_arrays = dict(enumerate(self._plex_closures_localized))
-        else:
-            assert ordering == ClosureOrdering.FIAT
+        elif ordering == ClosureOrdering.FIAT:
             # FIAT ordering is only valid for cell closures
-            closure_arrays = {self.dimension: self._fiat_cell_closures_localized}
+            if isinstance(self, ExtrudedMeshTopology):
+                # FIXME: only for 1D extrusion
+                closure_arrays = {(1, 1): self._fiat_cell_closures_localized}
+            else:
+                closure_arrays = {self.dimension: self._fiat_cell_closures_localized}
+        else:
+            raise ValueError(f"'{ordering}' is not a recognised closure ordering option")
 
         closures = {}
         for dim, closure_data in closure_arrays.items():
             map_components = []
-            for map_dim, map_data in enumerate(closure_data):
-                _, size = map_data.shape
+            for map_dim, map_data in closure_data.items():
+                *_, size = map_data.shape
                 if size == 0:
                     continue
 
                 target_axis = self.name
-                target_dim = str(map_dim)
+                target_dim = map_dim
 
                 # Discard any parallel information, the maps are purely local
-                outer_axis_component = just_one(c for c in self.points.root.components if c.label == str(dim))
+                outer_axis_component = just_one(c for c in self.points.root.components if c.label == dim)
                 outer_axis = op3.Axis([outer_axis_component.copy(sf=None)], self.name)
 
                 # NOTE: currently we must label the innermost axis of the map to be the same as the resulting
@@ -1139,11 +1144,11 @@ class AbstractMeshTopology(abc.ABC):
                     map_axes, data=map_data.flatten(), prefix="closure"
                 )
                 map_components.append(
-                    op3.TabulatedMapComponent(target_axis, target_dim, map_dat, label=str(target_dim))
+                    op3.TabulatedMapComponent(target_axis, target_dim, map_dat, label=target_dim)
                 )
 
             # 1-tuple here because in theory closure(cell) could map to other valid things (like points)
-            closures[immutabledict({self.name: str(dim)})] =  (tuple(map_components),)
+            closures[immutabledict({self.name: dim})] =  (tuple(map_components),)
 
         return op3.Map(closures, name="closure")
 
@@ -1957,6 +1962,26 @@ class MeshTopology(AbstractMeshTopology):
             assert self.dimension == 3
             return (3, 0, 2, 1)  # I think, 1 and 2 might need swapping
 
+    # @cached_property
+    # def _closure_sizes(self) -> dict:
+    #     # Determine the closure size for the given dimension. For triangles
+    #     # this would be:
+    #     #
+    #     #     (1, 0, 0) if dim == 0 (vertex)
+    #     #     (2, 1, 0) if dim == 1 (edge)
+    #     #     (3, 3, 1) if dim == 2 (cell)
+    #     sizes = collections.defaultdict(list)
+    #     for dim in range(self.dimension+1):
+    #         cell_connectivity = as_fiat_cell(self.ufl_cell()).connectivity
+    #         for d in range(dim+1):
+    #             # This tells us the points with dimension d that lie in the closure
+    #             # of the different points with dimension dim. We just want to know
+    #             # how many there are (e.g. each edge is connected to 2 vertices).
+    #             closures = cell_connectivity[dim, d]
+    #             sizes[dim].append(single_valued(map(len, closures)))
+    #     return sizes
+
+
     def _distribute(self):
         # Distribute/redistribute the dm to all ranks
         distribute = self._distribution_parameters["partition"]
@@ -2142,7 +2167,7 @@ class MeshTopology(AbstractMeshTopology):
         renumbered_closures = np.empty_like(self._fiat_cell_closures)
         from_dim = self.dimension
         offset = 0
-        for to_dim, size in enumerate(self._closure_sizes[from_dim]):
+        for to_dim, size in self._closure_sizes[from_dim].items():
             start = offset
             stop = offset + size
             renumbered_closures[:, start:stop] = self._renumber_map(
@@ -2163,7 +2188,7 @@ class MeshTopology(AbstractMeshTopology):
         localized_closures = []
         from_dim = self.dimension
         offset = 0
-        for to_dim, size in enumerate(self._closure_sizes[from_dim]):
+        for to_dim, size in self._closure_sizes[from_dim].items():
             stratum_offset, _ = self.topology_dm.getDepthStratum(to_dim)
             localized_closures.append(self._fiat_cell_closures_renumbered[:, offset:offset+size] - stratum_offset)
             offset += size
@@ -2179,7 +2204,7 @@ class MeshTopology(AbstractMeshTopology):
 
         p_start, p_end = self.topology_dm.getDepthStratum(dim)
         npoints = p_end - p_start
-        closure_size = sum(self._closure_sizes[dim])
+        closure_size = sum(self._closure_sizes[dim].values())
         closure_data = np.empty((npoints, closure_size), dtype=IntType)
 
         for i, pt in enumerate(range(p_start, p_end)):
@@ -2783,6 +2808,7 @@ class ExtrudedMeshTopology(MeshTopology):
             nlayers = int(self.layers)
 
         # we always have 2n+1 entities when we extrude
+        # TODO: duplicated in multiple places
         base_indices = self._base_mesh._dm_renumbering.indices
         indices = np.empty((base_indices.size, (2*nlayers+1)), dtype=base_indices.dtype)
         for i in range(base_indices.size):
@@ -2822,13 +2848,75 @@ class ExtrudedMeshTopology(MeshTopology):
             for extr_dim in range(2)
         )
 
-    @utils.cached_property
-    def cell_closure(self):
-        """2D array of ordered cell closures
+    # @utils.cached_property
+    # def cell_closure(self):
+    #     """2D array of ordered cell closures
+    #
+    #     Each row contains ordered cell entities for a cell, one row per cell.
+    #     """
+    #     return self._base_mesh.cell_closure
 
-        Each row contains ordered cell entities for a cell, one row per cell.
-        """
-        return self._base_mesh.cell_closure
+    @cached_property
+    def _plex_closures(self) -> tuple[np.ndarray, ...]:
+        raise NotImplementedError
+
+    @cached_property
+    def _plex_closures_renumbered(self) -> tuple[np.ndarray, ...]:
+        raise NotImplementedError
+
+    @cached_property
+    def _plex_closures_localized(self) -> tuple[tuple[np.ndarray, ...], ...]:
+        raise NotImplementedError
+
+    @cached_property
+    def _fiat_cell_closures(self) -> np.ndarray:
+        assert False, "not needed for extruded meshes"
+
+    @cached_property
+    def _fiat_cell_closures_renumbered(self) -> np.ndarray:
+        assert False, "not needed for extruded meshes"
+
+    @cached_property
+    def _fiat_cell_closures_localized(self) -> tuple[np.ndarray, ...]:
+        if self.layers.shape:
+            raise NotImplementedError
+        else:
+            nlayers = int(self.layers)
+
+        closures = {}
+        for base_dim in range(self._base_mesh.dimension+1):
+            base_closures = self._base_mesh._fiat_cell_closures_localized[base_dim]
+            for extr_dim in range(2):
+                dim = (base_dim, extr_dim)
+
+                num_extr_pts = nlayers+1 if extr_dim == 0 else nlayers
+
+                # extend the base indices
+                idxs = np.empty((*base_closures.shape, num_extr_pts), dtype=base_closures.dtype)
+                for is_ in np.ndindex(base_closures.shape):
+                    for j in range(num_extr_pts):
+                        idxs[*is_, j] = base_closures[is_] * num_extr_pts + j
+                closures[dim] = idxs
+        return closures
+
+        # TODO: This logic is duplicated elsewhere (and should be put in Cython)
+        base_closures = self._base_mesh._fiat_cell_closures
+        closures = np.empty((*base_closures.shape, (2*nlayers+1)), dtype=base_closures.dtype)
+        for is_ in np.ndindex(base_closures.shape):
+            for j in range(2*nlayers+1):
+                closures[*is_, j] = base_closures[*is_] * (2*nlayers+1) + j
+        return readonly(closures)
+
+        self._fiat_cell_closures_renumbered
+        raise NotImplementedError
+        localized_closures = []
+        from_dim = self.dimension
+        offset = 0
+        for to_dim, size in self._closure_sizes[from_dim].items():
+            stratum_offset, _ = self.topology_dm.getDepthStratum(to_dim)
+            localized_closures.append(self._fiat_cell_closures_renumbered[:, offset:offset+size] - stratum_offset)
+            offset += size
+        return tuple(localized_closures)
 
     @utils.cached_property
     def entity_orientations(self):

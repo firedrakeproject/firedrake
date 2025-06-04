@@ -232,6 +232,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     iterset = extr_mesh.cells.owned
 
     # trick to pass the right layer through to the local kernel
+    # TODO: make this a mesh attribute
     my_layer_data = numpy.empty((base_mesh.num_cells, extr_mesh.layers), dtype=IntType)
     for base_cell, extr_cell in numpy.ndindex(my_layer_data.shape):
         my_layer_data[base_cell, extr_cell] = extr_cell
@@ -239,7 +240,12 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
 
     op3.do_loop(
         p := iterset.index(),
-        kernel(ext_coords.dat[extr_mesh.closure(p, "fiat")], base_coords.dat[extr_mesh.base_mesh_closure(p, "fiat")], layer_height, my_layer_data[p]),
+        kernel(
+            ext_coords.dat[extr_mesh.closure(p)],
+            base_coords.dat[extr_mesh.base_mesh_closure(p, "fiat")],
+            layer_height,
+            my_layer_data[p]
+        ),
     )
     # op2.ParLoop(kernel,
     #             ext_coords.cell_set,
