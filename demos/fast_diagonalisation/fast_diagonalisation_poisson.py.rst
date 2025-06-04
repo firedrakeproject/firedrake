@@ -9,8 +9,8 @@ basis, obtained from the fast diagonalisation method (FDM). We first construct
 an auxiliary operator that is sparse in this basis, with as many zeros as a
 low-order method.  We then combine this with an additive Schwarz method.
 Finally, we show how to do static condensation using fieldsplit. A detailed
-description of these solvers is found in :cite:`Brubeck:2022` and
-:cite:`Brubeck:2024`.
+description of these solvers is found in :cite:`Brubeck2022` and
+:cite:`Brubeck2024`.
 
 
 Creating an extruded mesh
