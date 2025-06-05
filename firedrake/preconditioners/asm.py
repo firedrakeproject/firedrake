@@ -364,20 +364,28 @@ def get_basemesh_nodes(W):
     layer_offsets[W.cell_node_map().values_with_halo] = W.offset
     nlayers = W.mesh().layers
 
-    for p in range(pstart, pend):
-        dof = section.getDof(p)
-        off = section.getOffset(p)
-        if dof == 0:
-            dof_per_layer = 0
-            layer_offset = 0
-        else:
-            layer_offset = layer_offsets[off]
-            assert layer_offset >= 0
-            dof_per_layer = dof - (nlayers - 1) * layer_offset
+    tdim = W.mesh().topological_dimension()
+    for dim in range(tdim):
+        quotient = 0
+        if W.mesh().extruded_periodic:
+            quotient = len(W.finat_element.entity_dofs()[(dim, 0)][0])
 
-        basemeshoff[p - pstart] = off
-        basemeshdof[p - pstart] = dof_per_layer
-        basemeshlayeroffset[p - pstart] = layer_offset
+        qstart, qend = W.mesh().topology_dm.getDepthStratum(dim)
+        for p in range(qstart, qend):
+            dof = section.getDof(p)
+            off = section.getOffset(p)
+            if dof == 0:
+                dof_per_layer = 0
+                layer_offset = 0
+            else:
+                layer_offset = layer_offsets[off]
+                assert layer_offset >= 0
+                dof_per_layer = dof - (nlayers - 1) * layer_offset
+                dof_per_layer += quotient
+
+            basemeshoff[p - pstart] = off
+            basemeshdof[p - pstart] = dof_per_layer
+            basemeshlayeroffset[p - pstart] = layer_offset
 
     return basemeshoff, basemeshdof, basemeshlayeroffset
 
@@ -434,13 +442,13 @@ class ASMExtrudedStarPC(ASMStarPC):
         # Face-stars: depth = 2 = 2 + 0 = 1 + 1.
         # 2 + 0 -> horizontal face-star = (2D interior) x (1D vertex-star)
         # 1 + 1 -> vertical face-star = (2D edge-star) x (1D interior)
+        pstart, _ = mesh_dm.getChart()
         for base_depth in range(depth+1):
             interval_depth = depth - base_depth
             if interval_depth > 1:
                 continue
 
             start, end = mesh_dm.getDepthStratum(base_depth)
-            pstart, _ = mesh_dm.getChart()
             for seed in range(start, end):
                 # Only build patches over owned DoFs
                 if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:

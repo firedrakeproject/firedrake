@@ -361,3 +361,50 @@ def test_vanka_equivalence(problem_type):
     comp_its = comp_solver.snes.getLinearSolveIterations()
 
     assert star_its == comp_its
+
+
+@pytest.fixture(params=["interval", "square"])
+def base(request):
+    dp = {"overlap": DistributedMeshOverlapType.VERTEX}
+    if request.param == "interval":
+        return UnitIntervalMesh(5, distribution_parameters=dp)
+    elif request.param == "square":
+        return UnitSquareMesh(5, 5, quadrilateral=True, distribution_parameters=dp)
+
+
+@pytest.mark.parametrize("family,degree", [("Q", 3)])
+@pytest.mark.parametrize("periodic", (False, True))
+def test_asm_extruded_star(base, periodic, family, degree):
+    coarse = {
+        "pc_type": "lu",
+        "pc_factor_mat_solver_type": "mumps"}
+    levels = {
+        "pc_type": "python",
+        "pc_python_type": "firedrake.ASMExtrudedStarPC",
+        "pc_star_construct_dim": 0,
+        "ksp_type": "chebyshev"}
+    params = {
+        "ksp_type": "cg",
+        "pc_type": "python",
+        "pc_python_type": "firedrake.P1PC",
+        "pmg_mg_coarse": coarse,
+        "pmg_mg_levels": levels}
+
+    mesh = ExtrudedMesh(base, 5, periodic=periodic)
+    x = SpatialCoordinate(mesh)
+    uexact = x[0]*(1-x[0])
+
+    V = FunctionSpace(mesh, family, degree)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v)) * dx + inner(u, v)*dx
+    L = a(v, uexact)
+
+    uh = Function(V)
+    problem = LinearVariationalProblem(a, L, uh)
+    solver = LinearVariationalSolver(problem, solver_parameters=params)
+    solver.solve()
+
+    expected = 7
+    assert solver.snes.getLinearSolveIterations() <= expected
+    assert errornorm(uexact, uh) < 1E-7
