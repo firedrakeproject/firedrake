@@ -60,7 +60,7 @@ class RemoveNegativeRestrictions(MultiFunction):
     """UFL MultiFunction which removes any negative restrictions
     in a form.
     """
-    expr = MultiFunction.reuse_if_untouched
+    ufl_type = MultiFunction.reuse_if_untouched
 
     def negative_restricted(self, o):
         return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
@@ -479,7 +479,7 @@ class AssembledVector(TensorBase):
         if isinstance(tensor, BaseForm):
             return tuple(a.function_space() for a in tensor.arguments())
         else:
-            return (tensor.ufl_function_space(),)
+            return (tensor.ufl_function_space().dual(),)
 
     @cached_property
     def _argument(self):
@@ -1119,14 +1119,14 @@ class Inverse(UnaryOp):
         is defined on.
         """
         tensor, = self.operands
-        return tensor.arg_function_spaces[::-1]
+        return tuple(V.dual() for V in reversed(tensor.arg_function_spaces))
 
     def arguments(self):
         """Returns the expected arguments of the resulting tensor of
         performing a specific unary operation on a tensor.
         """
         tensor, = self.operands
-        return tensor.arguments()[::-1]
+        return tuple(a.reconstruct(a.function_space().dual()) for a in reversed(tensor.arguments()))
 
     def _output_string(self, prec=None):
         """Creates a string representation of the inverse of a tensor."""
@@ -1302,9 +1302,9 @@ class Mul(BinaryOp):
         fsA = A.arg_function_spaces[-1]
         fsB = B.arg_function_spaces[0]
 
-        assert space_equivalence(fsA, fsB), (
+        assert space_equivalence(fsA, fsB.dual()), (
             "Cannot perform argument contraction over middle indices. "
-            "They must be in the same function space."
+            "They should be in dual function spaces."
         )
 
         super(Mul, self).__init__(A, B)
@@ -1376,7 +1376,8 @@ class Solve(BinaryOp):
 
         super(Solve, self).__init__(A_factored, B)
 
-        self._args = A_factored.arguments()[::-1][:-1] + B.arguments()[1:]
+        Ainv_args = tuple(a.reconstruct(a.function_space().dual()) for a in reversed(A.arguments()))
+        self._args = Ainv_args[:-1] + B.arguments()[1:]
         self._arg_fs = [arg.function_space() for arg in self._args]
 
     @cached_property
