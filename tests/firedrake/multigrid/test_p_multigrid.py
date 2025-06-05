@@ -5,11 +5,15 @@ from firedrake import *
 @pytest.fixture(params=[2, 3],
                 ids=["Rectangle", "Box"])
 def tp_mesh(request):
-    nx = 4
+    nx = 2
     distribution = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
-    m = UnitSquareMesh(nx, nx, quadrilateral=True, distribution_parameters=distribution)
+
     if request.param == 3:
-        m = ExtrudedMesh(m, nx)
+        m = UnitSquareMesh(nx, nx, quadrilateral=True, distribution_parameters=distribution)
+    else:
+        m = UnitIntervalMesh(nx, distribution_parameters=distribution)
+
+    m = ExtrudedMesh(m, nx, periodic=True)
 
     x = SpatialCoordinate(m)
     xnew = as_vector([acos(1-2*xj)/pi for xj in x])
@@ -66,6 +70,22 @@ def test_reconstruct_degree(tp_mesh, mixed_family):
         assert e == PMGPC.reconstruct_degree(elist[0], degree)
 
 
+def test_prolong_basic(tp_mesh):
+    """ Interpolate a constant vector function between low-order and high-order spacves
+    """
+    from firedrake.preconditioners.pmg import prolongation_matrix_matfree
+
+    tdim = tp_mesh.topological_dimension()
+    family = "NCE" if tdim == 3 else "RTCE"
+
+    fs = [FunctionSpace(tp_mesh, family, degree) for degree in (1, 2)]
+    u, v = [Function(V) for V in fs]
+    u.assign(1)
+    P = prolongation_matrix_matfree(u, v).getPythonContext()
+    P._prolong()
+    assert np.allclose(v.dat.data, 1)
+
+
 def test_prolong_de_rham(tp_mesh):
     """ Interpolate a linear vector function between [H1]^d, HCurl and HDiv spaces
         where it can be exactly represented
@@ -81,6 +101,7 @@ def test_prolong_de_rham(tp_mesh):
     elems = [VectorElement(FiniteElement("Q", cell=cell, degree=2)),
              FiniteElement("NCE" if tdim == 3 else "RTCE", cell=cell, degree=2),
              FiniteElement("NCF" if tdim == 3 else "RTCF", cell=cell, degree=2)]
+
     fs = [FunctionSpace(tp_mesh, e) for e in elems]
     us = [Function(V) for V in fs]
     us[0].interpolate(expr)
@@ -89,7 +110,7 @@ def test_prolong_de_rham(tp_mesh):
             if u != v:
                 P = prolongation_matrix_matfree(u, v).getPythonContext()
                 P._prolong()
-                assert norm(v-expr, "L2") < 1E-14
+                assert errornorm(expr, v) < 1E-14
 
 
 def test_prolong_low_order_to_restricted(tp_mesh, tp_family, variant):
