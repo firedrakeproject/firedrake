@@ -43,9 +43,17 @@ We use :doc:`netgen <netgen_mesh.py>` to build a curved mesh of order :math:`k=3
     Omega.edges.Max(ngocc.Y).name = "inlet_1"
     Omega.edges.Min(ngocc.Y).name = "inlet_2"
     Omega.edges.Max(ngocc.X).name = "outlet"
+   
+    # Smaller problem when running CI tests
+    import os
+    if os.getenv("FIREDRAKE_CI") == "1": 
+        maxh = 0.14
+        k = 2
+    else:
+        maxh = 0.055
 
     # Construct the mesh
-    ngmesh = ngocc.OCCGeometry(Omega, dim=2).GenerateMesh(maxh=0.055)
+    ngmesh = ngocc.OCCGeometry(Omega, dim=2).GenerateMesh(maxh=maxh)
     mesh = Mesh(Mesh(ngmesh).curve_field(k))
 
     # Get the IDs of the inlets, outlet and walls
@@ -55,7 +63,7 @@ We use :doc:`netgen <netgen_mesh.py>` to build a curved mesh of order :math:`k=3
     walls_ids = [i+1 for i, name in enumerate(ngmesh.GetRegionNames(dim=1)) if name == ""]
 
     # Define the surface and volume measures using a fixed quadrature degree
-    deg_max = 15
+    deg_max = 3*k
     ds = ds(mesh, degree=deg_max)
     dx = dx(mesh, degree=deg_max)
 
