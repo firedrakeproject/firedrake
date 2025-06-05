@@ -70,8 +70,11 @@ class TransferManager(object):
     def is_native(self, element, op):
         if element in self.native_transfers.keys():
             return self.native_transfers[element][op] is not None
-        if isinstance(element.cell, ufl.TensorProductCell) and len(element.sub_elements) > 0:
-            return all(self.is_native(e, op) for e in element.sub_elements)
+        if isinstance(element.cell, ufl.TensorProductCell):
+            if isinstance(element, finat.ufl.TensorProductElement) and len(element.tensor_product_components) > 0:
+                return all(self.is_native(e, op) for e in element.tensor_product_components)
+            elif len(element.sub_elements) > 0:
+                return all(self.is_native(e, op) for e in element.sub_elements)
         return (element.family() in native_families) and not (element.variant() in non_native_variants)
 
     def _native_transfer(self, element, op):
