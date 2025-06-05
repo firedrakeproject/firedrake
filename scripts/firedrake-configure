@@ -39,9 +39,7 @@ ARCH_DEFAULT = FiredrakeArch.DEFAULT
 ARCH_COMPLEX = FiredrakeArch.COMPLEX
 
 
-# NOTE: When updating this variable corresponding changes must be made inside
-# pyproject.toml
-SUPPORTED_PETSC_VERSION = "v3.23.0"
+SUPPORTED_PETSC_VERSION = "v3.23.1"
 
 
 def main():
@@ -188,6 +186,15 @@ PETSC_EXTRAS_LINUX_APT_PACKAGES = (
     "libfftw3-mpi-dev",
     "libhwloc-dev",
     "libhdf5-mpi-dev",
+    "libmumps-ptscotch-dev",
+    "libmetis-dev",
+    "libnetcdf-dev",
+    "libpnetcdf-dev",
+    "libptscotch-dev",
+    "libscalapack-openmpi-dev",
+    "libsuitesparse-dev",
+    "libsuperlu-dev",
+    "libsuperlu-dist-dev",
 )
 
 COMMON_LINUX_APT_PACKAGES = BASE_LINUX_APT_PACKAGES + PETSC_EXTRAS_LINUX_APT_PACKAGES
@@ -207,7 +214,16 @@ BASE_MACOS_HOMEBREW_PACKAGES = (
     "python",
 )
 
-PETSC_EXTRAS_MACOS_HOMEBREW_PACKAGES = ("hwloc", "hdf5-mpi")
+PETSC_EXTRAS_MACOS_HOMEBREW_PACKAGES = (
+    "fftw",
+    "hwloc",
+    "hdf5-mpi",
+    "metis",
+    "pnetcdf",
+    "scalapack",
+    "suitesparse",
+    "zlib",
+)
 
 COMMON_MACOS_HOMEBREW_PACKAGES = (
     BASE_MACOS_HOMEBREW_PACKAGES + PETSC_EXTRAS_MACOS_HOMEBREW_PACKAGES
@@ -253,15 +269,11 @@ PETSC_EXTERNAL_PACKAGE_SPECS = {
     "fftw": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_AUTODETECT,
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
     "hdf5": {
-        LINUX_APT_X86_64: (
-            "/usr/include/hdf5/openmpi", ("/usr/lib/x86_64-linux-gnu/hdf5/openmpi/libhdf5.a",)
-        ),
-        LINUX_APT_AARCH64: (
-            "/usr/include/hdf5/openmpi", ("/usr/lib/aarch64-linux-gnu/hdf5/openmpi/libhdf5.a",)
-        ),
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
         MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
     "hwloc": {
@@ -275,49 +287,49 @@ PETSC_EXTERNAL_PACKAGE_SPECS = {
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "metis": {
-        LINUX_APT_X86_64: PETSC_DOWNLOAD,
-        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
     "mumps": {
-        LINUX_APT_X86_64: PETSC_DOWNLOAD,
-        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "netcdf": {
-        LINUX_APT_X86_64: PETSC_DOWNLOAD,
-        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "pnetcdf": {
-        LINUX_APT_X86_64: PETSC_DOWNLOAD,
-        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
     "ptscotch": {
-        LINUX_APT_X86_64: PETSC_DOWNLOAD,
-        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "scalapack": {
-        LINUX_APT_X86_64: PETSC_DOWNLOAD,
-        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+        LINUX_APT_X86_64: (None, ("-lscalapack-openmpi",)),
+        LINUX_APT_AARCH64: (None, ("-lscalapack-openmpi",)),
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
     "suitesparse": {
-        LINUX_APT_X86_64: PETSC_DOWNLOAD,
-        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
-        MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew",
     },
     "superlu_dist": {
-        LINUX_APT_X86_64: PETSC_DOWNLOAD,
-        LINUX_APT_AARCH64: PETSC_DOWNLOAD,
+        LINUX_APT_X86_64: PETSC_AUTODETECT,
+        LINUX_APT_AARCH64: PETSC_AUTODETECT,
         MACOS_HOMEBREW_ARM64: PETSC_DOWNLOAD,
     },
     "zlib": {
         LINUX_APT_X86_64: PETSC_AUTODETECT,
         LINUX_APT_AARCH64: PETSC_AUTODETECT,
-        MACOS_HOMEBREW_ARM64: PETSC_AUTODETECT,
+        MACOS_HOMEBREW_ARM64: "/opt/homebrew/opt/zlib",
     },
 }
 
@@ -364,8 +376,10 @@ def prepare_external_package_configure_options(
             # Package is installed but not findable, have to provide paths
             # to headers and libraries
             (include_dir, libs) = package_spec
-            configure_options.append(f"--with-{external_package}-include={include_dir}")
-            configure_options.append(f"--with-{external_package}-lib={','.join(libs)}")
+            if include_dir is not None:
+                configure_options.append(f"--with-{external_package}-include={include_dir}")
+            if len(libs) >= 1:
+                configure_options.append(f"--with-{external_package}-lib={','.join(libs)}")
     return tuple(configure_options)
 
 
@@ -376,20 +390,45 @@ def prepare_configure_options(
     configure_options = list(COMMON_PETSC_CONFIGURE_OPTIONS)
     configure_options.append(f"PETSC_ARCH=arch-firedrake-{arch.value}")
 
+    # include/link flags
+    if package_manager in (LINUX_APT_X86_64, LINUX_APT_AARCH64):
+        incdir = "/usr/include"
+        if package_manager == LINUX_APT_X86_64:
+            libdir = "/usr/lib/x86_64-linux-gnu"
+        elif package_manager == LINUX_APT_AARCH64:
+            libdir = "/usr/lib/aarch64-linux-gnu"
+
+        includes = (
+            f"{incdir}/hdf5/openmpi",
+            f"{incdir}/scotch",
+            f"{incdir}/superlu",
+            f"{incdir}/superlu-dist",
+        )
+
+        libraries = (
+            f"{libdir}/hdf5/openmpi",
+        )
+
+        incflags = " " + " ".join([f"-I{inc}" for inc in includes])
+        libflags = " " + " ".join([f"-L{lib}" for lib in libraries])
+
+    else:
+        incflags = ""
+        libflags = ""
+
     configure_options.extend([
-        "--COPTFLAGS='-O3 -march=native -mtune=native'",
-        "--CXXOPTFLAGS='-O3 -march=native -mtune=native'",
+        f"--COPTFLAGS='-O3 -march=native -mtune=native{incflags}{libflags}'",
+        f"--CXXOPTFLAGS='-O3 -march=native -mtune=native{incflags}{libflags}'",
     ])
+    # Fortran flags
     if package_manager == MACOS_HOMEBREW_ARM64:
         # -march=native and -mtune=native not available for FOPTFLAGS on macOS
-        configure_options.append("--FOPTFLAGS='-O3'")
+        configure_options.append(f"--FOPTFLAGS='-O3{incflags}{libflags}'")
         # Avoid macos + openmpi + mumps segmentation violation issue;
         # see https://github.com/firedrakeproject/firedrake/issues/4102 and https://github.com/firedrakeproject/firedrake/issues/4113.
         configure_options.append("-download-mumps-avoid-mpi-in-place")
-        # PETSc does not support CMake 4.0 (hopefully fixed in v3.23.1)
-        configure_options.append("--download-cmake")
     else:
-        configure_options.append("--FOPTFLAGS='-O3 -march=native -mtune=native'")
+        configure_options.append(f"--FOPTFLAGS='-O3 -march=native -mtune=native{incflags}{libflags}'")
 
     if arch == ARCH_COMPLEX:
         configure_options.append("--with-scalar-type=complex")
