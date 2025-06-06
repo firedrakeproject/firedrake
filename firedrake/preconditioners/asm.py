@@ -444,7 +444,13 @@ class ASMExtrudedStarPC(ASMStarPC):
         pstart, _ = mesh_dm.getChart()
         for base_depth in range(depth+1):
             interval_depth = depth - base_depth
-            if interval_depth > 1:
+            if interval_depth == 0:
+                # extrude by 1D vertex-star
+                layer_entities = [(1, 1), (1, 0), (0, 0)]
+            elif interval_depth == 1:
+                # extrude by 1D interior
+                layer_entities = [(1, 0)]
+            else:
                 continue
 
             start, end = mesh_dm.getDepthStratum(base_depth)
@@ -458,30 +464,23 @@ class ASMExtrudedStarPC(ASMStarPC):
                 points = order_points(mesh_dm, points, ordering, self.prefix)
                 points -= pstart  # offset by chart start
 
-                num_layers = nlayers
+                num_seeds = nlayers
                 if periodic or interval_depth:
-                    num_layers -= 1
-
-                for k in range(num_layers):
-                    if interval_depth == 1:
-                        # extrude by 1D interior
-                        layers = [(k, 1)]
-                    elif k == 0 and not periodic:
-                        # extrude by 1D vertex-star on the bottom
-                        layers = [(k, 1), (k, 0)]
-                    elif k == nlayers - 1 and not periodic:
-                        # extrude by 1D vertex-star on the top
-                        layers = [(k-1, 1), (k, 0)]
-                    else:
-                        # extrude by 1D vertex-star
-                        kprev = (k-1) % (nlayers-1) if periodic else k-1
-                        layers = [(kprev, 1), (k, 1), (k, 0)]
-
+                    num_seeds -= 1
+                for layer_seed in range(num_seeds):
                     indices = []
                     # Get DoF indices for patch
                     for i, W in enumerate(V):
                         iset = V_ises[i]
-                        for layer, extrusion_dim in layers:
+                        for layer_dim, layer_shift in layer_entities:
+                            layer = layer_seed - layer_shift
+                            if periodic:
+                                # Handle periodic case
+                                layer = layer % (nlayers-1)
+                            elif layer < 0 or (layer + layer_dim) >= nlayers:
+                                # We are out of bounds
+                                continue
+
                             for p in points:
                                 # How to walk up one layer
                                 blayer_offset = basemeshlayeroffsets[i][p]
@@ -497,7 +496,7 @@ class ASMExtrudedStarPC(ASMStarPC):
                                 # entity
                                 dof = basemeshdof[i][p]
                                 # Hard-code taking the star
-                                if extrusion_dim == 0:
+                                if layer_dim == 0:
                                     begin = off + layer * blayer_offset
                                     end = off + layer * blayer_offset + dof
                                 else:
