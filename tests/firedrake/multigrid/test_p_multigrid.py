@@ -2,8 +2,8 @@ import pytest
 from firedrake import *
 
 
-@pytest.fixture(params=[(2, False, False), (1, True, False), (1, True, True)],
-                ids=["Rectangle", "Rectangle-Extruded", "Rectangle-Extruded-Periodic"])
+@pytest.fixture(params=[(2, False, False), (2, True, False), (1, True, True)],
+                ids=["Rectangle", "Rectangle-Extruded", "Interval-Extruded-Periodic"])
 def tp_mesh(request):
     dim, extruded, periodic = request.param
 
@@ -75,7 +75,7 @@ def test_reconstruct_degree(tp_mesh, mixed_family):
 
 @pytest.mark.parametrize("family", ["Q", "NCE", "NCF", "DQ"])
 def test_prolong_basic(tp_mesh, family):
-    """ Interpolate a constant function between low-order and high-order spacves
+    """ Interpolate a constant function between low-order and high-order spaces
     """
     from firedrake.preconditioners.pmg import prolongation_matrix_matfree
     if tp_mesh.topological_dimension() == 2:
