@@ -24,7 +24,7 @@ Programme
 `The schedule is now online <https://easychair.org/smart-program/FEniCS'15/index.html>`_.
 
 * **Keynote lecture:** Dr Jennifer Ryan, University of East Anglia.
-* **Public lecture:** `Prof. Anders Logg <http://www.math.chalmers.se/~logg/>`_, Chalmers University.
+* **Public lecture:** Prof. Anders Logg, Chalmers University.
 * **Featured talks:**
    * Dr Jack Hale University of Luxembourg.
    * `Dr Marie Rognes <http://www.simula.no/people/meg>`_ Simula Research Laboratory.
