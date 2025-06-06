@@ -106,17 +106,6 @@ class BlockIndexer(object):
         return block
 
 
-class MockCellIntegral(object):
-    def integral_type(self):
-        return "cell"
-
-    def __iter__(self):
-        yield self
-
-    def __call__(self):
-        return self
-
-
 class TensorBase(BaseForm):
     """An abstract Slate node class.
 
@@ -126,10 +115,6 @@ class TensorBase(BaseForm):
        node class; is not meant to be worked with directly. Only use
        the appropriate subclasses.
     """
-
-    integrals = MockCellIntegral()
-    """A mock object that provides enough compatibility with ufl.Form
-    that one can assemble a tensor."""
 
     terminal = False
     assembled = False
@@ -441,10 +426,6 @@ class AssembledVector(TensorBase):
     :arg function: A firedrake function.
     """
 
-    @property
-    def integrals(self):
-        raise ValueError("AssembledVector has no integrals")
-
     operands = ()
     terminal = True
     assembled = True
@@ -462,8 +443,8 @@ class AssembledVector(TensorBase):
 
     def reconstruct(self, form):
         """Reconstructs this TensorBase with new operands."""
-        if not isinstance(form, BaseCoefficient):
-            form = Function(self.form.function_space()).interpolate(form)
+        if form == 0:
+            form = Tensor(ZeroBaseForm(self.arg_function_spaces))
         return as_slate(form)
 
     @cached_property
