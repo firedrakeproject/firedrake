@@ -8,9 +8,22 @@
 
       Firedrake is continually tested using `GitHub actions <https://docs.github.com/en/actions>`__.
 
-      Latest Firedrake status: |firedrakebuild|_
-         .. |firedrakebuild| image:: https://github.com/firedrakeproject/firedrake/actions/workflows/push.yml/badge.svg
-         .. _firedrakebuild: https://github.com/firedrakeproject/firedrake/actions/workflows/push.yml
+      .. only:: release
+
+         Latest Firedrake **release** branch status:
+
+         |firedrakereleasebuild|_
+
+      .. only:: not release
+
+         Latest Firedrake **master** branch status:
+
+         |firedrakemasterbuild|_
+
+      .. |firedrakereleasebuild| image:: https://github.com/firedrakeproject/firedrake/actions/workflows/push.yml/badge.svg?branch=release
+      .. _firedrakereleasebuild: https://github.com/firedrakeproject/firedrake/actions/workflows/push.yml?branch=release
+      .. |firedrakemasterbuild| image:: https://github.com/firedrakeproject/firedrake/actions/workflows/push.yml/badge.svg?query=branch%3Amaster
+      .. _firedrakemasterbuild: https://github.com/firedrakeproject/firedrake/actions/workflows/push.yml?query=branch%3Amaster
 
       Firedrake and its components are developed on `GitHub
       <http://github.com>`__.

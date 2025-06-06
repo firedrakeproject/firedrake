@@ -79,8 +79,8 @@ class SCPC(SCBase):
 
         self.c_field = c_field
         self.condensed_rhs = Cofunction(Vc.dual())
-        self.residual = Function(W)
-        self.solution = Cofunction(W.dual())
+        self.residual = Cofunction(W.dual())
+        self.solution = Function(W)
 
         shapes = (Vc.finat_element.space_dimension(),
                   np.prod(Vc.shape))

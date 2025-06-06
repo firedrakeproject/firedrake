@@ -38,8 +38,8 @@ informative flame graphs giving a lot of insight into the internals of
 Firedrake and PETSc.
 
 As an example, here is a flame graph showing the performance of the
-:demo:`scalar wave equation with higher-order mass lumping demo
-<higher_order_mass_lumping.py>`.
+:doc:`scalar wave equation with higher-order mass lumping demo
+<demos/higher_order_mass_lumping.py>`.
 It is interactive and you can zoom in on functions by clicking.
 
 .. raw:: html
