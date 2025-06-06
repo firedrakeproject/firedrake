@@ -9,6 +9,7 @@ from itertools import chain
 import firedrake
 from firedrake.utils import unique
 from firedrake.petsc import PETSc
+from firedrake.bcs import EquationBC
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
                                get_parent, add_hook)
 
@@ -126,6 +127,24 @@ def coarsen_bc(bc, self, coefficient_mapping=None):
     return type(bc)(V, val, subdomain)
 
 
+@coarsen.register(firedrake.EquationBC)
+def coarsen_equation_bc(ebc, self, coefficient_mapping=None):
+    J = self(ebc._J.f, self, coefficient_mapping=coefficient_mapping)
+    Jp = self(ebc._Jp.f, self, coefficient_mapping=coefficient_mapping)
+    u = self(ebc._F.u, self, coefficient_mapping=coefficient_mapping)
+    sub_domain = ebc._F.sub_domain
+    bcs = [self(bc, self, coefficient_mapping=coefficient_mapping) for bc in ebc.bcs]
+    V = self(ebc._F.function_space(), self, coefficient_mapping=coefficient_mapping)
+
+    if ebc.is_linear:
+        lhs = self(ebc.lhs, self, coefficient_mapping=coefficient_mapping)
+        rhs = self(ebc.rhs, self, coefficient_mapping=coefficient_mapping)
+        return type(ebc)(lhs == rhs, u, sub_domain, V=V, bcs=bcs, J=J, Jp=Jp)
+    else:
+        F = self(ebc._F.f, self, coefficient_mapping=coefficient_mapping)
+        return type(ebc)(F == 0, u, sub_domain, V=V, bcs=bcs, J=J, Jp=Jp)
+
+
 @coarsen.register(firedrake.functionspaceimpl.WithGeometryBase)
 def coarsen_function_space(V, self, coefficient_mapping=None):
     if hasattr(V, "_coarse"):
@@ -193,7 +212,18 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
         V.dm.addCoarsenHook(None, inject_on_restrict)
 
     # Build set of coefficients we need to coarsen
-    forms = (problem.F, problem.J, problem.Jp)
+    forms = [problem.F, problem.J, problem.Jp]
+    # We need forms from EquationBCs, too.
+    # EquationBC can have an EquationBC on the boundary,
+    # so we need to keep looping until we've treated them all
+    bcs_to_consider = list(problem.bcs)
+    while len(bcs_to_consider) > 0:
+        bc = bcs_to_consider.pop()
+
+        if isinstance(bc, EquationBC):
+            forms += [bc._F.f, bc._J.f, bc._Jp.f]
+            bcs_to_consider += bc._F.sorted_equation_bcs()
+
     coefficients = unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
     # Coarsen them, and remember where from.
     if coefficient_mapping is None:
@@ -203,7 +233,7 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
 
     u = coefficient_mapping[problem.u]
 
-    bcs = [self(bc, self) for bc in problem.bcs]
+    bcs = [self(bc, self, coefficient_mapping=coefficient_mapping) for bc in problem.bcs]
     J = self(problem.J, self, coefficient_mapping=coefficient_mapping)
     Jp = self(problem.Jp, self, coefficient_mapping=coefficient_mapping)
     F = self(problem.F, self, coefficient_mapping=coefficient_mapping)
@@ -273,7 +303,7 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     # Now that we have the coarse snescontext, push it to the coarsened DMs
     # Otherwise they won't have the right transfer manager when they are
     # coarsened in turn
-    for val in chain(coefficient_mapping.values(), (bc.function_arg for bc in problem.bcs)):
+    for val in coefficient_mapping.values():
         if isinstance(val, (firedrake.Function, firedrake.Cofunction)):
             V = val.function_space()
             coarseneddm = V.dm
@@ -311,7 +341,8 @@ class Interpolation(object):
             x.copy(v)
         self.manager.prolong(self.cprimal, self.fprimal)
         for bc in self.fbcs:
-            bc.zero(self.fprimal)
+            if isinstance(bc, firedrake.DirichletBC):
+                bc.zero(self.fprimal)
         with self.fprimal.dat.vec_ro as v:
             if inc:
                 y.axpy(1.0, v)
@@ -330,7 +361,8 @@ class Interpolation(object):
             x.copy(v)
         self.manager.restrict(self.fdual, self.cdual)
         for bc in self.cbcs:
-            bc.zero(self.cdual)
+            if isinstance(bc, firedrake.DirichletBC):
+                bc.zero(self.cdual)
         with self.cdual.dat.vec_ro as v:
             if inc:
                 y.axpy(1.0, v)
