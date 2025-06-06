@@ -11,7 +11,6 @@ from firedrake.matrix import MatrixBase
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS
 from firedrake.formmanipulation import ExtractSubBlock
-from firedrake.ufl_expr import replace
 from firedrake.utils import cached_property
 from firedrake.logging import warning
 
@@ -234,7 +233,7 @@ class _SNESContext(object):
             self._bc_residual = Function(self._x.function_space())
             if problem.is_linear:
                 # Drop existing lifting term from the residual
-                self.F = replace(self.F, {self._x: ufl.zero(self._x.ufl_shape)})
+                self.F = ufl.replace(self.F, {self._x: ufl.zero(self._x.ufl_shape)})
 
             self.F -= problem.compute_bc_lifting(self.J, self._bc_residual)
 
@@ -371,19 +370,19 @@ class _SNESContext(object):
             # solving for, and some spaces that have just become
             # coefficients in the new form.
             u = as_vector(vec)
-            J = replace(J, {problem.u_restrict: u})
+            J = ufl.replace(J, {problem.u_restrict: u})
             if problem.is_linear and isinstance(J, MatrixBase):
                 # The BC lifting term is action(MatrixBase, u).
                 # We cannot replace u with the split solution, as action expects a Function.
                 # We drop the existing lifting term from the residual
                 # and compute a fully decoupled lifting term with the split J.
-                F = replace(F, {problem.u_restrict: zero(problem.u_restrict.ufl_shape)})
+                F = ufl.replace(F, {problem.u_restrict: zero(problem.u_restrict.ufl_shape)})
                 F += problem.compute_bc_lifting(J, subu)
             else:
-                F = replace(F, {problem.u_restrict: u})
+                F = ufl.replace(F, {problem.u_restrict: u})
             if problem.Jp is not None:
                 Jp = splitter.split(problem.Jp, argument_indices=(field, field))
-                Jp = replace(Jp, {problem.u_restrict: u})
+                Jp = ufl.replace(Jp, {problem.u_restrict: u})
             else:
                 Jp = None
             bcs = []

@@ -321,12 +321,10 @@ def _extract_args(*args, **kwargs):
     near_nullspace = kwargs.get("near_nullspace", None)
     # Extract parameters
     form_compiler_parameters = kwargs.get("form_compiler_parameters", {})
-    solver_parameters = kwargs.get("solver_parameters", None)
+    solver_parameters = kwargs.get("solver_parameters", {})
     options_prefix = kwargs.get("options_prefix", None)
     restrict = kwargs.get("restrict", False)
     pre_apply_bcs = kwargs.get("pre_apply_bcs", True)
-    if solver_parameters is None:
-        solver_parameters = {}
 
     return eq, u, bcs, J, Jp, M, form_compiler_parameters, \
         solver_parameters, nullspace, nullspace_T, near_nullspace, \

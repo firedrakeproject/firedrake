@@ -5,17 +5,17 @@ from ufl.core.base_form_operator import BaseFormOperator
 from ufl.split_functions import split
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.domain import as_domain
-from ufl.algorithms.replace import replace
 
 import firedrake
 from firedrake import utils, function, cofunction
 from firedrake.constant import Constant
 from firedrake.petsc import PETSc
 
+
 __all__ = ['Argument', 'Coargument', 'TestFunction', 'TrialFunction',
            'TestFunctions', 'TrialFunctions',
            'derivative', 'adjoint',
-           'action', 'replace', 'CellSize', 'FacetNormal']
+           'action', 'CellSize', 'FacetNormal']
 
 
 class Argument(ufl.argument.Argument):
@@ -263,7 +263,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         V = firedrake.FunctionSpace(mesh, "Real", 0)
         x = ufl.Coefficient(V)
         # TODO: Update this line when https://github.com/FEniCS/ufl/issues/171 is fixed
-        form = replace(form, {u: x})
+        form = ufl.replace(form, {u: x})
         u_orig, u = u, x
     else:
         raise RuntimeError("Can't compute derivative for form")
@@ -286,7 +286,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     if isinstance(uc, firedrake.Constant):
         # If we replaced constants with ``x`` to differentiate,
         # replace them back to the original symbolic constant
-        dform = replace(dform, {u: u_orig})
+        dform = ufl.replace(dform, {u: u_orig})
     return dform
 
 
