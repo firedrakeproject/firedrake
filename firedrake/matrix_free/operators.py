@@ -11,7 +11,6 @@ from firedrake.bcs import DirichletBC, EquationBCSplit
 from firedrake.petsc import PETSc
 from firedrake.utils import cached_property
 from firedrake.function import Function
-from firedrake.cofunction import Cofunction
 from ufl.form import ZeroBaseForm
 
 
@@ -114,18 +113,18 @@ class ImplicitMatrixContext(object):
             arg.function_space() for arg in a.arguments()
         )
         # Need a cofunction since y receives the assembled result of Ax
-        self._ystar = Cofunction(test_space.dual())
+        self._ystar = Function(test_space.dual())
         self._y = Function(test_space)
         self._x = Function(trial_space)
-        self._xstar = Cofunction(trial_space.dual())
+        self._xstar = Function(trial_space.dual())
 
         # These are temporary storage for holding the BC
         # values during matvec application.  _xbc is for
         # the action and ._ybc is for transpose.
         if len(self.bcs) > 0:
-            self._xbc = Cofunction(trial_space.dual())
+            self._xbc = Function(trial_space.dual())
         if len(self.col_bcs) > 0:
-            self._ybc = Cofunction(test_space.dual())
+            self._ybc = Function(test_space.dual())
 
         # Get size information from template vecs on test and trial spaces
         trial_vec = trial_space.dof_dset.layout_vec
@@ -178,7 +177,7 @@ class ImplicitMatrixContext(object):
     @cached_property
     def _diagonal(self):
         assert self.on_diag
-        return Cofunction(self._x.function_space().dual())
+        return Function(self._x.function_space().dual())
 
     @cached_property
     def _assemble_diagonal(self):
