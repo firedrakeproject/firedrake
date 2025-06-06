@@ -361,31 +361,30 @@ def get_basemesh_nodes(W):
 
     # For every base mesh entity, what's the layer offset?
     layer_offsets = numpy.full(W.node_set.total_size, -1, dtype=IntType)
-    layer_offsets[W.cell_node_map().values_with_halo] = W.offset
+    layer_offsets[W.cell_node_map().values_with_halo] = W.cell_node_map().offset
     nlayers = W.mesh().layers
 
-    tdim = W.mesh().topological_dimension()
-    for dim in range(tdim):
-        quotient = 0
-        if W.mesh().extruded_periodic:
+    for p in range(pstart, pend):
+        dof = section.getDof(p)
+        off = section.getOffset(p)
+        if dof == 0:
+            dof_per_layer = 0
+            layer_offset = 0
+        else:
+            layer_offset = layer_offsets[off]
+            assert layer_offset >= 0
+            dof_per_layer = dof - (nlayers - 1) * layer_offset
+
+        basemeshoff[p - pstart] = off
+        basemeshdof[p - pstart] = dof_per_layer
+        basemeshlayeroffset[p - pstart] = layer_offset
+
+    if W.mesh().extruded_periodic:
+        # Account for missing dofs from the top layer
+        for dim in range(W.mesh().topological_dimension()):
+            qstart, qend = W.mesh().topology_dm.getDepthStratum(dim)
             quotient = len(W.finat_element.entity_dofs()[(dim, 0)][0])
-
-        qstart, qend = W.mesh().topology_dm.getDepthStratum(dim)
-        for p in range(qstart, qend):
-            dof = section.getDof(p)
-            off = section.getOffset(p)
-            if dof == 0:
-                dof_per_layer = 0
-                layer_offset = 0
-            else:
-                layer_offset = layer_offsets[off]
-                assert layer_offset >= 0
-                dof_per_layer = dof - (nlayers - 1) * layer_offset
-                dof_per_layer += quotient
-
-            basemeshoff[p - pstart] = off
-            basemeshdof[p - pstart] = dof_per_layer
-            basemeshlayeroffset[p - pstart] = layer_offset
+            basemeshdof[qstart-pstart:qend-pstart] += quotient
 
     return basemeshoff, basemeshdof, basemeshlayeroffset
 
