@@ -543,9 +543,7 @@ class CrossMeshInterpolator(Interpolator):
         # input ordering VOM will only contain the points on rank 0!
         # QUESTION: Should any of the below have annotation turned off?
         ufl_scalar_element = V_dest.ufl_element()
-        if ufl_scalar_element.num_sub_elements and not isinstance(
-            ufl_scalar_element, finat.ufl.TensorProductElement
-        ):
+        if ufl_scalar_element.num_sub_elements:
             if all(
                 ufl_scalar_element.sub_elements[0] == e
                 for e in ufl_scalar_element.sub_elements
