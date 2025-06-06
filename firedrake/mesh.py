@@ -2921,35 +2921,45 @@ class ExtrudedMeshTopology(MeshTopology):
         closures = {}
         for base_dest_dim in range(self._base_mesh.dimension+1):
             base_closures = self._base_mesh._fiat_cell_closures_localized[base_dest_dim]
-            for extr_dest_dim in range(2):
-                dest_dim = (base_dest_dim, extr_dest_dim)
-                closure_size = self._closure_sizes[(1, 1)][dest_dim]
+            # for extr_dest_dim in range(2):
+            #     dest_dim = (base_dest_dim, extr_dest_dim)
+            #     closure_size = self._base_mesh._closure_sizes[self._base_mesh.dimension][base_dest_dim]
+            #
+            #     n_base_cells = self._base_mesh.num_cells
+            #     idxs = np.empty((n_base_cells, nlayers, closure_size), dtype=base_closures.dtype)
+            #     num_extr_pts = nlayers+1 if extr_dest_dim == 0 else nlayers
+            #
+            #     for ci in range(n_base_cells):
+            #         for j in range(nlayers):
+            #             for k in range(closure_size):
+            #                 idxs[ci, j, k] = base_closures[ci, k]
+            #
+            #     closures[dest_dim] = idxs.reshape((-1, closure_size))
 
-                num_extr_pts = nlayers+1 if extr_dest_dim == 0 else nlayers
+            dest_dim = base_dest_dim
+            closure_size = self._base_mesh._closure_sizes[self._base_mesh.dimension][base_dest_dim]
 
-                if extr_dest_dim == 0:
-                    # 'vertex' extrusion, twice as many points in the closure
-                    idxs = np.empty((*base_closures.shape, 2*num_extr_pts), dtype=base_closures.dtype)
-                    for is_ in np.ndindex(base_closures.shape):
-                        for j in range(num_extr_pts):
-                            idxs[*is_, 2*j] = base_closures[is_]
-                            idxs[*is_, 2*j+1] = base_closures[is_]
-                else:
-                    # 'edge' extrusion, only one point in the closure
-                    idxs = np.empty((*base_closures.shape, num_extr_pts), dtype=base_closures.dtype)
-                    for is_ in np.ndindex(base_closures.shape):
-                        for j in range(num_extr_pts):
-                            idxs[*is_, j] = base_closures[is_]
-                closures[dest_dim] = idxs.reshape((-1, closure_size))
+            n_base_cells = self._base_mesh.num_cells
+            idxs = np.empty((n_base_cells, nlayers, closure_size), dtype=base_closures.dtype)
+
+            for ci in range(n_base_cells):
+                for j in range(nlayers):
+                    for k in range(closure_size):
+                        idxs[ci, j, k] = base_closures[ci, k]
+
+            closures[dest_dim] = idxs.reshape((-1, closure_size))
         return closures
 
     # NOTE: This is very similar to the other closure stuff that we do.
     @cached_property
     def base_mesh_closure(self):
+        # map from extruded entities to flat ones.
         closures = {}
 
         dim = (1, 1)
         closure_data = self._base_fiat_cell_closure_data_localized
+
+        breakpoint()
 
         map_components = []
         for map_dim, map_data in closure_data.items():
@@ -2960,7 +2970,7 @@ class ExtrudedMeshTopology(MeshTopology):
             # target_axis = self.name
             # target_dim = map_dim
             target_axis = self._base_mesh.name
-            target_dim = int(map_dim[0])
+            target_dim = map_dim
 
             # Discard any parallel information, the maps are purely local
             outer_axis_component = just_one(c for c in self.points.root.components if c.label == dim)

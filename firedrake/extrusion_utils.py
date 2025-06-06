@@ -239,6 +239,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         my_layer_data[base_cell, extr_cell] = extr_cell
     my_layer_dat = op3.Dat(iterset.materialize(), data=my_layer_data.flatten())
 
+    breakpoint()
     op3.do_loop(
         p := iterset.index(),
         kernel(

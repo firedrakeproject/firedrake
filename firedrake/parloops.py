@@ -498,7 +498,7 @@ def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.Ind
             closure_tree = op3.IndexTree.from_nest({
                 mesh._fiat_closure(cell): [
                     op3.Slice(f"dof{d}", [op3.AffineSliceComponent("XXX")])
-                    for d in range(mesh.dimension+1)
+                    for d in mesh._closure_sizes.keys()
                 ]
             })
             subspace_tree = closure_tree
@@ -517,7 +517,7 @@ def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.Ind
         closure_tree = op3.IndexTree.from_nest({
             mesh._fiat_closure(cell): [
                 op3.Slice(f"dof{d}", [op3.AffineSliceComponent("XXX")])
-                for d in range(mesh.dimension+1)
+                for d in mesh._closure_sizes.keys()
             ]
         })
         index_tree = closure_tree
