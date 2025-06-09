@@ -1148,11 +1148,13 @@ class AbstractMeshTopology(abc.ABC):
         else:
             raise ValueError(f"'{ordering}' is not a recognised closure ordering option")
 
+        breakpoint()
+
         closures = {}
         for dim, closure_data in closure_arrays.items():
             map_components = []
             for map_dim, map_data in closure_data.items():
-                *_, size = map_data.shape
+                _, size = map_data.shape
                 if size == 0:
                     continue
 

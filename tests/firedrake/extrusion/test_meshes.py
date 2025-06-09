@@ -29,7 +29,8 @@ def hedgehog_mesh(request):
         # Surface area of 1
         base = CubedSphereMesh(radius=1/(2*np.sqrt(2)), refinement_level=0)
 
-    return ExtrudedMesh(base, layers=5, layer_height=0.2, extrusion_type="radial_hedgehog")
+    # return ExtrudedMesh(base, layers=5, layer_height=0.2, extrusion_type="radial_hedgehog")
+    return ExtrudedMesh(base, layers=2, layer_height=0.5, extrusion_type="radial_hedgehog")
 
 
 def test_uniform_extrusion_volume(uniform_mesh):
