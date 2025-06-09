@@ -499,14 +499,6 @@ class _SNESContext(object):
             return
         ctx._jacobian_assembled = True
 
-        fine = ctx._fine
-        if fine is not None:
-            manager = dmhooks.get_transfer_manager(fine._x.function_space().dm)
-            manager.inject(fine._x, ctx._x)
-            if ctx.pre_apply_bcs:
-                for bc in problem.dirichlet_bcs():
-                    bc.apply(ctx._x)
-
         ctx._assemble_jac(ctx._jac)
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle

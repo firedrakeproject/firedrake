@@ -91,6 +91,12 @@ def coarsen_form(form, self, coefficient_mapping=None):
     if form is None:
         return None
 
+    if coefficient_mapping is None:
+        coefficient_mapping = {}
+    # Coarsen the coefficients and remember where from.
+    for c in form.coefficients():
+        self(c, self, coefficient_mapping=coefficient_mapping)
+
     mapper = CoarsenIntegrand(self, coefficient_mapping)
     integrals = []
     for it in form.integrals():
