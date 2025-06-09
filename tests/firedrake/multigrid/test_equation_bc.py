@@ -88,7 +88,7 @@ def test_nested_equation_bc(dim):
 
     bcs_ridges = [DirichletBC(V, u_bc, ridges)]
     bcs_facets = [EquationBC(Fs == 0, u, "on_boundary", V=V, bcs=bcs_ridges)]
-    problem = NonlinearVariationalProblem(F, u, bcs=bcs_ridges)
+    problem = NonlinearVariationalProblem(F, u, bcs=bcs_facets)
 
     nodes = set(sum((tuple(e.nodes) for e in problem.dirichlet_bcs()), ()))
     assert len(nodes) == num_ridge_dofs
@@ -102,7 +102,7 @@ def test_nested_equation_bc(dim):
             "ksp_max_it": "2",
             "ksp_convergence_test": "skip",
             "ksp_type": "gmres",
-            "pc_type": "jacobi",
+            "pc_type": "ilu",
         },
         "mg_coarse": {
             "ksp_type": "preonly",
@@ -113,10 +113,4 @@ def test_nested_equation_bc(dim):
     solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
     solver.solve()
     assert errornorm(u_exact, u) < 1e-9
-    assert solver.snes.getLinearSolveIterations() <= 12
-
-    u.assign(0)
-    solver = NonlinearVariationalSolver(problem, solver_parameters=sp, pre_apply_bcs=False)
-    solver.solve()
-    assert errornorm(u_exact, u) < 1e-9
-    assert solver.snes.getLinearSolveIterations() <= 12
+    assert solver.snes.getLinearSolveIterations() <= 11

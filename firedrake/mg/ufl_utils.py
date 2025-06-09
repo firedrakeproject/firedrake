@@ -9,7 +9,6 @@ from itertools import chain
 import firedrake
 from firedrake.utils import unique
 from firedrake.petsc import PETSc
-from firedrake.bcs import EquationBC
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
                                get_parent, add_hook)
 
@@ -197,8 +196,8 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
                 else:
                     manager.inject(c, c._child)
         # Apply bcs
-        for bc in chain.from_iterable(finectx._problem.dirichlet_bcs()):
-            if finectx.pre_apply_bcs:
+        if finectx.pre_apply_bcs:
+            for bc in finectx._problem.dirichlet_bcs():
                 bc.apply(finectx._x)
 
     V = problem.u.function_space()
