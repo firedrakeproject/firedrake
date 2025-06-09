@@ -394,7 +394,6 @@ def _(
 
     indexed = array.getitem(pack_indices, strict=True)
 
-
     # handle entity_dofs - this is done treating all nodes as equivalent so we have to
     # discard shape beforehand
     dof_numbering = _flatten_entity_dofs(V.finat_element.entity_dofs())
@@ -402,10 +401,14 @@ def _(
 
     # skip if identity
     if not np.all(perm == np.arange(perm.size, dtype=IntType)):
-        perm_buffer = op3.ArrayBuffer(perm, constant=True)
-        perm_dat = op3.Dat(V._packed_nodal_axes.root.copy(label="mylabel"), perm_buffer, prefix="p")
-        perm_subset = op3.Slice("nodes_flat", [op3.Subset("XXX", perm_dat)], label="mylabel")
-        indexed = indexed.reshape(V._packed_nodal_axes)[perm_subset]
+        perm_dat = op3.Dat.from_array(perm, prefix="perm", buffer_kwargs={"constant": True})
+        perm_axis = perm_dat.axes.root
+        perm_subset = op3.Slice(perm_axis.label, [op3.Subset(perm_axis.component.label, perm_dat)])
+
+        indexed_axes = op3.AxisTree.from_iterable([perm_axis, *V.shape])
+
+        # TODO: Should be able to just pass a Dat here and have it DTRT
+        indexed = indexed.reshape(indexed_axes)[perm_subset]
 
     if plex.ufl_cell() == ufl.hexahedron:
         raise NotImplementedError
@@ -498,7 +501,7 @@ def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.Ind
             closure_tree = op3.IndexTree.from_nest({
                 mesh._fiat_closure(cell): [
                     op3.Slice(f"dof{d}", [op3.AffineSliceComponent("XXX")])
-                    for d in mesh._closure_sizes.keys()
+                    for d in mesh._closure_sizes[mesh.cell_label].keys()
                 ]
             })
             subspace_tree = closure_tree
@@ -517,7 +520,7 @@ def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.Ind
         closure_tree = op3.IndexTree.from_nest({
             mesh._fiat_closure(cell): [
                 op3.Slice(f"dof{d}", [op3.AffineSliceComponent("XXX")])
-                for d in mesh._closure_sizes.keys()
+                for d in mesh._closure_sizes[mesh.cell_label].keys()
             ]
         })
         index_tree = closure_tree

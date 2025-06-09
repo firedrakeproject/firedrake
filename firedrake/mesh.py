@@ -1075,24 +1075,57 @@ class AbstractMeshTopology(abc.ABC):
             #     raise ValueError("FIAT closure ordering is only valid for cell closures")
             return self._fiat_closure(index)
 
+    # testing
+    @staticmethod
+    def make_entity_cone_lists(fiat_cell):
+        _dim = fiat_cell.get_dimension()
+        _connectivity = fiat_cell.connectivity
+        _list = []
+        _offset_list = [0 for _ in _connectivity[(0, 0)]]  # vertices have no cones
+        _offset = 0
+        _n = 0  # num. of entities up to dimension = _d
+        breakpoint()
+        for _d in range(_dim):
+            _n1 = len(_offset_list)
+            for _conn in _connectivity[(_d + 1, _d)]:
+                _list += [_c + _n for _c in _conn]  # These are indices into cell_closure[some_cell]
+                _offset_list.append(_offset)
+                _offset += len(_conn)
+            _n = _n1
+        _offset_list.append(_offset)
+        return _list, _offset_list
+
     @cached_property
-    def _closure_sizes(self) -> immutabledict:
-        # This tells us the points with dimension d that lie in the closure
-        # of the different points with dimension dim. We just want to know
-        # how many there are (e.g. each edge is connected to 2 vertices).
-        cell_connectivity = as_fiat_cell(self.ufl_cell()).connectivity
+    def _closure_sizes(self) -> immutabledict[immutabledict]:
+        """
+        Examples
+        --------
+        UFCInterval:
+            return immutabledict({
+                # the closure of a vertex is just the vertex
+                0: {0: 1, 1: 0},
+                # the closure of a cell is the cell and two vertices
+                1: {0: 2, 1: 1},
+            })
+        """
+        fiat_cell = as_fiat_cell(self.ufl_cell())
 
-    #     # Determine the closure size for the given dimension. For triangles
-    #     # this would be:
-    #     #
-    #     #     (1, 0, 0) if dim == 0 (vertex)
-    #     #     (2, 1, 0) if dim == 1 (edge)
-    #     #     (3, 3, 1) if dim == 2 (cell)
+        # This just counts the number of entries to figure out how many
+        # entities are in the cell. For example, a UFCInterval has topology
+        #
+        #     {0: {0: (0,), 1: (1,)}, 1: {0: (0, 1)}}
+        #
+        # from which we can infer that there are 2 vertices from
+        # len(topology[0]) and a single cell from len(topology[1]).
 
-        sizes = collections.defaultdict(dict)
-        for (from_dim, to_dim), closures in cell_connectivity.items():
-            sizes[from_dim][to_dim] = single_valued(map(len, closures))
-        return immutabledict(sizes)
+        # TODO: This only works for cell closures, in principle it should be
+        # possible to do this for sub-dimensions too.
+        return immutabledict({
+            self.cell_label: {
+                dim: len(dim_topology)
+                for dim, dim_topology in fiat_cell.get_topology().items()
+            }
+        })
 
     @cached_property
     def _plex_closure(self):
@@ -1111,11 +1144,7 @@ class AbstractMeshTopology(abc.ABC):
             closure_arrays = dict(enumerate(self._plex_closures_localized))
         elif ordering == ClosureOrdering.FIAT:
             # FIAT ordering is only valid for cell closures
-            if isinstance(self, ExtrudedMeshTopology):
-                # FIXME: only for 1D extrusion
-                closure_arrays = {(1, 1): self._fiat_cell_closures_localized}
-            else:
-                closure_arrays = {self.dimension: self._fiat_cell_closures_localized}
+            closure_arrays = {self.cell_label: self._fiat_cell_closures_localized}
         else:
             raise ValueError(f"'{ordering}' is not a recognised closure ordering option")
 
@@ -1999,24 +2028,24 @@ class MeshTopology(AbstractMeshTopology):
             # It probably makes sense as chaco does not work
             # once distributed.
 
-    @property
-    def cell_label(self):
-        return str(self.dimension)
-
-    # should error
-    @property
-    def facet_label(self):
-        return str(self.dimension - 1)
-
-    # should error
-    @property
-    def edge_label(self):
-        return "1"
-
-    # TODO I prefer "vertex_label"
-    @property
-    def vert_label(self):
-        return "0"
+    # @property
+    # def cell_label(self) -> int:
+    #     return self.dimension
+    #
+    # # should error
+    # @property
+    # def facet_label(self):
+    #     return str(self.dimension - 1)
+    #
+    # # should error
+    # @property
+    # def edge_label(self):
+    #     return "1"
+    #
+    # # TODO I prefer "vertex_label"
+    # @property
+    # def vert_label(self):
+    #     return "0"
 
     def _add_overlap(self):
         overlap_type, overlap = self._distribution_parameters["overlap_type"]
@@ -2125,7 +2154,7 @@ class MeshTopology(AbstractMeshTopology):
         )
 
     @cached_property
-    def _plex_closures(self) -> tuple[np.ndarray, ...]:
+    def _plex_closures(self) -> dict[Any, np.ndarray]:
         # TODO: Provide more detail about the return type
         """Memoized DMPlex point closures with default numbering.
 
@@ -2136,7 +2165,9 @@ class MeshTopology(AbstractMeshTopology):
 
         """
         # TODO: make memoize_closures nicer to reuse code
-        return tuple(self._memoize_closures(dim) for dim in range(self.dimension+1))
+        # NOTE: At the moment this only works for cells because I don't know how to
+        # compute closure sizes elsewise
+        return {self.dimension: self._memoize_closures(self.dimension)}
 
     @cached_property
     def _plex_closures_renumbered(self) -> tuple[np.ndarray, ...]:
@@ -2389,26 +2420,20 @@ class MeshTopology(AbstractMeshTopology):
         return num_points
 
     @property
-    def cell_label(self):
-        return str(self.dimension)
+    def cell_label(self) -> int:
+        return self.dimension
 
     @property
-    def owned_cell_label(self):
-        return (self.cell_label, "owned")
-
-
-    @property
-    def facet_label(self):
-        return str(self.dimension - 1)
+    def facet_label(self) -> int:
+        return self.dimension - 1
 
     @property
-    def edge_label(self):
-        return "1"
+    def edge_label(self) -> int:
+        return 1
 
-    # TODO I prefer "vertex_label"
     @property
-    def vertex_label(self):
-        return "0"
+    def vertex_label(self) -> int:
+        return 0
 
     # Think this should be put in AbstractMeshTopology class
     @cached_property
@@ -2917,7 +2942,7 @@ class ExtrudedMeshTopology(MeshTopology):
             base_closures = self._base_mesh._fiat_cell_closures_localized[base_dest_dim]
             for extr_dest_dim in range(2):
                 dest_dim = (base_dest_dim, extr_dest_dim)
-                closure_size = self._closure_sizes[(1, 1)][dest_dim]
+                closure_size = self._closure_sizes[self.cell_label][dest_dim]
 
                 n_base_cells = base_closures.shape[0]  # always the same
                 idxs = np.empty((n_base_cells, nlayers, closure_size), dtype=base_closures.dtype)
@@ -2987,7 +3012,7 @@ class ExtrudedMeshTopology(MeshTopology):
         # map from extruded entities to flat ones.
         closures = {}
 
-        dim = (1, 1)
+        dim = self.cell_label
         closure_data = self._base_fiat_cell_closure_data_localized
 
         map_components = []

@@ -626,6 +626,7 @@ class FunctionSpace:
         The axis tree is 'nodal', meaning that mesh entities are indistinguishable.
 
         """
+        assert False, "old code"
         from firedrake.parloops import _flatten_entity_dofs
 
         if type(self) is MixedFunctionSpace:
