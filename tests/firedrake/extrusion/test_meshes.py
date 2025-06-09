@@ -11,8 +11,7 @@ def uniform_mesh(request):
         base = UnitSquareMesh(5, 4)
     elif request.param == "quad-square":
         base = UnitSquareMesh(4, 6, quadrilateral=True)
-    # return ExtrudedMesh(base, layers=10, layer_height=0.1,
-    return ExtrudedMesh(base, layers=3, layer_height=0.1,
+    return ExtrudedMesh(base, layers=10, layer_height=0.1,
                         extrusion_type="uniform")
 
 
@@ -34,8 +33,7 @@ def hedgehog_mesh(request):
 
 
 def test_uniform_extrusion_volume(uniform_mesh):
-    # assert np.allclose(assemble(Constant(1)*dx(domain=uniform_mesh)), 1.0)
-    assert np.allclose(assemble(Constant(1)*dx(domain=uniform_mesh)), 0.3)
+    assert np.allclose(assemble(Constant(1)*dx(domain=uniform_mesh)), 1.0)
 
 
 def test_hedgehog_extrusion_volume(hedgehog_mesh):

@@ -1583,7 +1583,7 @@ class AbstractMeshTopology(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def entity_count(self, dim, include_ghost_points=True):
+    def entity_count(self, dim):
         pass
 
     def size(self, depth):
@@ -2374,17 +2374,17 @@ class MeshTopology(AbstractMeshTopology):
     def num_vertices(self):
         return self.entity_count(0)
 
-    def entity_count(self, dim, include_ghost_points=True):
+    def entity_count(self, dim):
         p_start, p_end = self.topology_dm.getDepthStratum(dim)
         num_points = p_end - p_start
 
-        if not include_ghost_points:
-            ghost_label = self.topology_dm.getLabel("firedrake_is_ghost")
-            ghost_indices = ghost_label.getStratumIS(1).indices
-            # TODO: This is what ISGeneralFilter() does, but that is not exposed in petsc4py
-            # https://petsc.org/release/manualpages/IS/ISGeneralFilter/
-            num_ghost_points = sum((p_start <= ghost_indices) & (ghost_indices < p_end))
-            num_points -= num_ghost_points
+        # if not include_ghost_points:
+        #     ghost_label = self.topology_dm.getLabel("firedrake_is_ghost")
+        #     ghost_indices = ghost_label.getStratumIS(1).indices
+        #     # TODO: This is what ISGeneralFilter() does, but that is not exposed in petsc4py
+        #     # https://petsc.org/release/manualpages/IS/ISGeneralFilter/
+        #     num_ghost_points = sum((p_start <= ghost_indices) & (ghost_indices < p_end))
+        #     num_points -= num_ghost_points
 
         return num_points
 
@@ -2800,6 +2800,34 @@ class ExtrudedMeshTopology(MeshTopology):
     def vert_label(self):
         return (0, 0)
 
+    @property
+    def num_cells(self) -> int:
+        if self.layers.shape:
+            raise NotImplementedError("Gets a little more complicated when things are ragged")
+        else:
+            nlayers = int(self.layers) - 1
+        return self._base_mesh.num_cells * nlayers
+
+    @property
+    def num_facets(self) -> int:
+        assert False, "hard"
+
+    @property
+    def num_faces(self):
+        assert False, "hard"
+
+    @property
+    def num_edges(self):
+        assert False, "hard"
+
+    @property
+    def num_vertices(self):
+        if self.layers.shape:
+            raise NotImplementedError("Gets a little more complicated when things are ragged")
+        else:
+            nlayers = int(self.layers) - 1
+        return self._base_mesh.num_vertices * (nlayers+1)
+
     @utils.cached_property
     def _dm_renumbering(self):
         if self.layers.shape:
@@ -2838,7 +2866,6 @@ class ExtrudedMeshTopology(MeshTopology):
                     for j in range(num_extr_pts):
                         idxs[i, j] = base_indices[i] * (2*nlayers+1) + 2*j + offset
                 indices[dim] = idxs.flatten()
-        breakpoint()
         return indices
 
     # TODO: I don't think that the specific ordering actually matters here...
@@ -3618,21 +3645,21 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     def _topology(self, val):
         self.topology = val
 
-    @property
-    def num_cells(self):
-        return self.topology.num_cells
-
-    @property
-    def num_facets(self):
-        return self.topology.num_facets
-
-    @property
-    def num_edges(self):
-        return self.topology.num_edges
-
-    @property
-    def num_vertices(self):
-        return self.topology.num_vertices
+    # @property
+    # def num_cells(self):
+    #     return self.topology.num_cells
+    #
+    # @property
+    # def num_facets(self):
+    #     return self.topology.num_facets
+    #
+    # @property
+    # def num_edges(self):
+    #     return self.topology.num_edges
+    #
+    # @property
+    # def num_vertices(self):
+    #     return self.topology.num_vertices
 
     @property
     def _parent_mesh(self):

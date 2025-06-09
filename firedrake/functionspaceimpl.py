@@ -772,10 +772,11 @@ class FunctionSpace:
 
             section.setChart(0, self._mesh._base_mesh.num_points * (2*nlayers+1))
 
-            pt = 0
             for base_dim in range(base_dm.getDimension()+1):
                 for base_pt in range(*base_dm.getDepthStratum(base_dim)):
                     for col_pt in range(2*nlayers+1):
+                        pt = base_pt * (2*nlayers+1) + col_pt
+
                         if col_pt % 2 == 0:
                             # a 'vertex'
                             ndofs = entity_dofs[(base_dim, 0)]
@@ -783,7 +784,6 @@ class FunctionSpace:
                             # an 'edge'
                             ndofs = entity_dofs[(base_dim, 1)]
                         section.setDof(pt, ndofs)
-                        pt += 1
 
         section.setUp()
         return section
