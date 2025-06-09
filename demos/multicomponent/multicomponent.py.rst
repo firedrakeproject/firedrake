@@ -137,7 +137,11 @@ Recall that :math:`v` is the barycentric velocity and :math:`p` the pressure.
 Moreover :math:`\epsilon (v)` denotes the symmetric gradient of :math:`v`
 while :math:`\eta, \zeta > 0` are the shear and bulk viscosities respectively,
 :math:`d=2` is the spatial dimension and
-:math:`\mathbb{I}` the :math:`d \times d` identity matrix.
+:math:`\mathbb{I}` the :math:`d \times d` identity matrix. Despite the fact 
+that we are considering compressible flow, we still need
+a constraint on :math:`\nabla \cdot v` (as is the case for incompressible flow).
+However, we postpone the discussion of this constraint to the end of this section as it 
+involves other quantities that we have not yet described.
 
 We shall non-dimensionalise all of the unknowns in our discretisation.
 Hence we introduce a reference velocity :math:`v^{\textrm{ref}}` whose value
@@ -189,7 +193,7 @@ As we are considering steady flow, the continuity equations simplify to
 
 which are discretised as follows::
 
-    continuity_terms = (inner(w_1, div(J_1)) + inner(w_2, div(J_2))) * dx
+    continuity_terms = (inner(div(J_1), w_1) + inner(div(J_2), w_2)) * dx
 
 Next, we incorporate the volumetric equation of state, which models
 how the concentration of the mixture depends on temperature, pressure and composition.
@@ -396,11 +400,11 @@ Lastly, we weakly enforce that
 :math:`\nabla \cdot v = \nabla \cdot (\frac{1}{\rho} \sum_{j=1}^n J_j )`,
 using special density consistency terms to handle inhomogeneous BCs::
 
-    div_mass_avg_terms = inner(q, div(v - (rho_inv * (J_1 + J_2)))) * dx
+    div_mass_avg_terms = inner(div(v - (rho_inv * (J_1 + J_2))), q) * dx
 
     # The density consistency terms
     N = FacetNormal(mesh)
-    div_mass_avg_terms -= q * inner(v - (rho_inv * (J_1 + J_2)), N) * ds
+    div_mass_avg_terms -= inner(dot(v - (rho_inv * (J_1 + J_2)), N), q) * ds
 
 This concludes our discussion of the PDE model and its discretisation.
 Altogether, our total residual is the sum of forms built above::
@@ -421,8 +425,8 @@ The magnitudes of the parabolic profiles are :math:`M_i c_i^\text{ref} v_i^\text
 :math:`v_i^\text{ref}` are reference velocities that we are free to choose.
 Elsewhere on the boundary we enforce :math:`J_i \cdot N = 0`. Finally, instead of specifying
 the value of the barycentric velocity :math:`v` on the inflows and outflow, we enforce :math:`\rho v \cdot N = (J_1 + J_2 )\cdot N`
-and :math:`\rho v \times N = 0` in these regions. To enforce that :math:`v` is equal to an unknown quantity,
-we must use :class:`~.EquationBC` instead of :class:`~.DirichletBC`. ::
+and :math:`\rho v \times N = 0` in these regions. Boundary conditions that couple 
+unknowns and/or are nonlinear must be implemented with :class:`~.EquationBC` instead of :class:`~.DirichletBC`. ::
 
     # Reference species velocities, which we choose to symmetrize so that the molar fluxes agree
     v_ref_1 = Constant(0.4e-6)                      # Reference inflow velocity of benzene, m / s
@@ -452,16 +456,16 @@ we must use :class:`~.EquationBC` instead of :class:`~.DirichletBC`. ::
     # Note that BCs on H(div) spaces only apply to the normal component
     flux_bcs = [DirichletBC(Z_h.sub(0), J_1_inflow_bc_func, inlet_1_id),
                 DirichletBC(Z_h.sub(0), J_1_outflow_bc_func, outlet_id),
-                DirichletBC(Z_h.sub(0), as_vector([0.0, 0.0]), inlet_2_id),
-                DirichletBC(Z_h.sub(0), as_vector([0.0, 0.0]), walls_ids),
+                DirichletBC(Z_h.sub(0), 0, inlet_2_id),
+                DirichletBC(Z_h.sub(0), 0, walls_ids),
                 DirichletBC(Z_h.sub(1), J_2_inflow_bc_func, inlet_2_id),
                 DirichletBC(Z_h.sub(1), J_2_outflow_bc_func, outlet_id),
-                DirichletBC(Z_h.sub(1), as_vector([0.0, 0.0]), inlet_1_id),
-                DirichletBC(Z_h.sub(1), as_vector([0.0, 0.0]), walls_ids),
+                DirichletBC(Z_h.sub(1), 0, inlet_1_id),
+                DirichletBC(Z_h.sub(1), 0, walls_ids),
                 v_inflow_1_bc,
                 v_inflow_2_bc,
                 v_outflow_bc,
-                DirichletBC(Z_h.sub(2), as_vector([0.0, 0.0]), walls_ids)]
+                DirichletBC(Z_h.sub(2), 0, walls_ids)]
 
 It is now natural to assign :math:`v^\textrm{ref}`
 to be the average of the species reference velocities::
@@ -534,9 +538,9 @@ mathematically valid to do this)::
 
     # Fix the auxiliary chemical potentials and pressure at a point
     aux_point = as_vector([4, 0])   # A point on the middle of the outlet
-    aux_point_bcs = [FixAtPointBC(Z_h.sub(3), Constant(0.0), aux_point),
-                    FixAtPointBC(Z_h.sub(4), Constant(0.0), aux_point),
-                    FixAtPointBC(Z_h.sub(5), Constant(0.0), aux_point)]
+    aux_point_bcs = [FixAtPointBC(Z_h.sub(3), 0, aux_point),
+                    FixAtPointBC(Z_h.sub(4), 0, aux_point),
+                    FixAtPointBC(Z_h.sub(5), 0, aux_point)]
 
 Solving the system using Newton's method
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -563,7 +567,6 @@ We can reuse the nonlinear variational solver object each iteration, but have to
 and :code:`v_ref` before calling the :code:`solve()` method. Finally, we write each solution to the same 
 VTK file using the :code:`time` keyword argument. ::
 
-    from firedrake.output import VTKFile
     outfile = VTKFile("out/solution.pvd")
     cont_vals = [1.0, 2.5, 5, 7.5, 10.0]
     n_cont = len(cont_vals)
@@ -590,22 +593,19 @@ VTK file using the :code:`time` keyword argument. ::
         c_1_out.interpolate(c_1)
         c_2_out.interpolate(c_2)
 
-        J_1.rename("J_1")
-        J_2.rename("J_2")
-        v.rename("v")
         mu_1_out.rename("mu_1")
         mu_2_out.rename("mu_2")
-        p.rename("p")
-        x_1.rename("x_1")
-        x_2.rename("x_2")
-        rho_inv.rename("rho_inv")
         rho_out.rename("rho")
         c_tot_out.rename("c_tot")
         c_1_out.rename("c_1")
         c_2_out.rename("c_2")
-
-        outfile.write(J_1, J_2, v, mu_1_out, mu_2_out, p, x_1, x_2, rho_inv, \
-                        rho_out, c_tot_out, c_1_out, c_2_out, time=i)
+         
+        names = ["J_1", "J_2", "v", "mu_aux_1", "mu_aux_2", "p", "x_1", "x_2",
+                "rho_inv", "l_1", "l_2"]
+        for field, name in enumerate(names):
+            solution.subfunctions[field].rename(name)
+        
+        outfile.write(*solution.subfunctions, mu_1_out, mu_2_out, rho_out, c_tot_out, c_1_out, c_2_out, time=i)
 
 The mole fraction and streamlines of benzene for :math:`v_1^\text{ref}=0.4\times 10^{-6}` 
 and :math:`v_1^\text{ref}=0.4\times 10^{-5}` are displayed below on the left and right respectively.
