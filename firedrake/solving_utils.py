@@ -228,7 +228,7 @@ class _SNESContext(object):
         self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in problem.bcs)
 
         self._bc_residual = None
-        if not pre_apply_bcs and len(self.bcs_F) > 0:
+        if not pre_apply_bcs and next(problem.dirichlet_bcs(), None) is not None:
             # Delayed lifting of DirichletBCs
             self._bc_residual = Function(self._x.function_space())
             if problem.is_linear:
@@ -426,7 +426,7 @@ class _SNESContext(object):
 
         if not ctx.pre_apply_bcs:
             # Compute DirichletBC residual
-            for bc in ctx.bcs_F:
+            for bc in ctx._problem.dirichlet_bcs():
                 bc.apply(ctx._bc_residual, u=ctx._x)
 
         ctx._assemble_residual(tensor=ctx._F, current_state=ctx._x)

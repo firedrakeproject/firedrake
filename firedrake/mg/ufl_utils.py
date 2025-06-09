@@ -175,6 +175,7 @@ def coarsen_function(expr, self, coefficient_mapping=None):
             manager.restrict(expr, new)
         else:
             manager.inject(expr, new)
+        coefficient_mapping[expr] = new
     return new
 
 
@@ -184,7 +185,6 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
         return problem._coarse
 
     def inject_on_restrict(fine, restriction, rscale, injection, coarse):
-        from firedrake.bcs import DirichletBC
         manager = get_transfer_manager(fine)
         finectx = get_appctx(fine)
         forms = (finectx.F, finectx.J, finectx.Jp)
@@ -196,14 +196,10 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
                     manager.restrict(c, c._child)
                 else:
                     manager.inject(c, c._child)
-        # Apply bcs and also inject them
-        for bc in chain(*finectx._problem.bcs):
-            if isinstance(bc, DirichletBC):
-                if finectx.pre_apply_bcs:
-                    bc.apply(finectx._x)
-                g = bc.function_arg
-                if isinstance(g, firedrake.Function) and hasattr(g, "_child"):
-                    manager.inject(g, g._child)
+        # Apply bcs
+        for bc in chain.from_iterable(finectx._problem.dirichlet_bcs()):
+            if finectx.pre_apply_bcs:
+                bc.apply(finectx._x)
 
     V = problem.u.function_space()
     if not hasattr(V, "_coarse"):
@@ -211,32 +207,14 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
         # Therefore, we are only adding it once.
         V.dm.addCoarsenHook(None, inject_on_restrict)
 
-    # Build set of coefficients we need to coarsen
-    forms = [problem.F, problem.J, problem.Jp]
-    # We need forms from EquationBCs, too.
-    # EquationBC can have an EquationBC on the boundary,
-    # so we need to keep looping until we've treated them all
-    bcs_to_consider = list(problem.bcs)
-    while len(bcs_to_consider) > 0:
-        bc = bcs_to_consider.pop()
-
-        if isinstance(bc, EquationBC):
-            forms += [bc._F.f, bc._J.f, bc._Jp.f]
-            bcs_to_consider += bc._F.sorted_equation_bcs()
-
-    coefficients = unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
-    # Coarsen them, and remember where from.
     if coefficient_mapping is None:
         coefficient_mapping = {}
-    for c in coefficients:
-        coefficient_mapping[c] = self(c, self, coefficient_mapping=coefficient_mapping)
-
-    u = coefficient_mapping[problem.u]
 
     bcs = [self(bc, self, coefficient_mapping=coefficient_mapping) for bc in problem.bcs]
     J = self(problem.J, self, coefficient_mapping=coefficient_mapping)
     Jp = self(problem.Jp, self, coefficient_mapping=coefficient_mapping)
     F = self(problem.F, self, coefficient_mapping=coefficient_mapping)
+    u = coefficient_mapping[problem.u]
 
     fine = problem
     problem = firedrake.NonlinearVariationalProblem(F, u, bcs=bcs, J=J, Jp=Jp, is_linear=problem.is_linear,
@@ -341,8 +319,7 @@ class Interpolation(object):
             x.copy(v)
         self.manager.prolong(self.cprimal, self.fprimal)
         for bc in self.fbcs:
-            if isinstance(bc, firedrake.DirichletBC):
-                bc.zero(self.fprimal)
+            bc.zero(self.fprimal)
         with self.fprimal.dat.vec_ro as v:
             if inc:
                 y.axpy(1.0, v)
@@ -361,8 +338,7 @@ class Interpolation(object):
             x.copy(v)
         self.manager.restrict(self.fdual, self.cdual)
         for bc in self.cbcs:
-            if isinstance(bc, firedrake.DirichletBC):
-                bc.zero(self.cdual)
+            bc.zero(self.cdual)
         with self.cdual.dat.vec_ro as v:
             if inc:
                 y.axpy(1.0, v)
@@ -409,8 +385,8 @@ def create_interpolation(dmc, dmf):
 
     cfn = firedrake.Function(V_c)
     ffn = firedrake.Function(V_f)
-    cbcs = cctx._problem.bcs
-    fbcs = fctx._problem.bcs
+    cbcs = tuple(cctx._problem.dirichlet_bcs())
+    fbcs = tuple(fctx._problem.dirichlet_bcs())
 
     ctx = Interpolation(cfn, ffn, manager, cbcs, fbcs)
     mat = PETSc.Mat().create(comm=dmc.comm)
