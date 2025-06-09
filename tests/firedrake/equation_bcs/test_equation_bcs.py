@@ -203,7 +203,7 @@ def linear_poisson_mixed(solver_parameters, mesh_num, porder):
 def test_EquationBC_poisson_matrix(eq_type, with_bbc, pre_apply_bcs):
 
     # Only test pre_apply_bcs=False for nonlinear case
-    if not pre_apply_bcs and (eq_type == "linear" or with_bbc):
+    if not pre_apply_bcs and (eq_type == "linear"):
         pytest.skip(reason="Only test pre_apply_bcs=False in the nonlinear case")
 
     mat_type = "aij"

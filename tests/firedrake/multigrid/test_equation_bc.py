@@ -84,7 +84,8 @@ def test_nested_equation_bc(dim):
 
     u_bc = Function(u_exact)
     n = FacetNormal(mesh)
-    Fs = inner(dot(grad(u - u_bc), n), dot(grad(v), n)) * ds
+    Ps = Identity(dim) - outer(n, n)
+    Fs = inner(dot(grad(u - u_bc), Ps), grad(v)) * ds
 
     bcs_ridges = [DirichletBC(V, u_bc, ridges)]
     bcs_facets = [EquationBC(Fs == 0, u, "on_boundary", V=V, bcs=bcs_ridges)]
@@ -96,13 +97,12 @@ def test_nested_equation_bc(dim):
     sp = {
         "ksp_type": "fgmres",
         "ksp_rtol": 1e-10,
-        "ksp_monitor": None,
         "pc_type": "mg",
         "mg_levels": {
             "ksp_max_it": "2",
             "ksp_convergence_test": "skip",
             "ksp_type": "gmres",
-            "pc_type": "ilu",
+            "pc_type": "jacobi",
         },
         "mg_coarse": {
             "ksp_type": "preonly",
@@ -113,4 +113,4 @@ def test_nested_equation_bc(dim):
     solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
     solver.solve()
     assert errornorm(u_exact, u) < 1e-9
-    assert solver.snes.getLinearSolveIterations() <= 11
+    assert solver.snes.getLinearSolveIterations() <= 10

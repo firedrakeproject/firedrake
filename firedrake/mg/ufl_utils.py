@@ -11,7 +11,6 @@ from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, po
                                get_parent, add_hook)
 
 from . import utils
-import weakref
 
 
 __all__ = ["coarsen"]
@@ -27,7 +26,7 @@ class CoarsenIntegrand(MultiFunction):
     """'Coarsen' a :class:`ufl.Expr` by replacing coefficients,
     arguments and domain data with coarse mesh equivalents."""
 
-    def __init__(self, coarsen, coefficient_mapping):
+    def __init__(self, coarsen, coefficient_mapping=None):
         self.coefficient_mapping = coefficient_mapping or {}
         self.coarsen = coarsen
         super(CoarsenIntegrand, self).__init__()
@@ -89,8 +88,6 @@ def coarsen_form(form, self, coefficient_mapping=None):
     if form is None:
         return None
 
-    if coefficient_mapping is None:
-        coefficient_mapping = {}
     # Coarsen the coefficients and remember where from.
     for c in form.coefficients():
         self(c, self, coefficient_mapping=coefficient_mapping)
@@ -100,8 +97,7 @@ def coarsen_form(form, self, coefficient_mapping=None):
     for it in form.integrals():
         integrand = map_expr_dag(mapper, it.integrand())
         mesh = as_domain(it)
-        hierarchy, level = utils.get_level(mesh)
-        new_mesh = hierarchy[level-1]
+        new_mesh = self(mesh, self)
         if isinstance(integrand, ufl.classes.Zero):
             continue
         if it.subdomain_data() is not None:
@@ -172,7 +168,6 @@ def coarsen_function(expr, self, coefficient_mapping=None):
         Vf = expr.function_space()
         Vc = self(Vf, self)
         new = firedrake.Function(Vc, name=f"coarse_{expr.name()}")
-        expr._child = weakref.proxy(new)
         manager = get_transfer_manager(Vf.dm)
         if is_dual(expr):
             manager.restrict(expr, new)
@@ -189,33 +184,32 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
 
     def inject_on_restrict(fine, restriction, rscale, injection, coarse):
         manager = get_transfer_manager(fine)
-        finectx = get_appctx(fine)
-        coarsectx = get_appctx(coarse)
-        cmapping = coarsectx._problem.J._cache["coefficient_mapping"]
+        cctx = get_appctx(coarse)
+        cmapping = cctx._problem.J._cache["coefficient_mapping"]
         for c in cmapping:
             if is_dual(c):
                 manager.restrict(c, cmapping[c])
             else:
                 manager.inject(c, cmapping[c])
         # Apply bcs
-        if finectx.pre_apply_bcs:
-            for bc in finectx._problem.dirichlet_bcs():
-                bc.apply(finectx._x)
+        if cctx.pre_apply_bcs:
+            for bc in cctx._problem.dirichlet_bcs():
+                bc.apply(cctx._x)
 
-    V = problem.u.function_space()
-    if not V.dm.getAttr("__coarsen_hook__"):
+    dm = problem.u.function_space().dm
+    if not dm.getAttr("__coarsen_hook__"):
         # The hook is persistent and cumulative, but also problem-independent.
         # Therefore, we are only adding it once.
-        V.dm.addCoarsenHook(None, inject_on_restrict)
-        V.dm.setAttr("__coarsen_hook__", True)
+        dm.addCoarsenHook(None, inject_on_restrict)
+        dm.setAttr("__coarsen_hook__", True)
 
     if coefficient_mapping is None:
         coefficient_mapping = {}
 
     bcs = [self(bc, self, coefficient_mapping=coefficient_mapping) for bc in problem.bcs]
+    F = self(problem.F, self, coefficient_mapping=coefficient_mapping)
     J = self(problem.J, self, coefficient_mapping=coefficient_mapping)
     Jp = self(problem.Jp, self, coefficient_mapping=coefficient_mapping)
-    F = self(problem.F, self, coefficient_mapping=coefficient_mapping)
     u = coefficient_mapping[problem.u]
 
     fine = problem
@@ -362,7 +356,7 @@ class Injection(object):
         self.cbcs = cbcs or []
         self.manager = manager
 
-    def multTranspose(self, mat, x, y):
+    def mult(self, mat, x, y):
         with self.ffn.dat.vec_wo as v:
             x.copy(v)
         self.manager.inject(self.ffn, self.cfn)
@@ -373,7 +367,6 @@ class Injection(object):
 
 
 def create_interpolation(dmc, dmf):
-
     cctx = get_appctx(dmc)
     fctx = get_appctx(dmf)
 
@@ -408,8 +401,8 @@ def create_injection(dmc, dmf):
     V_c = cctx._problem.u.function_space()
     V_f = fctx._problem.u.function_space()
 
-    row_size = V_f.dof_dset.layout_vec.getSizes()
-    col_size = V_c.dof_dset.layout_vec.getSizes()
+    row_size = V_c.dof_dset.layout_vec.getSizes()
+    col_size = V_f.dof_dset.layout_vec.getSizes()
 
     cfn = firedrake.Function(V_c)
     ffn = firedrake.Function(V_f)
