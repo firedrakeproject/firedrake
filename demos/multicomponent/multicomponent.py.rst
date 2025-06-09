@@ -571,6 +571,25 @@ VTK file using the :code:`time` keyword argument. ::
     cont_vals = [1.0, 2.5, 5, 7.5, 10.0]
     n_cont = len(cont_vals)
 
+    names = ["J_1", "J_2", "v", "mu_aux_1", "mu_aux_2", "p", "x_1", "x_2",
+        "rho_inv", "l_1", "l_2"]
+    for field, name in enumerate(names):
+        solution.subfunctions[field].rename(name)
+ 
+    mu_1_out = Function(U_h)
+    mu_2_out = Function(U_h)
+    rho_out = Function(R_h)
+    c_tot_out = Function(R_h)
+    c_1_out = Function(R_h)
+    c_2_out = Function(R_h)
+     
+    mu_1_out.rename("mu_1")
+    mu_2_out.rename("mu_2")
+    rho_out.rename("rho")
+    c_tot_out.rename("c_tot")
+    c_1_out.rename("c_1")
+    c_2_out.rename("c_2")
+    
     for i in range(n_cont):
         print(f"Solving for v_ref_1 = {0.4e-6*cont_vals[i]}")
         v_ref_1.assign(Constant(0.4e-6*cont_vals[i]))
@@ -579,31 +598,12 @@ VTK file using the :code:`time` keyword argument. ::
 
         p += assemble(-p * dx) / assemble(1 * dx(mesh))     # Normalise p to have 0 mean
 
-        mu_1_out = Function(U_h)
-        mu_2_out = Function(U_h)
-        rho_out = Function(R_h)
-        c_tot_out = Function(R_h)
-        c_1_out = Function(R_h)
-        c_2_out = Function(R_h)
-        
         mu_1_out.interpolate(mu_1)
         mu_2_out.interpolate(mu_2)
         rho_out.interpolate(1.0 / rho_inv)
         c_tot_out.interpolate(c_tot)
         c_1_out.interpolate(c_1)
         c_2_out.interpolate(c_2)
-
-        mu_1_out.rename("mu_1")
-        mu_2_out.rename("mu_2")
-        rho_out.rename("rho")
-        c_tot_out.rename("c_tot")
-        c_1_out.rename("c_1")
-        c_2_out.rename("c_2")
-         
-        names = ["J_1", "J_2", "v", "mu_aux_1", "mu_aux_2", "p", "x_1", "x_2",
-                "rho_inv", "l_1", "l_2"]
-        for field, name in enumerate(names):
-            solution.subfunctions[field].rename(name)
         
         outfile.write(*solution.subfunctions, mu_1_out, mu_2_out, rho_out, c_tot_out, c_1_out, c_2_out, time=i)
 
