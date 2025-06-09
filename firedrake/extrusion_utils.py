@@ -239,10 +239,12 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         my_layer_data[base_cell, extr_cell] = extr_cell
     my_layer_dat = op3.Dat(iterset.materialize(), data=my_layer_data.flatten())
 
+    from firedrake.parloops import pack_tensor
+
     op3.do_loop(
         p := iterset.index(),
         kernel(
-            ext_coords.dat[extr_mesh.closure(p)],
+            pack_tensor(ext_coords, p, "cell"),
             base_coords.dat[extr_mesh.base_mesh_closure(p)],
             layer_height,
             my_layer_dat[p]
