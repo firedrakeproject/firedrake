@@ -8,7 +8,7 @@ from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 import math
 
 
-def nonlinear_poisson(solver_parameters, mesh_num, porder):
+def nonlinear_poisson(solver_parameters, mesh_num, porder, pre_apply_bcs=True):
 
     mesh = UnitSquareMesh(mesh_num, mesh_num)
 
@@ -29,7 +29,7 @@ def nonlinear_poisson(solver_parameters, mesh_num, porder):
     e2 = as_vector([0., 1.])
     bc1 = EquationBC((-inner(dot(grad(u), e2), dot(grad(v), e2)) + 3 * pi * pi * inner(u, v) + 1 * pi * pi * inner(g, v)) * ds(1) == 0, u, 1)
 
-    solve(a - L == 0, u, bcs=[bc1], solver_parameters=solver_parameters)
+    solve(a - L == 0, u, bcs=[bc1], solver_parameters=solver_parameters, pre_apply_bcs=pre_apply_bcs)
 
     f = cos(x * pi * 2) * cos(y * pi * 2)
     return sqrt(assemble(inner(u - f, u - f) * dx))
@@ -199,7 +199,13 @@ def linear_poisson_mixed(solver_parameters, mesh_num, porder):
 
 @pytest.mark.parametrize("eq_type", ["linear", "nonlinear"])
 @pytest.mark.parametrize("with_bbc", [False, True])
-def test_EquationBC_poisson_matrix(eq_type, with_bbc):
+@pytest.mark.parametrize("pre_apply_bcs", [False, True])
+def test_EquationBC_poisson_matrix(eq_type, with_bbc, pre_apply_bcs):
+
+    # Only test pre_apply_bcs=False for nonlinear case
+    if not pre_apply_bcs and (eq_type == "linear" or with_bbc):
+        pytest.skip(reason="Only test pre_apply_bcs=False in the nonlinear case")
+
     mat_type = "aij"
     porder = 2
     # Test standard poisson with EquationBCs
@@ -225,7 +231,7 @@ def test_EquationBC_poisson_matrix(eq_type, with_bbc):
                 err.append(linear_poisson(solver_parameters, mesh_num, porder))
         elif eq_type == "nonlinear":
             for mesh_num in mesh_sizes:
-                err.append(nonlinear_poisson(solver_parameters, mesh_num, porder))
+                err.append(nonlinear_poisson(solver_parameters, mesh_num, porder, pre_apply_bcs=pre_apply_bcs))
 
     assert abs(math.log2(err[0]) - math.log2(err[1]) - (porder+1)) < 0.05
 
