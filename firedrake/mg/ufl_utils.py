@@ -5,9 +5,7 @@ from ufl.domain import as_domain, extract_unique_domain
 from ufl.duals import is_dual
 
 from functools import singledispatch, partial
-from itertools import chain
 import firedrake
-from firedrake.utils import unique
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
                                get_parent, add_hook)
@@ -192,25 +190,24 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
     def inject_on_restrict(fine, restriction, rscale, injection, coarse):
         manager = get_transfer_manager(fine)
         finectx = get_appctx(fine)
-        forms = (finectx.F, finectx.J, finectx.Jp)
-        coefficients = unique(chain.from_iterable(form.coefficients()
-                              for form in forms if form is not None))
-        for c in coefficients:
-            if hasattr(c, '_child'):
-                if is_dual(c):
-                    manager.restrict(c, c._child)
-                else:
-                    manager.inject(c, c._child)
+        coarsectx = get_appctx(coarse)
+        cmapping = coarsectx._problem.J._cache["coefficient_mapping"]
+        for c in cmapping:
+            if is_dual(c):
+                manager.restrict(c, cmapping[c])
+            else:
+                manager.inject(c, cmapping[c])
         # Apply bcs
         if finectx.pre_apply_bcs:
             for bc in finectx._problem.dirichlet_bcs():
                 bc.apply(finectx._x)
 
     V = problem.u.function_space()
-    if not hasattr(V, "_coarse"):
+    if not V.dm.getAttr("__coarsen_hook__"):
         # The hook is persistent and cumulative, but also problem-independent.
         # Therefore, we are only adding it once.
         V.dm.addCoarsenHook(None, inject_on_restrict)
+        V.dm.setAttr("__coarsen_hook__", True)
 
     if coefficient_mapping is None:
         coefficient_mapping = {}
