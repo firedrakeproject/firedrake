@@ -768,7 +768,7 @@ class FunctionSpace:
         else:
             assert type(self._mesh.topology) is ExtrudedMeshTopology
             base_dm = self._mesh._base_mesh.topology_dm
-            nlayers = self._mesh.layers
+            nlayers = self._mesh.layers - 1
 
             section.setChart(0, self._mesh._base_mesh.num_points * (2*nlayers+1))
 

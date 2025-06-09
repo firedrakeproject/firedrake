@@ -2767,16 +2767,16 @@ class ExtrudedMeshTopology(MeshTopology):
         if self.layers.shape:
             raise NotImplementedError
         else:
-            nlayers = int(self.layers)
+            n_extr_cells = int(self.layers) - 1
 
         base_mesh_axis = self._base_mesh.flat_points
-        npoints = base_mesh_axis.component.local_size * (2*nlayers+1)
+        npoints = base_mesh_axis.component.local_size * (2*n_extr_cells+1)
 
         base_point_sf = base_mesh_axis.component.sf
         section = PETSc.Section().create(comm=base_point_sf.comm)
         section.setChart(0, base_point_sf.size)
         for pt in range(base_point_sf.size):
-            section.setDof(pt, nlayers)
+            section.setDof(pt, 2*n_extr_cells+1)
         point_sf = op3.StarForest(dmcommon.create_section_sf(base_point_sf.sf, section), npoints)
 
         return op3.Axis(
@@ -2805,15 +2805,15 @@ class ExtrudedMeshTopology(MeshTopology):
         if self.layers.shape:
             raise NotImplementedError("Gets a little more complicated when things are ragged")
         else:
-            nlayers = int(self.layers)
+            n_extr_cells = int(self.layers) - 1
 
         # we always have 2n+1 entities when we extrude
         # TODO: duplicated in multiple places
         base_indices = self._base_mesh._dm_renumbering.indices
-        indices = np.empty((base_indices.size, (2*nlayers+1)), dtype=base_indices.dtype)
+        indices = np.empty((base_indices.size, (2*n_extr_cells+1)), dtype=base_indices.dtype)
         for i in range(base_indices.size):
-            for j in range(2*nlayers+1):
-                indices[i, j] = base_indices[i] * (2*nlayers+1) + j
+            for j in range(2*n_extr_cells+1):
+                indices[i, j] = base_indices[i] * (2*n_extr_cells+1) + j
         return PETSc.IS().createGeneral(indices, comm=self._comm)
 
     @cached_property
@@ -2821,7 +2821,7 @@ class ExtrudedMeshTopology(MeshTopology):
         if self.layers.shape:
             raise NotImplementedError("Gets a little more complicated when things are ragged")
         else:
-            nlayers = int(self.layers)
+            nlayers = int(self.layers) - 1
 
         indices = {}
         for base_dim in range(self._base_mesh.dimension+1):
@@ -2830,13 +2830,15 @@ class ExtrudedMeshTopology(MeshTopology):
                 dim = (base_dim, extr_dim)
 
                 num_extr_pts = nlayers+1 if extr_dim == 0 else nlayers
+                offset = 0 if extr_dim == 0 else 1
 
                 # extend the base indices
                 idxs = np.empty((base_indices.size, num_extr_pts), dtype=base_indices.dtype)
                 for i in range(base_indices.size):
                     for j in range(num_extr_pts):
-                        idxs[i, j] = base_indices[i] * (2*nlayers+1) + 2*j
+                        idxs[i, j] = base_indices[i] * (2*nlayers+1) + 2*j + offset
                 indices[dim] = idxs.flatten()
+        breakpoint()
         return indices
 
     # TODO: I don't think that the specific ordering actually matters here...
@@ -2881,7 +2883,7 @@ class ExtrudedMeshTopology(MeshTopology):
         if self.layers.shape:
             raise NotImplementedError
         else:
-            nlayers = int(self.layers)
+            nlayers = int(self.layers) - 1
 
         closures = {}
         for base_dest_dim in range(self._base_mesh.dimension+1):
@@ -2899,14 +2901,16 @@ class ExtrudedMeshTopology(MeshTopology):
                     # 'vertex' extrusion, twice as many points in the closure
                     for ci in range(n_base_cells):
                         for j in range(nlayers):
-                            for k in range(closure_size//2):
+                            # for k in range(closure_size//2):
+                            for k in range(base_closures.shape[1]):
                                 idxs[ci, j, 2*k] = base_closures[ci, k] * num_extr_pts + j
                                 idxs[ci, j, 2*k+1] = base_closures[ci, k] * num_extr_pts + j + 1
                 else:
                     # 'edge' extrusion, only one point in the closure
                     for ci in range(n_base_cells):
                         for j in range(nlayers):
-                            for k in range(closure_size):
+                            # for k in range(closure_size):
+                            for k in range(base_closures.shape[1]):
                                 idxs[ci, j, k] = base_closures[ci, k] * num_extr_pts + j
                 closures[dest_dim] = idxs.reshape((-1, closure_size))
         return closures
@@ -2916,7 +2920,7 @@ class ExtrudedMeshTopology(MeshTopology):
         if self.layers.shape:
             raise NotImplementedError
         else:
-            nlayers = int(self.layers)
+            n_extr_cells = int(self.layers) - 1
 
         closures = {}
         for base_dest_dim in range(self._base_mesh.dimension+1):
@@ -2940,10 +2944,10 @@ class ExtrudedMeshTopology(MeshTopology):
             closure_size = self._base_mesh._closure_sizes[self._base_mesh.dimension][base_dest_dim]
 
             n_base_cells = self._base_mesh.num_cells
-            idxs = np.empty((n_base_cells, nlayers, closure_size), dtype=base_closures.dtype)
+            idxs = np.empty((n_base_cells, n_extr_cells, closure_size), dtype=base_closures.dtype)
 
             for ci in range(n_base_cells):
-                for j in range(nlayers):
+                for j in range(n_extr_cells):
                     for k in range(closure_size):
                         idxs[ci, j, k] = base_closures[ci, k]
 
@@ -2958,8 +2962,6 @@ class ExtrudedMeshTopology(MeshTopology):
 
         dim = (1, 1)
         closure_data = self._base_fiat_cell_closure_data_localized
-
-        breakpoint()
 
         map_components = []
         for map_dim, map_data in closure_data.items():
