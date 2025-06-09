@@ -414,7 +414,6 @@ class _SNESContext(object):
         :arg X: the current guess (a Vec)
         :arg F: the residual at X (a Vec)
         """
-        from firedrake.bcs import DirichletBC
         dm = snes.getDM()
         ctx = dmhooks.get_appctx(dm)
         # X may not be the same vector as the vec behind self._x, so
@@ -427,9 +426,8 @@ class _SNESContext(object):
 
         if not ctx.pre_apply_bcs:
             # Compute DirichletBC residual
-            for bc in ctx.bcs_F:
-                if isinstance(bc, DirichletBC):
-                    bc.apply(ctx._bc_residual, u=ctx._x)
+            for bc in ctx._problem.dirichlet_bcs():
+                bc.apply(ctx._bc_residual, u=ctx._x)
 
         ctx._assemble_residual(tensor=ctx._F, current_state=ctx._x)
 
