@@ -4,8 +4,6 @@ import subprocess
 import glob
 from firedrake.petsc import get_external_packages
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
 
 try:
     import matplotlib.pyplot as plt  # noqa: 401

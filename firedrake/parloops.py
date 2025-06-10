@@ -498,12 +498,7 @@ def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.Ind
         index_tree = op3.IndexTree(field_slice)
 
         for i, (Vsub, ileaf) in enumerate(zip(V, index_tree.leaves, strict=True)):
-            closure_tree = op3.IndexTree.from_nest({
-                mesh._fiat_closure(cell): [
-                    op3.Slice(f"dof{d}", [op3.AffineSliceComponent("XXX")])
-                    for d in mesh._closure_sizes[mesh.cell_label].keys()
-                ]
-            })
+            closure_tree = _cell_closure_index_tree(Vsub, cell)
             subspace_tree = closure_tree
 
             tensor_slices = tuple(
@@ -517,12 +512,7 @@ def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.Ind
 
             index_tree.add_subtree(subspace_tree, ileaf)
     else:
-        closure_tree = op3.IndexTree.from_nest({
-            mesh._fiat_closure(cell): [
-                op3.Slice(f"dof{d}", [op3.AffineSliceComponent("XXX")])
-                for d in mesh._closure_sizes[mesh.cell_label].keys()
-            ]
-        })
+        closure_tree = _cell_closure_index_tree(V, cell)
         index_tree = closure_tree
 
         tensor_slices = tuple(
@@ -535,6 +525,26 @@ def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.Ind
             index_tree = index_tree.add_subtree(shape_tree, leaf, uniquify_ids=True)
 
     return index_tree
+
+
+def _cell_closure_index_tree(V, cell: op3.LoopIndex) -> op3.IndexTree:
+    from firedrake.assemble import _is_real_space
+
+    mesh = V.mesh()
+
+    if _is_real_space(V):
+        # Real spaces don't really know anything about the mesh so
+        # the 'closure' map is simpler.
+        return op3.IndexTree(
+            op3.Slice(f"dof{mesh.cell_label}", [op3.AffineSliceComponent("XXX")])
+        )
+    else:
+        return op3.IndexTree.from_nest({
+            mesh._fiat_closure(cell): [
+                op3.Slice(f"dof{d}", [op3.AffineSliceComponent("XXX")])
+                for d in mesh._closure_sizes[mesh.cell_label].keys()
+            ]
+        })
 
 
 def _facet_integral_pack_indices(V: WithGeometry, facet: op3.LoopIndex) -> op3.IndexTree:

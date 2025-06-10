@@ -1075,26 +1075,6 @@ class AbstractMeshTopology(abc.ABC):
             #     raise ValueError("FIAT closure ordering is only valid for cell closures")
             return self._fiat_closure(index)
 
-    # testing
-    @staticmethod
-    def make_entity_cone_lists(fiat_cell):
-        _dim = fiat_cell.get_dimension()
-        _connectivity = fiat_cell.connectivity
-        _list = []
-        _offset_list = [0 for _ in _connectivity[(0, 0)]]  # vertices have no cones
-        _offset = 0
-        _n = 0  # num. of entities up to dimension = _d
-        breakpoint()
-        for _d in range(_dim):
-            _n1 = len(_offset_list)
-            for _conn in _connectivity[(_d + 1, _d)]:
-                _list += [_c + _n for _c in _conn]  # These are indices into cell_closure[some_cell]
-                _offset_list.append(_offset)
-                _offset += len(_conn)
-            _n = _n1
-        _offset_list.append(_offset)
-        return _list, _offset_list
-
     @cached_property
     def _closure_sizes(self) -> immutabledict[immutabledict]:
         """
@@ -1147,8 +1127,6 @@ class AbstractMeshTopology(abc.ABC):
             closure_arrays = {self.cell_label: self._fiat_cell_closures_localized}
         else:
             raise ValueError(f"'{ordering}' is not a recognised closure ordering option")
-
-        breakpoint()
 
         closures = {}
         for dim, closure_data in closure_arrays.items():
@@ -1858,6 +1836,7 @@ class AbstractMeshTopology(abc.ABC):
             Tuple of `op2.ComposedMap` from other to self, integral_type on self, and points on self.
 
         """
+        raise NotImplementedError
         common = self.submesh_youngest_common_ancester(other)
         if common is None:
             raise ValueError(f"Unable to create composed map between (sub)meshes: {self} and {other} are unrelated")
@@ -2212,20 +2191,20 @@ class MeshTopology(AbstractMeshTopology):
         return renumbered_closures
 
     @cached_property
-    def _fiat_cell_closures_localized(self) -> tuple[np.ndarray, ...]:
+    def _fiat_cell_closures_localized(self) -> immutabledict[int, np.ndarray]:
         """
 
         Reorders verts -> cell from cell -> verts
 
         """
-        localized_closures = []
+        localized_closures = {}
         from_dim = self.dimension
         offset = 0
         for to_dim, size in self._closure_sizes[from_dim].items():
             stratum_offset, _ = self.topology_dm.getDepthStratum(to_dim)
-            localized_closures.append(self._fiat_cell_closures_renumbered[:, offset:offset+size] - stratum_offset)
+            localized_closures[to_dim] = self._fiat_cell_closures_renumbered[:, offset:offset+size] - stratum_offset
             offset += size
-        return tuple(localized_closures)
+        return immutabledict(localized_closures)
 
     @cached_property
     def entity_orientations(self):
@@ -2359,6 +2338,7 @@ class MeshTopology(AbstractMeshTopology):
         The value `cell_facet[c][i][1]` returns the subdomain marker of the
         facet.
         """
+        raise NotImplementedError
         cell_facets = dmcommon.cell_facet_labeling(self.topology_dm,
                                                    self._cell_numbering,
                                                    self.cell_closure)
@@ -2551,6 +2531,7 @@ class MeshTopology(AbstractMeshTopology):
     # submesh
 
     def _submesh_make_entity_entity_map(self, from_set, to_set, from_points, to_points, child_parent_map):
+        raise NotImplementedError
         assert from_set.total_size == len(from_points)
         assert to_set.total_size == len(to_points)
         with self.topology_dm.getSubpointIS() as subpoints:
@@ -3424,6 +3405,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh base cells.
         """
+        raise NotImplementedError
         if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
             raise AttributeError("Parent mesh is not extruded.")
         return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
@@ -3445,6 +3427,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh extrusion heights.
         """
+        raise NotImplementedError
         if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
             raise AttributeError("Parent mesh is not extruded.")
         return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
@@ -5940,6 +5923,7 @@ def SubDomainData(geometric_expr):
         assemble(f*dx(subdomain_data=sd))
 
     """
+    raise NotImplementedError
     import firedrake.functionspace as functionspace
     import firedrake.projection as projection
 

@@ -7,9 +7,6 @@ from firedrake import *
 cwd = abspath(dirname(__file__))
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 point location")
-
-
 @pytest.fixture
 def mesh_interval():
     return IntervalMesh(1, -0.2, 1.4)

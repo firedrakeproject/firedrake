@@ -6,9 +6,6 @@ from firedrake.__future__ import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 @pytest.mark.skipcomplex
 def test_real_assembly():
     mesh = UnitIntervalMesh(3)

@@ -539,32 +539,32 @@ class FunctionSpace:
 
         self.finat_element = create_element(element)
 
-        # This is a hack because RealFunctionSpace inherits from this class
-        # without its own constructor. Perhaps introduce a BaseFunctionSpace
-        # parent class.
-        if isinstance(self, RealFunctionSpace):
-            raise NotImplementedError
-            # it is important to mark as unit here so we can distinguish row and column
-            # matrices.
-            axis = op3.Axis(op3.AxisComponent(1, "XXX", unit=True), "dof")
-            axes = op3.AxisTree(axis)
-            block_axes = axes
+        entity_dofs = self.finat_element.entity_dofs()
+        nodes_per_entity = tuple(len(entity_dofs[d][0]) for d in sorted(entity_dofs))
+        real_tensor_product = is_real_tensor_product_element(self.finat_element)
+        key = (nodes_per_entity, real_tensor_product, self.shape)
 
-            if self.shape:
-                subaxes = op3.AxisTree.from_iterable(
-                    [op3.Axis({"XXX": dim}, f"dim{i}") for i, dim in enumerate(self.shape)]
-                )
-                axes = axes.add_subtree(subaxes, axes.root, axes.root.component)
+        if key in mesh._shared_data_cache:
+            flat_axes = mesh._shared_data_cache["cacheA"][key]
         else:
-            entity_dofs = self.finat_element.entity_dofs()
-            nodes_per_entity = tuple(len(entity_dofs[d][0]) for d in sorted(entity_dofs))
-            real_tensor_product = is_real_tensor_product_element(self.finat_element)
-            key = (nodes_per_entity, real_tensor_product, self.shape)
+            # This is a hack because RealFunctionSpace inherits from this class
+            # without its own constructor. Perhaps introduce a BaseFunctionSpace
+            # parent class.
+            if isinstance(self, RealFunctionSpace):
+                # NOTE: The 'nice' way to do this is to consider a Real function space as a
+                # space where most of the points are constrained. We could then index using
+                # closure as usual but the layout would map back to the much smaller array.
+                # For now we instead use special closure maps that always map to zero.
+                flat_axes = op3.Axis(
+                    [op3.AxisComponent(1, "mylabel", sf=op3.single_star_sf(self._comm))],
+                    label=f"{self.mesh().name}_flat",
+                ).as_tree()
 
-            if key in mesh._shared_data_cache:
-                axes = mesh._shared_data_cache["cacheA"][key]
+                ndofs = self.local_section.getDof(0)
+                subaxis = op3.Axis({"XXX": ndofs}, "dof")
+                flat_axes = flat_axes.add_axis(subaxis, flat_axes.leaf)
             else:
-                axes = op3.AxisTree(mesh.flat_points)
+                flat_axes = op3.AxisTree(mesh.flat_points)
 
                 # we can cache this more generally because we don't care about the shape here
                 otherkey = ("ndofs_dat", nodes_per_entity, real_tensor_product)
@@ -583,39 +583,67 @@ class FunctionSpace:
                     subaxis = op3.Axis({"XXX": ndofs_dat}, "dof")
                     mesh._shared_data_cache["cacheB"][otherkey] = subaxis
 
-                axes = axes.add_axis(subaxis, axes.root, "mylabel")
+                flat_axes = flat_axes.add_axis(subaxis, flat_axes.root, "mylabel")
 
-                # add tensor shape
-                subaxes = op3.AxisTree.from_iterable(
-                    [op3.Axis({"XXX": dim}, f"dim{i}") for i, dim in enumerate(self.shape)]
-                )
-                axes = axes.add_subtree(subaxes, subaxis, "XXX")
+            # add tensor shape
+            subaxes = op3.AxisTree.from_iterable(
+                [op3.Axis({"XXX": dim}, f"dim{i}") for i, dim in enumerate(self.shape)]
+            )
+            flat_axes = flat_axes.add_subtree(subaxes, flat_axes.leaf)
 
-                mesh._shared_data_cache["cacheA"][key] = axes
+            if isinstance(self, RealFunctionSpace):
+                axes = flat_axes
+            else:
+                axes = flat_axes[self._strata_index_tree()]
+
+            mesh._shared_data_cache["cacheA"][key] = flat_axes
 
         # TODO: AxisForest?
-        self.flat_axes = axes
-        self.axes = axes[self._strata_index_tree()]
+        self.flat_axes = flat_axes
+        self.axes = axes
 
     def _strata_index_tree(self, *, suffix=""):
         # NOTE: If we do not do explicit slices here then the code cannot cope with slicing
         # the ndofs ragged array.
-        strata_slice = self._mesh._strata_slice
-        index_tree = op3.IndexTree(strata_slice)
-        for slice_component in strata_slice.slices:
-            dim = slice_component.label
-            ndofs = single_valued(len(v) for v in self.finat_element.entity_dofs()[dim].values())
-            subslice = op3.Slice(f"dof{suffix}", [op3.AffineSliceComponent("XXX", stop=ndofs, label="XXX")], label=f"dof{slice_component.label}{suffix}")
-            index_tree = index_tree.add_node(subslice, strata_slice, slice_component.label)
+        if isinstance(self, RealFunctionSpace):
+            subsets = []
+            for dim in self.mesh()._plex_strata_ordering:
+                slice_component = op3.AffineSliceComponent("mylabel", label=dim)
+                subsets.append(slice_component)
+            strata_slice = op3.Slice(f"{self.mesh().name}_flat", subsets, label=self.name)
+            index_tree = op3.IndexTree(strata_slice)
 
-            # same as in parloops.py
-            if self.shape:
-                shape_slices = op3.IndexTree.from_iterable([
-                    op3.Slice(f"dim{i}", [op3.AffineSliceComponent("XXX", label="XXX")], label=f"dim{i}")
-                    for i, dim in enumerate(self.shape)
-                ])
+            for slice_component in strata_slice.slices:
+                dim = slice_component.label
+                ndofs = single_valued(len(v) for v in self.finat_element.entity_dofs()[dim].values())
+                subslice = op3.Slice(f"dof{suffix}", [op3.AffineSliceComponent("XXX", stop=ndofs, label="XXX")], label=f"dof{slice_component.label}{suffix}")
+                index_tree = index_tree.add_node(subslice, strata_slice, slice_component.label)
 
-                index_tree = index_tree.add_subtree(shape_slices, subslice, "XXX")
+                # same as in parloops.py
+                if self.shape:
+                    shape_slices = op3.IndexTree.from_iterable([
+                        op3.Slice(f"dim{i}", [op3.AffineSliceComponent("XXX", label="XXX")], label=f"dim{i}")
+                        for i, dim in enumerate(self.shape)
+                    ])
+
+                    index_tree = index_tree.add_subtree(shape_slices, subslice, "XXX")
+        else:
+            strata_slice = self._mesh._strata_slice
+            index_tree = op3.IndexTree(strata_slice)
+            for slice_component in strata_slice.slices:
+                dim = slice_component.label
+                ndofs = single_valued(len(v) for v in self.finat_element.entity_dofs()[dim].values())
+                subslice = op3.Slice(f"dof{suffix}", [op3.AffineSliceComponent("XXX", stop=ndofs, label="XXX")], label=f"dof{slice_component.label}{suffix}")
+                index_tree = index_tree.add_node(subslice, strata_slice, slice_component.label)
+
+                # same as in parloops.py
+                if self.shape:
+                    shape_slices = op3.IndexTree.from_iterable([
+                        op3.Slice(f"dim{i}", [op3.AffineSliceComponent("XXX", label="XXX")], label=f"dim{i}")
+                        for i, dim in enumerate(self.shape)
+                    ])
+
+                    index_tree = index_tree.add_subtree(shape_slices, subslice, "XXX")
 
         return index_tree
 
@@ -749,10 +777,6 @@ class FunctionSpace:
     @utils.cached_property
     def local_section(self):
         section = PETSc.Section().create(comm=self.comm)
-        if self._ufl_function_space.ufl_element().family() == "Real":
-            # If real we don't need to populate the section
-            return section
-
         if self._mesh._dm_renumbering is not None:
             section.setPermutation(self._mesh._dm_renumbering)
 
@@ -786,7 +810,13 @@ class FunctionSpace:
                             ndofs = entity_dofs[(base_dim, 1)]
                         section.setDof(pt, ndofs)
 
-        section.setUp()
+        if self._ufl_function_space.ufl_element().family() == "Real":
+            p_start, p_end = section.getChart()
+            for p in range(p_start, p_end):
+                section.setOffset(p, 0)
+        else:
+            section.setUp()
+
         return section
 
     # TODO: This is identical to value_size, remove
@@ -1702,21 +1732,8 @@ class RealFunctionSpace(FunctionSpace):
         pass
 
     def make_dof_dset(self):
+        raise NotImplementedError
         return op2.GlobalDataSet(self.make_dat())
-
-    # NOTE: This is the same as for mixed spaces and regular spaces
-    def make_dat(self, val=None, valuetype=None, name=None):
-        r"""Return a newly allocated :class:`pyop2.types.glob.Global` representing the
-        data for a :class:`.Function` on this space."""
-        if val is not None and val.size != self.axes.size:
-            raise ValueError("Provided array has the wrong number of entries")
-
-        return op3.Dat(
-            self.axes,
-            data=val,
-            dtype=valuetype,
-            name=name,
-        )
 
     def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
         return None
