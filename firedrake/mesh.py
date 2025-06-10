@@ -56,6 +56,7 @@ except ImportError:
 # Only for docstring
 import mpi4py  # noqa: F401
 from finat.element_factory import as_fiat_cell
+from ufl.cell import as_cell
 
 
 __all__ = [
@@ -455,6 +456,7 @@ class _FacetContext:
         local_facet_start = offsets[-3]
         local_facet_end = offsets[-2]
         map_from_cell_to_facet_orientations = self.mesh.entity_orientations[:, local_facet_start:local_facet_end]
+
         # Make output data;
         # this is a map from an exterior/interior facet to the corresponding local facet orientation/orientations.
         # Halo data are required by design, but not actually used.
@@ -1545,8 +1547,7 @@ class AbstractMeshTopology(abc.ABC):
         :arg entity_permutations: FInAT element entity permutations
         :arg offsets: layer offsets for each entity dof (may be None).
         """
-        return dmcommon.get_cell_nodes(self, global_numbering,
-                                       entity_dofs, entity_permutations, offsets)
+        return dmcommon.get_cell_nodes(self, global_numbering, entity_dofs, entity_permutations, offsets)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
@@ -1994,8 +1995,7 @@ class MeshTopology(AbstractMeshTopology):
         # represent a mesh topology (as here) have geometric dimension
         # equal their topological dimension. This is reflected in the
         # corresponding UFL mesh.
-        # return ufl.Cell(_cells[tdim][nfacets])
-        return constructCellComplex(_cells[tdim][nfacets])
+        return as_cell(_cells[tdim][nfacets])
 
     @utils.cached_property
     def _ufl_mesh(self):
@@ -2660,7 +2660,7 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @utils.cached_property
     def _ufl_cell(self):
-        return ufl.TensorProductCell(self._base_mesh.ufl_cell(), ufl.interval)
+        return ufl.TensorProductCell(self._base_mesh.ufl_cell(), as_cell("interval"))
 
     @utils.cached_property
     def _ufl_mesh(self):
@@ -4210,9 +4210,9 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     if extrusion_type == 'radial_hedgehog':
         helement = helement.reconstruct(family="DG", variant="equispaced")
     if periodic:
-        velement = finat.ufl.FiniteElement("DP", ufl.interval, 1, variant="equispaced")
+        velement = finat.ufl.FiniteElement("DP", as_cell("interval"), 1, variant="equispaced")
     else:
-        velement = finat.ufl.FiniteElement("Lagrange", ufl.interval, 1)
+        velement = finat.ufl.FiniteElement("Lagrange", as_cell("interval"), 1)
     element = finat.ufl.TensorProductElement(helement, velement)
 
     if gdim is None:
