@@ -8,6 +8,7 @@ import numpy as np
 from mpi4py import MPI
 
 from pyop3 import dtypes, exceptions as exc, utils
+from pyop3.axtree.tree import UNIT_AXIS_TREE
 from .base import Tensor
 from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer
 from pyop3.sf import single_star_sf
@@ -34,6 +35,9 @@ class Scalar(Tensor):
         name = f"{self.name}_copy"
         buffer = self._buffer.copy()
         return self.__record_init__(_name=name, _buffer=buffer)
+
+    shape = UNIT_AXIS_TREE
+    loop_axes = ()
 
     # }}}
 

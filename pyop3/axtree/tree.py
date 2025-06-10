@@ -217,6 +217,10 @@ class _UnitAxisTree(CacheMixin):
     def leaf_subst_layouts(self):
         return immutabledict({immutabledict(): 0})
 
+    @property
+    def outer_loops(self):
+        return ()
+
 
 
 UNIT_AXIS_TREE = _UnitAxisTree()
@@ -661,9 +665,20 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
         else:
             return (as_axis_component(components),)
 
+
 # NOTE: does this sort of expression stuff live in here? Or expr.py perhaps? Definitely
 # TODO: define __str__ as an abc?
 class Expression(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def shape(self) -> AxisTree:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def loop_axes(self) -> tuple[Axis]:
+        pass
+
     def __add__(self, other):
         if other == 0:
             return self
@@ -699,30 +714,39 @@ class Expression(abc.ABC):
             return NotImplemented
 
         return FloorDiv(self, other)
-
-    # def __le__(self, other):
-    #     from pyop3.expr_visitors import estimate
-    #     return estimate(self) <= estimate(other)
     #
-    # def __ge__(self, other):
+    # # def __le__(self, other):
+    # #     from pyop3.expr_visitors import estimate
+    # #     return estimate(self) <= estimate(other)
+    # #
+    # # def __ge__(self, other):
+    # #     from pyop3.expr_visitors import estimate
+    # #     return estimate(self) >= estimate(other)
+    #
+    # def __lt__(self, other):
     #     from pyop3.expr_visitors import estimate
-    #     return estimate(self) >= estimate(other)
-
-    def __lt__(self, other):
-        from pyop3.expr_visitors import estimate
-        return estimate(self) < estimate(other)
-
-    def __gt__(self, other):
-        from pyop3.expr_visitors import estimate
-        return estimate(self) > estimate(other)
+    #     return estimate(self) < estimate(other)
+    #
+    # def __gt__(self, other):
+    #     from pyop3.expr_visitors import estimate
+    #     return estimate(self) > estimate(other)
 
 
 
 
 class Operator(Expression, metaclass=abc.ABCMeta):
+
     def __init__(self, a, b, /):
         self.a = a
         self.b = b
+
+    @cached_property
+    def shape(self) -> AxisTree:
+        return merge_trees2(_extract_expr_shape(self.a), _extract_expr_shape(self.b))
+
+    @cached_property
+    def loop_axes(self) -> tuple[Axis]:
+        return utils.unique(_extract_loop_axes(self.a) + _extract_loop_axes(self.b))
 
     def __hash__(self) -> int:
         return hash((type(self), self.a, self.b))
@@ -783,8 +807,20 @@ class Terminal(Expression, abc.ABC):
 
 
 class AxisVar(Terminal):
-    def __init__(self, axis_label: str) -> None:
-        self.axis_label = axis_label
+    def __init__(self, axis: Axis) -> None:
+        assert not isinstance(axis, str), "debugging"
+        self.axis = axis
+
+    # TODO: deprecate?
+    @property
+    def axis_label(self):
+        return self.axis.label
+
+    @cached_property
+    def shape(self) -> AxisTree:
+        return self.axis.as_tree()
+
+    loop_axes = ()
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.axis_label!r})"
@@ -798,6 +834,9 @@ class AxisVar(Terminal):
 
 
 class NaN(Terminal):
+    shape = UNIT_AXIS_TREE
+    loop_axes = ()
+
     def __repr__(self) -> str:
         return "NaN()"
 
@@ -808,12 +847,26 @@ class NaN(Terminal):
 
 # TODO: Refactor so loop ID passed in not the actual index
 class LoopIndexVar(Terminal):
-    def __init__(self, loop_id, axis_label) -> None:
+    def __init__(self, loop_id, axis) -> None:
+        assert not isinstance(axis, str), "changed"
         # debug
         from pyop3.itree import LoopIndex
         assert not isinstance(loop_id, LoopIndex)
         self.loop_id = loop_id
-        self.axis_label = axis_label
+        self.axis = axis
+
+    @property
+    def shape(self):
+        return UNIT_AXIS_TREE
+
+    @property
+    def loop_axes(self):
+        return (self.axis,)
+
+    # TODO: deprecate me
+    @property
+    def axis_label(self):
+        return self.axis.label
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.loop_id!r}, {self.axis_label!r})"
@@ -829,6 +882,36 @@ class LoopIndexVar(Terminal):
 # typing
 # ExpressionT = Expression | numbers.Number  (in 3.10)
 ExpressionT = Union[Expression, numbers.Number]
+
+
+@functools.singledispatch
+def _extract_expr_shape(obj: Any) -> AxisTree:
+    raise TypeError
+
+
+@_extract_expr_shape.register(numbers.Number)
+def _(num: numbers.Number) -> AxisTree:
+    return UNIT_AXIS_TREE
+
+
+@_extract_expr_shape.register(Expression)
+def _(expr: Expression) -> AxisTree:
+    return expr.shape
+
+
+@functools.singledispatch
+def _extract_loop_axes(obj: Any) -> AxisTree:
+    raise TypeError
+
+
+@_extract_loop_axes.register(numbers.Number)
+def _(num: numbers.Number) -> AxisTree:
+    return ()
+
+
+@_extract_loop_axes.register(Expression)
+def _(expr: Expression) -> AxisTree:
+    return expr.loop_axes
 
 
 class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
@@ -1255,7 +1338,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
         source_exprs = {}
         for component in axis.components:
-            source_exprs[axis.id, component.label] = immutabledict({axis.label: AxisVar(axis.label)})
+            source_exprs[axis.id, component.label] = immutabledict({axis.label: AxisVar(axis)})
 
             if subaxis := self.child(axis, component):
                 source_exprs.update(self._collect_source_exprs(axis=subaxis))

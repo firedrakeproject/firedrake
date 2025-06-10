@@ -129,7 +129,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
                     # FIXME: weakness in algorithm
                     if step == 0:
                         step = 1
-                    component_layout = AxisVar(axis.label) * step + start
+                    component_layout = AxisVar(axis) * step + start
                 else:
                     # 3. Non-constant stride, must tabulate
                     offset_dat = Dat(offset_axes, data=np.full(offset_axes.size, -1, dtype=IntType))
@@ -303,7 +303,8 @@ def axis_tree_component_size(axis_tree, axis, component):
         #   for i
         #     for j
         #       size[i] += subtree[i, j]
-        all_axes_that_we_need = extract_axes(subtree_size, axis_tree, (), {})[0]
+        # all_axes_that_we_need = extract_axes(subtree_size, axis_tree, (), {})[0]
+        all_axes_that_we_need = subtree_size.shape
         if all_axes_that_we_need.depth > 1:
             raise NotImplementedError("Not currently expected to work with multiply ragged extents")
             # outer_axes = all_axes_that_we_need - axis.label
@@ -316,7 +317,7 @@ def axis_tree_component_size(axis_tree, axis, component):
         j = all_axes_that_we_need.index()
 
         inv_map = {
-            ax.label: LoopIndexVar(j.id, ax.label)
+            ax.label: LoopIndexVar(j.id, ax)
             for ax in all_axes_that_we_need.nodes
         }
 

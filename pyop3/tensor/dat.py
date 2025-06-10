@@ -85,6 +85,19 @@ class Dat(Tensor, KernelArgument):
     def comm(self) -> MPI.Comm:
         return self.buffer.comm
 
+    @cached_property
+    def shape(self) -> AxisTree:
+        return self.axes.materialize()
+
+    @cached_property
+    def loop_axes(self) -> tuple[Axis]:
+        assert all(loop.iterset.is_linear for loop in self.outer_loops)
+        return tuple(
+            axis
+            for outer_loop in self.outer_loops
+            for axis in outer_loop.iterset.nodes
+        )
+
     # }}}
 
 
@@ -447,9 +460,10 @@ class Dat(Tensor, KernelArgument):
                 f"must be {PETSc.ScalarType}"
             )
 
+    # TODO: deprecate this and just look at axes
     @property
     def outer_loops(self):
-        return self._outer_loops
+        return self.axes.outer_loops
 
     @property
     def sf(self):
@@ -596,12 +610,16 @@ class LinearDatArrayBufferExpression(DatArrayBufferExpression, LinearBufferExpre
 
     _buffer: Any  # array buffer type
     layout: Any
+    _shape: AxisTree
+    _loop_axes: tuple[Axis]
 
     # }}}
 
     # {{{ interface impls
 
     buffer: ClassVar[property] = utils.attr("_buffer")
+    shape: ClassVar[property] = utils.attr("_shape")
+    loop_axes: ClassVar[property] = utils.attr("_loop_axes")
 
     # }}}
 
@@ -622,20 +640,27 @@ class NonlinearDatArrayBufferExpression(DatArrayBufferExpression, NonlinearBuffe
 
     _buffer: Any  # array buffer type? may be null
     layouts: Any
+    _shape: AxisTree
+    _loop_axes: tuple[Axis]
+
 
     # }}}
 
     # {{{ Interface impls
 
-    buffer: ClassVar[property] = property(lambda self: self._buffer)
+    buffer: ClassVar[property] = utils.attr("_buffer")
+    shape: ClassVar[property] = utils.attr("_shape")
+    loop_axes: ClassVar[property] = utils.attr("_loop_axes")
 
     # }}}
 
-    def __init__(self, buffer, layouts) -> None:
+    def __init__(self, buffer, layouts, shape, loop_axes) -> None:
         layouts = immutabledict(layouts)
 
         self._buffer = buffer
         self.layouts = layouts
+        self._shape = shape
+        self._loop_axes = loop_axes
 
     def __str__(self) -> str:
         return "\n".join(
@@ -696,4 +721,4 @@ def as_linear_buffer_expression(dat: Dat) -> LinearDatArrayBufferExpression:
         raise ValueError("The provided Dat must be linear")
 
     layout = just_one(dat.axes.leaf_subst_layouts.values())
-    return LinearDatArrayBufferExpression(dat.buffer, layout)
+    return LinearDatArrayBufferExpression(dat.buffer, layout, dat.shape, dat.loop_axes)

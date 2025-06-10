@@ -357,7 +357,7 @@ class LoopIndex(Index, KernelArgument):
         replace_map = {
             None: (
                 {axis.label: component_label for axis, component_label in self.iterset.path_with_nodes(self.iterset.leaf).items()},
-                {axis.label: LoopIndexVar(self.id, axis.label) for axis, component_label in self.iterset.path_with_nodes(self.iterset.leaf).items()},
+                {axis.label: LoopIndexVar(self.id, axis) for axis, component_label in self.iterset.path_with_nodes(self.iterset.leaf).items()},
             )
         }
         replace_map = replace_map[None][1]
@@ -1231,7 +1231,15 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
 
         component_paths.append(slice_component.component)
 
-        # now do target expressions
+    axis = Axis(components, label=axis_label)
+
+    # now do target expressions
+    for slice_component, targets in zip(slice_.slices, target_axes[slice_], strict=True):
+        target_axis, target_component_label = just_one(targets.items())
+        target_component = just_one(
+            c for c in target_axis.components if c.label == target_component_label
+        )
+
         if isinstance(slice_component, RegionSliceComponent):
             if slice_component.region in {OWNED_REGION_LABEL, GHOST_REGION_LABEL}:
                 region_index = target_component._all_region_labels.index(slice_component.region)
@@ -1239,21 +1247,21 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
             else:
                 region_index = target_component.region_labels.index(slice_component.region)
                 steps = utils.steps([r.size for r in target_component.regions], drop_last=False)
-            slice_expr = AxisVar(axis_label) + steps[region_index]
+            slice_expr = AxisVar(axis) + steps[region_index]
         elif isinstance(slice_component, AffineSliceComponent):
-            slice_expr = AxisVar(axis_label) * slice_component.step + slice_component.start
+            slice_expr = AxisVar(axis) * slice_component.step + slice_component.start
         else:
             assert isinstance(slice_component, Subset)
             # replace the index information in the subset buffer
             subset_axis_var = just_one(collect_axis_vars(slice_component.array.layout))
-            replace_map = {subset_axis_var.axis_label: AxisVar(axis_label)}
+            replace_map = {subset_axis_var.axis_label: AxisVar(axis)}
             slice_expr = replace_terminals(slice_component.array, replace_map)
         component_exprs.append(slice_expr)
 
-    axis = Axis(components, label=axis_label)
-
     targets = {}
-    for component, path, expr in zip(components, component_paths, component_exprs, strict=True):
+    for component, mytargets, path, expr in zip(components, target_axes[slice_], component_paths, component_exprs, strict=True):
+        target_axis, target_component_label = just_one(mytargets.items())
+
         target_path = immutabledict({slice_.axis: path})
         target_expr = immutabledict({slice_.axis: expr})
         # use a 1-tuple here because there are no 'equivalent' layouts for slices
@@ -2132,7 +2140,7 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
     {"a": 3, "b": 2}[:4:2] -> {"a": 2, "b": 0} ( [0, 2] )
 
     """
-    from pyop3.expr_visitors import replace as expr_replace
+    from pyop3.expr_visitors import replace_terminals as expr_replace
 
 
     size = sum(r.size for r in regions)
@@ -2143,8 +2151,7 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
             raise NotImplementedError("Only single-region ragged components are supported")
         region = just_one(regions)
 
-        # because .replace() swaps with vars, not labels
-        replace_map = {AxisVar(axis): expr for (axis, expr) in parent_exprs.items()}
+        replace_map = {axis_label: expr for (axis_label, expr) in parent_exprs.items()}
         stop = expr_replace(stop, replace_map)
         return (AxisComponentRegion(stop, region.label),)
 
