@@ -82,7 +82,18 @@ Please see https://firedrakeproject.org/install for more information."""
         "--show-system-packages",
         "--sysdeps",  # alias
         action="store_true",
-        help="Print out the system packages Firedrake needs. The user must install these.",
+        help=(
+            "Print out the system packages Firedrake needs including those "
+            "expected by PETSc."
+        ),
+    )
+    cmd_group.add_argument(
+        "--show-minimal-system-packages",
+        action="store_true",
+        help=(
+            "Print out the minimal system packages Firedrake needs to build. "
+            "The user must install these."
+        ),
     )
     cmd_group.add_argument(
         "--show-petsc-configure-options",
@@ -120,6 +131,13 @@ Please see https://firedrakeproject.org/install for more information."""
                 "please install them manually"
             )
         print(" ".join(SYSTEM_PACKAGES[package_manager, arch]), end="")
+    if args.show_minimal_system_packages:
+        if package_manager is None:
+            raise RuntimeError(
+                "Cannot install Firedrake dependencies without a package manager, "
+                "please install them manually"
+            )
+        print(" ".join(MINIMAL_SYSTEM_PACKAGES[package_manager, arch]), end="")
     elif args.show_petsc_configure_options:
         print(" ".join(PETSC_CONFIGURE_OPTIONS[package_manager, arch]), end="")
     elif args.show_petsc_version:
@@ -197,8 +215,6 @@ PETSC_EXTRAS_LINUX_APT_PACKAGES = (
     "libsuperlu-dist-dev",
 )
 
-COMMON_LINUX_APT_PACKAGES = BASE_LINUX_APT_PACKAGES + PETSC_EXTRAS_LINUX_APT_PACKAGES
-
 BASE_MACOS_HOMEBREW_PACKAGES = (
     "autoconf",
     "automake",
@@ -225,17 +241,40 @@ PETSC_EXTRAS_MACOS_HOMEBREW_PACKAGES = (
     "zlib",
 )
 
-COMMON_MACOS_HOMEBREW_PACKAGES = (
-    BASE_MACOS_HOMEBREW_PACKAGES + PETSC_EXTRAS_MACOS_HOMEBREW_PACKAGES
-)
+MINIMAL_SYSTEM_PACKAGES = {
+    (LINUX_APT_X86_64, ARCH_DEFAULT): BASE_LINUX_APT_PACKAGES,
+    (LINUX_APT_X86_64, ARCH_COMPLEX): BASE_LINUX_APT_PACKAGES,
+    (LINUX_APT_AARCH64, ARCH_DEFAULT): BASE_LINUX_APT_PACKAGES,
+    (LINUX_APT_AARCH64, ARCH_COMPLEX): BASE_LINUX_APT_PACKAGES,
+    (MACOS_HOMEBREW_ARM64, ARCH_DEFAULT): BASE_MACOS_HOMEBREW_PACKAGES,
+    (MACOS_HOMEBREW_ARM64, ARCH_COMPLEX): BASE_MACOS_HOMEBREW_PACKAGES,
+}
 
 SYSTEM_PACKAGES = {
-    (LINUX_APT_X86_64, ARCH_DEFAULT): COMMON_LINUX_APT_PACKAGES,
-    (LINUX_APT_X86_64, ARCH_COMPLEX): COMMON_LINUX_APT_PACKAGES,
-    (LINUX_APT_AARCH64, ARCH_DEFAULT): COMMON_LINUX_APT_PACKAGES,
-    (LINUX_APT_AARCH64, ARCH_COMPLEX): COMMON_LINUX_APT_PACKAGES,
-    (MACOS_HOMEBREW_ARM64, ARCH_DEFAULT): COMMON_MACOS_HOMEBREW_PACKAGES,
-    (MACOS_HOMEBREW_ARM64, ARCH_COMPLEX): COMMON_MACOS_HOMEBREW_PACKAGES,
+    (LINUX_APT_X86_64, ARCH_DEFAULT): (
+        MINIMAL_SYSTEM_PACKAGES[LINUX_APT_X86_64, ARCH_DEFAULT]
+        + PETSC_EXTRAS_LINUX_APT_PACKAGES
+    ),
+    (LINUX_APT_X86_64, ARCH_COMPLEX): (
+        MINIMAL_SYSTEM_PACKAGES[LINUX_APT_X86_64, ARCH_COMPLEX]
+        + PETSC_EXTRAS_LINUX_APT_PACKAGES
+    ),
+    (LINUX_APT_AARCH64, ARCH_DEFAULT): (
+        MINIMAL_SYSTEM_PACKAGES[LINUX_APT_AARCH64, ARCH_DEFAULT]
+        + PETSC_EXTRAS_LINUX_APT_PACKAGES
+    ),
+    (LINUX_APT_AARCH64, ARCH_COMPLEX): (
+        MINIMAL_SYSTEM_PACKAGES[LINUX_APT_AARCH64, ARCH_COMPLEX]
+        + PETSC_EXTRAS_LINUX_APT_PACKAGES
+    ),
+    (MACOS_HOMEBREW_ARM64, ARCH_DEFAULT): (
+        MINIMAL_SYSTEM_PACKAGES[MACOS_HOMEBREW_ARM64, ARCH_DEFAULT]
+        + PETSC_EXTRAS_MACOS_HOMEBREW_PACKAGES
+    ),
+    (MACOS_HOMEBREW_ARM64, ARCH_COMPLEX): (
+        MINIMAL_SYSTEM_PACKAGES[MACOS_HOMEBREW_ARM64, ARCH_COMPLEX]
+        + PETSC_EXTRAS_MACOS_HOMEBREW_PACKAGES
+    ),
 }
 
 COMMON_PETSC_CONFIGURE_OPTIONS = (
