@@ -130,7 +130,8 @@ def coarsen_equation_bc(ebc, self, coefficient_mapping=None):
     Jp = self(ebc._Jp.f, self, coefficient_mapping=coefficient_mapping)
     u = self(ebc._F.u, self, coefficient_mapping=coefficient_mapping)
     sub_domain = ebc._F.sub_domain
-    bcs = [self(bc, self, coefficient_mapping=coefficient_mapping) for bc in ebc.bcs]
+    bcs = [self(bc, self, coefficient_mapping=coefficient_mapping)
+           for bc in ebc.dirichlet_bcs()]
     V = self(ebc._F.function_space(), self, coefficient_mapping=coefficient_mapping)
     lhs = self(ebc.eq.lhs, self, coefficient_mapping=coefficient_mapping)
     rhs = self(ebc.eq.rhs, self, coefficient_mapping=coefficient_mapping)

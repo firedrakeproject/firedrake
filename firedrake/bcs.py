@@ -521,7 +521,6 @@ class EquationBC(object):
                 Jp = Jp or J
                 self.is_linear = False
             self.eq = eq
-            self.bcs = bcs
             # Check form style consistency
             is_form_consistent(self.is_linear, bcs)
             # Argument checking
