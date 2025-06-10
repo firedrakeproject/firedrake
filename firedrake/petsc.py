@@ -1,4 +1,6 @@
 import gc
+import sys
+import warnings
 from copy import deepcopy
 from types import MappingProxyType
 from typing import Any
@@ -51,9 +53,12 @@ def get_blas_library():
     return petsctools.get_blas_library()
 
 
-@utils.deprecated("petsctools.OptionsManager")
-def OptionsManager(*args, **kwargs):
-    return petsctools.OptionsManager(*args, **kwargs)
+# warnings.deprecated only exists for Python 3.13 and above and utils.deprecated
+# is not suitable for classes
+if sys.version >= "3.13":
+    @warnings.deprecated("Use petsctools.OptionsManager instead")
+    class OptionsManager(petsctools.OptionsManager):
+        pass
 
 
 def _extract_comm(obj: Any) -> MPI.Comm:
