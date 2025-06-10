@@ -2056,6 +2056,13 @@ class MeshTopology(AbstractMeshTopology):
 
         """
         plex_closures = self._plex_closures[self.dimension]
+        if hasattr(self.ufl_cell(), "to_fiat"):
+            print("FUSE")
+            import warnings 
+            warnings.warn("Closures are currently incorrect for fuse elements on this branch")
+            # topology = self.ufl_cell().to_fiat().topology
+            # closureSize = sum([len(ents) for _, ents in topology.items()])
+            # return dmcommon.create_cell_closure(self.topology_dm, closureSize)
         if self.ufl_cell().is_simplex():
             return self._reorder_closure_fiat_simplex(plex_closures)
         elif self.ufl_cell() == ufl.quadrilateral:

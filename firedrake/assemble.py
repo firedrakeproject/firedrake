@@ -1780,6 +1780,7 @@ class ParloopBuilder:
             cells_axis_component = op3.utils.just_one(c for c in self._mesh.points.root.components if c.label == str(self._mesh.dimension))
             cells_axis = op3.Axis([cells_axis_component.copy(sf=None)], self._mesh.name)
             orientations = op3.Dat(cells_axis, data=numpy.zeros(cells_axis.size, dtype=numpy.uint8), name="orts")
+            # orientations = op3.Dat(cells_axis, data=self._mesh.entity_orientations[:, -1], name="orts")
 
             p = self._iterset.index()
             o_packed = orientations[p]
