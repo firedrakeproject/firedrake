@@ -43,7 +43,7 @@ help:
 
 TARGETS = html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex latexpdf text man changes linkcheck doctest gettext
 
-GENERATED_FILES = source/team.rst source/demos source/element_list.csv source/firedrake_citations.rst source/apt_deps.txt source/homebrew_deps.txt source/petsc_configure_options.txt
+GENERATED_FILES = source/team.rst source/demos source/element_list.csv source/firedrake_citations.rst source/apt_deps.txt source/homebrew_deps.txt source/minimal_apt_deps.txt source/petsc_configure_options.txt
 
 publishpdf:
 	env FIREDRAKE_MANUAL_RELEASE=`date +%Y-%m` $(MAKE) latexpdf
@@ -100,6 +100,13 @@ source/homebrew_deps.txt:
 		--package-manager brew-arm64 \
 		--show-system-packages > source/homebrew_deps.tmp
 	mv source/homebrew_deps.tmp source/homebrew_deps.txt
+
+source/minimal_apt_deps.txt:
+	python ../scripts/firedrake-configure \
+		--package-manager apt-x86_64 \
+		--show-minimal-system-packages > source/minimal_apt_deps.tmp
+	mv source/minimal_apt_deps.tmp source/minimal_apt_deps.txt
+
 
 source/petsc_configure_options.txt:
 	python ../scripts/firedrake-configure \
