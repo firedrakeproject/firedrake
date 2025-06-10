@@ -512,8 +512,6 @@ class EquationBC(object):
                         raise ValueError("Provided BC RHS is not a linear form")
                     F = ufl_expr.action(J, u) - L
                 self.is_linear = True
-                self.lhs = J
-                self.rhs = L
             # nonlinear
             else:
                 if eq.rhs != 0:
@@ -522,6 +520,7 @@ class EquationBC(object):
                 J = J or ufl_expr.derivative(F, u)
                 Jp = Jp or J
                 self.is_linear = False
+            self.eq = eq
             self.bcs = bcs
             # Check form style consistency
             is_form_consistent(self.is_linear, bcs)
