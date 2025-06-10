@@ -424,8 +424,8 @@ We enforce parabolic profiles on :math:`J_i \cdot N` at inflow :math:`i` and on 
 The magnitudes of the parabolic profiles are :math:`M_i c_i^\text{ref} v_i^\text{ref}` where
 :math:`v_i^\text{ref}` are reference velocities that we are free to choose.
 Elsewhere on the boundary we enforce :math:`J_i \cdot N = 0`. Finally, instead of specifying
-the value of the barycentric velocity :math:`v` on the inflows and outflow, we enforce :math:`\rho v \cdot N = (J_1 + J_2 )\cdot N`
-and :math:`\rho v \times N = 0` in these regions. Boundary conditions that couple 
+the value of the barycentric velocity :math:`v` on the inflows and outflows, 
+we enforce :math:`v = \rho^{-1}((J_1 + J_2)\cdot N)N`. Boundary conditions that couple 
 unknowns and/or are nonlinear must be implemented with :class:`~.EquationBC` instead of :class:`~.DirichletBC`. ::
 
     # Reference species velocities, which we choose to symmetrize so that the molar fluxes agree
