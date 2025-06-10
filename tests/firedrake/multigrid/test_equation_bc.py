@@ -24,6 +24,7 @@ def test_poisson_NLVP():
 
     assert errornorm(u_exact, u) < 1e-9
     assert NLVS.snes.getLinearSolveIterations() <= 9
+    assert all(isinstance(bc, EquationBC) for bc in NLVP._coarse.bcs)
 
 
 def test_poisson_LVP():
@@ -50,6 +51,7 @@ def test_poisson_LVP():
 
     assert errornorm(u_exact, u_) < 1e-9
     assert LVS.snes.getLinearSolveIterations() <= 9
+    assert all(isinstance(bc, EquationBC) for bc in LVP._coarse.bcs)
 
 
 @pytest.mark.parametrize("dim", (2, 3))
@@ -114,3 +116,4 @@ def test_nested_equation_bc(dim):
     solver.solve()
     assert errornorm(u_exact, u) < 1e-9
     assert solver.snes.getLinearSolveIterations() <= 10
+    assert all(isinstance(bc, EquationBC) for bc in problem._coarse.bcs)

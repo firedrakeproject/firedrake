@@ -27,7 +27,9 @@ class CoarsenIntegrand(MultiFunction):
     arguments and domain data with coarse mesh equivalents."""
 
     def __init__(self, coarsen, coefficient_mapping=None):
-        self.coefficient_mapping = coefficient_mapping or {}
+        if coefficient_mapping is None:
+            coefficient_mapping = {}
+        self.coefficient_mapping = coefficient_mapping
         self.coarsen = coarsen
         super(CoarsenIntegrand, self).__init__()
 
@@ -87,10 +89,6 @@ def coarsen_form(form, self, coefficient_mapping=None):
     with their coarse mesh equivalents."""
     if form is None:
         return None
-
-    # Coarsen the coefficients and remember where from.
-    for c in form.coefficients():
-        self(c, self, coefficient_mapping=coefficient_mapping)
 
     mapper = CoarsenIntegrand(self, coefficient_mapping)
     integrals = []
