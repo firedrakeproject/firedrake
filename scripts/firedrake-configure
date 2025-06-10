@@ -131,7 +131,7 @@ Please see https://firedrakeproject.org/install for more information."""
                 "please install them manually"
             )
         print(" ".join(SYSTEM_PACKAGES[package_manager, arch]), end="")
-    if args.show_minimal_system_packages:
+    elif args.show_minimal_system_packages:
         if package_manager is None:
             raise RuntimeError(
                 "Cannot install Firedrake dependencies without a package manager, "
