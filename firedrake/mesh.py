@@ -47,6 +47,7 @@ except ImportError:
 # Only for docstring
 import mpi4py  # noqa: F401
 from finat.element_factory import as_fiat_cell
+from ufl.cell import as_cell
 
 
 __all__ = [
@@ -334,6 +335,7 @@ class _Facets(object):
         local_facet_start = offsets[-3]
         local_facet_end = offsets[-2]
         map_from_cell_to_facet_orientations = self.mesh.entity_orientations[:, local_facet_start:local_facet_end]
+
         # Make output data;
         # this is a map from an exterior/interior facet to the corresponding local facet orientation/orientations.
         # Halo data are required by design, but not actually used.
@@ -830,8 +832,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         :arg entity_permutations: FInAT element entity permutations
         :arg offsets: layer offsets for each entity dof (may be None).
         """
-        return dmcommon.get_cell_nodes(self, global_numbering,
-                                       entity_dofs, entity_permutations, offsets)
+        return dmcommon.get_cell_nodes(self, global_numbering, entity_dofs, entity_permutations, offsets)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
@@ -1224,8 +1225,7 @@ class MeshTopology(AbstractMeshTopology):
         # represent a mesh topology (as here) have geometric dimension
         # equal their topological dimension. This is reflected in the
         # corresponding UFL mesh.
-        # return ufl.Cell(_cells[tdim][nfacets])
-        return constructCellComplex(_cells[tdim][nfacets])
+        return as_cell(_cells[tdim][nfacets])
 
     @utils.cached_property
     def _ufl_mesh(self):
@@ -1263,6 +1263,10 @@ class MeshTopology(AbstractMeshTopology):
 
         cell = self.ufl_cell()
         assert tdim == cell.topological_dimension()
+        # plex.viewFromOptions("-dm_view")
+        closure, _ = plex.getTransitiveClosure(0)
+        if hasattr(cell, "to_fiat"):
+            plex.setName('firedrake_default_topology_fuse')
 
         if self.submesh_parent is not None:
             return dmcommon.submesh_create_cell_closure_cell_submesh(plex,
@@ -1270,6 +1274,12 @@ class MeshTopology(AbstractMeshTopology):
                                                                      cell_numbering,
                                                                      self.submesh_parent._cell_numbering,
                                                                      self.submesh_parent.cell_closure)
+        elif hasattr(cell, "to_fiat") and cell.cellname() == "tetrahedron":
+            plex.setName('firedrake_default_topology_fuse')
+            #   TODO find better way of branching here
+            topology = cell.to_fiat().topology
+            closureSize = sum([len(ents) for _, ents in topology.items()])
+            return dmcommon.create_cell_closure(plex, cell_numbering, closureSize)
         elif cell.is_simplex():
             topology = FIAT.ufc_cell(cell).get_topology()
             entity_per_cell = np.zeros(len(topology), dtype=IntType)
@@ -1277,34 +1287,24 @@ class MeshTopology(AbstractMeshTopology):
                 entity_per_cell[d] = len(ents)
             return dmcommon.closure_ordering(plex, vertex_numbering,
                                              cell_numbering, entity_per_cell)
-        # elif hasattr(cell, "to_fiat"):
-        #       TODO
-        #     topology = cell.to_fiat().topology
-        #     entity_per_cell = np.zeros(len(topology), dtype=IntType)
-        #     for d, ents in topology.items():
-        #         entity_per_cell[d] = len(ents)
-        #     return dmcommon.closure_ordering(plex, vertex_numbering,
-        #                                      cell_numbering, entity_per_cell)
         elif cell.cellname() == "quadrilateral":
             from firedrake_citations import Citations
             Citations().register("Homolya2016")
             Citations().register("McRae2016")
             # Quadrilateral mesh
             cell_ranks = dmcommon.get_cell_remote_ranks(plex)
-
             facet_orientations = dmcommon.quadrilateral_facet_orientations(
                 plex, vertex_numbering, cell_ranks)
-
             cell_orientations = dmcommon.orientations_facet2cell(
                 plex, vertex_numbering, cell_ranks,
                 facet_orientations, cell_numbering)
-
             dmcommon.exchange_cell_orientations(plex,
                                                 cell_numbering,
                                                 cell_orientations)
 
-            return dmcommon.quadrilateral_closure_ordering(
+            res = dmcommon.quadrilateral_closure_ordering(
                 plex, vertex_numbering, cell_numbering, cell_orientations)
+            return res
         elif cell.cellname() == "hexahedron":
             # TODO: Should change and use create_cell_closure() for all cell types.
             topology = FIAT.ufc_cell(cell).get_topology()
@@ -1744,7 +1744,7 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @utils.cached_property
     def _ufl_cell(self):
-        return ufl.TensorProductCell(self._base_mesh.ufl_cell(), ufl.interval)
+        return ufl.TensorProductCell(self._base_mesh.ufl_cell(), as_cell("interval"))
 
     @utils.cached_property
     def _ufl_mesh(self):
@@ -3242,9 +3242,9 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     if extrusion_type == 'radial_hedgehog':
         helement = helement.reconstruct(family="DG", variant="equispaced")
     if periodic:
-        velement = finat.ufl.FiniteElement("DP", ufl.interval, 1, variant="equispaced")
+        velement = finat.ufl.FiniteElement("DP", as_cell("interval"), 1, variant="equispaced")
     else:
-        velement = finat.ufl.FiniteElement("Lagrange", ufl.interval, 1)
+        velement = finat.ufl.FiniteElement("Lagrange", as_cell("interval"), 1)
     element = finat.ufl.TensorProductElement(helement, velement)
 
     if gdim is None:
