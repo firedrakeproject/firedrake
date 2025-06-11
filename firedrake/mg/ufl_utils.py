@@ -192,11 +192,11 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
                 bc.apply(cctx._x)
 
     dm = problem.u.function_space().dm
-    if not dm.getAttr("__coarsen_hook__"):
+    if not dm.getAttr("_coarsen_hook"):
         # The hook is persistent and cumulative, but also problem-independent.
         # Therefore, we are only adding it once.
         dm.addCoarsenHook(None, inject_on_restrict)
-        dm.setAttr("__coarsen_hook__", True)
+        dm.setAttr("_coarsen_hook", True)
 
     if coefficient_mapping is None:
         coefficient_mapping = {}
