@@ -1278,7 +1278,6 @@ def rebuild_dg(element, expr, rt_var_name):
     #             weights.append(w)
     # assert len(weights) == num_points
     # but for now we just fix the values to what we know works:
-    
     # not isinstance(element.cell, FIAT.reference_element.Point)
     if element.degree != 0 or element.cell.get_dimension() != 0:
         raise NotImplementedError("Cross mesh interpolation only implemented for P0DG on vertex cells.")
