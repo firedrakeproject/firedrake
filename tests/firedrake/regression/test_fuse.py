@@ -1,7 +1,5 @@
 from test_helmholtz import helmholtz
 from test_poisson_strong_bcs import run_test
-from test_steady_advection_3D import run_near_to_far
-from fuse.cells import ufc_triangle
 from firedrake import *
 import pytest
 import numpy as np
@@ -30,11 +28,10 @@ def test_helmholtz(mocker, conv_num, degree):
 
 @pytest.mark.parametrize(['conv_num', 'degree'],
                          [(p, d)
-                          for p, d in zip([ 2.8, 3.8], [2, 3])])
+                          for p, d in zip([2.8, 3.8], [2, 3])])
 def test_helmholtz_3d(mocker, conv_num, degree):
     diff = np.array([helmholtz(i, degree=degree, mesh=UnitCubeMesh(2 ** i, 2 ** i, 2 ** i))[0] for i in range(2, 4)])
     print("l2 error norms:", diff)
     conv = np.log2(diff[:-1] / diff[1:])
     print("convergence order:", conv)
     assert (np.array(conv) > conv_num).all()
-

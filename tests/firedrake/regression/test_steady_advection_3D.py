@@ -50,7 +50,6 @@ def run_near_to_far(mesh, DG0, W):
 
     L = -inflow * inner(dot(u0, n), phi) * ds(3)  # inflow at near wall
 
-
     out = Function(DG0)
     solve(a == L, out)
 

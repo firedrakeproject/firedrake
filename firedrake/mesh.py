@@ -1275,8 +1275,8 @@ class MeshTopology(AbstractMeshTopology):
                                                                      self.submesh_parent._cell_numbering,
                                                                      self.submesh_parent.cell_closure)
         elif hasattr(cell, "to_fiat") and cell.cellname() == "tetrahedron":
-            plex.setName('firedrake_default_topology_fuse')
             #   TODO find better way of branching here
+            plex.setName('firedrake_default_topology_fuse')
             topology = cell.to_fiat().topology
             closureSize = sum([len(ents) for _, ents in topology.items()])
             return dmcommon.create_cell_closure(plex, cell_numbering, closureSize)
