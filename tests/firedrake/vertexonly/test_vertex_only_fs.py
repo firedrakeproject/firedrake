@@ -69,7 +69,7 @@ def pseudo_random_coords(size):
 
 # Function Space Generation Tests
 
-def functionspace_tests(vm, petsc_raises):
+def functionspace_tests(vm):
     # Prep
     num_cells = len(vm.coordinates.dat.data_ro)
     num_cells_mpi_global = MPI.COMM_WORLD.allreduce(num_cells, op=MPI.SUM)
@@ -175,7 +175,7 @@ def functionspace_tests(vm, petsc_raises):
     assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
 
 
-def vectorfunctionspace_tests(vm, petsc_raises):
+def vectorfunctionspace_tests(vm):
     # Prep
     gdim = vm.geometric_dimension()
     num_cells = len(vm.coordinates.dat.data_ro)
@@ -280,17 +280,17 @@ def vectorfunctionspace_tests(vm, petsc_raises):
     assert np.allclose(g2.dat.data_ro_with_halos, 4*vm.coordinates.dat.data_ro_with_halos)
 
 
-def test_functionspaces(parentmesh, vertexcoords, petsc_raises):
+def test_functionspaces(parentmesh, vertexcoords):
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
-    functionspace_tests(vm, petsc_raises)
-    vectorfunctionspace_tests(vm, petsc_raises)
-    functionspace_tests(vm.input_ordering, petsc_raises)
-    vectorfunctionspace_tests(vm.input_ordering, petsc_raises)
+    functionspace_tests(vm)
+    vectorfunctionspace_tests(vm)
+    functionspace_tests(vm.input_ordering)
+    vectorfunctionspace_tests(vm.input_ordering)
 
 
 @pytest.mark.parallel
-def test_functionspaces_parallel(parentmesh, vertexcoords, petsc_raises):
-    test_functionspaces(parentmesh, vertexcoords, petsc_raises)
+def test_functionspaces_parallel(parentmesh, vertexcoords):
+    test_functionspaces(parentmesh, vertexcoords)
 
 
 @pytest.mark.parallel(nprocs=2)
