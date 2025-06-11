@@ -22,7 +22,7 @@ from petsc4py import PETSc
 
 from pyop3 import utils
 from pyop3.tensor import Tensor, Dat, Mat, LinearDatArrayBufferExpression, BufferExpression, NonlinearDatArrayBufferExpression
-from pyop3.axtree.tree import AxisVar, Expression, Operator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path
+from pyop3.axtree.tree import AxisVar, Expression, Operator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
 
@@ -239,7 +239,9 @@ def restrict_to_context(obj: Any, /, loop_context):
 
 @restrict_to_context.register(numbers.Number)
 @restrict_to_context.register(AxisVar)
+@restrict_to_context.register(LoopIndexVar)
 @restrict_to_context.register(ArrayBufferExpression)
+@restrict_to_context.register(NaN)
 def _(var: Any, /, loop_context) -> Any:
     return var
 
@@ -480,6 +482,8 @@ def _(op: Operator, /, *args, **kwargs) -> Operator:
 
 @concretize_layouts.register(numbers.Number)
 @concretize_layouts.register(AxisVar)
+@concretize_layouts.register(LoopIndexVar)
+@concretize_layouts.register(NaN)
 def _(var: Any, /, *args, **kwargs) -> Any:
     return var
 
@@ -571,8 +575,10 @@ def _(op: Operator, /) -> tuple | None:
 # TODO: Return an empty tree?
 @collect_tensor_shape.register(numbers.Number)
 @collect_tensor_shape.register(AxisVar)
+@collect_tensor_shape.register(LoopIndexVar)
 @collect_tensor_shape.register(BufferExpression)
 @collect_tensor_shape.register(Scalar)
+@collect_tensor_shape.register(NaN)
 def _(obj: Any, /) -> None:
     return None
 
@@ -599,8 +605,10 @@ def _(op: Operator, /, **kwargs) -> immutabledict:
 
 @collect_tensor_candidate_indirections.register(numbers.Number)
 @collect_tensor_candidate_indirections.register(AxisVar)
+@collect_tensor_candidate_indirections.register(LoopIndexVar)
 @collect_tensor_candidate_indirections.register(Scalar)
 @collect_tensor_candidate_indirections.register(ScalarArrayBufferExpression)
+@collect_tensor_candidate_indirections.register(NaN)
 def _(var: Any, /, **kwargs) -> immutabledict:
     return immutabledict()
 
@@ -749,6 +757,8 @@ def _(op: Operator, /, *args, **kwargs) -> immutabledict:
 
 @concretize_materialized_tensor_indirections.register(numbers.Number)
 @concretize_materialized_tensor_indirections.register(AxisVar)
+@concretize_materialized_tensor_indirections.register(LoopIndexVar)
+@concretize_materialized_tensor_indirections.register(NaN)
 def _(var: Any, /, *args, **kwargs) -> Any:
     return var
 

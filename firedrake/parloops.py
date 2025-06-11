@@ -377,8 +377,8 @@ def _(
 ):
     plex = V. mesh().topology
 
-    if V.ufl_element().family() == "Real":
-        return array
+    # if V.ufl_element().family() == "Real":
+    #     return array
 
     if integral_type == "cell":
         # TODO ideally the FIAT permutation would not need to be known
@@ -532,7 +532,8 @@ def _cell_closure_index_tree(V, cell: op3.LoopIndex) -> op3.IndexTree:
 
     mesh = V.mesh()
 
-    if _is_real_space(V):
+    # if _is_real_space(V):
+    if False:
         # Real spaces don't really know anything about the mesh so
         # the 'closure' map is simpler.
         return op3.IndexTree(

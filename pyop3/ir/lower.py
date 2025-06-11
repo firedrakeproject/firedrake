@@ -369,8 +369,8 @@ class ModuleExecutor:
 
         ccode = lambda: lp.generate_code_v2(self.loopy_code).device_code()
 
-        # if len(self.loopy_code.callables_table) > 1:
-        #     breakpoint()
+        if len(self.loopy_code.callables_table) > 1:
+            breakpoint()
         # pyop3.extras.debug.maybe_breakpoint()
 
         self.executable(*exec_arguments)
@@ -690,7 +690,7 @@ def parse_loop_properly_this_time(
             # iname_map = iname_replace_map_ | loop_indices
             axis_key = (axis.id, component.label)
             for index_exprs in axes.index_exprs:
-                for axis_label, index_expr in index_exprs.get(axis_key).items():
+                for axis_label, index_expr in index_exprs.get(axis_key, {}).items():
                     loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, [iname_replace_map_], loop_indices, codegen_context, paths=[path_])
             loop_exprs = immutabledict(loop_exprs)
 

@@ -1463,13 +1463,21 @@ def index_axes(
     all_target_paths_and_exprs = filtered
 
     # TODO: reorder so the if statement captures the composition and this line is only needed once
-    return IndexedAxisTree(
-        indexed_axes.node_map,
-        orig_axes.unindexed,
-        targets=all_target_paths_and_exprs,
-        layout_exprs={},
-        outer_loops=outer_loops,
-    )
+    if indexed_axes is UNIT_AXIS_TREE:
+        return UnitIndexedAxisTree(
+            orig_axes.unindexed,
+            targets=indexed_target_paths_and_exprs,
+            layout_exprs={},
+            outer_loops=outer_loops,
+        )
+    else:
+        return IndexedAxisTree(
+            indexed_axes.node_map,
+            orig_axes.unindexed,
+            targets=all_target_paths_and_exprs,
+            layout_exprs={},
+            outer_loops=outer_loops,
+        )
 
 
 def collect_index_tree_target_paths(index_tree: IndexTree) -> immutabledict:
@@ -1635,7 +1643,7 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
         # if none_mapped_target_path:
         #     breakpoint()
 
-        if indexed_axes.is_empty:
+        if indexed_axes.is_empty or indexed_axes is UNIT_AXIS_TREE:
             return immutabledict(composed_target_paths_and_exprs)
         else:
             axis = indexed_axes.root

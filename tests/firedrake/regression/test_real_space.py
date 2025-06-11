@@ -12,7 +12,7 @@ def test_real_assembly():
     fs = FunctionSpace(mesh, "Real", 0)
     f = Function(fs)
 
-    f.dat.data[0] = 2.
+    f.dat.buffer.data_wo[...] = [2.0]
 
     assert assemble(f * dx) == 2.0
 
@@ -23,7 +23,7 @@ def test_real_one_form_assembly():
     fs = FunctionSpace(mesh, "Real", 0)
     v = TestFunction(fs)
 
-    assert assemble(v * dx).dat.data[0] == 1.0
+    assert np.allclose(assemble(v * dx).dat.buffer.data_ro, 1.0)
 
 
 @pytest.mark.skipcomplex

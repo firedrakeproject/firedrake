@@ -221,6 +221,14 @@ class _UnitAxisTree(CacheMixin):
     def outer_loops(self):
         return ()
 
+    def path_with_nodes(self, node) -> immutabledict:
+        assert node is None
+        return immutabledict()
+
+    @property
+    def _source_path_and_exprs(self):
+        return immutabledict()
+
 
 
 UNIT_AXIS_TREE = _UnitAxisTree()
@@ -845,6 +853,9 @@ class NaN(Terminal):
         return str(self)
 
 
+NAN = NaN()
+
+
 # TODO: Refactor so loop ID passed in not the actual index
 class LoopIndexVar(Terminal):
     def __init__(self, loop_id, axis) -> None:
@@ -935,8 +946,8 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
             for index_tree in index_forest:
                 axis_trees[context].append(index_axes(index_tree, context, self))
 
-        if axis_trees.keys() == {immutabledict()}:
-            indexed_axis_trees = axis_trees[immutabledict()]
+        if len(axis_trees) == 1:
+            indexed_axis_trees = just_one(axis_trees.values())
             if len(indexed_axis_trees) > 1:
                 raise NotImplementedError("Need axis forests")
             else:
@@ -1596,7 +1607,7 @@ class IndexedAxisTree(AbstractAxisTree):
         *,
         targets,
         layout_exprs=None,  # not used
-        outer_loops=(),  # not used
+        outer_loops=(),
     ):
         # drop duplicate entries as they are necessarily equivalent
         targets = utils.unique(targets)
@@ -1732,6 +1743,39 @@ class IndexedAxisTree(AbstractAxisTree):
 
         return axes
 
+    def linearize(self, path: Mapping[str, str]) -> IndexedAxisTree:
+        """Return the axis tree dropping all components not specified in the path."""
+        if not self.is_valid_path(path):
+            raise ValueError("Provided path must go all the way from the root to a leaf")
+
+        # Linearize the axis tree
+        linearized_axis_tree = self.materialize().linearize(path)
+
+        # Construct the map between the original and linearised trees
+        axis_key_map = {}
+        orig_visited_axes = self.path_with_nodes(self._node_from_path(path))
+        linear_visited_axes = just_one(linearized_axis_tree.leaf_node_paths)
+        for orig_axis_info, linear_axis_info in zip(orig_visited_axes.items(), linear_visited_axes.items(), strict=True):
+            orig_axis, orig_component_label = orig_axis_info
+            linear_axis, linear_component_label = linear_axis_info
+            axis_key_map[orig_axis.id, orig_component_label] = (linear_axis.id, linear_component_label)
+
+        # Linearize the targets
+        linearized_targets = []
+        for orig_target in self.targets:
+            linearized_target = {
+                axis_key_map[axis_key]: target_spec  # needs to be the key for the new axis tree
+                for axis_key, target_spec in orig_target.items()
+                if axis_key in axis_key_map
+            }
+            linearized_targets.append(linearized_target)
+
+        return IndexedAxisTree(
+            linearized_axis_tree.node_map,
+            self.unindexed,
+            targets=linearized_targets,
+        )
+
     @property
     def _undistributed(self):
         raise NotImplementedError("TODO")
@@ -1819,9 +1863,18 @@ class IndexedAxisTree(AbstractAxisTree):
     def _buffer_slice(self) -> np.ndarray[IntType]:
         from pyop3 import Dat, do_loop
 
-        mask_dat = Dat.zeros(self.unindexed.undistribute(), dtype=bool, prefix="mask")
-        do_loop(p := self.index(), mask_dat[p].assign(1))
-        indices = just_one(np.nonzero(mask_dat.buffer.data_ro))
+        # mask_dat = Dat.zeros(self.unindexed.undistribute(), dtype=bool, prefix="mask")
+        # do_loop(p := self.index(), mask_dat[p].assign(1))
+        # indices = just_one(np.nonzero(mask_dat.buffer.data_ro))
+        indices_dat = Dat.empty(self.materialize(), dtype=IntType, prefix="indices")
+        for leaf_path in self.leaf_paths:
+            iterset = self.linearize(leaf_path)
+            p = iterset.index()
+            offset_expr = just_one(self[p].leaf_subst_layouts.values())
+            do_loop(p, indices_dat[p].assign(offset_expr))
+        indices = indices_dat.buffer.data_ro_with_halos
+
+        debug_assert(lambda: max(indices) <= self.size)
 
         # then convert to a slice if possible, do in Cython!!!
         pyop3.extras.debug.warn_todo("Convert to cython")
@@ -1830,20 +1883,20 @@ class IndexedAxisTree(AbstractAxisTree):
 
         assert n > 0
         if n == 1:
-            slice_ = slice(None)
+            return slice(None)
         else:
             step = indices[1] - indices[0]
+
+            if step == 0:
+                return indices
+
             for i in range(1, n-1):
                 new_step = indices[i+1] - indices[i]
-                if new_step != step:
-                    # non-const step, abort and use indices
-                    slice_ = indices
-                    break
-            slice_ = slice(indices[0], indices[-1]+1, step)
+                # zero or non-const step, abort and use indices
+                if new_step == 0 or new_step != step:
+                    return indices
 
-        debug_assert(lambda: max(indices) <= self.alloc_size)
-        assert slice_ is not None
-        return slice_
+            return slice(indices[0], indices[-1]+1, step)
 
     # {{{ parallel
 
@@ -1885,7 +1938,7 @@ class UnitIndexedAxisTree:
 
     @cached_property
     def _subst_layouts_default(self):
-        return subst_layouts(self, self._matching_target, self.layouts)
+        return subst_layouts(self, self._matching_target, self.unindexed.layouts)
 
     @property
     def leaf_subst_layouts(self) -> immutabledict:
@@ -1907,6 +1960,7 @@ class UnitIndexedAxisTree:
         assert leaf is None
         return immutabledict()
 
+    @utils.deprecated()
     @property
     def layouts(self):
         return self.unindexed.layouts

@@ -9,6 +9,7 @@ import functools
 from collections import OrderedDict
 from dataclasses import dataclass
 from functools import cached_property
+from immutabledict import immutabledict
 from typing import Optional
 
 import finat.ufl
@@ -551,18 +552,7 @@ class FunctionSpace:
             # without its own constructor. Perhaps introduce a BaseFunctionSpace
             # parent class.
             if isinstance(self, RealFunctionSpace):
-                # NOTE: The 'nice' way to do this is to consider a Real function space as a
-                # space where most of the points are constrained. We could then index using
-                # closure as usual but the layout would map back to the much smaller array.
-                # For now we instead use special closure maps that always map to zero.
-                flat_axes = op3.Axis(
-                    [op3.AxisComponent(1, "mylabel", sf=op3.single_star_sf(self._comm))],
-                    label=f"{self.mesh().name}_flat",
-                ).as_tree()
-
-                ndofs = self.local_section.getDof(0)
-                subaxis = op3.Axis({"XXX": ndofs}, "dof")
-                flat_axes = flat_axes.add_axis(subaxis, flat_axes.leaf)
+                self.axes = self._make_real_space_axis_tree()
             else:
                 flat_axes = op3.AxisTree(mesh.flat_points)
 
@@ -585,20 +575,85 @@ class FunctionSpace:
 
                 flat_axes = flat_axes.add_axis(subaxis, flat_axes.root, "mylabel")
 
-            # add tensor shape
-            subaxes = op3.AxisTree.from_iterable(
-                [op3.Axis({"XXX": dim}, f"dim{i}") for i, dim in enumerate(self.shape)]
-            )
-            flat_axes = flat_axes.add_subtree(subaxes, flat_axes.leaf)
+                # add tensor shape
+                subaxes = op3.AxisTree.from_iterable(
+                    [op3.Axis({"XXX": dim}, f"dim{i}") for i, dim in enumerate(self.shape)]
+                )
+                flat_axes = flat_axes.add_subtree(subaxes, flat_axes.leaf)
+                # TODO: AxisForest?
+                self.flat_axes = flat_axes
+                self.axes = flat_axes[self._strata_index_tree()]
 
-            mesh._shared_data_cache["cacheA"][key] = flat_axes
+                mesh._shared_data_cache["cacheA"][key] = flat_axes
 
-        # TODO: AxisForest?
-        self.flat_axes = flat_axes
-        self.axes = flat_axes[self._strata_index_tree()]
+
+    def _make_real_space_axis_tree(self):
+        from firedrake.functionspace import FunctionSpace as make_function_space
+
+        # For real function spaces the mesh is conceptually non-existent as all
+        # cells map to the same globally-defined DoFs. We can trick pyop3 into
+        # pretending that a mesh axis exists though by careful construction of
+        # an indexed axis tree. With this trick no special-casing of real spaces
+        # should be necessary anywhere else.
+
+        # Get the number of DoFs per cell, it is illegal to have DoFs on
+        # other entities.
+        ndofs = None
+        for dim, dim_ndofs in flatten_entity_dofs(self.finat_element).items():
+            if dim == self.mesh().cell_label:
+                ndofs = dim_ndofs
+            else:
+                assert dim_ndofs == 0
+        assert ndofs is not None
+
+        # Create the actual axis tree that describes the layout (without the mesh)
+        root_axis = op3.Axis(
+            op3.AxisComponent(ndofs, "XXX", sf=op3.single_star_sf(self._comm, ndofs)),
+            "dof"
+        )
+        shape_subaxes = [op3.Axis({"XXX": dim}, f"dim{i}") for i, dim in enumerate(self.shape)]
+        actual_axes = op3.AxisTree.from_iterable((root_axis, *shape_subaxes))
+
+        # Create the pretend axis tree that includes the mesh axis. This is
+        # just a DG0 function.
+        if self.shape:
+            raise NotImplementedError
+        else:
+            dg_space = make_function_space(self.mesh(), "DG", 0)
+        mesh_axes = dg_space.axes
+
+        # Now map the mesh-aware axes back to the actual axis tree. 
+        mesh_axis = mesh_axes.root
+
+        # be explicit for now
+        if len(mesh_axis.components) != 2:
+            raise NotImplementedError
+        cell_axis = mesh_axes.child(mesh_axis, 1)
+        vert_axis = mesh_axes.child(mesh_axis, 0)
+
+        # what are targets? paths and exprs to subst
+        targets = {}
+        targets[cell_axis.id, "XXX"] = (
+            actual_axes.leaf_path,
+            immutabledict({
+                "dof": op3.AxisVar(cell_axis),
+            })
+        )
+        targets[vert_axis.id, "XXX"] = (
+            actual_axes.leaf_path,
+            immutabledict({actual_axes.leaf_axis.label: op3.NAN})
+        )
+        targets = (targets,) + (mesh_axes.materialize()._source_path_and_exprs,)
+
+        return op3.IndexedAxisTree(
+            mesh_axes.node_map,
+            unindexed=actual_axes,
+            targets=targets,
+        )
 
     def _strata_index_tree(self, *, suffix=""):
         if isinstance(self, RealFunctionSpace):
+            assert False, "old code"
             subsets = []
             for dim in self.mesh()._plex_strata_ordering:
                 # For real we pretend that the mesh has one cell and nothing else
