@@ -1779,9 +1779,10 @@ class ParloopBuilder:
         if transform_kernel:
             cells_axis_component = op3.utils.just_one(c for c in self._mesh.points.root.components if c.label == str(self._mesh.dimension))
             cells_axis = op3.Axis([cells_axis_component.copy(sf=None)], self._mesh.name)
+            # orientations needs to be the list from mesh.entity_orientations()
+            # also need to pass the list from mesh.closure_sizes()
             orientations = op3.Dat(cells_axis, data=numpy.zeros(cells_axis.size, dtype=numpy.uint8), name="orts")
             # orientations = op3.Dat(cells_axis, data=self._mesh.entity_orientations[:, -1], name="orts")
-
             p = self._iterset.index()
             o_packed = orientations[p]
             o_temp = op3.Dat.null(
@@ -1999,47 +2000,86 @@ class ParloopBuilder:
                 self._all_integer_subdomain_ids
             )
 
+    def construct_switch_statement(self, mats, n, args, var_list):
+        string = ["\nswitch (*dim) { \n"]
+        closure_sizes = self._mesh._closure_sizes[self._mesh.dimension]
+        closure_size_acc = 0
+        for dim in range(len(closure_sizes)):
+            string += f"case {dim}:\n "
+            string += ["\nswitch (*i) { \n"]
+            for i in range(closure_sizes[dim]):
+                string += f"case {i}:\n "
+                string += ["\nswitch (*o) { \n"]
+                for val in sorted(mats[dim][i].keys()):
+                    string += f"case {val}:\n "
+                    matname = f"mat{dim}_{i}_{val}"
+                    string += f"a = {matname};break;\n"
+                    var_list += [matname]
+                    mat = numpy.array(mats[dim][i][val], dtype=ScalarType)
+                    args += [lp.TemporaryVariable(matname, initializer=mat, dtype=ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
+                string += "default:\n break;\n }"
+            string += "default:\n break;\n }"
+        string += "default:\n break;\n }"
+        return string, args, var_list
+
     def fuse_orientations(self):
         Vs = self._indexed_function_spaces
         no_dense = False
         fuse_defined_spaces = [hasattr(Vs[i].ufl_element(), "triple") for i in range(len(Vs))]
+       
+
         if len(Vs) == 1 and all(fuse_defined_spaces):
+            # pseudocode for desired overall loopy output (ish)
+
+            # c = 0 # placeholder for cell
+            # entity_orientations = self._mesh.entity_orientations[c]
+            # closure_sizes = self._mesh._closure_sizes[self._mesh.dimension]
+            # mats = Vs[0].ufl_element().triple.matrices
+            # closure_size_acc = 0
+            # res = b
+            # for dim in range(len(closure_sizes)):
+            #     for i in range(closure_size_acc, closure_size_acc + closure_sizes[dim]):
+            #         res = matmul(mats[dim][i - closure_size_acc][entity_orientations[i]], res)
+            #     closure_size_acc += closure_sizes[dim]
+
             fs = Vs[0]
-            os = fs.ufl_element().triple.matrices
+            mats = fs.ufl_element().triple.matrices
             t_dim = fs.ufl_element().cell._tdim
-            os = os[t_dim][0]
+            os = mats[t_dim][0]
             n = os[next(iter(os.keys()))].shape[0]
             child_knl = lp.make_function(
                 f"{{[i, j]:0<=i, j < {n}}}",
                 """
                     res[j] =  res[j] + a[i, j]*b[i]
                 """, name="matmul", target=lp.CWithGNULibcTarget())
-            args = [lp.GlobalArg("o", dtype=numpy.uint8, shape=(1,)),
+            args = [lp.GlobalArg("d", dtype=numpy.uint8, shape=(1,)),
+                    lp.GlobalArg("o", dtype=numpy.uint8, shape=(1,)),
                     lp.GlobalArg("a", dtype=ScalarType, shape=(n, n)),
                     lp.GlobalArg("b", dtype=ScalarType, shape=(n, )),
                     lp.GlobalArg("res", dtype=ScalarType, shape=(n,)),]
 
             var_list = ["o"]
-            string = ["\nswitch (*o) { \n"]
-            for val in sorted(os.keys()):
-                string += f"case {val}:\n a = mat{val};break;\n"
-                var_list += [f"mat{val}"]
-                if no_dense:
-                    mat = numpy.eye(n)
-                else:
-                    mat = numpy.array(os[val], dtype=ScalarType)
-                args += [lp.TemporaryVariable(f"mat{val}", initializer=mat, dtype=ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
-            string += "default:\nbreak;\n }"
+            string, args, var_list = self.construct_switch_statement(mats, n, args, var_list)
             transform_insn = lp.CInstruction(tuple(), "".join(string), assignees=("a"), read_variables=frozenset(var_list), id="assign")
-            parent_knl = lp.make_kernel(
-                "{:}",
+
+            parent_knl = lp.make_function(
+                f"{{[i]:0<= i <= d}}",
                 [transform_insn, "res[:] = matmul(a, b, res) {dep=assign}"],
+                name="switch_on_o",
                 kernel_data=args,
                 target=lp.CWithGNULibcTarget())
-            knl = lp.merge([parent_knl, child_knl])
+            args[0] = lp.GlobalArg("closure_sizes", dtype=numpy.uint8, shape=(self._mesh.dimension, 1))
+            loop_knl = lp.make_kernel(
+                f"{{[i]:0<= i < {self._mesh.dimension}}}",
+                ["a[:,:], res[:] = switch_on_o(closure_sizes[i, :], o[:], a[:, :], b[:], res[:])"],
+                kernel_data=args[:5],
+                target=lp.CWithGNULibcTarget())
+            
+            knl = lp.merge([loop_knl, parent_knl, child_knl])
             # print(lp.generate_code_v2(knl).device_code())
             # print(knl)
-            transform = op3.Function(knl, [op3.READ, op3.WRITE, op3.READ, op3.WRITE])
+
+            transform = op3.Function(knl, [op3.READ, op3.READ, op3.WRITE, op3.READ, op3.WRITE])
             return transform, (n,)
         elif len(Vs) == 2 and any(fuse_defined_spaces):
             if not all(fuse_defined_spaces):
