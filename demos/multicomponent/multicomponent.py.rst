@@ -512,8 +512,8 @@ mathematically valid to do this)::
        :arg bc_point: the point at which to pin the function.
            The location of the finite element DOF nearest to bc_point is actually used.
        '''
-       def __init__(self, V, g, bc_points):
-           super().__init__(V, g, bc_points)
+       def __init__(self, V, g, bc_point):
+           super().__init__(V, g, bc_point)
 
        @functools.cached_property
        def nodes(self):
@@ -525,8 +525,8 @@ mathematically valid to do this)::
                P1_mesh = Mesh(Function(P1).interpolate(coordinates))
                V = V.reconstruct(mesh=P1_mesh)
 
-           points = [tuple(self.sub_domain)]
-           vom = VertexOnlyMesh(V.mesh(), points)
+           point = [tuple(self.sub_domain)]
+           vom = VertexOnlyMesh(V.mesh(), point)
            P0 = FunctionSpace(vom, "DG", 0)
            Fvom = Cofunction(P0.dual()).assign(1)
 
