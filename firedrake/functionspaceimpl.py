@@ -591,24 +591,21 @@ class FunctionSpace:
             )
             flat_axes = flat_axes.add_subtree(subaxes, flat_axes.leaf)
 
-            if isinstance(self, RealFunctionSpace):
-                axes = flat_axes
-            else:
-                axes = flat_axes[self._strata_index_tree()]
-
             mesh._shared_data_cache["cacheA"][key] = flat_axes
 
         # TODO: AxisForest?
         self.flat_axes = flat_axes
-        self.axes = axes
+        self.axes = flat_axes[self._strata_index_tree()]
 
     def _strata_index_tree(self, *, suffix=""):
-        # NOTE: If we do not do explicit slices here then the code cannot cope with slicing
-        # the ndofs ragged array.
         if isinstance(self, RealFunctionSpace):
             subsets = []
             for dim in self.mesh()._plex_strata_ordering:
-                slice_component = op3.AffineSliceComponent("mylabel", label=dim)
+                # For real we pretend that the mesh has one cell and nothing else
+                if dim == self.mesh().cell_label:
+                    slice_component = op3.AffineSliceComponent("mylabel", label=dim)
+                else:
+                    slice_component = op3.AffineSliceComponent("mylabel", start=0, stop=0, label=dim)
                 subsets.append(slice_component)
             strata_slice = op3.Slice(f"{self.mesh().name}_flat", subsets, label=self.name)
             index_tree = op3.IndexTree(strata_slice)

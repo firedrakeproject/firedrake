@@ -46,7 +46,7 @@ import pyop3.extras.debug
 @utils.record()
 class Mat(Tensor):
 
-    # {{{ Instance attributes
+    # {{{ instance attributes
 
     raxes: AbstractAxisTree
     caxes: AbstractAxisTree
@@ -56,7 +56,7 @@ class Mat(Tensor):
 
     # }}}
 
-    # {{{ Class attrs
+    # {{{ class attrs
 
     DEFAULT_PREFIX: ClassVar[str] = "mat"
     DEFAULT_BUFFER_TYPE: ClassVar[type] = PetscMatBuffer
@@ -75,6 +75,14 @@ class Mat(Tensor):
         name = f"{self.name}_copy"
         buffer = self._buffer.copy()
         return self.__record_init__(_name=name, _buffer=buffer)
+
+    @property
+    def shape(self):
+        raise NotImplementedError("Should we have a tuple of trees?")
+
+    @property
+    def loop_axes(self):
+        raise NotImplementedError("Should we have a tuple of tuples?")
 
     # }}}
 

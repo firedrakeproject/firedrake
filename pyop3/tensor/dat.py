@@ -688,6 +688,14 @@ class MatPetscMatBufferExpression(MatBufferExpression, PetscMatBufferExpression,
 
     buffer: ClassVar[PetscMatBuffer] = utils.attr("_buffer")
 
+    @property
+    def shape(self):
+        raise NotImplementedError
+
+    @property
+    def loop_axes(self):
+        raise NotImplementedError
+
     # }}}
 
     def __str__(self) -> str:
