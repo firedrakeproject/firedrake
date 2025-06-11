@@ -2,6 +2,8 @@
 
   .. contents::
 
+.. _firedrake_interpolation:
+
 Interpolation
 =============
 

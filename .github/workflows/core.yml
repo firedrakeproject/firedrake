@@ -106,35 +106,46 @@ jobs:
         # Make sure the current directory is empty
         run: find . -delete
 
+      # Use a different mirror to fetch apt packages from to get around
+      # temporary outage.
+      # (https://askubuntu.com/questions/1549622/problem-with-archive-ubuntu-com-most-of-the-servers-are-not-responding)
+      # The mirror was chosen from https://launchpad.net/ubuntu/+archivemirrors.
+      - name: Configure apt
+        run: |
+          sed -i 's|http://archive.ubuntu.com/ubuntu|http://www.mirrorservice.org/sites/archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources
+          apt-get update
+
+      # Git is needed for actions/checkout and Python for firedrake-configure
+      - name: Install system dependencies (1)
+        run: apt-get -y install git python3
+
       - uses: actions/checkout@v4
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
 
-      - name: Install system dependencies
-        run: |
-          apt-get update
-          apt-get -y install python3 python3-venv
-          apt-get -y install \
-            $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
-          : # Dependencies needed to run the test suite
-          apt-get -y install parallel
-          : # Dependencies needed to build the documentation
-          apt-get -y install inkscape texlive-full
+      - name: Validate single source of truth
+        run: ./firedrake-repo/scripts/check-config
 
       # Raise an error if any 'TODO RELEASE' comments remain
       - name: Check no 'TODO RELEASE' comments (release only)
         if: inputs.target_branch == 'release'
+        working-directory: firedrake-repo
         run: |
-          cd firedrake-repo
-          if [ -z "$( git grep 'TODO RELEASE' )" ]; then
+          if [ -z "$( grep -r --exclude-dir='.*' 'TODO RELEASE' )" ]; then
             exit 0
           else
             exit 1
           fi
 
-      # TODO: is there a 'blessed commit' or do we just point to 'main'?
-      # I prefer the latter because then failures are everyone's problem, not just mine!
+      - name: Install system dependencies (2)
+        run: |
+          apt-get -y install \
+            $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
+          apt-get -y install python3-venv
+          : # Dependencies needed to run the test suite
+          apt-get -y install parallel
+
       - name: Install PETSc
         run: |
           if [ ${{ inputs.target_branch }} = 'release' ]; then
@@ -169,6 +180,7 @@ jobs:
           pip cache remove slepc4py
 
           if [ ${{ inputs.target_branch }} = 'release' ]; then
+            EXTRA_BUILD_ARGS=''
             EXTRA_PIP_FLAGS=''
           else
             : # Install build dependencies
@@ -182,13 +194,18 @@ jobs:
             pip install --no-deps ngsPETSc netgen-mesher netgen-occt
 
             : # We have to pass '--no-build-isolation' to use a custom petsc4py
+            EXTRA_BUILD_ARGS='--no-isolation'
             EXTRA_PIP_FLAGS='--no-build-isolation'
           fi
+
+          : # Install from an sdist so we can make sure that it is not ill-formed
+          pip install build
+          python -m build ./firedrake-repo --sdist "$EXTRA_BUILD_ARGS"
 
           pip install --verbose $EXTRA_PIP_FLAGS \
             --no-binary h5py \
             --extra-index-url https://download.pytorch.org/whl/cpu \
-            './firedrake-repo[ci,docs]'
+            "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci,docs]"
           
           pip install -I "fenics-ufl @ git+https://github.com/firedrakeproject/ufl.git@indiamai/integrate-fuse"
           pip install -I "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git@indiamai/integrate_fuse"
@@ -196,6 +213,17 @@ jobs:
 
           firedrake-clean
           pip list
+
+      - name: Upload sdist (default ARCH only)
+        if: matrix.arch == 'default'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: firedrake-repo/dist/*
+
+      - name: Report sdist build status
+        id: report_sdist
+        run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
 
       - name: Run firedrake-check
         run: |
@@ -343,31 +371,9 @@ jobs:
           name: firedrake-logs-${{ matrix.arch }}
           path: pytest_*.log
 
-      - name: Build sdist (release only)
-        if: |
-          inputs.target_branch == 'release' &&
-          matrix.arch == 'default' &&
-          (success() || steps.install.conclusion == 'success')
-        run: |
-          . venv/bin/activate
-          pip install build
-          python -m build ./firedrake-repo --sdist
-
-      - name: Upload sdist (release only)
-        id: upload_sdist
-        if: |
-          inputs.target_branch == 'release' &&
-          matrix.arch == 'default' &&
-          (success() || steps.install.conclusion == 'success')
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: firedrake-repo/dist/*
-
-      - name: Report sdist build status
-        id: report_sdist
-        if: success() || steps.upload_sdist.conclusion == 'success'
-        run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
+      - name: Install system dependencies (3)
+        if: always()
+        run: apt-get -y install inkscape texlive-full
 
       - name: Check bibtex
         if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
@@ -406,6 +412,23 @@ jobs:
         id: report_docs
         if: success() || steps.upload_docs.conclusion == 'success'
         run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
+
+      # Some files are automatically generated when we install or build the
+      # docs (e.g. AUTHORS.rst). These files are committed to the repository
+      # so uncommitted changes at this point reflect changes in the automatically
+      # generated files that ought to be committed.
+      - name: Check no untracked files
+        if: always()
+        working-directory: firedrake-repo
+        run: |
+          if [ -z "$( git status --porcelain )" ]; then
+            exit 0
+          else
+            echo Error: there are untracked files in the repository
+            echo The output from 'git status' is:
+            git status
+            exit 1
+          fi
 
       - name: Post-run cleanup
         if: always()
@@ -470,6 +493,10 @@ jobs:
           : # like h5py or mpi4py if changing HDF5/MPI libraries.
           pip cache remove petsc4py
 
+          : # Hotfix for petsc4py build, see https://gitlab.com/petsc/petsc/-/issues/1759
+          echo 'Cython<3.1' > constraints.txt
+          export PIP_CONSTRAINT=constraints.txt
+
           if [ ${{ inputs.target_branch }} = 'release' ]; then
             EXTRA_PIP_FLAGS=''
           else
@@ -519,16 +546,19 @@ jobs:
   deploy_website:
     name: Deploy GitHub pages (optional)
     needs: test_linux
+    # Only deploy the website for master here, the release branch is managed
+    # by https://github.com/firedrakeproject/firedrakeproject.github.io
     if: |
       always() &&
       inputs.deploy_website &&
+      inputs.target_branch == 'master' &&
       needs.test_linux.outputs.docs_conclusion == 'success'
     permissions:
       pages: write
       id-token: write
     environment:
       name: github-pages
-      url: http://firedrakeproject.github.io/firedrake/${{ inputs.target_branch }}
+      url: http://firedrakeproject.github.io/firedrake
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages

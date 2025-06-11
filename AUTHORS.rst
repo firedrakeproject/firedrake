@@ -80,8 +80,6 @@ Thomas H. Gibson
 
 Tim Greaves
 
-Thomas J. Gregory.............<https://www.imperial.ac.uk/people/t.gregory18>
-
 Alastair Gregory
 
 David A. Ham..................<https://www.imperial.ac.uk/people/david.ham>

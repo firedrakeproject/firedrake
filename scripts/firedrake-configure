@@ -39,9 +39,7 @@ ARCH_DEFAULT = FiredrakeArch.DEFAULT
 ARCH_COMPLEX = FiredrakeArch.COMPLEX
 
 
-# NOTE: When updating this variable corresponding changes must be made inside
-# pyproject.toml
-SUPPORTED_PETSC_VERSION = "v3.23.0"
+SUPPORTED_PETSC_VERSION = "v3.23.3"
 
 
 def main():
@@ -429,8 +427,6 @@ def prepare_configure_options(
         # Avoid macos + openmpi + mumps segmentation violation issue;
         # see https://github.com/firedrakeproject/firedrake/issues/4102 and https://github.com/firedrakeproject/firedrake/issues/4113.
         configure_options.append("-download-mumps-avoid-mpi-in-place")
-        # PETSc does not support CMake 4.0 (hopefully fixed in v3.23.1)
-        configure_options.append("--download-cmake")
     else:
         configure_options.append(f"--FOPTFLAGS='-O3 -march=native -mtune=native{incflags}{libflags}'")
 
