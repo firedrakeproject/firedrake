@@ -104,7 +104,6 @@ def coarsen_form(form, self, coefficient_mapping=None):
                                  domain=new_mesh)
         integrals.append(new_itg)
     form = ufl.Form(integrals)
-    form._cache["coefficient_mapping"] = coefficient_mapping
     return form
 
 
@@ -180,7 +179,9 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
     def inject_on_restrict(fine, restriction, rscale, injection, coarse):
         manager = get_transfer_manager(fine)
         cctx = get_appctx(coarse)
-        cmapping = cctx._problem.J._cache["coefficient_mapping"]
+        cmapping = cctx._coefficient_mapping
+        if cmapping is None:
+            return
         for c in cmapping:
             if is_dual(c):
                 manager.restrict(c, cmapping[c])
@@ -268,6 +269,7 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
                            appctx=new_appctx,
                            transfer_manager=context.transfer_manager,
                            pre_apply_bcs=context.pre_apply_bcs)
+    coarse._coefficient_mapping = coefficient_mapping
     coarse._fine = context
     context._coarse = coarse
 

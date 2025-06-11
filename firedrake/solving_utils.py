@@ -251,6 +251,7 @@ class _SNESContext(object):
         self._nullspace = None
         self._nullspace_T = None
         self._near_nullspace = None
+        self._coefficient_mapping = None
         self._transfer_manager = transfer_manager
 
     @property
