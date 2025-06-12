@@ -1,6 +1,4 @@
 import gc
-import sys
-import warnings
 from copy import deepcopy
 from types import MappingProxyType
 from typing import Any
@@ -17,7 +15,6 @@ from firedrake import utils
 __all__ = (
     "PETSc",
     # TODO: These are all now deprecated
-    "OptionsManager",
     "get_petsc_variables",
     "get_petscconf_h",
     "get_external_packages"
@@ -51,14 +48,6 @@ def get_external_packages():
 @utils.deprecated("petsctools.get_blas_library")
 def get_blas_library():
     return petsctools.get_blas_library()
-
-
-# warnings.deprecated only exists for Python 3.13 and above and utils.deprecated
-# is not suitable for classes
-if sys.version >= "3.13":
-    @warnings.deprecated("Use petsctools.OptionsManager instead")
-    class OptionsManager(petsctools.OptionsManager):
-        pass
 
 
 def _extract_comm(obj: Any) -> MPI.Comm:
