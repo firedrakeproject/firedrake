@@ -1,0 +1,149 @@
+#TODO: Fix and then move this as matrix arch into build.yml and 
+
+name: Install and test Firedrake (CUDA)
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+concurrency:
+  # Cancels jobs running if new commits are pushed
+  group: >
+    ${{ github.workflow }}-
+    ${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Install and test Firedrake (Linux)
+    strategy:
+      # We want to know all of the tests which fail, so don't kill real if
+      # complex fails and vice-versa
+      fail-fast: false
+      matrix:
+        arch: [default]
+    runs-on: [self-hosted, Linux, gpu]
+    container:
+      image: nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+      options: --gpus all
+    env:
+      OMPI_ALLOW_RUN_AS_ROOT: 1
+      OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
+      OMP_NUM_THREADS: 1
+      OPENBLAS_NUM_THREADS: 1
+      FIREDRAKE_CI: 1
+      PYOP2_CI_TESTS: 1
+      PYOP2_SPMD_STRICT: 1
+      EXTRA_PYTEST_ARGS: --use_gpu_aware_mpi=0  --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 firedrake-repo/tests/firedrake
+    steps:
+      - name: Fix HOME
+        # For unknown reasons GitHub actions overwrite HOME to /github/home
+        # which will break everything unless fixed
+        # (https://github.com/actions/runner/issues/863)
+        run: echo "HOME=/root" >> "$GITHUB_ENV"
+
+      - name: Pre-run cleanup
+        # Make sure the current directory is empty
+        run: find . -delete
+
+      - uses: actions/checkout@v4
+        with:
+          path: firedrake-repo
+
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y curl
+          apt-get install -y git
+          apt-get install -y python3
+          apt install -y python3.12-venv
+          apt-get install -y parallel
+          apt-get install -y bison
+          apt-get install -y cmake
+          apt-get install -y flex
+          apt-get install -y gfortran
+          apt-get install -y libopenblas-dev
+          apt-get install -y ninja-build
+          apt-get install -y pkg-config
+          apt-get install -y python3-dev
+          apt-get install -y libfftw3-dev
+          apt-get install -y libhwloc-dev
+
+          # Missing for now: 
+            # libfftw3-mpi-dev
+            # libopenmpi-dev
+            # libhdf5-mpi-dev
+
+          # apt-get -y install \
+          #   $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
+          # run a list of app packages and grep openmpi and fail
+      - name: Install PETSc
+        run: |
+          git clone --depth 1 --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) https://gitlab.com/petsc/petsc.git
+          cd petsc
+          # TODO update configure file
+          ./configure --with-make-np=8 --with-c2html=0 --with-debugging=0 --with-fortran-bindings=0 --with-shared-libraries=1 --with-strict-petscerrorcode PETSC_ARCH=arch-firedrake-default --COPTFLAGS=-O3 -march=native -mtune=native --CXXOPTFLAGS=-O3 -march=native -mtune=native --FOPTFLAGS=-O3 -march=native -mtune=native --download-bison --download-fftw --download-hdf5 --download-hwloc --download-metis --download-mumps --download-netcdf --download-pnetcdf --download-ptscotch --download-scalapack --download-suitesparse --download-superlu_dist --download-zlib --with-cuda --with-cuda-dir=/usr/local/cuda CUDAPPFLAGS=-Wno-deprecated-gpu-targets --download-openmpi --download-slepc
+          make PETSC_DIR=/__w/firedrake/firedrake/petsc PETSC_ARCH=arch-firedrake-default all
+          export PETSC_DIR=/__w/firedrake/firedrake/petsc
+          export PETSC_ARCH=arch-firedrake-default
+          export MPI_HOME=$PETSC_DIR/$PETSC_ARCH
+          export CC=$PETSC_DIR/$PETSC_ARCH/bin/mpicc
+          export CXX=$PETSC_DIR/$PETSC_ARCH/bin/mpicxx
+          export MPICC=$CC
+          export PATH=$PETSC_DIR/$PETSC_ARCH/bin:$PATH
+          export SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH
+          export HDF5_DIR=$PETSC_DIR/$PETSC_ARCH
+          export HDF5_MPI=ON
+          make PETSC_DIR=/__w/firedrake/firedrake/petsc PETSC_ARCH=arch-firedrake-default check MPIEXEC="mpiexec --allow-run-as-root"
+
+      - name: Install Firedrake
+        id: install
+        run: |
+          # TODO update configure file for the exports
+          # export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-env)
+          export PETSC_DIR=/__w/firedrake/firedrake/petsc
+          export PETSC_ARCH=arch-firedrake-default
+          export MPI_HOME=$PETSC_DIR/$PETSC_ARCH
+          export CC=$PETSC_DIR/$PETSC_ARCH/bin/mpicc
+          export CXX=$PETSC_DIR/$PETSC_ARCH/bin/mpicxx
+          export MPICC=$CC
+          export PATH=$PETSC_DIR/$PETSC_ARCH/bin:$PATH
+          export SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH
+          export HDF5_DIR=$PETSC_DIR/$PETSC_ARCH
+          export HDF5_MPI=ON
+          python3 -m venv venv
+          . venv/bin/activate
+          : # Force a rebuild of petsc4py as the cached one will not link to the fresh
+          : # install of PETSc. A similar trick may be needed for compiled dependencies
+          : # like h5py or mpi4py if changing HDF5/MPI libraries.
+          pip cache remove petsc4py
+          pip cache remove slepc4py
+          pip cache remove h5py
+          # python -c "import petsc4py; print(petsc4py.get_config())"
+          pip install --verbose --no-binary h5py './firedrake-repo[ci]'
+          firedrake-clean
+          : # Extra test dependencies
+          pip install matplotlib vtk
+          pip list
+
+      - name: Run smoke tests
+        run: |
+          . venv/bin/activate
+          firedrake-check
+        timeout-minutes: 10
+      
+      - name: Run tests (nprocs = 1)
+        # Run even if earlier tests failed
+        if: ${{ success() || steps.install.conclusion == 'success' }}
+        run: |
+          . venv/bin/activate
+          : # Use pytest-xdist here so we can have a single collated output (not possible
+          : # for parallel tests)
+          firedrake-run-split-tests 1 1 "-n 8 $EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
+        timeout-minutes: 60
+        
+      - name: Post-run cleanup
+        if: always()
+        run: find . -delete
