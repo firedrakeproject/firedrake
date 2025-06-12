@@ -694,6 +694,7 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
                 preallocator.preallocatorPreallocate(template)
 
 
+# TODO: This should be a vec, there is nothing we need here apart from the global size, block size and lgmap
 class ArrayBufferPythonMatContext:
     # NOTE: This dat should potentially just be a buffer.
     def __init__(self):
