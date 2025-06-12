@@ -60,7 +60,7 @@ def check_element(element, top=True):
     elif type(element) is finat.ufl.EnrichedElement:
         inner = element._elements
     elif type(element) is finat.ufl.TensorProductElement:
-        inner = element.sub_elements
+        inner = element.factor_elements
     elif isinstance(element, finat.ufl.MixedElement):
         if not top:
             raise ValueError(f"{type(element).__name__} modifier must be outermost")

@@ -250,7 +250,7 @@ def div_to_curl(ele):
     elif isinstance(ele, finat.ufl.EnrichedElement):
         return type(ele)(*(div_to_curl(e) for e in reversed(ele._elements)))
     elif isinstance(ele, finat.ufl.TensorProductElement):
-        return type(ele)(*(div_to_curl(e) for e in ele.sub_elements), cell=ele.cell)
+        return type(ele)(*(div_to_curl(e) for e in ele.factor_elements), cell=ele.cell)
     elif isinstance(ele, finat.ufl.WithMapping):
         return type(ele)(div_to_curl(ele.wrapee), ele.mapping())
     elif isinstance(ele, finat.ufl.BrokenElement):
