@@ -393,7 +393,7 @@ cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
         #                         +---3---+
         #if "fuse" in dm.name:
         # FUSE rules
-        print("FUSE")
+        #print("FUSE")
         #plex_cone_new[0] = plex_cone_old[0]
         #plex_cone_new[1] = plex_cone_old[3]
         #plex_cone_new[2] = plex_cone_old[2]
