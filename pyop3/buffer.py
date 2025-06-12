@@ -5,13 +5,13 @@ import collections
 import contextlib
 import dataclasses
 import numbers
+from collections.abc import Mapping
 from functools import cached_property
 from typing import ClassVar
 
 import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
-from pyrsistent import freeze, pmap
 
 from pyop3 import utils
 from pyop3.config import config
@@ -20,6 +20,9 @@ from pyop3.lang import KernelArgument
 from pyop2.mpi import COMM_SELF
 from pyop3.sf import StarForest
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
+
+
+MatTypeT = str | np.ndarray["MatTypeT"]
 
 
 class IncompatibleStarForestException(Exception):
@@ -452,6 +455,30 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._broadcast_roots_to_leaves()
 
 
+class MatBufferSpec(abc.ABC):
+    pass
+
+
+@dataclasses.dataclass(frozen=True)
+class PetscMatBufferSpec(MatBufferSpec):
+    mat_type: str
+    block_shape: tuple[int, int] = (1, 1)
+
+
+@dataclasses.dataclass(frozen=True)
+class FullPetscMatBufferSpec:
+    mat_type: str
+    row_spec: PetscMatAxisSpec
+    column_spec: PetscMatAxisSpec
+
+
+@dataclasses.dataclass(frozen=True)
+class PetscMatAxisSpec:
+    size: int
+    lgmap: PETSc.LGMap
+    block_size: int = 1
+
+
 class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
     """A buffer whose underlying data structure is a PETSc Mat."""
 
@@ -480,6 +507,11 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
 
     # }}}
 
+    @classmethod
+    @abc.abstractmethod
+    def empty(cls, *args, **kwargs):
+        pass
+
     @property
     def mat_type(self) -> str:
         return self.mat.type
@@ -488,59 +520,54 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
         self.mat.assemble()
 
     @classmethod
-    def _make_mat(cls, nrows, ncolumns, lgmaps, mat_type, block_shape=None):
-        if isinstance(mat_type, collections.abc.Mapping):
-            raise NotImplementedError("axes not around any more")
-            # TODO: This is very ugly
-            rsize = max(x or 0 for x, _ in mat_type.keys()) + 1
-            csize = max(y or 0 for _, y in mat_type.keys()) + 1
-            submats = np.empty((rsize, csize), dtype=object)
-            for (rkey, ckey), submat_type in mat_type.items():
-                subraxes = raxes[rkey] if rkey is not None else raxes
-                subcaxes = caxes[ckey] if ckey is not None else caxes
-                submat = cls._make_mat(
-                    subraxes, subcaxes, submat_type, block_shape=block_shape
-                    )
-                submats[rkey, ckey] = submat
+    def _make_petsc_mat(cls, mat_spec: FullPetscMatBufferSpec | Mapping, *, preallocator: bool = False):
+        if isinstance(mat_spec, Mapping):
+            raise NotImplementedError("Stopping here for today")
+            # next task is that somewhere we need to turn the mappings into an array
+            # (with Nones in the empty slots)
+            submats = np.empty(mat_spec.shape, dtype=object)
+            for (i, j), submat_spec in np.ndenumerate(mat_spec):
+                submat = cls._make_petsc_mat(submat_spec, preallocator=preallocator)
+                submats[i, j] = submat
 
-            # TODO: Internal comm? Set as mat property (then not a classmethod)?
-            comm = utils.single_valued([raxes.comm, caxes.comm])
+            comm = utils.unique_comm(submats)
             return PETSc.Mat().createNest(submats, comm=comm)
         else:
-            return cls._make_monolithic_mat(nrows, ncolumns, lgmaps, mat_type, block_shape=block_shape)
+            assert isinstance(mat_spec, FullPetscMatBufferSpec)
+            return cls._make_non_nested_petsc_mat(mat_spec, preallocator=preallocator)
 
-    # TODO: Almost identical code to Sparsity
     @classmethod
-    def _make_monolithic_mat(cls, nrows, ncolumns, lgmaps, mat_type: str, block_shape=None):
-        comm = utils.unique_comm(lgmaps)
+    def _make_non_nested_petsc_mat(cls, mat_spec: FullPetscMatBufferSpec, *, preallocator: bool):
+        mat_type = mat_spec.mat_type
+        row_spec = mat_spec.row_spec
+        column_spec = mat_spec.column_spec
+        comm = utils.unique_comm([row_spec.lgmap, column_spec.lgmap])
 
-        if mat_type == "dat":
-            matdat = _MatDat(raxes, caxes)
-            if matdat.is_row_matrix:
-                assert not matdat.is_column_matrix
-                sizes = ((raxes.owned.size, None), (None, 1))
-            elif matdat.is_column_matrix:
-                sizes = ((None, 1), (caxes.owned.size, None))
-            else:
-                # 1x1 block
-                sizes = ((None, 1), (None, 1))
-            mat = PETSc.Mat().createPython(sizes, comm=comm)
-            mat.setPythonContext(matdat)
-        else:
-            mat = PETSc.Mat().create(comm)
-            mat.setType(mat_type)
-            mat.setBlockSize(block_shape)
+        match mat_type:
+            case "vec":
+                mat_context = ArrayBufferPythonMatContext()
+                breakpoint()  # TODO
+                if matdat.is_row_matrix:
+                    assert not matdat.is_column_matrix
+                    sizes = ((raxes.owned.size, None), (None, 1))
+                elif matdat.is_column_matrix:
+                    sizes = ((None, 1), (caxes.owned.size, None))
+                else:
+                    # 1x1 block
+                    sizes = ((None, 1), (None, 1))
+                mat = PETSc.Mat().createPython(sizes, comm=comm)
+                mat.setPythonContext(matdat)
+            case _:
+                if preallocator:
+                    mat_type = PETSc.Mat.Type.PREALLOCATOR
 
-            # None is for the global size, PETSc will figure it out for us
-            sizes = ((nrows, None), (ncolumns, None))
-            mat.setSizes(sizes)
-
-            # rnum = global_numbering(nrows, row_sf)
-            # rlgmap = PETSc.LGMap().create(rnum, bsize=block_shape, comm=comm)
-            # cnum = global_numbering(ncolumns, column_sf)
-            # clgmap = PETSc.LGMap().create(cnum, bsize=block_shape, comm=comm)
-            rlgmap, clgmap = lgmaps
-            mat.setLGMap(rlgmap, clgmap)
+                mat = PETSc.Mat().create(comm)
+                mat.setType(mat_type)
+                mat.setBlockSizes(row_spec.block_size, column_spec.block_size)
+                # None is for the global size, PETSc will figure it out for us
+                sizes = ((row_spec.size, None), (column_spec.size, None))
+                mat.setSizes(sizes)
+                mat.setLGMap(row_spec.lgmap, column_spec.lgmap)
 
         mat.setUp()
         return mat
@@ -566,6 +593,15 @@ class AllocatedPetscMatBuffer(PetscMatBuffer):
 
     # }}}
 
+    # {{{ factory methods
+
+    @classmethod
+    def empty(cls, mat_spec: PetscMatSpec | np.ndarray[PetscMatSpec], **kwargs):
+        mat = cls._make_petsc_mat(mat_spec)
+        return cls(mat, **kwargs)
+
+    # }}}
+
     def __init__(self, mat: PETSc.Mat, *, name:str|None=None, prefix:str|None=None,constant:bool=False):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
@@ -581,7 +617,7 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
     # {{{ Instance attrs
 
     _mat: PETSc.Mat
-    target_mat_type: str
+    mat_spec: FullPetscMatBufferSpec | Mapping
     _name: str
     _constant: bool
 
@@ -597,11 +633,20 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
 
     # }}}
 
-    def __init__(self, mat: PETSc.Mat, target_mat_type: str, *, name:str|None=None, prefix:str|None=None,constant:bool=False):
+    # {{{ factory methods
+
+    @classmethod
+    def empty(cls, mat_spec: MatSpec | np.ndarray[MatSpec], **kwargs):
+        mat = cls._make_petsc_mat(mat_spec, preallocator=True)
+        return cls(mat, mat_spec=mat_spec, **kwargs)
+
+    # }}}
+
+    def __init__(self, mat: PETSc.Mat, mat_spec: FullPetscMatBufferSpec | Mapping, *, name:str|None=None, prefix:str|None=None,constant:bool=False):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         self._mat = mat
-        self.target_mat_type = target_mat_type
+        self.mat_spec = mat_spec
         self._name = name
         self._constant = constant
 
@@ -611,10 +656,11 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
 
             nrows, ncolumns = self.mat.local_size
             lgmaps = self.mat.getLGMap()
-            template = self._make_mat(nrows, ncolumns, lgmaps,
-                                     mat_type=self.target_mat_type, block_shape=self.mat.block_size
+            breakpoint()
+            template = self._make_petsc_mat(nrows, ncolumns, lgmaps,
+                                     mat_spec=self.mat_spec, block_shape=self.mat.block_size
                                      )
-            self._preallocate(self.mat, template, self.target_mat_type)
+            self._preallocate(self.mat, template, self.mat_spec)
             # template.preallocateWithMatPreallocator(self.mat)
             # We can safely set these options since by using a sparsity we
             # are asserting that we know where the non-zeros are going.
@@ -630,6 +676,9 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
 
     # TODO: can detect mat_type from the template I reckon
     def _preallocate(self, preallocator, template, mat_type):
+        if not isinstance(mat_type, str):
+            breakpoint()
+
         if isinstance(mat_type, collections.abc.Mapping):
             for (ridx, cidx), submat_type in mat_type.items():
                 if ridx is None:
@@ -643,3 +692,175 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
             if mat_type != "dat":
                 # template.preallocateWithMatPreallocator(preallocator)
                 preallocator.preallocatorPreallocate(template)
+
+
+class ArrayBufferPythonMatContext:
+    # NOTE: This dat should potentially just be a buffer.
+    def __init__(self):
+        # self.raxes = raxes
+        # self.caxes = caxes
+        #
+        # self._lazy_dat = dat
+        pass
+
+    # @property
+    # def dat(self):
+    #     if self._lazy_dat is None:
+    #         if self.is_row_matrix:
+    #             assert not self.is_column_matrix
+    #             axes = self.raxes
+    #         elif self.is_column_matrix:
+    #             axes = self.caxes
+    #         else:
+    #             axes = AxisTree()
+    #         dat = Dat(axes, dtype=self.dtype)
+    #         self._lazy_dat = dat
+    #     return self._lazy_dat
+
+    @property
+    def is_row_matrix(self):
+        root = self.raxes.root
+        return len(root.components) != 1 or not root.component.unit
+
+    @property
+    def is_column_matrix(self):
+        root = self.caxes.root
+        return len(root.components) != 1 or not root.component.unit
+
+    # def __getitem__(self, key):
+    #     shape = [s[0] or 1 for s in self.sizes]
+    #     return self.dat.data_ro.reshape(*shape)[key]
+
+    def zeroEntries(self, mat):
+        self.dat.zero()
+
+    def mult(self, x, y):
+        """Set y = self @ x."""
+        with self.dat.vec_ro as A:
+            if self.is_row_matrix:
+                # Example:
+                # * 'A' (self) has global size (5, 2)
+                # * 'x' has global size (5, 2)
+                # * 'y' has global size (2, 2)
+                #
+                #     A     ⊗  x  ➜  y
+                # ■ ■ ■ ■ ■   ■ ■   ■ ■
+                # ■ ■ ■ ■ ■   ■ ■   ■ ■
+                #             ■ ■
+                #             ■ ■
+                #             ■ ■
+                y.setValue(0, A.dot(x))
+            else:
+                assert self.is_column_matrix
+                # Example:
+                # * 'A' (self) has global size (5, 3)
+                # * 'x' has global size (3, 2)
+                # * 'y' has global size (5, 2)
+                #
+                #   A   ⊗  x  ➜  y
+                # ■ ■ ■   ■ ■   ■ ■
+                # ■ ■ ■   ■ ■   ■ ■
+                # ■ ■ ■   ■ ■   ■ ■
+                # ■ ■ ■         ■ ■
+                # ■ ■ ■         ■ ■
+                #
+                # The algorithm is:
+                #
+                #     for i in range(5):
+                #       for j in range(2):
+                #         for k in range(3):
+                #           y[i,j] += A[i,k] * x[k,j]
+                #
+                # We can always assume that 'x' is small in both dimensions so
+                # those loops are safe to do explicitly (on the outside):
+                #
+                #     for j in range(2):
+                #       for k in range(3):
+                #         y[:,j] += A[:,k] * x[k,j]
+                #
+                # Which I know how to do efficiently using numpy.
+                nj = x.block_size
+                nk = A.block_size
+                for j in range(nj):
+                    for k in range(nk):
+                        y.buffer_w[:, j] += A.buffer_r[:, k] * x.buffer_r[k, j]
+
+    def multTranspose(self, mat, x, y):
+        raise NotImplementedError
+    #     with self.dat.vec_ro as v:
+    #         if self.sizes[0][0] is None:
+    #             # Row matrix
+    #             if x.sizes[1] == 1:
+    #                 v.copy(y)
+    #                 a = np.zeros(1, dtype=dtypes.ScalarType)
+    #                 if x.comm.rank == 0:
+    #                     a[0] = x.array_r
+    #                 else:
+    #                     x.array_r
+    #                 with mpi.temp_internal_comm(x.comm) as comm:
+    #                     comm.bcast(a)
+    #                 y.scale(a)
+    #             else:
+    #                 v.pointwiseMult(x, y)
+    #         else:
+    #             # Column matrix
+    #             out = v.dot(x)
+    #             if y.comm.rank == 0:
+    #                 y.array[0] = out
+    #             else:
+    #                 y.array[...]
+    #
+    # def multTransposeAdd(self, mat, x, y, z):
+    #     ''' z = y + mat^Tx '''
+    #     with self.dat.vec_ro as v:
+    #         if self.sizes[0][0] is None:
+    #             # Row matrix
+    #             if x.sizes[1] == 1:
+    #                 v.copy(z)
+    #                 a = np.zeros(1, dtype=dtypes.ScalarType)
+    #                 if x.comm.rank == 0:
+    #                     a[0] = x.array_r
+    #                 else:
+    #                     x.array_r
+    #                 with mpi.temp_internal_comm(x.comm) as comm:
+    #                     comm.bcast(a)
+    #                 if y == z:
+    #                     # Last two arguments are aliased.
+    #                     tmp = y.duplicate()
+    #                     y.copy(tmp)
+    #                     y = tmp
+    #                 z.scale(a)
+    #                 z.axpy(1, y)
+    #             else:
+    #                 if y == z:
+    #                     # Last two arguments are aliased.
+    #                     tmp = y.duplicate()
+    #                     y.copy(tmp)
+    #                     y = tmp
+    #                 v.pointwiseMult(x, z)
+    #                 return z.axpy(1, y)
+    #         else:
+    #             # Column matrix
+    #             out = v.dot(x)
+    #             y = y.array_r
+    #             if z.comm.rank == 0:
+    #                 z.array[0] = out + y[0]
+    #             else:
+    #                 z.array[...]
+
+    def duplicate(self, mat, copy=True):
+        raise NotImplementedError
+        # debug, this is not the problem
+        return mat
+        if copy:
+            # arguably duplicate is a better name for this function
+            context = type(self)(self.raxes, self.caxes, dat=self.dat.copy())
+        else:
+            context = type(self)(self.raxes, self.caxes)
+
+        mat = PETSc.Mat().createPython(mat.getSizes(), comm=mat.comm)
+        mat.setPythonContext(context)
+        mat.setUp()
+        return mat
+
+

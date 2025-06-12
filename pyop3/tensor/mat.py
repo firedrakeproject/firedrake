@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import collections
+from collections.abc import Mapping
 import dataclasses
 import numbers
 from functools import cached_property
@@ -27,7 +28,7 @@ from pyop3.axtree.tree import (
     IndexedAxisTree,
     as_axis_tree,
 )
-from pyop3.buffer import ArrayBuffer, NullBuffer, AbstractBuffer, PetscMatBuffer, AllocatedPetscMatBuffer, PetscMatPreallocatorBuffer
+from pyop3.buffer import ArrayBuffer, FullPetscMatBufferSpec, NullBuffer, AbstractBuffer, PetscMatAxisSpec, PetscMatBuffer, AllocatedPetscMatBuffer, PetscMatPreallocatorBuffer, PetscMatBufferSpec, MatBufferSpec
 from pyop3.dtypes import IntType, ScalarType
 from pyop3.lang import Loop, ArrayAssignment
 from pyop3.utils import (
@@ -59,10 +60,7 @@ class Mat(Tensor):
     # {{{ class attrs
 
     DEFAULT_PREFIX: ClassVar[str] = "mat"
-    DEFAULT_BUFFER_TYPE: ClassVar[type] = PetscMatBuffer
-
-    # TODO: put on the buffer
-    DEFAULT_MAT_TYPE: ClassVar[PETSc.Mat.Type] = PETSc.Mat.Type.AIJ
+    DEFAULT_MAT_BUFFER_SPEC: ClassVar[MatBufferSpec] = PetscMatBufferSpec(PETSc.Mat.Type.AIJ)
 
     # }}}
 
@@ -85,6 +83,44 @@ class Mat(Tensor):
         raise NotImplementedError("Should we have a tuple of tuples?")
 
     # }}}
+
+    # {{{ factory methods
+
+    @classmethod
+    def empty(
+        cls,
+        row_axes,
+        column_axes,
+        *,
+        buffer_spec: MatBufferSpec | Mapping | None = None,
+        preallocator: bool = False,
+        **kwargs,
+    ) -> Mat:
+        if buffer_spec is None:
+            buffer_spec = cls.DEFAULT_MAT_BUFFER_SPEC
+
+        full_spec = make_full_mat_buffer_spec(buffer_spec, row_axes, column_axes)
+
+        if not preallocator:
+            buffer = AllocatedPetscMatBuffer.empty(full_spec)
+        else:
+            buffer = PetscMatPreallocatorBuffer.empty(full_spec)
+
+        return cls(row_axes, column_axes, buffer=buffer, **kwargs)
+
+    @classmethod
+    def sparsity(cls, row_axes, column_axes, **kwargs) -> Mat:
+        return cls.empty(row_axes, column_axes, preallocator=True, **kwargs)
+
+    @classmethod
+    def null(cls, row_axes, column_axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Mat:
+        row_axes = as_axis_tree(row_axes)
+        column_axes = as_axis_tree(column_axes)
+        buffer = NullBuffer(row_axes.alloc_size*column_axes.alloc_size, dtype=dtype)
+        return cls(row_axes, column_axes, buffer=buffer, **kwargs)
+
+    # }}}
+
 
     def __init__(
         self,
@@ -110,63 +146,6 @@ class Mat(Tensor):
         self._parent = parent
 
         # self._cache = {}
-
-    # NOTE: This is missing out on certain fields!
-    # def __hash__(self) -> int:
-    #     return hash(
-    #         (
-    #             type(self), self.raxes, self.caxes, self.dtype, id(self.mat), self.name)
-    #     )
-
-    # {{{ Class constructors
-
-    @classmethod
-    def empty(cls, row_axes, column_axes, *, buffer_type: type = PetscMatBuffer, buffer_kwargs: Mapping[str, Any] | None = None, **kwargs) -> Mat:
-        buffer_kwargs = buffer_kwargs or {}
-
-        if buffer_type is AllocatedPetscMatBuffer:
-            # TODO: Move into a Buffer.zeros method or similar
-            mat_type = buffer_kwargs.pop("mat_type", cls.DEFAULT_MAT_TYPE)
-            block_shape = buffer_kwargs.pop("block_shape", 1)
-            mat = buffer_type._make_mat(
-                row_axes, column_axes, mat_type, block_shape=block_shape
-                )
-
-            buffer = PetscMatBuffer(mat, **buffer_kwargs)
-        elif buffer_type is PetscMatPreallocatorBuffer:
-            # TODO: Move into a Buffer.zeros method or similar
-            # mat_type = buffer_kwargs.pop("mat_type", cls.DEFAULT_MAT_TYPE)
-            block_shape = buffer_kwargs.pop("block_shape", 1)
-            nrows = row_axes.unindexed.owned.size
-            ncolumns = column_axes.unindexed.owned.size
-            rlgmap = PETSc.LGMap().create(row_axes.unindexed.global_numbering, bsize=block_shape, comm=row_axes.comm)
-            clgmap = PETSc.LGMap().create(column_axes.unindexed.global_numbering, bsize=block_shape, comm=column_axes.comm)
-            mat = buffer_type._make_mat(
-                nrows, ncolumns, (rlgmap, clgmap), mat_type=PETSc.Mat.Type.PREALLOCATOR, block_shape=block_shape
-                )
-
-            buffer = PetscMatPreallocatorBuffer(mat, **buffer_kwargs)
-        else:
-            raise ValueError
-
-        return cls(row_axes, column_axes, buffer=buffer, **kwargs)
-
-    @classmethod
-    def sparsity(cls, row_axes, column_axes, *, buffer_kwargs: Mapping[str, Any] | None = None, **kwargs) -> Mat:
-        # Not sure what the nicest interface is here...
-        # buffer_kwargs = dict(buffer_kwargs) if buffer_kwargs else {}
-        # if target_mat_type is not None:
-        #     buffer_kwargs["target_mat_type"] = target_mat_type
-        return cls.empty(row_axes, column_axes, buffer_type=PetscMatPreallocatorBuffer, buffer_kwargs=buffer_kwargs, **kwargs)
-
-    @classmethod
-    def null(cls, row_axes, column_axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Mat:
-        row_axes = as_axis_tree(row_axes)
-        column_axes = as_axis_tree(column_axes)
-        buffer = NullBuffer(row_axes.alloc_size*column_axes.alloc_size, dtype=dtype)
-        return cls(row_axes, column_axes, buffer=buffer, **kwargs)
-
-    # }}}
 
     # {{{ Array impls
 
@@ -580,149 +559,40 @@ class Mat(Tensor):
             return mat[:, :]
 
 
-class _MatDat:
-    dtype = Mat.dtype
-
-    # NOTE: This dat should potentially just be a buffer.
-    def __init__(self, raxes, caxes, dat=None):
-        self.raxes = raxes
-        self.caxes = caxes
-
-        self._lazy_dat = dat
-
-    @property
-    def dat(self):
-        if self._lazy_dat is None:
-            if self.is_row_matrix:
-                assert not self.is_column_matrix
-                axes = self.raxes
-            elif self.is_column_matrix:
-                axes = self.caxes
-            else:
-                axes = AxisTree()
-            dat = Dat(axes, dtype=self.dtype)
-            self._lazy_dat = dat
-        return self._lazy_dat
-
-    @property
-    def is_row_matrix(self):
-        root = self.raxes.root
-        return len(root.components) != 1 or not root.component.unit
-
-    @property
-    def is_column_matrix(self):
-        root = self.caxes.root
-        return len(root.components) != 1 or not root.component.unit
-
-    # def __getitem__(self, key):
-    #     shape = [s[0] or 1 for s in self.sizes]
-    #     return self.dat.data_ro.reshape(*shape)[key]
-
-    def zeroEntries(self, mat):
-        self.dat.zero()
-
-    def mult(self, A, x, y):
-        """Set y = A * x (where A is self)."""
-        print("AAAAAAAAAAAAAAAAAAA", flush=True)
-        with self.dat.vec_ro as v:
-            if self.is_row_matrix:
-                y.setValue(0, v.dot(x))
-            else:
-                assert self.is_column_matrix
-                # this is really slow, but what is already there is unclear
-
-                # print("BBBBBBBBBBBBBBBBBBB", flush=True)
-                # breakpoint()
-                # for row in
-                # if x.sizes[1] == 1:
-                #     v.copy(y)
-                #     a = np.zeros(1, dtype=dtypes.ScalarType)
-                #     if x.comm.rank == 0:
-                #         a[0] = x.array_r
-                #     else:
-                #         x.array_r
-                #     with mpi.temp_internal_comm(x.comm) as comm:
-                #         comm.bcast(a)
-                #     return y.scale(a)
-                # else:
-                #     return v.pointwiseMult(x, y)
-
-    # def multTranspose(self, mat, x, y):
-    #     with self.dat.vec_ro as v:
-    #         if self.sizes[0][0] is None:
-    #             # Row matrix
-    #             if x.sizes[1] == 1:
-    #                 v.copy(y)
-    #                 a = np.zeros(1, dtype=dtypes.ScalarType)
-    #                 if x.comm.rank == 0:
-    #                     a[0] = x.array_r
-    #                 else:
-    #                     x.array_r
-    #                 with mpi.temp_internal_comm(x.comm) as comm:
-    #                     comm.bcast(a)
-    #                 y.scale(a)
-    #             else:
-    #                 v.pointwiseMult(x, y)
-    #         else:
-    #             # Column matrix
-    #             out = v.dot(x)
-    #             if y.comm.rank == 0:
-    #                 y.array[0] = out
-    #             else:
-    #                 y.array[...]
-    #
-    # def multTransposeAdd(self, mat, x, y, z):
-    #     ''' z = y + mat^Tx '''
-    #     with self.dat.vec_ro as v:
-    #         if self.sizes[0][0] is None:
-    #             # Row matrix
-    #             if x.sizes[1] == 1:
-    #                 v.copy(z)
-    #                 a = np.zeros(1, dtype=dtypes.ScalarType)
-    #                 if x.comm.rank == 0:
-    #                     a[0] = x.array_r
-    #                 else:
-    #                     x.array_r
-    #                 with mpi.temp_internal_comm(x.comm) as comm:
-    #                     comm.bcast(a)
-    #                 if y == z:
-    #                     # Last two arguments are aliased.
-    #                     tmp = y.duplicate()
-    #                     y.copy(tmp)
-    #                     y = tmp
-    #                 z.scale(a)
-    #                 z.axpy(1, y)
-    #             else:
-    #                 if y == z:
-    #                     # Last two arguments are aliased.
-    #                     tmp = y.duplicate()
-    #                     y.copy(tmp)
-    #                     y = tmp
-    #                 v.pointwiseMult(x, z)
-    #                 return z.axpy(1, y)
-    #         else:
-    #             # Column matrix
-    #             out = v.dot(x)
-    #             y = y.array_r
-    #             if z.comm.rank == 0:
-    #                 z.array[0] = out + y[0]
-    #             else:
-    #                 z.array[...]
-
-    def duplicate(self, mat, copy=True):
-        # debug, this is not the problem
-        return mat
-        if copy:
-            # arguably duplicate is a better name for this function
-            context = type(self)(self.raxes, self.caxes, dat=self.dat.copy())
-        else:
-            context = type(self)(self.raxes, self.caxes)
-
-        mat = PETSc.Mat().createPython(mat.getSizes(), comm=mat.comm)
-        mat.setPythonContext(context)
-        mat.setUp()
-        return mat
-
-
 def _zero_if_none(value):
     return value if value is not None else 0
+
+
+def make_full_mat_buffer_spec(partial_spec: MatBufferSpec | Mapping, row_axes: AbstractAxisTree, column_axes: AbstractAxisTree) -> FullMatBufferSpec:
+    if isinstance(partial_spec, MatBufferSpec):
+        comm = utils.unique_comm((row_axes, column_axes))
+
+        nrows = row_axes.owned.size
+        ncolumns = column_axes.owned.size
+        row_bsize, column_bsize = partial_spec.block_shape
+
+        if row_bsize > 1 or column_bsize > 1:
+            raise NotImplementedError("Need to trim the axis tree")
+
+        row_lgmap = PETSc.LGMap().create(
+            row_axes.global_numbering, bsize=row_bsize, comm=comm
+        )
+        column_lgmap = PETSc.LGMap().create(
+            column_axes.global_numbering, bsize=column_bsize, comm=comm
+        )
+
+        row_spec = PetscMatAxisSpec(nrows, row_lgmap, row_bsize)
+        column_spec = PetscMatAxisSpec(ncolumns, column_lgmap, column_bsize)
+        full_spec = FullPetscMatBufferSpec(partial_spec.mat_type, row_spec, column_spec)
+    else:
+        # matnest
+        assert isinstance(partial_spec, Mapping)
+        full_spec = {}
+        for index_key, sub_partial_spec in partial_spec.items():
+            row_index, column_index = index_key
+            sub_row_axes = row_axes[row_index]
+            sub_column_axes = column_axes[column_index]
+            sub_spec = make_full_mat_buffer_spec(sub_partial_spec, sub_row_axes, sub_column_axes)
+            full_spec[index_key] = (sub_spec, sub_row_axes, sub_column_axes)
+
+    return full_spec

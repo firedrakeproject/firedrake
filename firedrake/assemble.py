@@ -5,7 +5,7 @@ import itertools
 import numbers
 import operator
 from collections import OrderedDict, defaultdict
-from collections.abc import Sequence  # noqa: F401
+from collections.abc import Mapping
 from itertools import product
 from functools import cached_property
 
@@ -1290,18 +1290,18 @@ def TwoFormAssembler(form, *args, **kwargs):
     assert isinstance(form, (ufl.form.Form, slate.TensorBase))
     mat_type = kwargs.pop('mat_type', None)
     sub_mat_type = kwargs.pop('sub_mat_type', None)
-    mat_type, sub_mat_type = _get_mat_type(mat_type, sub_mat_type, form.arguments())
-    if mat_type == "matfree":
+    mat_spec = make_mat_spec(mat_type, sub_mat_type, form.arguments())
+    if isinstance(mat_spec, op3.PetscMatBufferSpec) and mat_spec.mat_type == "matfree":
         # Arguably we should crash here, as we would be passing ignored arguments through
         kwargs.pop('needs_zeroing', None)
         kwargs.pop('weight', None)
         kwargs.pop('allocation_integral_types', None)
         return MatrixFreeAssembler(form, *args, **kwargs)
     else:
-        return ExplicitMatrixAssembler(form, *args, mat_type=mat_type, sub_mat_type=sub_mat_type, **kwargs)
+        return ExplicitMatrixAssembler(form, *args, mat_spec=mat_spec, **kwargs)
 
 
-def _get_mat_type(mat_type, sub_mat_type, arguments):
+def make_mat_spec(mat_type, sub_mat_type, arguments):
     """Validate the matrix types provided by the user and set any that are
     undefined to default values.
 
@@ -1320,6 +1320,10 @@ def _get_mat_type(mat_type, sub_mat_type, arguments):
         Tuple of validated/default ``mat_type`` and ``sub_mat_type``.
 
     """
+    test_arg, trial_arg = arguments
+    test_space = test_arg.function_space()
+    trial_space = trial_arg.function_space()
+
     has_real_subspace = any(
         _is_real_space(V) for arg in arguments for V in arg.function_space()
     )
@@ -1341,18 +1345,24 @@ def _get_mat_type(mat_type, sub_mat_type, arguments):
         )
 
     if mat_type == "nest":
-        mat_type = {}
-        test, trial = arguments
-        for test_subspace in test.function_space():
-            for trial_subspace in trial.function_space():
-                subspace_key = test_subspace.index, trial_subspace.index
-                if any(_is_real_space(s) for s in {test_subspace, trial_subspace}):
-                    mat_type[subspace_key] = "dat"
-                else:
-                    mat_type[subspace_key] = sub_mat_type
+        mat_spec = {}
+        for test_subspace in test_space:
+            for trial_subspace in trial_space:
+                block_shape = (test_subspace.value_size, trial_subspace.value_size)
 
-    # sub_mat_type no longer used after this
-    return mat_type, sub_mat_type
+                if any(_is_real_space(s) for s in {test_subspace, trial_subspace}):
+                    sub_mat_type_ = "vec"
+                else:
+                    sub_mat_type_ = sub_mat_type
+
+                none_to_ellipsis = lambda i: Ellipsis if i is None else i
+
+                subspace_key = tuple(map(none_to_ellipsis, (test_subspace.index, trial_subspace.index)))
+                mat_spec[subspace_key] = op3.PetscMatBufferSpec(sub_mat_type_, block_shape)
+    else:
+        block_shape = (test_space.value_size, trial_space.value_size)
+        mat_spec = op3.PetscMatBufferSpec(mat_type, block_shape)
+    return mat_spec
 
 
 class ExplicitMatrixAssembler(ParloopFormAssembler):
@@ -1378,15 +1388,10 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
     @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
-                 mat_type=None, sub_mat_type=None, options_prefix=None, appctx=None, weight=1.0,
+                 mat_spec=None, options_prefix=None, appctx=None, weight=1.0,
                  allocation_integral_types=None):
-        # The previous API was that the user would specify mat_type and sub_mat_type, now
-        # mat_type can be a dict so convert to that here.
-        # NOTE: This function is called in TwoFormAssembler, should it be?
-        # mat_type, sub_mat_type = _get_mat_type(mat_type, sub_mat_type, form.arguments())
-
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=needs_zeroing)
-        self._mat_type = mat_type
+        self._mat_spec = mat_spec
         self._options_prefix = options_prefix
         self._appctx = appctx
         self.weight = weight
@@ -1397,7 +1402,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         sparsity = self._make_sparsity(
             test,
             trial,
-            self._mat_type,
+            self._mat_spec,
             self._make_maps_and_regions(),
         )
         mat = op3.Mat.from_sparsity(sparsity)
@@ -1410,8 +1415,15 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             options_prefix=self._options_prefix
         )
 
+    @property
+    def _mat_type(self) -> str:
+        if isinstance(self._mat_spec, Mapping):
+            return "nest"
+        else:
+            return self._mat_spec.mat_type
+
     @staticmethod
-    def _make_sparsity(test, trial, mat_type, maps_and_regions):
+    def _make_sparsity(test, trial, mat_spec, maps_and_regions):
         # Is this overly restrictive?
         if any(len(a.function_space()) > 1 for a in [test, trial]) and mat_type == "baij":
             raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
@@ -1419,10 +1431,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         sparsity = op3.Mat.sparsity(
             test.function_space().axes,
             trial.function_space().axes,
-            buffer_kwargs={
-                "target_mat_type": mat_type,
-                "block_shape": test.function_space().value_size,
-            },
+            buffer_spec=mat_spec,
         )
 
         if type(test.function_space().ufl_element()) is finat.ufl.MixedElement:

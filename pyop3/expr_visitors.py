@@ -177,8 +177,9 @@ def _(loop_var: LoopIndexVar):
     return OrderedSet({loop_var})
 
 
-@collect_loop_index_vars.register(AxisVar)
 @collect_loop_index_vars.register(numbers.Number)
+@collect_loop_index_vars.register(AxisVar)
+@collect_loop_index_vars.register(NaN)
 def _(var):
     return OrderedSet()
 

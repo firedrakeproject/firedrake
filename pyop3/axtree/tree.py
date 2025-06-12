@@ -1071,6 +1071,22 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         """Return the axis tree discarding parallel overlap information."""
         return self._undistributed
 
+    @cached_property
+    def global_numbering(self) -> np.ndarray[IntType]:
+        # NOTE: Identical code is used elsewhere
+        if not self.comm:  # maybe goes away if we disallow comm=None
+            numbering = np.arange(self.size, dtype=IntType)
+        else:
+            start = self.sf.comm.exscan(self.owned.size) or 0
+            numbering = np.arange(start, start + self.size, dtype=IntType)
+
+            # set ghost entries to -1 to make sure they are overwritten
+            # TODO: if config.debug:
+            numbering[self.owned.size:] = -1
+            self.sf.broadcast(numbering, MPI.REPLACE)
+            debug_assert(lambda: (numbering >= 0).all())
+        return numbering
+
     def offset(self, indices, path=None, *, loop_exprs=immutabledict()):
         from pyop3.axtree.layout import eval_offset
         return eval_offset(
@@ -1572,22 +1588,6 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def _buffer_slice(self) -> slice:
         return slice(self.size)
 
-    @cached_property
-    def global_numbering(self) -> np.ndarray[IntType]:
-        # NOTE: Identical code is used elsewhere
-        if not self.comm:  # maybe goes away if we disallow comm=None
-            numbering = np.arange(self.size, dtype=IntType)
-        else:
-            start = self.sf.comm.exscan(self.owned.size) or 0
-            numbering = np.arange(start, start + self.size, dtype=IntType)
-
-            # set ghost entries to -1 to make sure they are overwritten
-            # TODO: if config.debug:
-            numbering[self.owned.size:] = -1
-            self.sf.broadcast(numbering, MPI.REPLACE)
-            debug_assert(lambda: (numbering >= 0).all())
-        return numbering
-
     # TODO: Think of good names for these types (and global_numbering)
     @cached_property
     def lgmap_dat(self) -> Dat:
@@ -1863,6 +1863,7 @@ class IndexedAxisTree(AbstractAxisTree):
     def _buffer_slice(self) -> np.ndarray[IntType]:
         from pyop3 import Dat, do_loop
 
+        # NOTE: The below method might be better...
         # mask_dat = Dat.zeros(self.unindexed.undistribute(), dtype=bool, prefix="mask")
         # do_loop(p := self.index(), mask_dat[p].assign(1))
         # indices = just_one(np.nonzero(mask_dat.buffer.data_ro))
@@ -1873,6 +1874,8 @@ class IndexedAxisTree(AbstractAxisTree):
             offset_expr = just_one(self[p].leaf_subst_layouts.values())
             do_loop(p, indices_dat[p].assign(offset_expr))
         indices = indices_dat.buffer.data_ro_with_halos
+
+        indices = np.unique(np.sort(indices))
 
         debug_assert(lambda: max(indices) <= self.size)
 
@@ -1887,13 +1890,10 @@ class IndexedAxisTree(AbstractAxisTree):
         else:
             step = indices[1] - indices[0]
 
-            if step == 0:
-                return indices
-
             for i in range(1, n-1):
                 new_step = indices[i+1] - indices[i]
-                # zero or non-const step, abort and use indices
-                if new_step == 0 or new_step != step:
+                # non-const step, abort and use indices
+                if new_step != step:
                     return indices
 
             return slice(indices[0], indices[-1]+1, step)
