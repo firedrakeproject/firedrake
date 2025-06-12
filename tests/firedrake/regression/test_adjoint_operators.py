@@ -6,7 +6,6 @@ from ufl.classes import Zero
 
 from firedrake import *
 from firedrake.adjoint import *
-from firedrake.__future__ import *
 
 
 @pytest.fixture(autouse=True)

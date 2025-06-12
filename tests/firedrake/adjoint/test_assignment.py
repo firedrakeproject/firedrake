@@ -1,7 +1,6 @@
 import pytest
 
 from firedrake import *
-from firedrake.__future__ import *
 from firedrake.adjoint import *
 
 from numpy.random import rand

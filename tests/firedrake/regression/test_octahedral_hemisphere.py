@@ -1,7 +1,6 @@
 from __future__ import absolute_import, print_function, division
 import pytest
 from firedrake import *
-from firedrake.__future__ import *
 import numpy
 
 
