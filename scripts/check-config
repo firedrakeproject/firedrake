@@ -71,8 +71,14 @@ def check_slepc_version() -> None:
 
 
 def check_petsc_version_spec() -> None:
-    # TODO when https://github.com/firedrakeproject/firedrake/pull/4194 is merged
-    pass
+    petsc_version_spec = check_file_contains_pattern(
+        REPO_ROOT / "firedrake/__init__.py",
+        "PETSC_SUPPORTED_VERSIONS = \"(.*)\"",
+    )
+    check_file_contains_pattern(
+        REPO_ROOT / "setup.py",
+        f"petsctools.init\\(version_spec=\"{petsc_version_spec}\"\\)",
+    )
 
 
 def check_file_contains_pattern(

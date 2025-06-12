@@ -136,7 +136,7 @@ Caveats
 
   .. code-block:: python
 
-    from firedrake.petsc import OptionsManager
+    from petsctools import OptionsManager
 
     # If the -log_view flag is passed you don't need to call
     # PETSc.Log.begin because it is done automatically.
