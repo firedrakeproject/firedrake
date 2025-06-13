@@ -309,12 +309,12 @@ class Dat(Tensor, KernelArgument):
             current_axis = current_axis.get_part(idx.npart).subaxis
         return tuple(selected)
 
-    def copy(self) -> Dat:
+    def duplicate(self, *, copy=False) -> Dat:
         if self.parent is not None:
             raise RuntimeError
 
         name = f"{self.name}_copy"
-        buffer = self._buffer.copy()
+        buffer = self._buffer.duplicate(copy=copy)
         return self.__record_init__(_name=name, _buffer=buffer)
 
     @PETSc.Log.EventDecorator()

@@ -1892,7 +1892,7 @@ class ParloopBuilder:
         """
 
         if len(self._form.arguments()) == 2 and not self._diagonal:
-            if matrix.M.nested:
+            if matrix.M.buffer.mat_type == "nest":
                 raise NotImplementedError("Mat nest not yet implemented")
             if not self._bcs:
                 return None

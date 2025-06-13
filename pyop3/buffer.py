@@ -74,8 +74,11 @@ class AbstractBuffer(KernelArgument, metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def copy(self) -> AbstractBuffer:
+    def duplicate(self, *, copy: bool = False) -> AbstractBuffer:
         pass
+
+    def copy(self) -> AbstractBuffer:
+        return self.duplicate(copy=True)
 
 
 class AbstractArrayBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
@@ -131,7 +134,7 @@ class NullBuffer(AbstractArrayBuffer):
     max_value: ClassVar[property] = utils.attr("_max_value")
     ordered: ClassVar[property] = utils.attr("_ordered")
 
-    def copy(self) -> NullBuffer:
+    def duplicate(self, *, copy: bool = False) -> NullBuffer:
         name = f"{self.name}_copy"
         return self.__record_init__(_name=name)
 
@@ -219,11 +222,14 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def inc_state(self) -> None:
         self._state += 1
 
-    def copy(self) -> ArrayBuffer:
-        # Make sure that there are no pending transfers before we copy
+    def duplicate(self, *, copy: bool = False) -> ArrayBuffer:
+        # make sure that there are no pending transfers before we copy
         self.assemble()
         name = f"{self.name}_copy"
-        data = self._lazy_data.copy()
+        if copy:
+            data = self._lazy_data.copy()
+        else:
+            data = np.zeros_like(self._lazy_data)
         return self.__record_init__(_name=name, _lazy_data=data)
 
     # }}}
@@ -517,7 +523,7 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
 
         pyop3.extras.debug.warn_todo("inc_state for PETSc matrices")
 
-    def copy(self) -> PetscMatBuffer:
+    def duplicate(self, **kwargs) -> PetscMatBuffer:
         raise NotImplementedError("TODO")
 
     # }}}
@@ -566,9 +572,9 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
             column_axes = column_spec
 
             if mat_type == "rvec":
-                mat_context = RowDatPythonMatContext(row_axes, column_axes)
+                mat_context = RowDatPythonMatContext.from_spec(row_axes, column_axes)
             else:
-                mat_context = ColumnDatPythonMatContext(row_axes, column_axes)
+                mat_context = ColumnDatPythonMatContext.from_spec(row_axes, column_axes)
             mat = PETSc.Mat().createPython(mat_context.sizes, comm=mat_context.comm)
             mat.setPythonContext(mat_context)
         else:
@@ -681,7 +687,7 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
             template.assemble()
             self._lazy_template = template
 
-        mat = duplicate_mat(self._lazy_template, copy=True)
+        mat = duplicate_mat(self._lazy_template, copy=False)
         return AllocatedPetscMatBuffer(mat)
 
     def _preallocate(self, preallocator: PETSc.Mat, template: PETSc.Mat) -> None:
@@ -712,12 +718,9 @@ def duplicate_mat(mat: PETSc.Mat, copy: bool = False) -> PETSc.Mat:
             duplicated_submats[i, j] = duplicated_submat
         return PETSc.Mat().createNest(duplicated_submats, comm=mat.comm)
     elif mat.type == "python":
-        from pyop3.extras.debug import warn_todo
-
-        warn_todo(
-            "Implement duplicate for MATPYTHON somehow, currently not "
-            "actually duplicating it"
-        )
-        return mat
+        mat_context = mat.getPythonContext()
+        duplicated_mat = PETSc.Mat().createPython(mat_context.sizes, comm=mat.comm)
+        duplicated_mat.setPythonContext(mat_context.duplicate(copy=copy))
+        return duplicated_mat
     else:
         return mat.duplicate(copy=copy)

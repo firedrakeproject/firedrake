@@ -64,10 +64,6 @@ class Tensor(ContextAware, FunctionArgument, Expression, abc.ABC):
         pass
 
     @abc.abstractmethod
-    def copy(self) -> Array:
-        pass
-
-    @abc.abstractmethod
     def getitem(self, *indices, strict=False):
         pass
 
@@ -120,3 +116,11 @@ class Tensor(ContextAware, FunctionArgument, Expression, abc.ABC):
     # Note that this will only really work for vectors
     def maxpy(self, alpha: Iterable[numbers.Number], x: Iterable):
         raise NotImplementedError
+
+    def duplicate(self, *, copy: bool = False) -> Tensor:
+        name = f"{self.name}_copy"
+        buffer = self.buffer.duplicate(copy=copy)
+        return self.__record_init__(_name=name, _buffer=buffer)
+
+    def copy(self) -> Tensor:
+        return self.duplicate(copy=True)

@@ -70,11 +70,6 @@ class Mat(Tensor):
     name: ClassVar[property] = property(lambda self: self._name)
     parent: ClassVar[property] = property(lambda self: self._parent)
 
-    def copy(self) -> Mat:
-        name = f"{self.name}_copy"
-        buffer = self._buffer.copy()
-        return self.__record_init__(_name=name, _buffer=buffer)
-
     @property
     def shape(self):
         raise NotImplementedError("Should we have a tuple of trees?")
@@ -324,6 +319,7 @@ class Mat(Tensor):
 
     @property
     def nested(self):
+        assert False, "old code"
         pyop3.extras.debug.warn_todo("Not checking properly for nested")
         return False
         return isinstance(self.mat_type, collections.abc.Mapping)
@@ -533,6 +529,7 @@ class Mat(Tensor):
         else:
             raise NotImplementedError
 
+    # TODO: better to have .data?
     @property
     def values(self):
         if self.raxes.size * self.caxes.size > 1e6:
@@ -545,19 +542,14 @@ class Mat(Tensor):
 
         # TODO: Should use something similar to buffer_indices to select the
         # right indices.
-        if self.nested:
-            if len(self.nest_labels) > 1:
-                raise NotImplementedError("Cannot display mat nests")
-
-            ridx, cidx = map(_zero_if_none, map(just_one, just_one(self.nest_labels)))
-            mat = self.mat.getNestSubMatrix(ridx, cidx)
+        if isinstance(self.buffer, PetscMatBuffer):
+            petscmat = self.buffer.mat
+            if petscmat.type == PETSc.Mat.Type.PYTHON:
+                return petscmat.getPythonContext().dat.data_ro
+            else:
+                return petscmat[:, :]
         else:
-            mat = self.buffer.mat
-
-        if mat.getType() == PETSc.Mat.Type.PYTHON:
-            return mat.getPythonContext().dat.data_ro
-        else:
-            return mat[:, :]
+            raise NotImplementedError
 
 
 def _zero_if_none(value):
@@ -604,16 +596,18 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
 
 
 class DatPythonMatContext:
-    # def __init__(self, sizes: tuple[int, int], block_sizes: tuple[int, int], comm: MPI.Comm):
 
-    @property
+    def __init__(self, dat: Dat):
+        self.dat = dat
+
+    @classmethod
     @abc.abstractmethod
-    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
+    def from_spec(cls, *args, **kwargs) -> DatPythonMatContext:
         pass
 
     @property
     @abc.abstractmethod
-    def dat(self) -> Dat:
+    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
         pass
 
     @property
@@ -742,37 +736,21 @@ class DatPythonMatContext:
     #             else:
     #                 z.array[...]
 
-    def duplicate(self, mat, copy=True):
-        raise NotImplementedError
-        # debug, this is not the problem
-        return mat
-        if copy:
-            # arguably duplicate is a better name for this function
-            context = type(self)(self.raxes, self.caxes, dat=self.dat.copy())
-        else:
-            context = type(self)(self.raxes, self.caxes)
-
-        mat = PETSc.Mat().createPython(mat.getSizes(), comm=mat.comm)
-        mat.setPythonContext(context)
-        mat.setUp()
-        return mat
-
-
+    def duplicate(self, *, copy=False):
+        new_dat = self.dat.duplicate(copy=copy)
+        return type(self)(new_dat)
 
 
 class RowDatPythonMatContext(DatPythonMatContext):
 
-    # {{{ interface impls
-
-    dat: Dat = utils.attr("_dat")
-
-    # }}}
-
-    def __init__(self, row_axes, column_axes):
+    @classmethod
+    def from_spec(cls, row_axes, column_axes) -> RowDatPythonMatContext:
         if column_axes.unindexed.global_size != 1:
             # NOTE: We assume column axes are just a single global value
             raise NotImplementedError
-        self._dat = Dat.empty(row_axes, dtype=ScalarType)
+
+        dat = Dat.empty(row_axes, dtype=ScalarType)
+        return cls(dat)
 
     @property
     def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
@@ -781,17 +759,13 @@ class RowDatPythonMatContext(DatPythonMatContext):
 
 class ColumnDatPythonMatContext(DatPythonMatContext):
 
-    # {{{ interface impls
-
-    dat: Dat = utils.attr("_dat")
-
-    # }}}
-
-    def __init__(self, row_axes, column_axes):
+    @classmethod
+    def from_spec(cls, row_axes, column_axes) -> ColumnDatPythonMatContext:
         if row_axes.unindexed.global_size != 1:
             # NOTE: We assume row axes are just a single global value
             raise NotImplementedError
-        self._dat = Dat.empty(column_axes, dtype=ScalarType)
+        dat = Dat.empty(column_axes, dtype=ScalarType)
+        return cls(dat)
 
     @property
     def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
