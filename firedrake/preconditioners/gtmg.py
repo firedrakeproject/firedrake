@@ -1,5 +1,9 @@
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
+from firedrake.parameters import parameters
+from firedrake.interpolation import Interpolate
+from firedrake.solving_utils import _SNESContext
+from firedrake.matrix_free.operators import ImplicitMatrixContext
 import firedrake.dmhooks as dmhooks
 
 
@@ -12,11 +16,6 @@ class GTMGPC(PCBase):
     _prefix = "gt_"
 
     def initialize(self, pc):
-        from firedrake import TestFunction, parameters
-        from firedrake.assemble import get_assembler
-        from firedrake.interpolation import Interpolator
-        from firedrake.solving_utils import _SNESContext
-        from firedrake.matrix_free.operators import ImplicitMatrixContext
 
         _, P = pc.getOperators()
         appctx = self.get_appctx(pc)
@@ -37,6 +36,7 @@ class GTMGPC(PCBase):
 
         # Handle the fine operator if type is python
         if P.getType() == "python":
+            from firedrake.assemble import get_assembler
             ictx = P.getPythonContext()
             if ictx is None:
                 raise ValueError("No context found on matrix")
@@ -102,11 +102,12 @@ class GTMGPC(PCBase):
 
         interp_petscmat = appctx.get("interpolation_matrix", None)
         if interp_petscmat is None:
+            from firedrake.assemble import assemble
             # Create interpolation matrix from coarse space to fine space
             fine_space = ctx.J.arguments()[0].function_space()
-            interpolator = Interpolator(TestFunction(coarse_space), fine_space)
-            interpolation_matrix = interpolator.callable()
-            interp_petscmat = interpolation_matrix.handle
+            coarse_test, coarse_trial = coarse_operator.arguments()
+            interp = assemble(Interpolate(coarse_trial, fine_space))
+            interp_petscmat = interp.petscmat
 
         # We set up a PCMG object that uses the constructed interpolation
         # matrix to generate the restriction/prolongation operators.
