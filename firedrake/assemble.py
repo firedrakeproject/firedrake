@@ -1036,11 +1036,15 @@ class ParloopFormAssembler(FormAssembler):
         for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
 
+            # TODO: move this elsewhere, or avoid entirely?
+            if isinstance(subtensor, op3.Mat) and subtensor.buffer.mat_type == "python":
+                subtensor = subtensor.buffer.mat.getPythonContext().dat
+
             if isinstance(self, ExplicitMatrixAssembler):
                 with _modified_lgmaps(subtensor, lgmaps) as tensor_mod:
-                    parloop(**{self._tensor_name: tensor_mod.buffer}, compiler_parameters=pyop3_compiler_parameters)
+                    parloop(**{self._tensor_name[local_kernel]: tensor_mod.buffer}, compiler_parameters=pyop3_compiler_parameters)
             else:
-                parloop(**{self._tensor_name: subtensor.buffer}, compiler_parameters=pyop3_compiler_parameters)
+                parloop(**{self._tensor_name[local_kernel]: subtensor.buffer}, compiler_parameters=pyop3_compiler_parameters)
 
         for bc in self._bcs:
             self._apply_bc(tensor, bc)
@@ -1064,8 +1068,15 @@ class ParloopFormAssembler(FormAssembler):
         if hasattr(self, "_parloops"):
             assert hasattr(self, "_tensor_name")
         else:
+            tensor_name = {}
             parloops_ = []
             for local_kernel, subdomain_id in self.local_kernels:
+                # TODO: Move this about
+                subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
+                if isinstance(subtensor, op3.Mat) and subtensor.buffer.mat_type == "python":
+                    subtensor = subtensor.buffer.mat.getPythonContext().dat
+                tensor_name[local_kernel] = subtensor.buffer.name
+
                 parloop_builder = ParloopBuilder(
                     self._form,
                     tensor,
@@ -1077,7 +1088,8 @@ class ParloopFormAssembler(FormAssembler):
                 )
                 parloops_.append((parloop_builder.build(), parloop_builder.collect_lgmaps(tensor)))
             self._parloops = parloops_
-            self._tensor_name = self._as_pyop3_type(tensor).buffer.name
+            self._tensor_name = tensor_name
+
         return self._parloops
 
     @cached_property
@@ -1291,7 +1303,7 @@ def TwoFormAssembler(form, *args, **kwargs):
     mat_type = kwargs.pop('mat_type', None)
     sub_mat_type = kwargs.pop('sub_mat_type', None)
     mat_spec = make_mat_spec(mat_type, sub_mat_type, form.arguments())
-    if isinstance(mat_spec, op3.PetscMatBufferSpec) and mat_spec.mat_type == "matfree":
+    if isinstance(mat_spec, op3.NonNestedPetscMatBufferSpec) and mat_spec.mat_type == "matfree":
         # Arguably we should crash here, as we would be passing ignored arguments through
         kwargs.pop('needs_zeroing', None)
         kwargs.pop('weight', None)
@@ -1330,38 +1342,50 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
 
     if mat_type is None:
         if has_real_subspace:
-            mat_type = "nest"
+            if len(test_space) > 1 or len(trial_space) > 1:
+                mat_type = "nest"
+            else:
+                mat_type = "rvec"
         else:
             mat_type = parameters.parameters["default_matrix_type"]
 
     if sub_mat_type is None:
         sub_mat_type = parameters.parameters["default_sub_matrix_type"]
 
-    if has_real_subspace and mat_type not in ["nest", "matfree"]:
-        raise ValueError("Matrices containing real space arguments must have type 'nest' or 'matfree'")
+    if has_real_subspace and mat_type not in ["nest", "rvec", "matfree"]:
+        raise ValueError("Matrices containing real space arguments must have type 'nest', 'rvec', or 'matfree'")
     if sub_mat_type not in {"aij", "baij"}:
         raise ValueError(
             f"Invalid submatrix type, '{sub_mat_type}' (not 'aij' or 'baij')"
         )
 
     if mat_type == "nest":
-        mat_spec = {}
-        for test_subspace in test_space:
-            for trial_subspace in trial_space:
+        ntest = len(test_space)
+        ntrial = len(trial_space)
+        submat_specs = numpy.empty((ntest, ntrial), dtype=object)
+        for i, test_subspace in enumerate(test_space):
+            for j, trial_subspace in enumerate(trial_space):
                 block_shape = (test_subspace.value_size, trial_subspace.value_size)
 
-                if any(_is_real_space(s) for s in {test_subspace, trial_subspace}):
-                    sub_mat_type_ = "vec"
+                if _is_real_space(test_subspace):
+                    if _is_real_space(trial_subspace):
+                        sub_mat_type_ = "rvec"
+                    else:
+                        sub_mat_type_ = "rvec"
                 else:
-                    sub_mat_type_ = sub_mat_type
+                    if _is_real_space(trial_subspace):
+                        sub_mat_type_ = "cvec"
+                    else:
+                        sub_mat_type_ = sub_mat_type
 
-                none_to_ellipsis = lambda i: Ellipsis if i is None else i
+                none_to_ellipsis = lambda idx: Ellipsis if idx is None else idx
 
                 subspace_key = tuple(map(none_to_ellipsis, (test_subspace.index, trial_subspace.index)))
-                mat_spec[subspace_key] = op3.PetscMatBufferSpec(sub_mat_type_, block_shape)
+                submat_specs[i, j] = (subspace_key, op3.NonNestedPetscMatBufferSpec(sub_mat_type_, block_shape))
+        mat_spec = op3.PetscMatNestBufferSpec(submat_specs)
     else:
         block_shape = (test_space.value_size, trial_space.value_size)
-        mat_spec = op3.PetscMatBufferSpec(mat_type, block_shape)
+        mat_spec = op3.NonNestedPetscMatBufferSpec(mat_type, block_shape)
     return mat_spec
 
 
@@ -1686,19 +1710,20 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
     @staticmethod
     def _as_pyop3_type(tensor, indices=None):
-        if indices is not None and any(index is not None for index in indices):
+        if indices is not None and indices != (None, None):
             i, j = indices
+            raise NotImplementedError
             mat = tensor.M[i, j]
         else:
             mat = tensor.M
 
-        if mat.buffer.mat.getType() == "python":
-            mat_context = mat.buffer.mat.getPythonContext()
-            if isinstance(mat_context, _GlobalMatPayload):
-                mat = mat_context.global_
-            else:
-                assert isinstance(mat_context, _DatMatPayload)
-                mat = mat_context.dat
+        # if mat.buffer.mat.type == "python":
+        #     mat_context = mat.buffer.mat.getPythonContext()
+        #     if isinstance(mat_context, _GlobalMatPayload):
+        #         mat = mat_context.global_
+        #     else:
+        #         assert isinstance(mat_context, _DatMatPayload)
+        #         mat = mat_context.dat
 
         return mat
 
@@ -1967,31 +1992,8 @@ class ParloopBuilder:
 
             return pack_pyop3_tensor(dat, V, index, self._integral_type)
         elif rank == 2:
-            if all(_is_real_space(V) for V in Vs):
-                just_one = op3.utils.just_one
-                ridx, cidx = map(just_one, just_one(tensor.nest_labels))
-                if ridx is None:
-                    ridx = 0
-                if cidx is None:
-                    cidx = 0
-
-                submat = tensor.mat.getNestSubMatrix(ridx, cidx)
-                return submat.getPythonContext().dat
-            elif any(_is_real_space(V) for V in Vs):
-                just_one = op3.utils.just_one
-                ridx, cidx = map(just_one, just_one(tensor.nest_labels))
-                if ridx is None:
-                    ridx = 0
-                if cidx is None:
-                    cidx = 0
-
-                submat = tensor.mat.getNestSubMatrix(ridx, cidx)
-
-                V, = [V for V in Vs if V.ufl_element().family() != "Real"]
-                dat = submat.getPythonContext().dat
-                return pack_pyop3_tensor(dat, V, index, self._integral_type)
-            else:
-                return pack_pyop3_tensor(tensor.M, *Vs, index, self._integral_type)
+            mat = ExplicitMatrixAssembler._as_pyop3_type(tensor, self._indices)
+            return pack_pyop3_tensor(mat, *Vs, index, self._integral_type)
         else:
             raise AssertionError
 

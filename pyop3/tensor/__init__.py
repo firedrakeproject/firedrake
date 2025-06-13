@@ -8,4 +8,4 @@ from .dat import (  # noqa: F401
     MatPetscMatBufferExpression,
     NonlinearDatArrayBufferExpression,
 )
-from .mat import Mat  # noqa: F401
+from .mat import Mat, RowDatPythonMatContext, ColumnDatPythonMatContext  # noqa: F401

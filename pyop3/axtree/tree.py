@@ -1124,33 +1124,9 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         return _axis_tree_size(self)
 
     @cached_property
+    @collective
     def global_size(self):
-        from pyop3 import Dat
-        from pyop3.axtree.layout import _axis_size, my_product
-
-        if not self.outer_loops:
-            return self.size
-
-        mysize = 0
-        for idxs in my_product(self.outer_loops):
-            loop_exprs = {idx.index.id: idx.source_exprs for idx in idxs}
-            # target_indices = merge_dicts(idx.target_exprs for idx in idxs)
-            # this is a hack
-            if self.is_empty:
-                breakpoint()
-                mysize += 1
-            else:
-                mysize += _axis_size(self, self.root, loop_indices=loop_exprs)
-        return mysize
-
-        if isinstance(self.size, Dat):
-            # does this happen any more?
-            return np.sum(self.size.data_ro, dtype=IntType)
-        if isinstance(self.size, np.ndarray):
-            return np.sum(self.size, dtype=IntType)
-        else:
-            assert isinstance(self.size, numbers.Integral)
-            return self.size
+        return self.comm.allreduce(self.owned.size)
 
     @cached_property
     def alloc_size(self):

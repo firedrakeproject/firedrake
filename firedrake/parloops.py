@@ -19,7 +19,7 @@ from pyrsistent import freeze, pmap
 from ufl.indexed import Indexed
 from ufl.domain import join_domains
 
-from firedrake import constant
+from firedrake import constant, utils
 from firedrake.cofunction import Cofunction
 from firedrake.function import CoordinatelessFunction, Function
 from firedrake.functionspaceimpl import WithGeometry, MixedFunctionSpace
@@ -421,7 +421,7 @@ def _(
     return indexed
 
 
-@pack_pyop3_tensor.register
+@pack_pyop3_tensor.register(op3.Mat)
 def _(
     mat: op3.Mat,
     Vrow: WithGeometry,
@@ -432,7 +432,17 @@ def _(
     if integral_type not in {"cell", "interior_facet", "exterior_facet"}:
         raise NotImplementedError("TODO")
 
-    plex = op3.utils.single_valued(V.mesh().topology for V in {Vrow, Vcol})
+    if mat.buffer.mat_type == "python":
+        mat_context = mat.buffer.mat.getPythonContext()
+        if isinstance(mat_context, op3.RowDatPythonMatContext):
+            space = Vrow
+        else:
+            assert isinstance(mat_context, op3.ColumnDatPythonMatContext)
+            space = Vcol
+        dat = mat_context.dat
+        return pack_pyop3_tensor(dat, space, index, integral_type)
+
+    plex = utils.single_valued(V.mesh().topology for V in {Vrow, Vcol})
 
     # First collect the DoFs in the cell closure in FIAT order.
     if integral_type == "cell":

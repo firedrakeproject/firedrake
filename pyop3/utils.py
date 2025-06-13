@@ -566,6 +566,9 @@ def attr(attr_name: str) -> property:
 
 
 def unique_comm(iterable) -> MPI.Comm | None:
+    if isinstance(iterable, np.ndarray):
+        iterable = iterable.flatten()
+
     comm = None
     for item in iterable:
         if not item.comm:

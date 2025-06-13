@@ -28,9 +28,10 @@ from pyop3.axtree.tree import (
     IndexedAxisTree,
     as_axis_tree,
 )
-from pyop3.buffer import ArrayBuffer, FullPetscMatBufferSpec, NullBuffer, AbstractBuffer, PetscMatAxisSpec, PetscMatBuffer, AllocatedPetscMatBuffer, PetscMatPreallocatorBuffer, PetscMatBufferSpec, MatBufferSpec
+from pyop3.buffer import ArrayBuffer, FullPetscMatBufferSpec, NullBuffer, AbstractBuffer, PetscMatAxisSpec, PetscMatBuffer, AllocatedPetscMatBuffer, PetscMatPreallocatorBuffer, PetscMatBufferSpec, MatBufferSpec, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec
 from pyop3.dtypes import IntType, ScalarType
 from pyop3.lang import Loop, ArrayAssignment
+from pyop3.typing import PetscSizeT
 from pyop3.utils import (
     deprecated,
     just_one,
@@ -60,7 +61,7 @@ class Mat(Tensor):
     # {{{ class attrs
 
     DEFAULT_PREFIX: ClassVar[str] = "mat"
-    DEFAULT_MAT_BUFFER_SPEC: ClassVar[MatBufferSpec] = PetscMatBufferSpec(PETSc.Mat.Type.AIJ)
+    DEFAULT_MAT_BUFFER_SPEC: ClassVar[MatBufferSpec] = NonNestedPetscMatBufferSpec(PETSc.Mat.Type.AIJ)
 
     # }}}
 
@@ -563,36 +564,235 @@ def _zero_if_none(value):
     return value if value is not None else 0
 
 
-def make_full_mat_buffer_spec(partial_spec: MatBufferSpec | Mapping, row_axes: AbstractAxisTree, column_axes: AbstractAxisTree) -> FullMatBufferSpec:
-    if isinstance(partial_spec, MatBufferSpec):
-        comm = utils.unique_comm((row_axes, column_axes))
+def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: AbstractAxisTree, column_axes: AbstractAxisTree) -> FullMatBufferSpec:
+    if isinstance(partial_spec, NonNestedPetscMatBufferSpec):
+        if partial_spec.mat_type in {"rvec", "cvec"}:  # TODO: store PYTHON_MAT_TYPES or similar
+            row_spec = row_axes
+            column_spec = column_axes
+        else:
+            comm = utils.unique_comm((row_axes, column_axes))
 
-        nrows = row_axes.owned.size
-        ncolumns = column_axes.owned.size
-        row_bsize, column_bsize = partial_spec.block_shape
+            nrows = row_axes.unindexed.owned.size
+            ncolumns = column_axes.unindexed.owned.size
+            row_bsize, column_bsize = partial_spec.block_shape
 
-        if row_bsize > 1 or column_bsize > 1:
-            raise NotImplementedError("Need to trim the axis tree")
+            if row_bsize > 1 or column_bsize > 1:
+                raise NotImplementedError("Need to trim the axis tree")
 
-        row_lgmap = PETSc.LGMap().create(
-            row_axes.global_numbering, bsize=row_bsize, comm=comm
-        )
-        column_lgmap = PETSc.LGMap().create(
-            column_axes.global_numbering, bsize=column_bsize, comm=comm
-        )
+            row_lgmap = PETSc.LGMap().create(
+                row_axes.unindexed.global_numbering, bsize=row_bsize, comm=comm
+            )
+            column_lgmap = PETSc.LGMap().create(
+                column_axes.unindexed.global_numbering, bsize=column_bsize, comm=comm
+            )
 
-        row_spec = PetscMatAxisSpec(nrows, row_lgmap, row_bsize)
-        column_spec = PetscMatAxisSpec(ncolumns, column_lgmap, column_bsize)
+            row_spec = PetscMatAxisSpec(nrows, row_lgmap, row_bsize)
+            column_spec = PetscMatAxisSpec(ncolumns, column_lgmap, column_bsize)
         full_spec = FullPetscMatBufferSpec(partial_spec.mat_type, row_spec, column_spec)
     else:
         # matnest
-        assert isinstance(partial_spec, Mapping)
-        full_spec = {}
-        for index_key, sub_partial_spec in partial_spec.items():
+        assert isinstance(partial_spec, PetscMatNestBufferSpec)
+        full_spec = np.empty_like(partial_spec.submat_specs)
+        for i, (index_key, sub_partial_spec) in np.ndenumerate(partial_spec.submat_specs):
             row_index, column_index = index_key
             sub_row_axes = row_axes[row_index]
             sub_column_axes = column_axes[column_index]
             sub_spec = make_full_mat_buffer_spec(sub_partial_spec, sub_row_axes, sub_column_axes)
-            full_spec[index_key] = (sub_spec, sub_row_axes, sub_column_axes)
+            full_spec[i] = sub_spec
 
     return full_spec
+
+
+class DatPythonMatContext:
+    # def __init__(self, sizes: tuple[int, int], block_sizes: tuple[int, int], comm: MPI.Comm):
+
+    @property
+    @abc.abstractmethod
+    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def dat(self) -> Dat:
+        pass
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self.dat.comm
+
+
+    # def __getitem__(self, key):
+    #     shape = [s[0] or 1 for s in self.sizes]
+    #     return self.dat.data_ro.reshape(*shape)[key]
+
+    def zeroEntries(self, mat):
+        self.dat.zero()
+
+    def mult(self, x, y):
+        """Set y = self @ x."""
+        with self.dat.vec_ro as A:
+            if self.is_row_matrix:
+                # Example:
+                # * 'A' (self) has global size (5, 2)
+                # * 'x' has global size (5, 2)
+                # * 'y' has global size (2, 2)
+                #
+                #     A     ⊗  x  ➜  y
+                # ■ ■ ■ ■ ■   ■ ■   ■ ■
+                # ■ ■ ■ ■ ■   ■ ■   ■ ■
+                #             ■ ■
+                #             ■ ■
+                #             ■ ■
+                y.setValue(0, A.dot(x))
+            else:
+                assert self.is_column_matrix
+                # Example:
+                # * 'A' (self) has global size (5, 3)
+                # * 'x' has global size (3, 2)
+                # * 'y' has global size (5, 2)
+                #
+                #   A   ⊗  x  ➜  y
+                # ■ ■ ■   ■ ■   ■ ■
+                # ■ ■ ■   ■ ■   ■ ■
+                # ■ ■ ■   ■ ■   ■ ■
+                # ■ ■ ■         ■ ■
+                # ■ ■ ■         ■ ■
+                #
+                # The algorithm is:
+                #
+                #     for i in range(5):
+                #       for j in range(2):
+                #         for k in range(3):
+                #           y[i,j] += A[i,k] * x[k,j]
+                #
+                # We can always assume that 'x' is small in both dimensions so
+                # those loops are safe to do explicitly (on the outside):
+                #
+                #     for j in range(2):
+                #       for k in range(3):
+                #         y[:,j] += A[:,k] * x[k,j]
+                #
+                # Which I know how to do efficiently using numpy.
+                nj = x.block_size
+                nk = A.block_size
+                for j in range(nj):
+                    for k in range(nk):
+                        y.buffer_w[:, j] += A.buffer_r[:, k] * x.buffer_r[k, j]
+
+    def multTranspose(self, mat, x, y):
+        raise NotImplementedError
+    #     with self.dat.vec_ro as v:
+    #         if self.sizes[0][0] is None:
+    #             # Row matrix
+    #             if x.sizes[1] == 1:
+    #                 v.copy(y)
+    #                 a = np.zeros(1, dtype=dtypes.ScalarType)
+    #                 if x.comm.rank == 0:
+    #                     a[0] = x.array_r
+    #                 else:
+    #                     x.array_r
+    #                 with mpi.temp_internal_comm(x.comm) as comm:
+    #                     comm.bcast(a)
+    #                 y.scale(a)
+    #             else:
+    #                 v.pointwiseMult(x, y)
+    #         else:
+    #             # Column matrix
+    #             out = v.dot(x)
+    #             if y.comm.rank == 0:
+    #                 y.array[0] = out
+    #             else:
+    #                 y.array[...]
+    #
+    # def multTransposeAdd(self, mat, x, y, z):
+    #     ''' z = y + mat^Tx '''
+    #     with self.dat.vec_ro as v:
+    #         if self.sizes[0][0] is None:
+    #             # Row matrix
+    #             if x.sizes[1] == 1:
+    #                 v.copy(z)
+    #                 a = np.zeros(1, dtype=dtypes.ScalarType)
+    #                 if x.comm.rank == 0:
+    #                     a[0] = x.array_r
+    #                 else:
+    #                     x.array_r
+    #                 with mpi.temp_internal_comm(x.comm) as comm:
+    #                     comm.bcast(a)
+    #                 if y == z:
+    #                     # Last two arguments are aliased.
+    #                     tmp = y.duplicate()
+    #                     y.copy(tmp)
+    #                     y = tmp
+    #                 z.scale(a)
+    #                 z.axpy(1, y)
+    #             else:
+    #                 if y == z:
+    #                     # Last two arguments are aliased.
+    #                     tmp = y.duplicate()
+    #                     y.copy(tmp)
+    #                     y = tmp
+    #                 v.pointwiseMult(x, z)
+    #                 return z.axpy(1, y)
+    #         else:
+    #             # Column matrix
+    #             out = v.dot(x)
+    #             y = y.array_r
+    #             if z.comm.rank == 0:
+    #                 z.array[0] = out + y[0]
+    #             else:
+    #                 z.array[...]
+
+    def duplicate(self, mat, copy=True):
+        raise NotImplementedError
+        # debug, this is not the problem
+        return mat
+        if copy:
+            # arguably duplicate is a better name for this function
+            context = type(self)(self.raxes, self.caxes, dat=self.dat.copy())
+        else:
+            context = type(self)(self.raxes, self.caxes)
+
+        mat = PETSc.Mat().createPython(mat.getSizes(), comm=mat.comm)
+        mat.setPythonContext(context)
+        mat.setUp()
+        return mat
+
+
+
+
+class RowDatPythonMatContext(DatPythonMatContext):
+
+    # {{{ interface impls
+
+    dat: Dat = utils.attr("_dat")
+
+    # }}}
+
+    def __init__(self, row_axes, column_axes):
+        if column_axes.unindexed.global_size != 1:
+            # NOTE: We assume column axes are just a single global value
+            raise NotImplementedError
+        self._dat = Dat.empty(row_axes, dtype=ScalarType)
+
+    @property
+    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
+        return ((self.dat.axes.unindexed.size, None), (None, 1))
+
+
+class ColumnDatPythonMatContext(DatPythonMatContext):
+
+    # {{{ interface impls
+
+    dat: Dat = utils.attr("_dat")
+
+    # }}}
+
+    def __init__(self, row_axes, column_axes):
+        if row_axes.unindexed.global_size != 1:
+            # NOTE: We assume row axes are just a single global value
+            raise NotImplementedError
+        self._dat = Dat.empty(column_axes, dtype=ScalarType)
+
+    @property
+    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
+        return ((None, 1), (self.dat.axes.unindexed.size, None))

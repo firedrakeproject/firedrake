@@ -373,24 +373,6 @@ class Loop(Instruction):
         return self.index.datamap | merge_dicts(s.datamap for s in self.statements)
 
     @cached_property
-    def is_parallel(self):
-        assert False, "old code? if not then adapt for MatBuffer"
-        from pyop3.buffer import ArrayBuffer
-
-        for arg in self.kernel_arguments:
-            if isinstance(arg, ArrayBuffer):
-                # if arg.is_distributed:
-                if arg.comm.size > 1:
-                    return True
-            else:
-                assert isinstance(arg, PETSc.Mat)
-                for local_size, global_size in arg.getSizes():
-                    if local_size != global_size:
-                        return True
-        return False
-        return len(self._distarray_args) > 0
-
-    @cached_property
     def function_arguments(self) -> tuple:
         args = {}  # ordered
         for stmt in self.statements:
