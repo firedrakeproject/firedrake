@@ -3,7 +3,7 @@ from firedrake.assemble import assemble
 from firedrake.bcs import extract_subdomain_ids, restricted_function_space
 from firedrake.function import Function
 from firedrake.ufl_expr import TrialFunction, TestFunction
-from firedrake import utils
+from firedrake import utils, dmhooks, solving_utils
 from firedrake.petsc import OptionsManager, flatten_parameters
 from firedrake.exceptions import ConvergenceError
 from ufl import replace, inner, dx
@@ -53,7 +53,7 @@ class LinearEigenproblem:
     responsibility to ensure that the shift is not close to an actual
     eigenvalue of the system.
     """
-    def __init__(self, A, M=None, bcs=None, bc_shift=0.0, restrict=True):
+    def __init__(self, A, M=None, bcs=None, bc_shift=0.0, restrict=True, Jp=None, form_compiler_parameters=None):
         if not SLEPc:
             raise ImportError(
                 "Unable to import SLEPc, eigenvalue computation not possible "
@@ -77,11 +77,13 @@ class LinearEigenproblem:
             self.A = replace(A, {u: u_res, v: v_res})
             self.bcs = [bc.reconstruct(V=V_res, indices=bc._indices) for bc in bcs]
             self.restricted_space = V_res
+            self.u_restrict = Function(V_res)
         else:
             self.A = A  # LHS
             self.M = M
             self.bcs = bcs
-
+        self.Jp = Jp
+        self.form_compiler_parameters = form_compiler_parameters
     def dirichlet_bcs(self):
         """Return an iterator over the Dirichlet boundary conditions."""
         for bc in self.bcs:
@@ -147,9 +149,17 @@ class LinearEigensolver(OptionsManager):
                               "eps_target": 0.0}
 
     def __init__(self, problem, n_evals, *, options_prefix=None,
-                 solver_parameters=None, ncv=None, mpd=None):
-
+                 solver_parameters=None, ncv=None, mpd=None, appctx=None):
+        mat_type = solver_parameters.get("mat_type")
+        pmat_type = solver_parameters.get("pmat_type")
+        ctx = solving_utils._EPSContext(problem,
+                                         mat_type=mat_type,
+                                         pmat_type=pmat_type,
+                                         appctx=appctx,
+                                         options_prefix=options_prefix)
+        self._ctx = ctx
         self.es = SLEPc.EPS().create(comm=problem.dm.comm)
+        dm = problem.dm
         self._problem = problem
         self.n_evals = n_evals
         self.ncv = ncv
@@ -161,7 +171,9 @@ class LinearEigensolver(OptionsManager):
         if self._problem.bcs:
             solver_parameters.setdefault("st_type", "sinvert")
         super().__init__(solver_parameters, options_prefix)
-        self.set_from_options(self.es)
+        with dmhooks.add_hooks(dm, self, appctx=self._ctx, save=False):
+            self.es.setFromOptions()
+        self.es.getST().getKSP().getPC().setDM(dm)
 
     def check_es_convergence(self):
         r"""Check the convergence of the eigenvalue problem."""
@@ -187,11 +199,12 @@ class LinearEigensolver(OptionsManager):
             The number of Eigenvalues found.
         """
         self.A_mat = assemble(self._problem.A, bcs=self._problem.bcs).petscmat
+        self.A_mat.setDM(self._problem.dm)
         self.M_mat = assemble(
             self._problem.M, bcs=self._problem.bcs,
             weight=self._problem.bc_shift and 1./self._problem.bc_shift
         ).petscmat
-
+        self.M_mat.setDM(self._problem.dm)
         self.es.setDimensions(nev=self.n_evals, ncv=self.ncv, mpd=self.mpd)
         self.es.setOperators(self.A_mat, self.M_mat)
         with self.inserted_options():
