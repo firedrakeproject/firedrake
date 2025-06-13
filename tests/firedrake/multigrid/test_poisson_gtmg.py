@@ -2,7 +2,7 @@ from firedrake import *
 import pytest
 
 
-def run_gtmg_mixed_poisson():
+def run_gtmg_mixed_poisson(custom_transfer=False):
 
     m = UnitSquareMesh(10, 10)
     nlevels = 2
@@ -14,7 +14,7 @@ def run_gtmg_mixed_poisson():
         return FunctionSpace(mesh, "CG", 1)
 
     def get_p1_prb_bcs():
-        return DirichletBC(get_p1_space(), Constant(0.0), "on_boundary")
+        return DirichletBC(get_p1_space(), 0, "on_boundary")
 
     def p1_callback():
         P1 = get_p1_space()
@@ -57,13 +57,27 @@ def run_gtmg_mixed_poisson():
     appctx = {'get_coarse_operator': p1_callback,
               'get_coarse_space': get_p1_space,
               'coarse_space_bcs': get_p1_prb_bcs()}
+    if custom_transfer:
+        P1 = get_p1_space()
+        V = FunctionSpace(mesh, "DGT", degree - 1)
+        I = assemble(Interpolate(TrialFunction(P1), V)).petscmat
+        R = I.transpose()
+        appctx['interpolation_matrix'] = I
+        appctx['restriction_matrix'] = R
 
-    solve(a == L, w, solver_parameters=params, appctx=appctx)
+    problem = LinearVariationalProblem(a, L, w)
+    solver = LinearVariationalSolver(problem, solver_parameters=params, appctx=appctx)
+    solver.solve()
     _, uh = w.subfunctions
 
     # Analytical solution
     f.interpolate(x[0]*(1-x[0])*x[1]*(1-x[1]))
 
+    if custom_transfer:
+        hyb = solver.snes.ksp.pc.getPythonContext()
+        gtmg = hyb.trace_ksp.pc.getPythonContext()
+        assert gtmg.pc.getMGInterpolation(1) is I
+        assert gtmg.pc.getMGRestriction(1) is R
     return errornorm(f, uh, norm_type="L2")
 
 
@@ -144,8 +158,9 @@ def run_gtmg_scpc_mixed_poisson():
 
 
 @pytest.mark.skipcomplexnoslate
-def test_mixed_poisson_gtmg():
-    assert run_gtmg_mixed_poisson() < 1e-5
+@pytest.mark.parametrize("custom_transfer", [False, True])
+def test_mixed_poisson_gtmg(custom_transfer):
+    assert run_gtmg_mixed_poisson(custom_transfer) < 1e-5
 
 
 @pytest.mark.skipcomplexnoslate
