@@ -132,14 +132,21 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         return self.u_restrict.function_space().dm
 
     @staticmethod
-    def compute_bc_lifting(J, u):
+    def compute_bc_lifting(J, u, L=0):
         """Return the action of the bilinear form J (without bcs) on a Function u."""
         if isinstance(J, MatrixBase) and J.has_bcs:
             # Extract the full form without bcs
             if not isinstance(J.a, (ufl.BaseForm, slate.slate.TensorBase)):
                 raise TypeError(f"Could not remove bcs from {type(J).__name__}.")
             J = J.a
-        return ufl_expr.action(J, u)
+        F = ufl_expr.action(J, u)
+        if isinstance(F, slate.slate.TensorBase) and not isinstance(L, (ufl.Form, slate.slate.TensorBase)):
+            # Slate expressions should not combine with assembled Cofunctions
+            # because assemble(AssembledVector(L)) repeats element summation on L
+            F = ufl.FormSum((F, 1), (L, -1))
+        elif L != 0:
+            F = F - L
+        return F
 
 
 class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
@@ -399,7 +406,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
                 raise TypeError("Provided RHS is a '%s', not a Form or Slate Tensor" % type(L).__name__)
             if len(L.arguments()) != 1 and not L.empty():
                 raise ValueError("Provided RHS is not a linear form")
-            F = self.compute_bc_lifting(a, u) - L
+            F = self.compute_bc_lifting(a, u, L=L)
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs=bcs, J=a, Jp=aP,
                                                        form_compiler_parameters=form_compiler_parameters,
