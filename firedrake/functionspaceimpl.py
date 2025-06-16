@@ -5,8 +5,11 @@ classes for attaching extra information to instances of these.
 """
 from __future__ import annotations
 
+import collections
+import dataclasses
 import functools
 from collections import OrderedDict
+from collections.abc import Mapping, Sequence, Set
 from dataclasses import dataclass
 from functools import cached_property
 from immutabledict import immutabledict
@@ -373,21 +376,21 @@ class WithGeometryBase:
         return type(self).create(self.topological.collapse(), self.mesh())
 
     @classmethod
-    def make_function_space(cls, mesh, element, name=None):
+    def make_function_space(cls, mesh, element, name=None, **kwargs):
         r"""Factory method for :class:`.WithGeometryBase`."""
         mesh.init()
         topology = mesh.topology
         # Create a new abstract (Mixed/Real)FunctionSpace, these are neither primal nor dual.
         if type(element) is finat.ufl.MixedElement:
             spaces = [cls.make_function_space(topology, e) for e in element.sub_elements]
-            new = MixedFunctionSpace(spaces, name=name)
+            new = MixedFunctionSpace(spaces, name=name, **kwargs)
         else:
             # Check that any Vector/Tensor/Mixed modifiers are outermost.
             check_element(element)
             if element.family() == "Real":
-                new = RealFunctionSpace(topology, element, name=name)
+                new = RealFunctionSpace(topology, element, name=name, **kwargs)
             else:
-                new = FunctionSpace(topology, element, name=name)
+                new = FunctionSpace(topology, element, name=name, **kwargs)
         # Skip this if we are just building subspaces of an abstract MixedFunctionSpace
         if mesh is not topology:
             # Create a concrete WithGeometry or FiredrakeDualSpace on this mesh
@@ -453,6 +456,15 @@ class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
         return WithGeometry.create(self.topological, self.mesh())
 
 
+@dataclass(frozen=True)
+class AxisConstraint:
+    axis: op3.Axis
+    within_axes: Mapping[str, str] = dataclasses.field(default_factory=immutabledict)
+
+    def with_constraint(self, constraint) -> AxisConstraint:
+        return type(self)(self.axis, self.within_axes | constraint)
+
+
 class FunctionSpace:
     r"""A representation of a function space.
 
@@ -488,7 +500,7 @@ class FunctionSpace:
     boundary_set = frozenset()
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, element, name=None):
+    def __init__(self, mesh, element, name=None, *, layout_spec=()):
         super(FunctionSpace, self).__init__()
         if type(element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
@@ -545,47 +557,102 @@ class FunctionSpace:
         real_tensor_product = is_real_tensor_product_element(self.finat_element)
         key = (nodes_per_entity, real_tensor_product, self.shape)
 
-        if key in mesh._shared_data_cache:
-            flat_axes = mesh._shared_data_cache["cacheA"][key]
-        else:
-            # This is a hack because RealFunctionSpace inherits from this class
-            # without its own constructor. Perhaps introduce a BaseFunctionSpace
-            # parent class.
-            if isinstance(self, RealFunctionSpace):
-                self.axes = self._make_real_space_axis_tree()
+        self.layout_spec = layout_spec
+
+        # if key in mesh._shared_data_cache:
+        #     flat_axes = mesh._shared_data_cache["cacheA"][key]
+        # else:
+        #     # This is a hack because RealFunctionSpace inherits from this class
+        #     # without its own constructor. Perhaps introduce a BaseFunctionSpace
+        #     # parent class.
+        #     if isinstance(self, RealFunctionSpace):
+        #         self.axes = self._make_real_space_axis_tree()
+        #     else:
+        #         flat_axes = op3.AxisTree(mesh.flat_points)
+        #
+        #         # we can cache this more generally because we don't care about the shape here
+        #         otherkey = ("ndofs_dat", nodes_per_entity, real_tensor_product)
+        #         try:
+        #             subaxis = mesh._shared_data_cache["cacheB"][otherkey]
+        #         except KeyError:
+        #             ndofs = numpy.empty(mesh.flat_points.size, dtype=IntType)
+        #             for pt in range(mesh.flat_points.size):
+        #                 if mesh._dm_renumbering:
+        #                     pt_renum = mesh._dm_renumbering.indices[pt]
+        #                 else:
+        #                     pt_renum = pt
+        #                 ndofs[pt] = self.local_section.getDof(pt_renum)
+        #             ndofs_dat = op3.Dat(mesh.flat_points, data=ndofs)
+        #
+        #             subaxis = op3.Axis({"XXX": ndofs_dat}, "dof")
+        #             mesh._shared_data_cache["cacheB"][otherkey] = subaxis
+        #
+        #         flat_axes = flat_axes.add_axis(subaxis, flat_axes.root, "mylabel")
+        #
+        #         # add tensor shape
+        #         subaxes = op3.AxisTree.from_iterable(
+        #             [op3.Axis({"XXX": dim}, f"dim{i}") for i, dim in enumerate(self.shape)]
+        #         )
+        #         flat_axes = flat_axes.add_subtree(subaxes, flat_axes.leaf)
+        #         # TODO: AxisForest?
+        #         self.flat_axes = flat_axes
+        #         self.axes = flat_axes[self._strata_index_tree()]
+        #
+        #         mesh._shared_data_cache["cacheA"][key] = flat_axes
+
+
+    # TODO:
+    # @cached_on(mesh)?
+    @cached_property
+    def layout(self) -> AxisTree:
+        # idea is to define this for this and mixed function space etc - this is the
+        # *data layout* which is different to .axes (which is always the same for a
+        # given space regardless of the data layout).
+        # We can build this up dynamically by do a pre-order traversal of some tree spec
+        # and building things up.
+        # E.g.: ["mesh", {0: ["dof", {"XXX": "dim"}], 1: ...] and so on. Go down this tree
+        # thing and attach axes on the way.
+        # This could also just be ["mesh", "dof", "dim", "dof", "dim", "dof", "dim"] and
+        # could just pop things off - but that's quite unclear...
+        return layout_from_spec(self.layout_spec, self.axis_constraints)
+
+    @cached_property
+    def axes(self) -> op3.IndexedAxisTree:
+        return self.layout[self._strata_index_tree()]
+
+    @cached_property
+    def axis_constraints(self) -> tuple[AxisConstraint]:
+        import pyop3.extras.debug
+
+        mesh_axis = self._mesh.flat_points
+
+        constraints = [AxisConstraint(mesh_axis)]
+
+        pyop3.extras.debug.warn_todo("Do in Cython")
+
+        ndofs = numpy.empty(mesh_axis.size, dtype=IntType)
+        for pt in range(mesh_axis.size):
+            if self._mesh._dm_renumbering:
+                pt_renum = self._mesh._dm_renumbering.indices[pt]
             else:
-                flat_axes = op3.AxisTree(mesh.flat_points)
+                pt_renum = pt
+            # TODO: Don't use the section here?
+            ndofs[pt] = self.local_section.getDof(pt_renum)
+        ndofs_dat = op3.Dat(self._mesh.flat_points, data=ndofs)
+        dof_axis = op3.Axis({"XXX": ndofs_dat}, "dof")
 
-                # we can cache this more generally because we don't care about the shape here
-                otherkey = ("ndofs_dat", nodes_per_entity, real_tensor_product)
-                try:
-                    subaxis = mesh._shared_data_cache["cacheB"][otherkey]
-                except KeyError:
-                    ndofs = numpy.empty(mesh.flat_points.size, dtype=IntType)
-                    for pt in range(mesh.flat_points.size):
-                        if mesh._dm_renumbering:
-                            pt_renum = mesh._dm_renumbering.indices[pt]
-                        else:
-                            pt_renum = pt
-                        ndofs[pt] = self.local_section.getDof(pt_renum)
-                    ndofs_dat = op3.Dat(mesh.flat_points, data=ndofs)
+        constraint = AxisConstraint(
+            dof_axis,
+            immutabledict({mesh_axis.label: mesh_axis.component.label})
+        )
+        constraints.append(constraint)
 
-                    subaxis = op3.Axis({"XXX": ndofs_dat}, "dof")
-                    mesh._shared_data_cache["cacheB"][otherkey] = subaxis
+        for i, dim in enumerate(self.shape):
+            shape_axis = op3.Axis({"XXX": dim}, f"dim{i}")
+            constraint = AxisConstraint(shape_axis)
+            constraints.append(constraint)
 
-                flat_axes = flat_axes.add_axis(subaxis, flat_axes.root, "mylabel")
-
-                # add tensor shape
-                subaxes = op3.AxisTree.from_iterable(
-                    [op3.Axis({"XXX": dim}, f"dim{i}") for i, dim in enumerate(self.shape)]
-                )
-                flat_axes = flat_axes.add_subtree(subaxes, flat_axes.leaf)
-                # TODO: AxisForest?
-                self.flat_axes = flat_axes
-                self.axes = flat_axes[self._strata_index_tree()]
-
-                mesh._shared_data_cache["cacheA"][key] = flat_axes
-
+        return tuple(constraints)
 
     def _make_real_space_axis_tree(self):
         from firedrake.functionspace import FunctionSpace as make_function_space
@@ -1266,7 +1333,7 @@ class RestrictedFunctionSpace(FunctionSpace):
         return type(self)(self.function_space.collapse(), boundary_set=self.boundary_set)
 
 
-class MixedFunctionSpace(object):
+class MixedFunctionSpace:
     r"""A function space on a mixed finite element.
 
     This is essentially just a bag of individual
@@ -1281,7 +1348,7 @@ class MixedFunctionSpace(object):
        but should instead use the functional interface provided by
        :func:`.MixedFunctionSpace`.
     """
-    def __init__(self, spaces, name=None):
+    def __init__(self, spaces, name=None, *, layout_spec=()):
         self._spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
         mesh, = set(s.mesh() for s in spaces)
@@ -1295,52 +1362,7 @@ class MixedFunctionSpace(object):
         self.boundary_set = frozenset()
         self._subspaces = {}
         self._mesh = mesh
-
-        # TODO I think .layout may be a better name
-        # TODO it would be nice for function spaces to have default names so they could
-        # be used to distinguish bits here
-        # The fields of a mixed space are marked as "unit" because they are guaranteed
-        # to have a size of 1 and we want the axis to go away when we put axes["0"],
-        # for example.
-
-
-        # just for now
-        # root = spaces[0].flat_axes.root
-        # space_axis = op3.Axis(
-        #     [op3.AxisComponent(1, str(i)) for i, _ in enumerate(spaces)],
-        #     "field",
-        # )
-        # axes = root.as_tree()
-        # # axes = axes.add_axis(space_axis, root.id, root.component.label)
-        #
-        # subtree = space_axis.as_tree()
-        # for i, space in enumerate(spaces):
-        #     dof_axis = space.flat_axes.child(space.flat_axes.root, space.flat_axes.root.component)
-        #     subtree = subtree.add_axis(dof_axis, subtree.root.id, str(i))
-        #
-        # axes = axes.add_subtree(subtree, axes.leaf, uniquify_ids=True)
-        #
-        # breakpoint()
-        # print(axes)
-
-
-        root = op3.Axis(
-            [op3.AxisComponent(1, str(i)) for i, _ in enumerate(spaces)],
-            "field",
-        )
-        axes = op3.AxisTree(root)
-        for i, space in enumerate(spaces):
-            axes = axes.add_subtree(space.flat_axes, root, str(i), uniquify=True)
-        self.flat_axes = axes
-
-        field_slice = op3.Slice("field", [op3.AffineSliceComponent(str(s.index), label=str(s.index)) for s in self._spaces], label="field")
-        axes_index_tree = op3.IndexTree(field_slice)
-        for space, field_slice_component in zip(self._spaces, field_slice.slices):
-            # not sure why I thought a suffix was necessary here
-            # subindex_tree = space._strata_index_tree(suffix=f"_{space.index}")
-            subindex_tree = space._strata_index_tree()
-            axes_index_tree = axes_index_tree.add_subtree(subindex_tree, field_slice, field_slice_component, uniquify_ids=True)
-        self.axes = axes[axes_index_tree]
+        self.layout_spec = layout_spec
 
         self.comm = mesh.comm
         self._comm = mpi.internal_comm(mesh.comm, self)
@@ -1350,6 +1372,58 @@ class MixedFunctionSpace(object):
     component = None
     parent = None
     rank = 1
+
+    # TODO:
+    # @cached_on(mesh)?
+    @cached_property
+    def layout(self) -> AxisTree:
+        # idea is to define this for this and mixed function space etc - this is the
+        # *data layout* which is different to .axes (which is always the same for a
+        # given space regardless of the data layout).
+        # We can build this up dynamically by do a pre-order traversal of some tree spec
+        # and building things up.
+        # E.g.: ["mesh", {0: ["dof", {"XXX": "dim"}], 1: ...] and so on. Go down this tree
+        # thing and attach axes on the way.
+        # This could also just be ["mesh", "dof", "dim", "dof", "dim", "dof", "dim"] and
+        # could just pop things off - but that's quite unclear...
+        return layout_from_spec(self.layout_spec, self.axis_constraints)
+
+    @cached_property
+    def axes(self) -> op3.IndexedAxisTree:
+        field_slice = op3.Slice("field", [op3.AffineSliceComponent(s.index, label=s.index) for s in self._spaces], label="field")
+        axes_index_tree = op3.IndexTree(field_slice)
+        for space, field_slice_component in zip(self._spaces, field_slice.slices):
+            # not sure why I thought a suffix was necessary here
+            # subindex_tree = space._strata_index_tree(suffix=f"_{space.index}")
+            subindex_tree = space._strata_index_tree()
+            axes_index_tree = axes_index_tree.add_subtree(subindex_tree, field_slice, field_slice_component, uniquify_ids=True)
+        return self.layout[axes_index_tree]
+
+
+    @cached_property
+    def axis_constraints(self) -> tuple[AxisConstraint]:
+        field_axis = op3.Axis(
+            [op3.AxisComponent(1, space.index) for space in self._spaces],
+            "field",
+        )
+
+        constraints = [AxisConstraint(field_axis)]
+        for space in self._spaces:
+            for sub_constraint in space.axis_constraints:
+                # space-specific axes
+                if sub_constraint.axis.label != f"{self._mesh.name}_flat":
+                    constraint = sub_constraint.with_constraint({field_axis.label: space.index})
+                else:
+                    constraint = sub_constraint
+
+                # TODO: This is a hack until I get rid of axis IDs
+                constraint = AxisConstraint(
+                    constraint.axis.copy(id=f"{constraint.axis.id}_{space.index}"),
+                    constraint.within_axes
+                )
+
+                constraints.append(constraint)
+        return tuple(constraints)
 
     def mesh(self):
         return self._mesh
@@ -1826,3 +1900,127 @@ class FunctionSpaceCargo:
 
     topological: FunctionSpace
     parent: Optional[WithGeometryBase]
+
+
+@functools.singledispatch
+def layout_from_spec(layout_spec: Any, axis_constraints: Sequence) -> op3.AxisTree:
+    visited_axes = frozenset()
+    axis_nest = _parse_layout_spec(layout_spec, axis_constraints, visited_axes)
+    return op3.AxisTree.from_nest(axis_nest)
+
+
+def _parse_layout_spec(layout_spec: Sequence[str], axis_specs: Sequence, visited_axes) -> immutabledict:
+    if len(layout_spec) == 0:
+        return _axis_nest_from_constraints(axis_specs, visited_axes)
+
+    axis_label, *sub_layout_specs = layout_spec
+
+    candidate_axis_specs = frozenset(
+        axis_spec
+        for axis_spec in axis_specs
+        if axis_spec.axis.label == axis_label
+    )
+    selected_axis_spec = utils.just_one(
+        axis_spec
+        for axis_spec in candidate_axis_specs
+        if axis_spec.within_axes.items() <= visited_axes
+    )
+    selected_axis = selected_axis_spec.axis
+
+    # FIXME: Axis IDs were a bad idea
+    global my_uid
+    selected_axis = selected_axis.copy(id=f"{selected_axis.id}_{my_uid}")
+    my_uid += 1
+
+
+    # filter out axis specs that match the current axis so they can't get
+    # reused further down
+    axis_specs = tuple(
+        axis_spec
+        for axis_spec in axis_specs
+        if axis_spec not in candidate_axis_specs
+    )
+
+    if axis_specs:
+        axis_nest = {selected_axis: []}
+        if sub_layout_specs:
+            # 'sub_layout_specs' can either be flat (e.g. '["axis1", "axis2"]')
+            # or nested (e.g. '[["axis1", ["axis2"]], ["axis3"]]'). If the former
+            # then the spec is broadcasted to all components. Otherwise we assume
+            # that the spec is per-component.
+            if isinstance(sub_layout_specs[0], str):  # flat case
+                sub_layout_specs = [sub_layout_specs] * len(selected_axis.components)
+            else:  # nested
+                pass
+
+            # NOTE: This is exactly the same as the nested case except for broadcasting
+            for component, sub_layout_spec in zip(
+                selected_axis.components, sub_layout_specs, strict=True
+            ):
+                # prune axis specs that go down different branches
+                axis_specs_ = tuple(
+                    axis_spec
+                    for axis_spec in axis_specs
+                    if selected_axis.label not in axis_spec.within_axes
+                    or (selected_axis.label, component.label) in axis_spec.within_axes.items()
+                )
+
+                # FIXME: Not doing anything with visited_axes
+                visited_axes_ = visited_axes | {(selected_axis.label, component.label)}
+
+                sub_axis_nest = _parse_layout_spec(sub_layout_spec, axis_specs_, visited_axes_)
+                axis_nest[selected_axis].append(sub_axis_nest)
+        else:
+            # at the bottom of the provided layout spec, populate the axis tree
+            # with the remaining axes
+            for component in selected_axis.components:
+                axis_specs_ = tuple(
+                    axis_spec
+                    for axis_spec in axis_specs
+                    if selected_axis.label not in axis_spec.within_axes
+                    or (selected_axis.label, component.label) in axis_spec.within_axes.items()
+                )
+
+                # FIXME: Not doing anything with visited_axes
+                visited_axes_ = visited_axes | {(selected_axis.label, component.label)}
+                sub_axis_nest = _axis_nest_from_constraints(axis_specs_, visited_axes_)
+                axis_nest[selected_axis].append(sub_axis_nest)
+
+        return immutabledict(axis_nest)
+    else:
+        assert not sub_layout_specs, "More layout information provided than available axes"
+        return selected_axis
+
+
+my_uid = 0
+
+
+def _axis_nest_from_constraints(axis_constraints: Sequence[AxisConstraint], visited_axes: Set[tuple[str, str]]) -> immutabledict | op3.Axis:
+    constraint, *subconstraints = axis_constraints
+    axis = constraint.axis
+
+    # FIXME: Axis IDs were a bad idea
+    global my_uid
+    axis = axis.copy(id=f"{axis.id}_{my_uid}")
+    my_uid += 1
+
+    # filter out axis specs that match the current axis so they can't get reused further down
+    axis_specs = tuple(axis_spec for axis_spec in axis_constraints if axis_spec.axis.label != axis.label)
+
+    axis_nest = collections.defaultdict(list)
+
+    if subconstraints:
+        for component in axis.components:
+            subconstraints_ = tuple(
+                subconstraint
+                for subconstraint in subconstraints
+                if axis.label not in subconstraint.within_axes
+                or (axis.label, component.label) in subconstraint.within_axes.items()
+            )
+            # FIXME: Not doing anything with visited_axes
+            subnest = _axis_nest_from_constraints(subconstraints_, visited_axes)
+            axis_nest[axis].append(subnest)
+    else:
+        return axis
+
+    return immutabledict(axis_nest)

@@ -72,7 +72,7 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant):
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
 def FunctionSpace(mesh, family, degree=None, name=None,
-                  vfamily=None, vdegree=None, variant=None):
+                  vfamily=None, vdegree=None, variant=None, **kwargs):
     """Create a :class:`.FunctionSpace`.
 
     Parameters
@@ -102,7 +102,7 @@ def FunctionSpace(mesh, family, degree=None, name=None,
 
     """
     element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant)
-    return impl.WithGeometry.make_function_space(mesh, element, name=name)
+    return impl.WithGeometry.make_function_space(mesh, element, name=name, **kwargs)
 
 
 @PETSc.Log.EventDecorator()
@@ -142,7 +142,7 @@ def DualSpace(mesh, family, degree=None, name=None,
 
 @PETSc.Log.EventDecorator()
 def VectorFunctionSpace(mesh, family, degree=None, dim=None,
-                        name=None, vfamily=None, vdegree=None, variant=None):
+                        name=None, vfamily=None, vdegree=None, variant=None, **kwargs):
     """Create a rank-1 :class:`.FunctionSpace`.
 
     Parameters
@@ -188,7 +188,7 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
     if not isinstance(dim, numbers.Integral) and dim > 0:
         raise ValueError(f"Can't make VectorFunctionSpace with dim={dim}")
     element = finat.ufl.VectorElement(sub_element, dim=dim)
-    return FunctionSpace(mesh, element, name=name)
+    return FunctionSpace(mesh, element, name=name, **kwargs)
 
 
 @PETSc.Log.EventDecorator()
@@ -243,7 +243,7 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
 
 
 @PETSc.Log.EventDecorator()
-def MixedFunctionSpace(spaces, name=None, mesh=None):
+def MixedFunctionSpace(spaces, name=None, mesh=None, **kwargs):
     """Create a MixedFunctionSpace.
 
     Parameters
@@ -301,7 +301,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
         else:
             raise ValueError("Can't make mixed space with %s" % type(space))
 
-    new = impl.MixedFunctionSpace(spaces, name=name)
+    new = impl.MixedFunctionSpace(spaces, name=name, **kwargs)
     if mesh is not mesh.topology:
         new = cls.create(new, mesh)
     return new

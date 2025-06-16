@@ -310,3 +310,48 @@ def test_reconstruct_sub_component(dg0, rt1, mesh, mesh2, dual):
             assert is_primal(V1.parent) == is_primal(V2.parent) != dual
             assert V1.parent.ufl_element() == V2.parent.ufl_element()
             assert V1.parent.index == V2.parent.index == index
+
+
+def flatten_axis_labels(axis_tree):
+    return tuple(axis.label for axis in axis_tree.nodes)
+
+
+# TODO: parametrise nicely
+def test_function_space_layout():
+    mesh = UnitIntervalMesh(3)
+
+    # CG1
+    default_indexed_axis_labels = ("firedrake_default_topology", "dof1", "dof0")
+
+    # default layout
+    V = FunctionSpace(mesh, "CG", 1)
+    assert flatten_axis_labels(V.layout) == ("firedrake_default_topology_flat", "dof")
+    assert flatten_axis_labels(V.axes) == default_indexed_axis_labels
+
+    # vector CG1
+    default_indexed_axis_labels = ("firedrake_default_topology", "dof1", "dim0", "dof0", "dim0")
+
+    # default layout
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    assert flatten_axis_labels(V.layout) == ("firedrake_default_topology_flat", "dof", "dim0")
+    assert flatten_axis_labels(V.axes) == default_indexed_axis_labels
+
+    # vector shape outermost
+    V = VectorFunctionSpace(mesh, "CG", 1, layout_spec=["dim0"])
+    assert flatten_axis_labels(V.layout) == ("dim0", "firedrake_default_topology_flat", "dof",)
+    assert flatten_axis_labels(V.axes) == default_indexed_axis_labels
+
+    # CG1 x CG1
+    default_indexed_axis_labels = ("field", "firedrake_default_topology", "dof1", "dof0", "firedrake_default_topology", "dof1", "dof0")
+
+    # default layout
+    cg1_space = FunctionSpace(mesh, "CG", 1)
+    V = MixedFunctionSpace([cg1_space, cg1_space])
+    assert flatten_axis_labels(V.layout) == ("field", "firedrake_default_topology_flat", "dof", "firedrake_default_topology_flat", "dof")
+    assert flatten_axis_labels(V.axes) == default_indexed_axis_labels
+
+    # mesh outermost
+    cg1_space = FunctionSpace(mesh, "CG", 1)
+    V = MixedFunctionSpace([cg1_space, cg1_space], layout_spec=["firedrake_default_topology_flat"])
+    assert flatten_axis_labels(V.layout) == ("firedrake_default_topology_flat", "dof", "field")
+    assert flatten_axis_labels(V.axes) == default_indexed_axis_labels
