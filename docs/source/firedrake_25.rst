@@ -2,12 +2,10 @@
 
 .. title:: Firedrake '25
 
-..
-   TODO
-   .. image:: images/leeds_university.jpg
-      :alt: University of Leeds
-      :width: 100%
-      :align: center
+.. image:: images/leeds_som.png
+   :alt: University of Leeds, School of Mathematics
+   :width: 100%
+   :align: center
 
 Firedrake '25
 -------------
