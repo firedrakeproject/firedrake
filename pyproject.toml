@@ -25,10 +25,11 @@ dependencies = [
   "h5py>3.12.1",
   "libsupermesh",
   "loopy>2024.1",
-  # TODO RELEASE
-  # "petsc4py==3.23.3",
   "numpy",
   "packaging",
+  # TODO RELEASE
+  # "petsc4py==3.23.3",
+  "petsctools @ git+https://github.com/firedrakeproject/petsctools.git",
   "pkgconfig",
   "progress",
   "pyadjoint-ad>=2025.04",
@@ -142,10 +143,11 @@ requires = [
   "mpi4py; python_version < '3.13'",
   "numpy",
   "pkgconfig",
-  "pybind11",
-  "setuptools>=77.0.3",
   # TODO RELEASE
   # "petsc4py==3.23.3",
+  "petsctools @ git+https://github.com/firedrakeproject/petsctools.git",
+  "pybind11",
+  "setuptools>=77.0.3",
   "rtree>=1.2",
 ]
 build-backend = "setuptools.build_meta"

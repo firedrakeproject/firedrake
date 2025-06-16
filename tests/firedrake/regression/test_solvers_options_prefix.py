@@ -1,6 +1,7 @@
 from firedrake import *
 from firedrake.matrix import ImplicitMatrix
-from firedrake.petsc import PETSc, OptionsManager
+from firedrake.petsc import PETSc
+from petsctools import OptionsManager
 import pytest
 
 
