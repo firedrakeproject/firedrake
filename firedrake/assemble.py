@@ -835,14 +835,10 @@ class BaseFormAssembler(AbstractFormAssembler):
     def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
         """Preprocess ufl.BaseForm objects"""
         original_expr = expr
-        if mat_type != "matfree":
+        if len(expr.arguments()) == 2 and mat_type != "matfree":
             # Don't expand derivatives if `mat_type` is 'matfree'
             # For "matfree", Form evaluation is delayed
-            try:
-                expr = BaseFormAssembler.expand_derivatives_form(expr, form_compiler_parameters)
-            except ValueError:
-                # BaseForms with SLATE tensors are not fully supported in UFL.
-                pass
+            expr = BaseFormAssembler.expand_derivatives_form(expr, form_compiler_parameters)
         if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
             # => No restructuring needed for Form and slate.TensorBase
             expr = BaseFormAssembler.restructure_base_form_preorder(expr)
