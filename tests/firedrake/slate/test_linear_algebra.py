@@ -152,10 +152,8 @@ def test_inverse_action(mat_type, rhs_type):
     assert np.allclose(x.dat.data, f.dat.data, rtol=1.e-13)
 
 
-@pytest.mark.parametrize("mat_type, rhs_type", [
-    ("slate", "slate"), ("slate", "form"), ("slate", "cofunction"),
-    ("aij", "cofunction"), ("aij", "form"),
-    ("matfree", "cofunction"), ("matfree", "form")])
+@pytest.mark.parametrize("rhs_type", ["slate", "form", "cofunction"])
+@pytest.mark.parametrize("mat_type", ["slate", "aij", "matfree"])
 def test_solve_interface(mat_type, rhs_type):
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "HDivT", 0)
@@ -180,12 +178,8 @@ def test_solve_interface(mat_type, rhs_type):
     else:
         raise ValueError("Invalid rhs type")
 
-    sp = None
-    if mat_type == "matfree":
-        sp = {"pc_type": "none"}
-
     x = Function(V)
     problem = LinearVariationalProblem(A, b, x, bcs=bcs)
-    solver = LinearVariationalSolver(problem, solver_parameters=sp)
+    solver = LinearVariationalSolver(problem)
     solver.solve()
     assert np.allclose(x.dat.data, f.dat.data, rtol=1.e-13)
