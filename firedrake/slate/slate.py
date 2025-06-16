@@ -1387,8 +1387,7 @@ class DiagonalTensor(UnaryOp):
         """Returns a tuple of function spaces that the tensor
         is defined on.
         """
-        tensor, = self.operands
-        return tuple(arg.function_space() for arg in tensor.arguments())
+        return tuple(arg.function_space() for arg in self.arguments())
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
