@@ -1406,24 +1406,10 @@ class MixedFunctionSpace:
             [op3.AxisComponent(1, space.index) for space in self._spaces],
             "field",
         )
-
-        constraints = [AxisConstraint(field_axis)]
-        for space in self._spaces:
-            for sub_constraint in space.axis_constraints:
-                # space-specific axes
-                if sub_constraint.axis.label != f"{self._mesh.name}_flat":
-                    constraint = sub_constraint.with_constraint({field_axis.label: space.index})
-                else:
-                    constraint = sub_constraint
-
-                # TODO: This is a hack until I get rid of axis IDs
-                constraint = AxisConstraint(
-                    constraint.axis.copy(id=f"{constraint.axis.id}_{space.index}"),
-                    constraint.within_axes
-                )
-
-                constraints.append(constraint)
-        return tuple(constraints)
+        return merge_axis_constraints(
+            field_axis,
+            [space.axis_constraints for space in self._spaces],
+        )
 
     def mesh(self):
         return self._mesh
@@ -1838,6 +1824,10 @@ class RealFunctionSpace(FunctionSpace):
 
     """
 
+    @cached_property
+    def axis_constraints(self) -> tuple[AxisConstraint]:
+        raise NotImplementedError
+
     finat_element = None
     global_numbering = None
 
@@ -2005,22 +1995,67 @@ def _axis_nest_from_constraints(axis_constraints: Sequence[AxisConstraint], visi
     my_uid += 1
 
     # filter out axis specs that match the current axis so they can't get reused further down
-    axis_specs = tuple(axis_spec for axis_spec in axis_constraints if axis_spec.axis.label != axis.label)
+    axis_constraints = tuple(axis_spec for axis_spec in axis_constraints if axis_spec.axis.label != axis.label)
 
     axis_nest = collections.defaultdict(list)
 
-    if subconstraints:
-        for component in axis.components:
-            subconstraints_ = tuple(
-                subconstraint
-                for subconstraint in subconstraints
-                if axis.label not in subconstraint.within_axes
-                or (axis.label, component.label) in subconstraint.within_axes.items()
-            )
+    for component in axis.components:
+        subconstraints_ = tuple(
+            subconstraint
+            for subconstraint in subconstraints
+            if axis.label not in subconstraint.within_axes
+            or (axis.label, component.label) in subconstraint.within_axes.items()
+        )
+        if subconstraints_:
             # FIXME: Not doing anything with visited_axes
             subnest = _axis_nest_from_constraints(subconstraints_, visited_axes)
             axis_nest[axis].append(subnest)
-    else:
-        return axis
 
-    return immutabledict(axis_nest)
+    return immutabledict(axis_nest) if axis_nest else axis
+
+
+
+def merge_axis_constraints(root_axis: op3.Axis, axis_constraintss: Sequence[Sequence[AxisConstraint]]) -> tuple[AxisConstraint]:
+    # start by collecting like axes
+    axis_info = collections.defaultdict(dict)
+    for root_component, constraints in zip(root_axis.components, axis_constraintss, strict=True):
+        for constraint in constraints:
+            axis_info[constraint.axis][root_component.label] = constraint.within_axes
+
+    # Now build the new set of constraints. To do this we inspect the
+    # per-component constraints for each axis: if the constraints are all the
+    # same then it is not necessary to specialise by component, otherwise an
+    # extra constraint is needed. For example:
+    #
+    # * Consider the "dof" axis for a mixed space with identical subspaces:
+    #
+    #     {dof_axis: {0: {"mesh": None}, 1: {"mesh": None}}
+    #
+    #   The constraints are identical for all components and so do not need to
+    #   be specialised. The final constraint is thus:
+    #
+    #     AxisConstraint(dof_axis, {"mesh": None})
+    #
+    # * Alternatively consider a mixed space of CG1 x Real:
+    #
+    #     {mesh_axis: {0: {}}}
+    #
+    #   The "mesh" axis only exists for the CG1 subspace and so a new constraint
+    #   is needed:
+    #
+    #     AxisConstraint(mesh_axis, {"field": 0})
+    constraints = [AxisConstraint(root_axis)]
+    for axis, per_component_info in axis_info.items():
+        if (
+            per_component_info.keys() == set(root_axis.component_labels)
+            and utils.is_single_valued(per_component_info.values())
+        ):
+            # Axis present for all components and constraints match: use as is
+            within_axes = utils.single_valued(per_component_info.values())
+            constraints.append(AxisConstraint(axis, within_axes))
+        else:
+            # Constraint mismatch: need to specialise by component
+            for component_label, orig_within_axes in per_component_info.items():
+                within_axes = orig_within_axes | {axis.label: component_label}
+                constraints.append(AxisConstraint(axis, within_axes))
+    return tuple(constraints)

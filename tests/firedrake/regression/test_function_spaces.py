@@ -312,46 +312,74 @@ def test_reconstruct_sub_component(dg0, rt1, mesh, mesh2, dual):
             assert V1.parent.index == V2.parent.index == index
 
 
-def flatten_axis_labels(axis_tree):
-    return tuple(axis.label for axis in axis_tree.nodes)
+class TestFunctionSpaceLayout:
 
+    @pytest.fixture(scope="class")
+    def mesh(self):
+        return UnitIntervalMesh(3)
 
-# TODO: parametrise nicely
-def test_function_space_layout():
-    mesh = UnitIntervalMesh(3)
+    @staticmethod
+    def flatten_axis_labels(axis_tree):
+        return tuple(axis.label for axis in axis_tree.nodes)
 
-    # CG1
-    default_indexed_axis_labels = ("firedrake_default_topology", "dof1", "dof0")
+    def check_space_layout(self, space, layout_labels, indexed_labels):
+        assert self.flatten_axis_labels(space.layout) == layout_labels
+        assert self.flatten_axis_labels(space.axes) == indexed_labels
 
-    # default layout
-    V = FunctionSpace(mesh, "CG", 1)
-    assert flatten_axis_labels(V.layout) == ("firedrake_default_topology_flat", "dof")
-    assert flatten_axis_labels(V.axes) == default_indexed_axis_labels
+    @pytest.mark.parametrize(
+        ["layout", "layout_labels"],
+        [
+            [(), ("firedrake_default_topology_flat", "dof")],
+        ],
+    )
+    def test_scalar(self, mesh, layout, layout_labels):
+        indexed_labels = ("firedrake_default_topology", "dof1", "dof0")
+        space = FunctionSpace(mesh, "CG", 1, layout_spec=layout)
+        self.check_space_layout(space, layout_labels, indexed_labels)
 
-    # vector CG1
-    default_indexed_axis_labels = ("firedrake_default_topology", "dof1", "dim0", "dof0", "dim0")
+    @pytest.mark.parametrize(
+        ["layout", "layout_labels"],
+        [
+            [(), ("firedrake_default_topology_flat", "dof", "dim0")],
+            [("dim0",), ("dim0", "firedrake_default_topology_flat", "dof")],
+        ],
+    )
+    def test_vector(self, mesh, layout, layout_labels):
+        indexed_labels = ("firedrake_default_topology", "dof1", "dim0", "dof0", "dim0")
 
-    # default layout
-    V = VectorFunctionSpace(mesh, "CG", 1)
-    assert flatten_axis_labels(V.layout) == ("firedrake_default_topology_flat", "dof", "dim0")
-    assert flatten_axis_labels(V.axes) == default_indexed_axis_labels
+        vector_space = VectorFunctionSpace(mesh, "CG", 1, layout_spec=layout)
+        self.check_space_layout(vector_space, layout_labels, indexed_labels)
 
-    # vector shape outermost
-    V = VectorFunctionSpace(mesh, "CG", 1, layout_spec=["dim0"])
-    assert flatten_axis_labels(V.layout) == ("dim0", "firedrake_default_topology_flat", "dof",)
-    assert flatten_axis_labels(V.axes) == default_indexed_axis_labels
+    @pytest.mark.parametrize(
+        ["layout", "layout_labels"],
+        [
+            [(), ("field", "firedrake_default_topology_flat", "dof", "firedrake_default_topology_flat", "dof")],
+            [("firedrake_default_topology_flat",), ("firedrake_default_topology_flat", "field", "dof", "dof")],
+        ],
+    )
+    def test_mixed(self, mesh, layout, layout_labels):
+        # TODO: if the same space is used then can put the field inside the DOf axis,
+        # otherwise not possible.
 
-    # CG1 x CG1
-    default_indexed_axis_labels = ("field", "firedrake_default_topology", "dof1", "dof0", "firedrake_default_topology", "dof1", "dof0")
+        indexed_labels = ("field", "firedrake_default_topology", "dof1", "dof0", "firedrake_default_topology", "dof1", "dof0")
 
-    # default layout
-    cg1_space = FunctionSpace(mesh, "CG", 1)
-    V = MixedFunctionSpace([cg1_space, cg1_space])
-    assert flatten_axis_labels(V.layout) == ("field", "firedrake_default_topology_flat", "dof", "firedrake_default_topology_flat", "dof")
-    assert flatten_axis_labels(V.axes) == default_indexed_axis_labels
+        cg1_space = FunctionSpace(mesh, "CG", 1)
+        mixed_space = MixedFunctionSpace([cg1_space, cg1_space], layout_spec=layout)
+        breakpoint()
+        self.check_space_layout(mixed_space, layout_labels, indexed_labels)
 
-    # mesh outermost
-    cg1_space = FunctionSpace(mesh, "CG", 1)
-    V = MixedFunctionSpace([cg1_space, cg1_space], layout_spec=["firedrake_default_topology_flat"])
-    assert flatten_axis_labels(V.layout) == ("firedrake_default_topology_flat", "dof", "field")
-    assert flatten_axis_labels(V.axes) == default_indexed_axis_labels
+    # FIXME:
+    @pytest.mark.xfail
+    @pytest.mark.parametrize(
+        ["layout", "layout_labels"],
+        [
+            [(), ("field", "firedrake_default_topology_flat", "dof")],
+        ],
+    )
+    def test_mixed_real(self, mesh, layout, layout_labels):
+        indexed_labels = ("field", "firedrake_default_topology", "dof1", "dof0", "firedrake_default_topology", "dof1", "dof0")
+
+        cg1_space = FunctionSpace(mesh, "CG", 1)
+        real_space = FunctionSpace(mesh, "R", 0)
+        mixed_space = MixedFunctionSpace([cg1_space, real_space], layout_spec=layout)
+        self.check_space_layout(mixed_space, layout_labels, indexed_labels)
