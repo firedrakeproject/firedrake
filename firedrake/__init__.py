@@ -79,6 +79,7 @@ from firedrake.constant import *
 from firedrake.exceptions import *
 from firedrake.function import *
 from firedrake.functionspace import *
+from firedrake.functionspaceimpl import InvalidFunctionSpaceLayoutException
 from firedrake.interpolation import *
 from firedrake.linear_solver import *
 from firedrake.preconditioners import *

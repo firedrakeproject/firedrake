@@ -355,9 +355,41 @@ class TestFunctionSpaceLayout:
         [
             [(), ("field", "firedrake_default_topology_flat", "dof", "firedrake_default_topology_flat", "dof")],
             [("firedrake_default_topology_flat",), ("firedrake_default_topology_flat", "field", "dof", "dof")],
+            # This is only valid because the subspaces match
+            [("firedrake_default_topology_flat", "dof"), ("firedrake_default_topology_flat", "dof", "field")],
+            # Invalid configurations
+            [("dof",), None],
+            [("badlabel",), None],
         ],
     )
-    def test_mixed(self, mesh, layout, layout_labels):
+    def test_mixed_same_subspaces(self, mesh, layout, layout_labels):
+        cg1_space = FunctionSpace(mesh, "CG", 1)
+
+        if layout_labels is None:  # invalid configuration
+            with pytest.raises(InvalidFunctionSpaceLayoutException):
+                mixed_space = MixedFunctionSpace([cg1_space, cg1_space], layout_spec=layout)
+        else:
+            mixed_space = MixedFunctionSpace([cg1_space, cg1_space], layout_spec=layout)
+            indexed_labels = (
+                "field",
+                "firedrake_default_topology",
+                "dof1",
+                "dof0",
+                "firedrake_default_topology",
+                "dof1",
+                "dof0",
+            )
+            self.check_space_layout(mixed_space, layout_labels, indexed_labels)
+
+    @pytest.mark.parametrize(
+        ["layout", "layout_labels"],
+        [
+            [(), ("field", "firedrake_default_topology_flat", "dof", "firedrake_default_topology_flat", "dof")],
+            [("firedrake_default_topology_flat",), ("firedrake_default_topology_flat", "field", "dof", "dof")],
+        ],
+    )
+    def test_mixed_with_vector_subspace(self, mesh, layout, layout_labels):
+        raise NotImplementedError
         # TODO: if the same space is used then can put the field inside the DOf axis,
         # otherwise not possible.
 
@@ -368,18 +400,31 @@ class TestFunctionSpaceLayout:
         breakpoint()
         self.check_space_layout(mixed_space, layout_labels, indexed_labels)
 
-    # FIXME:
-    @pytest.mark.xfail
     @pytest.mark.parametrize(
         ["layout", "layout_labels"],
         [
-            [(), ("field", "firedrake_default_topology_flat", "dof")],
+            [(), ("field", "firedrake_default_topology_flat", "dof", "dof")],
+            [("firedrake_default_topology_flat",), None],
         ],
     )
     def test_mixed_real(self, mesh, layout, layout_labels):
-        indexed_labels = ("field", "firedrake_default_topology", "dof1", "dof0", "firedrake_default_topology", "dof1", "dof0")
-
         cg1_space = FunctionSpace(mesh, "CG", 1)
         real_space = FunctionSpace(mesh, "R", 0)
-        mixed_space = MixedFunctionSpace([cg1_space, real_space], layout_spec=layout)
-        self.check_space_layout(mixed_space, layout_labels, indexed_labels)
+
+        if layout_labels is None:  # invalid configuration
+            with pytest.raises(InvalidFunctionSpaceLayoutException):
+                mixed_space = MixedFunctionSpace([cg1_space, cg1_space], layout_spec=layout)
+        else:
+            # '.axes' for Real spaces think that they are just a DG0 space
+            indexed_labels = (
+                "field",
+                "firedrake_default_topology",
+                "dof1",
+                "dof0",
+                "firedrake_default_topology",
+                "dof1",
+                "dof0",
+            )
+
+            mixed_space = MixedFunctionSpace([cg1_space, real_space], layout_spec=layout)
+            self.check_space_layout(mixed_space, layout_labels, indexed_labels)
