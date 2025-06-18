@@ -1,42 +1,4 @@
-"""Non-nested multigrid preconditioner
-
-Implements the method described in [1]. Note that while the authors of this
-paper consider a non-nested function space hierarchy, the algorithm can also
-be applied if the spaces are nested.
-
-Uses PCMG to implement a two-level multigrid method involving two spaces:
-
-    * the fine space V, on which the problem is formulated
-    * a user-defined coarse-space V_coarse
-
-The following options must be passed through the appctx dictionary:
-
-    * get_coarse_space: method which returns the user-defined coarse space
-    * get_coarse_operator: method which returns the operator on the coarse
-            space
-
-The following options (also passed through the appctx) are optional:
-
-    * form_compiler_parameters: parameters for assembling operators on
-        both levels of the hierarchy
-    * coarse_space_bcs: boundary conditions to be used on coarse space
-    * get_coarse_op_nullspace: method which returns the null space of the
-        coarse operator
-    * get_coarse_op_transpose_nullspace: method which returns the
-        null space of the transpose of the coarse operator
-    * interpolation_matrix: PETSc matrix which describes the interpolation
-        from the coarse- to the fine space. If omitted, this will be
-        constructed automatically with an Interpolater() object
-    * restriction_matrix: PETSc matrix which describes the restriction
-        from the fine space dual to the coarse space dual
-
-PETSc options for the underlying PCMG object can be set with the prefix 'gt_'.
-
-[1] Gopalakrishnan, J. and Tan, S., 2009: "A convergent multigrid cycle for the
-hybridized mixed method". Numerical Linear Algebra with Applications,
-16(9), pp.689-714. https://doi.org/10.1002/nla.636
-
-"""
+"""Non-nested multigrid preconditioner"""
 
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
@@ -47,6 +9,50 @@ __all__ = ['GTMGPC']
 
 
 class GTMGPC(PCBase):
+    """Non-nested multigrid preconditioner
+
+    Implements the method described in [1]. Note that while the authors of
+    this paper consider a non-nested function space hierarchy, the algorithm
+    can also be applied if the spaces are nested.
+
+    Uses PCMG to implement a two-level multigrid method involving two spaces:
+
+        * the fine space V, on which the problem is formulated
+        * a user-defined coarse-space V_coarse
+
+    The following options must be passed through the appctx dictionary:
+
+        * get_coarse_space: method which returns the user-defined coarse
+            space
+        * get_coarse_operator: method which returns the operator on the coarse
+            space
+
+    The following options (also passed through the appctx) are optional:
+
+        * form_compiler_parameters: parameters for assembling operators on
+            both levels of the hierarchy
+        * coarse_space_bcs: boundary conditions to be used on coarse space
+        * get_coarse_op_nullspace: method which returns the null space of the
+            coarse operator
+        * get_coarse_op_transpose_nullspace: method which returns the
+            null space of the transpose of the coarse operator
+        * interpolation_matrix: PETSc matrix which describes the interpolation
+            from the coarse- to the fine space. If omitted, this will be
+            constructed automatically with an Interpolater() object
+        * restriction_matrix: PETSc matrix which describes the restriction
+            from the fine space dual to the coarse space dual
+
+    PETSc options for the underlying PCMG object can be set with the
+    prefix 'gt_'.
+
+    Reference:
+
+        [1] Gopalakrishnan, J. and Tan, S., 2009: "A convergent multigrid
+        cycle for the hybridized mixed method". Numerical Linear Algebra
+        with Applications, 16(9), pp.689-714. https://doi.org/10.1002/nla.636
+
+    """
+
 
     needs_python_pmat = False
     _prefix = "gt_"
