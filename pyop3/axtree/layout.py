@@ -98,7 +98,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
     for i, component in enumerate(axis.components):
         path_acc_ = path_acc | {axis.label: component.label}
 
-        mysubaxis = axes.child(axis, component)
+        mysubaxis = axes.node_map.get(path_acc_)
         if mysubaxis:
             mysubtree = axes.subtree(mysubaxis)
 
@@ -106,7 +106,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
         if mysubaxis and not mysubtree.is_empty and _axis_tree_size(mysubtree) == 0:
             component_layout = 0
         else:
-            subtree, step = _drop_constant_subaxes(axes, axis, component)
+            subtree, step = _drop_constant_subaxes(axes, path_acc_)
 
             linear_axis = Axis([component], axis.label)
             offset_axes = AxisTree.from_iterable([*free_axes, linear_axis])
@@ -156,12 +156,12 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
         # NOTE: Not strictly necessary but it means we don't currently break with ragged
         if i < len(axis.components) - 1:
             # start += _axis_component_size(axes, axis, component)
-            if subaxis := axes.child(axis, component):
+            if subaxis := axes.child((axis, component)):
                 start += component.local_size * _axis_tree_size(axes.subtree(subaxis))
             else:
                 start += component.local_size
 
-        if subaxis := axes.child(axis, component):
+        if subaxis := axes.child((axis, component)):
             sublayouts = _prepare_layouts(axes, subaxis, path_acc_, layout_expr_acc_, free_axes_, to_tabulate, tabulated)
             layouts |= sublayouts
             # to_tabulate |= subdats
@@ -211,7 +211,7 @@ def _collect_regions(axes: AxisTree, *, axis: Axis | None = None):
         for region in component._all_regions:
             merged_region = {axis.label: region.label}
 
-            if subaxis := axes.child(axis, component):
+            if subaxis := axes.child((axis, component)):
                 for submerged_region in _collect_regions(axes, axis=subaxis):
                     merged_region_ = merged_region | submerged_region
                     if merged_region_ not in merged_regions:
@@ -332,14 +332,15 @@ def axis_tree_component_size(axis_tree, axis, component):
         return component.local_size * subtree_size
 
 
-def _drop_constant_subaxes(axis_tree, axis, component) -> tuple[AxisTree, int]:
+def _drop_constant_subaxes(axis_tree, path: ConcretePathT) -> tuple[AxisTree, int]:
     """Return an axis tree consisting of non-constant bits below ``axis``."""
     # NOTE: dont think I need the cache here any more
-    if subaxis := axis_tree.child(axis, component):
-        subtree = axis_tree.subtree(subaxis)
+    if subaxis := axis_tree.node_map.get(path):
+        subtree = axis_tree.subtree(path)
 
         key = ("_truncate_axis_tree", subtree)
         try:
+            breakpoint()
             return axis.cache_get(key)
         except KeyError:
             pass
@@ -532,7 +533,7 @@ def _tabulation_needs_subaxes(axes, axis, component, free_axes: tuple) -> bool:
           meaning that axis 'a' cannot be tabulated without 'b'.
 
     """
-    if subaxis := axes.child(axis, component):
+    if subaxis := axes.child((axis, component)):
         return _axis_needs_outer_index(axes, subaxis, free_axes) or _axis_contains_multiple_regions(axes, subaxis)
     else:
         return False

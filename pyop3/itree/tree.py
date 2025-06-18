@@ -460,10 +460,10 @@ class Slice(Index):
 
     fields = Index.fields | {"axis", "slices", "label"}
 
-    def __init__(self, axis, slices, *, id=None, label=None):
+    def __init__(self, axis, slices, *, label=None):
         slices = as_tuple(slices)
 
-        super().__init__(label=label, id=id)
+        super().__init__(label=label)
         self.axis = axis
         self.slices = slices
 

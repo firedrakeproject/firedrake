@@ -32,6 +32,7 @@ from pyop3.sf import StarForest, local_sf, single_star_sf
 from pyop2.mpi import COMM_SELF, collective
 from pyop3 import utils
 from pyop3.tree import (
+    ConcretePathT,
     LabelledNodeComponent,
     LabelledTree,
     MultiComponentLabelledNode,
@@ -455,12 +456,10 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
         self,
         components,
         label=None,
-        *,
-        id=None,
     ):
         components = self._parse_components(components)
 
-        super().__init__(label=label, id=id)
+        super().__init__(label=label)
         CacheMixin.__init__(self)
 
         self.components = components
@@ -972,10 +971,10 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     def unindexed(self):
         pass
 
-    @property
-    @abc.abstractmethod
-    def paths(self):
-        pass
+    # @property
+    # @abc.abstractmethod
+    # def paths(self):
+    #     pass
 
     @cached_property
     def source_path(self):
@@ -1304,13 +1303,14 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         return subst_layouts(self, self._matching_target, self.layouts)
 
     @cached_property
-    def _source_path(self):
+    def _source_paths(self) -> tuple[PathT]:
+        assert False, "old code"
         if self.is_empty:
             return immutabledict()
         else:
-            return self._collect_source_path()
+            return self._collect_source_path(axis=self.root, path=immutabledict())
 
-    def _collect_source_path(self, *, axis=None):
+    def _collect_source_path(self, *, axis: Axis | None = None, path: PathT):
         assert not self.is_empty
 
         if axis is None:
@@ -1327,24 +1327,20 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     @cached_property
     def _source_exprs(self):
+        assert not self.is_empty, "handle outside?"
         if self.is_empty:
             return immutabledict()
         else:
-            return self._collect_source_exprs()
+            return self._collect_source_exprs(path=immutabledict())
 
-    def _collect_source_exprs(self, *, axis=None):
-        assert not self.is_empty
+    def _collect_source_exprs(self, *, path: ConcretePathT) -> immutabledict:
+        axis = self.node_map[path]
+        source_exprs = {path: immutabledict({axis.label: AxisVar(axis)})}
 
-        if axis is None:
-            axis = self.root
-        axis = typing.cast(Axis, axis)  # make the type checker happy
-
-        source_exprs = {}
         for component in axis.components:
-            source_exprs[axis.id, component.label] = immutabledict({axis.label: AxisVar(axis)})
-
-            if subaxis := self.child(axis, component):
-                source_exprs.update(self._collect_source_exprs(axis=subaxis))
+            path_ = path | {axis.label: component.label}
+            if path_ in self.node_map:
+                source_exprs.update(self._collect_source_exprs(path=path_))
         return immutabledict(source_exprs)
 
     def _check_labels(self):
@@ -1437,9 +1433,9 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
                 node_map[undistributed_axis.id].append(None)
         return undistributed_axis, node_map
 
-    @cached_property
-    def paths(self):
-        return (self._source_path,)
+    # @cached_property
+    # def paths(self):
+    #     return (self._source_path,)
 
     # bit of a hack, think about the design
     @cached_property
@@ -1447,7 +1443,11 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         return frozenset({self._accumulate_targets(self._source_path_and_exprs)})
 
     @cached_property
-    def _source_path_and_exprs(self):
+    def _source_path_and_exprs(self) -> immutabledict:
+        return immutabledict({
+            path: (path, self._source_exprs[path])
+            for path in self.paths
+        })
         # TODO: merge source path and source expr collection here
         return immutabledict({key: (self._source_path[key], self._source_exprs[key]) for key in self._source_path})
 
@@ -1483,31 +1483,15 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         return AxisTree.from_iterable(linear_axes)
 
     # NOTE: should default to appending (assuming linear)
-    def add_axis(self, axis, parent_axis, parent_component=None, *, uniquify=False):
-        # FIXME: I want parent to be a *single argument*
-        if isinstance(parent_axis, tuple):
-            assert parent_component is None
-            parent_axis, parent_component = parent_axis
-        parent_axis = self._as_node(parent_axis)
-        if parent_component is not None:
-            parent_component = (
-                parent_component.label
-                if isinstance(parent_component, AxisComponent)
-                else parent_component
-            )
-        return super().add_node(axis, parent_axis, parent_component, uniquify=uniquify)
+    def add_axis(self, path: PathT, axis: Axis) -> AxisTree:
+        return super().add_node(path, axis)
 
-    def append_axis(self, axis, *, uniquify=False):
-        if self.is_empty:
-            return self.add_axis(axis, None, uniquify=uniquify)
-        else:
-            if len(self.leaves) == 1:
-                leaf_axis, leaf_component = self.leaf
-                return self.add_axis(axis, leaf_axis, leaf_component, uniquify=uniquify)
-            else:
-                raise ExpectedLinearAxisTreeException(
-                    "Can only append axes to trees with one leaf."
-                )
+    def append_axis(self, axis: Axis) -> AxisTree:
+        if len(self.leaf_paths) > 1:
+            raise ExpectedLinearAxisTreeException(
+                "Can only append axes to trees with one leaf."
+            )
+        return self.add_axis(self.leaf_path, axis)
 
     @property
     def layout_axes(self):
@@ -2307,7 +2291,6 @@ def subst_layouts(
     *,
     axis=None,
     path=None,
-    linear_axes_acc=None,
     target_paths_and_exprs_acc=None,
 ):
     from pyop3.expr_visitors import replace_terminals
@@ -2321,7 +2304,6 @@ def subst_layouts(
 
         # NOTE: I think I can get rid of this if I prescribe an empty axis tree to expression
         # arrays
-        linear_axes_acc = AxisTree()
         target_paths_and_exprs_acc = {None: targets.get(None, (immutabledict(), immutabledict()))}
 
         accumulated_path = merge_dicts(p for p, _ in target_paths_and_exprs_acc.values())
@@ -2342,7 +2324,6 @@ def subst_layouts(
                     layouts,
                     axis=axes.root,
                     path=path,
-                    linear_axes_acc=linear_axes_acc,
                     target_paths_and_exprs_acc=target_paths_and_exprs_acc,
                 )
             )
@@ -2350,16 +2331,11 @@ def subst_layouts(
         for component in axis.components:
             path_ = path | {axis.label: component.label}
 
-            linear_axis = Axis([component], axis.label)
-            linear_axes_acc_ = linear_axes_acc.add_axis(linear_axis, linear_axes_acc.leaf)
-
             target_paths_and_exprs_acc_ = target_paths_and_exprs_acc | {
-                (linear_axis.id, component.label): targets.get((axis.id, component.label), (immutabledict(), immutabledict()))
+                path_: targets.get(path_, (immutabledict(), immutabledict()))
             }
 
             accumulated_path = merge_dicts(p for p, _ in target_paths_and_exprs_acc_.values())
-            # layouts_subst[path_] = replace(layouts[accumulated_path], linear_axes_acc_, target_paths_and_exprs_acc_)
-            # breakpoint()
             replace_map = merge_dicts(t for _, t in target_paths_and_exprs_acc_.values())
 
             # If we have indexed using a different order to the initial axis tree then sometimes
@@ -2367,7 +2343,7 @@ def subst_layouts(
             if accumulated_path in layouts:
                 layouts_subst[path_] = replace_terminals(layouts[accumulated_path], replace_map)
 
-            if subaxis := axes.child(axis, component):
+            if subaxis := axes.child((axis, component)):
                 layouts_subst.update(
                     subst_layouts(
                         axes,
@@ -2375,7 +2351,6 @@ def subst_layouts(
                         layouts,
                         axis=subaxis,
                         path=path_,
-                        linear_axes_acc=linear_axes_acc_,
                         target_paths_and_exprs_acc=target_paths_and_exprs_acc_,
                     )
                 )
