@@ -107,7 +107,7 @@ class GTMGPC(PCBase):
             interpolator = Interpolator(TestFunction(coarse_space), fine_space)
             interpolation_matrix = interpolator.callable()
             interp_petscmat = interpolation_matrix.handle
-
+        restr_petscmat = appctx.get("restriction_matrix", None)
         # We set up a PCMG object that uses the constructed interpolation
         # matrix to generate the restriction/prolongation operators.
         # This is a two-level multigrid preconditioner.
@@ -119,6 +119,8 @@ class GTMGPC(PCBase):
         pcmg.setMGLevels(2)
         pcmg.setMGCycleType(pc.MGCycleType.V)
         pcmg.setMGInterpolation(1, interp_petscmat)
+        if restr_petscmat is not None:
+            pcmg.setMGRestriction(1, restr_petscmat)
         pcmg.setOperators(A=fine_petscmat, P=fine_petscmat)
 
         coarse_solver = pcmg.getMGCoarseSolve()
