@@ -1,3 +1,14 @@
+"""Non-nested multigrid preconditioner
+
+Implements the method described in [1]. Note that while the authors of this
+paper consider a non-nested function space hierarchy, the algorithm can also
+be applied if the spaces are nested.
+
+[1] Gopalakrishnan, J. and Tan, S., 2009: "A convergent multigrid cycle for the
+hybridized mixed method". Numerical Linear Algebra with Applications,
+16(9), pp.689-714. https://doi.org/10.1002/nla.636
+"""
+
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 import firedrake.dmhooks as dmhooks
@@ -7,11 +18,51 @@ __all__ = ['GTMGPC']
 
 
 class GTMGPC(PCBase):
+    """Two-level method for non-nested spaces
+
+    Uses PCMG to implement a two-level multigrid method  involving two spaces:
+
+        * the fine space V, on which the problem is formulated
+        * a user-defined coarse-space V_coarse
+
+    The user has to specify both the coarse space and the coarse space
+    operator via callbacks that are passed through the appctx.
+    """
+
 
     needs_python_pmat = False
     _prefix = "gt_"
 
     def initialize(self, pc):
+        """Initialize new instance
+
+        :arg pc: PETSc preconditioner instance
+
+        The following options must be passed through the appctx:
+
+            * get_coarse_space: method which returns the user-defined
+                    coarse space
+            * get_coarse_operator: method which returns the operator
+                    on the coarse space
+
+        The following options are optional:
+
+            * form_compiler_parameters: parameters for assembling the fine
+                    level operator
+            * coarse_space_bcs: boundary conditions to be used
+                    on coarse space
+            * get_coarse_op_nullspace: method which returns the null space
+                    of the coarse operator
+            * get_coarse_op_transpose_nullspace: method which returns the
+                    null space of the transpose of the coarse operator
+            * interpolation_matrix: PETSc matrix which describes the
+                    interpolation from the coarse- to the fine space. If
+                    omitted, this will be constructed automatically with
+                    an Interpolater() object
+            * restriction_matrix: PETSc matrix which describes the
+                    restriction from the fine space dual to the coarse
+                    space dual
+        """
         from firedrake import TestFunction, parameters
         from firedrake.assemble import get_assembler
         from firedrake.interpolation import Interpolator
@@ -149,6 +200,12 @@ class GTMGPC(PCBase):
             coarse_solver.setFromOptions()
 
     def update(self, pc):
+        """Update preconditioner
+
+        Re-assemble operators on both levels of the hierarchy
+
+        :arg pc: PETSc preconditioner instance
+        """
         if hasattr(self, "fine_op"):
             self._assemble_fine_op(tensor=self.fine_op)
 
@@ -156,16 +213,33 @@ class GTMGPC(PCBase):
         self.pc.setUp()
 
     def apply(self, pc, X, Y):
+        """Apply preconditioner
+
+        :arg pc: PETSc preconditioner instance
+        :arg X: right hand side PETSc vector
+        :arg Y: PETSc vector with resulting solution
+        """
         dm = self._dm
         with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
             self.pc.apply(X, Y)
 
     def applyTranspose(self, pc, X, Y):
+        """Apply transpose preconditioner
+
+        :arg pc: PETSc preconditioner instance
+        :arg X: right hand side PETSc vector
+        :arg Y: PETSc vector with resulting solution
+        """
         dm = self._dm
         with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
             self.pc.applyTranspose(X, Y)
 
     def view(self, pc, viewer=None):
+        """View preconditioner options
+
+        :arg pc: preconditioner instance
+        :arg viewer: PETSc viewer instance
+        """
         super(GTMGPC, self).view(pc, viewer)
         if hasattr(self, "pc"):
             viewer.printfASCII("PC using Gopalakrishnan and Tan algorithm\n")
