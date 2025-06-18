@@ -50,8 +50,8 @@ class GTMGPC(PCBase):
 
         The following options are optional:
 
-            * form_compiler_parameters: parameters for assembling the fine
-                    level operator
+            * form_compiler_parameters: parameters for assembling operators on
+                    both levels of the hierarchy
             * coarse_space_bcs: boundary conditions to be used
                     on coarse space
             * get_coarse_op_nullspace: method which returns the null space
