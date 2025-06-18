@@ -27,6 +27,9 @@ class GTMGPC(PCBase):
 
     The user has to specify both the coarse space and the coarse space
     operator via callbacks that are passed through the appctx.
+
+    PETSc options for the underlying PCMG object can be set with the
+    prefix 'gt_'.
     """
 
 
