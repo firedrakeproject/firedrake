@@ -119,7 +119,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
                 offset_dat_expr = as_linear_buffer_expression(offset_dat)
                 component_layout = offset_dat_expr * step + start
             else:
-                if _tabulation_needs_subaxes(axes, axis, component, free_axes_):
+                if _tabulation_needs_subaxes(axes, path_acc_, free_axes_):
                     # 1. Needs subindices to be able to tabulate anything, pass down
                     component_layout = NaN()
                 elif subtree.is_empty:
@@ -134,7 +134,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
                     # 3. Non-constant stride, must tabulate
                     offset_dat = Dat(offset_axes, data=np.full(offset_axes.size, -1, dtype=IntType))
 
-                    if _axis_contains_multiple_regions(axes, axis):
+                    if _axis_contains_multiple_regions(axes, path_acc):
                         steps = _tabulate_steps(offset_axes, subtree)
                         to_tabulate.append((offset_dat.buffer._data, steps))
                     else:
@@ -161,7 +161,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
             else:
                 start += component.local_size
 
-        if subaxis := axes.child((axis, component)):
+        if subaxis := axes.node_map.get(path_acc_):
             sublayouts = _prepare_layouts(axes, subaxis, path_acc_, layout_expr_acc_, free_axes_, to_tabulate, tabulated)
             layouts |= sublayouts
             # to_tabulate |= subdats
@@ -172,7 +172,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
     return immutabledict(layouts)
 
 
-def _collect_regions(axes: AxisTree, *, axis: Axis | None = None):
+def _collect_regions(axes: AxisTree, *, path: PathT = immutabledict()):
     """
     (can think of as some sort of linearisation of the tree, should probably error if orders do not match)
 
@@ -202,17 +202,15 @@ def _collect_regions(axes: AxisTree, *, axis: Axis | None = None):
     [{"a": "A", "b": "X"}, {"a": "A", "b": "Y"}, {"a": "B", "b": "X"}, {"a": "B", "b": "Y"}]
 
     """
-    if axis is None:
-        axis = axes.root
-        axis = typing.cast(Axis, axis)  # make the type checker happy
-
     merged_regions = []  # NOTE: Could be an ordered set
+    axis = axes.node_map[path]
     for component in axis.components:
+        path_ = path | {axis.label: component.label}
         for region in component._all_regions:
             merged_region = {axis.label: region.label}
 
-            if subaxis := axes.child((axis, component)):
-                for submerged_region in _collect_regions(axes, axis=subaxis):
+            if subaxis := axes.node_map.get(path_):
+                for submerged_region in _collect_regions(axes, path=path_):
                     merged_region_ = merged_region | submerged_region
                     if merged_region_ not in merged_regions:
                         merged_regions.append(merged_region_)
@@ -258,30 +256,36 @@ def _axis_tree_size(axes):
     if axes.is_empty:
         return 0
     else:
-        return _axis_tree_size_rec(axes, axes.root)
+        return _axis_tree_size_rec(axes, immutabledict())
 
 
-def _axis_tree_size_rec(axis_tree: AxisTree, axis: Axis):
+def _axis_tree_size_rec(axis_tree: AxisTree, path):
     from pyop3 import Dat, Scalar, loop as loop_
     from pyop3.tensor.dat import as_linear_buffer_expression
     from pyop3.expr_visitors import extract_axes, replace_terminals
+
+    axis = axis_tree.node_map[path]
+
+    if axis is None:
+        return 1
 
     # The size of an axis tree is simply the product of the sizes of the
     # different nested subaxes. This remains the case even for ragged
     # inner axes.
     tree_size = 0
     for component in axis.components:
-        tree_size += axis_tree_component_size(axis_tree, axis, component)
+        tree_size += axis_tree_component_size(axis_tree, path, component)
     return tree_size
 
 
-def axis_tree_component_size(axis_tree, axis, component):
-    from pyop3 import Dat, Scalar, loop as loop_
-    from pyop3.tensor.dat import as_linear_buffer_expression
-    from pyop3.expr_visitors import extract_axes, replace_terminals
+def axis_tree_component_size(axis_tree, path, component):
+    from pyop3 import Dat, loop as loop_
+    from pyop3.expr_visitors import replace_terminals
 
-    if subaxis := axis_tree.child(axis, component):
-        subtree_size = _axis_tree_size_rec(axis_tree, subaxis)
+    axis = axis_tree.node_map[path]
+    path_ = path | {axis.label: component.label}
+    if axis_tree.node_map[path_]:
+        subtree_size = _axis_tree_size_rec(axis_tree, path_)
     else:
         subtree_size = 1
 
@@ -510,7 +514,7 @@ def has_constant_step(axes: AxisTree, axis, cpt, inner_loop_vars, path=immutable
 #         return True
 
 
-def _tabulation_needs_subaxes(axes, axis, component, free_axes: tuple) -> bool:
+def _tabulation_needs_subaxes(axes, path, free_axes: tuple) -> bool:
     """
     As we descend the axis tree to compute layout functions we are able to access
     more and more indices and can thus tabulate offsets into arrays with more and
@@ -533,7 +537,7 @@ def _tabulation_needs_subaxes(axes, axis, component, free_axes: tuple) -> bool:
           meaning that axis 'a' cannot be tabulated without 'b'.
 
     """
-    if subaxis := axes.child((axis, component)):
+    if subaxis := axes.node_map.get(path):
         return _axis_needs_outer_index(axes, subaxis, free_axes) or _axis_contains_multiple_regions(axes, subaxis)
     else:
         return False
@@ -551,13 +555,17 @@ def _axis_needs_outer_index(axes, axis, visited) -> bool:
     return False
 
 
-def _axis_contains_multiple_regions(axes, axis) -> bool:
+def _axis_contains_multiple_regions(axes, path) -> bool:
+    axis = axes.node_map[path]
+
     for component in axis.components:
+        path_ = path | {axis.label: component.label}
+
         if len(component._all_regions) > 1:
             return True
 
-        if subaxis := axes.child(axis, component):
-            if _axis_contains_multiple_regions(axes, subaxis):
+        if axes.node_map[path_]:
+            if _axis_contains_multiple_regions(axes, path_):
                 return True
 
     return False

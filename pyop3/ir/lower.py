@@ -962,7 +962,6 @@ def compile_array_assignment(
     iname_replace_maps=None,
     # TODO document these under "Other Parameters"
     axis_tree=None,
-    axis=None,
     paths=None,
 ):
     if paths is None:
@@ -976,7 +975,7 @@ def compile_array_assignment(
         paths += [immutabledict()]
         iname_replace_maps += [immutabledict()]
 
-        if axis_tree.is_empty or axis_tree is UNIT_AXIS_TREE or isinstance(axis, IndexedAxisTree):
+        if axis_tree.is_empty or axis_tree is UNIT_AXIS_TREE or isinstance(axis_tree, IndexedAxisTree):
             if axis_trees:
                 raise NotImplementedError("need to refactor code here")
 
@@ -989,7 +988,7 @@ def compile_array_assignment(
             )
             return
 
-        axis = axis_tree.root
+    axis = axis_tree.node_map[paths[-1]]
 
     for component in axis.components:
         if component.size != 1:
@@ -1014,7 +1013,7 @@ def compile_array_assignment(
         new_paths[-1] = paths[-1] | {axis.label: component.label}
 
         with codegen_context.within_inames(within_inames):
-            if subaxis := axis_tree.child(axis, component):
+            if axis_tree.node_map[new_paths[-1]]:
                 compile_array_assignment(
                     assignment,
                     loop_indices,
@@ -1022,7 +1021,6 @@ def compile_array_assignment(
                     axis_trees,
                     iname_replace_maps=new_iname_replace_maps,
                     axis_tree=axis_tree,
-                    axis=subaxis,
                     paths=new_paths,
                 )
             elif axis_trees:
@@ -1033,7 +1031,6 @@ def compile_array_assignment(
                     axis_trees,
                     iname_replace_maps=new_iname_replace_maps,
                     axis_tree=None,
-                    axis=None,
                     paths=new_paths,
                 )
             else:

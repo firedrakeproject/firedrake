@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import collections
+from collections.abc import Iterable
 import dataclasses
 import enum
 import itertools
@@ -46,6 +47,7 @@ from pyop3.dtypes import IntType
 from pyop3.lang import KernelArgument
 from pyop3.sf import StarForest
 from pyop3.tree import (
+    ConcretePathT,
     LabelledNodeComponent,
     LabelledTree,
     MultiComponentLabelledNode,
@@ -72,39 +74,41 @@ class InvalidIndexTargetException(Pyop3Exception):
     """Exception raised when we try to match index information to a mismatching axis tree."""
 
 
-
+class Index(MultiComponentLabelledNode):
+    pass
 
 
 # NOTE: index trees are not really labelled trees. The component labels are always
 # nonsense. Instead I think they should just advertise a degree and then attach
 # to matching index (instead of label).
 class IndexTree(MutableLabelledTreeMixin, LabelledTree):
+
+    # {{{ interface impls
+
+    @functools.singledispatchmethod
+    @classmethod
+    def as_node(cls, obj: Any) -> Index:
+        raise TypeError(f"No handler defined for {type(obj).__name__}")
+
+    @as_node.register(Index)
+    @classmethod
+    def _(cls, index: Index) -> Index:
+        return index
+
+    # }}}
+
     def __init__(self, node_map=immutabledict()):
         super().__init__(node_map)
 
-    @classmethod
-    def from_nest(cls, nest):
-        # NOTE: This may fail when we have maps which produce multiple axis trees.
-        # This is because the map has multiple equivalent interpretations so the
-        # correct one is not known at this point. Instead one should use
-        # IndexForest.from_nest(...).
-        root, node_map = cls._from_nest(nest)
-        node_map.update({None: [root]})
-        return cls(node_map)
-
-    @classmethod
-    def from_iterable(cls, iterable):
-        if not iterable:
-            return cls()
-
-        # All iterable entries must be indices for now as we do no parsing
-        root, *rest = iterable
-        node_map = {None: (root,)}
-        parent = root
-        for index in rest:
-            node_map.update({parent.id: (index,)})
-            parent = index
-        return cls(node_map)
+    # @classmethod
+    # def from_nest(cls, nest):
+    #     # NOTE: This may fail when we have maps which produce multiple axis trees.
+    #     # This is because the map has multiple equivalent interpretations so the
+    #     # correct one is not known at this point. Instead one should use
+    #     # IndexForest.from_nest(...).
+    #     root, node_map = cls._from_nest(nest)
+    #     node_map.update({None: [root]})
+    #     return cls(node_map)
 
 
 class SliceComponent(LabelledNodeComponent, abc.ABC):
@@ -246,10 +250,6 @@ class TabulatedMapComponent(MapComponent):
         return self.array.datamap
 
 
-class Index(MultiComponentLabelledNode):
-    pass
-
-
 class AxisIndependentIndex(Index):
     @property
     @abc.abstractmethod
@@ -313,8 +313,13 @@ class LoopIndex(Index, KernelArgument):
     def __init__(self, iterset, *, id=None):
         assert len(iterset.leaves) >= 1
 
-        super().__init__(label=id, id=id)
+        super().__init__(label=id)
         self.iterset = iterset
+
+    # TODO: This is very unclear...
+    @property
+    def id(self):
+        return self.label
 
     @property
     def kernel_dtype(self):
@@ -969,33 +974,44 @@ def _(called_map: CalledMap) -> tuple[tuple[immutabledict[str, str]], ...]:
 
 
 def match_target_paths_to_axis_tree(index_tree, orig_axes):
-    target_axes_by_index, leaf_target_axes = match_target_paths_to_axis_tree_rec(index_tree, orig_axes, index=index_tree.root, candidate_target_paths_acc=(immutabledict(),))
+    target_axes_by_index, leaf_target_axes = match_target_paths_to_axis_tree_rec(index_tree, orig_axes, index_path=immutabledict(), candidate_target_paths_acc=(immutabledict(),))
     assert all(len(leaf_axes) == 0 for leaf_axes in leaf_target_axes), "Expected all axes to be consumed by now"
     return target_axes_by_index
 
 
-def match_target_paths_to_axis_tree_rec(index_tree, orig_axes, *, index, candidate_target_paths_acc):
+def match_target_paths_to_axis_tree_rec(
+    index_tree,
+    orig_axes,
+    *,
+    index_path: ConcretePathT,
+    candidate_target_paths_acc,
+):
+    index = index_tree.node_map[index_path]
+
     target_axes_by_index = {index: []}
     leaf_target_axes = []
     index_target_paths = collect_index_target_paths(index)
-    for equivalent_index_target_paths, subindex in zip(index_target_paths, index_tree.node_map[index.id], strict=True):
+    for equivalent_index_target_paths, index_component_label in zip(index_target_paths, index.component_labels, strict=True):
+
+        index_path_ = index_path | {index.label: index_component_label}
+
         candidate_target_paths_acc_ = tuple(
             candidate_path | index_target_path
             for candidate_path in candidate_target_paths_acc 
             for index_target_path in equivalent_index_target_paths
         )
-        if subindex is None:
+        if index_tree.node_map[index_path_] is None:
             # At a leaf, can now determine the axes that are referenced by the path.
             # We only expect a single match from all the collected candidate paths.
             full_target_axes = just_one(
-                orig_axes.path_with_nodes(orig_axes._node_from_path(candidate_path))
+                orig_axes.visited_nodes(candidate_path)
                 for candidate_path in candidate_target_paths_acc_
-                if orig_axes.is_valid_path(candidate_path)
+                if candidate_path in orig_axes.node_map
             )
             # convert to a dict so entries can be popped off as we go up
             sub_leaf_target_axess = (dict(full_target_axes),)
         else:
-            sub_target_axes_by_index, sub_leaf_target_axess = match_target_paths_to_axis_tree_rec(index_tree, orig_axes, index=subindex, candidate_target_paths_acc=candidate_target_paths_acc_)
+            sub_target_axes_by_index, sub_leaf_target_axess = match_target_paths_to_axis_tree_rec(index_tree, orig_axes, index_path=index_path_, candidate_target_paths_acc=candidate_target_paths_acc_)
             target_axes_by_index |= sub_target_axes_by_index
 
         # Look at what all the leaves think the axes that are pointed to by this
@@ -1266,7 +1282,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
         target_expr = immutabledict({slice_.axis: expr})
         # use a 1-tuple here because there are no 'equivalent' layouts for slices
         # like there are for (e.g.) loop indices
-        targets[axis.id, component.label] = ((target_path, target_expr),)
+        targets[immutabledict({axis.label: component.label})] = ((target_path, target_expr),)
 
     axes = axis.as_tree()
     targets = immutabledict(targets)
@@ -1503,10 +1519,12 @@ def collect_index_tree_target_paths_rec(index_tree: IndexTree, *, index: Index) 
 
 
 def make_indexed_axis_tree(index_tree: IndexTree, target_axes):
-    return make_indexed_axis_tree_rec(index_tree, target_axes, index=index_tree.root, seen_target_exprs=immutabledict())
+    return make_indexed_axis_tree_rec(index_tree, target_axes, index_path=immutabledict(), seen_target_exprs=immutabledict())
 
 
-def make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index: Index, seen_target_exprs):
+def make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_path: ConcretePathT, seen_target_exprs):
+    index = index_tree.node_map[index_path]
+
     index_axis_tree, index_target_paths_and_exprs, index_outer_loops = _index_axes_index(
         index, target_axes,
         seen_target_exprs=seen_target_exprs,
@@ -1529,24 +1547,28 @@ def make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index: Ind
 
     axis_tree = index_axis_tree
     outer_loops = list(index_outer_loops)
-    for leaf, subindex in zip(
-        index_axis_tree.leaves, index_tree.node_map[index.id], strict=True
+    for leaf_path, index_component_label in zip(
+        index_axis_tree.leaf_paths, index.component_labels, strict=True
     ):
+        index_path_ = index_path | {index.label: index_component_label}
+        subindex = index_tree.node_map[index_path_]
         if subindex is None:
             continue
 
-        leaf_key = (leaf[0].id, leaf[1]) if leaf is not None else None
+        # leaf_key = (leaf[0].id, leaf[1]) if leaf is not None else None
+        leaf_key = leaf_path
         seen_target_exprs_ = seen_target_exprs | merge_dicts(exprs for (_, exprs) in index_target_paths_and_exprs[leaf_key])
 
         subaxis_tree, subtarget_paths_and_exprs, sub_outer_loops = make_indexed_axis_tree_rec(
             index_tree,
             target_axes,
-            index=subindex,
+            index_path=index_path_,
             seen_target_exprs=seen_target_exprs_,
         )
 
-        leaf_axis_key = (leaf[0], leaf[1]) if leaf is not None else None
-        axis_tree = axis_tree.add_subtree(subaxis_tree, leaf_axis_key)
+        # leaf_axis_key = (leaf[0], leaf[1]) if leaf is not None else None
+        leaf_axis_key = leaf_path
+        axis_tree = axis_tree.add_subtree(leaf_axis_key, subaxis_tree)
 
         # If a subtree has no shape (e.g. if it is a loop index) then append
         # index information to the existing 'None' entry.

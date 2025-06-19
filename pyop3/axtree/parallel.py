@@ -5,9 +5,9 @@ import numbers
 from collections.abc import Sequence
 
 import numpy as np
+from immutabledict import immutabledict
 from mpi4py import MPI
 from pyop3.axtree.tree import AbstractAxisTree
-from pyrsistent import pmap
 
 from pyop3.dtypes import IntType, as_numpy_dtype
 from pyop3.sf import StarForest
@@ -56,33 +56,37 @@ def partition_ghost_points(axis, sf):
 
 
 def collect_star_forests(axis_tree: AbstractAxisTree) -> tuple[StarForest, ...]:
-    return _collect_sf_graphs_rec(axis_tree, axis_tree.root)
+    return _collect_sf_graphs_rec(axis_tree, immutabledict())
 
 
 # NOTE: This function does not check for nested SFs (which should error)
-def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, axis: Axis) -> tuple[StarForest, ...]:
+def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, path: ConcretePathT) -> tuple[StarForest, ...]:
     # TODO: not in firedrake
     from firedrake.cython.dmcommon import create_section_sf
     from pyop3.axtree.layout import axis_tree_component_size
 
+    axis = axis_tree.node_map[path]
+
     sfs = []
     for component in axis.components:
+        path_ = path | {axis.label: component.label}
+
         if component.sf is not None:
             # do not recurse further
-            if axis_tree.child(axis, component):
-                section = axis_tree.component_section((axis, component))
+            if path_ in axis_tree.node_map:
+                section = axis_tree.section(path, component)
                 petsc_sf = create_section_sf(component.sf.sf, section)
             else:
                 petsc_sf = component.sf.sf
 
-            size = axis_tree_component_size(axis_tree, axis, component)
+            size = axis_tree_component_size(axis_tree, path, component)
 
             if not isinstance(size, numbers.Integral):
                 raise NotImplementedError("Assume that star forests have integer size")
 
             sf = StarForest(petsc_sf, size)
             sfs.append(sf)
-        elif subaxis := axis_tree.child(axis, component):
+        elif subaxis := axis_tree.node_map.get(path_):
             if component.count > 1:
                 raise NotImplementedError("This will be very inefficient")
 

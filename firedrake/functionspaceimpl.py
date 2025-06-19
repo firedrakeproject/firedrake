@@ -625,10 +625,12 @@ class FunctionSpace:
         strata_slice = self._mesh._strata_slice
         index_tree = op3.IndexTree(strata_slice)
         for slice_component in strata_slice.slices:
+            path = {strata_slice.label: slice_component.label}
+
             dim = slice_component.label
             ndofs = single_valued(len(v) for v in self.finat_element.entity_dofs()[dim].values())
             subslice = op3.Slice("dof", [op3.AffineSliceComponent("XXX", stop=ndofs, label="XXX")], label=f"dof{slice_component.label}")
-            index_tree = index_tree.add_node(subslice, strata_slice, slice_component.label)
+            index_tree = index_tree.add_node(path, subslice)
 
             # same as in parloops.py
             if self.shape:
@@ -637,7 +639,7 @@ class FunctionSpace:
                     for i, dim in enumerate(self.shape)
                 ])
 
-                index_tree = index_tree.add_subtree(shape_slices, subslice, "XXX")
+                index_tree = index_tree.add_subtree(path | {subslice.label: "XXX"}, shape_slices)
         return self.layout[index_tree]
 
     @cached_property
@@ -1978,11 +1980,6 @@ def _axis_nest_from_constraints(axis_constraints: Sequence[AxisConstraint], visi
     axis_constraints = tuple(axis_spec for axis_spec in axis_constraints if axis_spec.axis != axis)
 
     axis_nest = collections.defaultdict(list)
-
-    # FIXME: Axis IDs were a bad idea
-    global my_uid
-    axis = axis.copy(id=f"{axis.id}_{my_uid}")
-    my_uid += 1
 
     for component in axis.components:
         subconstraints_ = tuple(

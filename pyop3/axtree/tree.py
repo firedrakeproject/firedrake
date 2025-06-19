@@ -32,12 +32,14 @@ from pyop3.sf import StarForest, local_sf, single_star_sf
 from pyop2.mpi import COMM_SELF, collective
 from pyop3 import utils
 from pyop3.tree import (
+    ComponentT,
     ConcretePathT,
     LabelledNodeComponent,
     LabelledTree,
     MultiComponentLabelledNode,
     MutableLabelledTreeMixin,
     as_component_label,
+    as_path,
     postvisit,
     previsit,
 )
@@ -251,7 +253,9 @@ class AxisComponentRegion:
         from pyop3.tensor.dat import LinearDatArrayBufferExpression
         if not isinstance(self.size, numbers.Integral):
             assert isinstance(self.size, LinearDatArrayBufferExpression)
-            assert self.size.buffer.sf is None
+            if self.size.buffer.sf is not None:
+                import pyop3.extras.debug
+                pyop3.extras.debug.warn_todo("sf is not None, unsure if this causes inf. recursion or not")
 
     def __str__(self) -> str:
         return f"({self.size}, {self.label})"
@@ -267,9 +271,11 @@ def _parse_regions(obj: Any) -> tuple[AxisComponentRegion, ...]:
         # set of requirements than generic Dats so we eagerly cast them to
         # the constrained type here.
         orig_dat = obj
-        bf = orig_dat.buffer
-        orig_dat = Dat(orig_dat.axes.undistribute(), buffer=type(bf)(bf._data,sf=None))
-        # dat = orig_dat._as_expression_dat()
+
+        # TODO: 18/06 is this needed?
+        # bf = orig_dat.buffer
+        # orig_dat = Dat(orig_dat.axes.undistribute(), buffer=type(bf)(bf._data,sf=None))
+
         dat = as_linear_buffer_expression(orig_dat)
         # debugging
         # interesting, this change breaks stuff!!!
@@ -925,6 +931,21 @@ def _(expr: Expression) -> AxisTree:
 
 
 class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
+
+    # {{{ interface impls
+
+    @functools.singledispatchmethod
+    @classmethod
+    def as_node(cls, obj: Any) -> Axis:
+        raise TypeError(f"No handler defined for {type(obj).__name__}")
+
+    @as_node.register(Axis)
+    @classmethod
+    def _(cls, axis: Axis) -> Axis:
+        return axis
+
+    # }}}
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         CacheMixin.__init__(self)
@@ -1143,25 +1164,31 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
             return None
             return local_sf(self.size, self.comm)
 
-    def component_section(self, component_spec) -> PETSc.Section:
+    def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
         from pyop3 import Dat
         from pyop3.axtree.layout import _axis_tree_size_rec
-        from pyop3.expr_visitors import extract_axes
+        # from pyop3.expr_visitors import extract_axes
 
-        axis, component = component_spec
-        root = self.child(axis, component)
-        size_expr = _axis_tree_size_rec(self, root)
+        # TODO: cast component to AxisComponent
+
+        path = as_path(path)
+        axis = self.node_map[path]
+
+        subpath = path | {axis.label: component.label}
+        size_expr = _axis_tree_size_rec(self, subpath)
 
         if isinstance(size_expr, numbers.Integral):
             size_axes = Axis(component.local_size)
         else:
-            # path = self.path_with_nodes(axis, component, and_components=True)
-            # size_axes = extract_axes(size_expr, ???, (), {})
-            size_axes, _ = extract_axes(size_expr, self, (), {})
+            # size_axes, _ = extract_axes(size_expr, self, (), {})
+            size_axes = size_expr.shape
         size_dat = Dat.empty(size_axes, dtype=IntType)
         size_dat.assign(size_expr, eager=True)
 
         sizes = size_dat.buffer.data_ro_with_halos
+
+        import pyop3.extras.debug
+        pyop3.extras.debug.warn_todo("Cythonize")
 
         section = PETSc.Section().create(comm=self.comm)
         section.setChart(0, component.local_size)
@@ -1339,8 +1366,10 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
         for component in axis.components:
             path_ = path | {axis.label: component.label}
-            if path_ in self.node_map:
-                source_exprs.update(self._collect_source_exprs(path=path_))
+            if self.node_map[path_]:
+                source_exprs |= self._collect_source_exprs(path=path_)
+            else:
+                source_exprs |= {path_: immutabledict()}
         return immutabledict(source_exprs)
 
     def _check_labels(self):
@@ -1390,26 +1419,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
 
 class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
-    @classmethod
-    def from_iterable(cls, subaxes):
-        tree = AxisTree()
-        for subaxis in subaxes:
-            subaxis = as_axis(subaxis)
-
-            if len(subaxis.components) > 1:
-                raise ExpectedLinearAxisTreeException(
-                    "Cannot construct multi-component axis trees from an iterable."
-                )
-
-            tree = tree.append_axis(subaxis)
-        return tree
-
-    @classmethod
-    def from_nest(cls, nest) -> AxisTree:
-        # Is this generic to LabelledTree?
-        root, node_map = cls._from_nest(nest)
-        node_map.update({None: [root]})
-        return cls(node_map)
 
     @property
     def unindexed(self):
@@ -2343,7 +2352,7 @@ def subst_layouts(
             if accumulated_path in layouts:
                 layouts_subst[path_] = replace_terminals(layouts[accumulated_path], replace_map)
 
-            if subaxis := axes.child((axis, component)):
+            if subaxis := axes.node_map.get(path_):
                 layouts_subst.update(
                     subst_layouts(
                         axes,
@@ -2357,24 +2366,25 @@ def subst_layouts(
     return immutabledict(layouts_subst)
 
 
-def prune_zero_sized_branches(axis_tree: AbstractAxisTree, *, _axis=None) -> AxisTree:
+def prune_zero_sized_branches(axis_tree: AbstractAxisTree, *, path=immutabledict()) -> AxisTree:
     # needed now we have unit trees?
     # if axis_tree.is_empty:
     #     return AxisTree()
     if axis_tree is UNIT_AXIS_TREE or isinstance(axis_tree, UnitIndexedAxisTree):
         return UNIT_AXIS_TREE
 
-    if _axis is None:
-        _axis = axis_tree.root
+    _axis = axis_tree.node_map[path]
 
     new_components = []
     subtrees = []
     for component in _axis.components:
+        path_ = path | {_axis.label: component.label}
+
         if component.size == 0:
             continue
 
-        if subaxis := axis_tree.child(_axis, component):
-            subtree = prune_zero_sized_branches(axis_tree, _axis=subaxis)
+        if axis_tree.node_map[path_]:
+            subtree = prune_zero_sized_branches(axis_tree, path=path_)
             if subtree.size == 0:
                 continue
         else:
@@ -2389,8 +2399,9 @@ def prune_zero_sized_branches(axis_tree: AbstractAxisTree, *, _axis=None) -> Axi
     new_axis = Axis(new_components, _axis.label)
     new_axis_tree = AxisTree(new_axis)
     for new_component, subtree in zip(new_components, subtrees, strict=True):
+        path_ = path | {_axis.label: new_component.label}
         if subtree is not None:
-            new_axis_tree = new_axis_tree.add_subtree(subtree, (new_axis, new_component))
+            new_axis_tree = new_axis_tree.add_subtree(path_, subtree)
     return new_axis_tree
 
 

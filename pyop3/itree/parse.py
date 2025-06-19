@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import collections
 import functools
 import numbers
@@ -11,6 +13,7 @@ from pyop3.axtree import AxisTree
 from pyop3.axtree.tree import AbstractAxisTree, IndexedAxisTree
 from pyop3.exceptions import Pyop3Exception
 from pyop3.itree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map
+from pyop3.tree import ConcretePathT
 from pyop3.utils import OrderedSet, debug_assert, expand_collection_of_iterables, strictly_all, single_valued, just_one
 
 import pyop3.extras.debug
@@ -73,7 +76,7 @@ def as_index_forests(forest: Any, /, axes: AbstractAxisTree | None = None, *, st
                 else:
                     # Add extra slices to make sure that index tree targets
                     # all the axes in 'axes'
-                    index_tree = _complete_index_tree(index_tree, axes)
+                    index_tree = complete_index_tree(index_tree, axes)
                     debug_assert(lambda: _index_tree_completely_indexes_axes(index_tree, axes))
 
             if found_match:
@@ -377,8 +380,12 @@ def _index_tree_from_iterable(indices, *, axes, parent=None, unhandled_target_pa
 
 
 # TODO: This function needs overhauling to work in more cases.
-def _complete_index_tree(
-    index_tree: IndexTree, axes: AxisTree, *, index=None, possible_target_paths_acc=None,
+def complete_index_tree(index_tree: IndexTree, axes: AxisTree) -> IndexTree:
+    return _complete_index_tree_rec(index_tree=index_tree, axes=axes, path=immutabledict(), possible_target_paths_acc=(immutabledict(),))
+
+
+def _complete_index_tree_rec(
+    *, index_tree: IndexTree, axes: AxisTree, path: ConcretePathT, possible_target_paths_acc,
 ) -> IndexTree:
     """Add extra slices to the index tree to match the axes.
 
@@ -388,11 +395,8 @@ def _complete_index_tree(
     they are "innermost".
 
     """
-    if strictly_all(x is None for x in {index, possible_target_paths_acc}):
-        index = index_tree.root
-        possible_target_paths_acc = (immutabledict(),)
-
-    index_tree_ = IndexTree(index)
+    index = index_tree.node_map[path]
+    complete_index_tree = IndexTree(index)
 
     for component_label, equivalent_target_paths in zip(
         index.component_labels, index.leaf_target_paths, strict=True
@@ -403,35 +407,39 @@ def _complete_index_tree(
             for target_path in equivalent_target_paths
         )
 
-        if subindex := index_tree.child(index, component_label):
-            subtree = _complete_index_tree(
-                index_tree,
-                axes,
-                index=subindex,
+        path_ = path | {index.label: component_label}
+        if index_tree.node_map[path_]:
+            complete_sub_index_tree = _complete_index_tree_rec(
+                index_tree=index_tree,
+                axes=axes,
+                path=path_,
                 possible_target_paths_acc=possible_target_paths_acc_,
             )
         else:
             # At the bottom of the index tree, add any extra slices if needed.
-            subtree = _complete_index_tree_slices(axes, possible_target_paths_acc_)
+            complete_sub_index_tree = _complete_index_tree_with_slices(
+                axes=axes, target_paths=possible_target_paths_acc_, axis_path=immutabledict()
+            )
 
-        index_tree_ = index_tree_.add_subtree(subtree, index, component_label)
+        complete_index_tree = complete_index_tree.add_subtree(
+            {index.label: component_label}, complete_sub_index_tree,
+        )
 
-    return index_tree_
+    return complete_index_tree
 
 
-def _complete_index_tree_slices(axes, target_paths, *, axis=None) -> IndexTree:
-    if axis is None:
-        axis = axes.root
+def _complete_index_tree_with_slices(*, axes, target_paths, axis_path: ConcretePathT) -> IndexTree:
+    axis = axes.node_map[axis_path]
 
     # If the label of the current axis exists in any of the target paths then
     # that means that an index already exists that targets that axis, and
-    # hence no slice need be produced.
-    # At the same time, we can also trim the target paths since we know that
-    # we can exclude any that do not use that axis label.
-    target_paths_ = tuple(tp for tp in target_paths if axis.label in tp)
+    # hence no slice need be produced. At the same time, we can also trim
+    # the target paths since we know that we can exclude any that do not
+    # use that axis label.
+    matching_target_paths = tuple(target_path for target_path in target_paths if axis.label in target_path)
 
-    if len(target_paths_) == 0:
-        # Axis not found, need to emit a slice
+    if len(matching_target_paths) == 0:
+        # axis not found, need to emit a slice
         slice_ = Slice(
             axis.label, [AffineSliceComponent(c.label) for c in axis.components]
         )
@@ -440,21 +448,28 @@ def _complete_index_tree_slices(axes, target_paths, *, axis=None) -> IndexTree:
         for axis_component, slice_component_label in zip(
             axis.components, slice_.component_labels, strict=True
         ):
-            if subaxis := axes.child(axis, axis_component):
-                subindex_tree = _complete_index_tree_slices(axes, target_paths, axis=subaxis)
-                index_tree = index_tree.add_subtree(subindex_tree, slice_, slice_component_label)
+            axis_path_ = axis_path | {axis.label: axis_component.label}
+            if axes.node_map[axis_path_]:
+                sub_index_tree = _complete_index_tree_with_slices(axes=axes, target_paths=target_paths, axis_path=axis_path_)
+                index_tree = index_tree.add_subtree({slice_.label: slice_component_label}, sub_index_tree)
 
         return index_tree
     else:
-        # Axis found, pass things through
-        target_components = [tp[axis.label] for tp in target_paths_]
+        # If the axis is found in 'target_paths' then this means that it has
+        # been addressed by the index tree and hence a slice isn't needed.
+        # We simply follow the path of the tree that is addressed and recurse.
+        # FIXME: should be single_valued
+        target_components = [target_path[axis.label] for target_path in matching_target_paths]
         if len(target_components) > 1:
             pyop3.extras.debug.warn_todo("Multiple targets, assert that these are equal")
-        target_component = target_components[0]
-        if subaxis := axes.child(axis, target_component):
-            return _complete_index_tree_slices(axes, target_paths_, axis=subaxis)
+            breakpoint()
+        axis_component_label = target_components[0]
+
+        axis_path_ = axis_path | {axis.label: axis_component_label}
+        if axes.node_map[axis_path_]:
+            return _complete_index_tree_with_slices(axes=axes, target_paths=matching_target_paths, axis_path=axis_path_)
         else:
-            # At the bottom, no more slices needed
+            # at the bottom, no more slices needed
             return IndexTree()
 
 
