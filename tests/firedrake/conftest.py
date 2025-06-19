@@ -203,8 +203,14 @@ class _petsc_raises:
         pass
 
     def __exit__(self, exc_type, exc_val, traceback):
-        if exc_type is PETSc.Error and isinstance(exc_val.__cause__, self.exc_type):
-            return True
+        if exc_type is PETSc.Error:
+            print(exc_val)
+            print(exc_val.__cause__)
+            print(type(exc_val.__cause__))
+            if isinstance(exc_val.__cause__, self.exc_type):
+                return True
+        # if exc_type is PETSc.Error and isinstance(exc_val.__cause__, self.exc_type):
+        #     return True
 
 
 @pytest.fixture
