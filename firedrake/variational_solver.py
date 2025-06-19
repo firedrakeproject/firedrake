@@ -139,7 +139,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         ----------
         J : ufl.BaseForm or slate.TensorBase
             The Jacobian bilinear form.
-        u : firedrake.Function
+        u : firedrake.function.Function
             The Function on which DirichletBCs are applied.
         L : ufl.BaseForm or slate.TensorBase
             The unlifted residual linear form.
