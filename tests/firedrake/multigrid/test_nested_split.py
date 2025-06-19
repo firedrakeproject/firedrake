@@ -56,6 +56,7 @@ import pytest
                               "fieldsplit_1_sub_pc_type": "ilu"}])
 @pytest.mark.skipcomplex
 @pytest.mark.skipcomplexnoslate
+@pytest.mark.skipgpu
 def test_nested_split_multigrid(parameters):
     mesh = UnitSquareMesh(10, 10)
 

@@ -5,6 +5,7 @@ from firedrake import *
 
 @pytest.mark.skiphypre
 @pytest.mark.skipcomplex
+@pytest.mark.skipgpu
 def test_homogeneous_field_linear():
     mesh = UnitCubeMesh(5, 5, 5)
     V = FunctionSpace(mesh, "N1curl", 1)
@@ -39,6 +40,7 @@ def test_homogeneous_field_linear():
 
 @pytest.mark.skiphypre
 @pytest.mark.skipcomplex
+@pytest.mark.skipgpu
 def test_homogeneous_field_matfree():
     mesh = UnitCubeMesh(5, 5, 5)
     V = FunctionSpace(mesh, "N1curl", 1)
@@ -76,6 +78,7 @@ def test_homogeneous_field_matfree():
 
 @pytest.mark.skiphypre
 @pytest.mark.skipcomplex
+@pytest.mark.skipgpu
 def test_homogeneous_field_nonlinear():
     mesh = UnitCubeMesh(5, 5, 5)
     V = FunctionSpace(mesh, "N1curl", 1)
@@ -109,6 +112,7 @@ def test_homogeneous_field_nonlinear():
 
 @pytest.mark.skiphypre
 @pytest.mark.skipcomplex
+@pytest.mark.skipgpu
 def test_homogeneous_field_linear_convergence():
     N = 4
     mesh = UnitCubeMesh(2**N, 2**N, 2**N)

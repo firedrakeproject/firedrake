@@ -123,6 +123,7 @@ def _exec_file(py_file):
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.skipgpu
 @pytest.mark.parametrize("demo", SERIAL_DEMOS, ids=["/".join(d.loc) for d in SERIAL_DEMOS])
 def test_serial_demo(demo, env, monkeypatch, tmpdir, skip_dependency):
     _maybe_skip_demo(demo, skip_dependency)
@@ -136,6 +137,7 @@ def test_serial_demo(demo, env, monkeypatch, tmpdir, skip_dependency):
 
 @pytest.mark.parallel(2)
 @pytest.mark.skipcomplex
+@pytest.mark.skipgpu
 @pytest.mark.parametrize("demo", PARALLEL_DEMOS, ids=["/".join(d.loc) for d in PARALLEL_DEMOS])
 def test_parallel_demo(demo, env, monkeypatch, tmpdir, skip_dependency):
     _maybe_skip_demo(demo, skip_dependency)
