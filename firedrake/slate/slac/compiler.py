@@ -26,7 +26,7 @@ from itertools import chain
 from pyop2.utils import get_petsc_dir
 from pyop2.mpi import COMM_WORLD
 from pyop2.codegen.rep2loopy import SolveCallable, INVCallable
-from pyop2.caching import memory_and_disk_cache
+from pyop2.caching import memory_and_disk_cache, as_hexdigest
 
 import firedrake.slate.slate as slate
 import numpy as np
@@ -79,7 +79,7 @@ def _compile_expression_hashkey(slate_expr, compiler_parameters=None):
         params["form_compiler"].update(compiler_parameters)
     # The getattr here is to defer validation to the `compile_expression` call
     # as the test suite checks the correct exceptions are raised on invalid input.
-    return getattr(slate_expr, "expression_hash", "ERROR") + str(sorted(params.items()))
+    return as_hexdigest(getattr(slate_expr, "expression_hash", "ERROR") + str(sorted(params.items())))
 
 
 def _compile_expression_comm(*args, **kwargs):
@@ -90,7 +90,7 @@ def _compile_expression_comm(*args, **kwargs):
 
 @memory_and_disk_cache(
     hashkey=_compile_expression_hashkey,
-    comm_getter=_compile_expression_comm,
+    get_comm=_compile_expression_comm,
     cachedir=tsfc_interface._cachedir
 )
 @PETSc.Log.EventDecorator()

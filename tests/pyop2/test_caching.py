@@ -850,7 +850,7 @@ def test_no_spmd_strict_disk_cache_obeys_spmd(bcast, slow_rank, tmpdir):
             hashkey=lambda: "cachekey",
             cachedir=tmpdir,
             bcast=bcast,
-            comm_getter=lambda: comm,
+            get_comm=lambda: comm,
         )(func)
 
         # Ensure ranks are synchronised at the start (so we can force them to not be)
@@ -898,7 +898,7 @@ def test_no_spmd_strict_disk_cache_race_condition(bcast, slow_rank, tmpdir):
             hashkey=lambda: "cachekey",
             cachedir=tmpdir,
             bcast=bcast,
-            comm_getter=lambda: subcomm,
+            get_comm=lambda: subcomm,
         )(func)
 
         # Ensure ranks are synchronised at the start (so we can force them to not be)

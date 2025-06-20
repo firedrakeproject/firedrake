@@ -18,7 +18,7 @@ from tsfc.parameters import PARAMETERS as tsfc_default_parameters
 from tsfc.ufl_utils import extract_firedrake_constants
 
 from pyop2 import op2
-from pyop2.caching import memory_and_disk_cache, default_parallel_hashkey
+from pyop2.caching import memory_and_disk_cache, default_parallel_hashkey, as_hexdigest
 from pyop2.mpi import COMM_WORLD
 
 from firedrake.formmanipulation import split_form
@@ -69,7 +69,7 @@ def _compile_form_comm(form, *args, **kwargs):
 # Decorate the original tsfc.compile_form with a cache
 tsfc_compile_form = memory_and_disk_cache(
     hashkey=tsfc_compile_form_hashkey,
-    comm_getter=_compile_form_comm,
+    get_comm=_compile_form_comm,
     cachedir=_cachedir
 )(original_tsfc_compile_form)
 
@@ -160,7 +160,7 @@ def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=()
 @PETSc.Log.EventDecorator()
 @memory_and_disk_cache(
     hashkey=_compile_form_hashkey,
-    comm_getter=_compile_form_comm,
+    get_comm=_compile_form_comm,
     cachedir=_cachedir
 )
 @PETSc.Log.EventDecorator()
