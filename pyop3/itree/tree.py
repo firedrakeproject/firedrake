@@ -1544,7 +1544,9 @@ def make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_path
         if immutabledict() in subtarget_paths_and_exprs:
             subtarget_paths_and_exprs = dict(subtarget_paths_and_exprs)
             target_paths_and_exprs[immutabledict()] += subtarget_paths_and_exprs.pop(immutabledict())
-        target_paths_and_exprs |= subtarget_paths_and_exprs
+
+        for mykey, myvalue in subtarget_paths_and_exprs.items():
+            target_paths_and_exprs[index_path_ | mykey] = myvalue
 
         outer_loops += sub_outer_loops
     outer_loops = tuple(outer_loops)
@@ -1570,6 +1572,8 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
     ---
 
     """
+    if orig_axes.depth == 3 and not axis_path:
+        breakpoint()
     from pyop3.expr_visitors import replace_terminals
 
     assert not orig_axes.is_empty
@@ -1582,7 +1586,7 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
         none_mapped_target_path = {}
         none_mapped_target_exprs = {}
 
-        orig_none_mapped_target_path, orig_none_mapped_target_exprs = orig_target_paths_and_exprs.get(immutabledict(), ({}, {}))
+        orig_none_mapped_target_path, orig_none_mapped_target_exprs = orig_target_paths_and_exprs.get(axis_path, ({}, {}))
 
         myreplace_map = indexed_target_paths_and_exprs.get(immutabledict(), ({}, {}))[1]
         none_mapped_target_path |= orig_none_mapped_target_path
@@ -1616,6 +1620,9 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
 
         orig_keys, replace_map = indexed_target_paths_and_exprs.get(path_, ((), None))
 
+        raise NotImplementedError("FIXME THIS IS WHERE THE ERROR IS - I think it's"
+            "a full path vs partial path issue")
+        breakpoint()  # the error is certainly here
         for orig_key in orig_keys:  # this is bad!
             if orig_key in orig_target_paths_and_exprs:  # redundant?
                 orig_target_path, orig_target_exprs = orig_target_paths_and_exprs[orig_key]
@@ -1635,7 +1642,8 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
                 indexed_target_paths_and_exprs,
                 axis_path=path_,
             )
-            composed_target_paths_and_exprs.update(composed_target_paths_)
+            for mykey, myvalue in composed_target_paths_.items():
+                composed_target_paths_and_exprs[path_ | mykey] = myvalue
 
     return immutabledict(composed_target_paths_and_exprs)
 

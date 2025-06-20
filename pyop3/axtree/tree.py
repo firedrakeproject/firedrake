@@ -1332,25 +1332,24 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     @cached_property
     def _source_paths(self) -> tuple[PathT]:
-        assert False, "old code"
         if self.is_empty:
-            return immutabledict()
+            return immutabledict({immutabledict(): immutabledict()})
         else:
-            return self._collect_source_path(axis=self.root, path=immutabledict())
+            return self._collect_source_path(path=immutabledict())
 
-    def _collect_source_path(self, *, axis: Axis | None = None, path: PathT):
+    def _collect_source_path(self, *, path: PathT):
         assert not self.is_empty
 
-        if axis is None:
-            axis = self.root
-        axis = typing.cast(Axis, axis)  # make the type checker happy
-
         source_path = {}
-        for component in axis.components:
-            source_path[axis.id, component.label] = immutabledict({axis.label: component.label})
+        if path == immutabledict():
+            source_path |= {immutabledict(): immutabledict()}
 
-            if subaxis := self.child(axis, component):
-                source_path.update(self._collect_source_path(axis=subaxis))
+        axis = self.node_map[path]
+        for component in axis.components:
+            path_ = path | {axis.label: component.label}
+            source_path |= {path_: immutabledict({axis.label: component.label})}
+            if self.node_map[path_]:
+                source_path |= self._collect_source_path(path=path_)
         return immutabledict(source_path)
 
     @cached_property
@@ -1457,7 +1456,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     @cached_property
     def _source_path_and_exprs(self) -> immutabledict:
         return immutabledict({
-            path: (path, self._source_exprs[path])
+            path: (self._source_paths[path], self._source_exprs[path])
             for path in self.paths
         })
         # TODO: merge source path and source expr collection here
@@ -1842,6 +1841,7 @@ class IndexedAxisTree(AbstractAxisTree):
             offset_expr = just_one(self[p].leaf_subst_layouts.values())
             do_loop(p, indices_dat[p].assign(offset_expr))
         indices = indices_dat.buffer.data_ro_with_halos
+
 
         indices = np.unique(np.sort(indices))
 
@@ -2293,8 +2293,7 @@ def subst_layouts(
     targets,
     layouts,
     *,
-    axis=None,
-    path=None,
+    path=immutabledict(),
     target_paths_and_exprs_acc=None,
 ):
     from pyop3.expr_visitors import replace_terminals
@@ -2303,12 +2302,11 @@ def subst_layouts(
 
     layouts_subst = {}
     # if strictly_all(x is None for x in [axis, path, target_path_acc, index_exprs_acc]):
-    if strictly_all(x is None for x in [axis, path]):
-        path = immutabledict()
+    if path == immutabledict():
 
         # NOTE: I think I can get rid of this if I prescribe an empty axis tree to expression
         # arrays
-        target_paths_and_exprs_acc = {None: targets.get(None, (immutabledict(), immutabledict()))}
+        target_paths_and_exprs_acc = {immutabledict(): targets.get(path, (immutabledict(), immutabledict()))}
 
         accumulated_path = merge_dicts(p for p, _ in target_paths_and_exprs_acc.values())
 
@@ -2320,44 +2318,39 @@ def subst_layouts(
         if accumulated_path in layouts:
             layouts_subst[path] = replace_terminals(layouts[accumulated_path], replace_map)
 
-        if not (axes.is_empty or axes is UNIT_AXIS_TREE or isinstance(axes, UnitIndexedAxisTree)):
+        if axes.is_empty or axes is UNIT_AXIS_TREE or isinstance(axes, UnitIndexedAxisTree):
+            return layouts_subst
+
+    axis = axes.node_map[path]
+
+    if axes.depth == 3 and axis.label == "dim0":
+        breakpoint()
+
+    for component in axis.components:
+        path_ = path | {axis.label: component.label}
+
+        target_paths_and_exprs_acc_ = target_paths_and_exprs_acc | {
+            path_: targets.get(path_, (immutabledict(), immutabledict()))
+        }
+
+        accumulated_path = merge_dicts(p for p, _ in target_paths_and_exprs_acc_.values())
+        replace_map = merge_dicts(t for _, t in target_paths_and_exprs_acc_.values())
+
+        # If we have indexed using a different order to the initial axis tree then sometimes
+        # the accumulated path is not valid. In this case do not emit a layout function.
+        if accumulated_path in layouts:
+            layouts_subst[path_] = replace_terminals(layouts[accumulated_path], replace_map)
+
+        if axes.node_map[path_]:
             layouts_subst.update(
                 subst_layouts(
                     axes,
                     targets,
                     layouts,
-                    axis=axes.root,
-                    path=path,
-                    target_paths_and_exprs_acc=target_paths_and_exprs_acc,
+                    path=path_,
+                    target_paths_and_exprs_acc=target_paths_and_exprs_acc_,
                 )
             )
-    else:
-        for component in axis.components:
-            path_ = path | {axis.label: component.label}
-
-            target_paths_and_exprs_acc_ = target_paths_and_exprs_acc | {
-                path_: targets.get(path_, (immutabledict(), immutabledict()))
-            }
-
-            accumulated_path = merge_dicts(p for p, _ in target_paths_and_exprs_acc_.values())
-            replace_map = merge_dicts(t for _, t in target_paths_and_exprs_acc_.values())
-
-            # If we have indexed using a different order to the initial axis tree then sometimes
-            # the accumulated path is not valid. In this case do not emit a layout function.
-            if accumulated_path in layouts:
-                layouts_subst[path_] = replace_terminals(layouts[accumulated_path], replace_map)
-
-            if subaxis := axes.node_map.get(path_):
-                layouts_subst.update(
-                    subst_layouts(
-                        axes,
-                        targets,
-                        layouts,
-                        axis=subaxis,
-                        path=path_,
-                        target_paths_and_exprs_acc=target_paths_and_exprs_acc_,
-                    )
-                )
     return immutabledict(layouts_subst)
 
 

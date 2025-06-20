@@ -369,8 +369,8 @@ class ModuleExecutor:
 
         ccode = lambda: lp.generate_code_v2(self.loopy_code).device_code()
 
-        # if len(self.loopy_code.callables_table) > 1:
-        #     breakpoint()
+        if len(self.loopy_code.callables_table) > 1:
+            breakpoint()
         # pyop3.extras.debug.maybe_breakpoint()
 
         self.executable(*exec_arguments)
@@ -1054,6 +1054,10 @@ def add_leaf_assignment(
 
     if assignment.assignment_type == AssignmentType.INC:
         rexpr = lexpr + rexpr
+
+    # # breakpoint()
+    # if "dat_1" in str(rexpr) and "idat_1" in str(rexpr):
+    #     breakpoint()
 
     codegen_context.add_assignment(lexpr, rexpr)
 
