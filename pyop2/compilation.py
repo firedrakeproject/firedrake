@@ -47,11 +47,12 @@ from functools import partial
 from pathlib import Path
 from contextlib import contextmanager
 from tempfile import gettempdir, mkstemp
+from typing import Hashable
 from random import randint
 
 
 from pyop2 import mpi
-from pyop2.caching import parallel_cache, memory_cache, default_parallel_hashkey, _as_hexdigest, DictLikeDiskAccess
+from pyop2.caching import parallel_cache, memory_cache, default_parallel_hashkey, DictLikeDiskAccess, as_hexdigest
 from pyop2.configuration import configuration
 from pyop2.logger import warning, debug, progress, INFO
 from pyop2.exceptions import CompilationError
@@ -410,7 +411,7 @@ class AnonymousCompiler(Compiler):
 
 
 def load_hashkey(*args, **kwargs):
-    code_hash = md5(args[0].encode()).hexdigest()
+    code_hash = as_hexdigest(args[0])
     return default_parallel_hashkey(code_hash, *args[1:], **kwargs)
 
 
@@ -481,7 +482,7 @@ class CompilerDiskAccess(DictLikeDiskAccess):
         return self[key]
 
 
-def _make_so_hashkey(compiler, code, extension, comm):
+def _make_so_hashkey(compiler, code, extension, comm) -> tuple[Hashable, ...]:
     if extension == "cpp":
         exe = compiler.cxx
         compiler_flags = compiler.cxxflags
@@ -501,7 +502,7 @@ def check_source_hashes(compiler, code, extension, comm):
     :arg comm: Communicator over which to perform compilation.
     """
     # Reconstruct hash from filename
-    hashval = _as_hexdigest(_make_so_hashkey(compiler, code, extension, comm))
+    hashval = as_hexdigest(_make_so_hashkey(compiler, code, extension, comm))
     with mpi.temp_internal_comm(comm) as icomm:
         matching = icomm.allreduce(hashval, op=_check_op)
         if matching != hashval:
@@ -520,7 +521,7 @@ def check_source_hashes(compiler, code, extension, comm):
 @mpi.collective
 @parallel_cache(
     hashkey=_make_so_hashkey,
-    cache_factory=lambda: CompilerDiskAccess(configuration['cache_dir'], extension=".so")
+    make_cache=lambda: CompilerDiskAccess(configuration['cache_dir'], extension=".so")
 )
 @PETSc.Log.EventDecorator()
 def make_so(compiler, code, extension, comm, filename=None):
