@@ -47,11 +47,12 @@ from functools import partial
 from pathlib import Path
 from contextlib import contextmanager
 from tempfile import gettempdir, mkstemp
+from typing import Hashable
 from random import randint
 
 
 from pyop2 import mpi
-from pyop2.caching import parallel_cache, memory_cache, default_parallel_hashkey, as_hexdigest, DictLikeDiskAccess
+from pyop2.caching import parallel_cache, memory_cache, default_parallel_hashkey, DictLikeDiskAccess, as_hexdigest
 from pyop2.configuration import configuration
 from pyop2.logger import warning, debug, progress, INFO
 from pyop2.exceptions import CompilationError
@@ -410,7 +411,7 @@ class AnonymousCompiler(Compiler):
 
 
 def load_hashkey(*args, **kwargs):
-    code_hash = md5(args[0].encode()).hexdigest()
+    code_hash = as_hexdigest(args[0])
     return default_parallel_hashkey(code_hash, *args[1:], **kwargs)
 
 
@@ -481,14 +482,14 @@ class CompilerDiskAccess(DictLikeDiskAccess):
         return self[key]
 
 
-def _make_so_hashkey(compiler, code, extension, comm):
+def _make_so_hashkey(compiler, code, extension, comm) -> tuple[Hashable]:
     if extension == "cpp":
         exe = compiler.cxx
         compiler_flags = compiler.cxxflags
     else:
         exe = compiler.cc
         compiler_flags = compiler.cflags
-    return as_hexdigest((compiler, code, exe, compiler_flags, compiler.ld, compiler.ldflags))
+    return (compiler, code, exe, compiler_flags, compiler.ld, compiler.ldflags)
 
 
 def check_source_hashes(compiler, code, extension, comm):
