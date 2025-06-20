@@ -12,7 +12,7 @@ from loopy.codegen.result import process_preambles
 from petsc4py import PETSc
 
 from pyop2 import mpi
-from pyop2.caching import memory_cache, disk_only_cache
+from pyop2.caching import memory_cache, disk_only_cache, as_hexdigest
 from pyop2.compilation import add_profiling_events, load
 from pyop2.configuration import configuration
 from pyop2.datatypes import IntType, as_ctypes
@@ -306,13 +306,13 @@ class GlobalKernel:
 
         counter = itertools.count()
         seen_maps = collections.defaultdict(lambda: next(counter))
-        self.cache_key = (
+        self.cache_key = as_hexdigest((
             local_kernel.cache_key,
             *[a.cache_key for a in arguments],
             *[seen_maps[m] for a in arguments for m in a.maps],
             extruded, extruded_periodic, constant_layers, subset,
             iteration_region, pass_layer_arg, configuration["simd_width"]
-        )
+        ))
         self.local_kernel = local_kernel
         self.arguments = arguments
         self._extruded = extruded

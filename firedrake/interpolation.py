@@ -12,7 +12,7 @@ from ufl.algorithms import extract_arguments, extract_coefficients, replace
 from ufl.domain import as_domain, extract_unique_domain
 
 from pyop2 import op2
-from pyop2.caching import memory_and_disk_cache
+from pyop2.caching import memory_and_disk_cache, as_hexdigest
 
 from finat.element_factory import create_element, as_fiat_cell
 from tsfc import compile_expression_dual_evaluation
@@ -1241,7 +1241,7 @@ except KeyError:
 
 def _compile_expression_key(comm, expr, to_element, ufl_element, domain, parameters):
     """Generate a cache key suitable for :func:`tsfc.compile_expression_dual_evaluation`."""
-    return (hash_expr(expr), hash(ufl_element), utils.tuplify(parameters))
+    return as_hexdigest(hash_expr(expr), hash(ufl_element), utils.tuplify(parameters))
 
 
 @memory_and_disk_cache(

@@ -51,7 +51,7 @@ from random import randint
 
 
 from pyop2 import mpi
-from pyop2.caching import parallel_cache, memory_cache, default_parallel_hashkey, _as_hexdigest, DictLikeDiskAccess
+from pyop2.caching import parallel_cache, memory_cache, default_parallel_hashkey, as_hexdigest, DictLikeDiskAccess
 from pyop2.configuration import configuration
 from pyop2.logger import warning, debug, progress, INFO
 from pyop2.exceptions import CompilationError
@@ -488,7 +488,7 @@ def _make_so_hashkey(compiler, code, extension, comm):
     else:
         exe = compiler.cc
         compiler_flags = compiler.cflags
-    return (compiler, code, exe, compiler_flags, compiler.ld, compiler.ldflags)
+    return as_hexdigest((compiler, code, exe, compiler_flags, compiler.ld, compiler.ldflags))
 
 
 def check_source_hashes(compiler, code, extension, comm):
@@ -501,7 +501,7 @@ def check_source_hashes(compiler, code, extension, comm):
     :arg comm: Communicator over which to perform compilation.
     """
     # Reconstruct hash from filename
-    hashval = _as_hexdigest(_make_so_hashkey(compiler, code, extension, comm))
+    hashval = _make_so_hashkey(compiler, code, extension, comm)
     with mpi.temp_internal_comm(comm) as icomm:
         matching = icomm.allreduce(hashval, op=_check_op)
         if matching != hashval:
@@ -520,7 +520,7 @@ def check_source_hashes(compiler, code, extension, comm):
 @mpi.collective
 @parallel_cache(
     hashkey=_make_so_hashkey,
-    cache_factory=lambda: CompilerDiskAccess(configuration['cache_dir'], extension=".so")
+    make_cache=lambda: CompilerDiskAccess(configuration['cache_dir'], extension=".so")
 )
 @PETSc.Log.EventDecorator()
 def make_so(compiler, code, extension, comm, filename=None):
