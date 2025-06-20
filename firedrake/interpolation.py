@@ -1,9 +1,10 @@
 import numpy
-from functools import partial, singledispatch
 import os
 import tempfile
 import abc
 import warnings
+from functools import partial, singledispatch
+from typing import Hashable
 
 import FIAT
 import ufl
@@ -12,7 +13,7 @@ from ufl.algorithms import extract_arguments, extract_coefficients, replace
 from ufl.domain import as_domain, extract_unique_domain
 
 from pyop2 import op2
-from pyop2.caching import memory_and_disk_cache, as_hexdigest
+from pyop2.caching import memory_and_disk_cache
 
 from finat.element_factory import create_element, as_fiat_cell
 from tsfc import compile_expression_dual_evaluation
@@ -1239,9 +1240,9 @@ except KeyError:
                                   f"firedrake-tsfc-expression-kernel-cache-uid{os.getuid()}")
 
 
-def _compile_expression_key(comm, expr, to_element, ufl_element, domain, parameters):
+def _compile_expression_key(comm, expr, to_element, ufl_element, domain, parameters) -> tuple[Hashable]:
     """Generate a cache key suitable for :func:`tsfc.compile_expression_dual_evaluation`."""
-    return as_hexdigest(hash_expr(expr), hash(ufl_element), utils.tuplify(parameters))
+    return (hash_expr(expr), hash(ufl_element), utils.tuplify(parameters))
 
 
 @memory_and_disk_cache(

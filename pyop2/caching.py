@@ -34,6 +34,7 @@
 """Provides common base classes for cached objects."""
 import atexit
 import cachetools
+import functools
 import hashlib
 import os
 import pickle
@@ -317,7 +318,16 @@ class _CacheMiss:
 CACHE_MISS = _CacheMiss()
 
 
+@functools.cache
 def as_hexdigest(*args) -> str:
+    """Return ``args`` as a hash string.
+
+    Notes
+    -----
+    This function is relatively expensive to compute so one should avoid
+    calling it wherever possible.
+
+    """
     hash_ = hashlib.md5()
     for a in args:
         if isinstance(a, MPI.Comm):
@@ -338,10 +348,9 @@ class DictLikeDiskAccess(MutableMapping):
         self.cachedir = cachedir
         self.extension = extension
 
-    def __getitem__(self, key: str) -> Any:
+    def __getitem__(self, key: Hashable) -> Any:
         """Retrieve a value from the disk cache."""
-        if not isinstance(key, str):
-            raise TypeError("Disk caches must have string cache keys")
+        key = as_hexdigest(key)
 
         filepath = Path(self.cachedir, key[:2], key[2:])
         try:
@@ -351,10 +360,9 @@ class DictLikeDiskAccess(MutableMapping):
             raise KeyError("File not on disk, cache miss")
         return value
 
-    def __setitem__(self, key: str, value: Any) -> None:
+    def __setitem__(self, key: Hashable, value: Any) -> None:
         """Store a new value in the disk cache."""
-        if not isinstance(key, str):
-            raise TypeError("Disk caches must have string cache keys")
+        key = as_hexdigest(key)
 
         k1, k2 = key[:2], key[2:]
         basedir = Path(self.cachedir, k1)
@@ -419,7 +427,7 @@ def default_get_comm(*args, **kwargs):
     return comm
 
 
-def default_parallel_hashkey(*args, **kwargs):
+def default_parallel_hashkey(*args, **kwargs) -> Hashable:
     """ A sensible default hash key for use with `parallel_cache`.
     """
     # We now want to actively remove any comms from args and kwargs to get
@@ -432,7 +440,7 @@ def default_parallel_hashkey(*args, **kwargs):
         lambda arg: not isinstance(arg[1], MPI.Comm),
         kwargs.items()
     ))
-    return as_hexdigest(cachetools.keys.hashkey(*hash_args, **hash_kwargs))
+    return cachetools.keys.hashkey(*hash_args, **hash_kwargs)
 
 
 def instrument(cls):

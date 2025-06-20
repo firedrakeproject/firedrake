@@ -18,7 +18,7 @@ from tsfc.parameters import PARAMETERS as tsfc_default_parameters
 from tsfc.ufl_utils import extract_firedrake_constants
 
 from pyop2 import op2
-from pyop2.caching import memory_and_disk_cache, default_parallel_hashkey, as_hexdigest
+from pyop2.caching import memory_and_disk_cache, default_parallel_hashkey
 from pyop2.mpi import COMM_WORLD
 
 from firedrake.formmanipulation import split_form
