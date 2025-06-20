@@ -2,7 +2,7 @@
 from .mesh import MeshGeometry, ExtrudedMesh, Mesh
 from numbers import Real
 from ufl.core.expr import Expr
-from ufl import (as_vector, Measure, dx, ds_h, dS_h, interpolate,
+from ufl import (as_vector, Measure, dx, ds_v, dS_v, interpolate,
     SpatialCoordinate)
 from ufl.sobolevspace import SobolevSpace
 from finat.ufl import FiniteElementBase, TensorProductElement
@@ -11,7 +11,7 @@ from .functionspace import FunctionSpace
 from .function import Function
 from .assemble import assemble
 from collections.abc import Iterable
-from bcs import DirichletBC
+from .bcs import DirichletBC
 
 
 class SpaceTime:
@@ -43,11 +43,9 @@ class SpaceTime:
         self.mesh = ExtrudedMesh(spatial_mesh, layers=layers,
                                  layer_height=dt,
                                  name=spatial_mesh.name + "_spacetime")
-        self._initial_mesh = self._timepoint_mesh(time=0.0)
-        self._final_mesh = self._timepoint_mesh()
 
         # Build the time displaced mesh for initial condition updates.
-        displaced_coords = Function(self.mesh.coordinates.function_space)
+        displaced_coords = Function(self.mesh.coordinates.function_space())
         x = list(SpatialCoordinate(self.mesh))
         x[-1] += self.time_extent
         displaced_coords.interpolate(x)
@@ -97,20 +95,20 @@ class SpaceTime:
         
         Returns
         -------
-            The exterior horizontal surface measure on the spacetime mesh. All
+            The exterior vertical surface measure on the spacetime mesh. All
             arguments are passed through to that measure.
         """
-        return ds_h(*args, domain=self.mesh, **kwargs)
+        return ds_v(*args, domain=self.mesh, **kwargs)
     
     def dS(self, *args, **kwargs) -> Measure:
         """The spatial interior boundary measure on the spacetime mesh.
         
         Returns
         -------
-            The interior horizontal surface measure on the spacetime mesh. All
+            The interior vertical surface measure on the spacetime mesh. All
             arguments are passed through to that measure.
         """
-        return dS_h(*args, domain=self.mesh, **kwargs)
+        return dS_v(*args, domain=self.mesh, **kwargs)
 
     def function_space(self,
                        space_element: FiniteElementBase,
@@ -152,7 +150,7 @@ class SpaceTime:
 
     def extract_spatial_function(self, function: Function,
                                  function_space: WithGeometry,
-                                 time: Real | None = None) -> Function:
+                                 time: Real) -> Function:
         """Extract the value of a function at a particular time.
         
         Parameters
@@ -163,21 +161,15 @@ class SpaceTime:
         function_space
             The spatial function space into which to extract the value.
         time
-            The time point at which to extract the value. If `None` then the
-            end point of the interval is used.
+            The time point at which to extract the value.
 
         Returns
         -------
         Function
             The spatial function whose 
         """
-        if time == 0.0:
-            mesh_i = self._initial_mesh
-        elif time is None:
-            mesh_i = self._final_mesh
-        else:
-            mesh_i = self._timepoint_mesh(time)
 
+        mesh_i = self._timepoint_mesh(time)
         fs_i = function_space.reconstruct(mesh_i)
         fn_i = assemble(interpolate(function, fs_i))
         fs_out = function.function_space().reconstruct(self.spatial_mesh)
