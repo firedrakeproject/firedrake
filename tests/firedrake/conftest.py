@@ -204,9 +204,8 @@ class _petsc_raises:
         pass
 
     def __exit__(self, exc_type, exc_val, traceback):
-        # There appears to be a bug that is fixed between Python 3.12.3 (latest
-        # Docker image) and 3.12.11 (my local machine) where 'exc_val' is
-        # randomly sometimes 'None'.
+        # There is a bug where 'exc_val' is occasionally 'None'. In my tests
+        # this error only exists for Python < 3.12.11.
         if exc_type is PETSc.Error:
             if sys.version_info < (3, 12, 11):
                 if exc_val is None or isinstance(exc_val.__cause__, self.exc_type):
