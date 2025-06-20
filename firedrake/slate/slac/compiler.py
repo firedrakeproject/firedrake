@@ -72,7 +72,7 @@ class SlateKernel(TSFCKernel):
         self.split_kernel = generate_loopy_kernel(expr, compiler_parameters)
 
 
-def _compile_expression_hashkey(slate_expr, compiler_parameters=None) -> tuple[Hashable]:
+def _compile_expression_hashkey(slate_expr, compiler_parameters=None) -> tuple[Hashable, ...]:
     params = copy.deepcopy(parameters)
     if compiler_parameters and "slate_compiler" in compiler_parameters.keys():
         params["slate_compiler"].update(compiler_parameters.pop("slate_compiler"))

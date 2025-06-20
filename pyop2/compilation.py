@@ -482,7 +482,7 @@ class CompilerDiskAccess(DictLikeDiskAccess):
         return self[key]
 
 
-def _make_so_hashkey(compiler, code, extension, comm) -> tuple[Hashable]:
+def _make_so_hashkey(compiler, code, extension, comm) -> tuple[Hashable, ...]:
     if extension == "cpp":
         exe = compiler.cxx
         compiler_flags = compiler.cxxflags
@@ -502,7 +502,7 @@ def check_source_hashes(compiler, code, extension, comm):
     :arg comm: Communicator over which to perform compilation.
     """
     # Reconstruct hash from filename
-    hashval = _make_so_hashkey(compiler, code, extension, comm)
+    hashval = as_hexdigest(_make_so_hashkey(compiler, code, extension, comm))
     with mpi.temp_internal_comm(comm) as icomm:
         matching = icomm.allreduce(hashval, op=_check_op)
         if matching != hashval:

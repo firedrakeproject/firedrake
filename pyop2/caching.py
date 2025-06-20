@@ -488,7 +488,6 @@ if configuration["print_cache_info"] or _running_on_ci:
     DictLikeDiskAccess = instrument(DictLikeDiskAccess)
 
 
-# TODO: rename comm_getter to get_comm and cache_factory to make_cache
 # TODO: One day should use the compilation comm to do the bcast
 def parallel_cache(
     hashkey=default_parallel_hashkey,
