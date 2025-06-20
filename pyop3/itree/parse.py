@@ -140,10 +140,10 @@ def _(loop_index: LoopIndex, /) -> OrderedSet:
             loop_index.id,
             tuple(
                 tuple(
-                    target_acc[axis.id, component_label][0]
+                    target_acc[leaf_path][0]
                     for target_acc in loop_index.iterset.targets_acc
                 )
-                for axis, component_label in loop_index.iterset.leaves
+                for leaf_path in loop_index.iterset.leaf_paths
             )
         )
     })
@@ -473,7 +473,7 @@ def _complete_index_tree_with_slices(*, axes, target_paths, axis_path: ConcreteP
             return IndexTree()
 
 
-def  _index_tree_completely_indexes_axes(index_tree: IndexTree, axes, *, index=None, possible_target_paths_acc=None) -> bool:
+def  _index_tree_completely_indexes_axes(index_tree: IndexTree, axes, *, index_path=immutabledict(), possible_target_paths_acc=None) -> bool:
     """Return whether the index tree completely indexes the axis tree.
 
     This is done by traversing the index tree and collecting the possible target
@@ -481,24 +481,26 @@ def  _index_tree_completely_indexes_axes(index_tree: IndexTree, axes, *, index=N
     possible target paths correspond to a valid path to a leaf of the axis tree.
 
     """
-    if strictly_all(x is None for x in {index, possible_target_paths_acc}):
-        index = index_tree.root
+    if index_path == immutabledict():
         possible_target_paths_acc = (immutabledict(),)
 
+    index = index_tree.node_map[index_path]
     for component_label, equivalent_target_paths in zip(
         index.component_labels, index.leaf_target_paths, strict=True
     ):
+        index_path_ = index_path | {index.label: component_label}
+
         possible_target_paths_acc_ = tuple(
             possible_target_path_acc | possible_target_path
             for possible_target_path_acc in possible_target_paths_acc
             for possible_target_path in equivalent_target_paths
         )
 
-        if subindex := index_tree.child(index, component_label):
+        if index_tree.node_map[index_path_]:
             if not _index_tree_completely_indexes_axes(
                 index_tree,
                 axes,
-                index=subindex,
+                index_path=index_path_,
                 possible_target_paths_acc=possible_target_paths_acc_,
             ):
                 return False

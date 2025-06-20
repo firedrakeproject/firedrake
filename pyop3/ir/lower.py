@@ -686,15 +686,12 @@ def parse_loop_properly_this_time(
             # NOTE: The following bit is done for each axis, not sure if that's right or if
             # we should handle at the bottom
             loop_exprs = StrictlyUniqueDict()
-            # think this is now wrong, iname_replace_map_ is sufficient
-            # iname_map = iname_replace_map_ | loop_indices
-            axis_key = (axis.id, component.label)
             for index_exprs in axes.index_exprs:
-                for axis_label, index_expr in index_exprs.get(axis_key, {}).items():
+                for axis_label, index_expr in index_exprs.get(path_, {}).items():
                     loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, [iname_replace_map_], loop_indices, codegen_context, paths=[path_])
             loop_exprs = immutabledict(loop_exprs)
 
-            if subaxis := axes.child(axis, component):
+            if subaxis := axes.node_map[path_]:
                 parse_loop_properly_this_time(
                     loop,
                     axes,

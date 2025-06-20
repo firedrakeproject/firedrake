@@ -531,8 +531,8 @@ def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.Ind
         )
         shape_tree = op3.IndexTree.from_iterable(tensor_slices)
 
-        for leaf in closure_tree.leaves:
-            index_tree = index_tree.add_subtree(shape_tree, leaf, uniquify_ids=True)
+        for leaf_path in closure_tree.leaf_paths:
+            index_tree = index_tree.add_subtree(leaf_path, shape_tree)
 
     return index_tree
 

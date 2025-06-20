@@ -80,9 +80,12 @@ class AbstractTree(abc.ABC):
         self.node_map = as_node_map(node_map)
 
     def __str__(self) -> str:
-        return "\n".join(
-            self._stringify(path=immutabledict(), begin_prefix="", cont_prefix="")
-        )
+        if self.is_empty:
+            return "<empty>"
+        else:
+            return "\n".join(
+                self._stringify(path=immutabledict(), begin_prefix="", cont_prefix="")
+            )
 
     def __contains__(self, node) -> bool:
         return self._as_node(node) in self.nodes
@@ -124,15 +127,15 @@ class AbstractTree(abc.ABC):
     def nodes(self) -> tuple[Node]:
         return tuple(filter(None, self.node_map.values()))
 
-    @property
-    @abc.abstractmethod
-    def leaves(self):
-        """Return the leaves of the tree."""
-        pass
-
-    @property
-    def leaf(self):
-        return just_one(self.leaves)
+    # @property
+    # @abc.abstractmethod
+    # def leaves(self):
+    #     """Return the leaves of the tree."""
+    #     pass
+    #
+    # @property
+    # def leaf(self):
+    #     return just_one(self.leaves)
 
     def is_leaf(self, node):
         return self._as_node(node) in self.leaves
@@ -171,13 +174,10 @@ class AbstractTree(abc.ABC):
         begin_prefix: str,
         cont_prefix: str,
     ) -> tuple[str]:
-        if self.is_empty:
-            return "<empty>"
+        assert not self.is_empty
 
         node = self.node_map[path]
-
         nodestr = [f"{begin_prefix}{node}"]
-
         for i, component_label in enumerate(node.component_labels):
             path_ = path | {node.label: component_label}
 
@@ -272,6 +272,9 @@ class LabelledTree(AbstractTree):
         node, subnests = utils.just_one(nest.items())
         node = cls.as_node(node)
 
+        if isinstance(subnests, Node) and node.degree == 1:
+            subnests = (subnests,)
+
         node_map = {path: node}
         for component_label, subnest in zip(node.component_labels, subnests, strict=True):
             path_ = path | {node.label: component_label}
@@ -355,30 +358,30 @@ class LabelledTree(AbstractTree):
         component_index = parent_node.component_labels.index(component_label)
         return children[component_index]
 
-    # TODO: Could this return (node, component) instead of (node, component_label)?
-    # TODO: Alternatively might be nicer to return just the nodes. The components are obvious
-    @cached_property
-    def leaves(self) -> tuple[tuple[Node, ComponentLabelT]]:
-        """Return the leaves of the tree."""
-        if self.is_empty:
-            raise ValueError("Error here? Not an intuitive return type")
-
-        return self._collect_leaves(path=immutabledict())
-
-    def _collect_leaves(self, *, path: PathT) -> tuple[tuple[Node, ComponentLabelT]]:
-        leaves = []
-        node = self.node_map[path]
-        for component_label in node.component_labels:
-            path_ = path | {node.label: component_label}
-            if self.node_map[path_]:
-                leaves.extend(self._collect_leaves(path=path_))
-            else:
-                leaves.append((node, component_label))
-        return tuple(leaves)
+    # # TODO: Could this return (node, component) instead of (node, component_label)?
+    # # TODO: Alternatively might be nicer to return just the nodes. The components are obvious
+    # @cached_property
+    # def leaves(self) -> tuple[tuple[Node, ComponentLabelT]]:
+    #     """Return the leaves of the tree."""
+    #     if self.is_empty:
+    #         raise ValueError("Error here? Not an intuitive return type")
+    #
+    #     return self._collect_leaves(path=immutabledict())
+    #
+    # def _collect_leaves(self, *, path: PathT) -> tuple[tuple[Node, ComponentLabelT]]:
+    #     leaves = []
+    #     node = self.node_map[path]
+    #     for component_label in node.component_labels:
+    #         path_ = path | {node.label: component_label}
+    #         if self.node_map[path_]:
+    #             leaves.extend(self._collect_leaves(path=path_))
+    #         else:
+    #             leaves.append((node, component_label))
+    #     return tuple(leaves)
 
     @property
     def is_linear(self) -> bool:
-        return len(self.leaves) == 1
+        return len(self.leaf_paths) == 1
 
     def _uniquify_node_labels(self, node_map, node=None, seen_labels=None):
         if not node_map:
@@ -696,21 +699,28 @@ class MutableLabelledTreeMixin:
             node_map[path | subpath] = subnode
         return type(self)(node_map)
 
-    def subtree(self, axis):
-        """Return the subtree with ``axis`` as the root."""
-        node_map = {None: (axis,)}
-        node_map.update(self._collect_tree(axis))
-        return type(self)(node_map)
+    def subtree(self, path: PathT) -> MutableLabelledTreeMixin:
+        """Return the subtree with ``path`` as the root."""
+        path = as_path(path)
 
-    def _collect_tree(self, axis) -> dict:
-        node_map = {axis.id: self.node_map[axis.id]}
-        for component in axis.components:
-            if subaxis := self.child(axis, component):
-                subnode_map = self._collect_tree(subaxis)
-                node_map.update(subnode_map)
-        return node_map
+        if path not in self.node_map:
+            raise TreeMutationException("Provided path does not exist in the tree")
+
+        trimmed_node_map = {}
+        path_set = frozenset(path.items())
+        for orig_path, node in self.node_map.items():
+            orig_path_set = frozenset(orig_path.items())
+            if path_set <= orig_path_set:
+                trimmed_path = immutabledict(
+                    (axis_label, component_label)
+                    for axis_label, component_label in orig_path.items()
+                    if (axis_label, component_label) not in path.items()
+                )
+                trimmed_node_map[trimmed_path] = node
+        return type(self)(trimmed_node_map)
 
     def relabel(self, labels: Mapping):
+        assert False, "old code"
         node_map = self._relabel_node_map(labels)
         return type(self)(node_map)
 
@@ -833,3 +843,19 @@ def _(path: immutabledict) -> ConcretePathT:
 @as_path.register(Iterable)
 def _(path: Iterable) -> ConcretePathT:
     return immutabledict(path)
+
+
+def parent_path(path: PathT) -> ConcretePathT:
+    return immutabledict({
+        node_label: component_label
+        for node_label, component_label in list(path.items())[:-1]
+    })
+
+
+def accumulate_path(path: PathT) -> tuple[ConcretePathT, ...]:
+    path_acc = immutabledict()
+    paths = [path_acc]
+    for node_label, component_label in path.items():
+        path_acc = path_acc | {node_label: component_label}
+        paths.append(path_acc)
+    return tuple(paths)

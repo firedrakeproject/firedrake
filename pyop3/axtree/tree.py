@@ -38,8 +38,10 @@ from pyop3.tree import (
     LabelledTree,
     MultiComponentLabelledNode,
     MutableLabelledTreeMixin,
+    accumulate_path,
     as_component_label,
     as_path,
+    parent_path,
     postvisit,
     previsit,
 )
@@ -196,19 +198,22 @@ class _UnitAxisTree(CacheMixin):
 
     size = 1
     alloc_size = 1
-    leaves = (None,)
     is_linear = True
     is_empty = False
     sf = single_star_sf(MPI.COMM_SELF) # no idea if this is right
+    leaf_paths = (immutabledict(),)
 
     unindexed = property(lambda self: self)
 
     def prune(self) -> Self:
         return self
 
-    def add_subtree(self, subtree, key):
-        assert key is None
+    def add_subtree(self, path: PathT, subtree):
+        assert len(path) == 0
         return subtree
+
+    def add_axis(self, path, axis):
+        return AxisTree(axis)
 
     def with_context(self, *args, **kwargs):
         return self
@@ -955,13 +960,14 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     # TODO: Cache this function.
     def getitem(self, indices, *, strict=False):
-        from pyop3.itree import as_index_forest, index_axes
+        from pyop3.itree.parse import as_index_forests
+        from pyop3.itree import index_axes
 
         if indices is Ellipsis:
             return self
 
         axis_trees = {}
-        for context, index_forest in as_index_forest(indices, axes=self).items():
+        for context, index_forest in as_index_forests(indices, axes=self).items():
             axis_trees[context] = []
             for index_tree in index_forest:
                 axis_trees[context].append(index_axes(index_tree, context, self))
@@ -1129,13 +1135,11 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     @property
     def leaf_axis(self):
-        return self.leaf[0]
+        return self.node_map[parent_path(self.leaf_path)]
 
     @property
     def leaf_component(self):
-        leaf_axis, leaf_clabel = self.leaf
-        leaf_cidx = leaf_axis.component_index(leaf_clabel)
-        return leaf_axis.components[leaf_cidx]
+        return self.leaf_axis.component
 
     @cached_property
     def size(self):
@@ -1253,35 +1257,32 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
         index_tree = IndexTree(slice_)
         for component, slice_component in zip(axis.components, slice_components, strict=True):
-            if subaxis := self.child(axis, component):
-                subtree = self._region_slice(region_label, axis=subaxis)
+            axis_path = immutabledict({axis.label: component.label})
+            if self.node_map[axis_path]:
+                subtree = self._region_slice(region_label, path=axis_path)
                 index_tree = index_tree.add_subtree(subtree, slice_, slice_component.label)
         return index_tree
 
-    def _accumulate_targets(self, targets_per_axis, *, axis=None, target_path_acc=None, target_exprs_acc=None):
+    def _accumulate_targets(self, targets_per_axis, *, path: ConcretePathT=immutabledict(), target_path_acc=None, target_exprs_acc=None):
         """Traverse the tree and accumulate per-node targets."""
+        axis = self.node_map[path]
         targets = {}
 
-        if axis is None:  # strictly_all
-            target_path_acc, target_exprs_acc = targets_per_axis.get(None, (immutabledict(), immutabledict()))
-            targets[None] = (target_path_acc, target_exprs_acc)
-
-            if self.is_empty:
-                return immutabledict(targets)
-            else:
-                axis = self.root
+        if path== immutabledict():
+            target_path_acc, target_exprs_acc = targets_per_axis.get(path, (immutabledict(), immutabledict()))
+            targets[path] = (target_path_acc, target_exprs_acc)
 
         for component in axis.components:
-            axis_key = (axis.id, component.label)
-            axis_target_path, axis_target_exprs = targets_per_axis.get(axis_key, (immutabledict(), immutabledict()))
+            path_ = path | {axis.label: component.label}
+            axis_target_path, axis_target_exprs = targets_per_axis.get(path_, (immutabledict(), immutabledict()))
             target_path_acc_ = target_path_acc | axis_target_path
             target_exprs_acc_ = target_exprs_acc | axis_target_exprs
-            targets[axis.id, component.label] = (target_path_acc_, target_exprs_acc_)
+            targets[path_] = (target_path_acc_, target_exprs_acc_)
 
-            if subaxis := self.child(axis, component):
+            if self.node_map[path_]:
                 targets_ = self._accumulate_targets(
                     targets_per_axis,
-                    axis=subaxis,
+                    path=path_,
                     target_path_acc=target_path_acc_,
                     target_exprs_acc=target_exprs_acc_,
                 )
@@ -1356,20 +1357,22 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     def _source_exprs(self):
         assert not self.is_empty, "handle outside?"
         if self.is_empty:
-            return immutabledict()
+            return immutabledict({immutabledict(): immutabledict()})
         else:
             return self._collect_source_exprs(path=immutabledict())
 
     def _collect_source_exprs(self, *, path: ConcretePathT) -> immutabledict:
-        axis = self.node_map[path]
-        source_exprs = {path: immutabledict({axis.label: AxisVar(axis)})}
+        source_exprs = {}
 
+        if path == immutabledict():
+            source_exprs |= {immutabledict(): immutabledict()}
+
+        axis = self.node_map[path]
         for component in axis.components:
             path_ = path | {axis.label: component.label}
+            source_exprs |= {path_: immutabledict({axis.label: AxisVar(axis)})}
             if self.node_map[path_]:
                 source_exprs |= self._collect_source_exprs(path=path_)
-            else:
-                source_exprs |= {path_: immutabledict()}
         return immutabledict(source_exprs)
 
     def _check_labels(self):
@@ -1482,13 +1485,18 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def materialize(self):
         return self
 
-    def linearize(self, path: Mapping[str, str]) -> AxisTree:
+    def linearize(self, path: PathT) -> AxisTree:
         """Return the axis tree dropping all components not specified in the path."""
-        if not self.is_valid_path(path):
+        path = as_path(path)
+
+        if path not in self.leaf_paths:
             raise ValueError("Provided path must go all the way from the root to a leaf")
 
-        visited_axes = self.path_with_nodes(self._node_from_path(path), and_components=True)
-        linear_axes = [Axis([component], axis.label) for axis, component in visited_axes.items()]
+        linear_axes = []
+        for axis, component_label in self.visited_nodes(path):
+            component = utils.just_one(c for c in axis.components if c.label == component_label)
+            linear_axis = Axis([component], axis.label)
+            linear_axes.append(linear_axis)
         return AxisTree.from_iterable(linear_axes)
 
     # NOTE: should default to appending (assuming linear)
@@ -1578,6 +1586,9 @@ class IndexedAxisTree(AbstractAxisTree):
         layout_exprs=None,  # not used
         outer_loops=(),
     ):
+        if isinstance(node_map, AxisTree):
+            node_map = node_map.node_map
+
         # drop duplicate entries as they are necessarily equivalent
         targets = utils.unique(targets)
 
@@ -1712,37 +1723,25 @@ class IndexedAxisTree(AbstractAxisTree):
 
         return axes
 
-    def linearize(self, path: Mapping[str, str]) -> IndexedAxisTree:
+    def linearize(self, path: PathT) -> IndexedAxisTree:
         """Return the axis tree dropping all components not specified in the path."""
-        if not self.is_valid_path(path):
-            raise ValueError("Provided path must go all the way from the root to a leaf")
+        path = as_path(path)
 
-        # Linearize the axis tree
         linearized_axis_tree = self.materialize().linearize(path)
 
-        # Construct the map between the original and linearised trees
-        axis_key_map = {}
-        orig_visited_axes = self.path_with_nodes(self._node_from_path(path))
-        linear_visited_axes = just_one(linearized_axis_tree.leaf_node_paths)
-        for orig_axis_info, linear_axis_info in zip(orig_visited_axes.items(), linear_visited_axes.items(), strict=True):
-            orig_axis, orig_component_label = orig_axis_info
-            linear_axis, linear_component_label = linear_axis_info
-            axis_key_map[orig_axis.id, orig_component_label] = (linear_axis.id, linear_component_label)
-
-        # Linearize the targets
+        # linearize the targets
         linearized_targets = []
+        path_set = frozenset(path.items())
         for orig_target in self.targets:
-            linearized_target = {
-                axis_key_map[axis_key]: target_spec  # needs to be the key for the new axis tree
-                for axis_key, target_spec in orig_target.items()
-                if axis_key in axis_key_map
-            }
+            linearized_target = {}
+            for axis_path, target_spec in orig_target.items():
+                axis_path_set = frozenset(axis_path.items())
+                if axis_path_set <= path_set:
+                    linearized_target[axis_path] = target_spec
             linearized_targets.append(linearized_target)
 
         return IndexedAxisTree(
-            linearized_axis_tree.node_map,
-            self.unindexed,
-            targets=linearized_targets,
+            linearized_axis_tree, self.unindexed, targets=linearized_targets,
         )
 
     @property
@@ -1942,21 +1941,17 @@ def find_matching_target(self):
     matching_targets = []
     for target in self.targets:
         all_leaves_match = True
-        for leaf in self.leaves:
-            leaf_path = self.path_with_nodes(leaf)
-
+        for leaf_path in self.leaf_paths:
             target_path = {}
-            target_path_, _ = target.get(None, (immutabledict(), immutabledict()))
-            target_path.update(target_path_)
-
-            for axis, component_label in leaf_path.items():
-                target_path_, _ = target.get((axis.id, component_label), (immutabledict(), immutabledict()))
+            for leaf_path_acc in accumulate_path(leaf_path):
+                target_path_, _ = target.get(leaf_path_acc, (immutabledict(), immutabledict()))
                 target_path.update(target_path_)
+            target_path = immutabledict(target_path)
 
             # NOTE: We assume that if we get an empty target path then something has
             # gone wrong. This is needed because of .get() calls which are needed
             # because sometimes targets are incomplete.
-            if not target_path or not self.unindexed.is_valid_path(target_path):
+            if not target_path or not target_path in self.unindexed.node_map:
                 all_leaves_match = False
                 break
 
@@ -2243,7 +2238,7 @@ def merge_trees2(tree1: AxisTree, tree2: AxisTree) -> AxisTree:
 
             merged = AxisTree(tree1.node_map)
             for leaf, subtree in subtrees:
-                merged = merged.add_subtree(subtree, *leaf, uniquify_ids=True)
+                merged = merged.add_subtree(leaf, subtree)
         else:
             merged = tree1
     else:
@@ -2252,33 +2247,32 @@ def merge_trees2(tree1: AxisTree, tree2: AxisTree) -> AxisTree:
     return merged
 
 
-def _merge_trees(tree1, tree2, *, axis1=None, parents=None):
-    if axis1 is None:  # strictly all
-        axis1 = tree1.root
-        parents = immutabledict()
-
+def _merge_trees(tree1, tree2, *, path1=immutabledict(), parents=immutabledict()):
+    axis1 = tree1.node_map[path1]
     subtrees = []
     for component1 in axis1.components:
+        path1_ = path1 | {axis1.label: component1.label}
         parents_ = parents | {axis1: component1}
-        if subaxis1 := tree1.child(axis1, component1):
-            subtrees_ = _merge_trees(tree1, tree2, axis1=subaxis1, parents=parents_)
+        if tree1.node_map[path1_]:
+            subtrees_ = _merge_trees(tree1, tree2, path1=path1_, parents=parents_)
             subtrees.extend(subtrees_)
         else:
             # at the bottom, now visit tree2 and try to add bits
             subtree = _build_distinct_subtree(tree2, parents_)
-            subtrees.append(((axis1, component1), subtree))
+            subtrees.append((path1_, subtree))
     return tuple(subtrees)
 
 
-def _build_distinct_subtree(axes, parents, *, axis=None):
-    if axis is None:
-        axis = axes.root
+def _build_distinct_subtree(axes, parents, *, path=immutabledict()):
+    axis = axes.node_map[path]
 
     if axis in parents:
         # Axis is already visited, do not include in the new tree and make sure
         # to only use the right component
-        if subaxis := axes.child(axis, parents[axis]):
-            return _build_distinct_subtree(axes, parents, axis=subaxis)
+        component = parents[axis]
+        path_ = path | {axis.label: component.label}
+        if axes.node_map[path_]:
+            return _build_distinct_subtree(axes, parents, path=path_)
         else:
             return AxisTree()
     else:
@@ -2286,9 +2280,10 @@ def _build_distinct_subtree(axes, parents, *, axis=None):
         # and traverse all subaxes
         subtree = AxisTree(axis)
         for component in axis.components:
-            if subaxis := axes.child(axis, component):
-                subtree_ = _build_distinct_subtree(axes, parents, axis=subaxis)
-                subtree = subtree.add_subtree(subtree_, axis, component)
+            path_ = path | {axis.label: component.label}
+            if axes.node_map[path_]:
+                subtree_ = _build_distinct_subtree(axes, parents, path=path_)
+                subtree = subtree.add_subtree(path_, subtree_)
         return subtree
 
 
@@ -2399,9 +2394,8 @@ def prune_zero_sized_branches(axis_tree: AbstractAxisTree, *, path=immutabledict
     new_axis = Axis(new_components, _axis.label)
     new_axis_tree = AxisTree(new_axis)
     for new_component, subtree in zip(new_components, subtrees, strict=True):
-        path_ = path | {_axis.label: new_component.label}
         if subtree is not None:
-            new_axis_tree = new_axis_tree.add_subtree(path_, subtree)
+            new_axis_tree = new_axis_tree.add_subtree({_axis.label: new_component.label}, subtree)
     return new_axis_tree
 
 

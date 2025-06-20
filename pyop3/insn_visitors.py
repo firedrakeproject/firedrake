@@ -107,9 +107,9 @@ def _(insn_list: InstructionList, /, **kwargs) -> Instruction:
 @_expand_loop_contexts_rec.register(Loop)
 def _(loop: Loop, /, *, loop_context_acc) -> Loop | InstructionList:
     expanded_loops = []
-    for axis, component_label in loop.index.iterset.leaves:
+    for leaf_path in loop.index.iterset.leaf_paths:
         paths = tuple(
-            target_acc[axis.id, component_label][0]
+            target_acc[leaf_path][0]
             for target_acc in loop.index.iterset.targets_acc
         )
         loop_context = {loop.index.id: paths}

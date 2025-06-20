@@ -100,7 +100,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
 
         mysubaxis = axes.node_map.get(path_acc_)
         if mysubaxis:
-            mysubtree = axes.subtree(mysubaxis)
+            mysubtree = axes.subtree(path_acc_)
 
         # If the axis tree has zero size but is not empty then it makes no sense to give it a layout
         if mysubaxis and not mysubtree.is_empty and _axis_tree_size(mysubtree) == 0:
@@ -124,7 +124,6 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
                     component_layout = NaN()
                 elif subtree.is_empty:
                     # 2. Affine access
-                    assert subtree.is_empty
 
                     # FIXME: weakness in algorithm
                     if step == 0:
@@ -156,8 +155,8 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
         # NOTE: Not strictly necessary but it means we don't currently break with ragged
         if i < len(axis.components) - 1:
             # start += _axis_component_size(axes, axis, component)
-            if subaxis := axes.child((axis, component)):
-                start += component.local_size * _axis_tree_size(axes.subtree(subaxis))
+            if axes.node_map[path_acc_]:
+                start += component.local_size * _axis_tree_size(axes.subtree(path_acc_))
             else:
                 start += component.local_size
 
@@ -339,47 +338,41 @@ def axis_tree_component_size(axis_tree, path, component):
 def _drop_constant_subaxes(axis_tree, path: ConcretePathT) -> tuple[AxisTree, int]:
     """Return an axis tree consisting of non-constant bits below ``axis``."""
     # NOTE: dont think I need the cache here any more
-    if subaxis := axis_tree.node_map.get(path):
+    if axis_tree.node_map[path]:
         subtree = axis_tree.subtree(path)
 
         key = ("_truncate_axis_tree", subtree)
         try:
-            breakpoint()
-            return axis.cache_get(key)
+            raise KeyError  # TODO
+            return axis_tree.cache_get(key)
         except KeyError:
             pass
 
-        results = _truncate_axis_tree_rec(subtree, subaxis)
+        results = _truncate_axis_tree_rec(subtree, immutabledict())
 
         # The best result has the largest step size (as the resulting tree is
         # smaller and therefore more generic).
         # Go in reverse order because the 'best' results are appended so we resolve clashes in the best way.
         trimmed_tree, step = max(reversed(results), key=lambda result: result[1])
 
-        # add current axis
-        # tree = AxisTree(axis.copy(components=[component]))
-        # tree = AxisTree(axis)
-        # tree = tree.add_subtree(trimmed_tree, axis, component)
-
-        # best_result = (tree, step)
         best_result = (trimmed_tree, step)
 
         # setdefault?
-        axis.cache_set(key, best_result)
+        # axis_tree.cache_set(key, best_result)
         return best_result
     else:
-        # return AxisTree(axis.copy(components=[component])), 1
-        # return AxisTree(axis), 1
         return AxisTree(), 1
 
 
-def _truncate_axis_tree_rec(axis_tree, axis) -> tuple[tuple[AxisTree, int]]:
+def _truncate_axis_tree_rec(axis_tree, path) -> tuple[tuple[AxisTree, int]]:
     # NOTE: Do a post-order traversal. Need to look at the subaxes before looking
     # at this one.
     candidates_per_component = []
+    axis = axis_tree.node_map[path]
     for component in axis.components:
-        if subaxis := axis_tree.child(axis, component):
-            candidates = _truncate_axis_tree_rec(axis_tree, subaxis)
+        path_ = path | {axis.label: component.label}
+        if axis_tree.node_map[path_]:
+            candidates = _truncate_axis_tree_rec(axis_tree, path_)
         else:
             # there is nothing below here, cannot truncate anything
             # TODO: should this be a unit tree?
@@ -400,14 +393,14 @@ def _truncate_axis_tree_rec(axis_tree, axis) -> tuple[tuple[AxisTree, int]]:
         # current axis.
         candidate_axis_tree = AxisTree(axis)
         for component, subtree in zip(axis.components, subaxis_trees, strict=True):
-            candidate_axis_tree = candidate_axis_tree.add_subtree(subtree, axis, component)
+            candidate_axis_tree = candidate_axis_tree.add_subtree({axis.label: component.label}, subtree)
         axis_candidate = (candidate_axis_tree, substep)
         axis_candidates.append(axis_candidate)
 
     # Lastly, we can also consider the case where the entire subtree (at this
     # point) is dropped. This is only valid for constant-sized axes.
-    if not _axis_needs_outer_index(axis_tree, axis, (axis,)):
-        step = _axis_tree_size(axis_tree.subtree(axis))
+    if not _axis_needs_outer_index(axis_tree, path, (axis,)):
+        step = _axis_tree_size(axis_tree.subtree(path))
         # TODO: should this be a unit tree?
         axis_candidate = (AxisTree(), step)
         axis_candidates.append(axis_candidate)
@@ -537,19 +530,21 @@ def _tabulation_needs_subaxes(axes, path, free_axes: tuple) -> bool:
           meaning that axis 'a' cannot be tabulated without 'b'.
 
     """
-    if subaxis := axes.node_map.get(path):
-        return _axis_needs_outer_index(axes, subaxis, free_axes) or _axis_contains_multiple_regions(axes, subaxis)
+    if axes.node_map[path]:
+        return _axis_needs_outer_index(axes, path, free_axes) or _axis_contains_multiple_regions(axes, path)
     else:
         return False
 
 
-def _axis_needs_outer_index(axes, axis, visited) -> bool:
+def _axis_needs_outer_index(axes, path, visited) -> bool:
+    axis = axes.node_map[path]
     for component in axis.components:
+        path_ = path | {axis.label: component.label}
         if any(_region_size_needs_outer_index(r, visited) for r in component._all_regions):
             return True
 
-        if subaxis := axes.child(axis, component):
-            if _axis_needs_outer_index(axes, subaxis, visited + (axis,)):
+        if axes.node_map[path_]:
+            if _axis_needs_outer_index(axes, path_, visited + (axis,)):
                 return True
 
     return False
