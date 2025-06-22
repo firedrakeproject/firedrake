@@ -585,8 +585,8 @@ VTK file using the :code:`time` keyword argument. ::
     c_2_out = Function(R_h, name="c_2")
     
     for i in range(n_cont):
-        print(f"Solving for v_ref_1 = {0.4e-6*cont_vals[i]}")
-        v_ref_1.assign(Constant(0.4e-6*cont_vals[i]))
+        v_ref_1.assign(cont_vals[i])
+        print(f"Solving for v_ref_1 = {float(v_ref_1)}")
         v_ref.assign(0.5 * (v_ref_1 + v_ref_2))
         NLVS.solve()
 
