@@ -443,12 +443,9 @@ unknowns and/or are nonlinear must be implemented with :class:`~.EquationBC` ins
     rho_v_outflow_bc_func = J_1_outflow_bc_func + J_2_outflow_bc_func
 
     # Boundary conditions on the barycentric velocity are enforced via EquationBC
-    v_inflow_1_bc = EquationBC(inner(v - rho_inv * rho_v_inflow_1_bc_func, u) * ds(*inlet_1_id) == 0,
-                               solution, inlet_1_id, V=Z_h.sub(2))
-    v_inflow_2_bc = EquationBC(inner(v - rho_inv * rho_v_inflow_2_bc_func, u) * ds(*inlet_2_id) == 0,
-                               solution, inlet_2_id, V=Z_h.sub(2))
-    v_outflow_bc = EquationBC(inner(v - rho_inv * rho_v_outflow_bc_func, u) * ds(*outlet_id) == 0, solution,
-                              outlet_id, V=Z_h.sub(2))
+    bc_data = {inlet_1_id: rho_v_inflow_1_bc_func, inlet_2_id: rho_v_inflow_2_bc_func, outlet_id: rho_v_outflow_bc_func}
+    F_bc = sum(inner(v - rho_inv * flux, u) * ds(*subdomain) for subdomain, flux in bc_data.items())
+    v_bc = EquationBC(F_bc == 0, solution, (*inlet_1_id, *inlet_2_id, *outlet_id), V=Z_h.sub(2))
 
     # The boundary conditions on the fluxes and barycentric velocity
     # Note that BCs on H(div) spaces only apply to the normal component
