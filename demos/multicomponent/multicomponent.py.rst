@@ -569,7 +569,8 @@ and :code:`v_ref` before calling the :code:`solve()` method. Finally, we write e
 VTK file using the :code:`time` keyword argument. ::
 
     outfile = VTKFile("out/solution.pvd")
-    cont_vals = [1.0, 2.5, 5, 7.5, 10.0]
+    vmax = 0.4e-5
+    cont_vals = [0.1 * vmax, 0.25 * vmax, 0.5 * vmax, 0.75 * vmax, vmax]
     n_cont = len(cont_vals)
 
     names = ["J_1", "J_2", "v", "mu_aux_1", "mu_aux_2", "p", "x_1", "x_2",
