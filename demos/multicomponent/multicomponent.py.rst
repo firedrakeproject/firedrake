@@ -104,7 +104,7 @@ We first define the finite element spaces and trial/test functions::
     Z_h = J_h * J_h * V_h * U_h * U_h * P_h * X_h * X_h * R_h * L_h * L_h
     PETSc.Sys.Print(f"Mesh has {mesh.num_cells()} cells, with {Z_h.dim()} finite element DOFs")
 
-    # The trial functions
+    # The discrete solution
     solution = Function(Z_h)
     J_1, J_2, v, mu_aux_1, mu_aux_2, p, x_1, x_2, rho_inv, l_1, l_2 = split(solution)
 
