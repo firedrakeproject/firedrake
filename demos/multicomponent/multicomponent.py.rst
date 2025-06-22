@@ -418,12 +418,14 @@ Boundary conditions
 ~~~~~~~~~~~~~~~~~~~
 
 Let :math:`N` denote the outward unit normal on :math:`\partial \Omega`.
-We enforce parabolic profiles on :math:`J_i \cdot N` at inflow :math:`i` and on the outflow.
-The magnitudes of the parabolic profiles are :math:`M_i c_i^\text{ref} v_i^\text{ref}` where
+On inflow :math:`i` and on the outflow we introduce parabolic mass flux profiles :math:`G_i`,
+with magnitudes :math:`M_i c_i^\text{ref} v_i^\text{ref}` where
 :math:`v_i^\text{ref}` are reference velocities that we are free to choose.
+We then strongly enforce :math:`J_i \cdot N = G_i \cdot N` as Dirichlet boundary conditions
+only apply to the normal component of H(div) functions.
 Elsewhere on the boundary we enforce :math:`J_i \cdot N = 0`. Finally, instead of specifying
-the value of the barycentric velocity :math:`v` on the inflows and outflows, 
-we enforce :math:`v = \rho^{-1}((J_1 + J_2)\cdot N)N`. Boundary conditions that couple 
+the value of the barycentric velocity :math:`v` on the inflows and outflows,
+we enforce :math:`v = \rho^{-1}(G_1 + G_2)`. Boundary conditions that couple
 unknowns and/or are nonlinear must be implemented with :class:`~.EquationBC` instead of :class:`~.DirichletBC`. ::
 
     # Reference species velocities, which we choose to symmetrize so that the molar fluxes agree
@@ -432,15 +434,15 @@ unknowns and/or are nonlinear must be implemented with :class:`~.EquationBC` ins
 
     parabola_inflow_1 = 2.0 * x_sc * (x_sc - 1.0) * as_vector([2.0, -1.0])
     parabola_inflow_2 = 2.0 * x_sc * (x_sc - 1.0) * as_vector([2.0, 1.0])
-    J_1_inflow_bc_func = -M_1_ND * (v_ref_1 / v_ref) * (c_pure_1 / c_ref) * parabola_inflow_1
-    J_2_inflow_bc_func = -M_2_ND * (v_ref_2 / v_ref) * (c_pure_2 / c_ref) * parabola_inflow_2
-    rho_v_inflow_1_bc_func = J_1_inflow_bc_func
-    rho_v_inflow_2_bc_func = J_2_inflow_bc_func
+    G_1_inflow_bc_func = -M_1_ND * (v_ref_1 / v_ref) * (c_pure_1 / c_ref) * parabola_inflow_1
+    G_2_inflow_bc_func = -M_2_ND * (v_ref_2 / v_ref) * (c_pure_2 / c_ref) * parabola_inflow_2
+    rho_v_inflow_1_bc_func = G_1_inflow_bc_func
+    rho_v_inflow_2_bc_func = G_2_inflow_bc_func
 
     parabola_outflow = 2.0 * (y_sc + 0.5) * (y_sc - 0.5) * as_vector([1.0, 0.0])
-    J_1_outflow_bc_func = -M_1_ND * (v_ref_1 / v_ref) * (c_pure_1 / c_ref) * parabola_outflow
-    J_2_outflow_bc_func = -M_2_ND * (v_ref_2 / v_ref) * (c_pure_2 / c_ref) * parabola_outflow
-    rho_v_outflow_bc_func = J_1_outflow_bc_func + J_2_outflow_bc_func
+    G_1_outflow_bc_func = -M_1_ND * (v_ref_1 / v_ref) * (c_pure_1 / c_ref) * parabola_outflow
+    G_2_outflow_bc_func = -M_2_ND * (v_ref_2 / v_ref) * (c_pure_2 / c_ref) * parabola_outflow
+    rho_v_outflow_bc_func = G_1_outflow_bc_func + G_2_outflow_bc_func
 
     # Boundary conditions on the barycentric velocity are enforced via EquationBC
     bc_data = {inlet_1_id: rho_v_inflow_1_bc_func, inlet_2_id: rho_v_inflow_2_bc_func, outlet_id: rho_v_outflow_bc_func}
@@ -449,12 +451,12 @@ unknowns and/or are nonlinear must be implemented with :class:`~.EquationBC` ins
 
     # The boundary conditions on the fluxes and barycentric velocity
     # Note that BCs on H(div) spaces only apply to the normal component
-    flux_bcs = [DirichletBC(Z_h.sub(0), J_1_inflow_bc_func, inlet_1_id),
-                DirichletBC(Z_h.sub(0), J_1_outflow_bc_func, outlet_id),
+    flux_bcs = [DirichletBC(Z_h.sub(0), G_1_inflow_bc_func, inlet_1_id),
+                DirichletBC(Z_h.sub(0), G_1_outflow_bc_func, outlet_id),
                 DirichletBC(Z_h.sub(0), 0, inlet_2_id),
                 DirichletBC(Z_h.sub(0), 0, walls_ids),
-                DirichletBC(Z_h.sub(1), J_2_inflow_bc_func, inlet_2_id),
-                DirichletBC(Z_h.sub(1), J_2_outflow_bc_func, outlet_id),
+                DirichletBC(Z_h.sub(1), G_2_inflow_bc_func, inlet_2_id),
+                DirichletBC(Z_h.sub(1), G_2_outflow_bc_func, outlet_id),
                 DirichletBC(Z_h.sub(1), 0, inlet_1_id),
                 DirichletBC(Z_h.sub(1), 0, walls_ids),
                 v_bc,
