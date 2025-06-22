@@ -538,7 +538,7 @@ mathematically valid to do this)::
            return nodes
 
     # Fix the auxiliary chemical potentials and pressure at a point
-    aux_point = as_vector([4, 0])   # A point on the middle of the outlet
+    aux_point = (4, 0)   # A point on the middle of the outlet
     aux_point_bcs = [FixAtPointBC(Z_h.sub(3), 0, aux_point),
                     FixAtPointBC(Z_h.sub(4), 0, aux_point),
                     FixAtPointBC(Z_h.sub(5), 0, aux_point)]
