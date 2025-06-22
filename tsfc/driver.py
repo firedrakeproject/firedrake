@@ -9,7 +9,7 @@ from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
 from ufl.classes import Form, GeometricQuantity
-from ufl.domain import extract_unique_domain
+from ufl.domain import extract_unique_domain, extract_domains
 
 import gem
 import gem.impero_utils as impero_utils
@@ -27,7 +27,7 @@ sys.setrecursionlimit(3000)
 
 
 TSFCIntegralDataInfo = collections.namedtuple("TSFCIntegralDataInfo",
-                                              ["domain", "integral_type", "subdomain_id", "domain_number",
+                                              ["domain", "integral_type", "subdomain_id", "domain_number", "domain_integral_type_map",
                                                "arguments",
                                                "coefficients", "coefficient_split", "coefficient_numbers"])
 TSFCIntegralDataInfo.__doc__ = """
@@ -92,9 +92,10 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
     kernels = []
     for integral_data in form_data.integral_data:
         start = time.time()
-        kernel = compile_integral(integral_data, form_data, prefix, parameters, diagonal=diagonal)
-        if kernel is not None:
-            kernels.append(kernel)
+        if integral_data.integrals:
+            kernel = compile_integral(integral_data, form_data, prefix, parameters, diagonal=diagonal)
+            if kernel is not None:
+                kernels.append(kernel)
         logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
 
     logger.info(GREEN % "TSFC finished in %g seconds.", time.time() - cpu_time)
@@ -114,14 +115,10 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
     parameters = preprocess_parameters(parameters)
     scalar_type = parameters["scalar_type"]
     integral_type = integral_data.integral_type
-    mesh = integral_data.domain
     arguments = form_data.preprocessed_form.arguments()
     if integral_type.startswith("interior_facet") and diagonal and any(a.function_space().finat_element.is_dg() for a in arguments):
         raise NotImplementedError("Sorry, we can't assemble the diagonal of a form for interior facet integrals")
     kernel_name = f"{prefix}_{integral_type}_integral"
-    # Dict mapping domains to index in original_form.ufl_domains()
-    domain_numbering = form_data.original_form.domain_numbering()
-    domain_number = domain_numbering[integral_data.domain]
     # This is which coefficient in the original form the
     # current coefficient is.
     # Consider f*v*dx + g*v*ds, the full form contains two
@@ -136,11 +133,15 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
             if coeff in form_data.coefficient_split:
                 coefficient_split[coeff] = form_data.coefficient_split[coeff]
             coefficient_numbers.append(form_data.original_coefficient_positions[i])
+    mesh = integral_data.domain
+    all_meshes = extract_domains(form_data.original_form)
+    domain_number = all_meshes.index(mesh)
     integral_data_info = TSFCIntegralDataInfo(
         domain=integral_data.domain,
         integral_type=integral_data.integral_type,
         subdomain_id=integral_data.subdomain_id,
         domain_number=domain_number,
+        domain_integral_type_map={mesh: integral_data.domain_integral_type_map[mesh] if mesh in integral_data.domain_integral_type_map else None for mesh in all_meshes},
         arguments=arguments,
         coefficients=coefficients,
         coefficient_split=coefficient_split,
@@ -151,8 +152,11 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
         scalar_type,
         diagonal=diagonal,
     )
-    builder.set_coordinates(mesh)
-    builder.set_cell_sizes(mesh)
+    builder.set_entity_numbers(all_meshes)
+    builder.set_entity_orientations(all_meshes)
+    builder.set_coordinates(all_meshes)
+    builder.set_cell_orientations(all_meshes)
+    builder.set_cell_sizes(all_meshes)
     builder.set_coefficients()
     # TODO: We do not want pass constants to kernels that do not need them
     # so we should attach the constants to integral data instead
@@ -233,6 +237,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     if domain is None:
         domain = extract_unique_domain(expression)
     assert domain is not None
+    builder._domain_integral_type_map = {domain: "cell"}
 
     # Collect required coefficients and determine numbering
     coefficients = extract_coefficients(expression)
@@ -247,7 +252,8 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
         # Create a fake coordinate coefficient for a domain.
         coords_coefficient = ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
         builder.domain_coordinate[domain] = coords_coefficient
-        builder.set_cell_sizes(domain)
+        builder.set_cell_orientations((domain, ))
+        builder.set_cell_sizes((domain, ))
         coefficients = [coords_coefficient] + coefficients
         needs_external_coords = True
     builder.set_coefficients(coefficients)
@@ -264,7 +270,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
                       ufl_cell=domain.ufl_cell(),
                       # FIXME: change if we ever implement
                       # interpolation on facets.
-                      integral_type="cell",
+                      domain_integral_type_map={domain: "cell"},
                       argument_multiindices=argument_multiindices,
                       index_cache={},
                       scalar_type=parameters["scalar_type"])
