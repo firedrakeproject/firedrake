@@ -302,10 +302,8 @@ for the :math:`g_i`'s, which in non-dimensionalised form, is implemented as foll
 
     # Margules model for chemical potentials, assuming constant partial molar volumes
     def mu_relation(x_1, x_2, p):
-        mu_1 = (Me_1 * p) + ln(x_1) \
-            + (x_2 ** 2) * (A_12 + (2.0 * (A_21 - A_12) * x_1))
-        mu_2 = (Me_2 * p) + ln(x_2) \
-            + (x_1 ** 2) * (A_21 + (2.0 * (A_12 - A_21) * x_2))
+        mu_1 = (Me_1 * p) + ln(x_1) + (x_2 ** 2) * (A_12 + (2.0 * (A_21 - A_12) * x_1))
+        mu_2 = (Me_2 * p) + ln(x_2) + (x_1 ** 2) * (A_21 + (2.0 * (A_12 - A_21) * x_2))
 
         return (mu_1, mu_2)
 
