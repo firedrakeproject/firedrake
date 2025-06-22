@@ -8,6 +8,14 @@
 Firedrake events
 ----------------
 
+Firedrake '25
+~~~~~~~~~~~~~
+
+The tenth Firedrake user and developer workshop will be held
+between 15-17 September 2025 at the University of Leeds. For more
+information see :doc:`the workshop page <firedrake_25>`.
+
+
 CCP-DCM Hackathon
 ~~~~~~~~~~~~~~~~~
 

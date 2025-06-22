@@ -47,6 +47,7 @@ SERIAL_DEMOS = [
     Demo(("patch", "hdiv_riesz_star"), []),
     Demo(("quasigeostrophy_1layer", "qg_1layer_wave"), ["hypre", "vtk"]),
     Demo(("saddle_point_pc", "saddle_point_systems"), ["hypre", "mumps"]),
+    Demo(("fast_diagonalisation", "fast_diagonalisation_poisson"), ["mumps"]),
     Demo(('vlasov_poisson_1d', 'vp1d'), []),
 ]
 PARALLEL_DEMOS = [
