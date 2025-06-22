@@ -261,7 +261,7 @@ Our implementation of the non-dimensionalised volumetric equation of state
 
     c_tot, c_1, c_2 = conc_relation(x_1, x_2)
 
-Moreover, to express that :math:`1 / \rho^{-1} = \sum_{j=1}^n M_j c_j`, we simply take the
+Moreover, to express that :math:`1 / \rho^{-1} = \rho = \sum_{j=1}^n M_j c_j`, we simply take the
 :math:`L^2`-projection of this expression (in non-dimensionalised form)::
 
     rho_inv_terms = inner(1.0 / rho_inv, r) * dx
