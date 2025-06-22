@@ -381,9 +381,9 @@ This leads to the following implementation::
     gamma = Constant(1e-1)                          # Augmentation parameter, dimensionless
 
     # The Stefan--Maxwell diffusion terms
-    osm_terms = Pe * (1.0 / c_tot) * ((c_2 / (M_1_ND * M_1_ND * c_1)) * inner(J_1, W_1) \
-            + (c_1 / (M_2_ND * M_2_ND * c_2)) * inner(J_2, W_2) \
-            - (1.0 / (M_1_ND * M_2_ND)) * (inner(J_1, W_2) + inner(J_2, W_1))) * dx
+    osm_terms = (Pe / c_tot) * ((c_2 / (M_1_ND * M_1_ND * c_1)) * inner(J_1, W_1) 
+                                                    + (c_1 / (M_2_ND * M_2_ND * c_2)) * inner(J_2, W_2)
+                                                    - (1 / (M_1_ND * M_2_ND)) * (inner(J_1, W_2) + inner(J_2, W_1))) * dx
 
     # The augmentation terms (for symmetry we also test these terms against u)
     osm_terms += Pe * gamma * inner(v - (rho_inv * (J_1 + J_2)), u - (rho_inv * (W_1 + W_2))) * dx
