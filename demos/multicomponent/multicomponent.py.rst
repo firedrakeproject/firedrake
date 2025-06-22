@@ -457,9 +457,7 @@ unknowns and/or are nonlinear must be implemented with :class:`~.EquationBC` ins
                 DirichletBC(Z_h.sub(1), J_2_outflow_bc_func, outlet_id),
                 DirichletBC(Z_h.sub(1), 0, inlet_1_id),
                 DirichletBC(Z_h.sub(1), 0, walls_ids),
-                v_inflow_1_bc,
-                v_inflow_2_bc,
-                v_outflow_bc,
+                v_bc,
                 DirichletBC(Z_h.sub(2), 0, walls_ids)]
 
 It is now natural to assign :math:`v^\textrm{ref}`
