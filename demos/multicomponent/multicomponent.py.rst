@@ -577,19 +577,12 @@ VTK file using the :code:`time` keyword argument. ::
     for field, name in enumerate(names):
         solution.subfunctions[field].rename(name)
  
-    mu_1_out = Function(U_h)
-    mu_2_out = Function(U_h)
-    rho_out = Function(R_h)
-    c_tot_out = Function(R_h)
-    c_1_out = Function(R_h)
-    c_2_out = Function(R_h)
-     
-    mu_1_out.rename("mu_1")
-    mu_2_out.rename("mu_2")
-    rho_out.rename("rho")
-    c_tot_out.rename("c_tot")
-    c_1_out.rename("c_1")
-    c_2_out.rename("c_2")
+    mu_1_out = Function(U_h, name="mu_1")
+    mu_2_out = Function(U_h, name="mu_2")
+    rho_out = Function(R_h, name="rho")
+    c_tot_out = Function(R_h, name="c_tot")
+    c_1_out = Function(R_h, name="c_1")
+    c_2_out = Function(R_h, name="c_2")
     
     for i in range(n_cont):
         print(f"Solving for v_ref_1 = {0.4e-6*cont_vals[i]}")
