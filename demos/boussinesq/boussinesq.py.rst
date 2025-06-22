@@ -199,7 +199,7 @@ implements a boundary condition that fixes a field at a single point. ::
  
 We use this to fix the pressure and auxiliary temperature at the origin::
 
-    aux_bcs = [FixAtPointBC(Z.sub(1), 0, as_vector([0, 0])), 
+    aux_bcs = [FixAtPointBC(Z.sub(1), 0, (0, 0)), 
                FixAtPointBC(Z.sub(2), 0, as_vector([0, 0]))]
 
 :code:`FixAtPointBC` takes three arguments: the function space to fix, the value with which it
