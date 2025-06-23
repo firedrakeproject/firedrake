@@ -1,5 +1,6 @@
 """Non-nested multigrid preconditioner"""
 
+from firedrake_citations import Citations
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.parameters import parameters
@@ -26,25 +27,26 @@ class GTMGPC(PCBase):
 
     The following options must be passed through the appctx dictionary:
 
-        * get_coarse_space: method which returns the user-defined coarse
+        * `get_coarse_space`: method which returns the user-defined coarse
             space
-        * get_coarse_operator: method which returns the operator on the coarse
+        * `get_coarse_operator`: method which returns the operator on the coarse
             space
 
     The following options (also passed through the appctx) are optional:
 
-        * form_compiler_parameters: parameters for assembling operators on
+        * `form_compiler_parameters`: parameters for assembling operators on
             both levels of the hierarchy
-        * coarse_space_bcs: boundary conditions to be used on coarse space
-        * get_coarse_op_nullspace: method which returns the null space of the
+        * `coarse_space_bcs`: boundary conditions to be used on coarse space.
+        * `get_coarse_op_nullspace`: method which returns the nullspace of the
             coarse operator
-        * get_coarse_op_transpose_nullspace: method which returns the
-            null space of the transpose of the coarse operator
-        * interpolation_matrix: PETSc matrix which describes the interpolation
-            from the coarse- to the fine space. If omitted, this will be
-            constructed automatically with an Interpolater() object
-        * restriction_matrix: PETSc matrix which describes the restriction
-            from the fine space dual to the coarse space dual
+        * `get_coarse_op_transpose_nullspace`: method which returns the
+            nullspace of the transpose of the coarse operator.
+        * `interpolation_matrix`: PETSc matrix which describes the interpolation
+            from the coarse to the fine space. If omitted, this will be
+            constructed automatically with an `Interpolate` object.
+        * `restriction_matrix`: PETSc matrix which describes the restriction
+            from the fine space dual to the coarse space dual. It defaults
+            to the transpose of the interpolation matrix.
 
     PETSc options for the underlying PCMG object can be set with the
     prefix 'gt_'.
@@ -57,7 +59,6 @@ class GTMGPC(PCBase):
 
     """
 
-
     needs_python_pmat = False
     _prefix = "gt_"
 
@@ -68,6 +69,7 @@ class GTMGPC(PCBase):
         """
         from firedrake.assemble import assemble, get_assembler
 
+        Citations().register("Gopalakrishnan2009")
         _, P = pc.getOperators()
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
@@ -108,7 +110,7 @@ class GTMGPC(PCBase):
         else:
             fine_petscmat = P
 
-        # Transfer fine operator null space
+        # Transfer fine operator nullspace
         fine_petscmat.setNullSpace(P.getNullSpace())
         fine_transpose_nullspace = P.getTransposeNullSpace()
         if fine_transpose_nullspace.handle != 0:
@@ -157,6 +159,7 @@ class GTMGPC(PCBase):
             coarse_test, coarse_trial = coarse_operator.arguments()
             interp = assemble(Interpolate(coarse_trial, fine_space))
             interp_petscmat = interp.petscmat
+        restr_petscmat = appctx.get("restriction_matrix", None)
 
         # We set up a PCMG object that uses the constructed interpolation
         # matrix to generate the restriction/prolongation operators.
