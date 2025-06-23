@@ -192,7 +192,7 @@ conform to the bathymetry. The example below shows how to do this. This could
 be combined with :ref:`interpolation from external data
 <external_interpolation>` to incorporate domain boundary data from
 any source. Naturally, the change of coordinates can also be varied to produce
-a non-uniform distribtion of the mesh layers.
+a non-uniform distribution of the mesh layers.
 
 .. literalinclude:: ../../tests/firedrake/extrusion/test_change_coordinates.py
   :dedent:
