@@ -144,7 +144,7 @@ PETSc '18
 ~~~~~~~~~
 
 The Firedrake team hosted PETSc '18 at Imperial College London from
-4-6 Junr 2018. For more information, see `the meeting page <http://www.mcs.anl.gov/petsc/meetings/2018/index.html>`_.
+4-6 June 2018. For more information, see `the meeting page <https://www.mcs.anl.gov/petsc/meetings/2018/index.html>`_.
 
 Firedrake tutorial Jan 12 2018
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
