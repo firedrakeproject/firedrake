@@ -115,7 +115,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         if len(self.function_space()) > 1:
             subfuncs = []
             for subspace in self.function_space():
-                subdat = self.dat[str(subspace.index)]
+                subdat = self.dat[subspace.index]
                 subfunc = CoordinatelessFunction(
                     subspace, subdat, name=f"{self.name()}[{subspace.index}]"
                 )

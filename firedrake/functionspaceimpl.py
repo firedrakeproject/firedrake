@@ -1306,11 +1306,12 @@ class MixedFunctionSpace:
         axis_tree = op3.AxisTree(field_axis)
         targets = {}
         for field_component, subspace in zip(field_axis.components, self._spaces, strict=True):
+            leaf_path = immutabledict({field_axis.label: field_component.label})
             subaxes = subspace.axes
             axis_tree = axis_tree.add_subtree(
-                subaxes.materialize(), (field_axis, field_component)
+                leaf_path, subaxes.materialize()
             )
-            targets[field_axis.id, field_component.label] = (
+            targets[leaf_path] = (
                 immutabledict({"field": field_component.label}),
                 immutabledict({"field": op3.AxisVar(field_axis)})  # i.e. a full slice
             )
@@ -1321,9 +1322,7 @@ class MixedFunctionSpace:
         targets = (targets,) + (axis_tree._source_path_and_exprs,)
 
         return op3.IndexedAxisTree(
-            axis_tree.node_map,
-            unindexed=self.layout,
-            targets=targets,
+            axis_tree, unindexed=self.layout, targets=targets,
         )
 
     @cached_property
@@ -1885,7 +1884,7 @@ def _parse_layout_spec(layout_spec: Sequence[str], axis_specs: Sequence, visited
     if len(layout_spec) == 0:
         return _axis_nest_from_constraints(axis_specs, visited_axes)
 
-    axis_label, *sub_layout_specs = layout_spec
+    axis_label = layout_spec[0]
 
     candidate_axis_specs = frozenset(
         axis_spec
@@ -1904,12 +1903,6 @@ def _parse_layout_spec(layout_spec: Sequence[str], axis_specs: Sequence, visited
         )
     selected_axis = selected_axis_spec.axis
 
-    # FIXME: Axis IDs were a bad idea
-    global my_uid
-    selected_axis = selected_axis.copy(id=f"{selected_axis.id}_{my_uid}")
-    my_uid += 1
-
-
     # filter out axis specs that match the current axis so they can't get
     # reused further down
     axis_specs = tuple(
@@ -1920,15 +1913,16 @@ def _parse_layout_spec(layout_spec: Sequence[str], axis_specs: Sequence, visited
 
     if axis_specs:
         axis_nest = {selected_axis: []}
-        if sub_layout_specs:
+        if len(layout_spec) > 1:
             # 'sub_layout_specs' can either be flat (e.g. '["axis1", "axis2"]')
             # or nested (e.g. '[["axis1", ["axis2"]], ["axis3"]]'). If the former
             # then the spec is broadcasted to all components. Otherwise we assume
             # that the spec is per-component.
-            if isinstance(sub_layout_specs[0], str):  # flat case
-                sub_layout_specs = [sub_layout_specs] * len(selected_axis.components)
+            if isinstance(layout_spec[1], str):  # flat case
+                sub_layout_specs = [layout_spec[1]] * len(selected_axis.components)
             else:  # nested
-                pass
+                assert len(layout_spec) == 2
+                sub_layout_specs = layout_spec[1]
 
             # NOTE: This is exactly the same as the nested case except for broadcasting
             for component, sub_layout_spec in zip(
@@ -1967,9 +1961,6 @@ def _parse_layout_spec(layout_spec: Sequence[str], axis_specs: Sequence, visited
     else:
         assert not sub_layout_specs, "More layout information provided than available axes"
         return selected_axis
-
-
-my_uid = 0
 
 
 def _axis_nest_from_constraints(axis_constraints: Sequence[AxisConstraint], visited_axes: Set[tuple[str, str]]) -> immutabledict | op3.Axis:

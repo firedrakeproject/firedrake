@@ -116,7 +116,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         if len(self.function_space()) > 1:
             subfuncs = []
             for subspace in self.function_space():
-                subdat = self.dat[str(subspace.index)]
+                subdat = self.dat[subspace.index]
                 # relabel the axes (remove suffix)
                 # subaxes = subdat.axes.relabel({
                 #     label: label.removesuffix(f"_{subspace.index}")

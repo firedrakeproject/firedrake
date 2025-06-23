@@ -93,7 +93,7 @@ def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, path: ConcretePathT) -> 
             # FIXME: Only need to call the inner bit once and repeatedly add?
             for point in range(component.count):
                 sfs.extend(
-                    _collect_sf_graphs_rec(axis_tree, subaxis)
+                    _collect_sf_graphs_rec(axis_tree, path_)
                 )
     return tuple(sfs)
 
