@@ -8,6 +8,7 @@ from typing import Any
 
 from immutabledict import immutabledict
 
+from pyop3 import utils
 from pyop3.tensor.dat import Dat
 from pyop3.axtree import AxisTree
 from pyop3.axtree.tree import AbstractAxisTree, IndexedAxisTree
@@ -452,13 +453,9 @@ def _complete_index_tree_with_slices(*, axes, target_paths, axis_path: ConcreteP
         # If the axis is found in 'target_paths' then this means that it has
         # been addressed by the index tree and hence a slice isn't needed.
         # We simply follow the path of the tree that is addressed and recurse.
-        # FIXME: should be single_valued
-        target_components = [target_path[axis.label] for target_path in matching_target_paths]
-        if len(target_components) > 1:
-            pyop3.extras.debug.warn_todo("Multiple targets, assert that these are equal")
-            breakpoint()
-        axis_component_label = target_components[0]
-
+        axis_component_label = utils.single_valued((
+            target_path[axis.label] for target_path in matching_target_paths
+        ))
         axis_path_ = axis_path | {axis.label: axis_component_label}
         if axes.node_map[axis_path_]:
             return _complete_index_tree_with_slices(axes=axes, target_paths=matching_target_paths, axis_path=axis_path_)
