@@ -186,7 +186,7 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
                 if isinstance(g, firedrake.Function) and hasattr(g, "_child"):
                     manager.inject(g, g._child)
 
-    V = problem.u.function_space()
+    V = problem.u_restrict.function_space()
     if not hasattr(V, "_coarse"):
         # The hook is persistent and cumulative, but also problem-independent.
         # Therefore, we are only adding it once.
@@ -201,7 +201,7 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
     for c in coefficients:
         coefficient_mapping[c] = self(c, self, coefficient_mapping=coefficient_mapping)
 
-    u = coefficient_mapping[problem.u]
+    u = coefficient_mapping[problem.u_restrict]
 
     bcs = [self(bc, self) for bc in problem.bcs]
     J = self(problem.J, self, coefficient_mapping=coefficient_mapping)
@@ -277,7 +277,7 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
         if isinstance(val, (firedrake.Function, firedrake.Cofunction)):
             V = val.function_space()
             coarseneddm = V.dm
-            parentdm = get_parent(context._problem.u.function_space().dm)
+            parentdm = get_parent(context._problem.u_restrict.function_space().dm)
 
             # Now attach the hook to the parent DM
             if get_appctx(coarseneddm) is None:
@@ -369,8 +369,8 @@ def create_interpolation(dmc, dmf):
 
     manager = get_transfer_manager(dmf)
 
-    V_c = cctx._problem.u.function_space()
-    V_f = fctx._problem.u.function_space()
+    V_c = cctx._problem.u_restrict.function_space()
+    V_f = fctx._problem.u_restrict.function_space()
 
     row_size = V_f.dof_dset.layout_vec.getSizes()
     col_size = V_c.dof_dset.layout_vec.getSizes()
@@ -395,8 +395,8 @@ def create_injection(dmc, dmf):
 
     manager = get_transfer_manager(dmf)
 
-    V_c = cctx._problem.u.function_space()
-    V_f = fctx._problem.u.function_space()
+    V_c = cctx._problem.u_restrict.function_space()
+    V_f = fctx._problem.u_restrict.function_space()
 
     row_size = V_f.dof_dset.layout_vec.getSizes()
     col_size = V_c.dof_dset.layout_vec.getSizes()
