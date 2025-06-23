@@ -1299,10 +1299,11 @@ class MixedFunctionSpace:
         # spaces aren't expressible using index trees. Hence we have to be clever
         # how we combine things here to retain that information.
 
-        # TODO: should be 'single_valued' (when axis IDs are fixed)
-        # This axis can exist multiple times because the field may not be
-        # on the 'outside'
-        field_axis = [axis for axis in self.layout.nodes if axis.label == "field"][0]
+        field_axis = utils.single_valued((
+            axis for axis in self.layout.nodes if axis.label == "field"
+        ))
+        if field_axis != self.layout.root:
+            raise NotImplementedError("I think that this may cause trouble when the field is not at the top")
         axis_tree = op3.AxisTree(field_axis)
         targets = {}
         for field_component, subspace in zip(field_axis.components, self._spaces, strict=True):
@@ -1311,12 +1312,14 @@ class MixedFunctionSpace:
             axis_tree = axis_tree.add_subtree(
                 leaf_path, subaxes.materialize()
             )
+            # i.e. a full slice
             targets[leaf_path] = (
-                immutabledict({"field": field_component.label}),
-                immutabledict({"field": op3.AxisVar(field_axis)})  # i.e. a full slice
+                immutabledict({field_axis.label: field_component.label}),
+                immutabledict({"field": op3.AxisVar(field_axis)})
             )
             subtargets, _ = subaxes.targets
-            targets |= subtargets
+            for sub_path, sub_target in subtargets.items():
+                targets[leaf_path | sub_path] = sub_target
 
         # TODO: This looks quite hacky
         targets = (targets,) + (axis_tree._source_path_and_exprs,)
@@ -1324,6 +1327,14 @@ class MixedFunctionSpace:
         return op3.IndexedAxisTree(
             axis_tree, unindexed=self.layout, targets=targets,
         )
+        retval.subst_layouts()
+        import pyop3.extras.debug
+        # pyop3.extras.debug.enable_conditional_breakpoints()
+        del retval._subst_layouts_default
+        retval.subst_layouts()
+
+        breakpoint()
+        return retval
 
     @cached_property
     def axis_constraints(self) -> tuple[AxisConstraint]:

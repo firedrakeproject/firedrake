@@ -437,8 +437,8 @@ class InvalidIterationSetException(Pyop3Exception):
 class ScalarIndex(Index):
     fields = {"axis", "component", "value", "id"}
 
-    def __init__(self, axis, component, value, *, id=None):
-        super().__init__(id=id)
+    def __init__(self, axis, component, value):
+        super().__init__()
         self.axis = axis
         self.component = component
         self.value = value
@@ -1341,6 +1341,7 @@ def index_axes(
     plus target paths and target exprs
 
     """
+    pyop3.extras.debug.maybe_breakpoint()
 
     if orig_axes is None:
         raise NotImplementedError("TODO")

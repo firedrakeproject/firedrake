@@ -1285,7 +1285,7 @@ class OneFormAssembler(ParloopFormAssembler):
     @staticmethod
     def _as_pyop3_type(tensor, indices=None):
         if indices is not None and any(index is not None for index in indices):
-            i, = map(str, indices)
+            i, = indices
             return tensor.dat[i]
         else:
             return tensor.dat

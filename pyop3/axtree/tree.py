@@ -1223,11 +1223,11 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         return self[region_slice]
 
     # NOTE: Unsure if this should be a method
-    def _region_slice(self, region_label: str, *, axis: Axis | None = None) -> "IndexTree":
+    def _region_slice(self, region_label: str, *, path: PathT = immutabledict()) -> "IndexTree":
         from pyop3.itree import AffineSliceComponent, RegionSliceComponent, IndexTree, Slice
 
-        if axis is None:
-            axis = self.root
+        path = as_path(path)
+        axis = self.node_map[path]
 
         region_label_matches_all_components = True
         region_label_matches_no_components = True
@@ -1257,10 +1257,10 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
         index_tree = IndexTree(slice_)
         for component, slice_component in zip(axis.components, slice_components, strict=True):
-            axis_path = immutabledict({axis.label: component.label})
-            if self.node_map[axis_path]:
-                subtree = self._region_slice(region_label, path=axis_path)
-                index_tree = index_tree.add_subtree(subtree, slice_, slice_component.label)
+            path_ = path | {axis.label: component.label}
+            if self.node_map[path_]:
+                subtree = self._region_slice(region_label, path=path_)
+                index_tree = index_tree.add_subtree({slice_.label: slice_component.label}, subtree)
         return index_tree
 
     def _accumulate_targets(self, targets_per_axis, *, path: ConcretePathT=immutabledict(), target_path_acc=None, target_exprs_acc=None):
@@ -2298,7 +2298,7 @@ def subst_layouts(
 ):
     from pyop3.expr_visitors import replace_terminals
 
-    # pyop3.extras.debug.maybe_breakpoint()
+    pyop3.extras.debug.maybe_breakpoint()
 
     layouts_subst = {}
     # if strictly_all(x is None for x in [axis, path, target_path_acc, index_exprs_acc]):

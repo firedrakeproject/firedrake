@@ -230,37 +230,34 @@ def _(dat: Dat, /, *args, **kwargs) -> tuple[IndexTree]:
 @_as_index_forest.register(str)
 @_as_index_forest.register(numbers.Integral)
 def _(index: Any, /, axes, loop_context) -> tuple[IndexTree]:
-    desugared = _desugar_index(index, axes)
+    desugared = _desugar_index(index, axes=axes, path=immutabledict())
     return _as_index_forest(desugared, axes, loop_context)
 
 
 @functools.singledispatch
-def _desugar_index(obj: Any, *args, **kwargs) -> Index:
+def _desugar_index(obj: Any, /, *args, **kwargs) -> Index:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
 @_desugar_index.register(numbers.Integral)
-def _(int_: numbers.Integral, /, axes, *, parent=None) -> Index:
-    axis = axes.child(*parent) if parent else axes.root
-    if len(axis.components) > 1:
-        raise NotImplementedError("Use a string instead?")
-        # Multi-component axis: take a slice from a matching component.
+def _(int_: numbers.Integral, /, *, axes, path) -> Index:
+    axis = axes.node_map[path]
+    if len(axis.components) > 1:  # match on component label
         component = just_one(c for c in axis.components if c.label == int_)
         if component.size == 1:
             index = ScalarIndex(axis.label, component.label, 0)
         else:
             index = Slice(axis.label, [AffineSliceComponent(component.label, label=component.label)], label=axis.label)
-    else:
-        # Single-component axis: return a scalar index.
+    else:  # single-component axis - return a scalar index
         component = just_one(axis.components)
         index = ScalarIndex(axis.label, component.label, int_)
     return index
 
 
 @_desugar_index.register(slice)
-def _(slice_: slice, /, axes, *, parent=None) -> Index:
-    axis = axes.child(*parent) if parent else axes.root
-    if axis.degree > 1:
+def _(slice_: slice, /, *, axes, path) -> Slice:
+    axis = axes.node_map[path]
+    if len(axis.components) > 1:
         # badindexexception?
         raise ValueError(
             "Cannot slice multi-component things using generic slices, ambiguous"
@@ -273,110 +270,107 @@ def _(slice_: slice, /, axes, *, parent=None) -> Index:
 
 
 @_desugar_index.register(str)
-def _(label, /, axes, *, parent=None):
-    # Take a full slice of a component with a matching label
-    axis = axes.child(*parent) if parent else axes.root
+def _(label: str, /, *, axes, path) -> Index:
+    # take a full slice of a component with a matching label
+    axis = axes.node_map[path]
     component = just_one(c for c in axis.components if c.label == label)
 
-    # If the component is marked as "unit" then indexing in this way will
-    # fully consume the axis.
     if component.size == 1:
-        index = ScalarIndex(axis.label, component.label, 0)
+        return ScalarIndex(axis.label, component.label, 0)
     else:
-        index = Slice(axis.label, [AffineSliceComponent(component.label, label=component.label)], label=axis.label)
-    return index
+        return Slice(axis.label, [AffineSliceComponent(component.label, label=component.label)], label=axis.label)
 
 
-@functools.singledispatch
-def _expand_index(obj: Any):
-    raise TypeError
-
-
-@_expand_index.register(Index)
-def _(index):
-    return index.expanded
-
-
-@_expand_index.register(numbers.Integral)
-@_expand_index.register(str)
-@_expand_index.register(slice)
-def _(value):
-    return (value,)
-
-
-def _index_forest_from_iterable(indices, *, axes):
-    restricted_indicess = itertools.product(*map(_expand_index, indices))
-    return tuple(
-        _index_tree_from_iterable(restricted_indices, axes=axes)
-        for restricted_indices in restricted_indicess
-    )
-
-
-def _index_tree_from_iterable(indices, *, axes, parent=None, unhandled_target_paths=None):
-    if strictly_all(x is None for x in {parent, unhandled_target_paths}):
-        parent = (None, None)
-        unhandled_target_paths = immutabledict()
-
-    unhandled_target_paths_mut = dict(unhandled_target_paths)
-    parent_axis, parent_component = parent
-    while True:
-        axis = axes.child(parent_axis, parent_component)
-
-        if axis is None or axis.label not in unhandled_target_paths_mut:
-            break
-        else:
-            parent_axis = axis
-            parent_component = unhandled_target_paths_mut.pop(parent_axis.label)
-    parent = (parent_axis, parent_component)
-
-    index, *subindices = indices
-
-    skip_index = False
-    if isinstance(index, (ContextFreeIndex, ContextFreeCalledMap)):
-        if strictly_all(
-            not any(
-                strictly_all(ax in axes.node_labels for ax in target_path.keys())
-                for target_path in equiv_paths
-            )
-            for equiv_paths in index.leaf_target_paths 
-        ):
-            skip_index = True
-    else:
-        try:
-            index = _desugar_index(index, axes=axes, parent=parent)
-        except InvalidIndexException:
-            skip_index = True
-
-    if skip_index:
-        if subindices:
-            index_tree = _index_tree_from_iterable(
-                subindices, 
-                axes=axes,
-                parent=parent,
-                unhandled_target_paths=unhandled_target_paths,
-            )
-        else:
-            index_tree = IndexTree()
-
-    else:
-        index_tree = IndexTree(index)
-        for component_label, equiv_target_paths in zip(
-            index.component_labels, index.leaf_target_paths,
-            strict=True
-        ):
-            # Here we only care about targeting the most recent axis tree.
-            unhandled_target_paths_ = unhandled_target_paths | equiv_target_paths[-1]
-
-            if subindices:
-                subindex_tree = _index_tree_from_iterable(
-                    subindices, 
-                    axes=axes,
-                    parent=parent,
-                    unhandled_target_paths=unhandled_target_paths_,
-                )
-                index_tree = index_tree.add_subtree(subindex_tree, index, component_label, uniquify_ids=True)
-
-    return index_tree
+# @functools.singledispatch
+# def _expand_index(obj: Any):
+#     raise TypeError
+#
+#
+# @_expand_index.register(Index)
+# def _(index):
+#     return index.expanded
+#
+#
+# @_expand_index.register(numbers.Integral)
+# @_expand_index.register(str)
+# @_expand_index.register(slice)
+# def _(value):
+#     return (value,)
+#
+#
+# def _index_forest_from_iterable(indices, *, axes):
+#     restricted_indicess = itertools.product(*map(_expand_index, indices))
+#     return tuple(
+#         _index_tree_from_iterable(restricted_indices, axes=axes)
+#         for restricted_indices in restricted_indicess
+#     )
+#
+#
+# def _index_tree_from_iterable(indices, *, axes, parent=None, unhandled_target_paths=None):
+#     if strictly_all(x is None for x in {parent, unhandled_target_paths}):
+#         parent = (None, None)
+#         unhandled_target_paths = immutabledict()
+#
+#     unhandled_target_paths_mut = dict(unhandled_target_paths)
+#     parent_axis, parent_component = parent
+#     while True:
+#         axis = axes.child(parent_axis, parent_component)
+#
+#         if axis is None or axis.label not in unhandled_target_paths_mut:
+#             break
+#         else:
+#             parent_axis = axis
+#             parent_component = unhandled_target_paths_mut.pop(parent_axis.label)
+#     parent = (parent_axis, parent_component)
+#
+#     index, *subindices = indices
+#
+#     skip_index = False
+#     if isinstance(index, (ContextFreeIndex, ContextFreeCalledMap)):
+#         if strictly_all(
+#             not any(
+#                 strictly_all(ax in axes.node_labels for ax in target_path.keys())
+#                 for target_path in equiv_paths
+#             )
+#             for equiv_paths in index.leaf_target_paths 
+#         ):
+#             skip_index = True
+#     else:
+#         try:
+#             index = _desugar_index(index, axes=axes, path=path)
+#         except InvalidIndexException:
+#             skip_index = True
+#
+#     if skip_index:
+#         if subindices:
+#             index_tree = _index_tree_from_iterable(
+#                 subindices, 
+#                 axes=axes,
+#                 parent=parent,
+#                 unhandled_target_paths=unhandled_target_paths,
+#             )
+#         else:
+#             index_tree = IndexTree()
+#
+#     else:
+#         index_tree = IndexTree(index)
+#         for component_label, equiv_target_paths in zip(
+#             index.component_labels, index.leaf_target_paths,
+#             strict=True
+#         ):
+#             # Here we only care about targeting the most recent axis tree.
+#             unhandled_target_paths_ = unhandled_target_paths | equiv_target_paths[-1]
+#
+#             if subindices:
+#                 subindex_tree = _index_tree_from_iterable(
+#                     subindices, 
+#                     axes=axes,
+#                     parent=parent,
+#                     unhandled_target_paths=unhandled_target_paths_,
+#                 )
+#                 index_tree = index_tree.add_subtree(subindex_tree, index, component_label, uniquify_ids=True)
+#
+#     return index_tree
 
 
 # TODO: This function needs overhauling to work in more cases.

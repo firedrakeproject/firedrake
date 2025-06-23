@@ -434,6 +434,7 @@ def _(var: Any, /, replace_map) -> ExpressionT:
     return replace_map.get(var, var)
 
 
+@replace.register(NaN)
 @replace.register(numbers.Number)
 def _(num: numbers.Number, /, replace_map) -> numbers.Number:
     return num
@@ -680,6 +681,7 @@ def collect_candidate_indirections(obj: Any, /, visited_axes, loop_indices: tupl
 @collect_candidate_indirections.register(numbers.Number)
 @collect_candidate_indirections.register(AxisVar)
 @collect_candidate_indirections.register(LoopIndexVar)
+@collect_candidate_indirections.register(NaN)
 def _(var: Any, /, *args, **kwargs) -> tuple[tuple[Any, int]]:
     return ((var, 0),)
 
@@ -865,7 +867,7 @@ def _(dat: NonlinearDatArrayBufferExpression, /) -> OrderedSet:
 
 @functools.singledispatch
 def collect_composite_dats(obj: Any) -> frozenset:
-    raise TypeError
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
 @collect_composite_dats.register(Operator)
@@ -875,6 +877,7 @@ def _(op, /) -> frozenset:
 
 @collect_composite_dats.register(AxisVar)
 @collect_composite_dats.register(LoopIndexVar)
+@collect_composite_dats.register(NaN)
 @collect_composite_dats.register(numbers.Number)
 def _(op, /) -> frozenset:
     return frozenset()
@@ -994,7 +997,7 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatArrayBuff
 # TODO: Better to just return the actual value probably...
 @functools.singledispatch
 def estimate(expr: Any) -> numbers.Number:
-    raise TypeError
+    raise TypeError(f"No handler defined for {type(expr).__name__}")
 
 
 @estimate.register(numbers.Number)
