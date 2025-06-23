@@ -423,11 +423,18 @@ class LabelledTree(AbstractTree):
     def visited_nodes(self, path: PathT) -> tuple[tuple[Node, ComponentLabelT], ...]:
         path = as_path(path)
 
+        ordered_path = utils.just_one(
+            path_
+            for path_ in self.node_map
+            if path_ == path
+        )
+
         nodes = []
-        path_acc = immutabledict()
-        for axis_label, component_label in path.items():
-            nodes.append((self.node_map[path_acc], component_label))
-            path_acc = path_acc | {axis_label: component_label}
+        for path_acc in accumulate_path(ordered_path, skip_last=True):
+            node = self.node_map[path_acc]
+            # NOTE: this is kind of obvious
+            component_label = path[node.label]
+            nodes.append((node, component_label))
         return tuple(nodes)
 
     @cached_property
@@ -852,12 +859,16 @@ def parent_path(path: PathT) -> ConcretePathT:
     })
 
 
-def accumulate_path(path: PathT) -> tuple[ConcretePathT, ...]:
+def accumulate_path(path: PathT, *, skip_last: bool = False) -> tuple[ConcretePathT, ...]:
     path_acc = immutabledict()
     paths = [path_acc]
     for node_label, component_label in path.items():
         path_acc = path_acc | {node_label: component_label}
         paths.append(path_acc)
+
+    if skip_last:
+        paths = paths[:-1]
+
     return tuple(paths)
 
 

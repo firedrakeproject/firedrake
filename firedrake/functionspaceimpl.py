@@ -500,13 +500,13 @@ class FunctionSpace:
     boundary_set = frozenset()
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, element, name=None, *, layout_spec=None):
+    def __init__(self, mesh, element, name=None, *, layout=None):
         super(FunctionSpace, self).__init__()
         if type(element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
 
-        if layout_spec is None:
-            layout_spec = ()
+        if layout is None:
+            layout = ()
 
         # The function space shape is the number of dofs per node,
         # hence it is not always the value_shape.  Vector and Tensor
@@ -561,7 +561,7 @@ class FunctionSpace:
         real_tensor_product = is_real_tensor_product_element(self.finat_element)
         key = (nodes_per_entity, real_tensor_product, self.shape)
 
-        self.layout_spec = layout_spec
+        self.layout = layout
 
         # if key in mesh._shared_data_cache:
         #     flat_axes = mesh._shared_data_cache["cacheA"][key]
@@ -608,7 +608,7 @@ class FunctionSpace:
     # TODO:
     # @cached_on(mesh)?
     @cached_property
-    def layout(self) -> AxisTree:
+    def layout_axes(self) -> AxisTree:
         # idea is to define this for this and mixed function space etc - this is the
         # *data layout* which is different to .axes (which is always the same for a
         # given space regardless of the data layout).
@@ -618,7 +618,7 @@ class FunctionSpace:
         # thing and attach axes on the way.
         # This could also just be ["mesh", "dof", "dim", "dof", "dim", "dof", "dim"] and
         # could just pop things off - but that's quite unclear...
-        return layout_from_spec(self.layout_spec, self.axis_constraints)
+        return layout_from_spec(self.layout, self.axis_constraints)
 
     @cached_property
     def axes(self) -> op3.IndexedAxisTree:
@@ -640,7 +640,7 @@ class FunctionSpace:
                 ])
 
                 index_tree = index_tree.add_subtree(path | {subslice.label: "XXX"}, shape_slices)
-        return self.layout[index_tree]
+        return self.layout_axes[index_tree]
 
     @cached_property
     def axis_constraints(self) -> tuple[AxisConstraint]:
@@ -675,25 +675,6 @@ class FunctionSpace:
             constraints.append(constraint)
 
         return tuple(constraints)
-
-    @cached_property
-    def _packed_nodal_axes(self) -> op3.AxisTree:
-        """Return an axis tree whose shape corresponds to a packed closure.
-
-        The axis tree is 'nodal', meaning that mesh entities are indistinguishable.
-
-        """
-        assert False, "old code"
-        from firedrake.parloops import _flatten_entity_dofs
-
-        if type(self) is MixedFunctionSpace:
-            raise NotImplementedError
-        if self.shape:
-            # scalar element?
-            raise NotImplementedError
-        num_nodes = len(_flatten_entity_dofs(self.finat_element.entity_dofs()))
-        return op3.AxisTree(op3.Axis({"XXX": num_nodes}, "nodes_flat"))
-
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.
@@ -1258,10 +1239,10 @@ class MixedFunctionSpace:
        but should instead use the functional interface provided by
        :func:`.MixedFunctionSpace`.
     """
-    def __init__(self, spaces, name=None, *, layout_spec=None):
-        # If 'layout_spec' isn't provided then build from the subspaces
-        if layout_spec is None:
-            layout_spec = ("field", tuple(subspace.layout_spec for subspace in spaces))
+    def __init__(self, spaces, name=None, *, layout=None):
+        # If 'layout' isn't provided then build from the subspaces
+        if layout is None:
+            layout = ("field", tuple(subspace.layout for subspace in spaces))
 
         self._spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
@@ -1276,7 +1257,7 @@ class MixedFunctionSpace:
         self.boundary_set = frozenset()
         self._subspaces = {}
         self._mesh = mesh
-        self.layout_spec = layout_spec
+        self.layout = layout
 
         self.comm = mesh.comm
         self._comm = mpi.internal_comm(mesh.comm, self)
@@ -1290,8 +1271,8 @@ class MixedFunctionSpace:
     # TODO:
     # @cached_on(mesh)?
     @cached_property
-    def layout(self) -> AxisTree:
-        return layout_from_spec(self.layout_spec, self.axis_constraints)
+    def layout_axes(self) -> AxisTree:
+        return layout_from_spec(self.layout, self.axis_constraints)
 
     @cached_property
     def axes(self) -> op3.IndexedAxisTree:
@@ -1300,10 +1281,8 @@ class MixedFunctionSpace:
         # how we combine things here to retain that information.
 
         field_axis = utils.single_valued((
-            axis for axis in self.layout.nodes if axis.label == "field"
+            axis for axis in self.layout_axes.nodes if axis.label == "field"
         ))
-        if field_axis != self.layout.root:
-            raise NotImplementedError("I think that this may cause trouble when the field is not at the top")
         axis_tree = op3.AxisTree(field_axis)
         targets = {}
         for field_component, subspace in zip(field_axis.components, self._spaces, strict=True):
@@ -1325,16 +1304,8 @@ class MixedFunctionSpace:
         targets = (targets,) + (axis_tree._source_path_and_exprs,)
 
         return op3.IndexedAxisTree(
-            axis_tree, unindexed=self.layout, targets=targets,
+            axis_tree, unindexed=self.layout_axes, targets=targets,
         )
-        retval.subst_layouts()
-        import pyop3.extras.debug
-        # pyop3.extras.debug.enable_conditional_breakpoints()
-        del retval._subst_layouts_default
-        retval.subst_layouts()
-
-        breakpoint()
-        return retval
 
     @cached_property
     def axis_constraints(self) -> tuple[AxisConstraint]:
@@ -1794,26 +1765,33 @@ class RealFunctionSpace(FunctionSpace):
         # Create the pretend axis tree that includes the mesh axis. This is
         # just a DG0 function.
         dg_space = FunctionSpace(self._mesh, self.element.reconstruct(family="DG"))
-        fake_axes = dg_space.axes
+        fake_axes = dg_space.axes.materialize()
 
-        # Now map the mesh-aware axes back to the actual axis tree. 
+        if fake_axes.depth != 2:
+            raise NotImplementedError("Have not considered vector Real yet")
+
+        # Now map the mesh-aware axes back to the actual axis tree
         targets = {}
-        mesh_axis = fake_axes.root
-        for component in mesh_axis.components:
-            dof_axis = fake_axes.child(mesh_axis, component)
-
-            targets[dof_axis.id, "XXX"] = (
-                self.layout.leaf_path,
-                immutabledict({"dof": op3.AxisVar(dof_axis)})
-            )
+        target_path = dg_space.layout_axes.leaf_path
+        for source_path in dg_space.axes.leaf_paths:
+            if (self._mesh.name, self._mesh.cell_label) in source_path.items():
+                dof_axis = utils.single_valued((
+                    axis
+                    for axis in dg_space.axes.nodes
+                    if axis.label == f"dof{self._mesh.cell_label}"
+                ))
+                targets[source_path] = (
+                    target_path,
+                    immutabledict({"dof": op3.AxisVar(dof_axis)})
+                )
+            else:
+                targets[source_path] = (target_path, immutabledict({"dof": op3.NAN}))
 
         # TODO: This looks hacky
-        targets = (targets,) + (fake_axes.materialize()._source_path_and_exprs,)
+        targets = (targets,) + (fake_axes._source_path_and_exprs,)
 
         return op3.IndexedAxisTree(
-            fake_axes.node_map,
-            unindexed=self.layout,
-            targets=targets,
+            fake_axes, unindexed=self.layout, targets=targets,
         )
 
     finat_element = None  # TODO: do we use this?

@@ -1049,7 +1049,7 @@ class AbstractMeshTopology(abc.ABC):
                 subset = op3.Subset("mylabel", subset_array, label=dim)
                 subsets.append(subset)
 
-        return op3.Slice(f"{self.name}_flat", subsets, label=self.name)
+        return op3.Slice("mesh", subsets, label=self.name)
 
     @property
     @abc.abstractmethod
@@ -1945,7 +1945,7 @@ class MeshTopology(AbstractMeshTopology):
         # TODO: Allow the label here to be None
         return op3.Axis(
             [op3.AxisComponent(n_points, "mylabel", sf=point_sf_renum)],
-            label=f"{self.name}_flat",
+            label="mesh",
         )
 
     @cached_property
@@ -2789,7 +2789,7 @@ class ExtrudedMeshTopology(MeshTopology):
 
         return op3.Axis(
             [op3.AxisComponent(npoints, "mylabel", sf=point_sf)],
-            label=f"{self.name}_flat",
+            label="mesh",
         )
 
     @property
