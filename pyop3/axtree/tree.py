@@ -2322,10 +2322,6 @@ def subst_layouts(
             return layouts_subst
 
     axis = axes.node_map[path]
-
-    if axes.depth == 3 and axis.label == "dim0":
-        breakpoint()
-
     for component in axis.components:
         path_ = path | {axis.label: component.label}
 

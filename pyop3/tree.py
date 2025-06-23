@@ -859,3 +859,15 @@ def accumulate_path(path: PathT) -> tuple[ConcretePathT, ...]:
         path_acc = path_acc | {node_label: component_label}
         paths.append(path_acc)
     return tuple(paths)
+
+
+def filter_path(orig_path: PathT, to_remove: PathT) -> ConcretePathT:
+    orig_path = as_path(orig_path)
+    to_remove = as_path(to_remove)
+
+    filtered_path = {}
+    for node_label, component_label in orig_path.items():
+        if (node_label, component_label) not in to_remove.items():
+            filtered_path[node_label] = component_label
+    return immutabledict(filtered_path)
+
