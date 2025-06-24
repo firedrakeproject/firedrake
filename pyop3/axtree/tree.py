@@ -1940,20 +1940,13 @@ class UnitIndexedAxisTree:
 def find_matching_target(self):
     matching_targets = []
     for target in self.targets:
-        # drop empty targets, this is ugly but prevents later clashes - revisit later
-        if (immutabledict(), (immutabledict(), immutabledict())) in target.keys():
-            target = immutabledict({
-                key: value
-                for key, value in target.items()
-                if key != immutabledict()
-            })
-
         all_leaves_match = True
         for leaf_path in self.leaf_paths:
             target_path = {}
             for leaf_path_acc in accumulate_path(leaf_path):
-                target_path_, _ = target.get(leaf_path_acc, (immutabledict(), immutabledict()))
-                target_path.update(target_path_)
+                if leaf_path_acc in target:
+                    target_path_, _ = target[leaf_path_acc]
+                    target_path.update(target_path_)
             target_path = immutabledict(target_path)
 
             # NOTE: We assume that if we get an empty target path then something has
@@ -1964,6 +1957,12 @@ def find_matching_target(self):
                 break
 
         if all_leaves_match:
+            # drop empty mappings as they lead to conflicts
+            target = immutabledict({
+                key: value
+                for key, value in target.items()
+                if value != (immutabledict(), immutabledict())
+            })
             matching_targets.append(target)
 
     return utils.single_valued(matching_targets)
@@ -2305,8 +2304,6 @@ def subst_layouts(
     target_paths_and_exprs_acc=None,
 ):
     from pyop3.expr_visitors import replace_terminals
-
-    pyop3.extras.debug.maybe_breakpoint()
 
     layouts_subst = {}
     # if strictly_all(x is None for x in [axis, path, target_path_acc, index_exprs_acc]):

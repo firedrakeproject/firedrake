@@ -971,9 +971,11 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatArrayBuff
         axis_var.axis_label: loop_var
         for (loop_var, axis_var) in loop_index_replace_map
     }
-    for mynode in composite_dat.axis_tree.nodes:
+    for path, mynode in composite_dat.axis_tree.node_map.items():
+        if mynode is None:
+            continue
+
         for component in mynode.components:
-            path = composite_dat.axis_tree.path(mynode, component)
             fullpath = looptree.leaf_path | path
             layout = result.axes.subst_layouts()[fullpath]
             newlayout = replace_terminals(layout, dumb_inv_replace_map)

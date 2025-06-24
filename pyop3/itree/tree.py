@@ -1327,8 +1327,6 @@ def index_axes(
     plus target paths and target exprs
 
     """
-    pyop3.extras.debug.maybe_breakpoint()
-
     if orig_axes is None:
         raise NotImplementedError("TODO")
 
