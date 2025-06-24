@@ -62,9 +62,9 @@ def tabulate_again(axes):
 
     # this is done at the root of the tree, so can treat in a flattened manner...
     offsets = [0] * len(to_tabulate)
-    for region_set in _collect_regions(axes):
+    for regions in _collect_regions(axes):
         for i, (offset_dat, mapping) in enumerate(to_tabulate):
-            region = just_one(filter(None, region_set.values()))
+            region = just_one(regions)
             offset = offsets[i]
             region_indices, region_size = mapping[region]
             offset_dat[offset:offset+region_indices.size] = region_indices + start
@@ -102,6 +102,9 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
         if mysubaxis:
             mysubtree = axes.subtree(path_acc_)
 
+        if axis.label == "field" and component.label == 1:
+            breakpoint()
+
         # If the axis tree has zero size but is not empty then it makes no sense to give it a layout
         if mysubaxis and not mysubtree.is_empty and _axis_tree_size(mysubtree) == 0:
             component_layout = 0
@@ -122,16 +125,9 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
                 if _tabulation_needs_subaxes(axes, path_acc_, free_axes_):
                     # 1. Needs subindices to be able to tabulate anything, pass down
                     component_layout = NaN()
-                elif subtree.is_empty:
-                    # 2. Affine access
-
-                    # FIXME: weakness in algorithm
-                    if step == 0:
-                        step = 1
-                    component_layout = AxisVar(axis) * step + start
-                else:
+                elif _axis_contains_multiple_regions(axes, path_acc) or not subtree.is_empty:
                     # 3. Non-constant stride, must tabulate
-                    offset_dat = Dat(offset_axes, data=np.full(offset_axes.size, -1, dtype=IntType))
+                    offset_dat = Dat.serial(offset_axes, data=np.full(offset_axes.size, -1, dtype=IntType))
 
                     if _axis_contains_multiple_regions(axes, path_acc):
                         steps = _tabulate_steps(offset_axes, subtree)
@@ -143,6 +139,13 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
 
                     offset_dat_expr = as_linear_buffer_expression(offset_dat)
                     component_layout = offset_dat_expr * step + start
+                else:
+                    # 2. Affine access
+
+                    # FIXME: weakness in algorithm
+                    if step == 0:
+                        step = 1
+                    component_layout = AxisVar(axis) * step + start
 
         if not isinstance(component_layout, NaN):
             layout_expr_acc_ = layout_expr_acc + component_layout
@@ -172,6 +175,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
 
 
 def _collect_regions(axes: AxisTree, *, path: PathT = immutabledict()):
+    # NOTE: This is now a set, not a mapping
     """
     (can think of as some sort of linearisation of the tree, should probably error if orders do not match)
 
@@ -206,9 +210,9 @@ def _collect_regions(axes: AxisTree, *, path: PathT = immutabledict()):
     for component in axis.components:
         path_ = path | {axis.label: component.label}
         for region in component._all_regions:
-            merged_region = {axis.label: region.label}
+            merged_region = {region.label} if region.label is not None else set()
 
-            if subaxis := axes.node_map.get(path_):
+            if axes.node_map[path_]:
                 for submerged_region in _collect_regions(axes, path=path_):
                     merged_region_ = merged_region | submerged_region
                     if merged_region_ not in merged_regions:
@@ -223,12 +227,13 @@ def _tabulate_steps(offset_axes, subtree, regions=True):
     from pyop3 import Dat
 
     step_expr = _axis_tree_size(subtree)
-    assert not isinstance(step_expr, numbers.Integral), "Constant steps should already be handled"
 
-    step_dat = Dat.empty(offset_axes, dtype=IntType)
-    step_dat.assign(step_expr, eager=True)
-
-    offsets = steps(step_dat.buffer._data, drop_last=False)
+    if isinstance(step_expr, numbers.Integral):
+        offsets = np.arange(offset_axes.size+1, dtype=IntType) * step_expr
+    else:
+        step_dat = Dat.empty(offset_axes, dtype=IntType)
+        step_dat.assign(step_expr, eager=True)
+        offsets = steps(step_dat.buffer._data, drop_last=False)
 
     if not regions:
         return offsets[:-1]
@@ -237,8 +242,7 @@ def _tabulate_steps(offset_axes, subtree, regions=True):
 
     # split this up per region
     region_steps = {}
-    for region_set in _collect_regions(offset_axes):
-        regions = tuple(filter(None, (region_label for region_label in region_set.values())))
+    for regions in _collect_regions(offset_axes):
         if len(regions) > 1:
             raise NotImplementedError("Currently we assume that we don't nest regions")
         else:

@@ -59,7 +59,7 @@ class Dat(Tensor, KernelArgument):
 
     """
 
-    # {{{ Instance attrs
+    # {{{ instance attrs
 
     axes: AbstractAxisTree
     _buffer: AbstractBuffer
@@ -68,18 +68,18 @@ class Dat(Tensor, KernelArgument):
 
     # }}}
 
-    # {{{ Class attrs
+    # {{{ class attrs
 
     DEFAULT_PREFIX: ClassVar[str] = "dat"
 
     # }}}
 
-    # {{{ Interface impls
+    # {{{ interface impls
 
-    name: ClassVar[str] = utils.attr("_name")
-    parent: ClassVar[Dat | None] = utils.attr("_parent")
-    buffer: ClassVar[AbstractBuffer] = utils.attr("_buffer")
-    dim = 1
+    name: ClassVar[property] = utils.attr("_name")
+    parent: ClassVar[property] = utils.attr("_parent")
+    buffer: ClassVar[property] = utils.attr("_buffer")
+    dim: ClassVar[int] = 1
 
     @property
     def comm(self) -> MPI.Comm:
@@ -100,6 +100,40 @@ class Dat(Tensor, KernelArgument):
 
     # }}}
 
+    # {{{ constructors
+
+    @classmethod
+    def empty(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
+        axes = as_axis_tree(axes)
+        buffer = ArrayBuffer.empty(axes.unindexed.size, dtype=dtype, sf=axes.sf)
+        return cls(axes, buffer=buffer, **kwargs)
+
+    @classmethod
+    def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
+        axes = as_axis_tree(axes)
+        # alloc_size?
+        buffer = ArrayBuffer.zeros(axes.unindexed.size, dtype=dtype, sf=axes.sf)
+        return cls(axes, buffer=buffer, **kwargs)
+
+    @classmethod
+    def null(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
+        axes = as_axis_tree(axes)
+        buffer = NullBuffer(axes.unindexed.size, dtype=dtype)
+        return cls(axes, buffer=buffer, **kwargs)
+
+    @classmethod
+    def from_array(cls, array: np.ndarray, *, buffer_kwargs=None, **kwargs) -> Dat:
+        buffer_kwargs = buffer_kwargs or {}
+
+        axes = Axis(array.size)
+        buffer = ArrayBuffer(array, **buffer_kwargs)
+        return cls(axes, buffer=buffer, **kwargs)
+
+    @classmethod
+    def serial(cls, axes, **kwargs) -> Dat:
+        return cls(axes.localize(), **kwargs)
+
+    # }}}
 
     def __init__(
         self,
@@ -152,37 +186,6 @@ class Dat(Tensor, KernelArgument):
     @PETSc.Log.EventDecorator()
     def __getitem__(self, indices):
         return self.getitem(indices, strict=False)
-
-    # {{{ Class constructors
-
-    @classmethod
-    def empty(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
-        axes = as_axis_tree(axes)
-        buffer = ArrayBuffer.empty(axes.unindexed.size, dtype=dtype, sf=axes.sf)
-        return cls(axes, buffer=buffer, **kwargs)
-
-    @classmethod
-    def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
-        axes = as_axis_tree(axes)
-        # alloc_size?
-        buffer = ArrayBuffer.zeros(axes.unindexed.size, dtype=dtype, sf=axes.sf)
-        return cls(axes, buffer=buffer, **kwargs)
-
-    @classmethod
-    def null(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
-        axes = as_axis_tree(axes)
-        buffer = NullBuffer(axes.unindexed.size, dtype=dtype)
-        return cls(axes, buffer=buffer, **kwargs)
-
-    @classmethod
-    def from_array(cls, array: np.ndarray, *, buffer_kwargs=None, **kwargs) -> Dat:
-        buffer_kwargs = buffer_kwargs or {}
-
-        axes = Axis(array.size)
-        buffer = ArrayBuffer(array, **buffer_kwargs)
-        return cls(axes, buffer=buffer, **kwargs)
-
-    # }}}
 
     # For some reason this is breaking stuff
     # @cachedmethod(lambda self: self.axes._cache)

@@ -459,6 +459,10 @@ class AxisComponent(LabelledNodeComponent):
     def _all_region_labels(self) -> tuple[str]:
         return tuple(region.label for region in self._all_regions)
 
+    @functools.cache
+    def localize(self) -> AxisComponent:
+        return self.copy(sf=None)
+
 
 class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
     fields = MultiComponentLabelledNode.fields | {"components"}
@@ -502,22 +506,6 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
 
     def __str__(self) -> str:
         return f"{{{self.label}: [{', '.join(map(str, self.components))}]}}"
-
-    # TODO: This method should be reimplemented inside of Firedrake.
-    # @classmethod
-    # def from_serial(cls, serial: Axis, sf):
-    #     if serial.sf is not None:
-    #         raise RuntimeError("serial axis is not serial")
-    #
-    #     if isinstance(sf, PETSc.SF):
-    #         sf = StarForest(sf, serial.size)
-    #
-    #     # renumber the serial axis to store ghost entries at the end of the vector
-    #     component_sizes, numbering = partition_ghost_points(serial, sf)
-    #     components = [
-    #         c.copy(size=(size, c.count), rank_equal=False) for c, size in checked_zip(serial.components, component_sizes)
-    #     ]
-    #     return cls(components, serial.label, numbering=numbering, sf=sf)
 
     @property
     def component_labels(self):
@@ -597,6 +585,10 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
 
         """
         return self._tree
+
+    @functools.cache
+    def localize(self):
+        return self.copy(components=[c.localize() for c in self.components])
 
     # TODO: Most of these should be deleted
     # Ideally I want to cythonize a lot of these methods
@@ -936,6 +928,15 @@ def _(expr: Expression) -> AxisTree:
 
 
 class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
+
+    # {{{ abstract methods
+
+    @property
+    @abc.abstractmethod
+    def unindexed(self) -> AxisTree:
+        pass
+
+    # }}}
 
     # {{{ interface impls
 
@@ -1422,9 +1423,21 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
 class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
 
+    # {{{ interface impls
+
     @property
-    def unindexed(self):
+    def unindexed(self) -> AxisTree:
         return self
+
+    # }}}
+
+    @functools.cache
+    def localize(self) -> AxisTree:
+        node_map = {
+            path: axis.localize() if axis else None
+            for path, axis in self.node_map.items()
+        }
+        return type(self)(node_map)
 
     @cached_property
     def _undistributed(self):
