@@ -1645,6 +1645,7 @@ class MyBadError(Exception):
 
 
 def matching_target(index_targets, orig_axes: AbstractAxisTree) -> Any | None:
+    assert False, "old code"
     """TODO
 
     This is useful for when multiple interpretations of axis information are

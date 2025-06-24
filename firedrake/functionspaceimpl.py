@@ -1772,7 +1772,7 @@ class RealFunctionSpace(FunctionSpace):
 
         # Now map the mesh-aware axes back to the actual axis tree
         targets = {}
-        target_path = dg_space.layout_axes.leaf_path
+        target_path = self.layout_axes.leaf_path
         for source_path in dg_space.axes.leaf_paths:
             if (self._mesh.name, self._mesh.cell_label) in source_path.items():
                 dof_axis = utils.single_valued((

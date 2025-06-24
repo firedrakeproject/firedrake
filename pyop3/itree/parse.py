@@ -517,27 +517,38 @@ def _(loop_index: LoopIndex, /, loop_context) -> tuple[LoopIndex]:
     if loop_index.is_context_free:
         return (loop_index,)
     else:
-        # TODO: Somewhere we are using a set when we shouldn't so we have to search
-        # for the right path when it should really be the first/last entry.
-        leaf = None
-        for path in loop_context[loop_index.id]:
-            try:
-                leaf_ = loop_index.iterset._node_from_path(path)
-                assert leaf is None
-                leaf = leaf_
-            except:
-                continue
-        assert leaf is not None
-
-        slices = [
-            Slice(axis_label, [AffineSliceComponent(component_label, label=component_label)], label=axis_label)
-            for axis_label, component_label in loop_index.iterset.path(leaf, ordered=True)
-        ]
-
-        # TODO: should accept the iterable directly
-        slices_tree = IndexTree.from_iterable(slices)
-
-        linear_iterset = loop_index.iterset[slices_tree]
+        iterset = loop_index.iterset
+        path = utils.just_one(
+            path_
+            for path_ in loop_context[loop_index.id]
+            if path_ in iterset.leaf_paths
+        )
+        linear_iterset = iterset.linearize(path)
+        # leaf_path = utils.just_one(
+        #     for path in loop_context[loop_index.id]
+        # )
+        #
+        # # TODO: Somewhere we are using a set when we shouldn't so we have to search
+        # # for the right path when it should really be the first/last entry.
+        # leaf = None
+        # for path in loop_context[loop_index.id]:
+        #     try:
+        #         leaf_ = loop_index.iterset._node_from_path(path)
+        #         assert leaf is None
+        #         leaf = leaf_
+        #     except:
+        #         continue
+        # assert leaf is not None
+        #
+        # slices = [
+        #     Slice(axis_label, [AffineSliceComponent(component_label, label=component_label)], label=axis_label)
+        #     for axis_label, component_label in loop_index.iterset.path(leaf, ordered=True)
+        # ]
+        #
+        # # TODO: should accept the iterable directly
+        # slices_tree = IndexTree.from_iterable(slices)
+        #
+        # linear_iterset = loop_index.iterset[slices_tree]
         return (loop_index.copy(iterset=linear_iterset),)
 
 

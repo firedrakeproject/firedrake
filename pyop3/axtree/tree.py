@@ -1940,6 +1940,14 @@ class UnitIndexedAxisTree:
 def find_matching_target(self):
     matching_targets = []
     for target in self.targets:
+        # drop empty targets, this is ugly but prevents later clashes - revisit later
+        if (immutabledict(), (immutabledict(), immutabledict())) in target.keys():
+            target = immutabledict({
+                key: value
+                for key, value in target.items()
+                if key != immutabledict()
+            })
+
         all_leaves_match = True
         for leaf_path in self.leaf_paths:
             target_path = {}
@@ -1958,7 +1966,7 @@ def find_matching_target(self):
         if all_leaves_match:
             matching_targets.append(target)
 
-    return just_one(matching_targets)
+    return utils.single_valued(matching_targets)
 
 
 class AxisForest:
