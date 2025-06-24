@@ -618,11 +618,16 @@ class Mat(AbstractMat):
         rset, cset = self.sparsity.dsets
         rlgmap = rset.unblocked_lgmap
         clgmap = cset.unblocked_lgmap
-        mat.createAIJ(size=((self.nrows, None), (self.ncols, None)),
-                      nnz=(self.sparsity.nnz, self.sparsity.onnz),
-                      bsize=1,
-                      comm=self.comm)
+        if self.mat_type == "is":
+            create = mat.createIS
+        elif self.mat_type.endswith("aij"):
+            create = mat.createAIJ
+        else:
+            raise ValueError(f"Unsupported mat_type {mat_type}")
+        size = ((self.nrows, None), (self.ncols, None))
+        create(size, bsize=1, comm=self.comm)
         mat.setLGMap(rmap=rlgmap, cmap=clgmap)
+        mat.setPreallocationNNZ((self.sparsity.nnz, self.sparsity.onnzi))
         self.handle = mat
         self._blocks = []
         rows, cols = self.sparsity.shape
@@ -685,7 +690,10 @@ class Mat(AbstractMat):
         col_lg = cset.lgmap
         rdim, cdim = self.dims[0][0]
 
-        if rdim == cdim and rdim > 1 and self.sparsity._block_sparse:
+        if self.mat_type == "is":
+            block_sparse = False
+            create = mat.createIS
+        elif rdim == cdim and rdim > 1 and self.sparsity._block_sparse:
             # Size is total number of rows and columns, but the
             # /sparsity/ is the block sparsity.
             block_sparse = True
@@ -697,10 +705,10 @@ class Mat(AbstractMat):
             create = mat.createAIJ
         create(size=((self.nrows, None),
                      (self.ncols, None)),
-               nnz=(self.sparsity.nnz, self.sparsity.onnz),
                bsize=(rdim, cdim),
                comm=self.comm)
         mat.setLGMap(rmap=row_lg, cmap=col_lg)
+        mat.setPreallocationNNZ((self.sparsity.nnz, self.sparsity.onnz))
         # Stash entries destined for other processors
         mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, False)
         # Any add or insertion that would generate a new entry that has not
@@ -716,7 +724,8 @@ class Mat(AbstractMat):
         mat.setOption(mat.Option.KEEP_NONZERO_PATTERN, True)
         # We completely fill the allocated matrix when zeroing the
         # entries, so raise an error if we "missed" one.
-        mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
+        if self.mat_type != "is":
+            mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
         # Put zeros in all the places we might eventually put a value.
         with profiling.timed_region("MatZeroInitial"):
             sparsity.fill_with_zeros(mat, self.sparsity.dims[0][0],
