@@ -58,6 +58,7 @@ class Sparsity(caching.ObjectCached):
         if self._initialized:
             return
         self._dsets = dsets
+        self._lgmaps = None
         self._maps_and_regions = maps_and_regions
         self._block_sparse = block_sparse
         self._diagonal_block = diagonal_block
@@ -619,15 +620,15 @@ class Mat(AbstractMat):
         rlgmap = rset.unblocked_lgmap
         clgmap = cset.unblocked_lgmap
         if self.mat_type == "is":
+            # TODO monolithic lgmaps
+            rlgmap, clgmap = self.sparsity._lgmaps
             create = mat.createIS
-        elif self.mat_type.endswith("aij"):
-            create = mat.createAIJ
         else:
-            raise ValueError(f"Unsupported mat_type {mat_type}")
+            create = mat.createAIJ
         size = ((self.nrows, None), (self.ncols, None))
         create(size, bsize=1, comm=self.comm)
         mat.setLGMap(rmap=rlgmap, cmap=clgmap)
-        mat.setPreallocationNNZ((self.sparsity.nnz, self.sparsity.onnzi))
+        mat.setPreallocationNNZ((self.sparsity.nnz, self.sparsity.onnz))
         self.handle = mat
         self._blocks = []
         rows, cols = self.sparsity.shape
@@ -691,6 +692,7 @@ class Mat(AbstractMat):
         rdim, cdim = self.dims[0][0]
 
         if self.mat_type == "is":
+            row_lg, col_lg = self.sparsity._lgmaps
             block_sparse = False
             create = mat.createIS
         elif rdim == cdim and rdim > 1 and self.sparsity._block_sparse:
@@ -703,10 +705,9 @@ class Mat(AbstractMat):
             # the /dof/ sparsity.
             block_sparse = False
             create = mat.createAIJ
-        create(size=((self.nrows, None),
-                     (self.ncols, None)),
-               bsize=(rdim, cdim),
-               comm=self.comm)
+        size = ((self.nrows, None), (self.ncols, None))
+        create(size, bsize=(rdim, cdim), comm=self.comm)
+
         mat.setLGMap(rmap=row_lg, cmap=col_lg)
         mat.setPreallocationNNZ((self.sparsity.nnz, self.sparsity.onnz))
         # Stash entries destined for other processors
@@ -826,6 +827,8 @@ class Mat(AbstractMat):
         self.change_assembly_state(Mat.INSERT_VALUES)
         if len(rows) > 0:
             if self.handle.type == "is":
+                own = self.handle.getLocalSize()[0]
+                rows = rows[rows < own]
                 self.handle.assemble()
                 self.handle.zeroRowsColumnsLocal(rows, diag_val)
             else:

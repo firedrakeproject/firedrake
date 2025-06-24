@@ -1399,6 +1399,10 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         except SparsityFormatError:
             raise ValueError("Monolithic matrix assembly not supported for systems "
                              "with R-space blocks")
+        if mat_type == "is":
+            rlgmap = unghosted_lgmap(sparsity._dsets[0].lgmap, test.function_space())
+            clgmap = unghosted_lgmap(sparsity._dsets[1].lgmap, trial.function_space())
+            sparsity._lgmaps = (rlgmap, clgmap)
         return sparsity
 
     def _make_maps_and_regions(self):
@@ -2210,3 +2214,42 @@ class _FormHandler:
             return tuple(a.ufl_function_space()[i] for i, a in zip(indices, form.arguments()))
         else:
             raise AssertionError
+
+
+def masked_lgmap(lgmap, mask, block=True):
+    if block:
+        indices = lgmap.block_indices.copy()
+        bsize = lgmap.getBlockSize()
+    else:
+        indices = lgmap.indices.copy()
+        bsize = 1
+    indices[mask] = -1
+    return PETSc.LGMap().create(indices=indices, bsize=bsize, comm=lgmap.comm)
+
+
+def unghosted_lgmap(lgmap, V, block=True):
+    block_size = lgmap.getBlockSize() if block else 1
+
+    mesh_dm = V.mesh().topology_dm
+    depth = mesh_dm.getDepth()
+    start, end = mesh_dm.getDepthStratum(depth)
+
+    own = []
+    for W in V:
+        section = W.dm.getDefaultSection()
+        for seed in range(start, end):
+            # Do not loop over ghost cells
+            if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
+                continue
+            closure, _ = mesh_dm.getTransitiveClosure(seed, useCone=True)
+            for p in closure:
+                dof = section.getDof(p)
+                if dof <= 0:
+                    continue
+                off = section.getOffset(p)
+                # Local indices within W
+                W_indices = range(block_size * off, block_size * (off + dof))
+                own.extend(W_indices)
+
+    mask = numpy.setdiff1d(range(len(lgmap.indices)), own)
+    return masked_lgmap(lgmap, mask, block=block)

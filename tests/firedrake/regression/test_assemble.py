@@ -114,6 +114,7 @@ def test_mat_nest_real_block_assembler_correctly_reuses_tensor(mesh):
 
     assert A2.M is A1.M
 
+
 @pytest.mark.parametrize("dirichlet_bcs", [False, True])
 def test_assemble_matis(mesh, dirichlet_bcs):
     V = FunctionSpace(mesh, "CG", 1)
@@ -131,8 +132,8 @@ def test_assemble_matis(mesh, dirichlet_bcs):
 
     aij = assemble(a, bcs=bcs, mat_type="aij").petscmat
     aij.axpy(-1, aijnew)
-    aij.view()
     assert np.allclose(aij[:, :], 0)
+
 
 def test_assemble_diagonal(mesh):
     V = FunctionSpace(mesh, "P", 3)
