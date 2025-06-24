@@ -10,6 +10,7 @@ from pathlib import Path
 import libsupermesh
 import numpy as np
 import pybind11
+import petsc4py
 import petsctools
 import rtree
 from Cython.Build import cythonize
@@ -20,7 +21,6 @@ from setuptools.command.sdist import sdist as _sdist
 
 # Ensure that the PETSc getting linked against is compatible
 petsctools.init(version_spec=">=3.23.0")
-import petsc4py
 
 
 @dataclass
