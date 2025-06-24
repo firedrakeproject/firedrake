@@ -39,10 +39,10 @@ class GTMGPC(PCBase):
           coarse operator.
         * `get_coarse_op_transpose_nullspace`: method which returns the
           nullspace of the transpose of the coarse operator.
-        * `interpolation_matrix`: PETSc matrix which describes the interpolation
+        * `interpolation_matrix`: PETSc Mat which describes the interpolation
           from the coarse to the fine space. If omitted, this will be
           constructed automatically with an :class:`.Interpolate` object.
-        * `restriction_matrix`: PETSc matrix which describes the restriction
+        * `restriction_matrix`: PETSc Mat which describes the restriction
           from the fine space dual to the coarse space dual. It defaults
           to the transpose of the interpolation matrix.
 
