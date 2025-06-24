@@ -825,9 +825,13 @@ class Mat(AbstractMat):
         rows = rows.reshape(-1, 1)
         self.change_assembly_state(Mat.INSERT_VALUES)
         if len(rows) > 0:
-            values = np.full(rows.shape, diag_val, dtype=dtypes.ScalarType)
-            self.handle.setValuesLocalRCV(rows, rows, values,
-                                          addv=PETSc.InsertMode.INSERT_VALUES)
+            if self.handle.type == "is":
+                self.handle.assemble()
+                self.handle.zeroRowsColumnsLocal(rows, diag_val)
+            else:
+                values = np.full(rows.shape, diag_val, dtype=dtypes.ScalarType)
+                self.handle.setValuesLocalRCV(rows, rows, values,
+                                              addv=PETSc.InsertMode.INSERT_VALUES)
 
     @mpi.collective
     def assemble(self):
