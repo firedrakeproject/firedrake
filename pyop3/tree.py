@@ -258,9 +258,12 @@ class LabelledTree(AbstractTree):
         return cls(node_map)
 
     @classmethod
-    def from_nest(cls, nest: Mapping[Node, Sequence[Mapping | Node]]) -> LabelledTree:
-        node_map = cls._node_map_from_nest(nest=nest, path=immutabledict())
-        return cls(node_map)
+    def from_nest(cls, nest: Mapping[Node, Sequence[Mapping | Node]] | Node) -> LabelledTree:
+        if isinstance(nest, Node):
+            return cls(nest)
+        else:
+            node_map = cls._node_map_from_nest(nest=nest, path=immutabledict())
+            return cls(node_map)
 
     @classmethod
     def _node_map_from_nest(cls, *, nest: Mapping[Node, Sequence[Mapping | Node]], path: ConcretePathT) -> ConcretePathT:

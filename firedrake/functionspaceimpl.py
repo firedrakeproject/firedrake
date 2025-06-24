@@ -1791,7 +1791,7 @@ class RealFunctionSpace(FunctionSpace):
         targets = (targets,) + (fake_axes._source_path_and_exprs,)
 
         return op3.IndexedAxisTree(
-            fake_axes, unindexed=self.layout, targets=targets,
+            fake_axes, unindexed=self.layout_axes, targets=targets,
         )
 
     finat_element = None  # TODO: do we use this?

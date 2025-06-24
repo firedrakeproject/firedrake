@@ -99,20 +99,6 @@ class IndexTree(MutableLabelledTreeMixin, LabelledTree):
 
     # }}}
 
-    def __init__(self, node_map=immutabledict()):
-        super().__init__(node_map)
-
-    # @classmethod
-    # def from_nest(cls, nest):
-    #     # NOTE: This may fail when we have maps which produce multiple axis trees.
-    #     # This is because the map has multiple equivalent interpretations so the
-    #     # correct one is not known at this point. Instead one should use
-    #     # IndexForest.from_nest(...).
-    #     root, node_map = cls._from_nest(nest)
-    #     node_map.update({None: [root]})
-    #     return cls(node_map)
-
-
 class SliceComponent(LabelledNodeComponent, abc.ABC):
     def __init__(self, component, *, label=None):
         super().__init__(label)
