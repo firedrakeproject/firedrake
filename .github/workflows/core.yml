@@ -209,7 +209,7 @@ jobs:
 
           : # DO NOT MERGE
           pip uninstall -y mpi-pytest
-          pip install "mpi-pytest @ git+https://github.com/firedrakeproject/mpi-pytest.git@connorjward/always-mark"
+          pip install "mpi-pytest @ git+https://github.com/firedrakeproject/mpi-pytest.git@main"
 
           firedrake-clean
           pip list
