@@ -202,12 +202,11 @@ class AbstractTree(abc.ABC):
         return node.id if isinstance(node, Node) else node
 
 
-class LabelledNodeComponent(pytools.ImmutableRecord, Labelled):
+class LabelledNodeComponent(pytools.ImmutableRecord):
     fields = {"label"}
 
     def __init__(self, label=None):
-        pytools.ImmutableRecord.__init__(self)
-        Labelled.__init__(self, label)
+        self.label = label
 
 
 class MultiComponentLabelledNode(Node, Labelled):
@@ -216,6 +215,9 @@ class MultiComponentLabelledNode(Node, Labelled):
     def __init__(self, label=None):
         Node.__init__(self)
         Labelled.__init__(self, label)
+
+        if not utils.has_unique_entries(self.component_labels):
+            raise ValueError("Duplicate component labels found")
 
     @property
     def degree(self) -> int:

@@ -18,6 +18,7 @@ from functools import cached_property
 from itertools import chain
 from typing import Any, FrozenSet, Hashable, Mapping, Optional, Self, Tuple, Union
 
+import cachetools
 import numpy as np
 import pyrsistent
 from cachetools import cachedmethod
@@ -459,8 +460,11 @@ class AxisComponent(LabelledNodeComponent):
     def _all_region_labels(self) -> tuple[str]:
         return tuple(region.label for region in self._all_regions)
 
-    @functools.cache
     def localize(self) -> AxisComponent:
+        return self._localized
+
+    @cached_property
+    def _localized(self) -> AxisComponent:
         return self.copy(sf=None)
 
 
@@ -473,11 +477,16 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
         label=None,
     ):
         components = self._parse_components(components)
+        # relabel components if needed
+        if any(c.label is None for c in components):
+            if not all(c.label is None for c in components):
+                raise ValueError("Cannot have only some as None")
+            components = tuple(c.copy(label=i) for i, c in enumerate(components))
 
+        self.components = components
         super().__init__(label=label)
         CacheMixin.__init__(self)
 
-        self.components = components
 
     def __eq__(self, other):
         return (
@@ -586,8 +595,11 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
         """
         return self._tree
 
-    @functools.cache
     def localize(self):
+        return self._localized
+
+    @cached_property
+    def _localized(self):
         return self.copy(components=[c.localize() for c in self.components])
 
     # TODO: Most of these should be deleted
@@ -1431,8 +1443,11 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
 
     # }}}
 
-    @functools.cache
     def localize(self) -> AxisTree:
+        return self._localized
+
+    @cached_property
+    def _localized(self) -> AxisTree:
         node_map = {
             path: axis.localize() if axis else None
             for path, axis in self.node_map.items()

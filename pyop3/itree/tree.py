@@ -100,6 +100,8 @@ class IndexTree(MutableLabelledTreeMixin, LabelledTree):
     # }}}
 
 class SliceComponent(LabelledNodeComponent, abc.ABC):
+    fields = LabelledNodeComponent.fields | {"component"}
+
     def __init__(self, component, *, label=None):
         super().__init__(label)
         self.component = component
@@ -122,9 +124,10 @@ class AffineSliceComponent(SliceComponent):
         step: IntType | None = None,
         *,
         label=None,
+        label_was_none=None,
         **kwargs
     ):
-        label_was_none = label is None
+        label_was_none = label_was_none or label is None
 
         super().__init__(component, label=label, **kwargs)
         # TODO: make None here and parse with `with_size()`
@@ -298,11 +301,9 @@ class LoopIndex(Index, KernelArgument):
     dtype = IntType
     fields = Index.fields - {"label"}
 
-    def __init__(self, iterset, *, id=None):
-        assert len(iterset.leaf_paths) >= 1
-
-        super().__init__(label=id)
+    def __init__(self, iterset: AbstractAxisTree, *, id=None):
         self.iterset = iterset
+        super().__init__(label=id)
 
     # TODO: This is very unclear...
     @property
@@ -311,6 +312,7 @@ class LoopIndex(Index, KernelArgument):
 
     @property
     def kernel_dtype(self):
+        assert False, "old code"
         return self.dtype
 
     # NOTE: should really just be 'degree' or similar, labels do not really make sense for
@@ -449,18 +451,23 @@ class Slice(Index):
 
     """
 
-    fields = Index.fields | {"axis", "slices", "label"}
+    fields = Index.fields | {"axis", "components", "label"}
 
-    def __init__(self, axis, slices, *, label=None):
-        slices = as_tuple(slices)
+    def __init__(self, axis, components, *, label=None):
+        components = as_tuple(components)
+        if any(c.label is None for c in components):
+            if not all(c.label is None for c in components):
+                raise ValueError("Cannot have only some as None")
+            components = tuple(c.copy(label=i) for i, c in enumerate(components))
 
-        super().__init__(label=label)
         self.axis = axis
-        self.slices = slices
+        self.components = components
+        super().__init__(label=label)
 
     @property
-    def components(self):
-        return self.slices
+    @utils.deprecated("components")
+    def slices(self):
+        return self.components
 
     @property
     def component_labels(self) -> tuple:

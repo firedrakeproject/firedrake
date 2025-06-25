@@ -102,9 +102,6 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
         if mysubaxis:
             mysubtree = axes.subtree(path_acc_)
 
-        if axis.label == "field" and component.label == 1:
-            breakpoint()
-
         # If the axis tree has zero size but is not empty then it makes no sense to give it a layout
         if mysubaxis and not mysubtree.is_empty and _axis_tree_size(mysubtree) == 0:
             component_layout = 0

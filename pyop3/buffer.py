@@ -250,9 +250,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._max_value = max_value
         self._ordered = ordered
 
-        # if self.name == "array_51":
-        #     breakpoint()
-
     @classmethod
     def empty(cls, shape, dtype: DTypeT | None = None, **kwargs):
         if dtype is None:

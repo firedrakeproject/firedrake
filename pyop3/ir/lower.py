@@ -367,13 +367,26 @@ class ModuleExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
-        ccode = lambda: lp.generate_code_v2(self.loopy_code).device_code()
-
-        # if len(self.loopy_code.callables_table) > 1:
-        #     breakpoint()
+        if len(self.loopy_code.callables_table) > 1:
+            breakpoint()
         # pyop3.extras.debug.maybe_breakpoint()
 
         self.executable(*exec_arguments)
+
+    def __str__(self) -> str:
+        sep = "*" * 80
+        str_ = []
+        str_.append(sep)
+        str_.append(lp.generate_code_v2(self.loopy_code).device_code())
+        str_.append(sep)
+        str_.append(
+            "\n".join(
+                f"{arg.name}: {self.buffer_map[arg.name]._data}"
+                for arg in self.loopy_code.default_entrypoint.args
+            )
+        )
+        str_.append(sep)
+        return "\n".join(str_)
 
     @cached_property
     def _buffer_indices(self) -> immutabledict[str, int]:
