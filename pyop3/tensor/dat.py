@@ -255,6 +255,13 @@ class Dat(Tensor, KernelArgument):
         offset = self.axes.offset(indices, path, loop_exprs=loop_exprs)
         self.buffer.data_wo[offset] = value
 
+    def localize(self) -> Dat:
+        return self._localized
+
+    @cached_property
+    def _localized(self) -> Dat:
+        return self.__record_init__(axes=self.axes.localize(), _buffer=self.buffer.localize())
+
     @property
     def alloc_size(self):
         return self.axes.alloc_size
@@ -728,6 +735,8 @@ class MatArrayBufferExpression(MatBufferExpression, ArrayBufferExpression, Nonli
 
 
 def as_linear_buffer_expression(dat: Dat) -> LinearDatArrayBufferExpression:
+    dat = dat.localize()
+
     if not dat.axes.is_linear:
         raise ValueError("The provided Dat must be linear")
 

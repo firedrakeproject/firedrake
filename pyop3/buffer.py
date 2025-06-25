@@ -234,21 +234,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # }}}
 
-    def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, max_value: numbers.Number | None=None, ordered:bool=False):
-        data = data.flatten()
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-        if max_value is not None:
-            max_value = utils.as_numpy_scalar(max_value)
-        if ordered:
-            utils.debug_assert(lambda: (data == np.sort(data)).all())
-
-
-        self._lazy_data = data
-        self.sf = sf
-        self._name = name
-        self._constant = constant
-        self._max_value = max_value
-        self._ordered = ordered
+    # {{{ constructors
 
     @classmethod
     def empty(cls, shape, dtype: DTypeT | None = None, **kwargs):
@@ -268,6 +254,24 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
         data = np.zeros(shape, dtype=dtype)
         return cls(data, **kwargs)
+
+    # }}}
+
+    def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, max_value: numbers.Number | None=None, ordered:bool=False):
+        data = data.flatten()
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+        if max_value is not None:
+            max_value = utils.as_numpy_scalar(max_value)
+        if ordered:
+            utils.debug_assert(lambda: (data == np.sort(data)).all())
+
+
+        self._lazy_data = data
+        self.sf = sf
+        self._name = name
+        self._constant = constant
+        self._max_value = max_value
+        self._ordered = ordered
 
     @property
     def comm(self) -> MPI.Comm | None:
@@ -456,6 +460,13 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def _reduce_then_broadcast(self):
         self._reduce_leaves_to_roots()
         self._broadcast_roots_to_leaves()
+
+    def localize(self) -> ArrayBuffer:
+        return self._localized
+
+    @cached_property
+    def _localized(self) -> ArrayBuffer:
+        return self.__record_init__(sf=None)
 
 
 class MatBufferSpec(abc.ABC):
