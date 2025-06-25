@@ -523,7 +523,7 @@ def parallel_cache(
     cache_id = next(_CACHE_CIDX)
 
     def decorator(func):
-        @PETSc.Log.EventDecorator("pyop2.caching.parallel_cache.wrapper")
+        @PETSc.Log.EventDecorator(f"pyop2.caching.parallel_cache.wrapper({func.__qualname__})")
         @wraps(func)
         def wrapper(*args, **kwargs):
             # Create a PyOP2 comm associated with the key, so it is decrefed
