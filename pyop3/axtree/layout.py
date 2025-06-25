@@ -86,6 +86,8 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
     from pyop3 import Dat
     from pyop3.tensor.dat import LinearDatArrayBufferExpression, as_linear_buffer_expression
 
+    # pyop3.extras.debug.maybe_breakpoint()
+
     if len(axis.components) > 1 and not all(_axis_component_has_fixed_size(c) for c in axis.components):
         # Fixing this would require deciding what to do with the start variable, which
         # might need tabulating itself.
@@ -156,6 +158,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
         if i < len(axis.components) - 1:
             # start += _axis_component_size(axes, axis, component)
             if axes.node_map[path_acc_]:
+                pyop3.extras.debug.warn_todo("This is wrong")
                 start += component.local_size * _axis_tree_size(axes.subtree(path_acc_))
             else:
                 start += component.local_size
@@ -223,12 +226,17 @@ def _collect_regions(axes: AxisTree, *, path: PathT = immutabledict()):
 def _tabulate_steps(offset_axes, subtree, regions=True):
     from pyop3 import Dat
 
-    step_expr = _axis_tree_size(subtree)
+    if subtree.is_empty:  # this seems a bit wrong
+        step_expr = 1
+    else:
+        step_expr = _axis_tree_size(subtree)
+
+    assert step_expr != 0
 
     if isinstance(step_expr, numbers.Integral):
         offsets = np.arange(offset_axes.size+1, dtype=IntType) * step_expr
     else:
-        step_dat = Dat.empty(offset_axes, dtype=IntType)
+        step_dat = Dat.empty(offset_axes.localize(), dtype=IntType)
         step_dat.assign(step_expr, eager=True)
         offsets = steps(step_dat.buffer._data, drop_last=False)
 

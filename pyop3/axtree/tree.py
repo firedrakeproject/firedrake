@@ -1862,6 +1862,7 @@ class IndexedAxisTree(AbstractAxisTree):
         # mask_dat = Dat.zeros(self.unindexed.undistribute(), dtype=bool, prefix="mask")
         # do_loop(p := self.index(), mask_dat[p].assign(1))
         # indices = just_one(np.nonzero(mask_dat.buffer.data_ro))
+
         indices_dat = Dat.empty(self.materialize(), dtype=IntType, prefix="indices")
         for leaf_path in self.leaf_paths:
             iterset = self.linearize(leaf_path)
@@ -1870,10 +1871,9 @@ class IndexedAxisTree(AbstractAxisTree):
             do_loop(p, indices_dat[p].assign(offset_expr))
         indices = indices_dat.buffer.data_ro_with_halos
 
-
         indices = np.unique(np.sort(indices))
 
-        debug_assert(lambda: max(indices) <= self.size)
+        debug_assert(lambda: min(indices) >= 0 and max(indices) <= self.size)
 
         # then convert to a slice if possible, do in Cython!!!
         pyop3.extras.debug.warn_todo("Convert to cython")

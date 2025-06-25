@@ -320,8 +320,9 @@ class LoopIndex(Index, KernelArgument):
     @property
     def component_labels(self) -> tuple:
         if not self.is_context_free:  # TODO: decorator?
+            pyop3.extras.debug.warn_todo("Need a custom context free loop index type - the generic case cannot go in an index tree I think")
             # custom exception type
-            raise ValueError("only valid (context-free) in single component case")
+            # raise ValueError("only valid (context-free) in single component case")
 
         return (0,)
 
