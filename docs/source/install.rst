@@ -221,7 +221,7 @@ to set the right environment variables and then run::
 
      $ pip install --upgrade firedrake
 
-Previously generated code generated may not be compatible with a newer
+Previously generated code may not be compatible with a newer
 Firedrake installation, and may crash with cryptic messages.
 We recommend removing any cached code after updating by running::
 
