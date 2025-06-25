@@ -7,23 +7,25 @@ import pathlib
 import subprocess
 
 
-SERIAL_TESTS = (
-    "tests/firedrake/regression/test_stokes_mini.py::test_stokes_mini",
-    # spatialindex
-    "tests/firedrake/regression/test_locate_cell.py",
-    # supermesh
-    "tests/firedrake/supermesh/test_assemble_mixed_mass_matrix.py::test_assemble_mixed_mass_matrix[2-CG-CG-0-0]",
-    # fieldsplit
-    "tests/firedrake/regression/test_matrix_free.py::test_fieldsplitting[parameters3-cofunc_rhs-variational]",
-    # near nullspace
-    "tests/firedrake/regression/test_nullspace.py::test_near_nullspace",
-)
-
-PARALLEL3_TESTS = (
-    "tests/firedrake/regression/test_dg_advection.py::test_dg_advection_icosahedral_sphere[nprocs=3]",
-    # vertex-only mesh
-    "tests/firedrake/regression/test_interpolate_cross_mesh.py::test_interpolate_cross_mesh_parallel[extrudedcube]",
-)
+# smoke tests grouped by number of processors
+TESTS = {
+    1: (
+        "tests/firedrake/regression/test_stokes_mini.py::test_stokes_mini",
+        # spatialindex
+        "tests/firedrake/regression/test_locate_cell.py",
+        # supermesh
+        "tests/firedrake/supermesh/test_assemble_mixed_mass_matrix.py::test_assemble_mixed_mass_matrix[2-CG-CG-0-0]",
+        # fieldsplit
+        "tests/firedrake/regression/test_matrix_free.py::test_fieldsplitting[parameters3-cofunc_rhs-variational]",
+        # near nullspace
+        "tests/firedrake/regression/test_nullspace.py::test_near_nullspace",
+    ),
+    3: (
+        "tests/firedrake/regression/test_dg_advection.py::test_dg_advection_icosahedral_sphere[nprocs=3]",
+        # vertex-only mesh
+        "tests/firedrake/regression/test_interpolate_cross_mesh.py::test_interpolate_cross_mesh_parallel[extrudedcube]",
+    ),
+}
 
 
 # log to terminal at INFO level
@@ -34,13 +36,13 @@ logger.setLevel(logging.INFO)
 def main() -> None:
     args = parse_args()
 
-    logger.info("    Running serial smoke tests")
-    run_tests(SERIAL_TESTS, 1, args.mpiexec)
-    logger.info("    Serial tests passed")
-
-    logger.info("    Running parallel smoke tests")
-    run_tests(PARALLEL3_TESTS, 3, args.mpiexec)
-    logger.info("    Parallel tests passed")
+    for nprocs, tests in TESTS.items():
+        if nprocs == 1:
+            logger.info("    Running serial smoke tests")
+        else:
+            logger.info(f"    Running parallel smoke tests (nprocs={nprocs})")
+        run_tests(tests, nprocs, args.mpiexec)
+        logger.info("    Tests passed")
 
 
 def parse_args() -> argparse.Namespace:
@@ -49,7 +51,10 @@ def parse_args() -> argparse.Namespace:
         "--mpiexec",
         type=str,
         default="mpiexec -n",
-        help="Command used to launch MPI."
+        help=(
+            "Command used to launch MPI. The command must end with the flag "
+            "taking the number of processors, e.g. '-n' for mpiexec."
+        ),
     )
     return parser.parse_args()
 
