@@ -410,9 +410,10 @@ class AnonymousCompiler(Compiler):
     _name = "Unknown"
 
 
-def load_hashkey(*args, **kwargs):
-    code_hash = as_hexdigest(args[0])
-    return default_parallel_hashkey(code_hash, *args[1:], **kwargs)
+def load_hashkey(code, extension, cppargs=(), ldargs=(), comm=None):
+    cppargs = tuple(cppargs)
+    ldargs = tuple(ldargs)
+    return default_parallel_hashkey(code, extension, cppargs, ldargs)
 
 
 @mpi.collective
