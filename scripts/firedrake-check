@@ -8,6 +8,7 @@ import importlib
 import os
 import pathlib
 import subprocess
+import sys
 
 
 # smoke tests grouped by number of processors
@@ -63,11 +64,12 @@ def parse_args() -> argparse.Namespace:
 
 def run_tests(tests: tuple[str], nprocs: int, mpiexec: str) -> None:
     # Find the path to firedrake._check. Don't actually import Firedrake here
-    # because that will initialise things and can prevent us calling 'mpiexec'
-    # below.
-    test_dir = pathlib.Path(
-        importlib.util.find_spec("firedrake._check").origin
+    # because that will initialise MPI and can prevent us calling 'mpiexec'
+    # below. This only causes issues on some systems.
+    firedrake_dir = pathlib.Path(
+        importlib.util.find_spec("firedrake").origin
     ).parent
+    test_dir = firedrake_dir / "_check"
 
     # Do verbose checking if running on CI and always set no:cacheprovider because
     # we don't want to generate any cache files in $VIRTUAL_ENV/lib/.../firedrake/_check
@@ -76,7 +78,7 @@ def run_tests(tests: tuple[str], nprocs: int, mpiexec: str) -> None:
     else:
         check_flags = "--quiet -p no:cacheprovider"
 
-    cmd = f"{mpiexec} {nprocs} python3 -m pytest {check_flags} -m parallel[{nprocs}]".split()
+    cmd = f"{mpiexec} {nprocs} {sys.executable} -m pytest {check_flags} -m parallel[{nprocs}]".split()
     cmd.extend(tests)
 
     subprocess.run(cmd, cwd=test_dir, check=True)
