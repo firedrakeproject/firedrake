@@ -1371,10 +1371,10 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
                     if _is_real_space(trial_subspace):
                         sub_mat_type_ = "rvec"
                     else:
-                        sub_mat_type_ = "rvec"
+                        sub_mat_type_ = "cvec"
                 else:
                     if _is_real_space(trial_subspace):
-                        sub_mat_type_ = "cvec"
+                        sub_mat_type_ = "rvec"
                     else:
                         sub_mat_type_ = sub_mat_type
 
@@ -1449,7 +1449,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     @staticmethod
     def _make_sparsity(test, trial, mat_spec, maps_and_regions):
         # Is this overly restrictive?
-        if any(len(a.function_space()) > 1 for a in [test, trial]) and mat_type == "baij":
+        if any(len(a.function_space()) > 1 for a in [test, trial]) and mat_spec.mat_type == "baij":
             raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
 
         sparsity = op3.Mat.sparsity(
@@ -1464,7 +1464,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 # if vector function space revert to standard case
                 diag_blocks = [(Ellipsis, Ellipsis)]
             else:
-                raise NotImplementedError("Loop contexts are confusing")
                 # otherwise treat each block separately
                 diag_blocks = [(i, i) for i in range(n)]
         else:
@@ -1502,7 +1501,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 test, trial, self._allocation_integral_types
             )
 
-        elif op3.utils.strictly_all(
+        elif utils.strictly_all(
             local_kernel.indices == (None, None)
             for assembler in self._all_assemblers
             for local_kernel, _ in assembler.local_kernels
@@ -1521,10 +1520,11 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             loops = []
             for assembler in self._all_assemblers:
                 all_meshes = assembler._form.ufl_domains()
-                for local_kernel, subdomain_id in self._all_local_kernels:
+                for local_kernel, _ in assembler.local_kernels:
                     integral_type = local_kernel.kinfo.integral_type
 
                     mesh = all_meshes[local_kernel.kinfo.domain_number]  # integration domain
+                    plex = mesh.topology
                     integral_type = local_kernel.kinfo.integral_type
 
                     Vrow = test.function_space()
@@ -1551,14 +1551,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                         index = iterset.index()
                         rmap = _facet_integral_pack_indices(Vrow, index)
                         cmap = _facet_integral_pack_indices(Vcol, index)
-
-                    # These maps are technically context-sensitive since they depend
-                    # on the loop index, but it is always trivial. However, we still
-                    # need to turn our index tree into an index forest for things to
-                    # make sense later on.
-                    context = pmap({index.id: (index.source_path, index.path)})
-                    rmap = {context: rmap}
-                    cmap = {context: cmap}
 
                     loop = (index, rmap, cmap, local_kernel.indices)
                     loops.append(loop)
@@ -1593,14 +1585,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 index = iterset.index()
                 rmap = _facet_integral_pack_indices(Vrow, index)
                 cmap = _facet_integral_pack_indices(Vcol, index)
-
-            # These maps are technically context-sensitive since they depend
-            # on the loop index, but it is always trivial. However, we still
-            # need to turn our index tree into an index forest for things to
-            # make sense later on.
-            # context = pmap({index.id: (index.source_path, index.path)})
-            # rmap = {context: rmap}
-            # cmap = {context: cmap}
 
             loop = (index, rmap, cmap, (None, None))
             loops.append(loop)
@@ -1712,7 +1696,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     def _as_pyop3_type(tensor, indices=None):
         if indices is not None and indices != (None, None):
             i, j = indices
-            raise NotImplementedError
             mat = tensor.M[i, j]
         else:
             mat = tensor.M
@@ -1892,8 +1875,6 @@ class ParloopBuilder:
         """
 
         if len(self._form.arguments()) == 2 and not self._diagonal:
-            if matrix.M.buffer.mat_type == "nest":
-                raise NotImplementedError("Mat nest not yet implemented")
             if not self._bcs:
                 return None
             lgmaps = []

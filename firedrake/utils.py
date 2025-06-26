@@ -12,6 +12,7 @@ from pyop3.utils import (  # noqa: F401
     just_one,
     single_valued,
     is_single_valued,
+    strictly_all,
 )
 
 from firedrake.petsc import get_petsc_variables

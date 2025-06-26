@@ -4,6 +4,7 @@ import abc
 import dataclasses
 import numbers
 from collections.abc import Iterable
+from functools import cached_property
 from typing import Any, ClassVar
 
 import numpy as np
@@ -12,7 +13,7 @@ from petsc4py import PETSc
 
 from pyop3 import utils
 from pyop3.axtree import ContextAware
-from pyop3.axtree.tree import Expression
+from pyop3.axtree.tree import AbstractAxisTree, Expression
 from pyop3.exceptions import InvalidIndexCountException
 from pyop3.lang import FunctionArgument, ArrayAssignment
 
@@ -87,6 +88,11 @@ class Tensor(ContextAware, FunctionArgument, Expression, abc.ABC):
     def leaf_layouts(self):  # or all layouts?
         pass
 
+    @property
+    @abc.abstractmethod
+    def axis_trees(self) -> tuple[AbstractAxisTree, ...]:
+        pass
+
     # }}}
 
     @property
@@ -124,3 +130,17 @@ class Tensor(ContextAware, FunctionArgument, Expression, abc.ABC):
 
     def copy(self) -> Tensor:
         return self.duplicate(copy=True)
+
+    @cached_property
+    def loop_axes(self) -> tuple[Axis]:
+        assert all(
+            loop.iterset.is_linear
+            for axes in self.axis_trees
+            for loop in axes.outer_loops
+        )
+        return tuple(
+            axis
+            for axes in self.axis_trees
+            for loop in axes.outer_loops
+            for axis in loop.iterset.nodes
+        )

@@ -89,14 +89,9 @@ class Dat(Tensor, KernelArgument):
     def shape(self) -> AxisTree:
         return self.axes.materialize()
 
-    @cached_property
-    def loop_axes(self) -> tuple[Axis]:
-        assert all(loop.iterset.is_linear for loop in self.outer_loops)
-        return tuple(
-            axis
-            for outer_loop in self.outer_loops
-            for axis in outer_loop.iterset.nodes
-        )
+    @property
+    def axis_trees(self) -> tuple[AbstractAxisTree]:
+        return (self.axes,)
 
     # }}}
 
@@ -726,6 +721,14 @@ class MatArrayBufferExpression(MatBufferExpression, ArrayBufferExpression, Nonli
     # {{{ interface impls
 
     buffer: ClassVar[AbstractArrayBuffer] = utils.attr("_buffer")
+
+    @property
+    def shape(self):
+        raise NotImplementedError
+
+    @property
+    def loop_axes(self):
+        raise NotImplementedError
 
     # }}}
 

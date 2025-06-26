@@ -299,7 +299,7 @@ class LoopIndex(Index, KernelArgument):
 
     """
     dtype = IntType
-    fields = Index.fields - {"label"}
+    fields = Index.fields - {"label"} | {"id"}
 
     def __init__(self, iterset: AbstractAxisTree, *, id=None):
         self.iterset = iterset

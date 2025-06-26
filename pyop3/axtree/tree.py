@@ -393,6 +393,7 @@ class AxisComponent(LabelledNodeComponent):
 
     # TODO this is just a traversal - clean up
     def alloc_size(self, axtree, axis):
+        assert False, "old code"
         from pyop3.tensor import Dat, LinearDatArrayBufferExpression
 
         if isinstance(self.local_size, (Dat, LinearDatArrayBufferExpression)):
@@ -1087,19 +1088,26 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     def as_tree(self):
         return self
 
-    @abc.abstractmethod
     def materialize(self):
         """Return a new "unindexed" axis tree with the same shape."""
+        return self._materialized
+
+    @property
+    @abc.abstractmethod
+    def _materialized(self):
+        pass
         # "unindexed" axis tree
         # strip parallel semantics (in a bad way)
-        parent_to_children = collections.defaultdict(list)
-        for p, cs in self.axes.parent_to_children.items():
-            for c in cs:
-                if c is not None and c.sf is not None:
-                    c = c.copy(sf=None)
-                parent_to_children[p].append(c)
+        # parent_to_children = collections.defaultdict(list)
+        # for p, cs in self.axes.parent_to_children.items():
+        #     for c in cs:
+        #         if c is not None and c.sf is not None:
+        #             c = c.copy(sf=None)
+        #         parent_to_children[p].append(c)
+        #
+        # axes = AxisTree(parent_to_children)
 
-        axes = AxisTree(parent_to_children)
+
 
     @property
     @abc.abstractmethod
@@ -1441,6 +1449,10 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def unindexed(self) -> AxisTree:
         return self
 
+    @property
+    def _materialized(self):
+        return self
+
     # }}}
 
     def localize(self) -> AxisTree:
@@ -1508,9 +1520,6 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     @property
     def outer_loops(self):
         return ()
-
-    def materialize(self):
-        return self
 
     def linearize(self, path: PathT) -> AxisTree:
         """Return the axis tree dropping all components not specified in the path."""
@@ -1603,6 +1612,23 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
 
 
 class IndexedAxisTree(AbstractAxisTree):
+
+    # {{{ interface impls
+
+    @cached_property
+    def _materialized(self) -> AxisTree:
+        if self.is_empty:
+            return AxisTree()
+        else:
+            return AxisTree(self.node_map)
+
+    @property
+    def unindexed(self):
+        return self._unindexed
+
+
+    # }}}
+
     # NOTE: It is OK for unindexed to be None, then we just have a map-like thing
     def __init__(
         self,
@@ -1638,10 +1664,6 @@ class IndexedAxisTree(AbstractAxisTree):
     @property
     def _targets(self):
         return self.targets
-
-    @property
-    def unindexed(self):
-        return self._unindexed
 
     @property
     def comm(self):
@@ -1730,15 +1752,8 @@ class IndexedAxisTree(AbstractAxisTree):
     def outer_loops(self):
         return self._outer_loops
 
-    def materialize(self, *, local=False) -> AxisTree:
-        if self.is_empty:
-            return AxisTree()
-        elif not local:
-            return AxisTree(self.node_map)
-        else:
-            return self._materialize_local(self.root)
-
     def _materialize_local(self, axis):
+        assert False, "old code"
         components = tuple(c.copy(sf=None) for c in axis.components)
         axis = Axis(components)
         axes = AxisTree(axis)

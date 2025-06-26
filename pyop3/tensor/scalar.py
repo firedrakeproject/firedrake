@@ -38,6 +38,7 @@ class Scalar(Tensor):
 
     shape = UNIT_AXIS_TREE
     loop_axes = ()
+    axis_trees = ()
 
     # }}}
 

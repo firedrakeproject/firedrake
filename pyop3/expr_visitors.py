@@ -931,7 +931,7 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatArrayBuff
     if mytree.size == 0:
         mytree = composite_dat.axis_tree
     else:
-        mytree = mytree.add_subtree(composite_dat.axis_tree, *mytree.leaf)
+        mytree = mytree.add_subtree(mytree.leaf_path, composite_dat.axis_tree)
 
     if mytree.size == 0:
         return None

@@ -67,16 +67,13 @@ class Mat(Tensor):
 
     # {{{ interface impls
 
-    name: ClassVar[property] = property(lambda self: self._name)
-    parent: ClassVar[property] = property(lambda self: self._parent)
+    name: ClassVar[property] = utils.attr("_name")
+    parent: ClassVar[property] = utils.attr("_parent")
 
     @property
     def shape(self):
-        raise NotImplementedError("Should we have a tuple of trees?")
+        return (self.raxes.materialize(), self.caxes.materialize())
 
-    @property
-    def loop_axes(self):
-        raise NotImplementedError("Should we have a tuple of tuples?")
 
     # }}}
 
@@ -88,7 +85,7 @@ class Mat(Tensor):
         row_axes,
         column_axes,
         *,
-        buffer_spec: MatBufferSpec | Mapping | None = None,
+        buffer_spec: MatBufferSpec | None = None,
         preallocator: bool = False,
         **kwargs,
     ) -> Mat:
@@ -112,7 +109,7 @@ class Mat(Tensor):
     def null(cls, row_axes, column_axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Mat:
         row_axes = as_axis_tree(row_axes)
         column_axes = as_axis_tree(column_axes)
-        buffer = NullBuffer(row_axes.alloc_size*column_axes.alloc_size, dtype=dtype)
+        buffer = NullBuffer(row_axes.unindexed.size*column_axes.unindexed.size, dtype=dtype)
         return cls(row_axes, column_axes, buffer=buffer, **kwargs)
 
     # }}}
@@ -457,10 +454,6 @@ class Mat(Tensor):
     #         raise NotImplementedError("Use a smaller set of axes here")
     #     return Dat(self.caxes, data=self.caxes.unindexed.global_numbering)
 
-    @property
-    def shape(self):
-        return (self.block_raxes.size, self.block_caxes.size)
-
     @staticmethod
     def _merge_contexts(row_mapping, col_mapping):
         merged = {}
@@ -476,31 +469,8 @@ class Mat(Tensor):
         return freeze(merged)
 
     @cached_property
-    def axes(self):
-        raise RuntimeError("do not use this any more")
-        def is_context_sensitive(_axes):
-            return isinstance(_axes, ContextSensitiveAxisTree)
-
-        if is_context_sensitive(self.raxes):
-            if is_context_sensitive(self.caxes):
-                merged_axes = {}
-                cs_axes = self._merge_contexts(self.raxes.context_map, self.caxes.context_map)
-                for context, (row_axes, col_axes) in cs_axes.items():
-                    merged_axes[context] = merge_axis_trees([row_axes, col_axes])
-                return ContextSensitiveAxisTree(merged_axes)
-            else:
-                merged_axes = {}
-                for context, row_axes in self.raxes.context_map.items():
-                    merged_axes[context] = merge_axis_trees([row_axes, self.caxes])
-                return ContextSensitiveAxisTree(merged_axes)
-        else:
-            if is_context_sensitive(self.caxes):
-                merged_axes = {}
-                for context, col_axes in self.caxes.context_map.items():
-                    merged_axes[context] = merge_axis_trees([self.raxes, col_axes])
-                return ContextSensitiveAxisTree(merged_axes)
-            else:
-                return merge_axis_trees([self.raxes, self.caxes])
+    def axis_trees(self) -> tuple[AbstractAxisTree, AbstractAxisTree]:
+        return (self.raxes, self.caxes)
 
     @classmethod
     def _merge_axes(cls, row_axes, col_axes):
@@ -529,7 +499,7 @@ class Mat(Tensor):
         else:
             raise NotImplementedError
 
-    # TODO: better to have .data?
+    # TODO: better to have .data? but global vs local?
     @property
     def values(self):
         if self.raxes.size * self.caxes.size > 1e6:
@@ -544,12 +514,31 @@ class Mat(Tensor):
         # right indices.
         if isinstance(self.buffer, PetscMatBuffer):
             petscmat = self.buffer.mat
+            if self.buffer.mat_type == "nest":
+                # TODO: What if we don't fully index?
+                # Should the buffer be responsible for this?
+                for ri, ci in self.nest_indices:
+                    petscmat = petscmat.getNestSubMatrix(ri, ci)
+
             if petscmat.type == PETSc.Mat.Type.PYTHON:
                 return petscmat.getPythonContext().dat.data_ro
             else:
                 return petscmat[:, :]
         else:
             raise NotImplementedError
+
+    @cached_property
+    def nest_indices(self) -> tuple[tuple[int, int], ...]:
+        return ((self._nest_indices(self.raxes), self._nest_indices(self.caxes)),)
+
+    def _nest_indices(self, axes) -> int | None:
+        # FIXME: This is extremely overly specific
+        if (
+            immutabledict() in axes.targets[0]
+            and "field" in axes.targets[0][immutabledict()][0].keys()
+        ):
+            return axes.targets[0][immutabledict()][0]["field"]
+
 
 
 def _zero_if_none(value):
@@ -558,7 +547,7 @@ def _zero_if_none(value):
 
 def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: AbstractAxisTree, column_axes: AbstractAxisTree) -> FullMatBufferSpec:
     if isinstance(partial_spec, NonNestedPetscMatBufferSpec):
-        if partial_spec.mat_type in {"rvec", "cvec"}:  # TODO: store PYTHON_MAT_TYPES or similar
+        if partial_spec.mat_type in {"rvec", "cvec"}:
             row_spec = row_axes
             column_spec = column_axes
         else:
@@ -587,12 +576,45 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
         full_spec = np.empty_like(partial_spec.submat_specs)
         for i, (index_key, sub_partial_spec) in np.ndenumerate(partial_spec.submat_specs):
             row_index, column_index = index_key
-            sub_row_axes = row_axes[row_index]
-            sub_column_axes = column_axes[column_index]
+
+            sub_row_axes = trim_axes(row_axes, row_index)
+            sub_column_axes = trim_axes(column_axes, column_index)
+
             sub_spec = make_full_mat_buffer_spec(sub_partial_spec, sub_row_axes, sub_column_axes)
             full_spec[i] = sub_spec
 
     return full_spec
+
+
+def trim_axes(orig_axes, index) -> IndexedAxisTree:
+    """
+    The idea here is to trim ``orig_axes`` with index such that we can pretend
+    that the axes always looked truncated in that form.
+    """
+    for t in orig_axes.targets:
+        if immutabledict() in t and t[immutabledict()] != (immutabledict(), immutabledict()):
+            raise ValueError("Assume that there is no pre-existing indexed information")
+    assert not orig_axes.outer_loops
+
+    orig_indexed = orig_axes[index]
+    unindexed = orig_axes.unindexed[index].materialize()
+
+    # remove the indexed bit from the targets, since we are doing scalar indices
+    # we can just remove the immutabledict() entries
+    trimmed_targets = []
+    for orig_target in orig_indexed.targets:
+        trimmed_target = {
+            axis_path: target_spec
+            for axis_path, target_spec in orig_target.items()
+            if axis_path != immutabledict()
+        }
+        trimmed_targets.append(trimmed_target)
+
+    return IndexedAxisTree(
+        orig_indexed.node_map,
+        unindexed=unindexed,
+        targets=trimmed_targets,
+    )
 
 
 class DatPythonMatContext:
