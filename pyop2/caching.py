@@ -203,8 +203,13 @@ def get_comm_caches(comm: MPI.Comm) -> dict[Hashable, Mapping]:
 
 
 def get_cache_entry(comm: MPI.Comm, cache: Mapping, key: Hashable) -> Any:
-    if configuration["spmd_strict"] and not pytools.is_single_valued(comm.allgather(key)):
-        raise ValueError("Cache keys differ between ranks")
+    if (
+        configuration["spmd_strict"]
+        and not pytools.is_single_valued(comm.allgather(key))
+    ):
+        raise ValueError(
+            f"Cache keys differ between ranks. On rank {comm.rank} got:\n{key}"
+        )
 
     value = cache.get(key, CACHE_MISS)
 

@@ -249,6 +249,18 @@ class Compiler(ABC):
     def __str__(self):
         return f"<{self._name} compiler, version {self._version or 'unknown'}>"
 
+    def __hash__(self) -> int:
+        return hash((
+            type(self),
+            self._extra_compiler_flags,
+            self._extra_linker_flags,
+            self._version,
+            self._debug,
+        ))
+
+    def __eq__(self, other) -> bool:
+        return type(other) is type(self) and hash(other) == hash(self)
+
     @property
     def cc(self):
         return self._cc or petsc_variables["CC"]
