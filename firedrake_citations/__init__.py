@@ -292,6 +292,22 @@ Citations().add("Hiptmair1998", """
 }
 """)
 
+Citations().add("Gopalakrishnan2009", """
+@article{Gopalakrishnan2009,
+  author    = {Jayadeep Gopalakrishnan and Shuguang Tan},
+  doi       = {10.1002/nla.636},
+  journal   = {Numerical Linear Algebra with Applications},
+  month     = {sep},
+  number    = {9},
+  pages     = {689--714},
+  publisher = {Wiley},
+  title     = {A convergent multigrid cycle for the hybridized mixed method},
+  url       = {https://doi.org/10.1002/nla.636},
+  volume    = {16},
+  year      = {2009}
+}
+""")
+
 Citations().add("nixonhill2023consistent", """
 @article{nixonhill2023consistent,
   author        = {Nixon-Hill, R. W. and Shapero, D. and Cotter, C. J. and Ham, D. A.},
