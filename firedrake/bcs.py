@@ -452,6 +452,8 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 u = u.sub(idx)
         if u:
             r.assign(u - self.function_arg, subset=self.node_set)
+        elif self.block_variable.checkpoint is not None:
+            r.assign(self.block_variable.checkpoint.checkpoint, subset=self.node_set)
         else:
             r.assign(self.function_arg, subset=self.node_set)
 
