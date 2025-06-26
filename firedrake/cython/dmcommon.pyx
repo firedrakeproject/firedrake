@@ -3517,7 +3517,7 @@ cdef int DMPlexGetAdjacency_Closure_Star_Ridge(
 
     """
     cdef:
-        const PetscInt *star = NULL;
+        PetscInt *star = NULL;
         PetscInt numAdj = 0
         PetscInt maxAdjSize = adjSize[0]
         PetscInt starSize
