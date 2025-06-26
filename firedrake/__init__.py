@@ -88,6 +88,7 @@ from firedrake.ensemble import *
 from firedrake.randomfunctiongen import *
 from firedrake.external_operators import *
 from firedrake.progress_bar import ProgressBar  # noqa: F401
+from firedrake.device import gpu_assembly
 
 from firedrake.logging import *
 # Set default log level
