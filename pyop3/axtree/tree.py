@@ -1873,7 +1873,7 @@ class IndexedAxisTree(AbstractAxisTree):
 
         indices = np.unique(np.sort(indices))
 
-        debug_assert(lambda: min(indices) >= 0 and max(indices) <= self.size)
+        debug_assert(lambda: min(indices) >= 0 and max(indices) <= self.unindexed.size)
 
         # then convert to a slice if possible, do in Cython!!!
         pyop3.extras.debug.warn_todo("Convert to cython")
@@ -1882,7 +1882,8 @@ class IndexedAxisTree(AbstractAxisTree):
 
         assert n > 0
         if n == 1:
-            return slice(None)
+            start = indices[0]
+            return slice(start, start+1)
         else:
             step = indices[1] - indices[0]
 
