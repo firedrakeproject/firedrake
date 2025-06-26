@@ -671,9 +671,10 @@ class Mat(AbstractMat):
         for i in range(rows):
             row = []
             for j in range(cols):
+                # Only set sub_mat_type on the diagonal blocks
                 row.append(Mat(self.sparsity[i, j], self.dtype,
                                '_'.join([self.name, str(i), str(j)]),
-                               mat_type=self.sub_mat_type))
+                               mat_type=self.sub_mat_type if i == j else None))
             self._blocks.append(row)
         # PETSc Mat.createNest wants a flattened list of Mats
         mat.createNest([[m.handle for m in row_] for row_ in self._blocks],
@@ -812,27 +813,6 @@ class Mat(AbstractMat):
                 rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
         self.assemble()
         self.handle.zeroRowsLocal(rows, diag_val)
-
-    @mpi.collective
-    def zero_columns(self, rows, diag_val=1.0, idx=None):
-        """Zeroes the specified columns of the matrix, with the exception of the
-        diagonal entry, which is set to diag_val. May be used for applying
-        strong boundary conditions.
-
-        :param rows: a :class:`Subset` or an iterable"""
-        rows = rows.indices if isinstance(rows, Subset) else rows
-        rows = np.asarray(rows, dtype=dtypes.IntType)
-        rbs, _ = self.dims[0][0]
-        if rbs > 1:
-            if idx is not None:
-                rows = rbs * rows + idx
-            else:
-                rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
-        self.assemble()
-        # FIXME implement zeroColumnsLocal
-        self.handle.transpose()
-        self.handle.zeroRowsLocal(rows, diag_val)
-        self.handle.transpose()
 
     def _flush_assembly(self):
         self.handle.assemble(assembly=PETSc.Mat.AssemblyType.FLUSH)

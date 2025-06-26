@@ -1512,16 +1512,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # block is on the matrix diagonal and its index matches the
             # index of the function space the bc is defined on.
             op2tensor[index, index].set_local_diagonal_entries(bc.nodes, idx=component, diag_val=self.weight)
-            if self._mat_type == "nest" and self._sub_mat_type == "is":
-                for i in range(len(tensor.arguments()[1].function_space())):
-                    if i == index:
-                        continue
-                    op2tensor[index, i].zero_rows(bc.nodes, idx=component, diag_val=0)
-                for i in range(len(tensor.arguments()[0].function_space())):
-                    if i == index:
-                        continue
-                    op2tensor[i, index].zero_columns(bc.nodes, idx=component, diag_val=0)
-
             # Handle off-diagonal block involving real function space.
             # "lgmaps" is correctly constructed in _matrix_arg, but
             # is ignored by PyOP2 in this case.

@@ -146,7 +146,8 @@ def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
             row = []
             for j in range(len(V)):
                 bis = ais.getNestSubMatrix(i, j)
-                assert bis.type == "is"
+                if i == j:
+                    assert bis.type == "is"
                 bij = PETSc.Mat()
                 bis.convert("aij", bij)
                 row.append(bij)
