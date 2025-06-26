@@ -356,7 +356,9 @@ class BaseFormAssembler(AbstractFormAssembler):
             else:
                 test, trial = self._form.arguments()
                 sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_type, self._sub_mat_type, self.maps_and_regions)
-                return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType, options_prefix=self._options_prefix)
+                return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType,
+                                     sub_mat_type=self._sub_mat_type,
+                                     options_prefix=self._options_prefix)
         else:
             raise NotImplementedError("Only implemented for rank = 2 and diagonal = False")
 
@@ -1377,6 +1379,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                                                           self._sub_mat_type,
                                                           self._make_maps_and_regions())
         return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType,
+                             sub_mat_type=self._sub_mat_type,
                              options_prefix=self._options_prefix,
                              fc_params=self._form_compiler_params)
 
@@ -1399,10 +1402,21 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         except SparsityFormatError:
             raise ValueError("Monolithic matrix assembly not supported for systems "
                              "with R-space blocks")
+
+        # TODO reconstruct dof_dset with the unghosted lgmap
         if mat_type == "is":
-            rlgmap = unghosted_lgmap(sparsity._dsets[0].lgmap, test.function_space())
-            clgmap = unghosted_lgmap(sparsity._dsets[1].lgmap, trial.function_space())
-            sparsity._lgmaps = (rlgmap, clgmap)
+            rmap = unghosted_lgmap(sparsity._dsets[0].lgmap, test.function_space())
+            cmap = unghosted_lgmap(sparsity._dsets[1].lgmap, trial.function_space())
+            sparsity._lgmaps = (rmap, cmap)
+
+        elif mat_type == "nest" and sub_mat_type == "is":
+            Vrow = test.function_space()
+            Vcol = trial.function_space()
+            for i, j in numpy.ndindex((len(Vrow), len(Vcol))):
+                block = sparsity[i, j]
+                rmap = unghosted_lgmap(block._dsets[0].lgmap, Vrow[i])
+                cmap = unghosted_lgmap(block._dsets[1].lgmap, Vcol[j])
+                block._lgmaps = (rmap, cmap)
         return sparsity
 
     def _make_maps_and_regions(self):
@@ -1498,6 +1512,15 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # block is on the matrix diagonal and its index matches the
             # index of the function space the bc is defined on.
             op2tensor[index, index].set_local_diagonal_entries(bc.nodes, idx=component, diag_val=self.weight)
+            if self._mat_type == "nest" and self._sub_mat_type == "is":
+                for i in range(len(tensor.arguments()[1].function_space())):
+                    if i == index:
+                        continue
+                    op2tensor[index, i].zero_rows(bc.nodes, idx=component, diag_val=0)
+                for i in range(len(tensor.arguments()[0].function_space())):
+                    if i == index:
+                        continue
+                    op2tensor[i, index].zero_columns(bc.nodes, idx=component, diag_val=0)
 
             # Handle off-diagonal block involving real function space.
             # "lgmaps" is correctly constructed in _matrix_arg, but

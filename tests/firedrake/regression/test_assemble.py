@@ -124,7 +124,6 @@ def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
         V = FunctionSpace(mesh, "CG", 1)
         if shape == "mixed":
             V = V * V
-
     if V.value_size == 1:
         A = 1
     else:
@@ -132,19 +131,39 @@ def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
 
     u = TrialFunction(V)
     v = TestFunction(V)
-    a = inner(A*grad(u), grad(v))*dx
+    a = inner(A * grad(u), grad(v))*dx
     if dirichlet_bcs:
         bcs = [DirichletBC(V.sub(i), 0, (i % 4+1, (i+2) % 4+1)) for i in range(V.value_size)]
     else:
         bcs = None
 
     ais = assemble(a, bcs=bcs, mat_type=mat_type, sub_mat_type="is").petscmat
-    aijnew = PETSc.Mat()
-    ais.convert("aij", aijnew)
 
-    aij = assemble(a, bcs=bcs, mat_type="aij").petscmat
-    aij.axpy(-1, aijnew)
-    assert np.allclose(aij[:, :], 0)
+    aij = PETSc.Mat()
+    if ais.type == "nest":
+        blocks = []
+        for i in range(len(V)):
+            row = []
+            for j in range(len(V)):
+                bis = ais.getNestSubMatrix(i, j)
+                assert bis.type == "is"
+                bij = PETSc.Mat()
+                bis.convert("aij", bij)
+                row.append(bij)
+            blocks.append(row)
+        anest = PETSc.Mat()
+        anest.createNest(blocks,
+                         isrows=V.dof_dset.field_ises,
+                         iscols=V.dof_dset.field_ises,
+                         comm=ais.comm)
+        anest.convert("aij", aij)
+    else:
+        assert ais.type == "is"
+        ais.convert("aij", aij)
+
+    aij_ref = assemble(a, bcs=bcs, mat_type="aij").petscmat
+    aij_ref.axpy(-1, aij)
+    assert np.allclose(aij_ref[:, :], 0)
 
 
 def test_assemble_diagonal(mesh):
