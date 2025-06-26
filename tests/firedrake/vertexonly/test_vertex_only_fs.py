@@ -3,7 +3,6 @@ from firedrake.__future__ import *
 import pytest
 import numpy as np
 from mpi4py import MPI
-from petsc4py.PETSc import Error
 
 
 # Utility Functions
