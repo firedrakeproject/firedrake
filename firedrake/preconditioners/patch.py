@@ -14,7 +14,6 @@ from functools import partial
 import numpy
 from finat.ufl import VectorElement, MixedElement
 from ufl.domain import extract_unique_domain
-from tsfc.kernel_interface.firedrake_loopy import make_builder
 from tsfc.ufl_utils import extract_firedrake_constants
 import weakref
 
@@ -144,11 +143,11 @@ def matrix_funptr(form, state):
         raise NotImplementedError("Only for matching test and trial spaces")
 
     if state is not None:
-        interface = make_builder(dont_split=(state, ))
+        dont_split = (state, )
     else:
-        interface = None
+        dont_split = ()
 
-    kernels = compile_form(form, "subspace_form", split=False, interface=interface)
+    kernels = compile_form(form, "subspace_form", split=False, dont_split=dont_split)
 
     cell_kernels = []
     int_facet_kernels = []
@@ -238,11 +237,11 @@ def residual_funptr(form, state):
         raise NotImplementedError("State and test space must be dual to one-another")
 
     if state is not None:
-        interface = make_builder(dont_split=(state, ))
+        dont_split = (state, )
     else:
-        interface = None
+        dont_split = ()
 
-    kernels = compile_form(form, "subspace_form", split=False, interface=interface)
+    kernels = compile_form(form, "subspace_form", split=False, dont_split=dont_split)
 
     cell_kernels = []
     int_facet_kernels = []
