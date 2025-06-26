@@ -641,7 +641,8 @@ class Mat(AbstractMat):
         mat.setOption(mat.Option.KEEP_NONZERO_PATTERN, True)
         # We completely fill the allocated matrix when zeroing the
         # entries, so raise an error if we "missed" one.
-        mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
+        if self.mat_type != "is":
+            mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
         mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, False)
         mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
         # The first assembly (filling with zeros) sets all possible entries.
@@ -824,14 +825,16 @@ class Mat(AbstractMat):
             else:
                 rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
         rows = rows.reshape(-1, 1)
-        self.change_assembly_state(Mat.INSERT_VALUES)
-        if len(rows) > 0:
-            if self.handle.type == "is":
-                own = self.handle.getLocalSize()[0]
-                rows = rows[rows < own]
-                self.handle.assemble()
-                self.handle.zeroRowsColumnsLocal(rows, diag_val)
-            else:
+        if self.handle.type == "is":
+            self.handle.assemble()
+            # PETSc does not properly handle local dofs that map
+            # to a negative global index
+            rmap, _ = self.handle.getLGMap()
+            rows = rows[rmap.apply(rows) > -1]
+            self.handle.zeroRowsColumnsLocal(rows, diag_val)
+        else:
+            self.change_assembly_state(Mat.INSERT_VALUES)
+            if len(rows) > 0:
                 values = np.full(rows.shape, diag_val, dtype=dtypes.ScalarType)
                 self.handle.setValuesLocalRCV(rows, rows, values,
                                               addv=PETSc.InsertMode.INSERT_VALUES)
@@ -946,11 +949,19 @@ class MatBlock(AbstractMat):
             else:
                 rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
         rows = rows.reshape(-1, 1)
-        self.change_assembly_state(Mat.INSERT_VALUES)
-        if len(rows) > 0:
-            values = np.full(rows.shape, diag_val, dtype=dtypes.ScalarType)
-            self.handle.setValuesLocalRCV(rows, rows, values,
-                                          addv=PETSc.InsertMode.INSERT_VALUES)
+        if self.handle.type == "is":
+            self.handle.assemble()
+            # PETSc does not properly handle local dofs that map
+            # to a negative global index
+            rmap, _ = self.handle.getLGMap()
+            rows = rows[rmap.apply(rows) > -1]
+            self.handle.zeroRowsColumnsLocal(rows, diag_val)
+        else:
+            self.change_assembly_state(Mat.INSERT_VALUES)
+            if len(rows) > 0:
+                values = np.full(rows.shape, diag_val, dtype=dtypes.ScalarType)
+                self.handle.setValuesLocalRCV(rows, rows, values,
+                                              addv=PETSc.InsertMode.INSERT_VALUES)
 
     def addto_values(self, rows, cols, values):
         """Add a block of values to the :class:`Mat`."""

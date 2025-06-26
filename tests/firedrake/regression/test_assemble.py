@@ -116,17 +116,23 @@ def test_mat_nest_real_block_assembler_correctly_reuses_tensor(mesh):
 
 
 @pytest.mark.parametrize("dirichlet_bcs", [False, True])
-def test_assemble_matis(mesh, dirichlet_bcs):
+@pytest.mark.parametrize("mat_type", ["is", "nest"])
+def test_assemble_matis(mesh, mat_type, dirichlet_bcs):
     V = FunctionSpace(mesh, "CG", 1)
+    A = 1
+    if mat_type == "nest":
+        V = V * V
+        A = as_matrix([[2, -1], [-1, 2]])
+
     u = TrialFunction(V)
     v = TestFunction(V)
-    a = inner(grad(u), grad(v))*dx
+    a = inner(A*grad(u), grad(v))*dx
     if dirichlet_bcs:
-        bcs = DirichletBC(V, 0, (1, 3))
+        bcs = [DirichletBC(V.sub(i), 0, (i % 4+1, (i+2) % 4+1)) for i in range(len(V))]
     else:
         bcs = None
 
-    ais = assemble(a, bcs=bcs, mat_type="is").petscmat
+    ais = assemble(a, bcs=bcs, mat_type=mat_type, sub_mat_type="is").petscmat
     aijnew = PETSc.Mat()
     ais.convert("aij", aijnew)
 

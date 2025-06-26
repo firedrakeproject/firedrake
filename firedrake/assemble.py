@@ -1332,8 +1332,8 @@ def _get_mat_type(mat_type, sub_mat_type, arguments):
         raise ValueError(f"Unrecognised matrix type, '{mat_type}'")
     if sub_mat_type is None:
         sub_mat_type = parameters.parameters["default_sub_matrix_type"]
-    if sub_mat_type not in {"aij", "baij"}:
-        raise ValueError(f"Invalid submatrix type, '{sub_mat_type}' (not 'aij' or 'baij')")
+    if sub_mat_type not in {"aij", "baij", "is"}:
+        raise ValueError(f"Invalid submatrix type, '{sub_mat_type}' (not 'aij', 'baij', or 'is')")
     return mat_type, sub_mat_type
 
 
@@ -2223,7 +2223,8 @@ def masked_lgmap(lgmap, mask, block=True):
     else:
         indices = lgmap.indices.copy()
         bsize = 1
-    indices[mask] = -1
+    if len(mask) > 0:
+        indices[mask] = -1
     return PETSc.LGMap().create(indices=indices, bsize=bsize, comm=lgmap.comm)
 
 
@@ -2235,7 +2236,8 @@ def unghosted_lgmap(lgmap, V, block=True):
     start, end = mesh_dm.getDepthStratum(depth)
 
     own = []
-    for W in V:
+    for i, W in enumerate(V):
+        W_local_ises_indices = V.dof_dset.local_ises[i].indices
         section = W.dm.getDefaultSection()
         for seed in range(start, end):
             # Do not loop over ghost cells
@@ -2248,8 +2250,8 @@ def unghosted_lgmap(lgmap, V, block=True):
                     continue
                 off = section.getOffset(p)
                 # Local indices within W
-                W_indices = range(block_size * off, block_size * (off + dof))
-                own.extend(W_indices)
+                W_indices = slice(block_size * off, block_size * (off + dof))
+                own.extend(W_local_ises_indices[W_indices])
 
     mask = numpy.setdiff1d(range(len(lgmap.indices)), own)
     return masked_lgmap(lgmap, mask, block=block)
