@@ -115,20 +115,26 @@ def test_mat_nest_real_block_assembler_correctly_reuses_tensor(mesh):
     assert A2.M is A1.M
 
 
+@pytest.mark.parametrize("shape,mat_type", [("scalar", "is"), ("vector", "is"), ("mixed", "is"), ("mixed", "nest")])
 @pytest.mark.parametrize("dirichlet_bcs", [False, True])
-@pytest.mark.parametrize("mat_type", ["is", "nest"])
-def test_assemble_matis(mesh, mat_type, dirichlet_bcs):
-    V = FunctionSpace(mesh, "CG", 1)
-    A = 1
-    if mat_type == "nest":
-        V = V * V
+def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
+    if shape == "vector":
+        V = VectorFunctionSpace(mesh, "CG", 1)
+    else:
+        V = FunctionSpace(mesh, "CG", 1)
+        if shape == "mixed":
+            V = V * V
+
+    if V.value_size == 1:
+        A = 1
+    else:
         A = as_matrix([[2, -1], [-1, 2]])
 
     u = TrialFunction(V)
     v = TestFunction(V)
     a = inner(A*grad(u), grad(v))*dx
     if dirichlet_bcs:
-        bcs = [DirichletBC(V.sub(i), 0, (i % 4+1, (i+2) % 4+1)) for i in range(len(V))]
+        bcs = [DirichletBC(V.sub(i), 0, (i % 4+1, (i+2) % 4+1)) for i in range(V.value_size)]
     else:
         bcs = None
 
