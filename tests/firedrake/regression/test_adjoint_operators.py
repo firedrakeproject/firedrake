@@ -1050,3 +1050,5 @@ def test_bdy_control():
     # tape._blocks[1] is the DirichletBC block for the right boundary
     assert isinstance(tape._blocks[1], DirichletBCBlock) and \
         tape._blocks[1]._outputs[0].checkpoint.checkpoint is not bc_right._original_arg
+    # taylor test
+    taylor_test(J_hat, [a, b], [Function(R, val=0.1), Function(R, val=0.2)])
