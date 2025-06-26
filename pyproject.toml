@@ -59,7 +59,6 @@ Repository = "https://github.com/firedrakeproject/firedrake"
 Issues = "https://github.com/firedrakeproject/firedrake/issues/new/choose"
 
 [project.scripts]
-firedrake-check = "firedrake._check:main"
 firedrake-clean = "firedrake.scripts.firedrake_clean:main"
 firedrake-preprocess-bibtex = "firedrake.scripts.firedrake_preprocess_bibtex:main"
 pyop2-clean = "pyop2.compilation:clear_compiler_disk_cache"
@@ -156,6 +155,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 script-files = [
   "firedrake/scripts/firedrake-zenodo",
+  "scripts/firedrake-check",
   "scripts/firedrake-run-split-tests",
   "pyop2/scripts/spydump",
 ]
