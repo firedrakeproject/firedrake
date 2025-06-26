@@ -450,12 +450,15 @@ class DirichletBC(BCBase, DirichletBCMixin):
             r = r.sub(idx)
             if u:
                 u = u.sub(idx)
+
+        bc_checkpointed = self.block_variable.checkpoint
+        bc = bc_checkpointed.checkpoint \
+            if bc_checkpointed is not None else self.function_arg
+
         if u:
-            r.assign(u - self.function_arg, subset=self.node_set)
-        elif self.block_variable.checkpoint is not None:
-            r.assign(self.block_variable.checkpoint.checkpoint, subset=self.node_set)
+            r.assign(u - bc, subset=self.node_set)
         else:
-            r.assign(self.function_arg, subset=self.node_set)
+            r.assign(bc, subset=self.node_set)
 
     def integrals(self):
         return []
