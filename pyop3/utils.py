@@ -8,8 +8,8 @@ import itertools
 import numbers
 import operator
 import warnings
-from collections.abc import Callable, Iterable, Mapping
-from typing import Any, Collection, Hashable, Optional
+from collections.abc import Callable, Iterable, Mapping, Hashable, Collection
+from typing import Any
 
 import numpy as np
 import pytools
@@ -563,6 +563,42 @@ def _make_record(**kwargs):
 
 def attr(attr_name: str) -> property:
     return property(lambda self: getattr(self, attr_name))
+
+
+@functools.singledispatch
+def freeze(obj: Any) -> Hashable:
+    raise TypeError
+
+
+@freeze.register
+def _(tuple_: tuple) -> tuple:
+    return tuple(map(freeze, tuple_))
+
+
+@freeze.register
+def _(list_: list) -> tuple:
+    return tuple(map(freeze, list_))
+
+
+@freeze.register
+def _(immutabledict_: immutabledict) -> immutabledict:
+    return immutabledict({
+        key: freeze(value)
+        for key, value in immutabledict_.items()
+    })
+
+
+@freeze.register
+def _(dict_: dict) -> immutabledict:
+    return immutabledict({
+        key: freeze(value)
+        for key, value in dict_.items()
+    })
+
+
+@freeze.register
+def _(hashable: Hashable) -> Hashable:
+    return hashable
 
 
 def unique_comm(iterable) -> MPI.Comm | None:

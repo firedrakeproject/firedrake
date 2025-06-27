@@ -1345,15 +1345,18 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
             if len(test_space) > 1 or len(trial_space) > 1:
                 mat_type = "nest"
             else:
-                mat_type = "rvec"
+                if _is_real_space(test_space):
+                    mat_type = "cvec"
+                else:
+                    mat_type = "rvec"
         else:
             mat_type = parameters.parameters["default_matrix_type"]
 
     if sub_mat_type is None:
         sub_mat_type = parameters.parameters["default_sub_matrix_type"]
 
-    if has_real_subspace and mat_type not in ["nest", "rvec", "matfree"]:
-        raise ValueError("Matrices containing real space arguments must have type 'nest', 'rvec', or 'matfree'")
+    if has_real_subspace and mat_type not in ["nest", "rvec", "cvec", "matfree"]:
+        raise ValueError("Matrices containing real space arguments must have type 'nest', 'rvec', 'cvec', or 'matfree'")
     if sub_mat_type not in {"aij", "baij"}:
         raise ValueError(
             f"Invalid submatrix type, '{sub_mat_type}' (not 'aij' or 'baij')"
@@ -1368,10 +1371,7 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
                 block_shape = (test_subspace.value_size, trial_subspace.value_size)
 
                 if _is_real_space(test_subspace):
-                    if _is_real_space(trial_subspace):
-                        sub_mat_type_ = "rvec"
-                    else:
-                        sub_mat_type_ = "cvec"
+                    sub_mat_type_ = "cvec"
                 else:
                     if _is_real_space(trial_subspace):
                         sub_mat_type_ = "rvec"

@@ -1637,6 +1637,34 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
 
 class IndexedAxisTree(AbstractAxisTree):
 
+    # NOTE: It is OK for unindexed to be None, then we just have a map-like thing
+    def __init__(
+        self,
+        node_map,
+        unindexed,  # allowed to be None
+        *,
+        targets,
+        layout_exprs=None,  # not used
+        outer_loops=(),
+    ):
+        if isinstance(node_map, AxisTree):
+            node_map = node_map.node_map
+
+        # drop duplicate entries as they are necessarily equivalent
+        targets = utils.unique(targets)
+        targets = utils.freeze(targets)
+
+        if layout_exprs is None:
+            layout_exprs = immutabledict()
+        if outer_loops is None:
+            outer_loops = ()
+
+        self.targets = targets
+        self._unindexed = unindexed
+        self._outer_loops = tuple(outer_loops)
+        super().__init__(node_map)
+
+
     # {{{ interface impls
 
     @cached_property
@@ -1707,37 +1735,6 @@ class IndexedAxisTree(AbstractAxisTree):
         )
 
     # }}}
-
-    # NOTE: It is OK for unindexed to be None, then we just have a map-like thing
-    def __init__(
-        self,
-        node_map,
-        unindexed,  # allowed to be None
-        *,
-        targets,
-        layout_exprs=None,  # not used
-        outer_loops=(),
-    ):
-        if isinstance(node_map, AxisTree):
-            node_map = node_map.node_map
-
-        # drop duplicate entries as they are necessarily equivalent
-        targets = utils.unique(targets)
-
-        if layout_exprs is None:
-            layout_exprs = immutabledict()
-        if outer_loops is None:
-            outer_loops = ()
-
-        super().__init__(node_map)
-        self._unindexed = unindexed
-
-        assert not isinstance(targets, collections.abc.Set), "now ordered!"
-        self.targets = tuple(targets)
-
-        # self._target_exprs = frozenset(target_exprs)
-        # self._layout_exprs = tuple(layout_exprs)
-        self._outer_loops = tuple(outer_loops)
 
     # old alias
     @property
@@ -1859,6 +1856,7 @@ class IndexedAxisTree(AbstractAxisTree):
                 axis_path_set = frozenset(axis_path.items())
                 if axis_path_set <= path_set:
                     linearized_target[axis_path] = target_spec
+            linearized_target = immutabledict(linearized_target)
             linearized_targets.append(linearized_target)
 
         return IndexedAxisTree(
@@ -2058,6 +2056,34 @@ class UnitIndexedAxisTree:
 
     def with_context(self, context):
         return self
+
+    # TODO: shared with other index tree
+    @cached_property
+    def nest_indices(self):
+        if immutabledict() not in self._matching_target:
+            return ()
+        consumed_axes = dict(self._matching_target[immutabledict()][0])
+
+        nest_indices_ = []
+        path = immutabledict()
+        while consumed_axes:
+            axis = self.unindexed.node_map[path]
+            component_label = consumed_axes.pop(axis.label)
+            component_index = axis.component_labels.index(component_label)
+
+            if axis.components[component_index].size != 1:
+                # indexed bit is not a scalar axis anymore, nest indices
+                # don't make sense here
+                break
+
+            path = path | {axis.label: component_label}
+            nest_indices_.append(component_index)
+        return tuple(nest_indices_)
+
+    # TODO: shared with other index tree
+    @cached_property
+    def _matching_target(self):
+        return find_matching_target(self)
 
 
 def find_matching_target(self):

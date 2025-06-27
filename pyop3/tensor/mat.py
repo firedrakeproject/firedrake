@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import abc
 import collections
-from collections.abc import Mapping
-import dataclasses
-import numbers
+import itertools
 from functools import cached_property
 from itertools import product
 from typing import Any, ClassVar
@@ -529,20 +527,7 @@ class Mat(Tensor):
 
     @cached_property
     def nest_indices(self) -> tuple[tuple[int, int], ...]:
-        return ((self._nest_indices(self.raxes), self._nest_indices(self.caxes)),)
-
-    def _nest_indices(self, axes) -> int | None:
-        # FIXME: This is extremely overly specific
-        if (
-            immutabledict() in axes.targets[0]
-            and "field" in axes.targets[0][immutabledict()][0].keys()
-        ):
-            return axes.targets[0][immutabledict()][0]["field"]
-
-
-
-def _zero_if_none(value):
-    return value if value is not None else 0
+        return tuple(itertools.zip_longest(self.raxes.nest_indices, self.caxes.nest_indices))
 
 
 def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: AbstractAxisTree, column_axes: AbstractAxisTree) -> FullMatBufferSpec:

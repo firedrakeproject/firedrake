@@ -370,8 +370,8 @@ class ModuleExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
-        if len(self.loopy_code.callables_table) > 1:
-            breakpoint()
+        # if len(self.loopy_code.callables_table) > 1:
+        #     breakpoint()
         # pyop3.extras.debug.maybe_breakpoint()
 
         self.executable(*exec_arguments)
@@ -838,21 +838,6 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
         # to know whether to put MatGetValues or MatSetValues
         setting_mat_values = True
 
-    # tidy this up
-    # if mat.mat.nested:
-    #     ridx, cidx = map(just_one, just_one(mat.nest_labels))
-    #     # if ridx is None:
-    #     #     ridx = 0
-    #     # if cidx is None:
-    #     #     cidx = 0
-    #
-    #     if mat.mat_type[ridx, cidx] == "dat":
-    #         # no preallocation is necessary
-    #         if isinstance(mat, Sparsity):
-    #             return
-    #
-    #         breakpoint()
-
     # now emit the right line of code, this should properly be a lp.ScalarCallable
     # https://petsc.org/release/manualpages/Mat/MatGetValuesLocal/
     mat_name = context.add_buffer(assignment.assignee.buffer, assignment_type_as_intent(assignment.assignment_type), nest_indices=assignment.assignee.nest_indices)
@@ -860,65 +845,6 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
     # NOTE: Is this always correct? It is for now.
     array_name = context.add_buffer(array_buffer, READ, nest_indices=())
 
-    # TODO: The following code should be done in a loop per submat.
-    # blocked = mat.mat.block_shape > 1
-    # if mat.nested:
-    #     if len(mat.nest_labels) > 1:
-    #         # Need to loop over the different nest labels and emit separate calls to
-    #         # MatSetValues, maps may also be wrong.
-    #         raise NotImplementedError
-    #
-    #     submat_name = codegen_context.unique_name("submat")
-    #     ridxs, cidxs = just_one(mat.nest_labels)
-    #
-    #     if any(len(x) != 1 for x in {ridxs, cidxs}):
-    #         raise NotImplementedError
-    #
-    #     (ridx,) = ridxs
-    #     (cidx,) = cidxs
-    #
-    #     if ridx is None:
-    #         ridx = 0
-    #     if cidx is None:
-    #         cidx = 0
-    #
-    #     code = textwrap.dedent(
-    #         f"""
-    #         Mat {submat_name};
-    #         MatNestGetSubMat({mat_name}, {ridx}, {cidx}, &{submat_name});
-    #         """
-    #     )
-    #     codegen_context.add_cinstruction(code)
-    #     mat_name = submat_name
-
-    # rmap_name = context.add_buffer(mat.row_layout.buffer, READ)
-    #
-    # cmap_name = context.add_buffer(mat.column_layout.buffer, READ)
-
-    # def get_linear_size(axis_tree, path):
-    #     linear_size = 1
-    #     visited = axis_tree.path_with_nodes(axis_tree._node_from_path(path), and_components=True)
-    #     for axis, component in visited.items():
-    #         assert component.size > 0
-    #         linear_size *= component.size
-    #     return linear_size
-
-
-    # This code figures out the sizes of the maps - it's simply the
-    # size of the assignment axes but linearised for the particular
-    # row and column paths.
-    # For example, if we have a P2 triangle then we have row and col maps
-    # with arities [3, 3] (and those values should be embedded in MatSetValues)
-    # 
-    # The indexed axis tree for the row (and col) looks like:
-    #
-    #   {closure: [{0: [(3, None)]}, {1: [(3, None)]}]}
-    #   ├──➤ {dof0: [[(1, None)]]}
-    #   └──➤ {dof1: [[(1, None)]]}
-    #
-    # where it can clearly be seen that, for each path, the size is 3.
-    # rsize = get_linear_size(assignment.row_axis_tree, row_path)
-    # csize = get_linear_size(assignment.column_axis_tree, col_path)
     rsize = row_axis_tree.size
     csize = column_axis_tree.size
 
