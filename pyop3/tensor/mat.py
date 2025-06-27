@@ -577,44 +577,13 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
         for i, (index_key, sub_partial_spec) in np.ndenumerate(partial_spec.submat_specs):
             row_index, column_index = index_key
 
-            sub_row_axes = trim_axes(row_axes, row_index)
-            sub_column_axes = trim_axes(column_axes, column_index)
+            sub_row_axes = row_axes.nest_subtree(row_index)
+            sub_column_axes = column_axes.nest_subtree(column_index)
 
             sub_spec = make_full_mat_buffer_spec(sub_partial_spec, sub_row_axes, sub_column_axes)
             full_spec[i] = sub_spec
 
     return full_spec
-
-
-def trim_axes(orig_axes, index) -> IndexedAxisTree:
-    """
-    The idea here is to trim ``orig_axes`` with index such that we can pretend
-    that the axes always looked truncated in that form.
-    """
-    for t in orig_axes.targets:
-        if immutabledict() in t and t[immutabledict()] != (immutabledict(), immutabledict()):
-            raise ValueError("Assume that there is no pre-existing indexed information")
-    assert not orig_axes.outer_loops
-
-    orig_indexed = orig_axes[index]
-    unindexed = orig_axes.unindexed[index].materialize()
-
-    # remove the indexed bit from the targets, since we are doing scalar indices
-    # we can just remove the immutabledict() entries
-    trimmed_targets = []
-    for orig_target in orig_indexed.targets:
-        trimmed_target = {
-            axis_path: target_spec
-            for axis_path, target_spec in orig_target.items()
-            if axis_path != immutabledict()
-        }
-        trimmed_targets.append(trimmed_target)
-
-    return IndexedAxisTree(
-        orig_indexed.node_map,
-        unindexed=unindexed,
-        targets=trimmed_targets,
-    )
 
 
 class DatPythonMatContext:

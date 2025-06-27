@@ -63,6 +63,8 @@ class AbstractBuffer(KernelArgument, metaclass=abc.ABCMeta):
     DEFAULT_PREFIX = "buffer"
     DEFAULT_DTYPE = ScalarType
 
+    # {{{ abstract methods
+
     @property
     @abc.abstractmethod
     def name(self) -> str:
@@ -76,6 +78,13 @@ class AbstractBuffer(KernelArgument, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def duplicate(self, *, copy: bool = False) -> AbstractBuffer:
         pass
+
+    @property
+    @abc.abstractmethod
+    def is_nested(self) -> bool:
+        pass
+
+    # }}}
 
     def copy(self) -> AbstractBuffer:
         return self.duplicate(copy=True)
@@ -137,6 +146,8 @@ class NullBuffer(AbstractArrayBuffer):
     def duplicate(self, *, copy: bool = False) -> NullBuffer:
         name = f"{self.name}_copy"
         return self.__record_init__(_name=name)
+
+    is_nested: ClassVar[bool] = False
 
     # }}}
 
@@ -218,7 +229,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def dtype(self) -> np.dtype:
         return self._data.dtype
 
-
     def inc_state(self) -> None:
         self._state += 1
 
@@ -231,6 +241,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         else:
             data = np.zeros_like(self._lazy_data)
         return self.__record_init__(_name=name, _lazy_data=data)
+
+    is_nested: ClassVar[bool] = False
 
     # }}}
 
@@ -533,6 +545,10 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
 
     def duplicate(self, **kwargs) -> PetscMatBuffer:
         raise NotImplementedError("TODO")
+
+    @property
+    def is_nested(self) -> bool:
+        return self.mat_type == PETSc.Mat.Type.NEST
 
     # }}}
 

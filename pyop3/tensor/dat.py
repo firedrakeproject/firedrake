@@ -542,6 +542,11 @@ class BufferExpression(Expression, metaclass=abc.ABCMeta):
     def name(self) -> str:
         return self.buffer.name
 
+    @property
+    @abc.abstractmethod
+    def nest_indices(self) -> tuple[tuple[int, ...], ...]:
+        pass
+
 
 class ArrayBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
     pass
@@ -560,9 +565,10 @@ class PetscMatBufferExpression(OpaqueBufferExpression, metaclass=abc.ABCMeta):
 
 
 class ScalarBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
-    pass
+    nest_indices: tuple[tuple[()]] = ((),)
 
 
+@utils.record()
 class ScalarArrayBufferExpression(ScalarBufferExpression, ArrayBufferExpression):
 
     # {{{ instance attrs
@@ -585,7 +591,10 @@ class ScalarArrayBufferExpression(ScalarBufferExpression, ArrayBufferExpression)
 
 
 class DatBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
-    pass
+    @property
+    @abc.abstractmethod
+    def nest_indices(self) -> tuple[tuple[int], ...]:
+        pass
 
 
 class DatArrayBufferExpression(DatBufferExpression, ArrayBufferExpression, metaclass=abc.ABCMeta):
@@ -617,6 +626,14 @@ class LinearDatArrayBufferExpression(DatArrayBufferExpression, LinearBufferExpre
     layout: Any
     _shape: AxisTree
     _loop_axes: tuple[Axis]
+    _nest_indices: tuple[tuple[int], ...]
+
+    def __init__(self, buffer, layout, shape, loop_axes, *, nest_indices):
+        self._buffer = buffer
+        self.layout = layout
+        self._shape = shape
+        self._loop_axes = loop_axes
+        self._nest_indices = nest_indices
 
     # }}}
 
@@ -625,6 +642,7 @@ class LinearDatArrayBufferExpression(DatArrayBufferExpression, LinearBufferExpre
     buffer: ClassVar[property] = utils.attr("_buffer")
     shape: ClassVar[property] = utils.attr("_shape")
     loop_axes: ClassVar[property] = utils.attr("_loop_axes")
+    nest_indices: ClassVar[property] = utils.attr("_nest_indices")
 
     # }}}
 
@@ -647,7 +665,7 @@ class NonlinearDatArrayBufferExpression(DatArrayBufferExpression, NonlinearBuffe
     layouts: Any
     _shape: AxisTree
     _loop_axes: tuple[Axis]
-
+    _nest_indices: tuple[tuple[int], ...]
 
     # }}}
 
@@ -656,6 +674,7 @@ class NonlinearDatArrayBufferExpression(DatArrayBufferExpression, NonlinearBuffe
     buffer: ClassVar[property] = utils.attr("_buffer")
     shape: ClassVar[property] = utils.attr("_shape")
     loop_axes: ClassVar[property] = utils.attr("_loop_axes")
+    nest_indices: ClassVar[property] = utils.attr("_nest_indices")
 
     # }}}
 
@@ -675,7 +694,11 @@ class NonlinearDatArrayBufferExpression(DatArrayBufferExpression, NonlinearBuffe
 
 
 class MatBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
-    pass
+    @property
+    @abc.abstractmethod
+    def nest_indices(self) -> tuple[tuple[int, int], ...]:
+        pass
+
 
 
 @utils.record()
@@ -686,12 +709,19 @@ class MatPetscMatBufferExpression(MatBufferExpression, PetscMatBufferExpression,
     _buffer: PetscMatBuffer
     row_layout: CompositeDat
     column_layout: CompositeDat
+    _nest_indices: tuple[tuple[int, int], ...]
+
+    def __init__(self, buffer, row_layout, column_layout, *, nest_indices):
+        self._buffer = buffer
+        self.row_layout = row_layout
+        self.column_layout = column_layout
+        self._nest_indices = nest_indices
 
     # }}}
 
     # {{{ interface impls
 
-    buffer: ClassVar[PetscMatBuffer] = utils.attr("_buffer")
+    buffer: ClassVar[property] = utils.attr("_buffer")
 
     @property
     def shape(self):
@@ -700,6 +730,8 @@ class MatPetscMatBufferExpression(MatBufferExpression, PetscMatBufferExpression,
     @property
     def loop_axes(self):
         raise NotImplementedError
+
+    nest_indices: ClassVar[property] = utils.attr("_nest_indices")
 
     # }}}
 
@@ -743,5 +775,10 @@ def as_linear_buffer_expression(dat: Dat) -> LinearDatArrayBufferExpression:
     if not dat.axes.is_linear:
         raise ValueError("The provided Dat must be linear")
 
-    layout = just_one(dat.axes.leaf_subst_layouts.values())
-    return LinearDatArrayBufferExpression(dat.buffer, layout, dat.shape, dat.loop_axes)
+    axes = dat.axes
+    nest_indices = axes.nest_indices
+    for nest_index in nest_indices:
+        axes = axes.nest_subtree(nest_index)
+
+    layout = just_one(axes.leaf_subst_layouts.values())
+    return LinearDatArrayBufferExpression(dat.buffer, layout, dat.shape, dat.loop_axes, nest_indices=nest_indices)

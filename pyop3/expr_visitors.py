@@ -415,7 +415,7 @@ def _(dat: Dat, /, replace_map):
 @replace_terminals.register(LinearDatArrayBufferExpression)
 def _(expr: LinearDatArrayBufferExpression, /, replace_map) -> LinearDatArrayBufferExpression:
     new_layout = replace_terminals(expr.layout, replace_map)
-    return LinearDatArrayBufferExpression(expr.buffer, new_layout, expr.shape, expr.loop_axes)
+    return expr.__record_init__(layout=new_layout)
 
 
 @replace_terminals.register(Operator)
@@ -498,27 +498,43 @@ def _(scalar: Scalar, /, axis_trees: Iterable[AxisTree, ...]) -> ScalarArrayBuff
 
 @concretize_layouts.register(Dat)
 def _(dat: Dat, /, axis_trees: Iterable[AxisTree, ...]) -> DatArrayBufferExpression:
+    if dat.axes.nest_indices:
+        raise NotImplementedError("TODO")
     if dat.axes.is_linear:
         layout = just_one(dat.axes.leaf_subst_layouts.values())
-        expr = LinearDatArrayBufferExpression(dat.buffer, layout, dat.shape, dat.loop_axes)
+        expr = LinearDatArrayBufferExpression(dat.buffer, layout, dat.shape, dat.loop_axes, nest_indices=())
     else:
-        expr = NonlinearDatArrayBufferExpression(dat.buffer, dat.axes.leaf_subst_layouts, dat.shape, dat.loop_axes)
+        expr = NonlinearDatArrayBufferExpression(dat.buffer, dat.axes.leaf_subst_layouts, dat.shape, dat.loop_axes, nest_indices=())
     return concretize_layouts(expr, axis_trees)
 
 
 @concretize_layouts.register(Mat)
 def _(mat: Mat, /, axis_trees: Iterable[AxisTree, ...]) -> BufferExpression:
+    nest_indices = ()
+    row_axes = mat.raxes
+    column_axes = mat.caxes
+    if mat.buffer.is_nested:
+        if len(row_axes.nest_indices) != 1 or len(column_axes.nest_indices) != 1:
+            raise NotImplemented
+
+        row_index = utils.just_one(row_axes.nest_indices)
+        column_index = utils.just_one(column_axes.nest_indices)
+        nest_indices = ((row_index, column_index),)
+        row_axes = row_axes.nest_subtree(row_index)
+        column_axes = column_axes.nest_subtree(column_index)
+
     if isinstance(mat.buffer, PetscMatBuffer):
         layouts = [
             NonlinearCompositeDat(axis_tree.materialize(), axis_tree.leaf_subst_layouts, axis_tree.outer_loops)
-            for axis_tree in [mat.raxes, mat.caxes]
+            for axis_tree in [row_axes, column_axes]
         ]
-        expr = MatPetscMatBufferExpression(mat.buffer, *layouts)
+        expr = MatPetscMatBufferExpression(mat.buffer, *layouts, nest_indices=nest_indices)
     else:
         expr = MatArrayBufferExpression(
             mat.buffer,
-            mat.raxes.leaf_subst_layouts,
-            mat.caxes.leaf_subst_layouts
+            row_axes.leaf_subst_layouts,
+            column_axes.leaf_subst_layouts,
+            nest_indices=nest_indices,
         )
     return concretize_layouts(expr, axis_trees)
 
@@ -769,7 +785,7 @@ def _(var: Any, /, *args, **kwargs) -> Any:
 @concretize_materialized_tensor_indirections.register(LinearDatArrayBufferExpression)
 def _(buffer_expr: LinearDatArrayBufferExpression, layouts, key):
     layout = layouts[key + (buffer_expr,)]
-    return LinearDatArrayBufferExpression(buffer_expr.buffer, layout, buffer_expr.shape, buffer_expr.loop_axes)
+    return LinearDatArrayBufferExpression(buffer_expr.buffer, layout, buffer_expr.shape, buffer_expr.loop_axes, nest_indices=buffer_expr.nest_indices)
 
 
 @concretize_materialized_tensor_indirections.register(NonlinearDatArrayBufferExpression)
@@ -778,7 +794,7 @@ def _(buffer_expr: NonlinearDatArrayBufferExpression, layouts, key):
         leaf_path: layouts[key + ((buffer_expr, leaf_path),)]
         for leaf_path in buffer_expr.layouts.keys()
     }
-    return NonlinearDatArrayBufferExpression(buffer_expr.buffer, new_layouts, buffer_expr.shape, buffer_expr.loop_axes)
+    return NonlinearDatArrayBufferExpression(buffer_expr.buffer, new_layouts, buffer_expr.shape, buffer_expr.loop_axes, nest_indices=buffer_expr.nest_indices)
 
 
 @concretize_materialized_tensor_indirections.register(MatPetscMatBufferExpression)

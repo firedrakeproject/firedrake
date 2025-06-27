@@ -33,6 +33,7 @@ from pyop3.sf import StarForest, local_sf, single_star_sf
 from pyop2.mpi import COMM_SELF, collective
 from pyop3 import utils
 from pyop3.tree import (
+    ComponentLabelT,
     ComponentT,
     ConcretePathT,
     LabelledNodeComponent,
@@ -205,6 +206,8 @@ class _UnitAxisTree(CacheMixin):
     leaf_paths = (immutabledict(),)
 
     unindexed = property(lambda self: self)
+
+    nest_indices = ()
 
     def prune(self) -> Self:
         return self
@@ -949,6 +952,18 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     def unindexed(self) -> AxisTree:
         pass
 
+    @property
+    @abc.abstractmethod
+    def nest_indices(self) -> tuple[int, ...]:
+        pass
+
+    @abc.abstractmethod
+    def nest_subtree(self, nest_index: int) -> AbstractAxisTree:
+        """
+        The idea here is to trim ``orig_axes`` with index such that we can pretend
+        that the axes always looked truncated in that form.
+        """
+
     # }}}
 
     # {{{ interface impls
@@ -1112,9 +1127,11 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     @property
     @abc.abstractmethod
     def _undistributed(self):
+        assert False, "old code"
         pass
 
     def undistribute(self):
+        assert False, "old code"
         """Return the axis tree discarding parallel overlap information."""
         return self._undistributed
 
@@ -1453,6 +1470,13 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def _materialized(self):
         return self
 
+    @property
+    def nest_indices(self) -> tuple[()]:
+        return ()
+
+    def nest_subtree(self, nest_index: int) -> AxisTree:
+        return self[nest_index].materialize()
+
     # }}}
 
     def localize(self) -> AxisTree:
@@ -1626,6 +1650,57 @@ class IndexedAxisTree(AbstractAxisTree):
     def unindexed(self):
         return self._unindexed
 
+    @cached_property
+    def nest_indices(self) -> tuple[int]:
+        # Compare the 'fully indexed' bits of the matching target and try to
+        # match to the unindexed tree.
+        consumed_axes = dict(self._matching_target[immutabledict()][0])
+
+        nest_indices_ = []
+        path = immutabledict()
+        while consumed_axes:
+            axis = self.unindexed.node_map[path]
+            component_label = consumed_axes.pop(axis.label)
+            component_index = axis.component_labels.index(component_label)
+
+            if axis.components[component_index].size != 1:
+                # indexed bit is not a scalar axis anymore, nest indices
+                # don't make sense here
+                break
+
+            path = path | {axis.label: component_label}
+            nest_indices_.append(component_index)
+        return tuple(nest_indices_)
+
+    def nest_subtree(self, nest_label: ComponentLabelT) -> IndexedAxisTree:
+        subtree_unindexed = self.unindexed[nest_label].materialize()
+
+        # remove the nest label from the targets
+        subtree_targets = tuple(
+            {
+                axis_path: (
+                    {
+                        axis_label: path
+                        for axis_label, path in target_spec[0].items()
+                        if axis_label != self.unindexed.root.label
+                    },
+                    {
+                        axis_label: expr
+                        for axis_label, expr in target_spec[1].items()
+                        if axis_label != self.unindexed.root.label
+                    },
+                )
+                for axis_path, target_spec in target.items()
+            }
+            for target in self.targets
+        )
+
+        return IndexedAxisTree(
+            self.node_map,
+            unindexed=subtree_unindexed,
+            targets=subtree_targets,
+            outer_loops=self.outer_loops,
+        )
 
     # }}}
 

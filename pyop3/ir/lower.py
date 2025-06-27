@@ -367,8 +367,8 @@ class ModuleExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
-        # if len(self.loopy_code.callables_table) > 1:
-        #     breakpoint()
+        if len(self.loopy_code.callables_table) > 1:
+            breakpoint()
         # pyop3.extras.debug.maybe_breakpoint()
 
         self.executable(*exec_arguments)
@@ -381,12 +381,24 @@ class ModuleExecutor:
         str_.append(sep)
         str_.append(
             "\n".join(
-                f"{arg.name}: {self.buffer_map[arg.name]._data}"
+                f"{arg.name}: {self._buffer_str(self.buffer_map[arg.name])}"
                 for arg in self.loopy_code.default_entrypoint.args
             )
         )
         str_.append(sep)
         return "\n".join(str_)
+
+    @functools.singledispatchmethod
+    def _buffer_str(self, buffer):
+        raise TypeError
+
+    @_buffer_str.register
+    def _(self, buffer: ArrayBuffer):
+        return str(buffer._data)
+
+    @_buffer_str.register
+    def _(self, buffer: PetscMatBuffer) -> str:
+        return "<PetscMat>"
 
     @cached_property
     def _buffer_indices(self) -> immutabledict[str, int]:
@@ -407,12 +419,15 @@ class ModuleExecutor:
         return tuple(self._as_exec_argument(buffer) for buffer in self._buffers)
 
     def _as_exec_argument(self, buffer: AbstractBuffer) -> numbers.Number:
+        assert not buffer.is_nested, "Nested buffers should already be deconstructed"
         if isinstance(buffer, ArrayBuffer):
             # NOTE: Use the private accessor ._data here to avoid triggering
             # a halo exchange
             return buffer._data.ctypes.data
         else:
             assert isinstance(buffer, PetscMatBuffer)
+            if buffer.mat_type == "nest":
+                raise NotImplementedError
             return buffer.mat.handle
 
     def _check_buffer_is_valid(self, orig_buffer: AbstractBuffer, new_buffer: AbstractBuffer, /) -> None:
