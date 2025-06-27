@@ -1727,12 +1727,20 @@ class IndexedAxisTree(AbstractAxisTree):
             for target in self.targets
         )
 
-        return IndexedAxisTree(
-            self.node_map,
-            unindexed=subtree_unindexed,
-            targets=subtree_targets,
-            outer_loops=self.outer_loops,
-        )
+        subtree = self[nest_label]
+        if isinstance(subtree, UnitIndexedAxisTree):
+            return UnitIndexedAxisTree(
+                unindexed=subtree_unindexed,
+                targets=subtree_targets,
+                outer_loops=self.outer_loops,
+            )
+        else:
+            return IndexedAxisTree(
+                subtree.node_map,
+                unindexed=subtree_unindexed,
+                targets=subtree_targets,
+                outer_loops=self.outer_loops,
+            )
 
     # }}}
 
@@ -1828,19 +1836,6 @@ class IndexedAxisTree(AbstractAxisTree):
     def outer_loops(self):
         return self._outer_loops
 
-    def _materialize_local(self, axis):
-        assert False, "old code"
-        components = tuple(c.copy(sf=None) for c in axis.components)
-        axis = Axis(components)
-        axes = AxisTree(axis)
-
-        for component in axis.components:
-            if subaxis := self.child(axis, component):
-                subaxes = self._materialize_local(subaxis)
-                axes.add_subtree(subaxes, axis, component)
-
-        return axes
-
     def linearize(self, path: PathT) -> IndexedAxisTree:
         """Return the axis tree dropping all components not specified in the path."""
         path = as_path(path)
@@ -1848,6 +1843,8 @@ class IndexedAxisTree(AbstractAxisTree):
         linearized_axis_tree = self.materialize().linearize(path)
 
         # linearize the targets
+        if len(path) == 3:
+            pyop3.extras.debug.maybe_breakpoint()
         linearized_targets = []
         path_set = frozenset(path.items())
         for orig_target in self.targets:

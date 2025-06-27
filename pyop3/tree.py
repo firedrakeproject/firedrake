@@ -706,6 +706,11 @@ class MutableLabelledTreeMixin:
         if subtree.is_empty:
             return self
 
+        # TODO: breaks abstraction
+        from pyop3.axtree.tree import _UnitAxisTree
+        if isinstance(subtree, _UnitAxisTree):
+            return self
+
         node_map = dict(self.node_map)
         for subpath, subnode in subtree.node_map.items():
             node_map[path | subpath] = subnode

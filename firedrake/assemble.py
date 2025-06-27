@@ -1490,7 +1490,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             )
 
         sparsity.assemble()
-        op3.extras.debug.enable_conditional_breakpoints()
         return sparsity
 
     def _make_maps_and_regions(self):

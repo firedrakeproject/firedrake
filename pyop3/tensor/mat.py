@@ -519,6 +519,7 @@ class Mat(Tensor):
                     petscmat = petscmat.getNestSubMatrix(ri, ci)
 
             if petscmat.type == PETSc.Mat.Type.PYTHON:
+                pyop3.extras.debug.enable_conditional_breakpoints()
                 return petscmat.getPythonContext().dat.data_ro
             else:
                 return petscmat[:, :]
