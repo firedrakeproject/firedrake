@@ -440,6 +440,8 @@ class ModuleExecutor:
         petscmat = buffer.petscmat
         for row_index, column_index in self.nest_indices[buffer.name]:
             petscmat = petscmat.getNestSubMatrix(row_index, column_index)
+
+        assert petscmat.type not in {PETSc.Mat.Type.NEST, PETSc.Mat.Type.PYTHON}
         return petscmat.handle
 
     def _check_buffer_is_valid(self, orig_buffer: AbstractBuffer, new_buffer: AbstractBuffer, /) -> None:

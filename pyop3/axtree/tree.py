@@ -958,7 +958,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         pass
 
     @abc.abstractmethod
-    def nest_subtree(self, nest_index: int) -> AbstractAxisTree:
+    def restrict_nest(self, nest_index: int) -> AbstractAxisTree:
         """
         The idea here is to trim ``orig_axes`` with index such that we can pretend
         that the axes always looked truncated in that form.
@@ -1474,7 +1474,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def nest_indices(self) -> tuple[()]:
         return ()
 
-    def nest_subtree(self, nest_index: int) -> AxisTree:
+    def restrict_nest(self, nest_index: int) -> AxisTree:
         return self[nest_index].materialize()
 
     # }}}
@@ -1704,15 +1704,14 @@ class IndexedAxisTree(AbstractAxisTree):
             nest_indices_.append(component_index)
         return tuple(nest_indices_)
 
-    def nest_subtree(self, nest_label: ComponentLabelT) -> IndexedAxisTree:
-        breakpoint()  # think something here is wrong
-        subtree = self[nest_label]
+    def restrict_nest(self, nest_label: ComponentLabelT) -> IndexedAxisTree:
+        """Given an already indexed thing, discard the prescribed nest shape."""
+
         subtree_unindexed = self.unindexed[nest_label].materialize()
 
         # remove the nest label from the targets
         subtree_targets = tuple(
             {
-                # axis_path may no longer exist!
                 axis_path: (
                     {
                         axis_label: path
@@ -1727,22 +1726,15 @@ class IndexedAxisTree(AbstractAxisTree):
                 )
                 for axis_path, target_spec in target.items()
             }
-            for target in subtree.targets
+            for target in self.targets
         )
 
-        if isinstance(subtree, UnitIndexedAxisTree):
-            return UnitIndexedAxisTree(
-                unindexed=subtree_unindexed,
-                targets=subtree_targets,
-                outer_loops=self.outer_loops,
-            )
-        else:
-            return IndexedAxisTree(
-                subtree.node_map,
-                unindexed=subtree_unindexed,
-                targets=subtree_targets,
-                outer_loops=self.outer_loops,
-            )
+        return IndexedAxisTree(
+            self.node_map,
+            unindexed=subtree_unindexed,
+            targets=subtree_targets,
+            outer_loops=self.outer_loops,
+        )
 
     # }}}
 
@@ -1845,8 +1837,6 @@ class IndexedAxisTree(AbstractAxisTree):
         linearized_axis_tree = self.materialize().linearize(path)
 
         # linearize the targets
-        if len(path) == 3:
-            pyop3.extras.debug.maybe_breakpoint()
         linearized_targets = []
         path_set = frozenset(path.items())
         for orig_target in self.targets:

@@ -520,8 +520,8 @@ def _(mat: Mat, /, axis_trees: Iterable[AxisTree, ...]) -> BufferExpression:
         row_index = utils.just_one(row_axes.nest_indices)
         column_index = utils.just_one(column_axes.nest_indices)
         nest_indices = ((row_index, column_index),)
-        row_axes = row_axes.nest_subtree(row_index)
-        column_axes = column_axes.nest_subtree(column_index)
+        row_axes = row_axes.restrict_nest(row_index)
+        column_axes = column_axes.restrict_nest(column_index)
 
     if isinstance(mat.buffer, PetscMatBuffer):
         layouts = [

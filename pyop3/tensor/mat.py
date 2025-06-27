@@ -563,8 +563,8 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
         for i, (index_key, sub_partial_spec) in np.ndenumerate(partial_spec.submat_specs):
             row_index, column_index = index_key
 
-            sub_row_axes = row_axes.nest_subtree(row_index)
-            sub_column_axes = column_axes.nest_subtree(column_index)
+            sub_row_axes = row_axes[row_index].restrict_nest(row_index)
+            sub_column_axes = column_axes[column_index].restrict_nest(column_index)
 
             sub_spec = make_full_mat_buffer_spec(sub_partial_spec, sub_row_axes, sub_column_axes)
             full_spec[i] = sub_spec
