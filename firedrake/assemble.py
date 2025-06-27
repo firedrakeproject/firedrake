@@ -1408,14 +1408,11 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             rmap = unghosted_lgmap(sparsity._dsets[0].lgmap, test.function_space())
             cmap = unghosted_lgmap(sparsity._dsets[1].lgmap, trial.function_space())
             sparsity._lgmaps = (rmap, cmap)
-
         elif mat_type == "nest" and sub_mat_type == "is":
-            Vrow = test.function_space()
-            Vcol = trial.function_space()
-            for i, j in numpy.ndindex((len(Vrow), len(Vcol))):
+            for i, j in numpy.ndindex(sparsity.shape):
                 block = sparsity[i, j]
-                rmap = unghosted_lgmap(block._dsets[0].lgmap, Vrow[i])
-                cmap = unghosted_lgmap(block._dsets[1].lgmap, Vcol[j])
+                rmap = unghosted_lgmap(block._dsets[0].lgmap, test.function_space()[i])
+                cmap = unghosted_lgmap(block._dsets[1].lgmap, trial.function_space()[j])
                 block._lgmaps = (rmap, cmap)
         return sparsity
 
@@ -2242,14 +2239,12 @@ def masked_lgmap(lgmap, mask, block=True):
 
 
 def unghosted_lgmap(lgmap, V, block=True):
-    block_size = lgmap.getBlockSize() if block else 1
-
     mesh_dm = V.mesh().topology_dm
-    depth = mesh_dm.getDepth()
-    start, end = mesh_dm.getDepthStratum(depth)
+    start, end = mesh_dm.getHeightStratum(0)
 
     own = []
     for i, W in enumerate(V):
+        bsize = W.block_size
         W_local_ises_indices = V.dof_dset.local_ises[i].indices
         section = W.dm.getDefaultSection()
         for seed in range(start, end):
@@ -2263,7 +2258,7 @@ def unghosted_lgmap(lgmap, V, block=True):
                     continue
                 off = section.getOffset(p)
                 # Local indices within W
-                W_indices = slice(block_size * off, block_size * (off + dof))
+                W_indices = slice(bsize * off, bsize * (off + dof))
                 own.extend(W_local_ises_indices[W_indices])
 
     mask = numpy.setdiff1d(range(len(lgmap.indices)), own)
