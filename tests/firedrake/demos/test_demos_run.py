@@ -19,6 +19,7 @@ DEMO_DIR = join(CWD, "..", "..", "..", "demos")
 
 SERIAL_DEMOS = [
     Demo(("benney_luke", "benney_luke"), ["vtk"]),
+    Demo(("boussinesq", "boussinesq"), []),
     Demo(("burgers", "burgers"), ["vtk"]),
     Demo(("camassa-holm", "camassaholm"), ["vtk"]),
     Demo(("DG_advection", "DG_advection"), ["matplotlib"]),
@@ -39,8 +40,14 @@ SERIAL_DEMOS = [
     Demo(("nonlinear_QG_winddrivengyre", "qg_winddrivengyre"), ["vtk"]),
     Demo(("parallel-printing", "parprint"), []),
     Demo(("poisson", "poisson_mixed"), ["vtk"]),
+    Demo(("patch", "poisson_mg_patches"), []),
+    Demo(("patch", "stokes_vanka_patches"), []),
+    Demo(("patch", "hcurl_riesz_star"), []),
+    Demo(("patch", "hdiv_riesz_star"), []),
     Demo(("quasigeostrophy_1layer", "qg_1layer_wave"), ["hypre", "vtk"]),
     Demo(("saddle_point_pc", "saddle_point_systems"), ["hypre", "mumps"]),
+    Demo(("fast_diagonalisation", "fast_diagonalisation_poisson"), ["mumps"]),
+    Demo(('vlasov_poisson_1d', 'vp1d'), []),
 ]
 PARALLEL_DEMOS = [
     Demo(("full_waveform_inversion", "full_waveform_inversion"), ["adjoint"]),
