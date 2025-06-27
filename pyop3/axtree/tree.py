@@ -1650,10 +1650,14 @@ class IndexedAxisTree(AbstractAxisTree):
     def unindexed(self):
         return self._unindexed
 
+    # TODO: Should have nest indices and nest labels as separate concepts.
+    # The former is useful for buffers and the latter for trees
     @cached_property
-    def nest_indices(self) -> tuple[int]:
+    def nest_indices(self) -> tuple[int, ...]:
         # Compare the 'fully indexed' bits of the matching target and try to
         # match to the unindexed tree.
+        if immutabledict() not in self._matching_target:
+            return ()
         consumed_axes = dict(self._matching_target[immutabledict()][0])
 
         nest_indices_ = []

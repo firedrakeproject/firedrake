@@ -561,6 +561,11 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
     def mat_type(self) -> str:
         return self.mat.type
 
+    # I think that this is a better attribute name, 'mat' is overloaded
+    @property
+    def petscmat(self):
+        return self.mat
+
     def assemble(self) -> None:
         self.mat.assemble()
 

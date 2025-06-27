@@ -678,13 +678,14 @@ class NonlinearDatArrayBufferExpression(DatArrayBufferExpression, NonlinearBuffe
 
     # }}}
 
-    def __init__(self, buffer, layouts, shape, loop_axes) -> None:
+    def __init__(self, buffer, layouts, shape, loop_axes, nest_indices) -> None:
         layouts = immutabledict(layouts)
 
         self._buffer = buffer
         self.layouts = layouts
         self._shape = shape
         self._loop_axes = loop_axes
+        self._nest_indices = nest_indices
 
     def __str__(self) -> str:
         return "\n".join(
@@ -747,6 +748,13 @@ class MatArrayBufferExpression(MatBufferExpression, ArrayBufferExpression, Nonli
     _buffer: AbstractArrayBuffer
     row_layouts: Any  # expr type (mapping)
     column_layouts: Any  # expr type (mapping)
+    _nest_indices: tuple[tuple[int, int], ...]
+
+    def __init__(self, buffer, row_layouts, column_layouts, *, nest_indices):
+        self._buffer = buffer
+        self.row_layouts = row_layouts
+        self.column_layouts = column_layouts
+        self._nest_indices = nest_indices
 
     # }}}
 
@@ -761,6 +769,8 @@ class MatArrayBufferExpression(MatBufferExpression, ArrayBufferExpression, Nonli
     @property
     def loop_axes(self):
         raise NotImplementedError
+
+    nest_indices: ClassVar = utils.attr("_nest_indices")
 
     # }}}
 

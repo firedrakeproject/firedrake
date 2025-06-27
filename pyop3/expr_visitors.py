@@ -453,7 +453,7 @@ def _(expr: LinearDatArrayBufferExpression, /, replace_map):
         return replace_map[expr]
     else:
         new_layout = replace(expr.layout, replace_map)
-        return type(expr)(expr.buffer, new_layout, expr.shape, expr.loop_axes)
+        return expr.__record_init__(layout=new_layout)
 
 
 @replace.register(CompositeDat)
@@ -611,6 +611,7 @@ def _(mat: Mat, /) -> tuple[AxisTree,AxisTree]:
     return (mat.raxes.materialize(), mat.caxes.materialize())
 
 
+# TODO: Lives in expr_visitors I think
 @functools.singledispatch
 def collect_tensor_candidate_indirections(obj: Any, /, **kwargs) -> immutabledict:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
@@ -751,7 +752,7 @@ def _(expr: LinearDatArrayBufferExpression, /, visited_axes, loop_indices, *, co
     candidates = []
     for layout_expr, layout_cost in collect_candidate_indirections(expr.layout, visited_axes, loop_indices, compress=compress):
         # TODO: is it correct to use expr.shape and expr.loop_axes here? Or layout_expr?
-        candidate_expr = LinearDatArrayBufferExpression(expr.buffer, layout_expr, expr.shape, expr.loop_axes)
+        candidate_expr = expr.__record_init__(layout=layout_expr)
 
         # TODO: Only apply penalty for non-affine layouts
         candidate_cost = dat_cost + layout_cost * INDIRECTION_PENALTY_FACTOR
@@ -785,7 +786,7 @@ def _(var: Any, /, *args, **kwargs) -> Any:
 @concretize_materialized_tensor_indirections.register(LinearDatArrayBufferExpression)
 def _(buffer_expr: LinearDatArrayBufferExpression, layouts, key):
     layout = layouts[key + (buffer_expr,)]
-    return LinearDatArrayBufferExpression(buffer_expr.buffer, layout, buffer_expr.shape, buffer_expr.loop_axes, nest_indices=buffer_expr.nest_indices)
+    return buffer_expr.__record_init__(layout=layout)
 
 
 @concretize_materialized_tensor_indirections.register(NonlinearDatArrayBufferExpression)
@@ -794,7 +795,7 @@ def _(buffer_expr: NonlinearDatArrayBufferExpression, layouts, key):
         leaf_path: layouts[key + ((buffer_expr, leaf_path),)]
         for leaf_path in buffer_expr.layouts.keys()
     }
-    return NonlinearDatArrayBufferExpression(buffer_expr.buffer, new_layouts, buffer_expr.shape, buffer_expr.loop_axes, nest_indices=buffer_expr.nest_indices)
+    return buffer_expr.__record_init__(layouts=new_layouts)
 
 
 @concretize_materialized_tensor_indirections.register(MatPetscMatBufferExpression)
@@ -816,10 +817,10 @@ def _(mat_expr: MatPetscMatBufferExpression, /, layouts, key) -> MatPetscMatBuff
     #
     # which is what Mat{Get,Set}Values() needs.
     layouts = [
-        LinearDatArrayBufferExpression(layout.buffer, layout.layouts[immutabledict()], layout.shape, layout.loop_axes)
+        LinearDatArrayBufferExpression(layout.buffer, layout.layouts[immutabledict()], layout.shape, layout.loop_axes, nest_indices=layout.nest_indices)
         for layout in [row_layout, column_layout]
     ]
-    return MatPetscMatBufferExpression(mat_expr.buffer, *layouts)
+    return mat_expr.__record_init__(row_layout=layouts[0], column_layout=layouts[1])
 
 
 @concretize_materialized_tensor_indirections.register(MatArrayBufferExpression)
@@ -832,7 +833,7 @@ def _(buffer_expr: MatArrayBufferExpression, /, layouts, key):
             for path in buffer_layouts.keys()
         }
         new_buffer_layoutss.append(new_buffer_layouts)
-    return MatArrayBufferExpression(buffer_expr.buffer, *new_buffer_layoutss)
+    return buffer_expr.__record_init__(row_layouts=new_buffer_layoutss[0], column_layouts=new_buffer_layoutss[1])
 
 
 @functools.singledispatch
@@ -1006,10 +1007,10 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatArrayBuff
 
     if isinstance(composite_dat, LinearCompositeDat):
         layout = newlayouts[axes.leaf_path]
-        return LinearDatArrayBufferExpression(result.buffer, layout, result.shape, result.loop_axes)
+        return LinearDatArrayBufferExpression(result.buffer, layout, result.shape, result.loop_axes, nest_indices=axes.nest_indices)
     else:
         assert isinstance(composite_dat, NonlinearCompositeDat)
-        return NonlinearDatArrayBufferExpression(result.buffer, newlayouts, result.shape, result.loop_axes)
+        return NonlinearDatArrayBufferExpression(result.buffer, newlayouts, result.shape, result.loop_axes, nest_indices=axes.nest_indices)
 
 
 # TODO: Better to just return the actual value probably...

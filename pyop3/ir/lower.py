@@ -122,6 +122,7 @@ class LoopyCodegenContext(CodegenContext):
         # buffer name -> buffer
         self.global_buffers = weakref.WeakValueDictionary()
         self.global_buffer_intents = {}
+        self.nest_indices = {}
 
         # initializer hash -> temporary name
         self._reusable_temporaries: dict[int, str] = {}
@@ -190,7 +191,7 @@ class LoopyCodegenContext(CodegenContext):
         )
         self._add_instruction(insn)
 
-    def add_buffer(self, buffer: AbstractBuffer, intent: Intent | None = None) -> str:
+    def add_buffer(self, buffer: AbstractBuffer, intent: Intent | None = None, *, nest_indices: tuple[tuple[int, ...], ...]) -> str:
         # TODO: This should check to make that we do not encounter any
         # loop-carried dependencies. For that to work we need to track the intent and
         # the indirection expression. Something like:
@@ -256,6 +257,7 @@ class LoopyCodegenContext(CodegenContext):
 
             self.global_buffers[buffer.name] = buffer
             self.global_buffer_intents[buffer.name] = intent
+            self.nest_indices[buffer.name] = nest_indices
             self._arguments.append(loopy_arg)
 
         self._kernel_names[buffer.name] = name_in_kernel
@@ -327,10 +329,11 @@ class ModuleExecutor:
     """
 
     # TODO: intents and datamap etc maybe all go together. All relate to the same objects
-    def __init__(self, loopy_code: lp.TranslationUnit, buffer_map: WeakValueDictionary[str, ConcretBuffer], buffer_intents: Mapping[str, Intent], compiler_parameters: Mapping):
+    def __init__(self, loopy_code: lp.TranslationUnit, buffer_map: WeakValueDictionary[str, ConcretBuffer], buffer_intents: Mapping[str, Intent], nest_indices, compiler_parameters: Mapping):
         self.loopy_code = loopy_code
         self.buffer_map = buffer_map
         self.buffer_intents = buffer_intents
+        self.nest_indices = nest_indices
         self.compiler_parameters = compiler_parameters
 
     @property
@@ -372,6 +375,7 @@ class ModuleExecutor:
         # pyop3.extras.debug.maybe_breakpoint()
 
         self.executable(*exec_arguments)
+        pass
 
     def __str__(self) -> str:
         sep = "*" * 80
@@ -418,17 +422,25 @@ class ModuleExecutor:
     def _default_exec_arguments(self) -> tuple[numbers.Number]:
         return tuple(self._as_exec_argument(buffer) for buffer in self._buffers)
 
+    @functools.singledispatchmethod
     def _as_exec_argument(self, buffer: AbstractBuffer) -> numbers.Number:
-        assert not buffer.is_nested, "Nested buffers should already be deconstructed"
-        if isinstance(buffer, ArrayBuffer):
-            # NOTE: Use the private accessor ._data here to avoid triggering
-            # a halo exchange
-            return buffer._data.ctypes.data
-        else:
-            assert isinstance(buffer, PetscMatBuffer)
-            if buffer.mat_type == "nest":
-                raise NotImplementedError
-            return buffer.mat.handle
+        raise TypeError
+
+    @_as_exec_argument.register
+    def _(self, buffer: ArrayBuffer) -> int:
+        if self.nest_indices[buffer.name]:
+            raise NotImplementedError
+
+        # NOTE: Use the private accessor ._data here to avoid triggering
+        # a halo exchange
+        return buffer._data.ctypes.data
+
+    @_as_exec_argument.register
+    def _(self, buffer: PetscMatBuffer) -> int:
+        petscmat = buffer.petscmat
+        for row_index, column_index in self.nest_indices[buffer.name]:
+            petscmat = petscmat.getNestSubMatrix(row_index, column_index)
+        return petscmat.handle
 
     def _check_buffer_is_valid(self, orig_buffer: AbstractBuffer, new_buffer: AbstractBuffer, /) -> None:
         valid = (
@@ -600,7 +612,7 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
         buffer_name = kernel_to_buffer_names[kernel_arg.name]
         sorted_buffers[kernel_arg.name] = context.global_buffers[buffer_name]
 
-    return ModuleExecutor(translation_unit, sorted_buffers, context.global_buffer_intents, compiler_parameters)
+    return ModuleExecutor(translation_unit, sorted_buffers, context.global_buffer_intents, context.nest_indices, compiler_parameters)
 
 
 # put into a class in transform.py?
@@ -748,7 +760,7 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
         # this check fails because we currently assume that all arrays require packing
         # from pyop3.transform import _requires_pack_unpack
         # assert not _requires_pack_unpack(arg)
-        name_in_kernel = context.add_buffer(arg.buffer, spec.intent)
+        name_in_kernel = context.add_buffer(arg.buffer, spec.intent, nest_indices=arg.nest_indices)
 
         if not isinstance(loopy_arg, lp.ArrayArg):
             raise NotImplementedError
@@ -843,10 +855,10 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
 
     # now emit the right line of code, this should properly be a lp.ScalarCallable
     # https://petsc.org/release/manualpages/Mat/MatGetValuesLocal/
-    mat_name = context.add_buffer(assignment.assignee.buffer, assignment_type_as_intent(assignment.assignment_type))
+    mat_name = context.add_buffer(assignment.assignee.buffer, assignment_type_as_intent(assignment.assignment_type), nest_indices=assignment.assignee.nest_indices)
 
     # NOTE: Is this always correct? It is for now.
-    array_name = context.add_buffer(array_buffer, READ)
+    array_name = context.add_buffer(array_buffer, READ, nest_indices=())
 
     # TODO: The following code should be done in a loop per submat.
     # blocked = mat.mat.block_shape > 1
@@ -1122,24 +1134,24 @@ def _(loop_var: LoopIndexVar, /, iname_maps, loop_indices, *args, **kwargs) -> p
 
 @_lower_expr.register(LinearDatArrayBufferExpression)
 def _(expr: LinearDatArrayBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
-    return lower_buffer_access(expr.buffer, [expr.layout], iname_maps, loop_indices, context, intent=intent)
+    return lower_buffer_access(expr.buffer, [expr.layout], iname_maps, loop_indices, context, intent=intent, nest_indices=expr.nest_indices)
 
 
 @_lower_expr.register(NonlinearDatArrayBufferExpression)
 def _(expr: NonlinearDatArrayBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, **kwargs) -> pym.Expression:
     path = just_one(paths)
-    return lower_buffer_access(expr.buffer, [expr.layouts[path]], iname_maps, loop_indices, context, intent=intent)
+    return lower_buffer_access(expr.buffer, [expr.layouts[path]], iname_maps, loop_indices, context, intent=intent, nest_indices=expr.nest_indices)
 
 
 @_lower_expr.register(MatArrayBufferExpression)
 def _(expr: MatArrayBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
     row_path, column_path = paths
     layouts = (expr.row_layouts[row_path], expr.column_layouts[column_path])
-    return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, shape=shape)
+    return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, nest_indices=expr.nest_indices, shape=shape)
 
 
-def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indices, context, *, intent, shape=None) -> pym.Expression:
-    name_in_kernel = context.add_buffer(buffer, intent)
+def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indices, context, *, intent, nest_indices, shape=None) -> pym.Expression:
+    name_in_kernel = context.add_buffer(buffer, intent, nest_indices=nest_indices)
 
     offset_expr = 0
     strides = reversed(utils.strides(shape)) if shape else (1,)
@@ -1181,7 +1193,7 @@ def _(num: numbers.Integral, *args, **kwargs):
 
 @register_extent.register(Scalar)
 def _(param: Scalar, inames, loop_indices, context):
-    name_in_kernel = context.add_buffer(param.buffer, READ)
+    name_in_kernel = context.add_buffer(param.buffer, READ, nest_indices=())
     extent_name = context.add_temporary("p")
     context.add_assignment(pym.var(extent_name), pym.var(name_in_kernel)[0])
     return extent_name
