@@ -725,6 +725,12 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 
     @property
     @abc.abstractmethod
+    def dm_cell_types(self):
+        """All ``DM.PolytopeType``s of cells in the mesh."""
+        pass
+
+    @property
+    @abc.abstractmethod
     def cell_closure(self):
         """2D array of ordered cell closures
 
@@ -1227,6 +1233,11 @@ class MeshTopology(AbstractMeshTopology):
             # No reordering
             reordering = None
         return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, reordering)
+
+    @property
+    def dm_cell_types(self):
+        """All ``DM.PolytopeType``s of cells in the mesh."""
+        return dmcommon.get_dm_cell_types(self.topology_dm)
 
     @utils.cached_property
     def cell_closure(self):
@@ -1739,6 +1750,11 @@ class ExtrudedMeshTopology(MeshTopology):
         cell = self._ufl_cell
         return ufl.Mesh(finat.ufl.VectorElement("Lagrange", cell, 1, dim=cell.topological_dimension()))
 
+    @property
+    def dm_cell_types(self):
+        """All ``DM.PolytopeType``s of cells in the mesh."""
+        raise NotImplementedError("Notimplemented for ExtrudedMeshTopology")
+
     @utils.cached_property
     def cell_closure(self):
         """2D array of ordered cell closures
@@ -1976,6 +1992,11 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             return perm_is
         else:
             return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, None)
+
+    @property
+    def dm_cell_types(self):
+        """All ``DM.PolytopeType``s of cells in the mesh."""
+        return (PETSc.DM.PolytopeType.POINT,)
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_closure(self):
@@ -4591,7 +4612,7 @@ def SubDomainData(geometric_expr):
     return op2.Subset(m.cell_set, indices)
 
 
-def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
+def Submesh(mesh, subdim, subdomain_id, label_name=None, ignore_label_halo=False, name=None):
     """Construct a submesh from a given mesh.
 
     Parameters
@@ -4604,6 +4625,8 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
         Subdomain ID representing the submesh.
     label_name : str
         Name of the label to search ``subdomain_id`` in.
+    ignore_label_halo : bool
+        If labeled points in the halo are ignored.
     name : str
         Name of the submesh.
 
@@ -4676,7 +4699,7 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
         elif subdim == dim - 1:
             label_name = dmcommon.FACE_SETS_LABEL
     name = name or _generate_default_submesh_name(mesh.name)
-    subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id)
+    subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, ignore_label_halo)
     subplex.setName(_generate_default_mesh_topology_name(name))
     if subplex.getDimension() != subdim:
         raise RuntimeError(f"Found subplex dim ({subplex.getDimension()}) != expected ({subdim})")
