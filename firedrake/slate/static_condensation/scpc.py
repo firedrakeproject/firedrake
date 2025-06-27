@@ -36,7 +36,7 @@ class SCPC(SCBase):
         from firedrake.parloops import par_loop, INC
         from ufl import dx
 
-        prefix = pc.getOptionsPrefix() + "condensed_field_"
+        prefix = (pc.getOptionsPrefix() or "") + "condensed_field_"
         A, P = pc.getOperators()
         self.cxt = A.getPythonContext()
         if not isinstance(self.cxt, ImplicitMatrixContext):
@@ -49,7 +49,7 @@ class SCPC(SCBase):
         if len(W) > 3:
             raise NotImplementedError("Only supports up to three function spaces.")
 
-        elim_fields = PETSc.Options().getString(pc.getOptionsPrefix()
+        elim_fields = PETSc.Options().getString((pc.getOptionsPrefix() or "")
                                                 + "pc_sc_eliminate_fields",
                                                 None)
         if elim_fields:
@@ -79,8 +79,8 @@ class SCPC(SCBase):
 
         self.c_field = c_field
         self.condensed_rhs = Cofunction(Vc.dual())
-        self.residual = Function(W)
-        self.solution = Cofunction(W.dual())
+        self.residual = Cofunction(W.dual())
+        self.solution = Function(W)
 
         shapes = (Vc.finat_element.space_dimension(),
                   np.prod(Vc.shape))

@@ -43,7 +43,7 @@ class HybridizationPC(SCBase):
         from ufl.algorithms.replace import replace
 
         # Extract the problem context
-        prefix = pc.getOptionsPrefix() + "hybridization_"
+        prefix = (pc.getOptionsPrefix() or "") + "hybridization_"
         _, P = pc.getOperators()
         self.ctx = P.getPythonContext()
 
@@ -91,11 +91,11 @@ class HybridizationPC(SCBase):
 
         # Set up the functions for the original, hybridized
         # and schur complement systems
-        self.broken_solution = Cofunction(V_d.dual())
-        self.broken_residual = Function(V_d)
+        self.broken_solution = Function(V_d)
+        self.broken_residual = Cofunction(V_d.dual())
         self.trace_solution = Function(TraceSpace)
-        self.unbroken_solution = Cofunction(V.dual())
-        self.unbroken_residual = Function(V)
+        self.unbroken_solution = Function(V)
+        self.unbroken_residual = Cofunction(V.dual())
 
         shapes = (V[self.vidx].finat_element.space_dimension(),
                   V[self.vidx].block_size)

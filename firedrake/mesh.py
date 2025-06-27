@@ -22,8 +22,10 @@ from pyop2.mpi import (
     MPI, COMM_WORLD, internal_comm, is_pyop2_comm, temp_internal_comm
 )
 from pyop2.utils import as_tuple
+from petsctools import OptionsManager, get_external_packages
 
 import firedrake.cython.dmcommon as dmcommon
+from firedrake.cython.dmcommon import DistributedMeshOverlapType
 import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
 import firedrake.cython.spatialindex as spatialindex
@@ -31,9 +33,7 @@ import firedrake.utils as utils
 from firedrake.utils import as_cstr, IntType, RealType
 from firedrake.logging import info_red
 from firedrake.parameters import parameters
-from firedrake.petsc import (
-    PETSc, OptionsManager, get_external_packages, DEFAULT_PARTITIONER
-)
+from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
 from pyadjoint import stop_annotating
 import gem
@@ -144,25 +144,6 @@ def _generate_default_mesh_topology_permutation_name(reorder):
     :returns: the default mesh topology permutation name.
     """
     return "_".join(["firedrake", "default", str(reorder)])
-
-
-class DistributedMeshOverlapType(enum.Enum):
-    """How should the mesh overlap be grown for distributed meshes?
-
-    Possible options are:
-
-     - :attr:`NONE`:  Don't overlap distributed meshes, only useful for problems with
-              no interior facet integrals.
-     - :attr:`FACET`: Add ghost entities in the closure of the star of
-              facets.
-     - :attr:`VERTEX`: Add ghost entities in the closure of the star
-              of vertices.
-
-    Defaults to :attr:`FACET`.
-    """
-    NONE = 1
-    FACET = 2
-    VERTEX = 3
 
 
 class _Facets(object):
@@ -1182,8 +1163,8 @@ class MeshTopology(AbstractMeshTopology):
         if overlap_type == DistributedMeshOverlapType.NONE:
             if overlap > 0:
                 raise ValueError("Can't have NONE overlap with overlap > 0")
-        elif overlap_type == DistributedMeshOverlapType.FACET:
-            dmcommon.set_adjacency_callback(self.topology_dm)
+        elif overlap_type in [DistributedMeshOverlapType.FACET, DistributedMeshOverlapType.RIDGE]:
+            dmcommon.set_adjacency_callback(self.topology_dm, overlap_type)
             original_name = self.topology_dm.getName()
             sfBC = self.topology_dm.distributeOverlap(overlap)
             self.topology_dm.setName(original_name)
@@ -1262,12 +1243,26 @@ class MeshTopology(AbstractMeshTopology):
 
         cell = self.ufl_cell()
         assert tdim == cell.topological_dimension()
-        if self.submesh_parent is not None:
-            return dmcommon.submesh_create_cell_closure_cell_submesh(plex,
-                                                                     self.submesh_parent.topology_dm,
-                                                                     cell_numbering,
-                                                                     self.submesh_parent._cell_numbering,
-                                                                     self.submesh_parent.cell_closure)
+        if self.submesh_parent is not None and \
+                not (self.submesh_parent.ufl_cell().cellname() == "hexahedron" and cell.cellname() == "quadrilateral"):
+            # Codim-1 submesh of a hex mesh (i.e. a quad submesh) can not
+            # inherit cell_closure from the hex mesh as the cell_closure
+            # must follow the special orientation restriction. This means
+            # that, when the quad submesh works with the parent hex mesh,
+            # quadrature points must be permuted (i.e. use the canonical
+            # quadrature point ordering based on the cone ordering).
+            topology = FIAT.ufc_cell(cell).get_topology()
+            entity_per_cell = np.zeros(len(topology), dtype=IntType)
+            for d, ents in topology.items():
+                entity_per_cell[d] = len(ents)
+            return dmcommon.submesh_create_cell_closure(
+                plex,
+                self.submesh_parent.topology_dm,
+                cell_numbering,
+                self.submesh_parent._cell_numbering,
+                self.submesh_parent.cell_closure,
+                entity_per_cell,
+            )
         elif cell.is_simplex():
             topology = FIAT.ufc_cell(cell).get_topology()
             entity_per_cell = np.zeros(len(topology), dtype=IntType)
@@ -1966,14 +1961,15 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         if reorder:
             swarm = self.topology_dm
             parent = self._parent_mesh.topology_dm
-            swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid").ravel()
+            cell_id_name = swarm.getCellDMActive().getCellID()
+            swarm_parent_cell_nums = swarm.getField(cell_id_name).ravel()
             parent_renum = self._parent_mesh._dm_renumbering.getIndices()
             pStart, _ = parent.getChart()
             parent_renum_inv = np.empty_like(parent_renum)
             parent_renum_inv[parent_renum - pStart] = np.arange(len(parent_renum))
             # Use kind = 'stable' to make the ordering deterministic.
             perm = np.argsort(parent_renum_inv[swarm_parent_cell_nums - pStart], kind='stable').astype(IntType)
-            swarm.restoreField("DMSwarm_cellid")
+            swarm.restoreField(cell_id_name)
             perm_is = PETSc.IS().create(comm=swarm.comm)
             perm_is.setType("general")
             perm_is.setIndices(perm)
@@ -3557,11 +3553,9 @@ def _pic_swarm_in_mesh(
         #. ``parentcellextrusionheight`` which contains the extrusion height of
             the immersed vertex in the parent mesh cell.
 
-        Another three are required for proper functioning of the DMSwarm:
+        Another two are required for proper functioning of the DMSwarm:
 
         #. ``DMSwarmPIC_coor`` which contains the coordinates of the point.
-        #. ``DMSwarm_cellid`` the DMPlex cell within which the DMSwarm point is
-           located.
         #. ``DMSwarm_rank``: the MPI rank which owns the DMSwarm point.
 
     .. note::
@@ -3794,7 +3788,6 @@ def _dmswarm_create(
     # These are created by default for a PIC DMSwarm
     default_fields = [
         ("DMSwarmPIC_coor", gdim, RealType),
-        ("DMSwarm_cellid", 1, IntType),
         ("DMSwarm_rank", 1, IntType),
     ]
 
@@ -3853,12 +3846,6 @@ def _dmswarm_create(
     # Set to Particle In Cell (PIC) type
     if not isinstance(plex, PETSc.DMSwarm):
         swarm.setType(PETSc.DMSwarm.Type.PIC)
-    else:
-        # This doesn't work where we embed a DMSwarm in a DMSwarm, instead
-        # we register some default fields manually
-        for name, size, dtype in default_fields:
-            if name == "DMSwarmPIC_coor" or name == "DMSwarm_cellid":
-                swarm.registerField(name, size, dtype=dtype)
 
     # Register any fields
     for name, size, dtype in swarm.default_extra_fields + swarm.other_fields:
@@ -3872,14 +3859,15 @@ def _dmswarm_create(
     # Add point coordinates. This amounts to our own implementation of
     # DMSwarmSetPointCoordinates because Firedrake's mesh coordinate model
     # doesn't always exactly coincide with that of DMPlex: in most cases the
-    # plex_parent_cell_nums (DMSwarm_cellid field) and parent_cell_nums
-    # (parentcellnum field), the latter being the numbering used by firedrake,
-    # refer fundamentally to the same cells. For extruded meshes the DMPlex
-    # dimension is based on the topological dimension of the base mesh.
+    # plex_parent_cell_nums and parent_cell_nums (parentcellnum field), the
+    # latter being the numbering used by firedrake, refer fundamentally to the
+    # same cells. For extruded meshes the DMPlex dimension is based on the
+    # topological dimension of the base mesh.
 
     # NOTE ensure that swarm.restoreField is called for each field too!
     swarm_coords = swarm.getField("DMSwarmPIC_coor").reshape((num_vertices, gdim))
-    swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid").ravel()
+    cell_id_name = swarm.getCellDMActive().getCellID()
+    swarm_parent_cell_nums = swarm.getField(cell_id_name).ravel()
     field_parent_cell_nums = swarm.getField("parentcellnum").ravel()
     field_reference_coords = swarm.getField("refcoord").reshape((num_vertices, tdim))
     field_global_index = swarm.getField("globalindex").ravel()
@@ -3903,7 +3891,7 @@ def _dmswarm_create(
     swarm.restoreField("refcoord")
     swarm.restoreField("parentcellnum")
     swarm.restoreField("DMSwarmPIC_coor")
-    swarm.restoreField("DMSwarm_cellid")
+    swarm.restoreField(cell_id_name)
 
     if extruded:
         field_base_parent_cell_nums = swarm.getField("parentcellbasenum").ravel()
@@ -4626,8 +4614,24 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
 
     Notes
     -----
-    Currently, one can only make submeshes that have the same
-    topological dimension as the parent mesh.
+    Currently, one can only make submeshes of co-dimension 0 or 1.
+
+    To make a submesh of co-dimension 1, the parent mesh must have
+    been overlapped with :class:`DistributedMeshOverlapType` of
+    {``None``, `VERTEX``, ``RIDGE``}; see ``distribution_parameters``
+    kwarg of :func:`~.Mesh`.
+
+    To use interior facet integration on a submesh of co-dimension 1,
+    the parent mesh must have been overlapped with
+    ``DistributedMeshOverlapType`` of {`VERTEX``, ``RIDGE``}, and the
+    facets of the parent mesh must have been labeled such that the
+    ridges (entities of co-dim 2) to be contained in the submesh are
+    shared by at most two facets.
+
+    Currently, to make a quadrilateral submesh from a hexahedral mesh,
+    the facets of the hex mesh must have been labeled such that the
+    ridges to be contained in the quad mesh are shared by at most two
+    facets to make the quad mesh orientation algorithm work.
 
     Examples
     --------
@@ -4664,18 +4668,21 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
     mesh.topology.init()
     plex = mesh.topology_dm
     dim = plex.getDimension()
-    if subdim != dim:
-        raise NotImplementedError(f"Found submesh dim ({subdim}) != parent dim ({dim})")
+    if subdim not in [dim, dim - 1]:
+        raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
     if label_name is None:
-        label_name = dmcommon.CELL_SETS_LABEL
+        if subdim == dim:
+            label_name = dmcommon.CELL_SETS_LABEL
+        elif subdim == dim - 1:
+            label_name = dmcommon.FACE_SETS_LABEL
     name = name or _generate_default_submesh_name(mesh.name)
-    subplex = dmcommon.submesh_create(plex, label_name, subdomain_id)
+    subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id)
     subplex.setName(_generate_default_mesh_topology_name(name))
     if subplex.getDimension() != subdim:
         raise RuntimeError(f"Found subplex dim ({subplex.getDimension()}) != expected ({subdim})")
     submesh = Mesh(subplex, name=name, distribution_parameters={"partition": False,
                                                                 "overlap_type": (DistributedMeshOverlapType.NONE, 0)})
     submesh.topology.submesh_parent = mesh.topology
-    submesh.submesh_parent = mesh
     submesh.init()
+    submesh.submesh_parent = mesh
     return submesh

@@ -101,8 +101,7 @@ class AssembleBlock(Block):
         c = block_variable.output
         c_rep = block_variable.saved_output
 
-        from ufl.algorithms.analysis import extract_arguments
-        arity_form = len(extract_arguments(form))
+        arity_form = len(form.arguments())
 
         if isconstant(c):
             mesh = as_domain(self.form)
@@ -157,8 +156,7 @@ class AssembleBlock(Block):
         hessian_input = hessian_inputs[0]
         adj_input = adj_inputs[0]
 
-        from ufl.algorithms.analysis import extract_arguments
-        arity_form = len(extract_arguments(form))
+        arity_form = len(form.arguments())
 
         c1 = block_variable.output
         c1_rep = block_variable.saved_output

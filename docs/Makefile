@@ -65,7 +65,7 @@ source/demos: copy_demos
 
 copy_demos:
 	install -d source/demos
-	cp ../demos/*/*.rst ../demos/demo_references.bib ../demos/*/*.geo ../demos/*/*.msh ../demos/*/*.png source/demos
+	cp ../demos/*/*.rst ../demos/demo_references.bib ../demos/*/*.geo ../demos/*/*.msh ../demos/*/*.png ../demos/*/*.svg source/demos
 	for file in source/demos/*.py.rst; do pylit $$file; done
 
 reset_notebooks:
@@ -82,11 +82,11 @@ source/element_list.csv: source/element_list.py
 	cd source; python element_list.py
 
 source/team.rst: source/team2.py
-	cd source; python team2.py; mv AUTHORS.rst CITATION.rst ../..
+	cd source; python team2.py; mv AUTHORS.rst ../..
 
 source/firedrake_citations.rst:
 	sphinx-apidoc -f -T -o source/ ../firedrake_citations
-	echo -e ":orphan:\n\n" | cat - source/firedrake_citations.rst > source/firedrake_citations.tmp
+	echo ":orphan:\n\n" | cat - source/firedrake_citations.rst > source/firedrake_citations.tmp
 	mv source/firedrake_citations.tmp source/firedrake_citations.rst
 
 source/apt_deps.txt:

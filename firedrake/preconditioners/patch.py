@@ -14,7 +14,6 @@ from functools import partial
 import numpy
 from finat.ufl import VectorElement, MixedElement
 from ufl.domain import extract_unique_domain
-from tsfc.kernel_interface.firedrake_loopy import make_builder
 from tsfc.ufl_utils import extract_firedrake_constants
 import weakref
 
@@ -144,11 +143,11 @@ def matrix_funptr(form, state):
         raise NotImplementedError("Only for matching test and trial spaces")
 
     if state is not None:
-        interface = make_builder(dont_split=(state, ))
+        dont_split = (state, )
     else:
-        interface = None
+        dont_split = ()
 
-    kernels = compile_form(form, "subspace_form", split=False, interface=interface)
+    kernels = compile_form(form, "subspace_form", split=False, dont_split=dont_split)
 
     cell_kernels = []
     int_facet_kernels = []
@@ -238,11 +237,11 @@ def residual_funptr(form, state):
         raise NotImplementedError("State and test space must be dual to one-another")
 
     if state is not None:
-        interface = make_builder(dont_split=(state, ))
+        dont_split = (state, )
     else:
-        interface = None
+        dont_split = ()
 
-    kernels = compile_form(form, "subspace_form", split=False, interface=interface)
+    kernels = compile_form(form, "subspace_form", split=False, dont_split=dont_split)
 
     cell_kernels = []
     int_facet_kernels = []
@@ -715,7 +714,7 @@ class PlaneSmoother(object):
             raise NotImplementedError("Sorry, plane smoothers not yet implemented in complex mode")
         dm = pc.getDM()
         context = dm.getAttr("__firedrake_ctx__")
-        prefix = pc.getOptionsPrefix()
+        prefix = pc.getOptionsPrefix() or ""
         sentinel = object()
         sweeps = PETSc.Options(prefix).getString("pc_patch_construct_ps_sweeps", default=sentinel)
         if sweeps == sentinel:
@@ -789,7 +788,7 @@ class PatchBase(PCSNESBase):
                 PETSc.Sys.Print("Warning: you almost surely want to set an overlap_type in your mesh's distribution_parameters.")
 
         patch = obj.__class__().create(comm=mesh.comm)
-        patch.setOptionsPrefix(obj.getOptionsPrefix() + "patch_")
+        patch.setOptionsPrefix((obj.getOptionsPrefix() or "") + "patch_")
         self.configure_patch(patch, obj)
         patch.setType("patch")
 
@@ -924,7 +923,7 @@ class PatchBase(PCSNESBase):
             self.patch.destroy()
 
     def user_construction_op(self, obj, *args, **kwargs):
-        prefix = obj.getOptionsPrefix()
+        prefix = obj.getOptionsPrefix() or ""
         sentinel = object()
         usercode = PETSc.Options(prefix).getString("%s_patch_construct_python_type" % self._objectname, default=sentinel)
         if usercode == sentinel:
