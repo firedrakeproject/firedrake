@@ -87,6 +87,11 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         """
         Return the subfunctions of the local mixed function storage
         corresponding to the i-th local function.
+
+        Firedrake doesn't support nested MixedFunctionSpace, so internally
+        EnsembleFunctionSpace flattens all the local FunctionSpaces into a
+        single MixedFunctionSpace. This method retrieves the components of
+        the flattened MixedFunction corresponding to the i-th local Function.
         """
         return tuple(self._full_local_function.subfunctions[j]
                      for j in self._fs._component_indices(i))
