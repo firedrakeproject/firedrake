@@ -148,7 +148,7 @@ class Coargument(ufl.argument.Coargument):
             raise TypeError(f"Expecting an int, not {number}")
         if function_space.value_shape != self.function_space().value_shape:
             raise ValueError("Cannot reconstruct an Coargument with a different value shape.")
-        return Coargument(function_space, number, part=part)
+        return Argument(function_space, number, part=part)
 
     def equals(self, other):
         if type(other) is not Coargument:
@@ -381,7 +381,7 @@ def extract_domains(func):
     list of firedrake.mesh.MeshGeometry
         Extracted domains.
     """
-    if isinstance(func, (function.Function, cofunction.Cofunction)):
+    if isinstance(func, (function.Function, cofunction.Cofunction, Argument, Coargument)):
         return [func.function_space().mesh()]
     else:
         return ufl.domain.extract_domains(func)
@@ -400,7 +400,7 @@ def extract_unique_domain(func):
     list of firedrake.mesh.MeshGeometry
         Extracted domains.
     """
-    if isinstance(func, (function.Function, cofunction.Cofunction)):
+    if isinstance(func, (function.Function, cofunction.Cofunction, Argument, Coargument)):
         return func.function_space().mesh()
     else:
         return ufl.domain.extract_unique_domain(func)
