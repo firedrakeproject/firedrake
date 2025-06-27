@@ -52,7 +52,7 @@ def test_ensemble_bcast_float():
     match_local = all((Ji - expect) < eps for Ji in Jx.subvec)
 
     parallel_assert(
-        lambda: match_local,
+        match_local,
         msg=f"Broadcast AdjFloats {Jx.subvec} do not match expected value {expect}."
     )
 
@@ -72,7 +72,7 @@ def test_ensemble_bcast_float():
     match_local = dJ - expect < eps
 
     parallel_assert(
-        lambda: match_local,
+        match_local,
         msg=f"Broadcast derivative {dJ} does not match"
             f" expected value {expect}."
     )
@@ -112,7 +112,7 @@ def test_ensemble_bcast_function():
                       for Ji in Jx.subfunctions)
 
     parallel_assert(
-        lambda: match_local,
+        match_local,
         msg=f"Broadcast Functions do not match on rank {rank}"
     )
 
@@ -133,7 +133,7 @@ def test_ensemble_bcast_function():
     match_local = errornorm(dJ, expect) < eps
 
     parallel_assert(
-        lambda: match_local,
+        match_local,
         msg=f"Broadcast derivative {dJ.dat.data[:]} does not match"
             f" expected value {expect.dat.data[:]}."
     )
@@ -172,7 +172,7 @@ def test_ensemble_reduction_float():
     match_local = Jx - expect < eps
 
     parallel_assert(
-        lambda: match_local,
+        match_local,
         msg=f"Reduced AdjFloat {Jx} does not match"
             f" expected value {expect}"
     )
@@ -183,7 +183,7 @@ def test_ensemble_reduction_float():
     match_local = tlmx - expect < eps
 
     parallel_assert(
-        lambda: match_local,
+        match_local,
         msg=f"Reduced TLM AdjFloat {tlmx} does not match"
             f" expected value {expect}"
     )
@@ -201,14 +201,13 @@ def test_ensemble_reduction_float():
     match_local = all((dJi - expect) < eps for dJi in dJ.subvec)
 
     parallel_assert(
-        lambda: match_local,
+        match_local,
         msg=f"Reduced derivatives {dJ} do not match expected value {expect}."
     )
 
     for i, dj in enumerate(dJ.subvec):
         dj *= (i+2)*0.3
     taylor = taylor_to_dict(Jhat, x, dJ)
-    print(f"{taylor = }")
 
     # derivative and hessian should be "exact"
     assert mean(taylor['R0']['Rate'])
@@ -254,7 +253,7 @@ def test_ensemble_reduction_function():
     match_local = errornorm(Jx, expect) < eps
 
     parallel_assert(
-        lambda: match_local,
+        match_local,
         msg=f"Reduced Function {Jx.dat.data[:]} does not match"
             f" expected value {expect.dat.data[:]}"
     )
@@ -273,7 +272,7 @@ def test_ensemble_reduction_function():
                       for dJi in dJ.subfunctions)
 
     parallel_assert(
-        lambda: match_local,
+        match_local,
         msg=f"Reduced derivatives {[dJi.dat.data[:] for dJi in dJ.subfunctions]}"
             f" do not match expected value {expect.dat.data[:]}."
     )
@@ -329,7 +328,7 @@ def test_ensemble_transform_float():
     match_local = all((Ji - ei) < eps for Ji, ei in zip(Jx.subvec, expect))
 
     parallel_assert(
-        lambda: match_local,
+        match_local,
         msg=f"Transformed results {Jx} do not match expected values {expect}"
     )
 
@@ -353,9 +352,9 @@ def test_ensemble_transform_float():
         for dJi, ei in zip(dJ.subfunctions, expect.subfunctions))
 
     parallel_assert(
-        lambda: match_local,
+        match_local,
         msg=f"Reduced derivatives {[dJi.dat.data[:] for dJi in dJ.subfunctions]}"
-            f" do not match expected value {ei.dat.data[:] for ei in expect.subfunctions}."
+            f" do not match expected value {[ei.dat.data[:] for ei in expect.subfunctions]}."
     )
 
     _ = Jhat.tlm(x)
@@ -417,7 +416,7 @@ def test_ensemble_transform_float_two_controls():
     match_local = all((Ji - ei) < eps for Ji, ei in zip(Jx.subvec, expect))
 
     parallel_assert(
-        lambda: match_local,
+        match_local,
         msg=f"Transformed results {Jx} do not match expected values {expect}"
     )
 
@@ -450,15 +449,15 @@ def test_ensemble_transform_float_two_controls():
         for dJi, ei in zip(dJ1.subfunctions, expect1.subfunctions))
 
     parallel_assert(
-        lambda: match_local0,
+        match_local0,
         msg=f"Reduced derivatives {[dJ0i.dat.data[:] for dJ0i in dJ0.subfunctions]}"
-            f" do not match expected value {e0i.dat.data[:] for e0i in expect0.subfunctions}."
+            f" do not match expected value {[e0i.dat.data[:] for e0i in expect0.subfunctions]}."
     )
 
     parallel_assert(
-        lambda: match_local1,
+        match_local1,
         msg=f"Reduced derivatives {[dJ1i.dat.data[:] for dJ1i in dJ1.subfunctions]}"
-            f" do not match expected value {e1i.dat.data[:] for e1i in expect1.subfunctions}."
+            f" do not match expected value {[e1i.dat.data[:] for e1i in expect1.subfunctions]}."
     )
 
     _ = Jhat.tlm([x0, x1])
@@ -517,7 +516,7 @@ def test_ensemble_transform_function():
         for Ji, ei in zip(Jx.subfunctions, expect.subfunctions))
 
     parallel_assert(
-        lambda: match_local,
+        match_local,
         msg=f"Transformed Functions {[Ji.dat.data[:] for Ji in Jx.subfunctions]}"
             f" do not match expected value {[ei.dat.data[:] for ei in expect.subfunctions]}"
     )
@@ -544,9 +543,9 @@ def test_ensemble_transform_function():
         for dJi, ei in zip(dJ.subfunctions, expect.subfunctions))
 
     parallel_assert(
-        lambda: match_local,
+        match_local,
         msg=f"Reduced derivatives {[dJi.dat.data[:] for dJi in dJ.subfunctions]}"
-            f" do not match expected value {ei.dat.data[:] for ei in expect.subfunctions}."
+            f" do not match expected value {[ei.dat.data[:] for ei in expect.subfunctions]}."
     )
 
     _ = Jhat.tlm(x)
@@ -612,7 +611,7 @@ def test_ensemble_transform_function_two_controls():
                           expect.subfunctions))
 
     parallel_assert(
-        lambda: match_local,
+        match_local,
         msg=f"Transformed Functions {[Ji.dat.data[:] for Ji in Jx.subfunctions]}"
             f" do not match expected value {[ei.dat.data[:] for ei in expect.subfunctions]}"
     )
@@ -647,15 +646,15 @@ def test_ensemble_transform_function_two_controls():
         for dJi, ei in zip(dJ1.subfunctions, expect1.subfunctions))
 
     parallel_assert(
-        lambda: match_local0,
+        match_local0,
         msg=f"Reduced derivatives {[dJ0i.dat.data[:] for dJ0i in dJ0.subfunctions]}"
-            f" do not match expected value {e0i.dat.data[:] for e0i in expect0.subfunctions}."
+            f" do not match expected value {[e0i.dat.data[:] for e0i in expect0.subfunctions]}."
     )
 
     parallel_assert(
-        lambda: match_local1,
+        match_local1,
         msg=f"Reduced derivatives {[dJ1i.dat.data[:] for dJ1i in dJ1.subfunctions]}"
-            f" do not match expected value {e1i.dat.data[:] for e1i in expect1.subfunctions}."
+            f" do not match expected value {[e1i.dat.data[:] for e1i in expect1.subfunctions]}."
     )
 
     _ = Jhat.tlm([x0, x1])
@@ -768,7 +767,7 @@ def test_ensemble_rf_efunction_to_float():
     expect = sum(w**4 for w in range(1, nglobal_funcs+1))
 
     parallel_assert(
-        lambda: (J - expect) < eps,
+        (J - expect) < eps,
         msg=f"Functional {J} does not match expected value {expect}."
     )
 
@@ -784,9 +783,9 @@ def test_ensemble_rf_efunction_to_float():
         for dJi, ei in zip(dJ.subfunctions, expect.subfunctions))
 
     parallel_assert(
-        lambda: match_local,
+        match_local,
         msg=f"Derivatives {[dJi.dat.data[:] for dJi in dJ.subfunctions]}"
-            f" do not match expected values {ei.dat.data[:] for ei in expect.subfunctions}."
+            f" do not match expected values {[ei.dat.data[:] for ei in expect.subfunctions]}."
     )
 
     dy = EnsembleFunction(Re)
