@@ -1050,3 +1050,25 @@ def test_bdy_control():
     # tape._blocks[1] is the DirichletBC block for the right boundary
     assert isinstance(tape._blocks[1], DirichletBCBlock) and \
         tape._blocks[1]._outputs[0].checkpoint.checkpoint is not bc_right._original_arg
+
+
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+def test_bdy_update():
+    # Fix the issue https://github.com/firedrakeproject/firedrake/issues/4387
+    mesh = UnitSquareMesh(5, 5)
+    V = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(mesh, "R", 0)
+
+    bc_func = Function(R, val=2.0)
+    bc = DirichletBC(V, bc_func, 1)
+    u_ = Function(V)
+
+    v = TestFunction(V)
+    problem = NonlinearVariationalProblem(
+        inner(grad(u_), grad(v)) * dx - v * dx, u_, bcs=bc)
+    solver = NonlinearVariationalSolver(problem)
+    solver.solve()
+    J = assemble(u_**2 * dx)
+    c = Control(bc_func)
+    Jhat = ReducedFunctional(J, c)
+    assert taylor_test(Jhat, bc_func, Function(R, val=0.1)) > 1.9
