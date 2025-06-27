@@ -1,5 +1,4 @@
 from functools import cached_property
-from itertools import chain
 from typing import Collection
 
 from ufl.duals import is_primal, is_dual
@@ -45,17 +44,20 @@ def _is_primal_or_dual(local_spaces, ensemble):
         raise ValueError(
             "All spaces must be defined on the ensemble.comm")
 
-    local_types = []
+    local_types = set()
     for V in local_spaces:
         if is_primal(V):
-            local_types.append('primal')
-            continue
+            local_types.add('primal')
         elif is_dual(V):
-            local_types.append('dual')
-            continue
-        local_types.append('invalid')
-    global_types = ensemble.ensemble_comm.allgather(local_types)
-    global_types = set(chain(*global_types))
+            local_types.add('dual')
+        else:
+            local_types.add('invalid')
+    if len(local_types) > 1:
+        local_type = "invalid"
+    else:
+        local_type, = local_types
+    global_types = ensemble.ensemble_comm.allgather(local_type)
+    global_types = set(global_types)
     if len(global_types) != 1:
         return 'invalid'
     else:
@@ -65,8 +67,8 @@ def _is_primal_or_dual(local_spaces, ensemble):
 class EnsembleFunctionSpaceBase:
     """
     Base class for mixed function spaces defined on an :class:`firedrake.Ensemble`.
-    The subcomponents are distributed over the ensemble members, and
-    are specified locally.
+    The subcomponents are distributed over the ensemble members, and are specified locally.
+
 
     Parameters
     ----------
@@ -81,8 +83,9 @@ class EnsembleFunctionSpaceBase:
     will return an instance of :class:`firedrake.EnsembleDualSpace`.
 
     This class does not carry UFL symbolic information, unlike a
-    :function:`firedrake.FunctionSpace`. UFL expressions can only be
-    defined locally on each ensemble member using a :function:`firedrake.FunctionSpace` from `EnsembleFunctionSpace.local_spaces`.
+    :function:`firedrake.FunctionSpace`. UFL expressions can only be defined locally
+    on each ensemble member using a :function:`firedrake.FunctionSpace` from
+    `EnsembleFunctionSpace.local_spaces`.
 
     See also:
     - Primal ensemble objects: :class:`firedrake.EnsembleFunctionSpace` and :class:`firedrake.EnsembleFunction`.
@@ -244,6 +247,28 @@ class EnsembleFunctionSpace(EnsembleFunctionSpaceBase):
     :function:`firedrake.FunctionSpace`. UFL expressions can only be
     defined locally on each ensemble member using a :function:`firedrake.FunctionSpace` from `EnsembleFunctionSpace.local_spaces`.
 
+    Examples
+    --------
+    If U=CG1, V=DG0, and W=UxV, we can have the nested mixed space UxVxVxWxU.
+    This can be distributed over an :class:`firedrake.Ensemble` with two ensemble
+    members by splitting into [UxV]x[VxWxU].  The following code creates the
+    corresponding `EnsembleFunctionSpace`:
+
+    .. code-block:: python
+
+        ensemble = Ensemble(COMM_WORLD, COMM_WORLD.size//2)
+        mesh = UnitIntervalMesh(8, comm=ensemble.comm)
+        U = FunctionSpace(mesh, "CG", 1)
+        V = FunctionSpace(mesh, "DG", 0)
+        W = U*V
+
+        if ensemble.ensemble_rank == 0:
+            local_spaces = [U, V]
+        else:
+            local_spaces = [V, W, U]
+
+        efs = EnsembleFunctionSpace(local_spaces, ensemble)
+
     See Also
     --------
     :class:`firedrake.EnsembleFunctionSpace`
@@ -285,10 +310,36 @@ class EnsembleDualSpace(EnsembleFunctionSpaceBase):
 
     Notes
     -----
+    Passing a list of dual local_spaces to :class:`firedrake.EnsembleFunctionSpace`
+    will return an instance of :class:`firedrake.EnsembleDualSpace`.
+
     This class does not carry UFL symbolic information, unlike a
     :function:`firedrake.FiredrakeDualSpace`. UFL expressions can only be
     defined locally on each ensemble member using a :function:`firedrake.FiredrakeDualSpace`
     from `EnsembleDualSpace.local_spaces`.
+
+    Examples
+    --------
+    If U=CG1, V=DG0, and W=U*V, we can have the nested mixed dual space U*xV*xV*xW*xU*.
+    This can be distributed over an :class:`firedrake.Ensemble` with two ensemble
+    members by splitting into [U*xV*]x[V*xW*xU*].  The following code creates the
+    corresponding `EnsembleDualSpace`:
+
+    .. code-block:: python
+
+        ensemble = Ensemble(COMM_WORLD, COMM_WORLD.size//2)
+        mesh = UnitIntervalMesh(8, comm=ensemble.comm)
+        U = FunctionSpace(mesh, "CG", 1)
+        V = FunctionSpace(mesh, "DG", 0)
+        W = U*V
+
+        if ensemble.ensemble_rank == 0:
+            local_spaces = [U.dual(), V.dual()]
+        else:
+            local_spaces = [V.dual(), W.dual(), U.dual()]
+
+        efs0 = EnsembleDualSpace(local_spaces, ensemble)
+        efs1 = EnsembleFunctionSpace(local_spaces, ensemble)
 
     See Also
     --------

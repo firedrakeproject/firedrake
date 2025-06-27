@@ -194,7 +194,13 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
     @PETSc.Log.EventDecorator()
     def __rmul__(self, other):
-        return self.__mul__(other)
+        if type(other) is type(self):
+            for us, uo in zip(self.subfunctions, other.subfunctions):
+                us.assign(us*uo)
+        else:
+            for us in self.subfunctions:
+                us *= other
+        return self
 
     @contextmanager
     def vec(self):
@@ -203,11 +209,13 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
         It is invalid to access the Vec outside of a context manager.
         """
-        # _full_local_function.vec shares the same storage as _vec, so we need this
-        # nested context manager so that the data gets copied to/from
-        # the Function.dat storage and _vec.
-        # However, this copy is done without _vec knowing, so we have
-        # to manually increment the state.
+        # The globally defined _vec views the _full_local_function.dat.vec.
+        # The data in _full_local_function.dat.vec is only valid inside the
+        # context manager, so we need to activate that context manager before
+        # yielding our _vec otherwise the data will not be up to date.
+        # However, because the copies in the _full_local_function.dat.vec
+        # context manager are done without _vec knowing, we have to manually
+        # increment the state to make sure its still in sync.
         with self._full_local_function.dat.vec:
             self._vec.stateIncrease()
             yield self._vec
@@ -219,9 +227,10 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
         It is invalid to access the Vec outside of a context manager.
         """
-        # _full_local_function.vec shares the same storage as _vec, so we need this
-        # nested context manager to make sure that the data gets copied
-        # to the Function.dat storage and _vec.
+        # The globally defined _vec views the _full_local_function.dat.vec.
+        # The data in _full_local_function.dat.vec is only valid inside the
+        # context manager, so we need to activate that context manager before
+        # yielding our _vec otherwise the data will not be up to date.
         with self._full_local_function.dat.vec_ro:
             self._vec.stateIncrease()
             yield self._vec
@@ -233,9 +242,15 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
         It is invalid to access the Vec outside of a context manager.
         """
-        # _full_local_function.vec shares the same storage as _vec, so we need this
-        # nested context manager to make sure that the data gets copied
-        # from the Function.dat storage and _vec.
+        # The globally defined _vec views the _full_local_function.dat.vec.
+        # The data in _full_local_function.dat.vec is only valid inside the
+        # context manager, so we need to activate that context manager before
+        # yielding our _vec otherwise the data will not be copied back into
+        # the _full_local_function properly when exiting the context manager.
+        # Because the _full_local_function.dat.vec_wo context manager doesn't
+        # copy any data on entry, this time we don't have to manually increase
+        # _vec's state. If the user modifies _vec inside out context manager then
+        # _vec will know and will handle incrementing it's state itself.
         with self._full_local_function.dat.vec_wo:
             yield self._vec
 
