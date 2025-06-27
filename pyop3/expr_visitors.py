@@ -22,7 +22,7 @@ from petsc4py import PETSc
 
 from pyop3 import utils
 from pyop3.tensor import Tensor, Dat, Mat, LinearDatArrayBufferExpression, BufferExpression, NonlinearDatArrayBufferExpression
-from pyop3.axtree.tree import AxisVar, Expression, Operator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN
+from pyop3.axtree.tree import AxisVar, Expression, Operator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN, _UnitAxisTree
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
 
@@ -975,6 +975,11 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatArrayBuff
             myslice = Slice(axis, [AffineSliceComponent(component)])
             myslices.append(myslice)
         iforest = IndexTree.from_iterable(myslices)
+
+        # NOTE: not sure about this!
+        if iforest.is_empty:
+            continue
+
         assignee = result[iforest]
 
         if assignee.size > 0:
@@ -988,15 +993,20 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatArrayBuff
         axis_var.axis_label: loop_var
         for (loop_var, axis_var) in loop_index_replace_map
     }
-    for path, mynode in composite_dat.axis_tree.node_map.items():
-        if mynode is None:
-            continue
+    if isinstance(composite_dat.axis_tree, _UnitAxisTree):
+        layout = result.axes.subst_layouts()[looptree.leaf_path]
+        newlayout = replace_terminals(layout, dumb_inv_replace_map)
+        newlayouts[immutabledict()] = newlayout
+    else:
+        for path, mynode in composite_dat.axis_tree.node_map.items():
+            if mynode is None:
+                continue
 
-        for component in mynode.components:
-            fullpath = looptree.leaf_path | path
-            layout = result.axes.subst_layouts()[fullpath]
-            newlayout = replace_terminals(layout, dumb_inv_replace_map)
-            newlayouts[path] = newlayout
+            for component in mynode.components:
+                fullpath = looptree.leaf_path | path
+                layout = result.axes.subst_layouts()[fullpath]
+                newlayout = replace_terminals(layout, dumb_inv_replace_map)
+                newlayouts[path] = newlayout
 
     # plus the empty layout
     path = immutabledict()

@@ -1705,11 +1705,14 @@ class IndexedAxisTree(AbstractAxisTree):
         return tuple(nest_indices_)
 
     def nest_subtree(self, nest_label: ComponentLabelT) -> IndexedAxisTree:
+        breakpoint()  # think something here is wrong
+        subtree = self[nest_label]
         subtree_unindexed = self.unindexed[nest_label].materialize()
 
         # remove the nest label from the targets
         subtree_targets = tuple(
             {
+                # axis_path may no longer exist!
                 axis_path: (
                     {
                         axis_label: path
@@ -1724,10 +1727,9 @@ class IndexedAxisTree(AbstractAxisTree):
                 )
                 for axis_path, target_spec in target.items()
             }
-            for target in self.targets
+            for target in subtree.targets
         )
 
-        subtree = self[nest_label]
         if isinstance(subtree, UnitIndexedAxisTree):
             return UnitIndexedAxisTree(
                 unindexed=subtree_unindexed,
