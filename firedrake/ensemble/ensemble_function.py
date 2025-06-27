@@ -97,7 +97,7 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
                      for j in self._fs._component_indices(i))
 
     @PETSc.Log.EventDecorator()
-    def riesz_representation(self, riesz_map="L2", **kwargs):
+    def riesz_representation(self, **kwargs):
         """
         Return the Riesz representation of this :class:`EnsembleFunction`
         with respect to the given Riesz map.
@@ -110,11 +110,10 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         kwargs
             other arguments to be passed to the firedrake.riesz_map.
         """
-        riesz = EnsembleFunction(self._fs.dual())
+        riesz = EnsembleFunction(self.function_space().dual())
         for uself, uriesz in zip(self.subfunctions, riesz.subfunctions):
             uriesz.assign(
-                uself.riesz_representation(
-                    riesz_map=riesz_map, **kwargs))
+                uself.riesz_representation(**kwargs))
         return riesz
 
     @PETSc.Log.EventDecorator()
