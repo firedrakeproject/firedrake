@@ -149,6 +149,7 @@ def interpolate(expr, V, *args, **kwargs):
     :arg expr: a UFL expression.
     :arg V: the :class:`.FunctionSpace` to interpolate into (or else
         an existing :class:`.Function` or :class:`.Cofunction`).
+        Adjoint interpolation requires ``V`` to be a :class:`.Cofunction`.
     :kwarg subset: An optional :class:`pyop2.types.set.Subset` to apply the
         interpolation over. Cannot, at present, be used when interpolating
         across meshes unless the target mesh is a :func:`.VertexOnlyMesh`.
