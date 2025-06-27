@@ -277,8 +277,8 @@ def test_adjoint_cleanup(scheduler):
     pause_annotation()
     reduced_functional = ReducedFunctional(J, Control(u_0))
 
-    # Printing diagnostics here
-    dJdm = reduced_functional.derivative()
+    # Deliberate aditional derivative computation.
+    reduced_functional.derivative()
 
     # Choosing fixed perturbation
     dtemp = Function(u_0.function_space())
