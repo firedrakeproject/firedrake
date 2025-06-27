@@ -20,6 +20,11 @@ it should be installable on any Linux distribution. Windows users are encouraged
 to use WSL_ or one of Firedrake's
 :ref:`alternative installation mechanisms<alternative_install>`.
 
+If installing on an HPC system most of the following steps should remain
+applicable, though care will have to be taken to make sure that the right system
+packages are used. A community-maintained collection of instructions for how to install
+Firedrake onto a number of different HPC systems may be found
+`here <https://github.com/firedrakeproject/firedrake/wiki/HPC-installation>`__.
 
 .. _pip_install_firedrake:
 
@@ -92,9 +97,15 @@ which will install the following packages:
 .. literalinclude:: homebrew_deps.txt
    :language: text
 
-If you do not have one of these systems then these dependencies will need to
-be installed manually.
+The packages installed here are a combination of essential system dependencies,
+like a C compiler and MPI, and 'external packages' that are used by PETSc, like
+MUMPS and HDF5. If you are not installing onto Ubuntu or macOS then only the former
+of these need be installed as PETSc can download and compile the remaining packages
+(by passing ``--no-package-manager`` to PETSc ``configure``). To give you a guide
+as to what essential system dependencies are needed, on Ubuntu they are:
 
+.. literalinclude:: minimal_apt_deps.txt
+   :language: text
 
 .. _install_petsc:
 
