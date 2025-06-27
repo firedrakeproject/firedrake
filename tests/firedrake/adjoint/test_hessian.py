@@ -264,12 +264,18 @@ def test_burgers():
 
     timestep = Constant(1.0/n)
 
+    params = {
+        'snes_rtol': 1e-10,
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+    }
+
     F = (Dt(u, ic, timestep)*v
          + u*u.dx(0)*v + nu*u.dx(0)*v.dx(0))*dx
     bc = DirichletBC(V, 0.0, "on_boundary")
 
     t = 0.0
-    solve(F == 0, u, bc)
+    solve(F == 0, u, bc, solver_parameters=params)
     u_.assign(u)
     t += float(timestep)
 
@@ -278,7 +284,7 @@ def test_burgers():
 
     end = 0.2
     while (t <= end):
-        solve(F == 0, u, bc)
+        solve(F == 0, u, bc, solver_parameters=params)
         u_.assign(u)
 
         t += float(timestep)

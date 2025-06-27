@@ -1,12 +1,21 @@
-import firedrake as fd
-from pyop2 import Subset
-import pytest
 import numpy as np
+import pytest
+from pytest_mpi.parallel_assert import parallel_assert
+
+from pyop2 import Subset
+import firedrake as fd
 
 
 def random_func(f):
     for dat in f.dat:
         dat.data[:] = np.random.rand(*(dat.data.shape))
+    return f
+
+
+def random_efunc(f):
+    for sub in f.subfunctions:
+        random_func(sub)
+    return f
 
 
 def assign_scalar(u, s):
@@ -49,7 +58,7 @@ scalar_elements = {
 
 elements = [
     scalar_elements['CG'],  # 1
-    fd.MixedElement([scalar_elements[e] for e in ('T-DG',)]),  # 2
+    fd.MixedElement([scalar_elements[e] for e in ('CG', 'T-DG')]),  # 2
     scalar_elements['T-DG'],  # 3
     scalar_elements['BDM'],  # 4
     scalar_elements['BDM'],  # 5
@@ -109,7 +118,7 @@ def ensemblefunc(ensemblespace):
 
 
 @pytest.mark.parallel(nprocs=[1, 2, 4, 6])
-def test_zero(ensemblefunc):
+def test_efunc_zero(ensemblefunc):
     """
     Test setting all components to zero.
     """
@@ -117,19 +126,35 @@ def test_zero(ensemblefunc):
     assign_scalar(ensemblefunc, 1)
 
     # check the norm is nonzero
-    for u in ensemblefunc.subfunctions:
+    failed = []
+    for i, u in enumerate(ensemblefunc.subfunctions):
         with u.dat.vec_ro as uvec:
-            assert uvec.norm() > 1e-14, "This test needs a nonzero initial value."
+            if uvec.norm() < 1e-14:
+                failed.append(i)
+
+    parallel_assert(
+        len(failed) == 0,
+        msg=("This test needs a nonzero initial value."
+             f"The following subcomponents failed: {failed}")
+    )
 
     ensemblefunc.zero()
 
-    for u in ensemblefunc.subfunctions:
+    failed = []
+    for i, u in enumerate(ensemblefunc.subfunctions):
         with u.dat.vec_ro as uvec:
-            assert uvec.norm() < 1e-14, "EnsembleFunction.zero should zero all components"
+            if uvec.norm() > 1e-14:
+                failed.append(i)
+
+    parallel_assert(
+        len(failed) == 0,
+        msg=("EnsembleFunction.zero should zero all components."
+             f"The following subcomponents failed: {failed}")
+    )
 
 
 @pytest.mark.parallel(nprocs=[1, 2, 4, 6])
-def test_zero_with_subset(ensemblefunc):
+def test_efunc_zero_with_subset(ensemblefunc):
     """
     Test setting a subset of all components to zero.
     """
@@ -146,25 +171,226 @@ def test_zero_with_subset(ensemblefunc):
 
     ensemblefunc.zero(subsets)
 
-    for u, subset in zip(ensemblefunc.subfunctions, subsets):
+    failed_zero_all = []
+    failed_zero_subset = []
+    failed_nonzero_notsubset = []
+    for i, (u, subset) in enumerate(zip(ensemblefunc.subfunctions, subsets)):
         if subset is None:
             with u.dat.vec_ro as uvec:
-                assert uvec.norm() < 1e-14, "EnsembleFunction.zero() should zero the function"
+                if uvec.norm() > 1e-14:
+                    failed_zero_all.append(i)
         else:
-            assert np.allclose(u.dat.data_ro[:2], 0), "EnsembleFunction.zero(subset) should zero the subset"
-            assert np.allclose(u.dat.data_ro[2:], nonzero), "EnsembleFunction.zero(subset) should only modify the subset"
+            if not np.allclose(u.dat.data_ro[:2], 0):
+                failed_zero_subset.append(i)
+            if not np.allclose(u.dat.data_ro[2:], nonzero):
+                failed_nonzero_notsubset.append(i)
+
+    parallel_assert(
+        len(failed_zero_all) == 0,
+        msg=("EnsembleFunction.zero() should zero the entire Function."
+             f"The following subcomponents failed: {failed_zero_all}")
+    )
+
+    parallel_assert(
+        len(failed_zero_subset) == 0,
+        msg=("EnsembleFunction.zero(subset) should zero the subset."
+             f"The following subcomponents failed: {failed_zero_subset}")
+    )
+
+    parallel_assert(
+        len(failed_nonzero_notsubset) == 0,
+        msg=("EnsembleFunction.zero(subset) should not zero outside the subset."
+             f"The following subcomponents failed: {failed_nonzero_notsubset}")
+    )
 
 
-# test subfunctions
+@pytest.mark.parallel(nprocs=[1, 2, 4, 6])
+def test_efunc_subfunctions(ensemblefunc):
+    """
+    Test setting components of the local mixed space.
+    """
+    efunc = ensemblefunc
+    espace = efunc.function_space()
 
-# test riesz_representation
+    # Do the EnsembleFunction subfunctions have the right FunctionSpace?
+    failed = []
+    for i, (u, fs) in enumerate(zip(efunc.subfunctions,
+                                    espace.local_spaces)):
+        if u.function_space() != fs:
+            failed.append(i)
 
-# test assign
+    parallel_assert(
+        len(failed) == 0,
+        msg=("EnsembleFunction.subfunctions should have the same"
+             " FunctionSpaces as EnsembleFunctionSpace.local_spaces."
+             f"The following subfunctions failed: {failed}")
+    )
 
-# test copy
+    local_funcs = [random_func(fd.Function(V))
+                   for V in espace.local_spaces]
 
-# test arithmetic operators
+    # Do the EnsembleFunction subfunctions view the right data?
+    for usub, esub in zip([us for u in local_funcs for us in u.subfunctions],
+                          efunc._full_local_function.subfunctions):
+        esub.assign(usub)
 
-# test vec
+    for i, (u, e) in enumerate(zip(local_funcs, efunc.subfunctions)):
+        with u.dat.vec_ro as uvec, e.dat.vec_ro as evec:
+            if not np.allclose(uvec.array_r, evec.array_r):
+                failed.append(i)
 
-# test norm
+    parallel_assert(
+        len(failed) == 0,
+        msg=("EnsembleFunction.subfunctions should view the data in"
+             " EnsembleFunction._full_local_function."
+             f"The following subfunctions failed: {failed}")
+    )
+
+
+@pytest.mark.parallel(nprocs=[1, 2, 4, 6])
+def test_efunc_riesz_representation(ensemblefunc):
+    """
+    Test that taking the riesz representation of an EnsembleFunction
+    is the same as taking the riesz representation of each component.
+    """
+    efunc = random_efunc(ensemblefunc)
+    edual = ensemblefunc.riesz_representation()
+
+    parallel_assert(
+        edual.function_space() == efunc.function_space().dual(),
+        msg=("The EnsembleFunctionSpace of EnsembleFunction.dual()"
+             " should be EnsembleFunction.function_space().dual()")
+    )
+
+    failed = []
+    for i, (ef, ed) in enumerate(zip(efunc.subfunctions, edual.subfunctions)):
+        check = ef.riesz_representation()
+        with ed.dat.vec_ro as edvec, check.dat.vec_ro as cvec:
+            if not np.allclose(edvec.array_r, cvec.array_r):
+                failed.append(i)
+
+    parallel_assert(
+        len(failed) == 0,
+        msg=("EnsembleFunction.riesz_representation() give the same"
+             " values as the riesz_representation() of each subfunction."
+             f" The following subfunctions failed: {failed}")
+    )
+
+
+@pytest.mark.parallel(nprocs=[1, 2, 4, 6])
+def test_efunc_assign(ensemblefunc):
+    """
+    Test assigning one EnsembleFunction to another.
+    """
+    efunc0 = random_efunc(ensemblefunc)
+    efunc1 = efunc0.copy().zero()
+
+    efunc1.assign(efunc0)
+
+    # Do the EnsembleFunction subfunctions match?
+    failed = []
+    for i, (u0, u1) in enumerate(zip(efunc0.subfunctions,
+                                     efunc1.subfunctions)):
+        with u0.dat.vec_ro as v0, u1.dat.vec_ro as v1:
+            if not np.allclose(v0.array_r, v1.array_r):
+                failed.append(i)
+
+    parallel_assert(
+        len(failed) == 0,
+        msg=("EnsembleFunction.assign should copy all subfunctions."
+             f"The following subfunctions failed: {failed}")
+    )
+
+
+@pytest.mark.parallel(nprocs=[1, 2, 4, 6])
+def test_efunc_copy(ensemblefunc):
+    """
+    Test copying one EnsembleFunction to another.
+    """
+    efunc0 = random_efunc(ensemblefunc)
+    efunc1 = efunc0.copy()
+
+    # Do the EnsembleFunction subfunctions match?
+    failed = []
+    for i, (u0, u1) in enumerate(zip(efunc0.subfunctions,
+                                     efunc1.subfunctions)):
+        with u0.dat.vec_ro as v0, u1.dat.vec_ro as v1:
+            if not np.allclose(v0.array_r, v1.array_r):
+                failed.append(i)
+
+    parallel_assert(
+        len(failed) == 0,
+        msg=("EnsembleFunction.copy should copy all subfunctions."
+             f"The following subfunctions failed: {failed}")
+    )
+
+
+@pytest.mark.parallel(nprocs=[1, 2, 4, 6])
+def test_efunc_vec(ensemblefunc):
+    """
+    test synchronising the global Vec with the local Functions
+    """
+    efunc = ensemblefunc
+    efunc._vec.array[:] = 0
+
+    # read only
+    for esub in efunc.subfunctions:
+        esub.assign(10)
+
+    with efunc.vec_ro() as rvec:
+        parallel_assert(
+            np.allclose(rvec.array_r, 10),
+            msg="EnsembleFunction data should be copied in by ro context")
+        rvec.array[:] = 20
+
+    failed = []
+    for i, esub in enumerate(efunc.subfunctions):
+        if not all(np.allclose(dat.data, 10) for dat in esub.dat):
+            failed.append(i)
+
+    parallel_assert(
+        len(failed) == 0,
+        msg=("EnsembleFunction.vec_ro should not copy data back."
+             f"The following subfunctions failed: {failed}")
+    )
+
+    # write only
+    for esub in efunc.subfunctions:
+        esub.assign(30)
+
+    with efunc.vec_wo() as wvec:
+        parallel_assert(
+            np.allclose(wvec.array_r, 20),
+            msg="EnsembleFunction data should not be copied in by wo context")
+        wvec.array[:] = 40
+
+    failed = []
+    for i, esub in enumerate(efunc.subfunctions):
+        if not all(np.allclose(dat.data, 40) for dat in esub.dat):
+            failed.append(i)
+
+    parallel_assert(
+        len(failed) == 0,
+        msg=("EnsembleFunction.vec_wo should copy data back."
+             f"The following subfunctions failed: {failed}")
+    )
+
+    for esub in efunc.subfunctions:
+        esub.assign(50)
+
+    with efunc.vec() as vec:
+        parallel_assert(
+            np.allclose(vec.array_r, 50),
+            msg="EnsembleFunction data should be copied in by rw context.")
+        vec.array[:] = 60
+
+    failed = []
+    for i, esub in enumerate(efunc.subfunctions):
+        if not all(np.allclose(dat.data, 60) for dat in esub.dat):
+            failed.append(i)
+
+    parallel_assert(
+        len(failed) == 0,
+        msg=("EnsembleFunction.vec should copy data back."
+             f"The following subfunctions failed: {failed}")
+    )
