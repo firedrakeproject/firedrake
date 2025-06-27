@@ -8,6 +8,13 @@ from pytest_mpi.parallel_assert import parallel_assert
 def random_func(f):
     for dat in f.dat:
         dat.data[:] = np.random.rand(*(dat.data.shape))
+    return f
+
+
+def random_efunc(f):
+    for sub in f.subfunctions:
+        random_func(sub)
+    return f
 
 
 def assign_scalar(u, s):
@@ -118,15 +125,31 @@ def test_zero(ensemblefunc):
     assign_scalar(ensemblefunc, 1)
 
     # check the norm is nonzero
-    for u in ensemblefunc.subfunctions:
+    failed = []
+    for i, u in enumerate(ensemblefunc.subfunctions):
         with u.dat.vec_ro as uvec:
-            assert uvec.norm() > 1e-14, "This test needs a nonzero initial value."
+            if uvec.norm() < 1e-14:
+                failed.append(i)
+
+    parallel_assert(
+        len(failed) == 0,
+        msg=("This test needs a nonzero initial value."
+             f"The following subcomponents failed: {failed}")
+    )
 
     ensemblefunc.zero()
 
-    for u in ensemblefunc.subfunctions:
+    failed = []
+    for i, u in enumerate(ensemblefunc.subfunctions):
         with u.dat.vec_ro as uvec:
-            assert uvec.norm() < 1e-14, "EnsembleFunction.zero should zero all components"
+            if uvec.norm() > 1e-14:
+                failed.append(i)
+
+    parallel_assert(
+        len(failed) == 0,
+        msg=("EnsembleFunction.zero should zero all components."
+             f"The following subcomponents failed: {failed}")
+    )
 
 
 @pytest.mark.parallel(nprocs=[1, 2, 4, 6])
@@ -147,13 +170,37 @@ def test_zero_with_subset(ensemblefunc):
 
     ensemblefunc.zero(subsets)
 
-    for u, subset in zip(ensemblefunc.subfunctions, subsets):
+    failed_zero_all = []
+    failed_zero_subset = []
+    failed_nonzero_notsubset = []
+    for i, (u, subset) in enumerate(zip(ensemblefunc.subfunctions, subsets)):
         if subset is None:
             with u.dat.vec_ro as uvec:
-                assert uvec.norm() < 1e-14, "EnsembleFunction.zero() should zero the function"
+                if uvec.norm() > 1e-14:
+                    failed_zero_all.append(i)
         else:
-            assert np.allclose(u.dat.data_ro[:2], 0), "EnsembleFunction.zero(subset) should zero the subset"
-            assert np.allclose(u.dat.data_ro[2:], nonzero), "EnsembleFunction.zero(subset) should only modify the subset"
+            if not np.allclose(u.dat.data_ro[:2], 0):
+                failed_zero_subset.append(i)
+            if not np.allclose(u.dat.data_ro[2:], nonzero):
+                failed_nonzero_notsubset.append(i)
+
+    parallel_assert(
+        len(failed_zero_all) == 0,
+        msg=("EnsembleFunction.zero() should zero the entire Function."
+             f"The following subcomponents failed: {failed_zero_all}")
+    )
+
+    parallel_assert(
+        len(failed_zero_subset) == 0,
+        msg=("EnsembleFunction.zero(subset) should zero the subset."
+             f"The following subcomponents failed: {failed_zero_subset}")
+    )
+
+    parallel_assert(
+        len(failed_nonzero_notsubset) == 0,
+        msg=("EnsembleFunction.zero(subset) should not zero outside the subset."
+             f"The following subcomponents failed: {failed_nonzero_notsubset}")
+    )
 
 
 # test subfunctions

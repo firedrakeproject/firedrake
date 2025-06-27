@@ -1,8 +1,8 @@
 import weakref
+from itertools import zip_longest
 
 from firedrake.petsc import PETSc
 from pyop2.mpi import MPI, internal_comm
-from itertools import zip_longest
 
 __all__ = ("Ensemble", )
 

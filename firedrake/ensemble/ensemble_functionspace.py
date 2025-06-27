@@ -1,17 +1,20 @@
-from firedrake.petsc import PETSc
-from firedrake.ensemble.ensemble import Ensemble
-from firedrake.functionspace import MixedFunctionSpace
-from ufl.duals import is_primal, is_dual
-from pyop2.mpi import internal_comm, MPI
 from functools import cached_property
 from itertools import chain
 from typing import Collection
+
+from ufl.duals import is_primal, is_dual
+from pyop2.mpi import internal_comm, MPI
+from firedrake.petsc import PETSc
+from firedrake.ensemble.ensemble import Ensemble
+from firedrake.functionspace import MixedFunctionSpace
 
 __all__ = ("EnsembleFunctionSpace", "EnsembleDualSpace")
 
 
 def _is_primal_or_dual(local_spaces, ensemble):
     """
+    Return whether all spaces in an ensemble are primal or dual.
+
     We need to test primal or dual collectively over all ensemble
     ranks otherwise some may fail when others pass.
 
@@ -21,7 +24,7 @@ def _is_primal_or_dual(local_spaces, ensemble):
     local_spaces : Collection
         The list of :function:`firedrake.FunctionSpace` on the local ensemble.comm.
     ensemble : :class:`firedrake.Ensemble`
-        The communicator to test collectively over.
+        The Ensemble to test collectively over.
 
     Returns
     -------
