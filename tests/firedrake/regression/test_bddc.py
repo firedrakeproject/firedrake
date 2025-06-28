@@ -3,13 +3,14 @@ from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 
-def bddc_params(static_condensation):
+def bddc_params():
     chol = {
         "pc_type": "cholesky",
         "pc_factor_mat_solver_type": "petsc",
         "pc_factor_mat_ordering_type": "natural",
     }
     sp = {
+        "mat_type": "is",
         "pc_type": "python",
         "pc_python_type": "firedrake.BDDCPC",
         "bddc_pc_bddc_neumann": chol,
@@ -19,12 +20,14 @@ def bddc_params(static_condensation):
     return sp
 
 
-def solver_parameters(static_condensation=True):
+def solver_parameters(static_condensation=False, variant=None):
     rtol = 1E-8
     atol = 1E-12
-    sp_bddc = bddc_params(static_condensation)
-    repeated = True
-    if static_condensation:
+    sp_bddc = bddc_params()
+    if variant != "fdm":
+        sp = sp_bddc
+
+    elif static_condensation:
         sp = {
             "pc_type": "python",
             "pc_python_type": "firedrake.FacetSplitPC",
@@ -33,7 +36,7 @@ def solver_parameters(static_condensation=True):
             "facet_fdm_static_condensation": True,
             "facet_fdm_pc_use_amat": False,
             "facet_fdm_mat_type": "is",
-            "facet_fdm_mat_is_allow_repeated": repeated,
+            "facet_fdm_mat_is_allow_repeated": True,
             "facet_fdm_pc_type": "fieldsplit",
             "facet_fdm_pc_fieldsplit_type": "symmetric_multiplicative",
             "facet_fdm_pc_fieldsplit_diag_use_amat": False,
@@ -47,22 +50,23 @@ def solver_parameters(static_condensation=True):
             "pc_type": "python",
             "pc_python_type": "firedrake.FDMPC",
             "fdm_pc_use_amat": False,
-            "fdm_mat_type": "is",
-            "fdm_mat_is_allow_repeated": repeated,
+            "fdm_mat_is_allow_repeated": True,
             "fdm": sp_bddc,
         }
+
     sp.update({
-        "mat_type": "matfree",
         "ksp_type": "cg",
         "ksp_norm_type": "natural",
         "ksp_monitor": None,
         "ksp_rtol": rtol,
         "ksp_atol": atol,
     })
+    if variant == "fdm":
+        sp["mat_type"] = "matfree"
     return sp
 
 
-def solve_riesz_map(mesh, family, degree, bcs, condense):
+def solve_riesz_map(mesh, family, degree, variant, bcs, condense=False, vector=False):
     dirichlet_ids = []
     if bcs:
         dirichlet_ids = ["on_boundary"]
@@ -74,7 +78,10 @@ def solve_riesz_map(mesh, family, degree, bcs, condense):
         family = "RTCE" if tdim == 2 else "NCE"
     if family.endswith("F"):
         family = "RTCF" if tdim == 2 else "NCF"
-    V = FunctionSpace(mesh, family, degree, variant="fdm")
+
+    fs = VectorFunctionSpace if vector else FunctionSpace
+
+    V = fs(mesh, family, degree, variant=variant)
     v = TestFunction(V)
     u = TrialFunction(V)
     d = {
@@ -95,13 +102,21 @@ def solve_riesz_map(mesh, family, degree, bcs, condense):
     bcs = [DirichletBC(V, u_exact, sub) for sub in dirichlet_ids]
     nsp = None
     if formdegree == 0:
-        nsp = VectorSpaceBasis([Function(V).interpolate(Constant(1))])
+        b = np.zeros(V.value_shape)
+        expr = Constant(b)
+        basis = []
+        for i in np.ndindex(V.value_shape):
+            b[...] = 0
+            b[i] = 1
+            expr.assign(b)
+            basis.append(Function(V).interpolate(expr))
+        nsp = VectorSpaceBasis(basis)
         nsp.orthonormalize()
 
     uh = Function(V, name="solution")
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
 
-    sp = solver_parameters(condense)
+    sp = solver_parameters(condense, variant=variant)
     solver = LinearVariationalSolver(problem, near_nullspace=nsp,
                                      solver_parameters=sp,
                                      options_prefix="")
@@ -120,11 +135,24 @@ def mesh(request):
 
 
 @pytest.mark.parallel
-@pytest.mark.parametrize("family", "Q")
 @pytest.mark.parametrize("degree", (4,))
-@pytest.mark.parametrize("condense", (False, True))
+@pytest.mark.parametrize("family", "Q")
+@pytest.mark.parametrize("condense", (False, True), ids=("full", "condense"))
 def test_bddc_fdm(mesh, family, degree, condense):
+    variant = "fdm"
+    bcs = True
+    tdim = mesh.topological_dimension()
+    expected = 6 if tdim == 2 else 11
+    assert solve_riesz_map(mesh, family, degree, variant, bcs, condense=condense) <= expected
+
+
+@pytest.mark.parallel
+@pytest.mark.parametrize("degree", (4,))
+@pytest.mark.parametrize("family", "Q")
+@pytest.mark.parametrize("vector", (False, True), ids=("scalar", "vector"))
+def test_bddc_aij(mesh, family, degree, vector):
+    variant = None
     bcs = True
     tdim = mesh.topological_dimension()
     expected = 7 if tdim == 2 else 11
-    assert solve_riesz_map(mesh, family, degree, bcs, condense) <= expected
+    assert solve_riesz_map(mesh, family, degree, variant, bcs, vector=vector) <= expected

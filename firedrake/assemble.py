@@ -2239,7 +2239,8 @@ def masked_lgmap(lgmap, mask, block=True):
 
 
 def unghosted_lgmap(lgmap, V, block=True):
-    mesh_dm = V.mesh().topology_dm
+    mesh = V._mesh
+    mesh_dm = mesh.topology_dm
     start, end = mesh_dm.getHeightStratum(0)
 
     own = []
@@ -2260,6 +2261,5 @@ def unghosted_lgmap(lgmap, V, block=True):
                 # Local indices within W
                 W_indices = slice(bsize * off, bsize * (off + dof))
                 own.extend(W_local_ises_indices[W_indices])
-
     mask = numpy.setdiff1d(range(len(lgmap.indices)), own)
     return masked_lgmap(lgmap, mask, block=block)
