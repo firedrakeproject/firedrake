@@ -8,6 +8,7 @@ from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 from ufl import curl, div, HCurl, HDiv, inner, dx
 from pyop2.utils import as_tuple
+import finat
 import numpy
 
 __all__ = ("BDDCPC",)
@@ -78,14 +79,12 @@ class BDDCPC(PCBase):
         appctx = self.get_appctx(pc)
         sobolev_space = V.ufl_element().sobolev_space
 
-        # set coordinates
-        if variant != "fdm" and is_lagrange(V):
+        # Set coordinates
+        if is_lagrange(V.finat_element):
             degree = V.ufl_element().embedded_superdegree
             W = VectorFunctionSpace(V.mesh(), "Lagrange", degree, variant=variant)
             coords = Function(W).interpolate(V.mesh().coordinates)
-            gdim, = coords.ufl_shape
-            view = (slice(None), *(None for _ in V.value_shape), slice(None))
-            bddcpc.setCoordinates(numpy.tile(coords.dat.data_ro[view], (1, *V.value_shape, 1)).reshape(-1, gdim))
+            bddcpc.setCoordinates(coords.dat.data_ro.repeat(V.block_size, axis=0))
 
         tdim = V.mesh().topological_dimension()
         degree = max(as_tuple(V.ufl_element().degree()))
@@ -142,8 +141,16 @@ def get_vertex_dofs(V):
     return vertex_dofs
 
 
-def is_lagrange(V):
-    nodes = V.finat_element.fiat_equivalent.dual_basis()
+def is_lagrange(finat_element):
+
+    if isinstance(finat_element, finat.FlattenedDimensions):
+        return is_lagrange(finat_element.product)
+    elif isinstance(finat_element, finat.TensorProductElement):
+        return all(map(is_lagrange, finat_element.factors))
+    elif isinstance(finat_element, finat.EnrichedElement):
+        return all(map(is_lagrange, finat_element.elements))
+
+    nodes = finat_element.fiat_equivalent.dual_basis()
     for node in nodes:
         try:
             pt, = node.get_point_dict()

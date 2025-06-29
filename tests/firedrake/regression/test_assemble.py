@@ -115,6 +115,7 @@ def test_mat_nest_real_block_assembler_correctly_reuses_tensor(mesh):
     assert A2.M is A1.M
 
 
+@pytest.mark.parallel
 @pytest.mark.parametrize("shape,mat_type", [("scalar", "is"), ("vector", "is"), ("mixed", "is"), ("mixed", "nest")])
 @pytest.mark.parametrize("dirichlet_bcs", [False, True])
 def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
@@ -148,8 +149,10 @@ def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
                 bis = ais.getNestSubMatrix(i, j)
                 if i == j:
                     assert bis.type == "is"
-                bij = PETSc.Mat()
-                bis.convert("aij", bij)
+                    bij = PETSc.Mat()
+                    bis.convert("aij", bij)
+                else:
+                    bij = bis
                 row.append(bij)
             blocks.append(row)
         anest = PETSc.Mat()
@@ -164,7 +167,8 @@ def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
 
     aij_ref = assemble(a, bcs=bcs, mat_type="aij").petscmat
     aij_ref.axpy(-1, aij)
-    assert np.allclose(aij_ref[:, :], 0)
+    ind, iptr, values = aij_ref.getValuesCSR()
+    assert np.allclose(values, 0)
 
 
 def test_assemble_diagonal(mesh):

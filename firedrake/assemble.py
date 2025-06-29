@@ -2233,20 +2233,26 @@ def masked_lgmap(lgmap, mask, block=True):
     else:
         indices = lgmap.indices.copy()
         bsize = 1
+
     if len(mask) > 0:
         indices[mask] = -1
     return PETSc.LGMap().create(indices=indices, bsize=bsize, comm=lgmap.comm)
 
 
 def unghosted_lgmap(lgmap, V, block=True):
+    if block:
+        ndofs = lgmap.getBlockIndices().size
+    else:
+        ndofs = lgmap.getIndices().size
+    mask = numpy.arange(ndofs, dtype=PETSc.IntType)
+
     mesh = V._mesh
     mesh_dm = mesh.topology_dm
     start, end = mesh_dm.getHeightStratum(0)
-
-    own = []
     for i, W in enumerate(V):
-        bsize = W.block_size
-        W_local_ises_indices = V.dof_dset.local_ises[i].indices
+        iset = V.dof_dset.local_ises[i]
+        W_local_indices = iset.indices
+        bsize = 1 if block else iset.getBlockSize()
         section = W.dm.getDefaultSection()
         for seed in range(start, end):
             # Do not loop over ghost cells
@@ -2260,6 +2266,7 @@ def unghosted_lgmap(lgmap, V, block=True):
                 off = section.getOffset(p)
                 # Local indices within W
                 W_indices = slice(bsize * off, bsize * (off + dof))
-                own.extend(W_local_ises_indices[W_indices])
-    mask = numpy.setdiff1d(range(len(lgmap.indices)), own)
+                mask[W_local_indices[W_indices]] = -1
+
+    mask = mask[mask > -1]
     return masked_lgmap(lgmap, mask, block=block)
