@@ -160,43 +160,46 @@ cannot always be sure that the linear solver at hand is correctly utilising the 
 To directly eliminate the nullspace we introduce a class :code:`FixAtPointBC` which
 implements a boundary condition that fixes a field at a single point. ::
 
-    import firedrake.utils as firedrake_utils
+    import functools
 
-    class FixAtPointBC(firedrake.DirichletBC):
-        r'''A special BC object for pinning a function at a point.
+    class FixAtPointBC(DirichletBC):
+       r'''A special BC object for pinning a function at a point.
 
-        :arg V: the :class:`.FunctionSpace` on which the boundary condition should be applied.
-        :arg g: the boundary condition value.
-        :arg bc_point: the point at which to pin the function.
-            The location of the finite element DOF nearest to bc_point is actually used.
-        '''
-        def __init__(self, V, g, bc_point):
-            super(FixAtPointBC, self).__init__(V, g, bc_point)
-            if isinstance(bc_point, tuple):
-                bc_point = as_vector(bc_point)
-            self.bc_point = bc_point
+       :arg V: the :class:`.FunctionSpace` on which the boundary condition should be applied.
+       :arg g: the boundary condition value.
+       :arg bc_point: the point at which to pin the function.
+           The location of the finite element DOF nearest to bc_point is actually used.
+       '''
+       def __init__(self, V, g, bc_point):
+           super().__init__(V, g, bc_point)
 
-        @firedrake_utils.cached_property
-        def nodes(self):
-            V = self.function_space()
-            x = firedrake.SpatialCoordinate(V.mesh())
-            xdist = x - self.bc_point
+       @functools.cached_property
+       def nodes(self):
+           V = self.function_space()
+           if V.mesh().ufl_coordinate_element().degree() != 1:
+               # Ensure a P1 mesh
+               coordinates = V.mesh().coordinates
+               P1 = coordinates.function_space().reconstruct(degree=1)
+               P1_mesh = Mesh(Function(P1).interpolate(coordinates))
+               V = V.reconstruct(mesh=P1_mesh)
 
-            test = firedrake.TestFunction(V)
-            trial = firedrake.TrialFunction(V)
-            xphi = firedrake.assemble(ufl.inner(xdist * test, xdist * trial) * ufl.dx, diagonal=True)
-            phi = firedrake.assemble(ufl.inner(test, trial) * ufl.dx, diagonal=True)
-            with xphi.dat.vec as xu, phi.dat.vec as u:
-                xu.pointwiseDivide(xu, u)
-                min_index, min_value = xu.min()     # Find the index of the DOF closest to bc_point
+           point = [tuple(self.sub_domain)]
+           vom = VertexOnlyMesh(V.mesh(), point)
+           P0 = FunctionSpace(vom, "DG", 0)
+           Fvom = Cofunction(P0.dual()).assign(1)
 
-            nodes = V.dof_dset.lgmap.applyInverse([min_index])
-            nodes = nodes[nodes >= 0]
-            return nodes
-
+           # Take the basis function with the largest abs value at bc_point
+           v = TestFunction(V)
+           F = assemble(Interpolate(inner(v, v), Fvom))
+           with F.dat.vec as Fvec:
+               max_index, _ = Fvec.max()
+           nodes = V.dof_dset.lgmap.applyInverse([max_index])
+           nodes = nodes[nodes >= 0]
+           return nodes
+ 
 We use this to fix the pressure and auxiliary temperature at the origin::
 
-    aux_bcs = [FixAtPointBC(Z.sub(1), 0, as_vector([0, 0])), 
+    aux_bcs = [FixAtPointBC(Z.sub(1), 0, (0, 0)), 
                FixAtPointBC(Z.sub(2), 0, as_vector([0, 0]))]
 
 :code:`FixAtPointBC` takes three arguments: the function space to fix, the value with which it
