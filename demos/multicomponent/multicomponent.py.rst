@@ -609,6 +609,9 @@ even in the presence of low species concentrations and sharp solution gradients.
 |    :width: 100%           |    :width: 100%           |
 +---------------------------+---------------------------+
 
+A Python script version of this demo can be found :demo:`here
+<multicomponent.py>`.
+
 .. rubric:: References
 
 .. bibliography:: demo_references.bib
