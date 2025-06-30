@@ -270,7 +270,7 @@ class ImplicitPackUnpackExpander(Transformer):
 
                 function_arg = LinearDatBufferExpression(BufferRef(temporary.buffer), 0, temporary.shape, temporary.loop_axes)
             else:
-                if not isinstance(arg, Scalar):
+                if arg.buffer.is_nested:
                     raise NotImplementedError("Assume cannot have nest indices here")
                 function_arg = LinearDatBufferExpression(BufferRef(arg.buffer), 0, arg.shape, arg.loop_axes)
             arguments.append(function_arg)
