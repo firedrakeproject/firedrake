@@ -574,10 +574,10 @@ class Terminal(Instruction, metaclass=abc.ABCMeta):
         pass
 
     @property
-    def buffer_arguments(self) -> tuple[AbstractBuffer, ...]:
-        from pyop3.buffer import AbstractBuffer
+    def buffer_arguments(self) -> tuple[BufferExpression, ...]:
+        from pyop3.tensor.dat import BufferExpression
 
-        return tuple(utils.filter_type(AbstractBuffer, self.arguments))
+        return tuple(utils.filter_type(BufferExpression, self.arguments))
 
 
 class NonEmptyTerminal(Terminal, metaclass=abc.ABCMeta):

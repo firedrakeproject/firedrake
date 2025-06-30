@@ -15,7 +15,7 @@ import numpy as np
 from immutabledict import immutabledict
 from pyop3.tensor import Scalar
 from pyop3.tensor.dat import BufferExpression, ScalarBufferExpression, LinearDatBufferExpression, NonlinearDatBufferExpression, LinearMatBufferExpression, NonlinearMatBufferExpression, LinearBufferExpression, NonlinearBufferExpression
-from pyop3.buffer import AbstractArrayBuffer, AllocatedPetscMatBuffer, PetscMatBuffer
+from pyop3.buffer import AbstractArrayBuffer, AllocatedPetscMatBuffer, ConcreteBuffer, PetscMatBuffer
 from pyop3.itree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree
 from pyrsistent import pmap, PMap
 from petsc4py import PETSc
@@ -498,7 +498,7 @@ def _(scalar: Scalar, /, axis_trees: Iterable[AxisTree, ...]) -> ScalarBufferExp
 
 @concretize_layouts.register(Dat)
 def _(dat: Dat, /, axis_trees: Iterable[AxisTree, ...]) -> DatBufferExpression:
-    if dat.axes.nest_indices:
+    if dat.buffer.is_nested:
         raise NotImplementedError("TODO")
     if dat.axes.is_linear:
         layout = just_one(dat.axes.leaf_subst_layouts.values())
@@ -523,7 +523,10 @@ def _(mat: Mat, /, axis_trees: Iterable[AxisTree, ...]) -> BufferExpression:
         row_axes = row_axes.restrict_nest(row_index)
         column_axes = column_axes.restrict_nest(column_index)
 
-    if isinstance(mat.buffer.handle(nest_indices), PETSc.Mat):
+    if (
+        isinstance(mat.buffer, ConcreteBuffer)
+        and isinstance(mat.buffer.handle(nest_indices=nest_indices), PETSc.Mat)
+    ):
         layouts = [
             NonlinearCompositeDat(axis_tree.materialize(), axis_tree.leaf_subst_layouts, axis_tree.outer_loops)
             for axis_tree in [row_axes, column_axes]
@@ -543,6 +546,8 @@ def _(mat: Mat, /, axis_trees: Iterable[AxisTree, ...]) -> BufferExpression:
 def _(dat_expr: LinearBufferExpression, /, axis_trees: Iterable[AxisTree, ...]) -> LinearBufferExpression:
     # Nothing to do here. If we drop any zero-sized tree branches then the
     # whole thing goes away and we won't hit this.
+    if dat_expr.buffer.name == "tmp_0":
+        breakpoint()
     return dat_expr
 
 
@@ -665,9 +670,10 @@ def _(mat_expr: LinearMatBufferExpression, /, *, axis_trees, loop_indices: tuple
     })
 
 
+# Should be very similar to NonlinearDat case
 # NOTE: This is a nonlinear type
-@collect_tensor_candidate_indirections.register(LinearMatBufferExpression)
-def _(mat_expr: LinearMatBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool) -> immutabledict:
+@collect_tensor_candidate_indirections.register(NonlinearMatBufferExpression)
+def _(mat_expr: NonlinearMatBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool) -> immutabledict:
     candidates = {}
     layoutss = [mat_expr.row_layouts, mat_expr.column_layouts]
     for i, (axis_tree, layouts) in enumerate(zip(axis_trees, layoutss, strict=True)):
@@ -720,7 +726,9 @@ def _(op: Operator, /, visited_axes, loop_indices, *, compress: bool) -> tuple:
         # Only do this when the cost is large as small arrays will fit in cache
         # and not benefit from the optimisation.
         if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
-            op_axes, op_loop_axes = extract_axes(op, visited_axes, loop_indices, {})
+            # op_axes, op_loop_axes = extract_axes(op, visited_axes, loop_indices, {})
+            op_axes = op.shape
+            op_loop_axes = op.loop_axes
             compressed_expr = LinearCompositeDat(op_axes, op, loop_indices)
 
             op_cost = op_axes.size
@@ -823,8 +831,9 @@ def _(mat_expr: LinearMatBufferExpression, /, layouts, key) -> LinearMatBufferEx
     return mat_expr.__record_init__(row_layout=layouts[0], column_layout=layouts[1])
 
 
-@concretize_materialized_tensor_indirections.register(LinearMatBufferExpression)
-def _(buffer_expr: LinearMatBufferExpression, /, layouts, key):
+# Should be very similar to dat case
+@concretize_materialized_tensor_indirections.register(NonlinearMatBufferExpression)
+def _(buffer_expr: NonlinearMatBufferExpression, /, layouts, key):
     new_buffer_layoutss = []
     buffer_layoutss = [buffer_expr.row_layouts, buffer_expr.column_layouts]
     for i, buffer_layouts in enumerate(buffer_layoutss):

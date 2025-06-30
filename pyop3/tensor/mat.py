@@ -572,6 +572,7 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
     return full_spec
 
 
+# TODO: I don't think that this needs to be a Dat, a vec or array buffer is fine
 class DatPythonMatContext:
 
     def __init__(self, dat: Dat):
@@ -590,6 +591,11 @@ class DatPythonMatContext:
     @property
     def comm(self) -> MPI.Comm:
         return self.dat.comm
+
+    @property
+    def handle(self):
+        assert not self.dat.buffer.is_nested
+        return self.dat.buffer.handle()
 
 
     # def __getitem__(self, key):

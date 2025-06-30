@@ -183,7 +183,7 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
 
     # NOTE: This is similar in nature to Buffer.data etc
     @abc.abstractmethod
-    def handle(self, nest_indices) -> Any:
+    def handle(self, *, nest_indices: tuple[tuple[int, ...], ...] = ()) -> Any:
         """The underlying data structure."""
 
 
@@ -250,7 +250,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     is_nested: ClassVar[bool] = False
 
-    def handle(self, nest_indices: tuple[tuple[int], ...]) -> np.ndarray:
+    def handle(self, *, nest_indices: tuple[tuple[int], ...] = ()) -> np.ndarray:
         assert not nest_indices
         return self._data
 
@@ -560,12 +560,12 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
     def is_nested(self) -> bool:
         return self.mat_type == PETSc.Mat.Type.NEST
 
-    def handle(self, nest_indices: tuple[tuple[int, int], ...]) -> Any:
+    def handle(self, *, nest_indices: tuple[tuple[int, int], ...] = ()) -> Any:
         handle_ = self.petscmat
         for row_index, column_index in nest_indices:
             handle_ = handle_.getNestSubMatrix(row_index, column_index)
 
-        if isinstance(handle_, PETSc.Mat.Type.PYTHON):
+        if handle_.type == PETSc.Mat.Type.PYTHON:
             handle_ = handle_.getPythonContext().handle
 
         return handle_

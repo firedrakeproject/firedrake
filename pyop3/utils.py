@@ -372,8 +372,20 @@ def steps(sizes, *, drop_last=None):
 
 
 def strides(sizes, *, drop_last=True) -> np.ndarray[int]:
-    strides_ = np.concatenate([[1], np.cumprod(sizes)], dtype=int)
-    return readonly(strides_[:-1]) if drop_last else readonly(strides_)
+    """
+    Examples
+    --------
+
+    # I think...
+    (2, 2) returns (2, 2) - 2i + j
+    (1, 2) returns (2, 1) - 2i + j
+    (2, 1) returns (1, 1) - i + j
+
+    """
+    assert drop_last, "old code otherwise"
+    reversed_sizes = np.asarray(sizes, dtype=int)[::-1]
+    strides_ = np.concatenate([[1], np.cumprod(reversed_sizes[:-1])], dtype=int)
+    return readonly(strides_[::-1])
 
 
 _nothing = object()

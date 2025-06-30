@@ -549,7 +549,7 @@ class BufferExpression(Expression, metaclass=abc.ABCMeta):
 
     @property
     def handle(self) -> Any:
-        return self.buffer.handle(self.nest_indices)
+        return self.buffer.handle(nest_indices=self.nest_indices)
 
 
 # class ArrayBufferExpression(BufferExpression, metaclass=abc.ABCMeta):

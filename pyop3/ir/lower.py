@@ -24,7 +24,7 @@ import loopy as lp
 import numpy as np
 import pymbolic as pym
 from immutabledict import immutabledict
-from pyop3.tensor.dat import LinearMatBufferExpression, NonlinearMatBufferExpression, MatBufferExpression
+from pyop3.tensor.dat import LinearMatBufferExpression, NonlinearMatBufferExpression, MatBufferExpression, BufferExpression
 from pyop3.expr_visitors import collect_axis_vars
 
 import pyop2
@@ -223,9 +223,17 @@ class LoopyCodegenContext(CodegenContext):
                     # We are accessing a buffer with different intents so have to
                     # pessimally claim RW access
                     self.global_buffer_intents[buffer.name] = RW
+
+                # NOTE: In theory we can pass the same buffer through multiple time if
+                # nest_indices differs. We don't handle this currently.
+                assert nest_indices == self.nest_indices[buffer.name]
+
                 return self._kernel_names[buffer.name]
 
-            if isinstance(buffer, ArrayBuffer):
+            # TODO: This can be cleaned up
+            handle = buffer.handle(nest_indices=nest_indices)
+
+            if isinstance(handle, np.ndarray):
                 # Inject constant buffer data into the generated code if sufficiently small
                 # TODO: Need to consider 'constant-ness'. Something may be immutable but still
                 # not match across ranks.
@@ -250,7 +258,7 @@ class LoopyCodegenContext(CodegenContext):
                 shape = self._temporary_shapes.get(buffer.name, None)
                 loopy_arg = lp.GlobalArg(name_in_kernel, dtype=buffer.dtype, shape=shape)
             else:
-                assert isinstance(buffer, PetscMatBuffer)
+                assert isinstance(handle, PETSc.Mat)
 
                 name_in_kernel = self.unique_name("mat")
                 loopy_arg = lp.ValueArg(name_in_kernel, dtype=OpaqueType("Mat"))
@@ -365,7 +373,8 @@ class ModuleExecutor:
             for buffer_name, replacement_buffer in kwargs.items():
                 index = self._buffer_indices[buffer_name]
                 buffers[index] = replacement_buffer
-                exec_arguments[index] = self._as_exec_argument(replacement_buffer)
+                replacement_handle = replacement_buffer.handle(nest_indices=self.nest_indices[buffer_name])
+                exec_arguments[index] = self._as_exec_argument(replacement_handle)
 
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
@@ -420,29 +429,20 @@ class ModuleExecutor:
 
     @cached_property
     def _default_exec_arguments(self) -> tuple[numbers.Number]:
-        return tuple(self._as_exec_argument(buffer) for buffer in self._buffers)
+        return tuple(self._as_exec_argument(buffer.handle(nest_indices=self.nest_indices[buffer.name])) for buffer in self._buffers)
 
     @functools.singledispatchmethod
     def _as_exec_argument(self, buffer: AbstractBuffer) -> numbers.Number:
         raise TypeError
 
     @_as_exec_argument.register
-    def _(self, buffer: ArrayBuffer) -> int:
-        if self.nest_indices[buffer.name]:
-            raise NotImplementedError
-
-        # NOTE: Use the private accessor ._data here to avoid triggering
-        # a halo exchange
-        return buffer._data.ctypes.data
+    def _(self, handle: np.ndarray) -> int:
+        return handle.ctypes.data
 
     @_as_exec_argument.register
-    def _(self, buffer: PetscMatBuffer) -> int:
-        petscmat = buffer.petscmat
-        for row_index, column_index in self.nest_indices[buffer.name]:
-            petscmat = petscmat.getNestSubMatrix(row_index, column_index)
-
-        assert petscmat.type not in {PETSc.Mat.Type.NEST, PETSc.Mat.Type.PYTHON}
-        return petscmat.handle
+    def _(self, handle: PETSc.Mat) -> int:
+        assert handle.type not in {PETSc.Mat.Type.NEST, PETSc.Mat.Type.PYTHON}
+        return handle.handle
 
     def _check_buffer_is_valid(self, orig_buffer: AbstractBuffer, new_buffer: AbstractBuffer, /) -> None:
         valid = (
@@ -800,7 +800,11 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
 
 @_compile.register(ConcretizedNonEmptyArrayAssignment)
 def parse_assignment(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context: CodegenContext):
-    if any(isinstance(arg.handle, PETSc.Mat) for arg in assignment.buffer_arguments):
+    if any(
+        isinstance(arg.buffer, ConcreteBuffer)
+        and isinstance(arg.handle, PETSc.Mat)
+        for arg in assignment.buffer_arguments
+    ):
         _compile_petsc_mat(assignment, loop_indices, context)
     else:
         compile_array_assignment(
@@ -822,11 +826,6 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
         # to know whether to put MatGetValues or MatSetValues
         setting_mat_values = True
 
-
-    petscmat = mat.buffer.petscmat
-    nest_indices = mat.nest_indices
-    if nest_indices:
-        raise NotImplementedError
 
     row_axis_tree, column_axis_tree = assignment.axis_trees
 
@@ -1077,8 +1076,14 @@ def _(expr: NonlinearDatBufferExpression, /, iname_maps, loop_indices, context, 
     return lower_buffer_access(expr.buffer, [expr.layouts[path]], iname_maps, loop_indices, context, intent=intent, nest_indices=expr.nest_indices)
 
 
-@_lower_expr.register(MatBufferExpression)
-def _(expr: MatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
+@_lower_expr.register(LinearMatBufferExpression)
+def _(expr: LinearMatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
+    layouts = (expr.row_layout, expr.column_layout)
+    return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, nest_indices=expr.nest_indices, shape=shape)
+
+
+@_lower_expr.register(NonlinearMatBufferExpression)
+def _(expr: NonlinearMatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
     row_path, column_path = paths
     layouts = (expr.row_layouts[row_path], expr.column_layouts[column_path])
     return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, nest_indices=expr.nest_indices, shape=shape)
@@ -1088,7 +1093,7 @@ def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indice
     name_in_kernel = context.add_buffer(buffer, intent, nest_indices=nest_indices)
 
     offset_expr = 0
-    strides = reversed(utils.strides(shape)) if shape else (1,)
+    strides = utils.strides(shape) if shape else (1,)
     for stride, layout, iname_map in zip(strides, layouts, iname_maps, strict=True):
         offset_expr += stride * lower_expr(layout, [iname_map], loop_indices, context)
 
