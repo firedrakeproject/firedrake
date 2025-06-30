@@ -32,7 +32,7 @@ import pyop2
 from pyop3 import exceptions as exc, utils
 from pyop3.tensor import LinearDatBufferExpression, NonlinearDatBufferExpression, Scalar
 from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent, relabel_path
-from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
+from pyop3.buffer import AbstractBuffer, BufferRef, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
 from pyop3.ir.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
@@ -120,9 +120,8 @@ class LoopyCodegenContext(CodegenContext):
         self._kernel_names = {}
 
         # buffer name -> buffer
-        self.global_buffers = weakref.WeakValueDictionary()
+        self.global_buffers = {}
         self.global_buffer_intents = {}
-        self.nest_indices = {}
 
         # initializer hash -> temporary name
         self._reusable_temporaries: dict[int, str] = {}
@@ -191,7 +190,7 @@ class LoopyCodegenContext(CodegenContext):
         )
         self._add_instruction(insn)
 
-    def add_buffer(self, buffer: AbstractBuffer, intent: Intent | None = None, *, nest_indices: tuple[tuple[int, ...], ...]) -> str:
+    def add_buffer(self, buffer_ref: BufferRef, intent: Intent | None = None) -> str:
         # TODO: This should check to make that we do not encounter any
         # loop-carried dependencies. For that to work we need to track the intent and
         # the indirection expression. Something like:
@@ -207,39 +206,37 @@ class LoopyCodegenContext(CodegenContext):
         #     dat2[i] = dat1[2*i]
         #
         # is not.
-        # TODO: make a singledispatchmethod
+
+        buffer = buffer_ref.buffer
+        buffer_key = (buffer.name, buffer_ref.nest_indices)
         if isinstance(buffer, NullBuffer):
+            assert not buffer_ref.nest_indices
             # 'intent' is not important for temporaries
-            if buffer.name in self._kernel_names:
-                return self._kernel_names[buffer.name]
-            shape = self._temporary_shapes.get(buffer.name, (buffer.size,))
+            if buffer_key in self._kernel_names:
+                return self._kernel_names[buffer_key]
+            shape = self._temporary_shapes.get(buffer_key, (buffer.size,))
             name_in_kernel = self.add_temporary("t", buffer.dtype, shape=shape)
         else:
             if intent is None:
                 raise ValueError("Global data must declare intent")
 
-            if buffer.name in self._kernel_names:
-                if intent != self.global_buffer_intents[buffer.name]:
+            if buffer_key in self._kernel_names:
+                if intent != self.global_buffer_intents[buffer_key]:
                     # We are accessing a buffer with different intents so have to
                     # pessimally claim RW access
-                    self.global_buffer_intents[buffer.name] = RW
+                    self.global_buffer_intents[buffer_key] = RW
+                return self._kernel_names[buffer_key]
 
-                # NOTE: In theory we can pass the same buffer through multiple time if
-                # nest_indices differs. We don't handle this currently.
-                assert nest_indices == self.nest_indices[buffer.name]
-
-                return self._kernel_names[buffer.name]
-
-            # TODO: This can be cleaned up
-            handle = buffer.handle(nest_indices=nest_indices)
-
-            if isinstance(handle, np.ndarray):
+            if isinstance(buffer_ref.handle, np.ndarray):
                 # Inject constant buffer data into the generated code if sufficiently small
-                # TODO: Need to consider 'constant-ness'. Something may be immutable but still
-                # not match across ranks.
-                # Maybe sf check is enough?
-                if buffer.constant and buffer.size < config["max_static_array_size"]:
-                    assert not buffer.sf, "sufficient check?"
+                # NOTE: We conflate 2 concepts for constant-ness here:
+                # * The array cannot be modified
+                # * The array is the same between ranks
+                if (
+                    buffer.constant
+                    and isinstance(buffer.size, numbers.Integral)
+                    and buffer.size < config["max_static_array_size"]
+                ):
                     return self.add_temporary(
                         "t",
                         buffer.dtype,
@@ -255,20 +252,19 @@ class LoopyCodegenContext(CodegenContext):
 
                 # If the buffer is being passed straight through to a function then we
                 # have to make sure that the shapes match
-                shape = self._temporary_shapes.get(buffer.name, None)
+                shape = self._temporary_shapes.get(buffer_key, None)
                 loopy_arg = lp.GlobalArg(name_in_kernel, dtype=buffer.dtype, shape=shape)
             else:
-                assert isinstance(handle, PETSc.Mat)
+                assert isinstance(buffer_ref.handle, PETSc.Mat)
 
                 name_in_kernel = self.unique_name("mat")
                 loopy_arg = lp.ValueArg(name_in_kernel, dtype=OpaqueType("Mat"))
 
-            self.global_buffers[buffer.name] = buffer
-            self.global_buffer_intents[buffer.name] = intent
-            self.nest_indices[buffer.name] = nest_indices
+            self.global_buffers[buffer_key] = buffer_ref
+            self.global_buffer_intents[buffer_key] = intent
             self._arguments.append(loopy_arg)
 
-        self._kernel_names[buffer.name] = name_in_kernel
+        self._kernel_names[buffer_key] = name_in_kernel
         return name_in_kernel
 
     def add_temporary(self, prefix="t", dtype=IntType, *, shape=(), initializer: np.ndarray = None, read_only: bool = False) -> str:
@@ -323,7 +319,7 @@ class LoopyCodegenContext(CodegenContext):
 
 
 class DummyModuleExecutor:
-    def __call__(self, **kwargs):
+    def __call__(self, *args, **kwargs):
         pass
 
 
@@ -337,11 +333,10 @@ class ModuleExecutor:
     """
 
     # TODO: intents and datamap etc maybe all go together. All relate to the same objects
-    def __init__(self, loopy_code: lp.TranslationUnit, buffer_map: WeakValueDictionary[str, ConcretBuffer], buffer_intents: Mapping[str, Intent], nest_indices, compiler_parameters: Mapping):
+    def __init__(self, loopy_code: lp.TranslationUnit, buffer_map: WeakValueDictionary[str, ConcretBuffer], buffer_intents: Mapping[str, Intent], compiler_parameters: Mapping):
         self.loopy_code = loopy_code
         self.buffer_map = buffer_map
         self.buffer_intents = buffer_intents
-        self.nest_indices = nest_indices
         self.compiler_parameters = compiler_parameters
 
     @property
@@ -349,19 +344,23 @@ class ModuleExecutor:
         return self.loopy_code.default_entrypoint
 
     @cached_property
-    def _buffers(self) -> tuple[AbstractBuffer]:
+    def _buffer_refs(self) -> tuple[BufferRef]:
         return tuple(self.buffer_map.values())
+
+    @cached_property
+    def _default_buffers(self) -> tuple[ConcreteBuffer]:
+        return tuple(buffer_ref.buffer for buffer_ref in self._buffer_refs)
 
     @cached_property
     def executable(self):
         return compile_loopy(self.loopy_code, pyop3_compiler_parameters=self.compiler_parameters)
 
-    def __call__(self, **kwargs):
-        if not kwargs:  # shortcut for the most common case
-            buffers = self._buffers
+    def __call__(self, replacement_buffers: Mapping[Hashable, ConcreteBuffer] | None = None) -> None:
+        if replacement_buffers is None:  # shortcut for the most common case
+            buffers = self._default_buffers
             exec_arguments = self._default_exec_arguments
         else:
-            buffers = list(self._buffers)
+            buffers = list(self._default_buffers)
             exec_arguments = list(self._default_exec_arguments)
 
             # TODO:
@@ -370,10 +369,12 @@ class ModuleExecutor:
                 for buffer_name, replacement_buffer in kwargs.items():
                     self._check_buffer_is_valid(self.buffer_map[buffer_name], replacement_buffer)
 
-            for buffer_name, replacement_buffer in kwargs.items():
-                index = self._buffer_indices[buffer_name]
+            for buffer_key, replacement_buffer in replacement_buffers.items():
+                index = self._buffer_ref_indices[buffer_key]
                 buffers[index] = replacement_buffer
-                replacement_handle = replacement_buffer.handle(nest_indices=self.nest_indices[buffer_name])
+                replacement_handle = replacement_buffer.handle(
+                    nest_indices=self._buffer_refs[index].nest_indices
+                )
                 exec_arguments[index] = self._as_exec_argument(replacement_handle)
 
         for index in self._modified_buffer_indices:
@@ -414,9 +415,9 @@ class ModuleExecutor:
         return "<PetscMat>"
 
     @cached_property
-    def _buffer_indices(self) -> immutabledict[str, int]:
+    def _buffer_ref_indices(self) -> immutabledict[str, int]:
         return immutabledict({
-            buffer.name: i for i, buffer in enumerate(self._buffers)
+            (buffer_ref.buffer.name, buffer_ref.nest_indices): i for i, buffer_ref in enumerate(self._buffer_refs)
         })
 
     @cached_property
@@ -428,11 +429,11 @@ class ModuleExecutor:
         )
 
     @cached_property
-    def _default_exec_arguments(self) -> tuple[numbers.Number]:
-        return tuple(self._as_exec_argument(buffer.handle(nest_indices=self.nest_indices[buffer.name])) for buffer in self._buffers)
+    def _default_exec_arguments(self) -> tuple[int]:
+        return tuple(self._as_exec_argument(buffer_ref.handle) for buffer_ref in self._buffer_refs)
 
     @functools.singledispatchmethod
-    def _as_exec_argument(self, buffer: AbstractBuffer) -> numbers.Number:
+    def _as_exec_argument(self, handle: Any) -> int:
         raise TypeError
 
     @_as_exec_argument.register
@@ -609,12 +610,12 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
 
     # Sort the buffers by where they appear in the kernel signature
     kernel_to_buffer_names = utils.invert_mapping(context._kernel_names)
-    sorted_buffers = WeakValueDictionary()
+    sorted_buffers = {}
     for kernel_arg in entrypoint.args:
-        buffer_name = kernel_to_buffer_names[kernel_arg.name]
-        sorted_buffers[kernel_arg.name] = context.global_buffers[buffer_name]
+        buffer_key = kernel_to_buffer_names[kernel_arg.name]
+        sorted_buffers[kernel_arg.name] = context.global_buffers[buffer_key]
 
-    return ModuleExecutor(translation_unit, sorted_buffers, context.global_buffer_intents, context.nest_indices, compiler_parameters)
+    return ModuleExecutor(translation_unit, sorted_buffers, context.global_buffer_intents, compiler_parameters)
 
 
 # put into a class in transform.py?
@@ -652,7 +653,7 @@ def _(assignment: AbstractAssignment, /) -> immutabledict:
 def _(call: StandaloneCalledFunction):
     return immutabledict(
         {
-            arg.buffer.name: lp_arg.shape
+            (arg.buffer.buffer.name, arg.buffer.nest_indices): lp_arg.shape
             for lp_arg, arg in zip(
                 call.function.code.default_entrypoint.args, call.arguments, strict=True
             )
@@ -762,7 +763,7 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
         # this check fails because we currently assume that all arrays require packing
         # from pyop3.transform import _requires_pack_unpack
         # assert not _requires_pack_unpack(arg)
-        name_in_kernel = context.add_buffer(arg.buffer, spec.intent, nest_indices=arg.nest_indices)
+        name_in_kernel = context.add_buffer(arg.buffer, spec.intent)
 
         if not isinstance(loopy_arg, lp.ArrayArg):
             raise NotImplementedError
@@ -801,8 +802,8 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
 @_compile.register(ConcretizedNonEmptyArrayAssignment)
 def parse_assignment(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context: CodegenContext):
     if any(
-        isinstance(arg.buffer, ConcreteBuffer)
-        and isinstance(arg.handle, PETSc.Mat)
+        isinstance(arg.buffer.buffer, ConcreteBuffer)
+        and isinstance(arg.buffer.handle, PETSc.Mat)
         for arg in assignment.buffer_arguments
     ):
         _compile_petsc_mat(assignment, loop_indices, context)
@@ -819,7 +820,7 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
     mat = assignment.assignee
     expr = assignment.expression
 
-    if not isinstance(mat.buffer, PetscMatBuffer):
+    if not isinstance(mat.buffer.buffer, PetscMatBuffer):
         raise NotImplementedError  # order must be different
     else:
         # We need to know whether the matrix is the assignee or not because we need
@@ -839,18 +840,18 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
         # TODO: There must be a more elegant way of doing this
         nrows = row_axis_tree.size
         ncols = column_axis_tree.size
-        expr_data = np.full((nrows, ncols), expr, dtype=mat.buffer.dtype)
-        array_buffer = ArrayBuffer(expr_data, constant=True)
+        expr_data = np.full((nrows, ncols), expr, dtype=mat.buffer.buffer.dtype)
+        array_buffer = BufferRef(ArrayBuffer(expr_data, constant=True))
     else:
         assert isinstance(expr, BufferExpression)
         array_buffer = expr.buffer
 
     # now emit the right line of code, this should properly be a lp.ScalarCallable
     # https://petsc.org/release/manualpages/Mat/MatGetValuesLocal/
-    mat_name = context.add_buffer(assignment.assignee.buffer, assignment_type_as_intent(assignment.assignment_type), nest_indices=assignment.assignee.nest_indices)
+    mat_name = context.add_buffer(assignment.assignee.buffer, assignment_type_as_intent(assignment.assignment_type))
 
     # NOTE: Is this always correct? It is for now.
-    array_name = context.add_buffer(array_buffer, READ, nest_indices=())
+    array_name = context.add_buffer(array_buffer, READ)
 
     rsize = row_axis_tree.size
     csize = column_axis_tree.size
@@ -1067,30 +1068,30 @@ def _(loop_var: LoopIndexVar, /, iname_maps, loop_indices, *args, **kwargs) -> p
 
 @_lower_expr.register(LinearDatBufferExpression)
 def _(expr: LinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
-    return lower_buffer_access(expr.buffer, [expr.layout], iname_maps, loop_indices, context, intent=intent, nest_indices=expr.nest_indices)
+    return lower_buffer_access(expr.buffer, [expr.layout], iname_maps, loop_indices, context, intent=intent)
 
 
 @_lower_expr.register(NonlinearDatBufferExpression)
 def _(expr: NonlinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, **kwargs) -> pym.Expression:
     path = just_one(paths)
-    return lower_buffer_access(expr.buffer, [expr.layouts[path]], iname_maps, loop_indices, context, intent=intent, nest_indices=expr.nest_indices)
+    return lower_buffer_access(expr.buffer, [expr.layouts[path]], iname_maps, loop_indices, context, intent=intent)
 
 
 @_lower_expr.register(LinearMatBufferExpression)
 def _(expr: LinearMatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
     layouts = (expr.row_layout, expr.column_layout)
-    return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, nest_indices=expr.nest_indices, shape=shape)
+    return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, shape=shape)
 
 
 @_lower_expr.register(NonlinearMatBufferExpression)
 def _(expr: NonlinearMatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
     row_path, column_path = paths
     layouts = (expr.row_layouts[row_path], expr.column_layouts[column_path])
-    return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, nest_indices=expr.nest_indices, shape=shape)
+    return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, shape=shape)
 
 
-def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indices, context, *, intent, nest_indices, shape=None) -> pym.Expression:
-    name_in_kernel = context.add_buffer(buffer, intent, nest_indices=nest_indices)
+def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indices, context, *, intent, shape=None) -> pym.Expression:
+    name_in_kernel = context.add_buffer(buffer, intent)
 
     offset_expr = 0
     strides = utils.strides(shape) if shape else (1,)
@@ -1101,11 +1102,12 @@ def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indice
     return pym.subscript(pym.var(name_in_kernel), indices)
 
 
-def maybe_multiindex(buffer, offset_expr, context):
-    # hack to handle the fact that temporaries can have shape but we want to
+def maybe_multiindex(buffer_ref, offset_expr, context):
+    # hack to handle the facbuffer.t that temporaries can have shape but we want to
     # linearly index it here
-    if buffer.name in context._temporary_shapes:
-        shape = context._temporary_shapes[buffer.name]
+    buffer_key = (buffer_ref.buffer.name, buffer_ref.nest_indices)
+    if buffer_key in context._temporary_shapes:
+        shape = context._temporary_shapes[buffer_key]
         rank = len(shape)
         extra_indices = (0,) * (rank - 1)
 
@@ -1132,7 +1134,7 @@ def _(num: numbers.Integral, *args, **kwargs):
 
 @register_extent.register(Scalar)
 def _(param: Scalar, inames, loop_indices, context):
-    name_in_kernel = context.add_buffer(param.buffer, READ, nest_indices=())
+    name_in_kernel = context.add_buffer(BufferRef(param.buffer), READ)
     extent_name = context.add_temporary("p")
     context.add_assignment(pym.var(extent_name), pym.var(name_in_kernel)[0])
     return extent_name

@@ -1198,7 +1198,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
                     indices = np.arange(*slice_component.with_size(orig_size), dtype=IntType)
                 else:
                     assert isinstance(slice_component, SubsetSliceComponent)
-                    indices = slice_component.array.buffer.data_ro
+                    indices = slice_component.array.buffer.buffer.data_ro
 
                 petsc_sf = filter_sf(target_component.sf.sf, indices, 0, orig_size)
                 sf = StarForest(petsc_sf, indexed_size)
@@ -2223,7 +2223,7 @@ def _(subset: SubsetSliceComponent, regions, **kwargs) -> tuple:
     {"a": 3, "b": 2}[3,4]       -> {"a": 0, "b": 2}
 
     """
-    indices = subset.array.buffer.data_ro
+    indices = subset.array.buffer.buffer.data_ro
 
     indexed_regions = []
     loc = 0

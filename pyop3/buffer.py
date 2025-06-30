@@ -5,6 +5,7 @@ import collections
 import contextlib
 import dataclasses
 import numbers
+import weakref
 from collections.abc import Mapping
 from functools import cached_property
 from typing import Any, ClassVar
@@ -79,6 +80,7 @@ class AbstractBuffer(KernelArgument, metaclass=abc.ABCMeta):
     def duplicate(self, *, copy: bool = False) -> AbstractBuffer:
         pass
 
+    # TODO: not sure I need this here
     @property
     @abc.abstractmethod
     def is_nested(self) -> bool:
@@ -773,3 +775,15 @@ def duplicate_mat(mat: PETSc.Mat, copy: bool = False) -> PETSc.Mat:
         return duplicated_mat
     else:
         return mat.duplicate(copy=copy)
+
+
+# TODO: Currently we assume that the nest structure of the underlying data
+# matches that of the axis tree. This isn't necessarily true.
+@dataclasses.dataclass(frozen=True)
+class BufferRef:
+    buffer: AbstractBuffer
+    nest_indices: tuple[tuple[int, ...], ...] = ()
+
+    @property
+    def handle(self):
+        return self.buffer.handle(nest_indices=self.nest_indices)

@@ -186,11 +186,11 @@ class Instruction(abc.ABC):
             object.__setattr__(self, "_lazy_cache", collections.defaultdict(dict))
         return self._lazy_cache
 
-    def __call__(self, *, compiler_parameters=None, **kwargs):
+    def __call__(self, replacement_buffers: Mapping[Hashable, ConcreteBuffer] | None = None, *, compiler_parameters=None):
         compiler_parameters = parse_compiler_parameters(compiler_parameters)
 
         executable = self.compile(compiler_parameters)
-        executable(**kwargs)
+        executable(replacement_buffers)
 
     def preprocess(self, compiler_parameters=None):
         compiler_parameters = parse_compiler_parameters(compiler_parameters)
@@ -276,7 +276,7 @@ class Loop(Instruction):
   ]
 )"""
 
-    def __call__(self, *, compiler_parameters=None, **kwargs):
+    def __call__(self, replacement_buffers: Mapping | None = None, *, compiler_parameters=None):
         # TODO just parse into ContextAwareLoop and call that
         from pyop3.ir.lower import compile
         from pyop3.itree.tree import partition_iterset
@@ -361,7 +361,7 @@ class Loop(Instruction):
 
             # TODO: reenable logging (what is 'self.name')?
             # with PETSc.Log.Event(f"apply_{self.name}"):
-            code(**kwargs)
+            code(replacement_buffers)
 
     @property
     def comm(self):

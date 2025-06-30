@@ -20,7 +20,7 @@ from pyop3 import utils
 from pyop3.tensor import Scalar, Dat, Tensor, Mat, NonlinearDatBufferExpression, LinearDatBufferExpression, NonlinearMatBufferExpression, LinearMatBufferExpression
 from pyop3.axtree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
 from pyop3.axtree.tree import Operator, AxisVar, IndexedAxisTree, merge_axis_trees2, prune_zero_sized_branches, NaN
-from pyop3.buffer import AbstractBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer, AllocatedPetscMatBuffer
+from pyop3.buffer import AbstractBuffer, BufferRef, PetscMatBuffer, ArrayBuffer, NullBuffer, AllocatedPetscMatBuffer
 from pyop3.dtypes import IntType
 from pyop3.itree import Map, TabulatedMapComponent, collect_loop_contexts
 from pyop3.itree.tree import LoopIndex, LoopIndexVar, Slice, AffineSliceComponent, IndexTree
@@ -268,9 +268,11 @@ class ImplicitPackUnpackExpander(Transformer):
                     gathers.append(ArrayAssignment(temporary, 0, "write"))
                     scatters.insert(0, ArrayAssignment(arg, temporary, "inc"))
 
-                function_arg = LinearDatBufferExpression(temporary.buffer, 0, temporary.shape, temporary.loop_axes, nest_indices=())
+                function_arg = LinearDatBufferExpression(BufferRef(temporary.buffer), 0, temporary.shape, temporary.loop_axes)
             else:
-                function_arg = LinearDatBufferExpression(arg.buffer, 0, arg.shape, arg.loop_axes, nest_indices=())
+                if not isinstance(arg, Scalar):
+                    raise NotImplementedError("Assume cannot have nest indices here")
+                function_arg = LinearDatBufferExpression(BufferRef(arg.buffer), 0, arg.shape, arg.loop_axes)
             arguments.append(function_arg)
 
         return maybe_enlist((*gathers, StandaloneCalledFunction(terminal.function, arguments), *scatters))

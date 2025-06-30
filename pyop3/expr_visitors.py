@@ -15,7 +15,7 @@ import numpy as np
 from immutabledict import immutabledict
 from pyop3.tensor import Scalar
 from pyop3.tensor.dat import BufferExpression, ScalarBufferExpression, LinearDatBufferExpression, NonlinearDatBufferExpression, LinearMatBufferExpression, NonlinearMatBufferExpression, LinearBufferExpression, NonlinearBufferExpression
-from pyop3.buffer import AbstractArrayBuffer, AllocatedPetscMatBuffer, ConcreteBuffer, PetscMatBuffer
+from pyop3.buffer import AbstractArrayBuffer, AllocatedPetscMatBuffer, BufferRef, ConcreteBuffer, PetscMatBuffer
 from pyop3.itree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree
 from pyrsistent import pmap, PMap
 from petsc4py import PETSc
@@ -502,9 +502,9 @@ def _(dat: Dat, /, axis_trees: Iterable[AxisTree, ...]) -> DatBufferExpression:
         raise NotImplementedError("TODO")
     if dat.axes.is_linear:
         layout = just_one(dat.axes.leaf_subst_layouts.values())
-        expr = LinearDatBufferExpression(dat.buffer, layout, dat.shape, dat.loop_axes, nest_indices=())
+        expr = LinearDatBufferExpression(BufferRef(dat.buffer), layout, dat.shape, dat.loop_axes)
     else:
-        expr = NonlinearDatBufferExpression(dat.buffer, dat.axes.leaf_subst_layouts, dat.shape, dat.loop_axes, nest_indices=())
+        expr = NonlinearDatBufferExpression(BufferRef(dat.buffer), dat.axes.leaf_subst_layouts, dat.shape, dat.loop_axes)
     return concretize_layouts(expr, axis_trees)
 
 
@@ -531,13 +531,12 @@ def _(mat: Mat, /, axis_trees: Iterable[AxisTree, ...]) -> BufferExpression:
             NonlinearCompositeDat(axis_tree.materialize(), axis_tree.leaf_subst_layouts, axis_tree.outer_loops)
             for axis_tree in [row_axes, column_axes]
         ]
-        expr = LinearMatBufferExpression(mat.buffer, *layouts, nest_indices=nest_indices)
+        expr = LinearMatBufferExpression(BufferRef(mat.buffer, nest_indices), *layouts)
     else:
         expr = NonlinearMatBufferExpression(
-            mat.buffer,
+            BufferRef(mat.buffer, nest_indices),
             row_axes.leaf_subst_layouts,
             column_axes.leaf_subst_layouts,
-            nest_indices=nest_indices,
         )
     return concretize_layouts(expr, axis_trees)
 
@@ -546,8 +545,6 @@ def _(mat: Mat, /, axis_trees: Iterable[AxisTree, ...]) -> BufferExpression:
 def _(dat_expr: LinearBufferExpression, /, axis_trees: Iterable[AxisTree, ...]) -> LinearBufferExpression:
     # Nothing to do here. If we drop any zero-sized tree branches then the
     # whole thing goes away and we won't hit this.
-    if dat_expr.buffer.name == "tmp_0":
-        breakpoint()
     return dat_expr
 
 
@@ -825,7 +822,7 @@ def _(mat_expr: LinearMatBufferExpression, /, layouts, key) -> LinearMatBufferEx
     #
     # which is what Mat{Get,Set}Values() needs.
     layouts = [
-        LinearDatBufferExpression(layout.buffer, layout.layouts[immutabledict()], layout.shape, layout.loop_axes, nest_indices=layout.nest_indices)
+        LinearDatBufferExpression(layout.buffer, layout.layouts[immutabledict()], layout.shape, layout.loop_axes)
         for layout in [row_layout, column_layout]
     ]
     return mat_expr.__record_init__(row_layout=layouts[0], column_layout=layouts[1])
@@ -1026,10 +1023,10 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatBufferExp
 
     if isinstance(composite_dat, LinearCompositeDat):
         layout = newlayouts[axes.leaf_path]
-        return LinearDatBufferExpression(result.buffer, layout, result.shape, result.loop_axes, nest_indices=axes.nest_indices)
+        return LinearDatBufferExpression(BufferRef(result.buffer, axes.nest_indices), layout, result.shape, result.loop_axes)
     else:
         assert isinstance(composite_dat, NonlinearCompositeDat)
-        return NonlinearDatBufferExpression(result.buffer, newlayouts, result.shape, result.loop_axes, nest_indices=axes.nest_indices)
+        return NonlinearDatBufferExpression(BufferRef(result.buffer, axes.nest_indices), newlayouts, result.shape, result.loop_axes)
 
 
 # TODO: Better to just return the actual value probably...

@@ -262,9 +262,6 @@ class AxisComponentRegion:
         from pyop3.tensor.dat import LinearDatBufferExpression
         if not isinstance(self.size, numbers.Integral):
             assert isinstance(self.size, LinearDatBufferExpression)
-            if self.size.buffer.sf is not None:
-                import pyop3.extras.debug
-                pyop3.extras.debug.warn_todo("sf is not None, unsure if this causes inf. recursion or not")
 
     def __str__(self) -> str:
         return f"({self.size}, {self.label})"
