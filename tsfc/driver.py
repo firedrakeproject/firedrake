@@ -71,7 +71,6 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
 
     """
     cpu_time = time.time()
-
     assert isinstance(form, Form)
 
     GREEN = "\033[1;37;32m%s\033[0m"

@@ -213,7 +213,6 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
         _ = parameters
         parameters = default_parameters["form_compiler"].copy()
         parameters.update(_)
-
     kernels = []
     numbering = form.terminal_numbering()
     if split:
