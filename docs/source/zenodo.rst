@@ -34,7 +34,7 @@ How to register DOIs for a version of Firedrake
 This section assumes that you have a Firedrake installation which you
 have used to conduct some numerical experiment and which you wish to
 publish or otherwise record for posterity. It is assumed that your
-virtualenv is activated or that you otherwise have the firedrake
+virtualenv is activated or that you otherwise have the Firedrake
 scripts in your path.
 
 1. Use ``firedrake-zenodo`` to generate a JSON file containing the
@@ -59,16 +59,17 @@ scripts in your path.
    This will create a file ``firedrake.json`` containing the required
    information.
 
-2. Create an issue on the Firedrake GitHub page asking that a Zenodo
-   release be created. Attach the ``firedrake.json`` file to the
+2. Create an issue on the `Firedrake GitHub page 
+   <https://github.com/firedrakeproject/firedrake/issues>`__ asking that a
+   Zenodo release be created. Attach the ``firedrake.json`` file to the
    issue. You can create the issue using the correct template `here
    <https://github.com/firedrakeproject/firedrake/issues/new?template=zenodo_release.md>`__.
 
 3. The Firedrake developers will generate a bespoke Firedrake release
    containing exactly the set of versions your JSON file specifies, as
    well as creating a Zenodo record collating these. You will be
-   provided with a firedrake release tag of the form
-   ``Firedrake_YYYYMMDD.N``.
+   provided with a Firedrake release tag of the form
+   ``Zenodo_YYYYMMDD.N``.
 
    You can see an example such a collated record `here
    <https://zenodo.org/record/1402622>`__.
@@ -77,7 +78,7 @@ scripts in your path.
    the DOI) for the collated "meta"-record, which in turn links to all
    the individual components::
 
-     firedrake-zenodo --bibtex Firedrake_YYYYMMDD.N
+     firedrake-zenodo --bibtex Zenodo_YYYYMMDD.N
 
    Obviously, you substitute in your Firedrake release tag.
 

@@ -19,7 +19,6 @@ from firedrake.slate.slac.optimise import optimise
 from firedrake import tsfc_interface
 from firedrake.logging import logger
 from firedrake.parameters import parameters
-from firedrake.petsc import get_petsc_variables
 from firedrake.utils import complex_mode
 from gem import impero_utils
 from itertools import chain
@@ -33,6 +32,7 @@ import firedrake.slate.slate as slate
 import numpy as np
 import loopy
 import gem
+import petsctools
 from gem import indices as make_indices
 from tsfc.kernel_args import OutputKernelArg, CoefficientKernelArg
 from tsfc.loopy import generate as generate_loopy
@@ -54,7 +54,7 @@ except ValueError:
 BLASLAPACK_LIB = None
 BLASLAPACK_INCLUDE = None
 if COMM_WORLD.rank == 0:
-    petsc_variables = get_petsc_variables()
+    petsc_variables = petsctools.get_petscvariables()
     BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
     BLASLAPACK_LIB = COMM_WORLD.bcast(BLASLAPACK_LIB, root=0)
     BLASLAPACK_INCLUDE = petsc_variables.get("BLASLAPACK_INCLUDE", "")
