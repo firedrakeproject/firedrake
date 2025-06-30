@@ -11,13 +11,13 @@ from typing import Any, Union
 
 import numpy as np
 from petsc4py import PETSc
-from pyop3.tensor.dat import ArrayBufferExpression
+from pyop3.tensor.dat import BufferExpression
 from pyop3.sf import local_sf
 from pyrsistent import pmap, PMap
 from immutabledict import immutabledict
 
 from pyop3 import utils
-from pyop3.tensor import Scalar, Dat, Tensor, Mat, NonlinearDatArrayBufferExpression, LinearDatArrayBufferExpression, MatPetscMatBufferExpression
+from pyop3.tensor import Scalar, Dat, Tensor, Mat, NonlinearDatBufferExpression, LinearDatBufferExpression, NonlinearMatBufferExpression, LinearMatBufferExpression
 from pyop3.axtree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
 from pyop3.axtree.tree import Operator, AxisVar, IndexedAxisTree, merge_axis_trees2, prune_zero_sized_branches, NaN
 from pyop3.buffer import AbstractBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer, AllocatedPetscMatBuffer
@@ -268,9 +268,9 @@ class ImplicitPackUnpackExpander(Transformer):
                     gathers.append(ArrayAssignment(temporary, 0, "write"))
                     scatters.insert(0, ArrayAssignment(arg, temporary, "inc"))
 
-                function_arg = LinearDatArrayBufferExpression(temporary.buffer, 0, temporary.shape, temporary.loop_axes, nest_indices=())
+                function_arg = LinearDatBufferExpression(temporary.buffer, 0, temporary.shape, temporary.loop_axes, nest_indices=())
             else:
-                function_arg = LinearDatArrayBufferExpression(arg.buffer, 0, arg.shape, arg.loop_axes, nest_indices=arg.axes.nest_indices)
+                function_arg = LinearDatBufferExpression(arg.buffer, 0, arg.shape, arg.loop_axes, nest_indices=())
             arguments.append(function_arg)
 
         return maybe_enlist((*gathers, StandaloneCalledFunction(terminal.function, arguments), *scatters))
@@ -414,7 +414,7 @@ def _(op: Operator, /, access_type):
 @_expand_reshapes.register(numbers.Number)
 @_expand_reshapes.register(AxisVar)
 @_expand_reshapes.register(LoopIndexVar)
-@_expand_reshapes.register(ArrayBufferExpression)
+@_expand_reshapes.register(BufferExpression)
 @_expand_reshapes.register(NaN)
 def _(var, /, access_type):
     return (var, ())

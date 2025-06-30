@@ -4,8 +4,9 @@ from .dat import (  # noqa: F401
     FancyIndexWriteException,
     Dat,
     BufferExpression,
-    LinearDatArrayBufferExpression,
-    MatPetscMatBufferExpression,
-    NonlinearDatArrayBufferExpression,
+    LinearDatBufferExpression,
+    LinearMatBufferExpression,
+    NonlinearDatBufferExpression,
+    NonlinearMatBufferExpression,
 )
 from .mat import Mat, RowDatPythonMatContext, ColumnDatPythonMatContext  # noqa: F401

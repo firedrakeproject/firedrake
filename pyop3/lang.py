@@ -573,6 +573,12 @@ class Terminal(Instruction, metaclass=abc.ABCMeta):
     def arguments(self) -> tuple[Any, ...]:
         pass
 
+    @property
+    def buffer_arguments(self) -> tuple[AbstractBuffer, ...]:
+        from pyop3.buffer import AbstractBuffer
+
+        return tuple(utils.filter_type(AbstractBuffer, self.arguments))
+
 
 class NonEmptyTerminal(Terminal, metaclass=abc.ABCMeta):
 

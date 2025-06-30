@@ -7,7 +7,7 @@ import dataclasses
 import numbers
 from collections.abc import Mapping
 from functools import cached_property
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import numpy as np
 from mpi4py import MPI
@@ -181,6 +181,12 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
     def inc_state(self) -> None:
         pass
 
+    # NOTE: This is similar in nature to Buffer.data etc
+    @abc.abstractmethod
+    def handle(self, nest_indices) -> Any:
+        """The underlying data structure."""
+
+
 
 # NOTE: When GPU support is added, the host-device awareness and
 # copies should live in this class.
@@ -243,6 +249,10 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return self.__record_init__(_name=name, _lazy_data=data)
 
     is_nested: ClassVar[bool] = False
+
+    def handle(self, nest_indices: tuple[tuple[int], ...]) -> np.ndarray:
+        assert not nest_indices
+        return self._data
 
     # }}}
 
@@ -549,6 +559,16 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
     @property
     def is_nested(self) -> bool:
         return self.mat_type == PETSc.Mat.Type.NEST
+
+    def handle(self, nest_indices: tuple[tuple[int, int], ...]) -> Any:
+        handle_ = self.petscmat
+        for row_index, column_index in nest_indices:
+            handle_ = handle_.getNestSubMatrix(row_index, column_index)
+
+        if isinstance(handle_, PETSc.Mat.Type.PYTHON):
+            handle_ = handle_.getPythonContext().handle
+
+        return handle_
 
     # }}}
 

@@ -259,9 +259,9 @@ class AxisComponentRegion:
     label: str | None = None
 
     def __post_init__(self):
-        from pyop3.tensor.dat import LinearDatArrayBufferExpression
+        from pyop3.tensor.dat import LinearDatBufferExpression
         if not isinstance(self.size, numbers.Integral):
-            assert isinstance(self.size, LinearDatArrayBufferExpression)
+            assert isinstance(self.size, LinearDatBufferExpression)
             if self.size.buffer.sf is not None:
                 import pyop3.extras.debug
                 pyop3.extras.debug.warn_todo("sf is not None, unsure if this causes inf. recursion or not")
@@ -397,9 +397,9 @@ class AxisComponent(LabelledNodeComponent):
     # TODO this is just a traversal - clean up
     def alloc_size(self, axtree, axis):
         assert False, "old code"
-        from pyop3.tensor import Dat, LinearDatArrayBufferExpression
+        from pyop3.tensor import Dat, LinearDatBufferExpression
 
-        if isinstance(self.local_size, (Dat, LinearDatArrayBufferExpression)):
+        if isinstance(self.local_size, (Dat, LinearDatBufferExpression)):
             # TODO: make max_value an attr of buffers
             # npoints = self.count.max_value
             npoints = max(self.local_size.buffer._data)

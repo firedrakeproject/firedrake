@@ -24,13 +24,13 @@ import loopy as lp
 import numpy as np
 import pymbolic as pym
 from immutabledict import immutabledict
-from pyop3.tensor.dat import ArrayBufferExpression, MatArrayBufferExpression, MatPetscMatBufferExpression, OpaqueBufferExpression
+from pyop3.tensor.dat import LinearMatBufferExpression, NonlinearMatBufferExpression, MatBufferExpression
 from pyop3.expr_visitors import collect_axis_vars
 
 import pyop2
 
 from pyop3 import exceptions as exc, utils
-from pyop3.tensor import LinearDatArrayBufferExpression, NonlinearDatArrayBufferExpression, Scalar
+from pyop3.tensor import LinearDatBufferExpression, NonlinearDatBufferExpression, Scalar
 from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent, relabel_path
 from pyop3.buffer import AbstractBuffer, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
 from pyop3.config import config
@@ -800,7 +800,7 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
 
 @_compile.register(ConcretizedNonEmptyArrayAssignment)
 def parse_assignment(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context: CodegenContext):
-    if any(isinstance(arg, OpaqueBufferExpression) for arg in assignment.arguments):
+    if any(isinstance(arg.handle, PETSc.Mat) for arg in assignment.buffer_arguments):
         _compile_petsc_mat(assignment, loop_indices, context)
     else:
         compile_array_assignment(
@@ -811,9 +811,22 @@ def parse_assignment(assignment: ConcretizedNonEmptyArrayAssignment, loop_indice
         )
 
 
-def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context):
+def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indices, context) -> None:
     mat = assignment.assignee
     expr = assignment.expression
+
+    if not isinstance(mat.buffer, PetscMatBuffer):
+        raise NotImplementedError  # order must be different
+    else:
+        # We need to know whether the matrix is the assignee or not because we need
+        # to know whether to put MatGetValues or MatSetValues
+        setting_mat_values = True
+
+
+    petscmat = mat.buffer.petscmat
+    nest_indices = mat.nest_indices
+    if nest_indices:
+        raise NotImplementedError
 
     row_axis_tree, column_axis_tree = assignment.axis_trees
 
@@ -830,15 +843,8 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
         expr_data = np.full((nrows, ncols), expr, dtype=mat.buffer.dtype)
         array_buffer = ArrayBuffer(expr_data, constant=True)
     else:
-        assert isinstance(expr, ArrayBufferExpression)
+        assert isinstance(expr, BufferExpression)
         array_buffer = expr.buffer
-
-    if not isinstance(mat.buffer, PetscMatBuffer):
-        raise NotImplementedError  # order must be different
-    else:
-        # We need to know whether the matrix is the assignee or not because we need
-        # to know whether to put MatGetValues or MatSetValues
-        setting_mat_values = True
 
     # now emit the right line of code, this should properly be a lp.ScalarCallable
     # https://petsc.org/release/manualpages/Mat/MatGetValuesLocal/
@@ -1060,19 +1066,19 @@ def _(loop_var: LoopIndexVar, /, iname_maps, loop_indices, *args, **kwargs) -> p
     return loop_indices[(loop_var.loop_id, loop_var.axis_label)]
 
 
-@_lower_expr.register(LinearDatArrayBufferExpression)
-def _(expr: LinearDatArrayBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
+@_lower_expr.register(LinearDatBufferExpression)
+def _(expr: LinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
     return lower_buffer_access(expr.buffer, [expr.layout], iname_maps, loop_indices, context, intent=intent, nest_indices=expr.nest_indices)
 
 
-@_lower_expr.register(NonlinearDatArrayBufferExpression)
-def _(expr: NonlinearDatArrayBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, **kwargs) -> pym.Expression:
+@_lower_expr.register(NonlinearDatBufferExpression)
+def _(expr: NonlinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, **kwargs) -> pym.Expression:
     path = just_one(paths)
     return lower_buffer_access(expr.buffer, [expr.layouts[path]], iname_maps, loop_indices, context, intent=intent, nest_indices=expr.nest_indices)
 
 
-@_lower_expr.register(MatArrayBufferExpression)
-def _(expr: MatArrayBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
+@_lower_expr.register(MatBufferExpression)
+def _(expr: MatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
     row_path, column_path = paths
     layouts = (expr.row_layouts[row_path], expr.column_layouts[column_path])
     return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, nest_indices=expr.nest_indices, shape=shape)

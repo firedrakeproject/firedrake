@@ -619,3 +619,7 @@ def unique_comm(iterable) -> MPI.Comm | None:
 
 def as_numpy_scalar(value: numbers.Number) -> np.number:
     return just_one(np.asarray([value]))
+
+
+def filter_type(type_: type, iterable: Iterable):
+    return filter(lambda item: isinstance(item, type_), iterable)

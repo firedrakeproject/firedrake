@@ -14,14 +14,14 @@ from mpi4py.MPI import buffer
 import numpy as np
 from immutabledict import immutabledict
 from pyop3.tensor import Scalar
-from pyop3.tensor.dat import ArrayBufferExpression, ScalarArrayBufferExpression, DatArrayBufferExpression, DatBufferExpression, MatPetscMatBufferExpression, MatArrayBufferExpression, LinearBufferExpression, NonlinearBufferExpression
+from pyop3.tensor.dat import BufferExpression, ScalarBufferExpression, LinearDatBufferExpression, NonlinearDatBufferExpression, LinearMatBufferExpression, NonlinearMatBufferExpression, LinearBufferExpression, NonlinearBufferExpression
 from pyop3.buffer import AbstractArrayBuffer, AllocatedPetscMatBuffer, PetscMatBuffer
 from pyop3.itree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree
 from pyrsistent import pmap, PMap
 from petsc4py import PETSc
 
 from pyop3 import utils
-from pyop3.tensor import Tensor, Dat, Mat, LinearDatArrayBufferExpression, BufferExpression, NonlinearDatArrayBufferExpression
+from pyop3.tensor import Tensor, Dat, Mat, BufferExpression
 from pyop3.axtree.tree import AxisVar, Expression, Operator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN, _UnitAxisTree
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
@@ -136,8 +136,8 @@ def _(dat: Dat, indices):
     return dat.buffer.data_ro_with_halos[offset]
 
 
-@evaluate.register(LinearDatArrayBufferExpression)
-def _(expr: LinearDatArrayBufferExpression, indices):
+@evaluate.register(LinearDatBufferExpression)
+def _(expr: LinearDatBufferExpression, indices):
     offset = evaluate(expr.layout, indices)
     return expr.buffer.data_ro_with_halos[offset]
 
@@ -214,8 +214,8 @@ def _(dat: NonlinearCompositeDat, /) -> OrderedSet:
     return loop_indices
 
 
-@collect_loop_index_vars.register(LinearDatArrayBufferExpression)
-def _(expr: LinearDatArrayBufferExpression, /) -> OrderedSet:
+@collect_loop_index_vars.register(LinearDatBufferExpression)
+def _(expr: LinearDatBufferExpression, /) -> OrderedSet:
     return collect_loop_index_vars(expr.layout)
 
 
@@ -241,7 +241,7 @@ def restrict_to_context(obj: Any, /, loop_context):
 @restrict_to_context.register(numbers.Number)
 @restrict_to_context.register(AxisVar)
 @restrict_to_context.register(LoopIndexVar)
-@restrict_to_context.register(ArrayBufferExpression)
+@restrict_to_context.register(BufferExpression)
 @restrict_to_context.register(NaN)
 def _(var: Any, /, loop_context) -> Any:
     return var
@@ -412,8 +412,8 @@ def _(dat: Dat, /, replace_map):
     return replace_terminals(dat._as_expression_dat(), replace_map)
 
 
-@replace_terminals.register(LinearDatArrayBufferExpression)
-def _(expr: LinearDatArrayBufferExpression, /, replace_map) -> LinearDatArrayBufferExpression:
+@replace_terminals.register(LinearDatBufferExpression)
+def _(expr: LinearDatBufferExpression, /, replace_map) -> LinearDatBufferExpression:
     new_layout = replace_terminals(expr.layout, replace_map)
     return expr.__record_init__(layout=new_layout)
 
@@ -446,8 +446,8 @@ def _(dat: Dat, /, replace_map):
     return replace(dat._as_expression_dat(), replace_map)
 
 
-@replace.register(LinearDatArrayBufferExpression)
-def _(expr: LinearDatArrayBufferExpression, /, replace_map):
+@replace.register(LinearDatBufferExpression)
+def _(expr: LinearDatBufferExpression, /, replace_map):
     # TODO: Can have a flag that determines the replacement order (pre/post)
     if expr in replace_map:
         return replace_map[expr]
@@ -491,20 +491,20 @@ def _(var: Any, /, *args, **kwargs) -> Any:
 
 
 @concretize_layouts.register(Scalar)
-def _(scalar: Scalar, /, axis_trees: Iterable[AxisTree, ...]) -> ScalarArrayBufferExpression:
+def _(scalar: Scalar, /, axis_trees: Iterable[AxisTree, ...]) -> ScalarBufferExpression:
     assert not axis_trees
-    return ScalarArrayBufferExpression(scalar.buffer)
+    return ScalarBufferExpression(scalar.buffer)
 
 
 @concretize_layouts.register(Dat)
-def _(dat: Dat, /, axis_trees: Iterable[AxisTree, ...]) -> DatArrayBufferExpression:
+def _(dat: Dat, /, axis_trees: Iterable[AxisTree, ...]) -> DatBufferExpression:
     if dat.axes.nest_indices:
         raise NotImplementedError("TODO")
     if dat.axes.is_linear:
         layout = just_one(dat.axes.leaf_subst_layouts.values())
-        expr = LinearDatArrayBufferExpression(dat.buffer, layout, dat.shape, dat.loop_axes, nest_indices=())
+        expr = LinearDatBufferExpression(dat.buffer, layout, dat.shape, dat.loop_axes, nest_indices=())
     else:
-        expr = NonlinearDatArrayBufferExpression(dat.buffer, dat.axes.leaf_subst_layouts, dat.shape, dat.loop_axes, nest_indices=())
+        expr = NonlinearDatBufferExpression(dat.buffer, dat.axes.leaf_subst_layouts, dat.shape, dat.loop_axes, nest_indices=())
     return concretize_layouts(expr, axis_trees)
 
 
@@ -523,14 +523,14 @@ def _(mat: Mat, /, axis_trees: Iterable[AxisTree, ...]) -> BufferExpression:
         row_axes = row_axes.restrict_nest(row_index)
         column_axes = column_axes.restrict_nest(column_index)
 
-    if isinstance(mat.buffer, PetscMatBuffer):
+    if isinstance(mat.buffer.handle(nest_indices), PETSc.Mat):
         layouts = [
             NonlinearCompositeDat(axis_tree.materialize(), axis_tree.leaf_subst_layouts, axis_tree.outer_loops)
             for axis_tree in [row_axes, column_axes]
         ]
-        expr = MatPetscMatBufferExpression(mat.buffer, *layouts, nest_indices=nest_indices)
+        expr = LinearMatBufferExpression(mat.buffer, *layouts, nest_indices=nest_indices)
     else:
-        expr = MatArrayBufferExpression(
+        expr = NonlinearMatBufferExpression(
             mat.buffer,
             row_axes.leaf_subst_layouts,
             column_axes.leaf_subst_layouts,
@@ -546,8 +546,8 @@ def _(dat_expr: LinearBufferExpression, /, axis_trees: Iterable[AxisTree, ...]) 
     return dat_expr
 
 
-@concretize_layouts.register(NonlinearDatArrayBufferExpression)
-def _(dat_expr: NonlinearDatArrayBufferExpression, /, axis_trees: Iterable[AxisTree, ...]) -> NonlinearDatArrayBufferExpression:
+@concretize_layouts.register(NonlinearDatBufferExpression)
+def _(dat_expr: NonlinearDatBufferExpression, /, axis_trees: Iterable[AxisTree, ...]) -> NonlinearDatBufferExpression:
     axis_tree = just_one(axis_trees)
     # NOTE: This assumes that we have uniform axis trees for all elements of the
     # expression (i.e. not dat1[i] <- dat2[j]). When that assumption is eventually
@@ -560,8 +560,8 @@ def _(dat_expr: NonlinearDatArrayBufferExpression, /, axis_trees: Iterable[AxisT
     return dat_expr.__record_init__(layouts=pruned_layouts)
 
 
-@concretize_layouts.register(MatArrayBufferExpression)
-def _(mat_expr: MatArrayBufferExpression, /, axis_trees: Iterable[AxisTree, ...]) -> MatArrayBufferExpression:
+@concretize_layouts.register(NonlinearMatBufferExpression)
+def _(mat_expr: NonlinearMatBufferExpression, /, axis_trees: Iterable[AxisTree, ...]) -> NonlinearMatBufferExpression:
     pruned_layoutss = []
     orig_layoutss = [mat_expr.row_layouts, mat_expr.column_layouts]
     for orig_layouts, axis_tree in zip(orig_layoutss, axis_trees, strict=True):
@@ -626,22 +626,22 @@ def _(op: Operator, /, **kwargs) -> immutabledict:
 @collect_tensor_candidate_indirections.register(AxisVar)
 @collect_tensor_candidate_indirections.register(LoopIndexVar)
 @collect_tensor_candidate_indirections.register(Scalar)
-@collect_tensor_candidate_indirections.register(ScalarArrayBufferExpression)
+@collect_tensor_candidate_indirections.register(ScalarBufferExpression)
 @collect_tensor_candidate_indirections.register(NaN)
 def _(var: Any, /, **kwargs) -> immutabledict:
     return immutabledict()
 
 
-@collect_tensor_candidate_indirections.register(LinearDatArrayBufferExpression)
-def _(dat_expr: LinearDatArrayBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], compress: bool) -> immutabledict:
+@collect_tensor_candidate_indirections.register(LinearDatBufferExpression)
+def _(dat_expr: LinearDatBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], compress: bool) -> immutabledict:
     axis_tree = just_one(axis_trees)
     return immutabledict({
         dat_expr: collect_candidate_indirections(dat_expr.layout, axis_tree, loop_indices, compress=compress)
     })
 
 
-@collect_tensor_candidate_indirections.register(NonlinearDatArrayBufferExpression)
-def _(dat_expr: NonlinearDatArrayBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], compress: bool) -> immutabledict:
+@collect_tensor_candidate_indirections.register(NonlinearDatBufferExpression)
+def _(dat_expr: NonlinearDatBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], compress: bool) -> immutabledict:
     axis_tree = just_one(axis_trees)
     return immutabledict({
         (dat_expr, path): collect_candidate_indirections(layout, axis_tree.linearize(path), loop_indices, compress=compress)
@@ -649,8 +649,8 @@ def _(dat_expr: NonlinearDatArrayBufferExpression, /, *, axis_trees: Iterable[Ax
     })
 
 
-@collect_tensor_candidate_indirections.register(MatPetscMatBufferExpression)
-def _(mat_expr: MatPetscMatBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool) -> immutabledict:
+@collect_tensor_candidate_indirections.register(LinearMatBufferExpression)
+def _(mat_expr: LinearMatBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool) -> immutabledict:
     costs = []
     layouts = [mat_expr.row_layout, mat_expr.column_layout]
     for i, (axis_tree, layout) in enumerate(zip(axis_trees, layouts, strict=True)):
@@ -666,8 +666,8 @@ def _(mat_expr: MatPetscMatBufferExpression, /, *, axis_trees, loop_indices: tup
 
 
 # NOTE: This is a nonlinear type
-@collect_tensor_candidate_indirections.register(MatArrayBufferExpression)
-def _(mat_expr: MatArrayBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool) -> immutabledict:
+@collect_tensor_candidate_indirections.register(LinearMatBufferExpression)
+def _(mat_expr: LinearMatBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool) -> immutabledict:
     candidates = {}
     layoutss = [mat_expr.row_layouts, mat_expr.column_layouts]
     for i, (axis_tree, layouts) in enumerate(zip(axis_trees, layoutss, strict=True)):
@@ -733,8 +733,8 @@ def _(op: Operator, /, visited_axes, loop_indices, *, compress: bool) -> tuple:
     return tuple(candidates)
 
 
-@collect_candidate_indirections.register(LinearDatArrayBufferExpression)
-def _(expr: LinearDatArrayBufferExpression, /, visited_axes, loop_indices, *, compress: bool) -> tuple:
+@collect_candidate_indirections.register(LinearDatBufferExpression)
+def _(expr: LinearDatBufferExpression, /, visited_axes, loop_indices, *, compress: bool) -> tuple:
     # The cost of an expression dat (i.e. the memory volume) is given by...
     # Remember that the axes here described the outer loops that exist and that
     # index expressions that do not access data (e.g. 2i+j) have a cost of zero.
@@ -783,14 +783,14 @@ def _(var: Any, /, *args, **kwargs) -> Any:
     return var
 
 
-@concretize_materialized_tensor_indirections.register(LinearDatArrayBufferExpression)
-def _(buffer_expr: LinearDatArrayBufferExpression, layouts, key):
+@concretize_materialized_tensor_indirections.register(LinearDatBufferExpression)
+def _(buffer_expr: LinearDatBufferExpression, layouts, key):
     layout = layouts[key + (buffer_expr,)]
     return buffer_expr.__record_init__(layout=layout)
 
 
-@concretize_materialized_tensor_indirections.register(NonlinearDatArrayBufferExpression)
-def _(buffer_expr: NonlinearDatArrayBufferExpression, layouts, key):
+@concretize_materialized_tensor_indirections.register(NonlinearDatBufferExpression)
+def _(buffer_expr: NonlinearDatBufferExpression, layouts, key):
     new_layouts = {
         leaf_path: layouts[key + ((buffer_expr, leaf_path),)]
         for leaf_path in buffer_expr.layouts.keys()
@@ -798,8 +798,8 @@ def _(buffer_expr: NonlinearDatArrayBufferExpression, layouts, key):
     return buffer_expr.__record_init__(layouts=new_layouts)
 
 
-@concretize_materialized_tensor_indirections.register(MatPetscMatBufferExpression)
-def _(mat_expr: MatPetscMatBufferExpression, /, layouts, key) -> MatPetscMatBufferExpression:
+@concretize_materialized_tensor_indirections.register(LinearMatBufferExpression)
+def _(mat_expr: LinearMatBufferExpression, /, layouts, key) -> LinearMatBufferExpression:
     row_layout = layouts[key + ((mat_expr, 0),)]
     column_layout = layouts[key + ((mat_expr, 1),)]
 
@@ -817,14 +817,14 @@ def _(mat_expr: MatPetscMatBufferExpression, /, layouts, key) -> MatPetscMatBuff
     #
     # which is what Mat{Get,Set}Values() needs.
     layouts = [
-        LinearDatArrayBufferExpression(layout.buffer, layout.layouts[immutabledict()], layout.shape, layout.loop_axes, nest_indices=layout.nest_indices)
+        LinearDatBufferExpression(layout.buffer, layout.layouts[immutabledict()], layout.shape, layout.loop_axes, nest_indices=layout.nest_indices)
         for layout in [row_layout, column_layout]
     ]
     return mat_expr.__record_init__(row_layout=layouts[0], column_layout=layouts[1])
 
 
-@concretize_materialized_tensor_indirections.register(MatArrayBufferExpression)
-def _(buffer_expr: MatArrayBufferExpression, /, layouts, key):
+@concretize_materialized_tensor_indirections.register(LinearMatBufferExpression)
+def _(buffer_expr: LinearMatBufferExpression, /, layouts, key):
     new_buffer_layoutss = []
     buffer_layoutss = [buffer_expr.row_layouts, buffer_expr.column_layouts]
     for i, buffer_layouts in enumerate(buffer_layoutss):
@@ -869,13 +869,13 @@ def _(dat: Dat, /) -> OrderedSet:
     return loop_indices
 
 
-@collect_axis_vars.register(LinearDatArrayBufferExpression)
-def _(dat: LinearDatArrayBufferExpression, /) -> OrderedSet:
+@collect_axis_vars.register(LinearDatBufferExpression)
+def _(dat: LinearDatBufferExpression, /) -> OrderedSet:
     return collect_axis_vars(dat.layout)
 
 
-@collect_axis_vars.register(NonlinearDatArrayBufferExpression)
-def _(dat: NonlinearDatArrayBufferExpression, /) -> OrderedSet:
+@collect_axis_vars.register(NonlinearDatBufferExpression)
+def _(dat: NonlinearDatBufferExpression, /) -> OrderedSet:
     result = OrderedSet()
     for layout_expr in dat.layouts.values():
         result |= collect_axis_vars(layout_expr)
@@ -900,7 +900,7 @@ def _(op, /) -> frozenset:
     return frozenset()
 
 
-@collect_composite_dats.register(LinearDatArrayBufferExpression)
+@collect_composite_dats.register(LinearDatBufferExpression)
 def _(dat, /) -> frozenset:
     return collect_composite_dats(dat.layout)
 
@@ -910,7 +910,7 @@ def _(dat, /) -> frozenset:
     return frozenset({dat})
 
 
-def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatArrayBufferExpression:
+def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatBufferExpression:
     axes = composite_dat.axis_tree
     # TODO: This is almost certainly the wrong place to do this
     # axes = axes.undistribute()
@@ -1017,10 +1017,10 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatArrayBuff
 
     if isinstance(composite_dat, LinearCompositeDat):
         layout = newlayouts[axes.leaf_path]
-        return LinearDatArrayBufferExpression(result.buffer, layout, result.shape, result.loop_axes, nest_indices=axes.nest_indices)
+        return LinearDatBufferExpression(result.buffer, layout, result.shape, result.loop_axes, nest_indices=axes.nest_indices)
     else:
         assert isinstance(composite_dat, NonlinearCompositeDat)
-        return NonlinearDatArrayBufferExpression(result.buffer, newlayouts, result.shape, result.loop_axes, nest_indices=axes.nest_indices)
+        return NonlinearDatBufferExpression(result.buffer, newlayouts, result.shape, result.loop_axes, nest_indices=axes.nest_indices)
 
 
 # TODO: Better to just return the actual value probably...

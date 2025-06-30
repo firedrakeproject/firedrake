@@ -547,29 +547,32 @@ class BufferExpression(Expression, metaclass=abc.ABCMeta):
     def nest_indices(self) -> tuple[tuple[int, ...], ...]:
         pass
 
-
-class ArrayBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
-    pass
-
-
-class OpaqueBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
-    """A buffer expression that is interfaced with using function calls.
-
-    An example of this is Mat{Get,Set}Values().
-
-    """
+    @property
+    def handle(self) -> Any:
+        return self.buffer.handle(self.nest_indices)
 
 
-class PetscMatBufferExpression(OpaqueBufferExpression, metaclass=abc.ABCMeta):
-    pass
+# class ArrayBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
+#     pass
 
 
-class ScalarBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
-    nest_indices: tuple[tuple[()]] = ((),)
+# class OpaqueBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
+#     """A buffer expression that is interfaced with using function calls.
+#
+#     An example of this is Mat{Get,Set}Values().
+#
+#     """
+
+
+# class PetscMatBufferExpression(OpaqueBufferExpression, metaclass=abc.ABCMeta):
+#     pass
+
+
+# class ScalarBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
 
 
 @utils.record()
-class ScalarArrayBufferExpression(ScalarBufferExpression, ArrayBufferExpression):
+class ScalarBufferExpression(BufferExpression):
 
     # {{{ instance attrs
 
@@ -580,6 +583,7 @@ class ScalarArrayBufferExpression(ScalarBufferExpression, ArrayBufferExpression)
     # {{{ interface impls
 
     buffer: ClassVar[property] = utils.attr("_buffer")
+    nest_indices: ClassVar[tuple[()]] = ()
 
     # }}}
 
@@ -597,8 +601,8 @@ class DatBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
         pass
 
 
-class DatArrayBufferExpression(DatBufferExpression, ArrayBufferExpression, metaclass=abc.ABCMeta):
-    pass
+# class DatArrayBufferExpression(DatBufferExpression, ArrayBufferExpression, metaclass=abc.ABCMeta):
+#     pass
 
 
 class LinearBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
@@ -610,7 +614,8 @@ class NonlinearBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
 
 
 @utils.record()
-class LinearDatArrayBufferExpression(DatArrayBufferExpression, LinearBufferExpression):
+# class LinearDatArrayBufferExpression(DatArrayBufferExpression, LinearBufferExpression):
+class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
     """A dat with fixed (?) layout.
 
     It cannot be indexed.
@@ -651,7 +656,8 @@ class LinearDatArrayBufferExpression(DatArrayBufferExpression, LinearBufferExpre
 
 
 @utils.record()
-class NonlinearDatArrayBufferExpression(DatArrayBufferExpression, NonlinearBufferExpression):
+# class NonlinearDatArrayBufferExpression(DatArrayBufferExpression, NonlinearBufferExpression):
+class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpression):
     """A dat with fixed layouts.
 
     This class is useful for describing dats whose layouts have been optimised.
@@ -703,7 +709,8 @@ class MatBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
 
 
 @utils.record()
-class MatPetscMatBufferExpression(MatBufferExpression, PetscMatBufferExpression, LinearBufferExpression):
+# class MatPetscMatBufferExpression(MatBufferExpression, PetscMatBufferExpression, LinearBufferExpression):
+class LinearMatBufferExpression(MatBufferExpression, LinearBufferExpression):
 
     # {{{ instance attrs
 
@@ -741,7 +748,8 @@ class MatPetscMatBufferExpression(MatBufferExpression, PetscMatBufferExpression,
 
 
 @utils.record()
-class MatArrayBufferExpression(MatBufferExpression, ArrayBufferExpression, NonlinearBufferExpression):
+# class MatArrayBufferExpression(MatBufferExpression, ArrayBufferExpression, NonlinearBufferExpression):
+class NonlinearMatBufferExpression(MatBufferExpression, NonlinearBufferExpression):
 
     # {{{ instance attrs
 
@@ -779,7 +787,7 @@ class MatArrayBufferExpression(MatBufferExpression, ArrayBufferExpression, Nonli
     #     return f"{self.buffer.name}[{self.row_layout}, {self.column_layout}]"
 
 
-def as_linear_buffer_expression(dat: Dat) -> LinearDatArrayBufferExpression:
+def as_linear_buffer_expression(dat: Dat) -> LinearDatBufferExpression:
     dat = dat.localize()
 
     if not dat.axes.is_linear:
@@ -791,4 +799,4 @@ def as_linear_buffer_expression(dat: Dat) -> LinearDatArrayBufferExpression:
         axes = axes.nest_subtree(nest_index)
 
     layout = just_one(axes.leaf_subst_layouts.values())
-    return LinearDatArrayBufferExpression(dat.buffer, layout, dat.shape, dat.loop_axes, nest_indices=nest_indices)
+    return LinearDatBufferExpression(dat.buffer, layout, dat.shape, dat.loop_axes, nest_indices=nest_indices)
