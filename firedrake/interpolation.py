@@ -257,7 +257,11 @@ class Interpolator(abc.ABC):
     def __new__(cls, expr, V, **kwargs):
         target_mesh = as_domain(V)
         source_mesh = extract_unique_domain(expr) or target_mesh
-        if target_mesh is source_mesh or all(isinstance(m.topology, firedrake.mesh.MeshTopology) for m in [target_mesh, source_mesh]) and target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1]:
+        submesh_interp_implemented = \
+            all(isinstance(m.topology, firedrake.mesh.MeshTopology) for m in [target_mesh, source_mesh]) and \
+            target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1] and \
+            target_mesh.topological_dimension() == source_mesh.topological_dimension()
+        if target_mesh is source_mesh or submesh_interp_implemented:
             return object.__new__(SameMeshInterpolator)
         else:
             if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
@@ -539,9 +543,7 @@ class CrossMeshInterpolator(Interpolator):
         # input ordering VOM will only contain the points on rank 0!
         # QUESTION: Should any of the below have annotation turned off?
         ufl_scalar_element = V_dest.ufl_element()
-        if ufl_scalar_element.num_sub_elements and not isinstance(
-            ufl_scalar_element, finat.ufl.TensorProductElement
-        ):
+        if isinstance(ufl_scalar_element, finat.ufl.MixedElement):
             if all(
                 ufl_scalar_element.sub_elements[0] == e
                 for e in ufl_scalar_element.sub_elements
@@ -554,7 +556,7 @@ class CrossMeshInterpolator(Interpolator):
                     raise NotImplementedError(
                         "Can't yet cross-mesh interpolate onto function spaces made from VectorElements or TensorElements made from sub elements with value shape other than ()."
                     )
-            elif type(ufl_scalar_element) is finat.ufl.MixedElement:
+            else:
                 # Build and save an interpolator for each sub-element
                 # separately for MixedFunctionSpaces. NOTE: since we can't have
                 # expressions for MixedFunctionSpaces we know that the input
@@ -593,10 +595,6 @@ class CrossMeshInterpolator(Interpolator):
                     )
                     self.sub_interpolators.append(sub_interpolator)
                 return
-            else:
-                raise NotImplementedError(
-                    f"Unhandled cross-mesh interpolation ufl element type: {repr(ufl_scalar_element)}"
-                )
 
         from firedrake.assemble import assemble
         V_dest_vec = firedrake.VectorFunctionSpace(dest_mesh, ufl_scalar_element)

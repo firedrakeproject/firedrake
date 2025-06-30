@@ -135,6 +135,7 @@ nitpick_ignore_regex = [
     (r'py:.*', r'ufl\..*'),
     (r'py:.*', r'PETSc\..*'),
     (r'py:.*', r'progress\..*'),
+    (r'py:.*', r'petsctools\..*'),
     # Ignore undocumented PyOP2
     ('py:class', 'pyop2.caching.Cached'),
     # Ignore mission docs from Firedrake internal "private" code
@@ -404,6 +405,7 @@ texinfo_documents = [(
 intersphinx_mapping = {
     'pyop2': ('https://op2.github.io/PyOP2', None),
     'ufl': ('https://fenics.readthedocs.io/projects/ufl/en/latest/', None),
+    'ufl': ('https://docs.fenicsproject.org/ufl/main/', None),
     'FIAT': ('https://fenics.readthedocs.io/projects/fiat/en/latest/', None),
     'FInAT': ('https://finat.github.io/FInAT/', None),
     'mpi4py': ('https://mpi4py.readthedocs.io/en/stable/', None),
@@ -422,9 +424,19 @@ intersphinx_mapping = {
 bibtex_bibfiles = ['demos/demo_references.bib', '_static/bibliography.bib', '_static/firedrake-apps.bib', '_static/references.bib']
 
 #  -- Options for sphinx.ext.extlinks ------------------------------------
-extlinks = {
-    'demo': ('https://firedrakeproject.org/demos/%s', None)
-}
+extlinks = {}
+if tags.has('master'):
+    extlinks['demo'] = (
+        'https://firedrakeproject.org/firedrake/demos/%s', None
+    )
+elif tags.has('release'):
+    extlinks['demo'] = (
+        'https://firedrakeproject.org/demos/%s', None
+    )
+else:
+    extlinks['demo'] = (
+        '%s', None
+    )
 
 #  -- Options for sphinx_reredirects ------------------------------------
 redirects = {

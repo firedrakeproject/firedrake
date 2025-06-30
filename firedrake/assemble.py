@@ -539,15 +539,15 @@ class BaseFormAssembler(AbstractFormAssembler):
             return tensor.assign(result) if tensor else result
         elif isinstance(expr, ufl.Interpolate):
             # Replace assembled children
-            _, expression = expr.argument_slots()
-            v, *assembled_expression = args
-            if assembled_expression:
+            _, operand = expr.argument_slots()
+            v, *assembled_operand = args
+            if assembled_operand:
                 # Occur in situations such as Interpolate composition
-                expression = assembled_expression[0]
+                operand = assembled_operand[0]
 
             reconstruct_interp = expr._ufl_expr_reconstruct_
-            if (v, expression) != expr.argument_slots():
-                expr = reconstruct_interp(expression, v=v)
+            if (v, operand) != expr.argument_slots():
+                expr = reconstruct_interp(operand, v=v)
 
             # Different assembly procedures:
             # 1) Interpolate(Argument(V1, 1), Argument(V2.dual(), 0)) -> Jacobian (Interpolate matrix)
@@ -557,25 +557,28 @@ class BaseFormAssembler(AbstractFormAssembler):
             # This can be generalized to the case where the first slot is an arbitray expression.
             rank = len(expr.arguments())
             # If argument numbers have been swapped => Adjoint.
-            arg_expression = ufl.algorithms.extract_arguments(expression)
-            is_adjoint = (arg_expression and arg_expression[0].number() == 0)
+            arg_operand = ufl.algorithms.extract_arguments(operand)
+            is_adjoint = (arg_operand and arg_operand[0].number() == 0)
+
+            # Get the target space
+            V = v.function_space().dual()
 
             # Dual interpolation from mixed source
-            if is_adjoint and len(expr.function_space()) > 1:
+            if is_adjoint and len(V) > 1:
                 cur = 0
-                sub_expressions = []
-                components = numpy.reshape(expression, (-1,))
-                for Vi in expr.function_space():
-                    sub_expressions.append(ufl.as_tensor(components[cur:cur+Vi.value_size].reshape(Vi.value_shape)))
+                sub_operands = []
+                components = numpy.reshape(operand, (-1,))
+                for Vi in V:
+                    sub_operands.append(ufl.as_tensor(components[cur:cur+Vi.value_size].reshape(Vi.value_shape)))
                     cur += Vi.value_size
 
-                # Component-split of the primal expression interpolated into the dual argument-split
-                split_interp = sum(reconstruct_interp(sub_expressions[i], v=vi) for (i,), vi in split_form(v))
+                # Component-split of the primal operands interpolated into the dual argument-split
+                split_interp = sum(reconstruct_interp(sub_operands[i], v=vi) for (i,), vi in split_form(v))
                 return assemble(split_interp, tensor=tensor)
 
             # Dual interpolation into mixed target
-            if is_adjoint and len(arg_expression[0].function_space()) > 1 and rank == 1:
-                V = arg_expression[0].function_space()
+            if is_adjoint and len(arg_operand[0].function_space()) > 1 and rank == 1:
+                V = arg_operand[0].function_space()
                 tensor = tensor or firedrake.Cofunction(V.dual())
 
                 # Argument-split of the Interpolate gets assembled into the corresponding sub-tensor
@@ -583,19 +586,14 @@ class BaseFormAssembler(AbstractFormAssembler):
                     assemble(sub_interp, tensor=tensor.subfunctions[i])
                 return tensor
 
-            # Get the primal space
-            V = expr.function_space()
-            if is_adjoint or rank == 0:
-                V = V.dual()
-
             # Workaround: Renumber argument when needed since Interpolator assumes it takes a zero-numbered argument.
             if not is_adjoint and rank == 2:
                 _, v1 = expr.arguments()
-                expression = ufl.replace(expression, {v1: v1.reconstruct(number=0)})
+                operand = ufl.replace(operand, {v1: v1.reconstruct(number=0)})
             # Get the interpolator
             interp_data = expr.interp_data
             default_missing_val = interp_data.pop('default_missing_val', None)
-            interpolator = firedrake.Interpolator(expression, V, **interp_data)
+            interpolator = firedrake.Interpolator(operand, V, **interp_data)
             # Assembly
             if rank == 0:
                 Iu = interpolator._interpolate(default_missing_val=default_missing_val)
@@ -606,12 +604,12 @@ class BaseFormAssembler(AbstractFormAssembler):
                     return interpolator._interpolate(v, output=tensor, adjoint=True, default_missing_val=default_missing_val)
                 # Assembling the Jacobian action.
                 elif interpolator.nargs:
-                    return interpolator._interpolate(expression, output=tensor, default_missing_val=default_missing_val)
+                    return interpolator._interpolate(operand, output=tensor, default_missing_val=default_missing_val)
                 # Assembling the operator
                 elif tensor is None:
                     return interpolator._interpolate(default_missing_val=default_missing_val)
                 else:
-                    return firedrake.Interpolator(expression, tensor, **interp_data)._interpolate(default_missing_val=default_missing_val)
+                    return firedrake.Interpolator(operand, tensor, **interp_data)._interpolate(default_missing_val=default_missing_val)
             elif rank == 2:
                 res = tensor.petscmat if tensor else PETSc.Mat()
                 # Get the interpolation matrix
@@ -1238,10 +1236,10 @@ class OneFormAssembler(ParloopFormAssembler):
         rank = len(self._form.arguments())
         if rank == 1:
             test, = self._form.arguments()
-            return firedrake.Cofunction(test.function_space().dual())
+            return firedrake.Function(test.function_space().dual())
         elif rank == 2 and self._diagonal:
             test, _ = self._form.arguments()
-            return firedrake.Cofunction(test.function_space().dual())
+            return firedrake.Function(test.function_space().dual())
         else:
             raise RuntimeError(f"Not expected: found rank = {rank} and diagonal = {self._diagonal}")
 

@@ -4,7 +4,7 @@ name = "firedrake"
 version = "2025.5.0.dev0"
 description = "An automated system for the portable solution of partial differential equations using the finite element method"
 readme = "README.rst"
-license = {file = "LICENSE"}
+license = "LGPL-3.0-or-later"
 maintainers = [
   {name = "Pablo D. Brubeck"},
   {name = "Daiane I. Dolci"},
@@ -20,15 +20,16 @@ dependencies = [
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
   # TODO RELEASE: use releases
-  "fenics-ufl @ git+https://github.com/firedrakeproject/ufl.git",
+  "fenics-ufl @ git+https://github.com/FEniCS/ufl.git",
   "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git",
   "h5py>3.12.1",
   "libsupermesh",
   "loopy>2024.1",
-  # TODO RELEASE
-  # "petsc4py==3.23.1",
   "numpy",
   "packaging",
+  # TODO RELEASE
+  # "petsc4py==3.23.3",
+  "petsctools @ git+https://github.com/firedrakeproject/petsctools.git",
   "pkgconfig",
   "progress",
   "pyadjoint-ad>=2025.04",
@@ -62,7 +63,6 @@ firedrake-check = "firedrake._check:main"
 firedrake-clean = "firedrake.scripts.firedrake_clean:main"
 firedrake-preprocess-bibtex = "firedrake.scripts.firedrake_preprocess_bibtex:main"
 pyop2-clean = "pyop2.compilation:clear_compiler_disk_cache"
-spydump = "pyop2.scripts.spydump:main"
 
 
 [project.optional-dependencies]
@@ -143,10 +143,11 @@ requires = [
   "mpi4py; python_version < '3.13'",
   "numpy",
   "pkgconfig",
-  "pybind11",
-  "setuptools>61.2",
   # TODO RELEASE
-  # "petsc4py==3.23.1",
+  # "petsc4py==3.23.3",
+  "petsctools @ git+https://github.com/firedrakeproject/petsctools.git",
+  "pybind11",
+  "setuptools>=77.0.3",
   "rtree>=1.2",
 ]
 build-backend = "setuptools.build_meta"
@@ -156,6 +157,7 @@ build-backend = "setuptools.build_meta"
 script-files = [
   "firedrake/scripts/firedrake-zenodo",
   "scripts/firedrake-run-split-tests",
+  "pyop2/scripts/spydump",
 ]
 
 [tool.setuptools.package-data]
