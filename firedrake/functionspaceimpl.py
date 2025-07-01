@@ -28,7 +28,7 @@ from pyop2.utils import as_tuple
 from firedrake import dmhooks, utils
 from firedrake.extrusion_utils import is_real_tensor_product_element
 from firedrake.functionspacedata import get_shared_data, create_element
-from firedrake.mesh import MeshTopology, ExtrudedMeshTopology
+from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
 
@@ -134,6 +134,8 @@ class WithGeometryBase:
         function_space = function_space.topological
         assert mesh.topology is function_space.mesh()
         assert mesh.topology is not mesh
+
+        mesh.init()
 
         element = function_space.ufl_element().reconstruct(cell=mesh.ufl_cell())
 
@@ -800,6 +802,13 @@ class FunctionSpace:
                 ndofs = entity_dofs[dim]
                 for pt in range(*dm.getDepthStratum(dim)):
                     section.setDof(pt, ndofs)
+        elif type(self._mesh.topology) is VertexOnlyMeshTopology:
+            dm = self._mesh.topology_dm
+            section.setChart(0, dm.getSize())
+
+            ndofs = entity_dofs[0]
+            for pt in range(0, dm.getSize()):
+                section.setDof(pt, ndofs)
         else:
             assert type(self._mesh.topology) is ExtrudedMeshTopology
             base_dm = self._mesh._base_mesh.topology_dm

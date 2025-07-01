@@ -747,28 +747,30 @@ class AbstractMeshTopology(abc.ABC):
                 dm_renumbering = perm_is
             else:
                 with PETSc.Log.Event("Renumber mesh topology"):
-                    if reorder:
-                        if isinstance(self.topology_dm, PETSc.DMPlex):
+                    if isinstance(self.topology_dm, PETSc.DMPlex):
+                        if reorder:
                             rcm_ordering_is = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM)
                             cell_ordering = op3.utils.invert(rcm_ordering_is.indices[:self.num_cells])
                         else:
-                            assert isinstance(self.topology_dm, PETSc.DMSwarm)
-                            swarm = self.topology_dm
-                            parent = self._parent_mesh.topology_dm
-                            cell_id_name = swarm.getCellDMActive().getCellID()
-                            swarm_parent_cell_nums = swarm.getField(cell_id_name).ravel()
-                            parent_renum = self._parent_mesh._dm_renumbering.getIndices()
-                            pStart, _ = parent.getChart()
-                            parent_renum_inv = np.empty_like(parent_renum)
-                            parent_renum_inv[parent_renum - pStart] = np.arange(len(parent_renum))
-                            # Use kind = 'stable' to make the ordering deterministic.
-                            cell_ordering = np.argsort(parent_renum_inv[swarm_parent_cell_nums - pStart], kind='stable').astype(IntType)
-                            swarm.restoreField(cell_id_name)
+                            cell_ordering = np.arange(self.num_cells, dtype=IntType)
+                        # must use an inverse ordering because we want to know the map *back*
+                        # from renumbered to original cell number
+                        dm_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
                     else:
-                        cell_ordering = np.arange(self.num_cells, dtype=IntType)
-                    # must use an inverse ordering because we want to know the map *back*
-                    # from renumbered to original cell number
-                    dm_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
+                        # TODO: Assumes reorder is True
+                        assert isinstance(self.topology_dm, PETSc.DMSwarm)
+                        swarm = self.topology_dm
+                        parent = self._parent_mesh.topology_dm
+                        cell_id_name = swarm.getCellDMActive().getCellID()
+                        swarm_parent_cell_nums = swarm.getField(cell_id_name).ravel()
+                        parent_renum = self._parent_mesh._dm_renumbering.getIndices()
+                        pStart, _ = parent.getChart()
+                        parent_renum_inv = np.empty_like(parent_renum)
+                        parent_renum_inv[parent_renum - pStart] = np.arange(len(parent_renum))
+                        # Use kind = 'stable' to make the ordering deterministic.
+                        perm = np.argsort(parent_renum_inv[swarm_parent_cell_nums - pStart], kind='stable').astype(IntType)
+                        swarm.restoreField(cell_id_name)
+                        dm_renumbering = PETSc.IS().createGeneral(perm, comm=swarm.comm)
 
                 # Now take this renumbering and partition owned and ghost points, this
                 # is the part that pyop3 should ultimately be able to handle.
@@ -820,15 +822,41 @@ class AbstractMeshTopology(abc.ABC):
         """Add overlap."""
         pass
 
-    @property
-    @abc.abstractmethod
+    @cached_property
     def flat_points(self):
-        pass
+        n_points = self.num_points
+
+        # NOTE: In serial the point SF isn't set up in a valid state so we do this. It
+        # would be nice to avoid this branch.
+        if self.comm.size > 1:
+            point_sf = self.topology_dm.getPointSF()
+        else:
+            point_sf = op3.local_sf(self.num_points, self._comm).sf
+
+        point_sf_renum = dmcommon.renumber_sf(point_sf, self._dm_renumbering)
+
+        # TODO: Allow the label here to be None
+        return op3.Axis(
+            [op3.AxisComponent(n_points, "mylabel", sf=point_sf_renum)],
+            label="mesh",
+        )
 
     @property
     @abc.abstractmethod
     def _strata_slice(self):  # or strata_axis?
         pass
+
+    @property
+    def _plex_strata_ordering(self):
+        if self.dimension == 0:
+            return (0,)
+        elif self.dimension == 1:
+            return (1, 0)
+        elif self.dimension == 2:
+            return (2, 0, 1)
+        else:
+            assert self.dimension == 3
+            return (3, 0, 2, 1)  # I think, 1 and 2 might need swapping
 
     @utils.cached_property
     def points(self):
@@ -1029,6 +1057,9 @@ class AbstractMeshTopology(abc.ABC):
 
     @utils.cached_property
     def _strata_slice(self):
+        if self.dimension == 0:
+            return op3.Slice("mesh", [op3.AffineSliceComponent("mylabel", 0, self.num_cells, label=0)], label=self.name)
+
         subsets = []
         if self._dm_renumbering is None:
             raise NotImplementedError("TODO")
@@ -1051,15 +1082,15 @@ class AbstractMeshTopology(abc.ABC):
     def _entity_indices(self):
         pass
 
-    @property
-    @abc.abstractmethod
-    def _plex_strata_ordering(self):
-        """Map from entity dimension to ordering in the DMPlex numbering.
-
-        For example, 3D meshes begin by numbering cells from 0, then vertices,
-        then faces and lastly edges.
-
-        """
+    # @property
+    # @abc.abstractmethod
+    # def _plex_strata_ordering(self):
+    #     """Map from entity dimension to ordering in the DMPlex numbering.
+    #
+    #     For example, 3D meshes begin by numbering cells from 0, then vertices,
+    #     then faces and lastly edges.
+    #
+    #     """
 
     def closure(self, index, ordering: ClosureOrdering | str = ClosureOrdering.FIAT):
         if ordering == ClosureOrdering.PLEX:
@@ -1734,6 +1765,92 @@ class AbstractMeshTopology(abc.ABC):
 
         return numbering
 
+    @cached_property
+    def _plex_closures(self) -> dict[Any, np.ndarray]:
+        # TODO: Provide more detail about the return type
+        """Memoized DMPlex point closures with default numbering.
+
+        Returns
+        -------
+        tuple :
+            Closure data per dimension.
+
+        """
+        # TODO: make memoize_closures nicer to reuse code
+        # NOTE: At the moment this only works for cells because I don't know how to
+        # compute closure sizes elsewise
+        return {self.dimension: self._memoize_closures(self.dimension)}
+
+    @cached_property
+    def _plex_closures_renumbered(self) -> tuple[np.ndarray, ...]:
+        raise NotImplementedError
+
+    @cached_property
+    def _plex_closures_localized(self) -> tuple[tuple[np.ndarray, ...], ...]:
+        raise NotImplementedError
+
+    @cached_property
+    def _fiat_cell_closures(self) -> np.ndarray:
+        """
+
+        Reorders verts -> cell from cell -> verts
+
+        """
+        plex_closures = self._plex_closures[self.dimension]
+        if self.ufl_cell().is_simplex():
+            return self._reorder_closure_fiat_simplex(plex_closures)
+        elif self.ufl_cell() == ufl.quadrilateral:
+            return self._reorder_closure_fiat_quad(plex_closures)
+        else:
+            assert self.ufl_cell() == ufl.hexahedron
+            return self._reorder_closure_fiat_hex(plex_closures)
+
+    @cached_property
+    def _fiat_cell_closures_renumbered(self) -> np.ndarray:
+        renumbered_closures = np.empty_like(self._fiat_cell_closures)
+        from_dim = self.dimension
+        offset = 0
+        for to_dim, size in self._closure_sizes[from_dim].items():
+            start = offset
+            stop = offset + size
+            renumbered_closures[:, start:stop] = self._renumber_map(
+                self._fiat_cell_closures[:, start:stop],
+                from_dim,
+                to_dim,
+            )
+            offset += size
+        return renumbered_closures
+
+    @cached_property
+    def _fiat_cell_closures_localized(self) -> immutabledict[int, np.ndarray]:
+        """
+
+        Reorders verts -> cell from cell -> verts
+
+        """
+        localized_closures = {}
+        from_dim = self.dimension
+        offset = 0
+        for to_dim, size in self._closure_sizes[from_dim].items():
+            stratum_offset, _ = self.topology_dm.getDepthStratum(to_dim)
+            localized_closures[to_dim] = self._fiat_cell_closures_renumbered[:, offset:offset+size] - stratum_offset
+            offset += size
+        return immutabledict(localized_closures)
+
+    def _memoize_closures(self, dim) -> np.ndarray:
+        def closure_func(_pt):
+            return self.topology_dm.getTransitiveClosure(_pt)[0]
+
+        p_start, p_end = self.topology_dm.getDepthStratum(dim)
+        npoints = p_end - p_start
+        closure_size = sum(self._closure_sizes[dim].values())
+        closure_data = np.empty((npoints, closure_size), dtype=IntType)
+
+        for i, pt in enumerate(range(p_start, p_end)):
+            closure_data[i] = closure_func(pt)
+
+        return op3.utils.readonly(closure_data)
+
     # @utils.cached_property
     # def _global_numbering(self):
     #     numbering = [None] * (self.dimension+1)
@@ -1924,26 +2041,6 @@ class MeshTopology(AbstractMeshTopology):
         super().__init__(plex, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm)
 
     @cached_property
-    def flat_points(self):
-        p_start, p_end = self.topology_dm.getChart()
-        n_points = p_end - p_start
-
-        # NOTE: In serial the point SF isn't set up in a valid state so we do this. It
-        # would be nice to avoid this branch.
-        if self.comm.size > 1:
-            point_sf = self.topology_dm.getPointSF()
-        else:
-            point_sf = op3.local_sf(self.num_points, self._comm).sf
-
-        point_sf_renum = dmcommon.renumber_sf(point_sf, self._dm_renumbering)
-
-        # TODO: Allow the label here to be None
-        return op3.Axis(
-            [op3.AxisComponent(n_points, "mylabel", sf=point_sf_renum)],
-            label="mesh",
-        )
-
-    @cached_property
     def _entity_indices(self):
         # TODO: Explain why, at this point, we only care about interleaving and the ordering
         # does not really matter
@@ -1954,18 +2051,6 @@ class MeshTopology(AbstractMeshTopology):
             ixs = np.argwhere((p_start <= perm) & (perm < p_end)).astype(IntType, casting="same_kind").flatten()
             indices.append(readonly(ixs))
         return tuple(indices)
-
-    @property
-    def _plex_strata_ordering(self):
-        if self.dimension == 0:
-            return (0,)
-        elif self.dimension == 1:
-            return (1, 0)
-        elif self.dimension == 2:
-            return (2, 0, 1)
-        else:
-            assert self.dimension == 3
-            return (3, 0, 2, 1)  # I think, 1 and 2 might need swapping
 
     # @cached_property
     # def _closure_sizes(self) -> dict:
@@ -2194,94 +2279,8 @@ class MeshTopology(AbstractMeshTopology):
         )
 
     @cached_property
-    def _plex_closures(self) -> dict[Any, np.ndarray]:
-        # TODO: Provide more detail about the return type
-        """Memoized DMPlex point closures with default numbering.
-
-        Returns
-        -------
-        tuple :
-            Closure data per dimension.
-
-        """
-        # TODO: make memoize_closures nicer to reuse code
-        # NOTE: At the moment this only works for cells because I don't know how to
-        # compute closure sizes elsewise
-        return {self.dimension: self._memoize_closures(self.dimension)}
-
-    @cached_property
-    def _plex_closures_renumbered(self) -> tuple[np.ndarray, ...]:
-        raise NotImplementedError
-
-    @cached_property
-    def _plex_closures_localized(self) -> tuple[tuple[np.ndarray, ...], ...]:
-        raise NotImplementedError
-
-    @cached_property
-    def _fiat_cell_closures(self) -> np.ndarray:
-        """
-
-        Reorders verts -> cell from cell -> verts
-
-        """
-        plex_closures = self._plex_closures[self.dimension]
-        if self.ufl_cell().is_simplex():
-            return self._reorder_closure_fiat_simplex(plex_closures)
-        elif self.ufl_cell() == ufl.quadrilateral:
-            return self._reorder_closure_fiat_quad(plex_closures)
-        else:
-            assert self.ufl_cell() == ufl.hexahedron
-            return self._reorder_closure_fiat_hex(plex_closures)
-
-    @cached_property
-    def _fiat_cell_closures_renumbered(self) -> np.ndarray:
-        renumbered_closures = np.empty_like(self._fiat_cell_closures)
-        from_dim = self.dimension
-        offset = 0
-        for to_dim, size in self._closure_sizes[from_dim].items():
-            start = offset
-            stop = offset + size
-            renumbered_closures[:, start:stop] = self._renumber_map(
-                self._fiat_cell_closures[:, start:stop],
-                from_dim,
-                to_dim,
-            )
-            offset += size
-        return renumbered_closures
-
-    @cached_property
-    def _fiat_cell_closures_localized(self) -> immutabledict[int, np.ndarray]:
-        """
-
-        Reorders verts -> cell from cell -> verts
-
-        """
-        localized_closures = {}
-        from_dim = self.dimension
-        offset = 0
-        for to_dim, size in self._closure_sizes[from_dim].items():
-            stratum_offset, _ = self.topology_dm.getDepthStratum(to_dim)
-            localized_closures[to_dim] = self._fiat_cell_closures_renumbered[:, offset:offset+size] - stratum_offset
-            offset += size
-        return immutabledict(localized_closures)
-
-    @cached_property
     def entity_orientations(self):
         return dmcommon.entity_orientations(self, self._fiat_cell_closures)
-
-    def _memoize_closures(self, dim) -> np.ndarray:
-        def closure_func(_pt):
-            return self.topology_dm.getTransitiveClosure(_pt)[0]
-
-        p_start, p_end = self.topology_dm.getDepthStratum(dim)
-        npoints = p_end - p_start
-        closure_size = sum(self._closure_sizes[dim].values())
-        closure_data = np.empty((npoints, closure_size), dtype=IntType)
-
-        for i, pt in enumerate(range(p_start, p_end)):
-            closure_data[i] = closure_func(pt)
-
-        return op3.utils.readonly(closure_data)
 
     def _memoize_map(self, map_func, dim, sizes=None):
         if sizes is not None:
@@ -3324,10 +3323,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         else:
             return dmcommon.plex_renumbering(self.topology_dm, self._entity_classes, None)
 
-    def _memoize_closures(self, dim):
-        assert dim == 0
-        return (np.arange(self.num_cells(), dtype=IntType),), (1,)
-
     entity_orientations = None
 
     def _facets(self, kind):
@@ -3388,7 +3383,10 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @cached_property
     def cells(self):
-        return self.points[self.cell_label]
+        # Need to be more verbose as we don't want to consume the axis
+        # return self.points[self.cell_label]
+        cell_slice = op3.Slice(self.name, [op3.AffineSliceComponent(self.cell_label)])
+        return self.points[cell_slice]
 
     # old, use cells instead
     @utils.cached_property  # TODO: Recalculate if mesh moves
@@ -3416,15 +3414,11 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     def _entity_indices(self):
         breakpoint()
 
-    @cached_property
-    def _plex_strata_ordering(self):
-        breakpoint()
+    # @cached_property
+    # def _plex_strata_ordering(self):
+    #     breakpoint()
 
     def entity_count(self, *args):
-        breakpoint()
-
-    @cached_property
-    def flat_points(self):
         breakpoint()
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
@@ -4339,7 +4333,7 @@ def make_vom_from_vom_topology(topology, name, tolerance=0.5):
     if parent_tdim > 0:
         reference_coordinates_fs = functionspace.VectorFunctionSpace(topology, "DG", 0, dim=parent_tdim)
         reference_coordinates_data = dmcommon.reordered_coords(topology.topology_dm, reference_coordinates_fs.dm.getDefaultSection(),
-                                                               (topology.num_vertices(), parent_tdim),
+                                                               (topology.num_vertices, parent_tdim),
                                                                reference_coord=True)
         reference_coordinates = function.CoordinatelessFunction(reference_coordinates_fs,
                                                                 val=reference_coordinates_data,
@@ -4856,6 +4850,16 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
         if self._other_fields:
             raise ValueError("Other fields have already been set")
         self._other_fields = fields
+
+    def getDepthStratum(self, dimension: int) -> tuple[int, int]:
+        assert dimension == 0
+        return (0, self.getLocalSize())
+
+    def getHeightStratum(self, dimension: int) -> tuple[int, int]:
+        return self.getDepthStratum(dimension)
+
+    def getTransitiveClosure(self, point: int) -> tuple[np.ndarray, np.ndarray]:
+        return (np.asarray([pt], dtype=IntType), [0])
 
 
 def _pic_swarm_in_mesh(

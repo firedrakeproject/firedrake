@@ -1078,7 +1078,15 @@ def _(loop_index: LoopIndex, /, target_axes, **kwargs):
 
 
 @_index_axes_index.register(ScalarIndex)
-def _(index: ScalarIndex, *args, **kwargs):
+def _(index: ScalarIndex, /, target_axes, **kwargs):
+    # target_axis, target_component_label = utils.just_one(
+    #     target_axes[immutabledict({index.label: "0"})].items()
+    # )
+    #
+    # if index.axis == "firedrake_default_immersed_vom_topology":
+    #     breakpoint()
+
+
     target_path_and_exprs = immutabledict({immutabledict(): ((just_one(just_one(index.leaf_target_paths)), immutabledict({index.axis: index.value})),)})
     return (UNIT_AXIS_TREE, target_path_and_exprs, ())
 

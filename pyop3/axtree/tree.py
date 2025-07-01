@@ -1936,6 +1936,9 @@ class IndexedAxisTree(AbstractAxisTree):
     def _buffer_slice(self) -> np.ndarray[IntType]:
         from pyop3 import Dat, do_loop
 
+        if self.size == 0:
+            return slice(0, 0)
+
         # NOTE: The below method might be better...
         # mask_dat = Dat.zeros(self.unindexed.undistribute(), dtype=bool, prefix="mask")
         # do_loop(p := self.index(), mask_dat[p].assign(1))
