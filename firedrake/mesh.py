@@ -2086,7 +2086,7 @@ class MeshTopology(AbstractMeshTopology):
         if subdomain_ids == "on_boundary":
             label = "exterior_facets"
             subdomain_ids = (1,)
-=======
+
         plex = self.topology_dm
         tdim = plex.getDimension()
 
