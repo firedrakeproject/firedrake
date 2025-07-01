@@ -7,6 +7,7 @@ from finat.physically_mapped import DirectlyDefinedElement, PhysicallyMappedElem
 import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
+from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
 from ufl.classes import Form, GeometricQuantity
 from ufl.domain import extract_unique_domain
 
@@ -28,7 +29,7 @@ sys.setrecursionlimit(3000)
 TSFCIntegralDataInfo = collections.namedtuple("TSFCIntegralDataInfo",
                                               ["domain", "integral_type", "subdomain_id", "domain_number",
                                                "arguments",
-                                               "coefficients", "coefficient_numbers"])
+                                               "coefficients", "coefficient_split", "coefficient_numbers"])
 TSFCIntegralDataInfo.__doc__ = """
     Minimal set of objects for kernel builders.
 
@@ -47,14 +48,27 @@ TSFCIntegralDataInfo.__doc__ = """
     """
 
 
-def compile_form(form, prefix="form", parameters=None, interface=None, diagonal=False):
+def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), diagonal=False):
     """Compiles a UFL form into a set of assembly kernels.
 
-    :arg form: UFL form
-    :arg prefix: kernel name will start with this string
-    :arg parameters: parameters object
-    :arg diagonal: Are we building a kernel for the diagonal of a rank-2 element tensor?
-    :returns: list of kernels
+    Parameters
+    ----------
+    form : ufl.classes.Form
+        UFL form
+    prefix : str
+        Kernel name will start with this string
+    parameters : dict
+        Parameters object
+    dont_split_numbers : tuple
+        Coefficient numbers of coefficients that are not to be split into components by form compiler.
+    diagonal : bool
+        Are we building a kernel for the diagonal of a rank-2 element tensor?
+
+    Returns
+    -------
+    list
+        list of kernels
+
     """
     cpu_time = time.time()
 
@@ -64,13 +78,21 @@ def compile_form(form, prefix="form", parameters=None, interface=None, diagonal=
 
     # Determine whether in complex mode:
     complex_mode = parameters and is_complex(parameters.get("scalar_type"))
-    fd = ufl_utils.compute_form_data(form, complex_mode=complex_mode)
+    form_data = ufl_utils.compute_form_data(
+        form,
+        coefficients_to_split=tuple(
+            c
+            for i, c in enumerate(form.coefficients())
+            if type(c.ufl_element()) == finat.ufl.MixedElement and i not in dont_split_numbers
+        ),
+        complex_mode=complex_mode,
+    )
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
-
+    # Create local kernels.
     kernels = []
-    for integral_data in fd.integral_data:
+    for integral_data in form_data.integral_data:
         start = time.time()
-        kernel = compile_integral(integral_data, fd, prefix, parameters, interface=interface, diagonal=diagonal)
+        kernel = compile_integral(integral_data, form_data, prefix, parameters, diagonal=diagonal)
         if kernel is not None:
             kernels.append(kernel)
         logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
@@ -79,51 +101,59 @@ def compile_form(form, prefix="form", parameters=None, interface=None, diagonal=
     return kernels
 
 
-def compile_integral(integral_data, form_data, prefix, parameters, interface, *, diagonal=False):
+def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=False):
     """Compiles a UFL integral into an assembly kernel.
 
     :arg integral_data: UFL integral data
     :arg form_data: UFL form data
     :arg prefix: kernel name will start with this string
     :arg parameters: parameters object
-    :arg interface: backend module for the kernel interface
     :arg diagonal: Are we building a kernel for the diagonal of a rank-2 element tensor?
     :returns: a kernel constructed by the kernel interface
     """
     parameters = preprocess_parameters(parameters)
-    if interface is None:
-        interface = firedrake_interface_loopy.KernelBuilder
     scalar_type = parameters["scalar_type"]
     integral_type = integral_data.integral_type
-    if integral_type.startswith("interior_facet") and diagonal:
-        raise NotImplementedError("Sorry, we can't assemble the diagonal of a form for interior facet integrals")
     mesh = integral_data.domain
     arguments = form_data.preprocessed_form.arguments()
+    if integral_type.startswith("interior_facet") and diagonal and any(a.function_space().finat_element.is_dg() for a in arguments):
+        raise NotImplementedError("Sorry, we can't assemble the diagonal of a form for interior facet integrals")
     kernel_name = f"{prefix}_{integral_type}_integral"
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
     domain_number = domain_numbering[integral_data.domain]
-    coefficients = [form_data.function_replace_map[c] for c in integral_data.integral_coefficients]
     # This is which coefficient in the original form the
     # current coefficient is.
     # Consider f*v*dx + g*v*ds, the full form contains two
     # coefficients, but each integral only requires one.
-    coefficient_numbers = tuple(form_data.original_coefficient_positions[i]
-                                for i, (_, enabled) in enumerate(zip(form_data.reduced_coefficients, integral_data.enabled_coefficients))
-                                if enabled)
-    integral_data_info = TSFCIntegralDataInfo(domain=integral_data.domain,
-                                              integral_type=integral_data.integral_type,
-                                              subdomain_id=integral_data.subdomain_id,
-                                              domain_number=domain_number,
-                                              arguments=arguments,
-                                              coefficients=coefficients,
-                                              coefficient_numbers=coefficient_numbers)
-    builder = interface(integral_data_info,
-                        scalar_type,
-                        diagonal=diagonal)
+    coefficients = []
+    coefficient_split = {}
+    coefficient_numbers = []
+    for i, (coeff_orig, enabled) in enumerate(zip(form_data.reduced_coefficients, integral_data.enabled_coefficients)):
+        if enabled:
+            coeff = form_data.function_replace_map[coeff_orig]
+            coefficients.append(coeff)
+            if coeff in form_data.coefficient_split:
+                coefficient_split[coeff] = form_data.coefficient_split[coeff]
+            coefficient_numbers.append(form_data.original_coefficient_positions[i])
+    integral_data_info = TSFCIntegralDataInfo(
+        domain=integral_data.domain,
+        integral_type=integral_data.integral_type,
+        subdomain_id=integral_data.subdomain_id,
+        domain_number=domain_number,
+        arguments=arguments,
+        coefficients=coefficients,
+        coefficient_split=coefficient_split,
+        coefficient_numbers=coefficient_numbers,
+    )
+    builder = firedrake_interface_loopy.KernelBuilder(
+        integral_data_info,
+        scalar_type,
+        diagonal=diagonal,
+    )
     builder.set_coordinates(mesh)
     builder.set_cell_sizes(mesh)
-    builder.set_coefficients(integral_data, form_data)
+    builder.set_coefficients()
     # TODO: We do not want pass constants to kernels that do not need them
     # so we should attach the constants to integral data instead
     builder.set_constants(form_data.constants)
@@ -131,8 +161,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, interface, *,
     for integral in integral_data.integrals:
         params = parameters.copy()
         params.update(integral.metadata())  # integral metadata overrides
-        integrand = ufl.replace(integral.integrand(), form_data.function_replace_map)
-        integrand_exprs = builder.compile_integrand(integrand, params, ctx)
+        integrand_exprs = builder.compile_integrand(integral.integrand(), params, ctx)
         integral_exprs = builder.construct_integrals(integrand_exprs, params)
         builder.stash_integrals(integral_exprs, params, ctx)
     return builder.construct_kernel(kernel_name, ctx, parameters["add_petsc_events"])
@@ -208,11 +237,13 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     # Collect required coefficients and determine numbering
     coefficients = extract_coefficients(expression)
     orig_coefficients = extract_coefficients(orig_expression)
-    coefficient_numbers = tuple(orig_coefficients.index(c) for c in coefficients)
+    coefficient_numbers = tuple(map(orig_coefficients.index, coefficients))
     builder.set_coefficient_numbers(coefficient_numbers)
 
+    elements = [f.ufl_element() for f in (*coefficients, *arguments)]
+
     needs_external_coords = False
-    if has_type(expression, GeometricQuantity) or any(fem.needs_coordinate_mapping(c.ufl_element()) for c in coefficients):
+    if has_type(expression, GeometricQuantity) or any(map(fem.needs_coordinate_mapping, elements)):
         # Create a fake coordinate coefficient for a domain.
         coords_coefficient = ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
         builder.domain_coordinate[domain] = coords_coefficient
@@ -225,7 +256,8 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     builder.set_constants(constants)
 
     # Split mixed coefficients
-    expression = ufl_utils.split_coefficients(expression, builder.coefficient_split)
+    coeff_splitter = CoefficientSplitter(builder.coefficient_split)
+    expression = coeff_splitter(expression)
 
     # Set up kernel config for translation of UFL expression to gem
     kernel_cfg = dict(interface=builder,

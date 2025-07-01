@@ -8,6 +8,29 @@
 Firedrake events
 ----------------
 
+Firedrake '25
+~~~~~~~~~~~~~
+
+The tenth Firedrake user and developer workshop will be held
+between 15-17 September 2025 at the University of Leeds. For more
+information see :doc:`the workshop page <firedrake_25>`.
+
+
+CCP-DCM Hackathon
+~~~~~~~~~~~~~~~~~
+
+In conjunction with our friends from FEniCS we're hosting a 3 day retreat in
+Totnes to write up demos based on users' use-cases for Firedrake and its
+downstream applications. For more details see `the website
+<https://ccp-dcm.github.io/exeter_hackathon.html>`__.
+
+Finite Element Course at AIMS Rwanda
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The Firedrake team will be presenting a short course on the Finite Element
+Method at the African Institute for Mathematical Sciences in Kigali between 8
+and 12 April 2025. For more information see :doc:`the course page <aims_25>`.
+
 Firedrake USA'25
 ~~~~~~~~~~~~~~~~
 
@@ -101,7 +124,7 @@ Firedrake tutorial at RWTH Aachen University Jun 18 2019
 
 There was a hands-on Firedrake tutorial at the Aachen Institute
 for Advanced Study in Computational Engineering Science (AICES) on 18
-June 2019. For more details see `their website <https://www.aices.rwth-aachen.de/en/media-and-seminars/events>`_.
+June 2019.
 
 
 Firedrake tutorial at CSE 19
@@ -129,7 +152,7 @@ PETSc '18
 ~~~~~~~~~
 
 The Firedrake team hosted PETSc '18 at Imperial College London from
-4-6 Junr 2018. For more information, see `the meeting page <http://www.mcs.anl.gov/petsc/meetings/2018/index.html>`_.
+4-6 Junr 2018. For more information, see `the meeting page <https://petsc.gitlab.io/annual-meetings/2018/index.html>`_.
 
 Firedrake tutorial Jan 12 2018
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

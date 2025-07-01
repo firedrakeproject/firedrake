@@ -81,6 +81,8 @@ cdef extern from "petscdm.h" nogil:
 cdef extern from "petscdmswarm.h" nogil:
     int DMSwarmGetLocalSize(PETSc.PetscDM,PetscInt*)
     int DMSwarmGetCellDM(PETSc.PetscDM, PETSc.PetscDM*)
+    int DMSwarmGetCellDMActive(PETSc.PetscDM, PETSc.PetscDMSwarmCellDM*)
+    int DMSwarmCellDMGetCellID(PETSc.PetscDMSwarmCellDM, const char *[])
     int DMSwarmGetField(PETSc.PetscDM,const char[],PetscInt*,PetscDataType*,void**)
     int DMSwarmRestoreField(PETSc.PetscDM,const char[],PetscInt*,PetscDataType*,void**)
 

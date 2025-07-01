@@ -70,7 +70,6 @@ def test_repeated_custom_transfer_options():
     solver = LinearVariationalSolver(problem, solver_parameters=options)
     solver.solve()
 
-    global optcount
     assert optcount == 1
 
     uh.assign(0)

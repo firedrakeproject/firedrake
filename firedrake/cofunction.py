@@ -133,13 +133,6 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         else:
             return (self,)
 
-    @FunctionMixin._ad_annotate_subfunctions
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
-
-    # exact copy from function.py
     @utils.cached_property
     def _components(self):
         if self.function_space()._cdim == 1:

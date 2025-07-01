@@ -1,17 +1,10 @@
 import pytest
 import numpy
 from firedrake import *
-from firedrake.petsc import get_external_packages
 
 
-if "hypre" not in get_external_packages():
-    pytest.skip("hypre not installed with PETSc", allow_module_level=True)
-
-
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
-@pytest.mark.skipcomplex(reason="Hypre doesn't support complex mode")
+@pytest.mark.skiphypre
+@pytest.mark.skipcomplex
 def test_homogeneous_field_linear():
     mesh = UnitCubeMesh(5, 5, 5)
     V = FunctionSpace(mesh, "N1curl", 1)
@@ -44,6 +37,8 @@ def test_homogeneous_field_linear():
     assert numpy.allclose(B.dat.data_ro, numpy.array((0., 0., 1.)), atol=1e-6)
 
 
+@pytest.mark.skiphypre
+@pytest.mark.skipcomplex
 def test_homogeneous_field_matfree():
     mesh = UnitCubeMesh(5, 5, 5)
     V = FunctionSpace(mesh, "N1curl", 1)
@@ -79,6 +74,8 @@ def test_homogeneous_field_matfree():
     assert numpy.allclose(B.dat.data_ro, numpy.array((0., 0., 1.)), atol=1e-6)
 
 
+@pytest.mark.skiphypre
+@pytest.mark.skipcomplex
 def test_homogeneous_field_nonlinear():
     mesh = UnitCubeMesh(5, 5, 5)
     V = FunctionSpace(mesh, "N1curl", 1)
@@ -110,6 +107,8 @@ def test_homogeneous_field_nonlinear():
     assert numpy.allclose(B.dat.data_ro, numpy.array((0., 0., 1.)), atol=1e-6)
 
 
+@pytest.mark.skiphypre
+@pytest.mark.skipcomplex
 def test_homogeneous_field_linear_convergence():
     N = 4
     mesh = UnitCubeMesh(2**N, 2**N, 2**N)

@@ -449,3 +449,18 @@ def test_bcs_mixed_real_vector():
     A = assemble(a, bcs=[bc, ])
     assert np.allclose(A.M[0][1].values, [[[0.25], [0.], [0.25], [0.], [0.25], [0.25], [0.25], [0.25]]])
     assert np.allclose(A.M[1][0].values, [[0.25, 0., 0.25, 0., 0.25, 0.25, 0.25, 0.25]])
+
+
+def test_homogeneous_bc_residual():
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    bc = DirichletBC(V, 0, "on_boundary")
+
+    u = Function(V).assign(42)
+    r = Function(V).assign(333)
+    bc.apply(r, u=u)
+
+    assert np.allclose(r.dat.data_ro[bc.nodes], u.dat.data_ro[bc.nodes])
+
+    interior = np.setdiff1d(range(r.dat.data_ro.shape[0]), bc.nodes)
+    assert np.allclose(r.dat.data_ro[interior], 333)

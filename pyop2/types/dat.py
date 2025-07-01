@@ -725,6 +725,9 @@ class DatView(AbstractDat):
                                       dtype=dat.dtype,
                                       name="view[%s](%s)" % (index, dat.name))
 
+    def increment_dat_version(self):
+        self._parent.increment_dat_version()
+
     @utils.cached_property
     def _kernel_args_(self):
         return self._parent._kernel_args_
@@ -840,6 +843,9 @@ class Dat(AbstractDat, VecAccessMixin):
             self._data[:size][self._data_filter] = self._data_filtered[:]
         if access is not Access.READ:
             self.halo_valid = False
+
+    def increment_dat_version(self):
+        VecAccessMixin.increment_dat_version(self)
 
 
 class MixedDat(AbstractDat, VecAccessMixin):

@@ -243,7 +243,7 @@ Variational problems
 ~~~~~~~~~~~~~~~~~~~~
 
 Both linear and nonlinear PDEs are solved in residual form in
-Firedrake using the `PETSc SNES interface <http://www.mcs.anl.gov/petsc/petsc-current/manualpages/SNES/>`_. In the case of linear
+Firedrake using the `PETSc SNES interface <https://petsc.org/release/manualpages/SNES/SNES/>`_. In the case of linear
 systems, a single step of Newton is employed. 
 
 In the following we will use ``F`` for the residual :class:`~ufl.form.Form`

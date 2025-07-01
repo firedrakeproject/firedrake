@@ -309,7 +309,7 @@ class BCBase:
             if len(field) == 1:
                 W = V
             else:
-                W = V.subfunctions[field_renumbering[index]] if use_split else V.sub(field_renumbering[index])
+                W = V.subspaces[field_renumbering[index]] if use_split else V.sub(field_renumbering[index])
             if cmpt is not None:
                 W = W.sub(cmpt)
             return W
@@ -323,7 +323,7 @@ class BCBase:
         for bc in itertools.chain(*self.bcs):
             bc._bc_depth += 1
 
-    def extract_forms(self, form_type):
+    def extract_form(self, form_type):
         # Return boundary condition objects actually used in assembly.
         raise NotImplementedError("Method to extract form objects not implemented.")
 
@@ -539,9 +539,14 @@ class DirichletBC(BCBase, DirichletBCMixin):
             r = r.sub(idx)
             if u:
                 u = u.sub(idx)
-
-        expr = u - self.function_arg if u else self.function_arg
-        r.assign(expr, subset=self.subset)
+        if u:
+            if self.function_arg == 0:
+                bc_residual = u
+            else:
+                bc_residual = u - self.function_arg
+            r.assign(bc_residual, subset=self.node_set)
+        else:
+            r.assign(self.function_arg, subset=self.node_set)
 
     def integrals(self):
         return []
@@ -550,7 +555,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         # DirichletBC is directly used in assembly.
         return self
 
-    def _as_nonlinear_variational_problem_arg(self):
+    def _as_nonlinear_variational_problem_arg(self, is_linear=False):
         return self
 
 
@@ -589,15 +594,16 @@ class EquationBC(object):
             # linear
             if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
                 J = eq.lhs
+                L = eq.rhs
                 Jp = Jp or J
-                if eq.rhs == 0:
+                if L == 0 or L.empty():
                     F = ufl_expr.action(J, u)
                 else:
-                    if not isinstance(eq.rhs, (ufl.Form, slate.slate.TensorBase)):
-                        raise TypeError("Provided BC RHS is a '%s', not a Form or Slate Tensor" % type(eq.rhs).__name__)
-                    if len(eq.rhs.arguments()) != 1:
+                    if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)):
+                        raise TypeError("Provided BC RHS is a '%s', not a BaseForm or Slate Tensor" % type(L).__name__)
+                    if len(L.arguments()) != 1:
                         raise ValueError("Provided BC RHS is not a linear form")
-                    F = ufl_expr.action(J, u) - eq.rhs
+                    F = ufl_expr.action(J, u) - L
                 self.is_linear = True
             # nonlinear
             else:
@@ -607,6 +613,7 @@ class EquationBC(object):
                 J = J or ufl_expr.derivative(F, u)
                 Jp = Jp or J
                 self.is_linear = False
+            self.eq = eq
             # Check form style consistency
             is_form_consistent(self.is_linear, bcs)
             # Argument checking
@@ -619,9 +626,7 @@ class EquationBC(object):
             # reconstruction for splitting `solving_utils.split`
             self.Jp_eq_J = Jp_eq_J
             self.is_linear = is_linear
-            self._F = args[0]
-            self._J = args[1]
-            self._Jp = args[2]
+            self._F, self._J, self._Jp = args[:3]
         else:
             raise TypeError("Wrong EquationBC arguments")
 
@@ -650,7 +655,7 @@ class EquationBC(object):
         if all([_F is not None, _J is not None, _Jp is not None]):
             return EquationBC(_F, _J, _Jp, Jp_eq_J=self.Jp_eq_J, is_linear=is_linear)
 
-    def _as_nonlinear_variational_problem_arg(self):
+    def _as_nonlinear_variational_problem_arg(self, is_linear=False):
         return self
 
 
@@ -742,7 +747,7 @@ class EquationBCSplit(BCBase):
                     ebc.add(bc_temp)
         return ebc
 
-    def _as_nonlinear_variational_problem_arg(self):
+    def _as_nonlinear_variational_problem_arg(self, is_linear=False):
         # NonlinearVariationalProblem expects EquationBC, not EquationBCSplit.
         # -- This method is required when NonlinearVariationalProblem is constructed inside PC.
         if len(self.f.arguments()) != 2:
@@ -750,11 +755,12 @@ class EquationBCSplit(BCBase):
         J = self.f
         Vcol = J.arguments()[-1].function_space()
         u = firedrake.Function(Vcol)
-        F = ufl_expr.action(J, u)
         Vrow = self._function_space
         sub_domain = self.sub_domain
-        bcs = tuple(bc._as_nonlinear_variational_problem_arg() for bc in self.bcs)
-        return EquationBC(F == 0, u, sub_domain, bcs=bcs, J=J, V=Vrow)
+        bcs = tuple(bc._as_nonlinear_variational_problem_arg(is_linear=is_linear) for bc in self.bcs)
+        lhs = J if is_linear else ufl_expr.action(J, u)
+        rhs = ufl.Form([]) if is_linear else 0
+        return EquationBC(lhs == rhs, u, sub_domain, bcs=bcs, J=J, V=Vrow)
 
 
 @PETSc.Log.EventDecorator()

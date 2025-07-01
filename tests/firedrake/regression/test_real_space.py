@@ -59,14 +59,22 @@ def test_real_nonsquare_two_form_assembly():
 
 
 @pytest.mark.skipcomplex
-def test_real_mixed_one_form_assembly():
+@pytest.mark.parametrize("coefficient", (False, True))
+def test_real_mixed_one_form_assembly(coefficient):
     mesh = UnitIntervalMesh(3)
     rfs = FunctionSpace(mesh, "Real", 0)
     cgfs = FunctionSpace(mesh, "CG", 1)
 
     mfs = cgfs*rfs
     v, q = TestFunctions(mfs)
-    A = assemble(conj(v) * dx + q * dx)
+
+    if coefficient:
+        z = Function(mfs)
+        z.subfunctions[1].assign(1)
+        u, p = split(z)
+        A = assemble(inner(u, v) * dx + inner(p, q) * dx)
+    else:
+        A = assemble(conj(v) * dx + q * dx)
 
     qq = TestFunction(rfs)
     AA = assemble(qq * dx)
@@ -132,6 +140,33 @@ def test_real_mixed_empty_component_assembly():
 
 
 @pytest.mark.skip("pyop3 extruded")
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("coefficient", (False, True))
+def test_real_extruded_mixed_one_form_assembly(coefficient):
+    m = UnitIntervalMesh(3)
+    mesh = ExtrudedMesh(m, 10)
+    rfs = FunctionSpace(mesh, "Real", 0)
+    cgfs = FunctionSpace(mesh, "CG", 1)
+
+    mfs = cgfs*rfs
+    v, q = TestFunctions(mfs)
+
+    if coefficient:
+        z = Function(mfs)
+        z.subfunctions[1].assign(1)
+        u, p = split(z)
+        A = assemble(inner(u, v) * dx + inner(p, q) * dx)
+    else:
+        A = assemble(conj(v) * dx + q * dx)
+
+    qq = TestFunction(rfs)
+
+    AA = assemble(qq * dx)
+
+    np.testing.assert_almost_equal(A.dat.data[1],
+                                   AA.dat.data)
+
+
 @pytest.mark.skipcomplex
 def test_real_extruded_mixed_two_form_assembly():
     m = UnitIntervalMesh(3)

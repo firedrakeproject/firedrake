@@ -22,7 +22,7 @@ def test_mass_mixed_tensor(W):
 
     a = (inner(u, v) + inner(p, q) + inner(s, t))*dx
 
-    V, Q, T = W.subfunctions
+    V, Q, T = W.subspaces
 
     u = TrialFunction(V)
     v = TestFunction(V)

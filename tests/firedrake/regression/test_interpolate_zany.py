@@ -55,7 +55,7 @@ def expect(V, which):
         return a + b
 
 
-def test_interpolate(V, mesh, which, expect, tolerance):
+def test_interpolate_zany_into_cg(V, mesh, which, expect, tolerance):
     degree = V.ufl_element().degree()
     Vcg = FunctionSpace(mesh, "P", degree)
 
@@ -75,3 +75,64 @@ def test_interpolate(V, mesh, which, expect, tolerance):
         g.interpolate(a + b)
 
     assert numpy.allclose(norm(g - expect), 0, atol=tolerance)
+
+
+@pytest.fixture
+def vom(mesh):
+    return VertexOnlyMesh(mesh, [(0.5, 0.5), (0.31, 0.72)])
+
+
+@pytest.fixture
+def expr_at_vom(V, which, vom):
+    mesh = V.mesh()
+    degree = V.ufl_element().degree()
+    x, y = SpatialCoordinate(mesh)
+    expr = (x + y)**degree
+
+    if which == "coefficient":
+        P0 = FunctionSpace(vom, "DG", 0)
+    elif which == "grad":
+        expr = ufl.algorithms.expand_derivatives(grad(expr))
+        P0 = VectorFunctionSpace(vom, "DG", 0)
+
+    fvom = Function(P0)
+    point = Constant([0] * mesh.geometric_dimension())
+    expr_at_pt = ufl.replace(expr, {SpatialCoordinate(mesh): point})
+    for i, pt in enumerate(vom.coordinates.dat.data_ro):
+        point.assign(pt)
+        fvom.dat.data[i] = numpy.asarray(expr_at_pt, dtype=float)
+    return fvom
+
+
+def test_interpolate_zany_into_vom(V, mesh, which, expr_at_vom):
+    degree = V.ufl_element().degree()
+    x, y = SpatialCoordinate(mesh)
+    expr = (x + y)**degree
+
+    f = Function(V)
+    f.project(expr, solver_parameters={"ksp_type": "preonly",
+                                       "pc_type": "lu"})
+    fexpr = f
+    vexpr = TestFunction(V)
+    if which == "grad":
+        fexpr = grad(fexpr)
+        vexpr = grad(vexpr)
+
+    P0 = expr_at_vom.function_space()
+
+    # Interpolate a Function into P0(vom)
+    f_at_vom = assemble(Interpolate(fexpr, P0))
+    assert numpy.allclose(f_at_vom.dat.data_ro, expr_at_vom.dat.data_ro)
+
+    # Construct a Cofunction on P0(vom)*
+    Fvom = Cofunction(P0.dual()).assign(1)
+    expected_action = assemble(action(Fvom, expr_at_vom))
+
+    # Interpolate a Function into Fvom
+    f_at_vom = assemble(Interpolate(fexpr, Fvom))
+    assert numpy.allclose(f_at_vom, expected_action)
+
+    # Interpolate a TestFunction into Fvom
+    expr_vom = assemble(Interpolate(vexpr, Fvom))
+    f_at_vom = assemble(action(expr_vom, f))
+    assert numpy.allclose(f_at_vom, expected_action)

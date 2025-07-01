@@ -203,6 +203,7 @@ def test_fieldsplitting(mesh, preassembled, parameters, rhs):
         b = assemble(L)
         solve(A, f, b, solver_parameters=parameters)
     else:
+        parameters = parameters.copy()
         parameters["mat_type"] = "matfree"
         solve(a == L, f, solver_parameters=parameters)
 

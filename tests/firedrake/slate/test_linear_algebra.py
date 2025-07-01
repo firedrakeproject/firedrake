@@ -117,3 +117,37 @@ def test_local_solve(decomp):
     x = assemble(A.solve(b, decomposition=decomp))
 
     assert np.allclose(x.dat.data, f.dat.data, rtol=1.e-13)
+
+
+@pytest.mark.parametrize("mat_type, rhs_type", [
+    ("slate", "slate"), ("slate", "form"), ("slate", "cofunction"),
+    ("aij", "cofunction"), ("aij", "form"),
+    ("matfree", "cofunction"), ("matfree", "form")])
+def test_inverse_action(mat_type, rhs_type):
+    """Test combined UFL/SLATE expressions
+    """
+    mesh = UnitSquareMesh(3, 3)
+    V = FunctionSpace(mesh, "DG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    A = Tensor(inner(u, v)*dx)
+    if mat_type == "slate":
+        Ainv = A.inv
+    else:
+        Ainv = assemble(A.inv, mat_type=mat_type)
+
+    f = Function(V).assign(1.0)
+    L = inner(f, v)*dx
+    if rhs_type == "form":
+        b = L
+    elif rhs_type == "cofunction":
+        b = assemble(L)
+    elif rhs_type == "slate":
+        b = Tensor(L)
+    else:
+        raise ValueError("Invalid rhs type")
+
+    x = Function(V)
+    assemble(action(Ainv, b), tensor=x)
+    assert np.allclose(x.dat.data, f.dat.data, rtol=1.e-13)

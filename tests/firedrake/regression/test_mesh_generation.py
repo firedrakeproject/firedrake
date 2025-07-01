@@ -529,3 +529,18 @@ def test_split_comm_dm_mesh():
     bad_comm = COMM_WORLD.Split(color=(rank % nspace), key=rank)
     with pytest.raises(ValueError):
         mesh2 = Mesh(dm, comm=bad_comm)  # noqa: F841
+
+
+def test_immerse_mesh():
+    """This test exists to ensure that the code used in the manual runs
+    correctly."""
+
+    # start_immerse
+    mesh = UnitSquareMesh(10, 10)
+    x, y = SpatialCoordinate(mesh)
+    coord_fs = VectorFunctionSpace(mesh, "CG", 1, dim=3)
+    new_coord = assemble(interpolate(as_vector([x, y, sin(2*pi*x)]), coord_fs))
+    new_mesh = Mesh(new_coord)
+    # end_immerse
+
+    new_mesh  # Variable reference to silence linter.

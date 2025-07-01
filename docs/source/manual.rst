@@ -16,9 +16,11 @@ Manual
    r-space
    extruded-meshes
    mesh-coordinates
+   duals
    interpolation
    point-evaluation
    external_operators
+   adjoint
    visualisation
    checkpointing
    matrix-free

@@ -112,6 +112,8 @@ def test_arguments(mass, stiffness, load, boundary_load, zero_rank_tensor):
     f, = F.form.coefficients()
     g, = G.form.coefficients()
     v, u = M.form.arguments()
+    vdual = v.reconstruct(v.function_space().dual())
+    udual = u.reconstruct(u.function_space().dual())
 
     assert len(N.arguments()) == N.rank
     assert len(M.arguments()) == M.rank
@@ -123,8 +125,8 @@ def test_arguments(mass, stiffness, load, boundary_load, zero_rank_tensor):
     assert len(S.arguments()) == S.rank
     assert S.arguments() == ()
     assert (M.T).arguments() == (u, v)
-    assert (N.inv).arguments() == (u, v)
-    assert (N.T + M.inv).arguments() == (u, v)
+    assert (N.inv).arguments() == (udual, vdual)
+    assert (N.T + M.T).arguments() == (u, v)
     assert (F.T).arguments() == (v,)
     assert (F.T + G.T).arguments() == (v,)
     assert (M*F).arguments() == (v,)
@@ -301,6 +303,50 @@ def test_blocks(zero_rank_tensor, mixed_matrix, mixed_vector):
     assert F12.arguments() == splitter.split(L, ((1, 2),)).arguments()
 
 
+def test_implicit_casting_add_sub():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    u = Function(V)
+
+    b = Tensor(v * dx)
+
+    # combine slate Tensor and ufl Form
+    f = inner(u, v)*dx
+    r = Tensor(f)
+    assert b + f == b + r
+    assert b - f == b - r
+    assert f + b == r + b
+    assert f - b == r - b
+
+    # combine slate Tensor and Cofunction
+    c = Cofunction(V.dual())
+    s = AssembledVector(c)
+    assert b + c == b + s
+    assert b - c == b - s
+    assert c + b == s + b
+    assert c - b == s - b
+
+
+def test_implicit_casting_action():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    u = TrialFunction(V)
+
+    a = inner(u, v) * dx
+    w = Function(V)
+
+    A = Tensor(a)
+    W = AssembledVector(w)
+    expected = A * W
+
+    # slate Tensor times ufl Coefficient
+    assert A * w == expected
+    # ufl Form times slate AssembledVector
+    assert a * W == expected
+
+
 def test_illegal_add_sub():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
@@ -325,27 +371,27 @@ def test_illegal_add_sub():
         A - s
 
 
-def test_ops_NotImplementedError():
+def test_ops_TypeError():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "DG", 0)
     u = TrialFunction(V)
     v = TestFunction(V)
-    f = Function(V)
+    f = Constant(1)
     A = Tensor(u * v * dx)
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(TypeError):
         A + f
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(TypeError):
         f + A
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(TypeError):
         A - f
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(TypeError):
         f - A
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(TypeError):
         f * A
 
 

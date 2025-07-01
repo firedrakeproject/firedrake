@@ -86,7 +86,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         else:
             self.dat = function_space.make_dat(val, dtype, self.name())
 
-    @utils.cached_property
+    @property
     def topological(self):
         r"""The underlying coordinateless function."""
         return self
@@ -123,12 +123,6 @@ class CoordinatelessFunction(ufl.Coefficient):
             return tuple(subfuncs)
         else:
             return (self,)
-
-    @PETSc.Log.EventDecorator()
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
 
     @utils.cached_property
     def _components(self):
@@ -309,13 +303,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         return tuple(type(self)(V, val)
                      for (V, val) in zip(self.function_space(), self.topological.subfunctions))
 
-    @FunctionMixin._ad_annotate_subfunctions
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
-
-    @cached_property
+    @utils.cached_property
     def _components(self):
         if self.function_space().rank == 0:
             return (self, )

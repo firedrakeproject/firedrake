@@ -14,6 +14,7 @@ from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
 from firedrake.functionspace import MixedFunctionSpace
 from firedrake.cofunction import Cofunction
+from firedrake.matrix import AssembledMatrix
 
 
 def subspace(V, indices):
@@ -145,6 +146,29 @@ class ExtractSubBlock(MultiFunction):
             return Cofunction(W, val=o.dat[indices[0]])
         else:
             return Cofunction(W, val=MixedDat(o.dat[i] for i in indices))
+
+    def matrix(self, o):
+        ises = []
+        args = []
+        for a in o.arguments():
+            V = a.function_space()
+            iset = PETSc.IS()
+            if a.number() in self.blocks:
+                asplit = self._subspace_argument(a)
+                for f in self.blocks[a.number()]:
+                    fset = V.dof_dset.field_ises[f]
+                    iset = iset.expand(fset)
+            else:
+                asplit = a
+                for fset in V.dof_dset.field_ises:
+                    iset = iset.expand(fset)
+
+            ises.append(iset)
+            args.append(asplit)
+
+        submat = o.petscmat.createSubMatrix(*ises)
+        bcs = ()
+        return AssembledMatrix(tuple(args), bcs, submat)
 
 
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])

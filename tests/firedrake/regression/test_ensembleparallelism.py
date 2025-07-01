@@ -2,7 +2,7 @@ from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 from pyop2.mpi import MPI
 import pytest
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
+from pytest_mpi import parallel_assert
 
 from operator import mul
 from functools import reduce
@@ -24,24 +24,6 @@ roots.extend([pytest.param(i, id="root_%d" % (i))
 
 blocking = [pytest.param(True, id="blocking"),
             pytest.param(False, id="nonblocking")]
-
-
-def parallel_assert(assertion, subset=None, msg=""):
-    """ Move this functionality to pytest-mpi
-    """
-    if subset:
-        if MPI.COMM_WORLD.rank in subset:
-            evaluation = assertion()
-        else:
-            evaluation = True
-    else:
-        evaluation = assertion()
-    all_results = MPI.COMM_WORLD.allgather(evaluation)
-    if not all(all_results):
-        raise AssertionError(
-            "Parallel assertion failed on ranks: "
-            f"{[ii for ii, b in enumerate(all_results) if not b]}\n" + msg
-        )
 
 
 # unique profile on each mixed function component on each ensemble rank
@@ -205,13 +187,13 @@ def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
     root_ranks = {ii + root*ensemble.comm.size for ii in range(ensemble.comm.size)}
     parallel_assert(
         lambda: error < 1e-12,
-        subset=root_ranks,
+        participating=COMM_WORLD.rank in root_ranks,
         msg=f"{error = :.5f}"  # noqa: E203, E251
     )
     error = errornorm(Function(W).assign(10), u_reduce)
     parallel_assert(
         lambda: error < 1e-12,
-        subset={range(COMM_WORLD.size)} - root_ranks,
+        participating=COMM_WORLD.rank not in root_ranks,
         msg=f"{error = :.5f}"  # noqa: E203, E251
     )
 
@@ -222,9 +204,7 @@ def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
     with u_reduce.dat.vec as v:
         states[spatial_rank] = v.stateGet()
     ensemble.comm.Allgather(MPI.IN_PLACE, states)
-    parallel_assert(
-        lambda: len(set(states)) == 1,
-    )
+    parallel_assert(lambda: len(set(states)) == 1)
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -347,7 +327,7 @@ def test_send_and_recv(ensemble, mesh, W, blocking):
     root_ranks |= {ii + rank1*ensemble.comm.size for ii in range(ensemble.comm.size)}
     parallel_assert(
         lambda: error < 1e-12,
-        subset=root_ranks,
+        participating=COMM_WORLD.rank in root_ranks,
         msg=f"{error = :.5f}"  # noqa: E203, E251
     )
 

@@ -71,7 +71,7 @@ def check_element(element, top=True):
     elif type(element) is finat.ufl.EnrichedElement:
         inner = element._elements
     elif type(element) is finat.ufl.TensorProductElement:
-        inner = element.sub_elements
+        inner = element.factor_elements
     elif isinstance(element, finat.ufl.MixedElement):
         if not top:
             raise ValueError(f"{type(element).__name__} modifier must be outermost")
@@ -169,10 +169,17 @@ class WithGeometryBase:
         self.cargo.topological = val
 
     @utils.cached_property
-    def subfunctions(self):
+    def subspaces(self):
         r"""Split into a tuple of constituent spaces."""
         return tuple(type(self).create(subspace, self.mesh())
-                     for subspace in self.topological.subfunctions)
+                     for subspace in self.topological.subspaces)
+
+    @property
+    def subfunctions(self):
+        import warnings
+        warnings.warn("The 'subfunctions' property is deprecated for function spaces, please use the "
+                      "'subspaces' property instead", category=FutureWarning)
+        return self.subspaces
 
     mesh = ufl.FunctionSpace.ufl_domain
 
@@ -188,24 +195,18 @@ class WithGeometryBase:
         r"""The :class:`~ufl.classes.Cell` this FunctionSpace is defined on."""
         return self.mesh().ufl_cell()
 
-    @PETSc.Log.EventDecorator()
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
-
     @utils.cached_property
     def _components(self):
         if len(self) == 1:
             return tuple(type(self).create(self.topological.sub(i), self.mesh())
                          for i in range(self.block_size))
         else:
-            return self.subfunctions
+            return self.subspaces
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
         mixed = type(self.ufl_element()) is finat.ufl.MixedElement
-        data = self.subfunctions if mixed else self._components
+        data = self.subspaces if mixed else self._components
         return data[i]
 
     @utils.cached_property
@@ -339,10 +340,10 @@ class WithGeometryBase:
         return "%s(%s, %s)" % (self.__class__.__name__, self.topological, self.mesh())
 
     def __iter__(self):
-        return iter(self.subfunctions)
+        return iter(self.subspaces)
 
     def __getitem__(self, i):
-        return self.subfunctions[i]
+        return self.subspaces[i]
 
     def __mul__(self, other):
         r"""Create a :class:`.MixedFunctionSpace` composed of this
@@ -536,11 +537,10 @@ class FunctionSpace:
 
         self.rank = len(self.shape)
         r"""The rank of this :class:`FunctionSpace`.  Spaces where the
-        element is scalar-valued (or intrinsically vector-valued) have
-        rank zero.  Spaces built on :class:`finat.ufl.mixedelement.VectorElement` or
-        :class:`finat.ufl.mixedelement.TensorElement` instances have rank equivalent to
-        the number of components of their
-        :attr:`finat.ufl.finiteelementbase.FiniteElementBase.value_shape`."""
+        element is scalar-valued (or intrinsically vector-valued) have rank
+        zero.  Spaces built on :class:`finat.ufl.mixedelement.VectorElement` or
+        :class:`finat.ufl.mixedelement.TensorElement` have rank 1 and 2
+        respectively."""
 
         self.block_size = int(numpy.prod(self.shape, dtype=int))
         r"""The total number of degrees of freedom at each function
@@ -886,14 +886,16 @@ class FunctionSpace:
         return self.__repr__()
 
     @utils.cached_property
-    def subfunctions(self):
-        r"""Split into a tuple of constituent spaces."""
-        return (self, )
+    def subspaces(self):
+        """Split into a tuple of constituent spaces."""
+        return (self,)
 
-    def split(self):
+    @property
+    def subfunctions(self):
         import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
+        warnings.warn("The 'subfunctions' property is deprecated for function spaces, please use the "
+                      "'subspaces' property instead", category=FutureWarning)
+        return self.subspaces
 
     def __getitem__(self, i):
         r"""Return the ith subspace."""
@@ -904,7 +906,7 @@ class FunctionSpace:
     @utils.cached_property
     def _components(self):
         if self.rank == 0:
-            return self.subfunctions
+            return self.subspaces
         else:
             return tuple(ComponentFunctionSpace(self, i) for i in range(self.block_size))
 
@@ -1166,7 +1168,9 @@ class RestrictedFunctionSpace(FunctionSpace):
     def __init__(self, function_space, boundary_set=frozenset(), name=None):
         label = ""
         boundary_set_ = []
-        for boundary_domain in boundary_set:
+        # NOTE: boundary_set must be deterministically ordered here to ensure
+        # that the label is consistent between ranks.
+        for boundary_domain in sorted(boundary_set, key=str):
             if isinstance(boundary_domain, str):
                 boundary_set_.append(boundary_domain)
             else:
@@ -1358,15 +1362,17 @@ class MixedFunctionSpace:
         return hash(tuple(self))
 
     @utils.cached_property
-    def subfunctions(self):
+    def subspaces(self):
         r"""The list of :class:`FunctionSpace`\s of which this
         :class:`MixedFunctionSpace` is composed."""
         return self._spaces
 
-    def split(self):
+    @property
+    def subfunctions(self):
         import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
+        warnings.warn("The 'subfunctions' property is deprecated for function spaces, please use the "
+                      "'subspaces' property instead", category=FutureWarning)
+        return self.subspaces
 
     def sub(self, i):
         r"""Return the `i`th :class:`FunctionSpace` in this

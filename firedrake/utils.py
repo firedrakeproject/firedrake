@@ -1,5 +1,6 @@
 # Some generic python utilities not really specific to our work.
 import collections.abc
+import warnings
 
 from decorator import decorator
 from pyop2.utils import cached_property  # noqa: F401
@@ -16,7 +17,7 @@ from pyop3.utils import (  # noqa: F401
     strictly_all,
 )
 
-from firedrake.petsc import get_petsc_variables
+import petsctools
 
 
 
@@ -27,7 +28,7 @@ RealType_c = as_cstr(RealType)
 ScalarType_c = as_cstr(ScalarType)
 IntType_c = as_cstr(IntType)
 
-complex_mode = (get_petsc_variables()["PETSC_SCALAR"].lower() == "complex")
+complex_mode = (petsctools.get_petscvariables()["PETSC_SCALAR"].lower() == "complex")
 
 # Remove this (and update test suite) when Slate supports complex mode.
 SLATE_SUPPORTS_COMPLEX = False
@@ -162,3 +163,18 @@ def assert_empty(iterator):
         raise AssertionError("Iterator is not empty")
     except StopIteration:
         pass
+
+
+# NOTE: Python 3.13 has warnings.deprecated which does exactly this
+def deprecated(prefer=None, internal=False):
+    """Decorator that emits a warning saying that the function is deprecated."""
+    def decorator(fn):
+        def wrapper(*args, **kwargs):
+            msg = f"{fn.__qualname__} is deprecated and will be removed"
+            if prefer:
+                msg += f", please use {prefer} instead"
+            warning_type = DeprecationWarning if internal else FutureWarning
+            warnings.warn(msg, warning_type)
+            return fn(*args, **kwargs)
+        return wrapper
+    return decorator

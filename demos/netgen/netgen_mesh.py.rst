@@ -11,7 +11,7 @@ Finally we will show how to use mesh refinement features included in Netgen to c
 
 Installing Netgen
 ------------------
-This demo requires the NGSolve/Netgen suite to be installed. This is most easily achieved by providing the optional `--netgen` flag to either `firedrake-install` (for a new installation), or `firedrake-update` (to add the NGSolve/Netgen suite to an existing installation). ::
+This demo requires the NGSolve/Netgen suite to be installed. This can be done by running ``pip install ngsPETSc``. ::
 
    from firedrake import *
    try:
@@ -156,7 +156,8 @@ Then a SLEPc Eigenvalue Problem Solver (`EPS`) is initialised and set up to use 
         bc = DirichletBC(V, 0, labels)
         A = assemble(a, bcs=bc)
         M = assemble(m, bcs=bc, weight=0.)
-        Asc, Msc = A.M.handle, M.M.handle
+        Asc = A.petscmat
+        Msc = M.petscmat
         E = SLEPc.EPS().create()
         E.setType(SLEPc.EPS.Type.ARNOLDI)
         E.setProblemType(SLEPc.EPS.ProblemType.GHEP)

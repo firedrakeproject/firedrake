@@ -89,8 +89,7 @@ def test_mass_conditioning(element, degree, hierarchy):
         u = TrialFunction(V)
         v = TestFunction(V)
         a = inner(u, v)*dx
-        B = assemble(a, mat_type="aij").M.handle
-        A = B.convert("dense").getDenseArray()
+        A = assemble(a, mat_type="aij").petscmat[:, :]
         kappa = np.linalg.cond(A)
 
         mass_cond.append(kappa)

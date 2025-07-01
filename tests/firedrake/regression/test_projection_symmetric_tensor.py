@@ -33,7 +33,7 @@ def test_projection_symmetric_tensor(mesh, degree, family, tdim):
         sp = {"mat_type": "matfree",
               "ksp_type": "preonly",
               "pc_type": "jacobi"}
-        fcp = {"quadrature_degree": Nq}
+        fcp = {}
     else:
         Q = TensorFunctionSpace(mesh, family, degree=degree, shape=shape, symmetry=None)
         Qs = TensorFunctionSpace(mesh, family, degree=degree, shape=shape, symmetry=True)

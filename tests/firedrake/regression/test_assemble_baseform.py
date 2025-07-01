@@ -90,7 +90,9 @@ def test_assemble_adjoint(M):
 def test_assemble_action(M, f):
     res = assemble(action(M, f))
     assembledM = assemble(M)
-    res2 = assemble(action(assembledM, f))
+    expr = action(assembledM, f)
+
+    res2 = assemble(expr)
     assert isinstance(res2, Cofunction)
     assert isinstance(res, Cofunction)
     for f, f2 in zip(res.subfunctions, res2.subfunctions):
@@ -99,6 +101,36 @@ def test_assemble_action(M, f):
             assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
         else:
             assert abs(f.dat.data.sum() - 0.5*f.function_space().value_size) < 1.0e-12
+
+    out = assemble(expr, tensor=res2)
+    assert out is res2
+    for f, f2 in zip(res.subfunctions, res2.subfunctions):
+        assert abs(f.dat.data.sum() - f2.dat.data.sum()) < 1.0e-12
+        if f.function_space().rank == 2:
+            assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
+        else:
+            assert abs(f.dat.data.sum() - 0.5*f.function_space().value_size) < 1.0e-12
+
+
+def test_scalar_formsum(f):
+    c = Cofunction(f.function_space().dual())
+    c.assign(1)
+
+    q = action(c, f)
+    expected = 2 * assemble(q)
+
+    formsum = 1.5 * q + 0.5 * q
+    assert isinstance(formsum, ufl.form.FormSum)
+    res2 = assemble(formsum)
+    assert res2 == expected
+
+    mesh = f.function_space().mesh()
+    R = FunctionSpace(mesh, "R", 0)
+    tensor = Cofunction(R.dual())
+
+    out = assemble(formsum, tensor=tensor)
+    assert out is tensor
+    assert tensor.dat.data[0] == expected
 
 
 def test_vector_formsum(a):
@@ -111,7 +143,12 @@ def test_vector_formsum(a):
     assert isinstance(res2, Cofunction)
     assert isinstance(preassemble, Cofunction)
     for f, f2 in zip(preassemble.subfunctions, res2.subfunctions):
-        assert abs(f.dat.data.sum() - f2.dat.data.sum()) < 1.0e-12
+        assert np.allclose(f.dat.data, f2.dat.data, atol=1e-12)
+
+    out = assemble(formsum, tensor=res2)
+    assert out is res2
+    for f, f2 in zip(preassemble.subfunctions, res2.subfunctions):
+        assert np.allclose(f.dat.data, f2.dat.data, atol=1e-12)
 
 
 @pytest.mark.skip(reason="pyop3 TODO")
@@ -122,8 +159,11 @@ def test_matrix_formsum(M):
     assert isinstance(formsum, ufl.form.FormSum)
     res2 = assemble(formsum)
     assert isinstance(res2, ufl.Matrix)
-    assert np.allclose(sumfirst.petscmat[:, :],
-                       res2.petscmat[:, :], rtol=1e-14)
+    assert np.allclose(sumfirst.petscmat[:, :], res2.petscmat[:, :], rtol=1E-14)
+
+    out = assemble(formsum, tensor=res2)
+    assert out is res2
+    assert np.allclose(sumfirst.petscmat[:, :], res2.petscmat[:, :], rtol=1E-14)
 
 
 def test_zero_form(M, f, one):
@@ -132,7 +172,7 @@ def test_zero_form(M, f, one):
     assert abs(zero_form - 0.5 * np.prod(f.ufl_shape)) < 1.0e-12
 
 
-def test_tensor_copy(a, M):
+def test_tensor_output(a, M):
 
     # 1-form tensor
     V = a.arguments()[0].function_space()
@@ -141,9 +181,7 @@ def test_tensor_copy(a, M):
     res = assemble(formsum, tensor=tensor)
 
     assert isinstance(formsum, ufl.form.FormSum)
-    assert isinstance(res, Cofunction)
-    for f, f2 in zip(res.subfunctions, tensor.subfunctions):
-        assert abs(f.dat.data.sum() - f2.dat.data.sum()) < 1.0e-12
+    assert res is tensor
 
     # 2-form tensor
     tensor = get_assembler(M).allocate()
@@ -151,9 +189,7 @@ def test_tensor_copy(a, M):
     res = assemble(formsum, tensor=tensor)
 
     assert isinstance(formsum, ufl.form.FormSum)
-    assert isinstance(res, ufl.Matrix)
-    assert np.allclose(res.petscmat[:, :],
-                       tensor.petscmat[:, :], rtol=1e-14)
+    assert res is tensor
 
 
 def test_cofunction_assign(a, M, f):

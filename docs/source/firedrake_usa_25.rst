@@ -21,7 +21,9 @@ in the numerical solution of partial differential equations. The event
 will provide Firedrake users with the opportunity to interact directly
 with developers and with other users.
 
-The conference will begin with a tutorial session on the morning of 28 February and end on the evening of 1 March. 
+The conference will begin with a tutorial session on the morning of 28 February and end on the evening of 1 March.
+
+The schedule is up on EasyChair `here <https://easychair.org/smart-program/FiredrakeUSA'25/>`__.
 
 
 Conference venue
@@ -59,6 +61,8 @@ The registration fees are as follows:
    * - Non-student:
      - $200
 
+Registration deadline is 13 February 2025.
+
 The `SIAM Texas-Louisiana Section <https://www.siam.org/get-involved/connect-with-a-community/sections/siam-texas-louisiana-section/>`__ is providing some support for students currently attending universities in Texas or Louisiana to attend.
 Students may submit an application to be considered for funding `here <https://docs.google.com/forms/d/e/1FAIpQLSdXKsGE3D18BhvRpfcGD_gSdDmmXGRQ4l47k4Aj4SKJ2c6DZg/viewform?usp=sharing>`__.
 
@@ -68,6 +72,8 @@ Abstract submission
 -------------------
 
 Abstracts can be submitted `via EasyChair <https://easychair.org/conferences/?conf=firedrakeusa25>`__.
+
+The deadline for abstract submission is 17 February 2025.
 
 
 

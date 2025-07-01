@@ -142,7 +142,7 @@ class Coargument(ufl.argument.Coargument):
             raise TypeError(f"Expecting an int, not {number}")
         if function_space.value_shape != self.function_space().value_shape:
             raise ValueError("Cannot reconstruct an Coargument with a different value shape.")
-        return Coargument(function_space, number, part=part)
+        return Argument(function_space, number, part=part)
 
     def equals(self, other):
         if type(other) is not Coargument:
@@ -301,7 +301,7 @@ def action(form, coefficient, derivatives_expanded=None):
     if isinstance(form, firedrake.slate.TensorBase):
         if form.rank == 0:
             raise ValueError("Can't take action of rank-0 tensor")
-        return form * firedrake.AssembledVector(coefficient)
+        return form * coefficient
     else:
         return ufl.action(form, coefficient, derivatives_expanded=derivatives_expanded)
 
@@ -336,13 +336,9 @@ def adjoint(form, reordered_arguments=None, derivatives_expanded=None):
         # given.  To avoid that, always pass reordered_arguments with
         # firedrake.Argument objects.
         if reordered_arguments is None:
-            v, u = extract_arguments(form)
-            reordered_arguments = (Argument(u.function_space(),
-                                            number=v.number(),
-                                            part=v.part()),
-                                   Argument(v.function_space(),
-                                            number=u.number(),
-                                            part=u.part()))
+            v, u = form.arguments()
+            reordered_arguments = (u.reconstruct(number=v.number()),
+                                   v.reconstruct(number=u.number()))
         return ufl.adjoint(form, reordered_arguments, derivatives_expanded=derivatives_expanded)
 
 
@@ -379,7 +375,7 @@ def extract_domains(func):
     list of firedrake.mesh.MeshGeometry
         Extracted domains.
     """
-    if isinstance(func, (function.Function, cofunction.Cofunction)):
+    if isinstance(func, (function.Function, cofunction.Cofunction, Argument, Coargument)):
         return [func.function_space().mesh()]
     else:
         return ufl.domain.extract_domains(func)
@@ -398,7 +394,7 @@ def extract_unique_domain(func):
     list of firedrake.mesh.MeshGeometry
         Extracted domains.
     """
-    if isinstance(func, (function.Function, cofunction.Cofunction)):
+    if isinstance(func, (function.Function, cofunction.Cofunction, Argument, Coargument)):
         return func.function_space().mesh()
     else:
         return ufl.domain.extract_unique_domain(func)
