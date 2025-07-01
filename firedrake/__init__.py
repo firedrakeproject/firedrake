@@ -32,7 +32,7 @@ setup_cache_dirs()
 # Initialise PETSc events for both import and entire duration of program
 import petsctools
 from firedrake import petsc
-_is_logging = "log_view" in petsctools.OptionsManager.get_commandline_options()
+_is_logging = "log_view" in petsctools.get_commandline_options()
 if _is_logging:
     _main_event = petsc.PETSc.Log.Event("firedrake")
     _main_event.begin()
