@@ -140,7 +140,7 @@ Caveats
 
     # If the -log_view flag is passed you don't need to call
     # PETSc.Log.begin because it is done automatically.
-    if "log_view" not in OptionsManager.commandline_options:
+    if "log_view" not in OptionsManager.get_commandline_options():
         PETSc.Log.begin()
 
 Common performance issues
