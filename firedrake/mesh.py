@@ -767,8 +767,22 @@ class AbstractMeshTopology(abc.ABC):
             else:
                 with PETSc.Log.Event("Renumber mesh topology"):
                     if reorder:
-                        rcm_ordering_is = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM)
-                        cell_ordering = op3.utils.invert(rcm_ordering_is.indices[:self.num_cells])
+                        if isinstance(self.topology_dm, PETSc.DMPlex):
+                            rcm_ordering_is = self.topology_dm.getOrdering(PETSc.Mat.OrderingType.RCM)
+                            cell_ordering = op3.utils.invert(rcm_ordering_is.indices[:self.num_cells])
+                        else:
+                            assert isinstance(self.topology_dm, PETSc.DMSwarm)
+                            swarm = self.topology_dm
+                            parent = self._parent_mesh.topology_dm
+                            cell_id_name = swarm.getCellDMActive().getCellID()
+                            swarm_parent_cell_nums = swarm.getField(cell_id_name).ravel()
+                            parent_renum = self._parent_mesh._dm_renumbering.getIndices()
+                            pStart, _ = parent.getChart()
+                            parent_renum_inv = np.empty_like(parent_renum)
+                            parent_renum_inv[parent_renum - pStart] = np.arange(len(parent_renum))
+                            # Use kind = 'stable' to make the ordering deterministic.
+                            cell_ordering = np.argsort(parent_renum_inv[swarm_parent_cell_nums - pStart], kind='stable').astype(IntType)
+                            swarm.restoreField(cell_id_name)
                     else:
                         cell_ordering = np.arange(self.num_cells, dtype=IntType)
                     # must use an inverse ordering because we want to know the map *back*
@@ -3336,25 +3350,36 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return self.cells
 
     @property
-    @abc.abstractmethod
-    def cell_label(self):
-        pass
+    def cell_label(self) -> int:
+        return self.dimension
 
     @property
-    @abc.abstractmethod
     def facet_label(self):
-        pass
+        raise RuntimeError
 
     @property
-    @abc.abstractmethod
     def edge_label(self):
-        pass
+        raise RuntimeError
 
     # TODO I prefer "vertex_label"
     @property
-    @abc.abstractmethod
     def vert_label(self):
-        pass
+        return 0
+
+    @cached_property
+    def _entity_indices(self):
+        breakpoint()
+
+    @cached_property
+    def _plex_strata_ordering(self):
+        breakpoint()
+
+    def entity_count(self, *args):
+        breakpoint()
+
+    @cached_property
+    def flat_points(self):
+        breakpoint()
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_cell_list(self):
@@ -3982,7 +4007,6 @@ values from f.)"""
         return cells, Xs, ref_cell_dists_l1
 
     def _c_locator(self, tolerance=None):
-        raise NotImplementedError("TODO pyop3 templating")
         from pyop2 import compilation
         from pyop2.utils import get_petsc_dir
         import firedrake.function as function

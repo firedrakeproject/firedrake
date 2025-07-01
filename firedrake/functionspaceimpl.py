@@ -837,7 +837,19 @@ class FunctionSpace:
     @utils.cached_property
     def cell_node_list(self):
         r"""A numpy array mapping mesh cells to function space nodes."""
-        return self._shared_data.entity_node_lists[self.mesh().cell_set]
+        # internal detail really, do not expose in pyop3/__init__.py
+        from pyop3.expr_visitors import NonlinearCompositeDat, materialize_composite_dat
+
+        mesh = self._mesh
+        cell = mesh.cells.owned.index()
+        indexed_axes = self.axes[self._mesh.closure(cell)]
+        cell_node_expr = NonlinearCompositeDat(
+            indexed_axes.materialize(),
+            indexed_axes.leaf_subst_layouts,
+            indexed_axes.outer_loops,
+        )
+        cell_node_buffer_expr = materialize_composite_dat(cell_node_expr)
+        return utils.readonly(cell_node_buffer_expr.buffer.buffer.data_ro)
 
     @utils.cached_property
     def topological(self):
