@@ -88,33 +88,6 @@ clean:
 	@echo "    RM tinyasm/*.so"
 	-@rm -f tinyasm/*.so > /dev/null 2>&1
 
-# Do verbose checking if running on CI and always set no:cacheprovider because
-# we don't want to generate any cache files in $VIRTUAL_ENV/lib/.../firedrake/_check
-check_flags =
-ifeq ($(FIREDRAKE_CI), 1)
-	check_flags = --verbose -p no:cacheprovider
-else
-	check_flags = --quiet -p no:cacheprovider
-endif
-
-CHECK_PYTEST_ARGS =
-
-.PHONY: check
-check:
-	@echo "    Running serial smoke tests"
-	@python3 -m pytest $(check_flags) $(CHECK_PYTEST_ARGS) \
-		tests/firedrake/regression/test_stokes_mini.py::test_stokes_mini \
-		tests/firedrake/regression/test_locate_cell.py  `# spatialindex` \
-		tests/firedrake/supermesh/test_assemble_mixed_mass_matrix.py::test_assemble_mixed_mass_matrix[2-CG-CG-0-0]  `# supermesh` \
-		tests/firedrake/regression/test_matrix_free.py::test_fieldsplitting[parameters3-cofunc_rhs-variational]  `# fieldsplit` \
-		tests/firedrake/regression/test_nullspace.py::test_near_nullspace  `# near nullspace`
-	@echo "    Serial tests passed"
-	@echo "    Running parallel smoke tests"
-	@mpiexec -n 3 python3 -m pytest $(check_flags) $(CHECK_PYTEST_ARGS) -m parallel[3] \
-		tests/firedrake/regression/test_dg_advection.py::test_dg_advection_icosahedral_sphere \
-		tests/firedrake/regression/test_interpolate_cross_mesh.py::test_interpolate_cross_mesh_parallel[extrudedcube]  `# vertex-only mesh`
-	@echo "    Parallel tests passed"
-
 .PHONY: durations
 durations:
 	@echo "    Generate timings to optimise pytest-split"

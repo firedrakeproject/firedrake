@@ -207,6 +207,10 @@ jobs:
             --extra-index-url https://download.pytorch.org/whl/cpu \
             "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci,docs]"
 
+          : # DO NOT MERGE
+          pip uninstall -y mpi-pytest
+          pip install "mpi-pytest @ git+https://github.com/firedrakeproject/mpi-pytest.git@main"
+
           firedrake-clean
           pip list
 
