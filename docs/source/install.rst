@@ -341,9 +341,13 @@ SLEPc
 
 To install Firedrake with SLEPc support you should:
 
-#. Pass ``--download-slepc`` when running PETSc ``configure`` (see :ref:`Installing PETSc<install_petsc>`)::
+#. Pass ``--download-slepc`` and ``--download-slepc-commit`` when running
+   PETSc ``configure`` (see :ref:`Installing PETSc<install_petsc>`)::
 
-   $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure --download-slepc
+   $ python3 ../firedrake-configure --show-petsc-configure-options | \
+     xargs -L1 ./configure \
+     --download-slepc \
+     --download-slepc-commit=$(python3 ../firedrake-configure --show-slepc-version)
 
 #. Set ``SLEPC_DIR``::
 

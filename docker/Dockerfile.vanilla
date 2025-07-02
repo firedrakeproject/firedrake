@@ -43,7 +43,7 @@ RUN git clone --depth 1 --branch $(python3 /opt/firedrake-configure --show-petsc
     && cd /opt/petsc \
     && python3 /opt/firedrake-configure --arch $ARCH --show-petsc-configure-options | \
         sed "s/-march=native -mtune=native/-mtune=generic/g" | \
-        xargs -L1 ./configure --with-make-np=8 --download-slepc \
+        xargs -L1 ./configure --with-make-np=8 --download-slepc --download-slepc-commit=$(python3 /opt/firedrake-configure --show-slepc-version) \
     && make \
     && make check \
     && rm -rf ./**/externalpackages \

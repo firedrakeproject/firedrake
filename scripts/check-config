@@ -62,9 +62,13 @@ def check_petsc_version() -> None:
 
 
 def check_slepc_version() -> None:
+    slepc_version = check_file_contains_pattern(
+        REPO_ROOT / "scripts/firedrake-configure",
+        "SUPPORTED_SLEPC_VERSION = \"v(.*)\"",
+    )
     check_file_contains_pattern(
         REPO_ROOT / "pyproject.toml",
-        "slepc4py==(.*)",
+        f"slepc4py=={slepc_version}",
         3,
     )
 
