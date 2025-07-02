@@ -955,7 +955,7 @@ class AbstractMeshTopology(abc.ABC):
             indexed_axes.outer_loops,
         )
         cell_node_buffer_expr = materialize_composite_dat(cell_node_expr)
-        return utils.readonly(cell_node_buffer_expr.buffer.buffer.data_ro)
+        return utils.readonly(cell_node_buffer_expr.buffer.buffer.data_ro.reshape((self.cells.owned.size, indexed_axes.size)))
 
     @property
     def comm(self):

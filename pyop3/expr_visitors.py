@@ -951,13 +951,14 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatBufferExp
     # mytree = AxisTree.from_iterable(composite_dat.loop_axes)
     mytree = AxisTree.from_iterable(mytree)
     looptree = mytree
-    if mytree.size == 0:
+    # if mytree.size == 0:
+    if False:
         mytree = composite_dat.axis_tree
     else:
         mytree = mytree.add_subtree(mytree.leaf_path, composite_dat.axis_tree)
 
-    if mytree.size == 0:
-        return None
+    # if mytree.size == 0:
+    #     return None
 
     # step 2: assign
     result = Dat.empty(mytree, dtype=IntType)
