@@ -942,6 +942,21 @@ class AbstractMeshTopology(abc.ABC):
 
         return readonly(numbering)
 
+    @utils.cached_property
+    def cell_closure(self):
+        # internal detail really, do not expose in pyop3/__init__.py
+        from pyop3.expr_visitors import NonlinearCompositeDat, materialize_composite_dat
+
+        cell = self.cells.owned.index()
+        indexed_axes = self.points[self.closure(cell)]
+        cell_node_expr = NonlinearCompositeDat(
+            indexed_axes.materialize(),
+            indexed_axes.leaf_subst_layouts,
+            indexed_axes.outer_loops,
+        )
+        cell_node_buffer_expr = materialize_composite_dat(cell_node_expr)
+        return utils.readonly(cell_node_buffer_expr.buffer.buffer.data_ro)
+
     @property
     def comm(self):
         return self.user_comm
@@ -3563,7 +3578,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
         if not isinstance(self.topology, VertexOnlyMeshTopology):
             raise AttributeError("Input ordering is only defined for vertex-only meshes.")
-        nroots = self.input_ordering.num_cells()
+        nroots = self.input_ordering.num_cells
         e_p_map = self.cell_closure[:, -1]  # cell-entity -> swarm-point map
         ilocal = np.empty_like(e_p_map)
         if len(e_p_map) > 0:
@@ -4859,7 +4874,10 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
         return self.getDepthStratum(dimension)
 
     def getTransitiveClosure(self, point: int) -> tuple[np.ndarray, np.ndarray]:
-        return (np.asarray([pt], dtype=IntType), [0])
+        return (np.asarray([point], dtype=IntType), [0])
+
+    def getChart(self):
+        return self.getDepthStratum(0)
 
 
 def _pic_swarm_in_mesh(

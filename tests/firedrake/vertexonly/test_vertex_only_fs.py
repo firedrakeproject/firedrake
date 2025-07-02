@@ -90,8 +90,8 @@ def functionspace_tests(vm):
     f.interpolate(expr)
     g.project(expr)
     # Should have 1 DOF per cell so check DOF DataSet
-    assert f.dof_dset.size == g.dof_dset.size == vm.cell_set.size == num_cells
-    assert f.dof_dset.total_size == g.dof_dset.total_size == vm.cell_set.total_size == num_cells + num_cells_halo
+    assert f.function_space().axes.owned.size == g.function_space().axes.owned.size == vm.cells.owned.size == num_cells
+    assert f.function_space().axes.size == g.function_space().axes.size == vm.cells.size == num_cells + num_cells_halo
     # The function should take on the value of the expression applied to
     # the vertex only mesh coordinates (with no change to coordinate ordering)
     # Reshaping because for all meshes, we want (-1, gdim) but
