@@ -28,21 +28,17 @@ class GPUDevice(ComputeDevice):
         g.launch(self.stream)
         self.stream.synchronize()
 
+compute_device = CPUDevice()
 
 @contextlib.contextmanager
 def device(type=None):
-    print(type)
     if type=="gpu":
         gpu = GPUDevice()
-        yield from gpu.context_manager()
+        global compute_device
+        orig_device = compute_device
+        compute_device = gpu
+        yield from compute_device.context_manager()
+        compute_device = orig_device
     else:
-        cpu = CPUDevice()
-        yield from cpu.context_manager()
-        #stream = cp.cuda.Stream(non_blocking=True)
-        #with stream:
-        #    stream.begin_capture()
-        #    yield
-        #    g =stream.end_capture()
-        #g.launch(stream)
-        #stream.synchronize()
+        yield from compute_device.context_manager()
     
