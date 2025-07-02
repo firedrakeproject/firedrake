@@ -132,11 +132,9 @@ def MeshHierarchy(mesh, refinement_levels,
                                 Netgen.")
 
     mesh_with_overlap = mesh
-    mesh.init()
-    dm_cell_type, = mesh.dm_cell_types
-    tdim = mesh.topology_dm.getDimension()
-    # Virtually "invert" addOverlap.
-    # -- This is algorithmically guaranteed.
+    dm_cell_type, = mesh_with_overlap.dm_cell_types
+    tdim = mesh_with_overlap.topology_dm.getDimension()
+    # Effectively "invert" addOverlap(). This is algorithmically guaranteed.
     mesh = firedrake.Submesh(mesh_with_overlap, tdim, dm_cell_type, label_name="celltype", ignore_label_halo=True)
     cdm = mesh.topology_dm
     cdm.removeLabel("pyop2_core")
@@ -144,9 +142,6 @@ def MeshHierarchy(mesh, refinement_levels,
     cdm.removeLabel("pyop2_ghost")
     cdm.setRefinementUniform(True)
     dms = []
-    if mesh.comm.size > 1 and mesh._grown_halos:
-        raise RuntimeError("Cannot refine parallel overlapped meshes "
-                           "(make sure the MeshHierarchy is built immediately after the Mesh)")
     if callbacks is not None:
         before, after = callbacks
     else:
@@ -187,12 +182,6 @@ def MeshHierarchy(mesh, refinement_levels,
         )
         for dm in dms
     ]
-    for m in meshes:
-        m.init()
-    #distribution_parameters_noop={
-    #    "partition": False,
-    #    "overlap_type": (firedrake.mesh.DistributedMeshOverlapType.NONE, 0),
-    #}
     lgmaps_with_overlap = []
     for i, m in enumerate(meshes):
         lgmaps_with_overlap.append(impl.create_lgmap(m.topology_dm))
@@ -300,7 +289,6 @@ def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, ref
     """
     if not isinstance(base_mesh, firedrake.mesh.MeshGeometry):
         raise ValueError(f"Can only extruded a mesh, not a {type(base_mesh)}")
-    base_mesh.init()
     if base_mesh.cell_set._extruded:
         raise ValueError("Base mesh must not be extruded")
     if layers is None:
