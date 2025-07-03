@@ -97,12 +97,17 @@ which will install the following packages:
 .. literalinclude:: homebrew_deps.txt
    :language: text
 
-The packages installed here are a combination of essential system dependencies,
-like a C compiler and MPI, and 'external packages' that are used by PETSc, like
-MUMPS and HDF5. If you are not installing onto Ubuntu or macOS then only the former
-of these need be installed as PETSc can download and compile the remaining packages
-(by passing ``--no-package-manager`` to PETSc ``configure``). To give you a guide
-as to what essential system dependencies are needed, on Ubuntu they are:
+The packages installed here are a combination of system dependencies,
+like a C compiler, BLAS, and MPI,  and 'external packages' that are used by PETSc, like
+MUMPS and HDF5.
+
+If you are not installing onto Ubuntu or macOS then it is your responsibility to
+ensure that these system dependencies are in place. Some of the dependencies
+(e.g. a C compiler) must come from your system whereas others, if desired, may be
+downloaded by PETSc ``configure`` by passing additional flags like
+``--download-mpich`` or ``--download-openblas`` (run ``./configure --help | less`` to
+see what is available). To give you a guide as to what system dependencies are
+needed, on Ubuntu they are:
 
 .. literalinclude:: minimal_apt_deps.txt
    :language: text
