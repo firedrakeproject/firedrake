@@ -370,7 +370,7 @@ jobs:
           path: pytest_*.log
 
       - name: Install system dependencies (3)
-        if: always()
+        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
         run: apt-get -y install inkscape texlive-full
 
       - name: Check bibtex
