@@ -1505,6 +1505,15 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
                 node_map[undistributed_axis.id].append(None)
         return undistributed_axis, node_map
 
+    # This is hard because we can consider almost all inner shape to be block shape, where is the line drawn?
+    # @property
+    # def block_shape(self) -> tuple[int, ...]:
+    #     breakpoint()
+
+    # @property
+    # def block_size(self) -> int:
+    #     return np.prod(self.block_shape, dtype=int)
+
     # @cached_property
     # def paths(self):
     #     return (self._source_path,)

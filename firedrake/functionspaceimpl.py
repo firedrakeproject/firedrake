@@ -1794,25 +1794,47 @@ class RealFunctionSpace(FunctionSpace):
         dg_space = FunctionSpace(self._mesh, self.element.reconstruct(family="DG"))
         fake_axes = dg_space.axes.materialize()
 
-        if fake_axes.depth != 2:
-            raise NotImplementedError("Have not considered vector Real yet")
-
-        # Now map the mesh-aware axes back to the actual axis tree
+        # Now map the mesh-aware axis tree back to the actual one
+        # constitutes two steps:
+        #
+        #   1. All references to the mesh must be removed.
+        #   2. Attempts to address cell DoFs should map to the "dof" axis
+        #      in the actual layout axis tree.
+        #
+        # Other elements of the tree (i.e. tensor shape) are the same and
+        # can be left unchanged.
         targets = {}
-        target_path = self.layout_axes.leaf_path
-        for source_path in dg_space.axes.leaf_paths:
-            if (self._mesh.name, self._mesh.cell_label) in source_path.items():
-                dof_axis = utils.single_valued((
-                    axis
-                    for axis in dg_space.axes.nodes
-                    if axis.label == f"dof{self._mesh.cell_label}"
-                ))
-                targets[source_path] = (
-                    target_path,
-                    immutabledict({"dof": op3.AxisVar(dof_axis)})
-                )
-            else:
-                targets[source_path] = (target_path, immutabledict({"dof": op3.NAN}))
+        for source_path, (orig_target_path, orig_target_exprs) in fake_axes._source_path_and_exprs.items():
+            new_target_path = {}
+            for target_axis_label, target_component_label in orig_target_path.items():
+                if target_axis_label == self._mesh.name:
+                    continue
+                elif target_axis_label.startswith("dof"):
+                    new_target_path["dof"] = "XXX"
+                else:
+                    new_target_path[target_axis_label] = target_component_label
+            new_target_path = utils.freeze(new_target_path)
+
+            new_target_exprs = {}
+            for target_axis_label, target_expr in orig_target_exprs.items():
+                if target_axis_label == self._mesh.name:
+                    continue
+                elif target_axis_label.startswith("dof"):
+                    if target_axis_label == f"dof{self._mesh.cell_label}":
+                        dof_axis = utils.single_valued(
+                            axis
+                            for axis in dg_space.axes.nodes
+                            if axis.label == f"dof{self._mesh.cell_label}"
+                        )
+                        new_target_exprs["dof"] = op3.AxisVar(dof_axis)
+                    else:
+                        new_target_exprs["dof"] = op3.NAN
+                else:
+                    new_target_exprs[target_axis_label] = target_expr
+            new_target_exprs = utils.freeze(new_target_exprs)
+
+            targets[source_path] = (new_target_path, new_target_exprs)
+        targets = utils.freeze(targets)
 
         # TODO: This looks hacky
         targets = (targets,) + (fake_axes._source_path_and_exprs,)

@@ -33,6 +33,7 @@ _init_likwid()
 del _init_likwid
 
 
+import pyop3.dtypes
 import pyop3.ir
 import pyop3.insn_visitors
 from pyop3.tensor import (  # noqa: F401

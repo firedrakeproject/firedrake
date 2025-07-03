@@ -55,6 +55,9 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant):
     if isinstance(family, finat.ufl.FiniteElementBase):
         return family.reconstruct(cell=cell)
 
+    if family in {"Real", "R"} and degree is None:
+        degree = 0
+
     if isinstance(cell, ufl.TensorProductCell) \
        and vfamily is not None and vdegree is not None:
         la = finat.ufl.FiniteElement(family,

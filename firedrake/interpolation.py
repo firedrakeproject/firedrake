@@ -28,7 +28,6 @@ from firedrake.parloops import pack_tensor, pack_pyop3_tensor
 from firedrake.ufl_expr import Argument, action, adjoint as expr_adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError
 from firedrake.petsc import PETSc
-from firedrake.halo import _get_mtype as get_dat_mpi_type
 from mpi4py import MPI
 
 from pyadjoint import stop_annotating, no_annotations
@@ -976,7 +975,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
     if vom_onto_other_vom:
         # To interpolate between vertex-only meshes we use a PETSc SF
         wrapper = VomOntoVomWrapper(V, source_mesh, target_mesh, expr, arguments)
-        # NOTE: get_dat_mpi_type ensures we get the correct MPI type for the
+        # NOTE: get_mpi_dtype ensures we get the correct MPI type for the
         # data, including the correct data size and dimensional information
         # (so for vector function spaces in 2 dimensions we might need a
         # concatenation of 2 MPI.DOUBLE types when we are in real mode)
@@ -984,7 +983,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
             # Callable will do interpolation into our pre-supplied function f
             # when it is called.
             assert f.dat is tensor
-            wrapper.mpi_type, _ = get_dat_mpi_type(f.dat)
+            wrapper.mpi_type, _ = op3.dtypes.get_mpi_dtype(f.dat.dtype, f.function_space()._cdim)
             assert not len(arguments)
 
             def callable():
@@ -1000,7 +999,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
             # after cofunctions are fully implemented, this will need to be
             # reconsidered.
             temp_source_func = firedrake.Function(argfs)
-            wrapper.mpi_type, _ = get_dat_mpi_type(temp_source_func.dat)
+            wrapper.mpi_type, _ = op3.dtypes.get_mpi_dtype(temp_source_func.dat.dtype, argfs._cdim)
 
             # Leave wrapper inside a callable so we can access the handle
             # property (which is pretending to be a petsc mat)
