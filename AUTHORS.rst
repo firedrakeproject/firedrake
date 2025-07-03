@@ -122,7 +122,7 @@ Geordie McBain
 
 Andrew T. T. McRae
 
-Oliver Meister................<https://www5.in.tum.de/wiki/index.php/Dipl.-Inf._Oliver_Meister>
+Oliver Meister
 
 Lawrence Mitchell.............<https://www.wence.uk/>
 
