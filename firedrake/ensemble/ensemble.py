@@ -1,8 +1,8 @@
 import weakref
+from itertools import zip_longest
 
 from firedrake.petsc import PETSc
 from pyop2.mpi import MPI, internal_comm
-from itertools import zip_longest
 
 __all__ = ("Ensemble", )
 
@@ -46,6 +46,18 @@ class Ensemble(object):
 
         assert self.comm.size == M
         assert self.ensemble_comm.size == (size // M)
+
+    @property
+    def ensemble_size(self):
+        """The number of ensemble members.
+        """
+        return self.ensemble_comm.size
+
+    @property
+    def ensemble_rank(self):
+        """The rank of the local ensemble member.
+        """
+        return self.ensemble_comm.rank
 
     def _check_function(self, f, g=None):
         """
