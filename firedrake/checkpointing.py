@@ -1188,7 +1188,13 @@ class CheckpointFile(object):
         plex.distributionSetName(distribution_name)
         sfXB = plex.topologyLoad(self.viewer)
         plex.distributionSetName(None)
+        plex.labelsLoad(self.viewer, sfXB)
         self.viewer.popFormat()
+        # These labels are distribution dependent.
+        # We should be able to save/load labels selectively.
+        plex.removeLabel("pyop2_core")
+        plex.removeLabel("pyop2_owned")
+        plex.removeLabel("pyop2_ghost")
         if load_distribution_permutation:
             chart_size = np.empty(1, dtype=utils.IntType)
             chart_sizes_iset = PETSc.IS().createGeneral(chart_size, comm=self._comm)
@@ -1214,16 +1220,6 @@ class CheckpointFile(object):
                              distribution_parameters=distribution_parameters, sfXB=sfXB, perm_is=perm_is,
                              distribution_name=distribution_name, permutation_name=permutation_name,
                              comm=self.comm)
-        self.viewer.pushFormat(format=format)
-        # tmesh.topology_dm has already been redistributed.
-        sfXCtemp = tmesh.sfXB.compose(tmesh.sfBC) if tmesh.sfBC is not None else tmesh.sfXB
-        plex.labelsLoad(self.viewer, sfXCtemp)
-        self.viewer.popFormat()
-        # These labels are distribution dependent.
-        # We should be able to save/load labels selectively.
-        plex.removeLabel("pyop2_core")
-        plex.removeLabel("pyop2_owned")
-        plex.removeLabel("pyop2_ghost")
         return tmesh
 
     @PETSc.Log.EventDecorator("LoadFunctionSpace")
