@@ -29,7 +29,7 @@ dependencies = [
   "packaging",
   "pkgconfig",
   "progress",
-  "pyadjoint-ad>=2025.04",
+  "pyadjoint-ad>=2025.04.1",
   "pycparser",
   "pytools[siphash]",
   "requests",
