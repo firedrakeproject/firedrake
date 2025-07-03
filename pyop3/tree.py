@@ -363,7 +363,10 @@ class LabelledTree(AbstractTree):
         component_index = parent_node.component_labels.index(component_label)
         return children[component_index]
 
-    # # TODO: Could this return (node, component) instead of (node, component_label)?
+    @cached_property
+    def leaves(self) -> tuple[Node]:
+        return tuple(self.node_map[parent_path(leaf_path)] for leaf_path in self.leaf_paths)
+
     # # TODO: Alternatively might be nicer to return just the nodes. The components are obvious
     # @cached_property
     # def leaves(self) -> tuple[tuple[Node, ComponentLabelT]]:

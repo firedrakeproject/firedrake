@@ -192,20 +192,29 @@ def _(index: Index, /, axes, loop_context) -> tuple[IndexTree]:
 
 @_as_index_forest.register(Sequence)
 def _(seq: Sequence, /, axes, loop_context) -> tuple[IndexTree]:
-    raise NotImplementedError
     # The indices can contain a mixture of 'true' indices (i.e. subclasses of
     # `Index`) and 'sugar' indices (e.g. integers, strings and slices). The former
     # may be used in any order since they declare the axes they target whereas
     # the latter are order dependent.
-    first, *rest = seq
-    # for cf_index in _as_context_free_indices(first, axes
+    index_nests = _index_forest_from_iterable(seq, axes, loop_context)
+    return tuple(map(IndexTree.from_nest, index_nests))
 
-    index_trees = {}
-    indices_and_contexts = _collect_indices_and_contexts(indices, loop_context=loop_context)
-    for context, cf_indices in indices_and_contexts.items():
-        index_forest = _index_forest_from_iterable(cf_indices, axes=axes)
-        index_trees[context] = index_forest
-    return index_trees
+
+def _index_forest_from_iterable(indices, axes, loop_context):
+    index, *subindices = indices
+
+    index_nests = []
+    cf_indices = _as_context_free_indices(index, loop_context)
+
+    if not subindices:
+        return cf_indices
+
+    for cf_index in cf_indices:
+        subnests = _index_forest_from_iterable(subindices, axes, loop_context)
+        for subnest in subnests:
+            index_nest = {cf_index: [subnest] * cf_index.degree}
+            index_nests.append(index_nest)
+    return tuple(index_nests)
 
 
 @_as_index_forest.register(Dat)
@@ -477,7 +486,7 @@ def _(called_map, /, loop_context):
         #      y -> [[a], [d]],
         #   }
         #
-        # ie xmaps to *either* [a] or [b, c] and y maps to either [a] or [d]
+        # ie x maps to *either* [a] or [b, c] and y maps to either [a] or [d]
         # then we want to end up with
         #
         #   {

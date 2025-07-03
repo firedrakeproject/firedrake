@@ -40,6 +40,7 @@ from pyop3.tree import (
     LabelledTree,
     MultiComponentLabelledNode,
     MutableLabelledTreeMixin,
+    NodeLabelT,
     accumulate_path,
     as_component_label,
     as_path,
@@ -961,6 +962,10 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         that the axes always looked truncated in that form.
         """
 
+    @abc.abstractmethod
+    def blocked(self, block_shape: Sequence[int, ...]) -> AbstractAxisTree:
+        pass
+
     # }}}
 
     # {{{ interface impls
@@ -1441,6 +1446,28 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
                         region_labels.add(region.label)
         return frozenset(region_labels)
 
+    def _block_indices(self, block_shape: Sequence[int, ...]) -> tuple[ScalarIndex, ...]:
+        from pyop3 import ScalarIndex
+
+        indices = []
+        # Pop entries off the bottom of the tree in reverse order. These must
+        # match for all leaves.
+        blocked_tree = self.materialize()
+        for block_size in reversed(block_shape):
+            block_axis = utils.single_valued(blocked_tree.leaves)
+            assert block_axis.component.size == block_size
+
+            index = ScalarIndex(block_axis.label, block_axis.component.label, 0)
+            indices.append(index)
+
+            # now trim the leaves
+            node_map = dict(blocked_tree.node_map)
+            for leaf_path in blocked_tree.leaf_paths:
+                del node_map[leaf_path]
+                node_map[parent_path(leaf_path)] = None
+            blocked_tree = AxisTree(node_map)
+        return tuple(indices)
+
     # {{{ parallel
 
     @cached_property
@@ -1474,6 +1501,9 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def restrict_nest(self, nest_index: int) -> AxisTree:
         return self[nest_index].materialize()
 
+    def blocked(self, block_shape: Sequence[int, ...]) -> AxisTree:
+        return self[self._block_indices(block_shape)].materialize()
+
     # }}}
 
     def localize(self) -> AxisTree:
@@ -1504,15 +1534,6 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
             else:
                 node_map[undistributed_axis.id].append(None)
         return undistributed_axis, node_map
-
-    # This is hard because we can consider almost all inner shape to be block shape, where is the line drawn?
-    # @property
-    # def block_shape(self) -> tuple[int, ...]:
-    #     breakpoint()
-
-    # @property
-    # def block_size(self) -> int:
-    #     return np.prod(self.block_shape, dtype=int)
 
     # @cached_property
     # def paths(self):
@@ -1739,6 +1760,43 @@ class IndexedAxisTree(AbstractAxisTree):
             self.node_map,
             unindexed=subtree_unindexed,
             targets=subtree_targets,
+            outer_loops=self.outer_loops,
+        )
+
+    def blocked(self, block_shape: Sequence[int, ...]) -> IndexedAxisTree:
+        """
+        Note: this function assumes that the block shape still exists in the tree.
+        """
+        block_indices = self._block_indices(block_shape)
+
+        self_blocked = self[block_indices]
+        unindexed_blocked = self.unindexed.blocked(block_shape)
+
+        # remove the block axes from the targets
+        block_axis_labels = frozenset(index.axis for index in block_indices)
+        targets_blocked = tuple(
+            {
+                axis_path: (
+                    {
+                        axis_label: path
+                        for axis_label, path in target_spec[0].items()
+                        if axis_label not in block_axis_labels
+                    },
+                    {
+                        axis_label: expr
+                        for axis_label, expr in target_spec[1].items()
+                        if axis_label not in block_axis_labels
+                    },
+                )
+                for axis_path, target_spec in target.items()
+            }
+            for target in self_blocked.targets
+        )
+
+        return IndexedAxisTree(
+            self_blocked.node_map,
+            unindexed=unindexed_blocked,
+            targets=targets_blocked,
             outer_loops=self.outer_loops,
         )
 

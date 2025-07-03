@@ -3882,7 +3882,7 @@ values from f.)"""
 
         """
         from firedrake import function, functionspace
-        from firedrake.parloops import par_loop, READ, MIN, MAX
+        from firedrake.parloops import par_loop, READ
 
         if (
             self._spatial_index
@@ -3923,14 +3923,14 @@ values from f.)"""
         end
         """
         par_loop((domain, instructions), ufl.dx,
-                 {'f': (coords, READ),
-                  'f_min': (coords_min, MIN),
-                  'f_max': (coords_max, MAX)})
+                 {'f': (coords, op3.READ),
+                  'f_min': (coords_min, op3.RW),
+                  'f_max': (coords_max, op3.RW)})
 
         # Reorder bounding boxes according to the cell indices we use
         column_list = V.cell_node_list.reshape(-1)
-        coords_min = self._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
-        coords_max = self._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
+        coords_min = self._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos.reshape((-1, gdim)))
+        coords_max = self._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos.reshape((-1, gdim)))
 
         # Change min and max to refer to an n-hypercube, where n is the
         # geometric dimension of the mesh, centred on the midpoint of the

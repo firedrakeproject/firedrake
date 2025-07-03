@@ -849,9 +849,11 @@ class FunctionSpace:
         # internal detail really, do not expose in pyop3/__init__.py
         from pyop3.expr_visitors import NonlinearCompositeDat, materialize_composite_dat
 
+        blocked_axes = self.axes.blocked(self.shape)
+
         mesh = self._mesh
         cell = mesh.cells.owned.index()
-        indexed_axes = self.axes[self._mesh.closure(cell)]
+        indexed_axes = blocked_axes[self._mesh.closure(cell)]
         cell_node_expr = NonlinearCompositeDat(
             indexed_axes.materialize(),
             indexed_axes.leaf_subst_layouts,
