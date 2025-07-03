@@ -163,6 +163,7 @@ linkcheck_ignore = [
     r'https://www.crosscountrytrains.co.uk/',
     r'https://www.siam.org/',
     r'https://aims.ac.rw',
+    r'https://www.hilton.com/en/hotels/leehnhn-hilton-leeds-city/'
 ]
 linkcheck_timeout = 30
 

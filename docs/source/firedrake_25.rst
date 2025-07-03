@@ -83,7 +83,7 @@ The registration fees will be as follows:
 Abstract submission
 -------------------
 
-Please submit your abstracts to the LIFD email: fluids-institute@leeds.ac.uk.
+Abstract submission will open soon.
 
 Support
 -------
