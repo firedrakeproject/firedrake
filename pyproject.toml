@@ -29,7 +29,7 @@ dependencies = [
   "packaging",
   # TODO RELEASE
   # "petsc4py==3.23.3",
-  "petsctools @ git+https://github.com/firedrakeproject/petsctools.git",
+  "petsctools",
   "pkgconfig",
   "progress",
   "pyadjoint-ad>=2025.04",
@@ -145,7 +145,7 @@ requires = [
   "pkgconfig",
   # TODO RELEASE
   # "petsc4py==3.23.3",
-  "petsctools @ git+https://github.com/firedrakeproject/petsctools.git",
+  "petsctools",
   "pybind11",
   "setuptools>=77.0.3",
   "rtree>=1.2",
