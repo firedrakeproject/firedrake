@@ -1,5 +1,4 @@
 from firedrake import *
-from firedrake.__future__ import *
 from firedrake.petsc import DEFAULT_PARTITIONER
 from firedrake.ufl_expr import extract_unique_domain
 import numpy as np
