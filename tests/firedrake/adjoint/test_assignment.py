@@ -3,8 +3,9 @@ import pytest
 from firedrake import *
 from firedrake.__future__ import *
 from firedrake.adjoint import *
+from checkpoint_schedules import SingleMemoryStorageSchedule
 
-from numpy.random import rand
+from numpy.random import rand, default_rng
 from numpy.testing import assert_approx_equal, assert_allclose
 
 
@@ -240,3 +241,49 @@ def test_assign_constant_scale():
     assert min(r["R0"]["Rate"]) > 0.9
     assert min(r["R1"]["Rate"]) > 1.9
     assert min(r["R2"]["Rate"]) > 2.9
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("scheduler", (None, SingleMemoryStorageSchedule()))
+def test_adjoint_cleanup(scheduler):
+    # This test checks that the adjoint does not discard too many checkpoint
+    # variables. This is achieved by computing the derivative before conducting
+    # the Taylor test. This extra derivative is the thing that would cause the
+    # spurious discards.
+
+    # get tape
+    tape = get_working_tape()
+    tape.clear_tape()
+    continue_annotation()
+
+    if scheduler is not None:
+        tape.enable_checkpointing(scheduler)
+
+    mesh = SquareMesh(1, 1, 1, quadrilateral=True)
+
+    V = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(mesh, "R", 0)
+
+    u_0 = Function(V).assign(1.0)
+    u = Function(V).assign(u_0)
+    r = Function(R)
+
+    r.assign(2.0)
+    u.project(r * u)
+    r.assign(1.0)
+    u.project(r * u)
+
+    J = assemble((u - Function(V).assign(1.0)) ** 2 * dx)
+
+    pause_annotation()
+    reduced_functional = ReducedFunctional(J, Control(u_0))
+
+    # Deliberate additional derivative computation.
+    reduced_functional.derivative()
+
+    # Choosing fixed perturbation
+    dtemp = Function(u_0.function_space())
+    rng = default_rng(42)
+    dtemp.dat.data_wo[:] = rng.random(dtemp.dat.data_ro.shape)
+
+    assert taylor_test(reduced_functional, u_0, dtemp) > 1.99999999
