@@ -858,7 +858,8 @@ class FunctionSpace:
             indexed_axes.outer_loops,
         )
         cell_node_buffer_expr = materialize_composite_dat(cell_node_expr)
-        return utils.readonly(cell_node_buffer_expr.buffer.buffer.data_ro)
+        shape = (self._mesh.cells.owned.size, indexed_axes.size)
+        return utils.readonly(cell_node_buffer_expr.buffer.buffer.data_ro.reshape(shape))
 
     @utils.cached_property
     def topological(self):
@@ -1843,7 +1844,7 @@ class RealFunctionSpace(FunctionSpace):
             fake_axes, unindexed=self.layout_axes, targets=targets,
         )
 
-    finat_element = None  # TODO: do we use this?
+    # used?
     global_numbering = None
 
     def __eq__(self, other):

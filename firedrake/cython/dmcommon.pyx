@@ -617,7 +617,7 @@ def closure_ordering(mesh, closure_data_plex):
     tdim = mesh.dimension
     assert tdim <= 3
 
-    nverts_per_cell = mesh._closure_sizes[tdim][0]
+    nverts_per_cell = mesh._closure_sizes[tdim][0] if tdim > 0 else 0
     nedges_per_cell = mesh._closure_sizes[tdim][1] if tdim > 2 else 0
     nfacets_per_cell = mesh._closure_sizes[tdim][tdim-1] if tdim > 1 else 0
 

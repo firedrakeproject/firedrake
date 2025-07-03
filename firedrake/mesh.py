@@ -955,7 +955,8 @@ class AbstractMeshTopology(abc.ABC):
             indexed_axes.outer_loops,
         )
         cell_node_buffer_expr = materialize_composite_dat(cell_node_expr)
-        return utils.readonly(cell_node_buffer_expr.buffer.buffer.data_ro.reshape((self.cells.owned.size, indexed_axes.size)))
+        shape = (self.cells.owned.size, indexed_axes.size)
+        return utils.readonly(cell_node_buffer_expr.buffer.buffer.data_ro.reshape(shape))
 
     @property
     def comm(self):
@@ -5045,9 +5046,9 @@ def _pic_swarm_in_mesh(
         base_parent_cell_nums_visible = base_parent_cell_nums[visible_idxs]
         extrusion_heights_visible = extrusion_heights[visible_idxs]
     else:
-        plex_parent_cell_nums = np.empty_like(parent_cell_nums_local)
-        for i, pt in enumerate(parent_cell_nums_local):
-            plex_parent_cell_nums[i] = parent_mesh.topology.points.applied_to_default_component_number("0", pt)
+        plex_parent_cell_nums = parent_mesh.topology.cell_closure[
+            parent_cell_nums_local, -1
+        ]
         base_parent_cell_nums_visible = None
         extrusion_heights_visible = None
     n_missing_points = len(missing_global_idxs)
