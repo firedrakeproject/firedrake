@@ -1117,6 +1117,8 @@ class MeshTopology(AbstractMeshTopology):
             Communicator.
 
         """
+        if distribution_parameters is None:
+            distribution_parameters = {}
         self._distribution_parameters = {}
         distribute = distribution_parameters.get("partition")
         if distribute is None:
