@@ -421,6 +421,8 @@ jobs:
             echo Error: there are untracked files in the repository
             echo The output from 'git status' is:
             git status
+            echo The output from 'git diff' is:
+            git diff
             exit 1
           fi
 
