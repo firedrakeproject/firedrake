@@ -182,7 +182,7 @@ def interpolate(expr, V, *args, **kwargs):
         to zero. Ignored if interpolating within the same mesh or onto a
         :func:`.VertexOnlyMesh`.
     :kwarg ad_block_tag: An optional string for tagging the resulting assemble block on the Pyadjoint tape.
-    :returns: A synbolic :class:`.Interpolate` object
+    :returns: A symbolic :class:`.Interpolate` object
 
     .. note::
 
