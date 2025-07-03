@@ -3482,7 +3482,7 @@ def _pic_swarm_in_mesh(
         would be initialised with ``fields = [("DMSwarmPIC_coor", coordsdim,
         RealType)]``. All fields must have the same number of points. For more
         information see `the DMSWARM API reference
-        <https://www.mcs.anl.gov/petsc/petsc-current/manualpages/DMSWARM/DMSWARM.html>_.
+        <https://petsc.org/release/manualpages/DMSwarm/DMSWARM/>_.
     :kwarg tolerance: The relative tolerance (i.e. as defined on the reference
         cell) for the distance a point can be from a cell and still be
         considered to be in the cell. Note that this tolerance uses an L1

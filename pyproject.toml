@@ -1,7 +1,7 @@
 [project]
 name = "firedrake"
 # <year>.<month>.<patch>
-version = "2025.4.1"
+version = "2025.4.2"
 description = "An automated system for the portable solution of partial differential equations using the finite element method"
 readme = "README.rst"
 license = "LGPL-3.0-or-later"
@@ -24,12 +24,12 @@ dependencies = [
   "h5py>3.12.1",
   "libsupermesh",
   "loopy>2024.1",
-  "petsc4py==3.23.3",
+  "petsc4py==3.23.4",
   "numpy",
   "packaging",
   "pkgconfig",
   "progress",
-  "pyadjoint-ad>=2025.04",
+  "pyadjoint-ad>=2025.04.1",
   "pycparser",
   "pytools[siphash]",
   "requests",
@@ -89,7 +89,7 @@ netgen = [
   "ngsPETSc",
 ]
 slepc = [
-  "slepc4py==3.23.1",
+  "slepc4py==3.23.2",
 ]
 torch = [  # requires passing '--extra-index-url' to work
   "torch",
@@ -111,7 +111,7 @@ ci = [
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.23.1",
+  "slepc4py==3.23.2",
   "torch",  # requires passing '--extra-index-url' to work
   "vtk",
 ]
@@ -125,7 +125,7 @@ docker = [  # Used in firedrake-vanilla container
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.23.1",
+  "slepc4py==3.23.2",
 ]
 
 [build-system]
@@ -138,7 +138,7 @@ requires = [
   "pkgconfig",
   "pybind11",
   "setuptools>=77.0.3",
-  "petsc4py==3.23.3",
+  "petsc4py==3.23.4",
   "rtree>=1.2",
 ]
 build-backend = "setuptools.build_meta"
