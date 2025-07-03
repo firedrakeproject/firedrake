@@ -24,4 +24,12 @@ element systems.
    Rayleigh-Benard convection.<demos/rayleigh-benard.py>
    Netgen support.<demos/netgen_mesh.py>
    Full-waveform inversion: spatial and wave sources parallelism.<demos/full_waveform_inversion.py>
+   1D Vlasov-Poisson equation using vertical independent function spaces.<demos/vp1d.py>
+   Degree-independent multigrid convergence using patch relaxation.<demos/poisson_mg_patches.py>
+   Monolithic multigrid with Vanka relaxation for Stokes.<demos/stokes_vanka_patches.py>
+   Vertex/edge star multigrid relaxation for H(div).<demos/hdiv_riesz_star.py>
+   Auxiliary space patch relaxation multigrid for H(curl).<demos/hcurl_riesz_star.py>
+   Steady Boussinesq problem with integral constraints.<demos/boussinesq.py>
+   Preconditioning using fast diagonalisation.<demos/fast_diagonalisation_poisson.py>
    Shape optimisation.<demos/shape_optimization.py>
+
