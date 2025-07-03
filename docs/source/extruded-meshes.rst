@@ -194,7 +194,7 @@ be combined with :ref:`interpolation from external data
 any source. Naturally, the change of coordinates can also be varied to produce
 a non-uniform distribution of the mesh layers.
 
-.. literalinclude:: ../../tests/firedrake/extrusion/test_change_coordinates.py
+.. literalinclude:: ../../tests/firedrake/extrusion/test_change_coordinates_extrusion.py
   :dedent:
   :language: python3
   :start-after: start extruded change coordinates
