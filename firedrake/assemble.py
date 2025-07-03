@@ -835,7 +835,7 @@ class BaseFormAssembler(AbstractFormAssembler):
     def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
         """Preprocess ufl.BaseForm objects"""
         original_expr = expr
-        if mat_type != "matfree" and not has_type(expr, slate.Tensor):
+        if isinstance(expr, ufl.BaseForm) and len(expr.arguments()) == 2 and mat_type != "matfree":
             # Don't expand derivatives if `mat_type` is 'matfree'
             # For "matfree", Form evaluation is delayed
             expr = BaseFormAssembler.expand_derivatives_form(expr, form_compiler_parameters)
