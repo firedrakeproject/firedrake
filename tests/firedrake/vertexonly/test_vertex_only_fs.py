@@ -68,7 +68,7 @@ def pseudo_random_coords(size):
 
 # Function Space Generation Tests
 
-def functionspace_tests(vm, petsc_raises):
+def functionspace_tests(vm):
     # Prep
     num_cells = len(vm.coordinates.dat.data_ro)
     num_cells_mpi_global = MPI.COMM_WORLD.allreduce(num_cells, op=MPI.SUM)
@@ -153,7 +153,7 @@ def functionspace_tests(vm, petsc_raises):
     h_star = h.riesz_representation(riesz_map="l2")
     g = assemble(I_io.interpolate(h_star, adjoint=True))
     assert np.allclose(g.dat.data_ro_with_halos, np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
-    with petsc_raises(NotImplementedError):
+    with pytest.raises(NotImplementedError):
         # Can't use adjoint on interpolators with expressions yet
         try:
             g2 = assemble(I2_io.interpolate(h_star, adjoint=True))
@@ -167,7 +167,7 @@ def functionspace_tests(vm, petsc_raises):
     h = h_star.riesz_representation(riesz_map="l2")
     assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
-    with petsc_raises(NotImplementedError):
+    with pytest.raises(NotImplementedError):
         # Can't use adjoint on interpolators with expressions yet
         try:
             h2 = assemble(I2_io_adjoint.interpolate(g, adjoint=True))
@@ -180,7 +180,7 @@ def functionspace_tests(vm, petsc_raises):
     assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
 
 
-def vectorfunctionspace_tests(vm, petsc_raises):
+def vectorfunctionspace_tests(vm):
     # Prep
     gdim = vm.geometric_dimension()
     num_cells = len(vm.coordinates.dat.data_ro)
@@ -263,7 +263,7 @@ def vectorfunctionspace_tests(vm, petsc_raises):
     h_star = h.riesz_representation(riesz_map="l2")
     g = assemble(I_io.interpolate(h_star, adjoint=True))
     assert np.allclose(g.dat.data_ro_with_halos, 2*vm.coordinates.dat.data_ro_with_halos)
-    with petsc_raises(NotImplementedError):
+    with pytest.raises(NotImplementedError):
         # Can't use adjoint on interpolators with expressions yet
         try:
             g2 = assemble(I2_io.interpolate(h_star, adjoint=True))
@@ -292,12 +292,12 @@ def vectorfunctionspace_tests(vm, petsc_raises):
 
 
 @pytest.mark.parallel([1, 3])
-def test_functionspaces(parentmesh, vertexcoords, petsc_raises):
+def test_functionspaces(parentmesh, vertexcoords):
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
-    functionspace_tests(vm, petsc_raises)
-    vectorfunctionspace_tests(vm, petsc_raises)
-    functionspace_tests(vm.input_ordering, petsc_raises)
-    vectorfunctionspace_tests(vm.input_ordering, petsc_raises)
+    functionspace_tests(vm)
+    vectorfunctionspace_tests(vm)
+    functionspace_tests(vm.input_ordering)
+    vectorfunctionspace_tests(vm.input_ordering)
 
 
 @pytest.mark.parallel(nprocs=2)
