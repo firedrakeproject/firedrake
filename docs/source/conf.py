@@ -274,6 +274,7 @@ latex_elements = {
     # Additional stuff for the LaTeX preamble.
     'preamble': r'''\newcommand{\require}[1]{}
 \usepackage{cancel}
+\usepackage{mathrsfs}
 
 % \sphinxDUC{2730}{\ding{80}}
 \sphinxDUC{27F6}{$\rightarrow$}
