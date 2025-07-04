@@ -278,7 +278,7 @@ def vectorfunctionspace_tests(vm, petsc_raises):
     assert np.all(h_star.dat.data_ro_with_halos[~idxs_to_include] == 0)
     with pytest.raises(NotImplementedError):
         try:
-        # Can't use adjoint on interpolators with expressions yet
+            # Can't use adjoint on interpolators with expressions yet
             h2 = assemble(I2_io_adjoint.interpolate(g, adjoint=True))
             assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
         except PETSc.Error as e:
