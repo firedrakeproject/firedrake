@@ -43,9 +43,11 @@ from pyop2 import op2
 from pyop2.caching import (
     DEFAULT_CACHE,
     disk_only_cache,
+    get_comm_caches,
     memory_cache,
     memory_and_disk_cache,
-    clear_memory_cache
+    clear_memory_cache,
+    _KNOWN_CACHES,
 )
 from pyop2.compilation import load
 from pyop2.configuration import configuration
@@ -53,7 +55,6 @@ from pyop2.mpi import (
     MPI,
     COMM_WORLD,
     COMM_SELF,
-    comm_cache_keyval,
     internal_comm,
     temp_internal_comm
 )
@@ -297,27 +298,38 @@ class TestObjectCaching:
         assert not sp == sp2
 
 
-class TestGeneratedCodeCache:
+def get_cache(comm, func_name):
+    cache_id = None
+    for cache_info in _KNOWN_CACHES:
+        if cache_info.func_name == func_name:
+            assert cache_id is None
+            cache_id = cache_info.cidx
 
-    """
-    Generated Code Cache Tests.
-    """
+    if cache_id is None:
+        # haven't hit the function yet so the cache doesn't exist
+        return None
+
+    caches = get_comm_caches(comm)
+    return caches[cache_id]
+
+
+def get_caches(comm, func_name):
+    cache_ids = []
+    for cache_info in _KNOWN_CACHES:
+        if cache_info.func_name == func_name and cache_info.comm is comm:
+            cache_ids.append(cache_info.cidx)
+
+    caches = get_comm_caches(comm)
+    return tuple(caches[cache_id] for cache_id in cache_ids)
+
+
+class TestGeneratedCodeCache:
+    """Generated Code Cache Tests."""
 
     @property
     def cache(self):
-        int_comm = internal_comm(COMM_WORLD, self)
-        _cache_collection = int_comm.Get_attr(comm_cache_keyval)
-        if _cache_collection is None:
-            _cache_collection = {default_cache_name: DEFAULT_CACHE()}
-            int_comm.Set_attr(comm_cache_keyval, _cache_collection)
-        return _cache_collection[default_cache_name]
-
-    def code_cache_len_equals(self, expected):
-        # We need to do this check because different things also get
-        # put into self.cache
-        return sum(
-            1 for key in self.cache if key[1] == "compile_global_kernel"
-        ) == expected
+        icomm = internal_comm(COMM_WORLD, self)
+        return get_cache(icomm, "compile_global_kernel")
 
     @pytest.fixture
     def a(cls, diterset):
@@ -328,8 +340,9 @@ class TestGeneratedCodeCache:
         return op2.Dat(diterset, list(range(nelems)), numpy.uint32, "b")
 
     def test_same_args(self, iterset, iter2ind1, x, a):
-        self.cache.clear()
-        assert len(self.cache) == 0
+        if self.cache is not None:
+            self.cache.clear()
+            assert len(self.cache) == 0
 
         kernel_cpy = "static void cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
 
@@ -338,18 +351,19 @@ class TestGeneratedCodeCache:
                      a(op2.WRITE),
                      x(op2.READ, iter2ind1))
 
-        assert self.code_cache_len_equals(1)
+        assert len(self.cache) == 1
 
         op2.par_loop(op2.Kernel(kernel_cpy, "cpy"),
                      iterset,
                      a(op2.WRITE),
                      x(op2.READ, iter2ind1))
 
-        assert self.code_cache_len_equals(1)
+        assert len(self.cache) == 1
 
     def test_diff_kernel(self, iterset, iter2ind1, x, a):
-        self.cache.clear()
-        assert len(self.cache) == 0
+        if self.cache is not None:
+            self.cache.clear()
+            assert len(self.cache) == 0
 
         kernel_cpy = "static void cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
 
@@ -358,7 +372,7 @@ class TestGeneratedCodeCache:
                      a(op2.WRITE),
                      x(op2.READ, iter2ind1))
 
-        assert self.code_cache_len_equals(1)
+        assert len(self.cache) == 1
 
         kernel_cpy = "static void cpy(unsigned int* DST, unsigned int* SRC) { *DST = *SRC; }"
 
@@ -367,11 +381,12 @@ class TestGeneratedCodeCache:
                      a(op2.WRITE),
                      x(op2.READ, iter2ind1))
 
-        assert self.code_cache_len_equals(2)
+        assert len(self.cache) == 2
 
     def test_invert_arg_similar_shape(self, iterset, iter2ind1, x, y):
-        self.cache.clear()
-        assert len(self.cache) == 0
+        if self.cache is not None:
+            self.cache.clear()
+            assert len(self.cache) == 0
 
         kernel_swap = """
 static void swap(unsigned int* x, unsigned int* y)
@@ -387,18 +402,19 @@ static void swap(unsigned int* x, unsigned int* y)
                      x(op2.RW, iter2ind1),
                      y(op2.RW, iter2ind1))
 
-        assert self.code_cache_len_equals(1)
+        assert len(self.cache) == 1
 
         op2.par_loop(op2.Kernel(kernel_swap, "swap"),
                      iterset,
                      y(op2.RW, iter2ind1),
                      x(op2.RW, iter2ind1))
 
-        assert self.code_cache_len_equals(1)
+        assert len(self.cache) == 1
 
     def test_dloop_ignore_scalar(self, iterset, a, b):
-        self.cache.clear()
-        assert len(self.cache) == 0
+        if self.cache is not None:
+            self.cache.clear()
+            assert len(self.cache) == 0
 
         kernel_swap = """
 static void swap(unsigned int* x, unsigned int* y)
@@ -414,18 +430,19 @@ static void swap(unsigned int* x, unsigned int* y)
                      a(op2.RW),
                      b(op2.RW))
 
-        assert self.code_cache_len_equals(1)
+        assert len(self.cache) == 1
 
         op2.par_loop(op2.Kernel(kernel_swap, "swap"),
                      iterset,
                      b(op2.RW),
                      a(op2.RW))
 
-        assert self.code_cache_len_equals(1)
+        assert len(self.cache) == 1
 
     def test_vector_map(self, iterset, x2, iter2ind2):
-        self.cache.clear()
-        assert len(self.cache) == 0
+        if self.cache is not None:
+            self.cache.clear()
+            assert len(self.cache) == 0
 
         kernel_swap = """
 static void swap(unsigned int* x)
@@ -441,60 +458,65 @@ static void swap(unsigned int* x)
                      iterset,
                      x2(op2.RW, iter2ind2))
 
-        assert self.code_cache_len_equals(1)
+        assert len(self.cache) == 1
 
         op2.par_loop(op2.Kernel(kernel_swap, "swap"),
                      iterset,
                      x2(op2.RW, iter2ind2))
 
-        assert self.code_cache_len_equals(1)
+        assert len(self.cache) == 1
 
     def test_same_iteration_space_works(self, iterset, x2, iter2ind2):
-        self.cache.clear()
-        assert len(self.cache) == 0
+        if self.cache is not None:
+            self.cache.clear()
+            assert len(self.cache) == 0
+
         k = op2.Kernel("""static void k(void *x) {}""", 'k')
 
         op2.par_loop(k, iterset,
                      x2(op2.INC, iter2ind2))
 
-        assert self.code_cache_len_equals(1)
+        assert len(self.cache) == 1
 
         op2.par_loop(k, iterset,
                      x2(op2.INC, iter2ind2))
 
-        assert self.code_cache_len_equals(1)
+        assert len(self.cache) == 1
 
     def test_change_dat_dtype_matters(self, iterset, diterset):
+        if self.cache is not None:
+            self.cache.clear()
+            assert len(self.cache) == 0
+
         d = op2.Dat(diterset, list(range(nelems)), numpy.uint32)
-        self.cache.clear()
-        assert len(self.cache) == 0
 
         k = op2.Kernel("""static void k(void *x) {}""", 'k')
 
         op2.par_loop(k, iterset, d(op2.WRITE))
 
-        assert self.code_cache_len_equals(1)
+        assert len(self.cache) == 1
 
         d = op2.Dat(diterset, list(range(nelems)), numpy.int32)
         op2.par_loop(k, iterset, d(op2.WRITE))
 
-        assert self.code_cache_len_equals(2)
+        assert len(self.cache) == 2
 
     def test_change_global_dtype_matters(self, iterset, diterset):
-        g = op2.Global(1, 0, dtype=numpy.uint32, comm=COMM_WORLD)
-        self.cache.clear()
-        assert len(self.cache) == 0
+        if self.cache is not None:
+            self.cache.clear()
+            assert len(self.cache) == 0
 
+        g = op2.Global(1, 0, dtype=numpy.uint32, comm=COMM_WORLD)
         k = op2.Kernel("""static void k(void *x) {}""", 'k')
 
         op2.par_loop(k, iterset, g(op2.INC))
 
-        assert self.code_cache_len_equals(1)
+        assert len(self.cache) == 1
 
         g = op2.Global(1, 0, dtype=numpy.float64, comm=COMM_WORLD)
         op2.par_loop(k, iterset, g(op2.INC))
 
-        assert self.code_cache_len_equals(2)
+        assert len(self.cache) == 2
 
 
 class TestSparsityCache:
@@ -558,11 +580,6 @@ class TestSparsityCache:
 
 class TestDiskCachedDecorator:
 
-    @staticmethod
-    def myfunc(arg, comm):
-        """Example function to cache the outputs of."""
-        return {arg}
-
     @pytest.fixture
     def comm(self):
         """This fixture provides a temporary comm so that each test gets it's own
@@ -578,12 +595,16 @@ class TestDiskCachedDecorator:
         return tempfile.TemporaryDirectory()
 
     def test_decorator_in_memory_cache_reuses_results(self, cachedir, comm):
+        def myfunc(arg, comm):
+            """Example function to cache the outputs of."""
+            return {arg}
+
         decorated_func = memory_and_disk_cache(
             cachedir=cachedir.name
-        )(self.myfunc)
+        )(myfunc)
 
         obj1 = decorated_func("input1", comm=comm)
-        mem_cache = comm.Get_attr(comm_cache_keyval)[default_cache_name]
+        mem_cache, disk_cache = get_caches(comm, myfunc.__qualname__)
         assert len(mem_cache) == 1
         assert len(os.listdir(cachedir.name)) == 1
 
@@ -593,50 +614,60 @@ class TestDiskCachedDecorator:
         assert len(os.listdir(cachedir.name)) == 1
 
     def test_decorator_uses_different_in_memory_caches_on_different_comms(self, cachedir, comm):
+        def myfunc(arg, comm):
+            """Example function to cache the outputs of."""
+            return {arg}
+
         comm_world_func = memory_and_disk_cache(
             cachedir=cachedir.name
-        )(self.myfunc)
+        )(myfunc)
 
         temporary_comm = COMM_SELF.Dup()
         temporary_comm.name = "pytest temp COMM_SELF"
         with temp_internal_comm(temporary_comm) as comm_self:
             comm_self_func = memory_and_disk_cache(
                 cachedir=cachedir.name
-            )(self.myfunc)
+            )(myfunc)
 
             # obj1 should be cached on the COMM_WORLD cache
             obj1 = comm_world_func("input1", comm=comm)
-            comm_world_cache = comm.Get_attr(comm_cache_keyval)[default_cache_name]
-            assert len(comm_world_cache) == 1
+            comm_world_mem_cache, comm_world_disk_cache = get_caches(comm, myfunc.__qualname__)
+            assert len(comm_world_mem_cache) == 1
             assert len(os.listdir(cachedir.name)) == 1
 
             # obj2 should be cached on the COMM_SELF cache
             obj2 = comm_self_func("input1", comm=comm_self)
-            comm_self_cache = comm_self.Get_attr(comm_cache_keyval)[default_cache_name]
+            comm_self_mem_cache, comm_self_disk_cache = get_caches(comm_self, myfunc.__qualname__)
             assert obj1 == obj2 and obj1 is not obj2
-            assert len(comm_world_cache) == 1
-            assert len(comm_self_cache) == 1
+            assert len(comm_world_mem_cache) == 1
+            assert len(comm_self_mem_cache) == 1
             assert len(os.listdir(cachedir.name)) == 1
 
         temporary_comm.Free()
 
     def test_decorator_disk_cache_reuses_results(self, cachedir, comm):
-        decorated_func = memory_and_disk_cache(cachedir=cachedir.name)(self.myfunc)
+        def myfunc(arg, comm):
+            return {arg}
+
+        decorated_func = memory_and_disk_cache(cachedir=cachedir.name)(myfunc)
 
         obj1 = decorated_func("input1", comm=comm)
         clear_memory_cache(comm)
         obj2 = decorated_func("input1", comm=comm)
-        mem_cache = comm.Get_attr(comm_cache_keyval)[default_cache_name]
+        old_mem_cache, old_disk_cache, mem_cache, disk_cache = get_caches(comm, myfunc.__qualname__)
         assert obj1 == obj2 and obj1 is not obj2
         assert len(mem_cache) == 1
         assert len(os.listdir(cachedir.name)) == 1
 
     def test_decorator_cache_misses(self, cachedir, comm):
-        decorated_func = memory_and_disk_cache(cachedir=cachedir.name)(self.myfunc)
+        def myfunc(arg, comm):
+            return {arg}
+
+        decorated_func = memory_and_disk_cache(cachedir=cachedir.name)(myfunc)
 
         obj1 = decorated_func("input1", comm=comm)
         obj2 = decorated_func("input2", comm=comm)
-        mem_cache = comm.Get_attr(comm_cache_keyval)[default_cache_name]
+        mem_cache, disk_cache = get_caches(comm, myfunc.__qualname__)
         assert obj1 != obj2
         assert len(mem_cache) == 2
         assert len(os.listdir(cachedir.name)) == 2
@@ -850,7 +881,7 @@ def test_no_spmd_strict_disk_cache_obeys_spmd(bcast, slow_rank, tmpdir):
             hashkey=lambda: "cachekey",
             cachedir=tmpdir,
             bcast=bcast,
-            comm_getter=lambda: comm,
+            get_comm=lambda: comm,
         )(func)
 
         # Ensure ranks are synchronised at the start (so we can force them to not be)
@@ -898,7 +929,7 @@ def test_no_spmd_strict_disk_cache_race_condition(bcast, slow_rank, tmpdir):
             hashkey=lambda: "cachekey",
             cachedir=tmpdir,
             bcast=bcast,
-            comm_getter=lambda: subcomm,
+            get_comm=lambda: subcomm,
         )(func)
 
         # Ensure ranks are synchronised at the start (so we can force them to not be)

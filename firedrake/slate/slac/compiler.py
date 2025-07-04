@@ -8,6 +8,7 @@ compiler with appropriate kernel functions (in C) for evaluating integral
 expressions (finite element variational forms written in UFL).
 """
 import time
+from typing import Hashable
 
 from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
@@ -71,7 +72,7 @@ class SlateKernel(TSFCKernel):
         self.split_kernel = generate_loopy_kernel(expr, compiler_parameters)
 
 
-def _compile_expression_hashkey(slate_expr, compiler_parameters=None):
+def _compile_expression_hashkey(slate_expr, compiler_parameters=None) -> tuple[Hashable, ...]:
     params = copy.deepcopy(parameters)
     if compiler_parameters and "slate_compiler" in compiler_parameters.keys():
         params["slate_compiler"].update(compiler_parameters.pop("slate_compiler"))
@@ -79,7 +80,7 @@ def _compile_expression_hashkey(slate_expr, compiler_parameters=None):
         params["form_compiler"].update(compiler_parameters)
     # The getattr here is to defer validation to the `compile_expression` call
     # as the test suite checks the correct exceptions are raised on invalid input.
-    return getattr(slate_expr, "expression_hash", "ERROR") + str(sorted(params.items()))
+    return (getattr(slate_expr, "expression_hash", "ERROR") + str(sorted(params.items())))
 
 
 def _compile_expression_comm(*args, **kwargs):
@@ -90,7 +91,7 @@ def _compile_expression_comm(*args, **kwargs):
 
 @memory_and_disk_cache(
     hashkey=_compile_expression_hashkey,
-    comm_getter=_compile_expression_comm,
+    get_comm=_compile_expression_comm,
     cachedir=tsfc_interface._cachedir
 )
 @PETSc.Log.EventDecorator()
