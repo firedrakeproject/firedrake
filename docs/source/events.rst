@@ -8,6 +8,13 @@
 Firedrake events
 ----------------
 
+PETSc annual user meeting and Firedrake '26
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The eleventh Firedrake user and developer workshop will be held
+jointly with the PETSc annual user meeting near London between
+1-5 June 2026. For more information see :doc:`the workshop page <firedrake_26>`.
+
 Firedrake '25
 ~~~~~~~~~~~~~
 
@@ -19,7 +26,7 @@ information see :doc:`the workshop page <firedrake_25>`.
 CCP-DCM Hackathon
 ~~~~~~~~~~~~~~~~~
 
-In conjunction with our friends from FEniCS we're hosting a 3 day retreat in
+In conjunction with our friends from FEniCS we hosted a 3 day retreat in
 Totnes to write up demos based on users' use-cases for Firedrake and its
 downstream applications. For more details see `the website
 <https://ccp-dcm.github.io/exeter_hackathon.html>`__.
@@ -27,14 +34,14 @@ downstream applications. For more details see `the website
 Finite Element Course at AIMS Rwanda
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The Firedrake team will be presenting a short course on the Finite Element
+The Firedrake team presented a short course on the Finite Element
 Method at the African Institute for Mathematical Sciences in Kigali between 8
 and 12 April 2025. For more information see :doc:`the course page <aims_25>`.
 
 Firedrake USA'25
 ~~~~~~~~~~~~~~~~
 
-The ninth Firedrake user and developer workshop will be held 28 February
+The ninth Firedrake user and developer workshop was held 28 February
 and 1 March 2025 at Baylor University in Texas, USA.  For more information
 see :doc:`the workshop page <firedrake_usa_25>`.
 
