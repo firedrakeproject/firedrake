@@ -259,7 +259,13 @@ class Compiler(ABC):
         ))
 
     def __eq__(self, other) -> bool:
-        return type(other) is type(self) and hash(other) == hash(self)
+        return (
+            type(other) is type(self)
+            and other._extra_compiler_flags == self._extra_compiler_flags
+            and other._extra_linker_flags == self._extra_linker_flags
+            and other._version == self._version
+            and other._debug == self._debug
+        )
 
     @property
     def cc(self):
