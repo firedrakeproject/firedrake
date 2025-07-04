@@ -464,7 +464,7 @@ class RieszMap:
         soln = Function(self._function_space)
         lvp = LinearVariationalProblem(
             self._inner_product, rhs, soln, bcs=self._bcs,
-            restrict=self._restrict,
+            restrict=self._restrict, constant_jacobian=True,
             form_compiler_parameters=self._form_compiler_parameters)
         solver = LinearVariationalSolver(
             lvp, solver_parameters=self._solver_parameters
