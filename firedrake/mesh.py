@@ -528,7 +528,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
 
-    def __init__(self, topology_dm, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm):
+    def __init__(self, topology_dm, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm, submesh_parent=None):
         """Initialise a mesh topology.
 
         Parameters
@@ -566,6 +566,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         r"The PETSc SF that pushes the input (naive) plex to current (good) plex."
         self.sfXB = sfXB
         r"The PETSc SF that pushes the global point number slab [0, NX) to input (naive) plex."
+        self.submesh_parent = submesh_parent
         # User comm
         self.user_comm = comm
         # Internal comm
@@ -628,8 +629,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         # To set, do e.g.
         # target_mesh._parallel_compatible = {weakref.ref(source_mesh)}
         self._parallel_compatible = None
-        # submesh
-        self.submesh_parent = None
 
     layers = None
     """No layers on unstructured mesh"""
@@ -1086,7 +1085,19 @@ class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
 
     @PETSc.Log.EventDecorator("CreateMesh")
-    def __init__(self, plex, name, reorder, distribution_parameters, sfXB=None, perm_is=None, distribution_name=None, permutation_name=None, comm=COMM_WORLD):
+    def __init__(
+        self,
+        plex,
+        name,
+        reorder,
+        distribution_parameters,
+        sfXB=None,
+        perm_is=None,
+        distribution_name=None,
+        permutation_name=None,
+        submesh_parent=None,
+        comm=COMM_WORLD,
+    ):
         """Initialise a mesh topology.
 
         Parameters
@@ -1132,7 +1143,7 @@ class MeshTopology(AbstractMeshTopology):
         # Disable auto distribution and reordering before setFromOptions is called.
         plex.distributeSetDefault(False)
         plex.reorderSetDefault(PETSc.DMPlex.ReorderDefaultFlag.FALSE)
-        super().__init__(plex, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm)
+        super().__init__(plex, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm, submesh_parent=submesh_parent)
 
     def _distribute(self):
         # Distribute/redistribute the dm to all ranks
@@ -3083,16 +3094,19 @@ def Mesh(meshfile, **kwargs):
                                % (meshfile, ext[1:]))
         plex.setName(_generate_default_mesh_topology_name(name))
     # Create mesh topology
+    submesh_parent = kwargs.get("submesh_parent", None)
     topology = MeshTopology(plex, name=plex.getName(), reorder=reorder,
                             distribution_parameters=distribution_parameters,
                             distribution_name=kwargs.get("distribution_name"),
                             permutation_name=kwargs.get("permutation_name"),
+                            submesh_parent=submesh_parent.topology if submesh_parent else None,
                             comm=user_comm)
     if netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh):
         netgen_firedrake_mesh.createFromTopology(topology, name=name, comm=user_comm)
         mesh = netgen_firedrake_mesh.firedrakeMesh
     else:
         mesh = make_mesh_from_mesh_topology(topology, name)
+        mesh.submesh_parent=submesh_parent
     mesh._tolerance = tolerance
     return mesh
 
@@ -4670,8 +4684,13 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, ignore_label_halo=False
     subplex.setName(_generate_default_mesh_topology_name(name))
     if subplex.getDimension() != subdim:
         raise RuntimeError(f"Found subplex dim ({subplex.getDimension()}) != expected ({subdim})")
-    submesh = Mesh(subplex, name=name, distribution_parameters={"partition": False,
-                                                                "overlap_type": (DistributedMeshOverlapType.NONE, 0)})
-    submesh.topology.submesh_parent = mesh.topology
-    submesh.submesh_parent = mesh
+    submesh = Mesh(
+        subplex,
+        submesh_parent=mesh,
+        name=name,
+        distribution_parameters={
+            "partition": False,
+            "overlap_type": (DistributedMeshOverlapType.NONE, 0),
+        },
+    )
     return submesh
