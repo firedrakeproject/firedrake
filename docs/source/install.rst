@@ -25,6 +25,8 @@ applicable, though care will have to be taken to make sure that the right system
 packages are used. A community-maintained collection of instructions for how to install
 Firedrake onto a number of different HPC systems may be found
 `here <https://github.com/firedrakeproject/firedrake/wiki/HPC-installation>`__.
+If install on an HPC system not included in the wiki, please consider contributing a
+page describing the installation on that system.
 
 .. _pip_install_firedrake:
 
