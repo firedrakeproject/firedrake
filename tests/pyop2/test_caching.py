@@ -55,7 +55,6 @@ from pyop2.mpi import (
     MPI,
     COMM_WORLD,
     COMM_SELF,
-    comm_cache_keyval,
     internal_comm,
     temp_internal_comm
 )
