@@ -3106,7 +3106,7 @@ def Mesh(meshfile, **kwargs):
         mesh = netgen_firedrake_mesh.firedrakeMesh
     else:
         mesh = make_mesh_from_mesh_topology(topology, name)
-        mesh.submesh_parent=submesh_parent
+    mesh.submesh_parent=submesh_parent
     mesh._tolerance = tolerance
     return mesh
 
