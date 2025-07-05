@@ -22,20 +22,24 @@ import numpy as np
 from firedrake import *
 
 
-def trace_galerkin_projection(degree, quad=False,
-                              conv_test_flag=0, mesh_res=None):
-    # Create mesh if needed
-    if mesh_res is None:
-        mesh = UnitSquareMesh(10, 10, quadrilateral=quad)
-    elif isinstance(mesh_res, int):
-        mesh = UnitSquareMesh(2 ** mesh_res, 2 ** mesh_res, quadrilateral=quad)
-    else:
-        raise ValueError("Integers or None are only accepted for mesh_res.")
+@pytest.fixture(params=["triangle", "quadrilateral", "quadrilateral-extruded", "triangle-extruded"])
+def mh(request):
+    quad = request.param.startswith("quad")
+    extruded = request.param.endswith("extruded")
+    mesh = UnitSquareMesh(2, 2, quadrilateral=quad)
 
-    x, y = SpatialCoordinate(mesh)
+    refine = 2
+    mh = MeshHierarchy(mesh, refine)
+    if extruded:
+        mh = ExtrudedMeshHierarchy(mh, 1, 2)
+    return mh
+
+
+def trace_galerkin_projection(mesh, degree, conv_test_flag=0):
+    x, y, *_ = SpatialCoordinate(mesh)
 
     # Define the Trace Space
-    T = FunctionSpace(mesh, "HDiv Trace", degree)
+    T = FunctionSpace(mesh, "HDiv Trace", degree, variant="integral")
 
     # Define trial and test functions
     lambdar = TrialFunction(T)
@@ -52,44 +56,42 @@ def trace_galerkin_projection(degree, quad=False,
         raise ValueError("conv_test should be either 0 or 1")
     f.interpolate(cos(x*pi*2)*cos(y*pi*2))
 
+    ds_ext = ds_tb + ds_v if mesh.extruded else ds
+    dS_int = dS_h + dS_v if mesh.extruded else dS
+
     # Construct bilinear form
-    a = inner(lambdar, gammar) * ds + inner(lambdar('+'), gammar('+')) * dS
+    a = inner(lambdar, gammar) * ds_ext + inner(lambdar('+'), gammar('+')) * dS_int
 
     # Construct linear form
-    l = inner(f, gammar) * ds + inner(f('+'), gammar('+')) * dS
+    l = inner(f, gammar) * ds_ext + inner(f('+'), gammar('+')) * dS_int
 
     # Compute the solution
     t = Function(T)
-    solve(a == l, t, solver_parameters={'ksp_rtol': 1e-14})
+    solve(a == l, t, solver_parameters={'mat_type': 'matfree', 'ksp_rtol': 1e-14, 'ksp_type': 'cg', 'pc_type': 'jacobi'})
 
     # Compute error in trace norm
-    trace_error = sqrt(assemble(FacetArea(mesh)*inner((t - f)('+'), (t - f)('+')) * dS))
+    trace_error = sqrt(assemble(FacetArea(mesh)*inner((t - f)('+'), (t - f)('+')) * dS_int))
 
     return trace_error
 
 
-@pytest.mark.parametrize('degree', range(1, 4))
-@pytest.mark.parametrize('quad', [False, True])
-def test_trace_galerkin_projection(degree, quad):
+@pytest.mark.parametrize('degree', range(1, 3))
+def test_trace_galerkin_projection(mh, degree):
     """Tests the accuracy of the trace solution for the Galerkin
     projection problem."""
-    tr_err = trace_galerkin_projection(degree=degree,
-                                       quad=quad,
+    mesh = mh[-1]
+    tr_err = trace_galerkin_projection(mesh, degree=degree,
                                        conv_test_flag=0)
     assert tr_err < 1e-13
 
 
-@pytest.mark.parametrize(('testdegree', 'convrate'),
-                         [(1, 1.5), (2, 2.5), (3, 3.5)])
-@pytest.mark.parametrize('quad', [False, True])
-def test_convergence_rates_trace_galerkin_projection(testdegree,
-                                                     convrate, quad):
+@pytest.mark.parametrize('testdegree', range(3))
+def test_convergence_rates_trace_galerkin_projection(mh, testdegree):
     """Tests for degree + (1/2) order convergence of the trace problem."""
-    l2errors = np.array([trace_galerkin_projection(degree=testdegree,
-                                                   quad=quad,
-                                                   conv_test_flag=1,
-                                                   mesh_res=r)
-                         for r in range(1, 5)])
+    convrate = testdegree + 0.5
+    l2errors = np.array([trace_galerkin_projection(mesh, degree=testdegree,
+                                                   conv_test_flag=1)
+                         for mesh in mh])
     conv = np.log2(l2errors[:-1] / l2errors[1:])[-1]
     print("Convergence order: ", conv)
     assert conv > 0.9*convrate
