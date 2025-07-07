@@ -29,6 +29,7 @@ from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsEr
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype as get_dat_mpi_type
 from firedrake.cofunction import Cofunction
+from firedrake.function import Function
 from mpi4py import MPI
 
 from pyadjoint import stop_annotating, no_annotations
@@ -150,7 +151,7 @@ class Interpolate(ufl.Interpolate):
 
 
 @PETSc.Log.EventDecorator()
-def interpolate(expr, V, *args, **kwargs):
+def interpolate(expr, V, *function, subset=None, access=op2.WRITE, allow_missing_dofs=False, default_missing_val=None):
     """Returns a UFL expression for the interpolation operation of ``expr`` into ``V``.
 
     :arg expr: a UFL expression.
@@ -204,13 +205,36 @@ def interpolate(expr, V, *args, **kwargs):
        performance by using an :class:`Interpolator` instead.
 
     """
-    default_missing_val = kwargs.pop("default_missing_val", None)
     if isinstance(V, Cofunction):
+        V = V.function_space().dual()
         adjoint = bool(extract_arguments(expr))
-        return Interpolator(
-            expr, V.function_space().dual(), *args, **kwargs
-        ).interpolate(V, adjoint=adjoint, default_missing_val=default_missing_val)
-    return Interpolator(expr, V, *args, **kwargs).interpolate(default_missing_val=default_missing_val)
+    elif isinstance(V, Function):
+        V = V.function_space()
+
+    # Cope with the different convention of `Interpolate` and `Interpolator`:
+    #  -> Interpolate(Argument(V1, 1), Argument(V2.dual(), 0))
+    #  -> Interpolator(Argument(V1, 0), V2)
+    expr_args = extract_arguments(expr)
+    if expr_args and expr_args[0].number() == 0:
+        v, = expr_args
+        expr_renumbered = replace(expr, {v: v.reconstruct(number=1)})
+
+    interp = Interpolate(expr_renumbered, V,
+                        subset=subset,
+                        access=access,
+                        allow_missing_dofs=allow_missing_dofs,
+                        default_missing_val=default_missing_val)
+    if adjoint:
+        interp = expr_adjoint(interp)
+
+    if function:
+        f, = function
+        # Passing in a function is equivalent to taking the action.
+        interp = action(interp, f)
+
+    # Return the `ufl.Interpolate` object
+    return interp
+
 
 
 class Interpolator(abc.ABC):
