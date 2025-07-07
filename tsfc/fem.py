@@ -98,11 +98,12 @@ class ContextBase(ProxyKernelInterface):
         :arg restriction: Restriction of the modified terminal, used
                           for entity selection.
         """
-        if len(self.entity_ids) == 1:
-            return callback(self.entity_ids[0])
+        entity_ids = list(range(len(as_fiat_cell(domain.ufl_cell()).get_topology()[self.integration_dim])))
+        if len(entity_ids) == 1:
+            return callback(entity_ids[0])
         else:
             f = self.entity_number(domain, restriction)
-            return gem.select_expression(list(map(callback, self.entity_ids)), f)
+            return gem.select_expression(list(map(callback, entity_ids)), f)
 
     argument_multiindices = ()
 
@@ -488,10 +489,12 @@ def make_cell_facet_jacobian(cell, facet_dim, facet_i):
 
 @translate.register(ReferenceNormal)
 def translate_reference_normal(terminal, mt, ctx):
+    domain = extract_unique_domain(terminal)
+    fiat_cell = as_fiat_cell(domain.ufl_cell())
     def callback(facet_i):
-        n = ctx.fiat_cell.compute_reference_normal(ctx.integration_dim, facet_i)
+        n = fiat_cell.compute_reference_normal(ctx.integration_dim, facet_i)
         return gem.Literal(n)
-    return ctx.entity_selector(callback, extract_unique_domain(terminal), mt.restriction)
+    return ctx.entity_selector(callback, domain, mt.restriction)
 
 
 @translate.register(ReferenceCellEdgeVectors)
@@ -703,7 +706,9 @@ def translate_coefficient(terminal, mt, ctx):
 
     # Collect FInAT tabulation for all entities
     per_derivative = collections.defaultdict(list)
-    for entity_id in ctx.entity_ids:
+    #for entity_id in ctx.entity_ids:
+    entity_ids = list(range(len(element.cell.get_topology()[ctx.integration_dim])))
+    for entity_id in entity_ids:
         finat_dict = ctx.basis_evaluation(element, mt, entity_id)
         for alpha, table in finat_dict.items():
             # Filter out irrelevant derivatives
@@ -715,7 +720,7 @@ def translate_coefficient(terminal, mt, ctx):
                 per_derivative[alpha].append(table)
 
     # Merge entity tabulations for each derivative
-    if len(ctx.entity_ids) == 1:
+    if len(entity_ids) == 1:
         def take_singleton(xs):
             x, = xs  # asserts singleton
             return x

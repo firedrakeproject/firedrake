@@ -870,7 +870,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
         elif vom_onto_other_vom:
             argfs_map = argfs.cell_node_map()
         else:
-            argfs_map = argfs.entity_node_map(target_mesh.topology, "cell", None, None)
+            argfs_map = argfs.entity_node_map(target_mesh.topology, "cell", "everywhere", None)
         if vom_onto_other_vom:
             # We make our own linear operator for this case using PETSc SFs
             tensor = None
@@ -1074,7 +1074,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
                     columns_map = compose_map_and_cache(target_mesh.cell_parent_cell_map,
                                                         columns_map)
         else:
-            columns_map = Vcol.entity_node_map(target_mesh.topology, "cell", None, None)
+            columns_map = Vcol.entity_node_map(target_mesh.topology, "cell", "everywhere", None)
         lgmaps = None
         if bcs:
             bc_rows = [bc for bc in bcs if bc.function_space() == V]
@@ -1113,7 +1113,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
             else:
                 raise ValueError("Have coefficient with unexpected mesh")
         else:
-            m_ = coefficient.function_space().entity_node_map(target_mesh.topology, "cell", None, None)
+            m_ = coefficient.function_space().entity_node_map(target_mesh.topology, "cell", "everywhere", None)
         parloop_args.append(coefficient.dat(op2.READ, m_))
 
     for const in extract_firedrake_constants(expr):
