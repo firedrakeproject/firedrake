@@ -54,7 +54,7 @@ firedrake-configure
 To simplify the installation process, Firedrake provides a utility script called
 ``firedrake-configure``. This script can be downloaded by executing::
 
-  $ curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/refs/tags/2025.4.1/scripts/firedrake-configure
+  $ curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/refs/tags/2025.4.2/scripts/firedrake-configure
 
 Unlike the now deprecated ``firedrake-install`` script, ``firedrake-configure``
 **does not install Firedrake for you**. It is simply a helper script that emits
@@ -566,7 +566,7 @@ package.
 .. _discussion: https://github.com/firedrakeproject/firedrake/discussions
 .. _issue: https://github.com/firedrakeproject/firedrake/issues
 .. _homebrew: https://brew.sh/
-.. _PETSc: https://www.mcs.anl.gov/petsc/
+.. _PETSc: https://petsc.org/
 .. _petsc4py: https://petsc.org/release/petsc4py/reference/petsc4py.html
 .. _venv: https://docs.python.org/3/tutorial/venv.html
 .. _WSL: https://github.com/firedrakeproject/firedrake/wiki/Installing-on-Windows-Subsystem-for-Linux
