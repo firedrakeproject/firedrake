@@ -87,6 +87,12 @@ class KernelBuilderBase(KernelInterface):
         else:
             return self._cell_sizes[domain]
 
+    def entity_ids(self, domain):
+        """Target indices of entity_number."""
+        if not hasattr(self, "_entity_ids"):
+            raise RuntimeError("Haven't called set_entity_numbers")
+        return self._entity_ids[domain]
+
     def entity_number(self, domain, restriction):
         """Facet or vertex number as a GEM index."""
         if not hasattr(self, "_entity_numbers"):
@@ -244,11 +250,10 @@ class KernelBuilderMixin(object):
         integral_type = info.integral_type
         cell = info.domain.ufl_cell()
         fiat_cell = as_fiat_cell(cell)
-        integration_dim, entity_ids = lower_integral_type(fiat_cell, integral_type)
+        integration_dim, _ = lower_integral_type(fiat_cell, integral_type)
         return dict(interface=self,
                     ufl_cell=cell,
                     integration_dim=integration_dim,
-                    entity_ids=entity_ids,
                     scalar_type=self.fem_scalar_type)
 
     def create_context(self):
@@ -332,8 +337,8 @@ def set_quad_rule(params, cell, integral_type, functions):
         fiat_cell = as_fiat_cell(cell)
         finat_elements = set(create_element(e) for e in elements if e.family() != "Real")
         fiat_cells = [fiat_cell] + [finat_el.complex for finat_el in finat_elements]
-        fiat_cell = max_complex(fiat_cells)
-
+        if any(c.is_macrocell() for c in fiat_cells):
+            fiat_cell = max_complex(fiat_cells)
         integration_dim, _ = lower_integral_type(fiat_cell, integral_type)
         quad_rule = fem.get_quadrature_rule(fiat_cell, integration_dim, quadrature_degree, scheme)
         params["quadrature_rule"] = quad_rule

@@ -16,6 +16,7 @@ import gem
 import gem.impero_utils as impero_utils
 
 import finat
+from finat.element_factory import as_fiat_cell
 
 from tsfc import fem, ufl_utils
 from tsfc.logging import logger
@@ -247,6 +248,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
         domain = extract_unique_domain(expression)
     assert domain is not None
     builder._domain_integral_type_map = {domain: "cell"}
+    builder._entity_ids = {domain: (0,)}
 
     # Collect required coefficients and determine numbering
     coefficients = extract_coefficients(expression)
@@ -280,6 +282,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     # Set up kernel config for translation of UFL expression to gem
     kernel_cfg = dict(interface=builder,
                       ufl_cell=domain.ufl_cell(),
+                      integration_dim=as_fiat_cell(domain.ufl_cell()).get_dimension(),
                       # FIXME: change if we ever implement
                       # interpolation on facets.
                       argument_multiindices=argument_multiindices,
