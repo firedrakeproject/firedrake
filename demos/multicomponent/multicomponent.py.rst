@@ -48,13 +48,13 @@ We use :doc:`netgen <netgen_mesh.py>` to build a curved mesh of order :math:`k=3
     import os
     if os.getenv("FIREDRAKE_CI") == "1": 
         maxh = 0.14
-        k = 2
+        k = 1
     else:
         maxh = 0.055
 
     # Construct the mesh
     ngmesh = ngocc.OCCGeometry(Omega, dim=2).GenerateMesh(maxh=maxh)
-    mesh = Mesh(Mesh(ngmesh).curve_field(k))
+    mesh = Mesh(Mesh(ngmesh).curve_field(max(k, 2)))
 
     # Get the IDs of the inlets, outlet and walls
     inlet_1_id = tuple(i+1 for i, name in enumerate(ngmesh.GetRegionNames(dim=1)) if name == "inlet_1")
@@ -92,13 +92,13 @@ The equations governing these unknowns are presented below.
 We first define the finite element spaces and trial/test functions::
 
     # The finite element spaces
-    J_h = FunctionSpace(mesh, "BDM", k)             # Species mass-flux space
-    V_h = VectorFunctionSpace(mesh, "CG", k)        # Velocity space
-    U_h = FunctionSpace(mesh, "DG", k - 1)          # Species chemical potential space
-    P_h = FunctionSpace(mesh, "CG", k - 1)          # Pressure space
-    X_h = FunctionSpace(mesh, "DG", k - 1)          # Species mole fraction space
-    R_h = FunctionSpace(mesh, "CG", k - 1)          # Density reciprocal space
-    L_h = FunctionSpace(mesh, "R", 0)               # Lagrange multiplier space
+    J_h = FunctionSpace(mesh, "BDM", k)                 # Species mass-flux space
+    V_h = VectorFunctionSpace(mesh, "CG", max(k, 2))    # Velocity space (minimum order is 2)
+    U_h = FunctionSpace(mesh, "DG", k - 1)              # Species chemical potential space
+    P_h = FunctionSpace(mesh, "CG", max(k - 1, 1))      # Pressure space (minimum order is 1)
+    X_h = FunctionSpace(mesh, "DG", k - 1)              # Species mole fraction space
+    R_h = FunctionSpace(mesh, "CG", max(k - 1, 1))      # Density reciprocal space (minimum order is 1)
+    L_h = FunctionSpace(mesh, "R", 0)                   # Lagrange multiplier space
 
     # The mixed space
     Z_h = J_h * J_h * V_h * U_h * U_h * P_h * X_h * X_h * R_h * L_h * L_h
