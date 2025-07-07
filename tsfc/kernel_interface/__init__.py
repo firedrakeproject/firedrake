@@ -30,6 +30,10 @@ class KernelInterface(metaclass=ABCMeta):
         """Mesh cell size as a GEM expression.  Shape (nvertex, ) in FIAT vertex ordering."""
 
     @abstractmethod
+    def entity_ids(self, domain):
+        """Target indices of entity_number."""
+
+    @abstractmethod
     def entity_number(self, domain, restriction):
         """Facet or vertex number as a GEM index."""
 
