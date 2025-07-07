@@ -47,7 +47,7 @@ We use :doc:`netgen <netgen_mesh.py>` to build a curved mesh of order :math:`k=3
     # Smaller problem when running CI tests
     import os
     if os.getenv("FIREDRAKE_CI") == "1": 
-        maxh = 0.14
+        maxh = 0.3
         k = 1
     else:
         maxh = 0.055
@@ -567,7 +567,13 @@ VTK file using the :code:`time` keyword argument. ::
 
     outfile = VTKFile("out/solution.pvd")
     vmax = 0.4e-5
+
     cont_vals = [0.1 * vmax, 0.25 * vmax, 0.5 * vmax, 0.75 * vmax, vmax]
+
+    if os.getenv("FIREDRAKE_CI") == "1":
+        # Smaller problem when running CI tests
+        cont_vals = cont_vals[0:2]
+
     n_cont = len(cont_vals)
 
     names = ["J_1", "J_2", "v", "mu_aux_1", "mu_aux_2", "p", "x_1", "x_2",
