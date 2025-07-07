@@ -9,7 +9,7 @@ from typing import Hashable
 import FIAT
 import ufl
 import finat.ufl
-from ufl.algorithms import extract_arguments, extract_coefficients, replace
+from ufl.algorithms import ad, extract_arguments, extract_coefficients, replace
 from ufl.domain import as_domain, extract_unique_domain
 
 from pyop2 import op2
@@ -205,6 +205,7 @@ def interpolate(expr, V, *function, subset=None, access=op2.WRITE, allow_missing
        performance by using an :class:`Interpolator` instead.
 
     """
+    adjoint = False
     if isinstance(V, Cofunction):
         V = V.function_space().dual()
         adjoint = bool(extract_arguments(expr))
@@ -217,9 +218,9 @@ def interpolate(expr, V, *function, subset=None, access=op2.WRITE, allow_missing
     expr_args = extract_arguments(expr)
     if expr_args and expr_args[0].number() == 0:
         v, = expr_args
-        expr_renumbered = replace(expr, {v: v.reconstruct(number=1)})
+        expr = replace(expr, {v: v.reconstruct(number=1)})
 
-    interp = Interpolate(expr_renumbered, V,
+    interp = Interpolate(expr, V,
                         subset=subset,
                         access=access,
                         allow_missing_dofs=allow_missing_dofs,
