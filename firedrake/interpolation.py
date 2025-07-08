@@ -151,7 +151,7 @@ class Interpolate(ufl.Interpolate):
 
 
 @PETSc.Log.EventDecorator()
-def interpolate(expr, V, *function, subset=None, access=op2.WRITE, allow_missing_dofs=False, default_missing_val=None):
+def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False, default_missing_val=None):
     """Returns a UFL expression for the interpolation operation of ``expr`` into ``V``.
 
     :arg expr: a UFL expression.
@@ -207,10 +207,14 @@ def interpolate(expr, V, *function, subset=None, access=op2.WRITE, allow_missing
     """
     adjoint = False
     if isinstance(V, Cofunction):
-        V = V.function_space().dual()
+        function_space = V.function_space().dual()
         adjoint = bool(extract_arguments(expr))
     elif isinstance(V, Function):
-        V = V.function_space()
+        function_space = V.function_space()
+    elif isinstance(V, functionspaceimpl.WithGeometry):
+        function_space = V
+    else:
+        raise TypeError("V must be a FunctionSpace, Function or Cofunction, not %s" % type(V))
 
     # Cope with the different convention of `Interpolate` and `Interpolator`:
     #  -> Interpolate(Argument(V1, 1), Argument(V2.dual(), 0))
@@ -220,7 +224,7 @@ def interpolate(expr, V, *function, subset=None, access=op2.WRITE, allow_missing
         v, = expr_args
         expr = replace(expr, {v: v.reconstruct(number=1)})
 
-    interp = Interpolate(expr, V,
+    interp = Interpolate(expr, function_space,
                         subset=subset,
                         access=access,
                         allow_missing_dofs=allow_missing_dofs,
@@ -228,10 +232,9 @@ def interpolate(expr, V, *function, subset=None, access=op2.WRITE, allow_missing
     if adjoint:
         interp = expr_adjoint(interp)
 
-    if function:
-        f, = function
-        # Passing in a function is equivalent to taking the action.
-        interp = action(interp, f)
+    if isinstance(V, (Function, Cofunction)):
+        # Passing in a function / cofunction is equivalent to taking the action.
+        interp = action(interp, V)
 
     return interp
 
