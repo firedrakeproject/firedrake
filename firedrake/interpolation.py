@@ -233,7 +233,6 @@ def interpolate(expr, V, *function, subset=None, access=op2.WRITE, allow_missing
         # Passing in a function is equivalent to taking the action.
         interp = action(interp, f)
 
-    # Return the `ufl.Interpolate` object
     return interp
 
 
