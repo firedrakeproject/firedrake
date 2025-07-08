@@ -189,7 +189,7 @@ def interpolate(expr, V, *function, subset=None, access=op2.WRITE, allow_missing
     .. note::
 
        If you use an access descriptor other than ``WRITE``, the
-       behaviour of interpolation is changes if interpolating into a
+       behaviour of interpolation changes if interpolating into a
        function space, or an existing function. If the former, then
        the newly allocated function will be initialised with
        appropriate values (e.g. for MIN access, it will be initialised
