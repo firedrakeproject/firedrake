@@ -9,7 +9,7 @@ from typing import Hashable
 import FIAT
 import ufl
 import finat.ufl
-from ufl.algorithms import ad, extract_arguments, extract_coefficients, replace
+from ufl.algorithms import extract_arguments, extract_coefficients, replace
 from ufl.domain import as_domain, extract_unique_domain
 
 from pyop2 import op2
