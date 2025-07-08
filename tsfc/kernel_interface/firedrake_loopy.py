@@ -367,6 +367,8 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
                     '+': gem.OrientationVariableIndex(gem.Indexed(facet_orientation, (0,))),
                     '-': gem.OrientationVariableIndex(gem.Indexed(facet_orientation, (0,)))
                 }
+            else:
+                self._entity_orientations[domain] = {None: None}
 
     def set_coefficients(self):
         """Prepare the coefficients of the form."""
