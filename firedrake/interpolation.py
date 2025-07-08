@@ -217,10 +217,9 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
         expr = replace(expr, {v: v.reconstruct(number=1)})
 
     interp = Interpolate(expr, function_space,
-                        subset=subset,
-                        access=access,
-                        allow_missing_dofs=allow_missing_dofs,
-                        default_missing_val=default_missing_val)
+                         subset=subset, access=access,
+                         allow_missing_dofs=allow_missing_dofs,
+                         default_missing_val=default_missing_val)
     if adjoint:
         interp = expr_adjoint(interp)
 
@@ -229,7 +228,6 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
         interp = action(interp, V)
 
     return interp
-
 
 
 class Interpolator(abc.ABC):
