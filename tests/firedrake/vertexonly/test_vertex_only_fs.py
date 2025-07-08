@@ -177,9 +177,9 @@ def functionspace_tests(vm):
 def vectorfunctionspace_tests(vm):
     # Prep
     gdim = vm.geometric_dimension()
-    num_cells = len(vm.coordinates.dat.data_ro)
+    num_cells = vm.cells.owned.size
     num_cells_mpi_global = MPI.COMM_WORLD.allreduce(num_cells, op=MPI.SUM)
-    num_cells_halo = len(vm.coordinates.dat.data_ro_with_halos) - num_cells
+    num_cells_halo = vm.cells.size - num_cells
     # Can create DG0 function space
     V = VectorFunctionSpace(vm, "DG", 0)
     # Can't create with degree > 0
@@ -193,8 +193,8 @@ def vectorfunctionspace_tests(vm):
     f.interpolate(2*x)
     g.project(2*x)
     # Should have 1 DOF per cell so check DOF DataSet
-    assert f.function_space().axes.owned.size == g.function_space().axes.owned.size == vm.cells.owned.size == num_cells
-    assert f.function_space().axes.size == g.function_space().axes.size == vm.cells.size == num_cells + num_cells_halo
+    assert f.function_space().axes.owned.size // gdim == g.function_space().axes.owned.size // gdim == num_cells
+    assert f.function_space().axes.size // gdim == g.function_space().axes.size // gdim == num_cells + num_cells_halo
     # The function should take on the value of the expression applied to
     # the vertex only mesh coordinates (with no change to coordinate ordering)
     assert np.allclose(f.dat.data_ro, 2*vm.coordinates.dat.data_ro)
@@ -223,21 +223,21 @@ def vectorfunctionspace_tests(vm):
     input_ordering_parent_cell_nums = vm.input_ordering.topology_dm.getField("parentcellnum").ravel()
     vm.input_ordering.topology_dm.restoreField("parentcellnum")
     idxs_to_include = input_ordering_parent_cell_nums != -1
-    assert np.allclose(h.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
-    assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == -1)
+    assert np.allclose(h.dat.data_ro.reshape((-1, gdim))[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos.reshape((-1, gdim))[idxs_to_include])
+    assert np.all(h.dat.data_ro_with_halos.reshape((-1, gdim))[~idxs_to_include] == -1)
     # check other interpolation APIs work identically
     h2 = assemble(interpolate(g, W))
-    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
+    assert np.allclose(h2.dat.data_ro_with_halos.reshape((-1, gdim))[idxs_to_include], h.dat.data_ro_with_halos.reshape((-1, gdim))[idxs_to_include])
     I = Interpolator(g, W)
     h2 = assemble(I.interpolate())
-    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
+    assert np.allclose(h2.dat.data_ro_with_halos.reshape((-1, gdim))[idxs_to_include], h.dat.data_ro_with_halos.reshape((-1, gdim))[idxs_to_include])
     h2.zero()
     assemble(I.interpolate(), tensor=h2)
-    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
+    assert np.allclose(h2.dat.data_ro_with_halos.reshape((-1, gdim))[idxs_to_include], h.dat.data_ro_with_halos.reshape((-1, gdim))[idxs_to_include])
     # check we can interpolate expressions
     h2 = Function(W)
     h2.interpolate(2*g)
-    assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
+    assert np.allclose(h2.dat.data_ro.reshape((-1, gdim))[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos.reshape((-1, gdim))[idxs_to_include])
     # Check that the opposite works
     g.dat.data_wo_with_halos[:] = -1
     g.interpolate(h)
@@ -248,11 +248,11 @@ def vectorfunctionspace_tests(vm):
     # we introduce cofunctions, this will need to be rewritten.
     I_io = Interpolator(TestFunction(V), W)
     h = assemble(I_io.interpolate(g))
-    assert np.allclose(h.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
-    assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
+    assert np.allclose(h.dat.data_ro.reshape((-1, gdim))[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos.reshape((-1, gdim))[idxs_to_include])
+    assert np.all(h.dat.data_ro_with_halos.reshape((-1, gdim))[~idxs_to_include] == 0)
     I2_io = Interpolator(2*TestFunction(V), W)
     h2 = assemble(I2_io.interpolate(g))
-    assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
+    assert np.allclose(h2.dat.data_ro.reshape((-1, gdim))[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos.reshape((-1, gdim))[idxs_to_include])
 
     h_star = h.riesz_representation(riesz_map="l2")
     g = assemble(I_io.interpolate(h_star, adjoint=True))
@@ -265,12 +265,12 @@ def vectorfunctionspace_tests(vm):
     I_io_adjoint = Interpolator(TestFunction(W), V)
     I2_io_adjoint = Interpolator(2*TestFunction(W), V)
     h_star = assemble(I_io_adjoint.interpolate(g, adjoint=True))
-    assert np.allclose(h_star.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
-    assert np.all(h_star.dat.data_ro_with_halos[~idxs_to_include] == 0)
+    assert np.allclose(h_star.dat.data_ro.reshape((-1, gdim))[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos.reshape((-1, gdim))[idxs_to_include])
+    assert np.all(h_star.dat.data_ro_with_halos.reshape((-1, gdim))[~idxs_to_include] == 0)
     with pytest.raises(NotImplementedError):
         # Can't use adjoint on interpolators with expressions yet
         h2 = assemble(I2_io_adjoint.interpolate(g, adjoint=True))
-        assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
+        assert np.allclose(h2.dat.data_ro.reshape((-1, gdim))[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos.reshape((-1, gdim))[idxs_to_include])
 
     h = h_star.riesz_representation(riesz_map="l2")
     g = assemble(I_io_adjoint.interpolate(h))

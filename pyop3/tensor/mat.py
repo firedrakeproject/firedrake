@@ -539,20 +539,24 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
         else:
             comm = utils.unique_comm((row_axes, column_axes))
 
-            row_bsize, column_bsize = partial_spec.block_shape
-            if row_bsize > 1:
-                row_axes = row_axes.blocked([row_bsize])
-            if column_bsize > 1:
-                column_axes = column_axes.blocked([column_bsize])
-
             nrows = row_axes.unindexed.owned.size
             ncolumns = column_axes.unindexed.owned.size
 
+            row_bsize, column_bsize = partial_spec.block_shape
+            if row_bsize > 1:
+                blocked_row_axes = row_axes.blocked([row_bsize])
+            else:
+                blocked_row_axes = row_axes
+            if column_bsize > 1:
+                blocked_column_axes = column_axes.blocked([column_bsize])
+            else:
+                blocked_column_axes = column_axes
+
             row_lgmap = PETSc.LGMap().create(
-                row_axes.unindexed.global_numbering, bsize=row_bsize, comm=comm
+                blocked_row_axes.unindexed.global_numbering, bsize=row_bsize, comm=comm
             )
             column_lgmap = PETSc.LGMap().create(
-                column_axes.unindexed.global_numbering, bsize=column_bsize, comm=comm
+                blocked_column_axes.unindexed.global_numbering, bsize=column_bsize, comm=comm
             )
 
             row_spec = PetscMatAxisSpec(nrows, row_lgmap, row_bsize)
