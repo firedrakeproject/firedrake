@@ -1,7 +1,6 @@
 import pytest
 
 from firedrake import *
-from firedrake.__future__ import *
 from firedrake.adjoint import *
 from firedrake.adjoint_utils.checkpointing import disk_checkpointing
 from checkpoint_schedules import SingleDiskStorageSchedule

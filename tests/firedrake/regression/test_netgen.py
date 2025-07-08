@@ -1,5 +1,4 @@
 from firedrake import *
-from firedrake.__future__ import interpolate
 import numpy as np
 import pytest
 pytest.skip(allow_module_level=True, reason="pyop3 TODO")

@@ -2,8 +2,6 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.utils import ScalarType_c
-from firedrake.__future__ import *
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(scope="module")
