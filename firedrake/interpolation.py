@@ -214,7 +214,7 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
     elif isinstance(V, functionspaceimpl.WithGeometry):
         function_space = V
     else:
-        raise TypeError("V must be a FunctionSpace, Function or Cofunction, not %s" % type(V))
+        raise TypeError(f"V must be a FunctionSpace, Function or Cofunction, not {type(V)}")
 
     # Cope with the different convention of `Interpolate` and `Interpolator`:
     #  -> Interpolate(Argument(V1, 1), Argument(V2.dual(), 0))
