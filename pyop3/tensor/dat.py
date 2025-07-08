@@ -4,6 +4,7 @@ import abc
 import collections
 import contextlib
 import dataclasses
+import functools
 import sys
 from functools import cached_property
 from typing import Any, ClassVar, Sequence
@@ -741,7 +742,18 @@ class NonlinearMatBufferExpression(MatBufferExpression, NonlinearBufferExpressio
     #     return f"{self.buffer.name}[{self.row_layout}, {self.column_layout}]"
 
 
+@functools.singledispatch
 def as_linear_buffer_expression(dat: Dat) -> LinearDatBufferExpression:
+    raise TypeError
+
+
+@as_linear_buffer_expression.register
+def _(expr: LinearDatBufferExpression) -> LinearDatBufferExpression:
+    return expr
+
+
+@as_linear_buffer_expression.register
+def _(dat: Dat) -> LinearDatBufferExpression:
     dat = dat.localize()
 
     if not dat.axes.is_linear:

@@ -980,6 +980,11 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     def _(cls, axis: Axis) -> Axis:
         return axis
 
+    @as_node.register(numbers.Integral)
+    @classmethod
+    def _(cls, num: numbers.Integral) -> Axis:
+        return Axis(AxisComponent(num))
+
     # }}}
 
     def __init__(self, *args, **kwargs):
@@ -1308,7 +1313,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         axis = self.node_map[path]
         targets = {}
 
-        if path== immutabledict():
+        if path == immutabledict():
             target_path_acc, target_exprs_acc = targets_per_axis.get(path, (immutabledict(), immutabledict()))
             targets[path] = (target_path_acc, target_exprs_acc)
 
@@ -2011,7 +2016,7 @@ class IndexedAxisTree(AbstractAxisTree):
         # do_loop(p := self.index(), mask_dat[p].assign(1))
         # indices = just_one(np.nonzero(mask_dat.buffer.data_ro))
 
-        indices_dat = Dat.empty(self.materialize(), dtype=IntType, prefix="indices")
+        indices_dat = Dat.empty(self.materialize().localize(), dtype=IntType, prefix="indices")
         for leaf_path in self.leaf_paths:
             iterset = self.linearize(leaf_path)
             p = iterset.index()

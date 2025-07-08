@@ -357,6 +357,7 @@ class TestFunctionSpaceLayout:
             [("mesh",), ("mesh", "field", "dof", "dof")],
             # This is only valid because the subspaces match
             # FIXME: currently fails because the axes aren't quite identical
+            # TODO: Test this, should now work
             # [("mesh", "dof"), ("mesh", "dof", "field")],
             # Invalid configurations
             [("dof",), None],

@@ -787,7 +787,7 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
 
                 # traverse the input axes and collect the final target path
                 if len(input_targets) == 1:
-                    input_path, input_exprs = input_targets[immutabledict()]
+                    input_path, input_exprs = utils.just_one(input_targets.values())
                 else:
                     raise NotImplementedError
 
@@ -814,7 +814,8 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
                     )
 
                     axes_ = axes_.add_axis(input_leaf_path, subaxis)
-                    targets.update(subtargets)
+                    for subtarget_key, subtarget_value in subtargets.items():
+                        targets[input_leaf_path | subtarget_key] = subtarget_value
 
             if not found:
                 assert False

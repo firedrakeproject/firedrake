@@ -3444,31 +3444,28 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
         cell_parent_cell_list = np.copy(self.topology_dm.getField("parentcellnum").ravel())
         self.topology_dm.restoreField("parentcellnum")
-        plex_parent_cell_nums = np.empty(self.num_cells(), dtype=IntType)
-        for i, pt in enumerate(range(self.num_cells())):
-            plex_parent_cell_nums[i] = self._parent_mesh.topology.points.applied_to_default_component_number("0", pt)
-        # return cell_parent_cell_list[self.cell_closure[:, -1]]
-        return cell_parent_cell_list[plex_parent_cell_nums]
+        plex_parent_cell_nums = np.empty(self.num_cells, dtype=IntType)
+        return cell_parent_cell_list[self.cell_closure[:, -1]]
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_cell_map(self):
         """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh cells.
         """
-        src_path = self.points.as_tree().path(*self.points.as_tree().leaf)
         dest_axis = self._parent_mesh.name
         dest_stratum = self._parent_mesh.cell_label
 
-        axes = op3.AxisTree.from_iterable((self.points, 1))
-        dat = op3.Dat(axes, data=self.cell_parent_cell_list)
+        map_axes = op3.AxisTree.from_iterable([self.points.root, op3.Axis(1, "cell_parent_cell")])
+        dat = op3.Dat(map_axes, data=self.cell_parent_cell_list)
 
-        return op3.Map({
-            src_path: [
-                op3.TabulatedMapComponent(dest_axis, dest_stratum, dat),
-            ]
-        })
-        # return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
-        #                self.cell_parent_cell_list, "cell_parent_cell")
+        return op3.Map(
+            {
+                immutabledict({self.name: self.cell_label}): (
+                    (op3.TabulatedMapComponent(dest_axis, dest_stratum, dat),),
+                )
+            },
+            name="cell_parent_cell",
+        )
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_base_cell_list(self):

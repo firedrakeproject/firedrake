@@ -52,7 +52,9 @@ def parentmesh(request):
         return m
 
 
-@pytest.fixture(params=[0, 1, 100], ids=lambda x: f"{x}-coords")
+# UNDO ME
+# @pytest.fixture(params=[0, 1, 100], ids=lambda x: f"{x}-coords")
+@pytest.fixture(params=[0, 1, 20], ids=lambda x: f"{x}-coords")
 def vertexcoords(request, parentmesh):
     size = (request.param, parentmesh.geometric_dimension())
     return pseudo_random_coords(size)

@@ -343,16 +343,16 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
 
 
 @functools.singledispatch
-def pack_tensor(tensor: Any, index: op3.LoopIndex, integral_type: str):
+def pack_tensor(tensor: Any, index: op3.LoopIndex, integral_type: str, **kwargs):
     raise TypeError(f"No handler defined for {type(tensor).__name__}")
 
 
 @pack_tensor.register(Function)
 @pack_tensor.register(Cofunction)
 @pack_tensor.register(CoordinatelessFunction)
-def _(func, index: op3.LoopIndex, integral_type: str):
+def _(func, index: op3.LoopIndex, integral_type: str, *, target_mesh=None):
     return pack_pyop3_tensor(
-        func.dat, func.function_space(), index, integral_type
+        func.dat, func.function_space(), index, integral_type, target_mesh=target_mesh
     )
 
 
@@ -374,8 +374,14 @@ def _(
     V: WithGeometry,
     index: op3.LoopIndex,
     integral_type: str,
+    *,
+    target_mesh=None
 ):
-    plex = V. mesh().topology
+    if target_mesh is None:
+        target_mesh = V.mesh()
+
+    if V.mesh() != target_mesh:
+        index = target_mesh.cell_parent_cell_map(index)
 
     # if V.ufl_element().family() == "Real":
     #     return array
@@ -393,6 +399,8 @@ def _(
         raise NotImplementedError
 
     indexed = array.getitem(pack_indices, strict=True)
+
+    plex = V.mesh().topology  # used?
 
     # handle entity_dofs - this is done treating all nodes as equivalent so we have to
     # discard shape beforehand

@@ -382,7 +382,7 @@ class ModuleExecutor:
 
         # if len(self.loopy_code.callables_table) > 1:
         #     breakpoint()
-        # pyop3.extras.debug.maybe_breakpoint()
+        pyop3.extras.debug.maybe_breakpoint()
 
         self.executable(*exec_arguments)
         pass
@@ -395,7 +395,7 @@ class ModuleExecutor:
         str_.append(sep)
         str_.append(
             "\n".join(
-                f"{arg.name}: {self._buffer_str(self.buffer_map[arg.name])}"
+                f"{arg.name}: {self._buffer_str(self.buffer_map[arg.name].buffer)}"
                 for arg in self.loopy_code.default_entrypoint.args
             )
         )

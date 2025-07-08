@@ -954,7 +954,8 @@ def make_interpolator(expr, V, subset, access, bcs=None):
                         expressions.append(ufl.as_tensor(numpy.reshape(components, Vsub.value_shape)))
                     offset += Vsub.value_size
             # Interpolate each sub expression into each function space
-            for Vsub, sub_tensor, sub_expr in zip(V, tensor, expressions):
+            for Vsub, sub_expr in zip(V, expressions):
+                sub_tensor = tensor[Vsub.index]
                 loops.extend(_interpolator(Vsub, sub_tensor, sub_expr, subset, arguments, access, bcs=bcs))
 
         if bcs and len(arguments) == 0:
@@ -1144,7 +1145,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
                 raise ValueError("Have coefficient with unexpected mesh")
         else:
             coeff_index = coefficient.function_space().cell_closure_map(loop_index)
-        parloop_args.append(pack_tensor(coefficient, loop_index, "cell"))
+        parloop_args.append(pack_tensor(coefficient, loop_index, "cell", target_mesh=target_mesh))
 
     for const in extract_firedrake_constants(expr):
         # constants do not require indexing

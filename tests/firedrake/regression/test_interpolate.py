@@ -41,8 +41,12 @@ def test_mixed_expression():
 
     f1 = Function(V1).interpolate(expressions[0])
     g1 = Function(V2).interpolate(expressions[1])
-    assert np.allclose(f.dat.data, f1.dat.data)
-    assert np.allclose(g.dat.data, g1.dat.data)
+    f1_data = f1.dat.data_ro
+    g1_data = g1.dat.data_ro
+
+    assert np.allclose(fg.dat.data_ro, np.concatenate([f1_data, g1_data]))
+    assert np.allclose(f.dat.data_ro, f1_data)
+    assert np.allclose(g.dat.data_ro, g1_data)
 
 
 def test_mixed_function():
