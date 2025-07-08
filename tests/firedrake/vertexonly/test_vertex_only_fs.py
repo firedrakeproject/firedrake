@@ -70,9 +70,9 @@ def pseudo_random_coords(size):
 
 def functionspace_tests(vm):
     # Prep
-    num_cells = len(vm.coordinates.dat.data_ro)
+    num_cells = vm.cells.owned.size
     num_cells_mpi_global = MPI.COMM_WORLD.allreduce(num_cells, op=MPI.SUM)
-    num_cells_halo = len(vm.coordinates.dat.data_ro_with_halos) - num_cells
+    num_cells_halo = vm.cells.size - num_cells
     # Can create DG0 function space
     V = FunctionSpace(vm, "DG", 0)
     # Can't create with degree > 0
@@ -89,8 +89,8 @@ def functionspace_tests(vm):
     f.interpolate(expr)
     g.project(expr)
     # Should have 1 DOF per cell so check DOF DataSet
-    assert f.function_space().axes.owned.size == g.function_space().axes.owned.size == vm.cells.owned.size == num_cells
-    assert f.function_space().axes.size == g.function_space().axes.size == vm.cells.size == num_cells + num_cells_halo
+    assert f.function_space().axes.owned.size == g.function_space().axes.owned.size == num_cells
+    assert f.function_space().axes.size == g.function_space().axes.size == num_cells + num_cells_halo
     # The function should take on the value of the expression applied to
     # the vertex only mesh coordinates (with no change to coordinate ordering)
     # Reshaping because for all meshes, we want (-1, gdim) but
@@ -118,7 +118,7 @@ def functionspace_tests(vm):
     input_ordering_parent_cell_nums = vm.input_ordering.topology_dm.getField("parentcellnum").ravel()
     vm.input_ordering.topology_dm.restoreField("parentcellnum")
     idxs_to_include = input_ordering_parent_cell_nums != -1
-    assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
+    assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos.reshape(-1, vm.input_ordering.geometric_dimension())[idxs_to_include], axis=1))
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == -1)
     # check other interpolation APIs work identically
     h2 = assemble(interpolate(g, W))
@@ -132,7 +132,7 @@ def functionspace_tests(vm):
     # check we can interpolate expressions
     h2 = Function(W)
     h2.interpolate(2*g)
-    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
+    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos.reshape(-1, vm.input_ordering.geometric_dimension())[idxs_to_include], axis=1))
     # Check that the opposite works
     g.dat.data_wo_with_halos[:] = -1
     g.interpolate(h)
@@ -143,11 +143,11 @@ def functionspace_tests(vm):
     # we introduce cofunctions, this will need to be rewritten.
     I_io = Interpolator(TestFunction(V), W)
     h = assemble(I_io.interpolate(g))
-    assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
+    assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos.reshape(-1, vm.input_ordering.geometric_dimension())[idxs_to_include], axis=1))
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
     I2_io = Interpolator(2*TestFunction(V), W)
     h2 = assemble(I2_io.interpolate(g))
-    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
+    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos.reshape(-1, vm.input_ordering.geometric_dimension())[idxs_to_include], axis=1))
 
     h_star = h.riesz_representation(riesz_map="l2")
     g = assemble(I_io.interpolate(h_star, adjoint=True))
@@ -161,7 +161,7 @@ def functionspace_tests(vm):
     I2_io_adjoint = Interpolator(2*TestFunction(W), V)
     h_star = assemble(I_io_adjoint.interpolate(g, adjoint=True))
     h = h_star.riesz_representation(riesz_map="l2")
-    assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
+    assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos.reshape(-1, vm.input_ordering.geometric_dimension())[idxs_to_include], axis=1))
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
 
     with pytest.raises(NotImplementedError):

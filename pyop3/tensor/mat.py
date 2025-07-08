@@ -539,12 +539,14 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
         else:
             comm = utils.unique_comm((row_axes, column_axes))
 
+            row_bsize, column_bsize = partial_spec.block_shape
+            if row_bsize > 1:
+                row_axes = row_axes.blocked([row_bsize])
+            if column_bsize > 1:
+                column_axes = column_axes.blocked([column_bsize])
+
             nrows = row_axes.unindexed.owned.size
             ncolumns = column_axes.unindexed.owned.size
-            row_bsize, column_bsize = partial_spec.block_shape
-
-            if row_bsize > 1 or column_bsize > 1:
-                raise NotImplementedError("Need to trim the axis tree")
 
             row_lgmap = PETSc.LGMap().create(
                 row_axes.unindexed.global_numbering, bsize=row_bsize, comm=comm
@@ -556,8 +558,7 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
             row_spec = PetscMatAxisSpec(nrows, row_lgmap, row_bsize)
             column_spec = PetscMatAxisSpec(ncolumns, column_lgmap, column_bsize)
         full_spec = FullPetscMatBufferSpec(partial_spec.mat_type, row_spec, column_spec)
-    else:
-        # matnest
+    else:  # MATNEST
         assert isinstance(partial_spec, PetscMatNestBufferSpec)
         full_spec = np.empty_like(partial_spec.submat_specs)
         for i, (index_key, sub_partial_spec) in np.ndenumerate(partial_spec.submat_specs):

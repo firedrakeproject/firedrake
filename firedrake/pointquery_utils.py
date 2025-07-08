@@ -25,52 +25,30 @@ import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
 import tsfc.ufl_utils as ufl_utils
 
 
-def make_args(function):
-    arg = function.dat(op2.READ, function.cell_node_map())
-    return (arg,)
-
-
-def make_wrapper(function, **kwargs):
-    placeholder = op3.Function(
-        lp.make_kernel(
-            "{ [i]: 0 <= i < 1 }",
-            "",
-            name="to_reference_coords_kernel",
-        ),
-        [op3.READ],
-    )
-    loop = op3.loop(
-        op3.Axis(1).index(),
-        placeholder(cell)
-    )
-    args = make_args(function)
-    return generate_single_cell_wrapper(function.cell_set, args, **kwargs)
-
-
 def src_locate_cell(mesh, tolerance=None):
     src = ['#include <evaluate.h>']
     src.append(compile_coordinate_element(mesh, tolerance))
 
     shape = numpy.prod(mesh.coordinates.function_space().finat_element.index_shape, dtype=int)
+    gdim = mesh.geometric_dimension()
 
     wrapper_src = textwrap.dedent(f"""\
         #include <complex.h>
         #include <math.h>
         #include <petsc.h>
-
         #include <stdint.h>
         #include <stdbool.h>
 
         void wrap_to_reference_coords(void* const farg0, double* const farg1, {RealType_c}* const farg2, int32_t const start, int32_t const end, {ScalarType_c} const *__restrict__ dat0, {IntType_c} const *__restrict__ map0)
         {{
-          {ScalarType_c} t0[{shape}];
+          {ScalarType_c} t0[{shape}*{gdim}];
 
           for (int32_t i = 0; i < {shape}; ++i)
-            t0[i] = dat0[map0[i + {shape} * start]];
+            for (int32_t j = 0; j < {gdim}; ++j)
+              t0[{gdim} * i + j] = dat0[{gdim} * map0[i + {shape} * start] + j];
           to_reference_coords_kernel(farg0, farg1, farg2, &(t0[0]));
         }}"""
     )
-
     src.append(wrapper_src)
 
     with open(path.join(path.dirname(__file__), "locate.c")) as f:
