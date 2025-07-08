@@ -183,7 +183,6 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
         some ``output`` is given to the :meth:`interpolate` method or (b) set
         to zero. Ignored if interpolating within the same mesh or onto a
         :func:`.VertexOnlyMesh`.
-    :kwarg ad_block_tag: An optional string for tagging the resulting assemble block on the Pyadjoint tape.
     :returns: A symbolic :class:`.Interpolate` object
 
     .. note::
@@ -197,13 +196,6 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
        then it is assumed that its values should take part in the
        reduction (hence using MIN will compute the MIN between the
        existing values and any new values).
-
-    .. note::
-
-       If you find interpolating the same expression again and again
-       (for example in a time loop) you may find you get better
-       performance by using an :class:`Interpolator` instead.
-
     """
     adjoint = False
     if isinstance(V, Cofunction):
