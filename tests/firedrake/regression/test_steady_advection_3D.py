@@ -85,6 +85,9 @@ def run_up_to_down(mesh, DG1, W):
     a3 = inner(un * D, phi) * ds(5)  # outflow at lower wall
     a = a1 + a2 + a3
 
+    W = VectorFunctionSpace(mesh, DG1.ufl_element())
+    X = assemble(interpolate(mesh.coordinates, W))
+    print(X.dat.data)
     L = -inflow * inner(dot(u0, n), phi) * ds(6)  # inflow at upper wall
 
     out = Function(DG1)

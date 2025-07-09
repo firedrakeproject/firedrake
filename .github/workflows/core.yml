@@ -206,6 +206,10 @@ jobs:
             --no-binary h5py \
             --extra-index-url https://download.pytorch.org/whl/cpu \
             "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci,docs]"
+          
+          pip install -I "fenics-ufl @ git+https://github.com/firedrakeproject/ufl.git@indiamai/integrate-fuse"
+          pip install -I "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git@indiamai/integrate_fuse"
+          pip install -I "fuse-element @ git+https://github.com/firedrakeproject/fuse.git"
 
           firedrake-clean
           pip list

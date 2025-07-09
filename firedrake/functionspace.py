@@ -5,6 +5,7 @@ API is functional, rather than object-based, to allow for simple
 backwards-compatibility, argument checking, and dispatch.
 """
 import ufl
+from ufl.cell import as_cell
 import finat.ufl
 
 from pyop2.utils import flatten
@@ -62,7 +63,7 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant):
                                      degree=degree, variant=variant)
         # If second element was passed in, use it
         lb = finat.ufl.FiniteElement(vfamily,
-                                     cell=ufl.interval,
+                                     cell=as_cell("interval"),
                                      degree=vdegree, variant=variant)
         # Now make the TensorProductElement
         return finat.ufl.TensorProductElement(la, lb)
