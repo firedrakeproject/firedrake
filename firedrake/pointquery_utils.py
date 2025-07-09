@@ -243,9 +243,6 @@ def compile_coordinate_element(mesh: MeshGeometry, contains_eps: float, paramete
         "convergence_epsilon": 1e-12,
         "dX_norm_square": dX_norm_square(mesh.topological_dimension()),
         "X_isub_dX": X_isub_dX(mesh.topological_dimension()),
-        "extruded_arg": f", {as_cstr(IntType)} const *__restrict__ layers" if mesh.extruded else "",
-        "extr_comment_out": "//" if mesh.extruded else "",
-        "non_extr_comment_out": "//" if not mesh.extruded else "",
         "IntType": as_cstr(IntType),
         "ScalarType": ScalarType_c,
         "RealType": RealType_c,
@@ -288,24 +285,15 @@ static inline void to_reference_coords_kernel(void *result_, double *x0, %(RealT
 }
 
 static inline void wrap_to_reference_coords(
-    void* const result_, double* const x, %(RealType)s* const cell_dist_l1, %(IntType)s const start, %(IntType)s const end%(extruded_arg)s,
+    void* const result_, double* const x, %(RealType)s* const cell_dist_l1, %(IntType)s const start, %(IntType)s const end,
     %(ScalarType)s const *__restrict__ coords, %(IntType)s const *__restrict__ coords_map);
 
 %(RealType)s to_reference_coords(void *result_, struct Function *f, int cell, double *x)
 {
     %(RealType)s cell_dist_l1 = 0.0;
-    %(extr_comment_out)swrap_to_reference_coords(result_, x, &cell_dist_l1, cell, cell+1, f->coords, f->coords_map);
+    wrap_to_reference_coords(result_, x, &cell_dist_l1, cell, cell+1, f->coords, f->coords_map);
     return cell_dist_l1;
 }
-
-%(RealType)s to_reference_coords_xtr(void *result_, struct Function *f, int cell, int layer, double *x)
-{
-    %(RealType)s cell_dist_l1 = 0.0;
-    %(non_extr_comment_out)s%(IntType)s layers[2] = {0, layer+2};  // +2 because the layer loop goes to layers[1]-1, which is nlayers-1
-    %(non_extr_comment_out)swrap_to_reference_coords(result_, x, &cell_dist_l1, cell, cell+1, layers, f->coords, f->coords_map);
-    return cell_dist_l1;
-}
-
 """
 
     return evaluate_template_c % code

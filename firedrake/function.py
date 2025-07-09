@@ -34,9 +34,7 @@ __all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction']
 
 class _CFunction(ctypes.Structure):
     r"""C struct collecting data from a :class:`Function`"""
-    _fields_ = [("n_cols", c_int),
-                ("extruded", c_int),
-                ("n_layers", c_int),
+    _fields_ = [("n_cells", c_int),
                 ("coords", c_void_p),
                 ("coords_map", POINTER(as_ctypes(IntType))),
                 ("f", c_void_p),
@@ -525,55 +523,12 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         # Store data into ``C struct''
         c_function = _CFunction()
-
-        if mesh.extruded:
-            # num_cells is now the actual number of cells...
-            raise NotImplementedError
-
-        c_function.n_cols = mesh.num_cells
-        if mesh.layers is not None:
-            # TODO: assert constant layer. Can we do variable though?
-            c_function.extruded = 1
-            c_function.n_layers = mesh.layers - 1
-        else:
-            c_function.extruded = 0
-            c_function.n_layers = 1
-
+        c_function.n_cells = mesh.num_cells
         c_function.coords = coordinates.dat.data_ro.ctypes.data_as(c_void_p)
         c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
         c_function.f = self.dat.data_ro.ctypes.data_as(c_void_p)
         c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
         return c_function
-
-        # # Store data into ``C struct''
-        # c_function = _CFunction()
-        # c_function.n_cols = plex.num_cells
-        # if plex.layers is not None:
-        #     # TODO: assert constant layer. Can we do variable though?
-        #     c_function.extruded = 1
-        #     c_function.n_layers = plex.layers - 1
-        # else:
-        #     c_function.extruded = 0
-        #     c_function.n_layers = 1
-        #
-        # cell_closures = plex._fiat_closure.connectivity[freeze({plex.name: plex.cell_label})]
-        # null = POINTER(c_int)()
-        # c_function.closure0 = as_int_ptr(cell_closures[0].array)
-        # c_function.closure1 = as_int_ptr(cell_closures[1].array) if tdim > 0 else null
-        # c_function.closure2 = as_int_ptr(cell_closures[2].array) if tdim > 1 else null
-        # c_function.closure3 = as_int_ptr(cell_closures[3].array) if tdim > 2 else null
-        # c_function.f = self.dat.data_ro.ctypes.data_as(c_void_p)
-        #
-        # c_function.coords = coordinates.dat.data_ro.ctypes.data_as(c_void_p)
-        # layouts = coordinates.dat.layouts
-        # c_function.section0 = as_int_ptr(layouts[freeze({plex.name: "0"})].array)
-        # c_function.section1 = as_int_ptr(layouts[freeze({plex.name: "1"})].array) if tdim > 0 else null
-        # c_function.section2 = as_int_ptr(layouts[freeze({plex.name: "2"})].array) if tdim > 1 else null
-        # c_function.section3 = as_int_ptr(layouts[freeze({plex.name: "3"})].array) if tdim > 2 else null
-        #
-        # # TODO same as for coords above
-        # # c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
-        # return c_function
 
     @property
     def _ctypes(self):

@@ -1619,6 +1619,7 @@ class AbstractMeshTopology(abc.ABC):
         return None
 
     def _order_data_by_cell_index(self, column_list, cell_data):
+        assert False, "old code"
         return cell_data[column_list]
 
     @property
@@ -2944,6 +2945,11 @@ class ExtrudedMeshTopology(MeshTopology):
                 indices[i, j] = base_indices[i] * (2*n_extr_cells+1) + j
         return PETSc.IS().createGeneral(indices, comm=self._comm)
 
+    @utils.cached_property
+    def _dm_renumbering_inv(self):
+        xxx = op3.utils.invert(self._dm_renumbering.indices)
+        return PETSc.IS().createGeneral(xxx, comm=self._comm)
+
     @cached_property
     def _entity_indices(self):
         if self.layers.shape:
@@ -3246,6 +3252,7 @@ class ExtrudedMeshTopology(MeshTopology):
         return (self._base_mesh.facet_dimension(), 1)
 
     def _order_data_by_cell_index(self, column_list, cell_data):
+        assert False, "old code"
         cell_list = []
         for col in column_list:
             cell_list += list(range(col, col + (self.layers - 1)))
@@ -3946,9 +3953,13 @@ values from f.)"""
                   'f_max': (coords_max, op3.RW)})
 
         # Reorder bounding boxes according to the cell indices we use
-        column_list = V.cell_node_list.reshape(-1)
-        coords_min = self._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos.reshape((-1, gdim)))
-        coords_max = self._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos.reshape((-1, gdim)))
+        import pyop3.extras.debug
+        pyop3.extras.debug.warn_todo("Not ordering by cell, this may be wrong")
+        # column_list = V.cell_node_list.reshape(-1)
+        # coords_min = self._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos.reshape((-1, gdim)))
+        # coords_max = self._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos.reshape((-1, gdim)))
+        coords_min = coords_min.dat.data_ro_with_halos.reshape((-1, gdim))
+        coords_max = coords_max.dat.data_ro_with_halos.reshape((-1, gdim))
 
         # Change min and max to refer to an n-hypercube, where n is the
         # geometric dimension of the mesh, centred on the midpoint of the
@@ -4103,12 +4114,12 @@ values from f.)"""
                         statics in pointquery_utils.py */
                         struct ReferenceCoords temp_reference_coords, found_reference_coords;
 
-                        /* to_reference_coords and to_reference_coords_xtr are defined in
+                        /* to_reference_coords is defined in
                         pointquery_utils.py. If they contain python calls, this loop will
                         not run at c-loop speed. */
                         /* cells_ignore has shape (npoints, ncells_ignore) - find the ith row */
                         int *cells_ignore_i = cells_ignore + i*ncells_ignore;
-                        cells[i] = locate_cell(f, &x[j], {self.geometric_dimension()}, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i], ncells_ignore, cells_ignore_i);
+                        cells[i] = locate_cell(f, &x[j], {self.geometric_dimension()}, &to_reference_coords, &temp_reference_coords, &found_reference_coords, &ref_cell_dists_l1[i], ncells_ignore, cells_ignore_i);
 
                         for (int k = 0; k < {self.geometric_dimension()}; k++) {{
                             X[j] = found_reference_coords.X[k];
