@@ -68,7 +68,9 @@ It is possible during registration to purchase additional tickets for the dinner
 Registration
 ------------
 
-Registration will open soon and be closed on August 17th 2025.
+`Registration
+<https://app.onlinesurveys.jisc.ac.uk/s/leeds/firedrake-2025-registration>`__
+is now open.
 
 The registration fees will be as follows:
 
@@ -83,7 +85,9 @@ The registration fees will be as follows:
 Abstract submission
 -------------------
 
-Please submit your abstracts to the LIFD email: fluids-institute@leeds.ac.uk.
+We welcome presentations about any aspect of Firedrake development or
+application. Please submit your abstract `here
+<https://easychair.org/my/conference?conf=firedrake25>`__.
 
 Support
 -------
