@@ -24,12 +24,11 @@ import finat
 
 import firedrake
 from firedrake import tsfc_interface, utils, functionspaceimpl
-from firedrake.ufl_expr import Argument, action, adjoint as expr_adjoint
+from firedrake.ufl_expr import Argument, Coargument, action, adjoint as expr_adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype as get_dat_mpi_type
 from firedrake.cofunction import Cofunction
-from firedrake.function import Function
 from mpi4py import MPI
 
 from pyadjoint import stop_annotating, no_annotations
@@ -199,24 +198,25 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
     """
     adjoint = False
     if isinstance(V, Cofunction):
-        function_space = V.function_space().dual()
+        coargument = Coargument(V.function_space(), 0)
         adjoint = bool(extract_arguments(expr))
-    elif isinstance(V, Function):
-        function_space = V.function_space()
+    elif isinstance(V, Coargument):
+        coargument = V
     elif isinstance(V, functionspaceimpl.WithGeometry):
-        function_space = V
+        coargument = Coargument(V.dual(), 0)
     else:
-        raise TypeError(f"V must be a FunctionSpace, Function or Cofunction, not {type(V)}")
+        raise TypeError(f"V must be a FunctionSpace, Cofunction or Coargument, not {type(V)}")
 
-    # Cope with the different convention of `Interpolate` and `Interpolator`:
-    #  -> Interpolate(Argument(V1, 1), Argument(V2.dual(), 0))
-    #  -> Interpolator(Argument(V1, 0), V2)
     expr_args = extract_arguments(expr)
     if expr_args and expr_args[0].number() == 0:
+        # In this case we are doing adjoint interpolation, currently we factor this into
+        # the action of the adjoint Interpolate operation
+        # TODO: Should be able to remove this; assembly should handle this
+        # Case V is a FunctionSpace, expr contains Argument(0), we need to change expr argument number to 1 (currently)
         v, = expr_args
         expr = replace(expr, {v: v.reconstruct(number=1)})
 
-    interp = Interpolate(expr, function_space,
+    interp = Interpolate(expr, coargument,
                          subset=subset, access=access,
                          allow_missing_dofs=allow_missing_dofs,
                          default_missing_val=default_missing_val)
