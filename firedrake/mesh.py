@@ -757,20 +757,30 @@ class AbstractMeshTopology(abc.ABC):
                         # from renumbered to original cell number
                         dm_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
                     else:
-                        # TODO: Assumes reorder is True
                         assert isinstance(self.topology_dm, PETSc.DMSwarm)
-                        swarm = self.topology_dm
-                        parent = self._parent_mesh.topology_dm
-                        cell_id_name = swarm.getCellDMActive().getCellID()
-                        swarm_parent_cell_nums = swarm.getField(cell_id_name).ravel()
-                        parent_renum = self._parent_mesh._dm_renumbering.getIndices()
-                        pStart, _ = parent.getChart()
-                        parent_renum_inv = np.empty_like(parent_renum)
-                        parent_renum_inv[parent_renum - pStart] = np.arange(len(parent_renum))
-                        # Use kind = 'stable' to make the ordering deterministic.
-                        perm = np.argsort(parent_renum_inv[swarm_parent_cell_nums - pStart], kind='stable').astype(IntType)
-                        swarm.restoreField(cell_id_name)
-                        dm_renumbering = PETSc.IS().createGeneral(perm, comm=swarm.comm)
+                        if not reorder:
+                            cell_ordering = np.arange(self.num_cells, dtype=IntType)
+                            # must use an inverse ordering because we want to know the map *back*
+                            # from renumbered to original cell number
+                            dm_renumbering = dmcommon.compute_dm_renumbering(self, cell_ordering)
+                        else:
+                            swarm = self.topology_dm
+                            parent = self._parent_mesh.topology_dm
+                            cell_id_name = swarm.getCellDMActive().getCellID()
+                            swarm_parent_cell_nums = swarm.getField(cell_id_name).ravel()
+
+                            # testing
+                            # parent_renum = self._parent_mesh._dm_renumbering.getIndices()
+                            parent_renum = self._parent_mesh._dm_renumbering_inv.getIndices()
+
+                            pStart, _ = parent.getChart()
+                            parent_renum_inv = np.empty_like(parent_renum)
+                            parent_renum_inv[parent_renum - pStart] = np.arange(len(parent_renum))
+                            # Use kind = 'stable' to make the ordering deterministic.
+                            perm = np.argsort(parent_renum_inv[swarm_parent_cell_nums - pStart], kind='stable').astype(IntType)
+
+                            swarm.restoreField(cell_id_name)
+                            dm_renumbering = PETSc.IS().createGeneral(perm, comm=swarm.comm)
 
                 # Now take this renumbering and partition owned and ghost points, this
                 # is the part that pyop3 should ultimately be able to handle.
@@ -883,6 +893,11 @@ class AbstractMeshTopology(abc.ABC):
         return self._entity_numbering(self.dimension)
 
     @utils.cached_property
+    def _cell_permutation(self):
+        assert not hasattr(self, "_callback"), "Mesh must be initialised"
+        return self._entity_permutation(self.dimension)
+
+    @utils.cached_property
     def _facet_numbering(self):
         assert not hasattr(self, "_callback"), "Mesh must be initialised"
         return self._entity_numbering(self.dimension-1)
@@ -919,6 +934,9 @@ class AbstractMeshTopology(abc.ABC):
 
         return readonly(numbering)
 
+    def _entity_permutation(self, dim):
+        """The map from renumbered point to initial (I think)"""
+        return op3.utils.invert(self._entity_numbering(dim))
 
     @cached_property
     def _global_numbering(self):
@@ -3320,6 +3338,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return ufl.Mesh(finat.ufl.VectorElement("DG", cell, 0, dim=cell.topological_dimension()))
 
     def _renumber_entities(self, reorder):
+        assert False, "old code"
         if reorder:
             swarm = self.topology_dm
             parent = self._parent_mesh.topology_dm
@@ -3443,9 +3462,11 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         mesh cell order.
         """
         cell_parent_cell_list = np.copy(self.topology_dm.getField("parentcellnum").ravel())
+        breakpoint()
         self.topology_dm.restoreField("parentcellnum")
-        plex_parent_cell_nums = np.empty(self.num_cells, dtype=IntType)
-        return cell_parent_cell_list[self.cell_closure[:, -1]]
+        # return cell_parent_cell_list[self.cell_closure[:, -1]]
+        return cell_parent_cell_list[self._cell_numbering]
+        # return cell_parent_cell_list[op3.utils.invert(self._cell_numbering)]
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_cell_map(self):
@@ -3577,7 +3598,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         if not isinstance(self.topology, VertexOnlyMeshTopology):
             raise AttributeError("Input ordering is only defined for vertex-only meshes.")
         nroots = self.input_ordering.num_cells
-        e_p_map = self.cell_closure[:, -1]  # cell-entity -> swarm-point map
+        e_p_map = self._cell_permutation  # cell-entity -> swarm-point map
         ilocal = np.empty_like(e_p_map)
         if len(e_p_map) > 0:
             cStart = e_p_map.min()  # smallest swarm point number

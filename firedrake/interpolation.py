@@ -1374,7 +1374,7 @@ def vom_cell_parent_node_map_extruded(vertex_only_mesh, extruded_cell_node_map):
     )
 
 
-class GlobalWrapper(object):
+class GlobalWrapper:
     """Wrapper object that fakes a Global to behave like a Function."""
     def __init__(self, glob):
         self.dat = glob
@@ -1382,7 +1382,7 @@ class GlobalWrapper(object):
         self.ufl_domain = lambda: None
 
 
-class VomOntoVomWrapper(object):
+class VomOntoVomWrapper:
     """Utility class for interpolating from one ``VertexOnlyMesh`` to it's
     intput ordering ``VertexOnlyMesh``, or vice versa.
 

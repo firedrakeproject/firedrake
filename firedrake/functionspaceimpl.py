@@ -803,11 +803,12 @@ class FunctionSpace:
                 for pt in range(*dm.getDepthStratum(dim)):
                     section.setDof(pt, ndofs)
         elif type(self._mesh.topology) is VertexOnlyMeshTopology:
+            # NOTE: The interfaces nearly match so this can follow dmplex now
             dm = self._mesh.topology_dm
-            section.setChart(0, dm.getSize())
+            section.setChart(0, dm.getLocalSize())
 
             ndofs = entity_dofs[0]
-            for pt in range(0, dm.getSize()):
+            for pt in range(0, dm.getLocalSize()):
                 section.setDof(pt, ndofs)
         else:
             assert type(self._mesh.topology) is ExtrudedMeshTopology

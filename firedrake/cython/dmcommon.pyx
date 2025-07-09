@@ -2369,7 +2369,7 @@ def compute_dm_renumbering(
 
     dm = mesh.topology_dm
 
-    DMPlexGetChart(dm.dm, &pStart_c, &pEnd_c)
+    pStart_c, pEnd_c = dm.getChart()
     nPoints_c = pEnd_c - pStart_c
 
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
