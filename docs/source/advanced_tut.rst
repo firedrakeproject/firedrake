@@ -31,3 +31,5 @@ element systems.
    Auxiliary space patch relaxation multigrid for H(curl).<demos/hcurl_riesz_star.py>
    Steady Boussinesq problem with integral constraints.<demos/boussinesq.py>
    Preconditioning using fast diagonalisation.<demos/fast_diagonalisation_poisson.py>
+   Shape optimisation.<demos/shape_optimization.py>
+
