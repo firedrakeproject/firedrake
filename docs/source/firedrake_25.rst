@@ -87,7 +87,7 @@ Abstract submission
 
 We welcome presentations about any aspect of Firedrake development or
 application. Please submit your abstract `here
-<https://easychair.org/conferences/directory?a=34999462>`__.
+<https://easychair.org/my/conference?conf=firedrake25>`__.
 
 Support
 -------
