@@ -187,4 +187,4 @@ While for either :class:`~.PatchPC` or :class:`~.ASMStarPC`, we expect
    7         8
 ======== ================
 
-A runnable python version of this demo can be found :demo:`here<poisson.py>`.
+A runnable python version of this demo can be found :demo:`here<poisson_mg_patches.py>`.
