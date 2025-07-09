@@ -36,10 +36,10 @@ cache_cmd="PYOP2_CACHE_DIR=\$VIRTUAL_ENV/.cache/pyop2/job{#} \
            FIREDRAKE_TSFC_KERNEL_CACHE_DIR=\$VIRTUAL_ENV/.cache/tsfc/job{#}"
 
 if [ $num_procs = 1 ]; then
-    pytest_exec="python -m pytest"
+    pytest_exec="python3 -m pytest"
     marker_spec="\"parallel[1] or not parallel\""
 else
-    pytest_exec="mpiexec -n ${num_procs} python -m pytest"
+    pytest_exec="mpiexec -n ${num_procs} python3 -m pytest"
     marker_spec="parallel[${num_procs}]"
 fi
 
