@@ -736,6 +736,54 @@ def test_line_integral():
     assert np.isclose(assemble(f_line_square * dx), 1.0)
 
 
+def test_interpolate_matrix_cross_mesh():
+    source_mesh = UnitSquareMesh(4, 4)
+    target_mesh = UnitSquareMesh(5, 5)
+    U = FunctionSpace(source_mesh, "CG", 2)
+    V = FunctionSpace(target_mesh, "CG", 3)
+
+    # For comparison later
+    x, y = SpatialCoordinate(source_mesh)
+    f = Function(U).interpolate(x**2 + y**2)
+    x2, y2 = SpatialCoordinate(target_mesh)
+    g = Function(V).interpolate(x2**2 + y2**2)
+
+    # We get the VOM at the point evaluation node coords of the target FS
+    w = VectorFunctionSpace(target_mesh, V.ufl_element())
+    X = assemble(interpolate(target_mesh.coordinates, w))
+    vom = VertexOnlyMesh(source_mesh, X.dat.data_ro, redundant=False)
+    P0DG = FunctionSpace(vom, "DG", 0)
+    # We get the interpolation matrix U -> P0DG which performs point evaluation
+    A = assemble(interpolate(TestFunction(U), P0DG))
+    f_at_points = assemble(A @ f)
+    f_at_points2 = assemble(interpolate(f, P0DG))
+    assert np.allclose(f_at_points.dat.data_ro, f_at_points2.dat.data_ro)
+    # To get the points in the correct order in V we interpolate into vom.input_ordering
+    # We pass matfree=False which constructs the permutation matrix instead of using SFs
+    P0DG_io = FunctionSpace(vom.input_ordering, "DG", 0)
+    B = assemble(interpolate(TestFunction(P0DG), P0DG_io, matfree=False))
+    f_at_points_correct_order = assemble(B @ f_at_points)
+    f_at_points_correct_order2 = assemble(interpolate(f_at_points, P0DG_io))
+    assert np.allclose(f_at_points_correct_order.dat.data_ro, f_at_points_correct_order2.dat.data_ro)
+
+    # f_at_points_correct_order has the correct coefficients of the function in V
+    # It is a function in P0DG_io, so we just directly assign it to a function in V
+    f_interp = Function(V)
+    f_interp.dat.data_wo[:] = f_at_points_correct_order.dat.data_ro[:]
+    assert np.allclose(f_interp.dat.data_ro, g.dat.data_ro)
+
+    # Hence interpolation from U to V is the product of the following three matrices:
+    # C*B*A
+    # A is the interpolation matrix from U to P0DG
+    # B is the interpolation matrix from P0DG to vom.input_ordering
+    # C is direct assignment to the function in V
+    interp_mat = assemble(Action(B, A))
+    f_at_points_correct_order3 = assemble(interp_mat @ f)
+    f_interp2 = Function(V)
+    f_interp2.dat.data_wo[:] = f_at_points_correct_order3.dat.data_ro[:]
+    assert np.allclose(f_interp2.dat.data_ro, g.dat.data_ro)
+
+
 @pytest.mark.parallel
 def test_interpolate_cross_mesh_parallel(parameters):
     test_interpolate_cross_mesh(parameters)
@@ -754,6 +802,11 @@ def test_missing_dofs_parallel():
 @pytest.mark.parallel
 def test_exact_refinement_parallel():
     test_exact_refinement()
+
+
+@pytest.mark.parallel
+def test_interpolate_matrix_cross_mesh_parallel():
+    test_interpolate_matrix_cross_mesh()
 
 
 def voting_algorithm_edgecases(nprocs):
