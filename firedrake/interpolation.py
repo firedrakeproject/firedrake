@@ -223,6 +223,9 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
     if adjoint:
         interp = expr_adjoint(interp)
 
+    if isinstance(V, Cofunction):
+        interp = action(interp, V)
+
     return interp
 
 
