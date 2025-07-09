@@ -223,10 +223,6 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
     if adjoint:
         interp = expr_adjoint(interp)
 
-    if isinstance(V, (Function, Cofunction)):
-        # Passing in a function / cofunction is equivalent to taking the action.
-        interp = action(interp, V)
-
     return interp
 
 
