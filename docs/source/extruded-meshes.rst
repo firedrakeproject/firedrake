@@ -181,6 +181,30 @@ The 2D and 3D hedgehog-extruded meshes are shown below.
 
 |hedge2d| |hedge3d|
 
+Changing coordinates
+~~~~~~~~~~~~~~~~~~~~
+
+A common use case is that the bottom and/or top of the domain is not flat (or
+spherical) but is given by a spatially varying field defined on the base mesh.
+In this case, a straightforward approach is to uniformly extrude to a unit
+height, and then to create a new coordinate field by changing coordinates to
+conform to the bathymetry. The example below shows how to do this. This could
+be combined with :ref:`interpolation from external data
+<external_interpolation>` to incorporate domain boundary data from
+any source. Naturally, the change of coordinates can also be varied to produce
+a non-uniform distribution of the mesh layers.
+
+.. literalinclude:: ../../tests/firedrake/extrusion/test_change_coordinates_extrusion.py
+  :dedent:
+  :language: python3
+  :start-after: start extruded change coordinates
+  :end-before: end extruded change coordinates
+
+The mesh generated in this example is shown below:
+
+.. image:: images/morphed_bathymetry.png
+  :width: 100%
+
 Custom Extrusion
 ~~~~~~~~~~~~~~~~
 
