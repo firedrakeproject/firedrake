@@ -4,9 +4,11 @@ from firedrake.preconditioners.facet_split import restrict, get_restriction_indi
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space, get_appctx
 from firedrake.ufl_expr import TestFunction, TrialFunction
+from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 from ufl import curl, div, HCurl, HDiv, inner, dx
 from pyop2.utils import as_tuple
+import finat
 import numpy
 
 __all__ = ("BDDCPC",)
@@ -29,11 +31,6 @@ class BDDCPC(PCBase):
     keyword arguments supplied to ``PETSc.PC.setBDDCDiscreteGradient``.
     - ``'divergence_mat'`` for 3D problems in H(div), this sets the Mat with the
     assembled bilinear form testing the divergence against an L2 space.
-
-    Notes
-    -----
-    Currently the Mat type IS is only supported by FDMPC.
-
     """
 
     _prefix = "bddc_"
@@ -45,6 +42,7 @@ class BDDCPC(PCBase):
         self.prefix = (pc.getOptionsPrefix() or "") + self._prefix
 
         V = get_function_space(dm)
+        variant = V.ufl_element().variant()
 
         # Create new PC object as BDDC type
         bddcpc = PETSc.PC().create(comm=pc.comm)
@@ -54,7 +52,7 @@ class BDDCPC(PCBase):
         bddcpc.setType(PETSc.PC.Type.BDDC)
 
         opts = PETSc.Options(bddcpc.getOptionsPrefix())
-        if V.ufl_element().variant() == "fdm" and "pc_bddc_use_local_mat_graph" not in opts:
+        if variant == "fdm" and "pc_bddc_use_local_mat_graph" not in opts:
             # Disable computation of disconected components of subdomain interfaces
             opts["pc_bddc_use_local_mat_graph"] = False
 
@@ -80,6 +78,13 @@ class BDDCPC(PCBase):
 
         appctx = self.get_appctx(pc)
         sobolev_space = V.ufl_element().sobolev_space
+
+        # Set coordinates
+        if is_lagrange(V.finat_element):
+            degree = V.ufl_element().embedded_superdegree
+            W = VectorFunctionSpace(V.mesh(), "Lagrange", degree, variant=variant)
+            coords = Function(W).interpolate(V.mesh().coordinates)
+            bddcpc.setCoordinates(coords.dat.data_ro.repeat(V.block_size, axis=0))
 
         tdim = V.mesh().topological_dimension()
         degree = max(as_tuple(V.ufl_element().degree()))
@@ -140,3 +145,21 @@ def get_vertex_dofs(V):
     V.dof_dset.lgmap.apply(indices, result=indices)
     vertex_dofs = PETSc.IS().createGeneral(indices, comm=V.comm)
     return vertex_dofs
+
+
+def is_lagrange(finat_element):
+
+    if isinstance(finat_element, finat.FlattenedDimensions):
+        return is_lagrange(finat_element.product)
+    elif isinstance(finat_element, finat.TensorProductElement):
+        return all(map(is_lagrange, finat_element.factors))
+    elif isinstance(finat_element, finat.EnrichedElement):
+        return all(map(is_lagrange, finat_element.elements))
+
+    nodes = finat_element.fiat_equivalent.dual_basis()
+    for node in nodes:
+        try:
+            pt, = node.get_point_dict()
+        except ValueError:
+            return False
+    return True

@@ -296,7 +296,8 @@ class Parloop:
                     olgmaps = []
                     for m, lgmaps in zip(pl_arg.data, pl_arg.lgmaps):
                         olgmaps.append(m.handle.getLGMap())
-                        m.handle.setLGMap(*lgmaps)
+                        if m.handle.type != "is":
+                            m.handle.setLGMap(*lgmaps)
                     orig_lgmaps.append(olgmaps)
         return tuple(orig_lgmaps)
 
@@ -309,7 +310,8 @@ class Parloop:
         for arg, d in reversed(list(zip(self.global_kernel.arguments, self.arguments))):
             if isinstance(arg, (MatKernelArg, MixedMatKernelArg)) and d.lgmaps is not None:
                 for m, lgmaps in zip(d.data, orig_lgmaps.pop()):
-                    m.handle.setLGMap(*lgmaps)
+                    if m.handle.type != "is":
+                        m.handle.setLGMap(*lgmaps)
 
     @cached_property
     def _has_mats(self):
