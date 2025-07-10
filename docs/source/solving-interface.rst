@@ -744,7 +744,7 @@ use:
 For nonlinear variational solves we have:
 
 * ``snes_type`` : ``newtonls``
-* ``snes_linesearch_type`` : `basic`
+* ``snes_linesearch_type`` : ``basic``
 
 To see the full view that PETSc has of solver objects, you can pass a
 view flag to the solve call.  For linear solves pass:
