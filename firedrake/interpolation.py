@@ -788,7 +788,7 @@ class SameMeshInterpolator(Interpolator):
                 mul = assembled_interpolator.handle.mult
                 V = self.V
             result = output or firedrake.Function(V)
-            with function.dat.vec_ro as x, result.dat.vec_wo as out:
+            with function.vec_ro as x, result.vec_wo as out:
                 if x is not out:
                     mul(x, out)
                 else:
@@ -907,7 +907,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
             assert not len(arguments)
 
             def callable():
-                wrapper.forward_operation(f.dat)
+                wrapper.forward_operation(f)
                 return f
         else:
             assert len(arguments) == 1
@@ -1437,13 +1437,13 @@ class VomOntoVomWrapper:
     def mpi_type(self, val):
         self.handle.mpi_type = val
 
-    def forward_operation(self, target_dat):
+    def forward_operation(self, target):
         coeff = self.handle.expr_as_coeff()
-        with coeff.dat.vec_ro as coeff_vec, target_dat.vec_wo as target_vec:
+        with coeff.vec_ro as coeff_vec, target.vec_wo as target_vec:
             self.handle.mult(coeff_vec, target_vec)
 
 
-class VomOntoVomDummyMat(object):
+class VomOntoVomDummyMat:
     """Dummy object to stand in for a PETSc ``Mat`` when we are interpolating
     between vertex-only meshes.
 
@@ -1558,7 +1558,7 @@ class VomOntoVomDummyMat(object):
     def mult(self, source_vec, target_vec):
         # need to evaluate expression before doing mult
         coeff = self.expr_as_coeff(source_vec)
-        with coeff.dat.vec_ro as coeff_vec:
+        with coeff.vec_ro as coeff_vec:
             if self.forward_reduce:
                 self.reduce(coeff_vec, target_vec)
             else:

@@ -1893,9 +1893,9 @@ def _set_dg_coordinates(PETSc.DM dm,
         `PETSc.DM` representing the periodic mesh topology.
     finat_element: finat.finiteelementbase.FiniteElementBase
         Scalar DG finat element.
-    firedrake_dg_coord_sec: Function
+    firedrake_dg_coord_sec: PETSc.Section
         `PETSc.Section` containing the Firedrake scalar DG DoF layout.
-    firedrake_dg_coord_vec: Function
+    firedrake_dg_coord_vec: PETSc.Vec
         `PETSc.Vec` containing the Firedrake DG coordinates.
 
     """
@@ -2027,8 +2027,11 @@ def mark_owned_points(PETSc.DM dm) -> None:
         const PetscInt *ilocal = NULL
         DMLabel clabel
 
+    # It is possible to call this function multiple times on the same DM - for
+    # example when creating a periodic mesh. If that is the case then we
+    # do nothing the second time around.
     if dm.hasLabel("firedrake_is_ghost"):
-        raise AssertionError("mark_owned_points should only be called once")
+        return
 
     dm.createLabel("firedrake_is_ghost")
     CHKERR(DMGetLabel(dm.dm, b"firedrake_is_ghost", &clabel))

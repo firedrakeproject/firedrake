@@ -214,7 +214,7 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
                                form_compiler_parameters=self.form_compiler_parameters)
         if self.use_slate_for_inverse:
             def solve(x, b):
-                with x.dat.vec_wo as x_, b.dat.vec_ro as b_:
+                with x.vec_wo as x_, b.vec_ro as b_:
                     self.A.petscmat.mult(b_, x_)
             return solve(target, rhs)
         else:

@@ -267,6 +267,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         if isinstance(function_space, Function):
             self.assign(function_space)
 
+    def __str__(self):
+        return ufl2unicode(self)
+
     @property
     def topological(self):
         r"""The underlying coordinateless function."""
@@ -678,8 +681,20 @@ class Function(ufl.Coefficient, FunctionMixin):
             g_result = g_result[0]
         return g_result
 
-    def __str__(self):
-        return ufl2unicode(self)
+    @property
+    def vec_ro(self):
+        cdim = self.function_space()._cdim
+        return self.dat.vec_ro(bsize=cdim)
+
+    @property
+    def vec_wo(self):
+        cdim = self.function_space()._cdim
+        return self.dat.vec_wo(bsize=cdim)
+
+    @property
+    def vec_rw(self):
+        cdim = self.function_space()._cdim
+        return self.dat.vec_rw(bsize=cdim)
 
 
 class PointNotInDomainError(Exception):

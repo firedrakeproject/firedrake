@@ -425,3 +425,18 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
     def cell_node_map(self):
         return self.function_space().cell_node_map()
+
+    @property
+    def vec_ro(self):
+        cdim = self.function_space()._cdim
+        return self.dat.vec_ro(bsize=cdim)
+
+    @property
+    def vec_wo(self):
+        cdim = self.function_space()._cdim
+        return self.dat.vec_wo(bsize=cdim)
+
+    @property
+    def vec_rw(self):
+        cdim = self.function_space()._cdim
+        return self.dat.vec_rw(bsize=cdim)

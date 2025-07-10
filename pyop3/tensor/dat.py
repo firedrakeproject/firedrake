@@ -431,33 +431,25 @@ class Dat(Tensor, KernelArgument):
     # if we are reusing the underlying array. Care must be taken though because
     # sometimes we cannot create write-able vectors and use a copy (when fancy
     # indexing is required).
-    @property
+    # TODO: It might be inefficient to not pass global sizes here as it would include a communication?
     @contextlib.contextmanager
-    def vec_rw(self):
+    def vec_rw(self, *, bsize: int = 1) -> Generator[PETSc.Vec]:
         self._check_vec_dtype()
-        yield PETSc.Vec().createWithArray(self.data_rw, comm=self.comm)
+        yield PETSc.Vec().createWithArray(self.data_rw, bsize=bsize, comm=self.comm)
 
-    @property
     @contextlib.contextmanager
-    def vec_ro(self):
+    def vec_ro(self, *, bsize: int = 1) -> Generator[PETSc.Vec]:
         self._check_vec_dtype()
-        yield PETSc.Vec().createWithArray(self.data_ro, comm=self.comm)
+        yield PETSc.Vec().createWithArray(self.data_ro, bsize=bsize, comm=self.comm)
 
-    @property
     @contextlib.contextmanager
-    def vec_wo(self):
+    def vec_wo(self, *, bsize: int = 1) -> Generator[PETSc.Vec]:
         self._check_vec_dtype()
-        yield PETSc.Vec().createWithArray(self.data_wo, comm=self.comm)
+        yield PETSc.Vec().createWithArray(self.data_wo, bsize=bsize, comm=self.comm)
 
-    @property
     @deprecated(".vec_rw")
-    def vec(self):
-        return self.vec_rw
-
-    # def _as_expression_dat(self):
-    #     assert self.axes.is_linear
-    #     layout = just_one(self.axes.leaf_subst_layouts.values())
-    #     return LinearDatBufferExpression(self.buffer, layout)
+    def vec(self, *, bsize: int = 1) -> Generator[PETSc.Vec]:
+        return self.vec_rw(bsize=bsize)
 
     def _check_vec_dtype(self):
         if self.dtype != PETSc.ScalarType:
