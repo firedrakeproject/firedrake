@@ -72,14 +72,17 @@ Registration
 <https://app.onlinesurveys.jisc.ac.uk/s/leeds/firedrake-2025-registration>`__
 is now open.
 
+In addition to registering to attend, participants need to pay for their
+registration using the links below.
+
 The registration fees will be as follows:
 
 .. list-table::
    :widths: 25 25
 
-   * - Student
+   * - `Student <https://store.leeds.ac.uk/product-catalogue/faculty-of-engineering-and-physical-sciences/faculty-of-engineering/firedrake-2025-student-fee>`__
      - £25
-   * - Non-student
+   * - `Non-student <https://store.leeds.ac.uk/product-catalogue/faculty-of-engineering-and-physical-sciences/faculty-of-engineering/firedrake-2025-non-student-fee>`__
      - £115
 
 Abstract submission
