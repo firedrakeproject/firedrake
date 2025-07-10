@@ -16,7 +16,6 @@ def cell_midpoints(m):
     `midpoints` are the midpoints for the entire mesh even if the mesh is
     distributed and `local_midpoints` are the midpoints of only the
     rank-local non-ghost cells."""
-    m.init()
     V = VectorFunctionSpace(m, "DG", 0)
     f = Function(V).interpolate(SpatialCoordinate(m))
     # since mesh may be distributed, the number of cells on the MPI rank
@@ -46,7 +45,6 @@ def cell_ownership(m):
     m.locate_cell(point).
 
     """
-    m.init()
     # Interpolating Constant(parent_mesh.comm.rank) into P0DG cleverly creates
     # a Function whose dat contains rank ownership information in an ordering
     # that is accessible using Firedrake's cell numbering. This is because, on
@@ -158,7 +156,6 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
 
     # Setup
 
-    parentmesh.init()
     inputpointcoords, inputlocalpointcoords = cell_midpoints(parentmesh)
     inputcoordindices = np.arange(len(inputpointcoords))
     inputlocalpointcoordranks = point_ownership(parentmesh, inputpointcoords, inputlocalpointcoords)

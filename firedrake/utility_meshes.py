@@ -33,6 +33,7 @@ from firedrake.cython import dmcommon
 from firedrake import mesh
 from firedrake import function
 from firedrake import functionspace
+from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
 
 from pyadjoint.tape import no_annotations
@@ -375,9 +376,14 @@ def OneElementThickMesh(
     plex = mesh.plex_from_cell_list(
         2, cells, coords, comm, mesh._generate_default_mesh_topology_name(name)
     )
-    mesh1 = mesh.Mesh(plex, distribution_parameters=distribution_parameters, comm=comm)
-    mesh1.topology.init()
-    cell_numbering = mesh1._cell_numbering
+    tmesh1 = mesh.MeshTopology(
+        plex,
+        plex.getName(),
+        reorder=parameters["reorder_meshes"],
+        distribution_parameters=distribution_parameters,
+        comm=comm,
+    )
+    cell_numbering = tmesh1._cell_numbering
     cell_range = plex.getHeightStratum(0)
     cell_closure = np.zeros((cell_range[1], 9), dtype=IntType)
 
@@ -474,10 +480,8 @@ def OneElementThickMesh(
 
         cell_closure[row][0:4] = [v1, v1, v2, v2]
 
-    mesh1.topology.cell_closure = np.array(cell_closure, dtype=IntType)
-
-    mesh1.init()
-
+    tmesh1.cell_closure = np.array(cell_closure, dtype=IntType)
+    mesh1 = mesh.make_mesh_from_mesh_topology(tmesh1, "temp")
     fe_dg = FiniteElement("DQ", mesh1.ufl_cell(), 1, variant="equispaced")
     Vc = VectorFunctionSpace(mesh1, fe_dg)
     fc = Function(
