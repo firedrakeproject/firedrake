@@ -5,7 +5,7 @@ import cupy as cp
 from cuda.bindings.driver import CUstream
 #import cutlass.cute as cute
 #import cutlass
-
+import os
 class ComputeDevice(abc.ABC):
     pass
 
@@ -37,8 +37,10 @@ def device(type=None):
         global compute_device
         orig_device = compute_device
         compute_device = gpu
+        os.environ["FIREDRAKE_USE_GPU"] = "1" 
         yield from compute_device.context_manager()
         compute_device = orig_device
+        del os.environ['FIREDRAKE_USE_GPU']
     else:
         yield from compute_device.context_manager()
     

@@ -1,6 +1,7 @@
 import collections
 import time
 import sys
+import os
 from itertools import chain
 from finat.physically_mapped import DirectlyDefinedElement, PhysicallyMappedElement
 
@@ -174,6 +175,10 @@ def preprocess_parameters(parameters):
         _ = default_parameters()
         _.update(parameters)
         parameters = _
+
+    if "FIREDRAKE_USE_GPU" in os.environ:
+        parameters["unroll_indexsum"] = 0
+
     # Remove these here, they're handled later on.
     if parameters.get("quadrature_degree") in ["auto", "default", None, -1, "-1"]:
         del parameters["quadrature_degree"]
