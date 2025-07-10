@@ -257,6 +257,7 @@ definite, and therefore can choose the conjugate gradient method,
 rather than GMRES.
 
 .. code-block:: python3
+
    solve(a == L, solver_parameters={'ksp_type': 'cg'})
 
 To change the preconditioner used, we set the ``'pc_type'`` option.
@@ -278,15 +279,9 @@ do this, we set the ``pc_type`` to ``'lu'`` and tell PETSc to use a
 
 .. code-block:: python3
 
-    solve(a == L,
-          solver_parameters={
-              'mat_type': 'aij',
-              'ksp_type': 'preonly',
-              'ksp_rtol': 1e-7,
-              'pc_type': 'lu',
-              'pc_factor_mat_solver_type' : 'mumps',
-              'pc_factor_mat_mumps_icntl_14' : 200
-          })
+   solve(a == L,
+         solver_parameters={'ksp_type': 'preonly',
+                            'pc_type': 'lu'})
 
 In a similar manner, we can use Jacobi preconditioned Richardson
 iterations with:
@@ -295,9 +290,7 @@ iterations with:
 
    solve(a == L,
          solver_parameters={'ksp_type': 'richardson',
-                            'pc_type': 'jacobi',
-                            'pc_factor_mat_solver_type' : 'mumps',
-                            'pc_factor_mat_mumps_icntl_14' : 200})
+                            'pc_type': 'jacobi'})
 
 .. note::
 
@@ -735,7 +728,6 @@ solving with.
 Default solver options
 ~~~~~~~~~~~~~~~~~~~~~~
 
-
 If no parameters are passed to a ``solve`` call, we use, in most cases,
 the defaults that PETSc supplies for solving the linear or nonlinear
 system. We describe the most commonly modified options (along with
@@ -745,31 +737,14 @@ use:
 * ``mat_type``: ``aij``
 * ``ksp_type``: ``preonly``
 * ``ksp_rtol``: ``1e-7``
-* ``ksp_atol``: ``1e-50``
-* ``ksp_divtol``: ``1e4``
-* ``ksp_max_it``: ``10000``
 * ``pc_type``: ``lu``
 * ``pc_factor_mat_solver_type`` : ``mumps``
 * ``pc_factor_mat_mumps_icntl_14``: 200
-
 
 For nonlinear variational solves we have:
 
-* ``ksp_type``: ``preonly``
-* ``mat_type``: ``aij``
-* ``snes_rtol``: 1e-8
-* ``snes_atol``: 1e-50
-* ``snes_stol``: 1e-8
-* ``snes_max_it``: 50
 * ``snes_type`` : ``newtonls``
 * ``snes_linesearch_type`` : `basic`
-* ``ksp_rtol``: 1e-5
-* ``ksp_atol``: 1e-50
-* ``ksp_divtol``: 1e4
-* ``ksp_max_it``: 10000
-* ``pc_type``: ``lu``
-* ``pc_factor_mat_solver_type`` : ``mumps``
-* ``pc_factor_mat_mumps_icntl_14``: 200
 
 To see the full view that PETSc has of solver objects, you can pass a
 view flag to the solve call.  For linear solves pass:
