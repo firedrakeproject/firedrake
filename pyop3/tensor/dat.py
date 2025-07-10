@@ -3,9 +3,8 @@ from __future__ import annotations
 import abc
 import collections
 import contextlib
-import dataclasses
 import functools
-import sys
+import numbers
 from functools import cached_property
 from typing import Any, ClassVar, Sequence
 
@@ -26,7 +25,7 @@ from pyop3.axtree import (
 )
 from pyop3.axtree.tree import AbstractAxisTree, Expression, ContextFree, ContextSensitiveAxisTree, subst_layouts
 from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer, BufferRef, NullBuffer, PetscMatBuffer
-from pyop3.dtypes import ScalarType
+from pyop3.dtypes import DTypeT, ScalarType
 from pyop3.exceptions import Pyop3Exception
 from pyop3.lang import KernelArgument, ArrayAssignment
 from pyop3.log import warning
@@ -124,6 +123,11 @@ class Dat(Tensor, KernelArgument):
         axes = Axis(array.size)
         buffer = ArrayBuffer(array, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
+
+    @classmethod
+    def from_sequence(cls, sequence: Sequence, dtype: DTypeT, **kwargs) -> Dat:
+        array = np.asarray(sequence, dtype=dtype)
+        return cls.from_array(array, **kwargs)
 
     @classmethod
     def serial(cls, axes, **kwargs) -> Dat:
@@ -458,6 +462,34 @@ class Dat(Tensor, KernelArgument):
                 f"must be {PETSc.ScalarType}"
             )
 
+    def maxpy(self, alphas: Iterable[numbers.Number], dats: Iterable[Dat]) -> None:
+        """Compute a sequence of axpy operations.
+
+        This is equivalent to calling `axpy` for each pair of
+        scalars and `Dat` in the input sequences.
+
+        Parameters
+        ----------
+        alphas :
+            A sequence of scalars.
+        dats :
+            A sequence of `Dat`s.
+
+        """
+        for alpha, dat in zip(alphas, dats, strict=True):
+            self.axpy(alpha, dat)
+
+    def axpy(self, alpha: numbers.Number, other: Dat) -> None:
+        """Compute the operation :math:`y = \\alpha x + y`.
+
+        In this case, ``self`` is ``y`` and ``other`` is ``x``.
+
+        """
+        np.add(
+            alpha * other.data_ro_with_halos, self.data_ro_with_halos,
+            out=self.data_wo_with_halos
+        )
+
     # TODO: deprecate this and just look at axes
     @property
     def outer_loops(self):
@@ -735,7 +767,7 @@ class NonlinearMatBufferExpression(MatBufferExpression, NonlinearBufferExpressio
 
 
 @functools.singledispatch
-def as_linear_buffer_expression(dat: Dat) -> LinearDatBufferExpression:
+def as_linear_buffer_expression(obj: Any) -> LinearDatBufferExpression:
     raise TypeError
 
 

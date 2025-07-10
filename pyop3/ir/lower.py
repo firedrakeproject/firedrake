@@ -382,7 +382,7 @@ class ModuleExecutor:
 
         # if len(self.loopy_code.callables_table) > 1:
         #     breakpoint()
-        pyop3.extras.debug.maybe_breakpoint()
+        # pyop3.extras.debug.maybe_breakpoint()
 
         self.executable(*exec_arguments)
         pass

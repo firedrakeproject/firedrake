@@ -1,6 +1,8 @@
 import functools
 import numbers
 import operator
+from types import EllipsisType
+from typing import Any
 
 import finat.ufl
 import numpy as np
@@ -17,7 +19,7 @@ from ufl.domain import extract_unique_domain
 from firedrake.constant import Constant
 from firedrake.function import Function
 from firedrake.petsc import PETSc
-from firedrake.utils import ScalarType, split_by
+from firedrake.utils import IntType, ScalarType, split_by
 from firedrake.vector import Vector
 
 
@@ -143,7 +145,7 @@ class Assigner:
 
     _coefficient_collector = CoefficientCollector()
 
-    def __init__(self, assignee, expression, subset=None):
+    def __init__(self, assignee, expression, subset):
         if isinstance(expression, Vector):
             expression = expression.function
         expression = as_ufl(expression)
@@ -163,9 +165,11 @@ class Assigner:
             raise ValueError("Subset is not a valid argument for assigning to a mixed "
                              "element including a real element")
 
+        subset = self._parse_subset(subset)
+
         self._assignee = assignee
         self._expression = expression
-        self._subset = subset or Ellipsis
+        self._subset = subset
 
     def __str__(self):
         return f"{self._assignee} {self.symbol} {self._expression}"
@@ -339,3 +343,27 @@ class IDivAssigner(Assigner):
             lhs[indices].buffer._data[...] /= rvalue
         else:
             lhs[indices].data_wo[...] /= rvalue
+
+
+@functools.singledispatch
+def parse_subset(obj: Any) -> op3.Slice | EllipsisType:
+    raise TypeError
+
+@parse_subset.register
+def _(slice_: op3.Slice) -> op3.Slice:
+    return slice_
+
+@parse_subset.register
+def _(none: None) -> EllipsisType:
+    return Ellipsis
+
+@parse_subset.register
+def _(subset: op3.Subset) -> op3.Slice:
+    return op3.Slice("nodes", [subset])
+
+@parse_subset.register(list)
+@parse_subset.register(tuple)
+def _(subset: list | tuple) -> op3.Slice:
+    subset_dat = op3.Dat.from_sequence(subset, dtype=IntType)
+    subset = op3.Subset(0, subset_dat)
+    return parse_subset(subset)

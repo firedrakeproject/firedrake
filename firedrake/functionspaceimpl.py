@@ -112,6 +112,8 @@ class WithGeometryBase:
         Firedrake-specific data that is not required for code
         generation.
     """
+    node_label = "nodes"
+
     def __init__(self, mesh, element, component=None, cargo=None):
         assert component is None or isinstance(component, int)
         assert cargo is None or isinstance(cargo, FunctionSpaceCargo)
@@ -623,28 +625,6 @@ class FunctionSpace:
         return layout_from_spec(self.layout, self.axis_constraints)
 
     @cached_property
-    def axes(self) -> op3.IndexedAxisTree:
-        strata_slice = self._mesh._strata_slice
-        index_tree = op3.IndexTree(strata_slice)
-        for slice_component in strata_slice.slices:
-            path = {strata_slice.label: slice_component.label}
-
-            dim = slice_component.label
-            ndofs = single_valued(len(v) for v in self.finat_element.entity_dofs()[dim].values())
-            subslice = op3.Slice("dof", [op3.AffineSliceComponent("XXX", stop=ndofs, label="XXX")], label=f"dof{slice_component.label}")
-            index_tree = index_tree.add_node(path, subslice)
-
-            # same as in parloops.py
-            if self.shape:
-                shape_slices = op3.IndexTree.from_iterable([
-                    op3.Slice(f"dim{i}", [op3.AffineSliceComponent("XXX", label="XXX")], label=f"dim{i}")
-                    for i, dim in enumerate(self.shape)
-                ])
-
-                index_tree = index_tree.add_subtree(path | {subslice.label: "XXX"}, shape_slices)
-        return self.layout_axes[index_tree]
-
-    @cached_property
     def axis_constraints(self) -> tuple[AxisConstraint]:
         import pyop3.extras.debug
 
@@ -677,6 +657,99 @@ class FunctionSpace:
             constraints.append(constraint)
 
         return tuple(constraints)
+
+    @cached_property
+    def axes(self) -> op3.IndexedAxisTree:
+        strata_slice = self._mesh._strata_slice
+        index_tree = op3.IndexTree(strata_slice)
+        for slice_component in strata_slice.slices:
+            path = {strata_slice.label: slice_component.label}
+
+            dim = slice_component.label
+            ndofs = single_valued(len(v) for v in self.finat_element.entity_dofs()[dim].values())
+            subslice = op3.Slice("dof", [op3.AffineSliceComponent("XXX", stop=ndofs, label="XXX")], label=f"dof{slice_component.label}")
+            index_tree = index_tree.add_node(path, subslice)
+
+            # same as in parloops.py
+            if self.shape:
+                shape_slices = op3.IndexTree.from_iterable([
+                    op3.Slice(f"dim{i}", [op3.AffineSliceComponent("XXX", label="XXX")], label=f"dim{i}")
+                    for i, dim in enumerate(self.shape)
+                ])
+
+                index_tree = index_tree.add_subtree(path | {subslice.label: "XXX"}, shape_slices)
+        return self.layout_axes[index_tree]
+
+    @cached_property
+    def nodal_axes(self) -> op3.IndexedAxisTree:
+        # NOTE: This might be a good candidate for axis forests so we could have
+        # V.axes and index it with node things or mesh things
+        if self.shape:
+            breakpoint()
+        else:
+            scalar_axis_tree = self.axes
+        num_nodes = scalar_axis_tree.size
+
+        node_axis = op3.Axis([op3.AxisComponent(num_nodes, sf=scalar_axis_tree.sf)], "nodes")
+        axis_tree = op3.AxisTree(node_axis)
+        if self.shape:
+            raise NotImplementedError
+
+        # Now determine the targets mapping the nodes back to mesh
+        # points and DoFs which constitute the 'true' layout axis tree. This
+        # means we have to determine the mapping
+        #
+        #   n0 -> (p0, d0)
+        #   n1 -> (p0, d1)
+        #   n2 -> (p1, d0)
+        #   ...
+        #
+        # We realise this by computing the joint mappings:
+        #
+        #   n0 -> p0, n1 -> p0, n2 -> p1, ...
+        #
+        # and
+        #
+        #   n0 -> d0, n1 -> d1, n2 -> d0, ...
+        #
+        # The excessive tabulations should not impose a performance penalty
+        # because they mappings will be compressed during compilation.
+        import pyop3.extras.debug
+        pyop3.extras.debug.warn_todo("Cythonize")
+
+        node_point_map_array = numpy.empty(num_nodes, dtype=IntType)
+        node_dof_map_array = numpy.empty_like(node_point_map_array)
+
+        dof_axis = self.layout_axes.leaf_axis
+        assert dof_axis.label == "dof", "will fail for vector shape etc"
+        ndofs = dof_axis.component.size.buffer.buffer.data_ro
+
+        node = 0
+        for point, ndof in enumerate(ndofs):
+            for dof in range(ndof):
+                node_point_map_array[node] = point
+                node_dof_map_array[node] = dof
+                node += 1
+
+        node_point_map_dat = op3.Dat(node_axis, data=node_point_map_array)
+        node_dof_map_dat = op3.Dat(node_axis, data=node_dof_map_array)
+
+        node_point_map_expr = op3.as_linear_buffer_expression(node_point_map_dat)
+        node_dof_map_expr = op3.as_linear_buffer_expression(node_dof_map_dat)
+
+        targets = {
+            immutabledict({"nodes": 0}): (
+                immutabledict({"mesh": "mylabel", "dof": "XXX"}),
+                immutabledict({"mesh": node_point_map_expr, "dof": node_dof_map_expr}),
+            ),
+        }
+        targets = (targets,) + (axis_tree._source_path_and_exprs,)
+
+        return op3.IndexedAxisTree(
+            axis_tree,
+            unindexed=self.layout_axes,
+            targets=targets,
+        )
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.

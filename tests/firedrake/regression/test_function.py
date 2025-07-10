@@ -45,7 +45,6 @@ def test_firedrake_scalar_function(V):
     assert (g.dat.data_ro == 1.0).all()
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 def test_firedrake_tensor_function(W):
     f = Function(W)
     vals = np.array([1.0, 2.0, 10.0, 20.0]).reshape(2, 2)
@@ -63,7 +62,6 @@ def test_firedrake_tensor_function(W):
     assert np.allclose(g.dat.data_ro, vals)
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 def test_firedrake_tensor_function_nonstandard_shape(W_nonstandard_shape):
     f = Function(W_nonstandard_shape)
     vals = np.arange(1.0, W_nonstandard_shape.value_size+1).reshape(f.ufl_shape)
@@ -102,14 +100,12 @@ def test_mismatching_shape_interpolation(V):
         f.interpolate(Constant([1] * (VV.value_shape[0] + 1)))
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 def test_function_val(V):
     """Initialise a Function with a NumPy array."""
     f = Function(V, np.ones((V.node_count, V.value_size)))
     assert (f.dat.data_ro == 1.0).all()
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 def test_function_dat(V):
     """Initialise a Function with an op2.Dat."""
     f = Function(V, op2.Dat(V.node_set**V.value_size))
@@ -134,7 +130,6 @@ def test_function_name(V):
     assert f.name() == "bar" and f.label() == "baz"
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 def test_copy(V):
     f = Function(V, name="foo")
     f.assign(1)
@@ -172,7 +167,6 @@ def test_scalar_function_zero(V):
     assert np.allclose(f.dat.data_ro, 0.0)
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 def test_scalar_function_zero_with_subset(V):
     f = Function(V)
     # create an arbitrary subset consisting of the first two nodes
@@ -262,7 +256,6 @@ def test_vector_real_space_assign(Rvector, value):
     assert np.allclose(f.dat.data_ro, value)
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 def test_vector_real_space_assign_function(Rvector):
     value = [9, 10, 11, 12]
     fvalue = Function(Rvector, val=value)
@@ -279,7 +272,6 @@ def test_vector_real_space_assign_constant(Rvector):
     assert np.allclose(f.dat.data_ro, value)
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 def test_vector_real_space_assign_zero(Rvector):
     f = Function(Rvector, val=[9, 10, 11, 12])
     f.assign(zero())

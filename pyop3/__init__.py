@@ -40,6 +40,7 @@ from pyop3.tensor import (  # noqa: F401
     Tensor, FancyIndexWriteException, Dat, Scalar, Mat,
     RowDatPythonMatContext, ColumnDatPythonMatContext,
 )
+from pyop3.tensor.dat import as_linear_buffer_expression
 from pyop3.axtree import (  # noqa: F401
     Axis,
     AxisComponent,

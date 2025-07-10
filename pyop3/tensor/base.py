@@ -118,11 +118,6 @@ class Tensor(ContextAware, FunctionArgument, Expression, abc.ABC):
         expr = ArrayAssignment(self, other, mode)
         return expr() if eager else expr
 
-    # TODO:
-    # Note that this will only really work for vectors
-    def maxpy(self, alpha: Iterable[numbers.Number], x: Iterable):
-        raise NotImplementedError
-
     def duplicate(self, *, copy: bool = False) -> Tensor:
         name = f"{self.name}_copy"
         buffer = self.buffer.duplicate(copy=copy)

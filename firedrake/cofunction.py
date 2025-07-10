@@ -224,7 +224,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @utils.known_pyop2_safe
-    def assign(self, expr, subset=Ellipsis, expr_from_assemble=False):
+    def assign(self, expr, subset=None, expr_from_assemble=False):
         r"""Set the :class:`Cofunction` value to the pointwise value of
         expr. expr may only contain :class:`Cofunction`\s on the same
         :class:`.FunctionSpace` as the :class:`Cofunction` being assigned to.
@@ -246,10 +246,14 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         current method. `expr_from_assemble` is required for the
         `CofunctionAssignBlock`.
         """
+        from firedrake.assign import Assigner, parse_subset
+
+        subset = parse_subset(subset)
+
         expr = ufl.as_ufl(expr)
         if isinstance(expr, ufl.classes.Zero):
             with stop_annotating(modifies=(self,)):
-                self.dat[subset].zero(eager=True)
+                self.dat.with_axes(self.function_space().nodal_axes)[subset].zero(eager=True)
             return self
         elif (isinstance(expr, Cofunction)
               and expr.function_space() == self.function_space()):
@@ -266,7 +270,11 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
                         self, expr, rhs_from_assemble=expr_from_assemble)
                 )
 
-            self.dat[subset].assign(expr.dat[subset], eager=True)
+            # TODO: Shouldn't need to cast the axes
+            # self.dat[subset].assign(expr.dat[subset], eager=True)
+            lhs = self.dat.with_axes(self.function_space().nodal_axes)[subset]
+            rhs = expr.dat.with_axes(expr.function_space().nodal_axes)[subset]
+            lhs.assign(rhs, eager=True)
             return self
         elif isinstance(expr, BaseForm):
             # Enable c.assign(B) where c is a Cofunction and B an appropriate
@@ -277,7 +285,6 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
                 assembled_expr, subset=subset,
                 expr_from_assemble=True)
         else:
-            from firedrake.assign import Assigner
             Assigner(self, expr, subset).assign()
         return self
 

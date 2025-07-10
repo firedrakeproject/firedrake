@@ -2179,18 +2179,27 @@ def find_matching_target(self):
 
 
 class AxisForest:
-    """A collection of (equivalent) `AxisTree`s.
+    """A collection of equivalent axis trees.
 
-    Axis forests are useful to describe indexed axis trees like ``axis[::2]`` which
-    has two axis trees, one for the new tree and another for the original one (with
-    the right index expressions).
+    Axis forests are useful to describe circumstances where there are multiple
+    viable axis trees for describing a layout. For instance, one can view
+    the data layout for a function space as a set of DoFs per mesh strata, or
+    as a flat set of nodes. These layouts cannot be transformed between each
+    other and so must coexist.
 
     """
     def __init__(self, trees: Sequence[AbstractAxisTree]) -> None:
+        # TODO: Should check the trees for compatibility (e.g. do they have the same SF?)
         self.trees = tuple(trees)
 
     def __repr__(self) -> str:
         return f"AxisTree([{', '.join(repr(tree) for tree in self.trees)}])"
+
+    def __getitem__(self, indices) -> AxisForest | AxisTree:
+        return self.getitem(indices, strict=False)
+
+    def getitem(self, indices, *, strict=False):
+        breakpoint()
 
 
 class ContextSensitiveAxisTree(ContextSensitiveLoopIterable):
