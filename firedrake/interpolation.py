@@ -150,7 +150,7 @@ class Interpolate(ufl.Interpolate):
 
 
 @PETSc.Log.EventDecorator()
-def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False, default_missing_val=None):
+def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False, default_missing_val=None, matfree=True):
     """Returns a UFL expression for the interpolation operation of ``expr`` into ``V``.
 
     :arg expr: a UFL expression.
@@ -182,6 +182,9 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
         some ``output`` is given to the :meth:`interpolate` method or (b) set
         to zero. Ignored if interpolating within the same mesh or onto a
         :func:`.VertexOnlyMesh`.
+    :kwarg matfree: If ``False``, then construct the permutation matrix for interpolating
+        between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
+        and reduce operations.
     :returns: A symbolic :class:`.Interpolate` object
 
     .. note::
@@ -197,34 +200,25 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
        existing values and any new values).
     """
     adjoint = False
-    if isinstance(V, Cofunction):
-        coargument = Coargument(V.function_space(), 0)
-        adjoint = bool(extract_arguments(expr))
-    elif isinstance(V, Coargument):
+    if isinstance(V, (Cofunction, Coargument)):
         coargument = V
     elif isinstance(V, functionspaceimpl.WithGeometry):
         coargument = Coargument(V.dual(), 0)
+        expr_args = extract_arguments(expr)
+        if expr_args and expr_args[0].number() == 0:
+            # In this case we are doing adjoint interpolation
+            # When V is a FunctionSpace and expr contains Argument(0), 
+            # we need to change expr argument number to 1 (in our current implementation)
+            v, = expr_args
+            expr = replace(expr, {v: v.reconstruct(number=1)})
     else:
-        raise TypeError(f"V must be a FunctionSpace, Cofunction or Coargument, not {type(V)}")
-
-    expr_args = extract_arguments(expr)
-    if expr_args and expr_args[0].number() == 0:
-        # In this case we are doing adjoint interpolation, currently we factor this into
-        # the action of the adjoint Interpolate operation
-        # TODO: Should be able to remove this; assembly should handle this
-        # Case V is a FunctionSpace, expr contains Argument(0), we need to change expr argument number to 1 (in our current implementation)
-        v, = expr_args
-        expr = replace(expr, {v: v.reconstruct(number=1)})
+        raise TypeError(f"V must be a FunctionSpace, Cofunction or Coargument, not {type(V).__name__}")
 
     interp = Interpolate(expr, coargument,
                          subset=subset, access=access,
                          allow_missing_dofs=allow_missing_dofs,
-                         default_missing_val=default_missing_val)
-    if adjoint:
-        interp = expr_adjoint(interp)
-
-    if isinstance(V, Cofunction):
-        interp = action(interp, V)
+                         default_missing_val=default_missing_val,
+                         matfree=matfree)
 
     return interp
 
