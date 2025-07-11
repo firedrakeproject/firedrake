@@ -382,3 +382,24 @@ def test_real_space_hex():
     assert np.allclose(val.dat.data_ro, [2.])
     val = assemble(inner(r, TestFunction(DG)) * dx)
     assert np.allclose(val.dat.data, [1., 1.])
+
+
+@pytest.mark.parallel
+def test_real_space_solve_mumps():
+    mesh = UnitIntervalMesh(10)
+    V = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(mesh, "R", 0)
+    Z = V * R
+    u, p = TrialFunctions(Z)
+    v, q = TestFunctions(Z)
+
+    a = inner(grad(u), grad(v))*dx + inner(p, v)*dx + inner(u, q)*dx
+
+    A = assemble(a, mat_type="nest").petscmat
+    A.view()
+    A.convert("aij").view()
+
+    L = inner(1, v)*dx + inner(1, q)*dx
+    z = Function(Z)
+    solve(a == L, z, solver_parameters={"mat_type": "nest", "pc_type": "lu", "pc_factor_mat_solver_type": "mumps"})
+

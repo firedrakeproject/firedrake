@@ -750,10 +750,10 @@ class Mat(AbstractMat):
         if path == (None, None):
             lgmaps, = lgmaps
             assert all(l is None for l in lgmaps)
-            return GlobalLegacyArg(self.handle.getPythonContext().global_, access)
+            return GlobalLegacyArg(self.handle.query("_pyop2_payload").getPythonContext().global_, access)
         elif None in path:
             thispath = path[0] or path[1]
-            return DatLegacyArg(self.handle.getPythonContext().dat, thispath, access)
+            return DatLegacyArg(self.handle.query("_pyop2_payload").getPythonContext().dat, thispath, access)
         else:
             return super().__call__(access, path, lgmaps, unroll_map)
 
@@ -863,7 +863,7 @@ class Mat(AbstractMat):
             raise ValueError("Printing dense matrix with more than 1 million entries not allowed.\n"
                              "Are you sure you wanted to do this?")
         if (isinstance(self.sparsity._dsets[0], GlobalDataSet) or isinstance(self.sparsity._dsets[1], GlobalDataSet)):
-            return self.handle.getPythonContext()[:, :]
+            return self.handle[:, :]
         else:
             return self.handle[:, :]
 
@@ -983,16 +983,23 @@ def _DatMat(sparsity, dat=None):
     :class:`.Dat`"""
     if isinstance(sparsity.dsets[0], GlobalDataSet):
         dset = sparsity.dsets[1]
-        sizes = ((None, 1), (dset.size*dset.cdim, None))
+        needs_transpose = True
     elif isinstance(sparsity.dsets[1], GlobalDataSet):
         dset = sparsity.dsets[0]
-        sizes = ((dset.size * dset.cdim, None), (None, 1))
+        needs_transpose = False
     else:
         raise ValueError("Not a DatMat")
 
-    A = PETSc.Mat().createPython(sizes, comm=sparsity.comm)
-    A.setPythonContext(_DatMatPayload(sparsity, dat))
-    A.setUp()
+    sizes = ((dset.size * dset.cdim, None), (None, 1))
+    payload = _DatMatPayload(sparsity, dat)
+    A = PETSc.Mat().createDense(sizes, comm=sparsity.comm, array=payload.dat.data)
+    if needs_transpose:
+        A.transpose()
+
+    B = PETSc.Mat().createPython(A.getSizes(), comm=sparsity.comm)
+    B.setPythonContext(payload)
+    B.setUp()
+    A.compose("_pyop2_payload", B)
     return A
 
 
@@ -1118,9 +1125,13 @@ class _DatMatPayload:
 def _GlobalMat(global_=None, comm=None):
     """A :class:`PETSc.Mat` with global size 1x1 implemented as a
     :class:`.Global`"""
-    A = PETSc.Mat().createPython(((None, 1), (None, 1)), comm=comm)
-    A.setPythonContext(_GlobalMatPayload(global_, comm))
-    A.setUp()
+    payload = _GlobalMatPayload(global_, comm)
+    A = PETSc.Mat().createDense(((None, 1), (None, 1)), comm=comm, array=payload.global_.data)
+
+    B = PETSc.Mat().createPython(A.getSizes(), comm=comm)
+    B.setPythonContext(payload)
+    B.setUp()
+    A.compose("_pyop2_payload", B)
     return A
 
 

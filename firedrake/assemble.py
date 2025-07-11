@@ -1483,7 +1483,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
     @staticmethod
     def _apply_bcs_mat_real_block(op2tensor, i, j, component, node_set):
-        dat = op2tensor[i, j].handle.getPythonContext().dat
+        dat = op2tensor[i, j].handle.query("_pyop2_payload").getPythonContext().dat
         if component is not None:
             dat = op2.DatView(dat, component)
         dat.zero(subset=node_set)
@@ -1500,8 +1500,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         else:
             mat = tensor.M
 
-        if mat.handle.getType() == "python":
-            mat_context = mat.handle.getPythonContext()
+        if mat.handle.query("_pyop2_payload") is not None:
+            mat_context = mat.handle.query("_pyop2_payload").getPythonContext()
             if isinstance(mat_context, _GlobalMatPayload):
                 mat = mat_context.global_
             else:
