@@ -199,7 +199,6 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
        reduction (hence using MIN will compute the MIN between the
        existing values and any new values).
     """
-    adjoint = False
     if isinstance(V, (Cofunction, Coargument)):
         coargument = V
     elif isinstance(V, functionspaceimpl.WithGeometry):
@@ -207,7 +206,7 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
         expr_args = extract_arguments(expr)
         if expr_args and expr_args[0].number() == 0:
             # In this case we are doing adjoint interpolation
-            # When V is a FunctionSpace and expr contains Argument(0), 
+            # When V is a FunctionSpace and expr contains Argument(0),
             # we need to change expr argument number to 1 (in our current implementation)
             v, = expr_args
             expr = replace(expr, {v: v.reconstruct(number=1)})
