@@ -26,6 +26,13 @@ with other users.
 The conference will begin around lunchtime on 15 September and end on the
 evening of 17 September.
 
+Key Dates
+---------
+
+- Abstract deadline: 17 August 2025
+- Registration deadline: 25 August 2025
+- Workshop: 15-17 September 2025
+
 Conference venue
 ----------------
 
