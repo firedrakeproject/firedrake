@@ -1,0 +1,84 @@
+from firedrake.preconditioners.base import SNESBase
+from firedrake.petsc import PETSc
+from firedrake.dmhooks import get_appctx, get_function_space
+
+__all__ = ("AuxiliaryOperatorSNES",)
+
+
+class AuxiliaryOperatorSNES(SNESBase):
+    prefix = "aux_"
+
+    @PETSc.Log.EventDecorator()
+    def initialize(self, snes):
+        from firedrake import (  # ImportError if this is at file level
+            NonlinearVariationalSolver,
+            NonlinearVariationalProblem,
+            Function, TestFunction,
+            Cofunction, replace)
+
+        V = get_function_space(snes.dm).collapse()
+
+        v = TestFunction(V)
+        uk1 = Function(V)
+        uk = Function(V)
+        self.uk1 = uk1
+        self.uk = uk
+
+        Gk1, bcs = self.form(snes, uk1, v)
+
+        Gk = replace(Gk1, {uk1: uk})
+        b = Cofunction(V.dual())
+        Gk1 -= b
+
+        self.Gk = Gk
+        self.Gk1 = Gk1
+        self.b = b
+
+        parent_prefix = snes.getOptionsPrefix() or "" 
+        prefix = parent_prefix + self.prefix
+        appctx = get_appctx(snes.dm).appctx
+        fcp = appctx.get("form_compiler_parameters")
+
+        self.solver = NonlinearVariationalSolver(
+            NonlinearVariationalProblem(
+                Gk1, uk1, bcs=bcs,
+                form_compiler_parameters=fcp),
+            appctx=appctx, options_prefix=prefix)
+
+        outer_snes = snes
+        inner_snes = self.solver.snes
+        inner_snes.incrementTabLevel(1, parent=outer_snes)
+        inner_snes.ksp.incrementTabLevel(1, parent=outer_snes)
+        inner_snes.ksp.pc.incrementTabLevel(1, parent=outer_snes)
+
+    def update(self, snes):
+        pass
+
+    @PETSc.Log.EventDecorator()
+    def step(self, snes, x, f, y):
+        from firedrake import assemble
+
+        with self.uk.dat.vec_wo as vec:
+            x.copy(vec)
+
+        assemble(self.Gk, tensor=self.b)
+
+        if f is not None:
+            with self.b.dat.vec as vec:
+                vec -= f
+
+        self.uk1.assign(self.uk)
+        self.solver.solve()
+
+        with self.uk1.dat.vec_ro as vec:
+            vec.copy(y)
+            y.aypx(-1, x)
+
+    def form(self, snes, u, v):
+        raise NotImplementedError
+
+    def view(self, snes, viewer=None):
+        super().view(snes, viewer)
+        if hasattr(self, "solver"):
+            viewer.printfASCII("SNES to apply auxiliary inverse\n")
+            self.solver.snes.view(viewer)
