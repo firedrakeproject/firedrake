@@ -2,7 +2,6 @@ import pytest
 
 import numpy as np
 from firedrake import *
-from firedrake.__future__ import *
 from firedrake.adjoint import *
 from pyadjoint import taylor_to_dict
 
