@@ -1,10 +1,11 @@
-import firedrake as fd
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
 from firedrake.ufl_expr import TestFunction
 from firedrake.dmhooks import get_function_space
 from firedrake.utils import complex_mode
+from firedrake.interpolation import interpolate
+from firedrake import grad, SpatialCoordinate
 from firedrake_citations import Citations
 from pyop2.utils import as_tuple
 
@@ -28,6 +29,8 @@ def chop(A, tol=1E-10):
 
 class HypreAMS(PCBase):
     def initialize(self, obj):
+        from firedrake.assemble import assemble
+        
         if complex_mode:
             raise NotImplementedError("HypreAMS preconditioner not yet implemented in complex mode")
 
@@ -47,7 +50,7 @@ class HypreAMS(PCBase):
         P1 = FunctionSpace(mesh, "Lagrange", 1)
         G_callback = appctx.get("get_gradient", None)
         if G_callback is None:
-            G = chop(fd.assemble(fd.interpolate(fd.grad(TestFunction(P1)), V)).petscmat)
+            G = chop(assemble(interpolate(grad(TestFunction(P1)), V)).petscmat)
         else:
             G = G_callback(P1, V)
 
@@ -65,8 +68,8 @@ class HypreAMS(PCBase):
             pc.setHYPRESetBetaPoissonMatrix(None)
 
         VectorP1 = VectorFunctionSpace(mesh, "Lagrange", 1)
-        interp = fd.interpolate(fd.SpatialCoordinate(mesh), VectorP1)
-        pc.setCoordinates(fd.assemble(interp).dat.data_ro.copy())
+        interp = interpolate(SpatialCoordinate(mesh), VectorP1)
+        pc.setCoordinates(assemble(interp).dat.data_ro.copy())
         pc.setFromOptions()
         self.pc = pc
 
