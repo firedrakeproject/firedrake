@@ -30,7 +30,7 @@ def chop(A, tol=1E-10):
 class HypreAMS(PCBase):
     def initialize(self, obj):
         from firedrake.assemble import assemble
-        
+
         if complex_mode:
             raise NotImplementedError("HypreAMS preconditioner not yet implemented in complex mode")
 
