@@ -1,6 +1,6 @@
 from firedrake.preconditioners.base import SNESBase
 from firedrake.petsc import PETSc
-from firedrake.dmhooks import get_appctx, get_function_space
+from firedrake.dmhooks import get_function_space
 
 __all__ = ("AuxiliaryOperatorSNES",)
 
@@ -36,7 +36,7 @@ class AuxiliaryOperatorSNES(SNESBase):
 
         parent_prefix = snes.getOptionsPrefix() or "" 
         prefix = parent_prefix + self.prefix
-        appctx = get_appctx(snes.dm).appctx
+        appctx = self.get_appctx(snes)
         fcp = appctx.get("form_compiler_parameters")
 
         self.solver = NonlinearVariationalSolver(
