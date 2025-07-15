@@ -58,6 +58,7 @@ class Sparsity(caching.ObjectCached):
         if self._initialized:
             return
         self._dsets = dsets
+        self._lgmaps = None
         self._maps_and_regions = maps_and_regions
         self._block_sparse = block_sparse
         self._diagonal_block = diagonal_block
@@ -560,6 +561,7 @@ class Mat(AbstractMat):
 
     def __init__(self, *args, **kwargs):
         self.mat_type = kwargs.pop("mat_type", None)
+        self.sub_mat_type = kwargs.pop("sub_mat_type", None)
         super().__init__(*args, **kwargs)
         self._init()
         self.assembly_state = Mat.ASSEMBLED
@@ -618,11 +620,16 @@ class Mat(AbstractMat):
         rset, cset = self.sparsity.dsets
         rlgmap = rset.unblocked_lgmap
         clgmap = cset.unblocked_lgmap
-        mat.createAIJ(size=((self.nrows, None), (self.ncols, None)),
-                      nnz=(self.sparsity.nnz, self.sparsity.onnz),
-                      bsize=1,
-                      comm=self.comm)
+        if self.mat_type == "is":
+            # FIXME monolithic lgmaps
+            rlgmap, clgmap = self.sparsity._lgmaps
+            create = mat.createIS
+        else:
+            create = mat.createAIJ
+        size = ((self.nrows, None), (self.ncols, None))
+        create(size, bsize=1, comm=self.comm)
         mat.setLGMap(rmap=rlgmap, cmap=clgmap)
+        mat.setPreallocationNNZ((self.sparsity.nnz, self.sparsity.onnz))
         self.handle = mat
         self._blocks = []
         rows, cols = self.sparsity.shape
@@ -635,7 +642,8 @@ class Mat(AbstractMat):
         mat.setOption(mat.Option.KEEP_NONZERO_PATTERN, True)
         # We completely fill the allocated matrix when zeroing the
         # entries, so raise an error if we "missed" one.
-        mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
+        if self.mat_type != "is":
+            mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
         mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, False)
         mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
         # The first assembly (filling with zeros) sets all possible entries.
@@ -663,8 +671,10 @@ class Mat(AbstractMat):
         for i in range(rows):
             row = []
             for j in range(cols):
+                # Only set sub_mat_type on the diagonal blocks
                 row.append(Mat(self.sparsity[i, j], self.dtype,
-                           '_'.join([self.name, str(i), str(j)])))
+                               '_'.join([self.name, str(i), str(j)]),
+                               mat_type=self.sub_mat_type if i == j else None))
             self._blocks.append(row)
         # PETSc Mat.createNest wants a flattened list of Mats
         mat.createNest([[m.handle for m in row_] for row_ in self._blocks],
@@ -685,7 +695,11 @@ class Mat(AbstractMat):
         col_lg = cset.lgmap
         rdim, cdim = self.dims[0][0]
 
-        if rdim == cdim and rdim > 1 and self.sparsity._block_sparse:
+        if self.mat_type == "is":
+            row_lg, col_lg = self.sparsity._lgmaps
+            block_sparse = False
+            create = mat.createIS
+        elif rdim == cdim and rdim > 1 and self.sparsity._block_sparse:
             # Size is total number of rows and columns, but the
             # /sparsity/ is the block sparsity.
             block_sparse = True
@@ -695,12 +709,11 @@ class Mat(AbstractMat):
             # the /dof/ sparsity.
             block_sparse = False
             create = mat.createAIJ
-        create(size=((self.nrows, None),
-                     (self.ncols, None)),
-               nnz=(self.sparsity.nnz, self.sparsity.onnz),
-               bsize=(rdim, cdim),
-               comm=self.comm)
+        size = ((self.nrows, None), (self.ncols, None))
+        create(size, bsize=(rdim, cdim), comm=self.comm)
+
         mat.setLGMap(rmap=row_lg, cmap=col_lg)
+        mat.setPreallocationNNZ((self.sparsity.nnz, self.sparsity.onnz))
         # Stash entries destined for other processors
         mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, False)
         # Any add or insertion that would generate a new entry that has not
@@ -716,7 +729,8 @@ class Mat(AbstractMat):
         mat.setOption(mat.Option.KEEP_NONZERO_PATTERN, True)
         # We completely fill the allocated matrix when zeroing the
         # entries, so raise an error if we "missed" one.
-        mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
+        if self.mat_type != "is":
+            mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
         # Put zeros in all the places we might eventually put a value.
         with profiling.timed_region("MatZeroInitial"):
             sparsity.fill_with_zeros(mat, self.sparsity.dims[0][0],
@@ -783,14 +797,21 @@ class Mat(AbstractMat):
         self.handle.zeroEntries()
 
     @mpi.collective
-    def zero_rows(self, rows, diag_val=1.0):
+    def zero_rows(self, rows, diag_val=1.0, idx=None):
         """Zeroes the specified rows of the matrix, with the exception of the
         diagonal entry, which is set to diag_val. May be used for applying
         strong boundary conditions.
 
         :param rows: a :class:`Subset` or an iterable"""
-        self.assemble()
         rows = rows.indices if isinstance(rows, Subset) else rows
+        rows = np.asarray(rows, dtype=dtypes.IntType)
+        rbs, _ = self.dims[0][0]
+        if rbs > 1:
+            if idx is not None:
+                rows = rbs * rows + idx
+            else:
+                rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
+        self.assemble()
         self.handle.zeroRowsLocal(rows, diag_val)
 
     def _flush_assembly(self):
@@ -814,11 +835,19 @@ class Mat(AbstractMat):
             else:
                 rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
         rows = rows.reshape(-1, 1)
-        self.change_assembly_state(Mat.INSERT_VALUES)
-        if len(rows) > 0:
-            values = np.full(rows.shape, diag_val, dtype=dtypes.ScalarType)
-            self.handle.setValuesLocalRCV(rows, rows, values,
-                                          addv=PETSc.InsertMode.INSERT_VALUES)
+        if self.handle.type == "is":
+            self.handle.assemble()
+            # PETSc does not properly handle local dofs that map
+            # to a negative global index
+            rmap, _ = self.handle.getLGMap()
+            rows = rows[rmap.apply(rows) > -1]
+            self.handle.zeroRowsColumnsLocal(rows, diag_val)
+        else:
+            self.change_assembly_state(Mat.INSERT_VALUES)
+            if len(rows) > 0:
+                values = np.full(rows.shape, diag_val, dtype=dtypes.ScalarType)
+                self.handle.setValuesLocalRCV(rows, rows, values,
+                                              addv=PETSc.InsertMode.INSERT_VALUES)
 
     @mpi.collective
     def assemble(self):
@@ -930,11 +959,19 @@ class MatBlock(AbstractMat):
             else:
                 rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
         rows = rows.reshape(-1, 1)
-        self.change_assembly_state(Mat.INSERT_VALUES)
-        if len(rows) > 0:
-            values = np.full(rows.shape, diag_val, dtype=dtypes.ScalarType)
-            self.handle.setValuesLocalRCV(rows, rows, values,
-                                          addv=PETSc.InsertMode.INSERT_VALUES)
+        if self.handle.type == "is":
+            self.handle.assemble()
+            # PETSc does not properly handle local dofs that map
+            # to a negative global index
+            rmap, _ = self.handle.getLGMap()
+            rows = rows[rmap.apply(rows) > -1]
+            self.handle.zeroRowsColumnsLocal(rows, diag_val)
+        else:
+            self.change_assembly_state(Mat.INSERT_VALUES)
+            if len(rows) > 0:
+                values = np.full(rows.shape, diag_val, dtype=dtypes.ScalarType)
+                self.handle.setValuesLocalRCV(rows, rows, values,
+                                              addv=PETSc.InsertMode.INSERT_VALUES)
 
     def addto_values(self, rows, cols, values):
         """Add a block of values to the :class:`Mat`."""
