@@ -279,17 +279,13 @@ def vectorfunctionspace_tests(vm, petsc_raises):
     assert np.allclose(g2.dat.data_ro_with_halos, 4*vm.coordinates.dat.data_ro_with_halos)
 
 
+@pytest.mark.parallel([1, 3])
 def test_functionspaces(parentmesh, vertexcoords, petsc_raises):
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     functionspace_tests(vm, petsc_raises)
     vectorfunctionspace_tests(vm, petsc_raises)
     functionspace_tests(vm.input_ordering, petsc_raises)
     vectorfunctionspace_tests(vm.input_ordering, petsc_raises)
-
-
-@pytest.mark.parallel
-def test_functionspaces_parallel(parentmesh, vertexcoords, petsc_raises):
-    test_functionspaces(parentmesh, vertexcoords, petsc_raises)
 
 
 @pytest.mark.parallel(nprocs=2)
