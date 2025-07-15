@@ -14,30 +14,30 @@ __all__ = ("EnsembleFunction", "EnsembleCofunction")
 
 class EnsembleFunctionBase(EnsembleFunctionMixin):
     """
-    A mixed (co)function defined on a :class:`firedrake.Ensemble`.
+    A mixed (co)function defined on a :class:`~.ensemble.Ensemble`.
     The subcomponents are distributed over the ensemble members, and
-    are specified locally in a :class:`firedrake.EnsembleFunctionSpace`.
+    are specified locally in a :class:`~firedrake.EnsembleFunctionSpace`.
 
     Parameters
     ----------
 
-    function_space : `firedrake.EnsembleFunctionSpace`.
+    function_space : `~ensemble_functionspace.EnsembleFunctionSpace`.
         The function space of the (co)function.
 
     Notes
     -----
     Passing an `EnsembleDualSpace` to `EnsembleFunction`
-    will return an instance of :class:`firedrake.EnsembleCofunction`.
+    will return an instance of :class:`~firedrake.EnsembleCofunction`.
 
     This class does not carry UFL symbolic information, unlike a
-    :class:`firedrake.Function`. UFL expressions can only be defined
-    locally on each ensemble member using a `firedrake.Function`
+    :class:`~firedrake.function.Function`. UFL expressions can only be defined
+    locally on each ensemble member using a `~firedrake.function.Function`
     from `EnsembleFunction.subfunctions`.
 
     See Also
     --------
-    - Primal ensemble objects: :class:`firedrake.EnsembleFunctionSpace` and :class:`firedrake.EnsembleFunction`.
-    - Dual ensemble objects: :class:`firedrake.EnsembleDualSpace` and :class:`firedrake.EnsembleCofunction`.
+    - Primal ensemble objects: :class:`~ensemble_functionspace.EnsembleFunctionSpace` and :class:`~firedrake.EnsembleFunction`.
+    - Dual ensemble objects: :class:`~firedrake.EnsembleDualSpace` and :class:`~firedrake.EnsembleCofunction`.
     """
 
     @PETSc.Log.EventDecorator()
@@ -88,10 +88,12 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         Return the subfunctions of the local mixed function storage
         corresponding to the i-th local function.
 
-        Firedrake doesn't support nested MixedFunctionSpace, so internally
-        EnsembleFunctionSpace flattens all the local FunctionSpaces into a
-        single MixedFunctionSpace. This method retrieves the components of
-        the flattened MixedFunction corresponding to the i-th local Function.
+        Firedrake doesn't support nested ``MixedFunctionSpace``, so internally
+        :class:`~firedrake.ensemble.ensemble_functionspace.EnsembleFunctionSpace` flattens all the
+        local :class:`~firedrake.functionspaceimpl.FunctionSpace` into a
+        single ``MixedFunctionSpace``. This method retrieves the components of
+        the flattened MixedFunction corresponding to the i-th local
+        :class:`~firedrake.function.Function`.
         """
         return tuple(self._full_local_function.subfunctions[j]
                      for j in self._fs._component_indices(i))
@@ -101,6 +103,10 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         """
         Return the Riesz representation of this :class:`EnsembleFunction`
         with respect to the given Riesz map.
+
+        Internally delegates to the
+        :meth:`firedrake.function.Function.riesz_representation()`
+        of each component.
 
         Parameters
         ----------
@@ -128,9 +134,9 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
             The value to assign from.
 
         subsets : Collection[Optional[:class:`pyop2.types.set.Subset`]]
-            One subset for each local :class:`Function`. None elements
-            will be ignored.  The values of each local function will
-            only be assigned on the nodes on the corresponding subset.
+            One subset for each local :class:`firedrake.functionFunction`.
+            None elements will be ignored. The values of each local function
+            will only be assigned on the nodes on the corresponding subset.
         """
         if type(other) is not type(self):
             raise TypeError(
@@ -159,9 +165,9 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         ----------
 
         subsets : Collection[Optional[:class:`pyop2.types.set.Subset`]]
-            One subset for each local :class:`Function`. None elements
-            will be ignored.  The values of each local function will
-            only be zeroed on the nodes on the corresponding subset.
+            One subset for each local :class:`firedrake.function.Function`.
+            None elements will be ignored.  The values of each local function
+            will only be zeroed on the nodes on the corresponding subset.
         """
         for i in range(self._fs.nlocal_spaces):
             self.subfunctions[i].zero(
@@ -209,9 +215,10 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
     @contextmanager
     def vec(self):
         """
-        Context manager for the global PETSc Vec with read/write access.
+        Context manager for the global :class:`petsc4py.PETSc.Vec` with
+        read/write access.
 
-        It is invalid to access the Vec outside of a context manager.
+        It is invalid to access the ``Vec`` outside of a context manager.
         """
         # The globally defined _vec views the _full_local_function.dat.vec.
         # The data in _full_local_function.dat.vec is only valid inside the
@@ -227,9 +234,10 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
     @contextmanager
     def vec_ro(self):
         """
-        Context manager for the global PETSc Vec with read only access.
+        Context manager for the global :class:`petsc4py.PETSc.Vec` with
+        read only access.
 
-        It is invalid to access the Vec outside of a context manager.
+        It is invalid to access the ``Vec`` outside of a context manager.
         """
         # The globally defined _vec views the _full_local_function.dat.vec.
         # The data in _full_local_function.dat.vec is only valid inside the
@@ -242,9 +250,10 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
     @contextmanager
     def vec_wo(self):
         """
-        Context manager for the global PETSc Vec with write only access.
+        Context manager for the global :class:`petsc4py.PETSc.Vec` with
+        write only access.
 
-        It is invalid to access the Vec outside of a context manager.
+        It is invalid to access the ``Vec`` outside of a context manager.
         """
         # The globally defined _vec views the _full_local_function.dat.vec.
         # The data in _full_local_function.dat.vec is only valid inside the
@@ -261,13 +270,32 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
 class EnsembleFunction(EnsembleFunctionBase):
     """
-    A mixed finite element Function distributed over an ensemble.
+    A mixed Function defined on a :class:`~.ensemble.Ensemble`.
+    The subcomponents are distributed over the ensemble members, and
+    are specified locally in a :class:`~firedrake.ensemble.ensemble_functionspace.EnsembleFunctionSpace`.
 
     Parameters
     ----------
 
-    function_space : `EnsembleFunctionSpace`
-        The function space of the function.
+    function_space : :class:`~firedrake.ensemble.ensemble_functionspace.EnsembleFunctionSpace`.
+        The function space of the Function.
+
+    Notes
+    -----
+    Passing an :class:`~firedrake.ensemble.ensemble_functionspace.EnsembleDualSpace`
+    to ``EnsembleFunction`` will return an instance of :class:`EnsembleCofunction`.
+
+    This class does not carry UFL symbolic information, unlike a
+    :class:`~firedrake.function.Function`. UFL expressions can only be defined
+    locally on each ensemble member using a :class:`~firedrake.function.Function`
+    from ``EnsembleFunction.subfunctions``.
+
+    See Also
+    --------
+    :class:`~.ensemble_functionspace.EnsembleFunctionSpace`
+    :class:`~.ensemble_function.EnsembleFunction`
+    :class:`~.ensemble_functionspace.EnsembleDualSpace`
+    :class:`~.ensemble_function.EnsembleCofunction`
     """
     def __new__(cls, function_space: EnsembleFunctionSpaceBase):
         if isinstance(function_space, EnsembleDualSpace):
@@ -283,7 +311,7 @@ class EnsembleFunction(EnsembleFunctionBase):
     def norm(self, *args, **kwargs):
         """Compute the norm of the function.
 
-        Any arguments are forwarded to `firedrake.norm`.
+        Any arguments are forwarded to :func:`~firedrake.norms.norm`.
         """
         return self._fs.ensemble_comm.allreduce(
             sum(norm(u, *args, **kwargs) for u in self.subfunctions))
@@ -296,8 +324,34 @@ class EnsembleCofunction(EnsembleFunctionBase):
     Parameters
     ----------
 
-    function_space : `EnsembleDualSpace`
+    function_space : :class:`~firedrake.ensemble.ensemble_functionspace.EnsembleDualSpace`
         The function space of the cofunction.
+    """
+    """
+    A mixed Cofunction defined on a :class:`~firedrake.ensemble.ensemble.Ensemble`.
+    The subcomponents are distributed over the ensemble members,
+    and are specified locally in a
+    :class:`~firedrake.ensemble.ensemble_functionspace.EnsembleDualSpace`.
+
+    Parameters
+    ----------
+
+    function_space : `~firedrake.ensemble.ensemble_functionspace.EnsembleDualSpace`.
+        The dual function space of the Cofunction.
+
+    Notes
+    -----
+    This class does not carry UFL symbolic information, unlike a
+    :class:`~firedrake.cofunction.Cofunction`. UFL expressions can only be defined
+    locally on each ensemble member using a `~firedrake.cofunction.Cofunction`
+    from :meth:`EnsembleCofunction.subfunctions`.
+
+    See Also
+    --------
+    :class:`~.ensemble_functionspace.EnsembleFunctionSpace`
+    :class:`~.ensemble_function.EnsembleFunction`
+    :class:`~.ensemble_functionspace.EnsembleDualSpace`
+    :class:`~.ensemble_function.EnsembleCofunction`
     """
     def __init__(self, function_space: EnsembleDualSpace):
         if not isinstance(function_space, EnsembleDualSpace):
