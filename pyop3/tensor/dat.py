@@ -328,13 +328,8 @@ class Dat(Tensor, KernelArgument):
         return self.__record_init__(_name=name, _buffer=buffer)
 
     @PETSc.Log.EventDecorator()
-    def zero(self, *, subset=Ellipsis, eager=False):
-        # old Firedrake code may hit this, should probably raise a warning
-        if subset is None:
-            subset = Ellipsis
-
-        expr = ArrayAssignment(self[subset], 0, "write")
-        return expr() if eager else expr
+    def zero(self, *, eager=False):
+        return self.assign(0, eager=eager)
 
     # TODO: dont do this here
     def with_context(self, context):

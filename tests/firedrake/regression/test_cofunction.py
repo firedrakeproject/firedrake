@@ -51,8 +51,7 @@ def test_scalar_cofunction_zero(V):
 def test_scalar_cofunction_zero_with_subset(V):
     f = Cofunction(V.dual())
     # create an arbitrary subset consisting of the first two nodes
-    # FIXME:
-    # assert V.node_set.size > 2
+    assert V.node_count > 2
 
     f.dat.data[:] = 1
 

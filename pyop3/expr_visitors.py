@@ -22,7 +22,7 @@ from petsc4py import PETSc
 
 from pyop3 import utils
 from pyop3.tensor import Tensor, Dat, Mat, BufferExpression
-from pyop3.axtree.tree import AxisVar, Expression, Operator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN, _UnitAxisTree
+from pyop3.axtree.tree import UNIT_AXIS_TREE, AxisVar, Expression, Operator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN, _UnitAxisTree
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
 
@@ -746,8 +746,8 @@ def _(expr: LinearDatBufferExpression, /, visited_axes, loop_indices, *, compres
     # dat[2i+j] would have a cost equal to ni*nj as those would be the outer loops
 
     # dat_axes, dat_loop_axes = extract_axes(expr.layout, visited_axes, loop_indices, cache={})
-    dat_axes = expr.layout.shape
-    dat_loop_axes = expr.layout.loop_axes
+    dat_axes = get_shape(expr.layout)
+    dat_loop_axes = get_loop_axes(expr.layout)
     dat_cost = dat_axes.size
     for loop_axis in dat_loop_axes:
         # NOTE: This makes (and asserts) a strong assumption that loops are
@@ -1058,4 +1058,33 @@ def _(buffer_expr: BufferExpression) -> numbers.Number:
         return buffer.max_value or 10
     else:
         return max(buffer.data_ro)
-    
+
+
+@functools.singledispatch
+def get_shape(obj: Any):
+    raise TypeError
+
+
+@get_shape.register(Expression)
+def _(expr: Expression):
+    return expr.shape
+
+
+@get_shape.register(numbers.Number)
+def _(num: numbers.Number):
+    return UNIT_AXIS_TREE
+
+
+@functools.singledispatch
+def get_loop_axes(obj: Any):
+    raise TypeError
+
+
+@get_loop_axes.register(Expression)
+def _(expr: Expression):
+    return expr.loop_axes
+
+
+@get_loop_axes.register(numbers.Number)
+def _(num: numbers.Number):
+    return ()

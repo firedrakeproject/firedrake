@@ -8,6 +8,7 @@ from __future__ import annotations
 import collections
 import dataclasses
 import functools
+import warnings
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence, Set
 from dataclasses import dataclass
@@ -115,7 +116,7 @@ class WithGeometryBase:
     node_label = "nodes"
 
     def __init__(self, mesh, element, component=None, cargo=None):
-        assert component is None or isinstance(component, int)
+        assert component is None or isinstance(component, tuple)
         assert cargo is None or isinstance(cargo, FunctionSpaceCargo)
 
         super().__init__(mesh, element, label=cargo.topological._label or "")
@@ -201,17 +202,18 @@ class WithGeometryBase:
 
     @utils.cached_property
     def _components(self):
-        if len(self) == 1:
-            return tuple(type(self).create(self.topological.sub(i), self.mesh())
-                         for i in range(self.block_size))
-        else:
-            return self.subspaces
+        components = numpy.empty(self.shape, dtype=object)
+        for ix in numpy.ndindex(self.shape):
+            components[ix] = type(self).create(self.topological.sub(ix), self.mesh())
+        return utils.readonly(components)
 
     @PETSc.Log.EventDecorator()
-    def sub(self, i):
-        mixed = type(self.ufl_element()) is finat.ufl.MixedElement
-        data = self.subspaces if mixed else self._components
-        return data[i]
+    def sub(self, indices):
+        if type(self.ufl_element()) is finat.ufl.MixedElement:
+            return self.subspaces[indices]
+        else:
+            indices = parse_component_indices(indices, self.shape)
+            return self._components[indices]
 
     @utils.cached_property
     def dm(self):
@@ -684,16 +686,13 @@ class FunctionSpace:
     def nodal_axes(self) -> op3.IndexedAxisTree:
         # NOTE: This might be a good candidate for axis forests so we could have
         # V.axes and index it with node things or mesh things
-        if self.shape:
-            breakpoint()
-        else:
-            scalar_axis_tree = self.axes
+        scalar_axis_tree = self.axes.blocked(self.shape)
         num_nodes = scalar_axis_tree.size
 
         node_axis = op3.Axis([op3.AxisComponent(num_nodes, sf=scalar_axis_tree.sf)], "nodes")
         axis_tree = op3.AxisTree(node_axis)
-        if self.shape:
-            raise NotImplementedError
+        for i, dim in enumerate(self.shape):
+            axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis({"XXX": dim}, f"dim{i}"))
 
         # Now determine the targets mapping the nodes back to mesh
         # points and DoFs which constitute the 'true' layout axis tree. This
@@ -720,8 +719,7 @@ class FunctionSpace:
         node_point_map_array = numpy.empty(num_nodes, dtype=IntType)
         node_dof_map_array = numpy.empty_like(node_point_map_array)
 
-        dof_axis = self.layout_axes.leaf_axis
-        assert dof_axis.label == "dof", "will fail for vector shape etc"
+        dof_axis = utils.just_one(axis for axis in self.layout_axes.nodes if axis.label == "dof")
         ndofs = dof_axis.component.size.buffer.buffer.data_ro
 
         node = 0
@@ -737,12 +735,25 @@ class FunctionSpace:
         node_point_map_expr = op3.as_linear_buffer_expression(node_point_map_dat)
         node_dof_map_expr = op3.as_linear_buffer_expression(node_dof_map_dat)
 
-        targets = {
-            immutabledict({"nodes": 0}): (
-                immutabledict({"mesh": "mylabel", "dof": "XXX"}),
-                immutabledict({"mesh": node_point_map_expr, "dof": node_dof_map_expr}),
-            ),
-        }
+        targets = {}
+        for source_path, (orig_target_path, orig_target_exprs) in axis_tree._source_path_and_exprs.items():
+            new_target_path = {}
+            for target_axis_label, target_component_label in orig_target_path.items():
+                if target_axis_label == "nodes":
+                    new_target_path |= {"mesh": "mylabel", "dof": "XXX"}
+                else:
+                    new_target_path[target_axis_label] = target_component_label
+            new_target_path = utils.freeze(new_target_path)
+
+            new_target_exprs = {}
+            for target_axis_label, target_expr in orig_target_exprs.items():
+                if target_axis_label == "nodes":
+                    new_target_exprs |= {"mesh": node_point_map_expr, "dof": node_dof_map_expr}
+                else:
+                    new_target_exprs[target_axis_label] = target_expr
+            new_target_exprs = utils.freeze(new_target_exprs)
+
+            targets[source_path] = (new_target_path, new_target_exprs)
         targets = (targets,) + (axis_tree._source_path_and_exprs,)
 
         return op3.IndexedAxisTree(
@@ -994,11 +1005,15 @@ class FunctionSpace:
         if self.rank == 0:
             return self.subspaces
         else:
-            return tuple(ComponentFunctionSpace(self, i) for i in range(self.block_size))
+            components = numpy.empty(self.shape, dtype=object)
+            for ix in numpy.ndindex(self.shape):
+                components[ix] = ComponentFunctionSpace(self, ix)
+            return utils.readonly(components)
 
-    def sub(self, i):
+    def sub(self, indices):
         r"""Return a view into the ith component."""
-        return self._components[i]
+        indices = parse_component_indices(indices, self.shape)
+        return self._components[indices]
 
     def __mul__(self, other):
         r"""Create a :class:`.MixedFunctionSpace` composed of this
@@ -1012,6 +1027,9 @@ class FunctionSpace:
         this process.  If the :class:`FunctionSpace` has :attr:`FunctionSpace.rank` 0, this
         is equal to the :attr:`FunctionSpace.dof_count`, otherwise the :attr:`FunctionSpace.dof_count` is
         :attr:`dim` times the :attr:`node_count`."""
+        if self.boundary_set:
+            raise NotImplementedError
+        return self.nodal_axes.size
         constrained_node_set = set()
         for sub_domain in self.boundary_set:
             constrained_node_set.update(self._shared_data.boundary_nodes(self, sub_domain))
@@ -1021,7 +1039,7 @@ class FunctionSpace:
     def dof_count(self):
         r"""The number of degrees of freedom (includes halo dofs) of this
         function space on this process. Cf. :attr:`FunctionSpace.node_count` ."""
-        return self.node_count*self.block_size
+        return self.axes.size
 
     def dim(self):
         r"""The global number of degrees of freedom for this function space.
@@ -1032,9 +1050,13 @@ class FunctionSpace:
     def make_dat(self, val=None, valuetype=None, name=None):
         """Return a new Dat storing DoFs for the function space."""
         if val is not None:
-            if valuetype is not None:
-                assert val.dtype == valuetype
-            return op3.Dat(self.axes, data=val.flatten(), name=name)
+            if isinstance(val, numpy.ndarray):
+                if valuetype is not None:
+                    assert val.dtype == valuetype
+                data = val.flatten()
+            else:
+                data = numpy.asarray(val, dtype=valuetype)
+            return op3.Dat(self.axes, data=data, name=name)
         else:
             return op3.Dat.zeros(self.axes, dtype=valuetype, name=name)
 
@@ -1799,6 +1821,13 @@ def IndexedFunctionSpace(index, space, parent):
     new.index = index
     new.parent = parent
     new.identifier = "indexed"
+
+    # This is ridiculous but I think necessary because Indexed and Component function spaces
+    # are actually different
+    component_index = op3.ScalarIndex("field", "XXX", index)
+    new.axes = parent.axes[component_index]
+    new.nodal_axes = parent.nodal_axes[component_index]
+
     return new
 
 
@@ -1814,13 +1843,22 @@ def ComponentFunctionSpace(parent, component):
     """
     element = parent.ufl_element()
     assert type(element) in frozenset([finat.ufl.VectorElement, finat.ufl.TensorElement])
-    if not (0 <= component < parent.block_size):
-        raise IndexError("Invalid component %d. not in [0, %d)" %
-                         (component, parent.block_size))
+    if component not in numpy.ndindex(parent.shape):
+        raise IndexError(f"Invalid component 'component' not in '{parent.shape}'")
     new = ProxyFunctionSpace(parent.mesh(), element.sub_elements[0], name=parent.name)
     new.identifier = "component"
     new.component = component
     new.parent = parent
+
+    # This is ridiculous but I think necessary because Indexed and Component function spaces
+    # are actually different
+    component_indices = tuple(
+        op3.ScalarIndex(f"dim{dim}", "XXX", index)
+        for dim, index in enumerate(component)
+    )
+    new.axes = parent.axes[component_indices]
+    new.nodal_axes = parent.nodal_axes[component_indices]
+
     return new
 
 
@@ -1919,6 +1957,63 @@ class RealFunctionSpace(FunctionSpace):
         return op3.IndexedAxisTree(
             fake_axes, unindexed=self.layout_axes, targets=targets,
         )
+
+    # I think that this should be very very similar to the above case
+    @cached_property
+    def nodal_axes(self) -> op3.IndexedAxisTree:
+        # For real function spaces the mesh is conceptually non-existent as all
+        # cells map to the same globally-defined DoFs. We can trick pyop3 into
+        # pretending that a mesh axis exists though by careful construction of
+        # an indexed axis tree. With this trick no special-casing of real spaces
+        # should be necessary anywhere else.
+
+        # Create the pretend axis tree that includes the mesh axis. This is
+        # just a DG0 function.
+        dg_space = FunctionSpace(self._mesh, self.element.reconstruct(family="DG"))
+        fake_axes = dg_space.nodal_axes.materialize()
+
+        # Now map the mesh-aware axis tree back to the actual one
+        # constitutes two steps:
+        #
+        #   1. All references to the mesh must be removed.
+        #   2. Attempts to address cell DoFs should map to the "dof" axis
+        #      in the actual layout axis tree.
+        #
+        # Other elements of the tree (i.e. tensor shape) are the same and
+        # can be left unchanged.
+        targets = {}
+        for source_path, (orig_target_path, orig_target_exprs) in fake_axes._source_path_and_exprs.items():
+            new_target_path = {}
+            for target_axis_label, target_component_label in orig_target_path.items():
+                if target_axis_label == "nodes":
+                    new_target_path["dof"] = "XXX"
+                else:
+                    new_target_path[target_axis_label] = target_component_label
+            new_target_path = utils.freeze(new_target_path)
+
+            dof_axis = utils.single_valued(
+                axis
+                for axis in dg_space.nodal_axes.nodes
+                if axis.label == "nodes"
+            )
+            new_target_exprs = {}
+            for target_axis_label, target_expr in orig_target_exprs.items():
+                if target_axis_label == "nodes":
+                    new_target_exprs["dof"] = 0
+                else:
+                    new_target_exprs[target_axis_label] = target_expr
+            new_target_exprs = utils.freeze(new_target_exprs)
+
+            targets[source_path] = (new_target_path, new_target_exprs)
+        targets = utils.freeze(targets)
+
+        # TODO: This looks hacky
+        targets = (targets,) + (fake_axes._source_path_and_exprs,)
+
+        return op3.IndexedAxisTree(
+            fake_axes, unindexed=self.layout_axes, targets=targets,
+        )
+
 
     # used?
     global_numbering = None
@@ -2147,3 +2242,28 @@ def merge_axis_constraints(root_axis: op3.Axis, axis_constraintss: Sequence[Sequ
                 within_axes = orig_within_axes | {root_axis.label: component_label}
                 constraints.append(AxisConstraint(axis, within_axes))
     return tuple(constraints)
+
+
+@functools.singledispatch
+def parse_component_indices(indices: Any, shape: tuple[int, ...]) -> tuple[int, ...]:
+    raise TypeError
+
+
+@parse_component_indices.register(tuple)
+def _(indices: tuple[int, ...], shape: tuple[int, ...]) -> tuple[int, ...]:
+    return indices
+
+
+@parse_component_indices.register(int)
+def _(index: int, shape: tuple[int, ...]) -> tuple[int, ...]:
+    # Historically tensor-valued spaces would be addressed using a flat index
+    # instead of a tuple. Here we convert the old-style flat index to a
+    # nested one. Eventually we should be able to remove this and simply cast
+    # an integer index to a tuple (e.g. '3' to '(3,)').
+    if len(shape) > 1:
+        warnings.warn(
+            "Scalar indexing of a tensor-valued space is no longer recommended "
+            "practice, please pass a tuple instead",
+            FutureWarning,
+        )
+    return list(numpy.ndindex(shape))[index]

@@ -424,7 +424,7 @@ class InvalidIterationSetException(Pyop3Exception):
 
 
 class ScalarIndex(Index):
-    fields = {"axis", "component", "value", "id"}
+    fields = {"axis", "component", "value"}
 
     def __init__(self, axis, component, value):
         super().__init__()

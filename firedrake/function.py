@@ -435,13 +435,17 @@ class Function(ufl.Coefficient, FunctionMixin):
             expressions (e.g. involving the product of functions) :meth:`.Function.interpolate`
             should be used.
         """
+        from firedrake.assign import Assigner, parse_subset
+
+        subset = parse_subset(subset)
+
         if self.ufl_element().family() == "Real" and isinstance(expr, (Number, Collection)):
             try:
                 self.dat.data_wo[...] = expr
             except (DataTypeError, DataValueError) as e:
                 raise ValueError(e)
         elif expr == 0:
-            self.dat.zero(subset=subset, eager=True)
+            self.dat.with_axes(self.function_space().nodal_axes)[subset].zero(eager=True)
         else:
             from firedrake.assign import Assigner
             Assigner(self, expr, subset).assign()

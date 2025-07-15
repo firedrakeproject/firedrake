@@ -165,7 +165,7 @@ class Assigner:
             raise ValueError("Subset is not a valid argument for assigning to a mixed "
                              "element including a real element")
 
-        subset = self._parse_subset(subset)
+        subset = parse_subset(subset)
 
         self._assignee = assignee
         self._expression = expression
@@ -349,17 +349,26 @@ class IDivAssigner(Assigner):
 def parse_subset(obj: Any) -> op3.Slice | EllipsisType:
     raise TypeError
 
+
 @parse_subset.register
 def _(slice_: op3.Slice) -> op3.Slice:
     return slice_
+
+
+@parse_subset.register
+def _(ellipsis: EllipsisType) -> EllipsisType:
+    return ellipsis
+
 
 @parse_subset.register
 def _(none: None) -> EllipsisType:
     return Ellipsis
 
+
 @parse_subset.register
 def _(subset: op3.Subset) -> op3.Slice:
     return op3.Slice("nodes", [subset])
+
 
 @parse_subset.register(list)
 @parse_subset.register(tuple)

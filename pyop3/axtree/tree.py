@@ -1507,7 +1507,10 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         return self[nest_index].materialize()
 
     def blocked(self, block_shape: Sequence[int, ...]) -> AxisTree:
-        return self[self._block_indices(block_shape)].materialize()
+        if len(block_shape) == 0:
+            return self
+        else:
+            return self[self._block_indices(block_shape)].materialize()
 
     # }}}
 
@@ -1772,6 +1775,9 @@ class IndexedAxisTree(AbstractAxisTree):
         """
         Note: this function assumes that the block shape still exists in the tree.
         """
+        if len(block_shape) == 0:
+            return self
+
         block_indices = self._block_indices(block_shape)
 
         self_blocked = self[block_indices]
