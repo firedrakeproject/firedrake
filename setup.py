@@ -237,9 +237,7 @@ def extensions():
     return cythonize(cython_list) + pybind11_list
 
 
-# TODO: It would be good to have a single source of truth for these files
 FIREDRAKE_CHECK_FILES = (
-    "Makefile",
     "tests/firedrake/conftest.py",
     "tests/firedrake/regression/test_stokes_mini.py",
     "tests/firedrake/regression/test_locate_cell.py",
