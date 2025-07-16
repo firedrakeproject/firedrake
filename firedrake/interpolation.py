@@ -154,9 +154,9 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
     """Returns a UFL expression for the interpolation operation of ``expr`` into ``V``.
 
     :arg expr: a UFL expression.
-    :arg V: the :class:`.FunctionSpace` to interpolate into (or else
-        an existing :class:`.Function` or :class:`.Cofunction`).
-        Adjoint interpolation requires ``V`` to be a :class:`.Cofunction`.
+    :arg V: a :class:`.FunctionSpace` to interpolate into, or a :class:`.Cofunction`,
+        or :class:`.Coargument`, or a :class:`ufl.form.Form` with one argument (a one-form).
+        If a :class:`.Cofunction` or a one-form is provided, then we do adjoint interpolation.
     :kwarg subset: An optional :class:`pyop2.types.set.Subset` to apply the
         interpolation over. Cannot, at present, be used when interpolating
         across meshes unless the target mesh is a :func:`.VertexOnlyMesh`.
@@ -200,9 +200,15 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
        existing values and any new values).
     """
     if isinstance(V, (Cofunction, Coargument)):
-        coargument = V
+        dual_arg = V
+    elif isinstance(V, ufl.Form):
+        rank = len(V.arguments())
+        if rank == 1:
+            dual_arg = V
+        else:
+            raise TypeError(f"Expected a one-form, provided form had {rank} arguments")
     elif isinstance(V, functionspaceimpl.WithGeometry):
-        coargument = Coargument(V.dual(), 0)
+        dual_arg = Coargument(V.dual(), 0)
         expr_args = extract_arguments(expr)
         if expr_args and expr_args[0].number() == 0:
             # In this case we are doing adjoint interpolation
@@ -211,9 +217,9 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
             v, = expr_args
             expr = replace(expr, {v: v.reconstruct(number=1)})
     else:
-        raise TypeError(f"V must be a FunctionSpace, Cofunction or Coargument, not {type(V).__name__}")
+        raise TypeError(f"V must be a FunctionSpace, Cofunction, Coargument or one-form, not {type(V).__name__}")
 
-    interp = Interpolate(expr, coargument,
+    interp = Interpolate(expr, dual_arg,
                          subset=subset, access=access,
                          allow_missing_dofs=allow_missing_dofs,
                          default_missing_val=default_missing_val,
