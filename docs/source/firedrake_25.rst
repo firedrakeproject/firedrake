@@ -26,6 +26,13 @@ with other users.
 The conference will begin around lunchtime on 15 September and end on the
 evening of 17 September.
 
+Key Dates
+---------
+
+- Abstract deadline: 17 August 2025
+- Registration deadline: 25 August 2025
+- Workshop: 15-17 September 2025
+
 Conference venue
 ----------------
 
@@ -68,22 +75,29 @@ It is possible during registration to purchase additional tickets for the dinner
 Registration
 ------------
 
-Registration will open soon and be closed on August 17th 2025.
+`Registration
+<https://app.onlinesurveys.jisc.ac.uk/s/leeds/firedrake-2025-registration>`__
+is now open.
+
+In addition to registering to attend, participants need to pay for their
+registration using the links below.
 
 The registration fees will be as follows:
 
 .. list-table::
    :widths: 25 25
 
-   * - Student
+   * - `Student <https://store.leeds.ac.uk/product-catalogue/faculty-of-engineering-and-physical-sciences/faculty-of-engineering/firedrake-2025-student-fee>`__
      - £25
-   * - Non-student
+   * - `Non-student <https://store.leeds.ac.uk/product-catalogue/faculty-of-engineering-and-physical-sciences/faculty-of-engineering/firedrake-2025-non-student-fee>`__
      - £115
 
 Abstract submission
 -------------------
 
-Please submit your abstracts to the LIFD email: fluids-institute@leeds.ac.uk.
+We welcome presentations about any aspect of Firedrake development or
+application. Please submit your abstract `here
+<https://easychair.org/my/conference?conf=firedrake25>`__.
 
 Support
 -------

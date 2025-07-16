@@ -421,6 +421,8 @@ jobs:
             echo Error: there are untracked files in the repository
             echo The output from 'git status' is:
             git status
+            echo The output from 'git diff' is:
+            git diff
             exit 1
           fi
 
@@ -569,8 +571,6 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-    permissions:
-      id-token: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -578,6 +578,8 @@ jobs:
           path: dist
       - name: Push to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
 
   upload_testpypi:
     name: Upload to TestPyPI (optional)

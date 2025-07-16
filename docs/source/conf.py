@@ -163,6 +163,9 @@ linkcheck_ignore = [
     r'https://www.crosscountrytrains.co.uk/',
     r'https://www.siam.org/',
     r'https://aims.ac.rw',
+    r'https://www.hilton.com/en/hotels/leehnhn-hilton-leeds-city/',
+    r'https://www.radissonhotels.com/en-us/hotels/park-plaza-leeds',
+    r'https://www.radissonhotels.com/en-us/hotels/radisson-blu-leeds'
 ]
 linkcheck_timeout = 30
 
@@ -274,6 +277,7 @@ latex_elements = {
     # Additional stuff for the LaTeX preamble.
     'preamble': r'''\newcommand{\require}[1]{}
 \usepackage{cancel}
+\usepackage{mathrsfs}
 
 % \sphinxDUC{2730}{\ding{80}}
 \sphinxDUC{27F6}{$\rightarrow$}
