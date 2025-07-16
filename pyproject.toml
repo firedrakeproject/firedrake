@@ -56,7 +56,6 @@ Repository = "https://github.com/firedrakeproject/firedrake"
 Issues = "https://github.com/firedrakeproject/firedrake/issues/new/choose"
 
 [project.scripts]
-firedrake-check = "firedrake._check:main"
 firedrake-clean = "firedrake.scripts.firedrake_clean:main"
 firedrake-preprocess-bibtex = "firedrake.scripts.firedrake_preprocess_bibtex:main"
 firedrake-status = "firedrake.scripts.firedrake_status:main"
@@ -65,7 +64,7 @@ pyop2-clean = "pyop2.compilation:clear_compiler_disk_cache"
 
 [project.optional-dependencies]
 check = [
-  "mpi-pytest",
+  "mpi-pytest>=2025.7",
   "pytest",
 ]
 docs = [
@@ -103,7 +102,7 @@ ci = [
   "ipympl",  # needed for notebook testing
   "jax",
   "matplotlib",
-  "mpi-pytest",
+  "mpi-pytest>=2025.7",
   "nbval",
   "ngsPETSc",
   "pylit",
@@ -118,7 +117,7 @@ ci = [
 docker = [  # Used in firedrake-vanilla container
   "ipympl",  # needed for notebook testing
   "matplotlib",
-  "mpi-pytest",
+  "mpi-pytest>=2025.7",
   "nbval",
   "pylit",
   "pytest",
@@ -147,6 +146,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 script-files = [
   "firedrake/scripts/firedrake-zenodo",
+  "scripts/firedrake-check",
   "scripts/firedrake-run-split-tests",
   "pyop2/scripts/spydump",
 ]

@@ -19,6 +19,7 @@ __pycache__/
 /docs/source/firedrake.rst
 /docs/source/firedrake.*.rst
 /docs/source/homebrew_deps.txt
+/docs/source/minimal_apt_deps.txt
 /docs/source/obtaining_pyop2.rst
 /docs/source/petsc_configure_options.txt
 /docs/source/team.rst
