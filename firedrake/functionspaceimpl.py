@@ -1365,7 +1365,7 @@ class RestrictedFunctionSpace(FunctionSpace):
             str(self.function_space), self.name, self.boundary_set)
 
     def __hash__(self):
-        return hash((self.mesh(), self.dof_dset, self.ufl_element(),
+        return hash((self.mesh(), self.layout_axes, self.ufl_element(),
                      self.boundary_set))
 
     def local_to_global_map(self, bcs, lgmap=None):

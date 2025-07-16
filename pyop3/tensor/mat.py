@@ -279,15 +279,22 @@ class Mat(Tensor):
     # }}}
 
     @property
-    def block_raxes(self):
-        assert self.mat_type != "baij", "FIXME"
-        return self.raxes
+    def nrows(self) -> int:
+        """The number of local rows in the matrix.
+
+        This includes ghost entries.
+
+        """
+        return self.raxes.size
 
     @property
-    def block_caxes(self):
-        assert self.mat_type != "baij", "FIXME"
-        return self.caxes
+    def ncols(self) -> int:
+        """The number of local columns in the matrix.
 
+        This includes ghost entries.
+
+        """
+        return self.caxes.size
 
     def reshape(self, row_axes: AxisTree, col_axes: AxisTree) -> Mat:
         """Return a reshaped view of the `Dat`.

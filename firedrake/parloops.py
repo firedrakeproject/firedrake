@@ -474,30 +474,18 @@ def _(
         np.any(row_perm != np.arange(row_perm.size, dtype=IntType))
         or np.any(col_perm != np.arange(col_perm.size, dtype=IntType))
     ):
-        # NOTE: This construction is horrible
-        row_perm_buffer = op3.ArrayBuffer(row_perm, constant=True)
-        row_perm_dat = op3.Dat(
-            Vrow._packed_nodal_axes.root.copy(label="mylabel"),
-            buffer=row_perm_buffer,
-        )
-        row_perm_subset = op3.Slice("nodes_flat", [op3.Subset("XXX", row_perm_dat)], label="mylabel")
+        row_perm_dat = op3.Dat.from_array(row_perm, prefix="perm", buffer_kwargs={"constant": True})
+        row_perm_axis = row_perm_dat.axes.root
+        row_perm_subset = op3.Slice(row_perm_axis.label, [op3.Subset(row_perm_axis.component.label, row_perm_dat)])
 
-        col_perm_buffer = op3.ArrayBuffer(col_perm, constant=True)
-        col_perm_dat = op3.Dat(
-            Vcol._packed_nodal_axes.root.copy(label="mylabel"),
-            buffer=col_perm_buffer,
-        )
-        col_perm_subset = op3.Slice("nodes_flat", [op3.Subset("XXX", col_perm_dat)], label="mylabel")
+        col_perm_dat = op3.Dat.from_array(col_perm, prefix="perm", buffer_kwargs={"constant": True})
+        col_perm_axis = col_perm_dat.axes.root
+        col_perm_subset = op3.Slice(col_perm_axis.label, [op3.Subset(col_perm_axis.component.label, col_perm_dat)])
 
-        if Vrow.shape or Vcol.shape:
-            raise NotImplementedError("Not considering any extra axes here")
+        indexed_row_axes = op3.AxisTree.from_iterable([row_perm_axis, *Vrow.shape])
+        indexed_col_axes = op3.AxisTree.from_iterable([col_perm_axis, *Vcol.shape])
 
-        # index_tree = op3.IndexTree.from_iterable([row_perm_subset, col_perm_subset])
-
-        if Vrow.shape or Vcol.shape:
-            raise NotImplementedError("need index tree")
-
-        indexed = indexed.reshape(Vrow._packed_nodal_axes, Vcol._packed_nodal_axes)[row_perm_subset, col_perm_subset]
+        indexed = indexed.reshape(indexed_row_axes, indexed_col_axes)[row_perm_subset, col_perm_subset]
 
     if plex.ufl_cell() is ufl.hexahedron:
         raise NotImplementedError
