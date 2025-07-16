@@ -1,6 +1,5 @@
 from firedrake.preconditioners.base import SNESBase
 from firedrake.petsc import PETSc
-from firedrake.dmhooks import get_function_space
 
 __all__ = ("AuxiliaryOperatorSNES",)
 
@@ -15,29 +14,36 @@ class AuxiliaryOperatorSNES(SNESBase):
             NonlinearVariationalProblem,
             Function, TestFunction,
             Cofunction, replace)
+        from firedrake.assemble import get_assembler
 
-        V = get_function_space(snes.dm).collapse()
+        parent_prefix = snes.getOptionsPrefix() or ""
+        prefix = parent_prefix + self.prefix
+        appctx = self.get_appctx(snes)
+        fcp = appctx.get("form_compiler_parameters")
 
-        v = TestFunction(V)
+        V = self.get_function_space(snes).collapse()
+
+        test = TestFunction(V)
         uk1 = Function(V)
         uk = Function(V)
         self.uk1 = uk1
         self.uk = uk
 
-        Gk1, bcs = self.form(snes, uk1, v)
+        Gk1, bcs = self.form(snes, test, uk1)
 
         Gk = replace(Gk1, {uk1: uk})
         b = Cofunction(V.dual())
         Gk1 -= b
 
+        self.assemble_gk = get_assembler(
+            Gk, bcs=bcs,
+            form_compiler_parameters=fcp,
+            options_prefix=prefix
+        ).assemble
+
         self.Gk = Gk
         self.Gk1 = Gk1
         self.b = b
-
-        parent_prefix = snes.getOptionsPrefix() or "" 
-        prefix = parent_prefix + self.prefix
-        appctx = self.get_appctx(snes)
-        fcp = appctx.get("form_compiler_parameters")
 
         self.solver = NonlinearVariationalSolver(
             NonlinearVariationalProblem(
@@ -56,12 +62,10 @@ class AuxiliaryOperatorSNES(SNESBase):
 
     @PETSc.Log.EventDecorator()
     def step(self, snes, x, f, y):
-        from firedrake import assemble
-
         with self.uk.dat.vec_wo as vec:
             x.copy(vec)
 
-        assemble(self.Gk, tensor=self.b)
+        self.assemble_gk(tensor=self.b)
 
         if f is not None:
             with self.b.dat.vec as vec:
@@ -74,7 +78,31 @@ class AuxiliaryOperatorSNES(SNESBase):
             vec.copy(y)
             y.aypx(-1, x)
 
-    def form(self, snes, u, v):
+    def form(self, snes, test, func):
+        """Return the preconditioning nonlinear form and boundary conditions.
+
+        Parameters
+        ----------
+        snes : PETSc.SNES
+            The PETSc nonlinear solver object.
+        test : ufl.TestFunction
+            The test function.
+        func : firedrake.Function
+            The solution function.
+
+        Returns
+        -------
+        a : ufl.Form
+            The preconditioning nonlinear form.
+        bcs : DirichletBC[] or None
+            The boundary conditions.
+
+        Notes
+        -----
+        Subclasses may override this function to provide an auxiliary nonlinear
+        form. Use `self.get_appctx(obj)` to get the user-supplied
+        application-context, if desired.
+        """
         raise NotImplementedError
 
     def view(self, snes, viewer=None):
