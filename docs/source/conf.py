@@ -162,6 +162,10 @@ linkcheck_ignore = [
     r'https://www.tuomaskarna.com',
     r'https://www.crosscountrytrains.co.uk/',
     r'https://www.siam.org/',
+    r'https://aims.ac.rw',
+    r'https://www.hilton.com/en/hotels/leehnhn-hilton-leeds-city/',
+    r'https://www.radissonhotels.com/en-us/hotels/park-plaza-leeds',
+    r'https://www.radissonhotels.com/en-us/hotels/radisson-blu-leeds'
 ]
 linkcheck_timeout = 30
 
@@ -244,6 +248,13 @@ html_show_copyright = False
 # Output file base name for HTML help builder.
 htmlhelp_basename = 'Firedrakedoc'
 
+# Optional header warning about docs version
+rst_prolog = """
+.. only:: master
+
+    .. warning::
+        You are reading a version of the website built against the unstable ``master`` branch. This content is liable to change without notice and may be inappropriate for your use case.
+"""
 
 # -- Options for LaTeX output --------------------------------------------
 
@@ -395,6 +406,7 @@ texinfo_documents = [(
 intersphinx_mapping = {
     'pyop2': ('https://op2.github.io/PyOP2', None),
     'ufl': ('https://fenics.readthedocs.io/projects/ufl/en/latest/', None),
+    'ufl': ('https://docs.fenicsproject.org/ufl/main/', None),
     'FIAT': ('https://fenics.readthedocs.io/projects/fiat/en/latest/', None),
     'FInAT': ('https://finat.github.io/FInAT/', None),
     'mpi4py': ('https://mpi4py.readthedocs.io/en/stable/', None),
@@ -413,9 +425,19 @@ intersphinx_mapping = {
 bibtex_bibfiles = ['demos/demo_references.bib', '_static/bibliography.bib', '_static/firedrake-apps.bib', '_static/references.bib']
 
 #  -- Options for sphinx.ext.extlinks ------------------------------------
-extlinks = {
-    'demo': ('https://firedrakeproject.org/demos/%s', None)
-}
+extlinks = {}
+if tags.has('master'):
+    extlinks['demo'] = (
+        'https://firedrakeproject.org/firedrake/demos/%s', None
+    )
+elif tags.has('release'):
+    extlinks['demo'] = (
+        'https://firedrakeproject.org/demos/%s', None
+    )
+else:
+    extlinks['demo'] = (
+        '%s', None
+    )
 
 #  -- Options for sphinx_reredirects ------------------------------------
 redirects = {
