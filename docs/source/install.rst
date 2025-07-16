@@ -20,6 +20,13 @@ it should be installable on any Linux distribution. Windows users are encouraged
 to use WSL_ or one of Firedrake's
 :ref:`alternative installation mechanisms<alternative_install>`.
 
+If installing on an HPC system most of the following steps should remain
+applicable, though care will have to be taken to make sure that the right system
+packages are used. A community-maintained collection of instructions for how to install
+Firedrake onto a number of different HPC systems may be found
+`here <https://github.com/firedrakeproject/firedrake/wiki/HPC-installation>`__.
+If install on an HPC system not included in the wiki, please consider contributing a
+page describing the installation on that system.
 
 .. _pip_install_firedrake:
 
@@ -54,7 +61,7 @@ firedrake-configure
 To simplify the installation process, Firedrake provides a utility script called
 ``firedrake-configure``. This script can be downloaded by executing::
 
-  $ curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/refs/tags/2025.4.1/scripts/firedrake-configure
+  $ curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/refs/tags/2025.4.2/scripts/firedrake-configure
 
 Unlike the now deprecated ``firedrake-install`` script, ``firedrake-configure``
 **does not install Firedrake for you**. It is simply a helper script that emits
@@ -92,9 +99,20 @@ which will install the following packages:
 .. literalinclude:: homebrew_deps.txt
    :language: text
 
-If you do not have one of these systems then these dependencies will need to
-be installed manually.
+The packages installed here are a combination of system dependencies,
+like a C compiler, BLAS, and MPI,  and 'external packages' that are used by PETSc, like
+MUMPS and HDF5.
 
+If you are not installing onto Ubuntu or macOS then it is your responsibility to
+ensure that these system dependencies are in place. Some of the dependencies
+(e.g. a C compiler) must come from your system whereas others, if desired, may be
+downloaded by PETSc ``configure`` by passing additional flags like
+``--download-mpich`` or ``--download-openblas`` (run ``./configure --help | less`` to
+see what is available). To give you a guide as to what system dependencies are
+needed, on Ubuntu they are:
+
+.. literalinclude:: minimal_apt_deps.txt
+   :language: text
 
 .. _install_petsc:
 
