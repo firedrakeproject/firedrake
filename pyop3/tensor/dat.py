@@ -6,6 +6,7 @@ import contextlib
 import functools
 import numbers
 from functools import cached_property
+from types import GeneratorType
 from typing import Any, ClassVar, Sequence
 
 import numpy as np
@@ -366,6 +367,10 @@ class Dat(Tensor, KernelArgument):
             )
         return self.buffer.data_ro[self.axes.owned._buffer_slice]
 
+    @data_ro.setter
+    def data_ro(self, value):
+        raise RuntimeError
+
     @property
     def data_wo(self):
         """
@@ -377,6 +382,13 @@ class Dat(Tensor, KernelArgument):
         """
         self._check_no_copy_access()
         return self.buffer.data_wo[self.axes.owned._buffer_slice]
+
+    @data_wo.setter
+    def data_wo(self, value):
+        # This method is necessary because if _buffer_slice incurs a copy then
+        # self.data_wo = <something> would do nothing as it would create and
+        # discard a copy.
+        self.buffer.data_wo[self.axes.owned._buffer_slice] = value
 
     @property
     @deprecated(".data_rw_with_halos")
@@ -409,6 +421,11 @@ class Dat(Tensor, KernelArgument):
         self._check_no_copy_access(include_ghost_points=True)
         return self.buffer.data_wo_with_halos[self.axes._buffer_slice]
 
+    @data_wo.setter
+    def data_wo_with_halos(self, value):
+        self.buffer.data_wo_with_halos[self.axes._buffer_slice] = value
+
+
     @property
     @deprecated(".buffer.state")
     def dat_version(self):
@@ -430,32 +447,34 @@ class Dat(Tensor, KernelArgument):
     # if we are reusing the underlying array. Care must be taken though because
     # sometimes we cannot create write-able vectors and use a copy (when fancy
     # indexing is required).
-    # TODO: It might be inefficient to not pass global sizes here as it would include a communication?
     @contextlib.contextmanager
-    def vec_rw(self, *, bsize: int = 1) -> Generator[PETSc.Vec]:
-        self._check_vec_dtype()
-        yield PETSc.Vec().createWithArray(self.data_rw, bsize=bsize, comm=self.comm)
+    def vec_rw(self, *, bsize: int = 1) -> GeneratorType[PETSc.Vec]:
+        yield self._make_vec(array=self.data_rw, bsize=bsize)
 
     @contextlib.contextmanager
-    def vec_ro(self, *, bsize: int = 1) -> Generator[PETSc.Vec]:
-        self._check_vec_dtype()
-        yield PETSc.Vec().createWithArray(self.data_ro, bsize=bsize, comm=self.comm)
+    def vec_ro(self, *, bsize: int = 1) -> GeneratorType[PETSc.Vec]:
+        yield self._make_vec(array=self.data_ro, bsize=bsize)
 
     @contextlib.contextmanager
-    def vec_wo(self, *, bsize: int = 1) -> Generator[PETSc.Vec]:
-        self._check_vec_dtype()
-        yield PETSc.Vec().createWithArray(self.data_wo, bsize=bsize, comm=self.comm)
+    def vec_wo(self, *, bsize: int = 1) -> GeneratorType[PETSc.Vec]:
+        yield self._make_vec(array=self.data_wo, bsize=bsize)
 
     @deprecated(".vec_rw")
-    def vec(self, *, bsize: int = 1) -> Generator[PETSc.Vec]:
+    def vec(self, *, bsize: int = 1) -> GeneratorType[PETSc.Vec]:
         return self.vec_rw(bsize=bsize)
 
-    def _check_vec_dtype(self):
+    def _make_vec(self, *, array: np.ndarray, bsize: int) -> PETSc.Vec:
         if self.dtype != PETSc.ScalarType:
             raise RuntimeError(
                 f"Cannot create a Vec with data type {self.dtype}, "
                 f"must be {PETSc.ScalarType}"
             )
+        return PETSc.Vec().createWithArray(
+            array,
+            size=(self.axes.owned.size, self.axes.global_size),
+            bsize=bsize,
+            comm=self.comm,
+        )
 
     def maxpy(self, alphas: Iterable[numbers.Number], dats: Iterable[Dat]) -> None:
         """Compute a sequence of axpy operations.

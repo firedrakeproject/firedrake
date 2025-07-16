@@ -1099,8 +1099,8 @@ class ParloopFormAssembler(FormAssembler):
                 subtensor = subtensor.buffer.mat.getPythonContext().dat
 
             if isinstance(self, ExplicitMatrixAssembler):
-                with _modified_lgmaps(subtensor, lgmaps) as tensor_mod:
-                    parloop({self._tensor_name[local_kernel]: tensor_mod.buffer}, compiler_parameters=pyop3_compiler_parameters)
+                with _modified_lgmaps(subtensor, lgmaps):
+                    parloop({self._tensor_name[local_kernel]: subtensor.buffer}, compiler_parameters=pyop3_compiler_parameters)
             else:
                 parloop({self._tensor_name[local_kernel]: subtensor.buffer}, compiler_parameters=pyop3_compiler_parameters)
 
@@ -1691,42 +1691,60 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # for some reason I need to do this first, is this still the case?
             mat.assemble()
 
-            p = space.axes[index].root[bc.subset].index()
+            p = V.nodal_axes[bc.node_set].index()
+            assignee = mat[index, index].with_axes(spaces[0].nodal_axes, spaces[1].nodal_axes)[p, p]
 
-            # If we constrain points of different dimension (e.g. vertices
-            # and edges) then the assigned identity may have different sizes.
-            # To resolve this we loop over each dimension in turn.
-            for context, index_trees in op3.as_index_forest(p).items():
-                index_tree = utils.just_one(index_trees)
+            # If setting a block then use an identity matrix
+            size = utils.single_valued((
+                axes.size for axes in {assignee.raxes, assignee.caxes}
+            ))
+            expr_data = numpy.eye(size, dtype=utils.ScalarType).flatten() * self.weight
+            expr_buffer = op3.ArrayBuffer(expr_data, constant=True)
+            expression = op3.Mat(
+                assignee.raxes.materialize(),
+                assignee.caxes.materialize(),
+                buffer=expr_buffer,
+            )
 
-                # dof_slice = op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
-                # index_tree = index_tree.add_node(dof_slice, *index_tree.leaf)
-                #
-                # if component is not None:
-                #     component_slice = op3.ScalarIndex("dim0", "XXX", component)
-                #     index_tree = index_tree.add_node(component_slice, *index_tree.leaf)
+            op3.do_loop(
+                p, assignee.assign(expression)
+            )
 
-                # breakpoint()
-                assignee = mat[index, index][index_tree, index_tree]
-
-                # if assignee.axes.size == 0:
-                #     continue
-
-                # If setting a block then use an identity matrix
-                size = utils.single_valued((
-                    axes.size for axes in {assignee.raxes, assignee.caxes}
-                ))
-                expr_data = numpy.eye(size, dtype=utils.ScalarType).flatten() * self.weight
-                expr_buffer = op3.ArrayBuffer(expr_data, constant=True)
-                expression = op3.Mat(
-                    assignee.raxes.materialize(),
-                    assignee.caxes.materialize(),
-                    buffer=expr_buffer,
-                )
-
-                op3.do_loop(
-                    p.with_context(context), assignee.assign(expression)
-                )
+            # # If we constrain points of different dimension (e.g. vertices
+            # # and edges) then the assigned identity may have different sizes.
+            # # To resolve this we loop over each dimension in turn.
+            # for context, index_trees in op3.as_index_forest(p).items():
+            #     index_tree = utils.just_one(index_trees)
+            #
+            #     # dof_slice = op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
+            #     # index_tree = index_tree.add_node(dof_slice, *index_tree.leaf)
+            #     #
+            #     if component is not None:
+            #         breakpoint()
+            #     #     component_slice = op3.ScalarIndex("dim0", "XXX", component)
+            #     #     index_tree = index_tree.add_node(component_slice, *index_tree.leaf)
+            #
+            #     # breakpoint()
+            #     assignee = mat[index, index][index_tree, index_tree]
+            #
+            #     # if assignee.axes.size == 0:
+            #     #     continue
+            #
+            #     # If setting a block then use an identity matrix
+            #     size = utils.single_valued((
+            #         axes.size for axes in {assignee.raxes, assignee.caxes}
+            #     ))
+            #     expr_data = numpy.eye(size, dtype=utils.ScalarType).flatten() * self.weight
+            #     expr_buffer = op3.ArrayBuffer(expr_data, constant=True)
+            #     expression = op3.Mat(
+            #         assignee.raxes.materialize(),
+            #         assignee.caxes.materialize(),
+            #         buffer=expr_buffer,
+            #     )
+            #
+            #     op3.do_loop(
+            #         p.with_context(context), assignee.assign(expression)
+            #     )
 
             # Handle off-diagonal block involving real function space.
             # "lgmaps" is correctly constructed in _matrix_arg, but
@@ -1734,14 +1752,17 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # Walk through row blocks associated with index.
             for j, s in enumerate(space):
                 if j != index and _is_real_space(s):
+                    raise NotImplementedError
                     self._apply_bcs_mat_real_block(mat, index, j, component, bc.node_set)
             # Walk through col blocks associated with index.
             for i, s in enumerate(space):
                 if i != index and _is_real_space(s):
+                    raise NotImplementedError
                     self._apply_bcs_mat_real_block(mat, i, index, component, bc.node_set)
         elif isinstance(bc, EquationBCSplit):
             for j, s in enumerate(spaces[1]):
                 if _is_real_space(s):
+                    raise NotImplementedError
                     self._apply_bcs_mat_real_block(mat, index, j, component, bc.node_set)
             type(self)(bc.f, bcs=bc.bcs, form_compiler_parameters=self._form_compiler_params, needs_zeroing=False).assemble(tensor=tensor)
         else:
@@ -1954,16 +1975,16 @@ class ParloopBuilder:
                 j = Ellipsis if j is None else j
 
                 if matrix.M.buffer.mat_type in {"seqaij", "mpiaij"}:
-                    row_bsize = 1
-                    col_bsize = 1
+                    row_block_shape = ()
+                    column_block_shape = ()
                 else:
                     assert matrix.M.buffer.mat_type == "baij"
-                    row_bsize = self.test_function_space[ibc].value_size
-                    col_bsize = self.trial_function_space[jbc].value_size
+                    row_block_shape  = self.test_function_space[ibc].value_shape
+                    column_block_shape = self.trial_function_space[jbc].value_shape
 
                 submat = matrix.M[i, j]
-                rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, submat.raxes, row_bsize)
-                clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, submat.caxes, col_bsize)
+                rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, submat.raxes, row_block_shape)
+                clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, submat.caxes, column_block_shape)
                 lgmaps.append((i, j, rlgmap, clgmap))
 
             return tuple(lgmaps)
@@ -2163,14 +2184,13 @@ def _is_real_space(space):
     return space.ufl_element().family() == "Real"
 
 
-# TODO: don't return anything since modifies in-place
 @contextlib.contextmanager
 def _modified_lgmaps(mat: op3.Mat, lgmaps):
     if lgmaps is None:
         yield mat
         return
 
-    if mat.nested:
+    if mat.buffer.mat_type == "nest":
         raise NotImplementedError("Think about extracting the right sub-blocks")
 
     # TODO: Fixup API so this isn't needed
@@ -2178,6 +2198,6 @@ def _modified_lgmaps(mat: op3.Mat, lgmaps):
     orig_rlgmap, orig_clgmap = mat.buffer.mat.getLGMap()
     mat.buffer.mat.setLGMap(row_lgmap, column_lgmap)
 
-    yield mat
+    yield
 
     mat.buffer.mat.setLGMap(orig_rlgmap, orig_clgmap)

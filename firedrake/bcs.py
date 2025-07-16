@@ -117,145 +117,165 @@ class BCBase:
                 break
         return tuple(reversed(indices))
 
-    # @utils.cached_property
-    # def nodes(self):
-    #     '''The list of nodes at which this boundary condition applies.'''
-    #
-    #     # First, we bail out on zany elements.  We don't know how to do BC's for them.
-    #     V = self._function_space
-    #     if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
-    #        (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension() > 1):
-    #         raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
-    #
-    #     def hermite_stride(bcnodes):
-    #         fe = self._function_space.finat_element
-    #         tdim = self._function_space.mesh().topological_dimension()
-    #         if isinstance(fe, finat.Hermite) and tdim == 1:
-    #             bcnodes = bcnodes[::2]  # every second dof is the vertex value
-    #         elif fe.complex.is_macrocell() and self._function_space.ufl_element().sobolev_space == ufl.H1:
-    #             # Skip derivative nodes for supersmooth H1 functions
-    #             nodes = fe.fiat_equivalent.dual_basis()
-    #             deriv_nodes = [i for i, node in enumerate(nodes)
-    #                            if len(node.deriv_dict) != 0]
-    #             if len(deriv_nodes) > 0:
-    #                 deriv_ids = self._function_space.cell_node_list[:, deriv_nodes]
-    #                 bcnodes = np.setdiff1d(bcnodes, deriv_ids)
-    #         return bcnodes
-    #
-    #     sub_d = (self.sub_domain, ) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
-    #     sub_d = [s if isinstance(s, str) else as_tuple(s) for s in sub_d]
-    #     bcnodes = []
-    #     for s in sub_d:
-    #         if isinstance(s, str):
-    #             bcnodes.append(hermite_stride(self._function_space.boundary_nodes(s)))
-    #         else:
-    #             # s is of one of the following formats:
-    #             # facet: (i, )
-    #             # edge: (i, j)
-    #             # vertex: (i, j, k)
-    #             # take intersection of facet nodes, and add it to bcnodes
-    #             # i, j, k can also be strings.
-    #             bcnodes1 = []
-    #             if len(s) > 1 and not isinstance(self._function_space.finat_element, (finat.Lagrange, finat.GaussLobattoLegendre)):
-    #                 raise TypeError("Currently, edge conditions have only been tested with CG Lagrange elements")
-    #             for ss in s:
-    #                 # intersection of facets
-    #                 # Edge conditions have only been tested with Lagrange elements.
-    #                 # Need to expand the list.
-    #                 bcnodes1.append(hermite_stride(self._function_space.boundary_nodes(ss)))
-    #             bcnodes1 = functools.reduce(np.intersect1d, bcnodes1)
-    #             bcnodes.append(bcnodes1)
-    #     return np.concatenate(bcnodes)
+    @utils.cached_property
+    def nodes(self):
+        '''The list of nodes at which this boundary condition applies.'''
+
+        # First, we bail out on zany elements.  We don't know how to do BC's for them.
+        V = self._function_space
+        if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
+           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension() > 1):
+            raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
+
+        def hermite_stride(bcnodes):
+            fe = self._function_space.finat_element
+            tdim = self._function_space.mesh().topological_dimension()
+            if isinstance(fe, finat.Hermite) and tdim == 1:
+                bcnodes = bcnodes[::2]  # every second dof is the vertex value
+            elif fe.complex.is_macrocell() and self._function_space.ufl_element().sobolev_space == ufl.H1:
+                # Skip derivative nodes for supersmooth H1 functions
+                nodes = fe.fiat_equivalent.dual_basis()
+                deriv_nodes = [i for i, node in enumerate(nodes)
+                               if len(node.deriv_dict) != 0]
+                if len(deriv_nodes) > 0:
+                    deriv_ids = self._function_space.cell_node_list[:, deriv_nodes]
+                    bcnodes = np.setdiff1d(bcnodes, deriv_ids)
+            return bcnodes
+
+         # 'subdomain_id' has the form
+         #
+         #     (A, B, C)
+         #
+         # where each entry is either itself a tuple or a string. For instance
+         # 'A' may be
+         #
+         #     (1, 2, 3)
+         #
+         # or a special string like "on_boundary".
+         #
+         # The points constrained by the boundary condition is the *intersection
+         # of the inner entries* (e.g. 1 ∩ 2 ∩ 3), but the *union of the outer
+         # entries* (e.g. A ∪ B ∪ C).
+        sub_d = (self.sub_domain, ) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
+        sub_d = [s if isinstance(s, str) else as_tuple(s) for s in sub_d]
+        bcnodes = []
+        for s in sub_d:
+            if isinstance(s, str):
+                bcnodes.append(hermite_stride(self._function_space.boundary_nodes(s)))
+            else:
+                # s is of one of the following formats:
+                # facet: (i, )
+                # edge: (i, j)
+                # vertex: (i, j, k)
+                # take intersection of facet nodes, and add it to bcnodes
+                # i, j, k can also be strings.
+                bcnodes1 = []
+                if len(s) > 1 and not isinstance(self._function_space.finat_element, (finat.Lagrange, finat.GaussLobattoLegendre)):
+                    raise TypeError("Currently, edge conditions have only been tested with CG Lagrange elements")
+                for ss in s:
+                    # intersection of facets
+                    # Edge conditions have only been tested with Lagrange elements.
+                    # Need to expand the list.
+                    bcnodes1.append(hermite_stride(self._function_space.boundary_nodes(ss)))
+                bcnodes1 = functools.reduce(np.intersect1d, bcnodes1)
+                bcnodes.append(bcnodes1)
+        return np.concatenate(bcnodes)
 
     @cached_property
-    def subset(self):
-        """Return the subset of mesh points constrained by the boundary condition."""
-        # NOTE: This returns facets, whose closure is then used when applying the BC
-        mesh = self._function_space.mesh().topology
-        tdim = mesh.dimension
+    def node_set(self) -> op3.Slice:
+        subset_dat = op3.Dat.from_sequence(self.nodes, dtype=utils.IntType)
+        subset = op3.Subset(0, subset_dat)
+        return op3.Slice("nodes", [subset])
 
-        # 1D Hermite elements have strange vertex properties, we only want every
-        # other entry
-        if isinstance(self._function_space.finat_element, finat.Hermite) and tdim == 1:
-            raise NotImplementedError("TODO, need to have inner slice with stride 2")
-
-        # 'subdomain_id' has the form
-        #
-        #     (A, B, C)
-        #
-        # where each entry is either itself a tuple or a string. For instance
-        # 'A' may be
-        #
-        #     (1, 2, 3)
-        #
-        # or a special string like "on_boundary".
-        #
-        # The points constrained by the boundary condition is the *intersection
-        # of the inner entries* (e.g. 1 ∩ 2 ∩ 3), but the *union of the outer
-        # entries* (e.g. A ∪ B ∪ C).
-
-
-        # very convoluted
-        # if isinstance(self.sub_domain, str):
-        #     subdomain_ids = ((self.sub_domain,),)
-        # else:
-        #     subdomain_ids = tuple(as_tuple(s) for s in as_tuple(self.sub_domain))
-
-        # This check should be moved into __init__
-        mesh = self.function_space().mesh().topology
-        valid_markers = set(mesh.interior_facets.unique_markers)
-        valid_markers |= set(mesh.exterior_facets.unique_markers)
-
-        subsets_ = []
-        for intersecting_subdomain_ids in self.sub_domain:
-            subdomain_subsets = tuple([] for _ in range(tdim+1))
-            # TODO: Where should this check go?
-            if isinstance(intersecting_subdomain_ids, str):
-                subdomain_id = intersecting_subdomain_ids
-
-                if intersecting_subdomain_ids not in {"on_boundary", "top", "bottom"}:
-                    invalid = set(intersecting_subdomain_ids) - valid_markers
-                    if invalid:
-                        raise LookupError(f"BC construction got invalid markers {invalid}. "
-                                          f"Valid markers are '{valid_markers}'")
-
-            else:
-                if (
-                    isinstance(intersecting_subdomain_ids, tuple)
-                    and len(intersecting_subdomain_ids) > 1
-                    and not isinstance(
-                        self._function_space.finat_element,
-                        (finat.Lagrange, finat.GaussLobattoLegendre)
-                    )
-                ):
-                    raise TypeError(
-                        "subdomain intersection conditions have only "
-                        "been tested with CG Lagrange elements"
-                    )
-
-            for dim, subset in enumerate(mesh.subdomain_subset(intersecting_subdomain_ids)):
-                subdomain_subsets[dim].append(subset)
-
-            subdomain_subsets = tuple(
-                functools.reduce(np.union1d, subset_data) for subset_data in subdomain_subsets
-            )
-            subsets_.append(subdomain_subsets)
-
-        # take the union of 'subsets_'
-        if len(subsets_) > 1:
-            raise NotImplementedError("TODO")
-        else:
-            subsets_ = op3.utils.just_one(subsets_)
-
-        slices = []
-        for dim, data in enumerate(subsets_):
-            if len(data) == 0:
-                continue
-
-            subset_dat = op3.Dat(op3.Axis(data.size), data=data, prefix="subset")
-            subset = op3.Subset(str(dim), subset_dat)
-            slices.append(subset)
-        return op3.Slice(mesh.points.root.label, slices)
+    # @cached_property
+    # def subset(self):
+    #     """Return the subset of mesh points constrained by the boundary condition."""
+    #     # NOTE: This returns facets, whose closure is then used when applying the BC
+    #     mesh = self._function_space.mesh().topology
+    #     tdim = mesh.dimension
+    #
+    #     # 1D Hermite elements have strange vertex properties, we only want every
+    #     # other entry
+    #     if isinstance(self._function_space.finat_element, finat.Hermite) and tdim == 1:
+    #         raise NotImplementedError("TODO, need to have inner slice with stride 2")
+    #
+    #     # 'subdomain_id' has the form
+    #     #
+    #     #     (A, B, C)
+    #     #
+    #     # where each entry is either itself a tuple or a string. For instance
+    #     # 'A' may be
+    #     #
+    #     #     (1, 2, 3)
+    #     #
+    #     # or a special string like "on_boundary".
+    #     #
+    #     # The points constrained by the boundary condition is the *intersection
+    #     # of the inner entries* (e.g. 1 ∩ 2 ∩ 3), but the *union of the outer
+    #     # entries* (e.g. A ∪ B ∪ C).
+    #
+    #
+    #     # very convoluted
+    #     # if isinstance(self.sub_domain, str):
+    #     #     subdomain_ids = ((self.sub_domain,),)
+    #     # else:
+    #     #     subdomain_ids = tuple(as_tuple(s) for s in as_tuple(self.sub_domain))
+    #
+    #     # This check should be moved into __init__
+    #     mesh = self.function_space().mesh().topology
+    #     valid_markers = set(mesh.interior_facets.unique_markers)
+    #     valid_markers |= set(mesh.exterior_facets.unique_markers)
+    #
+    #     subsets_ = []
+    #     for intersecting_subdomain_ids in self.sub_domain:
+    #         subdomain_subsets = tuple([] for _ in range(tdim+1))
+    #         # TODO: Where should this check go?
+    #         if isinstance(intersecting_subdomain_ids, str):
+    #             subdomain_id = intersecting_subdomain_ids
+    #
+    #             if intersecting_subdomain_ids not in {"on_boundary", "top", "bottom"}:
+    #                 invalid = set(intersecting_subdomain_ids) - valid_markers
+    #                 if invalid:
+    #                     raise LookupError(f"BC construction got invalid markers {invalid}. "
+    #                                       f"Valid markers are '{valid_markers}'")
+    #
+    #         else:
+    #             if (
+    #                 isinstance(intersecting_subdomain_ids, tuple)
+    #                 and len(intersecting_subdomain_ids) > 1
+    #                 and not isinstance(
+    #                     self._function_space.finat_element,
+    #                     (finat.Lagrange, finat.GaussLobattoLegendre)
+    #                 )
+    #             ):
+    #                 raise TypeError(
+    #                     "subdomain intersection conditions have only "
+    #                     "been tested with CG Lagrange elements"
+    #                 )
+    #
+    #         for dim, subset in enumerate(mesh.subdomain_subset(intersecting_subdomain_ids)):
+    #             subdomain_subsets[dim].append(subset)
+    #
+    #         subdomain_subsets = tuple(
+    #             functools.reduce(np.union1d, subset_data) for subset_data in subdomain_subsets
+    #         )
+    #         subsets_.append(subdomain_subsets)
+    #
+    #     # take the union of 'subsets_'
+    #     if len(subsets_) > 1:
+    #         raise NotImplementedError("TODO")
+    #     else:
+    #         subsets_ = op3.utils.just_one(subsets_)
+    #
+    #     slices = []
+    #     for dim, data in enumerate(subsets_):
+    #         if len(data) == 0:
+    #             continue
+    #
+    #         subset_dat = op3.Dat(op3.Axis(data.size), data=data, prefix="subset")
+    #         subset = op3.Subset(str(dim), subset_dat)
+    #         slices.append(subset)
+    #     return op3.Slice(mesh.points.root.label, slices)
 
     @PETSc.Log.EventDecorator()
     def zero(self, r):
@@ -274,7 +294,7 @@ class BCBase:
         if r.function_space().axes != self._function_space.axes:
             raise RuntimeError(f"{r} defined on an incompatible FunctionSpace")
 
-        r.zero(subset=self.subset)
+        r.zero(subset=self.node_set)
 
     @PETSc.Log.EventDecorator()
     def set(self, r, val):

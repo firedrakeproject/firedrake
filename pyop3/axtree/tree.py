@@ -226,6 +226,10 @@ class _UnitAxisTree(CacheMixin):
     def materialize(self):
         return self
 
+    def linearize(self, path):
+        assert not path
+        return self
+
     @property
     def leaf_subst_layouts(self):
         return immutabledict({immutabledict(): 0})
@@ -1475,14 +1479,12 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     # {{{ parallel
 
-    @cached_property
-    def lgmap(self) -> PETSc.LGMap:
-        return PETSc.LGMap().create(self.lgmap_dat.data_ro_with_halos, bsize=1, comm=self.comm)
-
-    @property
-    @abc.abstractmethod
-    def lgmap_dat(self) -> Dat:
-        pass
+    # TODO: cached method
+    def lgmap(self, *, block_shape: tuple[int, ...] = ()) -> PETSc.LGMap:
+        blocked_axes = self.blocked(block_shape)
+        indices = blocked_axes.global_numbering
+        bsize = np.prod(block_shape, dtype=int)
+        return PETSc.LGMap().create(indices, bsize=bsize, comm=self.comm)
 
     # }}}
 

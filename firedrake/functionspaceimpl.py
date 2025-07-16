@@ -27,6 +27,7 @@ from ufl.duals import is_dual, is_primal
 from pyop2.utils import as_tuple
 
 from firedrake import dmhooks, utils
+from firedrake.cython import dmcommon
 from firedrake.extrusion_utils import is_real_tensor_product_element
 from firedrake.functionspacedata import get_shared_data, create_element
 from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, VertexOnlyMeshTopology
@@ -366,6 +367,7 @@ class WithGeometryBase:
         current = super().__dir__()
         return list(OrderedDict.fromkeys(dir(self.topological) + current))
 
+    # TODO: cache on the mesh
     def boundary_nodes(self, sub_domain):
         r"""Return the boundary nodes for this :class:`~.WithGeometryBase`.
 
@@ -375,9 +377,39 @@ class WithGeometryBase:
 
         See also :class:`~.DirichletBC` for details of the arguments.
         """
-        # Have to replicate the definition from FunctionSpace because
-        # we want to access the DM on the WithGeometry object.
-        return self._shared_data.boundary_nodes(self, sub_domain)
+        if sub_domain in ["bottom", "top"]:
+            if not self.extruded:
+                raise ValueError("Invalid subdomain '%s' for non-extruded mesh",
+                                 sub_domain)
+            entity_dofs = eutils.flat_entity_dofs(self.finat_element.entity_dofs())
+            key = (entity_dofs_key(entity_dofs), sub_domain, self.boundary_set)
+            return get_top_bottom_boundary_nodes(self.mesh(), key, self)
+        else:
+            if sub_domain == "on_boundary":
+                sdkey = sub_domain
+            else:
+                sdkey = as_tuple(sub_domain)
+            key = (entity_dofs_key(self.finat_element.entity_dofs()), sdkey, self.boundary_set)
+            return self.get_facet_closure_nodes(key)
+
+    # TODO: cache on the mesh
+    def get_facet_closure_nodes(self, key):
+        """Function space nodes in the closure of facets with a given
+        marker.
+        :arg mesh: Mesh to cache on
+        :arg key: (edofs, sub_domain, boundary_set) tuple
+        :arg V: function space.
+        :returns: numpy array of unique nodes in the closure of facets
+           with provided markers (both interior and exterior)."""
+        _, sub_domain, boundary_set = key
+        if sub_domain not in {"on_boundary", "top", "bottom"}:
+            valid = set(self._mesh.interior_facets.unique_markers)
+            valid |= set(self._mesh.exterior_facets.unique_markers)
+            invalid = set(sub_domain) - valid
+            if invalid:
+                raise LookupError(f"BC construction got invalid markers {invalid}. "
+                                  f"Valid markers are '{valid}'")
+        return dmcommon.facet_closure_nodes(self, sub_domain)
 
     def collapse(self):
         return type(self).create(self.topological.collapse(), self.mesh())
@@ -1163,7 +1195,7 @@ class FunctionSpace:
         return self._shared_data.boundary_nodes(self, sub_domain)
 
     @PETSc.Log.EventDecorator()
-    def mask_lgmap(self, bcs, axes, bsize) -> PETSc.LGMap:
+    def mask_lgmap(self, bcs, axes, block_shape) -> PETSc.LGMap:
         """Return a map from process-local to global DoF numbering.
 
         # update this#
@@ -1180,15 +1212,8 @@ class FunctionSpace:
             The local-to-global mapping.
 
         """
-        # The function space does not know if there is, say, a MATNEST or AIJ
-        # matrix and so the lgmap is taken from the matrix and passed in.
-        # if lgmap is None:
-        #     lgmap = self._lgmap
-
         if not bcs:
-            if self.value_size > 1:
-                raise NotImplementedError
-            return axes.lgmap
+            return axes.lgmap(block_shape=block_shape)
 
         for bc in bcs:
             fs = bc.function_space()
@@ -1198,21 +1223,19 @@ class FunctionSpace:
                 raise RuntimeError("Dirichlet BC defined on a different function space")
 
         unblocked = any(bc.function_space().component is not None for bc in bcs)
-        idat = axes.lgmap_dat.copy()
         if unblocked:
-            bsize = 1
-        else:
-            pass
-
-        if bsize > 1:
-            raise NotImplementedError("Might need to filter the original lgmap")
+            block_shape = ()
 
         # Set constrained values in the lgmap to -1
+        indices = axes.lgmap(block_shape=block_shape).indices
+        blocked_axes = self.nodal_axes.blocked(block_shape)
+        indices_dat = op3.Dat(blocked_axes, data=indices)
         for bc in bcs:
-            p = self._mesh.points[bc.subset].index()
+            # p = self._mesh.points[bc.node_set].index()
 
             # index_forest = {}
-            # component = bc.function_space().component
+            if bc.function_space().component != None:
+                breakpoint()
             # for ctx, index_tree in op3.as_index_forest(p).items():
             #     dof_slice = op3.Slice("dof", [op3.AffineSliceComponent("XXX")])
             #     index_tree = index_tree.add_node(dof_slice, *index_tree.leaf)
@@ -1228,8 +1251,12 @@ class FunctionSpace:
             # op3.do_loop(
             #     p, idat[index_forest].assign(-1, eager=False)
             # )
-            op3.do_loop(p, idat[p].assign(-1))
-        return PETSc.LGMap().create(idat.data_ro, bsize=bsize, comm=self.comm)
+            # op3.do_loop(p, idat[p].assign(-1))
+            op3.do_loop(p := blocked_axes[bc.node_set].index(), indices_dat[p].assign(-1))
+
+        indices = indices_dat.data_ro_with_halos
+        bsize = numpy.prod(block_shape, dtype=int)
+        return PETSc.LGMap().create(indices, bsize=bsize, comm=self.comm)
 
     @utils.cached_property
     def _lgmap(self) -> PETSc.LGMap:
@@ -2267,3 +2294,40 @@ def _(index: int, shape: tuple[int, ...]) -> tuple[int, ...]:
             FutureWarning,
         )
     return list(numpy.ndindex(shape))[index]
+
+
+def entity_dofs_key(entity_dofs):
+    """Provide a canonical key for an entity_dofs dict.
+
+    :arg entity_dofs: The FInAT entity_dofs.
+    :returns: A tuple of canonicalised entity_dofs (suitable for
+        caching).
+    """
+    key = []
+    for k in sorted(entity_dofs.keys()):
+        sub_key = [k]
+        for sk in sorted(entity_dofs[k]):
+            sub_key.append(tuple(entity_dofs[k][sk]))
+        key.append(tuple(sub_key))
+    key = tuple(key)
+    return key
+
+
+def entity_permutations_key(entity_permutations):
+    """Provide a canonical key for an entity_permutations dict.
+
+    :arg entity_permutations: The FInAT entity_permutations.
+    :returns: A tuple of canonicalised entity_permutations (suitable for
+        caching).
+    """
+    key = []
+    for k in sorted(entity_permutations.keys()):
+        sub_key = [k]
+        for sk in sorted(entity_permutations[k]):
+            subsub_key = [sk]
+            for ssk in sorted(entity_permutations[k][sk]):
+                subsub_key.append((ssk, tuple(entity_permutations[k][sk][ssk])))
+            sub_key.append(tuple(subsub_key))
+        key.append(tuple(sub_key))
+    key = tuple(key)
+    return key

@@ -218,10 +218,10 @@ class Assigner:
         lhs = self._assignee
         funcs = self._functions
 
-        func_data = np.array([data_ro(f.dat[self._subset]) for f in funcs])
+        func_data = np.array([data_ro(f.dat.with_axes(f.function_space().nodal_axes)[self._subset]) for f in funcs])
         rvalue = self._compute_rvalue(func_data)
 
-        self._assign_single_dat(lhs.dat, self._subset, rvalue, assign_to_halos)
+        self._assign_single_dat(lhs, self._subset, rvalue, assign_to_halos)
 
         # if we have bothered writing to halo it naturally must not be dirty
         if assign_to_halos:
@@ -244,26 +244,19 @@ class Assigner:
         return tuple(w for (c, w) in self._weighted_coefficients if _isfunction(c))
 
     def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
-        try:
-            if assign_to_halos:
-                assignee = lhs[subset].data_wo_with_halos
-            else:
-                assignee = lhs[subset].data_wo
-        except op3.FancyIndexWriteException:
-            # if not isinstance(rvalue, numbers.Number):
-            #     # convert rvalue to a pyop3 object
-            #     axes = op3.AxisTree(self._assignee.function_space().axes[subset].node_map)
-            #     rvalue = op3.Dat(axes, data=rvalue)
-            lhs[subset].assign(rvalue)
-            return
-
-        if isinstance(rvalue, numbers.Number) or rvalue.shape in {(1,), assignee.shape}:
-            assignee[...] = rvalue
+        lhs_dat = lhs.dat.with_axes(lhs.function_space().nodal_axes)[subset]
+        if assign_to_halos:
+            assignee = lhs_dat.data_wo_with_halos = rvalue
         else:
-            cdim = self._assignee.function_space().value_size
-            if rvalue.shape != (cdim,):
-                raise ValueError("Assignee and assignment values are different shapes")
-            assignee.reshape((-1, cdim))[...] = rvalue
+            assignee = lhs_dat.data_wo = rvalue
+
+        # if isinstance(rvalue, numbers.Number) or rvalue.shape in {(1,), assignee.shape}:
+        #     assignee[...] = rvalue
+        # else:
+        #     cdim = self._assignee.function_space().value_size
+        #     if rvalue.shape != (cdim,):
+        #         raise ValueError("Assignee and assignment values are different shapes")
+        #     assignee.reshape((-1, cdim))[...] = rvalue
 
     def _compute_rvalue(self, func_data):
         # There are two components to the rvalue: weighted functions (in the same function space),
@@ -286,7 +279,8 @@ class IAddAssigner(Assigner):
     """Assigner class for ``firedrake.function.Function.__iadd__``."""
     symbol = "+="
 
-    def _assign_single_dat(self, lhs_dat, subset, rvalue, assign_to_halos):
+    def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
+        lhs_dat = lhs.dat.with_axes(lhs.function_space().nodal_axes)
         # convert to a numpy type
         rval = rvalue.data_ro if isinstance(rvalue, op3.Dat) else rvalue
 
@@ -303,7 +297,8 @@ class ISubAssigner(Assigner):
     """Assigner class for ``firedrake.function.Function.__isub__``."""
     symbol = "-="
 
-    def _assign_single_dat(self, lhs_dat, subset, rvalue, assign_to_halos):
+    def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
+        lhs_dat = lhs.dat.with_axes(lhs.function_space().nodal_axes)
         # convert to a numpy type
         rval = rvalue.data_ro if isinstance(rvalue, op3.Dat) else rvalue
 
@@ -324,10 +319,12 @@ class IMulAssigner(Assigner):
         if self._functions:
             raise ValueError("Only multiplication by scalars is supported")
 
+        lhs_dat = lhs.dat.with_axes(lhs.function_space().nodal_axes)
+
         if assign_to_halos:
-            lhs[indices].data_wo_with_halos[...] *= rvalue
+            lhs_dat[indices].data_wo_with_halos[...] *= rvalue
         else:
-            lhs[indices].data_wo[...] *= rvalue
+            lhs_dat[indices].data_wo[...] *= rvalue
 
 
 class IDivAssigner(Assigner):
@@ -338,11 +335,13 @@ class IDivAssigner(Assigner):
         if self._functions:
             raise ValueError("Only division by scalars is supported")
 
+        lhs_dat = lhs.dat.with_axes(lhs.function_space().nodal_axes)
+
         if assign_to_halos:
             # TODO set modified
-            lhs[indices].buffer._data[...] /= rvalue
+            lhs_dat[indices].buffer._data[...] /= rvalue
         else:
-            lhs[indices].data_wo[...] /= rvalue
+            lhs_dat[indices].data_wo[...] /= rvalue
 
 
 @functools.singledispatch
