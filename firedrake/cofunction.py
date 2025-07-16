@@ -409,7 +409,7 @@ class RieszMap:
 
     def __init__(self, function_space_or_inner_product=None,
                  sobolev_space=ufl.L2, *, bcs=None, solver_parameters=None,
-                 form_compiler_parameters=None, restrict=True, 
+                 form_compiler_parameters=None, restrict=True,
                  constant_jacobian=False):
         if isinstance(function_space_or_inner_product, ufl.Form):
             args = ufl.algorithms.extract_arguments(
