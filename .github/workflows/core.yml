@@ -207,7 +207,7 @@ jobs:
             --extra-index-url https://download.pytorch.org/whl/cpu \
             "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci,docs]"
           : # TODO: Remove before merge
-          pip install --verbose --editable git+https://github.com/dolfin-adjoint/pyadjoint.git@dham/abstract_reduced_functional#egg=pyadjoint-ad
+          pip install --verbose --editable git+https://github.com/dolfin-adjoint/pyadjoint.git@JHopeCollins/tlm#egg=pyadjoint-ad
 
           firedrake-clean
           pip list
