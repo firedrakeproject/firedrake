@@ -250,7 +250,7 @@ and register the new object to the model with ``synchronize``. ::
    punched_surface_tag = punched_surface[0][0][1]
    model.occ.synchronize()
 
-We then extact the boundary from the objects.  We extract the the punched surface
+We then extract the boundary from the objects.  We extract the the punched surface
 lines along with disc points to define the ``Physical`` groups. It returns boundaries
 per entity (``combined = false``) or as a single shape (``combined = true``), and 
 adjust the signs to reflect orientation if ``oriented = true``. The boundary operator 
