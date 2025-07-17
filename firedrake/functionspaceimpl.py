@@ -693,9 +693,9 @@ class FunctionSpace:
 
         num_constrained_points = len(constrained_points)
         num_unconstrained_points = num_points - num_constrained_points
-        num_dofs = numpy.empty(num_points, dtype=IntType)
-        unconstrained_ptr = 0
-        constrained_ptr = 0
+
+        num_unconstrained_dofs = numpy.empty(num_points, dtype=IntType)
+        num_constrained_dofs = numpy.empty_like(num_unconstrained_dofs)
         for pt in range(mesh_axis.size):
             if self._mesh._dm_renumbering:
                 pt_renum = self._mesh._dm_renumbering.indices[pt]
@@ -706,20 +706,22 @@ class FunctionSpace:
             ndofs = self.local_section.getDof(pt_renum)
 
             if pt_renum not in constrained_points:
-                num_dofs[unconstrained_ptr] = ndofs
-                unconstrained_ptr += 1
+                num_unconstrained_dofs[pt_renum] = ndofs
+                num_constrained_dofs[pt_renum] = 0
             else:
-                num_dofs[constrained_ptr] = ndofs
-                constrained_ptr += 1
-        assert unconstrained_ptr + constrained_ptr == num_points
+                num_unconstrained_dofs[pt_renum] = 0
+                num_constrained_dofs[pt_renum] = ndofs
 
-        num_dofs_dat = op3.Dat.from_array(num_dofs)
-        num_dofs_expr = op3.as_linear_buffer_expression(num_dofs_dat)
+        unconstrained_dofs_dat = op3.Dat(mesh_axis, data=num_unconstrained_dofs)
+        constrained_dofs_dat = op3.Dat(mesh_axis, data=num_constrained_dofs)
+        unconstrained_dofs_expr = op3.as_linear_buffer_expression(unconstrained_dofs_dat)
+        constrained_dofs_expr = op3.as_linear_buffer_expression(constrained_dofs_dat)
 
-        regions = (
-            ("unconstrained", {"mesh": num_unconstrained_points}), ("constrained", {"mesh": num_constrained_points})
-        )
-        component = op3.AxisComponent(num_dofs_expr, "XXX", regions=regions)
+        regions = [
+            op3.AxisComponentRegion(unconstrained_dofs_expr, "unconstrained"),
+            op3.AxisComponentRegion(constrained_dofs_expr, "constrained"),
+        ]
+        component = op3.AxisComponent(regions, "XXX")
         dof_axis = op3.Axis(component, "dof")
 
         constraint = AxisConstraint(

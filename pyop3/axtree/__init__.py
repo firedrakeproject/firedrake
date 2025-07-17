@@ -2,6 +2,7 @@ from .tree import (  # noqa: F401
     Axis,
     ContextMismatchException,
     AxisComponent,
+    AxisComponentRegion,
     AxisTree,
     AxisVar,
     ContextAware,

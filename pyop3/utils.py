@@ -315,14 +315,19 @@ def strictly_all(iterable):
 
 
 def just_one(iterable):
-    # bit of a hack
-    iterable = list(iterable)
+    iterator = iter(iterable)
 
-    if len(iterable) == 0:
+    try:
+        first = next(iterator)
+    except StopIteration:
         raise ValueError("Empty iterable found")
-    if len(iterable) > 1:
-        raise ValueError("Too many values")
-    return iterable[0]
+
+    try:
+        second = next(iterator)
+    except StopIteration:
+        return first
+
+    raise ValueError("Too many values")
 
 
 class MultiStack:
@@ -362,11 +367,7 @@ def popwhen(predicate, iterable):
     raise KeyError("Predicate does not hold for any items in iterable")
 
 
-def steps(sizes, *, drop_last=None):
-    if drop_last is None:
-        pyop3.extras.debug.warn_todo("The default here is changing!")
-        drop_last = False
-
+def steps(sizes, *, drop_last=True):
     steps_ = np.concatenate([[0], np.cumsum(sizes)])
     return readonly(steps_[:-1]) if drop_last else readonly(steps_)
 

@@ -1185,10 +1185,11 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
         regions = _prepare_regions_for_slice_component(slice_component, orig_regions)
         indexed_regions = _index_regions(slice_component, regions, parent_exprs=seen_target_exprs)
 
-        orig_size = sum(r[1] for r in orig_regions)
-        indexed_size = sum(r[1] for r in indexed_regions)
-
         if target_component.sf is not None:
+            # It is not possible to have a star forest attached to a
+            # component with variable extent
+            assert isinstance(target_component.local_size, numbers.Integral)
+
             # If we are specially filtering the owned entries we want to drop the SF
             # to disallow things like `axes.owned.owned`.
             # NOTE: Is this actually an issue? It would reduce the special casing
@@ -1204,12 +1205,13 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
                     start, stop = steps[region_index:region_index+2]
                     indices = np.arange(start, stop, dtype=IntType)
                 elif isinstance(slice_component, AffineSliceComponent):
-                    indices = np.arange(*slice_component.with_size(orig_size), dtype=IntType)
+                    indices = np.arange(*slice_component.with_size(target_component.size), dtype=IntType)
                 else:
                     assert isinstance(slice_component, SubsetSliceComponent)
                     indices = slice_component.array.buffer.buffer.data_ro
 
-                petsc_sf = filter_sf(target_component.sf.sf, indices, 0, orig_size)
+                petsc_sf = filter_sf(target_component.sf.sf, indices, 0, target_component.size)
+                indexed_size = sum(r[1] for r in indexed_regions)
                 sf = StarForest(petsc_sf, indexed_size)
         else:
             sf = None
@@ -1241,10 +1243,10 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
         if isinstance(slice_component, RegionSliceComponent):
             if slice_component.region in {OWNED_REGION_LABEL, GHOST_REGION_LABEL}:
                 region_index = target_component._all_region_labels.index(slice_component.region)
-                steps = utils.steps([r[1] for r in target_component._all_regions], drop_last=False)
+                steps = utils.steps([r.size for r in target_component._all_regions], drop_last=False)
             else:
-                region_index = target_component.region_labels.index(slice_component.region)
-                steps = utils.steps([r[1] for r in target_component.regions], drop_last=False)
+                region_index = target_component._region_labels.index(slice_component.region)
+                steps = utils.steps([r.size for r in target_component.regions], drop_last=False)
             slice_expr = AxisVar(axis) + steps[region_index]
         elif isinstance(slice_component, AffineSliceComponent):
             slice_expr = AxisVar(axis) * slice_component.step + slice_component.start
@@ -2169,9 +2171,9 @@ def _index_regions(*args, **kwargs) -> tuple[AxisComponentRegion, ...]:
 @_index_regions.register(RegionSliceComponent)
 def _(region_component: RegionSliceComponent, regions, *, parent_exprs) -> tuple[AxisComponentRegion, ...]:
     selected_region = utils.just_one(
-        (region_label, region_size)
-        for region_label, region_size in regions
-        if region_label == region_component.region
+        region
+        for region in regions
+        if region.label == region_component.region
     )
     return (selected_region,)
 

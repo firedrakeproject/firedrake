@@ -208,8 +208,8 @@ def _collect_regions(axes: AxisTree, *, path: PathT = immutabledict()):
     axis = axes.node_map[path]
     for component in axis.components:
         path_ = path | {axis.label: component.label}
-        for region_label, region_size in component._all_regions:
-            merged_region = {region_label} if region_label is not None else set()
+        for region in component._all_regions:
+            merged_region = frozenset({region.label}) if region.label is not None else frozenset()
 
             if axes.node_map[path_]:
                 for submerged_region in _collect_regions(axes, path=path_):
@@ -285,6 +285,9 @@ def axis_tree_component_size(axis_tree, path, component):
     from pyop3 import Dat, loop as loop_
     from pyop3.expr_visitors import replace_terminals
 
+    if axis_tree.root.label == "mesh_ghost":
+        breakpoint()
+
     axis = axis_tree.node_map[path]
     path_ = path | {axis.label: component.label}
     if axis_tree.node_map[path_]:
@@ -295,6 +298,7 @@ def axis_tree_component_size(axis_tree, path, component):
     # the size is the sum of the array...
 
     # don't want to have <num> * <array> because (for example) the size of 3 * [1, 2, 1] is 4!
+    # Therefore the right thing to do is to sum the internal bits.
     if not isinstance(subtree_size, numbers.Integral):
         # Consider the following case:
         #
@@ -310,7 +314,11 @@ def axis_tree_component_size(axis_tree, path, component):
         #   for i
         #     for j
         #       size[i] += subtree[i, j]
+        #
+        # Note that currently only allow a single free index.
+
         # all_axes_that_we_need = extract_axes(subtree_size, axis_tree, (), {})[0]
+        breakpoint()
         all_axes_that_we_need = subtree_size.shape
         if all_axes_that_we_need.depth > 1:
             raise NotImplementedError("Not currently expected to work with multiply ragged extents")
@@ -613,26 +621,28 @@ def _component_size_needs_outer_index(component: AxisComponent, free_axes):
 
     free_axis_labels = frozenset(ax.label for ax in free_axes)
 
-    size = component.size
+    for region in component._all_regions:
 
-    if isinstance(size, Dat):
-        assert False, "old code"
-        if size.axes.is_empty:
-            leafpath = immutabledict()
-        else:
-            leafpath = just_one(size.axes.leaf_paths)
-        layout = size.axes._subst_layouts_default[leafpath]
+        size = region.size
 
-        # is the path sufficient? i.e. do we have enough externally provided indices
-        # to correctly index the axis?
-        if not size.axes.is_empty:
-            for axlabel, clabel in size.axes.path(*size.axes.leaf).items():
-                if axlabel not in free_axis_labels:
-                    return True
+        if isinstance(size, Dat):
+            assert False, "old code"
+            if size.axes.is_empty:
+                leafpath = immutabledict()
+            else:
+                leafpath = just_one(size.axes.leaf_paths)
+            layout = size.axes._subst_layouts_default[leafpath]
 
-    elif isinstance(size, LinearDatBufferExpression):
-        if not (set(v.axis_label for v in collect_axis_vars(size.layout)) <= free_axis_labels):
-            return True
+            # is the path sufficient? i.e. do we have enough externally provided indices
+            # to correctly index the axis?
+            if not size.axes.is_empty:
+                for axlabel, clabel in size.axes.path(*size.axes.leaf).items():
+                    if axlabel not in free_axis_labels:
+                        return True
+
+        elif isinstance(size, LinearDatBufferExpression):
+            if not (set(v.axis_label for v in collect_axis_vars(size.layout)) <= free_axis_labels):
+                return True
 
     return False
 
@@ -679,6 +689,7 @@ def axis_tree_size(axes: AxisTree) -> int:
     example, an array with shape ``(10, 3)`` will have a size of 30.
 
     """
+    assert False, "old code"
     outer_loops = axes.outer_loops
 
     if axes.is_empty:

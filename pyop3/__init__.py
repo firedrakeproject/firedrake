@@ -44,6 +44,7 @@ from pyop3.tensor.dat import as_linear_buffer_expression
 from pyop3.axtree import (  # noqa: F401
     Axis,
     AxisComponent,
+    AxisComponentRegion,
     AxisTree,
     AxisVar,
     IndexedAxisTree,

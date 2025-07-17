@@ -307,18 +307,18 @@ labels.
 #         raise NotImplementedError
 
 
-# @dataclasses.dataclass(frozen=True)
-# class AxisComponentRegion:
-#     size: Any  # IntType or Dat or UNIT
-#     label: str | None = None
-#
-#     def __post_init__(self):
-#         from pyop3.tensor.dat import LinearDatBufferExpression
-#         if not isinstance(self.size, numbers.Integral):
-#             assert isinstance(self.size, LinearDatBufferExpression)
-#
-#     def __str__(self) -> str:
-#         return f"({self.size}, {self.label})"
+@dataclasses.dataclass(frozen=True)
+class AxisComponentRegion:
+    size: Any  # IntType or Dat or UNIT
+    label: str | None = None
+
+    def __post_init__(self):
+        from pyop3.tensor.dat import LinearDatBufferExpression
+        if not isinstance(self.size, numbers.Integral):
+            assert isinstance(self.size, LinearDatBufferExpression)
+
+    def __str__(self) -> str:
+        return f"({self.size}, {self.label})"
 
 
 @functools.singledispatch
@@ -327,7 +327,6 @@ def _parse_regions(obj: Any) -> AxisComponentSize:
     from pyop3.tensor.dat import as_linear_buffer_expression
 
     if isinstance(obj, Dat):
-        assert False, "old code"
         # Dats used as extents for axis component regions have a stricter
         # set of requirements than generic Dats so we eagerly cast them to
         # the constrained type here.
@@ -338,7 +337,7 @@ def _parse_regions(obj: Any) -> AxisComponentSize:
         # bf = orig_dat.buffer
         # orig_dat = Dat(orig_dat.axes.undistribute(), buffer=type(bf)(bf._data,sf=None))
 
-        return RaggedAxisComponentSize(dat)
+        return (AxisComponentRegion(dat),)
     else:
         raise TypeError(f"No handler provided for {type(obj).__name__}")
 
@@ -350,7 +349,6 @@ def _parse_regions(obj: Any) -> AxisComponentSize:
 
 @_parse_regions.register(Sequence)
 def _(regions: Sequence[AxisComponentRegion]) -> AxisComponentSize:
-    breakpoint()  # old code
     regions = tuple(regions)
 
     if len(regions) > 1:
@@ -363,8 +361,7 @@ def _(regions: Sequence[AxisComponentRegion]) -> AxisComponentSize:
 
 @_parse_regions.register(numbers.Integral)
 def _(num: numbers.Integral) -> FixedAxisComponentSize:
-    num = int(num)
-    return FixedAxisComponentSize(num)
+    return (AxisComponentRegion(num),)
 
 
 @functools.singledispatch
@@ -397,18 +394,18 @@ def _partition_regions(regions: Sequence[AxisComponentRegion], sf: StarForest) -
 
     (a, 5), (b, 3) and sf: {6 owned and 2 ghost -> (a_owned, 5), (b_owned, 1), (a_ghost, 0), (b_ghost, 2)
     """
-    partitioned_regions = {}
+    region_sizes = {}
     ptr = 0
     for point_type in ["owned", "ghost"]:
-        for region_label, region_size in regions:
+        for region in regions:
             if point_type == "owned":
-                size = min((region_size, sf.num_owned-ptr))
+                size = min((region.size, sf.num_owned-ptr))
             else:
-                size = region_size - partitioned_regions[_as_region_label(region_label, "owned")]
-            partitioned_regions[_as_region_label(region_label, point_type)] = size
+                size = region.size - region_sizes[_as_region_label(region.label, "owned")]
+            region_sizes[_as_region_label(region.label, point_type)] = size
             ptr += size
     assert ptr == sf.size
-    return tuple(partitioned_regions.items())
+    return tuple(AxisComponentRegion(size, label) for label, size in region_sizes.items())
 
 
 def _as_region_label(initial_region_label: str | None, owned_or_ghost: str):
@@ -419,25 +416,20 @@ def _as_region_label(initial_region_label: str | None, owned_or_ghost: str):
 
 
 class AxisComponent(LabelledNodeComponent):
-    fields = LabelledNodeComponent.fields | {"size", "regions", "sf"}
+    fields = LabelledNodeComponent.fields | {"regions", "sf"}
 
     def __init__(
         self,
-        size,
+        regions,
         label=None,
         *,
-        regions=None,
         sf=None,
     ):
-        if regions is None:
-            regions = ((None, size),)
-        regions = utils.freeze(regions)
-        # regions are label + size info
-        # regions = _parse_regions(regions)
+        regions = _parse_regions(regions)
+        size = sum(r.size for r in regions)
         sf = _parse_sf(sf, size)
 
         super().__init__(label=label)
-        self._size = size
         self.regions = regions
         self.sf = sf
 
@@ -473,7 +465,7 @@ class AxisComponent(LabelledNodeComponent):
 
     @cached_property
     def local_size(self) -> Any:
-        return self._size
+        return sum(r.size for r in self.regions)
 
     @cached_property
     @collective
@@ -494,9 +486,13 @@ class AxisComponent(LabelledNodeComponent):
     def comm(self) -> MPI.Comm | None:
         return self.sf.comm if self.sf else None
 
+    @property
+    def _region_labels(self) -> tuple[ComponentRegionLabelT]:
+        return tuple(r.label for r in self.regions)
+
     @cached_property
     def _all_region_labels(self) -> tuple[str]:
-        return tuple(label for label, _ in self._all_regions)
+        return tuple(r.label for r in self._all_regions)
 
     def localize(self) -> AxisComponent:
         return self._localized
@@ -1301,7 +1297,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     def with_region_labels(self, region_labels: Sequence[ComponentRegionLabelT]) -> IndexedAxisTree:
         """TODO"""
         region_labels = set(region_labels)
-        if missing_labels := region_labels - self._all_region_labels:
+        if missing_labels := region_labels - set(self._all_region_labels):
             raise ValueError(f"{missing_labels} not found")
 
         region_slice = self._region_slice(region_labels)
@@ -1485,14 +1481,14 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         return sum(cpt.alloc_size(self, axis) for cpt in axis.components)
 
     @cached_property
-    def _all_region_labels(self) -> frozenset[str]:
-        region_labels = set()
+    def _all_region_labels(self) -> tuple[ComponentRegionLabelT]:
+        region_labels = utils.OrderedSet()
         for axis in self.axes:
             for component in axis.components:
-                for region_label, _ in component._all_regions:
-                    if region_label is not None:
-                        region_labels.add(region_label)
-        return frozenset(region_labels)
+                for region in component._all_regions:
+                    if region.label is not None:
+                        region_labels.add(region.label)
+        return tuple(region_labels)
 
     def _block_indices(self, block_shape: Sequence[int, ...]) -> tuple[ScalarIndex, ...]:
         from pyop3 import ScalarIndex
