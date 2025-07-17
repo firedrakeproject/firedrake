@@ -84,7 +84,8 @@ class BDDCPC(PCBase):
         tdim = V.mesh().topological_dimension()
         degree = max(as_tuple(V.ufl_element().degree()))
         if tdim >= 2 and V.finat_element.formdegree == tdim-1:
-            B = appctx.get("divergence_mat", None)
+            B_key = opts.getInt("divergence_mat", appctx.missing_key)
+            B = appctx.get(B_key, None)
             if B is None:
                 from firedrake.assemble import assemble
                 d = {HCurl: curl, HDiv: div}[sobolev_space]
@@ -99,7 +100,8 @@ class BDDCPC(PCBase):
                 B = assemble(b, mat_type="matfree")
             bddcpc.setBDDCDivergenceMat(B.petscmat)
         elif sobolev_space == HCurl:
-            gradient = appctx.get("discrete_gradient", None)
+            grad_key = opts.getInt("discrete_gradient", appctx.missing_key)
+            gradient = appctx.get(grad_key, None)
             if gradient is None:
                 from firedrake.preconditioners.fdm import tabulate_exterior_derivative
                 from firedrake.preconditioners.hiptmair import curl_to_grad
