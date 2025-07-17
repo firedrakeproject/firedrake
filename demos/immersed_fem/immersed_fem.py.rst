@@ -234,7 +234,7 @@ As with the Gmsh API, we ``initialize`` and start constructing a new mesh model.
 
 We first use OpenCASCADE to create a rectangle and a cylinder object. This automates
 the create of points, lines, and surfaces. Both objects need to be registered to the 
-model with ``syncronize`` before we can use them. ::
+model with ``synchronize`` before we can use them. ::
 
    rectangle_obj_tag = model.occ.addRectangle(x0 - L/2, y0 - W/2, z0, L, W, tag = 1)
    disc_obj_tag = model.occ.addDisk(x0, y0, z0, rx = R, ry = R, tag = 2)
