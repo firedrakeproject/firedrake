@@ -217,7 +217,7 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
             v, = expr_args
             expr = replace(expr, {v: v.reconstruct(number=1)})
     else:
-        raise TypeError(f"V must be a FunctionSpace, Cofunction, Coargument or one-form, not {type(V).__name__}")
+        raise TypeError(f"V must be a FunctionSpace, Cofunction, Coargument or one-form, not a {type(V).__name__}")
 
     interp = Interpolate(expr, dual_arg,
                          subset=subset, access=access,
