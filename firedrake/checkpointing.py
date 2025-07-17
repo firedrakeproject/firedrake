@@ -566,6 +566,8 @@ class CheckpointFile(object):
         :kwarg distribution_name: the name under which distribution is saved; if `None`, auto-generated name will be used.
         :kwarg permutation_name: the name under which permutation is saved; if `None`, auto-generated name will be used.
         """
+        # TODO: Add general MeshSequence support.
+        mesh = mesh.unique()
         mesh.init()
         # Handle extruded mesh
         tmesh = mesh.topology
@@ -837,6 +839,8 @@ class CheckpointFile(object):
     @PETSc.Log.EventDecorator("SaveFunctionSpace")
     def _save_function_space(self, V):
         mesh = V.mesh()
+        # TODO: Add general MeshSequence support.
+        mesh = mesh.unique()
         if isinstance(V.topological, impl.MixedFunctionSpace):
             V_name = self._generate_function_space_name(V)
             base_path = self._path_to_mixed_function_space(mesh.name, V_name)
@@ -912,10 +916,12 @@ class CheckpointFile(object):
             each index.
         """
         V = f.function_space()
-        mesh = V.mesh()
         if name:
             g = Function(V, val=f.dat, name=name)
             return self.save_function(g, idx=idx, timestepping_info=timestepping_info)
+        mesh = V.mesh()
+        # TODO: Add general MeshSequence support.
+        mesh = mesh.unique()
         # -- Save function space --
         self._save_function_space(V)
         # -- Save function --
@@ -1234,6 +1240,8 @@ class CheckpointFile(object):
 
     @PETSc.Log.EventDecorator("LoadFunctionSpace")
     def _load_function_space(self, mesh, name):
+        # TODO: Add general MeshSequence support.
+        mesh = mesh.unique()
         mesh.init()
         mesh_key = self._generate_mesh_key_from_names(mesh.name,
                                                       mesh.topology._distribution_name,
@@ -1311,6 +1319,8 @@ class CheckpointFile(object):
             be loaded with idx only when it was saved with idx.
         :returns: the loaded :class:`~.Function`.
         """
+        # TODO: Add general MeshSequence support.
+        mesh = mesh.unique()
         tmesh = mesh.topology
         if name in self._get_mixed_function_name_mixed_function_space_name_map(mesh.name):
             V_name = self._get_mixed_function_name_mixed_function_space_name_map(mesh.name)[name]
