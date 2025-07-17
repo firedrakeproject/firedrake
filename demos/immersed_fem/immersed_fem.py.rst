@@ -179,7 +179,7 @@ the circle used to define a surface for the area outside and inside the
 inscribed circle, respectively. In the ``addPlaneSurface`` function by 
 convention, the first ``Curve Loop`` defines the outer boundary and
 anything after in the list is treated as the boundary of a hole (or holes)
-in the domain. The integerThese need to be registered to the model with ``syncronize`` 
+in the domain. These need to be registered to the model with ``synchronize`` 
 before we can use them. ::
 
    rectangle_loop = model.geo.addCurveLoop(rectangle_lines, tag = 9)
