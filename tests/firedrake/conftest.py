@@ -8,7 +8,8 @@ import sys
 os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
 
 import pytest
-from firedrake.petsc import PETSc, get_external_packages
+from firedrake.petsc import PETSc
+from petsctools import get_external_packages
 
 
 def _skip_test_dependency(dependency):
@@ -204,12 +205,12 @@ class _petsc_raises:
         pass
 
     def __exit__(self, exc_type, exc_val, traceback):
-        # There is a bug where 'exc_val' is occasionally 'None'. In my tests
-        # this error only exists for Python < 3.12.11.
+        # There is a bug where 'exc_val' is occasionally the wrong thing,
+        # either 'None' or some unrelated garbage collection error. In my
+        # tests this error only exists for Python < 3.12.11.
         if exc_type is PETSc.Error:
             if sys.version_info < (3, 12, 11):
-                if exc_val is None or isinstance(exc_val.__cause__, self.exc_type):
-                    return True
+                return True
             else:
                 if isinstance(exc_val.__cause__, self.exc_type):
                     return True
