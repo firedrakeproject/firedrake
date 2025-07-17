@@ -7,23 +7,25 @@ from cuda.bindings.driver import CUstream
 #import cutlass
 import os
 class ComputeDevice(abc.ABC):
+
     pass
 
 class CPUDevice(ComputeDevice):
 
     def context_manager(self):
-        yield
+        yield self
 
 class GPUDevice(ComputeDevice):
 
     def __init__(self, num_threads=32):
         self.num_threads=num_threads
         self.stream = cp.cuda.Stream(non_blocking=True)
+        self.kernel_string = []
 
     def context_manager(self):    
         with self.stream:
             self.stream.begin_capture()
-            yield
+            yield self
             g = self.stream.end_capture()
         g.launch(self.stream)
         self.stream.synchronize()
@@ -44,3 +46,7 @@ def device(type=None):
     else:
         yield from compute_device.context_manager()
     
+def add_kernel_string(k_str):
+    global compute_device
+    assert isinstance(compute_device, GPUDevice)        
+    compute_device.kernel_string += [k_str]
