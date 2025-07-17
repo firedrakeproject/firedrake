@@ -403,6 +403,10 @@ def test_adjoint_Pk(degree):
 
     assert np.allclose(u_Pk.dat.data, v_adj.dat.data)
 
+    v_adj_form = assemble(interpolate(TestFunction(Pk), v * dx))
+    
+    assert np.allclose(v_adj_form.dat.data, v_adj.dat.data)
+
 
 def test_adjoint_quads():
     mesh = UnitSquareMesh(10, 10)
