@@ -20,7 +20,6 @@ from pyop3.axtree.tree import (
     UNIT_AXIS_TREE,
     Axis,
     AxisComponent,
-    AxisComponentRegion,
     AxisTree,
     AxisVar,
     NaN,
@@ -209,8 +208,8 @@ def _collect_regions(axes: AxisTree, *, path: PathT = immutabledict()):
     axis = axes.node_map[path]
     for component in axis.components:
         path_ = path | {axis.label: component.label}
-        for region in component._all_regions:
-            merged_region = {region.label} if region.label is not None else set()
+        for region_label, region_size in component._all_regions:
+            merged_region = {region_label} if region_label is not None else set()
 
             if axes.node_map[path_]:
                 for submerged_region in _collect_regions(axes, path=path_):
@@ -248,12 +247,8 @@ def _tabulate_steps(offset_axes, subtree, regions=True):
     # split this up per region
     region_steps = {}
     for regions in _collect_regions(offset_axes):
-        if len(regions) > 1:
-            raise NotImplementedError("Currently we assume that we don't nest regions")
-        else:
-            region = just_one(regions)
-        region_size = offset_axes.with_region_label(region).size
-        region_steps[region] = (offsets[ptr:ptr+region_size], offsets[ptr+region_size])
+        region_size = offset_axes.with_region_labels(regions).size
+        region_steps[regions] = (offsets[ptr:ptr+region_size], offsets[ptr+region_size])
         ptr += region_size
 
     return region_steps
@@ -410,6 +405,7 @@ def _truncate_axis_tree_rec(axis_tree, path) -> tuple[tuple[AxisTree, int]]:
     # point) is dropped. This is only valid for constant-sized axes.
     if not _axis_needs_outer_index(axis_tree, path, (axis,)):
         step = _axis_tree_size(axis_tree.subtree(path))
+        assert isinstance(step, numbers.Integral)
         # TODO: should this be a unit tree?
         axis_candidate = (AxisTree(), step)
         axis_candidates.append(axis_candidate)
@@ -549,7 +545,7 @@ def _axis_needs_outer_index(axes, path, visited) -> bool:
     axis = axes.node_map[path]
     for component in axis.components:
         path_ = path | {axis.label: component.label}
-        if any(_region_size_needs_outer_index(r, visited) for r in component._all_regions):
+        if _component_size_needs_outer_index(component, visited):
             return True
 
         if axes.node_map[path_]:
@@ -611,15 +607,16 @@ def _axis_component_region_has_fixed_size(region: AxisComponentRegion) -> bool:
 #     )
 
 
-def _region_size_needs_outer_index(region, free_axes):
+def _component_size_needs_outer_index(component: AxisComponent, free_axes):
     from pyop3.tensor import Dat, LinearDatBufferExpression
     from pyop3.expr_visitors import collect_axis_vars
 
     free_axis_labels = frozenset(ax.label for ax in free_axes)
 
-    size = region.size
+    size = component.size
 
     if isinstance(size, Dat):
+        assert False, "old code"
         if size.axes.is_empty:
             leafpath = immutabledict()
         else:
@@ -652,6 +649,7 @@ def step_size(
 
     Non-constant strides will raise an exception.
     """
+    assert False, "old code"
     if subaxis := axes.child(axis, component):
         return _axis_size(axes, subaxis, indices, loop_indices=loop_indices)
     else:
@@ -659,6 +657,7 @@ def step_size(
 
 
 def has_halo(axes, axis):
+    assert False, "old code"
     # TODO: cleanup
     return axes.comm.size > 1
     if axis.sf is not None:

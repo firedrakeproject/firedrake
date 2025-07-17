@@ -16,7 +16,7 @@ import typing
 from collections.abc import Iterable, Sized, Sequence
 from functools import cached_property
 from itertools import chain
-from typing import Any, FrozenSet, Hashable, Mapping, Optional, Self, Tuple, Union
+from typing import Any, FrozenSet, Hashable, Mapping, Optional, Self, Tuple, Union, ClassVar
 
 import cachetools
 import numpy as np
@@ -34,6 +34,7 @@ from pyop2.mpi import COMM_SELF, collective
 from pyop3 import utils
 from pyop3.tree import (
     ComponentLabelT,
+    ComponentRegionLabelT,
     ComponentT,
     ConcretePathT,
     LabelledNodeComponent,
@@ -258,46 +259,98 @@ labels.
 """
 
 
-@dataclasses.dataclass(frozen=True)
-class AxisComponentRegion:
-    size: Any  # IntType or Dat or UNIT
-    label: str | None = None
+# class AxisComponentSize(abc.ABC):
+#     @property
+#     @abc.abstractmethod
+#     def size(self):
+#         pass
+#
+#
+# @utils.frozenrecord()
+# class FixedAxisComponentSize(AxisComponentSize):
+#     _size: int
+#
+#     size: ClassVar = utils.attr("_size")
+#
+#
+# class RaggedAxisComponentSize(AxisComponentSize):
+#     _size: DatBufferExpression
+#
+#     size: ClassVar = utils.attr("_size")
+#
+#
+# class MultiRegionAxisComponentSize(AxisComponentSize, metaclass=abc.ABCMeta):
+#
+#     @property
+#     @abc.abstractmethod
+#     def region_labels(self) -> tuple[ComponentRegionLabelT, ...]:
+#         pass
+#
+#
+# @utils.frozenrecord()
+# class FixedMultiRegionAxisComponentSize(MultiRegionAxisComponentSize):
+#     # this is a tuple of sizes and labels
+#     regions: Any  # something
+#
+#     @property
+#     def size(self) -> int:
+#         return sum(s for _, s in self.regions)
+#
+#
+# @utils.frozenrecord()
+# class RaggedMultiRegionAxisComponentSize(MultiRegionAxisComponentSize):
+#     _size: Any  # some sort of array
+#     regions: Any  # something
+#
+#     @property
+#     def size(self):
+#         raise NotImplementedError
 
-    def __post_init__(self):
-        from pyop3.tensor.dat import LinearDatBufferExpression
-        if not isinstance(self.size, numbers.Integral):
-            assert isinstance(self.size, LinearDatBufferExpression)
 
-    def __str__(self) -> str:
-        return f"({self.size}, {self.label})"
+# @dataclasses.dataclass(frozen=True)
+# class AxisComponentRegion:
+#     size: Any  # IntType or Dat or UNIT
+#     label: str | None = None
+#
+#     def __post_init__(self):
+#         from pyop3.tensor.dat import LinearDatBufferExpression
+#         if not isinstance(self.size, numbers.Integral):
+#             assert isinstance(self.size, LinearDatBufferExpression)
+#
+#     def __str__(self) -> str:
+#         return f"({self.size}, {self.label})"
 
 
 @functools.singledispatch
-def _parse_regions(obj: Any) -> tuple[AxisComponentRegion, ...]:
+def _parse_regions(obj: Any) -> AxisComponentSize:
     from pyop3 import Dat
     from pyop3.tensor.dat import as_linear_buffer_expression
 
     if isinstance(obj, Dat):
+        assert False, "old code"
         # Dats used as extents for axis component regions have a stricter
         # set of requirements than generic Dats so we eagerly cast them to
         # the constrained type here.
         orig_dat = obj
+        dat = as_linear_buffer_expression(orig_dat)
 
         # TODO: 18/06 is this needed?
         # bf = orig_dat.buffer
         # orig_dat = Dat(orig_dat.axes.undistribute(), buffer=type(bf)(bf._data,sf=None))
 
-        dat = as_linear_buffer_expression(orig_dat)
-        # debugging
-        # interesting, this change breaks stuff!!!
-        return (AxisComponentRegion(dat),)
-        # return (AxisComponentRegion(obj),)
+        return RaggedAxisComponentSize(dat)
     else:
         raise TypeError(f"No handler provided for {type(obj).__name__}")
 
 
+# @_parse_regions.register(AxisComponentSize)
+# def _(size_spec: AxisComponentSize) -> AxisComponentSize:
+#     return size_spec
+
+
 @_parse_regions.register(Sequence)
-def _(regions: Sequence[AxisComponentRegion]) -> tuple[AxisComponentRegion, ...]:
+def _(regions: Sequence[AxisComponentRegion]) -> AxisComponentSize:
+    breakpoint()  # old code
     regions = tuple(regions)
 
     if len(regions) > 1:
@@ -309,13 +362,13 @@ def _(regions: Sequence[AxisComponentRegion]) -> tuple[AxisComponentRegion, ...]
     return regions
 
 @_parse_regions.register(numbers.Integral)
-def _(num: numbers.Integral) -> tuple[AxisComponentRegion, ...]:
-    num = IntType.type(num)
-    return (AxisComponentRegion(num),)
+def _(num: numbers.Integral) -> FixedAxisComponentSize:
+    num = int(num)
+    return FixedAxisComponentSize(num)
 
 
 @functools.singledispatch
-def _parse_sf(obj: Any, regions) -> StarForest | None:
+def _parse_sf(obj: Any, size) -> StarForest | None:
     if obj is None:
         return None
     else:
@@ -323,16 +376,14 @@ def _parse_sf(obj: Any, regions) -> StarForest | None:
 
 
 @_parse_sf.register(StarForest)
-def _(sf: StarForest, regions) -> StarForest:
-    size = sum(region.size for region in regions)
+def _(sf: StarForest, size) -> StarForest:
     if size != sf.size:
         raise ValueError("Size mismatch between regions and SF")
     return sf
 
 
 @_parse_sf.register(PETSc.SF)
-def _(sf: PETSc.SF, regions) -> StarForest:
-    size = sum(region.size for region in regions)
+def _(sf: PETSc.SF, size) -> StarForest:
     return StarForest(sf, size)
 
 
@@ -346,42 +397,47 @@ def _partition_regions(regions: Sequence[AxisComponentRegion], sf: StarForest) -
 
     (a, 5), (b, 3) and sf: {6 owned and 2 ghost -> (a_owned, 5), (b_owned, 1), (a_ghost, 0), (b_ghost, 2)
     """
-    if len(regions) > 1:
-        raise NotImplementedError("Using multiple regions here is unexpected and will probably not work")
-
-    region_sizes = {}
+    partitioned_regions = {}
     ptr = 0
-    for point_type in ("owned", "ghost"):
-        for region in regions:
-            region_prefix = f"{region.label}_" if region.label is not None else ""
-
+    for point_type in ["owned", "ghost"]:
+        for region_label, region_size in regions:
             if point_type == "owned":
-                size = min([region.size, sf.num_owned-ptr])
+                size = min((region_size, sf.num_owned-ptr))
             else:
-                size = region.size - region_sizes[f"{region_prefix}owned"]
-            region_sizes[f"{region_prefix}{point_type}"] = size
+                size = region_size - partitioned_regions[_as_region_label(region_label, "owned")]
+            partitioned_regions[_as_region_label(region_label, point_type)] = size
             ptr += size
     assert ptr == sf.size
+    return tuple(partitioned_regions.items())
 
-    return tuple(
-        AxisComponentRegion(size, label) for label, size in region_sizes.items()
-    )
+
+def _as_region_label(initial_region_label: str | None, owned_or_ghost: str):
+    if initial_region_label is None:
+        return owned_or_ghost
+    else:
+        return (initial_region_label, owned_or_ghost)
 
 
 class AxisComponent(LabelledNodeComponent):
-    fields = LabelledNodeComponent.fields | {"regions"}
+    fields = LabelledNodeComponent.fields | {"size", "regions", "sf"}
 
     def __init__(
         self,
-        regions,
+        size,
         label=None,
         *,
+        regions=None,
         sf=None,
     ):
-        regions = _parse_regions(regions)
-        sf = _parse_sf(sf, regions)
+        if regions is None:
+            regions = ((None, size),)
+        regions = utils.freeze(regions)
+        # regions are label + size info
+        # regions = _parse_regions(regions)
+        sf = _parse_sf(sf, size)
 
         super().__init__(label=label)
+        self._size = size
         self.regions = regions
         self.sf = sf
 
@@ -395,30 +451,6 @@ class AxisComponent(LabelledNodeComponent):
     def rank_equal(self) -> bool:
         """Return whether or not this axis component has constant size between ranks."""
         raise NotImplementedError
-
-    # TODO this is just a traversal - clean up
-    def alloc_size(self, axtree, axis):
-        assert False, "old code"
-        from pyop3.tensor import Dat, LinearDatBufferExpression
-
-        if isinstance(self.local_size, (Dat, LinearDatBufferExpression)):
-            # TODO: make max_value an attr of buffers
-            # npoints = self.count.max_value
-            npoints = max(self.local_size.buffer._data)
-        else:
-            assert isinstance(self.local_size, numbers.Integral)
-            npoints = self.local_size
-
-        assert npoints is not None
-
-        if subaxis := axtree.child(axis, self):
-            size = npoints * axtree._alloc_size(subaxis)
-        else:
-            size = npoints
-
-        # TODO: May be excessive
-        # Cast to an int as numpy integers cause loopy to break
-        return strict_int(size)
 
     @property
     @deprecated("size")
@@ -441,7 +473,7 @@ class AxisComponent(LabelledNodeComponent):
 
     @cached_property
     def local_size(self) -> Any:
-        return sum(reg.size for reg in self.regions)
+        return self._size
 
     @cached_property
     @collective
@@ -464,7 +496,7 @@ class AxisComponent(LabelledNodeComponent):
 
     @cached_property
     def _all_region_labels(self) -> tuple[str]:
-        return tuple(region.label for region in self._all_regions)
+        return tuple(label for label, _ in self._all_regions)
 
     def localize(self) -> AxisComponent:
         return self._localized
@@ -1262,17 +1294,21 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         else:
             return self.with_region_label(OWNED_REGION_LABEL)
 
-    # TODO: This assumes that we only have single regions and not nests of them
     def with_region_label(self, region_label: str) -> IndexedAxisTree:
         """TODO"""
-        if region_label not in self._all_region_labels:
-            raise ValueError(f"{region_label} not found")
+        return self.with_region_labels([region_label])
 
-        region_slice = self._region_slice(region_label)
+    def with_region_labels(self, region_labels: Sequence[ComponentRegionLabelT]) -> IndexedAxisTree:
+        """TODO"""
+        region_labels = set(region_labels)
+        if missing_labels := region_labels - self._all_region_labels:
+            raise ValueError(f"{missing_labels} not found")
+
+        region_slice = self._region_slice(region_labels)
         return self[region_slice]
 
     # NOTE: Unsure if this should be a method
-    def _region_slice(self, region_label: str, *, path: PathT = immutabledict()) -> "IndexTree":
+    def _region_slice(self, region_labels: set, *, path: PathT = immutabledict()) -> "IndexTree":
         from pyop3.itree import AffineSliceComponent, RegionSliceComponent, IndexTree, Slice
 
         path = as_path(path)
@@ -1280,11 +1316,13 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
         region_label_matches_all_components = True
         region_label_matches_no_components = True
+        matching_label = None
         slice_components = []
         for component in axis.components:
-            if region_label in component._all_region_labels:
+            if matching_labels := region_labels & set(component._all_region_labels):
+                matching_label = utils.just_one(matching_labels)
                 region_label_matches_no_components = False
-                slice_component = RegionSliceComponent(component.label, region_label, label=f"{component.label}_{region_label}")
+                slice_component = RegionSliceComponent(component.label, matching_label, label=f"{component.label}_{matching_label}")
             else:
                 region_label_matches_all_components = False
                 slice_component = AffineSliceComponent(component.label, label=component.label)
@@ -1292,7 +1330,8 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
         # do not change axis label if nothing changes
         if region_label_matches_all_components:
-            axis_label = f"{axis.label}_{region_label}"
+            assert matching_label is not None
+            axis_label = f"{axis.label}_{matching_label}"
         elif region_label_matches_no_components:
             axis_label = axis.label
         else:
@@ -1308,7 +1347,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         for component, slice_component in zip(axis.components, slice_components, strict=True):
             path_ = path | {axis.label: component.label}
             if self.node_map[path_]:
-                subtree = self._region_slice(region_label, path=path_)
+                subtree = self._region_slice(region_labels, path=path_)
                 index_tree = index_tree.add_subtree({slice_.label: slice_component.label}, subtree)
         return index_tree
 
@@ -1450,9 +1489,9 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         region_labels = set()
         for axis in self.axes:
             for component in axis.components:
-                for region in component._all_regions:
-                    if region.label is not None:
-                        region_labels.add(region.label)
+                for region_label, _ in component._all_regions:
+                    if region_label is not None:
+                        region_labels.add(region_label)
         return frozenset(region_labels)
 
     def _block_indices(self, block_shape: Sequence[int, ...]) -> tuple[ScalarIndex, ...]:

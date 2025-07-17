@@ -35,7 +35,6 @@ from pyop3.axtree.tree import (
     UNIT_AXIS_TREE,
     AbstractAxisTree,
     ContextSensitiveLoopIterable,
-    AxisComponentRegion,
     IndexedAxisTree,
     UnitIndexedAxisTree,
     LoopIndexVar,
@@ -1186,12 +1185,13 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
         regions = _prepare_regions_for_slice_component(slice_component, orig_regions)
         indexed_regions = _index_regions(slice_component, regions, parent_exprs=seen_target_exprs)
 
-        orig_size = sum(r.size for r in orig_regions)
-        indexed_size = sum(r.size for r in indexed_regions)
+        orig_size = sum(r[1] for r in orig_regions)
+        indexed_size = sum(r[1] for r in indexed_regions)
 
         if target_component.sf is not None:
             # If we are specially filtering the owned entries we want to drop the SF
             # to disallow things like `axes.owned.owned`.
+            # NOTE: Is this actually an issue? It would reduce the special casing
             if (
                 isinstance(slice_component, RegionSliceComponent)
                 and slice_component.region in {OWNED_REGION_LABEL, GHOST_REGION_LABEL}
@@ -1200,7 +1200,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
             else:
                 if isinstance(slice_component, RegionSliceComponent):
                     region_index = target_component._all_region_labels.index(slice_component.region_label)
-                    steps = utils.steps([r.size for r in target_component._all_regions], drop_last=False)
+                    steps = utils.steps([r[1] for r in target_component._all_regions], drop_last=False)
                     start, stop = steps[region_index:region_index+2]
                     indices = np.arange(start, stop, dtype=IntType)
                 elif isinstance(slice_component, AffineSliceComponent):
@@ -1241,10 +1241,10 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
         if isinstance(slice_component, RegionSliceComponent):
             if slice_component.region in {OWNED_REGION_LABEL, GHOST_REGION_LABEL}:
                 region_index = target_component._all_region_labels.index(slice_component.region)
-                steps = utils.steps([r.size for r in target_component._all_regions], drop_last=False)
+                steps = utils.steps([r[1] for r in target_component._all_regions], drop_last=False)
             else:
                 region_index = target_component.region_labels.index(slice_component.region)
-                steps = utils.steps([r.size for r in target_component.regions], drop_last=False)
+                steps = utils.steps([r[1] for r in target_component.regions], drop_last=False)
             slice_expr = AxisVar(axis) + steps[region_index]
         elif isinstance(slice_component, AffineSliceComponent):
             slice_expr = AxisVar(axis) * slice_component.step + slice_component.start
@@ -2168,8 +2168,12 @@ def _index_regions(*args, **kwargs) -> tuple[AxisComponentRegion, ...]:
 
 @_index_regions.register(RegionSliceComponent)
 def _(region_component: RegionSliceComponent, regions, *, parent_exprs) -> tuple[AxisComponentRegion, ...]:
-    selected_region = just_one(filter(lambda r: r.label == region_component.region, regions))
-    return (AxisComponentRegion(selected_region.size),)
+    selected_region = utils.just_one(
+        (region_label, region_size)
+        for region_label, region_size in regions
+        if region_label == region_component.region
+    )
+    return (selected_region,)
 
 
 @_index_regions.register(AffineSliceComponent)
@@ -2191,14 +2195,14 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
     size = sum(r.size for r in regions)
     start, stop, step = affine_component.with_size(size)
 
-    if any(isinstance(r.size, (Dat, DatBufferExpression)) for r in regions):
-        if len(regions) > 1:
-            raise NotImplementedError("Only single-region ragged components are supported")
-        region = just_one(regions)
-
-        replace_map = {axis_label: expr for (axis_label, expr) in parent_exprs.items()}
-        stop = expr_replace(stop, replace_map)
-        return (AxisComponentRegion(stop, region.label),)
+    # if any(isinstance(r.size, (Dat, DatBufferExpression)) for r in regions):
+    #     if len(regions) > 1:
+    #         raise NotImplementedError("Only single-region ragged components are supported")
+    #     region = just_one(regions)
+    #
+    #     replace_map = {axis_label: expr for (axis_label, expr) in parent_exprs.items()}
+    #     stop = expr_replace(stop, replace_map)
+    #     return (AxisComponentRegion(stop, region.label),)
 
     indexed_regions = []
     loc = 0
@@ -2226,7 +2230,7 @@ def _(subset: SubsetSliceComponent, regions, **kwargs) -> tuple:
 
     Examples
     --------
-    {"a": 3, "b": 2}[0,1,2,3,4] -> {"a": 3, "b": 0}
+    {"a": 3, "b": 2}[0,1,2,3,4] -> {"a": 3, "b": 2}
     {"a": 3, "b": 2}[0,1,2]     -> {"a": 3, "b": 0}
     {"a": 3, "b": 2}[1,4]       -> {"a": 1, "b": 1}
     {"a": 3, "b": 2}[3,4]       -> {"a": 0, "b": 2}

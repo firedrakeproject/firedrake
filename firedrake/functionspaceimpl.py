@@ -656,28 +656,71 @@ class FunctionSpace:
         # thing and attach axes on the way.
         # This could also just be ["mesh", "dof", "dim", "dof", "dim", "dof", "dim"] and
         # could just pop things off - but that's quite unclear...
-        return layout_from_spec(self.layout, self.axis_constraints)
+        retval = layout_from_spec(self.layout, self.axis_constraints)
+        retval.subst_layouts()  # debugging
+        return retval
 
     @cached_property
     def axis_constraints(self) -> tuple[AxisConstraint]:
+        from firedrake.cython import dmcommon
         import pyop3.extras.debug
 
         mesh_axis = self._mesh.flat_points
+        num_points = mesh_axis.size
+        plex = self._mesh.topology_dm
 
         constraints = [AxisConstraint(mesh_axis)]
 
         pyop3.extras.debug.warn_todo("Do in Cython")
 
-        ndofs = numpy.empty(mesh_axis.size, dtype=IntType)
+        # identify constrained points
+        constrained_points = set()
+        if self.boundary_set:
+            for marker in self.boundary_set:
+                if marker == "on_boundary":
+                    label = "exterior_facets"
+                    marker = 1
+                else:
+                    label = dmcommon.FACE_SETS_LABEL
+                n = plex.getStratumSize(label, marker)
+                if n == 0:
+                    continue
+                points = plex.getStratumIS(label, marker).indices
+                for i in range(n):
+                    p = points[i]
+                    if p not in constrained_points:
+                        constrained_points.add(p)
+
+        num_constrained_points = len(constrained_points)
+        num_unconstrained_points = num_points - num_constrained_points
+        num_dofs = numpy.empty(num_points, dtype=IntType)
+        unconstrained_ptr = 0
+        constrained_ptr = 0
         for pt in range(mesh_axis.size):
             if self._mesh._dm_renumbering:
                 pt_renum = self._mesh._dm_renumbering.indices[pt]
             else:
                 pt_renum = pt
+
             # TODO: Don't use the section here?
-            ndofs[pt] = self.local_section.getDof(pt_renum)
-        ndofs_dat = op3.Dat(self._mesh.flat_points, data=ndofs)
-        dof_axis = op3.Axis({"XXX": ndofs_dat}, "dof")
+            ndofs = self.local_section.getDof(pt_renum)
+
+            if pt_renum not in constrained_points:
+                num_dofs[unconstrained_ptr] = ndofs
+                unconstrained_ptr += 1
+            else:
+                num_dofs[constrained_ptr] = ndofs
+                constrained_ptr += 1
+        assert unconstrained_ptr + constrained_ptr == num_points
+
+        num_dofs_dat = op3.Dat.from_array(num_dofs)
+        num_dofs_expr = op3.as_linear_buffer_expression(num_dofs_dat)
+
+        regions = (
+            ("unconstrained", {"mesh": num_unconstrained_points}), ("constrained", {"mesh": num_constrained_points})
+        )
+        component = op3.AxisComponent(num_dofs_expr, "XXX", regions=regions)
+        dof_axis = op3.Axis(component, "dof")
 
         constraint = AxisConstraint(
             dof_axis,
@@ -1328,31 +1371,31 @@ class RestrictedFunctionSpace(FunctionSpace):
         self.name = name or (function_space.name or "Restricted" + "_"
                              + "_".join(sorted(map(str, self.boundary_set))))
 
-    def set_shared_data(self):
-        sdata = get_shared_data(self._mesh, self.ufl_element(), self.boundary_set)
-        self._shared_data = sdata
-        self.node_set = sdata.node_set
-        r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
-        self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
-                                    name="%s_nodes_dset" % self.name,
-                                    apply_local_global_filter=sdata.extruded)
-        r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
-        degrees of freedom."""
-
-        # check not all degrees of freedom are constrained
-        unconstrained_dofs = self.dof_dset.size - self.dof_dset.constrained_size
-        if self.comm.allreduce(unconstrained_dofs) == 0:
-            raise ValueError("All degrees of freedom are constrained.")
-        self.finat_element = create_element(self.ufl_element())
-        # Used for reconstruction of mixed/component spaces.
-        # sdata carries real_tensorproduct.
-        self.real_tensorproduct = sdata.real_tensorproduct
-        self.extruded = sdata.extruded
-        self.offset = sdata.offset
-        self.offset_quotient = sdata.offset_quotient
-        self.cell_boundary_masks = sdata.cell_boundary_masks
-        self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
-        self.global_numbering = sdata.global_numbering
+    # def set_shared_data(self):
+    #     sdata = get_shared_data(self._mesh, self.ufl_element(), self.boundary_set)
+    #     self._shared_data = sdata
+    #     self.node_set = sdata.node_set
+    #     r"""A :class:`pyop2.types.set.Set` representing the function space nodes."""
+    #     self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
+    #                                 name="%s_nodes_dset" % self.name,
+    #                                 apply_local_global_filter=sdata.extruded)
+    #     r"""A :class:`pyop2.types.dataset.DataSet` representing the function space
+    #     degrees of freedom."""
+    #
+    #     # check not all degrees of freedom are constrained
+    #     unconstrained_dofs = self.dof_dset.size - self.dof_dset.constrained_size
+    #     if self.comm.allreduce(unconstrained_dofs) == 0:
+    #         raise ValueError("All degrees of freedom are constrained.")
+    #     self.finat_element = create_element(self.ufl_element())
+    #     # Used for reconstruction of mixed/component spaces.
+    #     # sdata carries real_tensorproduct.
+    #     self.real_tensorproduct = sdata.real_tensorproduct
+    #     self.extruded = sdata.extruded
+    #     self.offset = sdata.offset
+    #     self.offset_quotient = sdata.offset_quotient
+    #     self.cell_boundary_masks = sdata.cell_boundary_masks
+    #     self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
+    #     self.global_numbering = sdata.global_numbering
 
     def __eq__(self, other):
         if not isinstance(other, RestrictedFunctionSpace):

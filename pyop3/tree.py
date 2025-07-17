@@ -39,6 +39,7 @@ from pyop3.utils import (
 LabelT = Hashable
 NodeLabelT = Hashable
 ComponentLabelT = Hashable
+ComponentRegionLabelT = Hashable
 ComponentT = ComponentLabelT  # | ComponentT
 PathT = Mapping[NodeLabelT, ComponentLabelT]
 ConcretePathT = immutabledict[NodeLabelT, ComponentLabelT]

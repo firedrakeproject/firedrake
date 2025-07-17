@@ -305,7 +305,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None, **kwargs):
 
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
-def RestrictedFunctionSpace(function_space, boundary_set=[], name=None):
+def RestrictedFunctionSpace(function_space, boundary_set=frozenset(), name=None):
     """Create a :class:`.RestrictedFunctionSpace`.
 
     Parameters
