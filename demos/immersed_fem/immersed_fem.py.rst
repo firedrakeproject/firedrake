@@ -131,7 +131,7 @@ Using the Gmsh API
 
 We can alternatively use python commands enabled through the Gmsh API to build, save, and
 read the mesh into Firedrake from within a python script. This allows for parameter flexibility
-and improved readibility of the mesh generation code.
+and improved readability of the mesh generation code.
 
 We first need to ``initialize`` the Gmsh API and create a new empty mesh model. ::
 
