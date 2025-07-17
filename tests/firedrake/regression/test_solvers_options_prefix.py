@@ -1,8 +1,9 @@
+import petsctools.options
+import pytest
+
 from firedrake import *
 from firedrake.matrix import ImplicitMatrix
 from firedrake.petsc import PETSc
-from petsctools import OptionsManager
-import pytest
 
 
 @pytest.fixture(params=[None, "", "foo_"])
@@ -32,13 +33,13 @@ def opts(request, prefix, global_parameters):
         opts[prefix + k] = v
 
     # Pretend these came from the commandline
-    OptionsManager.commandline_options = frozenset(opts.getAll())
+    petsctools.options._commandline_options = frozenset(opts.getAll())
 
     def finalize():
+        # And remove again
         for k in global_parameters.keys():
             del opts[prefix + k]
-        # And remove again
-        OptionsManager.commandline_options = frozenset(opts.getAll())
+        petsctools.options._commandline_options = frozenset(opts.getAll())
 
     request.addfinalizer(finalize)
 

@@ -1,7 +1,6 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.__future__ import *
 from FIAT.dual_set import DualSet
 from FIAT.finite_element import CiarletElement
 from FIAT.reference_element import UFCInterval
