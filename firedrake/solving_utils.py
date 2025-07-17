@@ -141,6 +141,8 @@ class _SNESContext(object):
     :arg pmat_type: Indicates whether the preconditioner (if present) is assembled
         monolithically ('aij'), as a block sparse matrix ('nest') or
         matrix-free (as :class:`~.ImplicitMatrix`, 'matfree').
+    :arg sub_mat_type: Indicates the matrix type for the sparse blocks
+        if mat_type='nest', ignored otherwise.
     :arg appctx: Any extra information used in the assembler.  For the
         matrix-free case this will contain the Newton state in
         ``"state"``.
@@ -165,7 +167,8 @@ class _SNESContext(object):
     Firedrake level information.
     """
     @PETSc.Log.EventDecorator()
-    def __init__(self, problem, mat_type, pmat_type, appctx=None,
+    def __init__(self, problem, mat_type, pmat_type,
+                 sub_mat_type=None, appctx=None,
                  pre_jacobian_callback=None, pre_function_callback=None,
                  post_jacobian_callback=None, post_function_callback=None,
                  options_prefix=None,
@@ -177,6 +180,7 @@ class _SNESContext(object):
             pmat_type = mat_type
         self.mat_type = mat_type
         self.pmat_type = pmat_type
+        self.sub_mat_type = sub_mat_type
         self.options_prefix = options_prefix
         self.pre_apply_bcs = pre_apply_bcs
 
@@ -508,7 +512,9 @@ class _SNESContext(object):
     @cached_property
     def _assembler_jac(self):
         from firedrake.assemble import get_assembler
-        return get_assembler(self.J, bcs=self.bcs_J, form_compiler_parameters=self.fcp, mat_type=self.mat_type, options_prefix=self.options_prefix, appctx=self.appctx)
+        return get_assembler(self.J, bcs=self.bcs_J, form_compiler_parameters=self.fcp,
+                             mat_type=self.mat_type, sub_mat_type=self.sub_mat_type,
+                             options_prefix=self.options_prefix, appctx=self.appctx)
 
     @cached_property
     def _jac(self):
