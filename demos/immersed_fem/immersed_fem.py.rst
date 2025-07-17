@@ -244,7 +244,7 @@ To create the whole, we use the method ``occ.cut`` with the option ``removeTool=
 retain the disc interior (which would be otherwise deleted by default). The ``occ.cut`` method
 takes and returns a list of tuples ``(dimension, tag)`` as do other functions such as 
 ``getBoundary`` used below. We save the tag of the combined object for later use 
-and register the new object to the model with ``syncronize``. ::
+and register the new object to the model with ``synchronize``. ::
 
    punched_surface = model.occ.cut([(2, rectangle_obj_tag)], [(2, disc_obj_tag)], removeTool=False)
    punched_surface_tag = punched_surface[0][0][1]
