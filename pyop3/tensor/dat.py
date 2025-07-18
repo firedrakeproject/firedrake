@@ -24,7 +24,7 @@ from pyop3.axtree import (
     AxisTree,
     as_axis_tree,
 )
-from pyop3.axtree.tree import AbstractAxisTree, Expression, ContextFree, ContextSensitiveAxisTree, subst_layouts
+from pyop3.axtree.tree import AbstractAxisTree, Expression, ContextFree, ContextSensitiveAxisTree, merge_axis_trees2, subst_layouts
 from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer, BufferRef, NullBuffer, PetscMatBuffer
 from pyop3.dtypes import DTypeT, ScalarType
 from pyop3.exceptions import Pyop3Exception
@@ -129,10 +129,6 @@ class Dat(Tensor, KernelArgument):
     def from_sequence(cls, sequence: Sequence, dtype: DTypeT, **kwargs) -> Dat:
         array = np.asarray(sequence, dtype=dtype)
         return cls.from_array(array, **kwargs)
-
-    @classmethod
-    def serial(cls, axes, **kwargs) -> Dat:
-        return cls(axes.localize(), **kwargs)
 
     # }}}
 
@@ -676,6 +672,20 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
 
     # }}}
 
+    def __init__(self, buffer, layout, loop_axes):
+
+        try:
+            if layout.loop_axes:
+                breakpoint()
+        except:
+            pass
+        self._buffer = buffer
+        self.layout = layout
+        self._loop_axes = loop_axes
+
+        if str(self) == "array_0[L_{_label_LoopIndex_6, firedrake_default_topology}]":
+            breakpoint()
+
     def __str__(self) -> str:
         return f"{self.name}[{self.layout}]"
 
@@ -694,7 +704,6 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
 
     _buffer: BufferRef
     layouts: Any
-    _shape: AxisTree
     _loop_axes: tuple[Axis]
 
     # }}}
@@ -702,8 +711,11 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
     # {{{ Interface impls
 
     buffer: ClassVar[property] = utils.attr("_buffer")
-    shape: ClassVar[property] = utils.attr("_shape")
     loop_axes: ClassVar[property] = utils.attr("_loop_axes")
+
+    @property
+    def shape(self) -> AxisTree:
+        return merge_axis_trees2((layout.shape for layout in self.layouts.values()))
 
     # }}}
 

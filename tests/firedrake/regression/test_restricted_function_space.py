@@ -365,3 +365,7 @@ def test_restricted_function_space_extrusion_stokes(ncells):
     # -- Actually, the ordering is the same.
     assert np.allclose(sol_res.subfunctions[0].dat.data_ro_with_halos, sol.subfunctions[0].dat.data_ro_with_halos)
     assert np.allclose(sol_res.subfunctions[1].dat.data_ro_with_halos, sol.subfunctions[1].dat.data_ro_with_halos)
+
+
+if __name__ == "__main__":
+    test_restricted_function_space_1_1_square(1)

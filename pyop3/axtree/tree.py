@@ -328,10 +328,6 @@ def _parse_regions(obj: Any) -> AxisComponentSize:
         orig_dat = obj
         dat = as_linear_buffer_expression(orig_dat)
 
-        # TODO: 18/06 is this needed?
-        # bf = orig_dat.buffer
-        # orig_dat = Dat(orig_dat.axes.undistribute(), buffer=type(bf)(bf._data,sf=None))
-
         return (AxisComponentRegion(dat),)
     else:
         raise TypeError(f"No handler provided for {type(obj).__name__}")
@@ -434,6 +430,10 @@ class AxisComponent(LabelledNodeComponent):
         else:
             return f"{{{', '.join(map(str, self.regions))}}}"
 
+    @cached_property
+    def regionless(self) -> AxisComponent:
+        return self.copy(regions=(AxisComponentRegion(self.local_size),))
+
     @property
     def rank_equal(self) -> bool:
         """Return whether or not this axis component has constant size between ranks."""
@@ -516,7 +516,6 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
         super().__init__(label=label)
         CacheMixin.__init__(self)
 
-
     def __eq__(self, other):
         return (
             type(self) is type(other)
@@ -544,6 +543,13 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
 
     def __str__(self) -> str:
         return f"{{{self.label}: [{', '.join(map(str, self.components))}]}}"
+
+    def linearize(self, component_label):
+        return self.copy(components=tuple(c for c in self.components if c.label == component_label))
+
+    @cached_property
+    def regionless(self) -> Axis:
+        return self.copy(components=tuple(c.regionless for c in self.components))
 
     @property
     def component_labels(self):
@@ -765,27 +771,78 @@ class Expression(abc.ABC):
             return NotImplemented
 
         return FloorDiv(self, other)
-    #
-    # # def __le__(self, other):
-    # #     from pyop3.expr_visitors import estimate
-    # #     return estimate(self) <= estimate(other)
-    # #
-    # # def __ge__(self, other):
-    # #     from pyop3.expr_visitors import estimate
-    # #     return estimate(self) >= estimate(other)
-    #
-    # def __lt__(self, other):
-    #     from pyop3.expr_visitors import estimate
-    #     return estimate(self) < estimate(other)
-    #
-    # def __gt__(self, other):
-    #     from pyop3.expr_visitors import estimate
-    #     return estimate(self) > estimate(other)
+
+    def __mod__(self, other) -> Modulo:
+        return Modulo(self, other)
+
+    def __neg__(self) -> Neg:
+        return Neg(self)
+
+    def __lt__(self, other):
+        return LessThan(self, other)
+
+    def __gt__(self, other):
+        return GreaterThan(self, other)
+
+    def __le__(self, other):
+        return LessThanOrEqual(self, other)
+
+    def __ge__(self, other):
+        return GreaterThanOrEqual(self, other)
+
+    def __or__(self, other) -> Or:
+        return Or(self, other)
 
 
+def ceildiv(a, b, /):
+    # See https://stackoverflow.com/a/17511341
+    return -(a // -b)
 
 
 class Operator(Expression, metaclass=abc.ABCMeta):
+    @property
+    @abc.abstractmethod
+    def operands(self):
+        pass
+
+
+
+class UnaryOperator(Operator, metaclass=abc.ABCMeta):
+
+    @property
+    def operands(self):
+        return (self.a,)
+
+    @property
+    @abc.abstractmethod
+    def symbol(self) -> str:
+        pass
+
+    def __init__(self, a, /) -> None:
+        self.a = a
+
+    def __str__(self) -> str:
+        return f"{self.symbol}{self.a}"
+
+    @property
+    def shape(self):
+        return self.a.shape
+
+    @property
+    def loop_axes(self):
+        return self.a.loop_axes
+
+
+class Neg(UnaryOperator):
+    @property
+    def symbol(self) -> str:
+        return "-"
+
+
+class BinaryOperator(Operator, metaclass=abc.ABCMeta):
+    @property
+    def operands(self):
+        return (self.a, self.b)
 
     def __init__(self, a, b, /):
         self.a = a
@@ -818,28 +875,140 @@ class Operator(Expression, metaclass=abc.ABCMeta):
         pass
 
 
-class Add(Operator):
+class Add(BinaryOperator):
     @property
     def _symbol(self) -> str:
         return "+"
 
 
-class Sub(Operator):
+class Sub(BinaryOperator):
     @property
     def _symbol(self) -> str:
         return "-"
 
 
-class Mul(Operator):
+class Mul(BinaryOperator):
     @property
     def _symbol(self) -> str:
         return "*"
 
 
-class FloorDiv(Operator):
+class FloorDiv(BinaryOperator):
     @property
     def _symbol(self) -> str:
         return "//"
+
+
+class Modulo(BinaryOperator):
+    @property
+    def _symbol(self) -> str:
+        return "%"
+
+
+class Condition(Operator, metaclass=abc.ABCMeta):
+    pass
+
+
+class BinaryCondition(BinaryOperator, Condition, metaclass=abc.ABCMeta):
+    pass
+
+
+class LessThan(BinaryCondition):
+    @property
+    def _symbol(self) -> str:
+        return "<"
+
+
+class GreaterThan(BinaryCondition):
+    @property
+    def _symbol(self) -> str:
+        return ">"
+
+
+class LessThanOrEqual(BinaryCondition):
+    @property
+    def _symbol(self) -> str:
+        return "<="
+
+
+class GreaterThanOrEqual(BinaryCondition):
+    @property
+    def _symbol(self) -> str:
+        return ">="
+
+
+class Or(BinaryCondition):
+    @property
+    def _symbol(self) -> str:
+        return "|"
+
+
+class TernaryOperator(Operator, metaclass=abc.ABCMeta):
+    @property
+    def operands(self):
+        return (self.a, self.b, self.c)
+
+    def __init__(self, a, b, c, /) -> None:
+        self.a = a
+        self.b = b
+        self.c = c
+
+
+class Conditional(TernaryOperator):
+    def __new__(cls, predicate, if_true, if_false):
+        from pyop3 import evaluate
+        from pyop3.expr_visitors import RuntimeVariableException  # put in main namespace?
+
+        # If both branches are the same then just return one of them.
+        if if_true == if_false:
+            return if_true
+
+        # Attempt to eagerly evaluate 'predicate' to avoid creating
+        # unnecessary objects.
+        try:
+            return if_true if evaluate(predicate) else if_false
+        except RuntimeVariableException:
+            return super().__new__(cls)
+
+    def __init__(self, predicate, if_true, if_false) -> None:
+        super().__init__(predicate, if_true, if_false)
+
+    def __str__(self) -> str:
+        return f"{self.predicate} ? {self.if_true} : {self.if_false}"
+
+    @property
+    def shape(self):
+        from pyop3.expr_visitors import get_shape
+
+        if not isinstance(self.if_true, numbers.Number):
+            true_shape = get_shape(self.if_true)
+            if not isinstance(self.if_false, numbers.Number):
+                false_shape = self.if_false.shape
+                return utils.single_valued((true_shape, false_shape))
+            else:
+                return true_shape
+        else:
+            return get_shape(self.if_false)
+
+    @cached_property
+    def loop_axes(self) -> tuple[Axis]:
+        return utils.unique(_extract_loop_axes(self.a) + _extract_loop_axes(self.b) + _extract_loop_axes(self.c))
+
+    @property
+    def predicate(self):
+        return self.a
+
+    @property
+    def if_true(self):
+        return self.b
+
+    @property
+    def if_false(self):
+        return self.c
+
+
+def conditional(predicate, if_true, if_false):
+    return Conditional(predicate, if_true, if_false)
 
 
 class Terminal(Expression, abc.ABC):
@@ -908,6 +1077,9 @@ class LoopIndexVar(Terminal):
         assert not isinstance(loop_id, LoopIndex)
         self.loop_id = loop_id
         self.axis = axis
+
+        # we must be linear at this point
+        assert len(self.axis.components) == 1
 
     @property
     def shape(self):
@@ -1145,29 +1317,11 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     @abc.abstractmethod
     def _materialized(self):
         pass
-        # "unindexed" axis tree
-        # strip parallel semantics (in a bad way)
-        # parent_to_children = collections.defaultdict(list)
-        # for p, cs in self.axes.parent_to_children.items():
-        #     for c in cs:
-        #         if c is not None and c.sf is not None:
-        #             c = c.copy(sf=None)
-        #         parent_to_children[p].append(c)
-        #
-        # axes = AxisTree(parent_to_children)
-
-
 
     @property
     @abc.abstractmethod
-    def _undistributed(self):
-        assert False, "old code"
+    def regionless(self) -> AbstractAxisTree:
         pass
-
-    def undistribute(self):
-        assert False, "old code"
-        """Return the axis tree discarding parallel overlap information."""
-        return self._undistributed
 
     @cached_property
     def global_numbering(self) -> np.ndarray[IntType]:
@@ -1531,6 +1685,14 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def _materialized(self):
         return self
 
+    @cached_property
+    def regionless(self) -> AxisTree:
+        node_map = {
+            path: axis.regionless if axis else None
+            for path, axis in self.node_map.items()
+        }
+        return type(self)(node_map)
+
     @property
     def nest_indices(self) -> tuple[()]:
         return ()
@@ -1556,28 +1718,6 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
             for path, axis in self.node_map.items()
         }
         return type(self)(node_map)
-
-    @cached_property
-    def _undistributed(self):
-        undistributed_root, subnode_map = self._undistribute_rec(self.root)
-        node_map = {None: (undistributed_root,)} | subnode_map
-        return type(self)(node_map)
-
-    def _undistribute_rec(self, axis):
-        undistributed_axis = axis.copy(components=[c.copy(sf=None) for c in axis.components])
-        node_map = {undistributed_axis.id: []}
-        for component in axis.components:
-            if subaxis := self.child(axis, component):
-                undistributed_subaxis, subnode_map = self._undistribute_rec(subaxis)
-                node_map[undistributed_axis.id].append(undistributed_subaxis)
-                node_map.update(subnode_map)
-            else:
-                node_map[undistributed_axis.id].append(None)
-        return undistributed_axis, node_map
-
-    # @cached_property
-    # def paths(self):
-    #     return (self._source_path,)
 
     # bit of a hack, think about the design
     @cached_property
@@ -1692,45 +1832,8 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def _buffer_slice(self) -> slice:
         return slice(self.size)
 
-    # TODO: Think of good names for these types (and global_numbering)
-    @cached_property
-    def lgmap_dat(self) -> Dat:
-        from pyop3 import Dat
-
-        # NOTE: This could perhaps use 'self' instead of 'self.localize' and
-        # just pass arange. The SF could then do the copies internally.
-        return Dat(self._undistributed, data=self.global_numbering, prefix="lgmap")
-
 
 class IndexedAxisTree(AbstractAxisTree):
-
-    # NOTE: It is OK for unindexed to be None, then we just have a map-like thing
-    def __init__(
-        self,
-        node_map,
-        unindexed,  # allowed to be None
-        *,
-        targets,
-        layout_exprs=None,  # not used
-        outer_loops=(),
-    ):
-        if isinstance(node_map, AxisTree):
-            node_map = node_map.node_map
-
-        # drop duplicate entries as they are necessarily equivalent
-        targets = utils.unique(targets)
-        targets = utils.freeze(targets)
-
-        if layout_exprs is None:
-            layout_exprs = immutabledict()
-        if outer_loops is None:
-            outer_loops = ()
-
-        self.targets = targets
-        self._unindexed = unindexed
-        self._outer_loops = tuple(outer_loops)
-        super().__init__(node_map)
-
 
     # {{{ interface impls
 
@@ -1740,6 +1843,15 @@ class IndexedAxisTree(AbstractAxisTree):
             return AxisTree()
         else:
             return AxisTree(self.node_map)
+
+    @cached_property
+    def regionless(self) -> IndexedAxisTree:
+        return type(self)(
+            self.materialize().regionless,
+            targets=self.targets,
+            unindexed=self.unindexed,
+            outer_loops=self.outer_loops,
+        )
 
     @property
     def unindexed(self):
@@ -1844,6 +1956,35 @@ class IndexedAxisTree(AbstractAxisTree):
         )
 
     # }}}
+
+
+    # NOTE: It is OK for unindexed to be None, then we just have a map-like thing
+    def __init__(
+        self,
+        node_map,
+        unindexed,  # allowed to be None
+        *,
+        targets,
+        layout_exprs=None,  # not used
+        outer_loops=(),
+    ):
+        if isinstance(node_map, AxisTree):
+            node_map = node_map.node_map
+
+        # drop duplicate entries as they are necessarily equivalent
+        targets = utils.unique(targets)
+        targets = utils.freeze(targets)
+
+        if layout_exprs is None:
+            layout_exprs = immutabledict()
+        if outer_loops is None:
+            outer_loops = ()
+
+        self.targets = targets
+        self._unindexed = unindexed
+        self._outer_loops = tuple(outer_loops)
+        super().__init__(node_map)
+
 
     # old alias
     @property
@@ -1959,10 +2100,6 @@ class IndexedAxisTree(AbstractAxisTree):
             linearized_axis_tree, self.unindexed, targets=linearized_targets,
         )
 
-    @property
-    def _undistributed(self):
-        raise NotImplementedError("TODO")
-
     @cached_property
     def layout_axes(self) -> AxisTree:
         if not self.outer_loops:
@@ -2050,7 +2187,7 @@ class IndexedAxisTree(AbstractAxisTree):
             return slice(0, 0)
 
         # NOTE: The below method might be better...
-        # mask_dat = Dat.zeros(self.unindexed.undistribute(), dtype=bool, prefix="mask")
+        # mask_dat = Dat.zeros(self.unindexed.localize(), dtype=bool, prefix="mask")
         # do_loop(p := self.index(), mask_dat[p].assign(1))
         # indices = just_one(np.nonzero(mask_dat.buffer.data_ro))
 

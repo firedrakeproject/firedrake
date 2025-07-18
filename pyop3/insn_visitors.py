@@ -19,7 +19,7 @@ from immutabledict import immutabledict
 from pyop3 import utils
 from pyop3.tensor import Scalar, Dat, Tensor, Mat, NonlinearDatBufferExpression, LinearDatBufferExpression, NonlinearMatBufferExpression, LinearMatBufferExpression
 from pyop3.axtree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
-from pyop3.axtree.tree import Operator, AxisVar, IndexedAxisTree, merge_axis_trees2, prune_zero_sized_branches, NaN
+from pyop3.axtree.tree import UnaryOperator, BinaryOperator, AxisVar, IndexedAxisTree, TernaryOperator, merge_axis_trees2, prune_zero_sized_branches, NaN
 from pyop3.buffer import AbstractBuffer, BufferRef, PetscMatBuffer, ArrayBuffer, NullBuffer, AllocatedPetscMatBuffer
 from pyop3.dtypes import IntType
 from pyop3.itree import Map, TabulatedMapComponent, collect_loop_contexts
@@ -406,11 +406,25 @@ def _expand_reshapes(expr: Any, /, mode):
     raise TypeError(f"No handler provided for {type(expr).__name__}")
 
 
-@_expand_reshapes.register(Operator)
-def _(op: Operator, /, access_type):
+@_expand_reshapes.register
+def _(op: UnaryOperator, /, access_type):
+    bare_a, a_insns = _expand_reshapes(op.a, access_type)
+    return (type(op)(bare_a), a_insns)
+
+
+@_expand_reshapes.register
+def _(op: BinaryOperator, /, access_type):
     bare_a, a_insns = _expand_reshapes(op.a, access_type)
     bare_b, b_insns = _expand_reshapes(op.b, access_type)
     return (type(op)(bare_a, bare_b), a_insns + b_insns)
+
+
+@_expand_reshapes.register
+def _(op: TernaryOperator, /, access_type):
+    bare_a, a_insns = _expand_reshapes(op.a, access_type)
+    bare_b, b_insns = _expand_reshapes(op.b, access_type)
+    bare_c, c_insns = _expand_reshapes(op.c, access_type)
+    return (type(op)(bare_a, bare_b, bare_c), a_insns + b_insns + c_insns)
 
 
 @_expand_reshapes.register(numbers.Number)

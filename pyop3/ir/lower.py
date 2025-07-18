@@ -31,7 +31,7 @@ import pyop2
 
 from pyop3 import exceptions as exc, utils
 from pyop3.tensor import LinearDatBufferExpression, NonlinearDatBufferExpression, Scalar
-from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent, relabel_path
+from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, BinaryCondition, IndexedAxisTree, Mul, AxisComponent, relabel_path, Conditional, Or, Neg, FloorDiv, Sub, Modulo
 from pyop3.buffer import AbstractBuffer, BufferRef, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
@@ -380,8 +380,8 @@ class ModuleExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
-        # if len(self.loopy_code.callables_table) > 1:
-        #     breakpoint()
+        if len(self.loopy_code.callables_table) > 1:
+            breakpoint()
         # pyop3.extras.debug.maybe_breakpoint()
 
         self.executable(*exec_arguments)
@@ -1050,9 +1050,43 @@ def _(add: Add, /, *args, **kwargs) -> pym.Expression:
     return _lower_expr(add.a, *args, **kwargs) + _lower_expr(add.b, *args, **kwargs)
 
 
+@_lower_expr.register(Sub)
+def _(add: Add, /, *args, **kwargs) -> pym.Expression:
+    return _lower_expr(add.a, *args, **kwargs) - _lower_expr(add.b, *args, **kwargs)
+
+
 @_lower_expr.register(Mul)
 def _(mul: Mul, /, *args, **kwargs) -> pym.Expression:
     return _lower_expr(mul.a, *args, **kwargs) * _lower_expr(mul.b, *args, **kwargs)
+
+
+@_lower_expr.register(Modulo)
+def _(mul: Mul, /, *args, **kwargs) -> pym.Expression:
+    return _lower_expr(mul.a, *args, **kwargs) % _lower_expr(mul.b, *args, **kwargs)
+
+
+@_lower_expr.register(Or)
+def _(or_: Or, /, *args, **kwargs) -> pym.Expression:
+    return pym.primitives.LogicalOr((_lower_expr(or_.a, *args, **kwargs), _lower_expr(or_.b, *args, **kwargs)))
+
+
+@_lower_expr.register(Neg)
+def _(neg: Neg, /, *args, **kwargs) -> pym.Expression:
+    return -_lower_expr(neg.a, *args, **kwargs)
+
+
+@_lower_expr.register(FloorDiv)
+def _(neg: Neg, /, *args, **kwargs) -> pym.Expression:
+    return _lower_expr(neg.a, *args, **kwargs) // _lower_expr(neg.b, *args, **kwargs)
+
+
+@_lower_expr.register(BinaryCondition)
+def _(cond, /, *args, **kwargs) -> pym.Expression:
+    return pym.primitives.Comparison(
+        _lower_expr(cond.a, *args, **kwargs),
+        cond._symbol,
+        _lower_expr(cond.b, *args, **kwargs),
+    )
 
 
 @_lower_expr.register(AxisVar)
@@ -1119,6 +1153,11 @@ def maybe_multiindex(buffer_ref, offset_expr, context):
         indices = (offset_expr,)
 
     return indices
+
+
+@_lower_expr.register(Conditional)
+def _(add: Conditional, /, *args, **kwargs) -> pym.Expression:
+    return pym.primitives.If(_lower_expr(add.a, *args, **kwargs), _lower_expr(add.b, *args, **kwargs), _lower_expr(add.c, *args, **kwargs))
 
 
 @functools.singledispatch

@@ -34,6 +34,8 @@ from pyop3.axtree import (
 from pyop3.axtree.layout import _as_int
 from pyop3.axtree.tree import (
     UNIT_AXIS_TREE,
+    conditional,
+    ceildiv,
     AbstractAxisTree,
     ContextSensitiveLoopIterable,
     IndexedAxisTree,
@@ -1240,13 +1242,13 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
                     start, stop = steps[region_index:region_index+2]
                     indices = np.arange(start, stop, dtype=IntType)
                 elif isinstance(slice_component, AffineSliceComponent):
-                    indices = np.arange(*slice_component.with_size(target_component.size), dtype=IntType)
+                    indices = np.arange(*slice_component.with_size(target_component.local_size), dtype=IntType)
                 else:
                     assert isinstance(slice_component, SubsetSliceComponent)
                     indices = slice_component.array.buffer.buffer.data_ro
 
-                petsc_sf = filter_sf(target_component.sf.sf, indices, 0, target_component.size)
-                indexed_size = sum(r[1] for r in indexed_regions)
+                petsc_sf = filter_sf(target_component.sf.sf, indices, 0, target_component.local_size)
+                indexed_size = sum(r.size for r in indexed_regions)
                 sf = StarForest(petsc_sf, indexed_size)
         else:
             sf = None
@@ -2244,14 +2246,8 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
     """
     from pyop3.expr_visitors import replace_terminals as expr_replace
 
-
     size = sum(r.size for r in regions)
     start, stop, step = affine_component.with_size(size)
-
-    if any(isinstance(r.size, (Dat, DatBufferExpression)) for r in regions):
-        breakpoint()
-        stop = expr_replace(stop, parent_exprs)
-        return (AxisComponentRegion(stop, region.label),)
 
     indexed_regions = []
     loc = 0
@@ -2259,12 +2255,25 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
     for region in regions:
         lower_bound = loc
         upper_bound = loc + region.size
-        if upper_bound < start or lower_bound >= stop:
-            region_size = 0
-            offset -= region.size
-        else:
-            region_size = math.ceil((min(region.size, stop-loc) - offset) / step)
-            offset = (offset + region.size) % step
+        # This really requires more exposition but the basic idea
+        # is we need to stride over the regions in turn and collect the
+        # relevant pieces of each one. In particular we need to know the
+        # size of the new, indexed region, and where we need to start
+        # from when we look at the next region (the 'offset').
+        #
+        # The code below is equivalent to the following but adapted to work for
+        # ragged things.
+        #
+        #     # out-of-bounds, just move forwards
+        #     if upper_bound < start or lower_bound >= stop:
+        #         region_size = 0
+        #         offset -= region.size
+        #     else:
+        #         region_size = ceildiv((min(region.size, stop-loc) - offset), step)
+        #         offset = (offset + region.size) % step
+        out_of_bounds = (upper_bound < start) | (lower_bound >= stop)
+        region_size = conditional(out_of_bounds, 0, ceildiv((min(region.size, stop-loc) - offset), step))
+        offset = conditional(out_of_bounds, offset-region.size, (offset+region.size) % step)
 
         # Make sure that we apply any parent indexing to the size expression
         # (important if we are dealing with ragged things).

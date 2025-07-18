@@ -23,7 +23,7 @@ from pyop3.axtree.tree import (
     AxisTree,
     AxisVar,
     NaN,
-    Operator,
+    BinaryOperator,
     LoopIndexVar,
 )
 from pyop3.dtypes import IntType
@@ -63,9 +63,8 @@ def tabulate_again(axes):
     offsets = [0] * len(to_tabulate)
     for regions in _collect_regions(axes):
         for i, (offset_dat, mapping) in enumerate(to_tabulate):
-            region = just_one(regions)
             offset = offsets[i]
-            region_indices, region_size = mapping[region]
+            region_indices, region_size = mapping[regions]
             offset_dat[offset:offset+region_indices.size] = region_indices + start
 
             start += region_size
@@ -127,7 +126,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
                     component_layout = NaN()
                 elif _axis_contains_multiple_regions(axes, path_acc) or not subtree.is_empty:
                     # 3. Non-constant stride, must tabulate
-                    offset_dat = Dat.serial(offset_axes, data=np.full(offset_axes.size, -1, dtype=IntType))
+                    offset_dat = Dat(offset_axes.regionless, data=np.full(offset_axes.size, -1, dtype=IntType))
 
                     if _axis_contains_multiple_regions(axes, path_acc):
                         # We cannot deal with constant steps here because that gets thrown out
@@ -349,8 +348,9 @@ def axis_tree_component_size(axis_tree, path, component):
             # )()
         j = all_axes_that_we_need.index()
 
+        # Drop irrelevant components from the axes as loop index vars are supposed to be linear
         inv_map = {
-            ax.label: LoopIndexVar(j.id, ax)
+            ax.label: LoopIndexVar(j.id, ax.linearize(path_[ax.label]))
             for ax in all_axes_that_we_need.nodes
         }
 
@@ -634,34 +634,15 @@ def _axis_component_region_has_fixed_size(region: AxisComponentRegion) -> bool:
 
 
 def _component_size_needs_outer_index(component: AxisComponent, free_axes):
-    from pyop3.tensor import Dat, LinearDatBufferExpression
     from pyop3.expr_visitors import collect_axis_vars
 
     free_axis_labels = frozenset(ax.label for ax in free_axes)
-
     for region in component._all_regions:
-
-        size = region.size
-
-        if isinstance(size, Dat):
-            assert False, "old code"
-            if size.axes.is_empty:
-                leafpath = immutabledict()
-            else:
-                leafpath = just_one(size.axes.leaf_paths)
-            layout = size.axes._subst_layouts_default[leafpath]
-
-            # is the path sufficient? i.e. do we have enough externally provided indices
-            # to correctly index the axis?
-            if not size.axes.is_empty:
-                for axlabel, clabel in size.axes.path(*size.axes.leaf).items():
-                    if axlabel not in free_axis_labels:
-                        return True
-
-        elif isinstance(size, LinearDatBufferExpression):
-            if not (set(v.axis_label for v in collect_axis_vars(size.layout)) <= free_axis_labels):
-                return True
-
+        if (
+            not isinstance(region.size, numbers.Integral)
+            and not (set(av.axis_label for av in collect_axis_vars(region.size)) <= free_axis_labels)
+        ):
+            return True
     return False
 
 

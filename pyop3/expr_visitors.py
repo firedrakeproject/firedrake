@@ -13,6 +13,7 @@ from typing import Any, ClassVar, Optional
 from mpi4py.MPI import buffer
 import numpy as np
 from immutabledict import immutabledict
+from pyop3.exceptions import Pyop3Exception
 from pyop3.tensor import Scalar
 from pyop3.tensor.dat import BufferExpression, ScalarBufferExpression, LinearDatBufferExpression, NonlinearDatBufferExpression, LinearMatBufferExpression, NonlinearMatBufferExpression, LinearBufferExpression, NonlinearBufferExpression
 from pyop3.buffer import AbstractArrayBuffer, AllocatedPetscMatBuffer, BufferRef, ConcreteBuffer, PetscMatBuffer
@@ -22,7 +23,8 @@ from petsc4py import PETSc
 
 from pyop3 import utils
 from pyop3.tensor import Tensor, Dat, Mat, BufferExpression
-from pyop3.axtree.tree import UNIT_AXIS_TREE, AxisVar, Expression, Operator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN, _UnitAxisTree
+# TODO: just namespace these
+from pyop3.axtree.tree import UNIT_AXIS_TREE, AxisVar, Conditional, Expression, UnaryOperator, Operator, BinaryOperator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, Neg, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN, _UnitAxisTree, Or, LessThan, LessThanOrEqual, GreaterThanOrEqual, GreaterThan, TernaryOperator
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
 
@@ -116,30 +118,37 @@ class NonlinearCompositeDat(CompositeDat):
     #     return f"acc({self.expr})"
 
 
+class RuntimeVariableException(Pyop3Exception):
+    """Exception raised when runtime information is needed for evaluation."""
+
+
 # TODO: could make a postvisitor
 @functools.singledispatch
-def evaluate(obj: Any, /, *args, **kwargs):
+def evaluate(obj: Any, /):
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@evaluate.register
-def _(dat: Dat, indices):
-    if dat.parent:
-        raise NotImplementedError
-
-    if not dat.axes.is_linear:
-        # guess this is optional at the top level, extra kwarg?
-        raise NotImplementedError
-    else:
-        path = dat.axes.path(dat.axes.leaf)
-    offset = evaluate(dat.axes.subst_layouts()[path], indices)
-    return dat.buffer.data_ro_with_halos[offset]
-
-
+@evaluate.register(Dat)
 @evaluate.register(LinearDatBufferExpression)
-def _(expr: LinearDatBufferExpression, indices):
-    offset = evaluate(expr.layout, indices)
-    return expr.buffer.data_ro_with_halos[offset]
+def _(var, /):
+    raise RuntimeVariableException
+    # if dat.parent:
+    #     raise NotImplementedError
+    #
+    # if not dat.axes.is_linear:
+    #     # guess this is optional at the top level, extra kwarg?
+    #     raise NotImplementedError
+    # else:
+    #     path = dat.axes.path(dat.axes.leaf)
+    # offset = evaluate(dat.axes.subst_layouts()[path], indices)
+    # return dat.buffer.data_ro_with_halos[offset]
+
+
+# @evaluate.register(LinearDatBufferExpression)
+# def _(expr: LinearDatBufferExpression, indices):
+#     assert False, "cant eval that"
+#     offset = evaluate(expr.layout, indices)
+#     return expr.buffer.data_ro_with_halos[offset]
 
 
 @evaluate.register
@@ -152,19 +161,62 @@ def _(mul: Mul, *args, **kwargs):
     return evaluate(mul.a, *args, **kwargs) * evaluate(mul.b, *args, **kwargs)
 
 
-@evaluate.register
-def _(num: numbers.Number, *args, **kwargs):
+@evaluate.register(numbers.Number)
+@evaluate.register(bool)
+def _(num, *args, **kwargs):
     return num
 
 
+# @evaluate.register
+# def _(var: AxisVar, indices):
+#     return indices[var.axis_label]
+#
+#
+# @evaluate.register(LoopIndexVar)
+# def _(loop_var: LoopIndexVar):
+#     assert False, "cant do this one I feel"
+#     return OrderedSet({loop_var.index})
+
+
 @evaluate.register
-def _(var: AxisVar, indices):
-    return indices[var.axis_label]
+def _(or_: Or):
+    err = None
+    try:
+        if a := evaluate(or_.a):
+            return True
+    except RuntimeVariableException as e:
+        err = e
+
+    try:
+        if b := evaluate(or_.b):
+            return True
+    except RuntimeVariableException as e:
+        err = e
+
+    if err:
+        raise err
+    else:
+        return False
 
 
-@evaluate.register(LoopIndexVar)
-def _(loop_var: LoopIndexVar):
-    return OrderedSet({loop_var.index})
+@evaluate.register
+def _(lt: LessThan):
+    return evaluate(lt.a) < evaluate(lt.b)
+
+
+@evaluate.register
+def _(gt: GreaterThan):
+    return evaluate(gt.a) > evaluate(gt.b)
+
+
+@evaluate.register
+def _(le: LessThanOrEqual):
+    return evaluate(le.a) <= evaluate(le.b)
+
+
+@evaluate.register
+def _(ge: GreaterThanOrEqual):
+    return evaluate(ge.a) >= evaluate(ge.b)
 
 
 @functools.singledispatch
@@ -183,8 +235,8 @@ def _(loop_var: LoopIndexVar):
 def _(var):
     return OrderedSet()
 
-@collect_loop_index_vars.register(Operator)
-def _(op: Operator):
+@collect_loop_index_vars.register(BinaryOperator)
+def _(op: BinaryOperator):
     return collect_loop_index_vars(op.a) | collect_loop_index_vars(op.b)
 
 
@@ -247,9 +299,19 @@ def _(var: Any, /, loop_context) -> Any:
     return var
 
 
-@restrict_to_context.register(Operator)
-def _(op: Operator, /, loop_context):
+@restrict_to_context.register
+def _(op: UnaryOperator, /, loop_context):
+    return type(op)(restrict_to_context(op.a, loop_context))
+
+
+@restrict_to_context.register(BinaryOperator)
+def _(op: BinaryOperator, /, loop_context):
     return type(op)(restrict_to_context(op.a, loop_context), restrict_to_context(op.b, loop_context))
+
+
+@restrict_to_context.register(TernaryOperator)
+def _(op: Conditional, /, loop_context):
+    return type(op)(restrict_to_context(op.a, loop_context), restrict_to_context(op.b, loop_context), restrict_to_context(op.c, loop_context))
 
 
 @restrict_to_context.register(Tensor)
@@ -418,9 +480,19 @@ def _(expr: LinearDatBufferExpression, /, replace_map) -> LinearDatBufferExpress
     return expr.__record_init__(layout=new_layout)
 
 
-@replace_terminals.register(Operator)
-def _(op: Operator, /, replace_map) -> Operator:
+@replace_terminals.register(BinaryOperator)
+def _(op: BinaryOperator, /, replace_map) -> BinaryOperator:
     return type(op)(replace_terminals(op.a, replace_map), replace_terminals(op.b, replace_map))
+
+
+@replace_terminals.register
+def _(cond: Conditional, /, replace_map) -> Conditional:
+    return type(cond)(replace_terminals(cond.predicate, replace_map), replace_terminals(cond.if_true, replace_map), replace_terminals(cond.if_false, replace_map))
+
+
+@replace_terminals.register
+def _(neg: Neg, /, replace_map) -> Neg:
+    return type(neg)(replace_terminals(neg.a, replace_map))
 
 
 @functools.singledispatch
@@ -467,8 +539,8 @@ def _(dat: CompositeDat, /, replace_map):
         return dat.reconstruct(layout=replaced_layout)
 
 
-@replace.register(Operator)
-def _(op: Operator, /, replace_map) -> Operator:
+@replace.register(BinaryOperator)
+def _(op: BinaryOperator, /, replace_map) -> BinaryOperator:
     return type(op)(replace(op.a, replace_map), replace(op.b, replace_map))
 
 
@@ -477,8 +549,13 @@ def concretize_layouts(obj: Any, /, axis_trees: Iterable[AxisTree, ...]) -> Any:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@concretize_layouts.register(Operator)
-def _(op: Operator, /, *args, **kwargs) -> Operator:
+@concretize_layouts.register
+def _(op: Operator, /, *args, **kwargs):
+    return type(op)(*(concretize_layouts(operand, *args, **kwargs) for operand in op.operands))
+
+
+@concretize_layouts.register(BinaryOperator)
+def _(op: BinaryOperator, /, *args, **kwargs) -> BinaryOperator:
     return type(op)(*(concretize_layouts(operand, *args, **kwargs) for operand in [op.a, op.b]))
 
 
@@ -585,10 +662,25 @@ def collect_tensor_shape(obj: Any, /) -> tuple[AxisTree, ...] | None:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@collect_tensor_shape.register(Operator)
-def _(op: Operator, /) -> tuple | None:
+@collect_tensor_shape.register
+def _(op: UnaryOperator, /) -> tuple | None:
+    # TODO: should really merge trees or something...
+    trees = list(filter(None, map(collect_tensor_shape, [op.a])))
+    return (utils.single_valued(trees),) if trees else None
+
+
+@collect_tensor_shape.register(BinaryOperator)
+def _(op: BinaryOperator, /) -> tuple | None:
     # TODO: should really merge trees or something...
     trees = list(filter(None, map(collect_tensor_shape, [op.a, op.b])))
+    return (utils.single_valued(trees),) if trees else None
+
+
+@collect_tensor_shape.register
+def _(op: TernaryOperator, /) -> tuple | None:
+    # NOTE: This doesn't actually make sense for conditionals as the predicate must be scalar? actually perhaps not
+    # TODO: should really merge trees or something...
+    trees = list(filter(None, map(collect_tensor_shape, [op.a, op.b, op.c])))
     return (utils.single_valued(trees),) if trees else None
 
 
@@ -619,9 +711,9 @@ def collect_tensor_candidate_indirections(obj: Any, /, **kwargs) -> immutabledic
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@collect_tensor_candidate_indirections.register(Operator)
+@collect_tensor_candidate_indirections.register
 def _(op: Operator, /, **kwargs) -> immutabledict:
-    return utils.merge_dicts((collect_tensor_candidate_indirections(operand, **kwargs) for operand in [op.a, op.b]))
+    return utils.merge_dicts((collect_tensor_candidate_indirections(operand, **kwargs) for operand in op.operands))
 
 
 @collect_tensor_candidate_indirections.register(numbers.Number)
@@ -706,8 +798,8 @@ def _(var: Any, /, *args, **kwargs) -> tuple[tuple[Any, int]]:
     return ((var, 0),)
 
 
-@collect_candidate_indirections.register(Operator)
-def _(op: Operator, /, visited_axes, loop_indices, *, compress: bool) -> tuple:
+@collect_candidate_indirections.register(BinaryOperator)
+def _(op: BinaryOperator, /, visited_axes, loop_indices, *, compress: bool) -> tuple:
     a_result = collect_candidate_indirections(op.a, visited_axes, loop_indices, compress=compress)
     b_result = collect_candidate_indirections(op.b, visited_axes, loop_indices, compress=compress)
 
@@ -775,9 +867,9 @@ def concretize_materialized_tensor_indirections(obj: Any, /, *args, **kwargs) ->
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@concretize_materialized_tensor_indirections.register(Operator)
+@concretize_materialized_tensor_indirections.register
 def _(op: Operator, /, *args, **kwargs) -> immutabledict:
-    return type(op)(*(concretize_materialized_tensor_indirections(operand, *args, **kwargs) for operand in [op.a, op.b]))
+    return type(op)(*(concretize_materialized_tensor_indirections(operand, *args, **kwargs) for operand in op.operands))
 
 
 @concretize_materialized_tensor_indirections.register(numbers.Number)
@@ -846,7 +938,7 @@ def _(buffer_expr: NonlinearMatBufferExpression, /, layouts, key):
 def collect_axis_vars(obj: Any, /) -> OrderedSet:
     from pyop3.itree.tree import LoopIndexVar
 
-    if isinstance(obj, Operator):
+    if isinstance(obj, BinaryOperator):
         return collect_axis_vars(obj.a) | collect_axis_vars(obj.b)
 
     raise TypeError(f"No handler defined for {type(obj).__name__}")
@@ -893,7 +985,7 @@ def collect_composite_dats(obj: Any) -> frozenset:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@collect_composite_dats.register(Operator)
+@collect_composite_dats.register(BinaryOperator)
 def _(op, /) -> frozenset:
     return collect_composite_dats(op.a) | collect_composite_dats(op.b)
 
@@ -918,11 +1010,8 @@ def _(dat, /) -> frozenset:
 
 def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatBufferExpression:
     axes = composite_dat.axis_tree
-    # TODO: This is almost certainly the wrong place to do this
-    # axes = axes.undistribute()
 
     loop_vars = utils.reduce("|", map(collect_loop_index_vars, composite_dat.leaf_exprs.values()))
-    # selected_loop_axes = composite_dat.loop_axes
 
     all_loop_axes = {
         (index.id, axis.label): axis

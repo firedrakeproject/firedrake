@@ -54,6 +54,7 @@ from pyop3.buffer import (  # noqa: F401
     ArrayBuffer, NullBuffer, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec,
 )
 from pyop3.dtypes import IntType, ScalarType  # noqa: F401
+from pyop3.expr_visitors import evaluate  # noqa: F401
 from pyop3.itree import (  # noqa: F401
     AffineSliceComponent,
     Index,
