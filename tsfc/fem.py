@@ -688,6 +688,7 @@ def translate_constant_value(terminal, mt, ctx):
 
 @translate.register(Coefficient)
 def translate_coefficient(terminal, mt, ctx):
+    domain = extract_unique_domain(terminal)
     vec = ctx.coefficient(terminal, mt.restriction)
 
     if terminal.ufl_element().family() == 'Real':
@@ -698,8 +699,13 @@ def translate_coefficient(terminal, mt, ctx):
 
     # Collect FInAT tabulation for all entities
     per_derivative = collections.defaultdict(list)
-    #for entity_id in ctx.entity_ids:
-    entity_ids = list(range(len(element.cell.get_topology()[ctx.integration_dim])))
+    integral_type = ctx.domain_integral_type_map[domain]
+    if integral_type == 'exterior_facet_bottom':
+        entity_ids = [0]
+    elif integral_type == 'exterior_facet_top':
+        entity_ids = [1]
+    else:
+        entity_ids = list(element.cell.get_topology()[ctx.integration_dim])
     for entity_id in entity_ids:
         finat_dict = ctx.basis_evaluation(element, mt, entity_id)
         for alpha, table in finat_dict.items():
@@ -719,7 +725,7 @@ def translate_coefficient(terminal, mt, ctx):
         per_derivative = {alpha: take_singleton(tables)
                           for alpha, tables in per_derivative.items()}
     else:
-        f = ctx.entity_number(extract_unique_domain(terminal), mt.restriction)
+        f = ctx.entity_number(domain, mt.restriction)
         per_derivative = {alpha: gem.select_expression(tables, f)
                           for alpha, tables in per_derivative.items()}
 
