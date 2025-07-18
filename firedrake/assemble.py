@@ -2,6 +2,7 @@ import abc
 import contextlib
 import functools
 import itertools
+import os
 import numbers
 import operator
 from collections import OrderedDict, defaultdict
@@ -1090,7 +1091,6 @@ class ParloopFormAssembler(FormAssembler):
             self._check_tensor(tensor)
             if self._needs_zeroing:
                 self._as_pyop3_type(tensor).zero(eager=True)
-
         for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
 
@@ -1101,12 +1101,15 @@ class ParloopFormAssembler(FormAssembler):
             if isinstance(self, ExplicitMatrixAssembler):
                 with _modified_lgmaps(subtensor, lgmaps):
                     parloop({self._tensor_name[local_kernel]: subtensor.buffer}, compiler_parameters=pyop3_compiler_parameters)
+            elif "FIREDRAKE_USE_GPU" in os.environ:
+                breakpoint()
+                coords = self._form.ufl_domain().coordinates
+                self._form.arguments()[0].function_space().cell_node_list  
             else:
                 parloop({self._tensor_name[local_kernel]: subtensor.buffer}, compiler_parameters=pyop3_compiler_parameters)
 
         for bc in self._bcs:
             self._apply_bc(tensor, bc, u=current_state)
-
         return self.result(tensor)
 
     @abc.abstractmethod
@@ -1151,7 +1154,6 @@ class ParloopFormAssembler(FormAssembler):
                 parloops_.append((parloop_builder.build(), parloop_builder.collect_lgmaps(tensor)))
             self._parloops = parloops_
             self._tensor_name = tensor_name
-
         return self._parloops
 
     @cached_property
