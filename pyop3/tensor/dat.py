@@ -659,7 +659,7 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
 
     _buffer: Any  # array buffer type
     layout: Any
-    _shape: AxisTree
+    # _shape: AxisTree
     _loop_axes: tuple[Axis]
 
     # }}}
@@ -667,8 +667,12 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
     # {{{ interface impls
 
     buffer: ClassVar[property] = utils.attr("_buffer")
-    shape: ClassVar[property] = utils.attr("_shape")
+    # shape: ClassVar[property] = utils.attr("_shape")
     loop_axes: ClassVar[property] = utils.attr("_loop_axes")
+
+    @property
+    def shape(self) -> AxisTree:
+        return self.layout.shape
 
     # }}}
 
@@ -803,4 +807,4 @@ def _(dat: Dat) -> LinearDatBufferExpression:
         axes = axes.nest_subtree(nest_index)
 
     layout = just_one(axes.leaf_subst_layouts.values())
-    return LinearDatBufferExpression(BufferRef(dat.buffer, nest_indices), layout, dat.shape, dat.loop_axes)
+    return LinearDatBufferExpression(BufferRef(dat.buffer, nest_indices), layout, dat.loop_axes)

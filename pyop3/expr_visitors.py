@@ -502,9 +502,9 @@ def _(dat: Dat, /, axis_trees: Iterable[AxisTree, ...]) -> DatBufferExpression:
         raise NotImplementedError("TODO")
     if dat.axes.is_linear:
         layout = just_one(dat.axes.leaf_subst_layouts.values())
-        expr = LinearDatBufferExpression(BufferRef(dat.buffer), layout, dat.shape, dat.loop_axes)
+        expr = LinearDatBufferExpression(BufferRef(dat.buffer), layout, dat.loop_axes)
     else:
-        expr = NonlinearDatBufferExpression(BufferRef(dat.buffer), dat.axes.leaf_subst_layouts, dat.shape, dat.loop_axes)
+        expr = NonlinearDatBufferExpression(BufferRef(dat.buffer), dat.axes.leaf_subst_layouts, dat.loop_axes)
     return concretize_layouts(expr, axis_trees)
 
 

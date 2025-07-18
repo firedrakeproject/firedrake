@@ -307,15 +307,10 @@ labels.
 #         raise NotImplementedError
 
 
-@dataclasses.dataclass(frozen=True)
+@utils.frozenrecord()
 class AxisComponentRegion:
-    size: Any  # IntType or Dat or UNIT
+    size: numbers.Integral | LinearDatBufferExpression
     label: str | None = None
-
-    def __post_init__(self):
-        from pyop3.tensor.dat import LinearDatBufferExpression
-        if not isinstance(self.size, numbers.Integral):
-            assert isinstance(self.size, LinearDatBufferExpression)
 
     def __str__(self) -> str:
         return f"({self.size}, {self.label})"

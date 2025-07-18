@@ -25,6 +25,7 @@ from pyop3.tensor import Dat
 from pyop3.axtree import (
     Axis,
     AxisComponent,
+    AxisComponentRegion,
     AxisTree,
     AxisForest,
     AxisVar,
@@ -1012,6 +1013,40 @@ def match_target_paths_to_axis_tree_rec(
     return target_axes_by_index, leaf_target_axes
 
 
+# FIXME NEXT
+# Do this when we do this for subsets, pass a replace map down and keep applying it!
+#
+#
+# # TODO: I think that I already do this operation for things like subsets
+# def apply_partial_index_trees_to_individual_axes(index_tree, target_axes, *, path, visited_indices):
+#     """Apply the index tree to the individual axes that are accessed.
+#
+#     This is important for cases where the axes reference other 'parent' axes
+#     in the tree. Consider for example a ragged tree with shape `(3, [2, 1, 3])`.
+#     If we slice the root axis to take only the first two elements (i.e. `[:2]`)
+#     then we need to propagate this information to the size array too.
+#
+#     The traversal pattern here is we go down the index tree and apply all
+#     parent indices to the current axis.
+#
+#     """
+#     indexed_target_axes = {}
+#
+#     index = index_tree.node_map[path]
+#     for component_label in index.component_labels:
+#         path_ = path | {index.label: component_label}
+#
+#         initial_target_axis = target_axes[path_]
+#         indexed_target_axis = ???
+#
+#         indexed_target_axes[path_] = indexed_target_axis
+#
+#         if index_tree.node_map[path_]:
+#             recurse
+#
+#     return utils.freeze(indexed_target_axes)
+
+
 @functools.singledispatch
 def _index_axes_index(index: Index, /, *args, **kwargs) -> tuple[AxisTree, tuple, tuple[LoopIndex, ...]]:
     """TODO.
@@ -1358,7 +1393,9 @@ def index_axes(
         else:
             raise ValueError
 
-    # Determine the target axes addressed by the index tree
+    # Determine the target axes addressed by the index tree. Since the index
+    # tree defines the shape of the resulting indexed axis tree, each index
+    # must map to a unique initial axis.
     target_axes = match_target_paths_to_axis_tree(index_tree, orig_axes)
 
     # Unpack the target paths from
@@ -2170,11 +2207,25 @@ def _index_regions(*args, **kwargs) -> tuple[AxisComponentRegion, ...]:
 
 @_index_regions.register(RegionSliceComponent)
 def _(region_component: RegionSliceComponent, regions, *, parent_exprs) -> tuple[AxisComponentRegion, ...]:
+    from pyop3.expr_visitors import replace_terminals as expr_replace
+
     selected_region = utils.just_one(
         region
         for region in regions
         if region.label == region_component.region
     )
+
+    # Substitute any parent expressions into the region size. This is necessary
+    # for region slices of trees that are both multi-region and ragged. For
+    # instance, consider the axis tree:
+    #
+    #   { mesh: (owned: 3, ghost: 2) }
+    #     { dofs: (unconstrained: [1, 1, 0, 1, 0], unconstrained: [0, 0, 1, 0, 1]) }
+    #
+    # If we wish to take only the ghost points, then the ragged arrays for
+    # the dof axis need to be truncated.
+    size = expr_replace(selected_region.size, parent_exprs)
+    selected_region = selected_region.__record_init__(size=size)
     return (selected_region,)
 
 
@@ -2197,14 +2248,10 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
     size = sum(r.size for r in regions)
     start, stop, step = affine_component.with_size(size)
 
-    # if any(isinstance(r.size, (Dat, DatBufferExpression)) for r in regions):
-    #     if len(regions) > 1:
-    #         raise NotImplementedError("Only single-region ragged components are supported")
-    #     region = just_one(regions)
-    #
-    #     replace_map = {axis_label: expr for (axis_label, expr) in parent_exprs.items()}
-    #     stop = expr_replace(stop, replace_map)
-    #     return (AxisComponentRegion(stop, region.label),)
+    if any(isinstance(r.size, (Dat, DatBufferExpression)) for r in regions):
+        breakpoint()
+        stop = expr_replace(stop, parent_exprs)
+        return (AxisComponentRegion(stop, region.label),)
 
     indexed_regions = []
     loc = 0
@@ -2218,6 +2265,10 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
         else:
             region_size = math.ceil((min(region.size, stop-loc) - offset) / step)
             offset = (offset + region.size) % step
+
+        # Make sure that we apply any parent indexing to the size expression
+        # (important if we are dealing with ragged things).
+        region_size = expr_replace(region_size, parent_exprs)
 
         indexed_region = AxisComponentRegion(region_size, region.label)
         indexed_regions.append(indexed_region)

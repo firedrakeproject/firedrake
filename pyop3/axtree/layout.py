@@ -285,9 +285,6 @@ def axis_tree_component_size(axis_tree, path, component):
     from pyop3 import Dat, loop as loop_
     from pyop3.expr_visitors import replace_terminals
 
-    if axis_tree.root.label == "mesh_ghost":
-        breakpoint()
-
     axis = axis_tree.node_map[path]
     path_ = path | {axis.label: component.label}
     if axis_tree.node_map[path_]:
@@ -317,8 +314,6 @@ def axis_tree_component_size(axis_tree, path, component):
         #
         # Note that currently only allow a single free index.
 
-        # all_axes_that_we_need = extract_axes(subtree_size, axis_tree, (), {})[0]
-        breakpoint()
         all_axes_that_we_need = subtree_size.shape
         if all_axes_that_we_need.depth > 1:
             raise NotImplementedError("Not currently expected to work with multiply ragged extents")
