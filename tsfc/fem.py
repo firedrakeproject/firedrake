@@ -98,7 +98,13 @@ class ContextBase(ProxyKernelInterface):
         :arg restriction: Restriction of the modified terminal, used
                           for entity selection.
         """
-        entity_ids = list(range(len(as_fiat_cell(domain.ufl_cell()).get_topology()[self.integration_dim])))
+        integral_type = self.domain_integral_type_map[domain]
+        if integral_type == 'exterior_facet_bottom':
+            entity_ids = [0]
+        elif integral_type == 'exterior_facet_top':
+            entity_ids = [1]
+        else:
+            entity_ids = list(as_fiat_cell(domain.ufl_cell()).get_topology()[self.integration_dim])
         if len(entity_ids) == 1:
             return callback(entity_ids[0])
         else:
