@@ -393,12 +393,11 @@ class ModuleExecutor:
         str_.append(sep)
         str_.append(lp.generate_code_v2(self.loopy_code).device_code())
         str_.append(sep)
-        str_.append(
-            "\n".join(
-                f"{arg.name}: {self._buffer_str(self.buffer_map[arg.name].buffer)}"
-                for arg in self.loopy_code.default_entrypoint.args
-            )
-        )
+
+        for arg in self.loopy_code.default_entrypoint.args:
+            size, buffer = self._buffer_str(self.buffer_map[arg.name].buffer)
+            str_.append(f"{arg.name} {size} : {buffer}")
+
         str_.append(sep)
         return "\n".join(str_)
 
@@ -408,11 +407,11 @@ class ModuleExecutor:
 
     @_buffer_str.register
     def _(self, buffer: ArrayBuffer):
-        return str(buffer._data)
+        return f"({buffer.size})", str(buffer._data)
 
     @_buffer_str.register
     def _(self, buffer: PetscMatBuffer) -> str:
-        return "<PetscMat>"
+        return "", "<PetscMat>"
 
     @cached_property
     def _buffer_ref_indices(self) -> immutabledict[str, int]:
