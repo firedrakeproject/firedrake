@@ -1440,6 +1440,8 @@ class MixedFunctionSpace:
         if layout is None:
             layout = ("field", tuple(subspace.layout for subspace in spaces))
 
+        self._orig_spaces = spaces
+        self.layout = layout
         self._spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
         mesh, = set(s.mesh() for s in spaces)
@@ -1453,7 +1455,6 @@ class MixedFunctionSpace:
         self.boundary_set = frozenset()
         self._subspaces = {}
         self._mesh = mesh
-        self.layout = layout
 
         self.comm = mesh.comm
         self._comm = mpi.internal_comm(mesh.comm, self)
@@ -1481,7 +1482,7 @@ class MixedFunctionSpace:
         ))
         axis_tree = op3.AxisTree(field_axis)
         targets = {}
-        for field_component, subspace in zip(field_axis.components, self._spaces, strict=True):
+        for field_component, subspace in zip(field_axis.components, self._orig_spaces, strict=True):
             leaf_path = immutabledict({field_axis.label: field_component.label})
             subaxes = subspace.axes
             axis_tree = axis_tree.add_subtree(
@@ -1824,6 +1825,25 @@ class ProxyFunctionSpace(FunctionSpace):
             raise ValueError("Can't build Function on %s function space" % self.identifier)
         return super(ProxyFunctionSpace, self).make_dat(*args, **kwargs)
 
+    @cached_property
+    def axes(self):
+        return self.parent.axes[self._slice]
+
+    @cached_property
+    def nodal_axes(self):
+        return self.parent.nodal_axes[self._slice]
+
+    @cached_property
+    def _slice(self):
+        if self.identifier == "indexed":
+            return op3.ScalarIndex("field", self.index, 0)
+        else:
+            assert self.identifier == "component"
+            return tuple(
+                op3.ScalarIndex(f"dim{dim}", "XXX", index)
+                for dim, index in enumerate(self.component)
+            )
+
 
 class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
     r"""A :class:`RestrictedFunctionSpace` that one can attach extra properties to.
@@ -1894,12 +1914,6 @@ def IndexedFunctionSpace(index, space, parent):
     new.parent = parent
     new.identifier = "indexed"
 
-    # This is ridiculous but I think necessary because Indexed and Component function spaces
-    # are actually different
-    component_index = op3.ScalarIndex("field", "XXX", index)
-    new.axes = parent.axes[component_index]
-    new.nodal_axes = parent.nodal_axes[component_index]
-
     return new
 
 
@@ -1921,15 +1935,6 @@ def ComponentFunctionSpace(parent, component):
     new.identifier = "component"
     new.component = component
     new.parent = parent
-
-    # This is ridiculous but I think necessary because Indexed and Component function spaces
-    # are actually different
-    component_indices = tuple(
-        op3.ScalarIndex(f"dim{dim}", "XXX", index)
-        for dim, index in enumerate(component)
-    )
-    new.axes = parent.axes[component_indices]
-    new.nodal_axes = parent.nodal_axes[component_indices]
 
     return new
 

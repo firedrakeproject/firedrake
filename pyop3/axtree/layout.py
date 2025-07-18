@@ -114,8 +114,10 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
 
             free_axes_ = free_axes + (linear_axis,)
 
-            if subtree in tabulated:
+            if subtree in tabulated and not _axis_contains_multiple_regions(axes, path_acc):
                 # We have already seen an identical tree elsewhere, don't need to create a new array here
+                # Note that this is only valid for region-less axes. If axes contain regions
+                # then things need to get lifted to the top for distinct tabulation.
                 offset_dat = tabulated[subtree]
                 offset_dat_expr = as_linear_buffer_expression(offset_dat)
                 component_layout = offset_dat_expr * step + start
@@ -128,15 +130,36 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
                     offset_dat = Dat.serial(offset_axes, data=np.full(offset_axes.size, -1, dtype=IntType))
 
                     if _axis_contains_multiple_regions(axes, path_acc):
+                        # We cannot deal with constant steps here because that gets thrown out
+                        # for multi-region, multi-component trees. For example, consider a
+                        # mixed space:
+                        #
+                        #   {field: [{0: [(1, None)]}, {1: [(1, None)]}]}
+                        #   ├──➤ {mesh: [{mylabel: [(171, None)]}]}
+                        #   │    └──➤ {dof: [{ [(array_10[i_{mesh}], None)]}]}
+                        #   └──➤ {mesh: [{mylabel: [(171, None)]}]}
+                        #        └──➤ {dof: [{ [(array_12[i_{mesh}], None)]}]}
+                        #             └──➤ {dim0: [{ [(2, None)]}]}
+                        #
+                        # The second space cannot be tabulated as
+                        #
+                        #   offset = <some array> * 2 + start
+                        #
+                        # because it breaks tabulation for regions.
+                        subtree = axes.subtree(path_acc_)  # be pessimal about the subtree
                         steps = _tabulate_steps(offset_axes, subtree)
                         to_tabulate.append((offset_dat.buffer._data, steps))
+
+                        offset_dat_expr = as_linear_buffer_expression(offset_dat)
+                        # component_layout = offset_dat_expr * step + start
+                        component_layout = offset_dat_expr
                     else:
                         steps = _tabulate_steps(offset_axes, subtree, regions=False)
                         offset_dat.buffer._data[...] = steps
                         tabulated[subtree] = offset_dat
 
-                    offset_dat_expr = as_linear_buffer_expression(offset_dat)
-                    component_layout = offset_dat_expr * step + start
+                        offset_dat_expr = as_linear_buffer_expression(offset_dat)
+                        component_layout = offset_dat_expr * step + start
                 else:
                     # 2. Affine access
 
