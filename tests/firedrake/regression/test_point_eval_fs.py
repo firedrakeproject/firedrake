@@ -217,7 +217,6 @@ def test_point_reset_works():
 
 def test_changing_coordinates_invalidates_spatial_index():
     mesh = UnitSquareMesh(2, 2)
-    mesh.init()
 
     saved_spatial_index = mesh.spatial_index
     mesh.coordinates.assign(mesh.coordinates * 2)
