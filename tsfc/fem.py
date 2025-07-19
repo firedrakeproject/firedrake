@@ -35,6 +35,7 @@ from ufl.algorithms import extract_arguments
 
 from tsfc import ufl2gem
 from tsfc.kernel_interface import ProxyKernelInterface
+from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.modified_terminals import (analyse_modified_terminal,
                                      construct_modified_terminal)
 from tsfc.parameters import is_complex
@@ -99,12 +100,13 @@ class ContextBase(ProxyKernelInterface):
                           for entity selection.
         """
         integral_type = self.domain_integral_type_map[domain]
-        if integral_type == 'exterior_facet_bottom':
-            entity_ids = [0]
-        elif integral_type == 'exterior_facet_top':
-            entity_ids = [1]
-        else:
-            entity_ids = list(as_fiat_cell(domain.ufl_cell()).get_topology()[self.integration_dim])
+        _, entity_ids = lower_integral_type(as_fiat_cell(domain.ufl_cell()), integral_type)
+        #if integral_type == 'exterior_facet_bottom':
+        #    entity_ids = [0]
+        #elif integral_type == 'exterior_facet_top':
+        #    entity_ids = [1]
+        #else:
+        #    entity_ids = list(as_fiat_cell(domain.ufl_cell()).get_topology()[self.integration_dim])
         if len(entity_ids) == 1:
             return callback(entity_ids[0])
         else:
@@ -706,12 +708,14 @@ def translate_coefficient(terminal, mt, ctx):
     # Collect FInAT tabulation for all entities
     per_derivative = collections.defaultdict(list)
     integral_type = ctx.domain_integral_type_map[domain]
-    if integral_type == 'exterior_facet_bottom':
-        entity_ids = [0]
-    elif integral_type == 'exterior_facet_top':
-        entity_ids = [1]
-    else:
-        entity_ids = list(element.cell.get_topology()[ctx.integration_dim])
+    _, entity_ids = lower_integral_type(as_fiat_cell(domain.ufl_cell()), integral_type)
+    #integral_type = ctx.domain_integral_type_map[domain]
+    #if integral_type == 'exterior_facet_bottom':
+    #    entity_ids = [0]
+    #elif integral_type == 'exterior_facet_top':
+    #    entity_ids = [1]
+    #else:
+    #    entity_ids = list(element.cell.get_topology()[ctx.integration_dim])
     for entity_id in entity_ids:
         finat_dict = ctx.basis_evaluation(element, mt, entity_id)
         for alpha, table in finat_dict.items():
