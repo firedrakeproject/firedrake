@@ -4112,3 +4112,34 @@ def submesh_create_cell_closure(
     CHKERR(PetscFree(subpoint_indices_inv))
     CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
     return subcell_closure
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def is_mixed_cell_type(PETSc.DM dm):
+    """Check if the mesh if of mixed cell type.
+
+    Parameters
+    ----------
+    dm : PETSc.DM
+        The parent dm.
+
+    Returns
+    -------
+    Whether the mesh if of mixed cell type or not.
+
+    """
+    cdef:
+        PetscInt cStart, cEnd, c
+        np.ndarray found, found_all
+        PetscDMPolytopeType celltype
+    
+    cStart, cEnd = dm.getHeightStratum(0)
+    found = np.zeros((DM_NUM_POLYTOPES, ), dtype=IntType)
+    found_all = np.zeros((DM_NUM_POLYTOPES, ), dtype=IntType)
+    for c in range(cStart, cEnd):
+        CHKERR(DMPlexGetCellType(dm.dm, c, &celltype))
+        found[celltype] = 1
+    dm.comm.tompi4py().Allreduce(found, found_all, op=MPI.MAX)
+    return found_all.sum() > 1
+    
