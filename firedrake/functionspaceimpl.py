@@ -52,7 +52,11 @@ def check_element(element, top=True):
     ValueError
         If the element is illegal.
     """
-    if element.cell.cellname() == "hexahedron" and \
+    if isinstance(element.cell, ufl.cell.CellSequence):
+        # vector element of mixed eleemtns
+        # tests/firedrake/regression/test_function_spaces.py::test_validation
+        pass
+    elif element.cell.cellname() == "hexahedron" and \
        element.family() not in ["Q", "DQ", "Real"]:
         raise NotImplementedError("Currently can only use 'Q', 'DQ', and/or 'Real' elements on hexahedral meshes, not", element.family())
     if type(element) in (finat.ufl.BrokenElement, finat.ufl.RestrictedElement,
