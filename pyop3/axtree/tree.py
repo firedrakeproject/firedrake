@@ -1075,27 +1075,9 @@ class Conditional(TernaryOperator):
 
     # }}}
 
-    def __new__(cls, predicate, if_true, if_false):
-        # for some reason this causes an infinite loop
-        return super().__new__(cls)
-        # from pyop3 import evaluate
-        # from pyop3.expr_visitors import RuntimeVariableException  # put in main namespace?
-        # # Try to simplify by eagerly evaluating the operands
-        #
-        # # If both branches are the same then just return one of them.
-        # if if_true == if_false:
-        #     return if_true
-        #
-        # # Attempt to eagerly evaluate 'predicate' to avoid creating
-        # # unnecessary objects.
-        # try:
-        #     return if_true if evaluate(predicate) else if_false
-        # except RuntimeVariableException:
-        #     return super().__new__(cls)
-
     def __init__(self, predicate, if_true, if_false) -> None:
-        if if_true is self:
-            breakpoint()
+        # if if_true is self:
+        #     breakpoint()
         super().__init__(predicate, if_true, if_false)
 
     @property
@@ -1130,7 +1112,21 @@ class Conditional(TernaryOperator):
 
 
 def conditional(predicate, if_true, if_false):
-    return Conditional(predicate, if_true, if_false)
+    from pyop3 import evaluate
+    from pyop3.expr_visitors import RuntimeVariableException  # put in main namespace?
+
+    # Try to simplify by eagerly evaluating the operands
+
+    # If both branches are the same then just return one of them.
+    if if_true == if_false:
+        return if_true
+
+    # Attempt to eagerly evaluate 'predicate' to avoid creating
+    # unnecessary objects.
+    try:
+        return if_true if evaluate(predicate) else if_false
+    except RuntimeVariableException:
+        return Conditional(predicate, if_true, if_false)
 
 
 class Terminal(Expression, abc.ABC):
@@ -2738,7 +2734,8 @@ def merge_axis_trees2(trees: Iterable[AxisTree]) -> AxisTree:
     return current_tree
 
 
-@cached_on(lambda t1, t2: t1, key=lambda t1, t2: t2)
+# blast, this doesn't work...
+# @cached_on(lambda t1, t2: t1, key=lambda t1, t2: t2)
 def merge_trees2(tree1: AxisTree, tree2: AxisTree) -> AxisTree:
     """Merge two axis trees together.
 

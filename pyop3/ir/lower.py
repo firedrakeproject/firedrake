@@ -1191,7 +1191,7 @@ def _(num: numbers.Integral, *args, **kwargs):
 
 @register_extent.register(Expression)
 def _(expr: Expression, inames, loop_indices, context):
-    pym_expr = lower_expr(expr, inames, loop_indices, context)
+    pym_expr = lower_expr(expr, [inames], loop_indices, context)
     extent_name = context.add_temporary("p")
     context.add_assignment(pym.var(extent_name), pym_expr)
     return extent_name
