@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import collections
 import functools
+from itertools import zip_longest
 import numbers
 import operator
 from collections.abc import Iterable, Mapping
@@ -26,7 +27,8 @@ from pyop3.itree import Map, TabulatedMapComponent, collect_loop_contexts
 from pyop3.itree.tree import LoopIndex, LoopIndexVar, Slice, AffineSliceComponent, IndexTree
 from pyop3.itree.parse import _as_context_free_indices
 from pyop3.expr_visitors import (
-    collect_tensor_shape,
+    # collect_tensor_shape,
+    get_shape,
     replace as replace_expression,
     replace_terminals,
     collect_composite_dats,
@@ -518,10 +520,14 @@ def _(assignment: ArrayAssignment, /) -> NonEmptyArrayAssignment | NullInstructi
     axis_trees = []
     axis_trees_per_arg = tuple(
         trees
-        for trees in map(collect_tensor_shape, assignment.arguments)
+        for trees in map(get_shape, assignment.arguments)
         if trees is not None
     )
-    for arg_axis_trees in zip(*axis_trees_per_arg, strict=True):
+
+    # We can get a mismatch here if we are assigning a scalar (single tree
+    # shape) to a matrix (double tree shape). We should probably be stricter
+    # here (e.g. by asserting it has to be a scalar).
+    for arg_axis_trees in zip_longest(*axis_trees_per_arg):
         merged_axis_tree = merge_axis_trees2(arg_axis_trees)
 
         # drop zero-sized bits

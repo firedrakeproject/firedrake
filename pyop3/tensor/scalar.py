@@ -40,6 +40,10 @@ class Scalar(Tensor):
     loop_axes = ()
     axis_trees = ()
 
+    @property
+    def _full_str(self) -> str:
+        return f"*{self.name}"
+
     # }}}
 
     # {{{ class attrs

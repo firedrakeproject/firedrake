@@ -8,6 +8,7 @@ import itertools
 import numbers
 import operator
 from collections.abc import Iterable, Mapping
+from functools import cached_property, partial
 from typing import Any, ClassVar, Optional
 
 from mpi4py.MPI import buffer
@@ -31,9 +32,12 @@ from pyop3.utils import OrderedSet, just_one
 
 # should inherit from _Dat
 # or at least be an Expression!
+# this is important because we need to have shape and loop_axes
 class CompositeDat(abc.ABC):
 
     dtype = IntType
+
+    # {{{ abstract methods
 
     @property
     @abc.abstractmethod
@@ -49,6 +53,71 @@ class CompositeDat(abc.ABC):
     @abc.abstractmethod
     def leaf_exprs(self) -> immutabledict:
         pass
+
+    # }}}
+
+    @property
+    def loop_tree(self):
+        return self._loop_tree_and_replace_map[0]
+
+    @property
+    def loop_replace_map(self):
+        return self._loop_tree_and_replace_map[1]
+
+    @cached_property
+    def _loop_tree_and_replace_map(self) -> AxisTree:
+        axes = []
+        loop_replace_map = {}
+        for loop_index in self.loop_indices:
+            assert loop_index.iterset.is_linear
+            for loop_axis in loop_index.iterset.nodes:
+                axis_label = f"{loop_axis.label}_{loop_index.id}"
+
+                axis = loop_axis.copy(label=axis_label)
+                axes.append(axis)
+
+                loop_var = LoopIndexVar(loop_index.id, loop_axis)
+                axis_var = AxisVar(axis)
+                loop_replace_map[loop_var] = axis_var
+
+        return (AxisTree.from_iterable(axes), loop_replace_map)
+
+    @cached_property
+    def loopified_axis_tree(self) -> AxisTree:
+        """Return the fully materialised axis tree including loops."""
+        from pyop3.expr_visitors import replace_terminals
+
+        axis_tree = self.loop_tree
+        loop_replace_map = self.loop_replace_map
+
+        # Replace any references to the loop indices
+        new_node_map = {}
+        for path, axis in self.axis_tree.node_map.items():
+            if axis is None:
+                new_node_map[path] = axis
+                continue
+
+            new_components = []
+            for component in axis.components:
+                new_regions = []
+                for region in component.regions:
+                    new_size = replace(region.size, loop_replace_map)
+                    new_regions.append(region.__record_init__(size=new_size))
+                new_components.append(component.copy(regions=new_regions))
+            new_node_map[path] = axis.copy(components=new_components)
+        subtree = AxisTree(new_node_map)
+        axis_tree = axis_tree.add_subtree(axis_tree.leaf_path, subtree)
+
+        return axis_tree
+
+    @cached_property
+    def loop_vars(self) -> tuple[LoopIndexVar, ...]:
+        vars = []
+        for loop_index in self.loop_indices:
+            assert loop_index.iterset.is_linear
+            for loop_axis in loop_index.iterset.nodes:
+                vars.append(LoopIndexVar(loop_index.id, loop_axis))
+        return tuple(vars)
 
 
 @utils.frozenrecord()
@@ -163,7 +232,8 @@ def _(mul: Mul, *args, **kwargs):
 
 @evaluate.register(numbers.Number)
 @evaluate.register(bool)
-def _(num, *args, **kwargs):
+@evaluate.register(np.bool)
+def _(num):
     return num
 
 
@@ -179,24 +249,16 @@ def _(num, *args, **kwargs):
 
 
 @evaluate.register
-def _(or_: Or):
-    err = None
-    try:
-        if a := evaluate(or_.a):
-            return True
-    except RuntimeVariableException as e:
-        err = e
-
-    try:
-        if b := evaluate(or_.b):
-            return True
-    except RuntimeVariableException as e:
-        err = e
-
-    if err:
-        raise err
+def _(cond: Conditional):
+    if evaluate(cond.predicate):
+        return evaluate(cond.if_true)
     else:
-        return False
+        return evaluate(cond.if_true)
+
+
+@evaluate.register
+def _(or_: Or):
+    return evaluate(or_.a) or evaluate(or_.b)
 
 
 @evaluate.register
@@ -464,6 +526,8 @@ def _(terminal: Terminal, /, replace_map) -> ExpressionT:
 
 
 @replace_terminals.register(numbers.Number)
+@replace_terminals.register(bool)
+@replace_terminals.register(np.bool)
 def _(var: ExpressionT, /, replace_map) -> ExpressionT:
     return var
 
@@ -539,9 +603,12 @@ def _(dat: CompositeDat, /, replace_map):
         return dat.reconstruct(layout=replaced_layout)
 
 
-@replace.register(BinaryOperator)
-def _(op: BinaryOperator, /, replace_map) -> BinaryOperator:
-    return type(op)(replace(op.a, replace_map), replace(op.b, replace_map))
+@replace.register(Operator)
+def _(op: Operator, /, replace_map) -> BinaryOperator:
+    try:
+        return replace_map[op]
+    except KeyError:
+        return type(op)(*(map(partial(replace, replace_map=replace_map), op.operands)))
 
 
 @functools.singledispatch
@@ -579,9 +646,10 @@ def _(dat: Dat, /, axis_trees: Iterable[AxisTree, ...]) -> DatBufferExpression:
         raise NotImplementedError("TODO")
     if dat.axes.is_linear:
         layout = just_one(dat.axes.leaf_subst_layouts.values())
-        expr = LinearDatBufferExpression(BufferRef(dat.buffer), layout, dat.loop_axes)
+        assert get_loop_axes(layout) == dat.loop_axes
+        expr = LinearDatBufferExpression(BufferRef(dat.buffer), layout)
     else:
-        expr = NonlinearDatBufferExpression(BufferRef(dat.buffer), dat.axes.leaf_subst_layouts, dat.loop_axes)
+        expr = NonlinearDatBufferExpression(BufferRef(dat.buffer), dat.axes.leaf_subst_layouts)
     return concretize_layouts(expr, axis_trees)
 
 
@@ -657,52 +725,53 @@ def _(mat_expr: NonlinearMatBufferExpression, /, axis_trees: Iterable[AxisTree, 
     return mat_expr.__record_init__(row_layouts=row_layouts, column_layouts=column_layouts)
 
 
-@functools.singledispatch
-def collect_tensor_shape(obj: Any, /) -> tuple[AxisTree, ...] | None:
-    raise TypeError(f"No handler defined for {type(obj).__name__}")
-
-
-@collect_tensor_shape.register
-def _(op: UnaryOperator, /) -> tuple | None:
-    # TODO: should really merge trees or something...
-    trees = list(filter(None, map(collect_tensor_shape, [op.a])))
-    return (utils.single_valued(trees),) if trees else None
-
-
-@collect_tensor_shape.register(BinaryOperator)
-def _(op: BinaryOperator, /) -> tuple | None:
-    # TODO: should really merge trees or something...
-    trees = list(filter(None, map(collect_tensor_shape, [op.a, op.b])))
-    return (utils.single_valued(trees),) if trees else None
-
-
-@collect_tensor_shape.register
-def _(op: TernaryOperator, /) -> tuple | None:
-    # NOTE: This doesn't actually make sense for conditionals as the predicate must be scalar? actually perhaps not
-    # TODO: should really merge trees or something...
-    trees = list(filter(None, map(collect_tensor_shape, [op.a, op.b, op.c])))
-    return (utils.single_valued(trees),) if trees else None
-
-
-# TODO: Return an empty tree?
-@collect_tensor_shape.register(numbers.Number)
-@collect_tensor_shape.register(AxisVar)
-@collect_tensor_shape.register(LoopIndexVar)
-@collect_tensor_shape.register(BufferExpression)
-@collect_tensor_shape.register(Scalar)
-@collect_tensor_shape.register(NaN)
-def _(obj: Any, /) -> None:
-    return None
-
-
-@collect_tensor_shape.register(Dat)
-def _(dat: Dat, /) -> tuple[AxisTree]:
-    return (dat.axes.materialize(),)
-
-
-@collect_tensor_shape.register(Mat)
-def _(mat: Mat, /) -> tuple[AxisTree,AxisTree]:
-    return (mat.raxes.materialize(), mat.caxes.materialize())
+# old code
+# @functools.singledispatch
+# def collect_tensor_shape(obj: Any, /) -> tuple[AxisTree, ...] | None:
+#     raise TypeError(f"No handler defined for {type(obj).__name__}")
+#
+#
+# @collect_tensor_shape.register
+# def _(op: UnaryOperator, /) -> tuple | None:
+#     # TODO: should really merge trees or something...
+#     trees = list(filter(None, map(collect_tensor_shape, [op.a])))
+#     return (utils.single_valued(trees),) if trees else None
+#
+#
+# @collect_tensor_shape.register(BinaryOperator)
+# def _(op: BinaryOperator, /) -> tuple | None:
+#     # TODO: should really merge trees or something...
+#     trees = list(filter(None, map(collect_tensor_shape, [op.a, op.b])))
+#     return (utils.single_valued(trees),) if trees else None
+#
+#
+# @collect_tensor_shape.register
+# def _(op: TernaryOperator, /) -> tuple | None:
+#     # NOTE: This doesn't actually make sense for conditionals as the predicate must be scalar? actually perhaps not
+#     # TODO: should really merge trees or something...
+#     trees = list(filter(None, map(collect_tensor_shape, [op.a, op.b, op.c])))
+#     return (utils.single_valued(trees),) if trees else None
+#
+#
+# # TODO: Return an empty tree?
+# @collect_tensor_shape.register(numbers.Number)
+# @collect_tensor_shape.register(AxisVar)
+# @collect_tensor_shape.register(LoopIndexVar)
+# @collect_tensor_shape.register(BufferExpression)
+# @collect_tensor_shape.register(Scalar)
+# @collect_tensor_shape.register(NaN)
+# def _(obj: Any, /) -> None:
+#     return None
+#
+#
+# @collect_tensor_shape.register(Dat)
+# def _(dat: Dat, /) -> tuple[AxisTree]:
+#     return (dat.axes.materialize(),)
+#
+#
+# @collect_tensor_shape.register(Mat)
+# def _(mat: Mat, /) -> tuple[AxisTree,AxisTree]:
+#     return (mat.raxes.materialize(), mat.caxes.materialize())
 
 
 # TODO: Lives in expr_visitors I think
@@ -838,7 +907,7 @@ def _(expr: LinearDatBufferExpression, /, visited_axes, loop_indices, *, compres
     # dat[2i+j] would have a cost equal to ni*nj as those would be the outer loops
 
     # dat_axes, dat_loop_axes = extract_axes(expr.layout, visited_axes, loop_indices, cache={})
-    dat_axes = get_shape(expr.layout)
+    dat_axes = utils.just_one(get_shape(expr.layout))
     dat_loop_axes = get_loop_axes(expr.layout)
     dat_cost = dat_axes.size
     for loop_axis in dat_loop_axes:
@@ -938,10 +1007,12 @@ def _(buffer_expr: NonlinearMatBufferExpression, /, layouts, key):
 def collect_axis_vars(obj: Any, /) -> OrderedSet:
     from pyop3.itree.tree import LoopIndexVar
 
-    if isinstance(obj, BinaryOperator):
-        return collect_axis_vars(obj.a) | collect_axis_vars(obj.b)
-
     raise TypeError(f"No handler defined for {type(obj).__name__}")
+
+
+@collect_axis_vars.register
+def _(op: Operator):
+    return utils.reduce("|", map(collect_axis_vars, op.operands))
 
 
 @collect_axis_vars.register(numbers.Number)
@@ -1011,53 +1082,22 @@ def _(dat, /) -> frozenset:
 def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatBufferExpression:
     axes = composite_dat.axis_tree
 
-    loop_vars = utils.reduce("|", map(collect_loop_index_vars, composite_dat.leaf_exprs.values()))
-
-    all_loop_axes = {
-        (index.id, axis.label): axis
-        for index in composite_dat.loop_indices
-        for axis in index.iterset.axes
-    }
-
-    mytree = []
-    for loop_var in loop_vars:
-        axis = all_loop_axes[loop_var.loop_id, loop_var.axis_label]
-
-        new_components = []
-        component = just_one(axis.components)
-        if isinstance(component.local_size, numbers.Integral):
-            new_component = component
-        else:
-            breakpoint()
-            # no idea about this... maybe not needed and can just use the size here!
-            new_count_axes = extract_axes(just_one(component.local_size.leaf_layouts.values()), visited_axes, loop_vars, cache)
-            new_count = Dat(new_count_axes, data=component.local_size.buffer)
-            new_component = AxisComponent(new_count, component.label)
-        new_components.append(new_component)
-        new_axis = Axis(new_components, f"{axis.label}_{loop_var.loop_id}")
-        mytree.append(new_axis)
-
-    # mytree = AxisTree.from_iterable(composite_dat.loop_axes)
-    mytree = AxisTree.from_iterable(mytree)
-    looptree = mytree
-    # if mytree.size == 0:
-    if False:
-        mytree = composite_dat.axis_tree
-    else:
-        mytree = mytree.add_subtree(mytree.leaf_path, composite_dat.axis_tree)
-
     # if mytree.size == 0:
     #     return None
 
     # step 2: assign
-    result = Dat.empty(mytree, dtype=IntType)
+    result = Dat.empty(composite_dat.loopified_axis_tree, dtype=IntType)
 
     # replace LoopIndexVars in the expression with AxisVars
     loop_index_replace_map = []
-    for loop_var in loop_vars:
+    loop_slices = []
+    for loop_var in composite_dat.loop_vars:
         orig_axis = loop_var.axis
         new_axis = Axis(orig_axis.components, f"{orig_axis.label}_{loop_var.loop_id}")
         loop_index_replace_map.append((loop_var, AxisVar(new_axis)))
+
+        loop_slice = Slice(new_axis.label, [AffineSliceComponent(orig_axis.component.label)])
+        loop_slices.append(loop_slice)
 
     dumb_replace_map = {
         (loop_var.loop_id, loop_var.axis_label): axis_var
@@ -1070,7 +1110,7 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatBufferExp
         for axis, component in path.items():
             myslice = Slice(axis, [AffineSliceComponent(component)])
             myslices.append(myslice)
-        iforest = IndexTree.from_iterable(myslices)
+        iforest = IndexTree.from_iterable((*loop_slices, *myslices))
 
         # NOTE: not sure about this!
         if iforest.is_empty:
@@ -1082,7 +1122,7 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatBufferExp
             assignee.assign(expr, eager=True)
 
     # step 3: replace axis vars with loop indices in the layouts
-    # NOTE: We need *all* the layouts here because matrices do not want the full path here. Instead
+    # NOTE: We need *all* the layouts here (i.e. not just the leaves) because matrices do not want the full path here. Instead
     # they want to abort once the loop indices are handled.
     newlayouts = {}
     dumb_inv_replace_map = {
@@ -1090,7 +1130,7 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatBufferExp
         for (loop_var, axis_var) in loop_index_replace_map
     }
     if isinstance(composite_dat.axis_tree, _UnitAxisTree):
-        layout = result.axes.subst_layouts()[looptree.leaf_path]
+        layout = result.axes.subst_layouts()[composite_dat.loop_tree.leaf_path]
         newlayout = replace_terminals(layout, dumb_inv_replace_map)
         newlayouts[immutabledict()] = newlayout
     else:
@@ -1099,24 +1139,24 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatBufferExp
                 continue
 
             for component in mynode.components:
-                fullpath = looptree.leaf_path | path
+                fullpath = composite_dat.loop_tree.leaf_path | path
                 layout = result.axes.subst_layouts()[fullpath]
                 newlayout = replace_terminals(layout, dumb_inv_replace_map)
                 newlayouts[path] = newlayout
 
     # plus the empty layout
     path = immutabledict()
-    fullpath = looptree.leaf_path
+    fullpath = composite_dat.loop_tree.leaf_path
     layout = result.axes.subst_layouts()[fullpath]
     newlayout = replace_terminals(layout, dumb_inv_replace_map)
     newlayouts[path] = newlayout
 
     if isinstance(composite_dat, LinearCompositeDat):
         layout = newlayouts[axes.leaf_path]
-        return LinearDatBufferExpression(BufferRef(result.buffer, axes.nest_indices), layout, result.shape, result.loop_axes)
+        return LinearDatBufferExpression(BufferRef(result.buffer, axes.nest_indices), layout)
     else:
         assert isinstance(composite_dat, NonlinearCompositeDat)
-        return NonlinearDatBufferExpression(BufferRef(result.buffer, axes.nest_indices), newlayouts, result.shape, result.loop_axes)
+        return NonlinearDatBufferExpression(BufferRef(result.buffer, axes.nest_indices), newlayouts)
 
 
 # TODO: Better to just return the actual value probably...
@@ -1161,7 +1201,7 @@ def _(expr: Expression):
 
 @get_shape.register(numbers.Number)
 def _(num: numbers.Number):
-    return UNIT_AXIS_TREE
+    return (UNIT_AXIS_TREE,)
 
 
 @functools.singledispatch

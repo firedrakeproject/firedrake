@@ -202,10 +202,12 @@ class _UnitAxisTree(CacheMixin):
 
     size = 1
     alloc_size = 1
+    depth = 1
     is_linear = True
     is_empty = False
     sf = single_star_sf(MPI.COMM_SELF) # no idea if this is right
     leaf_paths = (immutabledict(),)
+    nodes = ()
 
     unindexed = property(lambda self: self)
 
@@ -236,6 +238,10 @@ class _UnitAxisTree(CacheMixin):
         return immutabledict({immutabledict(): 0})
 
     @property
+    def targets_acc(self):
+        return ()
+
+    @property
     def outer_loops(self):
         return ()
 
@@ -246,6 +252,17 @@ class _UnitAxisTree(CacheMixin):
     @property
     def _source_path_and_exprs(self):
         return immutabledict()
+
+    def index(self) -> LoopIndex:
+        from pyop3 import LoopIndex
+
+        return LoopIndex(self)
+
+    @property
+    def comm(self):
+        import pyop3.extras.debug
+        pyop3.extras.debug.warn_todo("This comm choice is unsafe")
+        return MPI.COMM_WORLD
 
 
 
@@ -726,6 +743,11 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
 # NOTE: does this sort of expression stuff live in here? Or expr.py perhaps? Definitely
 # TODO: define __str__ as an abc?
 class Expression(abc.ABC):
+
+    MAX_NUM_CHARS = 80
+
+    # {{{ abstract methods
+
     @property
     @abc.abstractmethod
     def shape(self) -> AxisTree:
@@ -735,6 +757,21 @@ class Expression(abc.ABC):
     @abc.abstractmethod
     def loop_axes(self) -> tuple[Axis]:
         pass
+
+    @property
+    @abc.abstractmethod
+    def _full_str(self) -> str:
+        pass
+
+    # }}}
+
+    def __str__(self) -> str:
+        full_str = self._full_str
+        if len(full_str) > self.MAX_NUM_CHARS:
+            pos = self.MAX_NUM_CHARS // 2 - 1
+            return f"{full_str[:pos]}..{full_str[-pos:]}"
+        else:
+            return full_str
 
     def __add__(self, other):
         if other == 0:
@@ -748,35 +785,54 @@ class Expression(abc.ABC):
         else:
             return Add(other, self)
 
-    def __sub__(self, other):
-        return Sub(self, other)
+    def __sub__(self, other) -> Sub | Self:
+        if other == 0:
+            return self
+        else:
+            return Sub(self, other)
 
-    def __rsub__(self, other):
-        return Sub(other, self)
+    def __rsub__(self, other) -> Sub | Self:
+        if other == 0:
+            return self
+        else:
+            return Sub(other, self)
 
-    def __mul__(self, other):
+    def __mul__(self, other) -> Mul | Self:
         if other == 1:
             return self
         else:
             return Mul(self, other)
 
-    def __rmul__(self, other):
+    def __rmul__(self, other) -> Mul | Self:
         if other == 1:
             return self
         else:
             return Mul(other, self)
 
-    def __floordiv__(self, other):
+    def __floordiv__(self, other) -> FloorDiv | Self:
         if not isinstance(other, numbers.Integral):
             return NotImplemented
 
-        return FloorDiv(self, other)
+        if other == 1:
+            return self
+        else:
+            return FloorDiv(self, other)
 
-    def __mod__(self, other) -> Modulo:
-        return Modulo(self, other)
+    def __mod__(self, other) -> Modulo | Self:
+        # TODO: raise nice exception
+        assert isinstance(other, numbers.Number)
+
+        if other == 1:
+            return self
+        else:
+            return Modulo(self, other)
 
     def __neg__(self) -> Neg:
-        return Neg(self)
+        if isinstance(self, Neg):
+            # Neg(Neg(obj)) == obj
+            return self.operand
+        else:
+            return Neg(self)
 
     def __lt__(self, other):
         return LessThan(self, other)
@@ -790,13 +846,42 @@ class Expression(abc.ABC):
     def __ge__(self, other):
         return GreaterThanOrEqual(self, other)
 
-    def __or__(self, other) -> Or:
-        return Or(self, other)
+    def __or__(self, other) -> Or | bool:
+        return self._maybe_eager_or(self, other)
 
+    def __ror__(self, other) -> Or | bool:
+        return self._maybe_eager_or(other, self)
 
-def ceildiv(a, b, /):
-    # See https://stackoverflow.com/a/17511341
-    return -(a // -b)
+    @classmethod
+    def _maybe_eager_or(cls, a, b) -> Or | Expression | bool:
+        from pyop3 import evaluate
+        from pyop3.expr_visitors import RuntimeVariableException  # put in main namespace?
+
+        try:
+            a_result = evaluate(a)
+        except RuntimeVariableException:
+            a_result = None
+
+        try:
+            b_result = evaluate(b)
+        except RuntimeVariableException:
+            b_result = None
+
+        if a_result or b_result:
+            return True
+        elif a_result is False:
+            if b_result is False:
+                return False
+            else:
+                assert b_result is None
+                return b
+        else:
+            assert a_result is None
+            if b_result is False:
+                return a
+            else:
+                assert b_result is None
+                return Or(a, b)
 
 
 class Operator(Expression, metaclass=abc.ABCMeta):
@@ -809,9 +894,21 @@ class Operator(Expression, metaclass=abc.ABCMeta):
 
 class UnaryOperator(Operator, metaclass=abc.ABCMeta):
 
+    # {{{ interface impls
+
+    @property
+    def _full_str(self) -> str:
+        return f"{self.symbol}{as_str(self.a)}"
+
+    # }}}
+
     @property
     def operands(self):
         return (self.a,)
+
+    @property
+    def operand(self):
+        return utils.just_one(self.operands)
 
     @property
     @abc.abstractmethod
@@ -820,9 +917,6 @@ class UnaryOperator(Operator, metaclass=abc.ABCMeta):
 
     def __init__(self, a, /) -> None:
         self.a = a
-
-    def __str__(self) -> str:
-        return f"{self.symbol}{self.a}"
 
     @property
     def shape(self):
@@ -849,8 +943,15 @@ class BinaryOperator(Operator, metaclass=abc.ABCMeta):
         self.b = b
 
     @cached_property
-    def shape(self) -> AxisTree:
-        return merge_trees2(_extract_expr_shape(self.a), _extract_expr_shape(self.b))
+    def shape(self) -> tuple[AxisTree]:
+        from pyop3.expr_visitors import get_shape
+
+        return (
+            merge_trees2(
+                utils.just_one(get_shape(self.a)),
+                utils.just_one(get_shape(self.b)),
+            ),
+        )
 
     @cached_property
     def loop_axes(self) -> tuple[Axis]:
@@ -865,14 +966,19 @@ class BinaryOperator(Operator, metaclass=abc.ABCMeta):
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.a!r}, {self.b!r})"
 
-    def __str__(self) -> str:
+    @property
+    def _full_str(self) -> str:
         # Always use brackets to avoid having to deal with operator precedence rules
-        return f"({self.a} {self._symbol} {self.b})"
+        return f"({as_str(self.a)} {self._symbol} {as_str(self.b)})"
 
     @property
     @abc.abstractmethod
     def _symbol(self) -> str:
         pass
+
+    # def as_str(self, *, full=True) -> str:
+    #     # Always use brackets to avoid having to deal with operator precedence rules
+    #     return f"({self.as_str(a, full=full)} {self._symbol} {self.as_str(b, full=full)})"
 
 
 class Add(BinaryOperator):
@@ -938,6 +1044,7 @@ class GreaterThanOrEqual(BinaryCondition):
 
 
 class Or(BinaryCondition):
+
     @property
     def _symbol(self) -> str:
         return "|"
@@ -955,26 +1062,41 @@ class TernaryOperator(Operator, metaclass=abc.ABCMeta):
 
 
 class Conditional(TernaryOperator):
-    def __new__(cls, predicate, if_true, if_false):
-        from pyop3 import evaluate
-        from pyop3.expr_visitors import RuntimeVariableException  # put in main namespace?
 
-        # If both branches are the same then just return one of them.
-        if if_true == if_false:
-            return if_true
+    # {{{ interface impls
 
-        # Attempt to eagerly evaluate 'predicate' to avoid creating
-        # unnecessary objects.
-        try:
-            return if_true if evaluate(predicate) else if_false
-        except RuntimeVariableException:
-            return super().__new__(cls)
-
-    def __init__(self, predicate, if_true, if_false) -> None:
-        super().__init__(predicate, if_true, if_false)
-
+    # TODO: should have a way of truncating here to keep a bit of all of them, maybe we also need a "short str" method?
     def __str__(self) -> str:
         return f"{self.predicate} ? {self.if_true} : {self.if_false}"
+
+    @property
+    def _full_str(self) -> str:
+        return f"{as_str(self.predicate)} ? {as_str(self.if_true)} : {as_str(self.if_false)}"
+
+    # }}}
+
+    def __new__(cls, predicate, if_true, if_false):
+        # for some reason this causes an infinite loop
+        return super().__new__(cls)
+        # from pyop3 import evaluate
+        # from pyop3.expr_visitors import RuntimeVariableException  # put in main namespace?
+        # # Try to simplify by eagerly evaluating the operands
+        #
+        # # If both branches are the same then just return one of them.
+        # if if_true == if_false:
+        #     return if_true
+        #
+        # # Attempt to eagerly evaluate 'predicate' to avoid creating
+        # # unnecessary objects.
+        # try:
+        #     return if_true if evaluate(predicate) else if_false
+        # except RuntimeVariableException:
+        #     return super().__new__(cls)
+
+    def __init__(self, predicate, if_true, if_false) -> None:
+        if if_true is self:
+            breakpoint()
+        super().__init__(predicate, if_true, if_false)
 
     @property
     def shape(self):
@@ -1027,6 +1149,21 @@ class Terminal(Expression, abc.ABC):
 
 
 class AxisVar(Terminal):
+
+    # {{{ interface impls
+
+    @cached_property
+    def shape(self) -> tuple[AxisTree]:
+        return (self.axis.as_tree(),)
+
+    loop_axes = ()
+
+    @property
+    def _full_str(self) -> str:
+        return f"i_{{{self.axis_label}}}"
+
+    # }}}
+
     def __init__(self, axis: Axis) -> None:
         assert not isinstance(axis, str), "debugging"
         self.axis = axis
@@ -1036,17 +1173,8 @@ class AxisVar(Terminal):
     def axis_label(self):
         return self.axis.label
 
-    @cached_property
-    def shape(self) -> AxisTree:
-        return self.axis.as_tree()
-
-    loop_axes = ()
-
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.axis_label!r})"
-
-    def __str__(self) -> str:
-        return f"i_{{{self.axis_label}}}"
 
     @property
     def terminal_key(self) -> str:
@@ -1054,8 +1182,14 @@ class AxisVar(Terminal):
 
 
 class NaN(Terminal):
+    # {{{ interface impls
+
     shape = UNIT_AXIS_TREE
     loop_axes = ()
+
+    _full_str = "NaN"
+
+    # }}}
 
     def __repr__(self) -> str:
         return "NaN()"
@@ -1070,6 +1204,23 @@ NAN = NaN()
 
 # TODO: Refactor so loop ID passed in not the actual index
 class LoopIndexVar(Terminal):
+
+    # {{{ interface impls
+
+    @property
+    def shape(self):
+        return (UNIT_AXIS_TREE,)
+
+    @property
+    def loop_axes(self):
+        return (self.axis,)
+
+    @property
+    def _full_str(self) -> str:
+        return f"L_{{{self.loop_id}, {self.axis_label}}}"
+
+    # }}}
+
     def __init__(self, loop_id, axis) -> None:
         assert not isinstance(axis, str), "changed"
         # debug
@@ -1081,14 +1232,6 @@ class LoopIndexVar(Terminal):
         # we must be linear at this point
         assert len(self.axis.components) == 1
 
-    @property
-    def shape(self):
-        return UNIT_AXIS_TREE
-
-    @property
-    def loop_axes(self):
-        return (self.axis,)
-
     # TODO: deprecate me
     @property
     def axis_label(self):
@@ -1096,9 +1239,6 @@ class LoopIndexVar(Terminal):
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.loop_id!r}, {self.axis_label!r})"
-
-    def __str__(self) -> str:
-        return f"L_{{{self.loop_id}, {self.axis_label}}}"
 
     @property
     def terminal_key(self) -> tuple:
@@ -1108,21 +1248,6 @@ class LoopIndexVar(Terminal):
 # typing
 # ExpressionT = Expression | numbers.Number  (in 3.10)
 ExpressionT = Union[Expression, numbers.Number]
-
-
-@functools.singledispatch
-def _extract_expr_shape(obj: Any) -> AxisTree:
-    raise TypeError
-
-
-@_extract_expr_shape.register(numbers.Number)
-def _(num: numbers.Number) -> AxisTree:
-    return UNIT_AXIS_TREE
-
-
-@_extract_expr_shape.register(Expression)
-def _(expr: Expression) -> AxisTree:
-    return expr.shape
 
 
 @functools.singledispatch
@@ -1407,11 +1532,13 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         subpath = path | {axis.label: component.label}
         size_expr = _axis_tree_size_rec(self, subpath)
 
+        # NOTE: This is bizarre, what was I doing?
         if isinstance(size_expr, numbers.Integral):
             size_axes = Axis(component.local_size)
         else:
             # size_axes, _ = extract_axes(size_expr, self, (), {})
-            size_axes = size_expr.shape
+            size_axes = utils.just_one(size_expr.shape)
+
         size_dat = Dat.empty(size_axes, dtype=IntType)
         size_dat.assign(size_expr, eager=True)
 
@@ -2110,6 +2237,7 @@ class IndexedAxisTree(AbstractAxisTree):
     # This could easily be two functions
     @cached_property
     def outer_loop_bits(self):
+        assert False, "dont think I use this"
         # from pyop3.itree.tree import LocalLoopIndexVariable
 
         if len(self.outer_loops) > 1:
@@ -2789,3 +2917,15 @@ def prune_zero_sized_branches(axis_tree: AbstractAxisTree, *, path=immutabledict
 
 def relabel_path(path, suffix:str):
     return {f"{axis_label}_{suffix}": component_label for axis_label, component_label in path.items()}
+
+
+@functools.singledispatch
+def as_str(expr):
+    return expr._full_str
+
+
+@as_str.register(numbers.Number)
+@as_str.register(bool)
+@as_str.register(np.bool)
+def as_str(expr):
+    return str(expr)

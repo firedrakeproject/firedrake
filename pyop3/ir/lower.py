@@ -31,7 +31,7 @@ import pyop2
 
 from pyop3 import exceptions as exc, utils
 from pyop3.tensor import LinearDatBufferExpression, NonlinearDatBufferExpression, Scalar
-from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, BinaryCondition, IndexedAxisTree, Mul, AxisComponent, relabel_path, Conditional, Or, Neg, FloorDiv, Sub, Modulo
+from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, BinaryCondition, IndexedAxisTree, Mul, AxisComponent, relabel_path, Conditional, Or, Neg, FloorDiv, Sub, Modulo, Expression
 from pyop3.buffer import AbstractBuffer, BufferRef, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
@@ -700,7 +700,18 @@ def parse_loop_properly_this_time(
     axis=None,
     path=None,
     iname_map=None,
-):
+) -> None:
+    if axes is UNIT_AXIS_TREE:
+        # NOTE: might need an expression here sometimes
+        for statement in loop.statements:
+            _compile(
+                statement,
+                # loop_indices | dict(loop_exprs),
+                loop_indices,
+                codegen_context,
+            )
+        return
+
     if strictly_all(x is None for x in {axis, path, iname_map}):
         axis = axes.root
         path = immutabledict()
@@ -746,9 +757,9 @@ def parse_loop_properly_this_time(
                     iname_map=iname_replace_map_,
                 )
             else:
-                for stmt in loop.statements:
+                for statement in loop.statements:
                     _compile(
-                        stmt,
+                        statement,
                         loop_indices | dict(loop_exprs),
                         codegen_context,
                     )
@@ -1099,6 +1110,14 @@ def _(loop_var: LoopIndexVar, /, iname_maps, loop_indices, *args, **kwargs) -> p
     return loop_indices[(loop_var.loop_id, loop_var.axis_label)]
 
 
+@_lower_expr.register(Scalar)
+def _(scalar: Scalar, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
+    # TODO: Need a ScalarBufferExpression or similar to encode nested-ness
+    buffer_ref = BufferRef(scalar.buffer)
+    name_in_kernel = context.add_buffer(buffer_ref, intent)
+    return pym.subscript(pym.var(name_in_kernel), (0,))
+
+
 @_lower_expr.register(LinearDatBufferExpression)
 def _(expr: LinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
     return lower_buffer_access(expr.buffer, [expr.layout], iname_maps, loop_indices, context, intent=intent)
@@ -1170,11 +1189,11 @@ def _(num: numbers.Integral, *args, **kwargs):
     return num
 
 
-@register_extent.register(Scalar)
-def _(param: Scalar, inames, loop_indices, context):
-    name_in_kernel = context.add_buffer(BufferRef(param.buffer), READ)
+@register_extent.register(Expression)
+def _(expr: Expression, inames, loop_indices, context):
+    pym_expr = lower_expr(expr, inames, loop_indices, context)
     extent_name = context.add_temporary("p")
-    context.add_assignment(pym.var(extent_name), pym.var(name_in_kernel)[0])
+    context.add_assignment(pym.var(extent_name), pym_expr)
     return extent_name
 
 

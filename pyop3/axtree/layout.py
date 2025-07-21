@@ -336,7 +336,9 @@ def axis_tree_component_size(axis_tree, path, component):
         #
         # Note that currently only allow a single free index.
 
-        all_axes_that_we_need = subtree_size.shape
+        all_axes_that_we_need = utils.just_one(subtree_size.shape)
+        assert not subtree_size.loop_axes, "Cannot compute the size of something involving loop indices"
+
         if all_axes_that_we_need.depth > 1:
             raise NotImplementedError("Not currently expected to work with multiply ragged extents")
             # outer_axes = all_axes_that_we_need - axis.label
@@ -348,12 +350,13 @@ def axis_tree_component_size(axis_tree, path, component):
             # )()
         j = all_axes_that_we_need.index()
 
+        # Replace AxisVars with LoopIndexVars in the size expression so we can
+        # access them in a loop
         # Drop irrelevant components from the axes as loop index vars are supposed to be linear
         inv_map = {
             ax.label: LoopIndexVar(j.id, ax.linearize(path_[ax.label]))
             for ax in all_axes_that_we_need.nodes
         }
-
         mysize = replace_terminals(subtree_size, inv_map)
         component_size = Dat.zeros(UNIT_AXIS_TREE, dtype=IntType)
         loop_(

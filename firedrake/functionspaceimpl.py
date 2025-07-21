@@ -715,7 +715,11 @@ class FunctionSpace:
         unconstrained_dofs_dat = op3.Dat(mesh_axis, data=num_unconstrained_dofs)
         constrained_dofs_dat = op3.Dat(mesh_axis, data=num_constrained_dofs)
         unconstrained_dofs_expr = op3.as_linear_buffer_expression(unconstrained_dofs_dat)
-        constrained_dofs_expr = op3.as_linear_buffer_expression(constrained_dofs_dat)
+
+        if self.boundary_set:
+            constrained_dofs_expr = op3.as_linear_buffer_expression(constrained_dofs_dat)
+        else:
+            constrained_dofs_expr = 0
 
         regions = [
             op3.AxisComponentRegion(unconstrained_dofs_expr, "unconstrained"),

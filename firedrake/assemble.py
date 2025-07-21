@@ -1539,7 +1539,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         for rindex, cindex in diag_blocks:
             op3.do_loop(
                 p := extract_unique_domain(test).points.index(),
-                sparsity[rindex, cindex][p, p].assign(666, eager=False)
+                sparsity[rindex, cindex][p, p].assign(666)
             )
 
         # Pretend that we are doing assembly by looping over the right
@@ -1553,7 +1553,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
             op3.do_loop(
                 iter_index,
-                sparsity[rindex, cindex][rmap, cmap].assign(666, eager=False)
+                sparsity[rindex, cindex][rmap, cmap].assign(666)
             )
 
         sparsity.assemble()

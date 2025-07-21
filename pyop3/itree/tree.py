@@ -35,7 +35,6 @@ from pyop3.axtree.layout import _as_int
 from pyop3.axtree.tree import (
     UNIT_AXIS_TREE,
     conditional,
-    ceildiv,
     AbstractAxisTree,
     ContextSensitiveLoopIterable,
     IndexedAxisTree,
@@ -2272,7 +2271,7 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
         #         region_size = ceildiv((min(region.size, stop-loc) - offset), step)
         #         offset = (offset + region.size) % step
         out_of_bounds = (upper_bound < start) | (lower_bound >= stop)
-        region_size = conditional(out_of_bounds, 0, ceildiv((min(region.size, stop-loc) - offset), step))
+        region_size = conditional(out_of_bounds, 0, utils.ceildiv((min(region.size, stop-loc) - offset), step))
         offset = conditional(out_of_bounds, offset-region.size, (offset+region.size) % step)
 
         # Make sure that we apply any parent indexing to the size expression

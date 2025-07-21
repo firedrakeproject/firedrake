@@ -14,7 +14,6 @@ from typing import Any
 import numpy as np
 import pytools
 from immutabledict import immutabledict
-from pyrsistent import pmap
 
 from pyop3.config import config
 from pyop3.exceptions import Pyop3Exception
@@ -636,3 +635,10 @@ def as_numpy_scalar(value: numbers.Number) -> np.number:
 
 def filter_type(type_: type, iterable: Iterable):
     return filter(lambda item: isinstance(item, type_), iterable)
+
+
+def ceildiv(a, b, /):
+    # See https://stackoverflow.com/a/17511341
+    return -(a // -b)
+
+

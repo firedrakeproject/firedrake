@@ -72,6 +72,9 @@ class Mat(Tensor):
     def shape(self):
         return (self.raxes.materialize(), self.caxes.materialize())
 
+    @property
+    def _full_str(self) -> str:
+        return f"{self.name}[?, ?]"
 
     # }}}
 
@@ -149,6 +152,40 @@ class Mat(Tensor):
     @property
     def dtype(self) -> np.dtype:
         return ScalarType
+
+    @cached_property
+    def nrows(self) -> int:
+        "The number of local rows in the matrix (including ghosts)."
+        return self.raxes.size
+
+    @cached_property
+    def ncols(self) -> int:
+        "The number of local columns in the matrix (including ghosts)."
+        return self.caxes.size
+
+    @cached_property
+    def nblock_rows(self):
+        """The number "block" rows in the matrix (local to this process).
+
+        This is equivalent to the number of rows in the matrix divided
+        by the dimension of the row :class:`DataSet`.
+        """
+        raise NotImplementedError
+        assert len(self.sparsity.dsets[0]) == 1, "Block rows don't make sense for mixed Mats"
+        layout_vec = self.sparsity.dsets[0].layout_vec
+        return layout_vec.local_size // layout_vec.block_size
+
+    @cached_property
+    def nblock_cols(self):
+        """The number of "block" columns in the matrix (local to this process).
+
+        This is equivalent to the number of columns in the matrix
+        divided by the dimension of the column :class:`DataSet`.
+        """
+        raise NotImplementedError
+        assert len(self.sparsity.dsets[1]) == 1, "Block cols don't make sense for mixed Mats"
+        layout_vec = self.sparsity.dsets[1].layout_vec
+        return layout_vec.local_size // layout_vec.block_size
 
     def getitem(self, row_index, column_index, *, strict=False):
         from pyop3.itree import as_index_forest, index_axes
@@ -277,24 +314,6 @@ class Mat(Tensor):
         return single_valued([self.raxes.comm, self.caxes.comm])
 
     # }}}
-
-    @property
-    def nrows(self) -> int:
-        """The number of local rows in the matrix.
-
-        This includes ghost entries.
-
-        """
-        return self.raxes.size
-
-    @property
-    def ncols(self) -> int:
-        """The number of local columns in the matrix.
-
-        This includes ghost entries.
-
-        """
-        return self.caxes.size
 
     def reshape(self, row_axes: AxisTree, col_axes: AxisTree) -> Mat:
         """Return a reshaped view of the `Dat`.

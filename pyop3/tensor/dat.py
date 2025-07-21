@@ -24,7 +24,7 @@ from pyop3.axtree import (
     AxisTree,
     as_axis_tree,
 )
-from pyop3.axtree.tree import AbstractAxisTree, Expression, ContextFree, ContextSensitiveAxisTree, merge_axis_trees2, subst_layouts
+from pyop3.axtree.tree import AbstractAxisTree, Expression, ContextFree, ContextSensitiveAxisTree, merge_axis_trees2, subst_layouts, as_str
 from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer, BufferRef, NullBuffer, PetscMatBuffer
 from pyop3.dtypes import DTypeT, ScalarType
 from pyop3.exceptions import Pyop3Exception
@@ -87,8 +87,8 @@ class Dat(Tensor, KernelArgument):
         return self.buffer.comm
 
     @cached_property
-    def shape(self) -> AxisTree:
-        return self.axes.materialize()
+    def shape(self) -> tuple[AxisTree]:
+        return (self.axes.materialize(),)
 
     @property
     def axis_trees(self) -> tuple[AbstractAxisTree]:
@@ -170,7 +170,8 @@ class Dat(Tensor, KernelArgument):
 
         # self._cache = {}
 
-    def __str__(self) -> str:
+    @property
+    def _full_str(self) -> str:
         try:
             return "\n".join(
                 f"{self.name}[{self.axes.subst_layouts()[self.axes.path(leaf)]}]"
@@ -619,7 +620,8 @@ class ScalarBufferExpression(BufferExpression):
     def __init__(self, buffer) -> None:
         self._buffer = buffer
 
-    def __str__(self) -> str:
+    @property
+    def _full_str(self) -> str:
         return self.name
 
 
@@ -656,7 +658,7 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
     _buffer: Any  # array buffer type
     layout: Any
     # _shape: AxisTree
-    _loop_axes: tuple[Axis]
+    # _loop_axes: tuple[Axis]
 
     # }}}
 
@@ -664,15 +666,23 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
 
     buffer: ClassVar[property] = utils.attr("_buffer")
     # shape: ClassVar[property] = utils.attr("_shape")
-    loop_axes: ClassVar[property] = utils.attr("_loop_axes")
+    # loop_axes: ClassVar[property] = utils.attr("_loop_axes")
 
     @property
-    def shape(self) -> AxisTree:
+    def shape(self) -> tuple[AxisTree]:
         return self.layout.shape
+
+    @cached_property
+    def loop_axes(self):
+        return self.layout.loop_axes
+
+    @property
+    def _full_str(self) -> str:
+        return f"{self.name}[{as_str(self.layout)}]"
 
     # }}}
 
-    def __init__(self, buffer, layout, loop_axes):
+    def __init__(self, buffer, layout):
 
         try:
             if layout.loop_axes:
@@ -681,13 +691,10 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
             pass
         self._buffer = buffer
         self.layout = layout
-        self._loop_axes = loop_axes
-
-        if str(self) == "array_0[L_{_label_LoopIndex_6, firedrake_default_topology}]":
-            breakpoint()
-
-    def __str__(self) -> str:
-        return f"{self.name}[{self.layout}]"
+        # self._loop_axes = loop_axes
+        #
+        # if str(self) == "array_0[L_{_label_LoopIndex_6, firedrake_default_topology}]":
+        #     breakpoint()
 
 
 @utils.record()
@@ -704,26 +711,35 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
 
     _buffer: BufferRef
     layouts: Any
-    _loop_axes: tuple[Axis]
+    # _loop_axes: tuple[Axis]
 
     # }}}
 
-    # {{{ Interface impls
+    # {{{ interface impls
 
     buffer: ClassVar[property] = utils.attr("_buffer")
-    loop_axes: ClassVar[property] = utils.attr("_loop_axes")
+    # loop_axes: ClassVar[property] = utils.attr("_loop_axes")
 
     @property
-    def shape(self) -> AxisTree:
-        return merge_axis_trees2((layout.shape for layout in self.layouts.values()))
+    def shape(self) -> tuple[AxisTree, ...]:
+        shape_ = []
+        layout_shapes = (layout.shape for layout in self.layouts.values())
+        for layout_shapes in zip(layout_shapes, strict=True):
+            shape_.append(merge_axis_trees2(layout_shapes))
+        return tuple(shape_)
 
-    # }}}
+    @property
+    def loop_axes(self):
+        return utils.unique(map(_extract_loop_axes, self.layouts.values()))
 
-    def __str__(self) -> str:
-        return "\n".join(
-            f"{self.buffer.buffer.name}[{layout}]"
+    @property
+    def _full_str(self) -> str:
+        return " :: ".join(
+            f"{self.buffer.buffer.name}[{as_str(layout)}]"
             for layout in self.layouts.values()
         )
+
+    # }}}
 
 
 class MatBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
@@ -754,16 +770,18 @@ class LinearMatBufferExpression(MatBufferExpression, LinearBufferExpression):
 
     @property
     def shape(self):
+        # NOTE: This doesn't make sense here, need multiple axis trees
         raise NotImplementedError
 
     @property
     def loop_axes(self):
         raise NotImplementedError
 
-    # }}}
+    @property
+    def _full_str(self) -> str:
+        return f"{self.buffer.buffer.name}[{as_str(self.row_layout)}, {as_str(self.column_layout)}]"
 
-    def __str__(self) -> str:
-        return f"{self.buffer.buffer.name}[{self.row_layout}, {self.column_layout}]"
+    # }}}
 
 
 @utils.record()
@@ -787,6 +805,10 @@ class NonlinearMatBufferExpression(MatBufferExpression, NonlinearBufferExpressio
 
     @property
     def loop_axes(self):
+        raise NotImplementedError
+
+    @property
+    def _full_str(self) -> str:
         raise NotImplementedError
 
     # }}}
@@ -819,4 +841,5 @@ def _(dat: Dat) -> LinearDatBufferExpression:
         axes = axes.nest_subtree(nest_index)
 
     layout = just_one(axes.leaf_subst_layouts.values())
-    return LinearDatBufferExpression(BufferRef(dat.buffer, nest_indices), layout, dat.loop_axes)
+    assert layout.loop_axes == dat.loop_axes
+    return LinearDatBufferExpression(BufferRef(dat.buffer, nest_indices), layout)
