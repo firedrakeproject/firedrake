@@ -37,14 +37,14 @@ class GPUDevice(ComputeDevice):
                 
             num_cells = None 
             file.write("def gpu_parloop():\n")
-            for array, map, i in zip(arrays, maps, [i for i in range(len(arrays))]):
+            for array, map, i in zip(arrays, maps, [i for i in range(len(arrays)+1)]):
+                print(i)
                 file.write(f"\ta{i} = cp.{repr(array.astype(object)).replace("object", "cp.float64")}\n")
                 file.write(f"\tm{i} = cp.{repr(map.astype(object)).replace("object", "cp.int32")}\n")
                 if num_cells is None:
                     num_cells = len(map)
                 else:
                     assert num_cells == len(map)
-            file.write("\tprint(\"INKERNEL\")\n")
             # cell loop needed here
             file.write(f"\tfor i in range({num_cells}):\n")
             for j, kernel in enumerate(self.kernel_string):
@@ -61,7 +61,6 @@ class GPUDevice(ComputeDevice):
                 for k, arg in enumerate(self.kernel_args[j]): 
                     # get arg data
                     if arg == "A": 
-                        file.write(f"\t\tprint(m{k}[i])\n")
                         file.write(f"\t\tcpx.scatter_add(a{k}, m{k}[i], a_g{k})\n")
                 file.write(f"\tprint(a{k})")
 

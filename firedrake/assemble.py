@@ -1115,13 +1115,11 @@ class ParloopFormAssembler(FormAssembler):
                         fs = self._form.arguments()[0].function_space()
                         arrays += [np.empty_like(Function(fs).dat.data_ro)]
                         maps += [fs.cell_node_list]
-                        pass # this is the output array
                     else:
-                        if arg_counter > 0:
-                            args += [self._form.coefficients()[arg_counter].dat.data_ro]
-                            maps += [self.coefficents()[arg_counter].function_space().cell_node_list]
+                        arrays += [self._form.coefficients()[arg_counter].dat.data_ro]
+                        maps += [self._form.coefficients()[arg_counter].function_space().cell_node_list]
                         arg_counter += 1
-            compute_device.write_file(arrays, maps)
+                compute_device.write_file(arrays, maps)
         
         for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, constructed_parloops):
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
