@@ -22,32 +22,57 @@ class GPUDevice(ComputeDevice):
         self.stream = cp.cuda.Stream(non_blocking=True)
         self.kernel_string = []
         self.kernel_args = []
+        self.file_name = "temp_kernel_device"
 
     
-    def write_file(self):
+    def write_file(self, arrays, maps):
         
-        with open("./temp_kernel_minimal.py",'w') as file:
+        with open(f"./{self.file_name}.py",'w') as file:
             file.write("import cupy as cp\n")
+            file.write("import cupyx as cpx\n")
             for kernel in self.kernel_string:
                 file.write(kernel+ "\n")
                 file.write("\n")
             
-            file.write("def __main__():")
-            file.write("\t pass")
+                
+            num_cells = None 
+            file.write("def gpu_parloop():\n")
+            for array, map, i in zip(arrays, maps, [i for i in range(len(arrays))]):
+                file.write(f"\ta{i} = cp.{repr(array.astype(object)).replace("object", "cp.float64")}\n")
+                file.write(f"\tm{i} = cp.{repr(map.astype(object)).replace("object", "cp.int32")}\n")
+                if num_cells is None:
+                    num_cells = len(map)
+                else:
+                    assert num_cells == len(map)
+            file.write("\tprint(\"INKERNEL\")\n")
             # cell loop needed here
-            for i, kernel in enumerate(self.kernel_string):
-                for arg in self.kernel_args[i]: 
-                    # get arg data 
-                    pass
-    
+            file.write(f"\tfor i in range({num_cells}):\n")
+            for j, kernel in enumerate(self.kernel_string):
+                for k, arg in enumerate(self.kernel_args[j]): 
+                    # get arg data
+                    if arg == "coords": 
+                        file.write(f"\t\ta_g{k} = cp.take(a{k}, m{k}[i], axis=0).flatten()\n")
+                    elif arg == "A":
+                        file.write(f"\t\ta_g{k} = cp.zeros_like(m{k}[i], dtype=cp.float64)\n")
+                    else:
+                        file.write(f"\t\ta_g{k} = cp.take(a{k}, m{k}[i], axis=0)\n")
+                arg_str = ",".join([f"a_g{j}" for j in range(len(self.kernel_args[j]))])
+                file.write(f"\t\tcupy_kernel{j}({arg_str})\n")
+                for k, arg in enumerate(self.kernel_args[j]): 
+                    # get arg data
+                    if arg == "A": 
+                        file.write(f"\t\tprint(m{k}[i])\n")
+                        file.write(f"\t\tcpx.scatter_add(a{k}, m{k}[i], a_g{k})\n")
+                file.write(f"\tprint(a{k})")
 
     def context_manager(self):    
-        with self.stream:
-            self.stream.begin_capture()
-            yield self
-            g = self.stream.end_capture()
-        g.launch(self.stream)
-        self.stream.synchronize()
+        yield self
+        #with self.stream:
+        #    self.stream.begin_capture()
+        #    yield self
+        #    g = self.stream.end_capture()
+        #g.launch(self.stream)
+        #self.stream.synchronize()
 
 compute_device = CPUDevice()
 

@@ -12,6 +12,7 @@ from functools import cached_property
 
 import cachetools
 from pyrsistent import freeze, pmap
+import numpy as np
 import finat
 import loopy as lp
 import firedrake
@@ -28,6 +29,7 @@ from firedrake.formmanipulation import split_form
 from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_unique_domain
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
+from firedrake.function import Function
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
 from firedrake.parloops import pack_tensor, _with_shape_indices, _facet_integral_pack_indices, _cell_integral_pack_indices, pack_pyop3_tensor
@@ -1091,20 +1093,50 @@ class ParloopFormAssembler(FormAssembler):
             self._check_tensor(tensor)
             if self._needs_zeroing:
                 self._as_pyop3_type(tensor).zero(eager=True)
-        for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
+        
+        constructed_parloops = self.parloops(tensor)
+
+
+        if "FIREDRAKE_USE_GPU" in os.environ:
+            from firedrake.device import compute_device
+            arrays = []
+            maps = []
+            for kernel, args in zip(compute_device.kernel_string, compute_device.kernel_args):
+                arg_counter = 0
+                for arg in args:
+                    if arg == "coords":
+                         coordinate_space = FunctionSpace(self._form.ufl_domain(), self._form.ufl_domain()._ufl_coordinate_element)
+                         arrays += [self._form.ufl_domain().coordinates.dat.data_ro.reshape((-1,) + coordinate_space.shape)]
+                         maps += [coordinate_space.cell_node_list]
+                    elif arg == "A":
+                        form_degree = len(self._form.arguments()) 
+                        if form_degree > 1:
+                            raise NotImplementedError("GPU assembly currently only supported on 1-forms")
+                        fs = self._form.arguments()[0].function_space()
+                        arrays += [np.empty_like(Function(fs).dat.data_ro)]
+                        maps += [fs.cell_node_list]
+                        pass # this is the output array
+                    else:
+                        if arg_counter > 0:
+                            args += [self._form.coefficients()[arg_counter].dat.data_ro]
+                            maps += [self.coefficents()[arg_counter].function_space().cell_node_list]
+                        arg_counter += 1
+            compute_device.write_file(arrays, maps)
+        
+        for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, constructed_parloops):
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
 
             # TODO: move this elsewhere, or avoid entirely?
             if isinstance(subtensor, op3.Mat) and subtensor.buffer.mat_type == "python":
                 subtensor = subtensor.buffer.mat.getPythonContext().dat
 
+            if "FIREDRAKE_USE_GPU" in os.environ:
+                temp_file = __import__(compute_device.file_name)
+                temp_file.gpu_parloop()
+
             if isinstance(self, ExplicitMatrixAssembler):
                 with _modified_lgmaps(subtensor, lgmaps):
                     parloop({self._tensor_name[local_kernel]: subtensor.buffer}, compiler_parameters=pyop3_compiler_parameters)
-            elif "FIREDRAKE_USE_GPU" in os.environ:
-                breakpoint()
-                coords = self._form.ufl_domain().coordinates
-                self._form.arguments()[0].function_space().cell_node_list  
             else:
                 parloop({self._tensor_name[local_kernel]: subtensor.buffer}, compiler_parameters=pyop3_compiler_parameters)
 
