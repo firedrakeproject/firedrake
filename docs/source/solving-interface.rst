@@ -741,7 +741,7 @@ use:
 * ``pc_factor_mat_solver_type`` : ``mumps``
 * ``pc_factor_mat_mumps_icntl_14``: 200
 
-For nonlinear variational solves we have:
+For nonlinear variational solves we additionally have:
 
 * ``snes_type`` : ``newtonls``
 * ``snes_linesearch_type`` : ``basic``
