@@ -2410,6 +2410,8 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         import firedrake.function as function
 
         self._topology = topology
+        if len(topology.dm_cell_types) > 1:
+            return
         coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
         coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
                                                      (self.num_vertices(), self.geometric_dimension()))
