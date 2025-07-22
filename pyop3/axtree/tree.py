@@ -201,6 +201,7 @@ class _UnitAxisTree(CacheMixin):
         return "<UNIT>"
 
     size = 1
+    max_size = 1
     alloc_size = 1
     depth = 1
     is_linear = True
@@ -449,7 +450,7 @@ class AxisComponent(LabelledNodeComponent):
 
     @cached_property
     def regionless(self) -> AxisComponent:
-        return self.copy(regions=(AxisComponentRegion(self.local_size),))
+        return self.copy(regions=(AxisComponentRegion(self.local_size),), sf=None)
 
     @property
     def rank_equal(self) -> bool:
@@ -957,8 +958,15 @@ class BinaryOperator(Operator, metaclass=abc.ABCMeta):
         )
 
     @cached_property
-    def loop_axes(self) -> tuple[Axis]:
-        return utils.unique(_extract_loop_axes(self.a) + _extract_loop_axes(self.b))
+    def loop_axes(self):
+        from pyop3.expr_visitors import get_loop_axes
+
+        a_loop_axes = get_loop_axes(self.a)
+        b_loop_axes = get_loop_axes(self.b)
+        axes = collections.defaultdict(tuple, a_loop_axes)
+        for loop_index, loop_axes in b_loop_axes.items():
+            axes[loop_index] = utils.unique(axes[loop_index], loop_axes)
+        return immutabledict(axes)
 
     def __hash__(self) -> int:
         return hash((type(self), self.a, self.b))
@@ -1099,7 +1107,17 @@ class Conditional(TernaryOperator):
 
     @cached_property
     def loop_axes(self) -> tuple[Axis]:
-        return utils.unique(_extract_loop_axes(self.a) + _extract_loop_axes(self.b) + _extract_loop_axes(self.c))
+        from pyop3.expr_visitors import get_loop_axes
+
+        a_loop_axes = get_loop_axes(self.a)
+        b_loop_axes = get_loop_axes(self.b)
+        c_loop_axes = get_loop_axes(self.b)
+        axes = collections.defaultdict(tuple, a_loop_axes)
+        for loop_index, loop_axes in b_loop_axes.items():
+            axes[loop_index] = utils.unique(axes[loop_index], loop_axes)
+        for loop_index, loop_axes in c_loop_axes.items():
+            axes[loop_index] = utils.unique(axes[loop_index], loop_axes)
+        return immutabledict(axes)
 
     @property
     def predicate(self):
@@ -1155,7 +1173,7 @@ class AxisVar(Terminal):
     def shape(self) -> tuple[AxisTree]:
         return (self.axis.as_tree(),)
 
-    loop_axes = ()
+    loop_axes = immutabledict()
 
     @property
     def _full_str(self) -> str:
@@ -1212,20 +1230,20 @@ class LoopIndexVar(Terminal):
 
     @property
     def loop_axes(self):
-        return (self.axis,)
+        return immutabledict({self.loop_index: (self.axis,)})
 
     @property
     def _full_str(self) -> str:
-        return f"L_{{{self.loop_id}, {self.axis_label}}}"
+        return f"L_{{{self.loop_index.id}, {self.axis_label}}}"
 
     # }}}
 
-    def __init__(self, loop_id, axis) -> None:
+    def __init__(self, loop_index, axis) -> None:
+        from pyop3 import LoopIndex
+
         assert not isinstance(axis, str), "changed"
-        # debug
-        from pyop3.itree import LoopIndex
-        assert not isinstance(loop_id, LoopIndex)
-        self.loop_id = loop_id
+        assert isinstance(loop_index, LoopIndex)
+        self.loop_index = loop_index
         self.axis = axis
 
         # we must be linear at this point
@@ -1236,32 +1254,21 @@ class LoopIndexVar(Terminal):
     def axis_label(self):
         return self.axis.label
 
+    @property
+    def loop_id(self):
+        return self.loop_index.id
+
     def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.loop_id!r}, {self.axis_label!r})"
+        return f"{type(self).__name__}({self.loop_index!r}, {self.axis_label!r})"
 
     @property
     def terminal_key(self) -> tuple:
-        return (self.loop_id, self.axis_label)
+        return (self.loop_index.id, self.axis_label)
 
 
 # typing
 # ExpressionT = Expression | numbers.Number  (in 3.10)
 ExpressionT = Union[Expression, numbers.Number]
-
-
-@functools.singledispatch
-def _extract_loop_axes(obj: Any) -> AxisTree:
-    raise TypeError
-
-
-@_extract_loop_axes.register(numbers.Number)
-def _(num: numbers.Number) -> AxisTree:
-    return ()
-
-
-@_extract_loop_axes.register(Expression)
-def _(expr: Expression) -> AxisTree:
-    return expr.loop_axes
 
 
 class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
@@ -1498,6 +1505,12 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         return _axis_tree_size(self)
 
     @cached_property
+    def max_size(self):
+        from pyop3.expr_visitors import max_
+
+        return max_(self.size)
+
+    @cached_property
     @collective
     def global_size(self):
         return self.comm.allreduce(self.owned.size)
@@ -1571,6 +1584,8 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     def with_region_labels(self, region_labels: Sequence[ComponentRegionLabelT]) -> IndexedAxisTree:
         """TODO"""
+        if not region_labels:
+            return self
         region_labels = set(region_labels)
         if missing_labels := region_labels - set(self._all_region_labels):
             raise ValueError(f"{missing_labels} not found")
@@ -2242,6 +2257,7 @@ class IndexedAxisTree(AbstractAxisTree):
     def layout_axes(self) -> AxisTree:
         if not self.outer_loops:
             return self
+        raise NotImplementedError
         loop_axes, _ = self.outer_loop_bits
         return loop_axes.add_subtree(self, *loop_axes.leaf)
 
@@ -2399,6 +2415,10 @@ class UnitIndexedAxisTree:
     size = 1
     is_linear = True
     is_empty = False
+
+    @property
+    def regionless(self):
+        return self
 
     @cached_property
     def _subst_layouts_default(self):
@@ -2946,3 +2966,76 @@ def _(expr):
 @as_str.register(np.bool)
 def _(expr):
     return str(expr)
+
+
+def get_loop_tree(expr) -> tuple[AxisTree, Mapping[LoopIndexVar, AxisVar]]:
+    from pyop3.expr_visitors import get_loop_axes
+
+    axes = []
+    loop_var_replace_map = {}
+    for loop_index, loop_axes in get_loop_axes(expr).items():
+        for loop_axis in loop_axes:
+            axis_label = f"{loop_axis.label}_{loop_index.id}"
+
+            axis = loop_axis.copy(label=axis_label)
+            axes.append(axis)
+
+            loop_var = LoopIndexVar(loop_index.id, loop_axis)
+            axis_var = AxisVar(axis)
+            loop_var_replace_map[loop_var] = axis_var
+
+    return (AxisTree.from_iterable(axes), loop_var_replace_map)
+
+
+def loopified_shape(expr: Expression) -> tuple[AxisTree, Mapping[LoopIndexVar, AxisVar]]:
+    from pyop3.expr_visitors import replace, get_shape
+
+    loop_tree, loop_var_replace_map = get_loop_tree(expr)
+
+    # assume single tree for now
+    shape = utils.just_one(get_shape(expr))
+
+    if shape is UNIT_AXIS_TREE:
+        axis_tree = loop_tree
+    else:
+        # Replace any references to the loop indices
+        new_node_map = {}
+        for path, axis in shape.node_map.items():
+            if axis is None:
+                new_node_map[path] = None
+                continue
+
+            new_components = []
+            for component in axis.components:
+                new_regions = []
+                for region in component.regions:
+                    new_size = replace(region.size, loop_var_replace_map)
+                    new_regions.append(region.__record_init__(size=new_size))
+                new_components.append(component.copy(regions=new_regions))
+            new_node_map[path] = axis.copy(components=new_components)
+        subtree = AxisTree(new_node_map)
+        axis_tree = loop_tree.add_subtree(loop_tree.leaf_path, subtree)
+
+    return axis_tree, loop_var_replace_map
+
+
+def full_shape(axes):
+    """Augment axes with extra axes from the size expressions."""
+    from pyop3.expr_visitors import get_shape
+
+    shapes = []
+    for axis in axes.nodes:
+        for component in axis.components:
+            for region in component.regions:
+                region_shape = utils.just_one(get_shape(region.size))
+                if region_shape.size != 1:
+                    shapes.append(region_shape)
+    shapes = utils.unique(shapes)
+    if shapes:
+        fulltree = shapes[0]
+        for shape in shapes[1:]:
+            fulltree = fulltree.add_subtree(fulltree.leaf_path, shape)
+        fulltree = fulltree.add_subtree(fulltree.leaf_path, axes)
+        return fulltree
+    else:
+        return axes

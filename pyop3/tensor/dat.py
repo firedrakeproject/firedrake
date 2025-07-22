@@ -101,20 +101,20 @@ class Dat(Tensor, KernelArgument):
     @classmethod
     def empty(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = ArrayBuffer.empty(axes.unindexed.size, dtype=dtype, sf=axes.sf)
+        buffer = ArrayBuffer.empty(axes.unindexed.max_size, dtype=dtype, sf=axes.sf)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
     def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
         axes = as_axis_tree(axes)
         # alloc_size?
-        buffer = ArrayBuffer.zeros(axes.unindexed.size, dtype=dtype, sf=axes.sf)
+        buffer = ArrayBuffer.zeros(axes.unindexed.max_size, dtype=dtype, sf=axes.sf)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
     def null(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = NullBuffer(axes.unindexed.size, dtype=dtype)
+        buffer = NullBuffer(axes.unindexed.max_size, dtype=dtype)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
@@ -683,16 +683,8 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
     # }}}
 
     def __init__(self, buffer, layout):
-
-        try:
-            if layout.loop_axes:
-                breakpoint()
-        except:
-            pass
         self._buffer = buffer
         self.layout = layout
-        # self._loop_axes = loop_axes
-        #
 
 
 @utils.record()
@@ -728,6 +720,7 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
 
     @property
     def loop_axes(self):
+        breakpoint()
         return utils.unique(map(_extract_loop_axes, self.layouts.values()))
 
     @property
@@ -828,12 +821,11 @@ def _(expr: LinearDatBufferExpression) -> LinearDatBufferExpression:
 
 @as_linear_buffer_expression.register
 def _(dat: Dat) -> LinearDatBufferExpression:
-    dat = dat.localize()
 
     if not dat.axes.is_linear:
         raise ValueError("The provided Dat must be linear")
 
-    axes = dat.axes
+    axes = dat.axes.regionless
     nest_indices = axes.nest_indices
     for nest_index in nest_indices:
         axes = axes.nest_subtree(nest_index)

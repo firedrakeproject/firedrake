@@ -1091,7 +1091,7 @@ def _(loop_index: LoopIndex, /, target_axes, **kwargs):
     # then this will return
     #     LoopIndexVar(p, "a") * 2      and LoopIndexVar(p, "b")
     replace_map = {
-        axis.label: LoopIndexVar(loop_index.id, axis)
+        axis.label: LoopIndexVar(loop_index, axis)
         for axis, _ in loop_index.iterset.visited_nodes(loop_index.iterset.leaf_path)
     }
     targets = {immutabledict(): []}

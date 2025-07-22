@@ -1019,6 +1019,9 @@ class FunctionSpace:
         # internal detail really, do not expose in pyop3/__init__.py
         from pyop3.expr_visitors import NonlinearCompositeDat, materialize_composite_dat
 
+        import pyop3.extras.debug as dbg
+        dbg.warn_todo("Need to renumber dofs in closure, this will break degree > 1")
+
         blocked_axes = self.axes.blocked(self.shape)
 
         mesh = self._mesh

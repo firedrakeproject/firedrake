@@ -8,6 +8,7 @@ from functools import cached_property
 from typing import Any, ClassVar
 
 import numpy as np
+from immutabledict import immutabledict as idict
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -129,6 +130,7 @@ class Tensor(ContextAware, FunctionArgument, Expression, abc.ABC):
     # NOTE: This is quite nasty
     @cached_property
     def loop_axes(self) -> tuple[Axis]:
+        # we should be able to get this information from the subst layouts
         import pyop3.extras.debug
         pyop3.extras.debug.warn_todo("Nasty code, do it better")
         assert all(
@@ -136,9 +138,8 @@ class Tensor(ContextAware, FunctionArgument, Expression, abc.ABC):
             for axes in self.axis_trees
             for loop in axes.outer_loops
         )
-        return tuple(
-            axis
+        return idict({
+            loop: tuple(axis for axis in loop.iterset.nodes)
             for axes in self.axis_trees
             for loop in axes.outer_loops
-            for axis in loop.iterset.nodes
-        )
+        })

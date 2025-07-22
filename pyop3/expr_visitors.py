@@ -25,7 +25,7 @@ from petsc4py import PETSc
 from pyop3 import utils
 from pyop3.tensor import Tensor, Dat, Mat, BufferExpression
 # TODO: just namespace these
-from pyop3.axtree.tree import UNIT_AXIS_TREE, AxisVar, Conditional, Expression, UnaryOperator, Operator, BinaryOperator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, Neg, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN, _UnitAxisTree, Or, LessThan, LessThanOrEqual, GreaterThanOrEqual, GreaterThan, TernaryOperator
+from pyop3.axtree.tree import UNIT_AXIS_TREE, AxisVar, Conditional, Expression, UnaryOperator, Operator, BinaryOperator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, Neg, conditional, loopified_shape, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN, _UnitAxisTree, Or, LessThan, LessThanOrEqual, GreaterThanOrEqual, GreaterThan, TernaryOperator
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
 
@@ -66,6 +66,7 @@ class CompositeDat(abc.ABC):
 
     @cached_property
     def _loop_tree_and_replace_map(self) -> AxisTree:
+        assert False, "old code, use loopified_shape"
         axes = []
         loop_replace_map = {}
         for loop_index in self.loop_indices:
@@ -1216,4 +1217,35 @@ def _(expr: Expression):
 
 @get_loop_axes.register(numbers.Number)
 def _(num: numbers.Number):
-    return ()
+    return {}
+
+
+@functools.singledispatch
+def max_(expr):
+    raise TypeError
+
+
+@max_.register(numbers.Number)
+def _(expr):
+    return expr
+
+
+@max_.register(Expression)
+def _(expr):
+    from pyop3 import do_loop
+
+    axes, loop_var_replace_map = loopified_shape(expr)
+    loop_index = axes.index()
+
+    # NOTE: might hit issues if things aren't linear
+    loop_var_replace_map = {
+        axis.label: LoopIndexVar(loop_index, axis)
+        for axis in axes.nodes
+    }
+    expr = replace_terminals(expr, loop_var_replace_map)
+    result = Dat.zeros(UNIT_AXIS_TREE, dtype=IntType)
+    do_loop(
+        loop_index,
+        result.assign(conditional(result >= expr, result, expr))
+    )
+    return just_one(result.buffer._data)
