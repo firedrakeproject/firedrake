@@ -86,6 +86,12 @@ class KernelBuilderBase(KernelInterface):
         else:
             return self._cell_sizes[domain]
 
+    def entity_ids(self, domain):
+        """Tuple of possible entity ids."""
+        if not hasattr(self, "_entity_ids"):
+            raise RuntimeError("Haven't called set_entity_ids")
+        return self._entity_ids[domain]
+
     def entity_number(self, domain, restriction):
         """Facet or vertex number as a GEM index."""
         if not hasattr(self, "_entity_numbers"):
@@ -239,11 +245,10 @@ class KernelBuilderMixin(object):
         integral_type = info.integral_type
         cell = info.domain.ufl_cell()
         fiat_cell = as_fiat_cell(cell)
-        integration_dim, entity_ids = lower_integral_type(fiat_cell, integral_type)
+        integration_dim, _ = lower_integral_type(fiat_cell, integral_type)
         return dict(interface=self,
                     ufl_cell=cell,
                     integration_dim=integration_dim,
-                    entity_ids=entity_ids,
                     scalar_type=self.fem_scalar_type)
 
     def create_context(self):
