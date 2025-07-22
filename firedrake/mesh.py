@@ -1270,7 +1270,7 @@ class MeshTopology(AbstractMeshTopology):
         assert tdim == cell.topological_dimension()
         if self.submesh_parent is not None and \
                 not (self.submesh_parent.ufl_cell().cellname() == "hexahedron" and cell.cellname() == "quadrilateral") and \
-                not dmcommon.is_mixed_cell_type(self.submesh_parent.topology_dm):
+                len(self.submesh_parent.dm_cell_types) == 1:
             # Codim-1 submesh of a hex mesh (i.e. a quad submesh) can not
             # inherit cell_closure from the hex mesh as the cell_closure
             # must follow the special orientation restriction. This means
