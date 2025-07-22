@@ -136,6 +136,7 @@ def compile_element(expression, dual_space=None, parameters=None,
     builder = firedrake_interface.KernelBuilderBase(scalar_type=ScalarType)
     domain = extract_unique_domain(expression)
     builder._domain_integral_type_map = {domain: "cell"}
+    builder._entity_ids = {domain: (0,)}
     # Translate to GEM
     cell = domain.ufl_cell()
     dim = cell.topological_dimension()
@@ -521,6 +522,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
         raise NotImplementedError("In complex mode we are waiting for Slate")
     macro_builder = MacroKernelBuilder(ScalarType, ncell)
     macro_builder._domain_integral_type_map = {Vf.mesh(): "cell"}
+    macro_builder._entity_ids = {Vf.mesh(): (0,)}
     f = ufl.Coefficient(Vf)
     macro_builder.set_coefficients([f])
     macro_builder.set_coordinates(Vf.mesh())
@@ -566,6 +568,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     coarse_builder = firedrake_interface.KernelBuilder(info, parameters["scalar_type"])
     coarse_builder.set_coordinates([Vc.mesh()])
+    coarse_builder.set_entity_numbers([Vc.mesh()])
     argument_multiindices = coarse_builder.argument_multiindices
     argument_multiindex, = argument_multiindices
     return_variable, = coarse_builder.return_variables
