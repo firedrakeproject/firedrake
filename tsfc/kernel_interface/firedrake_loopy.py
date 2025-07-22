@@ -12,8 +12,8 @@ from gem.flop_count import count_flops
 import loopy as lp
 
 from tsfc import kernel_args
-from finat.element_factory import create_element
-from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase, KernelBuilderMixin, get_index_names, check_requirements, prepare_coefficient, prepare_arguments, prepare_constant
+from finat.element_factory import as_fiat_cell, create_element
+from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase, KernelBuilderMixin, get_index_names, check_requirements, prepare_coefficient, prepare_arguments, prepare_constant, lower_integral_type
 from tsfc.loopy import generate as generate_loopy
 
 
@@ -323,9 +323,12 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
 
         """
         self._entity_numbers = {}
+        self._entity_ids = {}
         for i, domain in enumerate(domains):
-            # Facet number
+            fiat_cell = as_fiat_cell(domain.ufl_cell())
             integral_type = self.integral_data_info.domain_integral_type_map[domain]
+            _, entity_ids = lower_integral_type(fiat_cell, integral_type)
+            self._entity_ids[domain] = entity_ids
             if integral_type in ['exterior_facet', 'exterior_facet_vert']:
                 facet = gem.Variable(f'facet_{i}', (1,), dtype=gem.uint_type)
                 self._entity_numbers[domain] = {None: gem.VariableIndex(gem.Indexed(facet, (0,))), }
