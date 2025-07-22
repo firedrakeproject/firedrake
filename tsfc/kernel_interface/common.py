@@ -87,9 +87,9 @@ class KernelBuilderBase(KernelInterface):
             return self._cell_sizes[domain]
 
     def entity_ids(self, domain):
-        """Tuple of possible entity ids."""
+        """Target indices of entity_number."""
         if not hasattr(self, "_entity_ids"):
-            raise RuntimeError("Haven't called set_entity_ids")
+            raise RuntimeError("Haven't called set_entity_numbers")
         return self._entity_ids[domain]
 
     def entity_number(self, domain, restriction):
