@@ -535,11 +535,10 @@ def dg_injection_kernel(Vf, Vc, ncell):
     macro_quadrature_rule = make_quadrature(ref_complex, estimate_total_polynomial_degree(ufl.inner(f, f)))
     index_cache = {}
     parameters = default_parameters()
-    integration_dim, entity_ids = lower_integral_type(Vfe.cell, "cell")
+    integration_dim, _ = lower_integral_type(Vfe.cell, "cell")
     macro_cfg = dict(interface=macro_builder,
                      ufl_cell=Vf.ufl_cell(),
                      integration_dim=integration_dim,
-                     entity_ids=entity_ids,
                      index_cache=index_cache,
                      quadrature_rule=macro_quadrature_rule,
                      scalar_type=parameters["scalar_type"],
@@ -571,14 +570,13 @@ def dg_injection_kernel(Vf, Vc, ncell):
     argument_multiindex, = argument_multiindices
     return_variable, = coarse_builder.return_variables
 
-    integration_dim, entity_ids = lower_integral_type(Vce.cell, "cell")
+    integration_dim, _ = lower_integral_type(Vce.cell, "cell")
     # Midpoint quadrature for jacobian on coarse cell.
     quadrature_rule = make_quadrature(Vce.cell, 0)
 
     coarse_cfg = dict(interface=coarse_builder,
                       ufl_cell=Vc.ufl_cell(),
                       integration_dim=integration_dim,
-                      entity_ids=entity_ids,
                       index_cache=index_cache,
                       quadrature_rule=quadrature_rule,
                       scalar_type=parameters["scalar_type"],
