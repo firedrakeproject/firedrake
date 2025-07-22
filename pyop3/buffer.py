@@ -198,15 +198,13 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # {{{ Instance attrs
 
-    _lazy_data: np.ndarray = dataclasses.field(repr=False)
     sf: StarForest | None
     _name: str
     _constant: bool
     _ordered: bool
 
+    _by_device: dict 
     _max_value: np.number | None = None
-
-    _state: int = 0
 
     # flags for tracking parallel correctness
     _leaves_valid: bool = True
@@ -237,18 +235,26 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def dtype(self) -> np.dtype:
         return self._data.dtype
 
+    def _state(self) -> int:
+        from firedrake.device import compute_device
+        return self._by_device[compute_device.identity][0] 
+    
     def inc_state(self) -> None:
-        self._state += 1
+        from firedrake.device import compute_device
+        self._by_device[compute_device.identity][0] += 1
 
     def duplicate(self, *, copy: bool = False) -> ArrayBuffer:
         # make sure that there are no pending transfers before we copy
         self.assemble()
         name = f"{self.name}_copy"
+        device_dict = {"cpu": [0, None], "gpu":[0, None]}
         if copy:
-            data = self._lazy_data.copy()
+            data = self._data.copy()
         else:
-            data = np.zeros_like(self._lazy_data)
-        return self.__record_init__(_name=name, _lazy_data=data)
+            data = np.zeros_like(self._data)
+        from firedrake.device import compute_device
+        device_dict[compute_device.identity][1] = data
+        return self.__record_init__(_name=name, _by_device=device_dict)
 
     is_nested: ClassVar[bool] = False
 
@@ -275,7 +281,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def zeros(cls, shape, dtype=None, **kwargs):
         if dtype is None:
             dtype = cls.DEFAULT_DTYPE
-
         data = np.zeros(shape, dtype=dtype)
         return cls(data, **kwargs)
 
@@ -290,12 +295,16 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             utils.debug_assert(lambda: (data == np.sort(data)).all())
 
 
-        self._lazy_data = data
         self.sf = sf
         self._name = name
         self._constant = constant
         self._max_value = max_value
         self._ordered = ordered
+
+        self._by_device = {"cpu": [0, None], "gpu": [0, None]}
+        from firedrake.device import compute_device
+        self._by_device[compute_device.identity][1] = compute_device.array(data)
+        self.inc_state()
 
     @property
     def comm(self) -> MPI.Comm | None:
@@ -395,12 +404,28 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @property
     def _data(self):
-        if self._lazy_data is None:
-            self._lazy_data = np.zeros(self.shape, dtype=self.dtype)
-        return self._lazy_data
+        from firedrake.device import compute_device
+        device_data = self._by_device[compute_device.identity][1]
+        if device_data is None and all([d[1] is None for d in self._by_device.values()]):
+             self._by_device[compute_device.identity][1] = np.zeros(self.shape, dtype=self.dtype)
+        else:
+            # needs testing
+            _state = self._by_device[compute_device.identity][0]
+            for device, data in self._by_device:
+                if data[0] > _state:
+                    new_array = data[1]
+                    _state = data[0]
+            self._by_device[compute_device.identity] = [_state, new_array]
+        device_data = self._by_device[compute_device.identity][1]
+        return device_data 
 
     @property
     def _owned_data(self):
+        from firedrake.device import compute_device
+        if all([self._by_device[compute_device.identity][0] >= d[0] for d in self._by_device.values()]):
+            return self._data
+        else:
+            breakpoint() 
         if self.sf is not None and self.sf.nleaves > 0:
             return self._data[: -self.sf.nleaves]
         else:

@@ -1,28 +1,42 @@
 import abc
 import contextlib
 from cuda.core.experimental import Device as CuDevice, Stream
+import numpy as np
 import cupy as cp
 from cuda.bindings.driver import CUstream
 #import cutlass.cute as cute
 #import cutlass
 import os
-class ComputeDevice(abc.ABC):
 
+class ComputeDevice(abc.ABC):
     pass
 
 class CPUDevice(ComputeDevice):
+    identity = "cpu"
+    array_type = np.ndarray
+
+    def array(self, arr):
+        return np.array(arr)
 
     def context_manager(self):
         yield self
 
 class GPUDevice(ComputeDevice):
 
+    identity = "gpu"
+    array_type = cp.ndarray
+    
     def __init__(self, num_threads=32):
+        self.identity = "gpu"
         self.num_threads=num_threads
         self.stream = cp.cuda.Stream(non_blocking=True)
         self.kernel_string = []
         self.kernel_args = []
         self.file_name = "temp_kernel_device"
+
+    def array(self, arr):
+        print("GPU array")
+        return cp.array(arr)
 
     
     def write_file(self, arrays, maps):
@@ -37,7 +51,7 @@ class GPUDevice(ComputeDevice):
                 
             num_cells = None 
             file.write("def gpu_parloop():\n")
-            for array, map, i in zip(arrays, maps, [i for i in range(len(arrays)+1)]):
+            for array, map, i in zip(arrays, maps, [i for i in range(len(arrays)+2)]):
                 print(i)
                 file.write(f"\ta{i} = cp.{repr(array.astype(object)).replace("object", "cp.float64")}\n")
                 file.write(f"\tm{i} = cp.{repr(map.astype(object)).replace("object", "cp.int32")}\n")

@@ -227,7 +227,8 @@ class LoopyCodegenContext(CodegenContext):
                     self.global_buffer_intents[buffer_key] = RW
                 return self._kernel_names[buffer_key]
 
-            if isinstance(buffer_ref.handle, np.ndarray):
+            from firedrake.device import compute_device
+            if isinstance(buffer_ref.handle, compute_device.array_type):
                 # Inject constant buffer data into the generated code if sufficiently small
                 # NOTE: We conflate 2 concepts for constant-ness here:
                 # * The array cannot be modified
