@@ -327,7 +327,11 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         for i, domain in enumerate(domains):
             fiat_cell = as_fiat_cell(domain.ufl_cell())
             integral_type = self.integral_data_info.domain_integral_type_map[domain]
-            _, entity_ids = lower_integral_type(fiat_cell, integral_type)
+            if integral_type is None:
+                # Set placeholder for unused domain.
+                entity_ids = None
+            else:
+                _, entity_ids = lower_integral_type(fiat_cell, integral_type)
             self._entity_ids[domain] = entity_ids
             if integral_type in ['exterior_facet', 'exterior_facet_vert']:
                 facet = gem.Variable(f'facet_{i}', (1,), dtype=gem.uint_type)
