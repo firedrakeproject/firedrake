@@ -54,7 +54,6 @@ class ContextBase(ProxyKernelInterface):
         'fiat_cell',
         'domain_integral_type_map',
         'integration_dim',
-        'entity_ids',
         'argument_multiindices',
         'facetarea',
         'index_cache',
@@ -78,8 +77,6 @@ class ContextBase(ProxyKernelInterface):
     def integration_dim(self):
         return self.fiat_cell.get_dimension()
 
-    entity_ids = [0]
-
     @cached_property
     def epsilon(self):
         return numpy.finfo(self.scalar_type).resolution
@@ -99,19 +96,11 @@ class ContextBase(ProxyKernelInterface):
         :arg restriction: Restriction of the modified terminal, used
                           for entity selection.
         """
-        integral_type = self.domain_integral_type_map[domain]
-        _, entity_ids = lower_integral_type(as_fiat_cell(domain.ufl_cell()), integral_type)
-        #if integral_type == 'exterior_facet_bottom':
-        #    entity_ids = [0]
-        #elif integral_type == 'exterior_facet_top':
-        #    entity_ids = [1]
-        #else:
-        #    entity_ids = list(as_fiat_cell(domain.ufl_cell()).get_topology()[self.integration_dim])
-        if len(entity_ids) == 1:
-            return callback(entity_ids[0])
+        if len(self.entity_ids(domain)) == 1:
+            return callback(self.entity_ids(domain)[0])
         else:
             f = self.entity_number(domain, restriction)
-            return gem.select_expression(list(map(callback, entity_ids)), f)
+            return gem.select_expression(list(map(callback, self.entity_ids(domain))), f)
 
     argument_multiindices = ()
 
@@ -267,7 +256,7 @@ class CoordinateMapping(PhysicalGeometry):
         config.update(self.config)
         if entity is not None:
             config.update({name: getattr(self.interface, name)
-                           for name in ["integration_dim", "entity_ids"]})
+                           for name in ["integration_dim"]})
         config.update(use_canonical_quadrature_point_ordering=False)  # quad point ordering not relevant.
         context = PointSetContext(**config)
         expr = self.preprocess(expr, context)
@@ -405,7 +394,7 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
 
         config = {name: getattr(self.context, name)
                   for name in ["ufl_cell", "index_cache", "scalar_type",
-                               "integration_dim", "entity_ids",
+                               "integration_dim",
                                "domain_integral_type_map"]}
         config.update(quadrature_degree=degree, interface=self.context,
                       argument_multiindices=argument_multiindices)
@@ -563,6 +552,9 @@ class CellVolumeKernelInterface(ProxyKernelInterface):
         assert r is None
         return self._wrapee.coefficient(ufl_coefficient, self.restriction)
 
+    def entity_ids(self, domain):
+        return (0,)
+
 
 @translate.register(CellVolume)
 def translate_cellvolume(terminal, mt, ctx):
@@ -585,7 +577,7 @@ def translate_facetarea(terminal, mt, ctx):
 
     config = {name: getattr(ctx, name)
               for name in ["ufl_cell", "integration_dim", "scalar_type",
-                           "entity_ids", "index_cache", "domain_integral_type_map"]}
+                           "index_cache", "domain_integral_type_map"]}
     config.update(interface=ctx, quadrature_degree=degree, use_canonical_quadrature_point_ordering=False)
     expr, = compile_ufl(integrand, PointSetContext(**config), point_sum=True)
     return expr
@@ -707,16 +699,7 @@ def translate_coefficient(terminal, mt, ctx):
 
     # Collect FInAT tabulation for all entities
     per_derivative = collections.defaultdict(list)
-    integral_type = ctx.domain_integral_type_map[domain]
-    _, entity_ids = lower_integral_type(as_fiat_cell(domain.ufl_cell()), integral_type)
-    #integral_type = ctx.domain_integral_type_map[domain]
-    #if integral_type == 'exterior_facet_bottom':
-    #    entity_ids = [0]
-    #elif integral_type == 'exterior_facet_top':
-    #    entity_ids = [1]
-    #else:
-    #    entity_ids = list(element.cell.get_topology()[ctx.integration_dim])
-    for entity_id in entity_ids:
+    for entity_id in ctx.entity_ids(domain):
         finat_dict = ctx.basis_evaluation(element, mt, entity_id)
         for alpha, table in finat_dict.items():
             # Filter out irrelevant derivatives
@@ -728,7 +711,7 @@ def translate_coefficient(terminal, mt, ctx):
                 per_derivative[alpha].append(table)
 
     # Merge entity tabulations for each derivative
-    if len(entity_ids) == 1:
+    if len(ctx.entity_ids(domain)) == 1:
         def take_singleton(xs):
             x, = xs  # asserts singleton
             return x
