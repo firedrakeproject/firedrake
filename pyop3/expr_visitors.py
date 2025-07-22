@@ -983,7 +983,7 @@ def _(mat_expr: LinearMatBufferExpression, /, layouts, key) -> LinearMatBufferEx
     #
     # which is what Mat{Get,Set}Values() needs.
     layouts = [
-        LinearDatBufferExpression(layout.buffer, layout.layouts[immutabledict()], layout.shape, layout.loop_axes)
+        LinearDatBufferExpression(layout.buffer, layout.layouts[immutabledict()])
         for layout in [row_layout, column_layout]
     ]
     return mat_expr.__record_init__(row_layout=layouts[0], column_layout=layouts[1])

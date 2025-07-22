@@ -2270,7 +2270,10 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
         #     else:
         #         region_size = ceildiv((min(region.size, stop-loc) - offset), step)
         #         offset = (offset + region.size) % step
-        out_of_bounds = (upper_bound < start) | (lower_bound >= stop)
+        if start == stop:
+            out_of_bounds = True
+        else:
+            out_of_bounds = (upper_bound < start) | (lower_bound >= stop)
         region_size = conditional(out_of_bounds, 0, utils.ceildiv((min(region.size, stop-loc) - offset), step))
         offset = conditional(out_of_bounds, offset-region.size, (offset+region.size) % step)
 

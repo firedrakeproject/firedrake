@@ -549,6 +549,12 @@ def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
         attr = attrs.pop(field.name, getattr(self, field.name))
         object.__setattr__(new, field.name, attr)
 
+    # try:
+    #     if "array_35" in new._full_str and "array_1" in new._full_str:
+    #         breakpoint()
+    # except:
+    #     pass
+
     if attrs:
         raise ValueError(
             f"Unrecognised arguments encountered during initialisation: {', '.join(attrs)}"

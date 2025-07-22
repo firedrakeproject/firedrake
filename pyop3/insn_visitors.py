@@ -527,6 +527,8 @@ def _(assignment: ArrayAssignment, /) -> NonEmptyArrayAssignment | NullInstructi
     # We can get a mismatch here if we are assigning a scalar (single tree
     # shape) to a matrix (double tree shape). We should probably be stricter
     # here (e.g. by asserting it has to be a scalar).
+    # FIXME: I think actually the assignee should just prescribe this.
+    axis_trees_per_arg = (axis_trees_per_arg[0],)
     for arg_axis_trees in zip_longest(*axis_trees_per_arg):
         merged_axis_tree = merge_axis_trees2(arg_axis_trees)
 

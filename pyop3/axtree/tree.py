@@ -774,6 +774,9 @@ class Expression(abc.ABC):
             return full_str
 
     def __add__(self, other):
+        from pyop3 import Dat
+        if isinstance(self, Dat) and self.buffer.name == other.buffer.name:
+            breakpoint()
         if other == 0:
             return self
         else:
@@ -1533,7 +1536,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
             size_axes = Axis(component.local_size)
         else:
             # size_axes, _ = extract_axes(size_expr, self, (), {})
-            size_axes = utils.just_one(size_expr.shape)
+            size_axes = utils.just_one(size_expr.shape).linearize(subpath, partial=True)
 
         size_dat = Dat.empty(size_axes, dtype=IntType)
         size_dat.assign(size_expr, eager=True)
@@ -1875,19 +1878,31 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     def outer_loops(self):
         return ()
 
-    def linearize(self, path: PathT) -> AxisTree:
-        """Return the axis tree dropping all components not specified in the path."""
+    def linearize(self, path: PathT, *, partial: bool = False) -> AxisTree:
+        """Return the axis tree dropping all components not specified in the path.
+
+        partial :
+            If `True` then only linearise using a partial path.
+
+        """
         path = as_path(path)
 
-        if path not in self.leaf_paths:
+        if not partial and path not in self.leaf_paths:
             raise ValueError("Provided path must go all the way from the root to a leaf")
+
+        assert path in self.node_map
 
         linear_axes = []
         for axis, component_label in self.visited_nodes(path):
             component = utils.just_one(c for c in axis.components if c.label == component_label)
             linear_axis = Axis([component], axis.label)
             linear_axes.append(linear_axis)
-        return AxisTree.from_iterable(linear_axes)
+        axis_tree = AxisTree.from_iterable(linear_axes)
+
+        if partial and path not in self.leaf_paths:
+            breakpoint()
+
+        return axis_tree
 
     # NOTE: should default to appending (assuming linear)
     def add_axis(self, path: PathT, axis: Axis) -> AxisTree:
@@ -2921,8 +2936,13 @@ def as_str(expr):
     return expr._full_str
 
 
+@as_str.register(Expression)
+def _(expr):
+    return expr._full_str
+
+
 @as_str.register(numbers.Number)
 @as_str.register(bool)
 @as_str.register(np.bool)
-def as_str(expr):
+def _(expr):
     return str(expr)

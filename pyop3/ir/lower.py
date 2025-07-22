@@ -380,9 +380,11 @@ class ModuleExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
-        if len(self.loopy_code.callables_table) > 1:
-            breakpoint()
-        # pyop3.extras.debug.maybe_breakpoint()
+        # if len(self.loopy_code.callables_table) > 1:
+        # if len(self.loopy_kernel.args) > 2:
+        # if len(str(self)) > 3000:
+        #     breakpoint()
+            # pyop3.extras.debug.maybe_breakpoint()
 
         self.executable(*exec_arguments)
         pass
@@ -850,7 +852,13 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
         # TODO: There must be a more elegant way of doing this
         nrows = row_axis_tree.size
         ncols = column_axis_tree.size
-        expr_data = np.full((nrows, ncols), expr, dtype=mat.buffer.buffer.dtype)
+
+        if isinstance(nrows, numbers.Integral) and isinstance(ncols, numbers.Integral):
+            expr_data = np.full((nrows, ncols), expr, dtype=mat.buffer.buffer.dtype)
+        else:
+            pyop3.extras.debug.warn_todo("Need expr.materialize() or similar to get the max size")
+            max_size = 36  # assume that this is OK
+            expr_data = np.full((max_size, max_size), expr, dtype=mat.buffer.buffer.dtype)
         array_buffer = BufferRef(ArrayBuffer(expr_data, constant=True))
     else:
         assert isinstance(expr, BufferExpression)
@@ -867,25 +875,19 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
     csize = column_axis_tree.size
 
     # these sizes can be expressions that need evaluating
-    if not isinstance(rsize, numbers.Integral):
-        raise NotImplementedError
-        rsize_var = register_extent(
-            rsize,
-            loop_indices,
-            context,
-        )
-    else:
-        rsize_var = rsize
+    rsize_var = register_extent(
+        rsize,
+        [{}],
+        loop_indices,
+        context,
+    )
 
-    if not isinstance(csize, numbers.Integral):
-        raise NotImplementedError
-        csize_var = register_extent(
-            csize,
-            loop_indices,
-            context,
-        )
-    else:
-        csize_var = csize
+    csize_var = register_extent(
+        csize,
+        [{}],
+        loop_indices,
+        context,
+    )
 
     irow = lower_expr(mat.row_layout, ((),), loop_indices, context)
     icol = lower_expr(mat.column_layout, ((),), loop_indices, context)
@@ -1176,6 +1178,17 @@ def maybe_multiindex(buffer_ref, offset_expr, context):
 
 @_lower_expr.register(Conditional)
 def _(add: Conditional, /, *args, **kwargs) -> pym.Expression:
+    # This kind of works, but is awful and the instruction ordering is wrong
+    # return pym.primitives.If(
+    #     *(
+    #         map(
+    #             pym.cse,
+    #             (
+    #                 _lower_expr(add.a, *args, **kwargs), _lower_expr(add.b, *args, **kwargs), _lower_expr(add.c, *args, **kwargs)
+    #             )
+    #         )
+    #     )
+    # )
     return pym.primitives.If(_lower_expr(add.a, *args, **kwargs), _lower_expr(add.b, *args, **kwargs), _lower_expr(add.c, *args, **kwargs))
 
 

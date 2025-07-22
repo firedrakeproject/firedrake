@@ -1537,6 +1537,9 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             diag_blocks = [(Ellipsis, Ellipsis)]
 
         for rindex, cindex in diag_blocks:
+            import pyop3.extras.debug
+            pyop3.extras.debug.enable_conditional_breakpoints()
+
             op3.do_loop(
                 p := extract_unique_domain(test).points.index(),
                 sparsity[rindex, cindex][p, p].assign(666)

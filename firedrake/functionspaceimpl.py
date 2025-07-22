@@ -904,8 +904,12 @@ class FunctionSpace:
         # size = (self.size * self.cdim, None)
         # "size" is a 2-tuple of (local size, global size), setting global size
         # to None means PETSc will determine it for us.
+        # import pyop3.extras.debug as dbg
+        # dbg.enable_conditional_breakpoints()
         size = (self.axes.owned.size, None)
         # vec.setSizes(size, bsize=self.cdim)
+
+
         vec.setSizes(size)
         vec.setUp()
         return vec

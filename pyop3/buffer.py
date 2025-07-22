@@ -399,6 +399,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             self._lazy_data = np.zeros(self.shape, dtype=self.dtype)
         return self._lazy_data
 
+    # TODO: I think the halo bits should only be handled at the Dat level via the
+    # axis tree. Here we can just consider the array.
     @property
     def _owned_data(self):
         if self.sf is not None and self.sf.nleaves > 0:

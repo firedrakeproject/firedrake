@@ -121,12 +121,15 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, free
                 offset_dat_expr = as_linear_buffer_expression(offset_dat)
                 component_layout = offset_dat_expr * step + start
             else:
-                if _tabulation_needs_subaxes(axes, path_acc_, free_axes_):
+                if _tabulation_needs_subaxes(axes, path_acc_, free_axes):
                     # 1. Needs subindices to be able to tabulate anything, pass down
                     component_layout = NaN()
                 elif _axis_contains_multiple_regions(axes, path_acc) or not subtree.is_empty:
                     # 3. Non-constant stride, must tabulate
                     offset_dat = Dat(offset_axes.regionless, data=np.full(offset_axes.size, -1, dtype=IntType))
+
+                    if offset_dat.buffer.name == "array_38":
+                        breakpoint()
 
                     if _axis_contains_multiple_regions(axes, path_acc):
                         # We cannot deal with constant steps here because that gets thrown out
@@ -336,7 +339,11 @@ def axis_tree_component_size(axis_tree, path, component):
         #
         # Note that currently only allow a single free index.
 
-        all_axes_that_we_need = utils.just_one(subtree_size.shape)
+        import pyop3.extras.debug
+        # pyop3.extras.debug.maybe_breakpoint()
+
+        # Drop irrelevant components from the axes as loop index vars are supposed to be linear
+        all_axes_that_we_need = utils.just_one(subtree_size.shape).linearize(path_)
         assert not subtree_size.loop_axes, "Cannot compute the size of something involving loop indices"
 
         if all_axes_that_we_need.depth > 1:
@@ -352,7 +359,6 @@ def axis_tree_component_size(axis_tree, path, component):
 
         # Replace AxisVars with LoopIndexVars in the size expression so we can
         # access them in a loop
-        # Drop irrelevant components from the axes as loop index vars are supposed to be linear
         inv_map = {
             ax.label: LoopIndexVar(j.id, ax.linearize(path_[ax.label]))
             for ax in all_axes_that_we_need.nodes

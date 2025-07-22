@@ -693,8 +693,6 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
         self.layout = layout
         # self._loop_axes = loop_axes
         #
-        # if str(self) == "array_0[L_{_label_LoopIndex_6, firedrake_default_topology}]":
-        #     breakpoint()
 
 
 @utils.record()
