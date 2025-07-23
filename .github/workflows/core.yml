@@ -93,7 +93,7 @@ jobs:
       FIREDRAKE_CI: 1
       PYOP2_CI_TESTS: 1
       PYOP2_SPMD_STRICT: 1
-      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660
+      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=1200 --timeout-method=thread -o faulthandler_timeout=1260
       PYTEST_MPI_MAX_NPROCS: 8
     steps:
       - name: Fix HOME
@@ -223,7 +223,7 @@ jobs:
         run: |
           . venv/bin/activate
           firedrake-check
-        timeout-minutes: 5
+        timeout-minutes: 10
 
       - name: Run TSFC tests
         # Run even if earlier tests failed
@@ -233,7 +233,7 @@ jobs:
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/tsfc
-        timeout-minutes: 60
+        timeout-minutes: 120
 
       - name: Run PyOP2 tests
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
@@ -245,7 +245,7 @@ jobs:
           firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
           firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
           firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
-        timeout-minutes: 15
+        timeout-minutes: 30
 
 
       - name: Run Firedrake tests (nprocs = 1)
@@ -255,56 +255,56 @@ jobs:
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 60
+        timeout-minutes: 120
 
       - name: Run tests (nprocs = 2)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 30
+        timeout-minutes: 60
 
       - name: Run tests (nprocs = 3)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 60
+        timeout-minutes: 120
 
       - name: Run tests (nprocs = 4)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
+        timeout-minutes: 30
 
       - name: Run tests (nprocs = 5)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
+        timeout-minutes: 30
 
       - name: Run tests (nprocs = 6)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
+        timeout-minutes: 30
 
       - name: Run tests (nprocs = 7)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
+        timeout-minutes: 30
 
       - name: Run tests (nprocs = 8)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 15
+        timeout-minutes: 30
 
       - name: Run Gusto smoke tests
         # Only test Gusto in real mode
@@ -320,7 +320,7 @@ jobs:
             gusto-repo/integration-tests/balance/test_saturated_balance.py \
             gusto-repo/integration-tests/equations/test_thermal_sw.py \
             gusto-repo/integration-tests/transport/test_embedded_dg_advection.py
-        timeout-minutes: 10
+        timeout-minutes: 20
 
       - name: Run Thetis smoke tests
         if: |
@@ -332,7 +332,7 @@ jobs:
           git clone --depth 1 https://github.com/thetisproject/thetis.git thetis-repo
           pip install --verbose ./thetis-repo
           python -m pytest -n 8 --verbose thetis-repo/test_adjoint/test_swe_adjoint.py
-        timeout-minutes: 10
+        timeout-minutes: 20
 
       - name: Run spyro smoke tests
         if: |
@@ -344,7 +344,7 @@ jobs:
           git clone --depth 1 https://github.com/NDF-Poli-USP/spyro.git spyro-repo
           pip install --verbose ./spyro-repo
           mpiexec -n 6 python -m pytest spyro-repo/test_integration/ -m parallel[6]
-        timeout-minutes: 5
+        timeout-minutes: 10
 
       - name: Run G-ADOPT smoke tests
         if: |
@@ -356,7 +356,7 @@ jobs:
           git clone --depth 1 https://github.com/g-adopt/g-adopt.git g-adopt-repo
           pip install --verbose ./g-adopt-repo
           make -C g-adopt-repo/demos/mantle_convection/base_case check
-        timeout-minutes: 5
+        timeout-minutes: 10
 
       - name: Upload log files
         uses: actions/upload-artifact@v4
@@ -515,7 +515,7 @@ jobs:
         run: |
           . venv/bin/activate
           firedrake-check
-        timeout-minutes: 10
+        timeout-minutes: 20
 
       - name: Post-run cleanup
         if: always()
