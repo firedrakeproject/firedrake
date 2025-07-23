@@ -171,8 +171,8 @@ jobs:
         id: install
         run: |
           export $(python3 ./firedrake-repo/scripts/firedrake-configure --arch "${{ matrix.arch }}" --show-env)
-          python3 -m venv venv
-          . venv/bin/activate
+          python3 -m venv ~/venv-firedrake
+          . ~/venv-firedrake/bin/activate
 
           : # Force a rebuild of petsc4py as the cached one will not link to the fresh
           : # install of PETSc.
@@ -223,7 +223,7 @@ jobs:
 
       - name: Run firedrake-check
         run: |
-          . venv/bin/activate
+          . ~/venv-firedrake/bin/activate
           firedrake-check
         timeout-minutes: 5
 
@@ -231,7 +231,7 @@ jobs:
         # Run even if earlier tests failed
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
-          . venv/bin/activate
+          . ~/venv-firedrake/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/tsfc
@@ -240,7 +240,7 @@ jobs:
       - name: Run PyOP2 tests
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
-          . venv/bin/activate
+          . ~/venv-firedrake/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
@@ -253,7 +253,7 @@ jobs:
       - name: Run Firedrake tests (nprocs = 1)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
-          . venv/bin/activate
+          . ~/venv-firedrake/bin/activate
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
@@ -262,49 +262,49 @@ jobs:
       - name: Run tests (nprocs = 2)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
-          . venv/bin/activate
+          . ~/venv-firedrake/bin/activate
           firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 30
 
       - name: Run tests (nprocs = 3)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
-          . venv/bin/activate
+          . ~/venv-firedrake/bin/activate
           firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 60
 
       - name: Run tests (nprocs = 4)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
-          . venv/bin/activate
+          . ~/venv-firedrake/bin/activate
           firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 5)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
-          . venv/bin/activate
+          . ~/venv-firedrake/bin/activate
           firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 6)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
-          . venv/bin/activate
+          . ~/venv-firedrake/bin/activate
           firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 7)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
-          . venv/bin/activate
+          . ~/venv-firedrake/bin/activate
           firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
       - name: Run tests (nprocs = 8)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
-          . venv/bin/activate
+          . ~/venv-firedrake/bin/activate
           firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 15
 
@@ -315,7 +315,7 @@ jobs:
           (success() || steps.install.conclusion == 'success') &&
           matrix.arch == 'default'
         run: |
-          . venv/bin/activate
+          . ~/venv-firedrake/bin/activate
           git clone --depth 1 https://github.com/firedrakeproject/gusto.git gusto-repo
           pip install --verbose ./gusto-repo
           python -m pytest -n 8 --verbose \
@@ -330,7 +330,7 @@ jobs:
           (success() || steps.install.conclusion == 'success') &&
           matrix.arch == 'default'
         run: |
-          . venv/bin/activate
+          . ~/venv-firedrake/bin/activate
           git clone --depth 1 https://github.com/thetisproject/thetis.git thetis-repo
           pip install --verbose ./thetis-repo
           python -m pytest -n 8 --verbose thetis-repo/test_adjoint/test_swe_adjoint.py
@@ -342,7 +342,7 @@ jobs:
           (success() || steps.install.conclusion == 'success') &&
           matrix.arch == 'default'
         run: |
-          . venv/bin/activate
+          . ~/venv-firedrake/bin/activate
           git clone --depth 1 https://github.com/NDF-Poli-USP/spyro.git spyro-repo
           pip install --verbose ./spyro-repo
           mpiexec -n 6 python -m pytest spyro-repo/test_integration/ -m parallel[6]
@@ -354,7 +354,7 @@ jobs:
           (success() || steps.install.conclusion == 'success') &&
           matrix.arch == 'default'
         run: |
-          . venv/bin/activate
+          . ~/venv-firedrake/bin/activate
           git clone --depth 1 https://github.com/g-adopt/g-adopt.git g-adopt-repo
           pip install --verbose ./g-adopt-repo
           make -C g-adopt-repo/demos/mantle_convection/base_case check
@@ -374,20 +374,20 @@ jobs:
       - name: Check bibtex
         if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
         run: |
-          . venv/bin/activate
+          . ~/venv-firedrake/bin/activate
           make -C firedrake-repo/docs validate-bibtex
 
       - name: Check documentation links
         if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
         run: |
-          . venv/bin/activate
+          . ~/venv-firedrake/bin/activate
           make -C firedrake-repo/docs linkcheck
 
       - name: Build documentation
         if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
         id: build_docs
         run: |
-          . venv/bin/activate
+          . ~/venv-firedrake/bin/activate
           cd firedrake-repo/docs
           make SPHINXOPTS="-t ${{ inputs.target_branch }}" html
           make latex
