@@ -1,5 +1,6 @@
 from firedrake.preconditioners.base import SNESBase
 from firedrake.petsc import PETSc
+from firedrake.dmhooks import get_appctx as get_dm_appctx
 
 __all__ = ("AuxiliaryOperatorSNES",)
 
@@ -23,6 +24,7 @@ class AuxiliaryOperatorSNES(SNESBase):
 
         V = self.get_function_space(snes).collapse()
 
+        # auxiliary form G(k+1)
         test = TestFunction(V)
         uk1 = Function(V)
         uk = Function(V)
@@ -31,6 +33,7 @@ class AuxiliaryOperatorSNES(SNESBase):
 
         Gk1, bcs = self.form(snes, test, uk1)
 
+        # forcing F(k) - G(k)
         Gk = replace(Gk1, {uk1: uk})
         b = Cofunction(V.dual())
         Gk1 -= b
@@ -45,12 +48,19 @@ class AuxiliaryOperatorSNES(SNESBase):
         self.Gk1 = Gk1
         self.b = b
 
+        # grab nullspaces from context
+        ctx = get_dm_appctx(snes.dm)
+
         self.solver = NonlinearVariationalSolver(
             NonlinearVariationalProblem(
                 Gk1, uk1, bcs=bcs,
                 form_compiler_parameters=fcp),
+            nullspace=ctx._nullspace,
+            transpose_nullspace=ctx._nullspace_T,
+            near_nullspace=ctx._near_nullspace,
             appctx=appctx, options_prefix=prefix)
 
+        # indent monitor outputs
         outer_snes = snes
         inner_snes = self.solver.snes
         inner_snes.incrementTabLevel(1, parent=outer_snes)
