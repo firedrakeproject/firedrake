@@ -205,6 +205,7 @@ jobs:
             --extra-index-url https://download.pytorch.org/whl/cpu \
             "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci,docs]"
 
+          pip install -I "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git@pbrubeck/morley-tet"
           firedrake-clean
           pip list
 
