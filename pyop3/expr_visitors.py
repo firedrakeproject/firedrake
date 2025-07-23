@@ -660,6 +660,7 @@ def _(mat: Mat, /, axis_trees: Iterable[AxisTree, ...]) -> BufferExpression:
         ]
         expr = LinearMatBufferExpression(BufferRef(mat.buffer, nest_indices), *layouts)
     else:
+        breakpoint()  # unsure why we have this! temporaries?
         expr = NonlinearMatBufferExpression(
             BufferRef(mat.buffer, nest_indices),
             row_axes.leaf_subst_layouts,
@@ -966,11 +967,23 @@ def _(mat_expr: LinearMatBufferExpression, /, layouts, key) -> LinearMatBufferEx
     #   map0[3*i0]
     #
     # which is what Mat{Get,Set}Values() needs.
-    layouts = [
-        LinearDatBufferExpression(layout.buffer, layout.layouts[idict()])
-        for layout in [row_layout, column_layout]
-    ]
-    return mat_expr.__record_init__(row_layout=layouts[0], column_layout=layouts[1])
+    subst_layouts = []
+    for layout in [row_layout, column_layout]:
+        subst_sublayouts = []
+        for sublayout in layout.layouts.values():
+            axis_var_zero_replace_map = {
+                axis_var: 0
+                for axis_var in collect_axis_vars(sublayout)
+            }
+            subst_sublayout = replace(sublayout, axis_var_zero_replace_map)
+            subst_sublayouts.append(subst_sublayout)
+        subst_sublayout = utils.single_valued(subst_sublayouts)
+
+        subst_layout = LinearDatBufferExpression(layout.buffer, subst_sublayout)
+        subst_layouts.append(subst_layout)
+    row_layout, column_layout = subst_layouts
+
+    return mat_expr.__record_init__(row_layout=row_layout, column_layout=column_layout)
 
 
 # Should be very similar to dat case
@@ -1069,78 +1082,91 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatBufferExp
     # if mytree.size == 0:
     #     return None
 
+    big_tree, loop_var_replace_map = loopified_shape(composite_dat)
+
     # step 2: assign
-    result = Dat.empty(composite_dat.loopified_axis_tree, dtype=IntType)
+    assignee = Dat.empty(big_tree, dtype=IntType)
 
     # replace LoopIndexVars in the expression with AxisVars
-    loop_index_replace_map = []
-    loop_slices = []
-    for loop_var in composite_dat.loop_vars:
-        orig_axis = loop_var.axis
-        new_axis = Axis(orig_axis.components, f"{orig_axis.label}_{loop_var.loop_id}")
-        loop_index_replace_map.append((loop_var, AxisVar(new_axis)))
+    # loop_index_replace_map = []
+    # loop_slices = []
+    # for loop_var in composite_dat.loop_vars:
+    #     orig_axis = loop_var.axis
+    #     new_axis = Axis(orig_axis.components, f"{orig_axis.label}_{loop_var.loop_id}")
+    #     loop_index_replace_map.append((loop_var, AxisVar(new_axis)))
 
-        loop_slice = Slice(new_axis.label, [AffineSliceComponent(orig_axis.component.label)])
-        loop_slices.append(loop_slice)
+        # loop_slice = Slice(new_axis.label, [AffineSliceComponent(orig_axis.component.label)])
+        # loop_slices.append(loop_slice)
 
-    dumb_replace_map = {
-        (loop_var.loop_id, loop_var.axis_label): axis_var
-        for (loop_var, axis_var) in loop_index_replace_map
-    }
+    # dumb_replace_map = {
+    #     (loop_var.loop_id, loop_var.axis_label): axis_var
+    #     for (loop_var, axis_var) in loop_index_replace_map
+    # }
 
     for path, expr in composite_dat.leaf_exprs.items():
-        expr = replace_terminals(expr, dumb_replace_map)
-        myslices = []
-        for axis, component in path.items():
-            myslice = Slice(axis, [AffineSliceComponent(component)])
-            myslices.append(myslice)
-        iforest = IndexTree.from_iterable((*loop_slices, *myslices))
+        expr = replace(expr, loop_var_replace_map)
 
-        # NOTE: not sure about this!
-        if iforest.is_empty:
-            continue
+        assignee_ = assignee.with_axes(assignee.axes.linearize(composite_dat.loop_tree.leaf_path | path))
 
-        assignee = result[iforest]
+        # myslices = []
+        # for axis, component in path.items():
+        #     myslice = Slice(axis, [AffineSliceComponent(component)])
+        #     myslices.append(myslice)
+        # iforest = IndexTree.from_iterable((*loop_slices, *myslices))
+        #
+        # # NOTE: not sure about this!
+        # if iforest.is_empty:
+        #     continue
 
-        if assignee.size > 0:
-            assignee.assign(expr, eager=True)
+        # assignee = result[iforest]
+
+        if assignee_.size > 0:
+            assignee_.assign(expr, eager=True)
 
     # step 3: replace axis vars with loop indices in the layouts
     # NOTE: We need *all* the layouts here (i.e. not just the leaves) because matrices do not want the full path here. Instead
     # they want to abort once the loop indices are handled.
     newlayouts = {}
-    dumb_inv_replace_map = {
-        axis_var.axis_label: loop_var
-        for (loop_var, axis_var) in loop_index_replace_map
-    }
+    axis_to_loop_var_replace_map = utils.invert_mapping(loop_var_replace_map)
+    # dumb_inv_replace_map = {
+    #     axis_var.axis_label: loop_var
+    #     for (loop_var, axis_var) in loop_index_replace_map
+    # }
     if isinstance(composite_dat.axis_tree, _UnitAxisTree):
-        layout = result.axes.subst_layouts()[composite_dat.loop_tree.leaf_path]
-        newlayout = replace_terminals(layout, dumb_inv_replace_map)
+        layout = assignee.axes.leaf_subst_layout
+        newlayout = replace(layout, axis_to_loop_var_replace_map)
         newlayouts[idict()] = newlayout
     else:
         for path, mynode in composite_dat.axis_tree.node_map.items():
+
             if mynode is None:
                 continue
 
             for component in mynode.components:
-                fullpath = composite_dat.loop_tree.leaf_path | path
-                layout = result.axes.subst_layouts()[fullpath]
-                newlayout = replace_terminals(layout, dumb_inv_replace_map)
-                newlayouts[path] = newlayout
+                path_ = path | {mynode.label: component.label}
+
+                fullpath = composite_dat.loop_tree.leaf_path | path_
+                layout = assignee.axes.subst_layouts()[fullpath]
+                newlayout = replace(layout, axis_to_loop_var_replace_map)
+                newlayouts[path_] = newlayout
 
     # plus the empty layout
-    path = idict()
-    fullpath = composite_dat.loop_tree.leaf_path
-    layout = result.axes.subst_layouts()[fullpath]
-    newlayout = replace_terminals(layout, dumb_inv_replace_map)
-    newlayouts[path] = newlayout
+
+    # WHY!
+
+    # path = idict()
+    # fullpath = composite_dat.loop_tree.leaf_path
+    # layout = result.axes.subst_layouts()[fullpath]
+    # newlayout = replace(layout, axis_to_loop_var_replace_map)
+    # newlayouts[path] = newlayout
 
     if isinstance(composite_dat, LinearCompositeDat):
         layout = newlayouts[axes.leaf_path]
-        return LinearDatBufferExpression(BufferRef(result.buffer, axes.nest_indices), layout)
+        assert not isinstance(layout, NaN)
+        return LinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), layout)
     else:
         assert isinstance(composite_dat, NonlinearCompositeDat)
-        return NonlinearDatBufferExpression(BufferRef(result.buffer, axes.nest_indices), newlayouts)
+        return NonlinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), newlayouts)
 
 
 # TODO: Better to just return the actual value probably...

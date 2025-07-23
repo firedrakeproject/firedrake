@@ -208,6 +208,8 @@ class Instruction(abc.ABC):
 
         insn = self
 
+        # import pyop3
+        # pyop3.extras.debug.maybe_breakpoint()
         insn = expand_loop_contexts(insn)
         insn = expand_implicit_pack_unpack(insn)
 

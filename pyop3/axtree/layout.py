@@ -29,6 +29,7 @@ from pyop3.axtree.tree import (
     loopified_shape,
 )
 from pyop3.dtypes import IntType
+from pyop3.tensor.dat import as_linear_buffer_expression
 from pyop3.utils import (
     StrictlyUniqueDict,
     as_tuple,
@@ -404,7 +405,7 @@ def axis_tree_component_size(axis_tree, path, component):
                     component_size[i].iassign(subtree_size_expr)
                 )
             )()
-            return component_size
+            return as_linear_buffer_expression(component_size)
 
         else:
             component_size_axes = UNIT_AXIS_TREE

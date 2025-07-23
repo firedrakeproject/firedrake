@@ -810,9 +810,6 @@ class Expression(abc.ABC):
             return full_str
 
     def __add__(self, other):
-        from pyop3 import Dat
-        if isinstance(self, Dat) and self.buffer.name == other.buffer.name:
-            breakpoint()
         if other == 0:
             return self
         else:
