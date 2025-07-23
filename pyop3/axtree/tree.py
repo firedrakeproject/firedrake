@@ -782,6 +782,8 @@ class Expression(abc.ABC):
 
     # {{{ abstract methods
 
+    # TODO: I reckon that this isn't strictly necessary - we can always detect the shape
+    # via a traversal. Similarly for loop axes and such.
     @property
     @abc.abstractmethod
     def shape(self) -> AxisTree:
@@ -3019,7 +3021,7 @@ def get_loop_tree(expr) -> tuple[AxisTree, Mapping[LoopIndexVar, AxisVar]]:
             axis = loop_axis.copy(label=axis_label)
             axes.append(axis)
 
-            loop_var = LoopIndexVar(loop_index.id, loop_axis)
+            loop_var = LoopIndexVar(loop_index, loop_axis)
             axis_var = AxisVar(axis)
             loop_var_replace_map[loop_var] = axis_var
 

@@ -827,11 +827,5 @@ def _(dat: Dat) -> LinearDatBufferExpression:
 
     axes = dat.axes.regionless
 
-    # don't do this here. The nesting is associated to the buffer, not the axes
-    # nest_indices = axes.nest_indices
-    # for nest_index in nest_indices:
-    #     axes = axes.nest_subtree(nest_index)
-
     layout = just_one(axes.leaf_subst_layouts.values())
-    assert layout.loop_axes == dat.loop_axes
     return LinearDatBufferExpression(BufferRef(dat.buffer), layout)

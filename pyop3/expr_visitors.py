@@ -13,7 +13,7 @@ from typing import Any, ClassVar, Optional
 
 from mpi4py.MPI import buffer
 import numpy as np
-from immutabledict import immutabledict
+from immutabledict import immutabledict as idict
 from pyop3.exceptions import Pyop3Exception
 from pyop3.tensor import Scalar
 from pyop3.tensor.dat import BufferExpression, ScalarBufferExpression, LinearDatBufferExpression, NonlinearDatBufferExpression, LinearMatBufferExpression, NonlinearMatBufferExpression, LinearBufferExpression, NonlinearBufferExpression
@@ -25,7 +25,7 @@ from petsc4py import PETSc
 from pyop3 import utils
 from pyop3.tensor import Tensor, Dat, Mat, BufferExpression
 # TODO: just namespace these
-from pyop3.axtree.tree import UNIT_AXIS_TREE, AxisVar, Conditional, Expression, UnaryOperator, Operator, BinaryOperator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, Neg, conditional, loopified_shape, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN, _UnitAxisTree, Or, LessThan, LessThanOrEqual, GreaterThanOrEqual, GreaterThan, TernaryOperator
+from pyop3.axtree.tree import UNIT_AXIS_TREE, AxisVar, Conditional, Expression, UnaryOperator, Operator, BinaryOperator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, Neg, conditional, loopified_shape, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN, _UnitAxisTree, Or, LessThan, LessThanOrEqual, GreaterThanOrEqual, GreaterThan, TernaryOperator, get_loop_tree
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
 
@@ -51,10 +51,21 @@ class CompositeDat(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def leaf_exprs(self) -> immutabledict:
+    def leaf_exprs(self) -> idict:
         pass
 
     # }}}
+
+    @property
+    def shape(self) -> tuple[AxisTree]:
+        return (self.axis_tree,)
+
+    @property
+    def loop_axes(self):
+        return idict({
+            loop_index: tuple(axis for axis in loop_index.iterset.nodes)
+            for loop_index in self.loop_indices
+        })
 
     @property
     def loop_tree(self):
@@ -66,50 +77,12 @@ class CompositeDat(abc.ABC):
 
     @cached_property
     def _loop_tree_and_replace_map(self) -> AxisTree:
-        assert False, "old code, use loopified_shape"
-        axes = []
-        loop_replace_map = {}
-        for loop_index in self.loop_indices:
-            assert loop_index.iterset.is_linear
-            for loop_axis in loop_index.iterset.nodes:
-                axis_label = f"{loop_axis.label}_{loop_index.id}"
-
-                axis = loop_axis.copy(label=axis_label)
-                axes.append(axis)
-
-                loop_var = LoopIndexVar(loop_index.id, loop_axis)
-                axis_var = AxisVar(axis)
-                loop_replace_map[loop_var] = axis_var
-
-        return (AxisTree.from_iterable(axes), loop_replace_map)
+        return get_loop_tree(self)
 
     @cached_property
     def loopified_axis_tree(self) -> AxisTree:
         """Return the fully materialised axis tree including loops."""
-        from pyop3.expr_visitors import replace_terminals
-
-        axis_tree = self.loop_tree
-        loop_replace_map = self.loop_replace_map
-
-        # Replace any references to the loop indices
-        new_node_map = {}
-        for path, axis in self.axis_tree.node_map.items():
-            if axis is None:
-                new_node_map[path] = axis
-                continue
-
-            new_components = []
-            for component in axis.components:
-                new_regions = []
-                for region in component.regions:
-                    new_size = replace(region.size, loop_replace_map)
-                    new_regions.append(region.__record_init__(size=new_size))
-                new_components.append(component.copy(regions=new_regions))
-            new_node_map[path] = axis.copy(components=new_components)
-        subtree = AxisTree(new_node_map)
-        axis_tree = axis_tree.add_subtree(axis_tree.leaf_path, subtree)
-
-        return axis_tree
+        return loopified_shape(self)[0]
 
     @cached_property
     def loop_vars(self) -> tuple[LoopIndexVar, ...]:
@@ -117,7 +90,7 @@ class CompositeDat(abc.ABC):
         for loop_index in self.loop_indices:
             assert loop_index.iterset.is_linear
             for loop_axis in loop_index.iterset.nodes:
-                vars.append(LoopIndexVar(loop_index.id, loop_axis))
+                vars.append(LoopIndexVar(loop_index, loop_axis))
         return tuple(vars)
 
 
@@ -138,8 +111,8 @@ class LinearCompositeDat(CompositeDat):
     loop_indices = utils.attr("_loop_indices")
 
     @property
-    def leaf_exprs(self) -> immutabledict:
-        return immutabledict({self.axis_tree.leaf_path: self.leaf_expr})
+    def leaf_exprs(self) -> idict:
+        return idict({self.axis_tree.leaf_path: self.leaf_expr})
 
     # }}}
 
@@ -160,7 +133,7 @@ class NonlinearCompositeDat(CompositeDat):
     # {{{ instance attrs
 
     _axis_tree: AxisTree
-    _leaf_exprs: immutabledict
+    _leaf_exprs: idict
     _loop_indices: tuple[LoopIndex]
 
     # }}}
@@ -168,7 +141,7 @@ class NonlinearCompositeDat(CompositeDat):
     # {{{ interface impls
 
     axis_tree = utils.attr("_axis_tree")
-    leaf_exprs: ClassVar[immutabledict] = utils.attr("_leaf_exprs")
+    leaf_exprs: ClassVar[idict] = utils.attr("_leaf_exprs")
     loop_indices = utils.attr("_loop_indices")
 
     # }}}
@@ -177,7 +150,7 @@ class NonlinearCompositeDat(CompositeDat):
         assert set(axis_tree.leaf_paths) == leaf_exprs.keys()
         assert all(isinstance(index, LoopIndex) for index in loop_indices)
 
-        leaf_exprs = immutabledict(leaf_exprs)
+        leaf_exprs = idict(leaf_exprs)
         loop_indices = tuple(loop_indices)
 
         object.__setattr__(self, "_axis_tree", axis_tree)
@@ -777,12 +750,12 @@ def _(mat_expr: NonlinearMatBufferExpression, /, axis_trees: Iterable[AxisTree, 
 
 # TODO: Lives in expr_visitors I think
 @functools.singledispatch
-def collect_tensor_candidate_indirections(obj: Any, /, **kwargs) -> immutabledict:
+def collect_tensor_candidate_indirections(obj: Any, /, **kwargs) -> idict:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
 @collect_tensor_candidate_indirections.register
-def _(op: Operator, /, **kwargs) -> immutabledict:
+def _(op: Operator, /, **kwargs) -> idict:
     return utils.merge_dicts((collect_tensor_candidate_indirections(operand, **kwargs) for operand in op.operands))
 
 
@@ -792,29 +765,29 @@ def _(op: Operator, /, **kwargs) -> immutabledict:
 @collect_tensor_candidate_indirections.register(Scalar)
 @collect_tensor_candidate_indirections.register(ScalarBufferExpression)
 @collect_tensor_candidate_indirections.register(NaN)
-def _(var: Any, /, **kwargs) -> immutabledict:
-    return immutabledict()
+def _(var: Any, /, **kwargs) -> idict:
+    return idict()
 
 
 @collect_tensor_candidate_indirections.register(LinearDatBufferExpression)
-def _(dat_expr: LinearDatBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], compress: bool) -> immutabledict:
+def _(dat_expr: LinearDatBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], compress: bool) -> idict:
     axis_tree = just_one(axis_trees)
-    return immutabledict({
+    return idict({
         dat_expr: collect_candidate_indirections(dat_expr.layout, axis_tree, loop_indices, compress=compress)
     })
 
 
 @collect_tensor_candidate_indirections.register(NonlinearDatBufferExpression)
-def _(dat_expr: NonlinearDatBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], compress: bool) -> immutabledict:
+def _(dat_expr: NonlinearDatBufferExpression, /, *, axis_trees: Iterable[AxisTree], loop_indices: tuple[LoopIndex, ...], compress: bool) -> idict:
     axis_tree = just_one(axis_trees)
-    return immutabledict({
+    return idict({
         (dat_expr, path): collect_candidate_indirections(layout, axis_tree.linearize(path), loop_indices, compress=compress)
         for path, layout in dat_expr.layouts.items()
     })
 
 
 @collect_tensor_candidate_indirections.register(LinearMatBufferExpression)
-def _(mat_expr: LinearMatBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool) -> immutabledict:
+def _(mat_expr: LinearMatBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool) -> idict:
     costs = []
     layouts = [mat_expr.row_layout, mat_expr.column_layout]
     for i, (axis_tree, layout) in enumerate(zip(axis_trees, layouts, strict=True)):
@@ -823,7 +796,7 @@ def _(mat_expr: LinearMatBufferExpression, /, *, axis_trees, loop_indices: tuple
             cost *= loop_index.iterset.size
         costs.append(cost)
 
-    return immutabledict({
+    return idict({
         (mat_expr, 0): ((mat_expr.row_layout, costs[0]),),
         (mat_expr, 1): ((mat_expr.column_layout, costs[1]),),
     })
@@ -832,7 +805,7 @@ def _(mat_expr: LinearMatBufferExpression, /, *, axis_trees, loop_indices: tuple
 # Should be very similar to NonlinearDat case
 # NOTE: This is a nonlinear type
 @collect_tensor_candidate_indirections.register(NonlinearMatBufferExpression)
-def _(mat_expr: NonlinearMatBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool) -> immutabledict:
+def _(mat_expr: NonlinearMatBufferExpression, /, *, axis_trees, loop_indices: tuple[LoopIndex, ...], compress: bool) -> idict:
     candidates = {}
     layoutss = [mat_expr.row_layouts, mat_expr.column_layouts]
     for i, (axis_tree, layouts) in enumerate(zip(axis_trees, layoutss, strict=True)):
@@ -840,7 +813,7 @@ def _(mat_expr: NonlinearMatBufferExpression, /, *, axis_trees, loop_indices: tu
             candidates[mat_expr, i, path] = collect_candidate_indirections(
                 layout, axis_tree.linearize(path), loop_indices, compress=compress
             )
-    return immutabledict(candidates)
+    return idict(candidates)
 
 
 # TODO: account for non-affine accesses in arrays and selectively apply this
@@ -939,7 +912,7 @@ def concretize_materialized_tensor_indirections(obj: Any, /, *args, **kwargs) ->
 
 
 @concretize_materialized_tensor_indirections.register
-def _(op: Operator, /, *args, **kwargs) -> immutabledict:
+def _(op: Operator, /, *args, **kwargs) -> idict:
     return type(op)(*(concretize_materialized_tensor_indirections(operand, *args, **kwargs) for operand in op.operands))
 
 
@@ -985,7 +958,7 @@ def _(mat_expr: LinearMatBufferExpression, /, layouts, key) -> LinearMatBufferEx
     #
     # which is what Mat{Get,Set}Values() needs.
     layouts = [
-        LinearDatBufferExpression(layout.buffer, layout.layouts[immutabledict()])
+        LinearDatBufferExpression(layout.buffer, layout.layouts[idict()])
         for layout in [row_layout, column_layout]
     ]
     return mat_expr.__record_init__(row_layout=layouts[0], column_layout=layouts[1])
@@ -1134,7 +1107,7 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatBufferExp
     if isinstance(composite_dat.axis_tree, _UnitAxisTree):
         layout = result.axes.subst_layouts()[composite_dat.loop_tree.leaf_path]
         newlayout = replace_terminals(layout, dumb_inv_replace_map)
-        newlayouts[immutabledict()] = newlayout
+        newlayouts[idict()] = newlayout
     else:
         for path, mynode in composite_dat.axis_tree.node_map.items():
             if mynode is None:
@@ -1147,7 +1120,7 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatBufferExp
                 newlayouts[path] = newlayout
 
     # plus the empty layout
-    path = immutabledict()
+    path = idict()
     fullpath = composite_dat.loop_tree.leaf_path
     layout = result.axes.subst_layouts()[fullpath]
     newlayout = replace_terminals(layout, dumb_inv_replace_map)
@@ -1197,6 +1170,7 @@ def get_shape(obj: Any):
 
 
 @get_shape.register(Expression)
+@get_shape.register(CompositeDat)  # TODO: should be expression type
 def _(expr: Expression):
     return expr.shape
 
@@ -1212,6 +1186,7 @@ def get_loop_axes(obj: Any):
 
 
 @get_loop_axes.register(Expression)
+@get_loop_axes.register(CompositeDat)  # TODO: should be an expression type
 def _(expr: Expression):
     return expr.loop_axes
 

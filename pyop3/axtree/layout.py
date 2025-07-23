@@ -116,7 +116,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
     for i, component in enumerate(axis.components):
         path_acc_ = path_acc | {axis.label: component.label}
 
-        component_has_regions = any(r.label is not None for r in component.regions)
+        component_has_regions = any(r.label is not None for r in component._all_regions)
 
         if component_has_regions:
             region_axes_ = region_axes + (axis.linearize(component.label),)
@@ -130,6 +130,8 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
         # If the axis tree has zero size but is not empty then it makes no sense to give it a layout
         if mysubaxis and not mysubtree.is_empty and _axis_tree_size(mysubtree) == 0:
             component_layout = 0
+            layout_expr_acc_ = layout_expr_acc
+            layouts[path_acc_] = layout_expr_acc_
 
         # Regions cannot be tabulated eagerly
         elif component_has_regions:
@@ -293,8 +295,6 @@ def _tabulate_steps(offset_axes, step, regions=True):
     # TODO: just do this at the same point as the rest
     region_steps = {}
     for regions in _collect_regions(offset_axes):
-        if len(regions) == 1:
-            breakpoint()
         regioned_offset_axes = offset_axes.with_region_labels(regions)
 
         step_dat = Dat.empty(full_shape(regioned_offset_axes.regionless), dtype=IntType)
