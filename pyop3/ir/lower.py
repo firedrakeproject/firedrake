@@ -22,6 +22,7 @@ from petsc4py import PETSc
 
 import loopy as lp
 import numpy as np
+import cupy as cp
 import pymbolic as pym
 from immutabledict import immutabledict
 from pyop3.tensor.dat import LinearMatBufferExpression, NonlinearMatBufferExpression, MatBufferExpression, BufferExpression
@@ -190,6 +191,17 @@ class LoopyCodegenContext(CodegenContext):
         )
         self._add_instruction(insn)
 
+    def add_noop(self):
+        noop = lp.CInstruction(
+              (),
+              "",
+              read_variables=frozenset({a.name for a in self.arguments}),
+              within_inames=frozenset(),
+              within_inames_is_final=True,
+              depends_on=self._depends_on,
+              )
+        self._instructions.append(noop)
+
     def add_buffer(self, buffer_ref: BufferRef, intent: Intent | None = None) -> str:
         # TODO: This should check to make that we do not encounter any
         # loop-carried dependencies. For that to work we need to track the intent and
@@ -318,6 +330,221 @@ class LoopyCodegenContext(CodegenContext):
         self._instructions.append(insn)
         self._last_insn_id = insn.id
 
+class CuPyCodegenContext(CodegenContext):
+    def __init__(self):
+        self._domains = []
+        self._instructions = []
+        self._arguments = []
+        self._subkernels = []
+
+        self._within_inames = frozenset()
+        self._last_insn_id = None
+
+        self._name_generator = UniqueNameGenerator()
+
+        # buffer name -> name in kernel
+        self._kernel_names = {}
+
+        # buffer name -> buffer
+        self.global_buffers = {}
+        self.global_buffer_intents = {}
+
+        # initializer hash -> temporary name
+        self._reusable_temporaries: dict[int, str] = {}
+
+        # assignee name -> indirection expression
+        self._assignees = {}
+
+    @property
+    def domains(self) -> tuple:
+        return tuple(self._domains)
+
+    @property
+    def instructions(self) -> tuple:
+        return tuple(self._instructions)
+
+    @property
+    def arguments(self) -> tuple:
+        return tuple(sorted(self._arguments, key=lambda arg: arg[0]))
+
+    @property
+    def subkernels(self) -> tuple:
+        return tuple(self._subkernels)
+
+    def add_domain(self, iname, *args):
+        nargs = len(args)
+        if nargs == 1:
+            start, stop = 0, args[0]
+        else:
+            assert nargs == 2
+            start, stop = args[0], args[1]
+        domain_str = f"for {iname} in range({start}, {stop})"
+        self._domains.append(domain_str)
+
+    def add_assignment(self, assignee, expression, prefix="insn"):
+        insn = f"{assignee} = {expression}"
+        self._add_instruction(insn)
+
+    def add_cinstruction(self, insn_str, read_variables=frozenset()):
+        breakpoint()
+        cinsn = lp.CInstruction(
+            (),
+            insn_str,
+            read_variables=frozenset(read_variables),
+            id=self.unique_name("insn"),
+            within_inames=self._within_inames,
+            within_inames_is_final=True,
+            depends_on=self._depends_on,
+        )
+        self._add_instruction(cinsn)
+
+    def add_noop(self):
+        pass
+
+    def add_function_call(self, assignees, expression, prefix="insn"):
+        insn = lp.CallInstruction(
+            assignees,
+            expression,
+            id=self._name_generator(prefix),
+            within_inames=self._within_inames,
+            within_inames_is_final=True,
+            depends_on=self._depends_on,
+            depends_on_is_final=True,
+        )
+        insn = f"{assignee} = {expression}"
+        self._add_instruction(insn)
+
+    def add_buffer(self, buffer_ref: BufferRef, intent: Intent | None = None) -> str:
+        # TODO: This should check to make that we do not encounter any
+        # loop-carried dependencies. For that to work we need to track the intent and
+        # the indirection expression. Something like:
+        #
+        #   for i
+        #     dat1[i] = ???
+        #     dat2[i] = dat1[map1[i]]
+        #
+        # is illegal, but
+        #
+        #   for i
+        #     dat1[2*i] = ???
+        #     dat2[i] = dat1[2*i]
+        #
+        # is not.
+
+        buffer = buffer_ref.buffer
+        buffer_key = (buffer.name, buffer_ref.nest_indices)
+        if isinstance(buffer, NullBuffer):
+            assert not buffer_ref.nest_indices
+            # 'intent' is not important for temporaries
+            if buffer_key in self._kernel_names:
+                return self._kernel_names[buffer_key]
+            shape = self._temporary_shapes.get(buffer_key, (buffer.size,))
+            name_in_kernel = self.add_temporary("t", buffer.dtype, shape=shape)
+        else:
+            if intent is None:
+                raise ValueError("Global data must declare intent")
+
+            if buffer_key in self._kernel_names:
+                if intent != self.global_buffer_intents[buffer_key]:
+                    # We are accessing a buffer with different intents so have to
+                    # pessimally claim RW access
+                    self.global_buffer_intents[buffer_key] = RW
+                return self._kernel_names[buffer_key]
+
+            from firedrake.device import compute_device
+            if isinstance(buffer_ref.handle, compute_device.array_type):
+                # Inject constant buffer data into the generated code if sufficiently small
+                # NOTE: We conflate 2 concepts for constant-ness here:
+                # * The array cannot be modified
+                # * The array is the same between ranks
+                if (
+                    buffer.constant
+                    and isinstance(buffer.size, numbers.Integral)
+                    and buffer.size < config["max_static_array_size"]
+                ):
+                    return self.add_temporary(
+                        "t",
+                        buffer.dtype,
+                        initializer=buffer.data_ro,
+                        shape=buffer.data_ro.shape,
+                        read_only=True,
+                    )
+
+                if isinstance(buffer.dtype, np.dtypes.IntDType):
+                    name_in_kernel = self.unique_name("idat")
+                else:
+                    name_in_kernel = self.unique_name("dat")
+
+                # If the buffer is being passed straight through to a function then we
+                # have to make sure that the shapes match
+                shape = self._temporary_shapes.get(buffer_key, None)
+                loopy_arg = (name_in_kernel, buffer.dtype)
+            else:
+                assert isinstance(buffer_ref.handle, PETSc.Mat)
+
+                name_in_kernel = self.unique_name("mat")
+                loopy_arg = (name_in_kernel, OpaqueType("Mat"))
+
+            self.global_buffers[buffer_key] = buffer_ref
+            self.global_buffer_intents[buffer_key] = intent
+            self._arguments.append(loopy_arg)
+
+        self._kernel_names[buffer_key] = name_in_kernel
+        return name_in_kernel
+
+    def add_temporary(self, prefix="t", dtype=IntType, *, shape=(), initializer: np.ndarray = None, read_only: bool = False) -> str:
+        # If multiple temporaries with the same initializer are used then they
+        # can be shared.
+        can_reuse = initializer is not None and read_only
+        if can_reuse:
+            key = initializer.data.tobytes()
+            if key in self._reusable_temporaries:
+                return self._reusable_temporaries[key]
+
+        name_in_kernel = self.unique_name(prefix)
+        # arg = lp.TemporaryVariable(
+        #     name_in_kernel,
+        #     dtype=dtype,
+        #     shape=shape,
+        #     initializer=initializer,
+        #     read_only=read_only,
+        #     address_space=lp.AddressSpace.LOCAL,
+        # )
+        if initializer is not None:
+            arg = f"{name_in_kernel} : dtype  = {initializer}"
+        else:
+            arg = f"{name_in_kernel} : dtype"
+        self._arguments.append(arg)
+
+        if can_reuse:
+            self._reusable_temporaries[key] = name_in_kernel
+
+        return name_in_kernel
+
+    def add_subkernel(self, subkernel):
+        breakpoint()
+        self._subkernels.append(subkernel)
+
+    def unique_name(self, prefix):
+        return self._name_generator(prefix)
+
+    @contextlib.contextmanager
+    def within_inames(self, inames) -> None:
+        orig_within_inames = self._within_inames
+        self._within_inames |= inames
+        yield
+        self._within_inames = orig_within_inames
+
+    # FIXME, bad API but it is context-dependent
+    def set_temporary_shapes(self, shapes):
+        self._temporary_shapes = shapes
+
+    @property
+    def _depends_on(self):
+        return frozenset({self._last_insn_id}) - {None}
+
+    def _add_instruction(self, insn):
+        self._instructions.append(insn)
 
 class DummyModuleExecutor:
     def __call__(self, *args, **kwargs):
@@ -437,8 +664,12 @@ class ModuleExecutor:
         raise TypeError
 
     @_as_exec_argument.register
-    def _(self, handle: np.ndarray) -> int:
+    def _(self, handle: np.ndarray | cp.ndarray) -> int:
         return handle.ctypes.data
+
+    # @_as_exec_argument.register
+    # def _(self, handle: cp.ndarray) -> int:
+    #     return handle.__cuda_array_interface__['data'][0]
 
     @_as_exec_argument.register
     def _(self, handle: PETSc.Mat) -> int:
@@ -521,7 +752,13 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
     else:
         cs_expr = (insn,)
 
-    context = LoopyCodegenContext()
+    from firedrake.device import compute_device
+    if compute_device.identity == "cpu":
+        context = LoopyCodegenContext()
+    elif compute_device.identity == "gpu":
+        context = CuPyCodegenContext()
+    else:
+        raise NotImplementedError(f"Compute device {compute_device.identity} does not have a CodegenContext")
     # NOTE: so I think LoopCollection is a better abstraction here - don't want to be
     # explicitly dealing with contexts at this point. Can always sniff them out again.
     # for context, ex in cs_expr:
@@ -560,16 +797,8 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
 
     # add a no-op instruction touching all of the kernel arguments so they are
     # not silently dropped
-    noop = lp.CInstruction(
-        (),
-        "",
-        read_variables=frozenset({a.name for a in context.arguments}),
-        within_inames=frozenset(),
-        within_inames_is_final=True,
-        depends_on=context._depends_on,
-    )
-    context._instructions.append(noop)
-
+    context.add_noop()
+    breakpoint()
     preambles = [
         ("20_debug", "#include <stdio.h>"),  # dont always inject
         ("30_petsc", "#include <petsc.h>"),  # perhaps only if petsc callable used?
@@ -663,7 +892,7 @@ def _(call: StandaloneCalledFunction):
 
 
 @functools.singledispatch
-def _compile(expr: Any, loop_indices, ctx: LoopyCodegenContext) -> None:
+def _compile(expr: Any, loop_indices, ctx: CodegenContext) -> None:
     raise TypeError(f"No handler defined for {type(expr).__name__}")
 
 
@@ -682,7 +911,7 @@ def _(insn_list: InstructionList, /, loop_indices, ctx) -> None:
 def _(
     loop,
     loop_indices,
-    codegen_context: LoopyCodegenContext,
+    codegen_context: CodegenContext,
 ) -> None:
     parse_loop_properly_this_time(
         loop,
@@ -708,6 +937,7 @@ def parse_loop_properly_this_time(
         iname_map = immutabledict()
 
     for component in axis.components:
+
         path_ = path | {axis.label: component.label}
 
         if component.size != 1:
@@ -1032,7 +1262,10 @@ def add_leaf_assignment(
     codegen_context.add_assignment(lexpr, rexpr)
 
 
-def lower_expr(expr, iname_maps, loop_indices, ctx, *, intent=READ, paths=None, shape=None) -> pym.Expression:
+def lower_expr(expr, iname_maps, loop_indices, ctx, *, intent=READ, paths=None, shape=None) -> pym.Expression | str:
+    if isinstance(ctx, CuPyCodegenContext):
+        from pyop3.ir.gpu import _lower_cp_expr
+        return _lower_cp_expr(expr, iname_maps, loop_indices, ctx, intent=intent, paths=paths, shape=shape)
     return _lower_expr(expr, iname_maps, loop_indices, ctx, intent=intent, paths=paths, shape=shape)
 
 
