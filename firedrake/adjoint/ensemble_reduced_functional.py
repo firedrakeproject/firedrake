@@ -1,11 +1,12 @@
-from pyadjoint import ReducedFunctional
+from pyadjoint.reduced_functional import AbstractReducedFunctional, ReducedFunctional
 from pyadjoint.enlisting import Enlist
 from pyop2.mpi import MPI
 
-import firedrake
+from firedrake.function import Function
+from firedrake.cofunction import Cofunction
 
 
-class EnsembleReducedFunctional(ReducedFunctional):
+class EnsembleReducedFunctional(AbstractReducedFunctional):
     """Enable solving simultaneously reduced functionals in parallel.
 
     Consider a functional :math:`J` and its gradient :math:`\\dfrac{dJ}{dm}`,
@@ -34,7 +35,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
 
     Parameters
     ----------
-    J : pyadjoint.OverloadedType
+    functional : pyadjoint.OverloadedType
         An instance of an OverloadedType, usually :class:`pyadjoint.AdjFloat`.
         This should be the functional that we want to reduce.
     control : pyadjoint.Control or list of pyadjoint.Control
@@ -86,28 +87,40 @@ class EnsembleReducedFunctional(ReducedFunctional):
     works, please refer to the `Firedrake manual
     <https://www.firedrakeproject.org/parallelism.html#ensemble-parallelism>`_.
     """
-    def __init__(self, J, control, ensemble, scatter_control=True,
-                 gather_functional=None, derivative_components=None,
-                 scale=1.0, tape=None, eval_cb_pre=lambda *args: None,
+    def __init__(self, functional, control, ensemble, scatter_control=True,
+                 gather_functional=None,
+                 derivative_components=None,
+                 scale=1.0, tape=None,
+                 eval_cb_pre=lambda *args: None,
                  eval_cb_post=lambda *args: None,
                  derivative_cb_pre=lambda controls: controls,
                  derivative_cb_post=lambda checkpoint, derivative_components, controls: derivative_components,
-                 hessian_cb_pre=lambda *args: None, hessian_cb_post=lambda *args: None):
-        super(EnsembleReducedFunctional, self).__init__(
-            J, control, derivative_components=derivative_components,
-            scale=scale, tape=tape, eval_cb_pre=eval_cb_pre,
-            eval_cb_post=eval_cb_post, derivative_cb_pre=derivative_cb_pre,
+                 hessian_cb_pre=lambda *args: None,
+                 hessian_cb_post=lambda *args: None):
+        self.local_reduced_functional = ReducedFunctional(
+            functional, control,
+            derivative_components=derivative_components,
+            scale=scale, tape=tape,
+            eval_cb_pre=eval_cb_pre,
+            eval_cb_post=eval_cb_post,
+            derivative_cb_pre=derivative_cb_pre,
             derivative_cb_post=derivative_cb_post,
-            hessian_cb_pre=hessian_cb_pre, hessian_cb_post=hessian_cb_post)
+            hessian_cb_pre=hessian_cb_pre,
+            hessian_cb_post=hessian_cb_post
+        )
 
         self.ensemble = ensemble
         self.scatter_control = scatter_control
         self.gather_functional = gather_functional
 
+    @property
+    def controls(self):
+        return self.local_reduced_functional.controls
+
     def _allgather_J(self, J):
         if isinstance(J, float):
             vals = self.ensemble.ensemble_comm.allgather(J)
-        elif isinstance(J, firedrake.Function):
+        elif isinstance(J, Function):
             #  allgather not implemented in ensemble.py
             vals = []
             for i in range(self.ensemble.ensemble_comm.size):
@@ -134,7 +147,7 @@ class EnsembleReducedFunctional(ReducedFunctional):
             The computed value. Typically of instance of :class:`pyadjoint.AdjFloat`.
 
         """
-        local_functional = super(EnsembleReducedFunctional, self).__call__(values)
+        local_functional = self.local_reduced_functional(values)
         ensemble_comm = self.ensemble.ensemble_comm
         if self.gather_functional:
             controls_g = self._allgather_J(local_functional)
@@ -142,22 +155,23 @@ class EnsembleReducedFunctional(ReducedFunctional):
         # if gather_functional is None then we do a sum
         elif isinstance(local_functional, float):
             total_functional = ensemble_comm.allreduce(sendobj=local_functional, op=MPI.SUM)
-        elif isinstance(local_functional, firedrake.Function):
+        elif isinstance(local_functional, Function):
             total_functional = type(local_functional)(local_functional.function_space())
             total_functional = self.ensemble.allreduce(local_functional, total_functional)
         else:
             raise NotImplementedError("This type of functional is not supported.")
         return total_functional
 
-    def derivative(self, adj_input=1.0, options=None):
+    def derivative(self, adj_input=1.0, apply_riesz=False):
         """Compute derivatives of a functional with respect to the control parameters.
 
         Parameters
         ----------
         adj_input : float
             The adjoint input.
-        options : dict
-            Additional options for the derivative computation.
+        apply_riesz: bool
+            If True, apply the Riesz map of each control in order to return
+            a primal gradient rather than a derivative in the dual space.
 
         Returns
         -------
@@ -171,29 +185,62 @@ class EnsembleReducedFunctional(ReducedFunctional):
 
         if self.gather_functional:
             dJg_dmg = self.gather_functional.derivative(adj_input=adj_input,
-                                                        options=options)
+                                                        apply_riesz=False)
             i = self.ensemble.ensemble_comm.rank
             adj_input = dJg_dmg[i]
 
-        dJdm_local = super(EnsembleReducedFunctional, self).derivative(adj_input=adj_input, options=options)
+        dJdm_local = self.local_reduced_functional.derivative(adj_input=adj_input,
+                                                              apply_riesz=apply_riesz)
 
         if self.scatter_control:
             dJdm_local = Enlist(dJdm_local)
             dJdm_total = []
 
             for dJdm in dJdm_local:
-                if not isinstance(dJdm, (firedrake.Function, float)):
-                    raise NotImplementedError("This type of gradient is not supported.")
+                if not isinstance(dJdm, (Cofunction, Function, float)):
+                    raise NotImplementedError(
+                        f"Gradients of type {type(dJdm).__name__} are not supported.")
 
                 dJdm_total.append(
                     self.ensemble.allreduce(dJdm, type(dJdm)(dJdm.function_space()))
-                    if isinstance(dJdm, firedrake.Function)
+                    if isinstance(dJdm, (Cofunction, Function))
                     else self.ensemble.ensemble_comm.allreduce(sendobj=dJdm, op=MPI.SUM)
                 )
             return dJdm_local.delist(dJdm_total)
         return dJdm_local
 
-    def hessian(self, m_dot, options=None):
+    def tlm(self, m_dot):
+        """Return the action of the tangent linear model of the functional.
+
+        The tangent linear model is evaluated w.r.t. the control on a vector
+        m_dot, around the last supplied value of the control.
+
+        Parameters
+        ----------
+        m_dot : pyadjoint.OverloadedType
+            The direction in which to compute the action of the tangent linear model.
+
+        Returns
+        -------
+            pyadjoint.OverloadedType: The action of the tangent linear model in the
+            direction m_dot.  Should be an instance of the same type as the functional.
+        """
+        local_tlm = self.local_reduced_functional.tlm(m_dot)
+        ensemble_comm = self.ensemble.ensemble_comm
+        if self.gather_functional:
+            mdot_g = self._allgather_J(local_tlm)
+            total_tlm = self.gather_functional.tlm(mdot_g)
+        # if gather_functional is None then we do a sum
+        elif isinstance(local_tlm, float):
+            total_tlm = ensemble_comm.allreduce(sendobj=local_tlm, op=MPI.SUM)
+        elif isinstance(local_tlm, Function):
+            total_tlm = type(local_tlm)(local_tlm.function_space())
+            total_tlm = self.ensemble.allreduce(local_tlm, total_tlm)
+        else:
+            raise NotImplementedError("This type of functional is not supported.")
+        return total_tlm
+
+    def hessian(self, m_dot, hessian_input=None, evaluate_tlm=True, apply_riesz=False):
         """The Hessian is not yet implemented for ensemble reduced functional.
 
         Raises:

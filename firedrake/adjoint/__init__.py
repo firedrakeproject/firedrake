@@ -29,7 +29,7 @@ from firedrake.adjoint_utils.checkpointing import \
 from firedrake.adjoint_utils import get_solve_blocks  # noqa F401
 
 from pyadjoint.verification import taylor_test, taylor_to_dict  # noqa F401
-from pyadjoint.drivers import compute_gradient, compute_hessian  # noqa F401
+from pyadjoint.drivers import compute_gradient, compute_derivative, compute_hessian  # noqa F401
 from pyadjoint.adjfloat import AdjFloat  # noqa F401
 from pyadjoint.control import Control  # noqa F401
 from pyadjoint import IPOPTSolver, ROLSolver, MinimizationProblem, \
