@@ -209,6 +209,9 @@ jobs:
             --extra-index-url https://download.pytorch.org/whl/cpu \
             "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci,docs]"
 
+          pip uninstall firedrake-fiat -y; pip cache remove firedrake_fiat; pip install git+https://github.com/firedrakeproject/fiat.git@ksagiyam/introduce_mixed_map_mixed_cell
+          pip uninstall fenics-ufl -y; pip cache remove fenics-ufl; pip install git+https://github.com/firedrakeproject/ufl.git@ksagiyam/introduce_mixed_map_mixed_cell
+
           firedrake-clean
           pip list
 
