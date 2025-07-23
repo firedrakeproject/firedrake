@@ -24,6 +24,16 @@ from mpi4py import MPI
 import pyop3.extras.debug
 
 
+# NOTE: Perhaps better inside another module
+PYOP3_DECIDE = object()
+"""Placeholder indicating that a value should be set by pyop3.
+
+This is important in cases where the more traditional `None` is actually
+meaningful.
+
+"""
+
+
 class UnorderedCollectionException(Pyop3Exception):
     """Exception raised when an ordered collection is required."""
 

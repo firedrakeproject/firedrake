@@ -911,10 +911,11 @@ def _(expr: LinearDatBufferExpression, /, visited_axes, loop_indices, *, compres
     dat_axes = utils.just_one(get_shape(expr.layout))
     dat_loop_axes = get_loop_axes(expr.layout)
     dat_cost = dat_axes.size
-    for loop_axis in dat_loop_axes:
-        # NOTE: This makes (and asserts) a strong assumption that loops are
-        # linear by now. It may be good to encode this into the type system.
-        dat_cost *= loop_axis.component.max_size
+    for loop_axes in dat_loop_axes.values():
+        for loop_axis in loop_axes:
+            # NOTE: This makes (and asserts) a strong assumption that loops are
+            # linear by now. It may be good to encode this into the type system.
+            dat_cost *= loop_axis.component.max_size
 
     candidates = []
     for layout_expr, layout_cost in collect_candidate_indirections(expr.layout, visited_axes, loop_indices, compress=compress):

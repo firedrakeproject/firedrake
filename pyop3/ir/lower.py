@@ -384,7 +384,7 @@ class ModuleExecutor:
         # if len(self.loopy_kernel.args) > 2:
         # if len(str(self)) > 3000:
         #     breakpoint()
-            # pyop3.extras.debug.maybe_breakpoint()
+        pyop3.extras.debug.maybe_breakpoint()
 
         self.executable(*exec_arguments)
         pass

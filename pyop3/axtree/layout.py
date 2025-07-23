@@ -59,45 +59,50 @@ def tabulate_again(axes):
     from pyop3 import do_loop
     from pyop3.tensor.dat import LinearDatBufferExpression
     from pyop3.tensor.dat import as_linear_buffer_expression
-    from pyop3.lang import ConcretizedNonEmptyArrayAssignment
+    from pyop3.lang import ArrayAssignment
 
     to_tabulate = []
     tabulated = {}
-    layouts = _prepare_layouts(axes, axes.root, immutabledict(), 0, to_tabulate, tabulated)
+    layouts = _prepare_layouts(axes, axes.root, immutabledict(), 0, to_tabulate, tabulated, ())
     start = 0
 
     # this is done at the root of the tree, so can treat in a flattened manner...
     offsets = [0] * len(to_tabulate)
     for regions in _collect_regions(axes):
         for i, (offset_dat, mapping) in enumerate(to_tabulate):
-            region_key = utils.just_one(key for key in mapping if key <= regions)
-
             offset = offsets[i]
-            my_axes, region_indices_dat, my_ptr, region_size = mapping[region_key]
+            my_axes, region_indices_dat, my_ptr, region_size = mapping[regions]
             # NOTE: I think that this is going to have to be a loop now.
             # this fails
             # for j in range(region_size):
             #     offset_dat[offset+j] = region_indices[my_ptr+j] + start
+
             idx = my_axes.index()
+            # idx = my_axes.regionless.index()
+
             indexed = as_linear_buffer_expression(offset_dat[idx])
             assignee = LinearDatBufferExpression(indexed.buffer, indexed.layout+offset)
 
             indexed_expr = as_linear_buffer_expression(region_indices_dat[idx])
             expression = LinearDatBufferExpression(indexed_expr.buffer, indexed_expr.layout+my_ptr) + start
 
-            assignment = ConcretizedNonEmptyArrayAssignment(assignee, expression)
+            assignment = ArrayAssignment(assignee, expression, "write")
 
+            pyop3.extras.debug.enable_conditional_breakpoints()
             do_loop(idx, assignment)
 
+            result = assignment.assignee.buffer.buffer._data
+            breakpoint()
+
             start += region_size
-            offsets[i] += region_indices.size
+            offsets[i] += region_indices_dat.size
     # utils.debug_assert(lambda: all((dat.buffer._data >= 0).all() for dat in to_tabulate.values()))
     return layouts
 
 
 # TODO: I think a better way to do this is to track 'free indices' and see if the 'needed indices' <= 'free'
 # at which point we can tabulate.
-def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_tabulate, tabulated) -> immutabledict:
+def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_tabulate, tabulated, region_axes) -> immutabledict:
     """Traverse the axis tree and prepare zeroed arrays for offsets.
 
     Any axes that do not require tabulation will also be set at this point.
@@ -111,6 +116,13 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
     for i, component in enumerate(axis.components):
         path_acc_ = path_acc | {axis.label: component.label}
 
+        component_has_regions = any(r.label is not None for r in component.regions)
+
+        if component_has_regions:
+            region_axes_ = region_axes + (axis.linearize(component.label),)
+        else:
+            region_axes_ = region_axes
+
         mysubaxis = axes.node_map.get(path_acc_)
         if mysubaxis:
             mysubtree = axes.subtree(path_acc_)
@@ -120,29 +132,35 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
             component_layout = 0
 
         # Regions cannot be tabulated eagerly
-        elif _axis_contains_multiple_regions(axes, path_acc):
-            # 'offset_axes' consists of the current axis plus any other free indices needed
-            # offset_axes = AxisTree(axis.linearize(component.label)).regionless
-            offset_axes = AxisTree(axis.linearize(component.label))
+        elif component_has_regions:
 
-            # need to include extra loop axes
+            # Do nothing for this case due to interleaving
+            if _axis_contains_multiple_regions(axes, path_acc_):
+                layout_expr_acc_ = layout_expr_acc
+                layouts[path_acc_] = NaN()
+            else:
+                # 'offset_axes' consists of the current axis plus any other free indices needed
+                offset_axes = full_shape(AxisTree.from_iterable(region_axes_))
 
-            offset_dat = Dat(offset_axes.regionless, data=np.full(offset_axes.max_size, -1, dtype=IntType))
-            subtree = axes.subtree(path_acc_)
+                # need to include extra loop axes
 
-            steps = _tabulate_steps(offset_axes, subtree.size or 1)
-            to_tabulate.append((offset_dat, steps))
+                offset_dat = Dat(offset_axes.regionless, data=np.full(offset_axes.regionless.size, -1, dtype=IntType))
+                subtree = axes.subtree(path_acc_)
 
-            offset_dat_expr = as_linear_buffer_expression(offset_dat)
-            # component_layout = offset_dat_expr * step + start
-            component_layout = offset_dat_expr
-            layout_expr_acc_ = layout_expr_acc + component_layout
-            layouts[path_acc_] = layout_expr_acc_
+                steps = _tabulate_steps(offset_axes, subtree.size or 1)
+                to_tabulate.append((offset_dat, steps))
+
+                offset_dat_expr = as_linear_buffer_expression(offset_dat)
+                # component_layout = offset_dat_expr * step + start
+                component_layout = offset_dat_expr
+                layout_expr_acc_ = layout_expr_acc + component_layout
+                layouts[path_acc_] = layout_expr_acc_
 
         else:
             subtree, step = _drop_constant_subaxes(axes, path_acc_)
 
-            if subtree in tabulated and not _axis_contains_multiple_regions(axes, path_acc):
+            # if subtree in tabulated and not _axis_contains_multiple_regions(axes, path_acc):
+            if False:  # FIXME: leads to double counting somehow
                 # We have already seen an identical tree elsewhere, don't need to create a new array here
                 # Note that this is only valid for region-less axes. If axes contain regions
                 # then things need to get lifted to the top for distinct tabulation.
@@ -154,8 +172,10 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
 
             # Bits below here in the tree are variably-sized, cannot do an affine thing
             elif subtree:
-                offset_axes, _ = loopified_shape(subtree.size)
-                offset_dat = Dat(offset_axes.regionless, data=np.full(offset_axes.size, -1, dtype=IntType))
+                # offset_axes, _ = loopified_shape(subtree.size)
+                # offset_axes = full_shape(offset_axes.regionless)
+                offset_axes = full_shape(axis.linearize(component.label).as_tree())
+                offset_dat = Dat(offset_axes.regionless, data=np.full(offset_axes.regionless.size, -1, dtype=IntType))
 
                 steps = _tabulate_steps(offset_axes, subtree.size, regions=False)
                 offset_dat.buffer._data[...] = steps
@@ -163,6 +183,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
 
                 offset_dat_expr = as_linear_buffer_expression(offset_dat)
                 component_layout = offset_dat_expr * step + start
+
                 layout_expr_acc_ = layout_expr_acc + component_layout
                 layouts[path_acc_] = layout_expr_acc_
 
@@ -170,6 +191,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
             else:
 
                 # FIXME: weakness in algorithm
+                assert step != 0
                 if step == 0:
                     step = 1
                 component_layout = AxisVar(axis) * step + start
@@ -187,7 +209,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
                 start += component.local_size
 
         if subaxis := axes.node_map.get(path_acc_):
-            sublayouts = _prepare_layouts(axes, subaxis, path_acc_, layout_expr_acc_, to_tabulate, tabulated)
+            sublayouts = _prepare_layouts(axes, subaxis, path_acc_, layout_expr_acc_, to_tabulate, tabulated, region_axes_)
             layouts |= sublayouts
 
     # return immutabledict(layouts), to_tabulate
@@ -248,16 +270,21 @@ def _tabulate_steps(offset_axes, step, regions=True):
 
     assert step != 0
     # if isinstance(step, numbers.Integral):
-    if False:
-        offsets = np.arange(offset_axes.max_size+1, dtype=IntType) * step
-    else:
+    # if False:
+    #     offsets = np.arange(offset_axes.max_size+1, dtype=IntType) * step
+    # else:
+    #     step_dat = Dat.empty(full_shape(offset_axes.regionless), dtype=IntType)
+    #     step_dat.assign(step, eager=True)
+    #     # offsets = steps(step_dat.buffer._data, drop_last=False)
+    #     offsets = steps(step_dat.buffer._data)
+    #     offset_dat = Dat(step_dat.axes, data=offsets)
+
+    if not regions:
         step_dat = Dat.empty(full_shape(offset_axes.regionless), dtype=IntType)
         step_dat.assign(step, eager=True)
         # offsets = steps(step_dat.buffer._data, drop_last=False)
         offsets = steps(step_dat.buffer._data)
         offset_dat = Dat(step_dat.axes, data=offsets)
-
-    if not regions:
         return offsets
 
     ptr = 0
@@ -266,9 +293,17 @@ def _tabulate_steps(offset_axes, step, regions=True):
     # TODO: just do this at the same point as the rest
     region_steps = {}
     for regions in _collect_regions(offset_axes):
-        region_size = offset_axes.with_region_labels(regions).size
+        regioned_offset_axes = offset_axes.with_region_labels(regions)
+
+        step_dat = Dat.empty(full_shape(regioned_offset_axes.regionless), dtype=IntType)
+        step_dat.assign(step, eager=True)
+        # offsets = steps(step_dat.buffer._data, drop_last=False)
+        offsets = steps(step_dat.buffer._data)
+        offset_dat = Dat(step_dat.axes, data=offsets)
+
+        region_size = regioned_offset_axes.size
         # region_steps[regions] = (offsets[ptr:ptr+region_size], offsets[ptr+region_size])
-        region_steps[regions] = (offset_axes, offset_dat, ptr, region_size)
+        region_steps[regions] = (regioned_offset_axes, offset_dat, ptr, region_size)
         ptr += region_size
 
     return region_steps
@@ -587,6 +622,9 @@ def _axis_needs_outer_index(axes, path) -> bool:
 
 def _axis_contains_multiple_regions(axes, path) -> bool:
     axis = axes.node_map[path]
+
+    if axis is None:
+        return False
 
     for component in axis.components:
         path_ = path | {axis.label: component.label}

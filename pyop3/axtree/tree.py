@@ -331,7 +331,10 @@ class AxisComponentRegion:
     label: str | None = None
 
     def __str__(self) -> str:
-        return f"({self.size}, {self.label})"
+        if self.label is None:
+            return str(self.size)
+        else:
+            return f"{{{self.label}: {self.size}}}"
 
 
 @functools.singledispatch
@@ -430,7 +433,7 @@ class AxisComponent(LabelledNodeComponent):
     def __init__(
         self,
         regions,
-        label=None,
+        label=utils.PYOP3_DECIDE,
         *,
         sf=None,
     ):
@@ -443,10 +446,15 @@ class AxisComponent(LabelledNodeComponent):
         self.sf = sf
 
     def __str__(self) -> str:
-        if self.label is not None:
-            return f"{{{self.label}: [{', '.join(map(str, self.regions))}]}}"
+        if self.has_non_trivial_regions:
+            region_str = f"[{', '.join(map(str, self.regions))}]"
         else:
-            return f"{{{', '.join(map(str, self.regions))}}}"
+            region_str = str(utils.just_one(self.regions))
+
+        if self.label is not None:
+            return f"{{{self.label}: {region_str}}}"
+        else:
+            return region_str
 
     @cached_property
     def regionless(self) -> AxisComponent:
@@ -496,6 +504,10 @@ class AxisComponent(LabelledNodeComponent):
         return _partition_regions(self.regions, self.sf) if self.sf else self.regions
 
     @property
+    def has_non_trivial_regions(self) ->  bool:
+        return utils.strictly_all(r.label is not None for r in self.regions)
+
+    @property
     def comm(self) -> MPI.Comm | None:
         return self.sf.comm if self.sf else None
 
@@ -521,14 +533,17 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
     def __init__(
         self,
         components,
+        # label=utils.PYOP3_DECIDE,  # TODO
         label=None,
     ):
         components = self._parse_components(components)
+
         # relabel components if needed
-        if any(c.label is None for c in components):
-            if not all(c.label is None for c in components):
-                raise ValueError("Cannot have only some as None")
-            components = tuple(c.copy(label=i) for i, c in enumerate(components))
+        if utils.strictly_all(c.label is utils.PYOP3_DECIDE for c in components):
+            if len(components) > 1:
+                components = tuple(c.copy(label=i) for i, c in enumerate(components))
+            else:
+                components = (utils.just_one(components).copy(label=None),)
 
         self.components = components
         super().__init__(label=label)
@@ -560,7 +575,15 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
         return as_axis_tree(self)(*args)
 
     def __str__(self) -> str:
-        return f"{{{self.label}: [{', '.join(map(str, self.components))}]}}"
+        if len(self.components) == 1:
+            component_str = str(utils.just_one(self.components))
+        else:
+            component_str = f"[{', '.join(map(str, self.components))}]}}"
+
+        if self.label is None:
+            raise NotImplementedError
+        else:
+            return f"{{{self.label}: {component_str}}}"
 
     def linearize(self, component_label):
         return self.copy(components=tuple(c for c in self.components if c.label == component_label))
@@ -745,7 +768,7 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
 # TODO: define __str__ as an abc?
 class Expression(abc.ABC):
 
-    MAX_NUM_CHARS = 80
+    MAX_NUM_CHARS = 120
 
     # {{{ abstract methods
 
@@ -965,7 +988,7 @@ class BinaryOperator(Operator, metaclass=abc.ABCMeta):
         b_loop_axes = get_loop_axes(self.b)
         axes = collections.defaultdict(tuple, a_loop_axes)
         for loop_index, loop_axes in b_loop_axes.items():
-            axes[loop_index] = utils.unique(axes[loop_index], loop_axes)
+            axes[loop_index] = utils.unique((*axes[loop_index], *loop_axes))
         return immutabledict(axes)
 
     def __hash__(self) -> int:
@@ -996,6 +1019,12 @@ class Add(BinaryOperator):
     @property
     def _symbol(self) -> str:
         return "+"
+
+    # def __init__(self, *args):
+    #     super().__init__(*args)
+    #
+    #     if "array_22" in str(self):
+    #         breakpoint()
 
 
 class Sub(BinaryOperator):
@@ -2002,7 +2031,7 @@ class IndexedAxisTree(AbstractAxisTree):
         return type(self)(
             self.materialize().regionless,
             targets=self.targets,
-            unindexed=self.unindexed,
+            unindexed=self.unindexed.regionless,
             outer_loops=self.outer_loops,
         )
 
@@ -3022,6 +3051,9 @@ def loopified_shape(expr: Expression) -> tuple[AxisTree, Mapping[LoopIndexVar, A
 def full_shape(axes):
     """Augment axes with extra axes from the size expressions."""
     from pyop3.expr_visitors import get_shape
+
+    # only deal in axis trees
+    axes = axes.materialize()
 
     shapes = []
     for axis in axes.nodes:

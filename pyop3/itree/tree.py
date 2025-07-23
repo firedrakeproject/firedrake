@@ -354,7 +354,7 @@ class LoopIndex(Index, KernelArgument):
         replace_map = {
             immutabledict(): (
                 self.iterset.leaf_path,
-                {axis.label: LoopIndexVar(self.id, axis) for axis, _ in self.iterset.visited_nodes(self.iterset.leaf_path)},
+                {axis.label: LoopIndexVar(self, axis) for axis, _ in self.iterset.visited_nodes(self.iterset.leaf_path)},
             )
         }
         replace_map = replace_map[immutabledict()][1]
