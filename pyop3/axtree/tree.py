@@ -330,6 +330,16 @@ class AxisComponentRegion:
     size: numbers.Integral | LinearDatBufferExpression
     label: str | None = None
 
+    def __init__(self, size, label=None):
+        from pyop3 import as_linear_buffer_expression, Dat
+
+        # this is a little clumsy
+        if isinstance(size, Dat):
+            size = as_linear_buffer_expression(size)
+
+        object.__setattr__(self, "size", size)
+        object.__setattr__(self, "label", label)
+
     def __str__(self) -> str:
         if self.label is None:
             return str(self.size)
@@ -1659,7 +1669,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         slice_ = Slice(axis.label, slice_components, label=axis_label)
 
         index_tree = IndexTree(slice_)
-        for component, slice_component in zip(axis.components, slice_components, strict=True):
+        for component, slice_component in zip(axis.components, slice_.components, strict=True):
             path_ = path | {axis.label: component.label}
             if self.node_map[path_]:
                 subtree = self._region_slice(region_labels, path=path_)
@@ -3062,11 +3072,14 @@ def full_shape(axes):
                 region_shape = utils.just_one(get_shape(region.size))
                 if region_shape.size != 1:
                     shapes.append(region_shape)
-    shapes = utils.unique(shapes)
+
+    existing = frozenset({axis.label for axis in axes.nodes})
+    shape_axes = utils.unique(
+        axis for shape in shapes for axis in shape.nodes
+        if axis.label not in existing
+    )
     if shapes:
-        fulltree = shapes[0]
-        for shape in shapes[1:]:
-            fulltree = fulltree.add_subtree(fulltree.leaf_path, shape)
+        fulltree = AxisTree.from_iterable(shape_axes)
         fulltree = fulltree.add_subtree(fulltree.leaf_path, axes)
         return fulltree
     else:

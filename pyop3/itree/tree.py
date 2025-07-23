@@ -1292,6 +1292,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
             subset_axis_var = just_one(collect_axis_vars(slice_component.array.layout))
             replace_map = {subset_axis_var.axis_label: AxisVar(axis)}
             slice_expr = replace_terminals(slice_component.array, replace_map)
+        slice_expr = replace_terminals(slice_expr, seen_target_exprs)
         component_exprs.append(slice_expr)
 
     targets = {}

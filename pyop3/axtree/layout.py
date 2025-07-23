@@ -293,6 +293,8 @@ def _tabulate_steps(offset_axes, step, regions=True):
     # TODO: just do this at the same point as the rest
     region_steps = {}
     for regions in _collect_regions(offset_axes):
+        if len(regions) == 1:
+            breakpoint()
         regioned_offset_axes = offset_axes.with_region_labels(regions)
 
         step_dat = Dat.empty(full_shape(regioned_offset_axes.regionless), dtype=IntType)

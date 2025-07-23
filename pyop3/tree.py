@@ -717,6 +717,7 @@ class MutableLabelledTreeMixin:
 
         node_map = dict(self.node_map)
         for subpath, subnode in subtree.node_map.items():
+            assert not (path.keys() & subpath.keys())
             node_map[path | subpath] = subnode
         return type(self)(node_map)
 
