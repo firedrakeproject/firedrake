@@ -26,11 +26,11 @@ class BDDCPC(PCBase):
     - ``'bddc_pc_bddc_coarse'`` to set the coarse solver KSP.
 
     This PC also inspects optional arguments supplied in the application context:
-    - ``'discrete_gradient'`` for problems in H(curl), this sets the arguments
+    - ``'discrete_gradient'`` for 3D problems in H(curl), this sets the arguments
     (a Mat tabulating the gradient of the auxiliary H1 space) and
     keyword arguments supplied to ``PETSc.PC.setBDDCDiscreteGradient``.
-    - ``'divergence_mat'`` for 3D problems in H(div), this sets the Mat with the
-    assembled bilinear form testing the divergence against an L2 space.
+    - ``'divergence_mat'`` for problems in H(div) (resp. 2D H(curl)), this sets the Mat with the
+    assembled bilinear form testing the divergence (curl) against an L2 space.
     """
 
     _prefix = "bddc_"
@@ -43,6 +43,7 @@ class BDDCPC(PCBase):
 
         V = get_function_space(dm)
         variant = V.ufl_element().variant()
+        is_lag = is_lagrange(V.finat_element)
 
         # Create new PC object as BDDC type
         bddcpc = PETSc.PC().create(comm=pc.comm)
@@ -52,10 +53,12 @@ class BDDCPC(PCBase):
         bddcpc.setType(PETSc.PC.Type.BDDC)
 
         opts = PETSc.Options(bddcpc.getOptionsPrefix())
-        if variant == "fdm" and "pc_bddc_use_local_mat_graph" not in opts:
-            # Disable computation of disconected components of subdomain interfaces
+        # Do not use CSR of local matrix to define dofs connectivity unless requested
+        # Using the CSR only makes sense for H1 problems
+        if "pc_bddc_use_local_mat_graph" not in opts and (not is_lag or variant == "fdm"):
             opts["pc_bddc_use_local_mat_graph"] = False
 
+        # Handle boundary dofs
         ctx = get_appctx(dm)
         bcs = tuple(ctx._problem.bcs)
         if V.extruded:
@@ -80,7 +83,7 @@ class BDDCPC(PCBase):
         sobolev_space = V.ufl_element().sobolev_space
 
         # Set coordinates
-        if is_lagrange(V.finat_element):
+        if is_lag:
             degree = V.ufl_element().embedded_superdegree
             W = VectorFunctionSpace(V.mesh(), "Lagrange", degree, variant=variant)
             coords = Function(W).interpolate(V.mesh().coordinates)
@@ -95,7 +98,7 @@ class BDDCPC(PCBase):
                 d = {HCurl: curl, HDiv: div}[sobolev_space]
                 Q = V.reconstruct(family="DG", degree=degree-1)
                 b = inner(d(TrialFunction(V)), TestFunction(Q)) * dx(degree=2*(degree-1))
-                B = assemble(b, mat_type="matfree")
+                B = assemble(b, mat_type="is")
             bddcpc.setBDDCDivergenceMat(B.petscmat)
         elif sobolev_space == HCurl:
             gradient = appctx.get("discrete_gradient", None)
@@ -154,6 +157,6 @@ def is_lagrange(finat_element):
     for node in nodes:
         try:
             pt, = node.get_point_dict()
-        except ValueError:
+        except:
             return False
     return True
