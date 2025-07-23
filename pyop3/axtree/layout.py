@@ -88,11 +88,11 @@ def tabulate_again(axes):
 
             assignment = ArrayAssignment(assignee, expression, "write")
 
-            pyop3.extras.debug.enable_conditional_breakpoints()
+            # pyop3.extras.debug.enable_conditional_breakpoints()
             do_loop(idx, assignment)
 
             result = assignment.assignee.buffer.buffer._data
-            breakpoint()
+            # breakpoint()
 
             start += region_size
             offsets[i] += region_indices_dat.size

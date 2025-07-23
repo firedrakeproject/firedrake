@@ -826,10 +826,12 @@ def _(dat: Dat) -> LinearDatBufferExpression:
         raise ValueError("The provided Dat must be linear")
 
     axes = dat.axes.regionless
-    nest_indices = axes.nest_indices
-    for nest_index in nest_indices:
-        axes = axes.nest_subtree(nest_index)
+
+    # don't do this here. The nesting is associated to the buffer, not the axes
+    # nest_indices = axes.nest_indices
+    # for nest_index in nest_indices:
+    #     axes = axes.nest_subtree(nest_index)
 
     layout = just_one(axes.leaf_subst_layouts.values())
     assert layout.loop_axes == dat.loop_axes
-    return LinearDatBufferExpression(BufferRef(dat.buffer, nest_indices), layout)
+    return LinearDatBufferExpression(BufferRef(dat.buffer), layout)
