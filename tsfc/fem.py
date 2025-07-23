@@ -597,15 +597,28 @@ def translate_cellorigin(terminal, mt, ctx):
     return context.translator(expression)
 
 
+class CellVerticesKernelInterface(ProxyKernelInterface):
+    # Since CellVolume is evaluated as a cell integral, we must ensure
+    # that the right restriction is applied when it is used in an
+    # interior facet integral.  This proxy diverts coefficient
+    # translation to use a specified restriction.
+
+    def __init__(self, wrapee):
+        ProxyKernelInterface.__init__(self, wrapee)
+
+    def entity_ids(self, domain):
+        return (0,)
+
+
 @translate.register(CellVertices)
 def translate_cell_vertices(terminal, mt, ctx):
     coords = SpatialCoordinate(extract_unique_domain(terminal))
     ufl_expr = construct_modified_terminal(mt, coords)
     ps = PointSet(numpy.array(ctx.fiat_cell.get_vertices()))
-
+    interface = CellVerticesKernelInterface(ctx)
     config = {name: getattr(ctx, name)
               for name in ["ufl_cell", "index_cache", "scalar_type", "domain_integral_type_map"]}
-    config.update(interface=ctx, point_set=ps, use_canonical_quadrature_point_ordering=False)
+    config.update(interface=interface, point_set=ps, use_canonical_quadrature_point_ordering=False)
     context = PointSetContext(**config)
     expr = context.translator(ufl_expr)
 
