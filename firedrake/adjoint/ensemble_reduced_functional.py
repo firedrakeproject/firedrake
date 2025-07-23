@@ -209,7 +209,38 @@ class EnsembleReducedFunctional(AbstractReducedFunctional):
             return dJdm_local.delist(dJdm_total)
         return dJdm_local
 
-    def hessian(self, m_dot, apply_riesz=False):
+    def tlm(self, m_dot):
+        """Return the action of the tangent linear model of the functional.
+
+        The tangent linear model is evaluated w.r.t. the control on a vector
+        m_dot, around the last supplied value of the control.
+
+        Parameters
+        ----------
+        m_dot : pyadjoint.OverloadedType
+            The direction in which to compute the action of the tangent linear model.
+
+        Returns
+        -------
+            pyadjoint.OverloadedType: The action of the tangent linear model in the
+            direction m_dot.  Should be an instance of the same type as the functional.
+        """
+        local_tlm = self.local_reduced_functional.tlm(m_dot)
+        ensemble_comm = self.ensemble.ensemble_comm
+        if self.gather_functional:
+            mdot_g = self._allgather_J(local_tlm)
+            total_tlm = self.gather_functional.tlm(mdot_g)
+        # if gather_functional is None then we do a sum
+        elif isinstance(local_tlm, float):
+            total_tlm = ensemble_comm.allreduce(sendobj=local_tlm, op=MPI.SUM)
+        elif isinstance(local_tlm, Function):
+            total_tlm = type(local_tlm)(local_tlm.function_space())
+            total_tlm = self.ensemble.allreduce(local_tlm, total_tlm)
+        else:
+            raise NotImplementedError("This type of functional is not supported.")
+        return total_tlm
+
+    def hessian(self, m_dot, hessian_input=None, evaluate_tlm=True, apply_riesz=False):
         """The Hessian is not yet implemented for ensemble reduced functional.
 
         Raises:
