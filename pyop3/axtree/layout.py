@@ -67,7 +67,7 @@ def tabulate_again(axes):
     start = 0
 
     # this is done at the root of the tree, so can treat in a flattened manner...
-    offsets = [0] * len(to_tabulate)
+    offsets = [0] * len(to_tabulate)  # not sure that this is needed
     for regions in _collect_regions(axes):
         for i, (offset_dat, mapping) in enumerate(to_tabulate):
             offset = offsets[i]
@@ -81,10 +81,10 @@ def tabulate_again(axes):
             # idx = my_axes.regionless.index()
 
             indexed = as_linear_buffer_expression(offset_dat[idx])
-            assignee = LinearDatBufferExpression(indexed.buffer, indexed.layout+offset)
+            assignee = LinearDatBufferExpression(indexed.buffer, indexed.layout)
 
             indexed_expr = as_linear_buffer_expression(region_indices_dat[idx])
-            expression = LinearDatBufferExpression(indexed_expr.buffer, indexed_expr.layout+my_ptr) + start
+            expression = LinearDatBufferExpression(indexed_expr.buffer, indexed_expr.layout) + start
 
             assignment = ArrayAssignment(assignee, expression, "write")
 
