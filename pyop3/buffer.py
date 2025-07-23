@@ -402,30 +402,34 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def leaves_valid(self) -> bool:
         return self._leaves_valid
 
+    def _move_device_data(self) -> None:
+        from firedrake.device import compute_device
+        _state = self._by_device[compute_device.identity][0]
+        new_array = self._by_device[compute_device.identity][1]
+        for device, data in self._by_device.items():
+            if data[0] > _state:
+                new_array = compute_device.array(data[1])
+                _state = data[0]
+        print(f"Moving to {compute_device.identity}: type {type(new_array)}")
+        self._by_device[compute_device.identity] = [_state, new_array]
+        
+
     @property
     def _data(self):
         from firedrake.device import compute_device
         device_data = self._by_device[compute_device.identity][1]
         if device_data is None and all([d[1] is None for d in self._by_device.values()]):
              self._by_device[compute_device.identity][1] = np.zeros(self.shape, dtype=self.dtype)
-        else:
-            # needs testing
-            _state = self._by_device[compute_device.identity][0]
-            for device, data in self._by_device:
-                if data[0] > _state:
-                    new_array = data[1]
-                    _state = data[0]
-            self._by_device[compute_device.identity] = [_state, new_array]
+        elif device_data is None:
+            self._move_device_data()
         device_data = self._by_device[compute_device.identity][1]
         return device_data 
 
     @property
     def _owned_data(self):
         from firedrake.device import compute_device
-        if all([self._by_device[compute_device.identity][0] >= d[0] for d in self._by_device.values()]):
-            return self._data
-        else:
-            breakpoint() 
+        if not all([self._by_device[compute_device.identity][0] >= d[0] for d in self._by_device.values()]):
+            self._move_device_data()
         if self.sf is not None and self.sf.nleaves > 0:
             return self._data[: -self.sf.nleaves]
         else:

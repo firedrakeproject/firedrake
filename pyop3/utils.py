@@ -472,6 +472,10 @@ def map_when(func, when_func, iterable):
 def readonly(array):
     """Return a readonly view of a numpy array."""
     view = array.view()
+    if not hasattr(view, "setflags"):
+        import warnings
+        warnings.warn("CuPy arrays cannot be made readonly - converting to Numpy")
+        view = array.get().view() 
     view.setflags(write=False)
     return view
 

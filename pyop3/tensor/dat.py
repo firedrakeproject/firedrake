@@ -388,6 +388,9 @@ class Dat(Tensor, KernelArgument):
         # This method is necessary because if _buffer_slice incurs a copy then
         # self.data_wo = <something> would do nothing as it would create and
         # discard a copy.
+        from firedrake.device import compute_device
+        if not isinstance(value, compute_device.array_type):
+            value = compute_device.array(value)
         self.buffer.data_wo[self.axes.owned._buffer_slice] = value
 
     @property

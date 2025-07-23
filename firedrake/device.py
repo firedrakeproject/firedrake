@@ -16,6 +16,8 @@ class CPUDevice(ComputeDevice):
     array_type = np.ndarray
 
     def array(self, arr):
+        if isinstance(arr, cp.ndarray):
+            return arr.get()
         return np.array(arr)
 
     def context_manager(self):
