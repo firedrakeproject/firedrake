@@ -741,6 +741,24 @@ class MutableLabelledTreeMixin:
                 trimmed_node_map[trimmed_path] = node
         return type(self)(trimmed_node_map)
 
+    def drop_subtree(self, path: PathT) -> MutableLabelledTreeMixin:
+        path = as_path(path)
+
+        if path not in self.node_map:
+            raise TreeMutationException("Provided path does not exist in the tree")
+
+        # ie dropping nothing is probably unexpected behaviour
+        assert path not in self.leaf_paths
+
+        subtree = self.subtree(path)
+
+        trimmed_node_map = {}
+        for orig_path, node in self.node_map.items():
+            if node in subtree.node_map.values():
+                continue
+            trimmed_node_map[orig_path] = node
+        return type(self)(trimmed_node_map)
+
     def relabel(self, labels: Mapping):
         assert False, "old code"
         node_map = self._relabel_node_map(labels)

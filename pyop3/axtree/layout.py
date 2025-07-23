@@ -379,29 +379,50 @@ def axis_tree_component_size(axis_tree, path, component):
         assert not subtree_size.loop_axes, "Cannot compute the size of something involving loop indices"
 
         if all_axes_that_we_need.depth > 1:
-            raise NotImplementedError("Not currently expected to work with multiply ragged extents")
-            # outer_axes = all_axes_that_we_need - axis.label
-            # component_size = Dat(axis.linearise(component_label), dtype=IntType)
-            # Loop(i := outer_axes.iter(),
-            #      Loop(j := component_size.axes.iter(),
-            #         component_size[i].assign(subtree_size[i][j])
-            #     )
-            # )()
-        j = all_axes_that_we_need.index()
+            outer_axes = all_axes_that_we_need.drop_subtree(tree.parent_path(all_axes_that_we_need.leaf_path))
+            component_size = Dat.zeros(outer_axes, dtype=IntType)
 
-        # Replace AxisVars with LoopIndexVars in the size expression so we can
-        # access them in a loop
-        inv_map = {
-            ax.label: LoopIndexVar(j, ax.linearize(path_[ax.label]))
-            for ax in all_axes_that_we_need.nodes
-        }
-        mysize = replace_terminals(subtree_size, inv_map)
-        component_size = Dat.zeros(UNIT_AXIS_TREE, dtype=IntType)
-        loop_(
-            j, component_size.iassign(mysize)
-        )()
-        # return as_linear_buffer_expression(component_size)
-        return just_one(component_size.buffer._data)
+            linear_axis = axis.linearize(component.label)
+
+            i = outer_axes.index()
+            j = linear_axis.index()
+
+            # Replace AxisVars with LoopIndexVars in the size expression so we can
+            # access them in a loop
+            inv_map = {
+                ax.label: LoopIndexVar(i, ax.linearize(path_[ax.label]))
+                for ax in i.iterset.nodes
+            }
+            inv_map |= {
+                ax.label: LoopIndexVar(j, ax.linearize(path_[ax.label]))
+                for ax in j.iterset.nodes
+            }
+            subtree_size_expr  = replace_terminals(subtree_size, inv_map)
+
+            loop_(i,
+                 loop_(j,
+                    component_size[i].iassign(subtree_size_expr)
+                )
+            )()
+            return component_size
+
+        else:
+            component_size_axes = UNIT_AXIS_TREE
+            component_size = Dat.zeros(component_size_axes, dtype=IntType)
+
+            j = axis.linearize(component.label).index()
+
+            # Replace AxisVars with LoopIndexVars in the size expression so we can
+            # access them in a loop
+            inv_map = {
+                ax.label: LoopIndexVar(j, ax.linearize(path_[ax.label]))
+                for ax in all_axes_that_we_need.nodes
+            }
+            mysize = replace_terminals(subtree_size, inv_map)
+            loop_(
+                j, component_size.iassign(mysize)
+            )()
+            return just_one(component_size.buffer._data)
     else:
         return component.local_size * subtree_size
 

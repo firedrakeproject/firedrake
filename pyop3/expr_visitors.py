@@ -25,7 +25,7 @@ from petsc4py import PETSc
 from pyop3 import utils
 from pyop3.tensor import Tensor, Dat, Mat, BufferExpression
 # TODO: just namespace these
-from pyop3.axtree.tree import UNIT_AXIS_TREE, AxisVar, Conditional, Expression, UnaryOperator, Operator, BinaryOperator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, Neg, conditional, loopified_shape, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN, _UnitAxisTree, Or, LessThan, LessThanOrEqual, GreaterThanOrEqual, GreaterThan, TernaryOperator, get_loop_tree
+from pyop3.axtree.tree import UNIT_AXIS_TREE, AxisVar, Conditional, Expression, UnaryOperator, Operator, BinaryOperator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, Neg, conditional, full_shape, loopified_shape, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN, _UnitAxisTree, Or, LessThan, LessThanOrEqual, GreaterThanOrEqual, GreaterThan, TernaryOperator, get_loop_tree
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
 
@@ -53,6 +53,14 @@ class CompositeDat(abc.ABC):
     @abc.abstractmethod
     def leaf_exprs(self) -> idict:
         pass
+
+    # @abc.abstractmethod
+    # def __str__(self) -> str:
+    #     pass
+
+    @property
+    def _full_str(self):
+        return str(self)
 
     # }}}
 
@@ -791,9 +799,10 @@ def _(mat_expr: LinearMatBufferExpression, /, *, axis_trees, loop_indices: tuple
     costs = []
     layouts = [mat_expr.row_layout, mat_expr.column_layout]
     for i, (axis_tree, layout) in enumerate(zip(axis_trees, layouts, strict=True)):
-        cost = axis_tree.size
-        for loop_index in layout.loop_indices:
-            cost *= loop_index.iterset.size
+        # cost = axis_tree.size
+        # for loop_index in layout.loop_indices:
+        #     cost *= loop_index.iterset.size
+        cost = loopified_shape(layout)[0].size
         costs.append(cost)
 
     return idict({
