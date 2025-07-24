@@ -204,6 +204,8 @@ jobs:
             --no-binary h5py \
             --extra-index-url https://download.pytorch.org/whl/cpu \
             "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)"
+
+          pip install -U pip
           pip install --group ./firedrake-repo/pyproject.toml:ci
 
           firedrake-clean
