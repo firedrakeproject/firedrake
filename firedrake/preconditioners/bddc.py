@@ -157,6 +157,6 @@ def is_lagrange(finat_element):
     for node in nodes:
         try:
             pt, = node.get_point_dict()
-        except:
+        except (ValueError, TypeError):
             return False
     return True
