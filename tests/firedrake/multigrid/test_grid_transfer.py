@@ -1,7 +1,6 @@
 import pytest
 import numpy
 from firedrake import *
-from firedrake.__future__ import *
 from firedrake.utils import complex_mode
 
 

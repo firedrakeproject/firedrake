@@ -566,7 +566,6 @@ class CheckpointFile(object):
         :kwarg distribution_name: the name under which distribution is saved; if `None`, auto-generated name will be used.
         :kwarg permutation_name: the name under which permutation is saved; if `None`, auto-generated name will be used.
         """
-        mesh.init()
         # Handle extruded mesh
         tmesh = mesh.topology
         if mesh.extruded:
@@ -669,7 +668,6 @@ class CheckpointFile(object):
     @PETSc.Log.EventDecorator("SaveMeshTopology")
     def _save_mesh_topology(self, tmesh):
         # -- Save DMPlex --
-        tmesh.init()
         topology_dm = tmesh.topology_dm
         tmesh_name = topology_dm.getName()
         distribution_name = tmesh._distribution_name
@@ -1048,7 +1046,6 @@ class CheckpointFile(object):
             # -- Load mesh topology --
             base_tmesh_name = self.get_attr(path, PREFIX_EXTRUDED + "_base_mesh")
             base_tmesh = self._load_mesh_topology(base_tmesh_name, reorder, distribution_parameters)
-            base_tmesh.init()
             periodic = self.get_attr(path, PREFIX_EXTRUDED + "_periodic") if self.has_attr(path, PREFIX_EXTRUDED + "_periodic") else False
             variable_layers = self.get_attr(path, PREFIX_EXTRUDED + "_variable_layers")
             if variable_layers:
@@ -1106,9 +1103,6 @@ class CheckpointFile(object):
             # tmesh.topology_dm has already been redistributed.
             path = self._path_to_mesh(tmesh_name, name)
             # Load firedrake coordinates directly.
-            # When implementing checkpointing for MeshHierarchy in the future,
-            # we will need to postpone calling tmesh.init().
-            tmesh.init()
             coord_element = self._load_ufl_element(path, PREFIX + "_coordinate_element")
             coord_name = self.get_attr(path, PREFIX + "_coordinates")
             coordinates = self._load_function_topology(tmesh, coord_element, coord_name)
@@ -1194,7 +1188,13 @@ class CheckpointFile(object):
         plex.distributionSetName(distribution_name)
         sfXB = plex.topologyLoad(self.viewer)
         plex.distributionSetName(None)
+        plex.labelsLoad(self.viewer, sfXB)
         self.viewer.popFormat()
+        # These labels are distribution dependent.
+        # We should be able to save/load labels selectively.
+        plex.removeLabel("pyop2_core")
+        plex.removeLabel("pyop2_owned")
+        plex.removeLabel("pyop2_ghost")
         if load_distribution_permutation:
             chart_size = np.empty(1, dtype=utils.IntType)
             chart_sizes_iset = PETSc.IS().createGeneral(chart_size, comm=self._comm)
@@ -1220,21 +1220,10 @@ class CheckpointFile(object):
                              distribution_parameters=distribution_parameters, sfXB=sfXB, perm_is=perm_is,
                              distribution_name=distribution_name, permutation_name=permutation_name,
                              comm=self.comm)
-        self.viewer.pushFormat(format=format)
-        # tmesh.topology_dm has already been redistributed.
-        sfXCtemp = tmesh.sfXB.compose(tmesh.sfBC) if tmesh.sfBC is not None else tmesh.sfXB
-        plex.labelsLoad(self.viewer, sfXCtemp)
-        self.viewer.popFormat()
-        # These labels are distribution dependent.
-        # We should be able to save/load labels selectively.
-        plex.removeLabel("pyop2_core")
-        plex.removeLabel("pyop2_owned")
-        plex.removeLabel("pyop2_ghost")
         return tmesh
 
     @PETSc.Log.EventDecorator("LoadFunctionSpace")
     def _load_function_space(self, mesh, name):
-        mesh.init()
         mesh_key = self._generate_mesh_key_from_names(mesh.name,
                                                       mesh.topology._distribution_name,
                                                       mesh.topology._permutation_name)
@@ -1271,7 +1260,6 @@ class CheckpointFile(object):
 
     @PETSc.Log.EventDecorator("LoadFunctionSpaceTopology")
     def _load_function_space_topology(self, tmesh, element):
-        tmesh.init()
         if element.family() == "Real":
             return impl.RealFunctionSpace(tmesh, element, "unused_name")
         tmesh_key = self._generate_mesh_key_from_names(tmesh.name,
