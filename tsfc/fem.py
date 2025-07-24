@@ -167,7 +167,7 @@ class CoordinateMapping(PhysicalGeometry):
         config["interface"] = self.interface
         return config
 
-    def translate_point_expression(self, expr, point=None):
+    def translate_point_expression(self, expr, point=None, interface=None):
         if self.mt.restriction == '+':
             expr = PositiveRestricted(expr)
         elif self.mt.restriction == '-':
@@ -180,6 +180,8 @@ class CoordinateMapping(PhysicalGeometry):
         config = {"point_set": PointSingleton(point)}
         config.update(self.config)
         config.update(use_canonical_quadrature_point_ordering=False)  # quad point ordering not relevant.
+        if interface:
+            config.update(interface=interface)
         context = PointSetContext(**config)
         expr = self.preprocess(expr, context)
         return map_expr_dag(context.translator, expr)
@@ -189,11 +191,13 @@ class CoordinateMapping(PhysicalGeometry):
 
     def jacobian_at(self, point):
         expr = Jacobian(extract_unique_domain(self.mt.terminal))
-        return self.translate_point_expression(expr, point=point)
+        interface = CellVerticesKernelInterface(self.interface)
+        return self.translate_point_expression(expr, point=point, interface=interface)
 
     def detJ_at(self, point):
         expr = JacobianDeterminant(extract_unique_domain(self.mt.terminal))
-        return self.translate_point_expression(expr, point=point)
+        interface = CellVerticesKernelInterface(self.interface)
+        return self.translate_point_expression(expr, point=point, interface=interface)
 
     def reference_normals(self):
         cell = self.interface.fiat_cell
