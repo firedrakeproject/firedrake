@@ -50,8 +50,8 @@ Prerequisites
 
 On Linux the only prerequisite needed to install Firedrake is a suitable version
 of Python (3.10 or greater). On macOS it is important that homebrew_ and Xcode_
-are installed and that the homebrew-installed Python is used instead of the
-system one.
+are installed and up to date and that the homebrew-installed Python is used
+instead of the system one.
 
 
 .. _firedrake_configure:
