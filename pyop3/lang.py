@@ -828,6 +828,7 @@ class AbstractAssignment(Terminal, metaclass=abc.ABCMeta):
         return self.arguments[1]
 
 
+# TODO: not sure need to specify 'array' here
 @utils.frozenrecord()
 class ArrayAssignment(AbstractAssignment):
 

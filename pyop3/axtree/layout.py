@@ -175,9 +175,9 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
 
             # Bits below here in the tree are variably-sized, cannot do an affine thing
             elif subtree:
-                # offset_axes, _ = loopified_shape(subtree.size)
-                # offset_axes = full_shape(offset_axes.regionless)
-                offset_axes = full_shape(axis.linearize(component.label).as_tree())
+                offset_axes, loop_var_replace_map = loopified_shape(subtree.size)
+                assert not loop_var_replace_map
+
                 offset_dat = Dat(offset_axes.regionless, data=np.full(offset_axes.regionless.size, -1, dtype=IntType))
 
                 steps = _tabulate_steps(offset_axes, subtree.size, regions=False)
@@ -193,10 +193,9 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
             # Nothing fancy, just affine access
             else:
 
-                # FIXME: weakness in algorithm
                 assert step != 0
-                if step == 0:
-                    step = 1
+                # if step == 0:
+                #     step = 1
                 component_layout = AxisVar(axis) * step + start
                 layout_expr_acc_ = layout_expr_acc + component_layout
                 layouts[path_acc_] = layout_expr_acc_
@@ -270,6 +269,7 @@ def _collect_regions(axes: AxisTree, *, path: PathT = immutabledict()):
 
 def _tabulate_steps(offset_axes, step, regions=True):
     from pyop3 import Dat
+    from pyop3.expr_visitors import replace_terminals
 
     assert step != 0
     # if isinstance(step, numbers.Integral):
@@ -299,7 +299,36 @@ def _tabulate_steps(offset_axes, step, regions=True):
         regioned_offset_axes = offset_axes.with_region_labels(regions)
 
         step_dat = Dat.empty(full_shape(regioned_offset_axes.regionless), dtype=IntType)
-        step_dat.assign(step, eager=True)
+
+        # so this is failing when step is a complicated expression
+
+        # offset_axes is also passed through, just in a complicated way
+
+        # regioned_offset_axes should have the right subst I think... somewhere
+
+        # i = step_dat.axes.index()
+        #
+        # region_slices = offset_axes._region_slices(regions)
+        # affine_slices = []
+        # for axis, component, region_slice in region_slices:
+        #     affine_slice = convert_region_to_affine_slice(region_slice, component)
+        #     affine_slices.append((axis, component, affine_slice))
+
+        # breakpoint()
+
+        # This is needed in case 'step' is some expression in terms of the
+        # un-regioned axis variables (e.g. 'i_{mesh}' instead of 'i_{(mesh, owned)}').
+        # We basically retrieve the slice information from the regioned axes
+        # and apply it here too.
+        region_slice_map = {}
+        targets = regioned_offset_axes.targets[0]
+        for path in tree.accumulate_path(regioned_offset_axes.leaf_path):
+            if path in targets:
+                region_slice_map |= targets[path][1]
+
+        step_expr = replace_terminals(step, region_slice_map)
+        step_dat.assign(step_expr, eager=True)
+
         # offsets = steps(step_dat.buffer._data, drop_last=False)
         offsets = steps(step_dat.buffer._data)
         offset_dat = Dat(step_dat.axes, data=offsets)
@@ -341,9 +370,11 @@ def _axis_tree_size_rec(axis_tree: AxisTree, path):
 
 def axis_tree_component_size(axis_tree, path, component):
     from pyop3 import Dat, loop as loop_
-    from pyop3.expr_visitors import replace_terminals
+    from pyop3.expr_visitors import replace_terminals, replace
 
     axis = axis_tree.node_map[path]
+    linear_axis = axis.linearize(component.label)
+
     path_ = path | {axis.label: component.label}
     if axis_tree.node_map[path_]:
         subtree_size = _axis_tree_size_rec(axis_tree, path_)
@@ -355,7 +386,9 @@ def axis_tree_component_size(axis_tree, path, component):
     # don't want to have <num> * <array> because (for example) the size of 3 * [1, 2, 1] is 4!
     # Therefore the right thing to do is to sum the internal bits.
     if not isinstance(subtree_size, numbers.Integral):
-        # Consider the following case:
+        # Consider the following cases:
+        #
+        # Example 1:
         #
         #   subtree size: [[2, 1, 0], [2, 4, 1]][i, j]
         #   component size: 3 (j)
@@ -366,48 +399,87 @@ def axis_tree_component_size(axis_tree, path, component):
         #
         # and therefore need to execute the loop:
         #
-        #   for i
-        #     for j
+        #   for i < 2
+        #     for j < 3
         #       size[i] += subtree[i, j]
         #
-        # Note that currently only allow a single free index.
+        # Example 2:
+        #
+        #   subtree size: [2, 1, 0][i]
+        #   component size: 2 (j)
+        #
+        # We need a new size array with free indices i and j:
+        #
+        #   size = [[2, 1, 0], [2, 1, 0]][j, i]
+        #
+        # and therefore need to execute the loop:
+        #
+        #   for i < 3
+        #     for j < 2
+        #       size[j, i] = subtree[i]
 
         import pyop3.extras.debug
         # pyop3.extras.debug.maybe_breakpoint()
 
-        # Drop irrelevant components from the axes as loop index vars are supposed to be linear
-        all_axes_that_we_need = utils.just_one(subtree_size.shape).linearize(path_)
-        assert not subtree_size.loop_axes, "Cannot compute the size of something involving loop indices"
+        subtree_size_axes, loop_to_axis_var_replace_map = loopified_shape(subtree_size)
+        assert subtree_size_axes.is_linear
 
-        if all_axes_that_we_need.depth > 1:
-            outer_axes = all_axes_that_we_need.drop_subtree(tree.parent_path(all_axes_that_we_need.leaf_path))
-            component_size = Dat.zeros(outer_axes, dtype=IntType)
+        # think tensor contractions, look for matches
+        if axis.label in subtree_size_axes.node_labels:
+            # index consumed
+            component_size_axes = AxisTree.from_iterable(
+                (
+                    ax
+                    for ax in subtree_size_axes.nodes
+                    if ax.label != axis.label
+                )
+            )
+            if component_size_axes.is_empty:
+                component_size_axes = UNIT_AXIS_TREE
+            all_axes = subtree_size_axes
+        else:
+            # free index added
+            component_size_axes = subtree_size_axes.add_axis(subtree_size_axes.leaf_path, linear_axis)
+            all_axes = component_size_axes
+        assert all_axes.is_linear
 
-            linear_axis = axis.linearize(component.label)
+        # if subtree_size_axes.depth > 1:
+        if True:
+            component_size = Dat.zeros(component_size_axes, dtype=IntType).concretize()
 
-            i = outer_axes.index()
-            j = linear_axis.index()
+            i = all_axes.index()
 
             # Replace AxisVars with LoopIndexVars in the size expression so we can
             # access them in a loop
-            inv_map = {
-                ax.label: LoopIndexVar(i, ax.linearize(path_[ax.label]))
+            # this is a bit of a weird bit: loopindex -> axis_loopindex -> loopindex(axis_loopindex)
+            subtree_size_tmp = replace(subtree_size, loop_to_axis_var_replace_map)
+
+            # TODO: might need to do something similar for component_size
+
+            axis_to_loop_var_replace_map = {
+                AxisVar(ax): LoopIndexVar(i, ax)
                 for ax in i.iterset.nodes
             }
-            inv_map |= {
-                ax.label: LoopIndexVar(j, ax.linearize(path_[ax.label]))
-                for ax in j.iterset.nodes
-            }
-            subtree_size_expr  = replace_terminals(subtree_size, inv_map)
+
+            # 'index' the expressions so they can be used inside a loop
+            component_size = replace(component_size, axis_to_loop_var_replace_map)
+            subtree_size_expr  = replace(subtree_size_tmp, axis_to_loop_var_replace_map)
 
             loop_(i,
-                 loop_(j,
-                    component_size[i].iassign(subtree_size_expr)
-                )
+                component_size.iassign(subtree_size_expr)
             )()
-            return as_linear_buffer_expression(component_size)
+
+
+            if component_size_axes is UNIT_AXIS_TREE:
+                return just_one(component_size.buffer.buffer._data)
+            else:
+                loop_to_axis_var_replace_map_ = utils.invert_mapping(axis_to_loop_var_replace_map)
+                return replace(component_size, loop_to_axis_var_replace_map_)
 
         else:
+            # Drop irrelevant components from the axes as loop index vars are supposed to be linear
+            all_axes_that_we_need = utils.just_one(subtree_size.shape).linearize(path_)
+
             component_size_axes = UNIT_AXIS_TREE
             component_size = Dat.zeros(component_size_axes, dtype=IntType)
 
@@ -415,11 +487,11 @@ def axis_tree_component_size(axis_tree, path, component):
 
             # Replace AxisVars with LoopIndexVars in the size expression so we can
             # access them in a loop
-            inv_map = {
+            axis_to_loop_var_replace_map = {
                 ax.label: LoopIndexVar(j, ax.linearize(path_[ax.label]))
                 for ax in all_axes_that_we_need.nodes
             }
-            mysize = replace_terminals(subtree_size, inv_map)
+            mysize = replace_terminals(subtree_size, axis_to_loop_var_replace_map)
             loop_(
                 j, component_size.iassign(mysize)
             )()

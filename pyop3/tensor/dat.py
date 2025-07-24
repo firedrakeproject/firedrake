@@ -337,6 +337,12 @@ class Dat(Tensor, KernelArgument):
     def context_free(self):
         return self.__record_init__(axes=self.axes.context_free)
 
+    def concretize(self):
+        """Convert to an expression, can no longer be indexed properly"""
+        if not self.axes.is_linear:
+            raise NotImplementedError
+        return as_linear_buffer_expression(self)
+
     @property
     def leaf_layouts(self):
         return self.axes.leaf_subst_layouts
@@ -569,10 +575,14 @@ class Dat(Tensor, KernelArgument):
 # TODO: Should inherit from Terminal (but Terminal has odd attrs)
 class BufferExpression(Expression, metaclass=abc.ABCMeta):
 
+    # {{{ abstract methods
+
     @property
     @abc.abstractmethod
     def buffer(self) -> AbstractBuffer:
         pass
+
+    # }}}
 
     @property
     def name(self) -> str:
@@ -581,6 +591,12 @@ class BufferExpression(Expression, metaclass=abc.ABCMeta):
     @property
     def handle(self) -> Any:
         return self.buffer.buffer.handle(nest_indices=self.buffer.nest_indices)
+
+    def assign(self, other) -> ArrayAssignment:
+        return ArrayAssignment(self, other, "write")
+
+    def iassign(self, other) -> ArrayAssignment:
+        return ArrayAssignment(self, other, "inc")
 
 
 # class ArrayBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
@@ -642,7 +658,6 @@ class NonlinearBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
 
 
 @utils.record()
-# class LinearDatArrayBufferExpression(DatArrayBufferExpression, LinearBufferExpression):
 class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
     """A dat with fixed (?) layout.
 
@@ -670,11 +685,13 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
 
     @property
     def shape(self) -> tuple[AxisTree]:
-        return self.layout.shape
+        from pyop3.expr_visitors import get_shape
+        return get_shape(self.layout)
 
     @cached_property
     def loop_axes(self):
-        return self.layout.loop_axes
+        from pyop3.expr_visitors import get_loop_axes
+        return get_loop_axes(self.layout)
 
     @property
     def _full_str(self) -> str:
@@ -683,8 +700,16 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
     # }}}
 
     def __init__(self, buffer, layout):
+        if isinstance(buffer, AbstractBuffer):
+            buffer = BufferRef(buffer)
+
         self._buffer = buffer
         self.layout = layout
+
+    def __post_init__(self) -> None:
+        from pyop3.expr_visitors import get_shape
+
+        assert utils.just_one(get_shape(self.layout)).is_linear
 
 
 @utils.record()

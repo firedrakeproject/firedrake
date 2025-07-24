@@ -270,17 +270,14 @@ class ImplicitPackUnpackExpander(Transformer):
                     gathers.append(ArrayAssignment(temporary, 0, "write"))
                     scatters.insert(0, ArrayAssignment(arg, temporary, "inc"))
 
-                function_arg = LinearDatBufferExpression(BufferRef(temporary.buffer), 0, temporary.shape, temporary.loop_axes)
+                function_arg = LinearDatBufferExpression(temporary.buffer, 0)
             else:
                 if arg.buffer.is_nested:
                     raise NotImplementedError("Assume cannot have nest indices here")
-                function_arg = LinearDatBufferExpression(BufferRef(arg.buffer), 0, arg.shape, arg.loop_axes)
+                function_arg = LinearDatBufferExpression(arg.buffer, 0)
             arguments.append(function_arg)
 
         return maybe_enlist((*gathers, StandaloneCalledFunction(terminal.function, arguments), *scatters))
-
-
-# class ExprMarker
 
 
 # TODO check this docstring renders correctly

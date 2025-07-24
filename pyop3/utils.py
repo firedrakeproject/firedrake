@@ -553,26 +553,6 @@ def popfirst(dict_: dict) -> Any:
     return (key, dict_.pop(key))
 
 
-def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
-    new = object.__new__(type(self))
-    for field in dataclasses.fields(self):
-        attr = attrs.pop(field.name, getattr(self, field.name))
-        object.__setattr__(new, field.name, attr)
-
-    # try:
-    #     if "array_35" in new._full_str and "array_1" in new._full_str:
-    #         breakpoint()
-    # except:
-    #     pass
-
-    if attrs:
-        raise ValueError(
-            f"Unrecognised arguments encountered during initialisation: {', '.join(attrs)}"
-        )
-
-    return new
-
-
 def record():
     return _make_record(eq=False)
 
@@ -587,6 +567,23 @@ def _make_record(**kwargs):
         cls.__record_init__ = _record_init
         return cls
     return wrapper
+
+
+def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
+    new = object.__new__(type(self))
+    for field in dataclasses.fields(self):
+        attr = attrs.pop(field.name, getattr(self, field.name))
+        object.__setattr__(new, field.name, attr)
+
+    if attrs:
+        raise ValueError(
+            f"Unrecognised arguments encountered during initialisation: {', '.join(attrs)}"
+        )
+
+    if hasattr(new, "__post_init__"):
+        new.__post_init__()
+
+    return new
 
 
 def attr(attr_name: str) -> property:

@@ -1269,12 +1269,14 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
     axis = Axis(components, label=axis_label)
 
     # now do target expressions
-    for slice_component in slice_.slices:
+    for slice_component, axis_component in zip(slice_.slices, axis.components, strict=True):
         targets = target_axes[immutabledict({slice_.label: slice_component.label})]
         target_axis, target_component_label = just_one(targets.items())
         target_component = just_one(
             c for c in target_axis.components if c.label == target_component_label
         )
+
+        linear_axis = axis.linearize(axis_component.label)
 
         if isinstance(slice_component, RegionSliceComponent):
             if slice_component.region in {OWNED_REGION_LABEL, GHOST_REGION_LABEL}:
@@ -1283,14 +1285,14 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
             else:
                 region_index = target_component._region_labels.index(slice_component.region)
                 steps = utils.steps([r.size for r in target_component.regions], drop_last=False)
-            slice_expr = AxisVar(axis) + steps[region_index]
+            slice_expr = AxisVar(linear_axis) + steps[region_index]
         elif isinstance(slice_component, AffineSliceComponent):
-            slice_expr = AxisVar(axis) * slice_component.step + slice_component.start
+            slice_expr = AxisVar(linear_axis) * slice_component.step + slice_component.start
         else:
             assert isinstance(slice_component, Subset)
             # replace the index information in the subset buffer
             subset_axis_var = just_one(collect_axis_vars(slice_component.array.layout))
-            replace_map = {subset_axis_var.axis_label: AxisVar(axis)}
+            replace_map = {subset_axis_var.axis_label: AxisVar(linear_axis)}
             slice_expr = replace_terminals(slice_component.array, replace_map)
         slice_expr = replace_terminals(slice_expr, seen_target_exprs)
         component_exprs.append(slice_expr)
@@ -2315,3 +2317,9 @@ def _(subset: SubsetSliceComponent, regions, **kwargs) -> tuple:
         loc += region.size
         lower_index = upper_index
     return tuple(indexed_regions)
+
+
+def convert_region_to_affine_slice(region_slice: RegionSliceComponent, axis_component: AxisComponent) -> AffineSliceComponent:
+    region_index = axis_component.region_labels.index(region_slice.label)
+    region_sizes = utils.steps(region.size for region in axis_component.regions)
+    return AffineSliceComponent(start=region_sizes[region_index], stop=region_sizes[region_index+1])

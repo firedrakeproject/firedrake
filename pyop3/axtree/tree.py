@@ -211,6 +211,7 @@ class _UnitAxisTree(CacheMixin):
     nodes = ()
 
     unindexed = property(lambda self: self)
+    regionless = property(lambda self: self)
 
     nest_indices = ()
 
@@ -1133,15 +1134,18 @@ class Conditional(TernaryOperator):
     def shape(self):
         from pyop3.expr_visitors import get_shape
 
-        if not isinstance(self.if_true, numbers.Number):
-            true_shape = get_shape(self.if_true)
-            if not isinstance(self.if_false, numbers.Number):
-                false_shape = self.if_false.shape
-                return utils.single_valued((true_shape, false_shape))
-            else:
-                return true_shape
-        else:
-            return get_shape(self.if_false)
+        trees = (utils.just_one(get_shape(o)) for o in self.operands)
+        return (merge_axis_trees2(trees),)
+
+        # if not isinstance(self.if_true, numbers.Number):
+        #     true_shape = get_shape(self.if_true)
+        #     if not isinstance(self.if_false, numbers.Number):
+        #         false_shape = self.if_false.shape
+        #         return utils.single_valued((true_shape, false_shape))
+        #     else:
+        #         return true_shape
+        # else:
+        #     return get_shape(self.if_false)
 
     @cached_property
     def loop_axes(self) -> tuple[Axis]:

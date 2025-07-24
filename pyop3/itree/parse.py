@@ -75,8 +75,6 @@ def as_index_forests(forest: Any, /, axes: AbstractAxisTree | None = None, *, st
                     if not _index_tree_completely_indexes_axes(index_tree, axes):
                         continue
                 else:
-                    if isinstance(index_tree.root, LoopIndex) and index_tree.root.iterset.depth == 3:
-                        pyop3.extras.debug.maybe_breakpoint()
                     # Add extra slices to make sure that index tree targets
                     # all the axes in 'axes'
                     index_tree = complete_index_tree(index_tree, axes)
