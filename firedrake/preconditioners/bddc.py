@@ -6,9 +6,8 @@ from firedrake.dmhooks import get_function_space, get_appctx
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
-from ufl import curl, div, HCurl, HDiv, inner, dx
+from ufl import curl, div, H1, H2, HCurl, HDiv, inner, dx
 from pyop2.utils import as_tuple
-import finat
 import numpy
 
 __all__ = ("BDDCPC",)
@@ -43,7 +42,7 @@ class BDDCPC(PCBase):
 
         V = get_function_space(dm)
         variant = V.ufl_element().variant()
-        is_lag = is_lagrange(V.finat_element)
+        sobolev_space = V.ufl_element().sobolev_space
 
         # Create new PC object as BDDC type
         bddcpc = PETSc.PC().create(comm=pc.comm)
@@ -54,8 +53,9 @@ class BDDCPC(PCBase):
 
         opts = PETSc.Options(bddcpc.getOptionsPrefix())
         # Do not use CSR of local matrix to define dofs connectivity unless requested
-        # Using the CSR only makes sense for H1 problems
-        if "pc_bddc_use_local_mat_graph" not in opts and (not is_lag or variant == "fdm"):
+        # Using the CSR only makes sense for H1/H2 problems
+        is_h1h2 = sobolev_space in [H1, H2]
+        if "pc_bddc_use_local_mat_graph" not in opts and (not is_h1h2 or variant == "fdm"):
             opts["pc_bddc_use_local_mat_graph"] = False
 
         # Handle boundary dofs
@@ -80,18 +80,18 @@ class BDDCPC(PCBase):
         bddcpc.setBDDCNeumannBoundaries(neu_bndr)
 
         appctx = self.get_appctx(pc)
-        sobolev_space = V.ufl_element().sobolev_space
+        degree = max(as_tuple(V.ufl_element().degree()))
 
-        # Set coordinates
-        if is_lag:
-            degree = V.ufl_element().embedded_superdegree
+        # Set coordinates only if corner selection is requested
+        # There's no API to query from PC
+        if "pc_bddc_corner_selection" in opts:
             W = VectorFunctionSpace(V.mesh(), "Lagrange", degree, variant=variant)
             coords = Function(W).interpolate(V.mesh().coordinates)
             bddcpc.setCoordinates(coords.dat.data_ro.repeat(V.block_size, axis=0))
 
         tdim = V.mesh().topological_dimension()
-        degree = max(as_tuple(V.ufl_element().degree()))
         if tdim >= 2 and V.finat_element.formdegree == tdim-1:
+            # Should we use a callable like for hypre_ams?
             B = appctx.get("divergence_mat", None)
             if B is None:
                 from firedrake.assemble import assemble
@@ -101,14 +101,16 @@ class BDDCPC(PCBase):
                 B = assemble(b, mat_type="is")
             bddcpc.setBDDCDivergenceMat(B.petscmat)
         elif sobolev_space == HCurl:
+            # Should we use a callable like for hypre_ams?
             gradient = appctx.get("discrete_gradient", None)
             if gradient is None:
                 from firedrake.preconditioners.fdm import tabulate_exterior_derivative
                 from firedrake.preconditioners.hiptmair import curl_to_grad
                 Q = V.reconstruct(element=curl_to_grad(V.ufl_element()))
                 gradient = tabulate_exterior_derivative(Q, V)
-                corners = get_vertex_dofs(Q)
-                gradient.compose('_elements_corners', corners)
+                if variant == 'fdm':
+                    corners = get_vertex_dofs(Q)
+                    gradient.compose('_elements_corners', corners)
                 grad_args = (gradient,)
                 grad_kwargs = {'order': degree}
             else:
@@ -142,21 +144,3 @@ def get_vertex_dofs(V):
     V.dof_dset.lgmap.apply(indices, result=indices)
     vertex_dofs = PETSc.IS().createGeneral(indices, comm=V.comm)
     return vertex_dofs
-
-
-def is_lagrange(finat_element):
-
-    if isinstance(finat_element, finat.FlattenedDimensions):
-        return is_lagrange(finat_element.product)
-    elif isinstance(finat_element, finat.TensorProductElement):
-        return all(map(is_lagrange, finat_element.factors))
-    elif isinstance(finat_element, finat.EnrichedElement):
-        return all(map(is_lagrange, finat_element.elements))
-
-    nodes = finat_element.fiat_equivalent.dual_basis()
-    for node in nodes:
-        try:
-            pt, = node.get_point_dict()
-        except (ValueError, TypeError):
-            return False
-    return True

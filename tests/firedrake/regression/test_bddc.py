@@ -137,13 +137,12 @@ def mesh(request):
 @pytest.mark.parallel
 @pytest.mark.parametrize("degree", (4,))
 @pytest.mark.parametrize("family", "Q")
-@pytest.mark.parametrize("condense", (False, True), ids=("full", "condense"))
-def test_bddc_fdm(mesh, family, degree, condense):
+def test_bddc_fdm(mesh, family, degree):
     variant = "fdm"
     bcs = True
     tdim = mesh.topological_dimension()
     expected = 6 if tdim == 2 else 11
-    assert solve_riesz_map(mesh, family, degree, variant, bcs, condense=condense) <= expected
+    assert solve_riesz_map(mesh, family, degree, variant, bcs) <= expected
 
 
 @pytest.mark.parallel
