@@ -146,6 +146,49 @@ class LoopyCodegenContext(CodegenContext):
     def subkernels(self) -> tuple:
         return tuple(self._subkernels)
 
+    @property
+    def preambles(self) -> list:
+        preambles = [
+            ("20_debug", "#include <stdio.h>"),  # dont always inject
+            ("30_petsc", "#include <petsc.h>"),  # perhaps only if petsc callable used?
+            (
+                "30_bsearch",
+                textwrap.dedent(
+                    """
+                    #include <stdlib.h>
+
+
+                    int32_t cmpfunc(const void * a, const void * b) {
+                       return ( *(int32_t*)a - *(int32_t*)b );
+                    }
+                """
+                ),
+            ),
+        ]
+        return preambles
+    
+    def make_translation_unit(self, function_name, compiler_parameters):
+        
+        translation_unit = lp.make_kernel(
+            self.domains,
+            self.instructions,
+            self.arguments,
+            name=function_name,
+            target=LOOPY_TARGET,
+            lang_version=LOOPY_LANG_VERSION,
+            preambles=self.preambles,
+        )
+        translation_unit = lp.merge((translation_unit, *self.subkernels))
+
+        entrypoint = translation_unit.default_entrypoint
+        if compiler_parameters.add_likwid_markers:
+            entrypoint = with_likwid_markers(entrypoint)
+        if compiler_parameters.add_petsc_event:
+            entrypoint = with_petsc_event(entrypoint)
+        if compiler_parameters.attach_debugger:
+            entrypoint = with_attach_debugger(entrypoint)
+        return translation_unit.with_kernel(entrypoint), entrypoint
+
     def add_domain(self, iname, *args):
         nargs = len(args)
         if nargs == 1:
@@ -199,7 +242,7 @@ class LoopyCodegenContext(CodegenContext):
               within_inames=frozenset(),
               within_inames_is_final=True,
               depends_on=self._depends_on,
-              )
+        )
         self._instructions.append(noop)
 
     def add_buffer(self, buffer_ref: BufferRef, intent: Intent | None = None) -> str:
@@ -314,7 +357,7 @@ class LoopyCodegenContext(CodegenContext):
     @contextlib.contextmanager
     def within_inames(self, inames) -> None:
         orig_within_inames = self._within_inames
-        self._within_inames |= inames
+        self._within_inames |=  inames
         yield
         self._within_inames = orig_within_inames
 
@@ -371,6 +414,18 @@ class CuPyCodegenContext(CodegenContext):
     def subkernels(self) -> tuple:
         return tuple(self._subkernels)
 
+    @property
+    def preambles(self) -> list:
+        preambles = [ "import numpy as np",
+                      "import cupy as cp",
+                      "import cupyx as cpx"
+        ]
+        return preambles
+    
+    def make_translation_unit(self, function_name, compiler_parameters):
+        breakpoint()
+        return
+
     def add_domain(self, iname, *args):
         nargs = len(args)
         if nargs == 1:
@@ -382,7 +437,11 @@ class CuPyCodegenContext(CodegenContext):
         self._domains.append(domain_str)
 
     def add_assignment(self, assignee, expression, prefix="insn"):
-        insn = f"{assignee} = {expression}"
+        # TODO find better way to do this
+        try:
+             insn = assignee(expression)
+        except:
+            insn = f"{assignee} = {expression}"
         self._add_instruction(insn)
 
     def add_cinstruction(self, insn_str, read_variables=frozenset()):
@@ -544,6 +603,7 @@ class CuPyCodegenContext(CodegenContext):
         return frozenset({self._last_insn_id}) - {None}
 
     def _add_instruction(self, insn):
+        breakpoint()
         self._instructions.append(insn)
 
 class DummyModuleExecutor:
@@ -798,45 +858,9 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
     # add a no-op instruction touching all of the kernel arguments so they are
     # not silently dropped
     context.add_noop()
-    breakpoint()
-    preambles = [
-        ("20_debug", "#include <stdio.h>"),  # dont always inject
-        ("30_petsc", "#include <petsc.h>"),  # perhaps only if petsc callable used?
-        (
-            "30_bsearch",
-            textwrap.dedent(
-                """
-                #include <stdlib.h>
-
-
-                int32_t cmpfunc(const void * a, const void * b) {
-                   return ( *(int32_t*)a - *(int32_t*)b );
-                }
-            """
-            ),
-        ),
-    ]
-
-    translation_unit = lp.make_kernel(
-        context.domains,
-        context.instructions,
-        context.arguments,
-        name=function_name,
-        target=LOOPY_TARGET,
-        lang_version=LOOPY_LANG_VERSION,
-        preambles=preambles,
-    )
-    translation_unit = lp.merge((translation_unit, *context.subkernels))
-
-    entrypoint = translation_unit.default_entrypoint
-    if compiler_parameters.add_likwid_markers:
-        entrypoint = with_likwid_markers(entrypoint)
-    if compiler_parameters.add_petsc_event:
-        entrypoint = with_petsc_event(entrypoint)
-    if compiler_parameters.attach_debugger:
-        entrypoint = with_attach_debugger(entrypoint)
-    translation_unit = translation_unit.with_kernel(entrypoint)
-
+    if isinstance(context, CuPyCodegenContext):
+        breakpoint()
+    translation_unit, entrypoint = context.make_translation_unit(function_name, compiler_parameters)
     # Sort the buffers by where they appear in the kernel signature
     kernel_to_buffer_names = utils.invert_mapping(context._kernel_names)
     sorted_buffers = {}
@@ -844,7 +868,8 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
         buffer_key = kernel_to_buffer_names[kernel_arg.name]
         sorted_buffers[kernel_arg.name] = context.global_buffers[buffer_key]
 
-    return ModuleExecutor(translation_unit, sorted_buffers, context.global_buffer_intents, compiler_parameters)
+    
+    return  ModuleExecutor(translation_unit, sorted_buffers, context.global_buffer_intents, compiler_parameters)
 
 
 # put into a class in transform.py?
@@ -949,7 +974,7 @@ def parse_loop_properly_this_time(
                 codegen_context,
             )
             codegen_context.add_domain(iname, domain_var)
-            iname_replace_map_ = iname_map | {axis.label: pym.var(iname)}
+            iname_replace_map_ = iname_map | {axis.label: iname}
             within_inames = frozenset({iname})
         else:
             iname_replace_map_ = iname_map | {axis.label: 0}
@@ -1203,7 +1228,7 @@ def compile_array_assignment(
             )
             codegen_context.add_domain(iname, extent_var)
             new_iname_replace_maps = iname_replace_maps.copy()
-            new_iname_replace_maps[-1] = iname_replace_maps[-1] | {axis.label: pym.var(iname)}
+            new_iname_replace_maps[-1] = iname_replace_maps[-1] | {axis.label: iname}
             within_inames = {iname}
         else:
             new_iname_replace_maps = iname_replace_maps.copy()
@@ -1291,12 +1316,18 @@ def _(mul: Mul, /, *args, **kwargs) -> pym.Expression:
 
 @_lower_expr.register(AxisVar)
 def _(axis_var: AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
-    return just_one(iname_maps)[axis_var.axis_label]
+    var = just_one(iname_maps)[axis_var.axis_label]    
+    if isinstance(var, str):
+        return pym.var(var) 
+    return var 
 
 
 @_lower_expr.register(LoopIndexVar)
 def _(loop_var: LoopIndexVar, /, iname_maps, loop_indices, *args, **kwargs) -> pym.Expression:
-    return loop_indices[(loop_var.loop_id, loop_var.axis_label)]
+    var = loop_indices[(loop_var.loop_id, loop_var.axis_label)]
+    if isinstance(var, str):
+        return pym.var(var)
+    return var 
 
 
 @_lower_expr.register(LinearDatBufferExpression)

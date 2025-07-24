@@ -23,6 +23,7 @@ from pyop3.lang import (
     MIN_RW,
     MIN_WRITE,
     READ,
+    WRITE,
     RW,
 )
 from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, IndexedAxisTree, Mul, AxisComponent, relabel_path
@@ -59,7 +60,7 @@ def _(mul: Mul, /, *args, **kwargs) -> str:
 
 @_lower_cp_expr.register(AxisVar)
 def _(axis_var: AxisVar, /, iname_maps, *args, **kwargs) -> str:
-    return pymbolic_to_str(just_one(iname_maps)[axis_var.axis_label])
+    return just_one(iname_maps)[axis_var.axis_label]
 
 
 @_lower_cp_expr.register(LoopIndexVar)
@@ -98,7 +99,14 @@ def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indice
     for stride, layout, iname_map in zip(strides, layouts, iname_maps, strict=True):
         offset_expr += stride * lower_expr(layout, [iname_map], loop_indices, context)
     indices = maybe_multiindex(buffer, offset_expr, context)
-    return f"{name_in_kernel}{indices}"
+    # TODO way to check indices is a map vs a single indexLw
+    if intent == INC:
+        return lambda assignee: f"cp.scatter_add({name_in_kernel}, {indices}, {assignee})"
+    if intent == READ:
+        return f"cp.take({name_in_kernel}, {indices})"
+    if intent == WRITE:
+        return lambda assignee: f"{name_in_kernel}[{indices}] = {assignee}"
+    raise NotImplementedError(f"Intent {intent} does not have a handler")
 
 
 def maybe_multiindex(buffer_ref, offset_expr, context):
@@ -109,6 +117,8 @@ def maybe_multiindex(buffer_ref, offset_expr, context):
         shape = context._temporary_shapes[buffer_key]
         rank = len(shape)
         extra_indices = (0,) * (rank - 1)
+        if len(extra_indices) > 1:
+            raise NotImplementedError("Handing shape TODO")
 
         # also has to be a scalar, not an expression
         temp_offset_name = context.add_temporary("j")
@@ -116,19 +126,6 @@ def maybe_multiindex(buffer_ref, offset_expr, context):
         context.add_assignment(temp_offset_var, offset_expr)
         indices = extra_indices + (temp_offset_var,)
     else:
-        indices = "[offset_expr]"
+        indices = f"{offset_expr}"
 
     return indices
-
-
-def pymbolic_to_str(pym_expr):
-    return _pymbolic_to_str(pym_expr)
-
-@functools.singledispatch
-def _pymbolic_to_str(obj: Any, /, *args, **kwargs) -> str:
-    raise TypeError(f"No handler defined for {type(obj).__name__}")
-
-
-@_pymbolic_to_str.register(pym.Variable)
-def _pymbolic_to_str_var(obj):
-    return obj.name
