@@ -181,6 +181,8 @@ class CoordinateMapping(PhysicalGeometry):
         config = {"point_set": PointSingleton(point)}
         config.update(self.config)
         config.update(use_canonical_quadrature_point_ordering=False)  # quad point ordering not relevant.
+        interface = CellVerticesKernelInterface(self.interface)
+        config.update(interface=interface)
         context = PointSetContext(**config)
         expr = self.preprocess(expr, context)
         return map_expr_dag(context.translator, expr)
@@ -194,6 +196,8 @@ class CoordinateMapping(PhysicalGeometry):
         config = {"point_set": PointSingleton(point)}
         config.update(self.config)
         config.update(use_canonical_quadrature_point_ordering=False)  # quad point ordering not relevant.
+        interface = CellVerticesKernelInterface(self.interface)
+        config.update(interface=interface)
         context = PointSetContext(**config)
         expr = self.preprocess(expr, context)
         return map_expr_dag(context.translator, expr)
