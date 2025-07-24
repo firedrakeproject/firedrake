@@ -61,5 +61,5 @@ ENV CFLAGS="-mtune=generic" CPPFLAGS="-mtune=generic"
 ENV MPICC=$CC
 
 # Install Firedrake
-RUN pip install --verbose --no-binary h5py --src /opt \
-        --editable git+https://github.com/firedrakeproject/firedrake.git@release#egg=firedrake[docker]
+RUN git clone https://github.com/firedrakeproject/firedrake.git /opt/firedrake --branch release \
+    && pip install --verbose --no-binary h5py --editable /opt/firedrake --group /opt/firedrake/pyproject.toml:docker
