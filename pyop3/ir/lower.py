@@ -621,15 +621,16 @@ class ModuleExecutor:
     """
 
     # TODO: intents and datamap etc maybe all go together. All relate to the same objects
-    def __init__(self, loopy_code: lp.TranslationUnit, buffer_map: WeakValueDictionary[str, ConcretBuffer], buffer_intents: Mapping[str, Intent], compiler_parameters: Mapping):
-        self.loopy_code = loopy_code
+    def __init__(self, code: lp.TranslationUnit, buffer_map: WeakValueDictionary[str, ConcretBuffer], buffer_intents: Mapping[str, Intent], compiler_parameters: Mapping):
+        self.code = code
         self.buffer_map = buffer_map
         self.buffer_intents = buffer_intents
         self.compiler_parameters = compiler_parameters
 
     @property
-    def loopy_kernel(self) -> lp.LoopKernel:
-        return self.loopy_code.default_entrypoint
+    @abc.abstractmethod
+    def kernel(self) -> any:
+        pass
 
     @cached_property
     def _buffer_refs(self) -> tuple[BufferRef]:
@@ -640,8 +641,9 @@ class ModuleExecutor:
         return tuple(buffer_ref.buffer for buffer_ref in self._buffer_refs)
 
     @cached_property
+    @abc.abstractmethod
     def executable(self):
-        return compile_loopy(self.loopy_code, pyop3_compiler_parameters=self.compiler_parameters)
+        pass
 
     def __call__(self, replacement_buffers: Mapping[Hashable, ConcreteBuffer] | None = None) -> None:
         if replacement_buffers is None:  # shortcut for the most common case
@@ -668,26 +670,16 @@ class ModuleExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
-        # if len(self.loopy_code.callables_table) > 1:
-        #     breakpoint()
+        #if len(self.code.callables_table) > 1:
+        #    breakpoint()
         # pyop3.extras.debug.maybe_breakpoint()
 
         self.executable(*exec_arguments)
         pass
 
+    @abc.abstractmethod
     def __str__(self) -> str:
-        sep = "*" * 80
-        str_ = []
-        str_.append(sep)
-        str_.append(lp.generate_code_v2(self.loopy_code).device_code())
-        str_.append(sep)
-
-        for arg in self.loopy_code.default_entrypoint.args:
-            size, buffer = self._buffer_str(self.buffer_map[arg.name].buffer)
-            str_.append(f"{arg.name} {size} : {buffer}")
-
-        str_.append(sep)
-        return "\n".join(str_)
+        pass
 
     @functools.singledispatchmethod
     def _buffer_str(self, buffer):
@@ -724,12 +716,12 @@ class ModuleExecutor:
         raise TypeError
 
     @_as_exec_argument.register
-    def _(self, handle: np.ndarray | cp.ndarray) -> int:
+    def _(self, handle: np.ndarray) -> int:
         return handle.ctypes.data
 
-    # @_as_exec_argument.register
-    # def _(self, handle: cp.ndarray) -> int:
-    #     return handle.__cuda_array_interface__['data'][0]
+    @_as_exec_argument.register
+    def _(self, handle: cp.ndarray) -> int:
+         return handle.__cuda_array_interface__['data'][0]
 
     @_as_exec_argument.register
     def _(self, handle: PETSc.Mat) -> int:
@@ -745,6 +737,44 @@ class ModuleExecutor:
         if not valid:
             raise exc.BufferMismatchException()
 
+class LoopyModuleExecutor(ModuleExecutor):
+    
+   @property
+   def kernel(self) -> lp.LoopKernel: 
+        return self.code.default_entrypoint
+
+   @cached_property
+   def executable(self):
+        return compile_loopy(self.code, pyop3_compiler_parameters=self.compiler_parameters)
+
+   def __str__(self) -> str:
+        sep = "*" * 80
+        str_ = []
+        str_.append(sep)
+        str_.append(lp.generate_code_v2(self.code).device_code())
+        str_.append(sep)
+
+        for arg in self.code.default_entrypoint.args:
+            size, buffer = self._buffer_str(self.buffer_map[arg.name].buffer)
+            str_.append(f"{arg.name} {size} : {buffer}")
+
+        str_.append(sep)
+        return "\n".join(str_)
+
+class CuPyModuleExecutor(ModuleExecutor):
+    
+   @property
+   def kernel(self) -> None: 
+        breakpoint()
+        return self.code.default_entrypoint
+
+   @cached_property
+   def executable(self):
+        breakpoint()
+        return compile_loopy(self.code, pyop3_compiler_parameters=self.compiler_parameters)
+
+   def __str__(self) -> str:
+        breakpoint()
 
 class BinarySearchCallable(lp.ScalarCallable):
     def __init__(self, name="bsearch", **kwargs):
@@ -869,7 +899,11 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
         sorted_buffers[kernel_arg.name] = context.global_buffers[buffer_key]
 
     
-    return  ModuleExecutor(translation_unit, sorted_buffers, context.global_buffer_intents, compiler_parameters)
+    if isinstance(context, LoopyCodegenContext):
+        return  LoopyModuleExecutor(translation_unit, sorted_buffers, context.global_buffer_intents, compiler_parameters)
+    elif isinstance(context, CuPyCodegenContext):
+        return  LoopyModuleExecutor(translation_unit, sorted_buffers, context.global_buffer_intents, compiler_parameters)
+    raise NotImplementedError(f"Codegen context {context} not recognised")
 
 
 # put into a class in transform.py?
