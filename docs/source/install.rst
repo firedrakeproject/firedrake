@@ -49,8 +49,9 @@ Prerequisites
 -------------
 
 On Linux the only prerequisite needed to install Firedrake is a suitable version
-of Python (3.10 or greater). On macOS it is important that homebrew_ is installed
-and that the homebrew-installed Python is used instead of the system one.
+of Python (3.10 or greater). On macOS it is important that homebrew_ and Xcode_
+are installed and that the homebrew-installed Python is used instead of the
+system one.
 
 
 .. _firedrake_configure:
@@ -177,6 +178,25 @@ install Firedrake. To do this perform the following steps:
    This is optional but strongly recommended to avoid polluting your system Python
    environment.
 
+#. Purge the pip cache::
+
+      $ pip cache purge
+
+   This is also optional but strongly recommended as some cached pip packages
+   may be linked against old or missing libraries and hence will break your
+   installation. For a lighter-weight alternative you could run some or all
+   of the following::
+
+      $ pip cache remove mpi4py
+      $ pip cache remove petsc4py
+      $ pip cache remove h5py
+      $ pip cache remove slepc4py
+      $ pip cache remove libsupermesh
+      $ pip cache remove firedrake
+
+   Noting that this list may not be exhaustive.
+
+
 #. Set any necessary environment variables. This can be achieved using
    ``firedrake-configure``::
 
@@ -197,8 +217,6 @@ install Firedrake. To do this perform the following steps:
 
 #. Install Firedrake::
 
-      $ pip cache remove petsc4py
-      $ pip cache remove firedrake
       $ pip install --no-binary h5py 'firedrake[check]'
 
    .. note::
@@ -293,15 +311,20 @@ Missing symbols post install
 
 If the installation completes but then you get errors regarding missing symbols
 when you import Firedrake this is usually a sign that one of the Python bindings
-packages used by Firedrake (h5py, mpi4py, petsc4py, slepc4py) is linked against
-the wrong compiled library. This is usually caused by issues with caching.
+packages used by Firedrake (h5py, mpi4py, petsc4py, slepc4py), or Firedrake
+itself, is linked against the wrong compiled library. This is usually caused
+by issues with caching.
 
-To resolve the problem you should first remove any existing cached packages::
+To resolve the problem we recommend removing your virtual environment, purging
+the cache and then :ref:`attempting another installation<install_firedrake>`:
 
-   $ pip uninstall -y h5py mpi4py petsc4py slepc4py
+.. code-block:: bash
+
+   $ deactivate  # needed if venv-firedrake is currently activated
+   $ rm -r venv-firedrake
    $ pip cache purge
-
-before re-running the instruction to install Firedrake.
+   $ python3 -m venv venv-firedrake
+   # etc
 
 Unable to configure PETSc on macOS
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -367,10 +390,9 @@ To install Firedrake with SLEPc support you should:
 
    $ export SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH
 
-#. Continue with the installation as normal but remove slepc4py from the pip cache
-   and install Firedrake with the ``slepc`` optional dependency. For example::
+#. Continue with the installation as normal but install Firedrake with the
+   ``slepc`` optional dependency. For example::
 
-   $ pip cache remove slepc4py
    $ pip install --no-binary h5py 'firedrake[check,slepc]'
 
 VTK
@@ -551,11 +573,16 @@ should be followed:
 
    $ export $(python3 firedrake-configure --show-env)
 
+#. Create and activate a virtual environment::
+
+   $ python -m venv venv-firedrake
+   $ . venv-firedrake/bin/activate
+
 #. Install petsc4py and Firedrake's other build dependencies:
 
    .. code-block:: text
 
-      $ pip cache remove petsc4py
+      $ pip cache purge
       $ pip install $PETSC_DIR/src/binding/petsc4py
       $ pip install -r ./firedrake/requirements-build.txt
 
@@ -584,6 +611,7 @@ package.
 .. _discussion: https://github.com/firedrakeproject/firedrake/discussions
 .. _issue: https://github.com/firedrakeproject/firedrake/issues
 .. _homebrew: https://brew.sh/
+.. _Xcode: https://developer.apple.com/xcode/
 .. _PETSc: https://petsc.org/
 .. _petsc4py: https://petsc.org/release/petsc4py/reference/petsc4py.html
 .. _venv: https://docs.python.org/3/tutorial/venv.html
