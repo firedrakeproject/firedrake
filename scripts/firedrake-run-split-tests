@@ -31,9 +31,14 @@ num_procs=$1
 num_jobs=$2
 extra_args=${@:3}
 
-pytest_exec="mpiexec -n ${num_procs} python -m pytest"
+if [ $num_procs = 1 ]; then
+    # Cannot use mpiexec -n 1 because this can sometimes hang with
+    # OpenMPI at MPI_Finalize
+    pytest_exec="python3 -m pytest"
+else
+    pytest_exec="mpiexec -n ${num_procs} python3 -m pytest"
+fi
 marker_spec="parallel[${num_procs}]"
-
 pytest_cmd="${pytest_exec} -v \
             --splits ${num_jobs} --group {#} \
             -m ${marker_spec} ${extra_args}"
