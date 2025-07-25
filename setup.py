@@ -251,9 +251,15 @@ FIREDRAKE_CHECK_FILES = (
 
 
 def copy_check_files():
-    """Copy Makefile and tests into firedrake/_check."""
+    """Copy tests into firedrake/_check."""
     dest_dir = Path("firedrake/_check")
     for check_file in map(Path, FIREDRAKE_CHECK_FILES):
+        # If we are building a wheel from an sdist then the files have
+        # already been moved
+        if not check_file.exists():
+            assert (dest_dir / check_file).exists()
+            continue
+
         os.makedirs(dest_dir / check_file.parent, exist_ok=True)
         shutil.copy(check_file, dest_dir / check_file.parent)
 
