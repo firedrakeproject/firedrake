@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from setuptools import setup, find_packages, Extension
 from setuptools.command.editable_wheel import editable_wheel as _editable_wheel
 from setuptools.command.sdist import sdist as _sdist
+from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
 from glob import glob
 from pathlib import Path
 from Cython.Build import cythonize
@@ -250,9 +251,15 @@ FIREDRAKE_CHECK_FILES = (
 
 
 def copy_check_files():
-    """Copy Makefile and tests into firedrake/_check."""
+    """Copy tests into firedrake/_check."""
     dest_dir = Path("firedrake/_check")
     for check_file in map(Path, FIREDRAKE_CHECK_FILES):
+        # If we are building a wheel from an sdist then the files have
+        # already been moved
+        if not check_file.exists():
+            assert (dest_dir / check_file).exists()
+            continue
+
         os.makedirs(dest_dir / check_file.parent, exist_ok=True)
         shutil.copy(check_file, dest_dir / check_file.parent)
 
@@ -269,8 +276,18 @@ class sdist(_sdist):
         super().run()
 
 
+class bdist_wheel(_bdist_wheel):
+    def run(self):
+        copy_check_files()
+        super().run()
+
+
 setup(
-    cmdclass={"editable_wheel": editable_wheel, "sdist": sdist},
+    cmdclass={
+        "editable_wheel": editable_wheel,
+        "sdist": sdist,
+        "bdist_wheel": bdist_wheel,
+    },
     packages=find_packages(),
     ext_modules=extensions(),
 )
