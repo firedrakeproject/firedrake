@@ -409,7 +409,8 @@ class RieszMap:
 
     def __init__(self, function_space_or_inner_product=None,
                  sobolev_space=ufl.L2, *, bcs=None, solver_parameters=None,
-                 form_compiler_parameters=None, restrict=True):
+                 form_compiler_parameters=None, restrict=True,
+                 constant_jacobian=False):
         if isinstance(function_space_or_inner_product, ufl.Form):
             args = ufl.algorithms.extract_arguments(
                 function_space_or_inner_product
@@ -442,6 +443,7 @@ class RieszMap:
         self._solver_parameters = solver_parameters or {}
         self._form_compiler_parameters = form_compiler_parameters or {}
         self._restrict = restrict
+        self._constant_jacobian = constant_jacobian
 
     @staticmethod
     def _inner_product_form(sobolev_space, u, v):
@@ -465,6 +467,7 @@ class RieszMap:
         lvp = LinearVariationalProblem(
             self._inner_product, rhs, soln, bcs=self._bcs,
             restrict=self._restrict,
+            constant_jacobian=self._constant_jacobian,
             form_compiler_parameters=self._form_compiler_parameters)
         solver = LinearVariationalSolver(
             lvp, solver_parameters=self._solver_parameters

@@ -221,6 +221,12 @@ to set the right environment variables and then run::
 
      $ pip install --upgrade firedrake
 
+Previously generated code may not be compatible with a newer
+Firedrake installation, and may crash with cryptic messages.
+We recommend removing any cached code after updating by running::
+
+     $ firedrake-clean
+
 Updating PETSc
 ~~~~~~~~~~~~~~
 
@@ -565,7 +571,7 @@ package.
 .. _discussion: https://github.com/firedrakeproject/firedrake/discussions
 .. _issue: https://github.com/firedrakeproject/firedrake/issues
 .. _homebrew: https://brew.sh/
-.. _PETSc: https://www.mcs.anl.gov/petsc/
+.. _PETSc: https://petsc.org/
 .. _petsc4py: https://petsc.org/release/petsc4py/reference/petsc4py.html
 .. _venv: https://docs.python.org/3/tutorial/venv.html
 .. _WSL: https://github.com/firedrakeproject/firedrake/wiki/Installing-on-Windows-Subsystem-for-Linux

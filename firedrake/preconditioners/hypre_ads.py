@@ -5,7 +5,7 @@ from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
 from firedrake.ufl_expr import TestFunction
 from firedrake.dmhooks import get_function_space
 from firedrake.preconditioners.hypre_ams import chop
-from firedrake.__future__ import interpolate
+from firedrake.interpolation import interpolate
 from ufl import grad, curl, SpatialCoordinate
 from pyop2.utils import as_tuple
 

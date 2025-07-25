@@ -1,6 +1,5 @@
 import pytest
 import firedrake as fd
-from firedrake.__future__ import interpolate
 from firedrake.adjoint import (
     continue_annotation, pause_annotation, stop_annotating, annotate_tape,
     set_working_tape, get_working_tape, taylor_test, taylor_to_dict,
@@ -153,7 +152,7 @@ def observation_errors(V):
 
     # observation operator
     def H(x):
-        return fd.assemble(interpolate(x, Vobs))
+        return fd.assemble(fd.interpolate(x, Vobs))
 
     # ground truth
     targets = analytic_series(V)

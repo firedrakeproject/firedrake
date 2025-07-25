@@ -307,7 +307,7 @@ def action(form, coefficient, derivatives_expanded=None):
     if isinstance(form, firedrake.slate.TensorBase):
         if form.rank == 0:
             raise ValueError("Can't take action of rank-0 tensor")
-        return form * firedrake.AssembledVector(coefficient)
+        return form * coefficient
     else:
         return ufl.action(form, coefficient, derivatives_expanded=derivatives_expanded)
 

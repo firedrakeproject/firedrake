@@ -1,5 +1,4 @@
 from firedrake import *
-from firedrake.__future__ import *
 from firedrake.utils import IntType, RealType
 import pytest
 import numpy as np
