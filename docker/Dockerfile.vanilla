@@ -1,9 +1,33 @@
 # Dockerfile for a plain Firedrake suitable for testing Firedrake components and applications
+# Firedrake is installed as a system package so doesn't require activating a venv when the container is launched
+#
+# There are two command line arguments:
+# ARCH:
+#     The `--arch` argument to firedrake-configure, e.g. default, complex
+# BRANCH:
+#     The Firedrake branch to install from. The `firedrake-configure` script from this branch will be used.
+#     - If BRANCH == "release": installs the latest firedrake release and the corresponding PETSc release.
+#     - If BRANCH != "release": installs that Firedrake branch and the latest PETSc master branch.
+#
+# Example usage:
+#  $ docker build \
+#     --file=Dockerfile.vanilla \
+#     --tag=firedrake:mybranch-complex \
+#     --build-arg ARCH=complex \
+#     --build-arg BRANCH=mybranch
+#
+#  $ docker run --rm firedrake:mybranch-complex bash -c "cd /opt/firedrake; git status"
+#  On branch mybranch
+#  Your branch is up to date with 'origin/JHopeCollins/merge-release'
+#
+#  $ docker run --rm firedrake:mybranch-complex pip list | grep "firedrake "
+#  firedrake                 2025.5.0.dev0 /opt/firedrake
 
 FROM ubuntu:latest
 
 # Firedrake arch to build
 ARG ARCH="default"
+ARG BRANCH="release"
 
 # Set '-o pipefail' to avoid linter error (https://github.com/hadolint/hadolint/wiki/DL4006)
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -26,7 +50,7 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1
 ENV OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 
 # Download firedrake-configure
-RUN curl -O --output-dir /opt https://raw.githubusercontent.com/firedrakeproject/firedrake/release/scripts/firedrake-configure
+RUN curl -O --output-dir /opt https://raw.githubusercontent.com/firedrakeproject/firedrake/${BRANCH}/scripts/firedrake-configure
 
 # Install system dependencies
 RUN apt-get update \
@@ -39,11 +63,15 @@ ENV OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 
 # Install PETSc. We set the compiler optimisation flags manually here to
 # remove the default of '-march=native -mtune=native' which is not suitable for Docker images.
-RUN git clone --depth 1 --branch $(python3 /opt/firedrake-configure --show-petsc-version) https://gitlab.com/petsc/petsc.git /opt/petsc \
+# Clone the release tag of PETSc if we're installing a Firedrake release.
+RUN if [ "${BRANCH}" = "release" ]; then \
+        CLONE_ARGS="--branch $(python3 /opt/firedrake-configure --show-petsc-version)"; \
+    fi; \
+    git clone --depth 1 ${CLONE_ARGS} https://gitlab.com/petsc/petsc.git /opt/petsc \
     && cd /opt/petsc \
     && python3 /opt/firedrake-configure --arch $ARCH --show-petsc-configure-options | \
         sed "s/-march=native -mtune=native/-mtune=generic/g" | \
-        xargs -L1 ./configure --with-make-np=8 --download-slepc \
+        xargs -L1 ./configure --with-make-np=24 --download-slepc \
     && make \
     && make check \
     && rm -rf ./**/externalpackages \
@@ -61,5 +89,21 @@ ENV CFLAGS="-mtune=generic" CPPFLAGS="-mtune=generic"
 ENV MPICC=$CC
 
 # Install Firedrake
-RUN pip install --verbose --no-binary h5py --src /opt \
-        --editable git+https://github.com/firedrakeproject/firedrake.git@release#egg=firedrake[docker]
+RUN if [ ${BRANCH} = "release" ]; then \
+        FIREDRAKE_SRC=git+https://github.com/firedrakeproject/firedrake.git@release#egg=firedrake \
+        && PIP_ARGS="--src /opt"; \
+    else \
+        git clone --single-branch --branch ${BRANCH} \
+            https://github.com/firedrakeproject/firedrake.git /opt/firedrake \
+        && pip cache remove petsc4py \
+        && pip cache remove slepc4py \
+        && pip install --verbose ${PETSC_DIR}/src/binding/petsc4py \
+        && pip install --verbose -r /opt/firedrake/requirements-build.txt \
+        && FIREDRAKE_SRC=/opt/firedrake \
+        && PIP_ARGS="--no-build-isolation"; \
+    fi; \
+    pip install --verbose --no-binary h5py ${PIP_ARGS} --src /opt \
+        --editable ${FIREDRAKE_SRC}[docker]
+
+RUN cd /opt/firedrake/ \
+    && make check
