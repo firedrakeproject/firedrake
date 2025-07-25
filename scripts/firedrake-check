@@ -78,11 +78,11 @@ def run_tests(tests: tuple[str], nprocs: int, mpiexec: str) -> None:
     else:
         check_flags = "--quiet -p no:cacheprovider"
 
-    # Do not use mpiexec -n 1 as this can hang
-    if nprocs == 1:
-        cmd = f"{sys.executable} -m pytest {check_flags} -m parallel[1]".split()
-    else:
-        cmd = f"{mpiexec} {nprocs} {sys.executable} -m pytest {check_flags} -m parallel[{nprocs}]".split()
+    cmd = f"{sys.executable} -m pytest {check_flags} -m parallel[{nprocs}]"
+    # Only use mpiexec for parallel tests because 'mpiexec -n 1' can hang
+    if nprocs > 1:
+        cmd = f"{mpiexec} {nprocs} {cmd}"
+    cmd = cmd.split()
     cmd.extend(tests)
 
     subprocess.run(cmd, cwd=test_dir, check=True)
