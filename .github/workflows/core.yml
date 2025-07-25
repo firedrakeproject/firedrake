@@ -8,7 +8,7 @@ on:
         type: string
         required: true
       target_branch:
-        description: The target branch (usually 'master' or 'release')
+        description: The target branch (usually 'main' or 'release')
         type: string
         required: true
       run_tests:
@@ -39,7 +39,7 @@ on:
         type: string
         required: true
       target_branch:
-        description: The target branch (usually 'master' or 'release')
+        description: The target branch (usually 'main' or 'release')
         type: string
         required: true
       run_tests:
@@ -542,12 +542,12 @@ jobs:
   deploy_website:
     name: Deploy GitHub pages (optional)
     needs: test_linux
-    # Only deploy the website for master here, the release branch is managed
+    # Only deploy the website for main here, the release branch is managed
     # by https://github.com/firedrakeproject/firedrakeproject.github.io
     if: |
       always() &&
       inputs.deploy_website &&
-      inputs.target_branch == 'master' &&
+      inputs.target_branch == 'main' &&
       needs.test_linux.outputs.docs_conclusion == 'success'
     permissions:
       pages: write
