@@ -517,11 +517,10 @@ jobs:
           firedrake-check
         timeout-minutes: 10
 
-      # UNDO ME
-      # - name: Post-run cleanup
-      #   if: always()
-      #   run: |
-      #     find . -delete
+      - name: Post-run cleanup
+        if: always()
+        run: |
+          find . -delete
 
   lint:
     name: Lint codebase
