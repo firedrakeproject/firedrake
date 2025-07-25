@@ -1,7 +1,6 @@
 import pytest
 import numpy
 from firedrake import *
-from firedrake.__future__ import *
 from firedrake.mesh import plex_from_cell_list
 from firedrake.utils import IntType
 

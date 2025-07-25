@@ -1,7 +1,6 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.__future__ import *
 from pyadjoint.tape import get_working_tape, pause_annotation
 
 

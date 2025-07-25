@@ -1,6 +1,7 @@
 """Global test configuration."""
 
 import os
+import sys
 
 # Disable warnings for missing options when running with pytest as PETSc does
 # not know what to do with the pytest arguments.
@@ -204,8 +205,15 @@ class _petsc_raises:
         pass
 
     def __exit__(self, exc_type, exc_val, traceback):
-        if exc_type is PETSc.Error and isinstance(exc_val.__cause__, self.exc_type):
-            return True
+        # There is a bug where 'exc_val' is occasionally the wrong thing,
+        # either 'None' or some unrelated garbage collection error. In my
+        # tests this error only exists for Python < 3.12.11.
+        if exc_type is PETSc.Error:
+            if sys.version_info < (3, 12, 11):
+                return True
+            else:
+                if isinstance(exc_val.__cause__, self.exc_type):
+                    return True
 
 
 @pytest.fixture
