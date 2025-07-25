@@ -4,6 +4,46 @@ import numpy as np
 import pyop3 as op3
 
 
+# this nearly works, and should be the right thing to do.
+def check_layout(axis_tree, path, expected_offset):
+    if not isinstance(path, collections.abc.Mapping):
+        path = {axis_label: None for axis_label in path}
+    path = idict(path)
+
+    breakpoint()
+
+    for ix in axis_tree.iter(eager=True):
+        assert axis_tree.layout[path] == expected_offset(ix)
+
+
+def test_ragged_with_nonstandard_axis_ordering():
+    """Test that ragged axes are tabulated correctly.
+
+    In this test there are 3 axes, where the innermost axis depends on the
+    index of the outermost axis.
+
+    """
+    axis1 = op3.Axis(3, "A")
+    axis2 = op3.Axis(2, "B")
+    axis3 = op3.Axis(op3.Dat(axis1, data=np.asarray([1, 2, 1], dtype=op3.IntType)), "C")
+    axis_tree = op3.AxisTree.from_iterable((axis1, axis2, axis3))
+
+    layouts = axis_tree.layouts
+    breakpoint()
+
+    assert layouts[idict()] == 0
+    assert layouts[idict({"A": None})] == [0, 2, 6]
+
+    assert layouts[idict()] == [[0, 1], [2, 4], [6, 7]]
+    check_layout(
+        axis_tree,
+        ["A", "B"],
+        lambda i, j, k: [[0], [1, 2], [3]][i][k]*2 + j
+    )
+    # assert layouts[idict({"A": None, "B": None, "C": None})] == ???
+
+
+
 def test_non_nested_matching_regions():
     axis1 = op3.Axis([
         op3.AxisComponent(1), op3.AxisComponent(1)

@@ -208,8 +208,9 @@ class Instruction(abc.ABC):
 
         insn = self
 
-        # import pyop3
-        # pyop3.extras.debug.maybe_breakpoint()
+        if "mat" in str(self) and "form_cell" in str(self):
+            import pyop3
+            pyop3.extras.debug.enable_conditional_breakpoints()
         insn = expand_loop_contexts(insn)
         insn = expand_implicit_pack_unpack(insn)
 

@@ -564,11 +564,6 @@ class Dat(Tensor, KernelArgument):
             XXX
 
         """
-        if axes.size != self.axes.size:
-            raise AxisMismatchException(
-                "New axis tree is a different size to the existing one."
-            )
-
         return self.__record_init__(axes=axes)
 
 

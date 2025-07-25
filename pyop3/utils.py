@@ -651,7 +651,11 @@ def filter_type(type_: type, iterable: Iterable):
 
 
 def ceildiv(a, b, /):
-    # See https://stackoverflow.com/a/17511341
-    return -(a // -b)
+    assert b != 0
+    if b == 1:
+        return a
+    else:
+        # See https://stackoverflow.com/a/17511341
+        return -(a // -b)
 
 

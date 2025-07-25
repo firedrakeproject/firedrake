@@ -872,16 +872,44 @@ class Expression(abc.ABC):
             return Neg(self)
 
     def __lt__(self, other):
-        return LessThan(self, other)
+        from pyop3.expr_visitors import max_, min_
+
+        if max_(self) < min_(other):
+            return True
+        elif min_(self) >= max_(other):
+            return False
+        else:
+            return LessThan(self, other)
 
     def __gt__(self, other):
-        return GreaterThan(self, other)
+        from pyop3.expr_visitors import max_, min_
+
+        if min_(self) > max_(other):
+            return True
+        elif max_(self) <= min_(other):
+            return False
+        else:
+            return GreaterThan(self, other)
 
     def __le__(self, other):
-        return LessThanOrEqual(self, other)
+        from pyop3.expr_visitors import max_, min_
+
+        if max_(self) <= min_(other):
+            return True
+        elif min_(self) > max_(other):
+            return False
+        else:
+            return LessThanOrEqual(self, other)
 
     def __ge__(self, other):
-        return GreaterThanOrEqual(self, other)
+        from pyop3.expr_visitors import max_, min_
+
+        if min_(self) >= max_(other):
+            return True
+        elif max_(self) < min_(other):
+            return False
+        else:
+            return GreaterThanOrEqual(self, other)
 
     def __or__(self, other) -> Or | bool:
         return self._maybe_eager_or(self, other)
@@ -1224,8 +1252,12 @@ class AxisVar(Terminal):
     # }}}
 
     def __init__(self, axis: Axis) -> None:
-        assert not isinstance(axis, str), "debugging"
+        assert len(axis.components) == 1
         self.axis = axis
+
+    # TODO: when we use frozenrecord
+    # def __post_init__(self) -> None:
+    #     assert self.axis.is_linear
 
     # TODO: deprecate?
     @property
@@ -1785,7 +1817,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         axis = self.node_map[path]
         for component in axis.components:
             path_ = path | {axis.label: component.label}
-            source_exprs |= {path_: immutabledict({axis.label: AxisVar(axis)})}
+            source_exprs |= {path_: immutabledict({axis.label: AxisVar(axis.linearize(component.label))})}
             if self.node_map[path_]:
                 source_exprs |= self._collect_source_exprs(path=path_)
         return immutabledict(source_exprs)

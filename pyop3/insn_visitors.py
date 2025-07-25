@@ -521,6 +521,9 @@ def _(assignment: ArrayAssignment, /) -> NonEmptyArrayAssignment | NullInstructi
         if trees is not None
     )
 
+    if "mat" in str(assignment) and "666" not in str(assignment):
+        pyop3.extras.debug.maybe_breakpoint()
+
     # We can get a mismatch here if we are assigning a scalar (single tree
     # shape) to a matrix (double tree shape). We should probably be stricter
     # here (e.g. by asserting it has to be a scalar).

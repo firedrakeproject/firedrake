@@ -101,8 +101,9 @@ def tabulate_again(axes):
     return layouts
 
 
-# TODO: I think a better way to do this is to track 'free indices' and see if the 'needed indices' <= 'free'
-# at which point we can tabulate.
+# TODO:
+# I think the right approach here is to deal more with subtrees. If we have a mixed thing
+# for instance we should eagerly split the tree apart and tabulate each part.
 def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_tabulate, tabulated, region_axes) -> immutabledict:
     """Traverse the axis tree and prepare zeroed arrays for offsets.
 
@@ -176,7 +177,11 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
             # Bits below here in the tree are variably-sized, cannot do an affine thing
             elif subtree:
                 offset_axes, loop_var_replace_map = loopified_shape(subtree.size)
-                assert not loop_var_replace_map
+                assert not loop_var_replace_map, "should not encounter loop indices here"
+
+                if axis.linearize(component.label) not in offset_axes:
+                    # consider the test 'test_ragged_with_nonstandard_axis_ordering'
+                    raise NotImplementedError("can do an affine thing with this axis")
 
                 offset_dat = Dat(offset_axes.regionless, data=np.full(offset_axes.regionless.size, -1, dtype=IntType))
 
@@ -187,8 +192,11 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
                 offset_dat_expr = as_linear_buffer_expression(offset_dat)
                 component_layout = offset_dat_expr * step + start
 
-                layout_expr_acc_ = layout_expr_acc + component_layout
-                layouts[path_acc_] = layout_expr_acc_
+                # Do not accumulate this layout because the levels below also require tabulation
+                # This still requires some work.
+                # layout_expr_acc_ = layout_expr_acc + component_layout
+                layout_expr_acc_ = layout_expr_acc
+                layouts[path_acc_] = layout_expr_acc + component_layout
 
             # Nothing fancy, just affine access
             else:
@@ -200,15 +208,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
                 layout_expr_acc_ = layout_expr_acc + component_layout
                 layouts[path_acc_] = layout_expr_acc_
 
-        # NOTE: Not strictly necessary but it means we don't currently break with ragged
-        if i < len(axis.components) - 1:
-            # start += _axis_component_size(axes, axis, component)
-            if axes.node_map[path_acc_]:
-                pyop3.extras.debug.warn_todo("This is wrong")
-                breakpoint()
-                start += component.local_size * _axis_tree_size(axes.subtree(path_acc_))
-            else:
-                start += component.local_size
+        start += axis_tree_component_size(axes, path_acc, component)
 
         if subaxis := axes.node_map.get(path_acc_):
             sublayouts = _prepare_layouts(axes, subaxis, path_acc_, layout_expr_acc_, to_tabulate, tabulated, region_axes_)
@@ -421,7 +421,7 @@ def axis_tree_component_size(axis_tree, path, component):
         import pyop3.extras.debug
         # pyop3.extras.debug.maybe_breakpoint()
 
-        subtree_size_axes, loop_to_axis_var_replace_map = loopified_shape(subtree_size)
+        subtree_size_axes, outer_loop_to_axis_var_replace_map = loopified_shape(subtree_size)
         assert subtree_size_axes.is_linear
 
         # think tensor contractions, look for matches
@@ -452,7 +452,7 @@ def axis_tree_component_size(axis_tree, path, component):
             # Replace AxisVars with LoopIndexVars in the size expression so we can
             # access them in a loop
             # this is a bit of a weird bit: loopindex -> axis_loopindex -> loopindex(axis_loopindex)
-            subtree_size_tmp = replace(subtree_size, loop_to_axis_var_replace_map)
+            subtree_size_tmp = replace(subtree_size, outer_loop_to_axis_var_replace_map)
 
             # TODO: might need to do something similar for component_size
 
@@ -474,7 +474,10 @@ def axis_tree_component_size(axis_tree, path, component):
                 return just_one(component_size.buffer.buffer._data)
             else:
                 loop_to_axis_var_replace_map_ = utils.invert_mapping(axis_to_loop_var_replace_map)
-                return replace(component_size, loop_to_axis_var_replace_map_)
+                XXX = replace(component_size, loop_to_axis_var_replace_map_)
+
+                axis_to_loop_var_replace_map = utils.invert_mapping(outer_loop_to_axis_var_replace_map)
+                return replace(XXX, axis_to_loop_var_replace_map)
 
         else:
             # Drop irrelevant components from the axes as loop index vars are supposed to be linear

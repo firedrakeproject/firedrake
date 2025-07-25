@@ -184,7 +184,7 @@ class BCBase:
     @cached_property
     def node_set(self) -> op3.Slice:
         subset_dat = op3.Dat.from_sequence(self.nodes, dtype=utils.IntType)
-        subset = op3.Subset(0, subset_dat)
+        subset = op3.Subset(None, subset_dat)
         return op3.Slice("nodes", [subset])
 
     # @cached_property

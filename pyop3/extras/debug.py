@@ -1,3 +1,4 @@
+import collections
 import warnings
 from typing import Optional, Union
 
@@ -11,22 +12,20 @@ warnings.warn(
 )
 
 
-_stopping = False
+_stopping = collections.defaultdict(lambda: False)
 """Flag to switch conditional breakpoints on and off."""
 
 
-def enable_conditional_breakpoints():
-    global _stopping
-    _stopping = True
+def enable_conditional_breakpoints(marker=None):
+    _stopping[marker] = True
 
 
-def disable_conditional_breakpoints():
-    global _stopping
-    _stopping = False
+def disable_conditional_breakpoints(marker=None):
+    _stopping[marker] = False
 
 
-def maybe_breakpoint():
-    if _stopping:
+def maybe_breakpoint(marker=None):
+    if _stopping[marker]:
         breakpoint()
 
 

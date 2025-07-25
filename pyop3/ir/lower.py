@@ -24,8 +24,8 @@ import loopy as lp
 import numpy as np
 import pymbolic as pym
 from immutabledict import immutabledict
-from pyop3.tensor.dat import LinearMatBufferExpression, NonlinearMatBufferExpression, MatBufferExpression, BufferExpression
-from pyop3.expr_visitors import collect_axis_vars
+from pyop3.tensor.dat import LinearDatBufferExpression, NonlinearDatBufferExpression, LinearMatBufferExpression, NonlinearMatBufferExpression, MatBufferExpression, BufferExpression
+from pyop3.expr_visitors import collect_axis_vars, replace
 
 import pyop2
 
@@ -323,6 +323,111 @@ class DummyModuleExecutor:
         pass
 
 
+SAFE_KERNELS = [
+    """void pyop3_loop(int64_t const *__restrict__ dat_0, int32_t *__restrict__ idat_0, int32_t const *__restrict__ idat_1, int32_t const *__restrict__ idat_2)
+{
+  int32_t p_0;
+
+  p_0 = (int32_t) (dat_0[0]);
+  for (int32_t i_0 = 0; i_0 <= -1 + p_0; ++i_0)
+    idat_0[0] = ((idat_0[0] >= idat_1[idat_2[i_0]]) ? idat_0[0] : idat_1[idat_2[i_0]]);
+
+}""",
+    """void pyop3_loop(int64_t const *__restrict__ dat_0, int32_t *__restrict__ idat_0, int32_t const *__restrict__ idat_1, int32_t const *__restrict__ idat_2)
+{
+  int32_t p_0;
+
+  p_0 = (int32_t) (dat_0[0]);
+  for (int32_t i_0 = 0; i_0 <= -1 + p_0; ++i_0)
+    idat_0[0] = ((idat_0[0] <= idat_1[idat_2[i_0]]) ? idat_0[0] : idat_1[idat_2[i_0]]);
+
+}""",
+    """void pyop3_loop(int32_t *__restrict__ idat_0)
+{
+  for (int32_t i_0 = 0; i_0 <= 1; ++i_0)
+    idat_0[i_0] = 1;
+
+}""",
+    """void pyop3_loop(int64_t const *__restrict__ dat_0, int32_t *__restrict__ idat_0, int32_t const *__restrict__ idat_1, int32_t const *__restrict__ idat_2, int32_t const *__restrict__ idat_3)
+{
+  int32_t p_0;
+
+  p_0 = (int32_t) (dat_0[0]);
+  for (int32_t i_0 = 0; i_0 <= -1 + p_0; ++i_0)
+    for (int32_t i_1 = 0; i_1 <= 2; ++i_1)
+      idat_0[i_0] = idat_0[i_0] + ((idat_1[idat_2[idat_3[3 * i_0 + i_1]]] <= 0) ? 0 : idat_1[idat_2[idat_3[3 * i_0 + i_1]]]);
+
+}""",
+    """void pyop3_loop(int64_t const *__restrict__ dat_0, int32_t *__restrict__ idat_0, int32_t const *__restrict__ idat_1)
+{
+  int32_t p_0;
+
+  p_0 = (int32_t) (dat_0[0]);
+  for (int32_t i_0 = 0; i_0 <= -1 + p_0; ++i_0)
+    idat_0[0] = idat_0[0] + idat_1[i_0];
+
+}""",
+    """void pyop3_loop(int64_t const *__restrict__ dat_0, int32_t *__restrict__ idat_0)
+{
+  for (int32_t i_0 = 0; i_0 <= 1; ++i_0)
+    idat_0[i_0] = (int32_t) (dat_0[i_0]);
+
+}""",
+    """void pyop3_loop(int64_t const *__restrict__ dat_0, int32_t *__restrict__ idat_0, int32_t const *__restrict__ idat_1, int32_t const *__restrict__ idat_2)
+{
+  int32_t p_0;
+
+  p_0 = (int32_t) (dat_0[0]);
+  for (int32_t i_0 = 0; i_0 <= -1 + p_0; ++i_0)
+    idat_0[idat_1[i_0]] = idat_2[i_0];
+
+}""",
+    """void pyop3_loop(int32_t *__restrict__ idat_0, int32_t const *__restrict__ idat_1)
+{
+  for (int32_t i_0 = 0; i_0 <= 1; ++i_0)
+    idat_0[i_0] = idat_1[i_0];
+
+}""",
+    """void pyop3_loop(int32_t *__restrict__ idat_0, int32_t const *__restrict__ idat_1, int32_t const *__restrict__ idat_2, int32_t const *__restrict__ idat_3)
+{
+  for (int32_t i_0 = 0; i_0 <= 1; ++i_0)
+    for (int32_t i_1 = 0; i_1 <= 2; ++i_1)
+      idat_0[3 * i_0 + i_1] = ((idat_1[idat_2[idat_3[3 * i_0 + i_1]]] <= 0) ? 0 : idat_1[idat_2[idat_3[3 * i_0 + i_1]]]);
+
+}""",
+    """void pyop3_loop(int64_t const *__restrict__ dat_0, int32_t *__restrict__ idat_0, int32_t const *__restrict__ idat_1, int32_t const *__restrict__ idat_2, int32_t const *__restrict__ idat_3)
+{
+  int32_t p_0;
+
+  p_0 = (int32_t) (dat_0[0]);
+  for (int32_t i_0 = 0; i_0 <= -1 + p_0; ++i_0)
+    for (int32_t i_1 = 0; i_1 <= 2; ++i_1)
+      idat_0[0] = ((idat_0[0] >= ((idat_1[idat_2[idat_3[3 * i_0 + i_1]]] <= 0) ? 0 : idat_1[idat_2[idat_3[3 * i_0 + i_1]]])) ? idat_0[0] : ((idat_1[idat_2[idat_3[3 * i_0 + i_1]]] <= 0) ? 0 : idat_1[idat_2[idat_3[3 * i_0 + i_1]]]));
+
+}""",
+    """void pyop3_loop(int64_t const *__restrict__ dat_0, int32_t *__restrict__ idat_0, int32_t const *__restrict__ idat_1, int32_t const *__restrict__ idat_2, int32_t const *__restrict__ idat_3)
+{
+  int32_t p_0;
+
+  p_0 = (int32_t) (dat_0[0]);
+  for (int32_t i_0 = 0; i_0 <= -1 + p_0; ++i_0)
+    for (int32_t i_1 = 0; i_1 <= 2; ++i_1)
+      idat_0[0] = ((idat_0[0] <= ((idat_1[idat_2[idat_3[3 * i_0 + i_1]]] <= 0) ? 0 : idat_1[idat_2[idat_3[3 * i_0 + i_1]]])) ? idat_0[0] : ((idat_1[idat_2[idat_3[3 * i_0 + i_1]]] <= 0) ? 0 : idat_1[idat_2[idat_3[3 * i_0 + i_1]]]));
+
+}""",
+    """void pyop3_loop(int64_t const *__restrict__ dat_0, int32_t *__restrict__ idat_0, int32_t const *__restrict__ idat_1, int32_t const *__restrict__ idat_2, int32_t const *__restrict__ idat_3)
+{
+  int32_t p_0;
+
+  p_0 = (int32_t) (dat_0[0]);
+  for (int32_t i_0 = 0; i_0 <= -1 + p_0; ++i_0)
+    for (int32_t i_1 = 0; i_1 <= 2; ++i_1)
+      idat_0[i_0] = idat_0[i_0] + ((((idat_1[idat_2[idat_3[3 * i_0 + i_1]]] <= 0) ? 0 : idat_1[idat_2[idat_3[3 * i_0 + i_1]]]) <= 0) ? 0 : ((idat_1[idat_2[idat_3[3 * i_0 + i_1]]] <= 0) ? 0 : idat_1[idat_2[idat_3[3 * i_0 + i_1]]]));
+
+}""",
+]
+
+
 class ModuleExecutor:
     """
     Notes
@@ -381,10 +486,11 @@ class ModuleExecutor:
             buffers[index].inc_state()
 
         # if len(self.loopy_code.callables_table) > 1:
-        # if len(self.loopy_kernel.args) > 2:
-        # if len(str(self)) > 3000:
-        #     breakpoint()
-        # pyop3.extras.debug.maybe_breakpoint()
+        # if len(self.loopy_kernel.args) > 3:
+        # selfstr = str(self)
+        # if all(k not in selfstr for k in SAFE_KERNELS):
+        #     pyop3.extras.debug.maybe_breakpoint("a")
+
 
         self.executable(*exec_arguments)
         pass
@@ -850,15 +956,15 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
         # then we have to convert `666` into an appropriately sized temporary
         # for Mat{Get,Set}Values to work.
         # TODO: There must be a more elegant way of doing this
-        nrows = row_axis_tree.size
-        ncols = column_axis_tree.size
+        nrows = row_axis_tree.max_size
+        ncols = column_axis_tree.max_size
+        expr_data = np.full((nrows, ncols), expr, dtype=mat.buffer.buffer.dtype)
 
-        if isinstance(nrows, numbers.Integral) and isinstance(ncols, numbers.Integral):
-            expr_data = np.full((nrows, ncols), expr, dtype=mat.buffer.buffer.dtype)
-        else:
-            pyop3.extras.debug.warn_todo("Need expr.materialize() or similar to get the max size")
-            max_size = 36  # assume that this is OK
-            expr_data = np.full((max_size, max_size), expr, dtype=mat.buffer.buffer.dtype)
+        # if isinstance(nrows, numbers.Integral) and isinstance(ncols, numbers.Integral):
+        # else:
+        #     pyop3.extras.debug.warn_todo("Need expr.materialize() or similar to get the max size")
+        #     max_size = 36  # assume that this is OK
+        #     expr_data = np.full((max_size, max_size), expr, dtype=mat.buffer.buffer.dtype)
         array_buffer = BufferRef(ArrayBuffer(expr_data, constant=True))
     else:
         assert isinstance(expr, BufferExpression)
@@ -877,20 +983,48 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
     # these sizes can be expressions that need evaluating
     rsize_var = register_extent(
         rsize,
-        [{}],
+        {},
         loop_indices,
         context,
     )
 
     csize_var = register_extent(
         csize,
-        [{}],
+        {},
         loop_indices,
         context,
     )
 
-    irow = lower_expr(mat.row_layout, ((),), loop_indices, context)
-    icol = lower_expr(mat.column_layout, ((),), loop_indices, context)
+    # convert the generic expressions to 
+    # for example:
+    #
+    #   map0[3*i0 + i1]
+    #   map0[3*i0 + i2 + 3]
+    #
+    # to the shared top-level layout:
+    #
+    #   map0[3*i0]
+    #
+    # which is what Mat{Get,Set}Values() needs.
+    layout_exprs = []
+    for layout in [mat.row_layout, mat.column_layout]:
+        assert isinstance(layout, NonlinearDatBufferExpression)
+        sublayout_exprs_ = []
+        for sublayout in layout.layouts.values():
+            axis_var_zero_replace_map = {
+                axis_var: 0
+                for axis_var in collect_axis_vars(sublayout)
+            }
+            subst_sublayout_ = replace(sublayout, axis_var_zero_replace_map)
+            sublayout_exprs_.append(subst_sublayout_)
+        subst_sublayout = utils.single_valued(sublayout_exprs_)
+        subst_layout = LinearDatBufferExpression(layout.buffer, subst_sublayout)
+        layout_expr = lower_expr(subst_layout, ((),), loop_indices, context)
+        layout_exprs.append(layout_expr)
+    irow, icol = layout_exprs
+
+    # irow = lower_expr(mat.row_layout, ((),), loop_indices, context)
+    # icol = lower_expr(mat.column_layout, ((),), loop_indices, context)
 
     # FIXME:
     blocked = False

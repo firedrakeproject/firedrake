@@ -706,11 +706,11 @@ class FunctionSpace:
             ndofs = self.local_section.getDof(pt_renum)
 
             if pt_renum not in constrained_points:
-                num_unconstrained_dofs[pt_renum] = ndofs
-                num_constrained_dofs[pt_renum] = 0
+                num_unconstrained_dofs[pt] = ndofs
+                num_constrained_dofs[pt] = 0
             else:
-                num_unconstrained_dofs[pt_renum] = 0
-                num_constrained_dofs[pt_renum] = ndofs
+                num_unconstrained_dofs[pt] = 0
+                num_constrained_dofs[pt] = ndofs
 
         unconstrained_dofs_dat = op3.Dat(mesh_axis, data=num_unconstrained_dofs)
         constrained_dofs_dat = op3.Dat(mesh_axis, data=num_constrained_dofs)

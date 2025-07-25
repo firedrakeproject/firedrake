@@ -25,7 +25,7 @@ from petsc4py import PETSc
 from pyop3 import utils
 from pyop3.tensor import Tensor, Dat, Mat, BufferExpression
 # TODO: just namespace these
-from pyop3.axtree.tree import UNIT_AXIS_TREE, AxisVar, Conditional, Expression, UnaryOperator, Operator, BinaryOperator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, Neg, conditional, full_shape, loopified_shape, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN, _UnitAxisTree, Or, LessThan, LessThanOrEqual, GreaterThanOrEqual, GreaterThan, TernaryOperator, get_loop_tree
+from pyop3.axtree.tree import UNIT_AXIS_TREE, AxisVar, Conditional, Expression, FloorDiv, UnaryOperator, Operator, BinaryOperator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, Neg, conditional, full_shape, loopified_shape, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN, _UnitAxisTree, Or, LessThan, LessThanOrEqual, GreaterThanOrEqual, GreaterThan, TernaryOperator, get_loop_tree
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
 
@@ -210,6 +210,16 @@ def _(expr: Add, *args, **kwargs):
 @evaluate.register
 def _(mul: Mul, *args, **kwargs):
     return evaluate(mul.a, *args, **kwargs) * evaluate(mul.b, *args, **kwargs)
+
+
+@evaluate.register
+def _(neg: Neg):
+    return -evaluate(neg.a)
+
+
+@evaluate.register
+def _(floordiv: FloorDiv):
+    return evaluate(floordiv.a) // evaluate(floordiv.b)
 
 
 @evaluate.register(numbers.Number)
@@ -517,7 +527,7 @@ def _(var: ExpressionT, /, replace_map) -> ExpressionT:
 # I don't like doing this.
 @replace_terminals.register(Dat)
 def _(dat: Dat, /, replace_map):
-    return replace_terminals(dat._as_expression_dat(), replace_map)
+    return replace_terminals(dat.concretize(), replace_map)
 
 
 @replace_terminals.register(LinearDatBufferExpression)
@@ -561,7 +571,7 @@ def _(num: numbers.Number, /, replace_map) -> numbers.Number:
 # I don't like doing this.
 @replace.register(Dat)
 def _(dat: Dat, /, replace_map):
-    return replace(dat._as_expression_dat(), replace_map)
+    return replace(dat.concretize(), replace_map)
 
 
 @replace.register(LinearDatBufferExpression)
@@ -650,17 +660,13 @@ def _(mat: Mat, /, axis_trees: Iterable[AxisTree, ...]) -> BufferExpression:
         row_axes = row_axes.restrict_nest(row_index)
         column_axes = column_axes.restrict_nest(column_index)
 
-    if (
-        isinstance(mat.buffer, ConcreteBuffer)
-        and isinstance(mat.buffer.handle(nest_indices=nest_indices), PETSc.Mat)
-    ):
+    if isinstance(mat.buffer, PetscMatBuffer):
         layouts = [
             NonlinearCompositeDat(axis_tree.materialize(), axis_tree.leaf_subst_layouts, axis_tree.outer_loops)
             for axis_tree in [row_axes, column_axes]
         ]
         expr = LinearMatBufferExpression(BufferRef(mat.buffer, nest_indices), *layouts)
     else:
-        breakpoint()  # unsure why we have this! temporaries?
         expr = NonlinearMatBufferExpression(
             BufferRef(mat.buffer, nest_indices),
             row_axes.leaf_subst_layouts,
@@ -967,21 +973,21 @@ def _(mat_expr: LinearMatBufferExpression, /, layouts, key) -> LinearMatBufferEx
     #   map0[3*i0]
     #
     # which is what Mat{Get,Set}Values() needs.
-    subst_layouts = []
-    for layout in [row_layout, column_layout]:
-        subst_sublayouts = []
-        for sublayout in layout.layouts.values():
-            axis_var_zero_replace_map = {
-                axis_var: 0
-                for axis_var in collect_axis_vars(sublayout)
-            }
-            subst_sublayout = replace(sublayout, axis_var_zero_replace_map)
-            subst_sublayouts.append(subst_sublayout)
-        subst_sublayout = utils.single_valued(subst_sublayouts)
-
-        subst_layout = LinearDatBufferExpression(layout.buffer, subst_sublayout)
-        subst_layouts.append(subst_layout)
-    row_layout, column_layout = subst_layouts
+    # subst_layouts = []
+    # for layout in [row_layout, column_layout]:
+    #     subst_sublayouts = []
+    #     for sublayout in layout.layouts.values():
+    #         axis_var_zero_replace_map = {
+    #             axis_var: 0
+    #             for axis_var in collect_axis_vars(sublayout)
+    #         }
+    #         subst_sublayout = replace(sublayout, axis_var_zero_replace_map)
+    #         subst_sublayouts.append(subst_sublayout)
+    #     subst_sublayout = utils.single_valued(subst_sublayouts)
+    #
+    #     subst_layout = LinearDatBufferExpression(layout.buffer, subst_sublayout)
+    #     subst_layouts.append(subst_layout)
+    # row_layout, column_layout = subst_layouts
 
     return mat_expr.__record_init__(row_layout=row_layout, column_layout=column_layout)
 
@@ -1089,14 +1095,13 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatBufferExp
 
     # replace LoopIndexVars in the expression with AxisVars
     # loop_index_replace_map = []
-    # loop_slices = []
-    # for loop_var in composite_dat.loop_vars:
-    #     orig_axis = loop_var.axis
-    #     new_axis = Axis(orig_axis.components, f"{orig_axis.label}_{loop_var.loop_id}")
-    #     loop_index_replace_map.append((loop_var, AxisVar(new_axis)))
+    loop_slices = []
+    for loop_var in composite_dat.loop_vars:
+        orig_axis = loop_var.axis
+        new_axis = Axis(orig_axis.components, f"{orig_axis.label}_{loop_var.loop_id}")
 
-        # loop_slice = Slice(new_axis.label, [AffineSliceComponent(orig_axis.component.label)])
-        # loop_slices.append(loop_slice)
+        loop_slice = Slice(new_axis.label, [AffineSliceComponent(orig_axis.component.label)])
+        loop_slices.append(loop_slice)
 
     # dumb_replace_map = {
     #     (loop_var.loop_id, loop_var.axis_label): axis_var
@@ -1106,19 +1111,20 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatBufferExp
     for path, expr in composite_dat.leaf_exprs.items():
         expr = replace(expr, loop_var_replace_map)
 
-        assignee_ = assignee.with_axes(assignee.axes.linearize(composite_dat.loop_tree.leaf_path | path))
+        # is this broken?
+        # assignee_ = assignee.with_axes(assignee.axes.linearize(composite_dat.loop_tree.leaf_path | path))
 
-        # myslices = []
-        # for axis, component in path.items():
-        #     myslice = Slice(axis, [AffineSliceComponent(component)])
-        #     myslices.append(myslice)
-        # iforest = IndexTree.from_iterable((*loop_slices, *myslices))
+        myslices = []
+        for axis, component in path.items():
+            myslice = Slice(axis, [AffineSliceComponent(component)])
+            myslices.append(myslice)
+        iforest = IndexTree.from_iterable((*loop_slices, *myslices))
         #
         # # NOTE: not sure about this!
         # if iforest.is_empty:
         #     continue
 
-        # assignee = result[iforest]
+        assignee_ = assignee[iforest]
 
         if assignee_.size > 0:
             assignee_.assign(expr, eager=True)
@@ -1150,24 +1156,20 @@ def materialize_composite_dat(composite_dat: CompositeDat) -> LinearDatBufferExp
                 newlayout = replace(layout, axis_to_loop_var_replace_map)
                 newlayouts[path_] = newlayout
 
-    # plus the empty layout
-
-    # WHY!
-
-    # path = idict()
-    # fullpath = composite_dat.loop_tree.leaf_path
-    # layout = result.axes.subst_layouts()[fullpath]
-    # newlayout = replace(layout, axis_to_loop_var_replace_map)
-    # newlayouts[path] = newlayout
-
     if isinstance(composite_dat, LinearCompositeDat):
         layout = newlayouts[axes.leaf_path]
         assert not isinstance(layout, NaN)
-        return LinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), layout)
+        # layouts cannot contain more arrays
+        # assert "[" not in str(layout)
+        materialized_expr = LinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), layout)
     else:
         assert isinstance(composite_dat, NonlinearCompositeDat)
-        return NonlinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), newlayouts)
+        # layouts cannot contain more arrays - not sure about this
+        # assert all("[" not in str(layout) for layout in newlayouts.values())
 
+        materialized_expr = NonlinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), newlayouts)
+
+    return materialized_expr
 
 # TODO: Better to just return the actual value probably...
 @functools.singledispatch
@@ -1243,9 +1245,14 @@ def _(expr):
 
 @max_.register(Expression)
 def _(expr):
+    return _expr_extremum(expr, "max")
+
+
+def _expr_extremum(expr, extremum_type: str):
     from pyop3 import do_loop
 
     axes, loop_var_replace_map = loopified_shape(expr)
+    expr = replace(expr, loop_var_replace_map)
     loop_index = axes.index()
 
     # NOTE: might hit issues if things aren't linear
@@ -1255,8 +1262,30 @@ def _(expr):
     }
     expr = replace_terminals(expr, loop_var_replace_map)
     result = Dat.zeros(UNIT_AXIS_TREE, dtype=IntType)
+
+    if extremum_type == "max":
+        predicate = GreaterThanOrEqual(result, expr)
+    else:
+        assert extremum_type == "min"
+        predicate = LessThanOrEqual(result, expr)
+
     do_loop(
         loop_index,
-        result.assign(conditional(result >= expr, result, expr))
+        result.assign(conditional(predicate, result, expr))
     )
     return just_one(result.buffer._data)
+
+
+@functools.singledispatch
+def min_(expr):
+    raise TypeError
+
+
+@min_.register(numbers.Number)
+def _(expr):
+    return expr
+
+
+@min_.register(Expression)
+def _(expr):
+    return _expr_extremum(expr, "min")
