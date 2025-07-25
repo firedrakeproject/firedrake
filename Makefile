@@ -87,13 +87,3 @@ clean:
 	-@rm -f pyop2/*.so > /dev/null 2>&1
 	@echo "    RM tinyasm/*.so"
 	-@rm -f tinyasm/*.so > /dev/null 2>&1
-
-.PHONY: durations
-durations:
-	@echo "    Generate timings to optimise pytest-split"
-	python -m pytest --store-durations -m "parallel[1] or not parallel" tests/
-	# use ':' to ensure that only rank 0 writes to the durations file
-	for nprocs in 2 3 4 6 7 8; do \
-		mpiexec -n 1 python -m pytest --store-durations -m parallel[$${nprocs}] tests/ : \
-			-n $$(( $${nprocs} - 1 )) pytest -m parallel[$${nprocs}] -q tests/ ; \
-	done
