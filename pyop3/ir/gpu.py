@@ -12,9 +12,9 @@ import numbers
 import textwrap
 import warnings
 import weakref
+import dataclasses
 
 import pymbolic as pym
-from pyop3.ir.lower import CuPyCodegenContext
 from pyop3.lang import (
     Intent,
     INC,
@@ -34,7 +34,7 @@ from pyop3.utils import (
     just_one,
 )
 
-def lower_expr(expr, iname_maps, loop_indices, ctx : CuPyCodegenContext, *, intent=READ, paths=None, shape=None) -> str:
+def lower_expr(expr, iname_maps, loop_indices, ctx, *, intent=READ, paths=None, shape=None) -> str:
     return _lower_cp_expr(expr, iname_maps, loop_indices, ctx, intent=intent, paths=paths, shape=shape)
 
 
@@ -129,3 +129,49 @@ def maybe_multiindex(buffer_ref, offset_expr, context):
         indices = f"{offset_expr}"
 
     return indices
+
+
+class CuPyTranslationUnit():
+
+    def __init__(self, domains, instructions, arguments, function_name):
+        self.filename = "temp_cupy_file"
+        self._domains = domains
+        self._instructions = instructions
+        self._arguments = arguments
+        self.function_name = function_name
+        self._entrypoint = CuPyEntrypoint(function_name, arguments)
+
+    @property
+    def default_entrypoint(self) -> CuPyEntrypoint:
+        return self._entrypoint
+        
+    def compile(self, preambles):
+        code_lines = preambles
+        indent = 0
+        args = ",".join([a.name for a in self._arguments]) #add types?
+        code_lines += ["\t"*indent + f"def {self.function_name}({args}):"]
+        indent += 1
+        code_lines += ["\t"*indent + "breakpoint()"]
+        for dom in self._domains:
+            code_lines += ["\t"*indent + f"{dom}:"]
+            indent += 1
+
+        for insn in self._instructions:
+            code_lines += ["\t"*indent + f"{insn}"]
+        self.code_string = "\n".join(code_lines)
+
+    def construct(self):
+        with open(f"./{self.filename}.py", "w") as file:
+            file.write(self.code_string)
+        temp_file = __import__(f"{self.filename}") 
+        return getattr(temp_file, self._entrypoint.name)
+
+@dataclasses.dataclass
+class CuPyEntrypoint:
+    name : str
+    args : list
+
+@dataclasses.dataclass
+class CuPyArgument:
+    name: str
+    dtype: str

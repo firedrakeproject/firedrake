@@ -76,6 +76,7 @@ from pyop3.utils import (
     strictly_all,
     Identified,
 )
+from pyop3.ir.gpu import CuPyTranslationUnit, CuPyArgument
 
 import pyop3.extras.debug
 
@@ -408,7 +409,7 @@ class CuPyCodegenContext(CodegenContext):
 
     @property
     def arguments(self) -> tuple:
-        return tuple(sorted(self._arguments, key=lambda arg: arg[0]))
+        return tuple(sorted(self._arguments, key=lambda arg: arg.name))
 
     @property
     def subkernels(self) -> tuple:
@@ -423,8 +424,11 @@ class CuPyCodegenContext(CodegenContext):
         return preambles
     
     def make_translation_unit(self, function_name, compiler_parameters):
-        breakpoint()
-        return
+        tu = CuPyTranslationUnit(self.domains,self.instructions,self.arguments, function_name)
+        tu.compile(self.preambles)
+       # TODO handle subkernels 
+       # translation_unit = lp.merge((translation_unit, *self.subkernels))
+        return tu, tu.default_entrypoint 
 
     def add_domain(self, iname, *args):
         nargs = len(args)
@@ -537,16 +541,16 @@ class CuPyCodegenContext(CodegenContext):
                 # If the buffer is being passed straight through to a function then we
                 # have to make sure that the shapes match
                 shape = self._temporary_shapes.get(buffer_key, None)
-                loopy_arg = (name_in_kernel, buffer.dtype)
+                cupy_arg = CuPyArgument(name_in_kernel, buffer.dtype)
             else:
                 assert isinstance(buffer_ref.handle, PETSc.Mat)
 
                 name_in_kernel = self.unique_name("mat")
-                loopy_arg = (name_in_kernel, OpaqueType("Mat"))
+                cupy_arg = CuPyArgument(name_in_kernel, OpaqueType("Mat"))
 
             self.global_buffers[buffer_key] = buffer_ref
             self.global_buffer_intents[buffer_key] = intent
-            self._arguments.append(loopy_arg)
+            self._arguments.append(cupy_arg)
 
         self._kernel_names[buffer_key] = name_in_kernel
         return name_in_kernel
@@ -603,7 +607,6 @@ class CuPyCodegenContext(CodegenContext):
         return frozenset({self._last_insn_id}) - {None}
 
     def _add_instruction(self, insn):
-        breakpoint()
         self._instructions.append(insn)
 
 class DummyModuleExecutor:
@@ -621,7 +624,7 @@ class ModuleExecutor:
     """
 
     # TODO: intents and datamap etc maybe all go together. All relate to the same objects
-    def __init__(self, code: lp.TranslationUnit, buffer_map: WeakValueDictionary[str, ConcretBuffer], buffer_intents: Mapping[str, Intent], compiler_parameters: Mapping):
+    def __init__(self, code: lp.TranslationUnit | CuPyTranslationUnit, buffer_map: WeakValueDictionary[str, ConcretBuffer], buffer_intents: Mapping[str, Intent], compiler_parameters: Mapping):
         self.code = code
         self.buffer_map = buffer_map
         self.buffer_intents = buffer_intents
@@ -673,13 +676,27 @@ class ModuleExecutor:
         #if len(self.code.callables_table) > 1:
         #    breakpoint()
         # pyop3.extras.debug.maybe_breakpoint()
-
         self.executable(*exec_arguments)
         pass
 
+    @property
     @abc.abstractmethod
-    def __str__(self) -> str:
+    def code_string(self):
         pass
+
+    def __str__(self) -> str:
+        sep = "*" * 80
+        str_ = []
+        str_.append(sep)
+        str_.append(self.code_string)
+        str_.append(sep)
+
+        for arg in self.code.default_entrypoint.args:
+            size, buffer = self._buffer_str(self.buffer_map[arg.name].buffer)
+            str_.append(f"{arg.name} {size} : {buffer}")
+
+        str_.append(sep)
+        return "\n".join(str_)
 
     @functools.singledispatchmethod
     def _buffer_str(self, buffer):
@@ -707,26 +724,14 @@ class ModuleExecutor:
             if intent != READ
         )
 
-    @cached_property
+    #@cached_property
+    @property
     def _default_exec_arguments(self) -> tuple[int]:
         return tuple(self._as_exec_argument(buffer_ref.handle) for buffer_ref in self._buffer_refs)
 
-    @functools.singledispatchmethod
+    @abc.abstractmethod
     def _as_exec_argument(self, handle: Any) -> int:
-        raise TypeError
-
-    @_as_exec_argument.register
-    def _(self, handle: np.ndarray) -> int:
-        return handle.ctypes.data
-
-    @_as_exec_argument.register
-    def _(self, handle: cp.ndarray) -> int:
-         return handle.__cuda_array_interface__['data'][0]
-
-    @_as_exec_argument.register
-    def _(self, handle: PETSc.Mat) -> int:
-        assert handle.type not in {PETSc.Mat.Type.NEST, PETSc.Mat.Type.PYTHON}
-        return handle.handle
+        pass
 
     def _check_buffer_is_valid(self, orig_buffer: AbstractBuffer, new_buffer: AbstractBuffer, /) -> None:
         valid = (
@@ -739,42 +744,54 @@ class ModuleExecutor:
 
 class LoopyModuleExecutor(ModuleExecutor):
     
-   @property
-   def kernel(self) -> lp.LoopKernel: 
+    @property
+    def kernel(self) -> lp.LoopKernel: 
         return self.code.default_entrypoint
+     
+    @property
+    def code_string(self) -> str:
+        return lp.generate_code_v2(self.code).device_code()
 
-   @cached_property
-   def executable(self):
+    @cached_property
+    def executable(self):
         return compile_loopy(self.code, pyop3_compiler_parameters=self.compiler_parameters)
 
-   def __str__(self) -> str:
-        sep = "*" * 80
-        str_ = []
-        str_.append(sep)
-        str_.append(lp.generate_code_v2(self.code).device_code())
-        str_.append(sep)
+    @functools.singledispatchmethod
+    def _as_exec_argument(self, handle: Any) -> int:
+        raise TypeError
 
-        for arg in self.code.default_entrypoint.args:
-            size, buffer = self._buffer_str(self.buffer_map[arg.name].buffer)
-            str_.append(f"{arg.name} {size} : {buffer}")
+    @_as_exec_argument.register
+    def _(self, handle: np.ndarray) -> int:
+        return handle.ctypes.data
 
-        str_.append(sep)
-        return "\n".join(str_)
+    @_as_exec_argument.register
+    def _(self, handle: PETSc.Mat) -> int:
+        assert handle.type not in {PETSc.Mat.Type.NEST, PETSc.Mat.Type.PYTHON}
+        return handle.handle
+
 
 class CuPyModuleExecutor(ModuleExecutor):
     
-   @property
-   def kernel(self) -> None: 
+    @property
+    def kernel(self) -> None: 
         breakpoint()
         return self.code.default_entrypoint
 
-   @cached_property
-   def executable(self):
-        breakpoint()
-        return compile_loopy(self.code, pyop3_compiler_parameters=self.compiler_parameters)
+    @property
+    def code_string(self) -> str:
+        return self.code.code_string
 
-   def __str__(self) -> str:
-        breakpoint()
+    @cached_property
+    def executable(self):
+        return self.code.construct()
+
+    @functools.singledispatchmethod
+    def _as_exec_argument(self, handle: Any) -> int:
+        raise TypeError
+
+    @_as_exec_argument.register
+    def _(self, handle: cp.ndarray) -> int:
+        return handle
 
 class BinarySearchCallable(lp.ScalarCallable):
     def __init__(self, name="bsearch", **kwargs):
@@ -888,9 +905,8 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
     # add a no-op instruction touching all of the kernel arguments so they are
     # not silently dropped
     context.add_noop()
-    if isinstance(context, CuPyCodegenContext):
-        breakpoint()
     translation_unit, entrypoint = context.make_translation_unit(function_name, compiler_parameters)
+
     # Sort the buffers by where they appear in the kernel signature
     kernel_to_buffer_names = utils.invert_mapping(context._kernel_names)
     sorted_buffers = {}
@@ -898,11 +914,10 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
         buffer_key = kernel_to_buffer_names[kernel_arg.name]
         sorted_buffers[kernel_arg.name] = context.global_buffers[buffer_key]
 
-    
     if isinstance(context, LoopyCodegenContext):
         return  LoopyModuleExecutor(translation_unit, sorted_buffers, context.global_buffer_intents, compiler_parameters)
     elif isinstance(context, CuPyCodegenContext):
-        return  LoopyModuleExecutor(translation_unit, sorted_buffers, context.global_buffer_intents, compiler_parameters)
+        return  CuPyModuleExecutor(translation_unit, sorted_buffers, context.global_buffer_intents, compiler_parameters)
     raise NotImplementedError(f"Codegen context {context} not recognised")
 
 
