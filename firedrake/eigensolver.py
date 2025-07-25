@@ -1,10 +1,10 @@
 """Specify and solve finite element eigenproblems."""
+from petsctools import OptionsManager, flatten_parameters
 from firedrake.assemble import assemble
 from firedrake.bcs import extract_subdomain_ids, restricted_function_space
 from firedrake.function import Function
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake import utils
-from firedrake.petsc import OptionsManager, flatten_parameters
 from firedrake.exceptions import ConvergenceError
 from ufl import replace, inner, dx
 try:
@@ -57,7 +57,7 @@ class LinearEigenproblem:
         if not SLEPc:
             raise ImportError(
                 "Unable to import SLEPc, eigenvalue computation not possible "
-                "(try firedrake-update --slepc)"
+                "(see https://www.firedrakeproject.org/install.html#slepc)"
             )
 
         args = A.arguments()

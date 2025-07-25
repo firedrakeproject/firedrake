@@ -59,7 +59,7 @@ def get_embedding_method_for_checkpointing(element):
                               'S', 'DPC', 'Real']:
         return "interpolate"
     elif isinstance(element, finat.ufl.TensorProductElement):
-        methods = [get_embedding_method_for_checkpointing(elem) for elem in element.sub_elements]
+        methods = [get_embedding_method_for_checkpointing(elem) for elem in element.factor_elements]
         if any(method == "project" for method in methods):
             return "project"
         else:

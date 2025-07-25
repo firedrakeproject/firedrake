@@ -39,29 +39,10 @@ class Table:
         return range(self.nrows)
 
 
-def cache_web_image(name, url):
-    img_name = "".join(name.split()).lower().encode("punycode").decode()
-    img_name = img_name[:-1] if img_name[-1] == "-" else img_name
-    with urlopen(url) as response:
-        filetype = response.getheader("Content-Type")
-        ext = filetype.split("/")[1]
-        if ext == "jpeg":
-            ext = "jpg"
-        with open("images/" + img_name + "." + ext, "wb") as fh:
-            fh.write(response.read())
-
-
 # Read the current team information from configuration file
 team = ConfigParser(interpolation=ExtendedInterpolation())
 team.optionxform = lambda x: x
 team.read("team.ini")
-
-# Grab images from provided URLs and cahce them (if necessary)
-for name, links in team["active-team"].items():
-    parts = links.split(",")
-    if parts[1:]:
-        website = parts[1]
-        cache_web_image(name, website)
 
 # Environment for applying templates
 env = Environment(
@@ -104,17 +85,4 @@ with open("AUTHORS.rst", "w") as fh:
     fh.write(authors_rst.render(
         institution_set=institution_set,
         individual_set=individual_set
-    ))
-
-# Create citations file for the Github repository
-citation_rst = env.get_template("citation.rst_t")
-institution_list = [inst[0] for inst in team["dev-institution"].items()]
-institution = ' and '.join(institution_list)
-author_list = list(team['active-team'].keys())
-author_list += list(team['inactive-team'].keys())
-author = ' and '.join(author_list)
-with open("CITATION.rst", "w") as fh:
-    fh.write(citation_rst.render(
-        author=author,
-        institution=institution
     ))

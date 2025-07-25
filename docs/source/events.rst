@@ -116,7 +116,7 @@ Firedrake tutorial at RWTH Aachen University Jun 18 2019
 
 There was a hands-on Firedrake tutorial at the Aachen Institute
 for Advanced Study in Computational Engineering Science (AICES) on 18
-June 2019. For more details see `their website <https://www.aices.rwth-aachen.de/en/media-and-seminars/events>`_.
+June 2019.
 
 
 Firedrake tutorial at CSE 19

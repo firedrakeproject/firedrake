@@ -1,8 +1,7 @@
 from firedrake import *
 from pyop2.mpi import MPI
-from pytest_mpi import parallel_assert
 import pytest
-from pytest_mpi import parallel_assert
+from pytest_mpi.parallel_assert import parallel_assert
 
 from operator import mul
 from functools import reduce
@@ -190,13 +189,13 @@ def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
     parallel_assert(
         lambda: error < 1e-12,
         participating=(rank == root),
-        msg=f"{error = :.5f}"
+        msg=f"{error=:.5f}"
     )
     error = errornorm(Function(W).assign(10), u_reduce)
     parallel_assert(
         lambda: error < 1e-12,
         participating=(rank != root),
-        msg=f"{error = :.5f}"
+        msg=f"{error=:.5f}"
     )
 
     # check that u_reduce dat vector is still synchronised
@@ -326,7 +325,7 @@ def test_send_and_recv(ensemble, mesh, W, blocking):
     parallel_assert(
         lambda: error < 1e-12,
         participating=ensemble.ensemble_rank in (rank0, rank1),
-        msg=f"{error = :.5f}"  # noqa: E203, E251
+        msg=f"{error=:.5f}"  # noqa: E203, E251
     )
 
 

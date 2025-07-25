@@ -122,9 +122,9 @@ def MeshHierarchy(mesh, refinement_levels,
         try:
             from ngsPETSc import NetgenHierarchy
         except ImportError:
-            raise ImportError("Unable to import netgen and ngsPETSc. Please ensure that netgen and ngsPETSc\
-                            are installed and available to Firedrake. You can do this via \
-                            firedrake-update --netgen.")
+            raise ImportError("Unable to import netgen and ngsPETSc. Please ensure that netgen and ngsPETSc "
+                              "are installed and available to Firedrake (see "
+                              "https://www.firedrakeproject.org/install.html#netgen).")
         if hasattr(mesh, "netgen_mesh"):
             return NetgenHierarchy(mesh, refinement_levels, flags=netgen_flags)
         else:
