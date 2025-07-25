@@ -13,6 +13,7 @@ import textwrap
 import warnings
 import weakref
 import dataclasses
+import importlib
 
 import pymbolic as pym
 from pyop3.lang import (
@@ -101,7 +102,7 @@ def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indice
     indices = maybe_multiindex(buffer, offset_expr, context)
     # TODO way to check indices is a map vs a single indexLw
     if intent == INC:
-        return lambda assignee: f"cp.scatter_add({name_in_kernel}, {indices}, {assignee})"
+        return lambda assignee: f"cpx.scatter_add({name_in_kernel}, {indices}, {assignee})"
     if intent == READ:
         return f"cp.take({name_in_kernel}, {indices})"
     if intent == WRITE:
@@ -151,7 +152,7 @@ class CuPyTranslationUnit():
         args = ",".join([a.name for a in self._arguments]) #add types?
         code_lines += ["\t"*indent + f"def {self.function_name}({args}):"]
         indent += 1
-        code_lines += ["\t"*indent + "breakpoint()"]
+        #code_lines += ["\t"*indent + "breakpoint()"]
         for dom in self._domains:
             code_lines += ["\t"*indent + f"{dom}:"]
             indent += 1
@@ -163,7 +164,7 @@ class CuPyTranslationUnit():
     def construct(self):
         with open(f"./{self.filename}.py", "w") as file:
             file.write(self.code_string)
-        temp_file = __import__(f"{self.filename}") 
+        temp_file = importlib.reload(__import__(f"{self.filename}"))
         return getattr(temp_file, self._entrypoint.name)
 
 @dataclasses.dataclass

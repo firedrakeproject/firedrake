@@ -270,18 +270,17 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def empty(cls, shape, dtype: DTypeT | None = None, **kwargs):
         if dtype is None:
             dtype = cls.DEFAULT_DTYPE
-
         if config["debug"]:
-            data = np.full(shape, 666, dtype=dtype)
+            data = np.full(int(shape), 666, dtype=dtype)
         else:
-            data = np.empty(shape, dtype=dtype)
+            data = np.empty(int(shape), dtype=dtype)
         return cls(data, **kwargs)
 
     @classmethod
     def zeros(cls, shape, dtype=None, **kwargs):
         if dtype is None:
             dtype = cls.DEFAULT_DTYPE
-        data = np.zeros(shape, dtype=dtype)
+        data = np.zeros(int(shape), dtype=dtype)
         return cls(data, **kwargs)
 
     # }}}

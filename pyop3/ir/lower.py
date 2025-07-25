@@ -1330,7 +1330,7 @@ def add_leaf_assignment(
     lexpr = lower_expr(assignment.assignee, iname_replace_maps, loop_indices, codegen_context, intent=intent, paths=paths, shape=shape)
     rexpr = lower_expr(assignment.expression, iname_replace_maps, loop_indices, codegen_context, paths=paths, shape=shape)
 
-    if assignment.assignment_type == AssignmentType.INC:
+    if isinstance(codegen_context, LoopyCodegenContext) and assignment.assignment_type == AssignmentType.INC:
         rexpr = lexpr + rexpr
 
     codegen_context.add_assignment(lexpr, rexpr)

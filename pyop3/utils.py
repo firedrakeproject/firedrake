@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterable, Mapping, Hashable, Collection
 from typing import Any
 
 import numpy as np
+import cupy as cp
 import pytools
 from immutabledict import immutabledict
 from pyrsistent import pmap
@@ -366,8 +367,10 @@ def steps(sizes, *, drop_last=None):
     if drop_last is None:
         pyop3.extras.debug.warn_todo("The default here is changing!")
         drop_last = False
-
-    steps_ = np.concatenate([[0], np.cumsum(sizes)])
+    zero_arr = [0] 
+    if isinstance(sizes, cp.ndarray):
+        zero_arr = cp.array(zero_arr)
+    steps_ = np.concatenate([zero_arr, np.cumsum(sizes)])
     return readonly(steps_[:-1]) if drop_last else readonly(steps_)
 
 
@@ -441,6 +444,9 @@ def _(array: np.ndarray, dtype: DTypeT) -> np.ndarray:
 
 
 def strict_int(num: numbers.Number) -> IntType:
+    import cupy as cp
+    if isinstance(num, cp.ndarray):
+        breakpoint()
     return strict_cast(num, IntType)
 
 
