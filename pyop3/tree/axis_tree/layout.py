@@ -16,7 +16,7 @@ import pymbolic as pym
 from petsc4py import PETSc
 from pyop3 import tree, utils
 
-from pyop3.axtree.tree import (
+from pyop3.tree.axis_tree.tree import (
     UNIT_AXIS_TREE,
     Axis,
     AxisComponent,
@@ -750,30 +750,6 @@ def _axis_component_has_fixed_size(component: AxisComponent) -> bool:
 
 def _axis_component_region_has_fixed_size(region: AxisComponentRegion) -> bool:
     return isinstance(region.size, numbers.Integral)
-
-
-# def _requires_external_index(axtree, axis, component_index, region):
-#     """Return `True` if more indices are required to index the multi-axis layouts
-#     than exist in the given subaxis.
-#     """
-#     return size_requires_external_index_region(
-#         axtree, axis, component_index, region, set()
-#     )
-#
-# def requires_external_index_region(axtree, axis, component_index, region):
-#     """Return `True` if more indices are required to index the multi-axis layouts
-#     than exist in the given subaxis.
-#     """
-#     return size_requires_external_index_region(
-#         axtree, axis, component_index, region, set()
-#     )
-#
-#
-# def size_requires_external_index(axes, axis, component, inner_loop_vars, path=pmap()):
-#     return any(
-#         size_requires_external_index_region(axes, axis, component, region, inner_loop_vars, path=path)
-#         for region in component.regions
-#     )
 
 
 def _component_size_needs_outer_index(component: AxisComponent, path):

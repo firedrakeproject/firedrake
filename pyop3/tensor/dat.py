@@ -18,13 +18,13 @@ from petsc4py import PETSc
 
 from pyop3 import utils
 from .base import Tensor
-from pyop3.axtree import (
+from pyop3.tree.axis_tree import (
     Axis,
     ContextSensitive,
     AxisTree,
     as_axis_tree,
 )
-from pyop3.axtree.tree import AbstractAxisTree, Expression, ContextFree, ContextSensitiveAxisTree, merge_axis_trees2, subst_layouts, as_str
+from pyop3.tree.axis_tree.tree import AbstractAxisTree, Expression, ContextFree, ContextSensitiveAxisTree, merge_axis_trees2, subst_layouts, as_str
 from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer, BufferRef, NullBuffer, PetscMatBuffer
 from pyop3.dtypes import DTypeT, ScalarType
 from pyop3.exceptions import Pyop3Exception
@@ -188,7 +188,7 @@ class Dat(Tensor, KernelArgument):
     # For some reason this is breaking stuff
     # @cachedmethod(lambda self: self.axes._cache)
     def getitem(self, index, *, strict=False):
-        from pyop3.itree import as_index_forest, index_axes
+        from pyop3.tree.index_tree import as_index_forest, index_axes
 
         if index is Ellipsis:
             return self

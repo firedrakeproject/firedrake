@@ -22,7 +22,7 @@ import pytools
 from immutabledict import immutabledict
 
 from pyop3.tensor import Dat
-from pyop3.axtree import (
+from pyop3.tree.axis_tree import (
     Axis,
     AxisComponent,
     AxisComponentRegion,
@@ -31,8 +31,8 @@ from pyop3.axtree import (
     AxisVar,
     LoopIterable,
 )
-from pyop3.axtree.layout import _as_int
-from pyop3.axtree.tree import (
+from pyop3.tree.axis_tree.layout import _as_int
+from pyop3.tree.axis_tree.tree import (
     UNIT_AXIS_TREE,
     conditional,
     AbstractAxisTree,
@@ -47,7 +47,7 @@ from pyop3.dtypes import IntType
 # from pyop3.expr_visitors import replace_terminals, replace as expr_replace
 from pyop3.lang import KernelArgument
 from pyop3.sf import StarForest
-from pyop3.tree import (
+from pyop3.tree.labelled_tree import (
     ConcretePathT,
     LabelledNodeComponent,
     LabelledTree,
@@ -413,7 +413,7 @@ class LoopIndex(Index, KernelArgument):
     # I think this can be resolved by considering axes[p] and axes as "iterset"
     # and handling that separately.
     def with_context(self, context, *args) -> LoopIndex:
-        from pyop3.itree.parse import _as_context_free_indices
+        from pyop3.tree.index_tree.parse import _as_context_free_indices
         return utils.just_one(_as_context_free_indices(self, context))
 
     # unsure if this is required
@@ -734,7 +734,7 @@ class CalledMap(AxisIndependentIndex, Identified, Labelled, LoopIterable):
         # return ContextSensitiveMultiArray(array_per_context)
 
     def iter(self, *, eager=False) -> LoopIndex:
-        from pyop3.itree.parse import as_index_forests
+        from pyop3.tree.index_tree.parse import as_index_forests
 
         if eager:
             raise NotImplementedError

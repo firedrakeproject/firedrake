@@ -19,13 +19,13 @@ from immutabledict import immutabledict
 
 from pyop3 import utils
 from pyop3.tensor import Scalar, Dat, Tensor, Mat, NonlinearDatBufferExpression, LinearDatBufferExpression, NonlinearMatBufferExpression, LinearMatBufferExpression
-from pyop3.axtree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
-from pyop3.axtree.tree import UnaryOperator, BinaryOperator, AxisVar, IndexedAxisTree, TernaryOperator, merge_axis_trees2, prune_zero_sized_branches, NaN
+from pyop3.tree.axis_tree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
+from pyop3.tree.axis_tree.tree import UnaryOperator, BinaryOperator, AxisVar, IndexedAxisTree, TernaryOperator, merge_axis_trees2, prune_zero_sized_branches, NaN
 from pyop3.buffer import AbstractBuffer, BufferRef, PetscMatBuffer, ArrayBuffer, NullBuffer, AllocatedPetscMatBuffer
 from pyop3.dtypes import IntType
-from pyop3.itree import Map, TabulatedMapComponent, collect_loop_contexts
-from pyop3.itree.tree import LoopIndex, LoopIndexVar, Slice, AffineSliceComponent, IndexTree
-from pyop3.itree.parse import _as_context_free_indices
+from pyop3.tree.index_tree import Map, TabulatedMapComponent, collect_loop_contexts
+from pyop3.tree.index_tree.tree import LoopIndex, LoopIndexVar, Slice, AffineSliceComponent, IndexTree
+from pyop3.tree.index_tree.parse import _as_context_free_indices
 from pyop3.expr_visitors import (
     # collect_tensor_shape,
     get_shape,

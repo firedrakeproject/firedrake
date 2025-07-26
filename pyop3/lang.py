@@ -23,8 +23,8 @@ from petsc4py import PETSc
 from pyrsistent import PMap, pmap
 
 from pyop3 import utils
-from pyop3.axtree import AxisTree
-from pyop3.axtree.tree import UNIT_AXIS_TREE, ContextFree, ContextSensitive
+from pyop3.tree.axis_tree import AxisTree
+from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, ContextFree, ContextSensitive
 from pyop3.config import config
 from pyop3.dtypes import dtype_limits
 from pyop3.exceptions import Pyop3Exception
@@ -282,7 +282,7 @@ class Loop(Instruction):
     def __call__(self, replacement_buffers: Mapping | None = None, *, compiler_parameters=None):
         # TODO just parse into ContextAwareLoop and call that
         from pyop3.ir.lower import compile
-        from pyop3.itree.tree import partition_iterset
+        from pyop3.tree.index_tree.tree import partition_iterset
         from pyop3.buffer import ArrayBuffer
 
         compiler_parameters = parse_compiler_parameters(compiler_parameters)

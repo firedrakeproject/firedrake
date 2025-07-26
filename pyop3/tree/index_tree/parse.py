@@ -10,11 +10,11 @@ from immutabledict import immutabledict
 
 from pyop3 import utils
 from pyop3.tensor.dat import Dat
-from pyop3.axtree import AxisTree
-from pyop3.axtree.tree import AbstractAxisTree, IndexedAxisTree
+from pyop3.tree.axis_tree import AxisTree
+from pyop3.tree.axis_tree.tree import AbstractAxisTree, IndexedAxisTree
 from pyop3.exceptions import Pyop3Exception
-from pyop3.itree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map
-from pyop3.tree import ConcretePathT
+from pyop3.tree.index_tree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map
+from pyop3.tree.labelled_tree import ConcretePathT
 from pyop3.utils import OrderedSet, debug_assert, expand_collection_of_iterables, strictly_all, single_valued, just_one
 
 import pyop3.extras.debug

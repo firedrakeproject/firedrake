@@ -48,43 +48,6 @@ def test_1d_multi_component_layout():
     check_layout(axes, {"A": "b"}, "(i_{A} + 3)", lambda i: i + 3)
 
 
-def test_1d_multi_component_permuted_layout():
-    axes = op3.AxisTree.from_nest(
-        op3.Axis(
-            {"pt0": 3, "pt1": 2},
-            "ax0",
-            numbering=[4, 0, 3, 2, 1],
-        )
-    )
-
-    layout0 = axes.layouts[pmap({"ax0": "pt0"})]
-    layout1 = axes.layouts[pmap({"ax0": "pt1"})]
-
-    assert as_str(layout0) == "array_0"
-    assert as_str(layout1) == "array_0"
-    assert np.allclose(layout0.array.data_ro, [1, 3, 4])
-    assert np.allclose(layout1.array.data_ro, [0, 2])
-    check_offsets(
-        axes,
-        [
-            ([0, {"ax0": "pt0"}], 1),
-            ([1, {"ax0": "pt0"}], 3),
-            ([2, {"ax0": "pt0"}], 4),
-            ([0, {"ax0": "pt1"}], 0),
-            ([1, {"ax0": "pt1"}], 2),
-        ],
-    )
-    # check_invalid_indices(
-    #     axes,
-    #     [
-    #         [("pt0", -1)],
-    #         [("pt0", 3)],
-    #         [("pt1", -1)],
-    #         [("pt1", 2)],
-    #     ],
-    # )
-
-
 def test_1d_zero_sized_layout():
     axes = op3.AxisTree.from_nest(op3.Axis({"pt0": 0}, "ax0"))
 

@@ -31,12 +31,12 @@ import pyop2
 
 from pyop3 import exceptions as exc, utils
 from pyop3.tensor import LinearDatBufferExpression, NonlinearDatBufferExpression, Scalar
-from pyop3.axtree.tree import UNIT_AXIS_TREE, Add, AxisVar, BinaryCondition, IndexedAxisTree, Mul, AxisComponent, relabel_path, Conditional, Or, Neg, FloorDiv, Sub, Modulo, Expression
+from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, Add, AxisVar, BinaryCondition, IndexedAxisTree, Mul, AxisComponent, relabel_path, Conditional, Or, Neg, FloorDiv, Sub, Modulo, Expression
 from pyop3.buffer import AbstractBuffer, BufferRef, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
 from pyop3.ir.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
-from pyop3.itree.tree import AffineSliceComponent, LoopIndexVar, Slice, IndexTree
+from pyop3.tree.index_tree.tree import AffineSliceComponent, LoopIndexVar, Slice, IndexTree
 from pyop3.lang import (
     Intent,
     INC,

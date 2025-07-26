@@ -17,7 +17,7 @@ from pyrsistent import freeze, pmap
 from pyop3 import utils
 from .base import Tensor
 from pyop3.tensor.dat import Dat
-from pyop3.axtree.tree import (
+from pyop3.tree.axis_tree.tree import (
     AbstractAxisTree,
     merge_axis_trees,
     AxisTree,
@@ -188,7 +188,7 @@ class Mat(Tensor):
         return layout_vec.local_size // layout_vec.block_size
 
     def getitem(self, row_index, column_index, *, strict=False):
-        from pyop3.itree import as_index_forest, index_axes
+        from pyop3.tree.index_tree import as_index_forest, index_axes
         # does not work as indices may not be hashable, parse first?
         # cache_key = (indices, strict)
         # if cache_key in self._cache:
@@ -436,7 +436,7 @@ class Mat(Tensor):
             layout_exprs=None)
 
     def _collect_block_axes(self, axes, axis=None):
-        from pyop3.axtree.layout import _axis_size
+        from pyop3.tree.axis_tree.layout import _axis_size
         target_paths = {}
         index_exprs = {}
         if axis is None:

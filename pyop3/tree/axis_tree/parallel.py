@@ -7,7 +7,7 @@ from collections.abc import Sequence
 import numpy as np
 from immutabledict import immutabledict
 from mpi4py import MPI
-from pyop3.axtree.tree import AbstractAxisTree
+from pyop3.tree.axis_tree.tree import AbstractAxisTree
 
 from pyop3.dtypes import IntType, as_numpy_dtype
 from pyop3.sf import StarForest
@@ -63,7 +63,7 @@ def collect_star_forests(axis_tree: AbstractAxisTree) -> tuple[StarForest, ...]:
 def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, path: ConcretePathT) -> tuple[StarForest, ...]:
     # TODO: not in firedrake
     from firedrake.cython.dmcommon import create_section_sf
-    from pyop3.axtree.layout import axis_tree_component_size
+    from pyop3.tree.axis_tree.layout import axis_tree_component_size
 
     axis = axis_tree.node_map[path]
 

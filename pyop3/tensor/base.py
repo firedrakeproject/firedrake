@@ -13,8 +13,8 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 from pyop3 import utils
-from pyop3.axtree import ContextAware
-from pyop3.axtree.tree import AbstractAxisTree, Expression
+from pyop3.tree.axis_tree import ContextAware
+from pyop3.tree.axis_tree.tree import AbstractAxisTree, Expression
 from pyop3.exceptions import InvalidIndexCountException
 from pyop3.lang import FunctionArgument, ArrayAssignment
 

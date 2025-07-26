@@ -18,14 +18,14 @@ from pyop3.exceptions import Pyop3Exception
 from pyop3.tensor import Scalar
 from pyop3.tensor.dat import BufferExpression, ScalarBufferExpression, LinearDatBufferExpression, NonlinearDatBufferExpression, LinearMatBufferExpression, NonlinearMatBufferExpression, LinearBufferExpression, NonlinearBufferExpression
 from pyop3.buffer import AbstractArrayBuffer, AllocatedPetscMatBuffer, BufferRef, ConcreteBuffer, PetscMatBuffer
-from pyop3.itree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
+from pyop3.tree.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
 from pyrsistent import pmap, PMap
 from petsc4py import PETSc
 
 from pyop3 import utils
 from pyop3.tensor import Tensor, Dat, Mat, BufferExpression
 # TODO: just namespace these
-from pyop3.axtree.tree import UNIT_AXIS_TREE, AxisVar, Conditional, Expression, FloorDiv, UnaryOperator, Operator, BinaryOperator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, Neg, conditional, full_shape, loopified_shape, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN, _UnitAxisTree, Or, LessThan, LessThanOrEqual, GreaterThanOrEqual, GreaterThan, TernaryOperator, get_loop_tree, AxisLabelT, MissingVariableException, InvalidExpressionException
+from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AxisVar, Conditional, Expression, FloorDiv, UnaryOperator, Operator, BinaryOperator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, Neg, conditional, full_shape, loopified_shape, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN, _UnitAxisTree, Or, LessThan, LessThanOrEqual, GreaterThanOrEqual, GreaterThan, TernaryOperator, get_loop_tree, AxisLabelT, MissingVariableException, InvalidExpressionException
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
 
@@ -1009,7 +1009,7 @@ def _(buffer_expr: NonlinearMatBufferExpression, /, layouts, key):
 
 @functools.singledispatch
 def collect_axis_vars(obj: Any, /) -> OrderedSet:
-    from pyop3.itree.tree import LoopIndexVar
+    from pyop3.tree.index_tree.tree import LoopIndexVar
 
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 

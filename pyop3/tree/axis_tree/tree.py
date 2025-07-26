@@ -33,7 +33,7 @@ from pyop3.dtypes import IntType
 from pyop3.sf import StarForest, local_sf, single_star_sf
 from pyop2.mpi import COMM_SELF, collective
 from pyop3 import utils
-from pyop3.tree import (
+from pyop3.tree.labelled_tree import (
     ComponentLabelT,
     ComponentRegionLabelT,
     ComponentT,
@@ -1414,8 +1414,8 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     # TODO: Cache this function.
     def getitem(self, indices, *, strict=False):
-        from pyop3.itree.parse import as_index_forests
-        from pyop3.itree import index_axes
+        from pyop3.tree.index_tree.parse import as_index_forests
+        from pyop3.tree.index_tree import index_axes
 
         if indices is Ellipsis:
             return self
@@ -1551,7 +1551,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         return numbering
 
     def offset(self, indices, path=None, *, loop_exprs=idict()):
-        from pyop3.axtree.layout import eval_offset
+        from pyop3.tree.axis_tree.layout import eval_offset
         return eval_offset(
             self,
             self.subst_layouts(),
@@ -1580,7 +1580,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     @cached_property
     def size(self):
-        from pyop3.axtree.layout import _axis_tree_size
+        from pyop3.tree.axis_tree.layout import _axis_tree_size
 
         return _axis_tree_size(self)
 
@@ -1601,7 +1601,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     @cached_property
     def sf(self) -> StarForest:
-        from pyop3.axtree.parallel import collect_star_forests, concatenate_star_forests
+        from pyop3.tree.axis_tree.parallel import collect_star_forests, concatenate_star_forests
 
         has_sfs = bool(list(filter(None, (component.sf for axis in self.axes for component in axis.components))))
         if has_sfs:
@@ -1613,7 +1613,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
         from pyop3 import Dat
-        from pyop3.axtree.layout import _axis_tree_size_rec
+        from pyop3.tree.axis_tree.layout import _axis_tree_size_rec
         # from pyop3.expr_visitors import extract_axes
 
         # TODO: cast component to AxisComponent
@@ -1675,7 +1675,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     # NOTE: Unsure if this should be a method
     def _region_slice(self, region_labels: set, *, path: PathT = idict()) -> "IndexTree":
-        from pyop3.itree import AffineSliceComponent, RegionSliceComponent, IndexTree, Slice
+        from pyop3.tree.index_tree import AffineSliceComponent, RegionSliceComponent, IndexTree, Slice
 
         path = as_path(path)
         axis = self.node_map[path]
@@ -2017,7 +2017,7 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
     @cached_property
     def layouts(self):
         """Initialise the multi-axis by computing the layout functions."""
-        from pyop3.axtree.layout import make_layouts
+        from pyop3.tree.axis_tree.layout import make_layouts
 
         loop_vars = self.outer_loop_bits[1] if self.outer_loops else {}
 
@@ -2341,60 +2341,6 @@ class IndexedAxisTree(AbstractAxisTree):
         loop_axes, _ = self.outer_loop_bits
         return loop_axes.add_subtree(self, *loop_axes.leaf)
 
-    # This could easily be two functions
-    @cached_property
-    def outer_loop_bits(self):
-        assert False, "dont think I use this"
-        # from pyop3.itree.tree import LocalLoopIndexVariable
-
-        if len(self.outer_loops) > 1:
-            # We do not yet support something like dat[p, q] if p and q
-            # are independent (i.e. q != f(p) ).
-            raise NotImplementedError(
-                "Multiple independent outer loops are not supported."
-            )
-        loop = just_one(self.outer_loops)
-
-        # TODO: Don't think this is needed
-        # Since loop itersets must be linear, we can unpack target_paths
-        # and index_exprs from
-        #
-        #     {(axis_id, component_label): {axis_label: expr}}
-        #
-        # to simply
-        #
-        #     {axis_label: expr}
-        flat_target_paths = {}
-        flat_index_exprs = {}
-        for axis in loop.iterset.nodes:
-            key = (axis.id, axis.component.label)
-            flat_target_paths.update(loop.iterset.target_paths.get(key, {}))
-            flat_index_exprs.update(loop.iterset.index_exprs.get(key, {}))
-
-        # Make sure that the layout axes are uniquely labelled.
-        suffix = f"_{loop.id}"
-        loop_axes = relabel_axes(loop.iterset, suffix)
-
-        # Nasty hack: loop_axes need to be a PartialAxisTree so we can add to it.
-        loop_axes = AxisTree(loop_axes.node_map)
-
-        # When we tabulate the layout, the layout expressions will contain
-        # axis variables that we actually want to be loop index variables. Here
-        # we construct the right replacement map.
-        loop_vars = {
-            axis.label + suffix: LocalLoopIndexVariable(loop, axis.label)
-            for axis in loop.iterset.nodes
-        }
-
-        # Recursively fetch other outer loops and make them the root of
-        # the current axes.
-        if loop.iterset.outer_loops:
-            ax_rec, lv_rec = loop.iterset.outer_loop_bits
-            loop_axes = ax_rec.add_subtree(loop_axes, *ax_rec.leaf)
-            loop_vars.update(lv_rec)
-
-        return loop_axes, idict(loop_vars)
-
     def materialize(self):
         """Return a new "unindexed" axis tree with the same shape."""
         # "unindexed" axis tree
@@ -2636,10 +2582,8 @@ class ContextSensitiveAxisTree(ContextSensitiveLoopIterable):
         # return ContextSensitiveAxisTree(new_context_map)
 
     def index(self) -> LoopIndex:
-        from pyop3.itree import LoopIndex
+        from pyop3.tree.index_tree import LoopIndex
 
-        # TODO
-        # return LoopIndex(self.owned)
         return LoopIndex(self)
 
     @cached_property
