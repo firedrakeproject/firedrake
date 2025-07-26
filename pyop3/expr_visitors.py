@@ -18,14 +18,14 @@ from pyop3.exceptions import Pyop3Exception
 from pyop3.tensor import Scalar
 from pyop3.tensor.dat import BufferExpression, ScalarBufferExpression, LinearDatBufferExpression, NonlinearDatBufferExpression, LinearMatBufferExpression, NonlinearMatBufferExpression, LinearBufferExpression, NonlinearBufferExpression
 from pyop3.buffer import AbstractArrayBuffer, AllocatedPetscMatBuffer, BufferRef, ConcreteBuffer, PetscMatBuffer
-from pyop3.itree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree
+from pyop3.itree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
 from pyrsistent import pmap, PMap
 from petsc4py import PETSc
 
 from pyop3 import utils
 from pyop3.tensor import Tensor, Dat, Mat, BufferExpression
 # TODO: just namespace these
-from pyop3.axtree.tree import UNIT_AXIS_TREE, AxisVar, Conditional, Expression, FloorDiv, UnaryOperator, Operator, BinaryOperator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, Neg, conditional, full_shape, loopified_shape, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN, _UnitAxisTree, Or, LessThan, LessThanOrEqual, GreaterThanOrEqual, GreaterThan, TernaryOperator, get_loop_tree
+from pyop3.axtree.tree import UNIT_AXIS_TREE, AxisVar, Conditional, Expression, FloorDiv, UnaryOperator, Operator, BinaryOperator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, Neg, conditional, full_shape, loopified_shape, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN, _UnitAxisTree, Or, LessThan, LessThanOrEqual, GreaterThanOrEqual, GreaterThan, TernaryOperator, get_loop_tree, AxisLabelT, MissingVariableException, InvalidExpressionException
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
 
@@ -169,108 +169,109 @@ class NonlinearCompositeDat(CompositeDat):
     #     return f"acc({self.expr})"
 
 
-class RuntimeVariableException(Pyop3Exception):
-    """Exception raised when runtime information is needed for evaluation."""
+AxisVarMapT = Mapping[AxisLabelT, int]
+LoopIndexVarMapT = Mapping[LoopIndexIdT, AxisVarMapT]
 
 
-# TODO: could make a postvisitor
+def evaluate(expr: ExpressionT, axis_vars: AxisVarMapT | None = None, loop_indices: LoopIndexVarMapT | None = None) -> Any:
+    if axis_vars is None:
+        axis_vars = {}
+    if loop_indices is None:
+        loop_indices = {}
+    return _evaluate(expr, axis_vars=axis_vars, loop_indices=loop_indices)
+
+
 @functools.singledispatch
-def evaluate(obj: Any, /):
+def _evaluate(obj: Any, /, **kwargs) -> Any:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@evaluate.register(Dat)
-@evaluate.register(LinearDatBufferExpression)
-def _(var, /):
-    raise RuntimeVariableException
-    # if dat.parent:
-    #     raise NotImplementedError
-    #
-    # if not dat.axes.is_linear:
-    #     # guess this is optional at the top level, extra kwarg?
-    #     raise NotImplementedError
-    # else:
-    #     path = dat.axes.path(dat.axes.leaf)
-    # offset = evaluate(dat.axes.subst_layouts()[path], indices)
-    # return dat.buffer.data_ro_with_halos[offset]
-
-
-# @evaluate.register(LinearDatBufferExpression)
-# def _(expr: LinearDatBufferExpression, indices):
-#     assert False, "cant eval that"
-#     offset = evaluate(expr.layout, indices)
-#     return expr.buffer.data_ro_with_halos[offset]
-
-
-@evaluate.register
-def _(expr: Add, *args, **kwargs):
-    return evaluate(expr.a, *args, **kwargs) + evaluate(expr.b, *args, **kwargs)
-
-
-@evaluate.register
-def _(mul: Mul, *args, **kwargs):
-    return evaluate(mul.a, *args, **kwargs) * evaluate(mul.b, *args, **kwargs)
-
-
-@evaluate.register
-def _(neg: Neg):
-    return -evaluate(neg.a)
-
-
-@evaluate.register
-def _(floordiv: FloorDiv):
-    return evaluate(floordiv.a) // evaluate(floordiv.b)
-
-
-@evaluate.register(numbers.Number)
-@evaluate.register(bool)
-@evaluate.register(np.bool)
-def _(num):
+@_evaluate.register(numbers.Number)
+@_evaluate.register(bool)
+@_evaluate.register(np.bool)
+def _(num, /, **kwargs) -> Any:
     return num
 
 
-# @evaluate.register
-# def _(var: AxisVar, indices):
-#     return indices[var.axis_label]
-#
-#
-# @evaluate.register(LoopIndexVar)
-# def _(loop_var: LoopIndexVar):
-#     assert False, "cant do this one I feel"
-#     return OrderedSet({loop_var.index})
+@_evaluate.register
+def _(axis_var: AxisVar, /, *, axis_vars: AxisVarMapT, **kwargs) -> Any:
+    try:
+        return axis_vars[axis_var.axis_label]
+    except KeyError:
+        raise MissingVariableException(f"'{axis_var.axis_label}' not found in 'axis_vars'")
 
 
-@evaluate.register
-def _(cond: Conditional):
-    if evaluate(cond.predicate):
-        return evaluate(cond.if_true)
+@_evaluate.register
+def _(loop_var: LoopIndexVar, /, *, loop_indices: LoopIndexVarMapT, **kwargs) -> Any:
+    try:
+        return loop_indices[loop_var.loop_id][loop_var.axis_label]
+    except KeyError:
+        raise MissingVariableException(f"'({loop_var.loop_id}, {loop_var.axis_label})' not found in 'loop_indices'")
+
+
+@_evaluate.register
+def _(expr: Add, /, **kwargs) -> Any:
+    return _evaluate(expr.a, **kwargs) + _evaluate(expr.b, **kwargs)
+
+
+@_evaluate.register
+def _(mul: Mul, /, **kwargs) -> Any:
+    return _evaluate(mul.a, **kwargs) * _evaluate(mul.b, **kwargs)
+
+
+@_evaluate.register
+def _(neg: Neg, /, **kwargs) -> Any:
+    return -_evaluate(neg.a, **kwargs)
+
+
+@_evaluate.register
+def _(floordiv: FloorDiv, /, **kwargs) -> Any:
+    return _evaluate(floordiv.a, **kwargs) // _evaluate(floordiv.b, **kwargs)
+
+
+@_evaluate.register
+def _(or_: Or, /, **kwargs) -> Any:
+    return _evaluate(or_.a, **kwargs) or _evaluate(or_.b, **kwargs)
+
+
+@_evaluate.register
+def _(lt: LessThan, /, **kwargs) -> Any:
+    return _evaluate(lt.a, **kwargs) < _evaluate(lt.b, **kwargs)
+
+
+@_evaluate.register
+def _(gt: GreaterThan, /, **kwargs) -> Any:
+    return _evaluate(gt.a, **kwargs) > _evaluate(gt.b, **kwargs)
+
+
+@_evaluate.register
+def _(le: LessThanOrEqual, /, **kwargs) -> Any:
+    return _evaluate(le.a) <= _evaluate(le.b)
+
+
+@_evaluate.register
+def _(ge: GreaterThanOrEqual, /, **kwargs) -> Any:
+    return _evaluate(ge.a, **kwargs) >= _evaluate(ge.b, **kwargs)
+
+
+@_evaluate.register
+def _(cond: Conditional, /, **kwargs) -> Any:
+    if _evaluate(cond.predicate, **kwargs):
+        return _evaluate(cond.if_true, **kwargs)
     else:
-        return evaluate(cond.if_true)
+        return _evaluate(cond.if_true, **kwargs)
 
 
-@evaluate.register
-def _(or_: Or):
-    return evaluate(or_.a) or evaluate(or_.b)
+@_evaluate.register(Dat)
+def _(dat: Dat, /, **kwargs) -> Any:
+    return _evaluate(dat.concretize(), **kwargs)
 
 
-@evaluate.register
-def _(lt: LessThan):
-    return evaluate(lt.a) < evaluate(lt.b)
+@_evaluate.register
+def _(dat_expr: LinearDatBufferExpression, /, **kwargs) -> Any:
+    offset = _evaluate(dat_expr.layout, **kwargs)
+    return dat_expr.buffer.buffer.data_ro_with_halos[offset]
 
-
-@evaluate.register
-def _(gt: GreaterThan):
-    return evaluate(gt.a) > evaluate(gt.b)
-
-
-@evaluate.register
-def _(le: LessThanOrEqual):
-    return evaluate(le.a) <= evaluate(le.b)
-
-
-@evaluate.register
-def _(ge: GreaterThanOrEqual):
-    return evaluate(ge.a) >= evaluate(ge.b)
 
 
 @functools.singledispatch

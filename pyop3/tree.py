@@ -8,9 +8,10 @@ import operator
 from collections import defaultdict
 from collections.abc import Hashable, Iterable, Sequence, Mapping
 from functools import cached_property
-from immutabledict import immutabledict
+from immutabledict import immutabledict as idict
 from itertools import chain
 from typing import Any, Dict, FrozenSet, List, Optional, Tuple, Union
+from types import GeneratorType
 
 from pyop3.exceptions import Pyop3Exception
 import pyrsistent
@@ -42,7 +43,7 @@ ComponentLabelT = Hashable
 ComponentRegionLabelT = Hashable
 ComponentT = ComponentLabelT  # | ComponentT
 PathT = Mapping[NodeLabelT, ComponentLabelT]
-ConcretePathT = immutabledict[NodeLabelT, ComponentLabelT]
+ConcretePathT = idict[NodeLabelT, ComponentLabelT]
 
 # ParentT = tuple[PathT, ComponentT] | PathT | | None
 
@@ -71,7 +72,7 @@ class Node(pytools.ImmutableRecord):
 
 
 NodeMapT = Mapping[PathT, Node | None]
-ConcreteNodeMapT = immutabledict[ConcretePathT, Node | None]
+ConcreteNodeMapT = idict[ConcretePathT, Node | None]
 
 
 
@@ -85,7 +86,7 @@ class AbstractTree(abc.ABC):
             return "<empty>"
         else:
             return "\n".join(
-                self._stringify(path=immutabledict(), begin_prefix="", cont_prefix="")
+                self._stringify(path=idict(), begin_prefix="", cont_prefix="")
             )
 
     def __contains__(self, node) -> bool:
@@ -97,12 +98,12 @@ class AbstractTree(abc.ABC):
 
     @property
     def root(self) -> Node | None:
-        return self.node_map.get(immutabledict())
+        return self.node_map.get(idict())
 
     @property
     def is_empty(self) -> bool:
         assert len(self.node_map) > 0
-        return self.node_map == immutabledict({immutabledict(): None})
+        return self.node_map == idict({idict(): None})
 
     @property
     def depth(self) -> int:
@@ -253,7 +254,7 @@ class LabelledTree(AbstractTree):
             return cls()
 
         node_map = {}
-        path = immutabledict()
+        path = idict()
         for node in iterable:
             node = cls.as_node(node)
             node_map.update({path: node})
@@ -265,7 +266,7 @@ class LabelledTree(AbstractTree):
         if isinstance(nest, Node):
             return cls(nest)
         else:
-            node_map = cls._node_map_from_nest(nest=nest, path=immutabledict())
+            node_map = cls._node_map_from_nest(nest=nest, path=idict())
             return cls(node_map)
 
     @classmethod
@@ -290,7 +291,7 @@ class LabelledTree(AbstractTree):
             else:
                 sub_node_map = {path_: subnest}
             node_map |= sub_node_map
-        return immutabledict(node_map)
+        return idict(node_map)
 
     # }}}
 
@@ -311,14 +312,14 @@ class LabelledTree(AbstractTree):
     @cached_property
     def _hash_node_map(self):
         if self.is_empty:
-            return immutabledict()
+            return idict()
 
         counter = itertools.count()
         return self._collect_hash_node_map(None, None, counter)
 
     def _collect_hash_node_map(self, old_parent_id, new_parent_id, counter):
         if old_parent_id not in self.node_map:
-            return immutabledict()
+            return idict()
 
         nodes = []
         node_map = {}
@@ -375,7 +376,7 @@ class LabelledTree(AbstractTree):
     #     if self.is_empty:
     #         raise ValueError("Error here? Not an intuitive return type")
     #
-    #     return self._collect_leaves(path=immutabledict())
+    #     return self._collect_leaves(path=idict())
     #
     # def _collect_leaves(self, *, path: PathT) -> tuple[tuple[Node, ComponentLabelT]]:
     #     leaves = []
@@ -458,7 +459,7 @@ class LabelledTree(AbstractTree):
 
         paths_ = {}
         previsit(self, paths_fn)
-        return immutabledict(paths_)
+        return idict(paths_)
 
     # TODO interface choice about whether we want whole nodes, ids or labels in paths
     # maybe need to distinguish between paths, ancestors and label-only?
@@ -473,11 +474,11 @@ class LabelledTree(AbstractTree):
 
         paths_ = {}
         previsit(self, paths_fn)
-        return immutabledict(paths_)
+        return idict(paths_)
 
     def ancestors(self, node, component_label):
         """Return the ancestors of a ``(node_id, component_label)`` 2-tuple."""
-        return immutabledict(
+        return idict(
             {
                 nd: cpt
                 for nd, cpt in self.path(node, component_label).items()
@@ -485,11 +486,11 @@ class LabelledTree(AbstractTree):
             }
         )
 
-    def path(self, target: tuple[Node, ComponentT] | None) -> immutabledict:
+    def path(self, target: tuple[Node, ComponentT] | None) -> idict:
         """Return the path to ``target``."""
         assert False, "old code that is no longer valid as nodes can crop up in multiple paths"
         if target is None:
-            return immutabledict()
+            return idict()
 
         node, component = target
         component_label = as_component_label(component)
@@ -497,14 +498,14 @@ class LabelledTree(AbstractTree):
         if ordered:
             return path_
         else:
-            return immutabledict(path_)
+            return idict(path_)
 
     def path_with_nodes(
         self, node, component_label=None, ordered=False, and_components=False
-    ) -> immutabledict:
+    ) -> idict:
         assert False, "old code"
         if node is None:
-            return immutabledict()
+            return idict()
 
         # TODO: make target always be a 2-tuple
         if isinstance(node, tuple):
@@ -522,10 +523,10 @@ class LabelledTree(AbstractTree):
         if ordered:
             return path_
         else:
-            return immutabledict(path_)
+            return idict(path_)
 
     @cached_property
-    def paths(self) -> tuple[immutabledict, ...]:
+    def paths(self) -> tuple[idict, ...]:
         """Return all possible paths through the tree."""
         return self.node_map.keys()
 
@@ -535,7 +536,7 @@ class LabelledTree(AbstractTree):
         return tuple(path for path, node in self.node_map.items() if node is None)
 
     @property
-    def leaf_path(self) -> immutabledict:
+    def leaf_path(self) -> idict:
         return just_one(self.leaf_paths)
 
     @cached_property
@@ -575,7 +576,7 @@ class LabelledTree(AbstractTree):
     def detailed_path(self, path):
         node = self._node_from_path(path)
         if node is None:
-            return immutabledict()
+            return idict()
         else:
             return self.path_with_nodes(*node, and_components=True)
 
@@ -638,9 +639,9 @@ class LabelledTree(AbstractTree):
 
     # TODO, could be improved, same as other Tree apart from [None, None, ...] bit
     @staticmethod
-    def _parse_parent_to_children(node_map) -> immutabledict:
+    def _parse_parent_to_children(node_map) -> idict:
         if not node_map:
-            return immutabledict()
+            return idict()
 
         if isinstance(node_map, Node):
             # just passing root
@@ -666,7 +667,7 @@ class LabelledTree(AbstractTree):
         for node in nodes:
             if node not in node_map.keys():
                 node_map[node] = [None] * node.degree
-        return immutabledict(node_map)
+        return idict(node_map)
 
     @staticmethod
     def _parse_node(node):
@@ -733,7 +734,7 @@ class MutableLabelledTreeMixin:
         for orig_path, node in self.node_map.items():
             orig_path_set = frozenset(orig_path.items())
             if path_set <= orig_path_set:
-                trimmed_path = immutabledict(
+                trimmed_path = idict(
                     (axis_label, component_label)
                     for axis_label, component_label in orig_path.items()
                     if (axis_label, component_label) not in path.items()
@@ -741,14 +742,18 @@ class MutableLabelledTreeMixin:
                 trimmed_node_map[trimmed_path] = node
         return type(self)(trimmed_node_map)
 
-    def drop_subtree(self, path: PathT) -> MutableLabelledTreeMixin:
+    def drop_subtree(self, path: PathT, *, allow_empty_subtree=False) -> MutableLabelledTreeMixin:
         path = as_path(path)
 
         if path not in self.node_map:
             raise TreeMutationException("Provided path does not exist in the tree")
 
-        # ie dropping nothing is probably unexpected behaviour
-        assert path not in self.leaf_paths
+        if path in self.leaf_paths:
+            if allow_empty_subtree:
+                return self
+            # ie dropping nothing is probably unexpected behaviour
+            else:
+                assert False
 
         subtree = self.subtree(path)
 
@@ -788,7 +793,7 @@ def previsit(
             previsit(tree, fn, subnode, next)
 
 
-def postvisit(tree, fn, path: PathT = immutabledict(), **kwargs) -> Any:
+def postvisit(tree, fn, path: PathT = idict(), **kwargs) -> Any:
     """Traverse the tree in postorder.
 
     # TODO rewrite
@@ -817,48 +822,48 @@ def postvisit(tree, fn, path: PathT = immutabledict(), **kwargs) -> Any:
     return fn(node, *child_results, **kwargs)
 
 
-def as_node_map(node_map: Any) -> immutabledict:
+def as_node_map(node_map: Any) -> idict:
     node_map = _as_node_map(node_map)
     return fixup_node_map(node_map)
 
 
 @functools.singledispatch
-def _as_node_map(obj: Any, /) -> immutabledict:
+def _as_node_map(obj: Any, /) -> idict:
     if obj is None:
-        return immutabledict()
+        return idict()
     else:
         raise TypeError(f"No handler provided for {type(obj).__name__}")
 
 
 @_as_node_map.register(Mapping)
-def _(node_map: Mapping, /) -> immutabledict:
-    return immutabledict(node_map)
+def _(node_map: Mapping, /) -> idict:
+    return idict(node_map)
 
 
 @_as_node_map.register(Node)
-def _(node: Node, /) -> immutabledict:
-    return immutabledict({immutabledict(): node})
+def _(node: Node, /) -> idict:
+    return idict({idict(): node})
 
 
 def fixup_node_map(node_map: NodeMapT) -> ConcreteNodeMapT:
     unvisited = dict(node_map)
-    complete_node_map = _fixup_node_map(path=immutabledict(), unvisited=unvisited)
+    complete_node_map = _fixup_node_map(path=idict(), unvisited=unvisited)
 
     if unvisited:
         raise InvalidTreeException("There are orphaned entries in the node map")
 
     return complete_node_map
 
-def _fixup_node_map(*, path: immutabledict, unvisited: dict) -> ConcreteNodeMapT:
+def _fixup_node_map(*, path: idict, unvisited: dict) -> ConcreteNodeMapT:
     if path not in unvisited:
         # at a leaf, attach a 'None'
-        return immutabledict({path: None})
+        return idict({path: None})
 
     node = unvisited.pop(path)
 
     if node is None:
         # at a leaf, attach a 'None'
-        return immutabledict({path: None})
+        return idict({path: None})
 
     if node.label in path.keys():
         raise InvalidTreeException(f"Duplicate label '{node.label}' found along a path")
@@ -867,7 +872,7 @@ def _fixup_node_map(*, path: immutabledict, unvisited: dict) -> ConcreteNodeMapT
     for component_label in node.component_labels:
         path_ = path | {node.label: component_label}
         node_map |= _fixup_node_map(path=path_, unvisited=unvisited)
-    return immutabledict(node_map)
+    return idict(node_map)
 
 
 @functools.singledispatch
@@ -875,25 +880,25 @@ def as_path(obj: Any) -> ConcretePathT:
     raise TypeError(f"No handler provided for {type(obj).__name__}")
 
 
-@as_path.register(immutabledict)
-def _(path: immutabledict) -> ConcretePathT:
+@as_path.register(idict)
+def _(path: idict) -> ConcretePathT:
     return path
 
 
 @as_path.register(Iterable)
 def _(path: Iterable) -> ConcretePathT:
-    return immutabledict(path)
+    return idict(path)
 
 
 def parent_path(path: PathT) -> ConcretePathT:
-    return immutabledict({
+    return idict({
         node_label: component_label
         for node_label, component_label in list(path.items())[:-1]
     })
 
 
 def accumulate_path(path: PathT, *, skip_last: bool = False) -> tuple[ConcretePathT, ...]:
-    path_acc = immutabledict()
+    path_acc = idict()
     paths = [path_acc]
     for node_label, component_label in path.items():
         path_acc = path_acc | {node_label: component_label}
@@ -913,5 +918,4 @@ def filter_path(orig_path: PathT, to_remove: PathT) -> ConcretePathT:
     for node_label, component_label in orig_path.items():
         if (node_label, component_label) not in to_remove.items():
             filtered_path[node_label] = component_label
-    return immutabledict(filtered_path)
-
+    return idict(filtered_path)

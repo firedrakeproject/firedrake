@@ -118,10 +118,12 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
     for i, component in enumerate(axis.components):
         path_acc_ = path_acc | {axis.label: component.label}
 
+        linear_axis = axis.linearize(component.label)
+
         component_has_regions = any(r.label is not None for r in component._all_regions)
 
         if component_has_regions:
-            region_axes_ = region_axes + (axis.linearize(component.label),)
+            region_axes_ = region_axes + (linear_axis,)
         else:
             region_axes_ = region_axes
 
@@ -179,7 +181,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
                 offset_axes, loop_var_replace_map = loopified_shape(subtree.size)
                 assert not loop_var_replace_map, "should not encounter loop indices here"
 
-                if axis.linearize(component.label) not in offset_axes:
+                if linear_axis not in offset_axes:
                     # consider the test 'test_ragged_with_nonstandard_axis_ordering'
                     raise NotImplementedError("can do an affine thing with this axis")
 
@@ -204,7 +206,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
                 assert step != 0
                 # if step == 0:
                 #     step = 1
-                component_layout = AxisVar(axis) * step + start
+                component_layout = AxisVar(linear_axis) * step + start
                 layout_expr_acc_ = layout_expr_acc + component_layout
                 layouts[path_acc_] = layout_expr_acc_
 

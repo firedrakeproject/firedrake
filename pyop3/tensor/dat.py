@@ -636,12 +636,9 @@ class ScalarBufferExpression(BufferExpression):
         return self.name
 
 
+# TODO: Does a Dat count as one of these?
 class DatBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
     pass
-
-
-# class DatArrayBufferExpression(DatBufferExpression, ArrayBufferExpression, metaclass=abc.ABCMeta):
-#     pass
 
 
 class LinearBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
@@ -667,16 +664,12 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
 
     _buffer: Any  # array buffer type
     layout: Any
-    # _shape: AxisTree
-    # _loop_axes: tuple[Axis]
 
     # }}}
 
     # {{{ interface impls
 
     buffer: ClassVar[property] = utils.attr("_buffer")
-    # shape: ClassVar[property] = utils.attr("_shape")
-    # loop_axes: ClassVar[property] = utils.attr("_loop_axes")
 
     @property
     def shape(self) -> tuple[AxisTree]:
@@ -841,6 +834,8 @@ def _(expr: LinearDatBufferExpression) -> LinearDatBufferExpression:
 
 @as_linear_buffer_expression.register
 def _(dat: Dat) -> LinearDatBufferExpression:
+
+    assert dat.parent is None
 
     if not dat.axes.is_linear:
         raise ValueError("The provided Dat must be linear")

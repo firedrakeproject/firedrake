@@ -290,6 +290,8 @@ class AxisIndependentIndex(Index):
 #         ContextSensitive.__init__(self, context_map)
 
 
+LoopIndexIdT = Hashable
+
 
 class LoopIndex(Index, KernelArgument):
     """
@@ -1922,121 +1924,6 @@ class IndexIteratorEntry:
                 self.index.id: {ax: expr for ax, expr in self.source_exprs.items()},
             }
         )
-
-
-def iter_axis_tree(
-    loop_index: LoopIndex,
-    axes: AxisTree,
-    target_paths,
-    index_exprs,
-    outer_loops=(),
-    axis=None,
-    path=immutabledict(),
-    indices=immutabledict(),
-    target_path=None,
-    index_exprs_acc=None,
-    no_index=False,
-):
-    assert False, "old code"
-    from pyop3.expr_visitors import evaluate as eval_expr
-
-    # this is a hack, sometimes things are indexed
-    if no_index:
-        indices = indices | merge_dicts(
-            iter_entry.source_exprs for iter_entry in outer_loops
-        )
-        outer_replace_map = {}
-    else:
-        outer_replace_map = merge_dicts(
-            iter_entry.replace_map for iter_entry in outer_loops
-        )
-    if target_path is None:
-        assert index_exprs_acc is None
-        target_path = target_paths.get(None, immutabledict())
-
-        # Substitute the index exprs, which map target to source, into
-        # indices, giving target index exprs
-        myindex_exprs = index_exprs.get(None, immutabledict())
-        # evaluator = ExpressionEvaluator(indices, outer_replace_map)
-        new_exprs = {}
-        for axlabel, index_expr in myindex_exprs.items():
-            new_exprs[axlabel] = eval_expr(index_expr, indices)
-        index_exprs_acc = immutabledict(new_exprs)
-
-    if axes.is_empty:
-        source_path = immutabledict()
-        source_exprs = immutabledict()
-        yield IndexIteratorEntry(
-            loop_index, source_path, target_path, source_exprs, index_exprs_acc
-        )
-        return
-
-    axis = axis or axes.root
-
-    for component in axis.components:
-        # for efficiency do these outside the loop
-        path_ = path | {axis.label: component.label}
-        target_path_ = target_path | target_paths.get((axis.id, component.label), {})
-        myindex_exprs = index_exprs.get((axis.id, component.label), immutabledict())
-        subaxis = axes.child(axis, component)
-
-        # bit of a hack, I reckon this can go as we can just get it from component.count
-        # inside as_int
-        if isinstance(component.count, Dat):
-            mypath = component.count.axes.target_path.get(None, {})
-            myindices = component.count.axes.target_exprs.get(None, {})
-            if not component.count.axes.is_empty:
-                for cax, ccpt in component.count.axes.path_with_nodes(
-                    *component.count.axes.leaf
-                ).items():
-                    mypath.update(component.count.axes.target_path.get((cax.id, ccpt), {}))
-                    myindices.update(
-                        component.count.axes.target_exprs.get((cax.id, ccpt), {})
-                    )
-
-            mypath = immutabledict(mypath)
-            myindices = immutabledict(myindices)
-            replace_map = indices
-        else:
-            mypath = immutabledict()
-            myindices = immutabledict()
-            replace_map = None
-
-        for pt in range(
-            _as_int(
-                component.count,
-                replace_map,
-                loop_indices=outer_replace_map,
-            )
-        ):
-            new_exprs = {}
-            # evaluator = ExpressionEvaluator(
-            #     indices | {axis.label: pt}, outer_replace_map
-            # )
-            for axlabel, index_expr in myindex_exprs.items():
-                # new_index = evaluator(index_expr)
-                # new_index = eval_expr(index_expr, path_, indices | {axis.label: pt})
-                new_index = eval_expr(index_expr, indices | {axis.label: pt})
-                new_exprs[axlabel] = new_index
-            index_exprs_ = index_exprs_acc | new_exprs
-            indices_ = indices | {axis.label: pt}
-            if subaxis:
-                yield from iter_axis_tree(
-                    loop_index,
-                    axes,
-                    target_paths,
-                    index_exprs,
-                    outer_loops,
-                    subaxis,
-                    path_,
-                    indices_,
-                    target_path_,
-                    index_exprs_,
-                )
-            else:
-                yield IndexIteratorEntry(
-                    loop_index, path_, target_path_, indices_, index_exprs_
-                )
 
 
 class ArrayPointLabel(enum.IntEnum):
