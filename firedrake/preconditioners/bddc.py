@@ -4,8 +4,9 @@ from firedrake.preconditioners.facet_split import restrict, get_restriction_indi
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space, get_appctx
 from firedrake.ufl_expr import TestFunction, TrialFunction
+from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
-from ufl import curl, div, HCurl, HDiv, inner, dx
+from ufl import curl, div, H1, H2, HCurl, HDiv, inner, dx
 from pyop2.utils import as_tuple
 import numpy
 
@@ -24,16 +25,11 @@ class BDDCPC(PCBase):
     - ``'bddc_pc_bddc_coarse'`` to set the coarse solver KSP.
 
     This PC also inspects optional arguments supplied in the application context:
-    - ``'discrete_gradient'`` for problems in H(curl), this sets the arguments
+    - ``'discrete_gradient'`` for 3D problems in H(curl), this sets the arguments
     (a Mat tabulating the gradient of the auxiliary H1 space) and
     keyword arguments supplied to ``PETSc.PC.setBDDCDiscreteGradient``.
-    - ``'divergence_mat'`` for 3D problems in H(div), this sets the Mat with the
-    assembled bilinear form testing the divergence against an L2 space.
-
-    Notes
-    -----
-    Currently the Mat type IS is only supported by FDMPC.
-
+    - ``'divergence_mat'`` for problems in H(div) (resp. 2D H(curl)), this sets the Mat with the
+    assembled bilinear form testing the divergence (curl) against an L2 space.
     """
 
     _prefix = "bddc_"
@@ -45,6 +41,8 @@ class BDDCPC(PCBase):
         self.prefix = (pc.getOptionsPrefix() or "") + self._prefix
 
         V = get_function_space(dm)
+        variant = V.ufl_element().variant()
+        sobolev_space = V.ufl_element().sobolev_space
 
         # Create new PC object as BDDC type
         bddcpc = PETSc.PC().create(comm=pc.comm)
@@ -54,10 +52,13 @@ class BDDCPC(PCBase):
         bddcpc.setType(PETSc.PC.Type.BDDC)
 
         opts = PETSc.Options(bddcpc.getOptionsPrefix())
-        if V.ufl_element().variant() == "fdm" and "pc_bddc_use_local_mat_graph" not in opts:
-            # Disable computation of disconected components of subdomain interfaces
+        # Do not use CSR of local matrix to define dofs connectivity unless requested
+        # Using the CSR only makes sense for H1/H2 problems
+        is_h1h2 = sobolev_space in [H1, H2]
+        if "pc_bddc_use_local_mat_graph" not in opts and (not is_h1h2 or variant == "fdm"):
             opts["pc_bddc_use_local_mat_graph"] = False
 
+        # Handle boundary dofs
         ctx = get_appctx(dm)
         bcs = tuple(ctx._problem.bcs)
         if V.extruded:
@@ -79,11 +80,18 @@ class BDDCPC(PCBase):
         bddcpc.setBDDCNeumannBoundaries(neu_bndr)
 
         appctx = self.get_appctx(pc)
-        sobolev_space = V.ufl_element().sobolev_space
+        degree = max(as_tuple(V.ufl_element().degree()))
+
+        # Set coordinates only if corner selection is requested
+        # There's no API to query from PC
+        if "pc_bddc_corner_selection" in opts:
+            W = VectorFunctionSpace(V.mesh(), "Lagrange", degree, variant=variant)
+            coords = Function(W).interpolate(V.mesh().coordinates)
+            bddcpc.setCoordinates(coords.dat.data_ro.repeat(V.block_size, axis=0))
 
         tdim = V.mesh().topological_dimension()
-        degree = max(as_tuple(V.ufl_element().degree()))
         if tdim >= 2 and V.finat_element.formdegree == tdim-1:
+            # Should we use a callable like for hypre_ams?
             B = appctx.get("divergence_mat", None)
             if B is None:
                 from firedrake.assemble import assemble
@@ -96,17 +104,19 @@ class BDDCPC(PCBase):
                     make_function_space = TensorFunctionSpace
                 Q = make_function_space(V.mesh(), "DG", degree-1)
                 b = inner(d(TrialFunction(V)), TestFunction(Q)) * dx(degree=2*(degree-1))
-                B = assemble(b, mat_type="matfree")
+                B = assemble(b, mat_type="is")
             bddcpc.setBDDCDivergenceMat(B.petscmat)
         elif sobolev_space == HCurl:
+            # Should we use a callable like for hypre_ams?
             gradient = appctx.get("discrete_gradient", None)
             if gradient is None:
                 from firedrake.preconditioners.fdm import tabulate_exterior_derivative
                 from firedrake.preconditioners.hiptmair import curl_to_grad
                 Q = FunctionSpace(V.mesh(), curl_to_grad(V.ufl_element()))
                 gradient = tabulate_exterior_derivative(Q, V)
-                corners = get_vertex_dofs(Q)
-                gradient.compose('_elements_corners', corners)
+                if variant == 'fdm':
+                    corners = get_vertex_dofs(Q)
+                    gradient.compose('_elements_corners', corners)
                 grad_args = (gradient,)
                 grad_kwargs = {'order': degree}
             else:
