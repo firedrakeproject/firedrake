@@ -29,14 +29,13 @@ from pyop3.expr.visitors import collect_axis_vars, replace
 
 import pyop2
 
-from pyop3 import exceptions as exc, utils
+from pyop3 import exceptions as exc, utils, expr as expr_mod
 from pyop3.expr.tensor import LinearDatBufferExpression, NonlinearDatBufferExpression, Scalar
-from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, Add, AxisVar, BinaryCondition, IndexedAxisTree, Mul, AxisComponent, relabel_path, Conditional, Or, Neg, FloorDiv, Sub, Modulo, Expression
+from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, IndexedAxisTree, AxisComponent, relabel_path
 from pyop3.buffer import AbstractBuffer, BufferRef, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
 from pyop3.config import config
 from pyop3.dtypes import IntType
 from pyop3.ir.transform import with_likwid_markers, with_petsc_event, with_attach_debugger
-from pyop3.tree.index_tree.tree import AffineSliceComponent, LoopIndexVar, Slice, IndexTree
 from pyop3.insn.base import (
     Intent,
     INC,
@@ -1192,42 +1191,42 @@ def _(num: numbers.Number, /, *args, **kwargs) -> numbers.Number:
     return num
 
 
-@_lower_expr.register(Add)
-def _(add: Add, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(expr_mod.Add)
+def _(add: expr_mod.Add, /, *args, **kwargs) -> pym.Expression:
     return _lower_expr(add.a, *args, **kwargs) + _lower_expr(add.b, *args, **kwargs)
 
 
-@_lower_expr.register(Sub)
-def _(add: Add, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(expr_mod.Sub)
+def _(sub: expr_mod.Sub, /, *args, **kwargs) -> pym.Expression:
     return _lower_expr(add.a, *args, **kwargs) - _lower_expr(add.b, *args, **kwargs)
 
 
-@_lower_expr.register(Mul)
-def _(mul: Mul, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(expr_mod.Mul)
+def _(mul: expr_mod.Mul, /, *args, **kwargs) -> pym.Expression:
     return _lower_expr(mul.a, *args, **kwargs) * _lower_expr(mul.b, *args, **kwargs)
 
 
-@_lower_expr.register(Modulo)
-def _(mul: Mul, /, *args, **kwargs) -> pym.Expression:
-    return _lower_expr(mul.a, *args, **kwargs) % _lower_expr(mul.b, *args, **kwargs)
+@_lower_expr.register(expr_mod.Modulo)
+def _(mod: expr_mod.Mul, /, *args, **kwargs) -> pym.Expression:
+    return _lower_expr(mod.a, *args, **kwargs) % _lower_expr(mod.b, *args, **kwargs)
 
 
-@_lower_expr.register(Or)
-def _(or_: Or, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(expr_mod.Or)
+def _(or_: expr_mod.Or, /, *args, **kwargs) -> pym.Expression:
     return pym.primitives.LogicalOr((_lower_expr(or_.a, *args, **kwargs), _lower_expr(or_.b, *args, **kwargs)))
 
 
-@_lower_expr.register(Neg)
-def _(neg: Neg, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(expr_mod.Neg)
+def _(neg: expr_mod.Neg, /, *args, **kwargs) -> pym.Expression:
     return -_lower_expr(neg.a, *args, **kwargs)
 
 
-@_lower_expr.register(FloorDiv)
-def _(neg: Neg, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(expr_mod.FloorDiv)
+def _(neg: expr_mod.Neg, /, *args, **kwargs) -> pym.Expression:
     return _lower_expr(neg.a, *args, **kwargs) // _lower_expr(neg.b, *args, **kwargs)
 
 
-@_lower_expr.register(BinaryCondition)
+@_lower_expr.register(expr_mod.BinaryCondition)
 def _(cond, /, *args, **kwargs) -> pym.Expression:
     return pym.primitives.Comparison(
         _lower_expr(cond.a, *args, **kwargs),
@@ -1236,13 +1235,13 @@ def _(cond, /, *args, **kwargs) -> pym.Expression:
     )
 
 
-@_lower_expr.register(AxisVar)
-def _(axis_var: AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(expr_mod.AxisVar)
+def _(axis_var: expr_mod.AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
     return just_one(iname_maps)[axis_var.axis_label]
 
 
-@_lower_expr.register(LoopIndexVar)
-def _(loop_var: LoopIndexVar, /, iname_maps, loop_indices, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(expr_mod.LoopIndexVar)
+def _(loop_var: expr_mod.LoopIndexVar, /, iname_maps, loop_indices, *args, **kwargs) -> pym.Expression:
     return loop_indices[(loop_var.loop_id, loop_var.axis_label)]
 
 
@@ -1310,20 +1309,9 @@ def maybe_multiindex(buffer_ref, offset_expr, context):
     return indices
 
 
-@_lower_expr.register(Conditional)
-def _(add: Conditional, /, *args, **kwargs) -> pym.Expression:
-    # This kind of works, but is awful and the instruction ordering is wrong
-    # return pym.primitives.If(
-    #     *(
-    #         map(
-    #             pym.cse,
-    #             (
-    #                 _lower_expr(add.a, *args, **kwargs), _lower_expr(add.b, *args, **kwargs), _lower_expr(add.c, *args, **kwargs)
-    #             )
-    #         )
-    #     )
-    # )
-    return pym.primitives.If(_lower_expr(add.a, *args, **kwargs), _lower_expr(add.b, *args, **kwargs), _lower_expr(add.c, *args, **kwargs))
+@_lower_expr.register(expr_mod.Conditional)
+def _(cond: expr_mod.Conditional, /, *args, **kwargs) -> pym.Expression:
+    return pym.primitives.If(_lower_expr(cond.a, *args, **kwargs), _lower_expr(cond.b, *args, **kwargs), _lower_expr(cond.c, *args, **kwargs))
 
 
 @functools.singledispatch
@@ -1336,8 +1324,8 @@ def _(num: numbers.Integral, *args, **kwargs):
     return num
 
 
-@register_extent.register(Expression)
-def _(expr: Expression, inames, loop_indices, context):
+@register_extent.register(expr_mod.Expression)
+def _(expr: expr_mod.Expression, inames, loop_indices, context):
     pym_expr = lower_expr(expr, [inames], loop_indices, context)
     extent_name = context.add_temporary("p")
     context.add_assignment(pym.var(extent_name), pym_expr)

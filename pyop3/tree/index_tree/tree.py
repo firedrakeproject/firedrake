@@ -21,6 +21,7 @@ from pyop3.exceptions import Pyop3Exception
 import pytools
 from immutabledict import immutabledict
 
+from pyop3.expr.base import AxisVar, conditional, LoopIndexVar
 from pyop3.expr.tensor import Dat
 from pyop3.tree.axis_tree import (
     Axis,
@@ -28,18 +29,14 @@ from pyop3.tree.axis_tree import (
     AxisComponentRegion,
     AxisTree,
     AxisForest,
-    AxisVar,
     LoopIterable,
 )
-from pyop3.tree.axis_tree.layout import _as_int
 from pyop3.tree.axis_tree.tree import (
     UNIT_AXIS_TREE,
-    conditional,
     AbstractAxisTree,
     ContextSensitiveLoopIterable,
     IndexedAxisTree,
     UnitIndexedAxisTree,
-    LoopIndexVar,
     OWNED_REGION_LABEL,
     GHOST_REGION_LABEL,
 )

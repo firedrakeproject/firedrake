@@ -24,16 +24,13 @@ from pyop3.tree.axis_tree.tree import (
     ContextSensitiveAxisTree,
     ContextFree,
     IndexedAxisTree,
-    as_axis_tree,
 )
-from pyop3.buffer import ArrayBuffer, FullPetscMatBufferSpec, NullBuffer, AbstractBuffer, PetscMatAxisSpec, PetscMatBuffer, AllocatedPetscMatBuffer, PetscMatPreallocatorBuffer, PetscMatBufferSpec, MatBufferSpec, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec
-from pyop3.dtypes import IntType, ScalarType
-from pyop3.insn import Loop, ArrayAssignment
+from pyop3.tree.axis_tree import as_axis_tree
+from pyop3.buffer import FullPetscMatBufferSpec, NullBuffer, AbstractBuffer, PetscMatAxisSpec, PetscMatBuffer, AllocatedPetscMatBuffer, PetscMatPreallocatorBuffer, PetscMatBufferSpec, MatBufferSpec, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec
+from pyop3.dtypes import ScalarType
 from pyop3.typing import PetscSizeT
 from pyop3.utils import (
-    deprecated,
     just_one,
-    merge_dicts,
     single_valued,
     strictly_all,
     unique,

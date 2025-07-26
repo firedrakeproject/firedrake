@@ -46,10 +46,9 @@ from pyop3.tree.axis_tree import (  # noqa: F401
     AxisComponent,
     AxisComponentRegion,
     AxisTree,
-    AxisVar,
     IndexedAxisTree,
 )
-from pyop3.tree.axis_tree.tree import NAN  # noqa: F401
+from pyop3.expr.base import NAN  # noqa: F401
 from pyop3.buffer import (  # noqa: F401
     ArrayBuffer, NullBuffer, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec,
 )

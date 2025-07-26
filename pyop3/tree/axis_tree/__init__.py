@@ -4,12 +4,12 @@ from .tree import (  # noqa: F401
     AxisComponent,
     AxisComponentRegion,
     AxisTree,
-    AxisVar,
     ContextAware,
     ContextFree,
     ContextSensitive,
     IndexedAxisTree,
     LoopIterable,
-    as_axis_tree,
     AxisForest,
+    UNIT_AXIS_TREE,
 )
+from .parse import as_axis_tree

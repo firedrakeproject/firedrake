@@ -16,30 +16,22 @@ import pymbolic as pym
 from petsc4py import PETSc
 from pyop3 import tree, utils
 
+from pyop3.expr import AxisVar, LoopIndexVar, NaN
+from pyop3.expr.base import loopified_shape
 from pyop3.tree.axis_tree.tree import (
     UNIT_AXIS_TREE,
     Axis,
     AxisComponent,
     AxisTree,
-    AxisVar,
-    NaN,
-    BinaryOperator,
     full_shape,
-    LoopIndexVar,
-    loopified_shape,
 )
 from pyop3.dtypes import IntType
-from pyop3.expr.tensor.dat import as_linear_buffer_expression
 from pyop3.utils import (
-    StrictlyUniqueDict,
     as_tuple,
     single_valued,
-    is_single_valued,
     just_one,
-    OrderedSet,
     merge_dicts,
     strict_int,
-    strictly_all,
     steps,
 )
 
@@ -873,52 +865,6 @@ def _axis_component_size(
         _axis_component_size_region(axes, axis, component, region, indices, loop_indices=loop_indices)
         for region in component._all_regions
     )
-
-
-def _axis_component_size_region(
-    axes: AxisTree,
-    axis: Axis,
-    component: AxisComponent,
-    region,
-    indices=immutabledict(),
-    *,
-    loop_indices=immutabledict(),
-):
-    assert False, "old code"
-    count = _as_int(region.size, indices, loop_indices=loop_indices)
-    if subaxis := axes.child(axis, component):
-        return sum(
-            _axis_size(
-                axes,
-                subaxis,
-                indices | {axis.label: i},
-                loop_indices=loop_indices,
-            )
-            for i in range(count)
-        )
-    else:
-        return count
-
-
-@functools.singledispatch
-def _as_int(arg: Any, indices, path=None, *, loop_indices=immutabledict()):
-    assert False, "not used?"
-    from pyop3 import Dat
-    from pyop3.array.dat import _ExpressionDat
-
-    if isinstance(arg, (Dat, _ExpressionDat)):
-        # TODO this might break if we have something like [:, subset]
-        # I will need to map the "source" axis (e.g. slice_label0) back
-        # to the "target" axis
-        # return arg.get_value(indices, target_path, index_exprs)
-        return arg.get_value(indices, path, loop_exprs=loop_indices)
-    else:
-        raise TypeError
-
-
-@_as_int.register
-def _(arg: numbers.Real, *args, **kwargs):
-    return strict_int(arg)
 
 
 def eval_offset(

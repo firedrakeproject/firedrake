@@ -17,26 +17,23 @@ from pyop3.sf import local_sf
 from pyrsistent import pmap, PMap
 from immutabledict import immutabledict
 
+import pyop3.expr.base as expr_types
 from pyop3 import utils
 from pyop3.expr.tensor import Scalar, Dat, Tensor, Mat, NonlinearDatBufferExpression, LinearDatBufferExpression, NonlinearMatBufferExpression, LinearMatBufferExpression
 from pyop3.tree.axis_tree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
-from pyop3.tree.axis_tree.tree import UnaryOperator, BinaryOperator, AxisVar, IndexedAxisTree, TernaryOperator, merge_axis_trees2, prune_zero_sized_branches, NaN
+from pyop3.tree.axis_tree.tree import merge_axis_trees2
 from pyop3.buffer import AbstractBuffer, BufferRef, PetscMatBuffer, ArrayBuffer, NullBuffer, AllocatedPetscMatBuffer
 from pyop3.dtypes import IntType
 from pyop3.tree.index_tree import Map, TabulatedMapComponent, collect_loop_contexts
 from pyop3.tree.index_tree.tree import LoopIndex, LoopIndexVar, Slice, AffineSliceComponent, IndexTree
 from pyop3.tree.index_tree.parse import _as_context_free_indices
 from pyop3.expr.visitors import (
-    # collect_tensor_shape,
     get_shape,
     replace as replace_expression,
-    replace_terminals,
     collect_composite_dats,
-    CompositeDat,
     materialize_composite_dat,
     collect_candidate_indirections,
     concretize_layouts as concretize_expression_layouts,
-    extract_axes,
     restrict_to_context as restrict_expression_to_context,
     collect_candidate_indirections as collect_expression_candidate_indirections,
     collect_tensor_candidate_indirections,
@@ -406,20 +403,20 @@ def _expand_reshapes(expr: Any, /, mode):
 
 
 @_expand_reshapes.register
-def _(op: UnaryOperator, /, access_type):
+def _(op: expr_types.UnaryOperator, /, access_type):
     bare_a, a_insns = _expand_reshapes(op.a, access_type)
     return (type(op)(bare_a), a_insns)
 
 
 @_expand_reshapes.register
-def _(op: BinaryOperator, /, access_type):
+def _(op: expr_types.BinaryOperator, /, access_type):
     bare_a, a_insns = _expand_reshapes(op.a, access_type)
     bare_b, b_insns = _expand_reshapes(op.b, access_type)
     return (type(op)(bare_a, bare_b), a_insns + b_insns)
 
 
 @_expand_reshapes.register
-def _(op: TernaryOperator, /, access_type):
+def _(op: expr_types.TernaryOperator, /, access_type):
     bare_a, a_insns = _expand_reshapes(op.a, access_type)
     bare_b, b_insns = _expand_reshapes(op.b, access_type)
     bare_c, c_insns = _expand_reshapes(op.c, access_type)
@@ -427,10 +424,10 @@ def _(op: TernaryOperator, /, access_type):
 
 
 @_expand_reshapes.register(numbers.Number)
-@_expand_reshapes.register(AxisVar)
-@_expand_reshapes.register(LoopIndexVar)
+@_expand_reshapes.register(expr_types.AxisVar)
+@_expand_reshapes.register(expr_types.LoopIndexVar)
 @_expand_reshapes.register(BufferExpression)
-@_expand_reshapes.register(NaN)
+@_expand_reshapes.register(expr_types.NaN)
 def _(var, /, access_type):
     return (var, ())
 

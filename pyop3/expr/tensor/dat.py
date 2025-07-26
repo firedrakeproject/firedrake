@@ -20,11 +20,11 @@ from pyop3 import utils
 from .base import Tensor
 from pyop3.tree.axis_tree import (
     Axis,
-    ContextSensitive,
     AxisTree,
     as_axis_tree,
 )
-from pyop3.tree.axis_tree.tree import AbstractAxisTree, Expression, ContextFree, ContextSensitiveAxisTree, merge_axis_trees2, subst_layouts, as_str
+from pyop3.tree.axis_tree.tree import AbstractAxisTree, ContextFree, ContextSensitiveAxisTree, merge_axis_trees2, subst_layouts
+from ..base import Expression
 from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer, BufferRef, NullBuffer, PetscMatBuffer
 from pyop3.dtypes import DTypeT, ScalarType
 from pyop3.exceptions import Pyop3Exception

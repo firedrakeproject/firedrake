@@ -25,9 +25,12 @@ from petsc4py import PETSc
 from pyop3 import utils
 from pyop3.expr.tensor import Tensor, Dat, Mat, BufferExpression
 # TODO: just namespace these
-from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AxisVar, Conditional, Expression, FloorDiv, UnaryOperator, Operator, BinaryOperator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, Neg, conditional, full_shape, loopified_shape, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN, _UnitAxisTree, Or, LessThan, LessThanOrEqual, GreaterThanOrEqual, GreaterThan, TernaryOperator, get_loop_tree, AxisLabelT, MissingVariableException, InvalidExpressionException
+from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, _UnitAxisTree, AxisLabelT, MissingVariableException
 from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
+
+import pyop3.expr.base as expr_types
+from .base import conditional
 
 
 # should inherit from _Dat
@@ -93,12 +96,12 @@ class CompositeDat(abc.ABC):
         return loopified_shape(self)[0]
 
     @cached_property
-    def loop_vars(self) -> tuple[LoopIndexVar, ...]:
+    def loop_vars(self) -> tuple[expr_types.LoopIndexVar, ...]:
         vars = []
         for loop_index in self.loop_indices:
             assert loop_index.iterset.is_linear
             for loop_axis in loop_index.iterset.nodes:
-                vars.append(LoopIndexVar(loop_index, loop_axis))
+                vars.append(expr_types.LoopIndexVar(loop_index, loop_axis))
         return tuple(vars)
 
 
@@ -126,7 +129,7 @@ class LinearCompositeDat(CompositeDat):
 
     def __init__(self, axis_tree, leaf_expr, loop_indices):
         assert axis_tree.is_linear
-        assert all(isinstance(index, LoopIndex) for index in loop_indices)
+        assert all(isinstance(index, expr_types.LoopIndex) for index in loop_indices)
 
         loop_indices = tuple(loop_indices)
 
@@ -194,7 +197,7 @@ def _(num, /, **kwargs) -> Any:
 
 
 @_evaluate.register
-def _(axis_var: AxisVar, /, *, axis_vars: AxisVarMapT, **kwargs) -> Any:
+def _(axis_var: expr_types.AxisVar, /, *, axis_vars: AxisVarMapT, **kwargs) -> Any:
     try:
         return axis_vars[axis_var.axis_label]
     except KeyError:
@@ -202,7 +205,7 @@ def _(axis_var: AxisVar, /, *, axis_vars: AxisVarMapT, **kwargs) -> Any:
 
 
 @_evaluate.register
-def _(loop_var: LoopIndexVar, /, *, loop_indices: LoopIndexVarMapT, **kwargs) -> Any:
+def _(loop_var: expr_types.LoopIndexVar, /, *, loop_indices: LoopIndexVarMapT, **kwargs) -> Any:
     try:
         return loop_indices[loop_var.loop_id][loop_var.axis_label]
     except KeyError:
@@ -210,52 +213,52 @@ def _(loop_var: LoopIndexVar, /, *, loop_indices: LoopIndexVarMapT, **kwargs) ->
 
 
 @_evaluate.register
-def _(expr: Add, /, **kwargs) -> Any:
+def _(expr: expr_types.Add, /, **kwargs) -> Any:
     return _evaluate(expr.a, **kwargs) + _evaluate(expr.b, **kwargs)
 
 
 @_evaluate.register
-def _(mul: Mul, /, **kwargs) -> Any:
+def _(mul: expr_types.Mul, /, **kwargs) -> Any:
     return _evaluate(mul.a, **kwargs) * _evaluate(mul.b, **kwargs)
 
 
 @_evaluate.register
-def _(neg: Neg, /, **kwargs) -> Any:
+def _(neg: expr_types.Neg, /, **kwargs) -> Any:
     return -_evaluate(neg.a, **kwargs)
 
 
 @_evaluate.register
-def _(floordiv: FloorDiv, /, **kwargs) -> Any:
+def _(floordiv: expr_types.FloorDiv, /, **kwargs) -> Any:
     return _evaluate(floordiv.a, **kwargs) // _evaluate(floordiv.b, **kwargs)
 
 
 @_evaluate.register
-def _(or_: Or, /, **kwargs) -> Any:
+def _(or_: expr_types.Or, /, **kwargs) -> Any:
     return _evaluate(or_.a, **kwargs) or _evaluate(or_.b, **kwargs)
 
 
 @_evaluate.register
-def _(lt: LessThan, /, **kwargs) -> Any:
+def _(lt: expr_types.LessThan, /, **kwargs) -> Any:
     return _evaluate(lt.a, **kwargs) < _evaluate(lt.b, **kwargs)
 
 
 @_evaluate.register
-def _(gt: GreaterThan, /, **kwargs) -> Any:
+def _(gt: expr_types.GreaterThan, /, **kwargs) -> Any:
     return _evaluate(gt.a, **kwargs) > _evaluate(gt.b, **kwargs)
 
 
 @_evaluate.register
-def _(le: LessThanOrEqual, /, **kwargs) -> Any:
+def _(le: expr_types.LessThanOrEqual, /, **kwargs) -> Any:
     return _evaluate(le.a) <= _evaluate(le.b)
 
 
 @_evaluate.register
-def _(ge: GreaterThanOrEqual, /, **kwargs) -> Any:
+def _(ge: expr_types.GreaterThanOrEqual, /, **kwargs) -> Any:
     return _evaluate(ge.a, **kwargs) >= _evaluate(ge.b, **kwargs)
 
 
 @_evaluate.register
-def _(cond: Conditional, /, **kwargs) -> Any:
+def _(cond: expr_types.Conditional, /, **kwargs) -> Any:
     if _evaluate(cond.predicate, **kwargs):
         return _evaluate(cond.if_true, **kwargs)
     else:
@@ -279,19 +282,19 @@ def collect_loop_index_vars(obj: Any, /) -> OrderedSet:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@collect_loop_index_vars.register(LoopIndexVar)
-def _(loop_var: LoopIndexVar):
+@collect_loop_index_vars.register(expr_types.LoopIndexVar)
+def _(loop_var: expr_types.LoopIndexVar):
     return OrderedSet({loop_var})
 
 
 @collect_loop_index_vars.register(numbers.Number)
-@collect_loop_index_vars.register(AxisVar)
-@collect_loop_index_vars.register(NaN)
+@collect_loop_index_vars.register(expr_types.AxisVar)
+@collect_loop_index_vars.register(expr_types.NaN)
 def _(var):
     return OrderedSet()
 
-@collect_loop_index_vars.register(BinaryOperator)
-def _(op: BinaryOperator):
+@collect_loop_index_vars.register(expr_types.BinaryOperator)
+def _(op: expr_types.BinaryOperator):
     return collect_loop_index_vars(op.a) | collect_loop_index_vars(op.b)
 
 
@@ -346,117 +349,32 @@ def restrict_to_context(obj: Any, /, loop_context):
 
 
 @restrict_to_context.register(numbers.Number)
-@restrict_to_context.register(AxisVar)
-@restrict_to_context.register(LoopIndexVar)
+@restrict_to_context.register(expr_types.AxisVar)
+@restrict_to_context.register(expr_types.LoopIndexVar)
 @restrict_to_context.register(BufferExpression)
-@restrict_to_context.register(NaN)
+@restrict_to_context.register(expr_types.NaN)
 def _(var: Any, /, loop_context) -> Any:
     return var
 
 
 @restrict_to_context.register
-def _(op: UnaryOperator, /, loop_context):
+def _(op: expr_types.UnaryOperator, /, loop_context):
     return type(op)(restrict_to_context(op.a, loop_context))
 
 
-@restrict_to_context.register(BinaryOperator)
-def _(op: BinaryOperator, /, loop_context):
+@restrict_to_context.register
+def _(op: expr_types.BinaryOperator, /, loop_context):
     return type(op)(restrict_to_context(op.a, loop_context), restrict_to_context(op.b, loop_context))
 
 
-@restrict_to_context.register(TernaryOperator)
-def _(op: Conditional, /, loop_context):
+@restrict_to_context.register
+def _(op: expr_types.Conditional, /, loop_context):
     return type(op)(restrict_to_context(op.a, loop_context), restrict_to_context(op.b, loop_context), restrict_to_context(op.c, loop_context))
 
 
 @restrict_to_context.register(Tensor)
 def _(array: Tensor, /, loop_context):
     return array.with_context(loop_context)
-
-
-# NOTE: bad name?? something 'shape'? 'make'?
-
-# NOTE: visited_axes is more like visited_components! Only need axis labels and component information
-# @functools.singledispatch
-def extract_axes(obj: Any, /, visited_axes, loop_axes, cache) -> tuple[AxisTree, tuple[Axis, ...]]:
-    assert False, "old code"
-    raise TypeError(f"No handler defined for {type(obj).__name__}")
-
-
-# @extract_axes.register(numbers.Number)
-# def _(var: Any, /, visited_axes, loop_axes, cache) -> tuple[AxisTree, tuple[Axis, ...]]:
-#     try:
-#         return cache[var]
-#     except KeyError:
-#         return cache.setdefault(var, (AxisTree(), ()))
-#
-#
-# @extract_axes.register(LoopIndexVar)
-# def _(loop_var: LoopIndexVar, /, visited_axes, loop_indices: tuple[LoopIndex, ...], cache) -> tuple[AxisTree, tuple[Axis, ...]]:
-#     try:
-#         return cache[loop_var]
-#     except KeyError:
-#         pass
-#
-#     axis = just_one(
-#         axis_
-#         for loop_index in loop_indices
-#         for axis_ in loop_index.iterset.nodes 
-#         if loop_index.id == loop_var.loop_id and axis_.label == loop_var.axis_label
-#     )
-#
-#     new_components = []
-#     for component in axis.components:
-#         if isinstance(component.local_size, numbers.Integral):
-#             new_component = component
-#         else:
-#             # use a linearbufferexpression here, no need to create axes
-#             raise NotImplementedError
-#             new_count_axes = extract_axes(just_one(component.local_size.leaf_layouts.values()), visited_axes, loop_indices, cache)
-#             new_count = Dat(new_count_axes, data=component.local_size.buffer)
-#             new_component = AxisComponent(new_count, component.label)
-#         new_components.append(new_component)
-#     new_axis = Axis(new_components, f"{axis.label}_{loop_var.loop_id}")
-#     return cache.setdefault(loop_var, (AxisTree(), (new_axis,)))
-#
-#
-# @extract_axes.register(AxisVar)
-# def _(var: AxisVar, /, visited_axes, loop_axes, cache) -> tuple[AxisTree, tuple[Axis, ...]]:
-#     try:
-#         return cache[var]
-#     except KeyError:
-#         pass
-#
-#     axis = utils.single_valued(
-#         axis for axis in visited_axes.nodes if axis.label == var.axis_label
-#     )
-#     return cache.setdefault(var, (axis.as_tree(), ()))
-#
-#
-# @extract_axes.register(Operator)
-# def _(op: Operator, /, *args, **kwargs) -> tuple[AxisTree, tuple[Axis, ...]]:
-#     tree_a, loops_a = extract_axes(op.a, *args, **kwargs)
-#     tree_b, loops_b = extract_axes(op.b, *args, **kwargs)
-#     return merge_trees2(tree_a, tree_b), utils.unique(loops_a + loops_b)
-#
-#
-# @extract_axes.register(Tensor)
-# def _(array: Tensor, /, visited_axes, loop_axes, cache):
-#     assert False, "used?"
-#     return array.axes
-#
-#
-# @extract_axes.register(LinearDatArrayBufferExpression)
-# def _(expr, /, *args, **kwargs) -> tuple[AxisTree, tuple[Axis, ...]]:
-#     return extract_axes(expr.layout, *args, **kwargs)
-#
-#
-# @extract_axes.register(CompositeDat)
-# def _(dat, /, visited_axes, loop_axes, cache):
-#     assert False, "used?"
-#     assert visited_axes == dat.visited_axes
-#     assert loop_axes == dat.loop_axes
-#     return extract_axes(dat.expr, visited_axes, loop_axes, cache)
 
 
 @functools.singledispatch
@@ -513,8 +431,8 @@ def replace_terminals(obj: Any, /, replace_map) -> ExpressionT:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@replace_terminals.register(Terminal)
-def _(terminal: Terminal, /, replace_map) -> ExpressionT:
+@replace_terminals.register(expr_types.Terminal)
+def _(terminal: expr_types.Terminal, /, replace_map) -> ExpressionT:
     return replace_map.get(terminal.terminal_key, terminal)
 
 
@@ -537,18 +455,18 @@ def _(expr: LinearDatBufferExpression, /, replace_map) -> LinearDatBufferExpress
     return expr.__record_init__(layout=new_layout)
 
 
-@replace_terminals.register(BinaryOperator)
-def _(op: BinaryOperator, /, replace_map) -> BinaryOperator:
+@replace_terminals.register(expr_types.BinaryOperator)
+def _(op: expr_types.BinaryOperator, /, replace_map) -> expr_types.BinaryOperator:
     return type(op)(replace_terminals(op.a, replace_map), replace_terminals(op.b, replace_map))
 
 
 @replace_terminals.register
-def _(cond: Conditional, /, replace_map) -> Conditional:
+def _(cond: expr_types.Conditional, /, replace_map) -> expr_types.Conditional:
     return type(cond)(replace_terminals(cond.predicate, replace_map), replace_terminals(cond.if_true, replace_map), replace_terminals(cond.if_false, replace_map))
 
 
 @replace_terminals.register
-def _(neg: Neg, /, replace_map) -> Neg:
+def _(neg: expr_types.Neg, /, replace_map) -> expr_types.Neg:
     return type(neg)(replace_terminals(neg.a, replace_map))
 
 
@@ -557,13 +475,13 @@ def replace(obj: Any, /, replace_map) -> ExpressionT:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@replace.register(AxisVar)
-@replace.register(LoopIndexVar)
+@replace.register(expr_types.AxisVar)
+@replace.register(expr_types.LoopIndexVar)
 def _(var: Any, /, replace_map) -> ExpressionT:
     return replace_map.get(var, var)
 
 
-@replace.register(NaN)
+@replace.register(expr_types.NaN)
 @replace.register(numbers.Number)
 def _(num: numbers.Number, /, replace_map) -> numbers.Number:
     return num
@@ -596,8 +514,8 @@ def _(dat: CompositeDat, /, replace_map):
         return dat.reconstruct(layout=replaced_layout)
 
 
-@replace.register(Operator)
-def _(op: Operator, /, replace_map) -> BinaryOperator:
+@replace.register(expr_types.Operator)
+def _(op: expr_types.Operator, /, replace_map) -> expr_types.BinaryOperator:
     try:
         return replace_map[op]
     except KeyError:
@@ -610,19 +528,19 @@ def concretize_layouts(obj: Any, /, axis_trees: Iterable[AxisTree, ...]) -> Any:
 
 
 @concretize_layouts.register
-def _(op: Operator, /, *args, **kwargs):
+def _(op: expr_types.Operator, /, *args, **kwargs):
     return type(op)(*(concretize_layouts(operand, *args, **kwargs) for operand in op.operands))
 
 
-@concretize_layouts.register(BinaryOperator)
-def _(op: BinaryOperator, /, *args, **kwargs) -> BinaryOperator:
+@concretize_layouts.register(expr_types.BinaryOperator)
+def _(op: expr_types.BinaryOperator, /, *args, **kwargs) -> expr_types.BinaryOperator:
     return type(op)(*(concretize_layouts(operand, *args, **kwargs) for operand in [op.a, op.b]))
 
 
 @concretize_layouts.register(numbers.Number)
-@concretize_layouts.register(AxisVar)
-@concretize_layouts.register(LoopIndexVar)
-@concretize_layouts.register(NaN)
+@concretize_layouts.register(expr_types.AxisVar)
+@concretize_layouts.register(expr_types.LoopIndexVar)
+@concretize_layouts.register(expr_types.NaN)
 def _(var: Any, /, *args, **kwargs) -> Any:
     return var
 
@@ -721,16 +639,16 @@ def collect_tensor_candidate_indirections(obj: Any, /, **kwargs) -> idict:
 
 
 @collect_tensor_candidate_indirections.register
-def _(op: Operator, /, **kwargs) -> idict:
+def _(op: expr_types.Operator, /, **kwargs) -> idict:
     return utils.merge_dicts((collect_tensor_candidate_indirections(operand, **kwargs) for operand in op.operands))
 
 
 @collect_tensor_candidate_indirections.register(numbers.Number)
-@collect_tensor_candidate_indirections.register(AxisVar)
-@collect_tensor_candidate_indirections.register(LoopIndexVar)
+@collect_tensor_candidate_indirections.register(expr_types.AxisVar)
+@collect_tensor_candidate_indirections.register(expr_types.LoopIndexVar)
 @collect_tensor_candidate_indirections.register(Scalar)
 @collect_tensor_candidate_indirections.register(ScalarBufferExpression)
-@collect_tensor_candidate_indirections.register(NaN)
+@collect_tensor_candidate_indirections.register(expr_types.NaN)
 def _(var: Any, /, **kwargs) -> idict:
     return idict()
 
@@ -801,15 +719,15 @@ def collect_candidate_indirections(obj: Any, /, visited_axes, loop_indices: tupl
 
 
 @collect_candidate_indirections.register(numbers.Number)
-@collect_candidate_indirections.register(AxisVar)
-@collect_candidate_indirections.register(LoopIndexVar)
-@collect_candidate_indirections.register(NaN)
+@collect_candidate_indirections.register(expr_types.AxisVar)
+@collect_candidate_indirections.register(expr_types.LoopIndexVar)
+@collect_candidate_indirections.register(expr_types.NaN)
 def _(var: Any, /, *args, **kwargs) -> tuple[tuple[Any, int]]:
     return ((var, 0),)
 
 
-@collect_candidate_indirections.register(BinaryOperator)
-def _(op: BinaryOperator, /, visited_axes, loop_indices, *, compress: bool) -> tuple:
+@collect_candidate_indirections.register(expr_types.BinaryOperator)
+def _(op: expr_types.BinaryOperator, /, visited_axes, loop_indices, *, compress: bool) -> tuple:
     a_result = collect_candidate_indirections(op.a, visited_axes, loop_indices, compress=compress)
     b_result = collect_candidate_indirections(op.b, visited_axes, loop_indices, compress=compress)
 
@@ -879,14 +797,14 @@ def concretize_materialized_tensor_indirections(obj: Any, /, *args, **kwargs) ->
 
 
 @concretize_materialized_tensor_indirections.register
-def _(op: Operator, /, *args, **kwargs) -> idict:
+def _(op: expr_types.Operator, /, *args, **kwargs) -> idict:
     return type(op)(*(concretize_materialized_tensor_indirections(operand, *args, **kwargs) for operand in op.operands))
 
 
 @concretize_materialized_tensor_indirections.register(numbers.Number)
-@concretize_materialized_tensor_indirections.register(AxisVar)
-@concretize_materialized_tensor_indirections.register(LoopIndexVar)
-@concretize_materialized_tensor_indirections.register(NaN)
+@concretize_materialized_tensor_indirections.register(expr_types.AxisVar)
+@concretize_materialized_tensor_indirections.register(expr_types.LoopIndexVar)
+@concretize_materialized_tensor_indirections.register(expr_types.NaN)
 def _(var: Any, /, *args, **kwargs) -> Any:
     return var
 
@@ -959,22 +877,20 @@ def _(buffer_expr: NonlinearMatBufferExpression, /, layouts, key):
 
 @functools.singledispatch
 def collect_axis_vars(obj: Any, /) -> OrderedSet:
-    from pyop3.tree.index_tree.tree import LoopIndexVar
-
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
 @collect_axis_vars.register
-def _(op: Operator):
+def _(op: expr_types.Operator):
     return utils.reduce("|", map(collect_axis_vars, op.operands))
 
 
 @collect_axis_vars.register(numbers.Number)
-@collect_axis_vars.register(LoopIndexVar)
+@collect_axis_vars.register(expr_types.LoopIndexVar)
 def _(var):
     return OrderedSet()
 
-@collect_axis_vars.register(AxisVar)
+@collect_axis_vars.register(expr_types.AxisVar)
 def _(var):
     return OrderedSet([var])
 
@@ -1010,15 +926,15 @@ def collect_composite_dats(obj: Any) -> frozenset:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@collect_composite_dats.register(BinaryOperator)
+@collect_composite_dats.register(expr_types.BinaryOperator)
 def _(op, /) -> frozenset:
     return collect_composite_dats(op.a) | collect_composite_dats(op.b)
 
 
-@collect_composite_dats.register(AxisVar)
-@collect_composite_dats.register(LoopIndexVar)
-@collect_composite_dats.register(NaN)
 @collect_composite_dats.register(numbers.Number)
+@collect_composite_dats.register(expr_types.AxisVar)
+@collect_composite_dats.register(expr_types.LoopIndexVar)
+@collect_composite_dats.register(expr_types.NaN)
 def _(op, /) -> frozenset:
     return frozenset()
 
@@ -1138,8 +1054,8 @@ def _(scalar) -> np.number:
     return scalar.value
 
 
-@estimate.register(Mul)
-def _(mul: Mul) -> int:
+@estimate.register(expr_types.Mul)
+def _(mul: expr_types.Mul) -> int:
     return estimate(mul.a) * estimate(mul.b)
 
 
@@ -1157,9 +1073,9 @@ def get_shape(obj: Any):
     raise TypeError
 
 
-@get_shape.register(Expression)
+@get_shape.register(expr_types.Expression)
 @get_shape.register(CompositeDat)  # TODO: should be expression type
-def _(expr: Expression):
+def _(expr: expr_types.Expression):
     return expr.shape
 
 
@@ -1173,9 +1089,9 @@ def get_loop_axes(obj: Any):
     raise TypeError
 
 
-@get_loop_axes.register(Expression)
+@get_loop_axes.register(expr_types.Expression)
 @get_loop_axes.register(CompositeDat)  # TODO: should be an expression type
-def _(expr: Expression):
+def _(expr: expr_types.Expression):
     return expr.loop_axes
 
 
@@ -1194,7 +1110,7 @@ def _(expr):
     return expr
 
 
-@max_.register(Expression)
+@max_.register(expr_types.Expression)
 def _(expr):
     return _expr_extremum(expr, "max")
 
@@ -1208,17 +1124,17 @@ def _expr_extremum(expr, extremum_type: str):
 
     # NOTE: might hit issues if things aren't linear
     loop_var_replace_map = {
-        axis.label: LoopIndexVar(loop_index, axis)
+        axis.label: expr_types.LoopIndexVar(loop_index, axis)
         for axis in axes.nodes
     }
     expr = replace_terminals(expr, loop_var_replace_map)
     result = Dat.zeros(UNIT_AXIS_TREE, dtype=IntType)
 
     if extremum_type == "max":
-        predicate = GreaterThanOrEqual(result, expr)
+        predicate = expr_types.GreaterThanOrEqual(result, expr)
     else:
         assert extremum_type == "min"
-        predicate = LessThanOrEqual(result, expr)
+        predicate = expr_types.LessThanOrEqual(result, expr)
 
     do_loop(
         loop_index,
@@ -1237,6 +1153,6 @@ def _(expr):
     return expr
 
 
-@min_.register(Expression)
+@min_.register(expr_types.Expression)
 def _(expr):
     return _expr_extremum(expr, "min")

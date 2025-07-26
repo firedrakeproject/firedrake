@@ -1,20 +1,17 @@
 from __future__ import annotations
 
 import abc
-import dataclasses
-import numbers
-from collections.abc import Iterable
 from functools import cached_property
 from typing import Any, ClassVar
 
 import numpy as np
 from immutabledict import immutabledict as idict
 from mpi4py import MPI
-from petsc4py import PETSc
 
 from pyop3 import utils
 from pyop3.tree.axis_tree import ContextAware
-from pyop3.tree.axis_tree.tree import AbstractAxisTree, Expression
+from pyop3.tree.axis_tree.tree import AbstractAxisTree
+from pyop3.expr import Expression
 from pyop3.exceptions import InvalidIndexCountException
 from pyop3.insn import FunctionArgument, ArrayAssignment
 
