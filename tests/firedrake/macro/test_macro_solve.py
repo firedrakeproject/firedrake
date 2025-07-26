@@ -144,7 +144,7 @@ def test_stokes(mh, variant, mixed_element):
         Z = V * Q
 
         a, L = stokes_mms(Z, as_vector(zexact))
-        bcs = DirichletBC(Z[0], as_vector(zexact[:dim]), "on_boundary")
+        bcs = DirichletBC(Z.sub(0), as_vector(zexact[:dim]), "on_boundary")
 
         zh = Function(Z)
         nullspace = MixedVectorSpaceBasis(
@@ -176,7 +176,7 @@ def test_stokes(mh, variant, mixed_element):
         # Test div-free
         assert np.allclose(div_err, 0, atol=1E-10)
     elif variant == "th":
-        assert conv_rates(u_err, h)[-1] >= 2.9
+        assert conv_rates(u_err, h)[-1] >= 2.9, (u_err, p_err)
         assert (conv_rates(p_err, h)[-1] >= 1.9
                 or np.allclose(p_err, 0, atol=1E-10))
         assert conv_rates(div_err, h)[-1] >= 1.9
