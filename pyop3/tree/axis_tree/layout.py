@@ -29,7 +29,7 @@ from pyop3.tree.axis_tree.tree import (
     loopified_shape,
 )
 from pyop3.dtypes import IntType
-from pyop3.tensor.dat import as_linear_buffer_expression
+from pyop3.expr.tensor.dat import as_linear_buffer_expression
 from pyop3.utils import (
     StrictlyUniqueDict,
     as_tuple,
@@ -58,8 +58,8 @@ def make_layouts(axes: AxisTree, loop_vars) -> immutabledict:
 
 def tabulate_again(axes):
     from pyop3 import do_loop
-    from pyop3.tensor.dat import LinearDatBufferExpression
-    from pyop3.tensor.dat import as_linear_buffer_expression
+    from pyop3.expr.tensor.dat import LinearDatBufferExpression
+    from pyop3.expr.tensor.dat import as_linear_buffer_expression
     from pyop3.insn import ArrayAssignment
 
     to_tabulate = []
@@ -111,7 +111,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
 
     """
     from pyop3 import Dat
-    from pyop3.tensor.dat import LinearDatBufferExpression, as_linear_buffer_expression
+    from pyop3.expr.tensor.dat import LinearDatBufferExpression, as_linear_buffer_expression
 
     layouts = {}
     start = 0
@@ -271,7 +271,7 @@ def _collect_regions(axes: AxisTree, *, path: PathT = immutabledict()):
 
 def _tabulate_steps(offset_axes, step, regions=True):
     from pyop3 import Dat
-    from pyop3.expr_visitors import replace_terminals
+    from pyop3.expr.visitors import replace_terminals
 
     assert step != 0
     # if isinstance(step, numbers.Integral):
@@ -353,8 +353,8 @@ def _axis_tree_size(axes):
 
 def _axis_tree_size_rec(axis_tree: AxisTree, path):
     from pyop3 import Dat, Scalar, loop as loop_
-    from pyop3.tensor.dat import as_linear_buffer_expression
-    from pyop3.expr_visitors import extract_axes, replace_terminals
+    from pyop3.expr.tensor.dat import as_linear_buffer_expression
+    from pyop3.expr.visitors import extract_axes, replace_terminals
 
     axis = axis_tree.node_map[path]
 
@@ -372,7 +372,7 @@ def _axis_tree_size_rec(axis_tree: AxisTree, path):
 
 def axis_tree_component_size(axis_tree, path, component):
     from pyop3 import Dat, loop as loop_
-    from pyop3.expr_visitors import replace_terminals, replace
+    from pyop3.expr.visitors import replace_terminals, replace
 
     axis = axis_tree.node_map[path]
     linear_axis = axis.linearize(component.label)
@@ -753,7 +753,7 @@ def _axis_component_region_has_fixed_size(region: AxisComponentRegion) -> bool:
 
 
 def _component_size_needs_outer_index(component: AxisComponent, path):
-    from pyop3.expr_visitors import collect_axis_vars
+    from pyop3.expr.visitors import collect_axis_vars
 
     free_axis_labels = path.keys()
     for region in component._all_regions:
@@ -929,7 +929,7 @@ def eval_offset(
     *,
     loop_exprs=immutabledict(),
 ):
-    from pyop3.expr_visitors import evaluate as eval_expr
+    from pyop3.expr.visitors import evaluate as eval_expr
 
     if path is None:
         path = immutabledict() if axes.is_empty else just_one(axes.leaf_paths)

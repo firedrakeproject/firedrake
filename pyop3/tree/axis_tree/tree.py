@@ -886,7 +886,7 @@ class Expression(abc.ABC):
             return Neg(self)
 
     def __lt__(self, other):
-        from pyop3.expr_visitors import max_, min_
+        from pyop3.expr.visitors import max_, min_
 
         if max_(self) < min_(other):
             return True
@@ -896,7 +896,7 @@ class Expression(abc.ABC):
             return LessThan(self, other)
 
     def __gt__(self, other):
-        from pyop3.expr_visitors import max_, min_
+        from pyop3.expr.visitors import max_, min_
 
         if min_(self) > max_(other):
             return True
@@ -906,7 +906,7 @@ class Expression(abc.ABC):
             return GreaterThan(self, other)
 
     def __le__(self, other):
-        from pyop3.expr_visitors import max_, min_
+        from pyop3.expr.visitors import max_, min_
 
         if max_(self) <= min_(other):
             return True
@@ -916,7 +916,7 @@ class Expression(abc.ABC):
             return LessThanOrEqual(self, other)
 
     def __ge__(self, other):
-        from pyop3.expr_visitors import max_, min_
+        from pyop3.expr.visitors import max_, min_
 
         if min_(self) >= max_(other):
             return True
@@ -934,7 +934,7 @@ class Expression(abc.ABC):
     @classmethod
     def _maybe_eager_or(cls, a, b) -> Or | Expression | bool:
         from pyop3 import evaluate
-        from pyop3.expr_visitors import MissingVariableException  # put in main namespace?
+        from pyop3.expr.visitors import MissingVariableException  # put in main namespace?
 
         try:
             a_result = evaluate(a)
@@ -1023,7 +1023,7 @@ class BinaryOperator(Operator, metaclass=abc.ABCMeta):
 
     @cached_property
     def shape(self) -> tuple[AxisTree]:
-        from pyop3.expr_visitors import get_shape
+        from pyop3.expr.visitors import get_shape
 
         return (
             merge_trees2(
@@ -1034,7 +1034,7 @@ class BinaryOperator(Operator, metaclass=abc.ABCMeta):
 
     @cached_property
     def loop_axes(self):
-        from pyop3.expr_visitors import get_loop_axes
+        from pyop3.expr.visitors import get_loop_axes
 
         a_loop_axes = get_loop_axes(self.a)
         b_loop_axes = get_loop_axes(self.b)
@@ -1174,7 +1174,7 @@ class Conditional(TernaryOperator):
 
     @property
     def shape(self):
-        from pyop3.expr_visitors import get_shape
+        from pyop3.expr.visitors import get_shape
 
         trees = (utils.just_one(get_shape(o)) for o in self.operands)
         return (merge_axis_trees2(trees),)
@@ -1191,7 +1191,7 @@ class Conditional(TernaryOperator):
 
     @cached_property
     def loop_axes(self) -> tuple[Axis]:
-        from pyop3.expr_visitors import get_loop_axes
+        from pyop3.expr.visitors import get_loop_axes
 
         a_loop_axes = get_loop_axes(self.a)
         b_loop_axes = get_loop_axes(self.b)
@@ -1218,7 +1218,7 @@ class Conditional(TernaryOperator):
 
 def conditional(predicate, if_true, if_false):
     from pyop3 import evaluate
-    from pyop3.expr_visitors import MissingVariableException  # put in main namespace?
+    from pyop3.expr.visitors import MissingVariableException  # put in main namespace?
 
     # Try to simplify by eagerly evaluating the operands
 
@@ -1586,7 +1586,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     @cached_property
     def max_size(self):
-        from pyop3.expr_visitors import max_
+        from pyop3.expr.visitors import max_
 
         return max_(self.size)
 
@@ -1614,7 +1614,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
         from pyop3 import Dat
         from pyop3.tree.axis_tree.layout import _axis_tree_size_rec
-        # from pyop3.expr_visitors import extract_axes
+        # from pyop3.expr.visitors import extract_axes
 
         # TODO: cast component to AxisComponent
 
@@ -2739,7 +2739,7 @@ def _merge_node_maps(axis_trees, *, axis_tree_index=0, axis=None, suffix="") -> 
 
 
 def _merge_targets(axis_trees, targetss, *, axis_tree_index=0, axis=None, suffix="") -> idict:
-    from pyop3.expr_visitors import relabel as relabel_expression
+    from pyop3.expr.visitors import relabel as relabel_expression
 
     assert axis_tree_index < len(axis_trees)
 
@@ -2881,7 +2881,7 @@ def subst_layouts(
     path=idict(),
     target_paths_and_exprs_acc=None,
 ):
-    from pyop3.expr_visitors import replace_terminals
+    from pyop3.expr.visitors import replace_terminals
 
     layouts_subst = {}
     # if strictly_all(x is None for x in [axis, path, target_path_acc, index_exprs_acc]):
@@ -2993,7 +2993,7 @@ def _(expr):
 
 
 def get_loop_tree(expr) -> tuple[AxisTree, Mapping[LoopIndexVar, AxisVar]]:
-    from pyop3.expr_visitors import get_loop_axes
+    from pyop3.expr.visitors import get_loop_axes
 
     axes = []
     loop_var_replace_map = {}
@@ -3012,7 +3012,7 @@ def get_loop_tree(expr) -> tuple[AxisTree, Mapping[LoopIndexVar, AxisVar]]:
 
 
 def loopified_shape(expr: Expression) -> tuple[AxisTree, Mapping[LoopIndexVar, AxisVar]]:
-    from pyop3.expr_visitors import replace, get_shape
+    from pyop3.expr.visitors import replace, get_shape
 
     loop_tree, loop_var_replace_map = get_loop_tree(expr)
 
@@ -3045,7 +3045,7 @@ def loopified_shape(expr: Expression) -> tuple[AxisTree, Mapping[LoopIndexVar, A
 
 def full_shape(axes):
     """Augment axes with extra axes from the size expressions."""
-    from pyop3.expr_visitors import get_shape
+    from pyop3.expr.visitors import get_shape
 
     # only deal in axis trees
     axes = axes.materialize()

@@ -578,7 +578,7 @@ class Terminal(Instruction, metaclass=abc.ABCMeta):
 
     @property
     def buffer_arguments(self) -> tuple[BufferExpression, ...]:
-        from pyop3.tensor.dat import BufferExpression
+        from pyop3.expr.tensor.dat import BufferExpression
 
         return tuple(utils.filter_type(BufferExpression, self.arguments))
 

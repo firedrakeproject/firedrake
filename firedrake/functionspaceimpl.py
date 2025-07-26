@@ -1019,7 +1019,7 @@ class FunctionSpace:
     def cell_node_list(self):
         r"""A numpy array mapping mesh cells to function space nodes."""
         # internal detail really, do not expose in pyop3/__init__.py
-        from pyop3.expr_visitors import NonlinearCompositeDat, materialize_composite_dat
+        from pyop3.expr.visitors import NonlinearCompositeDat, materialize_composite_dat
 
         import pyop3.extras.debug as dbg
         dbg.warn_todo("Need to renumber dofs in closure, this will break degree > 1")

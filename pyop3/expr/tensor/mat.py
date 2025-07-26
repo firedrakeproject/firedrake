@@ -16,7 +16,7 @@ from pyrsistent import freeze, pmap
 
 from pyop3 import utils
 from .base import Tensor
-from pyop3.tensor.dat import Dat
+from .dat import Dat
 from pyop3.tree.axis_tree.tree import (
     AbstractAxisTree,
     merge_axis_trees,

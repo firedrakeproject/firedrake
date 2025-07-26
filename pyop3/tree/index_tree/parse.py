@@ -9,7 +9,7 @@ from typing import Any
 from immutabledict import immutabledict
 
 from pyop3 import utils
-from pyop3.tensor.dat import Dat
+from pyop3.expr.tensor.dat import Dat
 from pyop3.tree.axis_tree import AxisTree
 from pyop3.tree.axis_tree.tree import AbstractAxisTree, IndexedAxisTree
 from pyop3.exceptions import Pyop3Exception

@@ -673,12 +673,12 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
 
     @property
     def shape(self) -> tuple[AxisTree]:
-        from pyop3.expr_visitors import get_shape
+        from pyop3.expr.visitors import get_shape
         return get_shape(self.layout)
 
     @cached_property
     def loop_axes(self):
-        from pyop3.expr_visitors import get_loop_axes
+        from pyop3.expr.visitors import get_loop_axes
         return get_loop_axes(self.layout)
 
     @property
@@ -695,7 +695,7 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
         self.layout = layout
 
     def __post_init__(self) -> None:
-        from pyop3.expr_visitors import get_shape
+        from pyop3.expr.visitors import get_shape
 
         assert utils.just_one(get_shape(self.layout)).is_linear
 

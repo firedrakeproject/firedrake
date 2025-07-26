@@ -36,11 +36,11 @@ del _init_likwid
 import pyop3.dtypes
 import pyop3.ir
 import pyop3.insn.visitors as insn_visitors
-from pyop3.tensor import (  # noqa: F401
+from pyop3.expr.tensor import (  # noqa: F401
     Tensor, FancyIndexWriteException, Dat, Scalar, Mat,
     RowDatPythonMatContext, ColumnDatPythonMatContext,
 )
-from pyop3.tensor.dat import as_linear_buffer_expression
+from pyop3.expr.tensor.dat import as_linear_buffer_expression
 from pyop3.tree.axis_tree import (  # noqa: F401
     Axis,
     AxisComponent,
@@ -54,7 +54,7 @@ from pyop3.buffer import (  # noqa: F401
     ArrayBuffer, NullBuffer, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec,
 )
 from pyop3.dtypes import IntType, ScalarType  # noqa: F401
-from pyop3.expr_visitors import evaluate  # noqa: F401
+from pyop3.expr.visitors import evaluate  # noqa: F401
 from pyop3.tree.index_tree import (  # noqa: F401
     AffineSliceComponent,
     Index,

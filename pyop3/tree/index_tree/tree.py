@@ -16,12 +16,12 @@ from typing import Any, Collection, Hashable, Mapping, Sequence, Type, cast, Opt
 
 import numpy as np
 import pymbolic as pym
-from pyop3.tensor.dat import DatBufferExpression, as_linear_buffer_expression
+from pyop3.expr.tensor.dat import DatBufferExpression, as_linear_buffer_expression
 from pyop3.exceptions import Pyop3Exception
 import pytools
 from immutabledict import immutabledict
 
-from pyop3.tensor import Dat
+from pyop3.expr.tensor import Dat
 from pyop3.tree.axis_tree import (
     Axis,
     AxisComponent,
@@ -44,7 +44,7 @@ from pyop3.tree.axis_tree.tree import (
     GHOST_REGION_LABEL,
 )
 from pyop3.dtypes import IntType
-# from pyop3.expr_visitors import replace_terminals, replace as expr_replace
+# from pyop3.expr.visitors import replace_terminals, replace as expr_replace
 from pyop3.insn import KernelArgument
 from pyop3.sf import StarForest
 from pyop3.tree.labelled_tree import (
@@ -341,7 +341,7 @@ class LoopIndex(Index, KernelArgument):
 
     @cached_property
     def axes(self) -> IndexedAxisTree:
-        from pyop3.expr_visitors import replace_terminals
+        from pyop3.expr.visitors import replace_terminals
 
         if not self.is_context_free:
             raise ContextSensitiveException("Expected a context-free index")
@@ -1081,7 +1081,7 @@ def _(loop_index: LoopIndex, /, target_axes, **kwargs):
       {key: (path1, expr1), ...}
     ]
     """
-    from pyop3.expr_visitors import replace_terminals
+    from pyop3.expr.visitors import replace_terminals
 
     axes = UNIT_AXIS_TREE
 
@@ -1131,7 +1131,7 @@ def _(index: ScalarIndex, /, target_axes, **kwargs):
 
 @_index_axes_index.register(Slice)
 def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
-    from pyop3.expr_visitors import replace_terminals, collect_axis_vars
+    from pyop3.expr.visitors import replace_terminals, collect_axis_vars
 
     # TODO: move this code
     from firedrake.cython.dmcommon import filter_sf
@@ -1327,7 +1327,7 @@ def _(called_map: CalledMap, *args, **kwargs):
 
 
 def _make_leaf_axis_from_called_map_new(map_, map_name, output_spec, input_paths_and_exprs):
-    from pyop3.expr_visitors import replace_terminals
+    from pyop3.expr.visitors import replace_terminals
 
     components = []
     replace_map = merge_dicts(t for _, t in input_paths_and_exprs.values())
@@ -1628,7 +1628,7 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
     ---
 
     """
-    from pyop3.expr_visitors import replace_terminals
+    from pyop3.expr.visitors import replace_terminals
 
     # if len(axis_path) == 1:
     #     breakpoint()
@@ -2098,7 +2098,7 @@ def _index_regions(*args, **kwargs) -> tuple[AxisComponentRegion, ...]:
 
 @_index_regions.register(RegionSliceComponent)
 def _(region_component: RegionSliceComponent, regions, *, parent_exprs) -> tuple[AxisComponentRegion, ...]:
-    from pyop3.expr_visitors import replace_terminals as expr_replace
+    from pyop3.expr.visitors import replace_terminals as expr_replace
 
     selected_region = utils.just_one(
         region
@@ -2133,7 +2133,7 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
     {"a": 3, "b": 2}[:4:2] -> {"a": 2, "b": 0} ( [0, 2] )
 
     """
-    from pyop3.expr_visitors import replace_terminals as expr_replace
+    from pyop3.expr.visitors import replace_terminals as expr_replace
 
     size = sum(r.size for r in regions)
     start, stop, step = affine_component.with_size(size)

@@ -614,7 +614,7 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
 
     @classmethod
     def _make_non_nested_petsc_mat(cls, mat_spec: FullPetscMatBufferSpec, *, preallocator: bool):
-        from pyop3.tensor import RowDatPythonMatContext, ColumnDatPythonMatContext
+        from pyop3.expr.tensor import RowDatPythonMatContext, ColumnDatPythonMatContext
 
         mat_type = mat_spec.mat_type
         row_spec = mat_spec.row_spec

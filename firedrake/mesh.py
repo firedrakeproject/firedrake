@@ -963,7 +963,7 @@ class AbstractMeshTopology(abc.ABC):
     @utils.cached_property
     def cell_closure(self):
         # internal detail really, do not expose in pyop3/__init__.py
-        from pyop3.expr_visitors import NonlinearCompositeDat, materialize_composite_dat
+        from pyop3.expr.visitors import NonlinearCompositeDat, materialize_composite_dat
 
         cell = self.cells.owned.index()
         indexed_axes = self.points[self.closure(cell)]

@@ -24,13 +24,13 @@ import loopy as lp
 import numpy as np
 import pymbolic as pym
 from immutabledict import immutabledict
-from pyop3.tensor.dat import LinearDatBufferExpression, NonlinearDatBufferExpression, LinearMatBufferExpression, NonlinearMatBufferExpression, MatBufferExpression, BufferExpression
-from pyop3.expr_visitors import collect_axis_vars, replace
+from pyop3.expr.tensor.dat import LinearDatBufferExpression, NonlinearDatBufferExpression, LinearMatBufferExpression, NonlinearMatBufferExpression, MatBufferExpression, BufferExpression
+from pyop3.expr.visitors import collect_axis_vars, replace
 
 import pyop2
 
 from pyop3 import exceptions as exc, utils
-from pyop3.tensor import LinearDatBufferExpression, NonlinearDatBufferExpression, Scalar
+from pyop3.expr.tensor import LinearDatBufferExpression, NonlinearDatBufferExpression, Scalar
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, Add, AxisVar, BinaryCondition, IndexedAxisTree, Mul, AxisComponent, relabel_path, Conditional, Or, Neg, FloorDiv, Sub, Modulo, Expression
 from pyop3.buffer import AbstractBuffer, BufferRef, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
 from pyop3.config import config

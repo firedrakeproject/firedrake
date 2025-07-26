@@ -15,15 +15,15 @@ from mpi4py.MPI import buffer
 import numpy as np
 from immutabledict import immutabledict as idict
 from pyop3.exceptions import Pyop3Exception
-from pyop3.tensor import Scalar
-from pyop3.tensor.dat import BufferExpression, ScalarBufferExpression, LinearDatBufferExpression, NonlinearDatBufferExpression, LinearMatBufferExpression, NonlinearMatBufferExpression, LinearBufferExpression, NonlinearBufferExpression
+from pyop3.expr.tensor import Scalar
+from pyop3.expr.tensor.dat import BufferExpression, ScalarBufferExpression, LinearDatBufferExpression, NonlinearDatBufferExpression, LinearMatBufferExpression, NonlinearMatBufferExpression, LinearBufferExpression, NonlinearBufferExpression
 from pyop3.buffer import AbstractArrayBuffer, AllocatedPetscMatBuffer, BufferRef, ConcreteBuffer, PetscMatBuffer
 from pyop3.tree.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
 from pyrsistent import pmap, PMap
 from petsc4py import PETSc
 
 from pyop3 import utils
-from pyop3.tensor import Tensor, Dat, Mat, BufferExpression
+from pyop3.expr.tensor import Tensor, Dat, Mat, BufferExpression
 # TODO: just namespace these
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, AxisVar, Conditional, Expression, FloorDiv, UnaryOperator, Operator, BinaryOperator, Add, Mul, AbstractAxisTree, IndexedAxisTree, AxisTree, Axis, LoopIndexVar, Neg, conditional, full_shape, loopified_shape, merge_trees2, ExpressionT, Terminal, AxisComponent, relabel_path, NaN, _UnitAxisTree, Or, LessThan, LessThanOrEqual, GreaterThanOrEqual, GreaterThan, TernaryOperator, get_loop_tree, AxisLabelT, MissingVariableException, InvalidExpressionException
 from pyop3.dtypes import IntType
@@ -715,56 +715,6 @@ def _(mat_expr: NonlinearMatBufferExpression, /, axis_trees: Iterable[AxisTree, 
     return mat_expr.__record_init__(row_layouts=row_layouts, column_layouts=column_layouts)
 
 
-# old code
-# @functools.singledispatch
-# def collect_tensor_shape(obj: Any, /) -> tuple[AxisTree, ...] | None:
-#     raise TypeError(f"No handler defined for {type(obj).__name__}")
-#
-#
-# @collect_tensor_shape.register
-# def _(op: UnaryOperator, /) -> tuple | None:
-#     # TODO: should really merge trees or something...
-#     trees = list(filter(None, map(collect_tensor_shape, [op.a])))
-#     return (utils.single_valued(trees),) if trees else None
-#
-#
-# @collect_tensor_shape.register(BinaryOperator)
-# def _(op: BinaryOperator, /) -> tuple | None:
-#     # TODO: should really merge trees or something...
-#     trees = list(filter(None, map(collect_tensor_shape, [op.a, op.b])))
-#     return (utils.single_valued(trees),) if trees else None
-#
-#
-# @collect_tensor_shape.register
-# def _(op: TernaryOperator, /) -> tuple | None:
-#     # NOTE: This doesn't actually make sense for conditionals as the predicate must be scalar? actually perhaps not
-#     # TODO: should really merge trees or something...
-#     trees = list(filter(None, map(collect_tensor_shape, [op.a, op.b, op.c])))
-#     return (utils.single_valued(trees),) if trees else None
-#
-#
-# # TODO: Return an empty tree?
-# @collect_tensor_shape.register(numbers.Number)
-# @collect_tensor_shape.register(AxisVar)
-# @collect_tensor_shape.register(LoopIndexVar)
-# @collect_tensor_shape.register(BufferExpression)
-# @collect_tensor_shape.register(Scalar)
-# @collect_tensor_shape.register(NaN)
-# def _(obj: Any, /) -> None:
-#     return None
-#
-#
-# @collect_tensor_shape.register(Dat)
-# def _(dat: Dat, /) -> tuple[AxisTree]:
-#     return (dat.axes.materialize(),)
-#
-#
-# @collect_tensor_shape.register(Mat)
-# def _(mat: Mat, /) -> tuple[AxisTree,AxisTree]:
-#     return (mat.raxes.materialize(), mat.caxes.materialize())
-
-
-# TODO: Lives in expr_visitors I think
 @functools.singledispatch
 def collect_tensor_candidate_indirections(obj: Any, /, **kwargs) -> idict:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
