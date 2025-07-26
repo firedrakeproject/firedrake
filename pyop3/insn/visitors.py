@@ -42,7 +42,7 @@ from pyop3.expr_visitors import (
     collect_tensor_candidate_indirections,
     concretize_materialized_tensor_indirections,
 )
-from pyop3.lang import (
+from pyop3.insn.base import (
     INC,
     READ,
     RW,

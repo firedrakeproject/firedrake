@@ -35,7 +35,7 @@ del _init_likwid
 
 import pyop3.dtypes
 import pyop3.ir
-import pyop3.insn_visitors
+import pyop3.insn.visitors as insn_visitors
 from pyop3.tensor import (  # noqa: F401
     Tensor, FancyIndexWriteException, Dat, Scalar, Mat,
     RowDatPythonMatContext, ColumnDatPythonMatContext,
@@ -69,7 +69,7 @@ from pyop3.tree.index_tree import (  # noqa: F401
     ScalarIndex,
     as_index_forest,
 )
-from pyop3.lang import (  # noqa: F401
+from pyop3.insn import (  # noqa: F401
     INC,
     MAX_RW,
     MAX_WRITE,
@@ -84,7 +84,7 @@ from pyop3.lang import (  # noqa: F401
     OpaqueKernelArgument,
     ArrayAssignment,
     do_loop,
-    _loop as loop,
+    loop,
 )
 from pyop3.sf import StarForest, single_star_sf, local_sf
 import pyop3.sf

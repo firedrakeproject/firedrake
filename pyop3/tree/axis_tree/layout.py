@@ -60,7 +60,7 @@ def tabulate_again(axes):
     from pyop3 import do_loop
     from pyop3.tensor.dat import LinearDatBufferExpression
     from pyop3.tensor.dat import as_linear_buffer_expression
-    from pyop3.lang import ArrayAssignment
+    from pyop3.insn import ArrayAssignment
 
     to_tabulate = []
     tabulated = {}

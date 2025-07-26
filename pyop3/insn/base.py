@@ -198,7 +198,7 @@ class Instruction(abc.ABC):
 
     @cachedmethod(lambda self: self._cache["Instruction._preprocess"])
     def _preprocess(self, compiler_parameters: ParsedCompilerParameters):
-        from pyop3.insn_visitors import (
+        from .visitors import (
             expand_implicit_pack_unpack,
             expand_loop_contexts,
             expand_assignments,

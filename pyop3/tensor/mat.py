@@ -28,7 +28,7 @@ from pyop3.tree.axis_tree.tree import (
 )
 from pyop3.buffer import ArrayBuffer, FullPetscMatBufferSpec, NullBuffer, AbstractBuffer, PetscMatAxisSpec, PetscMatBuffer, AllocatedPetscMatBuffer, PetscMatPreallocatorBuffer, PetscMatBufferSpec, MatBufferSpec, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec
 from pyop3.dtypes import IntType, ScalarType
-from pyop3.lang import Loop, ArrayAssignment
+from pyop3.insn import Loop, ArrayAssignment
 from pyop3.typing import PetscSizeT
 from pyop3.utils import (
     deprecated,

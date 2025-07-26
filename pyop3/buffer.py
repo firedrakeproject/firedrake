@@ -17,7 +17,7 @@ from petsc4py import PETSc
 from pyop3 import utils
 from pyop3.config import config
 from pyop3.dtypes import IntType, ScalarType, DTypeT
-from pyop3.lang import KernelArgument
+from pyop3.insn import KernelArgument
 from pyop2.mpi import COMM_SELF
 from pyop3.sf import StarForest
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
@@ -419,7 +419,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @cached_property
     def _reduction_ops(self):
         # TODO Move this import out, requires moving location of these intents
-        from pyop3.lang import INC, WRITE
+        from pyop3.insn import INC, WRITE
 
         return {
             WRITE: MPI.REPLACE,

@@ -16,7 +16,7 @@ from pyop3 import utils
 from pyop3.tree.axis_tree import ContextAware
 from pyop3.tree.axis_tree.tree import AbstractAxisTree, Expression
 from pyop3.exceptions import InvalidIndexCountException
-from pyop3.lang import FunctionArgument, ArrayAssignment
+from pyop3.insn import FunctionArgument, ArrayAssignment
 
 
 class Tensor(ContextAware, FunctionArgument, Expression, abc.ABC):

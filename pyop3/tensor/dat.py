@@ -28,7 +28,7 @@ from pyop3.tree.axis_tree.tree import AbstractAxisTree, Expression, ContextFree,
 from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer, BufferRef, NullBuffer, PetscMatBuffer
 from pyop3.dtypes import DTypeT, ScalarType
 from pyop3.exceptions import Pyop3Exception
-from pyop3.lang import KernelArgument, ArrayAssignment
+from pyop3.insn import KernelArgument, ArrayAssignment
 from pyop3.log import warning
 from pyop3.utils import (
     debug_assert,

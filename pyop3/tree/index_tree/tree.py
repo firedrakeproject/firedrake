@@ -45,7 +45,7 @@ from pyop3.tree.axis_tree.tree import (
 )
 from pyop3.dtypes import IntType
 # from pyop3.expr_visitors import replace_terminals, replace as expr_replace
-from pyop3.lang import KernelArgument
+from pyop3.insn import KernelArgument
 from pyop3.sf import StarForest
 from pyop3.tree.labelled_tree import (
     ConcretePathT,
