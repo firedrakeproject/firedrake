@@ -71,11 +71,11 @@ class BDDCPC(PCBase):
             dir_nodes = numpy.unique(numpy.concatenate([bcdofs(bc, ghost=False) for bc in bcs]))
         neu_nodes = numpy.setdiff1d(boundary_nodes, dir_nodes)
 
-        V.dof_dset.lgmap.apply(dir_nodes, result=dir_nodes)
+        dir_nodes = V.dof_dset.lgmap.apply(dir_nodes)
         dir_bndr = PETSc.IS().createGeneral(dir_nodes, comm=pc.comm)
         bddcpc.setBDDCDirichletBoundaries(dir_bndr)
 
-        V.dof_dset.lgmap.apply(neu_nodes, result=neu_nodes)
+        neu_nodes = V.dof_dset.lgmap.apply(neu_nodes)
         neu_bndr = PETSc.IS().createGeneral(neu_nodes, comm=pc.comm)
         bddcpc.setBDDCNeumannBoundaries(neu_bndr)
 
@@ -141,6 +141,6 @@ class BDDCPC(PCBase):
 def get_vertex_dofs(V):
     W = V.reconstruct(element=restrict(V.ufl_element(), "vertex"))
     indices = get_restriction_indices(V, W)
-    V.dof_dset.lgmap.apply(indices, result=indices)
+    indices = V.dof_dset.lgmap.apply(indices)
     vertex_dofs = PETSc.IS().createGeneral(indices, comm=V.comm)
     return vertex_dofs
