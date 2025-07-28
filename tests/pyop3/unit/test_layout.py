@@ -263,6 +263,18 @@ def test_ragged_basic():
     check_layout(axis_tree, ["A", "B"], "(array_#[i_{A}] + i_{B})", lambda i, j: [0, 1, 3][i] + j)
 
 
+def test_ragged_with_scalar_subaxis():
+    """Test that ragged axes are tabulated correctly."""
+    axis1 = op3.Axis(3, "A")
+    axis2 = op3.Axis(op3.Dat(axis1, data=np.asarray([1, 2, 1], dtype=op3.IntType)), "B")
+    axis3 = op3.Axis(2, "C")
+    axis_tree = op3.AxisTree.from_iterable((axis1, axis2, axis3))
+
+    check_layout(axis_tree, ["A"], "(array_#[i_{A}] * 2)", lambda i: 2*[0, 1, 3][i])
+    check_layout(axis_tree, ["A", "B"], "((array_#[i_{A}] * 2) + (i_{B} * 2))", lambda i, j: 2*[0, 1, 3][i] + 2*j)
+    check_layout(axis_tree, ["A", "B", "C"], "(((array_#[i_{A}] * 2) + (i_{B} * 2)) + i_{C})", lambda i, j, k: 2*[0, 1, 3][i] + 2*j + k)
+
+
 def test_ragged_with_multiple_ragged_subaxes():
     """Test that ragged axes are tabulated correctly.
 
