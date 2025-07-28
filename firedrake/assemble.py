@@ -1097,40 +1097,12 @@ class ParloopFormAssembler(FormAssembler):
         constructed_parloops = self.parloops(tensor)
 
 
-        if "FIREDRAKE_USE_GPU" in os.environ:
-            from firedrake.device import compute_device
-            arrays = []
-            maps = []
-            for kernel, args in zip(compute_device.kernel_string, compute_device.kernel_args):
-                arg_counter = 0
-                for arg in args:
-                    if arg == "coords":
-                         coordinate_space = FunctionSpace(self._form.ufl_domain(), self._form.ufl_domain()._ufl_coordinate_element)
-                         arrays += [self._form.ufl_domain().coordinates.dat.data_ro.reshape((-1,) + coordinate_space.shape)]
-                         maps += [coordinate_space.cell_node_list]
-                    elif arg == "A":
-                        form_degree = len(self._form.arguments()) 
-                        if form_degree > 1:
-                            raise NotImplementedError("GPU assembly currently only supported on 1-forms")
-                        fs = self._form.arguments()[0].function_space()
-                        arrays += [np.empty_like(Function(fs).dat.data_ro)]
-                        maps += [fs.cell_node_list]
-                    else:
-                        arrays += [self._form.coefficients()[arg_counter].dat.data_ro]
-                        maps += [self._form.coefficients()[arg_counter].function_space().cell_node_list]
-                        arg_counter += 1
-                compute_device.write_file(arrays, maps)
-        
         for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, constructed_parloops):
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
 
             # TODO: move this elsewhere, or avoid entirely?
             if isinstance(subtensor, op3.Mat) and subtensor.buffer.mat_type == "python":
                 subtensor = subtensor.buffer.mat.getPythonContext().dat
-
-            if "FIREDRAKE_USE_GPU" in os.environ:
-                temp_file = __import__(compute_device.file_name)
-                temp_file.gpu_parloop()
 
             if isinstance(self, ExplicitMatrixAssembler):
                 with _modified_lgmaps(subtensor, lgmaps):

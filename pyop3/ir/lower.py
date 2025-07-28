@@ -76,7 +76,7 @@ from pyop3.utils import (
     strictly_all,
     Identified,
 )
-from pyop3.ir.gpu import CuPyTranslationUnit, CuPyArgument
+from pyop3.ir.gpu import CuPyTranslationUnit, CuPyArgument, CuPyTemporary, CuPyInstruction
 
 import pyop3.extras.debug
 
@@ -379,6 +379,7 @@ class CuPyCodegenContext(CodegenContext):
         self._domains = []
         self._instructions = []
         self._arguments = []
+        self._temporaries = []
         self._subkernels = []
 
         self._within_inames = frozenset()
@@ -400,8 +401,8 @@ class CuPyCodegenContext(CodegenContext):
         self._assignees = {}
 
     @property
-    def domains(self) -> tuple:
-        return tuple(self._domains)
+    def domains(self) -> list:
+        return self._domains
 
     @property
     def instructions(self) -> tuple:
@@ -410,6 +411,10 @@ class CuPyCodegenContext(CodegenContext):
     @property
     def arguments(self) -> tuple:
         return tuple(sorted(self._arguments, key=lambda arg: arg.name))
+
+    @property
+    def temporaries(self) -> tuple:
+        return tuple(self._temporaries)
 
     @property
     def subkernels(self) -> tuple:
@@ -424,7 +429,8 @@ class CuPyCodegenContext(CodegenContext):
         return preambles
     
     def make_translation_unit(self, function_name, compiler_parameters):
-        tu = CuPyTranslationUnit(self.domains,self.instructions,self.arguments, function_name)
+        
+        tu = CuPyTranslationUnit(self.domains, self.instructions, self.arguments, self.temporaries, function_name)
         tu.compile(self.preambles)
        # TODO handle subkernels 
        # translation_unit = lp.merge((translation_unit, *self.subkernels))
@@ -437,14 +443,20 @@ class CuPyCodegenContext(CodegenContext):
         else:
             assert nargs == 2
             start, stop = args[0], args[1]
-        domain_str = f"for {iname} in range({start}, {stop})"
+        if isinstance(start, str):
+            start += ".item()"
+        if isinstance(stop, str):
+            stop += ".item()"
+        domain_str = (f"for {iname} in range({start}, {stop})", iname)
         self._domains.append(domain_str)
 
     def add_assignment(self, assignee, expression, prefix="insn"):
-        # TODO find better way to do this
-        try:
-             insn = assignee(expression)
-        except:
+        # TODO find better way to do this - there is a case they are pymbolic exprs
+        assignee = str(assignee)
+        expression = str(expression)
+        if "{rhs}" in assignee:
+            insn = assignee.format(rhs = expression)
+        else:
             insn = f"{assignee} = {expression}"
         self._add_instruction(insn)
 
@@ -474,6 +486,7 @@ class CuPyCodegenContext(CodegenContext):
             depends_on=self._depends_on,
             depends_on_is_final=True,
         )
+        breakpoint()
         insn = f"{assignee} = {expression}"
         self._add_instruction(insn)
 
@@ -565,19 +578,12 @@ class CuPyCodegenContext(CodegenContext):
                 return self._reusable_temporaries[key]
 
         name_in_kernel = self.unique_name(prefix)
-        # arg = lp.TemporaryVariable(
-        #     name_in_kernel,
-        #     dtype=dtype,
-        #     shape=shape,
-        #     initializer=initializer,
-        #     read_only=read_only,
-        #     address_space=lp.AddressSpace.LOCAL,
-        # )
         if initializer is not None:
-            arg = f"{name_in_kernel} : dtype  = {initializer}"
+            from firedrake.device import compute_device
+            arg = CuPyTemporary(name_in_kernel, "dtype", compute_device.arr(initializer))
         else:
-            arg = f"{name_in_kernel} : dtype"
-        self._arguments.append(arg)
+            arg = CuPyTemporary(name_in_kernel, "dtype")
+        self._temporaries.append(arg)
 
         if can_reuse:
             self._reusable_temporaries[key] = name_in_kernel
@@ -607,7 +613,7 @@ class CuPyCodegenContext(CodegenContext):
         return frozenset({self._last_insn_id}) - {None}
 
     def _add_instruction(self, insn):
-        self._instructions.append(insn)
+        self._instructions.append(CuPyInstruction(insn_str = insn, inames = self._within_inames))
 
 class DummyModuleExecutor:
     def __call__(self, *args, **kwargs):
@@ -1332,7 +1338,6 @@ def add_leaf_assignment(
 
     if isinstance(codegen_context, LoopyCodegenContext) and assignment.assignment_type == AssignmentType.INC:
         rexpr = lexpr + rexpr
-
     codegen_context.add_assignment(lexpr, rexpr)
 
 

@@ -92,18 +92,24 @@ class GPUDevice(ComputeDevice):
 compute_device = CPUDevice()
 
 @contextlib.contextmanager
-def device(type=None):
+def device(type="cpu"):
+    global compute_device
     if type=="gpu":
         gpu = GPUDevice()
-        global compute_device
         orig_device = compute_device
         compute_device = gpu
         os.environ["FIREDRAKE_USE_GPU"] = "1" 
         yield from compute_device.context_manager()
         compute_device = orig_device
         del os.environ['FIREDRAKE_USE_GPU']
-    else:
+    elif type=="cpu":
+        cpu = CPUDevice()
+        orig_device = compute_device
+        compute_device = cpu
         yield from compute_device.context_manager()
+        compute_device = orig_device
+    else:
+       raise NotImplementedError(f"Device identity {type} unrecognised") 
     
 def add_kernel_string(k_str, args):
     global compute_device

@@ -40,11 +40,12 @@ from pyop3.utils import (
     strictly_all,
     steps,
 )
-
+from pyop3.device import on_host
 
 import pyop3.extras.debug
 
 
+@on_host
 def make_layouts(axes: AxisTree, loop_vars) -> immutabledict:
     if not axes.layout_axes.is_empty:
         inner_layouts = tabulate_again(axes.layout_axes)
@@ -59,7 +60,9 @@ def tabulate_again(axes):
     tabulated = {}
     layouts = _prepare_layouts(axes, axes.root, immutabledict(), 0, (), to_tabulate, tabulated)
     start = 0
-
+    from firedrake.device import compute_device
+    if compute_device.identity != "cpu":
+        breakpoint()
     # this is done at the root of the tree, so can treat in a flattened manner...
     offsets = [0] * len(to_tabulate)
     for regions in _collect_regions(axes):

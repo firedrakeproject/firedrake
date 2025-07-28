@@ -102,11 +102,11 @@ def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indice
     indices = maybe_multiindex(buffer, offset_expr, context)
     # TODO way to check indices is a map vs a single indexLw
     if intent == INC:
-        return lambda assignee: f"cpx.scatter_add({name_in_kernel}, {indices}, {assignee})"
+        return f"cpx.scatter_add({name_in_kernel}, {indices}, {{rhs}})"
     if intent == READ:
         return f"cp.take({name_in_kernel}, {indices})"
     if intent == WRITE:
-        return lambda assignee: f"{name_in_kernel}[{indices}] = {assignee}"
+        return f"{name_in_kernel}[{indices}] = {{rhs}}"
     raise NotImplementedError(f"Intent {intent} does not have a handler")
 
 
@@ -123,7 +123,7 @@ def maybe_multiindex(buffer_ref, offset_expr, context):
 
         # also has to be a scalar, not an expression
         temp_offset_name = context.add_temporary("j")
-        temp_offset_var = pym.var(temp_offset_name)
+        temp_offset_var = temp_offset_name
         context.add_assignment(temp_offset_var, offset_expr)
         indices = extra_indices + (temp_offset_var,)
     else:
@@ -134,11 +134,12 @@ def maybe_multiindex(buffer_ref, offset_expr, context):
 
 class CuPyTranslationUnit():
 
-    def __init__(self, domains, instructions, arguments, function_name):
+    def __init__(self, domains, instructions, arguments, temporaries, function_name):
         self.filename = "temp_cupy_file"
         self._domains = domains
         self._instructions = instructions
         self._arguments = arguments
+        self._temporaries = temporaries
         self.function_name = function_name
         self._entrypoint = CuPyEntrypoint(function_name, arguments)
 
@@ -152,13 +153,25 @@ class CuPyTranslationUnit():
         args = ",".join([a.name for a in self._arguments]) #add types?
         code_lines += ["\t"*indent + f"def {self.function_name}({args}):"]
         indent += 1
+        for temp in self._temporaries:
+            if temp.initializer is not None:
+                code_lines += [ "\t"*indent + f"{temp.name} : {temp.dtype} = {initialiser}"]
+            else:
+                code_lines += [ "\t"*indent + f"{temp.name} : {temp.dtype}"]
         #code_lines += ["\t"*indent + "breakpoint()"]
-        for dom in self._domains:
-            code_lines += ["\t"*indent + f"{dom}:"]
-            indent += 1
 
+        current_inames = set()
         for insn in self._instructions:
-            code_lines += ["\t"*indent + f"{insn}"]
+            # exit completed loops 
+            for i in range(len(current_inames - insn.inames)):
+                indent -= 1 
+            while insn.inames > current_inames:
+                dom  = self._domains.pop(0)
+                code_lines += ["\t"*indent + f"{dom[0]}:"]
+                current_inames.add(dom[1])
+                indent += 1
+            code_lines += ["\t"*indent + f"{insn.insn_str}"]
+
         self.code_string = "\n".join(code_lines)
 
     def construct(self):
@@ -176,3 +189,14 @@ class CuPyEntrypoint:
 class CuPyArgument:
     name: str
     dtype: str
+
+@dataclasses.dataclass
+class CuPyTemporary:
+    name: str
+    dtype: str
+    initializer: cp.ndarray = None
+
+@dataclasses.dataclass
+class CuPyInstruction:
+    insn_str: str
+    inames: set 
