@@ -134,6 +134,17 @@ def mesh(request):
     return msh
 
 
+#@pytest.mark.parallel
+@pytest.mark.parametrize("degree", range(1, 3))
+@pytest.mark.parametrize("variant", ("spectral", "fdm"))
+def test_vertex_dofs(mesh, variant, degree):
+    from firedrake.preconditioners.bddc import get_vertex_dofs
+    P1 = FunctionSpace(mesh, "Lagrange", 1, variant=variant)
+    V0 = FunctionSpace(mesh, "Lagrange", degree, variant=variant)
+    v = get_vertex_dofs(V0)
+    assert v.getSizes() == P1.dof_dset.layout_vec.getSizes()
+
+
 @pytest.mark.parallel
 @pytest.mark.parametrize("degree", (4,))
 @pytest.mark.parametrize("family", "Q")

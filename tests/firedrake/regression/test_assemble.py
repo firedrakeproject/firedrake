@@ -401,3 +401,19 @@ def test_assemble_tensor_empty_shape(mesh):
     v = Function(V).assign(1)
     expected = assemble(inner(v, v)*dx)
     assert np.allclose(result, expected)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_assemble_integral_quads():
+    no_overlap = {"overlap_type": (DistributedMeshOverlapType.NONE, 0)}
+    mesh0 = UnitSquareMesh(3, 1, quadrilateral=True, distribution_parameters=no_overlap)
+    mesh1 = UnitSquareMesh(3, 1, quadrilateral=True)
+
+    degree = 3
+    variant = "integral"
+    V0 = FunctionSpace(mesh0, "Lagrange", degree, variant=variant)
+    V1 = FunctionSpace(mesh1, "Lagrange", degree, variant=variant)
+    c0 = assemble(conj(TestFunction(V0))*dx, bcs=DirichletBC(V0, 0, "on_boundary"))
+    c1 = assemble(conj(TestFunction(V1))*dx, bcs=DirichletBC(V1, 0, "on_boundary"))
+
+    assert np.linalg.norm(c0.dat.data) == np.linalg.norm(c1.dat.data)
