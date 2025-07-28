@@ -334,3 +334,21 @@ def test_ipdg_direct_solver(fs):
             assert uvec.norm() < 1E-8
     else:
         assert norm(u_exact-uh, "H1") < 1.0E-8
+
+
+@pytest.mark.parallel
+@pytest.mark.parametrize("degree", range(1, 3))
+@pytest.mark.parametrize("variant", ("spectral", "integral", "fdm"))
+def test_tabulate_exterior_derivative(mesh, variant, degree):
+    from firedrake.preconditioners.fdm import tabulate_exterior_derivative
+    family = {1: "DG", 2: "RTCE", 3: "NCE"}[mesh.topological_dimension()]
+    V0 = FunctionSpace(mesh, "Lagrange", degree, variant=variant)
+    V1 = FunctionSpace(mesh, family, degree, variant=variant)
+
+    D = tabulate_exterior_derivative(V0, V1)
+
+    u0 = Function(V0).interpolate(1)
+    u1 = Function(V1)
+    with u0.dat.vec as x, u1.dat.vec as y:
+        D.mult(x, y)
+        assert y.norm() < 1E-12
