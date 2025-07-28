@@ -314,19 +314,31 @@ def test_ragged_with_nonstandard_axis_ordering():
     axis3 = op3.Axis(op3.Dat(axis1, data=np.asarray([1, 2, 1], dtype=op3.IntType)), "C")
     axis_tree = op3.AxisTree.from_iterable((axis1, axis2, axis3))
 
-    layouts = axis_tree.layouts
-    breakpoint()
+    assert axis_tree.size == 8
 
-    assert layouts[idict()] == 0
-    assert layouts[idict({"A": None})] == [0, 2, 6]
-
-    assert layouts[idict()] == [[0, 1], [2, 4], [6, 7]]
+    check_layout(axis_tree, ["A"], "(2 * array_#[i_{A}])", lambda i: 2*[0, 1, 3][i])
     check_layout(
         axis_tree,
         ["A", "B"],
-        lambda i, j, k: [[0], [1, 2], [3]][i][k]*2 + j
+        "((2 * array_#[i_{A}]) + (i_{B} * array_#[i_{A}]))",
+        lambda i, j: 2*[0, 1, 3][i] + [1, 2, 1][i]*j,
     )
-    # assert layouts[idict({"A": None, "B": None, "C": None})] == ???
+    check_layout(
+        axis_tree,
+        ["A", "B", "C"],
+        "(((2 * array_#[i_{A}]) + (i_{B} * array_#[i_{A}])) + i_{C})",
+        lambda i, j, k: 2*[0, 1, 3][i] + [1, 2, 1][i]*j + k,
+    )
+
+
+# TODO: For this single case can just do an affine thing
+# def test_regions_basic():
+#     axis_tree = op3.Axis([
+#         op3.AxisComponent([
+#             op3.AxisComponentRegion(2, "A"),
+#             op3.AxisComponentRegion(1, "B"),
+#         ])
+#     ]).as_tree()
 
 
 

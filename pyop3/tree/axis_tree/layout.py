@@ -61,7 +61,7 @@ def tabulate_again(axes):
 
     to_tabulate = []
     tabulated = {}
-    layouts = _prepare_layouts(axes, axes.root, immutabledict(), 0, to_tabulate, tabulated, ())
+    layouts = _prepare_layouts(axes, axes.root, immutabledict(), 0, to_tabulate, tabulated, (), False)
     start = 0
 
     # this is done at the root of the tree, so can treat in a flattened manner...
@@ -102,7 +102,7 @@ def tabulate_again(axes):
 # TODO:
 # I think the right approach here is to deal more with subtrees. If we have a mixed thing
 # for instance we should eagerly split the tree apart and tabulate each part.
-def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_tabulate, tabulated, region_axes) -> immutabledict:
+def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_tabulate, tabulated, region_axes, regions_done) -> immutabledict:
     """Traverse the axis tree and prepare zeroed arrays for offsets.
 
     Any axes that do not require tabulation will also be set at this point.
@@ -119,24 +119,24 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
 
         linear_axis = axis.linearize(component.label)
 
-        if component.has_non_trivial_regions:
+        # always do this because we want to collect them all until we run out of regions
+        if not regions_done:
             region_axes_ = region_axes + (linear_axis,)
-        else:
-            region_axes_ = region_axes
+
+        regions_done_ = regions_done
 
         subtree = axes.subtree(path_acc_)
 
         # At leaves the layout function is trivial
-        if not subtree:
-            layouts[path_acc_] = layout_expr_acc + AxisVar(linear_axis)
-            continue
+        if not subtree and regions_done:
+            layout_expr_acc_ = layout_expr_acc + AxisVar(linear_axis) + start
+            layouts[path_acc_] = layout_expr_acc_
 
         # Now determine layouts
 
         # If there are still regions in the subtree then we cannot compute any
         # layout functions because the region interleaving makes this meaningless.
         elif subtree._all_region_labels:
-            breakpoint()
             layout_expr_acc_ = layout_expr_acc
             layouts[path_acc_] = NAN
 
@@ -152,6 +152,9 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
                 to_tabulate.append((offset_dat, step_expr))
             else:
                 pass
+
+            regions_done_ = True
+
                 # tabulated[subtree] = offset_dat   # TODO
 
             # breakpoint()
@@ -185,9 +188,9 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
 
         start += axis_tree_component_size(axes, path_acc, component)
 
-        subaxis = axes.node_map[path_acc_]
-        sublayouts = _prepare_layouts(axes, subaxis, path_acc_, layout_expr_acc_, to_tabulate, tabulated, region_axes_)
-        layouts |= sublayouts
+        if subaxis := axes.node_map[path_acc_]:
+            sublayouts = _prepare_layouts(axes, subaxis, path_acc_, layout_expr_acc_, to_tabulate, tabulated, region_axes_, regions_done_)
+            layouts |= sublayouts
 
     return immutabledict(layouts)
 
@@ -834,6 +837,9 @@ def _accumulate_step_sizes(obj: Any, axis, region_axes=()):
     from pyop3.expr import base as expr_types
     from pyop3.expr.tensor.dat import LinearDatBufferExpression
 
+    if region_axes:
+        breakpoint()
+
     if isinstance(obj, numbers.Number):
         return AxisVar(axis) * obj
     elif isinstance(obj, expr_types.Mul):
@@ -850,7 +856,8 @@ def _accumulate_step_sizes(obj: Any, axis, region_axes=()):
 
 
 def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis):
-    from pyop3 import Dat, exscan
+    from pyop3 import Dat, exscan, loop
+    from pyop3.expr.visitors import replace
 
     if linear_axis not in utils.just_one(get_shape(size_expr)):
         return AxisVar(linear_axis) * size_expr
