@@ -8,7 +8,8 @@ from functools import cached_property
 import numpy as np
 from immutabledict import immutabledict as idict
 
-from pyop3.tree.axis_tree import UNIT_AXIS_TREE
+from pyop3 import utils
+from pyop3.tree.axis_tree import UNIT_AXIS_TREE, AxisTree, merge_trees2
 
 
 # TODO: define __str__ as an abc?
@@ -398,7 +399,7 @@ class Conditional(TernaryOperator):
         from pyop3.expr.visitors import get_shape
 
         trees = (utils.just_one(get_shape(o)) for o in self.operands)
-        return (merge_axis_trees2(trees),)
+        return (merge_axis_trees(trees),)
 
         # if not isinstance(self.if_true, numbers.Number):
         #     true_shape = get_shape(self.if_true)

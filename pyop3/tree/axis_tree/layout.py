@@ -344,10 +344,6 @@ def _axis_tree_size(axes):
 
 
 def _axis_tree_size_rec(axis_tree: AxisTree, path):
-    from pyop3 import Dat, Scalar, loop as loop_
-    from pyop3.expr.tensor.dat import as_linear_buffer_expression
-    from pyop3.expr.visitors import extract_axes, replace_terminals
-
     axis = axis_tree.node_map[path]
 
     if axis is None:

@@ -21,7 +21,7 @@ import pyop3.expr.base as expr_types
 from pyop3 import utils
 from pyop3.expr.tensor import Scalar, Dat, Tensor, Mat, NonlinearDatBufferExpression, LinearDatBufferExpression, NonlinearMatBufferExpression, LinearMatBufferExpression
 from pyop3.tree.axis_tree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
-from pyop3.tree.axis_tree.tree import merge_axis_trees2
+from pyop3.tree.axis_tree.tree import merge_axis_trees
 from pyop3.buffer import AbstractBuffer, BufferRef, PetscMatBuffer, ArrayBuffer, NullBuffer, AllocatedPetscMatBuffer
 from pyop3.dtypes import IntType
 from pyop3.tree.index_tree import Map, TabulatedMapComponent, collect_loop_contexts
@@ -527,7 +527,7 @@ def _(assignment: ArrayAssignment, /) -> NonEmptyArrayAssignment | NullInstructi
     # FIXME: I think actually the assignee should just prescribe this.
     axis_trees_per_arg = (axis_trees_per_arg[0],)
     for arg_axis_trees in zip_longest(*axis_trees_per_arg):
-        merged_axis_tree = merge_axis_trees2(arg_axis_trees)
+        merged_axis_tree = merge_axis_trees(arg_axis_trees)
 
         # drop zero-sized bits
         pruned_axis_tree = merged_axis_tree.prune()

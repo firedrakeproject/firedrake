@@ -19,7 +19,6 @@ from .base import Tensor
 from .dat import Dat
 from pyop3.tree.axis_tree.tree import (
     AbstractAxisTree,
-    merge_axis_trees,
     AxisTree,
     ContextSensitiveAxisTree,
     ContextFree,

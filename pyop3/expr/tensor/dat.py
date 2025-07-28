@@ -23,7 +23,7 @@ from pyop3.tree.axis_tree import (
     AxisTree,
     as_axis_tree,
 )
-from pyop3.tree.axis_tree.tree import AbstractAxisTree, ContextFree, ContextSensitiveAxisTree, merge_axis_trees2, subst_layouts
+from pyop3.tree.axis_tree.tree import AbstractAxisTree, ContextFree, ContextSensitiveAxisTree, merge_axis_trees, subst_layouts
 from ..base import Expression
 from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer, BufferRef, NullBuffer, PetscMatBuffer
 from pyop3.dtypes import DTypeT, ScalarType
@@ -728,7 +728,7 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
         shape_ = []
         layout_shapes = (layout.shape for layout in self.layouts.values())
         for layout_shapes in zip(layout_shapes, strict=True):
-            shape_.append(merge_axis_trees2(layout_shapes))
+            shape_.append(merge_axis_trees(layout_shapes))
         return tuple(shape_)
 
     @property

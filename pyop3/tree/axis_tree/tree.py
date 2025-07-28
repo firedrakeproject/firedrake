@@ -302,7 +302,7 @@ class AxisComponentRegion:
 
         # this is a little clumsy
         if isinstance(size, Dat):
-            size = as_linear_buffer_expression(size)
+            size = size.concretize()
 
         object.__setattr__(self, "size", size)
         object.__setattr__(self, "label", label)
@@ -317,16 +317,9 @@ class AxisComponentRegion:
 @functools.singledispatch
 def _parse_regions(obj: Any) -> AxisComponentSize:
     from pyop3 import Dat
-    from pyop3.tensor.dat import as_linear_buffer_expression
 
     if isinstance(obj, Dat):
-        # Dats used as extents for axis component regions have a stricter
-        # set of requirements than generic Dats so we eagerly cast them to
-        # the constrained type here.
-        orig_dat = obj
-        dat = as_linear_buffer_expression(orig_dat)
-
-        return (AxisComponentRegion(dat),)
+        return (AxisComponentRegion(obj),)
     else:
         raise TypeError(f"No handler provided for {type(obj).__name__}")
 
@@ -1201,6 +1194,8 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
             return self._collect_source_exprs(path=idict())
 
     def _collect_source_exprs(self, *, path: ConcretePathT) -> idict:
+        from pyop3.expr import AxisVar
+
         source_exprs = {}
 
         if path == idict():
@@ -1990,117 +1985,7 @@ class ContextSensitiveAxisTree(ContextSensitiveLoopIterable):
         return just_one(self.context_map.values())
 
 
-# NOTE: Is this used any more?
-@cached_on(lambda trees: trees[0], key=lambda trees: tuple(trees[1:]))
-def merge_axis_trees(axis_trees):
-    """
-
-    Notes
-    -----
-    The result of this function is cached on the first axis tree.
-
-    """
-    nonempty_axis_trees = tuple(axis_tree for axis_tree in axis_trees if not axis_tree.is_empty)
-    if nonempty_axis_trees:
-        root, subnode_map = _merge_node_maps(nonempty_axis_trees)
-        node_map = {None: (root,)}
-        node_map.update(subnode_map)
-    else:
-        node_map = None
-
-    if all(isinstance(axis_tree, AxisTree) for axis_tree in axis_trees):
-        return AxisTree(node_map)
-    else:
-        targets = tuple(
-            _merge_targets(axis_trees, targetss)
-            for targetss in itertools.product(*[axis_tree.targets for axis_tree in axis_trees])
-        )
-
-        unindexed = merge_axis_trees([axis_tree.unindexed for axis_tree in axis_trees])
-        return IndexedAxisTree(node_map, unindexed, targets=targets)
-
-
-def _merge_node_maps(axis_trees, *, axis_tree_index=0, axis=None, suffix="") -> tuple[Axis, idict]:
-    assert axis_tree_index < len(axis_trees)
-
-    axis_tree = axis_trees[axis_tree_index]
-    assert not axis_tree.is_empty
-
-    if axis is None:
-        axis = axis_tree.root
-
-    relabelled_axis = axis.copy(
-        label=f"{axis.label}_{axis_tree_index}",
-        id=f"{axis.id}{suffix}",
-    )
-
-    relabelled_children = []
-    relabelled_subnode_map = {}
-    for i, component in enumerate(axis.components):
-        if subaxis := axis_tree.child(axis, component):
-            relabelled_subaxis, relabelled_subnode_map_ = _merge_node_maps(
-                axis_trees, axis_tree_index=axis_tree_index, axis=subaxis, suffix=f"{suffix}_{i}"
-            )
-            relabelled_children.append(relabelled_subaxis)
-            relabelled_subnode_map.update(relabelled_subnode_map_)
-        elif axis_tree_index + 1 < len(axis_trees):
-            relabelled_subaxis, relabelled_subnode_map_ = _merge_node_maps(
-                axis_trees, axis_tree_index=axis_tree_index+1, axis=None, suffix=f"{suffix}_{i}"
-            )
-            relabelled_children.append(relabelled_subaxis)
-            relabelled_subnode_map.update(relabelled_subnode_map_)
-        else:
-            relabelled_children.append(None)
-
-    relabelled_subnode_map[relabelled_axis.id] = tuple(relabelled_children)
-    return (relabelled_axis, idict(relabelled_subnode_map))
-
-
-def _merge_targets(axis_trees, targetss, *, axis_tree_index=0, axis=None, suffix="") -> idict:
-    from pyop3.expr.visitors import relabel as relabel_expression
-
-    assert axis_tree_index < len(axis_trees)
-
-    axis_tree = axis_trees[axis_tree_index]
-
-    orig_targets = targetss[axis_tree_index]
-    relabelled_targets = {}
-
-    if axis is None:
-        axis = axis_tree.root
-
-    for i, component in enumerate(axis.components):
-        orig_axis_key = (axis.id, component.label)
-        orig_target = orig_targets[orig_axis_key]
-        orig_path, orig_exprs = orig_target
-
-        relabelled_path = {
-            f"{axis_label}_{axis_tree_index}": component_label
-            for axis_label, component_label in orig_path.items()
-        }
-        relabelled_exprs = {
-            f"{axis_label}_{axis_tree_index}": relabel_expression(expr, f"_{axis_tree_index}")
-            for axis_label, expr in orig_exprs.items()
-        }
-        relabelled_target = (relabelled_path, relabelled_exprs)
-        relabelled_axis_key = (f"{axis.id}{suffix}", component.label)
-        relabelled_targets[relabelled_axis_key] = relabelled_target
-
-        if subaxis := axis_tree.child(axis, component):
-            relabelled_targets_ = _merge_targets(
-                axis_trees, targetss, axis_tree_index=axis_tree_index, axis=subaxis, suffix=f"{suffix}_{i}"
-            )
-            relabelled_targets.update(relabelled_targets_)
-        elif axis_tree_index + 1 < len(axis_trees):
-            relabelled_targets_ = _merge_targets(
-                axis_trees, targetss, axis_tree_index=axis_tree_index+1, axis=None, suffix=f"{suffix}_{i}"
-            )
-            relabelled_targets.update(relabelled_targets_)
-
-    return idict(relabelled_targets)
-
-
-def merge_axis_trees2(trees: Iterable[AxisTree]) -> AxisTree:
+def merge_axis_trees(trees: Iterable[AxisTree]) -> AxisTree:
     if not trees:
         raise ValueError
 
