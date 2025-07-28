@@ -200,3 +200,27 @@ class CuPyTemporary:
 class CuPyInstruction:
     insn_str: str
     inames: set 
+
+@dataclasses.dataclass
+class CuPyKernel:
+    code: str
+    default_entrypoint: CuPyEntrypoint 
+
+def pymbolic_to_str(pym_expr):
+    return _pymbolic_to_str(pym_expr)
+
+@functools.singledispatch
+def _pymbolic_to_str(obj: Any, /, *args, **kwargs) -> str:
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
+
+@_pymbolic_to_str.register(pym.Variable)
+def _pymbolic_to_str_var(obj):
+    return obj.name
+
+#@_pymbolic_to_str.register(pym.subscript)
+#def _pymbolic_to_str_var(obj):
+#    return f"{pymbolic_to_str(obj.aggregate)}[{",".join([pymbolic_to_str(i) for i in obj.index])}]"
+
+#@_pymbolic_to_str.register(pym.Call)
+#def _pymbolic_to_str_call(obj):
+#   return f"{pymbolic_to_str(obj.function)}({",".join(*[pymbolic_to_str(a) for a in obj.parameters])})"

@@ -477,16 +477,7 @@ class CuPyCodegenContext(CodegenContext):
         pass
 
     def add_function_call(self, assignees, expression, prefix="insn"):
-        insn = lp.CallInstruction(
-            assignees,
-            expression,
-            id=self._name_generator(prefix),
-            within_inames=self._within_inames,
-            within_inames_is_final=True,
-            depends_on=self._depends_on,
-            depends_on_is_final=True,
-        )
-        breakpoint()
+        assignee = ",".join(assignees)
         insn = f"{assignee} = {expression}"
         self._add_instruction(insn)
 
@@ -1105,6 +1096,40 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
     )
 
     context.add_function_call(assignees, expression)
+    subkernel = call.function.code.with_entrypoints(frozenset())
+    context.add_subkernel(subkernel)
+
+@_compile.register
+def _(call: StandaloneCalledFunction, loop_indices, context: CuPyCodegenContext) -> None:
+    
+    subarrayrefs = {}
+    entry_args = call.function.code.default_entrypoint.args
+    for entry_arg, arg, spec in zip(entry_args, call.arguments, call.argspec, strict=True):
+        # this check fails because we currently assume that all arrays require packing
+        # from pyop3.transform import _requires_pack_unpack
+        # assert not _requires_pack_unpack(arg)
+        name_in_kernel = context.add_buffer(arg.buffer, spec.intent)
+
+        # subarrayref nonsense/magic
+        indices = []
+        for s in entry_arg.shape:
+            iname = context.unique_name("i")
+            context.add_domain(iname, s)
+            indices.append(iname)
+        indices = tuple(indices)
+        idx_str = "][".join(indices)
+        subarrayrefs[arg] = f"{name_in_kernel}[{idx_str}]"
+
+    assignees = tuple(
+        subarrayrefs[arg]
+        for arg, spec in zip(call.arguments, call.argspec, strict=True)
+        if spec.intent in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE}
+    )
+    arg_str = ",".join([subarrayrefs[arg] for arg in call.arguments])
+    expression = f"{call.function.code.default_entrypoint.name}({arg_str})"
+
+    context.add_function_call(assignees, expression)
+    breakpoint()
     subkernel = call.function.code.with_entrypoints(frozenset())
     context.add_subkernel(subkernel)
 

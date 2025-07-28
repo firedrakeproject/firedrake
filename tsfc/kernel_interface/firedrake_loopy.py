@@ -342,8 +342,8 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         :arg log: bool if the Kernel should be profiled with Log events
         :returns: :class:`Kernel` object
         """
-        impero_c, oriented, needs_cell_sizes, tabulations, active_variables, need_facet_orientation = self.compile_gem(ctx)
-        if impero_c is None:
+        code, oriented, needs_cell_sizes, tabulations, active_variables, need_facet_orientation = self.compile_gem(ctx)
+        if code is None:
             return self.construct_empty_kernel(name)
         info = self.integral_data_info
         # In the following funargs are only generated
@@ -406,7 +406,22 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
             tab_loopy_arg = lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape)
             args.append(kernel_args.TabulationKernelArg(tab_loopy_arg))
         index_names = get_index_names(ctx['quadrature_indices'], self.argument_multiindices, ctx['index_cache'])
-        ast, event_name = generate_loopy(impero_c, [arg.loopy_arg for arg in args],
+
+        import os
+        if "FIREDRAKE_USE_GPU" in os.environ:
+            return Kernel(ast=code,
+                          arguments=tuple(args),
+                          integral_type=info.integral_type,
+                          subdomain_id=info.subdomain_id,
+                          domain_number=info.domain_number,
+                          coefficient_numbers=tuple(zip(info.coefficient_numbers, coefficient_indices)),
+                          oriented=oriented,
+                          needs_cell_sizes=needs_cell_sizes,
+                          tabulations=tabulations,
+                          flop_count=-1,
+                          name=name,
+                          event="pythonkernel")
+        ast, event_name = generate_loopy(code, [arg.loopy_arg for arg in args],
                                          self.scalar_type, name, index_names, log=log)
         flop_count = count_flops(impero_c)  # Estimated total flops for this kernel.
         return Kernel(ast=ast,

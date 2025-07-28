@@ -1856,7 +1856,7 @@ class ParloopBuilder:
 
     Parameters
     ----------
-    form : ufl.Form or slate.TensorBase
+    form : ufl.Form or slate.TeNsorBase
         Variational form.
     bcs : Sequence
         Boundary conditions.
@@ -1890,9 +1890,12 @@ class ParloopBuilder:
         for tsfc_arg in self._kinfo.arguments:
             arg = self._as_parloop_arg(tsfc_arg, p)
             args.append(arg)
-        self._kinfo.kernel.code = self._kinfo.kernel.code.with_entrypoints({self._kinfo.kernel.name})
+        if "FIREDRAKE_USE_GPU" in os.environ:
+            kernel_code = (self._kinfo.kernel[0][0].replace("cupy_kernel", self._kinfo.kernel[1]), self._kinfo.kernel[0][1])
+        else:
+            kernel_code = self._kinfo.kernel[0][0].with_entrypoints({self._kinfo.kernel[1]})
         kernel = op3.Function(
-            self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]]
+            kernel_code, [op3.INC] + [op3.READ for _ in args[1:]]
         )
         return op3.loop(p, kernel(*args))
 

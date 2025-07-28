@@ -132,11 +132,11 @@ class TSFCKernel:
                 ep = add_likwid_markers(ast.default_entrypoint)
                 ast = ast.with_kernel(ep)
 
-            pyop2_kernel = as_pyop2_local_kernel(ast, kernel.name,
-                                                 len(kernel.arguments),
-                                                 flop_count=kernel.flop_count,
-                                                 events=events)
-            kernels.append(KernelInfo(kernel=pyop2_kernel,
+            #pyop2_kernel = as_pyop2_local_kernel(ast, kernel.name,
+            #                                     len(kernel.arguments),
+            #                                     flop_count=kernel.flop_count,
+            #                                     events=events)
+            kernels.append(KernelInfo(kernel=(ast, kernel.name),
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
