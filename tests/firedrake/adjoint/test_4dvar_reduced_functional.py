@@ -5,6 +5,9 @@ from firedrake.adjoint import (
     set_working_tape, get_working_tape, taylor_test, taylor_to_dict,
     Control, ReducedFunctional, FourDVarReducedFunctional)
 from pytest_mpi.parallel_assert import parallel_assert
+from firedrake.adjoint.correlation_operators import (
+    ImplicitMassCorrelation, ImplicitDiffusionCorrelation)
+from math import sqrt
 
 
 @pytest.fixture(autouse=True)
@@ -70,15 +73,15 @@ def timestepper(V):
     return un, un1, stepper
 
 
-def covariance_norm(sigma, x):
-    """generate weighted inner products to pass to FourDVarReducedFunctional.
-    Use the quadratic norm so Hessian is not linear."""
-    return fd.assemble(fd.inner(sigma*x, x*sigma)*fd.dx)
+sigma_b = sqrt(1e-2)  # background error std
+sigma_r = sqrt(1e-3)  # observation error std
+sigma_q = sqrt(1e-5)  # model error std
 
+L_b = 0.25  # background error correlation lengthscale
+L_q = 0.1   # model error correlation lengthscale
 
-B = fd.Constant(3e0)  # background error covariance
-R = fd.Constant(2e0)  # observation error covariance
-Q = fd.Constant(1e0)  # model error covariance
+m_b = 4  # number of steps for background error correlation operator
+m_q = 2  # number of steps for model error correlation operator
 
 
 """Reynolds number"""
@@ -197,15 +200,21 @@ def strong_fdvar_pyadjoint(V):
     # generate ground truths
     obs_errors = observation_errors(V)
 
+    V = qn.function_space()
+    U = obs_errors(0)(qn).function_space()
+
+    B = ImplicitDiffusionCorrelation(V, sigma_b, L_b, m=m_b)
+    R = ImplicitMassCorrelation(U, sigma_r)
+
     continue_annotation()
     with set_working_tape() as tape:
 
         # background functional
         bkg_error = fd.Function(V).assign(control - bkg)
-        J = covariance_norm(B, bkg_error)
+        J = B.norm(bkg_error)
 
         # initial observation functional
-        J += covariance_norm(R, obs_errors(0)(control))
+        J += R.norm(obs_errors(0)(control))
 
         qn.assign(control)
         qn1.assign(qn)
@@ -218,7 +227,7 @@ def strong_fdvar_pyadjoint(V):
                 qn.assign(qn1)
 
             # observation functional
-            J += covariance_norm(R, obs_errors(i)(qn))
+            J += R.norm(obs_errors(i)(qn))
 
         Jhat = ReducedFunctional(J, Control(control), tape=tape)
     pause_annotation()
@@ -236,6 +245,12 @@ def strong_fdvar_firedrake(V):
 
     # generate ground truths
     obs_errors = observation_errors(V)
+
+    V = qn.function_space()
+    U = obs_errors(0)(qn).function_space()
+
+    B = ImplicitDiffusionCorrelation(V, sigma_b, L_b, m=m_b)
+    R = ImplicitMassCorrelation(U, sigma_r)
 
     continue_annotation()
     set_working_tape()
@@ -286,15 +301,22 @@ def weak_fdvar_pyadjoint(V):
     # generate ground truths
     obs_errors = observation_errors(V)
 
+    V = qn.function_space()
+    U = obs_errors(0)(qn).function_space()
+
+    B = ImplicitDiffusionCorrelation(V, sigma_b, L_b, m=m_b)
+    Q = ImplicitDiffusionCorrelation(V, sigma_q, L_q, m=m_q)
+    R = ImplicitMassCorrelation(U, sigma_r)
+
     # start building the 4DVar system
     continue_annotation()
     set_working_tape()
 
     # background error
-    J = covariance_norm(B, controls[0] - bkg)
+    J = B.norm(controls[0] - bkg)
 
     # initial observation error
-    J += covariance_norm(R, obs_errors(0)(controls[0]))
+    J += R.norm(obs_errors(0)(controls[0]))
 
     # record observation stages
     for i in range(1, len(controls)):
@@ -315,10 +337,10 @@ def weak_fdvar_pyadjoint(V):
             controls[i].assign(qn)
 
         # model error for this stage
-        J += covariance_norm(Q, qn - controls[i])
+        J += Q.norm(qn - controls[i])
 
         # observation error
-        J += covariance_norm(R, obs_errors(i)(controls[i]))
+        J += R.norm(obs_errors(i)(controls[i]))
 
     pause_annotation()
 
@@ -348,6 +370,13 @@ def weak_fdvar_firedrake(V, ensemble):
 
     # generate ground truths
     obs_errors = observation_errors(V)
+
+    V = qn.function_space()
+    U = obs_errors(0)(qn).function_space()
+
+    B = ImplicitDiffusionCorrelation(V, sigma_b, L_b, m=m_b)
+    Q = ImplicitDiffusionCorrelation(V, sigma_q, L_q, m=m_q)
+    R = ImplicitMassCorrelation(U, sigma_r)
 
     # start building the 4DVar system
     continue_annotation()

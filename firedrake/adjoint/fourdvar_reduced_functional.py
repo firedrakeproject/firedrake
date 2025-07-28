@@ -1,26 +1,24 @@
-from pyadjoint import ReducedFunctional, OverloadedType, Control, Tape, AdjFloat, \
-    stop_annotating, get_working_tape, set_working_tape
+from pyadjoint import (
+    ReducedFunctional, OverloadedType, Control, Tape, AdjFloat,
+    stop_annotating, get_working_tape, set_working_tape)
 from pyadjoint.reduced_functional import AbstractReducedFunctional
 from pyadjoint.enlisting import Enlist
-from firedrake.assemble import get_assembler
 from firedrake.function import Function
 from firedrake.ensemble import EnsembleFunction, EnsembleFunctionSpace
-from firedrake import assemble, inner, dx, Constant, grad, TestFunction, TrialFunction, derivative, Cofunction, LinearVariationalProblem, LinearVariationalSolver, RieszMap
-from .composite_reduced_functional import CompositeReducedFunctional
-from .composite_reduced_functional import _rename, isolated_rf
+from firedrake import Constant
+from .composite_reduced_functional import (
+    CompositeReducedFunctional, _rename, isolated_rf)
 from .ensemble_reduced_functional import (
     EnsembleReduceReducedFunctional, EnsembleTransformReducedFunctional)
 from .ensemble_adjvec import EnsembleAdjVec
 from .allatonce_reduced_functional import AllAtOnceReducedFunctional
-from functools import wraps, cached_property, partial
-from typing import Callable, Optional, Collection, Union
+from functools import wraps, cached_property
+from typing import Callable, Optional, Union
 from types import SimpleNamespace
 from contextlib import contextmanager
 from firedrake.petsc import PETSc
-from math import pi, sqrt
-from abc import ABC, abstractmethod
 
-__all__ = ['FourDVarReducedFunctional', 'CovarianceOperator']
+__all__ = ['FourDVarReducedFunctional']
 
 
 def sc_passthrough(func):
@@ -156,14 +154,7 @@ class FourDVarReducedFunctional(AbstractReducedFunctional):
             # first rank sets up functionals for background initial observations
             if self.trank == 0:
 
-                # RF to recalculate inner product |x_0 - x_b|_B
-                # self.background_norm = CovarianceNormReducedFunctional(
-                #     self.background._ad_init_zero(),
-                #     background_covariance, form="diffusion",
-                #     control_name="bkg_err_vec_copy")
-
                 self.background_norm = CovarianceReducedFunctional(
-                    self.background._ad_init_zero(),
                     background_covariance)
 
                 if self.initial_observations:
@@ -175,14 +166,7 @@ class FourDVarReducedFunctional(AbstractReducedFunctional):
                         functional_name="obs_err_vec_0",
                         control_name="Control_0_obs_copy")
 
-                    # RF to recalculate inner product |H(x_0) - y_0|_R
-                    # self.initial_observation_norm = CovarianceNormReducedFunctional(
-                    #     self.initial_observation_error.functional,
-                    #     observation_covariance, form="mass",
-                    #     control_name="obs_err_vec_0_copy")
-
                     self.initial_observation_norm = CovarianceReducedFunctional(
-                        self.initial_observation_error.functional,
                         observation_covariance)
 
                     self.observation_rfs.append(self.initial_observation_error)
@@ -223,23 +207,13 @@ class FourDVarReducedFunctional(AbstractReducedFunctional):
             # Strong constraint functional to be converted to ReducedFunctional later
 
             # penalty for straying from prior
-            # self.background_norm = CovarianceReducedFunctional(
-            #     control.control._ad_init_zero(),
-            #     background_covariance)
-
             bkg_err = Function(self.control_space)
             bkg_err.assign(control.control - self.background)
-            # self._accumulate_functional(
-            #     weighted_norm(bkg_err, background_covariance))
             self._accumulate_functional(
                 background_covariance.norm(bkg_err))
 
             # penalty for not hitting observations at initial time
             if self.initial_observations:
-                # self._accumulate_functional(
-                #     weighted_norm(
-                #         observation_error(control.control),
-                #         observation_covariance))
                 self._accumulate_functional(
                     observation_covariance.norm(
                         observation_error(control.control)))
@@ -663,10 +637,6 @@ class StrongObservationStage:
         if hasattr(self.aaorf, "_strong_reduced_functional"):
             raise ValueError("Cannot add observations once strong"
                              " constraint ReducedFunctional instantiated")
-        # self.aaorf._accumulate_functional(
-        #     weighted_norm(
-        #         observation_error(state),
-        #         observation_covariance))
         self.aaorf._accumulate_functional(
             observation_covariance.norm(
                 observation_error(state)))
@@ -783,13 +753,7 @@ class WeakObservationStage:
             'control_name': f"model_err_vec_{self.global_index}_copy"
         } if self.global_index else {}
 
-        # self.model_norm = CovarianceNormReducedFunctional(
-        #     state._ad_init_zero(),
-        #     forward_model_covariance,
-        #     **names, form="diffusion")
-
         self.model_norm = CovarianceReducedFunctional(
-            state._ad_init_zero(),
             forward_model_covariance)
 
         # Observations after tape cut because this is now a control, not a state
@@ -809,13 +773,8 @@ class WeakObservationStage:
         names = {
             'control_name': "obs_err_vec_{self.global_index}_copy"
         } if self.global_index else {}
-        # self.observation_norm = CovarianceNormReducedFunctional(
-        #     self.observation_error.functional,
-        #     observation_covariance,
-        #     **names, form="mass")
 
         self.observation_norm = CovarianceReducedFunctional(
-            self.observation_error.functional,
             observation_covariance)
 
         # remove the stage initial condition "control" now we've finished recording
@@ -825,301 +784,11 @@ class WeakObservationStage:
         set_working_tape()
 
 
-def covariance_norm(x, covariance, form='diffusion'):
-    pass
-    # if isinstance(covariance, Collection):
-    #     covariance, power = covariance
-    # else:
-    #     power = None
-    power = None
-
-    valid_forms = ("diffusion", "mass")
-    if form not in valid_forms:
-        raise ValueError(
-            f"Unknown covariance form type {form}, should be "
-            " or ".join(valid_forms))
-
-    v = TestFunction(x.function_space())
-    if form == 'diffusion':
-        sigma, L, bcs = covariance
-        # diffusion coefficient for lengthscale L
-        nu = 0.5*L*L
-        # normalisation for diffusion operator
-        lambda_g = L*sqrt(2*pi)
-        scale = lambda_g/sigma
-
-        xB = scale*(inner(x, v) - nu*inner(grad(x), grad(v)))*dx
-        val = assemble(xB(x))
-    elif form == 'mass':
-        if isinstance(covariance, (float, int)):
-            w = Constant(1/covariance)
-        else:
-            w = 1/covariance
-        xB = inner(x*w, v)*dx
-        val = assemble(xB(x))
-    else:
-        raise ValueError("Forgot to handle a covariance form type")
-
-    from pyadjoint import AdjFloat
-    result = val if power is None else val**power
-    assert type(result) is AdjFloat, f"{type(result).__name__ = } is not AdjFloat."
-    return result
-
-
-class CovarianceOperatorBase(ABC):
-    @abstractmethod
-    def norm(self, x):
-        """Calculate (x^T)(B^-1)(x) : V x V -> V x V* -> R
-        """
-        pass
-
-    @abstractmethod
-    def action(self, x):
-        """Calculate B*x : V* -> V
-        """
-        pass
-
-    @property
-    @abstractmethod
-    def reduced_functional(self):
-        pass
-
-
-class FormCovarianceOperator(CovarianceOperatorBase):
-    def __init__(self, V, sigma, bcs=None, implicit=True,
-                 options_prefix=None, solver_parameters=None):
-        self.V = V
-        self.sigma = sigma
-        self.bcs = bcs
-        self.implicit = implicit
-
-        self.x = Function(V)
-
-        self._sol = Function(V)
-        if implicit:
-            self._b = Function(V)
-            rhs = inner(self._b, v)*dx
-        else:
-            self._b = Cofunction(V.dual())
-            rhs = self._b
-
-        self.two_form = derivative(self.one_form, self.x)
-
-        self.solver = LinearVariationalSolver(
-            LinearVariationalProblem(
-                self.two_form, rhs, self._sol,
-                bcs=self.bcs, constant_jacobian=True),
-            options_prefix=options_prefix,
-            solver_parameters=solver_parameters)
-
-        if implicit:
-            self._assemble_xBx = get_assembler(
-                inner(self._b, self._sol)*dx).assemble
-
-            self._assemble_one_form = get_assembler(
-                self.one_form, bcs=self.bcs).assemble
-
-        else:
-            self._assemble_norm = get_assembler(
-                self.one_form(self.x)).assemble
-
-    @property
-    @abstractmethod
-    def one_form(self):
-        raise NotImplementedError
-
-    def norm(self, x):
-        if x.function_space() != self.V:
-            raise ValueError("Covariance norm acts on a Function")
-
-        if self.implicit:  # xT*L^{-1}*x
-            self._b.assign(x)
-            self.solver.solve()
-            return self._assemble_xBx()
-
-        else:  # xT*L*x
-            self.x.assign(x)
-            return self._assemble_norm()
-
-    def action(self, x, tensor=None, apply_riesz=True):
-        # B : V* -> V
-        if x.function_space() != self.V.dual():
-            raise ValueError("Covariance operator acts on a Cofunction")
-        if tensor is None:
-            tensor = Function(self.V if apply_riesz else self.V.dual())
-
-        if self.implicit:  # L*x
-            self.x.assign(x.riesz_representation())
-            Bx = self._assemble_one_form()
-            if apply_riesz:
-                return tensor.assign(Bx.riesz_representation())
-            else:
-                return tensor.assign(Bx)
-
-        else:  # L^{-1}*x
-            self._b.assign(x)
-            self.solver.solve()
-            if apply_riesz:
-                return tensor.assign(self._sol)
-            else:
-                return tensor.assign(self._sol.riesz_representation())
-
-    @cached_property
-    def reduced_functional(self):
-        pass
-
-
-class MassCovarianceOperator(CovarianceOperatorBase):
-    @property
-    def one_form(self):
-        x = self.x
-        v = TestFunction(V)
-        w = self.sigma if self.implicit else 1/self.sigma
-        return inner(x*w, v)*dx
-
-
-class DiffusionCovarianceOperator(CovarianceOperatorBase):
-    def __init__(self, V, sigma, L, bcs=None, implicit=True,
-                 options_prefix=None, solver_parameters=None):
-        self.L = L
-        super().__init__(V, sigma, bcs=bcs, implicit=implicit,
-                         options_prefix=options_prefix,
-                         solver_parameters=solver_parameters)
-
-    @property
-    def one_form(self):
-        L = self.L
-        sigma = self.sigma
-        nu = Constant(L*L/2)
-        lambda_g = Constant(L*sqrt(2*pi))
-        self.nu = nu
-        self.lambda_g = lambda_g
-        w = sigma/lambda_g if self.implicit else lambda_g/sigma
-        x = self.x
-        v = TestFunction(self.V)
-        return w*(inner(x, v)*dx + inner(nu*grad(x), grad(v))*dx)
-
-
-class CovarianceOperator:
-    def __init__(self, V, form_type, **kwargs):
-        valid_form_types = ("diffusion", "mass")
-        if form_type not in valid_form_types:
-            raise ValueError(
-                f"Unknown form_type {form} for {type(self).__name__},"
-                "should be "+" or ".join(valid_form_types))
-        self.form_type = form_type
-        self.V = V
-
-        x = Function(V)
-        u = TrialFunction(V)
-        v = TestFunction(V)
-        self.x = x
-        self.u = u
-        self.v = v
-
-        sigma = kwargs["sigma"]
-        self.sigma = sigma
-
-        if form_type == "mass":
-            w = 1/sigma
-            one_form = inner(x*w, v)*dx
-
-        elif form_type == "diffusion":
-            L = kwargs["L"]
-            nu = Constant(0.5*L*L)
-            lambda_g = Constant(L*sqrt(2.*pi))
-            self.L = L
-            self.nu = nu
-            self.lambda_g = lambda_g
-
-            scale = sigma/lambda_g
-            one_form = scale*(inner(x, v) + nu*inner(grad(x), grad(v)))*dx
-
-        self.one_form = one_form
-        self.two_form = derivative(self.one_form, x)
-
-        self.bcs = kwargs.get("bcs", None) or []
-        options_prefix = kwargs.get("options_prefix", None)
-        solver_parameters = kwargs.get("solver_parameters", None)
-
-        self._assemble_action = get_assembler(
-            self.one_form, bcs=self.bcs).assemble
-
-        self._b = Function(V)
-        rhs = inner(self._b, v)*dx
-        self._sol = Function(V)
-        self.solver = LinearVariationalSolver(
-            LinearVariationalProblem(
-                self.two_form, rhs, self._sol,
-                bcs=self.bcs, constant_jacobian=True),
-            options_prefix=options_prefix,
-            solver_parameters=solver_parameters)
-
-    def norm(self, x):
-        if x.function_space() != self.V:
-            raise ValueError("Covariance norm taken over a Function")
-
-        if self.form_type == "mass":
-            self.x.assign(x)
-            return assemble(self.one_form(self.x))
-
-        elif self.form_type == "diffusion":
-            self._b.assign(x)
-            self.solver.solve()
-            Binv_x = self._sol
-            return assemble(inner(x, Binv_x)*dx)
-
-    def action(self, x, tensor=None):
-        if x.function_space() != self.V.dual():
-            raise ValueError("Covariance operator acts on a Cofunction")
-
-        if tensor is None:
-            tensor = Function(self.V)
-
-        if self.form_type == "mass":
-            self._b.assign(x.riesz_representation())
-            self._sol.zero()
-            self.solver.solve()
-            return tensor.assign(self._sol)
-
-        elif self.form_type == "diffusion":
-            self.x.assign(x.riesz_representation())
-            Bx = assemble(self.one_form, bcs=self.bcs)
-            return tensor.assign(Bx.riesz_representation())
-
-    @cached_property
-    def reduced_functional(self):
-        return CovarianceReducedFunctional(self)  # TODO: ref cycle
-
-
-def weighted_norm(x, w):
-    return assemble(inner(w*x, x*w)*dx)
-
-
 class CovarianceReducedFunctional(ReducedFunctional):
-    def __init__(self, v, covariance):
+    def __init__(self, covariance):
         self.covariance = covariance
         rf = isolated_rf(
             lambda x: covariance.norm(x),
-            v._ad_init_zero())
+            covariance.new_primal_variable())
         super().__init__(
             rf.functional, rf.controls[0], tape=rf.tape)
-
-
-class CovarianceNormReducedFunctional(ReducedFunctional):
-    def __init__(self, x, covariance, form='diffusion',
-                 functional_name=None,
-                 control_name=None):
-        # if isinstance(covariance, Collection):
-        #     self.covariance, self.power = covariance
-        # else:
-        #     self.covariance = covariance
-        #     self.power = None
-        self.covariance = covariance
-        cov_norm = partial(covariance_norm, covariance=covariance, form=form)
-        rf = isolated_rf(cov_norm, x,
-                         functional_name=functional_name,
-                         control_name=control_name)
-        super().__init__(rf.functional,
-                         rf.controls.delist(rf.controls),
-                         tape=rf.tape)
