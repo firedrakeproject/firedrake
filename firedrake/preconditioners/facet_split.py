@@ -242,7 +242,7 @@ def restricted_dofs(celem, felem):
     cdofs = celem.entity_dofs()
     fdofs = felem.entity_dofs()
     for dim in sorted(cdofs):
-        for entity in cdofs[dim]:
+        for entity in sorted(cdofs[dim]):
             ndofs = len(cdofs[dim][entity])
             indices[cdofs[dim][entity]] = fdofs[dim][entity][:ndofs]
     return indices

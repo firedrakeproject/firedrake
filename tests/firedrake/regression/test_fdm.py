@@ -342,9 +342,10 @@ def test_ipdg_direct_solver(fs):
 def test_tabulate_exterior_derivative(mesh, variant, degree):
     from firedrake.preconditioners.fdm import tabulate_exterior_derivative
     from firedrake.preconditioners.bddc import get_vertex_dofs
-    family = {1: "DG", 2: "RTCE", 3: "NCE"}[mesh.topological_dimension()]
+    tdim = mesh.topological_dimension()
+    family = {1: "DG", 2: "RTCE", 3: "NCE"}[tdim]
     V0 = FunctionSpace(mesh, "Lagrange", degree, variant=variant)
-    V1 = FunctionSpace(mesh, family, degree, variant=variant)
+    V1 = FunctionSpace(mesh, family, degree-(tdim == 1), variant=variant)
 
     D = tabulate_exterior_derivative(V0, V1)
     v = get_vertex_dofs(V0)
