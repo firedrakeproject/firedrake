@@ -30,7 +30,7 @@ from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
 
 import pyop3.expr.base as expr_types
-from .base import conditional
+from .base import conditional, loopified_shape
 
 
 # should inherit from _Dat
@@ -249,7 +249,7 @@ def _(gt: expr_types.GreaterThan, /, **kwargs) -> Any:
 
 @_evaluate.register
 def _(le: expr_types.LessThanOrEqual, /, **kwargs) -> Any:
-    return _evaluate(le.a) <= _evaluate(le.b)
+    return _evaluate(le.a, **kwargs) <= _evaluate(le.b, **kwargs)
 
 
 @_evaluate.register

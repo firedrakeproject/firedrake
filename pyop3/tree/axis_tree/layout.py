@@ -26,6 +26,7 @@ from pyop3.tree.axis_tree.tree import (
     AxisTree,
     full_shape,
     merge_axis_trees,
+    replace_exprs,
 )
 from pyop3.dtypes import IntType
 from pyop3.tree.labelled_tree import parent_path
@@ -107,6 +108,7 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
     """
     from pyop3 import Dat, loop, exscan
     from pyop3.expr.tensor.dat import LinearDatBufferExpression, as_linear_buffer_expression
+    from pyop3.expr.visitors import replace
 
     layouts = {}
     start = 0
@@ -213,36 +215,30 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
                 offset_dat = Dat(offset_axes.regionless, data=np.zeros(offset_axes.regionless.size, dtype=IntType))
 
                 if not outer_loop_tree.is_empty:
-                    breakpoint()
-                    # ix = outer_loop_tree.index()
-                    #
-                    # breakpoint()
-                    # axis_to_loop_var_replace_map = {}
-                    #
-                    # size_expr_alt = replace(size_expr, axis_to_loop_var_replace_map)
-                    #
-                    # loop(
-                    #     ix, exscan(offset_dat[ix], size_expr_alt, "+"),
-                    # )()
+                    ix = outer_loop_tree.index()
+
+                    axis_to_loop_var_replace_map = {
+                        AxisVar(ax): LoopIndexVar(ix, ax)
+                        for ax in ix.iterset.nodes
+                    }
+
+                    size_expr_alt = replace(size_expr, axis_to_loop_var_replace_map)
+
+                    assignee = offset_dat[ix].concretize()
+                    scan_axis = replace_exprs(linear_axis, axis_to_loop_var_replace_map)
+                    loop(
+                        ix, exscan(assignee, size_expr_alt, "+", scan_axis),
+                    )()
 
                 else:
                     exscan(offset_dat.concretize(), size_expr, "+", linear_axis, eager=True)
 
-
-                breakpoint()
-
                 # steps = _tabulate_steps(offset_axes, subtree.size, regions=False)
                 # offset_dat.buffer._data[...] = steps
-                tabulated[subtree] = offset_dat
+                # tabulated[subtree] = offset_dat   # TODO
 
-                offset_dat_expr = as_linear_buffer_expression(offset_dat)
-                component_layout = offset_dat_expr * step + start
-
-                # Do not accumulate this layout because the levels below also require tabulation
-                # This still requires some work.
-                # layout_expr_acc_ = layout_expr_acc + component_layout
-                layout_expr_acc_ = layout_expr_acc
-                layouts[path_acc_] = layout_expr_acc + component_layout
+                layout_expr_acc_ = layout_expr_acc + offset_dat.concretize() + start
+                layouts[path_acc_] = layout_expr_acc_
 
         start += axis_tree_component_size(axes, path_acc, component)
 

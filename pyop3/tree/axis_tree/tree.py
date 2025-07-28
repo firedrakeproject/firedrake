@@ -2230,3 +2230,25 @@ def _iter_axis_tree_rec(axis_tree: AbstractAxisTree, path: ConcretePathT, indice
                 yield from _iter_axis_tree_rec(axis_tree, path_, indices_)
             else:
                 yield (path_, indices_)
+
+
+@functools.singledispatch
+def replace_exprs(treelike, replace_map):
+    raise NotImplementedError
+
+
+@replace_exprs.register(Axis)
+def _(axis: Axis, /, replace_map):
+    return axis.copy(components=tuple(replace_exprs(c, replace_map) for c in axis.components))
+
+
+@replace_exprs.register(AxisComponent)
+def _(component: AxisComponent, /, replace_map):
+    return component.copy(regions=tuple(replace_exprs(r, replace_map) for r in component.regions))
+
+
+@replace_exprs.register(AxisComponentRegion)
+def _(region: AxisComponentRegion, /, replace_map):
+    from pyop3.expr.visitors import replace
+
+    return region.__record_init__(size=replace(region.size, replace_map))

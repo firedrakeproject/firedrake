@@ -490,6 +490,7 @@ class ModuleExecutor:
         # selfstr = str(self)
         # if all(k not in selfstr for k in SAFE_KERNELS):
         #     pyop3.extras.debug.maybe_breakpoint("a")
+        pyop3.extras.debug.maybe_breakpoint()
 
 
         self.executable(*exec_arguments)
@@ -1181,15 +1182,17 @@ def add_leaf_assignment(
 
 @_compile.register(Exscan)
 def _(exscan: Exscan, loop_indices, context) -> None:
+    if exscan.scan_type != "+":
+        raise NotImplementedError
     component = exscan.scan_axis.component
     domain_var = register_extent(
-        component.size,
+        component.size-1,
         {},
         loop_indices,
         context,
     )
     iname = context.unique_name("i")
-    context.add_domain(iname, domain_var-1)
+    context.add_domain(iname, domain_var)
 
     lexpr = lower_expr(exscan.assignee, [{exscan.scan_axis.label: pym.var(iname)+1}], loop_indices, context, intent=WRITE)
     lexpr2 = lower_expr(exscan.assignee, [{exscan.scan_axis.label: pym.var(iname)}], loop_indices, context)
@@ -1220,7 +1223,7 @@ def _(add: expr_mod.Add, /, *args, **kwargs) -> pym.Expression:
 
 @_lower_expr.register(expr_mod.Sub)
 def _(sub: expr_mod.Sub, /, *args, **kwargs) -> pym.Expression:
-    return _lower_expr(add.a, *args, **kwargs) - _lower_expr(add.b, *args, **kwargs)
+    return _lower_expr(sub.a, *args, **kwargs) - _lower_expr(sub.b, *args, **kwargs)
 
 
 @_lower_expr.register(expr_mod.Mul)
