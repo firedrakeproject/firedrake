@@ -20,4 +20,5 @@ from .base import (  # noqa: F401
     assignment_type_as_intent,
     do_loop,
     _loop as loop,
+    exscan,
 )

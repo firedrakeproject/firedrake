@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import collections
 import functools
 import numbers
 from functools import cached_property
@@ -9,7 +10,7 @@ import numpy as np
 from immutabledict import immutabledict as idict
 
 from pyop3 import utils
-from pyop3.tree.axis_tree import UNIT_AXIS_TREE, AxisTree, merge_trees2
+from pyop3.tree.axis_tree import UNIT_AXIS_TREE, AxisTree, merge_axis_trees
 
 
 # TODO: define __str__ as an abc?
@@ -248,10 +249,10 @@ class BinaryOperator(Operator, metaclass=abc.ABCMeta):
         from pyop3.expr.visitors import get_shape
 
         return (
-            merge_trees2(
+            merge_axis_trees((
                 utils.just_one(get_shape(self.a)),
                 utils.just_one(get_shape(self.b)),
-            ),
+            )),
         )
 
     @cached_property
@@ -477,7 +478,8 @@ class AxisVar(Terminal):
 
     @cached_property
     def shape(self) -> tuple[AxisTree]:
-        return (self.axis.as_tree(),)
+        from pyop3.tree.axis_tree.tree import full_shape
+        return (merge_axis_trees((full_shape(self.axis.as_tree()), self.axis.as_tree())),)
 
     loop_axes = idict()
 
@@ -645,5 +647,3 @@ def loopified_shape(expr: Expression) -> tuple[AxisTree, Mapping[LoopIndexVar, A
         axis_tree = loop_tree.add_subtree(loop_tree.leaf_path, subtree)
 
     return axis_tree, loop_var_replace_map
-
-

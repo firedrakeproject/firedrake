@@ -659,3 +659,17 @@ def ceildiv(a, b, /):
         return -(a // -b)
 
 
+def regexify(pattern: str):
+    """Convert an expression pattern into a regex pattern.
+
+    This is useful for testing.
+
+    """
+    # Escape common characters
+    for char in ["(", ")", "[", "]", "*", "+"]:
+        pattern = pattern.replace(char, f"\\{char}")
+
+    # Convert '#' to '\d+' (to avoid numbering issues with arrays)
+    pattern = pattern.replace("#", r"\d+")
+
+    return pattern

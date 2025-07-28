@@ -1068,6 +1068,7 @@ def _(buffer_expr: BufferExpression) -> numbers.Number:
         return max(buffer.data_ro)
 
 
+# TODO: it would be handy to have 'single=True' or similar as usually only one shape is here
 @functools.singledispatch
 def get_shape(obj: Any):
     raise TypeError

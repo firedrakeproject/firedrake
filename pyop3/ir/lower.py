@@ -46,6 +46,7 @@ from pyop3.insn.base import (
     READ,
     RW,
     AbstractAssignment,
+    Exscan,
     NullInstruction,
     assignment_type_as_intent,
     parse_compiler_parameters,
@@ -751,6 +752,7 @@ def _(loop: Loop, /):
 
 @_collect_temporary_shapes.register(AbstractAssignment)
 @_collect_temporary_shapes.register(NullInstruction)
+@_collect_temporary_shapes.register(Exscan)  # assume we are fine
 def _(assignment: AbstractAssignment, /) -> immutabledict:
     return immutabledict()
 
@@ -1175,6 +1177,26 @@ def add_leaf_assignment(
         rexpr = lexpr + rexpr
 
     codegen_context.add_assignment(lexpr, rexpr)
+
+
+@_compile.register(Exscan)
+def _(exscan: Exscan, loop_indices, context) -> None:
+    component = exscan.scan_axis.component
+    domain_var = register_extent(
+        component.size,
+        {},
+        loop_indices,
+        context,
+    )
+    iname = context.unique_name("i")
+    context.add_domain(iname, domain_var-1)
+
+    lexpr = lower_expr(exscan.assignee, [{exscan.scan_axis.label: pym.var(iname)+1}], loop_indices, context, intent=WRITE)
+    lexpr2 = lower_expr(exscan.assignee, [{exscan.scan_axis.label: pym.var(iname)}], loop_indices, context)
+    rexpr = lower_expr(exscan.expression, [{exscan.scan_axis.label: pym.var(iname)}], loop_indices, context)
+
+    rexpr = lexpr2 + rexpr
+    context.add_assignment(lexpr, rexpr)
 
 
 def lower_expr(expr, iname_maps, loop_indices, ctx, *, intent=READ, paths=None, shape=None) -> pym.Expression:

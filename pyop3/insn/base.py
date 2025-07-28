@@ -901,6 +901,33 @@ class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
     # }}}
 
 
+@utils.frozenrecord()
+class Exscan(Terminal):
+
+    # {{{ instance attrs
+
+    assignee: Any
+    expression: Any
+    scan_type: Any
+    scan_axis: Axis
+
+    # }}}
+
+    # {{{ interface impls
+
+    @property
+    def arguments(self) -> tuple[Any, Any]:
+        return (self.assignee, self.expression)
+
+    # }}}
+
+
+def exscan(*args, eager: bool = False, **kwargs):
+    expr = Exscan(*args, **kwargs)
+    return expr() if eager else expr
+
+
+
 # TODO: With Python 3.11 can be made a StrEnum
 class ArrayAccessType(enum.Enum):
     READ = "read"

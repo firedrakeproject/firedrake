@@ -60,6 +60,7 @@ from pyop3.insn.base import (
     Instruction,
     Loop,
     InstructionList,
+    Exscan,
     # PetscMatAssignment,
     ArrayAccessType,
     Terminal,
@@ -146,6 +147,12 @@ def _(assignment: ArrayAssignment, /, *, loop_context_acc) -> ArrayAssignment:
     return ArrayAssignment(assignee, expression, assignment.assignment_type)
 
 
+# for now assume we are fine
+@_expand_loop_contexts_rec.register(Exscan)
+def _(exscan: Exscan, /, *, loop_context_acc) -> ArrayAssignment:
+    return exscan
+
+
 class ImplicitPackUnpackExpander(Transformer):
     def __init__(self):
         self._name_generator = UniqueNameGenerator()
@@ -158,6 +165,7 @@ class ImplicitPackUnpackExpander(Transformer):
         raise NotImplementedError(f"No handler provided for {type(expr).__name__}")
 
     @_apply.register(NullInstruction)
+    @_apply.register(Exscan)  # assume we are fine
     def _(self, insn, /):
         return insn
 
@@ -355,6 +363,7 @@ def _(loop: Loop, /) -> Loop:
 @expand_assignments.register(StandaloneCalledFunction)
 # @expand_assignments.register(PetscMatAssignment)
 @expand_assignments.register(NullInstruction)
+@expand_assignments.register(Exscan)  # assume we are fine
 def _(func: StandaloneCalledFunction, /) -> StandaloneCalledFunction:
     return func
 
@@ -483,6 +492,7 @@ def concretize_layouts(obj: Any, /) -> Instruction:
 
 
 @concretize_layouts.register(NullInstruction)
+@concretize_layouts.register(Exscan)  # assume we are fine
 def _(null: NullInstruction, /) -> NullInstruction:
     return null
 
@@ -633,6 +643,7 @@ def _collect_candidate_indirections(obj: Any, /, **kwargs) -> immutabledict:
 
 
 @_collect_candidate_indirections.register(NullInstruction)
+@_collect_candidate_indirections.register(Exscan)  # assume we are fine
 def _(null: InstructionList, /, **kwargs) -> immutabledict:
     return immutabledict()
 
