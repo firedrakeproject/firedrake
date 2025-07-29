@@ -134,7 +134,7 @@ def mesh(request):
     return msh
 
 
-#@pytest.mark.parallel
+@pytest.mark.parallel
 @pytest.mark.parametrize("degree", range(1, 3))
 @pytest.mark.parametrize("variant", ("spectral", "fdm"))
 def test_vertex_dofs(mesh, variant, degree):
