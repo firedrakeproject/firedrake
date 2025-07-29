@@ -20,6 +20,7 @@ from pyop3 import tree, utils
 from pyop3.expr import AxisVar, LoopIndexVar, NaN  # TODO: I think these should be cyclic imports
 from pyop3.expr.base import NAN, loopified_shape
 from pyop3.expr.visitors import get_shape
+from pyop3.expr.tensor import LinearDatBufferExpression
 from pyop3.tree.axis_tree.tree import (
     UNIT_AXIS_TREE,
     Axis,
@@ -55,14 +56,31 @@ def make_layouts(axes: AxisTree, loop_vars) -> immutabledict:
 
 def tabulate_again(axes):
     from pyop3 import do_loop
-    from pyop3.expr.tensor.dat import LinearDatBufferExpression
-    from pyop3.expr.tensor.dat import as_linear_buffer_expression
     from pyop3.insn import ArrayAssignment
 
     to_tabulate = []
     tabulated = {}
-    layouts = _prepare_layouts(axes, axes.root, immutabledict(), 0, to_tabulate, tabulated, (), False)
+
+    # TODO: how to track regions?
+    layouts = _prepare_layouts(axes, axes.root, immutabledict(), 0, to_tabulate, tabulated, ())
     start = 0
+
+    ???
+
+    """TODO NEXT
+
+    The idea here is to just add some offset to all that need tabulating. Something like
+
+    region axes = axes[region_slice]
+
+    loop(region axes, offset.iassign(start))
+
+    start += region axes.size
+
+    but not that the offset for the existing dat has already been applied. The offset is
+    only needed for the other arrays!
+
+    """
 
     # this is done at the root of the tree, so can treat in a flattened manner...
     offsets = [0] * len(to_tabulate)  # not sure that this is needed
@@ -78,11 +96,11 @@ def tabulate_again(axes):
 
             idx = my_axes.index()
 
-            indexed = as_linear_buffer_expression(offset_dat[idx])
+            indexed = offset_dat[idx].concretize()
             # assignee = LinearDatBufferExpression(indexed.buffer, indexed.layout)
             assignee = indexed  # surely?
 
-            indexed_expr = as_linear_buffer_expression(region_indices_dat[idx])
+            indexed_expr = region_indices_dat[idx].concretize()
             expression = LinearDatBufferExpression(indexed_expr.buffer, indexed_expr.layout) + start
 
             assignment = ArrayAssignment(assignee, expression, "write")
@@ -102,94 +120,51 @@ def tabulate_again(axes):
 # TODO:
 # I think the right approach here is to deal more with subtrees. If we have a mixed thing
 # for instance we should eagerly split the tree apart and tabulate each part.
-def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_tabulate, tabulated, region_axes, regions_done) -> immutabledict:
+def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_tabulate, tabulated, parent_axes) -> immutabledict:
     """Traverse the axis tree and prepare zeroed arrays for offsets.
 
     Any axes that do not require tabulation will also be set at this point.
 
     """
-    from pyop3 import Dat, loop, exscan
-    from pyop3.expr.tensor.dat import LinearDatBufferExpression, as_linear_buffer_expression
-    from pyop3.expr.visitors import replace
-
     layouts = {}
     start = 0
-    for i, component in enumerate(axis.components):
+    for component in axis.components:
         path_acc_ = path_acc | {axis.label: component.label}
-
-        linear_axis = axis.linearize(component.label)
-
-        # always do this because we want to collect them all until we run out of regions
-        if not regions_done:
-            region_axes_ = region_axes + (linear_axis,)
-
-        regions_done_ = regions_done
 
         subtree = axes.subtree(path_acc_)
 
-        # At leaves the layout function is trivial
-        if not subtree and regions_done:
-            layout_expr_acc_ = layout_expr_acc + AxisVar(linear_axis) + start
-            layouts[path_acc_] = layout_expr_acc_
+        linear_axis = axis.linearize(component.label)
+        parent_axes_ = parent_axes + (linear_axis,)
 
-        # Now determine layouts
-
-        # If there are still regions in the subtree then we cannot compute any
-        # layout functions because the region interleaving makes this meaningless.
-        elif subtree._all_region_labels:
+        # more regions below, cannot do anything here
+        if subtree and subtree._all_region_labels:
             layout_expr_acc_ = layout_expr_acc
             layouts[path_acc_] = NAN
 
-        # We can have a layout here but it must be tabulated later on
-        else:
-            size_expr = axes.subtree(path_acc_).size
-            step_expr = _accumulate_step_sizes(size_expr, linear_axis, region_axes_)
+        # At the last region, can tabulate here
+        elif component.has_non_trivial_regions and not subtree._all_region_labels:
+            step_expr = _accumulate_step_sizes(subtree.size, linear_axis, parent_axes_)
+            breakpoint()
+            to_tabulate.append((offset_dat, step_expr))
+
             layout_expr_acc_ = layout_expr_acc + step_expr + start
             layouts[path_acc_] = layout_expr_acc_
 
-            if component.has_non_trivial_regions:
-                breakpoint()
-                to_tabulate.append((offset_dat, step_expr))
-            else:
-                pass
+        # At leaves the layout function is trivial
+        elif not subtree:
+            layout_expr_acc_ = layout_expr_acc + AxisVar(linear_axis) + start
+            layouts[path_acc_] = layout_expr_acc_
 
-            regions_done_ = True
-
-                # tabulated[subtree] = offset_dat   # TODO
-
-            # breakpoint()
-            # # 'offset_axes' consists of the current axis plus any other free indices needed
-            # offset_axes = full_shape(AxisTree.from_iterable(region_axes_))
-            #
-            # # need to include extra loop axes
-            #
-            # offset_dat = Dat(offset_axes.regionless, data=np.full(offset_axes.regionless.size, -1, dtype=IntType))
-            # subtree = axes.subtree(path_acc_)
-            #
-            # steps = _tabulate_steps(offset_axes, subtree.size or 1)
-            # to_tabulate.append((offset_dat, steps))
-            #
-            # offset_dat_expr = as_linear_buffer_expression(offset_dat)
-            # # component_layout = offset_dat_expr * step + start
-            # component_layout = offset_dat_expr
-            # layout_expr_acc_ = layout_expr_acc + component_layout
-            # layouts[path_acc_] = layout_expr_acc_
-
-        # else:
-        #     size_expr = axes.subtree(path_acc_).size
-        #     step_expr = _accumulate_step_sizes(size_expr, linear_axis)
-        #
-        #     # steps = _tabulate_steps(offset_axes, subtree.size, regions=False)
-        #     # offset_dat.buffer._data[...] = steps
-        #     # tabulated[subtree] = offset_dat   # TODO
-        #
-        #     layout_expr_acc_ = layout_expr_acc + step_expr + start
-        #     layouts[path_acc_] = layout_expr_acc_
+        # Tabulate
+        else:
+            step_expr = _accumulate_step_sizes(subtree.size, linear_axis)
+            layout_expr_acc_ = layout_expr_acc + step_expr + start
+            layouts[path_acc_] = layout_expr_acc_
 
         start += axis_tree_component_size(axes, path_acc, component)
 
         if subaxis := axes.node_map[path_acc_]:
-            sublayouts = _prepare_layouts(axes, subaxis, path_acc_, layout_expr_acc_, to_tabulate, tabulated, region_axes_, regions_done_)
+            sublayouts = _prepare_layouts(axes, subaxis, path_acc_, layout_expr_acc_, to_tabulate, tabulated, parent_axes_)
             layouts |= sublayouts
 
     return immutabledict(layouts)
@@ -833,12 +808,11 @@ def eval_offset(
 
 # TODO: singledispatch (but needs import thoughts)
 # TODO: should cache this!!!
-def _accumulate_step_sizes(obj: Any, axis, region_axes=()):
+def _accumulate_step_sizes(obj: Any, axis, region_axes=None):
     from pyop3.expr import base as expr_types
-    from pyop3.expr.tensor.dat import LinearDatBufferExpression
 
     if region_axes:
-        breakpoint()
+        return _accumulate_dat_expr(obj, axis, region_axes)
 
     if isinstance(obj, numbers.Number):
         return AxisVar(axis) * obj
@@ -855,11 +829,11 @@ def _accumulate_step_sizes(obj: Any, axis, region_axes=()):
         raise NotImplementedError
 
 
-def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis):
+def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis, region_axes=None):
     from pyop3 import Dat, exscan, loop
     from pyop3.expr.visitors import replace
 
-    if linear_axis not in utils.just_one(get_shape(size_expr)):
+    if not region_axes and linear_axis not in utils.just_one(get_shape(size_expr)):
         return AxisVar(linear_axis) * size_expr
 
     # do the moral equivalent of
@@ -869,7 +843,10 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
     #       offset[i, j] = offset[i, j-1] + size[i, j]
 
     # by definition the current axis is in size_expr
-    offset_axes = merge_axis_trees((utils.just_one(get_shape(size_expr)), full_shape(linear_axis.as_tree())))
+    if not region_axes:
+        offset_axes = merge_axis_trees((utils.just_one(get_shape(size_expr)), full_shape(linear_axis.as_tree())))
+    else:
+        offset_axes = AxisTree.from_iterable(region_axes)
 
     # remove current axis as we need to scan over it
     loc = utils.just_one(path for path, axis_ in offset_axes.node_map.items() if axis_ == linear_axis)
@@ -882,7 +859,7 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
     # but scanning is hard...
 
 
-    offset_dat = Dat(offset_axes.regionless, data=np.zeros(offset_axes.regionless.size, dtype=IntType))
+    offset_dat = Dat.zeros(offset_axes.regionless, dtype=IntType)
 
     if not outer_loop_tree.is_empty:
         ix = outer_loop_tree.index()
