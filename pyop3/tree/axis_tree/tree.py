@@ -929,16 +929,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
             debug_assert(lambda: (numbering >= 0).all())
         return numbering
 
-    def offset(self, indices, path=None, *, loop_exprs=idict()):
-        from pyop3.tree.axis_tree.layout import eval_offset
-        return eval_offset(
-            self,
-            self.subst_layouts(),
-            indices,
-            path,
-            loop_exprs=loop_exprs,
-        )
-
     @cached_property
     def leaf_target_paths(self):
         return tuple(
@@ -987,7 +977,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
             sfs = collect_star_forests(self)
             return concatenate_star_forests(sfs)
         else:
-            return None
             return local_sf(self.size, self.comm)
 
     def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
@@ -1374,8 +1363,8 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
             linear_axes.append(linear_axis)
         axis_tree = AxisTree.from_iterable(linear_axes)
 
-        if partial and path not in self.leaf_paths:
-            breakpoint()
+        if partial:
+            axis_tree = axis_tree.add_subtree(axis_tree.leaf_path, self.subtree(path))
 
         return axis_tree
 
@@ -1691,20 +1680,19 @@ class IndexedAxisTree(AbstractAxisTree):
     def outer_loops(self):
         return self._outer_loops
 
-    def linearize(self, path: PathT) -> IndexedAxisTree:
+    def linearize(self, path: PathT, *, partial: bool = False) -> IndexedAxisTree:
         """Return the axis tree dropping all components not specified in the path."""
         path = as_path(path)
 
-        linearized_axis_tree = self.materialize().linearize(path)
+        linearized_axis_tree = self.materialize().linearize(path, partial=partial)
 
         # linearize the targets
         linearized_targets = []
-        path_set = frozenset(path.items())
+
         for orig_target in self.targets:
             linearized_target = {}
             for axis_path, target_spec in orig_target.items():
-                axis_path_set = frozenset(axis_path.items())
-                if axis_path_set <= path_set:
+                if axis_path in linearized_axis_tree.node_map:
                     linearized_target[axis_path] = target_spec
             linearized_target = idict(linearized_target)
             linearized_targets.append(linearized_target)

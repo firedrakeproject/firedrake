@@ -19,7 +19,7 @@ from pyop3.config import config
 from pyop3.dtypes import IntType, ScalarType, DTypeT
 from pyop3.insn import KernelArgument
 from pyop2.mpi import COMM_SELF
-from pyop3.sf import StarForest
+from pyop3.sf import StarForest, local_sf
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
 
 
@@ -199,7 +199,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # {{{ Instance attrs
 
     _lazy_data: np.ndarray = dataclasses.field(repr=False)
-    sf: StarForest | None
+    sf: StarForest
     _name: str
     _constant: bool
     _ordered: bool
@@ -283,12 +283,13 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, max_value: numbers.Number | None=None, ordered:bool=False):
         data = data.flatten()
+        if sf is None:
+            sf = local_sf(data.size, COMM_SELF)
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
         if max_value is not None:
             max_value = utils.as_numpy_scalar(max_value)
         if ordered:
             utils.debug_assert(lambda: (data == np.sort(data)).all())
-
 
         self._lazy_data = data
         self.sf = sf

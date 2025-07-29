@@ -63,50 +63,35 @@ def tabulate_again(axes):
 
     # TODO: how to track regions?
     layouts = _prepare_layouts(axes, axes.root, immutabledict(), 0, to_tabulate, tabulated, ())
-    start = 0
 
-    """TODO NEXT
-
-    The idea here is to just add some offset to all that need tabulating. Something like
-
-    region axes = axes[region_slice]
-
-    loop(region axes, offset.iassign(start))
-
-    start += region axes.size
-
-    but not that the offset for the existing dat has already been applied. The offset is
-    only needed for the other arrays!
-
-    """
-
-    offsets = [0] * len(to_tabulate)
+    # TODO: There a particular cases (e.g. multiple regions but only a single
+    # component or no matching regions) where it is sufficient to do an affine
+    # layout instead of tabulating a start expression. We currently do not detect
+    # this.
+    starts = [0] * len(to_tabulate)
     for regions in _collect_regions(axes):
-        for i, start_dat in enumerate(to_tabulate):
-
-            if not all(region in start_dat.axes._all_region_labels for region in regions):
+        for i, (path, offset_dat) in enumerate(to_tabulate):
+            offset_axes = axes.drop_subtree(path, allow_empty_subtree=True).linearize(path)
+            if not all(region in offset_axes._all_region_labels for region in regions):
                 continue
 
-            regioned_axes = start_dat.axes.with_region_labels(regions)
+            regioned_axes = offset_axes.with_region_labels(regions)
             assert not regioned_axes._all_region_labels
-
-
-            offset = offsets[i]
 
             ix = regioned_axes.index()
 
-            # needed for now to avoid recursion
-            assignee = start_dat.with_axes(start_dat.axes.regionless)[ix]
+            assignee = offset_dat[ix]
 
-            do_loop(ix, assignee.iassign(offset))
+            if starts[i] > 0:
+                do_loop(ix, assignee.iassign(starts[i]))
 
-            for j, _ in enumerate(offsets):
-                if i == j:
-                    continue
-                else:
-                    offsets[j] += regioned_axes.size
+            # step_size = axes.materialize().subtree(path).size or 1
+            step_size = axes.linearize(path, partial=True).with_region_labels(regions).size or 1
 
-            # breakpoint()
+            for j, _ in enumerate(starts):
+                if i != j:
+                    starts[j] += step_size
+
     return layouts
 
 
@@ -136,18 +121,15 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
 
         # At the last region, can tabulate here
         elif component.has_non_trivial_regions and not subtree._all_region_labels:
+            offset_axes = AxisTree.from_iterable(parent_axes_)
             if subtree:
-                step_expr = _accumulate_step_sizes(subtree.size, linear_axis)
-                if linear_axis not in utils.just_one(get_shape(step_expr)).nodes:
-                    step_expr = AxisVar(linear_axis) * step_expr
+                offset_dat = _accumulate_dat_expr(subtree.size, linear_axis, offset_axes=offset_axes)
             else:
-                step_expr = AxisVar(linear_axis)
-
-            start_expr = Dat.zeros(AxisTree.from_iterable((parent_axes_)), dtype=IntType)
-            to_tabulate.append(start_expr)
+                offset_dat = _accumulate_dat_expr(1, linear_axis, offset_axes=offset_axes)
+            to_tabulate.append((path_acc_, offset_dat))
 
             assert layout_expr_acc == 0
-            layout_expr_acc_ = step_expr + start_expr.concretize()
+            layout_expr_acc_ = offset_dat.concretize()
             layouts[path_acc_] = layout_expr_acc_
 
         # At leaves the layout function is trivial
@@ -545,68 +527,6 @@ def has_constant_step(axes: AxisTree, axis, cpt, inner_loop_vars, path=immutable
         return True
 
 
-# def _axis_component_has_constant_step(axes: AxisTree, axis: Axis, component: AxisComponent) -> bool:
-#     # An axis component has a non-constant stride if:
-#     #   (a) It is multi-component and each component has multiple regions.
-#     #       For example, something like:
-#     #
-#     #           (owned)   | (ghost)
-#     #         [A0, A1, B0 | A2, B1]
-#     #
-#     #   (b) It has child axes whose size depends on 'outer' axis indices.
-#     #   (c) Any child axis has a multi-region component, even if the axis
-#     #       isn't multi-component. For example:
-#     #
-#     #         Axis(2, "a") -> Axis([AxisComponent({"owned": 2, "ghost": 1})], "b")
-#     #
-#     #       should give
-#     #
-#     #         [a0b0, a0b1, a1b0, a1b1, a0b2, a1b2]
-#     if len(axis.components) > 1 and len(component.regions) > 1:
-#         # must interleave
-#         return False
-#
-#     # we have a constant step if none of the internal dimensions need to index themselves
-#     # with the current index (numbering doesn't matter here)
-#     if subaxis := axes.child(axis, cpt):
-#         return all(
-#             # not size_requires_external_index(axes, subaxis, c, path | {axis.label: cpt.label})
-#             not size_requires_external_index(axes, subaxis, c, inner_loop_vars, path)
-#             for c in subaxis.components
-#         )
-#     else:
-#         return True
-
-
-def _tabulation_needs_subaxes(axes, path) -> bool:
-    """
-    As we descend the axis tree to compute layout functions we are able to access
-    more and more indices and can thus tabulate offsets into arrays with more and
-    more shape. This function determines whether or not we are sufficiently deep in
-    the tree for us to tabulate at this point (shallower is always better because
-    the tabulated array is smaller).
-
-    With this in mind, we cannot tabulate offsets if either:
-
-      (a) It has ragged child axes whose size depends on 'outer' axis indices, or
-      (b) Any child axis has a multi-region component, even if the axis
-          isn't multi-component. For example:
-
-            Axis(2, "a") -> Axis([AxisComponent({"owned": 2, "ghost": 1})], "b")
-
-          should give
-
-            [a0b0, a0b1, a1b0, a1b1, a0b2, a1b2]
-
-          meaning that axis 'a' cannot be tabulated without 'b'.
-
-    """
-    if axes.node_map[path]:
-        return _axis_needs_outer_index(axes, path) or _axis_contains_multiple_regions(axes, path)
-    else:
-        return False
-
-
 def _axis_needs_outer_index(axes, path) -> bool:
     axis = axes.node_map[path]
     for component in axis.components:
@@ -665,102 +585,6 @@ def _component_size_needs_outer_index(component: AxisComponent, path):
     return False
 
 
-def step_size(
-    axes: AxisTree,
-    axis: Axis,
-    component: AxisComponent,
-    indices=immutabledict(),
-    *,
-    loop_indices=immutabledict(),
-):
-    """Return the size of step required to stride over a multi-axis component.
-
-    Non-constant strides will raise an exception.
-    """
-    assert False, "old code"
-    if subaxis := axes.child(axis, component):
-        return _axis_size(axes, subaxis, indices, loop_indices=loop_indices)
-    else:
-        return 1
-
-
-def has_halo(axes, axis):
-    assert False, "old code"
-    # TODO: cleanup
-    return axes.comm.size > 1
-    if axis.sf is not None:
-        return True
-    else:
-        for component in axis.components:
-            subaxis = axes.child(axis, component)
-            if subaxis and has_halo(axes, subaxis):
-                return True
-        return False
-    return axis.sf is not None or has_halo(axes, subaxis)
-
-
-@PETSc.Log.EventDecorator()
-def axis_tree_size(axes: AxisTree) -> int:
-    """Return the size of an axis tree.
-
-    The returned size represents the total number of entries in the array. For
-    example, an array with shape ``(10, 3)`` will have a size of 30.
-
-    """
-    assert False, "old code"
-    outer_loops = axes.outer_loops
-
-    if axes.is_empty:
-        return 0
-
-    if not _axis_needs_outer_index(axes, axes.root, ()):
-        return _axis_size(axes, axes.root)
-
-    sizes = []
-
-    for idxs in my_product(outer_loops):
-        source_indices = merge_dicts(idx.source_exprs for idx in idxs)
-        target_indices = merge_dicts(idx.target_exprs for idx in idxs)
-
-        size = _axis_size(axes, axes.root, target_indices)
-        sizes.append(size)
-    return np.asarray(sizes, dtype=IntType)
-
-
-def my_product(loops):
-    if len(loops) > 1:
-        raise NotImplementedError(
-            "Now we are nesting loops so having multiple is a "
-            "headache I haven't yet tackled"
-        )
-    # loop, *inner_loops = loops
-    (loop,) = loops
-
-    if loop.iterset.outer_loops:
-        for indices in my_product(loop.iterset.outer_loops):
-            context = frozenset(indices)
-            for index in loop.iter(context):
-                indices_ = indices + (index,)
-                yield indices_
-    else:
-        for index in loop.iter():
-            yield (index,)
-
-
-def _axis_size(
-    axes: AxisTree,
-    axis: Axis,
-    indices=immutabledict(),
-    *,
-    loop_indices=immutabledict(),
-):
-    assert False, "old code, do not use"
-    return sum(
-        _axis_component_size(axes, axis, cpt, indices, loop_indices=loop_indices)
-        for cpt in axis.components
-    )
-
-
 def _axis_component_size(
     axes: AxisTree,
     axis: Axis,
@@ -775,41 +599,6 @@ def _axis_component_size(
     )
 
 
-def eval_offset(
-    axes,
-    layouts,
-    indices,
-    path=None,
-    *,
-    loop_exprs=immutabledict(),
-):
-    from pyop3.expr.visitors import evaluate as eval_expr
-
-    if path is None:
-        path = immutabledict() if axes.is_empty else just_one(axes.leaf_paths)
-
-    # if the provided indices are not a dict then we assume that they apply in order
-    # as we go down the selected path of the tree
-    if not isinstance(indices, collections.abc.Mapping):
-        # a single index is treated like a 1-tuple
-        indices = as_tuple(indices)
-
-        indices_ = {}
-        ordered_path = iter(just_one(axes.ordered_leaf_paths))
-        for index in indices:
-            axis_label, _ = next(ordered_path)
-            indices_[axis_label] = index
-        indices = indices_
-
-    layout_subst = layouts[immutabledict(path)]
-
-    # offset = ExpressionEvaluator(indices, loop_exprs)(layout_subst)
-    # offset = eval_expr(layout_subst, path, indices)
-    offset = eval_expr(layout_subst, indices)
-    # breakpoint()
-    return strict_int(offset)
-
-
 # TODO: singledispatch (but needs import thoughts)
 # TODO: should cache this!!!
 def _accumulate_step_sizes(obj: Any, axis):
@@ -819,18 +608,24 @@ def _accumulate_step_sizes(obj: Any, axis):
         return obj
     elif isinstance(obj, expr_types.Mul):
         return _accumulate_step_sizes(obj.a, axis) * _accumulate_step_sizes(obj.b, axis)
+    elif isinstance(obj, expr_types.Add):
+        return _accumulate_step_sizes(obj.a, axis) + _accumulate_step_sizes(obj.b, axis)
     elif isinstance(obj, LinearDatBufferExpression):
-        return _accumulate_dat_expr(obj, axis)
+        return _accumulate_dat_expr(obj, axis).concretize()
     else:
         raise NotImplementedError
 
 
-def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis):
+def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis, offset_axes=None):
     from pyop3 import Dat, exscan, loop
     from pyop3.expr.visitors import replace
 
-    if linear_axis not in utils.just_one(get_shape(size_expr)):
-        return size_expr
+    if offset_axes is None:
+        if linear_axis not in utils.just_one(get_shape(size_expr)):
+            return size_expr
+
+        # by definition the current axis is in size_expr
+        offset_axes = merge_axis_trees((utils.just_one(get_shape(size_expr)), full_shape(linear_axis.as_tree())))
 
     # do the moral equivalent of
     #
@@ -838,8 +633,6 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
     #     for j  # (the current axis)
     #       offset[i, j] = offset[i, j-1] + size[i, j]
 
-    # by definition the current axis is in size_expr
-    offset_axes = merge_axis_trees((utils.just_one(get_shape(size_expr)), full_shape(linear_axis.as_tree())))
 
     # remove current axis as we need to scan over it
     loc = utils.just_one(path for path, axis_ in offset_axes.node_map.items() if axis_ == linear_axis)
@@ -873,4 +666,4 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
     else:
         exscan(offset_dat.concretize(), size_expr, "+", linear_axis, eager=True)
 
-    return offset_dat.concretize()
+    return offset_dat
