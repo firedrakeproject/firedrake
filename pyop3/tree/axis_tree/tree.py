@@ -30,7 +30,7 @@ from petsc4py import PETSc
 from pyop2.caching import cached_on, CacheMixin
 from pyop3.exceptions import Pyop3Exception
 from pyop3.dtypes import IntType
-from pyop3.sf import StarForest, local_sf, single_star_sf
+from pyop3.sf import NullStarForest, StarForest, local_sf, single_star_sf
 from pyop2.mpi import collective
 from pyop3 import utils
 from pyop3.tree.labelled_tree import (
@@ -977,7 +977,8 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
             sfs = collect_star_forests(self)
             return concatenate_star_forests(sfs)
         else:
-            return local_sf(self.size, self.comm)
+            # return local_sf(self.size, self.comm)
+            return NullStarForest()
 
     def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
         from pyop3 import Dat

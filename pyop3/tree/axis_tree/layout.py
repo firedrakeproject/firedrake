@@ -627,6 +627,8 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
         # by definition the current axis is in size_expr
         offset_axes = merge_axis_trees((utils.just_one(get_shape(size_expr)), full_shape(linear_axis.as_tree())))
 
+        regions = False
+
     # do the moral equivalent of
     #
     #   for i
@@ -666,4 +668,20 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
     else:
         exscan(offset_dat.concretize(), size_expr, "+", linear_axis, eager=True)
 
+    return offset_dat
+
+
+# This gets the sizes right for a particular dat, then we merge them above
+def _tabulate_regions(offset_axes, step):
+    offset_dat = Dat.empty(offset_axes.regionless, dtype=IntType)
+    start = 0
+    for regions in _collect_regions(offset_axes):
+        regioned_offset_axes = offset_axes.with_region_labels(regions)
+
+        step_dat = Dat.empty(full_shape(regioned_offset_axes), dtype=IntType)
+        step_dat.assign(step+start, eager=True)
+        offset_dat = Dat(step_dat.axes, data=utils.steps(step_dat.buffer._data))
+
+        region_size = regioned_offset_axes.size
+        start += region_size
     return offset_dat

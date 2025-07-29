@@ -19,7 +19,7 @@ from pyop3.config import config
 from pyop3.dtypes import IntType, ScalarType, DTypeT
 from pyop3.insn import KernelArgument
 from pyop2.mpi import COMM_SELF
-from pyop3.sf import StarForest, local_sf
+from pyop3.sf import NullStarForest, StarForest, local_sf
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
 
 
@@ -284,7 +284,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, max_value: numbers.Number | None=None, ordered:bool=False):
         data = data.flatten()
         if sf is None:
-            sf = local_sf(data.size, COMM_SELF)
+            sf = NullStarForest()
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
         if max_value is not None:
             max_value = utils.as_numpy_scalar(max_value)
@@ -404,7 +404,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # axis tree. Here we can just consider the array.
     @property
     def _owned_data(self):
-        if self.sf is not None and self.sf.nleaves > 0:
+        if self.sf and self.sf.nleaves > 0:
             return self._data[: -self.sf.nleaves]
         else:
             return self._data

@@ -699,6 +699,9 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
 
         assert utils.just_one(get_shape(self.layout)).is_linear
 
+    def concretize(self):
+        return self
+
 
 @utils.record()
 # class NonlinearDatArrayBufferExpression(DatArrayBufferExpression, NonlinearBufferExpression):

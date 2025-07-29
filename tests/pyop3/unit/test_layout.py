@@ -376,6 +376,10 @@ def test_adjacent_mismatching_regions():
     interleaving.
 
     """
+    # Tree has layout:
+    #
+    #      "x"       "y"      "u"      "v"
+    #   [ 00, 01 ||  02  || 10, 11 ||  12  ]
     # NOTE: In theory we can do affine layouts here as there is no interleaving.
     axis = op3.Axis([
         op3.AxisComponent([
@@ -395,15 +399,15 @@ def test_adjacent_mismatching_regions():
         axis_tree,
         {"A": 0},
         [(0,), (1,), (2,)],
-        "(i_{A} + array_#[i_{A}])",
-        lambda i: i + [0, 0, 0][i],
+        "array_#[i_{A}]",
+        lambda i: [0, 1, 2][i],
     )
     check_layout(
         axis_tree,
         {"A": 1},
         [(0,), (1,), (2,)],
-        "(i_{A} + array_#[i_{A}])",
-        lambda i: i + [3, 3, 3][i],
+        "array_#[i_{A}]",
+        lambda i: [3, 4, 5][i],
     )
 
 
@@ -414,6 +418,10 @@ def test_non_nested_mismatching_regions():
     interleaving.
 
     """
+    # Tree has layout:
+    #
+    #      "x"       "y"      "u"      "v"
+    #   [ 00, 01 ||  02  || 10, 11 ||  12  ]
     # NOTE: In theory we can do affine layouts here as there is no interleaving.
     axis1 = op3.Axis([
         op3.AxisComponent(1), op3.AxisComponent(1)
@@ -440,20 +448,27 @@ def test_non_nested_mismatching_regions():
         axis_tree,
         {"A": 0, "B": None},
         [(0, 0), (0, 1), (0, 2)],
-        "(i_{B} + array_#[((i_{A} * 3) + i_{B})])",
-        lambda i, j: j + [[0, 0, 0]][i][j],
+        "array_#[((i_{A} * 3) + i_{B})]",
+        lambda i, j: [[0, 1, 2]][i][j],
     )
     check_layout(
         axis_tree,
         {"A": 1, "C": None},
         [(0, 0), (0, 1), (0, 2)],
-        "(i_{C} + array_#[((i_{A} * 3) + i_{C})])",
-        lambda i, j: j + [[3, 3, 3]][i][j],
+        "array_#[((i_{A} * 3) + i_{C})]",
+        lambda i, j: [[3, 4, 5]][i][j],
     )
 
 
 def test_nested_mismatching_regions():
-    """Test that nested regions are partitioned correctly."""
+    """Test that nested regions are partitioned correctly.
+
+    In this test the tree has layout:
+
+        [ 00, 01, 10, 11 ||  02, 12 || 20, 21 ||  22  ]
+               "xu"           "xv"      "yu"     "yv"
+
+    """
     axis1 = op3.Axis([
         op3.AxisComponent([
             op3.AxisComponentRegion(2, "x"),
@@ -471,18 +486,13 @@ def test_nested_mismatching_regions():
     assert axis_tree.size == 9
 
     check_nan_layout(axis_tree, ["A"], [(0,), (1,), (2,)])
-
-    # equivalent to [ 00, 01, 10, 11 || 02, 12 || 20, 21 || 22 ]
-    #                      "xu"          "xv"      "yu"    "yv"
     check_layout(
         axis_tree,
         ["A", "B"],
         [(i, j) for i in range(3) for j in range(3)],
-        "(i_{B} + array_#[((i_{A} * 3) + i_{B})])",
-        lambda i, j: j + [[0, 0, 2], [2, 2, 3], [6, 6, 6]][i][j],
+        "array_#[((i_{A} * 3) + i_{B})]",
+        lambda i, j: [[0, 1, 4], [2, 3, 5], [6, 7, 8]][i][j],
     )
-
-    assert (leaf_layout.buffer.buffer._data == [0, 1, 4, 2, 3, 5, 6, 7, 8]).all()
 
 
 def test_ragged_nested_regions():

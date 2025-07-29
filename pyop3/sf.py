@@ -1,3 +1,4 @@
+import abc
 from functools import cached_property
 
 import numpy as np
@@ -11,6 +12,26 @@ from pyop3.utils import just_one, strict_int
 
 class BufferSizeMismatchException(Exception):
     pass
+
+
+class AbstractStarForest(abc.ABC):
+
+    # {{{ abstract methods
+
+    @abc.abstractmethod
+    def broadcast_begin(self, *args):
+        pass
+
+    @abc.abstractmethod
+    def broadcast_end(self, *args):
+        pass
+
+    # }}}
+
+    def broadcast(self, *args):
+        self.broadcast_begin(*args)
+        self.broadcast_end(*args)
+
 
 
 class StarForest:
@@ -95,10 +116,6 @@ class StarForest:
     def graph(self):
         return self.sf.getGraph()
 
-    def broadcast(self, *args):
-        self.broadcast_begin(*args)
-        self.broadcast_end(*args)
-
     def broadcast_begin(self, *args):
         bcast_args = self._prepare_args(*args)
         self.sf.bcastBegin(*bcast_args)
@@ -134,6 +151,18 @@ class StarForest:
         # what about cdim?
         dtype, _ = get_mpi_dtype(from_buffer.dtype)
         return (dtype, from_buffer, to_buffer, op)
+
+
+class NullStarForest(AbstractStarForest):
+
+    def __bool__(self) -> bool:
+        return False
+
+    def broadcast_begin(self, *args):
+        pass
+
+    def broadcast_end(self, *args):
+        pass
 
 
 def single_star_sf(comm, size=1, root=0):
