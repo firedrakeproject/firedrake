@@ -83,6 +83,10 @@ def tabulate_again(axes):
     offsets = [0] * len(to_tabulate)
     for regions in _collect_regions(axes):
         for i, start_dat in enumerate(to_tabulate):
+
+            if not all(region in start_dat.axes._all_region_labels for region in regions):
+                continue
+
             regioned_axes = start_dat.axes.with_region_labels(regions)
             assert not regioned_axes._all_region_labels
 
@@ -102,20 +106,7 @@ def tabulate_again(axes):
                 else:
                     offsets[j] += regioned_axes.size
 
-            # indexed_expr = region_indices_dat[idx].concretize()
-            # expression = LinearDatBufferExpression(indexed_expr.buffer, indexed_expr.layout) + start
-            #
-            # assignment = ArrayAssignment(assignee, expression, "write")
-            #
-            # # pyop3.extras.debug.enable_conditional_breakpoints()
-            # do_loop(idx, assignment)
-            #
-            # result = assignment.assignee.buffer.buffer._data
-            # # breakpoint()
-            #
-            # start += my_axes.size
-            # offsets[i] += region_indices_dat.size
-    # utils.debug_assert(lambda: all((dat.buffer._data >= 0).all() for dat in to_tabulate.values()))
+            # breakpoint()
     return layouts
 
 

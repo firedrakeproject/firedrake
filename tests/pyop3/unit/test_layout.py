@@ -23,13 +23,7 @@ def check_layout(axis_tree, path, indices, offset_pattern, offset_fn):
     assert re.fullmatch(op3.utils.regexify(offset_pattern), str(layout_expr))
 
     check_indices(axis_tree, path, indices)
-
-    # Only loop over the subtree that we are investigating
-    iterset = axis_tree.drop_subtree(path, allow_empty_subtree=True).linearize(path)
-
-    # Check offsets
-    for path_, ix in iterset.iter(eager=True):
-        assert op3.evaluate(layout_expr, ix) == offset_fn(*ix.values())
+    check_offsets(axis_tree, path, offset_fn)
 
 
 def check_nan_layout(axis_tree, path, indices):
@@ -45,13 +39,21 @@ def check_indices(axis_tree, path, indices):
     # Only loop over the subtree that we are investigating
     iterset = axis_tree.drop_subtree(path, allow_empty_subtree=True).linearize(path)
 
-    # Check indices and offsets
     indices_iter = iter(indices)
     for path_, ix in iterset.iter(eager=True):
         assert path_ == path
         assert tuple(ix.values()) == next(indices_iter)
     # Make sure all indices are consumed
     assert not set(indices_iter)
+
+
+def check_offsets(axis_tree, path, offset_fn):
+    # Only loop over the subtree that we are investigating
+    iterset = axis_tree.drop_subtree(path, allow_empty_subtree=True).linearize(path)
+
+    for path_, ix in iterset.iter(eager=True):
+        assert path_ == path
+        assert op3.evaluate(axis_tree.layouts[path], ix) == offset_fn(*ix.values())
 
 
 def test_1d_affine_layout():
@@ -258,27 +260,40 @@ def test_non_nested_matching_regions():
 
 
 def test_adjacent_mismatching_regions():
-    """
+    """Test that multi-region axis trees are tabulated correctly.
 
-    Should be as if the regions are not even there
+    In this test the regions are all unique and so there should be no
+    interleaving.
 
     """
     axis = op3.Axis([
         op3.AxisComponent([
-            op3.AxisComponentRegion(2, "A"),
-            op3.AxisComponentRegion(1, "B"),
+            op3.AxisComponentRegion(2, "x"),
+            op3.AxisComponentRegion(1, "y"),
         ]),
         op3.AxisComponent([
-            op3.AxisComponentRegion(2, "X"),
-            op3.AxisComponentRegion(1, "Y"),
+            op3.AxisComponentRegion(2, "u"),
+            op3.AxisComponentRegion(1, "v"),
         ]),
-    ])
+    ], "A")
     axis_tree = axis.as_tree()
 
     assert axis_tree.size == 6
 
-    l = axis_tree.layouts
-    breakpoint()
+    check_layout(
+        axis_tree,
+        {"A": 0},
+        [(0,), (1,), (2,)],
+        "(i_{A} + array_#[i_{A}])",
+        lambda i: i + [0, 0, 0][i],
+    )
+    check_layout(
+        axis_tree,
+        {"A": 1},
+        [(0,), (1,), (2,)],
+        "(i_{A} + array_#[i_{A}])",
+        lambda i: i + [3, 3, 3][i],
+    )
 
 
 def test_non_nested_mismatching_regions():

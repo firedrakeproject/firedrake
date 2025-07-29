@@ -1041,16 +1041,15 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         """TODO"""
         return self.with_region_labels([region_label])
 
-    def with_region_labels(self, region_labels: Sequence[ComponentRegionLabelT]) -> IndexedAxisTree:
+    def with_region_labels(self, region_labels: Sequence[ComponentRegionLabelT], *, allow_missing: bool = False) -> IndexedAxisTree:
         """TODO"""
         if not region_labels:
             return self
-        region_labels = set(region_labels)
-        if missing_labels := region_labels - set(self._all_region_labels):
-            raise ValueError(f"{missing_labels} not found")
 
-        region_slice = self._region_slice(region_labels)
-        return self[region_slice]
+        if not allow_missing and set(region_labels) - set(self._all_region_labels):
+            raise ValueError
+
+        return self[self._region_slice(region_labels)]
 
     # NOTE: Unsure if this should be a method
     def _region_slice(self, region_labels: set, *, path: PathT = idict()) -> "IndexTree":

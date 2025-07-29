@@ -975,7 +975,7 @@ def match_target_paths_to_axis_tree_rec(
         if not index_tree.node_map[index_path_]:
             # At a leaf, can now determine the axes that are referenced by the path.
             # We only expect a single match from all the collected candidate paths.
-            full_target_axes = just_one(
+            full_target_axes = utils.single_valued(
                 orig_axes.visited_nodes(candidate_path)
                 for candidate_path in candidate_target_paths_acc_
                 if candidate_path in orig_axes.node_map
