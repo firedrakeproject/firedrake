@@ -1891,9 +1891,9 @@ class ParloopBuilder:
             arg = self._as_parloop_arg(tsfc_arg, p)
             args.append(arg)
         if "FIREDRAKE_USE_GPU" in os.environ:
-            kernel_code = (self._kinfo.kernel[0][0].replace("cupy_kernel", self._kinfo.kernel[1]), self._kinfo.kernel[0][1])
+            kernel_code = self._kinfo.kernel[0]
         else:
-            kernel_code = self._kinfo.kernel[0][0].with_entrypoints({self._kinfo.kernel[1]})
+            kernel_code = self._kinfo.kernel[0].with_entrypoints({self._kinfo.kernel[1]})
         kernel = op3.Function(
             kernel_code, [op3.INC] + [op3.READ for _ in args[1:]]
         )

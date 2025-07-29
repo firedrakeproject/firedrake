@@ -430,10 +430,8 @@ class CuPyCodegenContext(CodegenContext):
     
     def make_translation_unit(self, function_name, compiler_parameters):
         
-        tu = CuPyTranslationUnit(self.domains, self.instructions, self.arguments, self.temporaries, function_name)
+        tu = CuPyTranslationUnit(self.domains, self.instructions, self.arguments, self.temporaries, self.subkernels, function_name)
         tu.compile(self.preambles)
-       # TODO handle subkernels 
-       # translation_unit = lp.merge((translation_unit, *self.subkernels))
         return tu, tu.default_entrypoint 
 
     def add_domain(self, iname, *args):
@@ -452,13 +450,15 @@ class CuPyCodegenContext(CodegenContext):
 
     def add_assignment(self, assignee, expression, prefix="insn"):
         # TODO find better way to do this - there is a case they are pymbolic exprs
-        assignee = str(assignee)
+        from pyop3.ir.gpu import pymbolic_to_str
+        if not isinstance(assignee, str):
+            assignee = pymbolic_to_str(assignee)
         expression = str(expression)
         if "{rhs}" in assignee:
             insn = assignee.format(rhs = expression)
         else:
             insn = f"{assignee} = {expression}"
-        self._add_instruction(insn)
+        self._add_instruction(insn, frozen=True)
 
     def add_cinstruction(self, insn_str, read_variables=frozenset()):
         breakpoint()
@@ -477,8 +477,14 @@ class CuPyCodegenContext(CodegenContext):
         pass
 
     def add_function_call(self, assignees, expression, prefix="insn"):
-        assignee = ",".join(assignees)
-        insn = f"{assignee} = {expression}"
+        if len(assignees) > 1:
+            raise NotImplementedError("Changing multiple variables in cupy kernel currently unsupported")
+        #assignee = ",".join([a[0] for a in assignee])
+        assignee = assignees[0]
+        if assignee[1].intent == INC:
+            insn = f"{assignee[0]} += {expression}"
+        else:
+            insn = f"{assignee[0]} = {expression}"
         self._add_instruction(insn)
 
     def add_buffer(self, buffer_ref: BufferRef, intent: Intent | None = None) -> str:
@@ -569,11 +575,12 @@ class CuPyCodegenContext(CodegenContext):
                 return self._reusable_temporaries[key]
 
         name_in_kernel = self.unique_name(prefix)
+        shape = tuple([int(s) for s in shape])
         if initializer is not None:
             from firedrake.device import compute_device
-            arg = CuPyTemporary(name_in_kernel, "dtype", compute_device.arr(initializer))
+            arg = CuPyTemporary(name_in_kernel, dtype, shape, compute_device.arr(initializer))
         else:
-            arg = CuPyTemporary(name_in_kernel, "dtype")
+            arg = CuPyTemporary(name_in_kernel, dtype, shape)
         self._temporaries.append(arg)
 
         if can_reuse:
@@ -582,7 +589,6 @@ class CuPyCodegenContext(CodegenContext):
         return name_in_kernel
 
     def add_subkernel(self, subkernel):
-        breakpoint()
         self._subkernels.append(subkernel)
 
     def unique_name(self, prefix):
@@ -603,8 +609,12 @@ class CuPyCodegenContext(CodegenContext):
     def _depends_on(self):
         return frozenset({self._last_insn_id}) - {None}
 
-    def _add_instruction(self, insn):
-        self._instructions.append(CuPyInstruction(insn_str = insn, inames = self._within_inames))
+    def _add_instruction(self, insn, frozen=False):
+        if frozen:
+            inames = frozenset(self._within_inames)
+        else:
+            inames = self._within_inames
+        self._instructions.append(CuPyInstruction(insn_str = insn, inames = inames))
 
 class DummyModuleExecutor:
     def __call__(self, *args, **kwargs):
@@ -1057,7 +1067,10 @@ def parse_loop_properly_this_time(
 
 
 @_compile.register
-def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext) -> None:
+def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext| CuPyCodegenContext) -> None:
+    if isinstance(context, CuPyCodegenContext):
+        _cupy(call, loop_indices, context)
+        return
     subarrayrefs = {}
     loopy_args = call.function.code.default_entrypoint.args
     for loopy_arg, arg, spec in zip(loopy_args, call.arguments, call.argspec, strict=True):
@@ -1094,13 +1107,11 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
             if spec.intent in {READ, RW, INC, MIN_RW, MAX_RW}
         ),
     )
-
     context.add_function_call(assignees, expression)
     subkernel = call.function.code.with_entrypoints(frozenset())
     context.add_subkernel(subkernel)
 
-@_compile.register
-def _(call: StandaloneCalledFunction, loop_indices, context: CuPyCodegenContext) -> None:
+def _cupy(call: StandaloneCalledFunction, loop_indices, context: CuPyCodegenContext) -> None:
     
     subarrayrefs = {}
     entry_args = call.function.code.default_entrypoint.args
@@ -1110,18 +1121,9 @@ def _(call: StandaloneCalledFunction, loop_indices, context: CuPyCodegenContext)
         # assert not _requires_pack_unpack(arg)
         name_in_kernel = context.add_buffer(arg.buffer, spec.intent)
 
-        # subarrayref nonsense/magic
-        indices = []
-        for s in entry_arg.shape:
-            iname = context.unique_name("i")
-            context.add_domain(iname, s)
-            indices.append(iname)
-        indices = tuple(indices)
-        idx_str = "][".join(indices)
-        subarrayrefs[arg] = f"{name_in_kernel}[{idx_str}]"
-
+        subarrayrefs[arg] = f"{name_in_kernel}"
     assignees = tuple(
-        subarrayrefs[arg]
+        (subarrayrefs[arg], spec)
         for arg, spec in zip(call.arguments, call.argspec, strict=True)
         if spec.intent in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE}
     )
@@ -1129,8 +1131,7 @@ def _(call: StandaloneCalledFunction, loop_indices, context: CuPyCodegenContext)
     expression = f"{call.function.code.default_entrypoint.name}({arg_str})"
 
     context.add_function_call(assignees, expression)
-    breakpoint()
-    subkernel = call.function.code.with_entrypoints(frozenset())
+    subkernel = call.function.code
     context.add_subkernel(subkernel)
 
 

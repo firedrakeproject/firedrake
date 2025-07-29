@@ -3,6 +3,7 @@ from functools import wraps
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 from pyadjoint.overloaded_type import create_overloaded_object
 from firedrake.adjoint_utils.blocks import AssembleBlock
+import cupy as cp
 
 
 def annotate_assemble(assemble):
@@ -31,7 +32,7 @@ def annotate_assemble(assemble):
 
         from firedrake.function import Function
         from firedrake.cofunction import Cofunction
-        if isinstance(output, (numbers.Complex, Function, Cofunction)):
+        if isinstance(output, (numbers.Complex, Function, Cofunction, cp.ndarray)):
             # Assembling a 0-form or 1-form (e.g. Form or BaseFormOperator)
             if not annotate:
                 return output

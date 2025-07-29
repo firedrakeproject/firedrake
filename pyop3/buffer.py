@@ -409,7 +409,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             if data[0] > _state:
                 new_array = compute_device.array(data[1])
                 _state = data[0]
-        print(f"Moving to {compute_device.identity}: type {type(new_array)}")
         self._by_device[compute_device.identity] = [_state, new_array]
         
 

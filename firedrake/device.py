@@ -37,7 +37,6 @@ class GPUDevice(ComputeDevice):
         self.file_name = "temp_kernel_device"
 
     def array(self, arr):
-        print("GPU array")
         return cp.array(arr)
 
     

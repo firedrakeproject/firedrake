@@ -120,12 +120,12 @@ def maybe_multiindex(buffer_ref, offset_expr, context):
         extra_indices = (0,) * (rank - 1)
         if len(extra_indices) > 1:
             raise NotImplementedError("Handing shape TODO")
-
         # also has to be a scalar, not an expression
         temp_offset_name = context.add_temporary("j")
         temp_offset_var = temp_offset_name
         context.add_assignment(temp_offset_var, offset_expr)
         indices = extra_indices + (temp_offset_var,)
+        indices = ",".join(indices)
     else:
         indices = f"{offset_expr}"
 
@@ -134,12 +134,13 @@ def maybe_multiindex(buffer_ref, offset_expr, context):
 
 class CuPyTranslationUnit():
 
-    def __init__(self, domains, instructions, arguments, temporaries, function_name):
+    def __init__(self, domains, instructions, arguments, temporaries, subkernels, function_name):
         self.filename = "temp_cupy_file"
         self._domains = domains
         self._instructions = instructions
         self._arguments = arguments
         self._temporaries = temporaries
+        self._subkernels = subkernels
         self.function_name = function_name
         self._entrypoint = CuPyEntrypoint(function_name, arguments)
 
@@ -150,12 +151,16 @@ class CuPyTranslationUnit():
     def compile(self, preambles):
         code_lines = preambles
         indent = 0
-        args = ",".join([a.name for a in self._arguments]) #add types?
+        for subkernel in self._subkernels:
+            code_lines += ["\n"] + subkernel.code.split("\n") + ["\n"]
+        args = ", ".join([a.name for a in self._arguments]) #add types?
         code_lines += ["\t"*indent + f"def {self.function_name}({args}):"]
         indent += 1
         for temp in self._temporaries:
             if temp.initializer is not None:
                 code_lines += [ "\t"*indent + f"{temp.name} : {temp.dtype} = {initialiser}"]
+            elif len(temp.shape) != 0:
+                code_lines += [ "\t"*indent + f"{temp.name} : {temp.dtype} = cp.zeros({temp.shape},dtype=cp.{temp.dtype})"]
             else:
                 code_lines += [ "\t"*indent + f"{temp.name} : {temp.dtype}"]
         #code_lines += ["\t"*indent + "breakpoint()"]
@@ -163,13 +168,16 @@ class CuPyTranslationUnit():
         current_inames = set()
         for insn in self._instructions:
             # exit completed loops 
-            for i in range(len(current_inames - insn.inames)):
+            completed = list(current_inames - insn.inames)
+            for dom in completed:
                 indent -= 1 
-            while insn.inames > current_inames:
+                current_inames.remove(dom)
+            while len(insn.inames - current_inames) > 0:
                 dom  = self._domains.pop(0)
                 code_lines += ["\t"*indent + f"{dom[0]}:"]
                 current_inames.add(dom[1])
                 indent += 1
+            
             code_lines += ["\t"*indent + f"{insn.insn_str}"]
 
         self.code_string = "\n".join(code_lines)
@@ -194,6 +202,7 @@ class CuPyArgument:
 class CuPyTemporary:
     name: str
     dtype: str
+    shape: tuple
     initializer: cp.ndarray = None
 
 @dataclasses.dataclass

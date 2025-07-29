@@ -13,6 +13,7 @@ from tsfc import kernel_args
 from finat.element_factory import create_element
 from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase, KernelBuilderMixin, get_index_names, check_requirements, prepare_coefficient, prepare_arguments, prepare_constant
 from tsfc.loopy import generate as generate_loopy
+from tsfc.cupy import generate as generate_cupy
 
 
 # Expression kernel description type
@@ -236,9 +237,12 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         loopy_args = [arg.loopy_arg for arg in args]
 
         name = "expression_kernel"
-        loopy_kernel, event = generate_loopy(impero_c, loopy_args, self.scalar_type,
+        if "FIREDRAKE_USE_GPU" in os.environ:
+            kernel, event = generate_cupy(impero_c, loopy_args, self.scalar_type, name, index_names, log=log)
+        else:
+            kernel, event = generate_loopy(impero_c, loopy_args, self.scalar_type,
                                              name, index_names, log=log)
-        return ExpressionKernel(loopy_kernel, self.oriented, self.cell_sizes,
+        return ExpressionKernel(kernel, self.oriented, self.cell_sizes,
                                 self.coefficient_numbers, needs_external_coords,
                                 self.tabulations, name, args, count_flops(impero_c), event)
 
@@ -409,21 +413,13 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
 
         import os
         if "FIREDRAKE_USE_GPU" in os.environ:
-            return Kernel(ast=code,
-                          arguments=tuple(args),
-                          integral_type=info.integral_type,
-                          subdomain_id=info.subdomain_id,
-                          domain_number=info.domain_number,
-                          coefficient_numbers=tuple(zip(info.coefficient_numbers, coefficient_indices)),
-                          oriented=oriented,
-                          needs_cell_sizes=needs_cell_sizes,
-                          tabulations=tabulations,
-                          flop_count=-1,
-                          name=name,
-                          event="pythonkernel")
-        ast, event_name = generate_loopy(code, [arg.loopy_arg for arg in args],
-                                         self.scalar_type, name, index_names, log=log)
-        flop_count = count_flops(impero_c)  # Estimated total flops for this kernel.
+            ast, event_name = generate_cupy(code, [arg.loopy_arg for arg in args],
+                                             self.scalar_type, name, index_names, log=log)
+            flop_count = -1
+        else:
+            ast, event_name = generate_loopy(code, [arg.loopy_arg for arg in args],
+                                             self.scalar_type, name, index_names, log=log)
+            flop_count = count_flops(code)  # Estimated total flops for this kernel.
         return Kernel(ast=ast,
                       arguments=tuple(args),
                       integral_type=info.integral_type,

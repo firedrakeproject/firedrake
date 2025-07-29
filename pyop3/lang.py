@@ -603,10 +603,7 @@ class Function:
     """A callable function."""
 
     def __init__(self, loopy_kernel, access_descrs):
-        if isinstance(loopy_kernel, tuple):
-            lpy_args = loopy_kernel[1]
-        else:
-            lpy_args = loopy_kernel.default_entrypoint.args
+        lpy_args = loopy_kernel.default_entrypoint.args
         if len(lpy_args) != len(access_descrs):
             raise ValueError("Wrong number of access descriptors given")
         for lpy_arg, access in zip(lpy_args, access_descrs):
@@ -615,7 +612,7 @@ class Function:
             ):
                 raise ValueError("Reduction operations are only valid for scalars")
         if isinstance(loopy_kernel, tuple):
-            self.code = loopy_kernel[0]
+            self.code = loopy_kernel
         else:
             self.code = fix_intents(loopy_kernel, access_descrs)
         self._access_descrs = access_descrs
