@@ -251,6 +251,9 @@ def restricted_dofs(celem, felem):
 def get_restriction_indices(V, W):
     """Return the list of dofs in the space V such that W = V[indices].
     """
+    if V.cell_node_map() is W.cell_node_map():
+        return numpy.arange(V.dof_dset.layout_vec.getSizes()[0], dtype=PETSc.IntType)
+
     vdat = V.make_dat(val=numpy.arange(V.dof_count, dtype=PETSc.IntType))
     wdats = [Wsub.make_dat(val=numpy.full((Wsub.dof_count,), -1, dtype=PETSc.IntType)) for Wsub in W]
     wdat = wdats[0] if len(W) == 1 else op2.MixedDat(wdats)
