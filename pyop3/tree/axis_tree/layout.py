@@ -20,7 +20,7 @@ from pyop3 import tree, utils
 from pyop3.expr import AxisVar, LoopIndexVar, NaN  # TODO: I think these should be cyclic imports
 from pyop3.expr.base import NAN, loopified_shape
 from pyop3.expr.visitors import get_shape
-from pyop3.expr.tensor import LinearDatBufferExpression
+from pyop3.expr.tensor import LinearDatBufferExpression, Dat
 from pyop3.tree.axis_tree.tree import (
     UNIT_AXIS_TREE,
     Axis,
@@ -65,8 +65,6 @@ def tabulate_again(axes):
     layouts = _prepare_layouts(axes, axes.root, immutabledict(), 0, to_tabulate, tabulated, ())
     start = 0
 
-    ???
-
     """TODO NEXT
 
     The idea here is to just add some offset to all that need tabulating. Something like
@@ -82,37 +80,41 @@ def tabulate_again(axes):
 
     """
 
-    # this is done at the root of the tree, so can treat in a flattened manner...
-    offsets = [0] * len(to_tabulate)  # not sure that this is needed
+    offsets = [0] * len(to_tabulate)
     for regions in _collect_regions(axes):
-        for i, (offset_dat, mapping) in enumerate(to_tabulate):
-            breakpoint()
+        for i, start_dat in enumerate(to_tabulate):
+            regioned_axes = start_dat.axes.with_region_labels(regions)
+            assert not regioned_axes._all_region_labels
+
+
             offset = offsets[i]
-            my_axes, region_indices_dat = mapping[regions]
-            # NOTE: I think that this is going to have to be a loop now.
-            # this fails
-            # for j in range(region_size):
-            #     offset_dat[offset+j] = region_indices[my_ptr+j] + start
 
-            idx = my_axes.index()
+            ix = regioned_axes.index()
 
-            indexed = offset_dat[idx].concretize()
-            # assignee = LinearDatBufferExpression(indexed.buffer, indexed.layout)
-            assignee = indexed  # surely?
+            # needed for now to avoid recursion
+            assignee = start_dat.with_axes(start_dat.axes.regionless)[ix]
 
-            indexed_expr = region_indices_dat[idx].concretize()
-            expression = LinearDatBufferExpression(indexed_expr.buffer, indexed_expr.layout) + start
+            do_loop(ix, assignee.iassign(offset))
 
-            assignment = ArrayAssignment(assignee, expression, "write")
+            for j, _ in enumerate(offsets):
+                if i == j:
+                    continue
+                else:
+                    offsets[j] += regioned_axes.size
 
-            # pyop3.extras.debug.enable_conditional_breakpoints()
-            do_loop(idx, assignment)
-
-            result = assignment.assignee.buffer.buffer._data
-            # breakpoint()
-
-            start += my_axes.size
-            offsets[i] += region_indices_dat.size
+            # indexed_expr = region_indices_dat[idx].concretize()
+            # expression = LinearDatBufferExpression(indexed_expr.buffer, indexed_expr.layout) + start
+            #
+            # assignment = ArrayAssignment(assignee, expression, "write")
+            #
+            # # pyop3.extras.debug.enable_conditional_breakpoints()
+            # do_loop(idx, assignment)
+            #
+            # result = assignment.assignee.buffer.buffer._data
+            # # breakpoint()
+            #
+            # start += my_axes.size
+            # offsets[i] += region_indices_dat.size
     # utils.debug_assert(lambda: all((dat.buffer._data >= 0).all() for dat in to_tabulate.values()))
     return layouts
 
@@ -143,11 +145,18 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
 
         # At the last region, can tabulate here
         elif component.has_non_trivial_regions and not subtree._all_region_labels:
-            step_expr = _accumulate_step_sizes(subtree.size, linear_axis, parent_axes_)
-            breakpoint()
-            to_tabulate.append((offset_dat, step_expr))
+            if subtree:
+                step_expr = _accumulate_step_sizes(subtree.size, linear_axis)
+                if linear_axis not in utils.just_one(get_shape(step_expr)).nodes:
+                    step_expr = AxisVar(linear_axis) * step_expr
+            else:
+                step_expr = AxisVar(linear_axis)
 
-            layout_expr_acc_ = layout_expr_acc + step_expr + start
+            start_expr = Dat.zeros(AxisTree.from_iterable((parent_axes_)), dtype=IntType)
+            to_tabulate.append(start_expr)
+
+            assert layout_expr_acc == 0
+            layout_expr_acc_ = step_expr + start_expr.concretize()
             layouts[path_acc_] = layout_expr_acc_
 
         # At leaves the layout function is trivial
@@ -158,6 +167,10 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
         # Tabulate
         else:
             step_expr = _accumulate_step_sizes(subtree.size, linear_axis)
+
+            if linear_axis not in utils.just_one(get_shape(step_expr)).nodes:
+                step_expr = AxisVar(linear_axis) * step_expr
+
             layout_expr_acc_ = layout_expr_acc + step_expr + start
             layouts[path_acc_] = layout_expr_acc_
 
@@ -808,33 +821,25 @@ def eval_offset(
 
 # TODO: singledispatch (but needs import thoughts)
 # TODO: should cache this!!!
-def _accumulate_step_sizes(obj: Any, axis, region_axes=None):
+def _accumulate_step_sizes(obj: Any, axis):
     from pyop3.expr import base as expr_types
 
-    if region_axes:
-        return _accumulate_dat_expr(obj, axis, region_axes)
-
     if isinstance(obj, numbers.Number):
-        return AxisVar(axis) * obj
+        return obj
     elif isinstance(obj, expr_types.Mul):
-        # only allow linear combinations, so only one of lhs or rhs can have shape
-        if get_shape(obj.a)[0].size > 1:
-            assert get_shape(obj.b)[0].size == 1
-            return _accumulate_step_sizes(obj.a, axis) * obj.b
-        else:
-            return obj.a * _accumulate_step_sizes(obj.b, axis)
+        return _accumulate_step_sizes(obj.a, axis) * _accumulate_step_sizes(obj.b, axis)
     elif isinstance(obj, LinearDatBufferExpression):
         return _accumulate_dat_expr(obj, axis)
     else:
         raise NotImplementedError
 
 
-def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis, region_axes=None):
+def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis):
     from pyop3 import Dat, exscan, loop
     from pyop3.expr.visitors import replace
 
-    if not region_axes and linear_axis not in utils.just_one(get_shape(size_expr)):
-        return AxisVar(linear_axis) * size_expr
+    if linear_axis not in utils.just_one(get_shape(size_expr)):
+        return size_expr
 
     # do the moral equivalent of
     #
@@ -843,10 +848,7 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
     #       offset[i, j] = offset[i, j-1] + size[i, j]
 
     # by definition the current axis is in size_expr
-    if not region_axes:
-        offset_axes = merge_axis_trees((utils.just_one(get_shape(size_expr)), full_shape(linear_axis.as_tree())))
-    else:
-        offset_axes = AxisTree.from_iterable(region_axes)
+    offset_axes = merge_axis_trees((utils.just_one(get_shape(size_expr)), full_shape(linear_axis.as_tree())))
 
     # remove current axis as we need to scan over it
     loc = utils.just_one(path for path, axis_ in offset_axes.node_map.items() if axis_ == linear_axis)

@@ -2113,7 +2113,7 @@ def _(region_component: RegionSliceComponent, regions, *, parent_exprs) -> tuple
     # If we wish to take only the ghost points, then the ragged arrays for
     # the dof axis need to be truncated.
     size = expr_replace(selected_region.size, parent_exprs)
-    selected_region = selected_region.__record_init__(size=size)
+    selected_region = selected_region.__record_init__(label=None, size=size)
     return (selected_region,)
 
 

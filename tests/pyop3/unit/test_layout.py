@@ -8,249 +8,91 @@ from immutabledict import immutabledict as idict
 import pyop3 as op3
 
 
-def check_layout(axis_tree, path, pattern, offset_fn):
+def as_path(path):
     if not isinstance(path, collections.abc.Mapping):
         path = {axis_label: None for axis_label in path}
-    path = idict(path)
+    return idict(path)
 
+
+
+def check_layout(axis_tree, path, indices, offset_pattern, offset_fn):
+    path = as_path(path)
     layout_expr = axis_tree.layouts[path]
 
-    assert re.fullmatch(op3.utils.regexify(pattern), str(layout_expr))
+    # Check the pattern
+    assert re.fullmatch(op3.utils.regexify(offset_pattern), str(layout_expr))
 
-    # Before iterating drop the subtree and linearise
+    check_indices(axis_tree, path, indices)
+
+    # Only loop over the subtree that we are investigating
     iterset = axis_tree.drop_subtree(path, allow_empty_subtree=True).linearize(path)
 
+    # Check offsets
     for path_, ix in iterset.iter(eager=True):
-        assert path_ == path
         assert op3.evaluate(layout_expr, ix) == offset_fn(*ix.values())
 
 
+def check_nan_layout(axis_tree, path, indices):
+    path = as_path(path)
+
+    layout_expr = axis_tree.layouts[path]
+    assert layout_expr is op3.NAN
+
+    check_indices(axis_tree, path, indices)
+
+
+def check_indices(axis_tree, path, indices):
+    # Only loop over the subtree that we are investigating
+    iterset = axis_tree.drop_subtree(path, allow_empty_subtree=True).linearize(path)
+
+    # Check indices and offsets
+    indices_iter = iter(indices)
+    for path_, ix in iterset.iter(eager=True):
+        assert path_ == path
+        assert tuple(ix.values()) == next(indices_iter)
+    # Make sure all indices are consumed
+    assert not set(indices_iter)
+
+
 def test_1d_affine_layout():
-    axes = op3.Axis(5, "A").as_tree()
-    check_layout(axes, ["A"], "i_{A}", lambda i: i)
+    axis_tree = op3.Axis(5, "A").as_tree()
+
+    assert axis_tree.size == 5
+
+    check_layout(axis_tree, ["A"], [(i,) for i in range(5)], "i_{A}", lambda i: i)
 
 
 def test_2d_affine_layout():
-    axes = op3.AxisTree.from_iterable((op3.Axis(3, "A"), op3.Axis(2, "B")))
-    check_layout(axes, ["A"], "(i_{A} * 2)", lambda i: 2*i)
-    check_layout(axes, ["A", "B"], "((i_{A} * 2) + i_{B})", lambda i, j: 2*i + j)
+    axis_tree = op3.AxisTree.from_iterable((op3.Axis(3, "A"), op3.Axis(2, "B")))
+
+    assert axis_tree.size == 6
+
+    check_layout(
+        axis_tree,
+        ["A"],
+        [(i,) for i in range(3)],
+        "(i_{A} * 2)",
+        lambda i: 2*i,
+    )
+    check_layout(
+        axis_tree,
+        ["A", "B"],
+        [(i, j) for i in range(3) for j in range(2)],
+        "((i_{A} * 2) + i_{B})",
+        lambda i, j: 2*i + j,
+    )
 
 
 def test_1d_multi_component_layout():
-    axes = op3.Axis(
+    axis_tree = op3.Axis(
         [op3.AxisComponent(3, "a"), op3.AxisComponent(2, "b")],
         "A"
     ).as_tree()
-    check_layout(axes, {"A": "a"}, "i_{A}", lambda i: i)
-    check_layout(axes, {"A": "b"}, "(i_{A} + 3)", lambda i: i + 3)
 
+    assert axis_tree.size == 5
 
-# def test_1d_zero_sized_layout():
-#     axes = op3.AxisTree.from_nest(op3.Axis({"pt0": 0}, "ax0"))
-#
-#     layout0 = axes.layouts[pmap({"ax0": "pt0"})]
-#
-#     assert as_str(layout0) == "var_0"
-#     # check_invalid_indices(axes, [[], [0]])
-
-
-# def test_multi_component_layout_with_zero_sized_subaxis():
-#     axes = op3.AxisTree.from_nest(
-#         {
-#             op3.Axis({"pt0": 2, "pt1": 1}, "ax0"): {
-#                 "pt0": op3.Axis({"pt0": 0}, "ax1"),
-#                 "pt1": op3.Axis({"pt0": 3}, "ax1"),
-#             }
-#         }
-#     )
-#
-#     assert axes.size == 3
-#
-#     layout0 = axes.layouts[freeze({"ax0": "pt0", "ax1": "pt0"})]
-#     layout1 = axes.layouts[freeze({"ax0": "pt1", "ax1": "pt0"})]
-#
-#     assert as_str(layout0) == "var_0"
-#     assert as_str(layout1) == "var_0*3 + var_1"
-#
-#     check_offsets(
-#         axes,
-#         [
-#             ([[0, 0], {"ax0": "pt1", "ax1": "pt0"}], 0),
-#             ([[0, 1], {"ax0": "pt1", "ax1": "pt0"}], 1),
-#             ([[0, 2], {"ax0": "pt1", "ax1": "pt0"}], 2),
-#         ],
-#     )
-#     # check_invalid_indices(
-#     #     axes,
-#     #     [
-#     #         [],
-#     #         [("pt0", 0), 0],
-#     #         [("pt1", 0), 3],
-#     #         [("pt1", 1), 0],
-#     #     ],
-#     # )
-
-
-# def test_ragged_layout():
-#     nnz_axis = op3.Axis({"pt0": 3}, "ax0")
-#     nnz = op3.HierarchicalArray(nnz_axis, data=np.asarray([2, 1, 2]), dtype=op3.IntType)
-#
-#     axes = op3.AxisTree.from_nest({nnz_axis: op3.Axis({"pt0": nnz}, "ax1")}).freeze()
-#
-#     layout0 = axes.layouts[pmap({"ax0": "pt0", "ax1": "pt0"})]
-#     array0 = just_one(collect_multi_arrays(layout0))
-#
-#     assert as_str(layout0) == "array_0 + var_0"
-#     assert np.allclose(array0.data_ro, [0, 2, 3])
-#     check_offsets(
-#         axes,
-#         [
-#             ([[0, 0]], 0),
-#             ([[0, 1]], 1),
-#             ([[1, 0]], 2),
-#             ([[2, 0]], 3),
-#             ([[2, 1]], 4),
-#         ],
-#     )
-#     # check_invalid_indices(
-#     #     axes,
-#     #     [
-#     #         [-1, 0],
-#     #         [0, -1],
-#     #         [0, 2],
-#     #         [1, -1],
-#     #         [1, 1],
-#     #         [2, -1],
-#     #         [2, 2],
-#     #         [3, 0],
-#     #     ],
-#     # )
-
-
-# def test_ragged_layout_with_two_outer_axes():
-#     axis0 = op3.Axis({"pt0": 2}, "ax0")
-#     axis1 = op3.Axis({"pt0": 2}, "ax1")
-#     nnz_axes = op3.AxisTree.from_nest(
-#         {axis0: axis1},
-#     )
-#     nnz_data = np.asarray([[2, 1], [1, 2]])
-#     nnz = op3.HierarchicalArray(nnz_axes, data=nnz_data.flatten(), dtype=op3.IntType)
-#
-#     axes = op3.AxisTree.from_nest(
-#         {axis0: {axis1: op3.Axis({"pt0": nnz}, "ax2")}},
-#     )
-#
-#     layout0 = axes.layouts[pmap({"ax0": "pt0", "ax1": "pt0", "ax2": "pt0"})]
-#     array0 = just_one(collect_multi_arrays(layout0))
-#
-#     assert as_str(layout0) == "array_0 + var_0"
-#     assert np.allclose(array0.data_ro, np.asarray([[0, 2], [3, 4]]).flatten())
-#     check_offsets(
-#         axes,
-#         [
-#             ([[0, 0, 0]], 0),
-#             ([[0, 0, 1]], 1),
-#             ([[0, 1, 0]], 2),
-#             ([[1, 0, 0]], 3),
-#             ([[1, 1, 0]], 4),
-#             ([[1, 1, 1]], 5),
-#         ],
-#     )
-#     # check_invalid_indices(
-#     #     axes,
-#     #     [
-#     #         [0, 0, 2],
-#     #         [0, 1, 1],
-#     #         [1, 0, 1],
-#     #         [1, 1, 2],
-#     #         [1, 2, 0],
-#     #         [2, 0, 0],
-#     #     ],
-#     # )
-
-
-# def test_independent_ragged_axes():
-#     axis0 = op3.Axis({"pt0": 2}, "ax0")
-#     axis1 = op3.Axis({"pt0": 2}, "ax1")
-#
-#     nnz_data0 = np.asarray([2, 1])
-#     nnz0 = op3.HierarchicalArray(axis0, name="nnz0", data=nnz_data0, dtype=op3.IntType)
-#     nnz_data1 = np.asarray([1, 0])
-#     nnz1 = op3.HierarchicalArray(axis1, name="nnz1", data=nnz_data1, dtype=op3.IntType)
-#
-#     axis2 = op3.Axis({"pt0": nnz0, "pt1": nnz1, "pt2": 2}, "ax2")
-#     axes = op3.AxisTree.from_nest({axis0: {axis1: axis2}})
-#
-#     assert axes.size == 16
-#
-#     layout0 = axes.layouts[freeze({"ax0": "pt0", "ax1": "pt0", "ax2": "pt0"})]
-#     layout1 = axes.layouts[freeze({"ax0": "pt0", "ax1": "pt0", "ax2": "pt1"})]
-#     layout2 = axes.layouts[freeze({"ax0": "pt0", "ax1": "pt0", "ax2": "pt2"})]
-#
-#     # NOTE: This is wrong, the start values here should index into some offset array,
-#     # otherwise the layouts all start from zero.
-#     assert as_str(layout0) == "array_0 + var_0"
-#     assert as_str(layout1) == "array_0 + var_0"
-#     assert as_str(layout2) == "array_0 + var_0"
-#
-#     array0 = single_valued(
-#         just_one(collect_multi_arrays(l)) for l in [layout0, layout1, layout2]
-#     )
-#     assert (array0.data_ro == flatten([[0, 5], [9, 13]])).all()
-#
-#     check_offsets(
-#         axes,
-#         [
-#             ([0, 0, ("pt0", 0)], 0),
-#             ([0, 0, ("pt0", 1)], 1),
-#             ([0, 0, ("pt1", 0)], 2),
-#             ([0, 0, ("pt2", 0)], 3),
-#             ([0, 0, ("pt2", 1)], 4),
-#             ([0, 1, ("pt0", 0)], 5),
-#             ([0, 1, ("pt0", 1)], 6),
-#             ([0, 1, ("pt2", 0)], 7),
-#             ([0, 1, ("pt2", 1)], 8),
-#             ([1, 0, ("pt0", 0)], 9),
-#             ([1, 0, ("pt1", 0)], 10),
-#             ([1, 0, ("pt2", 0)], 11),
-#             ([1, 0, ("pt2", 1)], 12),
-#             ([1, 1, ("pt0", 0)], 13),
-#             ([1, 1, ("pt2", 0)], 14),
-#             ([1, 1, ("pt2", 1)], 15),
-#         ],
-#     )
-#     # check_invalid_indices(
-#     #     axes,
-#     #     [
-#     #         [0, 0, 2],
-#     #         [0, 1, 1],
-#     #         [1, 0, 1],
-#     #         [1, 1, 2],
-#     #         [1, 2, 0],
-#     #         [2, 0, 0],
-#     #     ],
-#     # )
-
-
-# def test_tabulate_nested_ragged_indexed_layouts():
-#     axis0 = op3.Axis(3)
-#     axis1 = op3.Axis(2)
-#     axis2 = op3.Axis(2)
-#     nnz_data = np.asarray([[1, 0], [3, 2], [1, 1]], dtype=op3.IntType).flatten()
-#     nnz_axes = op3.AxisTree.from_iterable([axis0, axis1])
-#     nnz = op3.HierarchicalArray(nnz_axes, data=nnz_data)
-#     axes = op3.AxisTree.from_iterable([axis0, axis1, op3.Axis(nnz), axis2])
-#     # axes = op3.AxisTree.from_iterable([axis0, op3.Axis(nnz), op3.Axis(2)])
-#     # axes = op3.AxisTree.from_iterable([axis0, op3.Axis(nnz)])
-#
-#     p = axis0.index()
-#     indexed_axes = just_one(axes[p].context_map.values())
-#
-#     layout = indexed_axes.layouts[indexed_axes.path(*indexed_axes.leaf)]
-#     array0 = just_one(collect_multi_arrays(layout))
-#     expected = np.asarray(steps(nnz_data, drop_last=True), dtype=op3.IntType) * 2
-#     assert (array0.data_ro == expected).all()
-
+    check_layout(axis_tree, {"A": "a"}, [(i,) for i in range(3)], "i_{A}", lambda i: i)
+    check_layout(axis_tree, {"A": "b"}, [(i,) for i in range(2)], "(i_{A} + 3)", lambda i: i + 3)
 
 
 def test_ragged_basic():
@@ -259,8 +101,22 @@ def test_ragged_basic():
     axis2 = op3.Axis(op3.Dat(axis1, data=np.asarray([1, 2, 1], dtype=op3.IntType)), "B")
     axis_tree = op3.AxisTree.from_iterable((axis1, axis2))
 
-    check_layout(axis_tree, ["A"], "array_#[i_{A}]", lambda i: [0, 1, 3][i])
-    check_layout(axis_tree, ["A", "B"], "(array_#[i_{A}] + i_{B})", lambda i, j: [0, 1, 3][i] + j)
+    assert axis_tree.size == 4
+
+    check_layout(
+        axis_tree,
+        ["A"],
+        [(0,), (1,), (2,)],
+        "array_#[i_{A}]",
+        lambda i: [0, 1, 3][i],
+    )
+    check_layout(
+        axis_tree,
+        ["A", "B"],
+        [(0, 0), (1, 0), (1, 1), (2, 0)],
+        "(array_#[i_{A}] + i_{B})",
+        lambda i, j: [0, 1, 3][i] + j,
+    )
 
 
 def test_ragged_with_scalar_subaxis():
@@ -270,9 +126,29 @@ def test_ragged_with_scalar_subaxis():
     axis3 = op3.Axis(2, "C")
     axis_tree = op3.AxisTree.from_iterable((axis1, axis2, axis3))
 
-    check_layout(axis_tree, ["A"], "(array_#[i_{A}] * 2)", lambda i: 2*[0, 1, 3][i])
-    check_layout(axis_tree, ["A", "B"], "((array_#[i_{A}] * 2) + (i_{B} * 2))", lambda i, j: 2*[0, 1, 3][i] + 2*j)
-    check_layout(axis_tree, ["A", "B", "C"], "(((array_#[i_{A}] * 2) + (i_{B} * 2)) + i_{C})", lambda i, j, k: 2*[0, 1, 3][i] + 2*j + k)
+    assert axis_tree.size == 8
+
+    check_layout(
+        axis_tree,
+        ["A"],
+        [(0,), (1,), (2,)],
+        "(array_#[i_{A}] * 2)",
+        lambda i: 2*[0, 1, 3][i],
+    )
+    check_layout(
+        axis_tree,
+        ["A", "B"],
+        [(0, 0), (1, 0), (1, 1), (2, 0)],
+        "((array_#[i_{A}] * 2) + (i_{B} * 2))",
+        lambda i, j: 2*[0, 1, 3][i] + 2*j,
+    )
+    check_layout(
+        axis_tree,
+        ["A", "B", "C"],
+        [(0, 0, 0), (0, 0, 1), (1, 0, 0), (1, 0, 1), (1, 1, 0), (1, 1, 1), (2, 0, 0), (2, 0, 1)],
+        "(((array_#[i_{A}] * 2) + (i_{B} * 2)) + i_{C})",
+        lambda i, j, k: 2*[0, 1, 3][i] + 2*j + k,
+    )
 
 
 def test_ragged_with_multiple_ragged_subaxes():
@@ -331,7 +207,7 @@ def test_ragged_with_nonstandard_axis_ordering():
     )
 
 
-# TODO: For this single case can just do an affine thing
+# NOTE: For this single case can just do an affine thing - I don't think it's worth fixing
 # def test_regions_basic():
 #     axis_tree = op3.Axis([
 #         op3.AxisComponent([
@@ -343,25 +219,42 @@ def test_ragged_with_nonstandard_axis_ordering():
 
 
 def test_non_nested_matching_regions():
-    axis1 = op3.Axis([
-        op3.AxisComponent(1), op3.AxisComponent(1)
-    ])
+    axis1 = op3.Axis(
+        [op3.AxisComponent(1, "a"), op3.AxisComponent(1, "b")],
+        "A",
+    )
     axis21 = op3.Axis([
         op3.AxisComponent([
-            op3.AxisComponentRegion(2, "A"),
-            op3.AxisComponentRegion(1, "B"),
+            op3.AxisComponentRegion(2, "x"),
+            op3.AxisComponentRegion(1, "y"),
         ])
-    ])
+    ], "B")
     axis22 = op3.Axis([
         op3.AxisComponent([
-            op3.AxisComponentRegion(2, "A"),
-            op3.AxisComponentRegion(1, "B"),
+            op3.AxisComponentRegion(2, "x"),
+            op3.AxisComponentRegion(1, "y"),
         ])
-    ])
+    ], "C")
     axis_tree = op3.AxisTree.from_nest({axis1: [axis21, axis22]})
 
-    l = axis_tree.layouts
-    breakpoint()
+    assert axis_tree.size == 6
+
+    check_nan_layout(axis_tree, {"A": "a"}, [(0,)])
+    check_nan_layout(axis_tree, {"A": "b"}, [(0,)])
+    check_layout(
+        axis_tree,
+        {"A": "a", "B": None},
+        [(0, 0), (0, 1), (0, 2)],
+        "(i_{B} + array_#[((i_{A} * 3) + i_{B})])",
+        lambda i, j: j + [[0, 0, 2]][i][j],
+    )
+    check_layout(
+        axis_tree,
+        {"A": "b", "C": None},
+        [(0, 0), (0, 1), (0, 2)],
+        "(i_{C} + array_#[((i_{A} * 3) + i_{C})])",
+        lambda i, j: j + [[2, 2, 3]][i][j],
+    )
 
 
 def test_adjacent_mismatching_regions():
