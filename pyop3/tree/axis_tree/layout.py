@@ -72,7 +72,9 @@ def tabulate_again(axes):
     for regions in _collect_regions(axes):
         for i, (path, offset_dat) in enumerate(to_tabulate):
             offset_axes = axes.drop_subtree(path, allow_empty_subtree=True).linearize(path)
+
             if not all(region in offset_axes._all_region_labels for region in regions):
+                # zero-sized
                 continue
 
             regioned_axes = offset_axes.with_region_labels(regions)
@@ -91,6 +93,9 @@ def tabulate_again(axes):
             for j, _ in enumerate(starts):
                 if i != j:
                     starts[j] += step_size
+
+            debug = offset_dat.data
+            # breakpoint()
 
     return layouts
 
@@ -123,9 +128,9 @@ def _prepare_layouts(axes: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_t
         elif component.has_non_trivial_regions and not subtree._all_region_labels:
             offset_axes = AxisTree.from_iterable(parent_axes_)
             if subtree:
-                offset_dat = _accumulate_dat_expr(subtree.size, linear_axis, offset_axes=offset_axes)
+                offset_dat = _tabulate_regions(offset_axes, subtree.size)
             else:
-                offset_dat = _accumulate_dat_expr(1, linear_axis, offset_axes=offset_axes)
+                offset_dat = _tabulate_regions(offset_axes, 1)
             to_tabulate.append((path_acc_, offset_dat))
 
             assert layout_expr_acc == 0
@@ -673,15 +678,35 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
 
 # This gets the sizes right for a particular dat, then we merge them above
 def _tabulate_regions(offset_axes, step):
-    offset_dat = Dat.empty(offset_axes.regionless, dtype=IntType)
-    start = 0
+    # Construct a permutation
+    locs = np.full(offset_axes.size, -1, dtype=IntType)
+    ptr = 0
     for regions in _collect_regions(offset_axes):
         regioned_offset_axes = offset_axes.with_region_labels(regions)
+        assert not regioned_offset_axes._all_region_labels
 
-        step_dat = Dat.empty(full_shape(regioned_offset_axes), dtype=IntType)
-        step_dat.assign(step+start, eager=True)
-        offset_dat = Dat(step_dat.axes, data=utils.steps(step_dat.buffer._data))
+        regioned_offset_axes = type(regioned_offset_axes)(regioned_offset_axes.node_map, targets=regioned_offset_axes.targets, unindexed=regioned_offset_axes.unindexed.regionless)
+
+        if not regioned_offset_axes.is_linear:
+            raise NotImplementedError("Doesn't strictly have to be linear here")
+
+        region_offset_dat = Dat.empty(regioned_offset_axes, dtype=IntType)
+
+        offset_expr = utils.just_one(regioned_offset_axes.leaf_subst_layouts.values())
+
+        region_offset_dat.assign(offset_expr, eager=True)
 
         region_size = regioned_offset_axes.size
-        start += region_size
-    return offset_dat
+        locs[ptr:ptr+region_size] = region_offset_dat.data_ro
+        ptr += region_size
+
+    # now sizes
+    step_dat = Dat.zeros(offset_axes.regionless, dtype=IntType)
+    step_dat.assign(step, eager=True)
+
+    reordered_steps = step_dat.data_ro[locs]
+
+    reordered_offsets = utils.steps(reordered_steps)
+    offsets = reordered_offsets[utils.invert(locs)]
+
+    return Dat(offset_axes.regionless, data=offsets)

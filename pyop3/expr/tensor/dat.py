@@ -26,7 +26,7 @@ from pyop3.tree.axis_tree import (
 from pyop3.tree.axis_tree.tree import AbstractAxisTree, ContextFree, ContextSensitiveAxisTree, merge_axis_trees, subst_layouts
 from ..base import Expression, as_str
 from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer, BufferRef, NullBuffer, PetscMatBuffer
-from pyop3.dtypes import DTypeT, ScalarType
+from pyop3.dtypes import DTypeT, ScalarType, IntType
 from pyop3.exceptions import Pyop3Exception
 from pyop3.insn import KernelArgument, ArrayAssignment
 from pyop3.log import warning
@@ -107,8 +107,13 @@ class Dat(Tensor, KernelArgument):
     @classmethod
     def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        # alloc_size?
         buffer = ArrayBuffer.zeros(axes.unindexed.max_size, dtype=dtype, sf=axes.sf)
+        return cls(axes, buffer=buffer, **kwargs)
+
+    @classmethod
+    def full(cls, axes, fill_value: numbers.Number, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
+        axes = as_axis_tree(axes)
+        buffer = ArrayBuffer.full(axes.unindexed.max_size, fill_value, dtype=dtype, sf=axes.sf)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod

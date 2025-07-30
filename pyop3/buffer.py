@@ -279,6 +279,14 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         data = np.zeros(shape, dtype=dtype)
         return cls(data, **kwargs)
 
+    @classmethod
+    def full(cls, size: numbers.Integral, fill_value: numbers.Number, dtype=None, **kwargs):
+        if not isinstance(fill_value, int) or dtype != IntType:
+            raise NotImplementedError("Casting")
+
+        data = np.full(size, fill_value, dtype=dtype)
+        return cls(data, **kwargs)
+
     # }}}
 
     def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, max_value: numbers.Number | None=None, ordered:bool=False):
