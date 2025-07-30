@@ -575,7 +575,7 @@ should be followed:
 
 #. Create and activate a virtual environment::
 
-   $ python -m venv venv-firedrake
+   $ python3 -m venv venv-firedrake
    $ . venv-firedrake/bin/activate
 
 #. Install petsc4py and Firedrake's other build dependencies:
