@@ -42,13 +42,13 @@
 #     --build-arg ARCH=complex \
 #     --build-arg TARGET=2025.4.2
 #
-# Example usage for building from firedrake master with real scalars, PASTIX installed with PETSc, and valgrind installed with apt:
+# Example usage for building from firedrake master with real scalars, ml installed with PETSc, and valgrind installed with apt:
 #  $ docker build \
 #     --file=Dockerfile.vanilla \
 #     --tag=firedrake:master-latest \
 #     --build-arg ARCH=default \
 #     --build-arg TARGET=master \
-#     --build-arg PETSC_EXTRA_ARGS="--download-pastix" \
+#     --build-arg PETSC_EXTRA_ARGS="--download-ml" \
 #     --build-arg APT_EXTRA_PACKAGES="valgrind"
 
 FROM ubuntu:24.04
