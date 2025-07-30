@@ -105,6 +105,7 @@ ci = [
   "mpi-pytest>=2025.7",
   "nbval",
   "ngsPETSc",
+  "pygraphviz",
   "pylit",
   "pytest",
   "pytest-split",  # needed for firedrake-run-split-tests
@@ -119,6 +120,7 @@ docker = [  # Used in firedrake-vanilla container
   "matplotlib",
   "mpi-pytest>=2025.7",
   "nbval",
+  "pygraphviz",
   "pylit",
   "pytest",
   "pytest-split",  # needed for firedrake-run-split-tests
