@@ -13,7 +13,7 @@ from pyop3.dtypes import IntType
 from pyop3.expr import AxisVar, LoopIndexVar, LinearDatBufferExpression, Dat, ExpressionT
 from pyop3.expr.base import NAN
 from pyop3.expr.visitors import get_shape, replace
-from pyop3.insn import exscan, Loop
+from pyop3.insn import exscan, loop_
 from pyop3.tree import (
     Axis,
     ConcretePathT,
@@ -161,21 +161,18 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     starts = [0] * len(to_tabulate)
     for regions in _collect_regions(axis_tree):
         for i, (path, offset_axes, offset_dat) in enumerate(to_tabulate):
-            # offset_axes = axis_tree.drop_subtree(path, allow_empty_subtree=True).linearize(path)
 
+            # Axes do not match the current region set, this means that it is
+            # zero-sized.
             if not all(region in offset_axes._all_region_labels for region in regions):
-                # zero-sized
                 continue
 
             regioned_axes = offset_axes.with_region_labels(regions)
             assert not regioned_axes._all_region_labels
 
-            ix = regioned_axes.index()
-
-            assignee = offset_dat[ix]
-
-            if starts[i] > 0:
-                Loop(ix, assignee.iassign(starts[i]))()
+            # Add the global offset to the values in this region
+            if starts[i] > 0:  # don't bother adding 0 to things
+                loop_(ix := regioned_axes.index(), offset_dat[ix].iassign(starts[i]), eager=True)
 
             step_size = axis_tree.linearize(path, partial=True).with_region_labels(regions).size or 1
 
@@ -353,9 +350,9 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
 
         assignee = offset_dat[ix].concretize()
         scan_axis = replace_exprs(linear_axis, axis_to_loop_var_replace_map)
-        Loop(
-            ix, exscan(assignee, size_expr_alt, "+", scan_axis),
-        )()
+        loop_(
+            ix, exscan(assignee, size_expr_alt, "+", scan_axis), eager=True
+        )
 
     else:
         exscan(offset_dat.concretize(), size_expr, "+", linear_axis, eager=True)

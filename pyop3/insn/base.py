@@ -955,7 +955,7 @@ class DummyKernelArgument(OpaqueKernelArgument):
     """
 
 
-def loop_(*args, **kwargs):
+def loop_(*args, eager: bool = False, **kwargs) -> Loop | None:
     """
     Notes
     -----
@@ -963,7 +963,11 @@ def loop_(*args, **kwargs):
     called ``loop``. It is exported as ``op3.loop``.
 
     """
-    return Loop(*args, **kwargs)
+    if eager:
+        compiler_parameters = kwargs.pop("compiler_parameters", None)
+
+    loop_expr = Loop(*args, **kwargs)
+    return loop_expr(compiler_parameters=compiler_parameters) if eager else loop_expr
 
 
 # TODO: better to pass eager kwarg
