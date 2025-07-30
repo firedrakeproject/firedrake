@@ -37,7 +37,7 @@ The additional functionality required to support ensemble parallelism
 is the ability to send instances of :class:`~.Function` from one
 ensemble to another.  This is handled by the :class:`~.Ensemble` class.
 
-Each ensemble member has the same spatial parallelism, so
+Each ensemble member must have the same spatial parallel domain decomposition, so
 instantiating an :class:`~.Ensemble` requires a communicator to split
 (usually, but not necessarily, ``MPI_COMM_WORLD``) plus the number of
 MPI processes to be used in each member of the ensemble (5, in the
@@ -46,7 +46,8 @@ implicitly calculated by dividing the size of the original
 communicator by the number processes in each ensemble member. The
 total number of processes launched by ``mpiexec`` must therefore be
 equal to the product of the number of ensemble members with the number of
-processes to be used for each ensemble member.
+processes to be used for each ensemble member, and an exception will be
+raised if this is not the case.
 
 .. code-block:: python3
 
@@ -160,7 +161,10 @@ An :class:`~.EnsembleFunction` and :class:`~.EnsembleCofunction` can be
 created from the :class:`~.EnsembleFunctionSpace`. These have a ``subfunctions``
 property that can be used to access the components on the local ensemble
 member. Each element in ``EnsembleFunction.subfunctions`` is itself just a
-normal Firedrake :class:`~.Function`.
+normal Firedrake :class:`~.Function`. If a component of the
+``EnsembleFunctionSpace`` is a ``MixedFunctionSpace``, then the corresponding
+component in ``EnsembleFunction.subfunctions`` will be a mixed ``Function`` in
+that ``MixedFunctionSpace``.
 
 .. code-block:: python3
 
