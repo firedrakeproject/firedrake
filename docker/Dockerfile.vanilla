@@ -158,5 +158,5 @@ RUN \
     fi
 
 RUN cd /opt/firedrake/ \
-    && firedrake-check \
+    && make check || firedrake-check \
     && firedrake-clean
