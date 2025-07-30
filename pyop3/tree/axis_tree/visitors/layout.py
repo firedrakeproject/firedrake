@@ -174,9 +174,9 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
             if starts[i] > 0:  # don't bother adding 0 to things
                 loop_(ix := regioned_axes.index(), offset_dat[ix].iassign(starts[i]), eager=True)
 
+            # Figure out how large the looped-over part of the tree is (including subaxes)
+            # as this will inform the stride size.
             step_size = axis_tree.linearize(offset_axes.leaf_path, partial=True).with_region_labels(regions).size or 1
-            # assert step_size == regioned_axes.materialize().subtree(path).size
-            # assert step_size == regioned_axes.size
 
             # Add to the starting offset for all arrays apart from the current one
             for j, _ in enumerate(starts):
