@@ -21,7 +21,6 @@ from typing import Any, FrozenSet, Hashable, Mapping, Optional, Self, Tuple, Uni
 
 import cachetools
 import numpy as np
-import pyrsistent
 from cachetools import cachedmethod
 from mpi4py import MPI
 from immutabledict import immutabledict as idict
@@ -43,6 +42,7 @@ from pyop3.tree.labelled_tree import (
     MultiComponentLabelledNode,
     MutableLabelledTreeMixin,
     NodeLabelT,
+    PathT,
     accumulate_path,
     as_component_label,
     as_path,
@@ -576,6 +576,9 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
         clabel = as_component_label(component)
         return self.component_labels.index(clabel)
 
+    def matching_component(self, component_label: ComponentLabelT) -> AxisComponent:
+        return self.components[self.component_index(component_label)]
+
     @property
     def comm(self) -> MPI.Comm | None:
         return unique_comm(self.components)
@@ -896,8 +899,13 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         else:
             return LoopIndex(self)
 
-    def as_tree(self):
+    def as_tree(self) -> Self:
         return self
+
+    def component_size(self, path: PathT, component_label: ComponentLabelT) -> ExpressionT:
+        from .visitors import compute_axis_tree_component_size
+
+        return compute_axis_tree_component_size(self, path, component_label)
 
     def materialize(self):
         """Return a new "unindexed" axis tree with the same shape."""
@@ -949,9 +957,9 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     @cached_property
     def size(self):
-        from pyop3.tree.axis_tree.layout import _axis_tree_size
+        from .visitors import compute_axis_tree_size
 
-        return _axis_tree_size(self)
+        return compute_axis_tree_size(self)
 
     @cached_property
     def max_size(self):
@@ -964,6 +972,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     def global_size(self):
         return self.comm.allreduce(self.owned.size)
 
+    # old
     @cached_property
     def alloc_size(self):
         return self._alloc_size()
@@ -1385,47 +1394,11 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         return self
 
     @cached_property
-    def layouts(self):
+    def layouts(self) -> idict:
         """Initialise the multi-axis by computing the layout functions."""
-        from pyop3.tree.axis_tree.layout import make_layouts
+        from .visitors import compute_layouts
 
-        loop_vars = self.outer_loop_bits[1] if self.outer_loops else {}
-
-        with PETSc.Log.Event("pyop3: tabulate layouts"):
-            layouts = make_layouts(self, loop_vars)
-
-        if self.outer_loops:
-            _, loop_vars = self.outer_loop_bits
-
-            layouts_ = {}
-            for k, layout in layouts.items():
-                layouts_[k] = replace(layout, loop_vars)
-            layouts = idict(layouts_)
-
-        # for now
-        return idict(layouts)
-
-        # Have not considered how to do sparse things with external loops
-        if self.layout_axes.depth > self.depth:
-            return layouts
-
-        layouts_ = {idict(): 0}
-        for axis in self.nodes:
-            for component in axis.components:
-                orig_path = self.path(axis, component)
-                new_path = {}
-                replace_map = {}
-                for ax, cpt in self.path_with_nodes(axis, component).items():
-                    new_path.update(self.target_paths.get((ax.id, cpt), {}))
-                    replace_map.update(self.layout_exprs.get((ax.id, cpt), {}))
-                new_path = idict(new_path)
-
-                orig_layout = layouts[orig_path]
-                new_layout = IndexExpressionReplacer(replace_map, loop_exprs)(
-                    orig_layout
-                )
-                layouts_[new_path] = new_layout
-        return idict(layouts_)
+        return compute_layouts(self)
 
     @property
     def _matching_target(self):

@@ -16,6 +16,7 @@ from .base import (  # noqa: F401
     KernelArgument,
     Intent,
     AbstractAssignment,
+    Exscan,
     NullInstruction,
     assignment_type_as_intent,
     do_loop,
