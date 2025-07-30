@@ -482,9 +482,9 @@ class CuPyCodegenContext(CodegenContext):
         #assignee = ",".join([a[0] for a in assignee])
         assignee = assignees[0]
         if assignee[1].intent == INC:
-            insn = f"{assignee[0]} += {expression}"
+            insn = f"{expression}"
         else:
-            insn = f"{assignee[0]} = {expression}"
+             insn = f"{assignee[0]} = {expression}"
         self._add_instruction(insn)
 
     def add_buffer(self, buffer_ref: BufferRef, intent: Intent | None = None) -> str:
