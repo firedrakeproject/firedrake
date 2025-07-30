@@ -26,6 +26,13 @@ with other users.
 The conference will begin around lunchtime on 15 September and end on the
 evening of 17 September.
 
+Key Dates
+---------
+
+- Abstract deadline: 17 August 2025
+- Registration deadline: 25 August 2025
+- Workshop: 15-17 September 2025
+
 Conference venue
 ----------------
 
@@ -57,7 +64,8 @@ Conference dinner
 
 Registration includes a drinks reception and three-course dinner at University House, University of Leeds. The dinner will take place on the evening of 16 September. 
 
-It is possible during registration to purchase additional tickets for the dinner to bring non-registered companions.
+It is possible to bring non-registered companions to the dinner. To do so please purchase a ticket
+by following `this link <https://store.leeds.ac.uk/product-catalogue/faculty-of-engineering-and-physical-sciences/faculty-of-engineering/firedrake-2025-dinner>`__.
 
 .. image:: images/university_house_leeds.jpg
    :width: 80%
