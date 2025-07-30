@@ -25,5 +25,5 @@ RUN pip install --verbose --src /opt \
 
 # Install some other niceties
 RUN apt-get update \
-    && apt-get -y install graphviz nano vim \
+    && apt-get -y install graphviz graphviz-dev nano vim \
     && rm -rf /var/lib/apt/lists/*
