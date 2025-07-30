@@ -83,7 +83,7 @@ from pyop3.insn import (  # noqa: F401
     OpaqueKernelArgument,
     ArrayAssignment,
     do_loop,
-    loop,
+    loop_ as loop,
     exscan,
 )
 from pyop3.sf import StarForest, single_star_sf, local_sf

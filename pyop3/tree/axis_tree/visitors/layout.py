@@ -26,8 +26,6 @@ from .size import compute_axis_tree_component_size
 
 @PETSc.Log.EventDecorator()
 def compute_layouts(axis_tree: AxisTree) -> idict:
-    from pyop3 import do_loop
-
     to_tabulate = []
     tabulated = {}
 
@@ -57,7 +55,7 @@ def compute_layouts(axis_tree: AxisTree) -> idict:
             assignee = offset_dat[ix]
 
             if starts[i] > 0:
-                do_loop(ix, assignee.iassign(starts[i]))
+                Loop(ix, assignee.iassign(starts[i]))()
 
             # step_size = axes.materialize().subtree(path).size or 1
             step_size = axis_tree.linearize(path, partial=True).with_region_labels(regions).size or 1

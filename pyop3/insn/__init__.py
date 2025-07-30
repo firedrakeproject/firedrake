@@ -20,6 +20,6 @@ from .base import (  # noqa: F401
     NullInstruction,
     assignment_type_as_intent,
     do_loop,
-    _loop as loop,
+    loop_,
     exscan,
 )
