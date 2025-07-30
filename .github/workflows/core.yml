@@ -144,7 +144,7 @@ jobs:
             $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
           apt-get -y install python3-venv
           : # Dependencies needed to run the test suite
-          apt-get -y install parallel
+          apt-get -y install fonts-dejavu graphviz graphviz-dev parallel poppler-utils
 
       - name: Install PETSc
         run: |
@@ -234,7 +234,7 @@ jobs:
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/tsfc
-        timeout-minutes: 60
+        timeout-minutes: 10
 
       - name: Run PyOP2 tests
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
@@ -246,7 +246,7 @@ jobs:
           firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
           firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
           firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
-        timeout-minutes: 15
+        timeout-minutes: 10
 
 
       - name: Run Firedrake tests (nprocs = 1)
@@ -256,14 +256,14 @@ jobs:
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 60
+        timeout-minutes: 90
 
       - name: Run tests (nprocs = 2)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 30
+        timeout-minutes: 60
 
       - name: Run tests (nprocs = 3)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
@@ -422,6 +422,8 @@ jobs:
             echo Error: there are untracked files in the repository
             echo The output from 'git status' is:
             git status
+            echo The output from 'git diff' is:
+            git diff
             exit 1
           fi
 
