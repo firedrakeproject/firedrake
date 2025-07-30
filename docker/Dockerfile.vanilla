@@ -6,6 +6,14 @@
 # 2. A "release" build with the "release" branch at the latest commit.
 # 3. A "developer" build with the "master" branch at the latest commit
 #
+# A release build will install:
+#  - Firedrake in editable mode from the specified release tag or branch.
+#  - PETSc and SLEPc from the corresponding release (specified by firedrake-configure).
+# A developer build will install:
+#  - Firedrake in editable mode from the master branch.
+#  - PETSc and SLEPc from the master branch.
+#  - Python dependencies in editable mode that firedrake/master requires the latest master branch for (pyadjoint, ufl, etc).
+#
 # The two main command line arguments are:
 #
 # ARCH:
@@ -14,9 +22,9 @@
 # TARGET:
 #     Whether to build a release version of Firedrake.
 #     Options:
-#      - "release"           Build from the latest release branch (default).
-#      - "year.major.patch"  Build a specific release (e.g. 2025.4.2)
-#      - "master"            Build a developer install from the latest master branch
+#      - "release"        Build from the latest release branch (default).
+#      - <release tag>    Build a specific release (e.g. 2025.4.2)
+#      - "master"         Build a developer install from the latest master branch
 #
 # Extra apt packages and PETSc configure arguments can also be
 # provided with the following command line arguments:
@@ -34,13 +42,14 @@
 #     --build-arg ARCH=complex \
 #     --build-arg TARGET=2025.4.2
 #
-# Example usage for building from firedrake master with real scalars and PASTIX installed with PETSc:
+# Example usage for building from firedrake master with real scalars, PASTIX installed with PETSc, and valgrind installed with apt:
 #  $ docker build \
 #     --file=Dockerfile.vanilla \
 #     --tag=firedrake:master-latest \
 #     --build-arg ARCH=default \
 #     --build-arg TARGET=master \
-#     --build-arg PETSC_EXTRA_ARGS="--download-pastix"
+#     --build-arg PETSC_EXTRA_ARGS="--download-pastix" \
+#     --build-arg APT_EXTRA_PACKAGES="valgrind"
 
 FROM ubuntu:24.04
 
@@ -93,7 +102,7 @@ ENV OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 # 1. Clone the release tag of PETSc if we're installing a Firedrake release.
 # 2. We set the compiler optimisation flags manually here to remove the default
 #    of '-march=native -mtune=native' which is not suitable for Docker images.
-# 3. Remove non-essential files to reduce container size.
+# 3. Remove non-essential files to reduce container size (keep SLEPc for slepc4py).
 RUN if [ "${TARGET}" != "master" ]; then \
         CLONE_ARGS="--branch $(python3 /opt/firedrake-configure --show-petsc-version)"; \
     fi; \
