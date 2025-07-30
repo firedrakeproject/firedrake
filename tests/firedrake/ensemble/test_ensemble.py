@@ -104,7 +104,7 @@ def test_ensemble_allreduce(ensemble, mesh, W, urank, urank_sum, blocking):
         requests = ensemble.iallreduce(urank, u_reduce)
         MPI.Request.Waitall(requests)
 
-    parallel_assert(errornorm(urank_sum, u_reduce) < 1e-12)
+    parallel_assert(lambda: errornorm(urank_sum, u_reduce) < 1e-12)
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -156,7 +156,7 @@ def test_comm_manager_allreduce(blocking):
     f5 = Function(V5)
 
     with f4.dat.vec_ro as v4, f5.dat.vec_ro as v5:
-        parallel_assert(v4.getSizes() == v5.getSizes())
+        parallel_assert(lambda: v4.getSizes() == v5.getSizes())
 
     with pytest.raises(ValueError):
         allreduce(f4, f5)
@@ -187,13 +187,13 @@ def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
     error = errornorm(urank_sum, u_reduce)
     rank = ensemble.ensemble_rank
     parallel_assert(
-        error < 1e-12,
+        lambda: error < 1e-12,
         participating=(rank == root),
         msg=f"{error=:.5f}"
     )
     error = errornorm(Function(W).assign(10), u_reduce)
     parallel_assert(
-        error < 1e-12,
+        lambda: error < 1e-12,
         participating=(rank != root),
         msg=f"{error=:.5f}"
     )
@@ -205,7 +205,7 @@ def test_ensemble_reduce(ensemble, mesh, W, urank, urank_sum, root, blocking):
     with u_reduce.dat.vec as v:
         states[spatial_rank] = v.stateGet()
     ensemble.comm.Allgather(MPI.IN_PLACE, states)
-    parallel_assert(len(set(states)) == 1)
+    parallel_assert(lambda: len(set(states)) == 1)
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -256,7 +256,7 @@ def test_comm_manager_reduce(blocking):
     f5 = Function(V5)
 
     with f4.dat.vec_ro as v4, f5.dat.vec_ro as v5:
-        parallel_assert(v4.getSizes() == v5.getSizes())
+        parallel_assert(lambda: v4.getSizes() == v5.getSizes())
 
     with pytest.raises(ValueError):
         reduction(f4, f5)
@@ -284,7 +284,7 @@ def test_ensemble_bcast(ensemble, mesh, W, urank, root, blocking):
     # broadcasted function
     u_correct = unique_function(mesh, root, W)
 
-    parallel_assert(errornorm(u_correct, urank) < 1e-12)
+    parallel_assert(lambda: errornorm(u_correct, urank) < 1e-12)
 
 
 @pytest.mark.parallel(nprocs=6)
@@ -323,7 +323,7 @@ def test_send_and_recv(ensemble, mesh, W, blocking):
     # Test send/recv between first two spatial comms
     # ie: ensemble.ensemble_comm.rank == 0 and 1
     parallel_assert(
-        error < 1e-12,
+        lambda: error < 1e-12,
         participating=ensemble.ensemble_rank in (rank0, rank1),
         msg=f"{error=:.5f}"  # noqa: E203, E251
     )
@@ -351,7 +351,7 @@ def test_sendrecv(ensemble, mesh, W, urank, blocking):
     if not blocking:
         MPI.Request.Waitall(requests)
 
-    parallel_assert(errornorm(urecv, u_expect) < 1e-12)
+    parallel_assert(lambda: errornorm(urecv, u_expect) < 1e-12)
 
 
 @pytest.mark.parallel(nprocs=6)
@@ -382,4 +382,4 @@ def test_ensemble_solvers(ensemble, W, urank, urank_sum):
     usum = Function(W)
     ensemble.allreduce(u_separate, usum)
 
-    parallel_assert(errornorm(u_combined, usum) < 1e-8)
+    parallel_assert(lambda: errornorm(u_combined, usum) < 1e-8)
