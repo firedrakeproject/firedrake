@@ -107,10 +107,13 @@ RUN if [ "${TARGET}" != "master" ]; then \
         cat configure.log; \
         exit; \
     fi; \
-    make check \
-    && shopt -s extglob \
-    && rm -rf ./**/externalpackages/!(git.slepc) \
-    && rm -rf ./src/docs \
+    make check || exit; \
+    for pkg in $(ls ./arch-firedrake-${ARCH}/externalpackages/); do \
+      if [ "${pkg}" != "git.slepc" ]; then \
+        rm -rf  ./arch-firedrake-${ARCH}/${pkg} || exit; \
+      fi; \
+    done; \
+    rm -rf ./src/docs \
     && rm -f ./src/**/tutorials/output/* \
     && rm -f ./src/**/tests/output/* \
     && cd - || exit
