@@ -160,7 +160,7 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     # this.
     starts = [0] * len(to_tabulate)
     for regions in _collect_regions(axis_tree):
-        for i, (path, offset_axes, offset_dat) in enumerate(to_tabulate):
+        for i, (offset_axes, offset_dat) in enumerate(to_tabulate):
 
             # Axes do not match the current region set, this means that it is
             # zero-sized.
@@ -174,7 +174,9 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
             if starts[i] > 0:  # don't bother adding 0 to things
                 loop_(ix := regioned_axes.index(), offset_dat[ix].iassign(starts[i]), eager=True)
 
-            step_size = axis_tree.linearize(path, partial=True).with_region_labels(regions).size or 1
+            step_size = axis_tree.linearize(offset_axes.leaf_path, partial=True).with_region_labels(regions).size or 1
+            # assert step_size == regioned_axes.materialize().subtree(path).size
+            # assert step_size == regioned_axes.size
 
             # Add to the starting offset for all arrays apart from the current one
             for j, _ in enumerate(starts):
@@ -212,7 +214,7 @@ def _prepare_layouts(axis_tree: AxisTree, axis: Axis, path_acc, layout_expr_acc,
                 offset_dat = _tabulate_regions(offset_axes, subtree.size)
             else:
                 offset_dat = _tabulate_regions(offset_axes, 1)
-            to_tabulate.append((path_acc_, offset_axes, offset_dat))
+            to_tabulate.append((offset_axes, offset_dat))
 
             assert layout_expr_acc == 0
             layout_expr_acc_ = offset_dat.concretize()
