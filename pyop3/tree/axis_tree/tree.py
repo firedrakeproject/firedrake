@@ -550,7 +550,7 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
         if len(self.components) == 1:
             component_str = str(utils.just_one(self.components))
         else:
-            component_str = f"[{', '.join(map(str, self.components))}]}}"
+            component_str = f"[{', '.join(map(str, self.components))}]"
 
         if self.label is None:
             raise NotImplementedError

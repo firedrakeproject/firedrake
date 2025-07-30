@@ -10,12 +10,13 @@ from petsc4py import PETSc
 
 from pyop3 import utils
 from pyop3.dtypes import IntType
-from pyop3.expr import AxisVar, LoopIndexVar, LinearDatBufferExpression, Dat
+from pyop3.expr import AxisVar, LoopIndexVar, LinearDatBufferExpression, Dat, ExpressionT
 from pyop3.expr.base import NAN
 from pyop3.expr.visitors import get_shape, replace
 from pyop3.insn import exscan, Loop
 from pyop3.tree import (
     Axis,
+    ConcretePathT,
     AxisTree,
     merge_axis_trees,
 )
@@ -25,23 +26,142 @@ from .size import compute_axis_tree_component_size
 
 
 @PETSc.Log.EventDecorator()
-def compute_layouts(axis_tree: AxisTree) -> idict:
+def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
+    """Compute the layout functions for an axis tree.
+
+    Layout functions are expressions that take axis variables (symbolic indices
+    per axis) and evaluate to an integer offset. As the simplest possible example
+    consider the axis tree:
+
+        {"A": 5}
+
+    This tree has only a single axis and so it only has a single layout function:
+
+        {"A": None}: i_A
+
+    Here ``{"A": None}`` refers to the path through the tree where the layout
+    resides and ``i_A`` is the layout function. Since the tree only has a single
+    axis the mapping between axis indices and offsets is trivially identity.
+
+    Note that this tree will also have the zero layout:
+
+        {}: 0
+
+    meaning that if you are at the root of the tree then the offset must be zero.
+
+    Parameters
+    ----------
+    axis_tree :
+        The axis tree to compute the layouts of.
+
+    Returns
+    -------
+    layouts :
+        Mapping from path through the axis tree to the layout function.
+
+    Examples
+    --------
+
+    1. Linear axis tree
+    ~~~~~~~~~~~~~~~~~~~
+    For the simple axis tree (equivalent to a 2D numpy array):
+
+        {"A": 5}
+        └──➤ {"B": 3}
+
+    the layout functions are:
+
+        {
+            {}: 0,
+            {"A": None}: 3*i_A,
+            {"A": None, "B": None}: 3*i_A + i_B,
+        }
+
+    2. Multi-component axis tree
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    For the axis tree:
+
+        {A: [{0: 3}, {1: 4}]}}
+        ├──➤ {B: 2}
+        └──➤ {C: 1}
+
+    the layout functions are:
+
+        {
+            {}: 0,
+            {"A": 0}: 2*i_A,
+            {"A": 0, "B": None}: 2*i_A + i_B,
+            {"A": 1}: i_A + 6,
+            {"A": 1, "C": None}: i_A + i_C + 6,
+        }
+
+    3. Ragged axis tree
+    ~~~~~~~~~~~~~~~~~~~
+
+    TODO
+
+    4. Multi-region axis tree
+    ~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    TODO
+
+    For more examples please refer to ``tests/pyop3/unit/test_layout.py``.
+
+    """
+    # Traverse the axis tree and compute everything we can.
     to_tabulate = []
     tabulated = {}
-
     layouts = _prepare_layouts(axis_tree, axis_tree.root, idict(), 0, to_tabulate, tabulated, ())
-
     # add zero for the root
     layouts = layouts | {idict(): 0}
 
+    # Now tweak the offsets for multi-region components. This is necessary because
+    # the initial traversal treats axis components in isolation and so the strides
+    # across regions are not yet known.
+    #
+    # As an example consider the following multi-region tree:
+    #
+    #     {A: [1, 1]}
+    #     ├──➤ {B: [{x: 2}, {y: 1}]}
+    #     └──➤ {C: [{x: 2}, {y: 1}]}
+    #
+    # Here 'x' and 'y' are the different regions that we want to partition. Hence
+    # we want the final layout to be:
+    #
+    #     [ a0b0, a0b1, a1c0, a1c1 || a0b2, a1c2 ]
+    #                "x"                  "y"
+    #
+    # Since the offsets for each component are computed in isolation the current
+    # relevant layout functions are:
+    #
+    #     {
+    #         {"A": 0, "B": None}: [[0, 1, 2]][i_A, i_B]
+    #         {"A": 1, "C": None}: [[0, 1, 2]][i_A, i_C]
+    #     }
+    #
+    # whereas the correct values are:
+    #
+    #     {
+    #         {"A": 0, "B": None}: [[0, 1, 4]][i_A, i_B]
+    #         {"A": 1, "C": None}: [[2, 3, 5]][i_A, i_C]
+    #     }
+    #
+    # To compute this we track a global offset and add it to arrays for each
+    # region. In this case this results in:
+    #
+    # 1. regions = {"x"}, starts = [0, 0], [[0, 1, 2]][i_A, i_B], [[0, 1, 2]][i_A, i_C]
+    # 2. regions = {"x"}, starts = [0, 2], [[0, 1, 2]][i_A, i_B], [[2, 3, 2]][i_A, i_C]
+    # 3. regions = {"y"}, starts = [2, 2], [[0, 1, 4]][i_A, i_B], [[2, 3, 2]][i_A, i_C]
+    # 4. regions = {"y"}, starts = [2, 3], [[0, 1, 4]][i_A, i_B], [[2, 3, 5]][i_A, i_C]
+    #
     # TODO: There a particular cases (e.g. multiple regions but only a single
     # component or no matching regions) where it is sufficient to do an affine
     # layout instead of tabulating a start expression. We currently do not detect
     # this.
     starts = [0] * len(to_tabulate)
     for regions in _collect_regions(axis_tree):
-        for i, (path, offset_dat) in enumerate(to_tabulate):
-            offset_axes = axis_tree.drop_subtree(path, allow_empty_subtree=True).linearize(path)
+        for i, (path, offset_axes, offset_dat) in enumerate(to_tabulate):
+            # offset_axes = axis_tree.drop_subtree(path, allow_empty_subtree=True).linearize(path)
 
             if not all(region in offset_axes._all_region_labels for region in regions):
                 # zero-sized
@@ -57,9 +177,9 @@ def compute_layouts(axis_tree: AxisTree) -> idict:
             if starts[i] > 0:
                 Loop(ix, assignee.iassign(starts[i]))()
 
-            # step_size = axes.materialize().subtree(path).size or 1
             step_size = axis_tree.linearize(path, partial=True).with_region_labels(regions).size or 1
 
+            # Add to the starting offset for all arrays apart from the current one
             for j, _ in enumerate(starts):
                 if i != j:
                     starts[j] += step_size
@@ -95,7 +215,7 @@ def _prepare_layouts(axis_tree: AxisTree, axis: Axis, path_acc, layout_expr_acc,
                 offset_dat = _tabulate_regions(offset_axes, subtree.size)
             else:
                 offset_dat = _tabulate_regions(offset_axes, 1)
-            to_tabulate.append((path_acc_, offset_dat))
+            to_tabulate.append((path_acc_, offset_axes, offset_dat))
 
             assert layout_expr_acc == 0
             layout_expr_acc_ = offset_dat.concretize()
