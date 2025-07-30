@@ -83,7 +83,7 @@ class FDMPC(PCBase):
     matrices.
 
     The PETSc options inspected by this class are:
-    - 'fdm_mat_type': can be either 'aij' or 'sbaij'
+    - 'fdm_mat_type': can be either 'aij', 'sbaij', or 'is'
     - 'fdm_static_condensation': are we assembling the Schur complement on facets?
     """
 
@@ -169,7 +169,7 @@ class FDMPC(PCBase):
                 self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
         # Internally, we just set up a PC object that the user can configure
-        # however from the PETSc command line.  Since PC allows the user to specify
+        # however from the PETSc command line. Since PC allows the user to specify
         # a KSP, we can do iterative by -fdm_pc_type ksp.
         fdmpc = PETSc.PC().create(comm=pc.comm)
         fdmpc.incrementTabLevel(1, parent=pc)
