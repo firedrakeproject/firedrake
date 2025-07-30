@@ -440,7 +440,7 @@ _DEFAULT_KSP_PARAMETERS = flatten_parameters({
 _DEFAULT_SNES_PARAMETERS = {
     "snes_type": "newtonls",
     "snes_linesearch_type": "basic",
-    # Really we want **DEFAULT_KSP_PARAMETERS in here, but it isn't the way the NonlinearVariationalSovler class works
+    # Really we want **DEFAULT_KSP_PARAMETERS in here, but it isn't the way the NonlinearVariationalSolver class works
 }
 # We also want looser KSP tolerances for non-linear solves
 # DEFAULT_SNES_PARAMETERS["ksp_rtol"] = 1e-5
