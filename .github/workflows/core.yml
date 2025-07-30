@@ -144,7 +144,7 @@ jobs:
             $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
           apt-get -y install python3-venv
           : # Dependencies needed to run the test suite
-          apt-get -y install parallel
+          apt-get -y install fonts-dejavu graphviz graphviz-dev parallel poppler-utils
 
       - name: Install PETSc
         run: |
