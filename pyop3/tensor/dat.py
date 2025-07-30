@@ -426,6 +426,9 @@ class Dat(Tensor, KernelArgument):
 
     @data_wo.setter
     def data_wo_with_halos(self, value):
+        from firedrake.device import compute_device 
+        if not isinstance(value, compute_device.array_type):
+            value = compute_device.array(value)
         self.buffer.data_wo_with_halos[self.axes._buffer_slice] = value
 
 

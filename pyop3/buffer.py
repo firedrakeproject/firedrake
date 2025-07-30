@@ -406,7 +406,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         _state = self._by_device[compute_device.identity][0]
         new_array = self._by_device[compute_device.identity][1]
         for device, data in self._by_device.items():
-            if data[0] > _state:
+            if data[0] > _state or new_array is None:
                 new_array = compute_device.array(data[1])
                 _state = data[0]
         self._by_device[compute_device.identity] = [_state, new_array]
@@ -421,6 +421,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         elif device_data is None:
             self._move_device_data()
         device_data = self._by_device[compute_device.identity][1]
+        if device_data is None:
+            raise ValueError("Retrieved data is not - did compute device move fail?") 
         return device_data 
 
     @property
