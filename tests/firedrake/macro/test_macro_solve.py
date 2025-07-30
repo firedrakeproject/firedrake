@@ -144,14 +144,14 @@ def test_stokes(mh, variant, mixed_element):
         Z = V * Q
 
         a, L = stokes_mms(Z, as_vector(zexact))
-        bcs = DirichletBC(Z[0], as_vector(zexact[:dim]), "on_boundary")
+        bcs = DirichletBC(Z.sub(0), as_vector(zexact[:dim]), "on_boundary")
 
         zh = Function(Z)
         nullspace = MixedVectorSpaceBasis(
             Z,
             [Z.sub(0), VectorSpaceBasis(constant=True, comm=COMM_WORLD)]
         )
-        solve(a == L, zh, bcs=bcs, nullspace=nullspace)
+        solve(a == L, zh, bcs=bcs, nullspace=nullspace, solver_parameters={"ksp_type": "preonly", "pc_type": "cholesky", "pc_factor_mat_solver_type": "mumps"})
 
         uh, ph = zh.subfunctions
         u_err.append(errornorm(as_vector(uexact), uh))
