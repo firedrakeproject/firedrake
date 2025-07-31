@@ -336,6 +336,12 @@ def _collect_regions(axes: AxisTree, *, path: PathT = idict()):
 # TODO: singledispatch (but needs import thoughts)
 # TODO: should cache this!!!
 def _accumulate_step_sizes(obj: Any, axis):
+    """TODO
+
+    This is suitable for ragged expressions where step sizes need to be accumulated
+    into an offset array.
+
+    """
     from pyop3.expr import base as expr_types
 
     if isinstance(obj, numbers.Number):
@@ -350,15 +356,15 @@ def _accumulate_step_sizes(obj: Any, axis):
         raise NotImplementedError
 
 
-def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis, offset_axes=None):
-    if offset_axes is None:
-        if linear_axis not in utils.just_one(get_shape(size_expr)):
-            return size_expr
+def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis):
+    # If the current axis does not form part of the step expression then the
+    # layout function is actually just 'size_expr * AxisVar(axis)'.
+    if linear_axis not in utils.just_one(get_shape(size_expr)):
+        return size_expr
 
-        # by definition the current axis is in size_expr
-        offset_axes = merge_axis_trees((utils.just_one(get_shape(size_expr)), full_shape(linear_axis.as_tree())))
-
-        regions = False
+    # We do an accumulate (exscan) over a single axis. This means that things
+    # always start from zero and so we can add the result to the accumulated
+    # layout functions.
 
     # do the moral equivalent of
     #
@@ -366,16 +372,13 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
     #     for j  # (the current axis)
     #       offset[i, j] = offset[i, j-1] + size[i, j]
 
+    # by definition the current axis is in size_expr
+    offset_axes = merge_axis_trees((utils.just_one(get_shape(size_expr)), full_shape(linear_axis.as_tree())))
 
     # remove current axis as we need to scan over it
     loc = utils.just_one(path for path, axis_ in offset_axes.node_map.items() if axis_ == linear_axis)
     outer_loop_tree = offset_axes.drop_node(loc)
     assert linear_axis not in outer_loop_tree.nodes
-
-
-    # this is just accumulating the arrays in size!
-
-    # but scanning is hard...
 
 
     offset_dat = Dat.zeros(offset_axes.regionless, dtype=IntType)
@@ -417,7 +420,15 @@ def _tabulate_regions(offset_axes, step):
     # from test_nested_mismatching_regions. Focus on how this is special because
     # we have the requisite region information in this case.
 
-    # Construct a permutation
+    # Construct the permutation from the natural ordering to the actual one.
+    # Using the case above as an example this means generating the array
+    #
+    #     [0, 1, 3, 4, 2, 5, 6, 7, 8]
+    #
+    # This is done by looping over each region set in turn and writing the
+    # offsets into a contiguous array. In this case this means writing
+    # [0, 1, 3, 4] for region set 'xu', then [2, 5] for 'xv' into the next
+    # available entries and so on.
     locs = np.full(offset_axes.size, -1, dtype=IntType)
     ptr = 0
     for regions in _collect_regions(offset_axes):
@@ -439,13 +450,24 @@ def _tabulate_regions(offset_axes, step):
         locs[ptr:ptr+region_size] = region_offset_dat.data_ro
         ptr += region_size
 
-    # now sizes
+    # We now have the necessary permutation but to compute offsets we actually
+    # need to know the size of each entry. This is done by evaluating the 'step'
+    # expression.
+    # Note that unlike for the ragged case the offset computations here include
+    # all of the available axes (there is no axis-wise 'exscan' here). This is
+    # because the axes above this have not yet been tabulated so accumulation
+    # is not a concern.
     step_dat = Dat.zeros(offset_axes.regionless, dtype=IntType)
     step_dat.assign(step, eager=True)
 
+    # But the steps here are in the wrong order since they do not account for
+    # the region interleaving. We therefore need to:
+    #
+    # 1. Reorder the steps into 'region' order
     reordered_steps = step_dat.data_ro[locs]
-
+    # 2. Accumulate these steps to give us offsets
     reordered_offsets = utils.steps(reordered_steps)
+    # 3. Undo the reordering
     offsets = reordered_offsets[utils.invert(locs)]
 
     return Dat(offset_axes.regionless, data=offsets)
