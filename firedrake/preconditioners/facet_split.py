@@ -20,7 +20,7 @@ class FacetSplitPC(PCBase):
     This allows for statically-condensed preconditioners to be applied to
     linear systems involving the matrix applied to the full set of DOFs. Code
     generated for the matrix-free operator evaluation in the space with full
-    DOFs will run faster than the one with interior-facet decoposition, since
+    DOFs will run faster than the one with interior-facet decomposition, since
     the full element has a simpler structure.
     """
 
@@ -42,7 +42,7 @@ class FacetSplitPC(PCBase):
     def initialize(self, pc):
         from firedrake import FunctionSpace, TestFunction, TrialFunction, split
 
-        prefix = pc.getOptionsPrefix()
+        prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
         options = PETSc.Options(options_prefix)
         mat_type = options.getString("mat_type", "submatrix")

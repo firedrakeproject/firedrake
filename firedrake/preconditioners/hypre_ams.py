@@ -1,14 +1,13 @@
-import firedrake.assemble as assemble
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
+from firedrake.function import Function
 from firedrake.ufl_expr import TestFunction
 from firedrake.dmhooks import get_function_space
 from firedrake.utils import complex_mode
+from firedrake.interpolation import interpolate
+from ufl import grad, SpatialCoordinate
 from firedrake_citations import Citations
-from firedrake import SpatialCoordinate
-from firedrake.__future__ import interpolate
 from finat.ufl import VectorElement
-from ufl import grad
 from pyop2.utils import as_tuple
 
 __all__ = ("HypreAMS",)
@@ -31,13 +30,15 @@ def chop(A, tol=1E-10):
 
 class HypreAMS(PCBase):
     def initialize(self, obj):
+        from firedrake.assemble import assemble
+
         if complex_mode:
             raise NotImplementedError("HypreAMS preconditioner not yet implemented in complex mode")
 
         Citations().register("Kolev2009")
         A, P = obj.getOperators()
         appctx = self.get_appctx(obj)
-        prefix = obj.getOptionsPrefix()
+        prefix = obj.getOptionsPrefix() or ""
         V = get_function_space(obj.getDM())
         mesh = V.mesh()
 
@@ -50,7 +51,7 @@ class HypreAMS(PCBase):
         P1 = V.reconstruct(family="Lagrange", degree=1)
         G_callback = appctx.get("get_gradient", None)
         if G_callback is None:
-            G = chop(assemble.assemble(interpolate(grad(TestFunction(P1)), V)).petscmat)
+            G = chop(assemble(interpolate(grad(TestFunction(P1)), V)).petscmat)
         else:
             G = G_callback(P1, V)
 
@@ -68,8 +69,8 @@ class HypreAMS(PCBase):
             pc.setHYPRESetBetaPoissonMatrix(None)
 
         VectorP1 = P1.reconstruct(element=VectorElement(P1.ufl_element()))
-        interp = interpolate(SpatialCoordinate(mesh), VectorP1)
-        pc.setCoordinates(assemble.assemble(interp).dat.data_ro.copy())
+        coords = Function(VectorP1).interpolate(SpatialCoordinate(mesh))
+        pc.setCoordinates(coords.dat.data_ro.copy())
         pc.setFromOptions()
         self.pc = pc
 

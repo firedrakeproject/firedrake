@@ -336,7 +336,8 @@ class GemPointContext(ContextBase):
     def basis_evaluation(self, finat_element, mt, entity_id):
         return finat_element.point_evaluation(mt.local_derivatives,
                                               self.point_expr,
-                                              (self.integration_dim, entity_id))
+                                              (self.integration_dim, entity_id),
+                                              CoordinateMapping(mt, self))
 
 
 class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):

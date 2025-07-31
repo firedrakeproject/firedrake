@@ -60,7 +60,7 @@ def check_element(element, top=True):
     elif type(element) is finat.ufl.EnrichedElement:
         inner = element._elements
     elif type(element) is finat.ufl.TensorProductElement:
-        inner = element.sub_elements
+        inner = element.factor_elements
     elif isinstance(element, finat.ufl.MixedElement):
         if not top:
             raise ValueError(f"{type(element).__name__} modifier must be outermost")
@@ -359,7 +359,6 @@ class WithGeometryBase(object):
     @classmethod
     def make_function_space(cls, mesh, element, name=None):
         r"""Factory method for :class:`.WithGeometryBase`."""
-        mesh.init()
         topology = mesh.topology
         # Create a new abstract (Mixed/Real)FunctionSpace, these are neither primal nor dual.
         if type(element) is finat.ufl.MixedElement:
@@ -514,11 +513,10 @@ class FunctionSpace(object):
 
         self.rank = len(self.shape)
         r"""The rank of this :class:`FunctionSpace`.  Spaces where the
-        element is scalar-valued (or intrinsically vector-valued) have
-        rank zero.  Spaces built on :class:`finat.ufl.mixedelement.VectorElement` or
-        :class:`finat.ufl.mixedelement.TensorElement` instances have rank equivalent to
-        the number of components of their
-        :attr:`finat.ufl.finiteelementbase.FiniteElementBase.value_shape`."""
+        element is scalar-valued (or intrinsically vector-valued) have rank
+        zero.  Spaces built on :class:`finat.ufl.mixedelement.VectorElement` or
+        :class:`finat.ufl.mixedelement.TensorElement` have rank 1 and 2
+        respectively."""
 
         self.block_size = int(numpy.prod(self.shape, dtype=int))
         r"""The total number of degrees of freedom at each function
