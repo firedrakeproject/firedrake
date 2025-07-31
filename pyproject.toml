@@ -128,7 +128,10 @@ fulltest = [
   "jax",
   "matplotlib",
   "nbval",
+  "networkx",
   "ngsPETSc",
+  "pdf2image",
+  "pygraphviz",
   "pylit",
   "slepc4py==3.23.2",
   "torch",  # requires passing '--extra-index-url' to work

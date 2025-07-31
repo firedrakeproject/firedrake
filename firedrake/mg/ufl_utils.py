@@ -33,13 +33,16 @@ class CoarsenIntegrand(MultiFunction):
         self.coarsen = coarsen
         super(CoarsenIntegrand, self).__init__()
 
-    expr = MultiFunction.reuse_if_untouched
+    ufl_type = MultiFunction.reuse_if_untouched
 
     def argument(self, o):
         V = self.coarsen(o.function_space(), self.coarsen)
         return o.reconstruct(V)
 
     def coefficient(self, o):
+        return self.coarsen(o, self.coarsen, coefficient_mapping=self.coefficient_mapping)
+
+    def cofunction(self, o):
         return self.coarsen(o, self.coarsen, coefficient_mapping=self.coefficient_mapping)
 
     def geometric_quantity(self, o):
