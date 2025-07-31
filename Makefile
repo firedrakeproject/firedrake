@@ -94,10 +94,10 @@ clean:
 test_durations:
 	@echo "    Regenerating test durations"
 	@echo "    Removing old durations file"
-	#rm -f tests/test_durations.json
-	#-python3 -m pytest --store-durations --durations-path=tests/test_durations.json -m parallel[1] tests/
+	rm -f tests/test_durations.json
+	python3 -m pytest --store-durations --durations-path=tests/test_durations.json -m parallel[1] tests/ || true
 	# use ':' to ensure that only rank 0 writes to the durations file
-	-for nprocs in 2 3 4 6 7 8; do \
+	for nprocs in 2 3 4 6 7 8; do \
 		mpiexec -n 1 python3 -m pytest --store-durations --durations-path=tests/test_durations.json -m parallel[$${nprocs}] tests/ \
 		: -n $$(( $${nprocs} - 1 )) python3 -m pytest -m parallel[$${nprocs}] -q tests/ || true ; \
 	done
