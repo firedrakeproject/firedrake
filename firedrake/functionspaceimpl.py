@@ -390,6 +390,7 @@ class WithGeometryBase(object):
         Any extra kwargs are used to reconstruct the finite element.
         For details see :meth:`finat.ufl.finiteelement.FiniteElement.reconstruct`.
         """
+        from firedrake.functionspace import RestrictedFunctionSpace as restrict
         V_parent = self
         if boundary_set is None:
             boundary_set = V_parent.boundary_set
@@ -420,7 +421,7 @@ class WithGeometryBase(object):
             V = V.sub(i)
 
         if boundary_set:
-            V = RestrictedFunctionSpace(V, boundary_set=boundary_set, name=V.name)
+            V = restrict(V, boundary_set=boundary_set, name=V.name)
         return V
 
 
@@ -884,14 +885,6 @@ class RestrictedFunctionSpace(FunctionSpace):
     If using this class to solve or similar, a list of DirichletBCs will still
     need to be specified on this space and passed into the function.
     """
-    def __new__(cls, function_space, boundary_set=frozenset(), name=None):
-        mesh = function_space.mesh()
-        if mesh is not mesh.topology:
-            V = RestrictedFunctionSpace(function_space.topological,
-                                        boundary_set=boundary_set, name=name)
-            return type(function_space).create(V, mesh)
-        return FunctionSpace.__new__(cls)
-
     def __init__(self, function_space, boundary_set=frozenset(), name=None):
         label = ""
         boundary_set_ = []

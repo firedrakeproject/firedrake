@@ -206,7 +206,7 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
     F = self(problem.F, self, coefficient_mapping=coefficient_mapping)
     J = self(problem.J, self, coefficient_mapping=coefficient_mapping)
     Jp = self(problem.Jp, self, coefficient_mapping=coefficient_mapping)
-    u = coefficient_mapping[problem.u]
+    u = coefficient_mapping[problem.u_restrict]
 
     fine = problem
     problem = firedrake.NonlinearVariationalProblem(F, u, bcs=bcs, J=J, Jp=Jp, is_linear=problem.is_linear,
