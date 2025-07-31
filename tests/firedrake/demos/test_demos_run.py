@@ -49,7 +49,7 @@ SERIAL_DEMOS = [
     Demo(("saddle_point_pc", "saddle_point_systems"), ["hypre", "mumps"]),
     Demo(("fast_diagonalisation", "fast_diagonalisation_poisson"), ["mumps"]),
     Demo(('vlasov_poisson_1d', 'vp1d'), []),
-    Demo(("assimilating_point_data", "assimilating_point_data"), ["adjoint"])
+    Demo(("assimilating_point_data", "assimilating_point_data"), ["adjoint"]),
     Demo(('shape_optimization', 'shape_optimization'), ["adjoint", "vtk"])
 ]
 PARALLEL_DEMOS = [
