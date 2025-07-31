@@ -62,6 +62,8 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     Examples
     --------
 
+    For more examples please refer to ``tests/pyop3/unit/test_layout.py``.
+
     1. Linear axis tree
     ~~~~~~~~~~~~~~~~~~~
     For the simple axis tree (equivalent to a 2D numpy array):
@@ -102,16 +104,37 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
 
     4. Multi-region axis tree
     ~~~~~~~~~~~~~~~~~~~~~~~~~
+    For the axis tree:
 
-    TODO
+        {A: [{a: 1}, {b: 1}]}
+        ├──➤ {B: [{x: 2}, {y: 1}]}
+        └──➤ {C: [{x: 2}, {y: 1}]}
 
-    For more examples please refer to ``tests/pyop3/unit/test_layout.py``.
+    where 'a' and 'b' are axis components with size 1 and 'x' and 'y' are
+    component *regions*, we expect to have the following data layout:
+
+        [ a0, a1, b0, b1 || a2, b2 ]
+               "x"           "y"
+
+    In other words all entities in the 'x' region are partitioned to occur
+    before those in 'y'. This means that the layout functions are as follows:
+
+        {
+            {}: 0,
+            {"A": "a"}: NaN,
+            {"A": "a", "B": None}: [[0, 1, 4]][i_A, i_B],
+            {"A": "b"}: NaN,
+            {"A": "b", "C": None}: [[2, 3, 5]][i_A, i_C],
+        }
+
+    The {"A": "a"} and {"A": "b"} entries are NaNs because they do not address
+    contiguous data and so are meaningless.
 
     """
-    # Traverse the axis tree and compute everything we can.
+    # First traverse the axis tree and compute everything we can.
     to_tabulate = []
     tabulated = {}
-    layouts = _prepare_layouts(axis_tree, axis_tree.root, idict(), 0, to_tabulate, tabulated, ())
+    layouts = _prepare_layouts(axis_tree, idict(), 0, to_tabulate, tabulated, ())
     # add zero for the root
     layouts = layouts | {idict(): 0}
 
@@ -186,29 +209,46 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     return layouts
 
 
-def _prepare_layouts(axis_tree: AxisTree, axis: Axis, path_acc, layout_expr_acc, to_tabulate, tabulated, parent_axes) -> idict:
-    """Traverse the axis tree and prepare zeroed arrays for offsets.
+def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate, tabulated, parent_axes) -> idict:
+    """Traverse the axis tree and compute the layout functions.
 
-    Any axes that do not require tabulation will also be set at this point.
+    Any layout functions related to regions and thus requiring global
+    tabulation are marked as such during the traversal.
+
+    Parameters
+    ----------
+    layout_expr_acc :
+        The accumulated layout function from the traversal of the parent axes.
+        Each layout function is always the sum of the per-axis layout with this.
 
     """
     layouts = {}
+
+    axis = axis_tree.node_map[path_acc]
+
+    # Counter that tracks the offset between axis components.
     start = 0
+
     for component in axis.components:
         path_acc_ = path_acc | {axis.label: component.label}
 
         subtree = axis_tree.subtree(path_acc_)
 
+        if not subtree.is_empty:
+            subtree_has_non_trivial_regions = bool(subtree._all_region_labels)
+        else:
+            subtree_has_non_trivial_regions = False
+
         linear_axis = axis.linearize(component.label)
         parent_axes_ = parent_axes + (linear_axis,)
 
-        # more regions below, cannot do anything here
-        if subtree and subtree._all_region_labels:
+        # The subtree contains regions so we cannot have a layout function here.
+        if subtree_has_non_trivial_regions:
             layout_expr_acc_ = layout_expr_acc
             layouts[path_acc_] = NAN
 
-        # At the last region, can tabulate here
-        elif component.has_non_trivial_regions and not subtree._all_region_labels:
+        # At the bottom region - now can compute layouts involving all regions
+        elif component.has_non_trivial_regions and not subtree_has_non_trivial_regions:
             offset_axes = AxisTree.from_iterable(parent_axes_)
             if subtree:
                 offset_dat = _tabulate_regions(offset_axes, subtree.size)
@@ -221,7 +261,7 @@ def _prepare_layouts(axis_tree: AxisTree, axis: Axis, path_acc, layout_expr_acc,
             layouts[path_acc_] = layout_expr_acc_
 
         # At leaves the layout function is trivial
-        elif not subtree:
+        elif subtree.is_empty:
             layout_expr_acc_ = layout_expr_acc + AxisVar(linear_axis) + start
             layouts[path_acc_] = layout_expr_acc_
 
@@ -237,8 +277,8 @@ def _prepare_layouts(axis_tree: AxisTree, axis: Axis, path_acc, layout_expr_acc,
 
         start += compute_axis_tree_component_size(axis_tree, path_acc, component.label)
 
-        if subaxis := axis_tree.node_map[path_acc_]:
-            sublayouts = _prepare_layouts(axis_tree, subaxis, path_acc_, layout_expr_acc_, to_tabulate, tabulated, parent_axes_)
+        if axis_tree.node_map[path_acc_]:
+            sublayouts = _prepare_layouts(axis_tree, path_acc_, layout_expr_acc_, to_tabulate, tabulated, parent_axes_)
             layouts |= sublayouts
 
     return idict(layouts)
@@ -364,6 +404,19 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
 
 # This gets the sizes right for a particular dat, then we merge them above
 def _tabulate_regions(offset_axes, step):
+    # Regions are always tabulated using all available free indices (i.e. all
+    # parent axes) because they get interleaved.
+
+    # TODO: explain this algorithm using
+    #
+    #     {A: [{x: 2}, {y: 1}]}
+    #     └──➤ {B: [{u: 2}, {v: 1}]}
+    #
+    #     [ 00, 01, 10, 11 ||  02, 12 || 20, 21 ||  22  ]
+    #            "xu"           "xv"      "yu"     "yv"
+    # from test_nested_mismatching_regions. Focus on how this is special because
+    # we have the requisite region information in this case.
+
     # Construct a permutation
     locs = np.full(offset_axes.size, -1, dtype=IntType)
     ptr = 0
