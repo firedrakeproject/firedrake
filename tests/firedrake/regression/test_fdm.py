@@ -1,4 +1,5 @@
 import pytest
+import numpy
 from firedrake import *
 from pyop2.utils import as_tuple
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
@@ -339,7 +340,7 @@ def test_ipdg_direct_solver(fs):
 @pytest.mark.parallel
 @pytest.mark.parametrize("degree", range(1, 3))
 @pytest.mark.parametrize("variant", ("spectral", "integral", "fdm"))
-def test_tabulate_exterior_derivative(mesh, variant, degree):
+def test_tabulate_gradient(mesh, variant, degree):
     from firedrake.preconditioners.fdm import tabulate_exterior_derivative
     tdim = mesh.topological_dimension()
     family = {1: "DG", 2: "RTCE", 3: "NCE"}[tdim]
@@ -353,3 +354,26 @@ def test_tabulate_exterior_derivative(mesh, variant, degree):
     with u0.dat.vec as x, u1.dat.vec as y:
         D.mult(x, y)
         assert y.norm() < 1E-12
+
+
+# @pytest.mark.parallel(nprocs=2)
+@pytest.mark.parametrize("mat_type", ("aij", "is"))
+@pytest.mark.parametrize("degree", range(1, 3))
+@pytest.mark.parametrize("variant", ("spectral", "integral", "fdm"))
+def test_tabulate_divergence(mesh, variant, degree, mat_type):
+    from firedrake.preconditioners.fdm import tabulate_exterior_derivative
+    tdim = mesh.topological_dimension()
+    family = {1: "CG", 2: "RTCF", 3: "NCF"}[tdim]
+
+    V = FunctionSpace(mesh, family, degree, variant=variant)
+    Q = FunctionSpace(mesh, "DG", 0, variant=variant)
+    D = tabulate_exterior_derivative(V, Q, mat_type=mat_type, allow_repeated=True)
+
+    # Dref = assemble(Interpolate(div(TrialFunction(V)), Q)).petscmat
+    Jdet = JacobianDeterminant(mesh)
+    s = abs(Jdet) / Jdet
+    Dref = assemble(inner(div(TrialFunction(V)) * s, TestFunction(Q))*dx).petscmat
+    alpha = -(-1)**tdim
+    Dref.axpy(-1*alpha, D.convert("aij"))
+    _, _, vals = Dref.getValuesCSR()
+    assert numpy.allclose(vals, 0)

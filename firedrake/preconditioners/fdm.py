@@ -710,19 +710,7 @@ class FDMPC(PCBase):
     def assembly_lgmaps(self):
         if self.mat_type != "is":
             return {Vsub: Vsub.dof_dset.lgmap for Vsub in self.V}
-        lgmaps = {}
-        for Vsub in self.V:
-            lgmap = Vsub.dof_dset.lgmap
-            if self.allow_repeated:
-                indices = broken_function(Vsub, lgmap.indices).dat.data_ro
-            else:
-                indices = lgmap.indices.copy()
-                local_indices = numpy.arange(len(indices), dtype=PETSc.IntType)
-                cell_node_map = broken_function(Vsub, local_indices).dat.data_ro
-                ghost = numpy.setdiff1d(local_indices, numpy.unique(cell_node_map), assume_unique=True)
-                indices[ghost] = -1
-            lgmaps[Vsub] = PETSc.LGMap().create(indices, bsize=lgmap.getBlockSize(), comm=lgmap.getComm())
-        return lgmaps
+        return {Vsub: get_matis_lgmap(Vsub, self.allow_repeated) for Vsub in self.V}
 
     def setup_block(self, Vrow, Vcol):
         # Preallocate the auxiliary sparse operator
@@ -1661,7 +1649,21 @@ def diff_blocks(tdim, formdegree, A00, A11, A10):
     return A_blocks
 
 
-def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
+def get_matis_lgmap(Vsub, allow_repeated):
+    lgmap = Vsub.dof_dset.lgmap
+    if allow_repeated:
+        indices = broken_function(Vsub, lgmap.indices).dat.data_ro
+    else:
+        indices = lgmap.indices.copy()
+        local_indices = numpy.arange(len(indices), dtype=PETSc.IntType)
+        cell_node_map = broken_function(Vsub, local_indices).dat.data_ro
+        ghost = numpy.setdiff1d(local_indices, numpy.unique(cell_node_map), assume_unique=True)
+        indices[ghost] = -1
+
+    return PETSc.LGMap().create(indices, bsize=lgmap.getBlockSize(), comm=lgmap.getComm())
+
+
+def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="aij", allow_repeated=False):
     """
     Tabulate exterior derivative: Vc -> Vf as an explicit sparse matrix.
     Works for any tensor-product basis. These are the same matrices one needs for HypreAMS and friends.
@@ -1724,9 +1726,18 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
     preallocator.setSizes(sizes)
     preallocator.setUp()
 
+    spaces = (Vf, Vc)
+    bcs = (fbcs, cbcs)
+    if mat_type == "is":
+        assert not any(bcs)
+        lgmaps = tuple(get_matis_lgmap(V, allow_repeated) for V in spaces)
+        indices = tuple(mask_local_indices(V, V.dof_dset.lgmap, allow_repeated) for V in spaces)
+    else:
+        lgmaps = tuple(V.local_to_global_map(bcs) for V, bcs in zip(spaces, bcs))
+        indices = tuple(op2.Dat(V.dof_dset, lgmap.indices)(op2.READ, V.cell_node_map())
+                        for V, lgmap in zip(spaces, lgmaps))
+
     kernel = ElementKernel(Dhat, name="exterior_derivative").kernel()
-    indices = tuple(op2.Dat(V.dof_dset, V.local_to_global_map(bcs).indices)(op2.READ, V.cell_node_map())
-                    for V, bcs in zip((Vf, Vc), (fbcs, cbcs)))
     assembler = op2.ParLoop(kernel,
                             Vc.mesh().cell_set,
                             *(op2.PassthroughArg(op2.OpaqueType("Mat"), m.handle) for m in (preallocator, Dhat)),
@@ -1736,7 +1747,13 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
     nnz = get_preallocation(preallocator, sizes[0][0])
     preallocator.destroy()
 
-    Dmat = PETSc.Mat().createAIJ(sizes, Vf.block_size, nnz=nnz, comm=comm)
+    Dmat = PETSc.Mat().create(comm=comm)
+    Dmat.setType(mat_type)
+    Dmat.setSizes(sizes)
+    Dmat.setBlockSize(Vf.block_size)
+    Dmat.setISAllowRepeated(allow_repeated)
+    Dmat.setLGMap(*lgmaps)
+    Dmat.setPreallocationNNZ(nnz)
     Dmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
     assembler.arguments[0].data = Dmat.handle
     assembler()
