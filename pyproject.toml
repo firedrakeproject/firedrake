@@ -61,25 +61,10 @@ firedrake-preprocess-bibtex = "firedrake.scripts.firedrake_preprocess_bibtex:mai
 firedrake-status = "firedrake.scripts.firedrake_status:main"
 pyop2-clean = "pyop2.compilation:clear_compiler_disk_cache"
 
-
 [project.optional-dependencies]
 check = [
   "mpi-pytest>=2025.7",
   "pytest",
-]
-docs = [
-  "bibtexparser",
-  "matplotlib",  # needed to resolve API
-  "numpydoc",
-  "pylit",
-  "sphinx<8.2.0",  # https://github.com/firedrakeproject/firedrake/issues/4059
-  "sphinx-autobuild",
-  "sphinx-reredirects",
-  "sphinxcontrib-bibtex",
-  "sphinxcontrib-jquery",
-  "sphinxcontrib-svg2pdfconverter",
-  "sphinxcontrib-youtube",
-  "vtk",  # needed to resolve API
 ]
 jax = [
   "jax",
@@ -97,42 +82,6 @@ vtk = [
   "vtk",
 ]
 
-# Dependencies needed to run the full test suite
-ci = [
-  "ipympl",  # needed for notebook testing
-  "jax",
-  "matplotlib",
-  "mpi-pytest>=2025.7",
-  "nbval",
-  "networkx",
-  "ngsPETSc",
-  "pdf2image",
-  "pygraphviz",
-  "pylit",
-  "pytest",
-  "pytest-split",  # needed for firedrake-run-split-tests
-  "pytest-timeout",
-  "pytest-xdist",
-  "slepc4py==3.23.2",
-  "torch",  # requires passing '--extra-index-url' to work
-  "vtk",
-]
-docker = [  # Used in firedrake-vanilla container
-  "ipympl",  # needed for notebook testing
-  "matplotlib",
-  "mpi-pytest>=2025.7",
-  "nbval",
-  "networkx",
-  "pdf2image",
-  "pygraphviz",
-  "pylit",
-  "pytest",
-  "pytest-split",  # needed for firedrake-run-split-tests
-  "pytest-timeout",
-  "pytest-xdist",
-  "slepc4py==3.23.2",
-]
-
 [build-system]
 requires = [
   "Cython>=3.0",
@@ -147,6 +96,57 @@ requires = [
   "rtree>=1.2",
 ]
 build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+docs = [
+  "bibtexparser",
+  "matplotlib",  # needed to resolve API
+  "numpydoc",
+  "pylit",
+  "sphinx<8.2.0",  # https://github.com/firedrakeproject/firedrake/issues/4059
+  "sphinx-autobuild",
+  "sphinx-reredirects",
+  "sphinxcontrib-bibtex",
+  "sphinxcontrib-jquery",
+  "sphinxcontrib-svg2pdfconverter",
+  "sphinxcontrib-youtube",
+  "vtk",  # needed to resolve API
+]
+test = [
+  "pytest",
+  "mpi-pytest>=2025.7",
+]
+dev = [
+  {include-group = "docs"},
+  {include-group = "test"},
+  "pytest-timeout",
+  "pytest-xdist",
+]
+fulltest = [
+  {include-group = "test"},
+  "ipympl",  # needed for notebook testing
+  "jax",
+  "matplotlib",
+  "nbval",
+  "networkx",
+  "ngsPETSc",
+  "pdf2image",
+  "pygraphviz",
+  "pylit",
+  "slepc4py==3.23.2",
+  "torch",  # requires passing '--extra-index-url' to work
+  "vtk",
+]
+docker = [  # used in firedrake-vanilla containers
+  {include-group = "fulltest"},
+  "pytest-split",  # needed for firedrake-run-split-tests
+  "pytest-timeout",
+  "pytest-xdist",
+]
+ci = [
+  {include-group = "docs"},
+  {include-group = "docker"},
+]
 
 # TODO: Convert firedrake-zenodo to a proper entrypoint script.
 [tool.setuptools]

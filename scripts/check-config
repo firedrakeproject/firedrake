@@ -65,7 +65,7 @@ def check_slepc_version() -> None:
     check_file_contains_pattern(
         REPO_ROOT / "pyproject.toml",
         "slepc4py==(.*)",
-        3,
+        2,
     )
 
 
