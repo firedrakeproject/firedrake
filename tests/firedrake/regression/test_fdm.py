@@ -369,6 +369,8 @@ def test_tabulate_divergence(mesh, variant, degree, mat_type):
     V = FunctionSpace(mesh, family, degree, variant=variant)
     Q = FunctionSpace(mesh, "DG", 0, variant=variant)
     D = tabulate_exterior_derivative(V, Q, mat_type=mat_type, allow_repeated=True)
+
+    # Fix sign
     Jdet = JacobianDeterminant(mesh)
     alpha = (-1) ** (1 + tdim)
     s = Function(Q).interpolate(alpha * abs(Jdet) / Jdet)
