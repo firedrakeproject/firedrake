@@ -8,7 +8,7 @@ from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 from firedrake.preconditioners.fdm import tabulate_exterior_derivative
 from firedrake.preconditioners.hiptmair import curl_to_grad
-from ufl import H1, H2, HCurl, inner, dx, JacobianDeterminant
+from ufl import H1, H2, inner, dx, JacobianDeterminant
 from pyop2.utils import as_tuple
 import numpy
 
@@ -94,9 +94,9 @@ class BDDCPC(PCBase):
 
         tdim = V.mesh().topological_dimension()
         if tdim >= 2 and V.finat_element.formdegree == tdim-1:
-            get_divergence = appctx.get("get_divergence_mat", get_divergence_mat)
             A, P = pc.getOperators()
             allow_repeated = P.getISAllowRepeated()
+            get_divergence = appctx.get("get_divergence_mat", get_divergence_mat)
             divergence = get_divergence(V, mat_type="is", allow_repeated=allow_repeated)
             try:
                 div_args, div_kwargs = divergence
@@ -104,17 +104,12 @@ class BDDCPC(PCBase):
                 div_args = (divergence,)
                 div_kwargs = dict()
             bddcpc.setBDDCDivergenceMat(*div_args, **div_kwargs)
-        elif sobolev_space == HCurl:
-            # Should we use a callable like for hypre_ams?
-            gradient = appctx.get("discrete_gradient", None)
-            if gradient is None:
-                from firedrake.preconditioners.fdm import tabulate_exterior_derivative
-                from firedrake.preconditioners.hiptmair import curl_to_grad
-                Q = V.reconstruct(element=curl_to_grad(V.ufl_element()))
-                gradient = tabulate_exterior_derivative(Q, V)
-                if variant == 'fdm':
-                    corners = get_vertex_dofs(Q)
-                    gradient.compose('_elements_corners', corners)
+        elif tdim >= 2 and V.finat_element.formdegree == 1:
+            get_gradient = appctx.get("get_discrete_gradient", get_discrete_gradient)
+            gradient = get_gradient(V)
+            try:
+                grad_args, grad_kwargs = gradient
+            except ValueError:
                 grad_args = (gradient,)
                 grad_kwargs = dict()
             bddcpc.setBDDCDiscreteGradient(*grad_args, **grad_kwargs)
@@ -146,13 +141,9 @@ def get_vertex_dofs(V):
 def get_divergence_mat(V, mat_type="aij", allow_repeated=False):
     from firedrake import assemble
     degree = max(as_tuple(V.ufl_element().degree()))
-
     Q = TensorFunctionSpace(V.mesh(), "DG", 0, variant=f"integral({degree-1})", shape=V.value_shape[:-1])
-    # d = {HCurl: curl, HDiv: div}[V.ufl_element().sobolev_space]
-    # b = inner(d(TrialFunction(V)), TestFunction(Q)) * dx(degree=degree-1)
-    # B = assemble(b, mat_type=mat_type).petscmat
-
     B = tabulate_exterior_derivative(V, Q, mat_type=mat_type, allow_repeated=allow_repeated)
+
     Jdet = JacobianDeterminant(V.mesh())
     s = assemble(inner(TrialFunction(Q)*(1/Jdet), TestFunction(Q))*dx(degree=0), diagonal=True)
     with s.dat.vec as svec:
