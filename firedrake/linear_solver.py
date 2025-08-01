@@ -11,13 +11,16 @@ __all__ = ["LinearSolver"]
 class LinearSolver(LinearVariationalSolver):
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, A, *, P=None, **kwargs):
+    def __init__(self, A, *, P=None, restrict=False, **kwargs):
         """A linear solver for assembled systems (Ax = b) with constant A.
 
         :arg A: a :class:`~.MatrixBase` (the operator).
         :arg P: an optional :class:`~.MatrixBase` to construct any
              preconditioner from; if none is supplied ``A`` is
              used to construct the preconditioner.
+        :kwarg restrict: (optional) If `True`, use restricted function spaces,
+            that exclude Dirichlet boundary condition nodes,  internally for
+            the test and trial spaces.
         :kwarg solver_parameters: (optional) dict of solver parameters.
         :kwarg nullspace: an optional :class:`~.VectorSpaceBasis` (or
             :class:`~.MixedVectorSpaceBasis` spanning the null space
@@ -50,7 +53,8 @@ class LinearSolver(LinearVariationalSolver):
 
         problem = LinearVariationalProblem(A, self.b, self.x, aP=P,
                                            form_compiler_parameters=A.form_compiler_parameters,
-                                           constant_jacobian=True)
+                                           constant_jacobian=True,
+                                           restrict=restrict)
         super().__init__(problem, **kwargs)
 
         self.A = A
