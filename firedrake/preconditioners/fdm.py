@@ -1635,7 +1635,7 @@ def diff_blocks(tdim, formdegree, A00, A11, A10):
             A_blocks = [[A00.kron(A10)], [A10.kron(A00)]]
         elif formdegree == 1:
             A_blocks = [[A10.kron(A11), A11.kron(A10)]]
-            A_blocks[-1][-1].scale(-1)
+            A_blocks[0][0].scale(-1)
     elif tdim == 3:
         if formdegree == 0:
             A_blocks = [[kron3(A00, A00, A10)], [kron3(A00, A10, A00)], [kron3(A10, A00, A00)]]

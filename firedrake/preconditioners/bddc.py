@@ -95,12 +95,9 @@ class BDDCPC(PCBase):
         tdim = V.mesh().topological_dimension()
         if tdim >= 2 and V.finat_element.formdegree == tdim-1:
             get_divergence = appctx.get("get_divergence_mat", get_divergence_mat)
-            qdegree = degree - 1
-            if variant in ("fdm", "integral"):
-                qdegree = 0
             A, P = pc.getOperators()
             allow_repeated = P.getISAllowRepeated()
-            divergence = get_divergence(V, degree=qdegree, mat_type="is", allow_repeated=allow_repeated)
+            divergence = get_divergence(V, mat_type="is", allow_repeated=allow_repeated)
             try:
                 div_args, div_kwargs = divergence
             except ValueError:
@@ -146,9 +143,10 @@ def get_vertex_dofs(V):
     return vertex_dofs
 
 
-def get_divergence_mat(V, degree=None, mat_type="aij", allow_repeated=False):
+def get_divergence_mat(V, mat_type="aij", allow_repeated=False):
+    from firedrake import assemble
     sobolev_space = V.ufl_element().sobolev_space
-    vdegree = max(as_tuple(V.ufl_element().degree()))
+    degree = max(as_tuple(V.ufl_element().degree()))
     d = {HCurl: curl, HDiv: div}[sobolev_space]
     if V.shape == ():
         make_function_space = FunctionSpace
@@ -157,20 +155,16 @@ def get_divergence_mat(V, degree=None, mat_type="aij", allow_repeated=False):
     else:
         make_function_space = TensorFunctionSpace
 
-    if degree is None:
-        degree = vdegree-1
-    Q = make_function_space(V.mesh(), "DG", degree)
+    qdegree = degree-1
+    Q = make_function_space(V.mesh(), "DG", 0, variant=f"integral({qdegree})")
     if False:
-        from firedrake import assemble
-        b = inner(d(TrialFunction(V)), TestFunction(Q)) * dx(degree=degree+vdegree-1)
+        b = inner(d(TrialFunction(V)), TestFunction(Q)) * dx(degree=qdegree)
         B = assemble(b, mat_type=mat_type).petscmat
     else:
         B = tabulate_exterior_derivative(V, Q, mat_type=mat_type, allow_repeated=allow_repeated)
-        # Fix sign
-        tdim = V.mesh().topological_dimension()
-        alpha = (-1) ** (tdim-1)
+        # Fix scale
         Jdet = JacobianDeterminant(V.mesh())
-        s = Function(Q).interpolate(alpha * abs(Jdet) / Jdet)
+        s = assemble(inner(TrialFunction(Q)*(1/Jdet), TestFunction(Q))*dx(degree=0), diagonal=True)
         with s.dat.vec as svec:
             B.diagonalScale(svec, None)
 

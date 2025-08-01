@@ -338,8 +338,8 @@ def test_ipdg_direct_solver(fs):
 
 
 @pytest.mark.parallel(nprocs=2)
-@pytest.mark.parametrize("mat_type", ("aij",))
-@pytest.mark.parametrize("degree", range(1, 3))
+@pytest.mark.parametrize("mat_type", ("aij", "is"))
+@pytest.mark.parametrize("degree", (1, 4))
 @pytest.mark.parametrize("variant", ("spectral", "integral", "fdm"))
 def test_tabulate_gradient(mesh, variant, degree, mat_type):
     from firedrake.preconditioners.fdm import tabulate_exterior_derivative
@@ -358,27 +358,27 @@ def test_tabulate_gradient(mesh, variant, degree, mat_type):
 
 
 @pytest.mark.parallel(nprocs=2)
-@pytest.mark.parametrize("mat_type", ("aij", "is",))
-@pytest.mark.parametrize("degree", (1, 2))
-@pytest.mark.parametrize("variant", ("integral",))
+@pytest.mark.parametrize("mat_type", ("aij", "is"))
+@pytest.mark.parametrize("degree", (1, 4))
+@pytest.mark.parametrize("variant", ("spectral", "integral", "fdm"))
 def test_tabulate_divergence(mesh, variant, degree, mat_type):
     from firedrake.preconditioners.fdm import tabulate_exterior_derivative
     tdim = mesh.topological_dimension()
     family = {1: "CG", 2: "RTCF", 3: "NCF"}[tdim]
 
     V = FunctionSpace(mesh, family, degree, variant=variant)
-    Q = FunctionSpace(mesh, "DG", 0, variant=variant)
+    Q = FunctionSpace(mesh, "DG", 0, variant=f"integral({degree-1})")
     D = tabulate_exterior_derivative(V, Q, mat_type=mat_type, allow_repeated=True)
 
-    # Fix sign
+    # Fix scale
     Jdet = JacobianDeterminant(mesh)
-    alpha = (-1) ** (1 + tdim)
-    s = Function(Q).interpolate(alpha * abs(Jdet) / Jdet)
+    s = assemble(inner(TrialFunction(Q)*(1/Jdet), TestFunction(Q))*dx, diagonal=True)
     with s.dat.vec as svec:
         D.diagonalScale(svec, None)
 
     Dref = assemble(inner(div(TrialFunction(V)), TestFunction(Q))*dx).petscmat
     Dij = D if D.type.endswith("aij") else D.convert(Dref.type, PETSc.Mat())
+
     Dref.axpy(-1, Dij)
     _, _, vals = Dref.getValuesCSR()
     assert numpy.allclose(vals, 0)
