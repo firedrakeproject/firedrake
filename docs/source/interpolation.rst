@@ -262,6 +262,7 @@ interpolation:
    :start-after: [test_cross_mesh 21]
    :end-before: [test_cross_mesh 22]
 
+.. _external_interpolation:
 
 Interpolation from external data
 --------------------------------

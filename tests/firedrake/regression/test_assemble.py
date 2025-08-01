@@ -41,41 +41,13 @@ def fs(request, mesh):
 
 @pytest.fixture
 def f(fs):
-    f = Function(fs, name="f")
-    f_split = f.subfunctions
     x = SpatialCoordinate(fs.mesh())[0]
-
-    # NOTE: interpolation of UFL expressions into mixed
-    # function spaces is not yet implemented
-    for fi in f_split:
-        fs_i = fi.function_space()
-        if fs_i.rank == 1:
-            fi.interpolate(as_vector((x,) * fs_i.value_size))
-        elif fs_i.rank == 2:
-            fi.interpolate(as_tensor([[x for i in range(fs_i.mesh().geometric_dimension())]
-                                      for j in range(fs_i.rank)]))
-        else:
-            fi.interpolate(x)
-    return f
+    return Function(fs, name="f").interpolate(as_tensor(np.full(fs.value_shape, x)))
 
 
 @pytest.fixture
 def one(fs):
-    one = Function(fs, name="one")
-    ones = one.subfunctions
-
-    # NOTE: interpolation of UFL expressions into mixed
-    # function spaces is not yet implemented
-    for fi in ones:
-        fs_i = fi.function_space()
-        if fs_i.rank == 1:
-            fi.interpolate(Constant((1.0,) * fs_i.value_size))
-        elif fs_i.rank == 2:
-            fi.interpolate(Constant([[1.0 for i in range(fs_i.mesh().geometric_dimension())]
-                                     for j in range(fs_i.rank)]))
-        else:
-            fi.interpolate(Constant(1.0))
-    return one
+    return Function(fs, name="one").interpolate(Constant(np.ones(fs.value_shape)))
 
 
 @pytest.fixture
@@ -362,3 +334,14 @@ def test_split_subdomain_ids():
     assert (a.dat[0].data == b.dat[0].data).all()
     assert b.dat[1].data[0] == 0.0
     assert b.dat[1].data[1] == a.dat[1].data[1]
+
+
+def test_assemble_tensor_empty_shape(mesh):
+    W = TensorFunctionSpace(mesh, "CG", 1, shape=())
+    w = Function(W).assign(1)
+    result = assemble(inner(w, w)*dx)
+
+    V = FunctionSpace(mesh, "CG", 1)
+    v = Function(V).assign(1)
+    expected = assemble(inner(v, v)*dx)
+    assert np.allclose(result, expected)
