@@ -8,7 +8,7 @@ from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
                                            evaluate_dual,
                                            get_permutation_to_nodal_elements,
                                            cache_generate_code)
-from firedrake.preconditioners.facet_split import split_dofs, restricted_dofs
+from firedrake.preconditioners.facet_split import restrict, restricted_dofs, split_dofs
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.function import Function
@@ -41,7 +41,7 @@ __all__ = ("FDMPC", "PoissonFDMPC")
 
 
 def broken_function(V, val):
-    W = FunctionSpace(V.mesh(), finat.ufl.BrokenElement(V.ufl_element()))
+    W = FunctionSpace(V.mesh(), restrict(V.ufl_element(), "broken"))
     w = Function(W, dtype=val.dtype)
     v = Function(V, val=val)
     domain = "{[i]: 0 <= i < v.dofs}"

@@ -8,7 +8,7 @@ from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 from firedrake.preconditioners.fdm import tabulate_exterior_derivative
 from firedrake.preconditioners.hiptmair import curl_to_grad
-from ufl import curl, div, H1, H2, HCurl, HDiv, inner, dx, JacobianDeterminant
+from ufl import H1, H2, HCurl, inner, dx, JacobianDeterminant
 from pyop2.utils import as_tuple
 import numpy
 
@@ -145,28 +145,18 @@ def get_vertex_dofs(V):
 
 def get_divergence_mat(V, mat_type="aij", allow_repeated=False):
     from firedrake import assemble
-    sobolev_space = V.ufl_element().sobolev_space
     degree = max(as_tuple(V.ufl_element().degree()))
-    d = {HCurl: curl, HDiv: div}[sobolev_space]
-    if V.shape == ():
-        make_function_space = FunctionSpace
-    elif len(V.shape) == 1:
-        make_function_space = VectorFunctionSpace
-    else:
-        make_function_space = TensorFunctionSpace
 
-    qdegree = degree-1
-    Q = make_function_space(V.mesh(), "DG", 0, variant=f"integral({qdegree})")
-    if False:
-        b = inner(d(TrialFunction(V)), TestFunction(Q)) * dx(degree=qdegree)
-        B = assemble(b, mat_type=mat_type).petscmat
-    else:
-        B = tabulate_exterior_derivative(V, Q, mat_type=mat_type, allow_repeated=allow_repeated)
-        # Fix scale
-        Jdet = JacobianDeterminant(V.mesh())
-        s = assemble(inner(TrialFunction(Q)*(1/Jdet), TestFunction(Q))*dx(degree=0), diagonal=True)
-        with s.dat.vec as svec:
-            B.diagonalScale(svec, None)
+    Q = TensorFunctionSpace(V.mesh(), "DG", 0, variant=f"integral({degree-1})", shape=V.value_shape[:-1])
+    # d = {HCurl: curl, HDiv: div}[V.ufl_element().sobolev_space]
+    # b = inner(d(TrialFunction(V)), TestFunction(Q)) * dx(degree=degree-1)
+    # B = assemble(b, mat_type=mat_type).petscmat
+
+    B = tabulate_exterior_derivative(V, Q, mat_type=mat_type, allow_repeated=allow_repeated)
+    Jdet = JacobianDeterminant(V.mesh())
+    s = assemble(inner(TrialFunction(Q)*(1/Jdet), TestFunction(Q))*dx(degree=0), diagonal=True)
+    with s.dat.vec as svec:
+        B.diagonalScale(svec, None)
 
     return (B,), dict()
 

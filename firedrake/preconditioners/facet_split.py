@@ -1,7 +1,7 @@
 from functools import partial
 from mpi4py import MPI
 from pyop2 import op2, PermutedMap
-from finat.ufl import RestrictedElement, MixedElement, TensorElement, VectorElement
+from finat.ufl import BrokenElement, RestrictedElement, MixedElement, TensorElement, VectorElement
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.bcs import restricted_function_space
@@ -209,7 +209,9 @@ def restrict(ele, restriction_domain):
     if isinstance(ele, VectorElement):
         return type(ele)(restrict(ele._sub_element, restriction_domain), dim=ele.num_sub_elements)
     elif isinstance(ele, TensorElement):
-        return type(ele)(restrict(ele._sub_element, restriction_domain), shape=ele._shape, symmetry=ele._symmety)
+        return type(ele)(restrict(ele._sub_element, restriction_domain), shape=ele._shape, symmetry=ele._symmetry)
+    elif restriction_domain == "broken":
+        return BrokenElement(ele)
     else:
         return RestrictedElement(ele, restriction_domain)
 
