@@ -149,6 +149,12 @@ def test_VV_ne_VVV():
     assert W0 != W1
 
 
+def test_tensor_function_space_empty_tuple():
+    mesh = UnitSquareMesh(1, 1)
+    W = TensorFunctionSpace(mesh, "CG", 1, shape=())
+    assert W.value_shape == ()
+
+
 def test_function_space_dir(cg1):
     dir(cg1)
 
