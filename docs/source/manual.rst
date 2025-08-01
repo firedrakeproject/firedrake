@@ -27,5 +27,6 @@ Manual
    preconditioning
    petsc-interface
    parallelism
+   ensemble_parallelism
    zenodo
    optimising
