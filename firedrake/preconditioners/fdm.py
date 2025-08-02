@@ -218,15 +218,15 @@ class FDMPC(PCBase):
             Vfacet = None
             Vbig = V
             ebig = V.ufl_element()
-            _, fdofs = split_dofs(V.finat_element)
+            idofs, fdofs = split_dofs(V.finat_element)
         elif len(ifacet) == 1:
             Vfacet = V[ifacet[0]]
             ebig, = set(unrestrict_element(Vsub.ufl_element()) for Vsub in V)
             Vbig = V.reconstruct(element=ebig)
-            if len(V) > 1:
-                dims = [Vsub.finat_element.space_dimension() for Vsub in V]
-                assert sum(dims) == Vbig.finat_element.space_dimension()
+            space_dim = Vbig.finat_element.space_dimension()
+            assert space_dim == sum(Vsub.finat_element.space_dimension() for Vsub in V)
             fdofs = restricted_dofs(Vfacet.finat_element, Vbig.finat_element)
+            idofs = numpy.setdiff1d(numpy.arange(space_dim, dtype=fdofs.dtype), fdofs)
         else:
             raise ValueError("Expecting at most one FunctionSpace restricted onto facets.")
         self.embedding_element = ebig
@@ -245,7 +245,7 @@ class FDMPC(PCBase):
 
         # Dictionary with kernel to compute the Schur complement
         self.schur_kernel = {}
-        if V == Vbig and Vbig.finat_element.formdegree == 0:
+        if V == Vbig and Vbig.finat_element.formdegree == 0 and len(idofs) > 0 and pmat_type.endswith("aij"):
             # If we are in H(grad), we just pad with zeros on the statically-condensed pattern
             self.schur_kernel[V] = SchurComplementPattern
         elif Vfacet and use_static_condensation:
