@@ -1,4 +1,5 @@
 import pytest
+import numpy
 from firedrake import *
 from pyop2.utils import as_tuple
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
@@ -334,3 +335,50 @@ def test_ipdg_direct_solver(fs):
             assert uvec.norm() < 1E-8
     else:
         assert norm(u_exact-uh, "H1") < 1.0E-8
+
+
+@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parametrize("mat_type", ("aij", "is"))
+@pytest.mark.parametrize("degree", (1, 4))
+@pytest.mark.parametrize("variant", ("spectral", "integral", "fdm"))
+def test_tabulate_gradient(mesh, variant, degree, mat_type):
+    from firedrake.preconditioners.fdm import tabulate_exterior_derivative
+    tdim = mesh.topological_dimension()
+    family = {1: "DG", 2: "RTCE", 3: "NCE"}[tdim]
+
+    V0 = FunctionSpace(mesh, "Lagrange", degree, variant=variant)
+    V1 = FunctionSpace(mesh, family, degree-(tdim == 1), variant=variant)
+    D = tabulate_exterior_derivative(V0, V1)
+
+    u0 = Function(V0).interpolate(1)
+    u1 = Function(V1)
+    with u0.dat.vec as x, u1.dat.vec as y:
+        D.mult(x, y)
+        assert y.norm() < 1E-12
+
+
+@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parametrize("mat_type", ("aij", "is"))
+@pytest.mark.parametrize("degree", (1, 4))
+@pytest.mark.parametrize("variant", ("spectral", "integral", "fdm"))
+def test_tabulate_divergence(mesh, variant, degree, mat_type):
+    from firedrake.preconditioners.fdm import tabulate_exterior_derivative
+    tdim = mesh.topological_dimension()
+    family = {1: "CG", 2: "RTCF", 3: "NCF"}[tdim]
+
+    V = FunctionSpace(mesh, family, degree, variant=variant)
+    Q = FunctionSpace(mesh, "DG", 0, variant=f"integral({degree-1})")
+    D = tabulate_exterior_derivative(V, Q, mat_type=mat_type, allow_repeated=True)
+
+    # Fix scale
+    Jdet = JacobianDeterminant(mesh)
+    s = assemble(inner(TrialFunction(Q)*(1/Jdet), TestFunction(Q))*dx, diagonal=True)
+    with s.dat.vec as svec:
+        D.diagonalScale(svec, None)
+
+    Dref = assemble(inner(div(TrialFunction(V)), TestFunction(Q))*dx).petscmat
+    Dij = D if D.type.endswith("aij") else D.convert(Dref.type, PETSc.Mat())
+
+    Dref.axpy(-1, Dij)
+    _, _, vals = Dref.getValuesCSR()
+    assert numpy.allclose(vals, 0)

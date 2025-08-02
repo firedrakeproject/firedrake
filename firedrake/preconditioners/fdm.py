@@ -8,7 +8,7 @@ from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
                                            evaluate_dual,
                                            get_permutation_to_nodal_elements,
                                            cache_generate_code)
-from firedrake.preconditioners.facet_split import split_dofs, restricted_dofs
+from firedrake.preconditioners.facet_split import restrict, restricted_dofs, split_dofs
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
 from firedrake.function import Function
@@ -41,7 +41,7 @@ __all__ = ("FDMPC", "PoissonFDMPC")
 
 
 def broken_function(V, val):
-    W = FunctionSpace(V.mesh(), finat.ufl.BrokenElement(V.ufl_element()))
+    W = FunctionSpace(V.mesh(), restrict(V.ufl_element(), "broken"))
     w = Function(W, dtype=val.dtype)
     v = Function(V, val=val)
     domain = "{[i]: 0 <= i < v.dofs}"
@@ -83,7 +83,7 @@ class FDMPC(PCBase):
     matrices.
 
     The PETSc options inspected by this class are:
-    - 'fdm_mat_type': can be either 'aij' or 'sbaij'
+    - 'fdm_mat_type': can be either 'aij', 'sbaij', or 'is'
     - 'fdm_static_condensation': are we assembling the Schur complement on facets?
     """
 
@@ -169,7 +169,7 @@ class FDMPC(PCBase):
                 self.bc_nodes = numpy.empty(0, dtype=PETSc.IntType)
 
         # Internally, we just set up a PC object that the user can configure
-        # however from the PETSc command line.  Since PC allows the user to specify
+        # however from the PETSc command line. Since PC allows the user to specify
         # a KSP, we can do iterative by -fdm_pc_type ksp.
         fdmpc = PETSc.PC().create(comm=pc.comm)
         fdmpc.incrementTabLevel(1, parent=pc)
@@ -218,15 +218,15 @@ class FDMPC(PCBase):
             Vfacet = None
             Vbig = V
             ebig = V.ufl_element()
-            _, fdofs = split_dofs(V.finat_element)
+            idofs, fdofs = split_dofs(V.finat_element)
         elif len(ifacet) == 1:
             Vfacet = V[ifacet[0]]
             ebig, = set(unrestrict_element(Vsub.ufl_element()) for Vsub in V)
             Vbig = FunctionSpace(V.mesh(), ebig)
-            if len(V) > 1:
-                dims = [Vsub.finat_element.space_dimension() for Vsub in V]
-                assert sum(dims) == Vbig.finat_element.space_dimension()
+            space_dim = Vbig.finat_element.space_dimension()
+            assert space_dim == sum(Vsub.finat_element.space_dimension() for Vsub in V)
             fdofs = restricted_dofs(Vfacet.finat_element, Vbig.finat_element)
+            idofs = numpy.setdiff1d(numpy.arange(space_dim, dtype=fdofs.dtype), fdofs)
         else:
             raise ValueError("Expecting at most one FunctionSpace restricted onto facets.")
         self.embedding_element = ebig
@@ -245,7 +245,7 @@ class FDMPC(PCBase):
 
         # Dictionary with kernel to compute the Schur complement
         self.schur_kernel = {}
-        if V == Vbig and Vbig.finat_element.formdegree == 0:
+        if V == Vbig and Vbig.finat_element.formdegree == 0 and len(idofs) > 0 and pmat_type.endswith("aij"):
             # If we are in H(grad), we just pad with zeros on the statically-condensed pattern
             self.schur_kernel[V] = SchurComplementPattern
         elif Vfacet and use_static_condensation:
@@ -710,19 +710,7 @@ class FDMPC(PCBase):
     def assembly_lgmaps(self):
         if self.mat_type != "is":
             return {Vsub: Vsub.dof_dset.lgmap for Vsub in self.V}
-        lgmaps = {}
-        for Vsub in self.V:
-            lgmap = Vsub.dof_dset.lgmap
-            if self.allow_repeated:
-                indices = broken_function(Vsub, lgmap.indices).dat.data_ro
-            else:
-                indices = lgmap.indices.copy()
-                local_indices = numpy.arange(len(indices), dtype=PETSc.IntType)
-                cell_node_map = broken_function(Vsub, local_indices).dat.data_ro
-                ghost = numpy.setdiff1d(local_indices, numpy.unique(cell_node_map), assume_unique=True)
-                indices[ghost] = -1
-            lgmaps[Vsub] = PETSc.LGMap().create(indices, bsize=lgmap.getBlockSize(), comm=lgmap.getComm())
-        return lgmaps
+        return {Vsub: get_matis_lgmap(Vsub, self.allow_repeated) for Vsub in self.V}
 
     def setup_block(self, Vrow, Vcol):
         # Preallocate the auxiliary sparse operator
@@ -753,10 +741,11 @@ class FDMPC(PCBase):
         P.setISAllowRepeated(self.allow_repeated)
         P.setLGMap(rmap, cmap)
         if on_diag and ptype == "is" and self.allow_repeated:
-            bsize = Vrow.finat_element.space_dimension() * Vrow.value_size
+            bsize = Vrow.block_size * Vrow.finat_element.space_dimension()
             local_mat = P.getISLocalMat()
             nblocks = local_mat.getSize()[0] // bsize
-            local_mat.setVariableBlockSizes([bsize] * nblocks)
+            sizes = numpy.full((nblocks,), bsize, dtype=PETSc.IntType)
+            local_mat.setVariableBlockSizes(sizes)
         P.setPreallocationNNZ((dnz, onz))
 
         if not (ptype.endswith("sbaij") or ptype == "is"):
@@ -1646,7 +1635,7 @@ def diff_blocks(tdim, formdegree, A00, A11, A10):
             A_blocks = [[A00.kron(A10)], [A10.kron(A00)]]
         elif formdegree == 1:
             A_blocks = [[A10.kron(A11), A11.kron(A10)]]
-            A_blocks[-1][-1].scale(-1)
+            A_blocks[0][0].scale(-1)
     elif tdim == 3:
         if formdegree == 0:
             A_blocks = [[kron3(A00, A00, A10)], [kron3(A00, A10, A00)], [kron3(A10, A00, A00)]]
@@ -1660,11 +1649,24 @@ def diff_blocks(tdim, formdegree, A00, A11, A10):
     return A_blocks
 
 
-def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
-    """
-    Tabulate exterior derivative: Vc -> Vf as an explicit sparse matrix.
-    Works for any tensor-product basis. These are the same matrices one needs for HypreAMS and friends.
-    """
+def get_matis_lgmap(Vsub, allow_repeated):
+    """Construct the local to global mapping for MatIS assembly."""
+    lgmap = Vsub.dof_dset.lgmap
+    if allow_repeated:
+        indices = broken_function(Vsub, lgmap.indices).dat.data_ro
+    else:
+        indices = lgmap.indices.copy()
+        local_indices = numpy.arange(indices.size, dtype=PETSc.IntType)
+        cell_node_map = broken_function(Vsub, local_indices).dat.data_ro
+        ghost = numpy.setdiff1d(local_indices, numpy.unique(cell_node_map), assume_unique=True)
+        indices[ghost] = -1
+
+    return PETSc.LGMap().create(indices, bsize=lgmap.getBlockSize(), comm=lgmap.getComm())
+
+
+def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="aij", allow_repeated=False):
+    """Tabulate exterior derivative: Vc -> Vf as an explicit sparse matrix.
+       Works for any tensor-product basis. These are the same matrices one needs for HypreAMS and friends."""
     if comm is None:
         comm = Vf.comm
     ec = Vc.finat_element
@@ -1717,26 +1719,43 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None):
         temp.destroy()
         eye.destroy()
 
+    spaces = (Vf, Vc)
+    bcs = (fbcs, cbcs)
+    if mat_type == "is":
+        assert not any(bcs)
+        lgmaps = tuple(get_matis_lgmap(V, allow_repeated) for V in spaces)
+    else:
+        allow_repeated = False
+        lgmaps = tuple(V.local_to_global_map(bcs) for V, bcs in zip(spaces, bcs))
+
+    indices_acc = tuple(mask_local_indices(V, V.dof_dset.lgmap, allow_repeated) for V in spaces)
+
     sizes = tuple(V.dof_dset.layout_vec.getSizes() for V in (Vf, Vc))
     preallocator = PETSc.Mat().create(comm=comm)
     preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
     preallocator.setSizes(sizes)
+    preallocator.setLGMap(*lgmaps)
     preallocator.setUp()
 
-    kernel = ElementKernel(Dhat, name="exterior_derivative").kernel()
-    indices = tuple(op2.Dat(V.dof_dset, V.local_to_global_map(bcs).indices)(op2.READ, V.cell_node_map())
-                    for V, bcs in zip((Vf, Vc), (fbcs, cbcs)))
+    kernel = ElementKernel(Dhat, name="exterior_derivative").kernel(mat_type=mat_type)
     assembler = op2.ParLoop(kernel,
                             Vc.mesh().cell_set,
                             *(op2.PassthroughArg(op2.OpaqueType("Mat"), m.handle) for m in (preallocator, Dhat)),
-                            *indices)
+                            *indices_acc)
     assembler()
     preallocator.assemble()
     nnz = get_preallocation(preallocator, sizes[0][0])
     preallocator.destroy()
 
-    Dmat = PETSc.Mat().createAIJ(sizes, Vf.block_size, nnz=nnz, comm=comm)
+    Dmat = PETSc.Mat().create(comm=comm)
+    Dmat.setType(mat_type)
+    Dmat.setSizes(sizes)
+    Dmat.setBlockSize(Vf.block_size)
+    Dmat.setISAllowRepeated(allow_repeated)
+    Dmat.setLGMap(*lgmaps)
+    Dmat.setPreallocationNNZ(nnz)
     Dmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+    Dmat.setUp()
     assembler.arguments[0].data = Dmat.handle
     assembler()
 
