@@ -35,16 +35,51 @@ class GPUDevice(ComputeDevice):
         self.kernel_string = []
         self.kernel_args = []
         self.file_name = "temp_kernel_device"
+        self.kernel_type = None
 
     def array(self, arr):
         return cp.array(arr)
 
+    def triton_slicing(self):
+        return """
+# Ops for slicing (take/put) local tensor (extension to https://github.com/triton-lang/triton/pull/2715)
+# extension found https://github.com/triton-lang/triton/issues/656
+@triton.jit
+def _indicator_(n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, pos_dim: tl.constexpr):
+    tl.static_assert(idx < n_dims)
+    tl.static_assert(pos < pos_dim)
+    y = tl.arange(0, pos_dim)
+    y = tl.where(y==pos, 1, 0)
     
+    for n in tl.static_range(0, n_dims):
+        if n != n_dims - 1 - idx:
+            y = tl.expand_dims(y, n)
+    return y
+
+@triton.jit
+def _take_slice_(x, n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, pos_dim:tl.constexpr, keep_dim: tl.constexpr = True):
+    ind = _indicator_(n_dims, idx, pos, pos_dim)
+    y = tl.sum(x * ind, n_dims - 1 - idx)
+    if keep_dim:
+        y = tl.expand_dims(y, n_dims - 1 - idx)
+
+    return y
+
+@triton.jit
+def _put_slice_(x, n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, pos_dim:tl.constexpr, input_slice):
+    ind = _indicator_(n_dims, idx, pos, pos_dim)
+    y = tl.where(ind==1, input_slice, x)
+    return y
+
+        """    
+
     def write_file(self, arrays, maps):
         
         with open(f"./{self.file_name}.py",'w') as file:
             file.write("import cupy as cp\n")
             file.write("import cupyx as cpx\n")
+            if self.kernel_type == "triton":
+                file.write(self.triton_slicing())
             for kernel in self.kernel_string:
                 file.write(kernel+ "\n")
                 file.write("\n")
@@ -52,14 +87,25 @@ class GPUDevice(ComputeDevice):
                 
             num_cells = None 
             file.write("def gpu_parloop():\n")
-            for array, map, i in zip(arrays, maps, [i for i in range(len(arrays)+2)]):
+            for array, map_i, i in zip(arrays, maps, [i for i in range(len(arrays)+2)]):
                 print(i)
-                file.write(f"\ta{i} = cp.{repr(array.astype(object)).replace("object", "cp.float64")}\n")
-                file.write(f"\tm{i} = cp.{repr(map.astype(object)).replace("object", "cp.int32")}\n")
+                a = repr(array).replace("object", "cp.float64")
+                m = repr(map_i).replace("object", "cp.int32")
+                file.write(f"\ta{i} = cp.{a}\n")
+                file.write(f"\tm{i} = cp.{m}\n")
                 if num_cells is None:
-                    num_cells = len(map)
+                    num_cells = len(map_i)
                 else:
-                    assert num_cells == len(map)
+                    assert num_cells == len(map_i)
+
+            if self.kernel_type =="triton":
+                for name, array in self.kernel_data["arrays"]:
+                    if array is not None:
+                        file.write(f"\t{name} = cp.{repr(array)}\n")
+                
+            # hate
+            real_kernel_args = list(list(zip(*(self.kernel_data["sizes_pow2"] + self.kernel_data["sizes_actual"] + self.kernel_data["strides"])))[1])
+            real_kernel_args = [str(int(i)) for i in real_kernel_args]
             # cell loop needed here
             file.write(f"\tfor i in range({num_cells}):\n")
             for j, kernel in enumerate(self.kernel_string):
@@ -71,13 +117,15 @@ class GPUDevice(ComputeDevice):
                         file.write(f"\t\ta_g{k} = cp.zeros_like(m{k}[i], dtype=cp.float64)\n")
                     else:
                         file.write(f"\t\ta_g{k} = cp.take(a{k}, m{k}[i], axis=0)\n")
-                arg_str = ",".join([f"a_g{j}" for j in range(len(self.kernel_args[j]))])
-                file.write(f"\t\tcupy_kernel{j}({arg_str})\n")
+                gathered_args = [f"a_g{j}" for j in range(len(self.kernel_args[j]))]
+                arg_str = ",".join(gathered_args + real_kernel_args)
+                file.write(f"\t\t{self.kernel_type}_kernel{j}({arg_str})\n")
                 for k, arg in enumerate(self.kernel_args[j]): 
                     # get arg data
                     if arg == "A": 
                         file.write(f"\t\tcpx.scatter_add(a{k}, m{k}[i], a_g{k})\n")
                 file.write(f"\tprint(a{k})")
+            breakpoint()
 
     def context_manager(self):    
         yield self
@@ -110,8 +158,12 @@ def device(type="cpu"):
     else:
        raise NotImplementedError(f"Device identity {type} unrecognised") 
     
-def add_kernel_string(k_str, args):
+def add_kernel_string(k_str, args, k_type):
     global compute_device
     assert isinstance(compute_device, GPUDevice)        
-    compute_device.kernel_string += [k_str.replace("cupy_kernel", f"cupy_kernel{len(compute_device.kernel_string)}")] 
+    compute_device.kernel_string += [k_str.replace(f"{k_type}_kernel", f"{k_type}_kernel{len(compute_device.kernel_string)}")] 
+    if k_type=="triton":
+        compute_device.kernel_data = args
+        compute_device.kernel_args += [tuple([a[0] for a in args["arrays"] if a[1] is None])]
     compute_device.kernel_args += [tuple(args)]
+    compute_device.kernel_type = k_type
