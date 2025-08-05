@@ -338,7 +338,7 @@ def test_ipdg_direct_solver(fs):
 
 
 @pytest.mark.parallel(nprocs=2)
-@pytest.mark.parametrize("mat_type", ("aij", "is"))
+@pytest.mark.parametrize("mat_type", ("aij",))
 @pytest.mark.parametrize("degree", (1, 4))
 @pytest.mark.parametrize("variant", ("spectral", "integral", "fdm"))
 def test_tabulate_gradient(mesh, variant, degree, mat_type):
@@ -348,13 +348,40 @@ def test_tabulate_gradient(mesh, variant, degree, mat_type):
 
     V0 = FunctionSpace(mesh, "Lagrange", degree, variant=variant)
     V1 = FunctionSpace(mesh, family, degree-(tdim == 1), variant=variant)
-    D = tabulate_exterior_derivative(V0, V1)
+    D = tabulate_exterior_derivative(V0, V1, mat_type=mat_type)
 
-    u0 = Function(V0).interpolate(1)
-    u1 = Function(V1)
-    with u0.dat.vec as x, u1.dat.vec as y:
-        D.mult(x, y)
-        assert y.norm() < 1E-12
+    M = assemble(inner(TrialFunction(V1), TestFunction(V1))*dx).petscmat
+    Dij = D if D.type.endswith("aij") else D.convert(M.type, PETSc.Mat())
+    B = M.matMult(Dij)
+
+    Bref = assemble(inner(grad(TrialFunction(V0)), TestFunction(V1))*dx).petscmat
+    Bref.axpy(-1, B)
+    _, _, vals = Bref.getValuesCSR()
+    assert numpy.allclose(vals, 0)
+
+
+@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parametrize("mat_type", ("aij",))
+@pytest.mark.parametrize("degree", (1, 4))
+@pytest.mark.parametrize("variant", ("spectral", "integral", "fdm"))
+def test_tabulate_curl(mesh, variant, degree, mat_type):
+    from firedrake.preconditioners.fdm import tabulate_exterior_derivative
+    tdim = mesh.topological_dimension()
+    family1 = {1: "CG", 2: "CG", 3: "NCE"}[tdim]
+    family2 = {1: "DG", 2: "RTCF", 3: "NCF"}[tdim]
+
+    V1 = FunctionSpace(mesh, family1, degree, variant=variant)
+    V2 = FunctionSpace(mesh, family2, degree-(tdim == 1), variant=variant)
+    D = tabulate_exterior_derivative(V1, V2, mat_type=mat_type)
+
+    M = assemble((-1)**(tdim-1)*inner(TrialFunction(V2), TestFunction(V2))*dx).petscmat
+    Dij = D if D.type.endswith("aij") else D.convert(M.type, PETSc.Mat())
+    B = M.matMult(Dij)
+
+    Bref = assemble(inner(curl(TrialFunction(V1)), TestFunction(V2))*dx).petscmat
+    Bref.axpy(-1, B)
+    _, _, vals = Bref.getValuesCSR()
+    assert numpy.allclose(vals, 0)
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -372,13 +399,12 @@ def test_tabulate_divergence(mesh, variant, degree, mat_type):
 
     # Fix scale
     Jdet = JacobianDeterminant(mesh)
-    s = assemble(inner(TrialFunction(Q)*(1/Jdet), TestFunction(Q))*dx, diagonal=True)
-    with s.dat.vec as svec:
-        D.diagonalScale(svec, None)
+    M = assemble(inner(TrialFunction(Q)*(1/Jdet), TestFunction(Q))*dx, diagonal=True)
+    with M.dat.vec as mvec:
+        D.diagonalScale(mvec, None)
 
     Dref = assemble(inner(div(TrialFunction(V)), TestFunction(Q))*dx).petscmat
     Dij = D if D.type.endswith("aij") else D.convert(Dref.type, PETSc.Mat())
-
     Dref.axpy(-1, Dij)
     _, _, vals = Dref.getValuesCSR()
     assert numpy.allclose(vals, 0)
