@@ -13,10 +13,9 @@ from pyop3.tree.axis_tree import ContextAware
 from pyop3.tree.axis_tree.tree import AbstractAxisTree
 from pyop3.expr import Expression
 from pyop3.exceptions import InvalidIndexCountException
-from pyop3.insn import FunctionArgument, ArrayAssignment
 
 
-class Tensor(ContextAware, FunctionArgument, Expression, abc.ABC):
+class Tensor(ContextAware, Expression, abc.ABC):
 
     DEFAULT_PREFIX: ClassVar[str] = "array"
 
@@ -108,6 +107,8 @@ class Tensor(ContextAware, FunctionArgument, Expression, abc.ABC):
         return self._assign(other, "inc", eager=eager)
 
     def _assign(self, other, mode, /, *, eager=False):
+        from pyop3.insn import ArrayAssignment
+
         # TODO: If eager should try and convert to some sort of maxpy operation
         # instead of doing a full code generation pass. Would have to make sure
         # that nothing is indexed. This could also catch the case of x.assign(x).

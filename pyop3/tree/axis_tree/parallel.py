@@ -59,11 +59,10 @@ def collect_star_forests(axis_tree: AbstractAxisTree) -> tuple[StarForest, ...]:
     return _collect_sf_graphs_rec(axis_tree, immutabledict())
 
 
-# NOTE: This function does not check for nested SFs (which should error)
+# NOTE: This function does not check for nested SFs
 def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, path: ConcretePathT) -> tuple[StarForest, ...]:
     # TODO: not in firedrake
     from firedrake.cython.dmcommon import create_section_sf
-    from pyop3.tree.axis_tree.layout import axis_tree_component_size
 
     axis = axis_tree.node_map[path]
 
@@ -79,7 +78,7 @@ def _collect_sf_graphs_rec(axis_tree: AbstractAxisTree, path: ConcretePathT) -> 
             else:
                 petsc_sf = component.sf.sf
 
-            size = axis_tree_component_size(axis_tree, path, component)
+            size = axis_tree.component_size(path, component.label)
 
             if not isinstance(size, numbers.Integral):
                 raise NotImplementedError("Assume that star forests have integer size")

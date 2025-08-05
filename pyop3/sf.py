@@ -34,7 +34,7 @@ class AbstractStarForest(abc.ABC):
 
 
 
-class StarForest:
+class StarForest(AbstractStarForest):
     """Convenience wrapper for a `petsc4py.SF`."""
 
     def __init__(self, sf, size: IntType):
@@ -154,6 +154,9 @@ class StarForest:
 
 
 class NullStarForest(AbstractStarForest):
+
+    def __eq__(self, other):
+        return type(other) is type(self)
 
     def __bool__(self) -> bool:
         return False

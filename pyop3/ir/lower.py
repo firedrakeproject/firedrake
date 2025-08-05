@@ -24,13 +24,12 @@ import loopy as lp
 import numpy as np
 import pymbolic as pym
 from immutabledict import immutabledict
-from pyop3.expr.tensor.dat import LinearDatBufferExpression, NonlinearDatBufferExpression, LinearMatBufferExpression, NonlinearMatBufferExpression, MatBufferExpression, BufferExpression
-from pyop3.expr.visitors import collect_axis_vars, replace
 
 import pyop2
 
-from pyop3 import exceptions as exc, utils, expr as expr_mod
-from pyop3.expr.tensor import LinearDatBufferExpression, NonlinearDatBufferExpression, Scalar
+from pyop3 import exceptions as exc, utils, expr as op3_expr
+from pyop3.expr import NonlinearDatBufferExpression
+from pyop3.expr.visitors import collect_axis_vars, replace
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, IndexedAxisTree, AxisComponent, relabel_path
 from pyop3.buffer import AbstractBuffer, BufferRef, ConcreteBuffer, PetscMatBuffer, ArrayBuffer, NullBuffer
 from pyop3.config import config
@@ -57,23 +56,16 @@ from pyop3.insn.base import (
     # NonEmptyPetscMatAssignment,
     PreprocessedExpression,
     UnprocessedExpressionException,
-    DummyKernelArgument,
     Loop,
     InstructionList,
-    ArrayAccessType,
 )
-from pyop3.log import logger
 from pyop3.utils import (
-    PrettyTuple,
     StrictlyUniqueDict,
     UniqueNameGenerator,
     as_tuple,
     just_one,
-    maybe_generate_name,
     merge_dicts,
-    single_valued,
     strictly_all,
-    Identified,
 )
 
 import pyop3.extras.debug
@@ -323,111 +315,6 @@ class DummyModuleExecutor:
         pass
 
 
-SAFE_KERNELS = [
-    """void pyop3_loop(int64_t const *__restrict__ dat_0, int32_t *__restrict__ idat_0, int32_t const *__restrict__ idat_1, int32_t const *__restrict__ idat_2)
-{
-  int32_t p_0;
-
-  p_0 = (int32_t) (dat_0[0]);
-  for (int32_t i_0 = 0; i_0 <= -1 + p_0; ++i_0)
-    idat_0[0] = ((idat_0[0] >= idat_1[idat_2[i_0]]) ? idat_0[0] : idat_1[idat_2[i_0]]);
-
-}""",
-    """void pyop3_loop(int64_t const *__restrict__ dat_0, int32_t *__restrict__ idat_0, int32_t const *__restrict__ idat_1, int32_t const *__restrict__ idat_2)
-{
-  int32_t p_0;
-
-  p_0 = (int32_t) (dat_0[0]);
-  for (int32_t i_0 = 0; i_0 <= -1 + p_0; ++i_0)
-    idat_0[0] = ((idat_0[0] <= idat_1[idat_2[i_0]]) ? idat_0[0] : idat_1[idat_2[i_0]]);
-
-}""",
-    """void pyop3_loop(int32_t *__restrict__ idat_0)
-{
-  for (int32_t i_0 = 0; i_0 <= 1; ++i_0)
-    idat_0[i_0] = 1;
-
-}""",
-    """void pyop3_loop(int64_t const *__restrict__ dat_0, int32_t *__restrict__ idat_0, int32_t const *__restrict__ idat_1, int32_t const *__restrict__ idat_2, int32_t const *__restrict__ idat_3)
-{
-  int32_t p_0;
-
-  p_0 = (int32_t) (dat_0[0]);
-  for (int32_t i_0 = 0; i_0 <= -1 + p_0; ++i_0)
-    for (int32_t i_1 = 0; i_1 <= 2; ++i_1)
-      idat_0[i_0] = idat_0[i_0] + ((idat_1[idat_2[idat_3[3 * i_0 + i_1]]] <= 0) ? 0 : idat_1[idat_2[idat_3[3 * i_0 + i_1]]]);
-
-}""",
-    """void pyop3_loop(int64_t const *__restrict__ dat_0, int32_t *__restrict__ idat_0, int32_t const *__restrict__ idat_1)
-{
-  int32_t p_0;
-
-  p_0 = (int32_t) (dat_0[0]);
-  for (int32_t i_0 = 0; i_0 <= -1 + p_0; ++i_0)
-    idat_0[0] = idat_0[0] + idat_1[i_0];
-
-}""",
-    """void pyop3_loop(int64_t const *__restrict__ dat_0, int32_t *__restrict__ idat_0)
-{
-  for (int32_t i_0 = 0; i_0 <= 1; ++i_0)
-    idat_0[i_0] = (int32_t) (dat_0[i_0]);
-
-}""",
-    """void pyop3_loop(int64_t const *__restrict__ dat_0, int32_t *__restrict__ idat_0, int32_t const *__restrict__ idat_1, int32_t const *__restrict__ idat_2)
-{
-  int32_t p_0;
-
-  p_0 = (int32_t) (dat_0[0]);
-  for (int32_t i_0 = 0; i_0 <= -1 + p_0; ++i_0)
-    idat_0[idat_1[i_0]] = idat_2[i_0];
-
-}""",
-    """void pyop3_loop(int32_t *__restrict__ idat_0, int32_t const *__restrict__ idat_1)
-{
-  for (int32_t i_0 = 0; i_0 <= 1; ++i_0)
-    idat_0[i_0] = idat_1[i_0];
-
-}""",
-    """void pyop3_loop(int32_t *__restrict__ idat_0, int32_t const *__restrict__ idat_1, int32_t const *__restrict__ idat_2, int32_t const *__restrict__ idat_3)
-{
-  for (int32_t i_0 = 0; i_0 <= 1; ++i_0)
-    for (int32_t i_1 = 0; i_1 <= 2; ++i_1)
-      idat_0[3 * i_0 + i_1] = ((idat_1[idat_2[idat_3[3 * i_0 + i_1]]] <= 0) ? 0 : idat_1[idat_2[idat_3[3 * i_0 + i_1]]]);
-
-}""",
-    """void pyop3_loop(int64_t const *__restrict__ dat_0, int32_t *__restrict__ idat_0, int32_t const *__restrict__ idat_1, int32_t const *__restrict__ idat_2, int32_t const *__restrict__ idat_3)
-{
-  int32_t p_0;
-
-  p_0 = (int32_t) (dat_0[0]);
-  for (int32_t i_0 = 0; i_0 <= -1 + p_0; ++i_0)
-    for (int32_t i_1 = 0; i_1 <= 2; ++i_1)
-      idat_0[0] = ((idat_0[0] >= ((idat_1[idat_2[idat_3[3 * i_0 + i_1]]] <= 0) ? 0 : idat_1[idat_2[idat_3[3 * i_0 + i_1]]])) ? idat_0[0] : ((idat_1[idat_2[idat_3[3 * i_0 + i_1]]] <= 0) ? 0 : idat_1[idat_2[idat_3[3 * i_0 + i_1]]]));
-
-}""",
-    """void pyop3_loop(int64_t const *__restrict__ dat_0, int32_t *__restrict__ idat_0, int32_t const *__restrict__ idat_1, int32_t const *__restrict__ idat_2, int32_t const *__restrict__ idat_3)
-{
-  int32_t p_0;
-
-  p_0 = (int32_t) (dat_0[0]);
-  for (int32_t i_0 = 0; i_0 <= -1 + p_0; ++i_0)
-    for (int32_t i_1 = 0; i_1 <= 2; ++i_1)
-      idat_0[0] = ((idat_0[0] <= ((idat_1[idat_2[idat_3[3 * i_0 + i_1]]] <= 0) ? 0 : idat_1[idat_2[idat_3[3 * i_0 + i_1]]])) ? idat_0[0] : ((idat_1[idat_2[idat_3[3 * i_0 + i_1]]] <= 0) ? 0 : idat_1[idat_2[idat_3[3 * i_0 + i_1]]]));
-
-}""",
-    """void pyop3_loop(int64_t const *__restrict__ dat_0, int32_t *__restrict__ idat_0, int32_t const *__restrict__ idat_1, int32_t const *__restrict__ idat_2, int32_t const *__restrict__ idat_3)
-{
-  int32_t p_0;
-
-  p_0 = (int32_t) (dat_0[0]);
-  for (int32_t i_0 = 0; i_0 <= -1 + p_0; ++i_0)
-    for (int32_t i_1 = 0; i_1 <= 2; ++i_1)
-      idat_0[i_0] = idat_0[i_0] + ((((idat_1[idat_2[idat_3[3 * i_0 + i_1]]] <= 0) ? 0 : idat_1[idat_2[idat_3[3 * i_0 + i_1]]]) <= 0) ? 0 : ((idat_1[idat_2[idat_3[3 * i_0 + i_1]]] <= 0) ? 0 : idat_1[idat_2[idat_3[3 * i_0 + i_1]]]));
-
-}""",
-]
-
-
 class ModuleExecutor:
     """
     Notes
@@ -486,11 +373,12 @@ class ModuleExecutor:
             buffers[index].inc_state()
 
         # if len(self.loopy_code.callables_table) > 1:
+        #     breakpoint()
         # if len(self.loopy_kernel.args) > 3:
         # selfstr = str(self)
         # if all(k not in selfstr for k in SAFE_KERNELS):
         #     pyop3.extras.debug.maybe_breakpoint("a")
-        pyop3.extras.debug.maybe_breakpoint()
+        # pyop3.extras.debug.maybe_breakpoint()
 
 
         self.executable(*exec_arguments)
@@ -1020,20 +908,23 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
             subst_sublayout_ = replace(sublayout, axis_var_zero_replace_map)
             sublayout_exprs_.append(subst_sublayout_)
         subst_sublayout = utils.single_valued(sublayout_exprs_)
-        subst_layout = LinearDatBufferExpression(layout.buffer, subst_sublayout)
+        subst_layout = op3_expr.LinearDatBufferExpression(layout.buffer, subst_sublayout)
         layout_expr = lower_expr(subst_layout, ((),), loop_indices, context)
         layout_exprs.append(layout_expr)
     irow, icol = layout_exprs
 
-    # irow = lower_expr(mat.row_layout, ((),), loop_indices, context)
-    # icol = lower_expr(mat.column_layout, ((),), loop_indices, context)
+    irow_var_name = context.add_temporary("irow")
+    icol_var_name = context.add_temporary("icol")
+
+    context.add_assignment(pym.var(irow_var_name), irow)
+    context.add_assignment(pym.var(icol_var_name), icol)
 
     # FIXME:
     blocked = False
 
     # hacky
     myargs = [
-        assignment, mat_name, array_name, rsize_var, csize_var, irow, icol, blocked
+        assignment, mat_name, array_name, rsize_var, csize_var, irow_var_name, icol_var_name, blocked
     ]
     if setting_mat_values:
         match assignment.assignment_type:
@@ -1216,42 +1107,42 @@ def _(num: numbers.Number, /, *args, **kwargs) -> numbers.Number:
     return num
 
 
-@_lower_expr.register(expr_mod.Add)
-def _(add: expr_mod.Add, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(op3_expr.Add)
+def _(add: op3_expr.Add, /, *args, **kwargs) -> pym.Expression:
     return _lower_expr(add.a, *args, **kwargs) + _lower_expr(add.b, *args, **kwargs)
 
 
-@_lower_expr.register(expr_mod.Sub)
-def _(sub: expr_mod.Sub, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(op3_expr.Sub)
+def _(sub: op3_expr.Sub, /, *args, **kwargs) -> pym.Expression:
     return _lower_expr(sub.a, *args, **kwargs) - _lower_expr(sub.b, *args, **kwargs)
 
 
-@_lower_expr.register(expr_mod.Mul)
-def _(mul: expr_mod.Mul, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(op3_expr.Mul)
+def _(mul: op3_expr.Mul, /, *args, **kwargs) -> pym.Expression:
     return _lower_expr(mul.a, *args, **kwargs) * _lower_expr(mul.b, *args, **kwargs)
 
 
-@_lower_expr.register(expr_mod.Modulo)
-def _(mod: expr_mod.Mul, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(op3_expr.Modulo)
+def _(mod: op3_expr.Mul, /, *args, **kwargs) -> pym.Expression:
     return _lower_expr(mod.a, *args, **kwargs) % _lower_expr(mod.b, *args, **kwargs)
 
 
-@_lower_expr.register(expr_mod.Or)
-def _(or_: expr_mod.Or, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(op3_expr.Or)
+def _(or_: op3_expr.Or, /, *args, **kwargs) -> pym.Expression:
     return pym.primitives.LogicalOr((_lower_expr(or_.a, *args, **kwargs), _lower_expr(or_.b, *args, **kwargs)))
 
 
-@_lower_expr.register(expr_mod.Neg)
-def _(neg: expr_mod.Neg, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(op3_expr.Neg)
+def _(neg: op3_expr.Neg, /, *args, **kwargs) -> pym.Expression:
     return -_lower_expr(neg.a, *args, **kwargs)
 
 
-@_lower_expr.register(expr_mod.FloorDiv)
-def _(neg: expr_mod.Neg, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(op3_expr.FloorDiv)
+def _(neg: op3_expr.Neg, /, *args, **kwargs) -> pym.Expression:
     return _lower_expr(neg.a, *args, **kwargs) // _lower_expr(neg.b, *args, **kwargs)
 
 
-@_lower_expr.register(expr_mod.BinaryCondition)
+@_lower_expr.register(op3_expr.BinaryCondition)
 def _(cond, /, *args, **kwargs) -> pym.Expression:
     return pym.primitives.Comparison(
         _lower_expr(cond.a, *args, **kwargs),
@@ -1260,43 +1151,43 @@ def _(cond, /, *args, **kwargs) -> pym.Expression:
     )
 
 
-@_lower_expr.register(expr_mod.AxisVar)
-def _(axis_var: expr_mod.AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(op3_expr.AxisVar)
+def _(axis_var: op3_expr.AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
     return just_one(iname_maps)[axis_var.axis_label]
 
 
-@_lower_expr.register(expr_mod.LoopIndexVar)
-def _(loop_var: expr_mod.LoopIndexVar, /, iname_maps, loop_indices, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(op3_expr.LoopIndexVar)
+def _(loop_var: op3_expr.LoopIndexVar, /, iname_maps, loop_indices, *args, **kwargs) -> pym.Expression:
     return loop_indices[(loop_var.loop_id, loop_var.axis_label)]
 
 
-@_lower_expr.register(Scalar)
-def _(scalar: Scalar, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
+@_lower_expr.register(op3_expr.Scalar)
+def _(scalar: op3_expr.Scalar, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
     # TODO: Need a ScalarBufferExpression or similar to encode nested-ness
     buffer_ref = BufferRef(scalar.buffer)
     name_in_kernel = context.add_buffer(buffer_ref, intent)
     return pym.subscript(pym.var(name_in_kernel), (0,))
 
 
-@_lower_expr.register(LinearDatBufferExpression)
-def _(expr: LinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
+@_lower_expr.register(op3_expr.LinearDatBufferExpression)
+def _(expr: op3_expr.LinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, **kwargs) -> pym.Expression:
     return lower_buffer_access(expr.buffer, [expr.layout], iname_maps, loop_indices, context, intent=intent)
 
 
-@_lower_expr.register(NonlinearDatBufferExpression)
-def _(expr: NonlinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, **kwargs) -> pym.Expression:
+@_lower_expr.register(op3_expr.NonlinearDatBufferExpression)
+def _(expr: op3_expr.NonlinearDatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, **kwargs) -> pym.Expression:
     path = just_one(paths)
     return lower_buffer_access(expr.buffer, [expr.layouts[path]], iname_maps, loop_indices, context, intent=intent)
 
 
-@_lower_expr.register(LinearMatBufferExpression)
-def _(expr: LinearMatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
-    layouts = (expr.row_layout, expr.column_layout)
-    return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, shape=shape)
+# @_lower_expr.register(LinearMatBufferExpression)
+# def _(expr: LinearMatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
+#     layouts = (expr.row_layout, expr.column_layout)
+#     return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, shape=shape)
 
 
-@_lower_expr.register(NonlinearMatBufferExpression)
-def _(expr: NonlinearMatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
+@_lower_expr.register(op3_expr.MatBufferExpression)
+def _(expr: op3_expr.MatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
     row_path, column_path = paths
     layouts = (expr.row_layouts[row_path], expr.column_layouts[column_path])
     return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, shape=shape)
@@ -1334,8 +1225,8 @@ def maybe_multiindex(buffer_ref, offset_expr, context):
     return indices
 
 
-@_lower_expr.register(expr_mod.Conditional)
-def _(cond: expr_mod.Conditional, /, *args, **kwargs) -> pym.Expression:
+@_lower_expr.register(op3_expr.Conditional)
+def _(cond: op3_expr.Conditional, /, *args, **kwargs) -> pym.Expression:
     return pym.primitives.If(_lower_expr(cond.a, *args, **kwargs), _lower_expr(cond.b, *args, **kwargs), _lower_expr(cond.c, *args, **kwargs))
 
 
@@ -1349,8 +1240,8 @@ def _(num: numbers.Integral, *args, **kwargs):
     return num
 
 
-@register_extent.register(expr_mod.Expression)
-def _(expr: expr_mod.Expression, inames, loop_indices, context):
+@register_extent.register(op3_expr.Expression)
+def _(expr: op3_expr.Expression, inames, loop_indices, context):
     pym_expr = lower_expr(expr, [inames], loop_indices, context)
     extent_name = context.add_temporary("p")
     context.add_assignment(pym.var(extent_name), pym_expr)

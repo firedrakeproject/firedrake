@@ -3,35 +3,31 @@ from __future__ import annotations
 import abc
 import collections
 import contextlib
-import functools
 import numbers
 from functools import cached_property
 from types import GeneratorType
 from typing import Any, ClassVar, Sequence
 
 import numpy as np
-import pymbolic as pym
-from cachetools import cachedmethod
-from immutabledict import immutabledict
+from immutabledict import immutabledict as idict
 from mpi4py import MPI
 from petsc4py import PETSc
 
 from pyop3 import utils
+from ..base import LoopIndexVar
 from .base import Tensor
 from pyop3.tree.axis_tree import (
     Axis,
     AxisTree,
     as_axis_tree,
 )
-from pyop3.tree.axis_tree.tree import AbstractAxisTree, ContextFree, ContextSensitiveAxisTree, merge_axis_trees, subst_layouts
-from ..base import Expression, as_str
-from pyop3.buffer import AbstractArrayBuffer, AbstractBuffer, ArrayBuffer, BufferRef, NullBuffer, PetscMatBuffer
+from pyop3.tree.axis_tree.tree import AbstractAxisTree, ContextSensitiveAxisTree
+from pyop3.tree import LoopIndex
+from pyop3.buffer import AbstractBuffer, ArrayBuffer, BufferRef, NullBuffer, PetscMatBuffer
 from pyop3.dtypes import DTypeT, ScalarType, IntType
 from pyop3.exceptions import Pyop3Exception
-from pyop3.insn import KernelArgument, ArrayAssignment
 from pyop3.log import warning
 from pyop3.utils import (
-    debug_assert,
     deprecated,
     just_one,
     strictly_all,
@@ -52,7 +48,7 @@ class FancyIndexWriteException(Exception):
 
 
 @utils.record()
-class Dat(Tensor, KernelArgument):
+class Dat(Tensor):
     """Multi-dimensional, hierarchical array.
 
     Parameters
@@ -193,7 +189,8 @@ class Dat(Tensor, KernelArgument):
     # For some reason this is breaking stuff
     # @cachedmethod(lambda self: self.axes._cache)
     def getitem(self, index, *, strict=False):
-        from pyop3.tree.index_tree import as_index_forest, index_axes
+        from pyop3.tree.index_tree import index_axes
+        from pyop3.tree.index_tree.parse import as_index_forest
 
         if index is Ellipsis:
             return self
@@ -223,7 +220,7 @@ class Dat(Tensor, KernelArgument):
             # we need to consider each of these separately and produce an axis *forest*.
             indexed_axess = []
             for restricted_index_tree in index_trees:
-                indexed_axes = index_axes(restricted_index_tree, immutabledict(), self.axes)
+                indexed_axes = index_axes(restricted_index_tree, idict(), self.axes)
                 indexed_axess.append(indexed_axes)
 
             if len(indexed_axess) > 1:
@@ -237,7 +234,7 @@ class Dat(Tensor, KernelArgument):
             for loop_context, index_trees in index_forest.items():
                 indexed_axess = []
                 for index_tree in index_trees:
-                    indexed_axes = index_axes(index_tree, immutabledict(), self.axes)
+                    indexed_axes = index_axes(index_tree, idict(), self.axes)
                     indexed_axess.append(indexed_axes)
 
                 if len(indexed_axess) > 1:
@@ -250,11 +247,11 @@ class Dat(Tensor, KernelArgument):
         # self._cache[key] = dat
         return dat
 
-    def get_value(self, indices, path=None, *, loop_exprs=immutabledict()):
+    def get_value(self, indices, path=None, *, loop_exprs=idict()):
         offset = self.axes.offset(indices, path, loop_exprs=loop_exprs)
         return self.buffer.data_ro[offset]
 
-    def set_value(self, indices, value, path=None, *, loop_exprs=immutabledict()):
+    def set_value(self, indices, value, path=None, *, loop_exprs=idict()):
         offset = self.axes.offset(indices, path, loop_exprs=loop_exprs)
         self.buffer.data_wo[offset] = value
 
@@ -344,6 +341,8 @@ class Dat(Tensor, KernelArgument):
 
     def concretize(self):
         """Convert to an expression, can no longer be indexed properly"""
+        from pyop3.expr import as_linear_buffer_expression
+
         if not self.axes.is_linear:
             raise NotImplementedError
         return as_linear_buffer_expression(self)
@@ -572,283 +571,144 @@ class Dat(Tensor, KernelArgument):
         return self.__record_init__(axes=axes)
 
 
-# TODO: Should inherit from Terminal (but Terminal has odd attrs)
-class BufferExpression(Expression, metaclass=abc.ABCMeta):
+# should inherit from _Dat
+# or at least be an Expression!
+# this is important because we need to have shape and loop_axes
+class CompositeDat(abc.ABC):
+
+    dtype = IntType
 
     # {{{ abstract methods
 
     @property
     @abc.abstractmethod
-    def buffer(self) -> AbstractBuffer:
+    def axis_tree(self) -> AxisTree:
         pass
 
-    # }}}
+    @property
+    @abc.abstractmethod
+    def loop_indices(self) -> tuple[LoopIndex, ...]:
+        pass
 
     @property
-    def name(self) -> str:
-        return self.buffer.buffer.name
+    @abc.abstractmethod
+    def leaf_exprs(self) -> idict:
+        pass
+
+    # @abc.abstractmethod
+    # def __str__(self) -> str:
+    #     pass
 
     @property
-    def handle(self) -> Any:
-        return self.buffer.buffer.handle(nest_indices=self.buffer.nest_indices)
-
-    def assign(self, other) -> ArrayAssignment:
-        return ArrayAssignment(self, other, "write")
-
-    def iassign(self, other) -> ArrayAssignment:
-        return ArrayAssignment(self, other, "inc")
-
-
-# class ArrayBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
-#     pass
-
-
-# class OpaqueBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
-#     """A buffer expression that is interfaced with using function calls.
-#
-#     An example of this is Mat{Get,Set}Values().
-#
-#     """
-
-
-# class PetscMatBufferExpression(OpaqueBufferExpression, metaclass=abc.ABCMeta):
-#     pass
-
-
-# class ScalarBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
-
-
-@utils.record()
-class ScalarBufferExpression(BufferExpression):
-
-    # {{{ instance attrs
-
-    _buffer: Any  # array buffer type
+    def _full_str(self):
+        return str(self)
 
     # }}}
-
-    # {{{ interface impls
-
-    buffer: ClassVar[property] = utils.attr("_buffer")
-
-    # }}}
-
-    def __init__(self, buffer) -> None:
-        self._buffer = buffer
-
-    @property
-    def _full_str(self) -> str:
-        return self.name
-
-
-# TODO: Does a Dat count as one of these?
-class DatBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
-    pass
-
-
-class LinearBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
-    pass
-
-
-class NonlinearBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
-    pass
-
-
-@utils.record()
-class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
-    """A dat with fixed (?) layout.
-
-    It cannot be indexed.
-
-    This class is useful for describing arrays used in index expressions, at which
-    point it has a fixed set of axes.
-
-    """
-
-    # {{{ instance attrs
-
-    _buffer: Any  # array buffer type
-    layout: Any
-
-    # }}}
-
-    # {{{ interface impls
-
-    buffer: ClassVar[property] = utils.attr("_buffer")
 
     @property
     def shape(self) -> tuple[AxisTree]:
-        from pyop3.expr.visitors import get_shape
-        return get_shape(self.layout)
+        return (self.axis_tree,)
+
+    @property
+    def loop_axes(self):
+        return idict({
+            loop_index: tuple(axis for axis in loop_index.iterset.nodes)
+            for loop_index in self.loop_indices
+        })
+
+    @property
+    def loop_tree(self):
+        return self._loop_tree_and_replace_map[0]
+
+    @property
+    def loop_replace_map(self):
+        return self._loop_tree_and_replace_map[1]
 
     @cached_property
-    def loop_axes(self):
-        from pyop3.expr.visitors import get_loop_axes
-        return get_loop_axes(self.layout)
+    def _loop_tree_and_replace_map(self) -> AxisTree:
+        from ..base import get_loop_tree
 
-    @property
-    def _full_str(self) -> str:
-        return f"{self.name}[{as_str(self.layout)}]"
+        return get_loop_tree(self)
 
-    # }}}
+    @cached_property
+    def loopified_axis_tree(self) -> AxisTree:
+        """Return the fully materialised axis tree including loops."""
+        return loopified_shape(self)[0]
 
-    def __init__(self, buffer, layout):
-        if isinstance(buffer, AbstractBuffer):
-            buffer = BufferRef(buffer)
-
-        self._buffer = buffer
-        self.layout = layout
-
-    def __post_init__(self) -> None:
-        from pyop3.expr.visitors import get_shape
-
-        assert utils.just_one(get_shape(self.layout)).is_linear
-
-    def concretize(self):
-        return self
+    @cached_property
+    def loop_vars(self) -> tuple[LoopIndexVar, ...]:
+        vars = []
+        for loop_index in self.loop_indices:
+            assert loop_index.iterset.is_linear
+            for loop_axis in loop_index.iterset.nodes:
+                vars.append(LoopIndexVar(loop_index, loop_axis))
+        return tuple(vars)
 
 
-@utils.record()
-# class NonlinearDatArrayBufferExpression(DatArrayBufferExpression, NonlinearBufferExpression):
-class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpression):
-    """A dat with fixed layouts.
-
-    This class is useful for describing dats whose layouts have been optimised.
-
-    Unlike `_ExpressionDat` a `_ConcretizedDat` is permitted to be multi-component.
-
-    """
-    # {{{ Instance attrs
-
-    _buffer: BufferRef
-    layouts: Any
-    # _loop_axes: tuple[Axis]
-
-    # }}}
-
-    # {{{ interface impls
-
-    buffer: ClassVar[property] = utils.attr("_buffer")
-    # loop_axes: ClassVar[property] = utils.attr("_loop_axes")
-
-    @property
-    def shape(self) -> tuple[AxisTree, ...]:
-        shape_ = []
-        layout_shapes = (layout.shape for layout in self.layouts.values())
-        for layout_shapes in zip(layout_shapes, strict=True):
-            shape_.append(merge_axis_trees(layout_shapes))
-        return tuple(shape_)
-
-    @property
-    def loop_axes(self):
-        breakpoint()
-        return utils.unique(map(_extract_loop_axes, self.layouts.values()))
-
-    @property
-    def _full_str(self) -> str:
-        return " :: ".join(
-            f"{self.buffer.buffer.name}[{as_str(layout)}]"
-            for layout in self.layouts.values()
-        )
-
-    # }}}
-
-
-class MatBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
-    pass
-
-
-
-@utils.record()
-# class MatPetscMatBufferExpression(MatBufferExpression, PetscMatBufferExpression, LinearBufferExpression):
-class LinearMatBufferExpression(MatBufferExpression, LinearBufferExpression):
+@utils.frozenrecord()
+class LinearCompositeDat(CompositeDat):
 
     # {{{ instance attrs
 
-    _buffer: BufferRef
-    row_layout: CompositeDat
-    column_layout: CompositeDat
-
-    def __init__(self, buffer, row_layout, column_layout):
-        self._buffer = buffer
-        self.row_layout = row_layout
-        self.column_layout = column_layout
+    _axis_tree: AxisTree
+    leaf_expr: Any
+    _loop_indices: tuple[Axis]
 
     # }}}
 
     # {{{ interface impls
 
-    buffer: ClassVar[property] = utils.attr("_buffer")
+    axis_tree = utils.attr("_axis_tree")
+    loop_indices = utils.attr("_loop_indices")
 
     @property
-    def shape(self):
-        # NOTE: This doesn't make sense here, need multiple axis trees
-        raise NotImplementedError
-
-    @property
-    def loop_axes(self):
-        raise NotImplementedError
-
-    @property
-    def _full_str(self) -> str:
-        return f"{self.buffer.buffer.name}[{as_str(self.row_layout)}, {as_str(self.column_layout)}]"
+    def leaf_exprs(self) -> idict:
+        return idict({self.axis_tree.leaf_path: self.leaf_expr})
 
     # }}}
 
+    def __init__(self, axis_tree, leaf_expr, loop_indices):
+        assert axis_tree.is_linear
+        assert all(isinstance(index, LoopIndex) for index in loop_indices)
 
-@utils.record()
-class NonlinearMatBufferExpression(MatBufferExpression, NonlinearBufferExpression):
+        loop_indices = tuple(loop_indices)
+
+        object.__setattr__(self, "_axis_tree", axis_tree)
+        object.__setattr__(self, "leaf_expr", leaf_expr)
+        object.__setattr__(self, "_loop_indices", loop_indices)
+
+
+@utils.frozenrecord()
+class NonlinearCompositeDat(CompositeDat):
 
     # {{{ instance attrs
 
-    _buffer: BufferRef
-    row_layouts: Any  # expr type (mapping)
-    column_layouts: Any  # expr type (mapping)
+    _axis_tree: AxisTree
+    _leaf_exprs: idict
+    _loop_indices: tuple[LoopIndex]
 
     # }}}
 
     # {{{ interface impls
 
-    buffer: ClassVar[BufferRef] = utils.attr("_buffer")
-
-    @property
-    def shape(self):
-        raise NotImplementedError
-
-    @property
-    def loop_axes(self):
-        raise NotImplementedError
-
-    @property
-    def _full_str(self) -> str:
-        raise NotImplementedError
+    axis_tree = utils.attr("_axis_tree")
+    leaf_exprs: ClassVar[idict] = utils.attr("_leaf_exprs")
+    loop_indices = utils.attr("_loop_indices")
 
     # }}}
 
-    # TODO:
+    def __init__(self, axis_tree, leaf_exprs, loop_indices):
+        assert set(axis_tree.leaf_paths) == leaf_exprs.keys()
+        assert all(isinstance(index, LoopIndex) for index in loop_indices)
+
+        leaf_exprs = idict(leaf_exprs)
+        loop_indices = tuple(loop_indices)
+
+        object.__setattr__(self, "_axis_tree", axis_tree)
+        object.__setattr__(self, "_leaf_exprs", leaf_exprs)
+        object.__setattr__(self, "_loop_indices", loop_indices)
+
     # def __str__(self) -> str:
-    #     return f"{self.buffer.name}[{self.row_layout}, {self.column_layout}]"
+    #     return f"acc({self.expr})"
 
 
-@functools.singledispatch
-def as_linear_buffer_expression(obj: Any) -> LinearDatBufferExpression:
-    raise TypeError
-
-
-@as_linear_buffer_expression.register
-def _(expr: LinearDatBufferExpression) -> LinearDatBufferExpression:
-    return expr
-
-
-@as_linear_buffer_expression.register
-def _(dat: Dat) -> LinearDatBufferExpression:
-
-    assert dat.parent is None
-
-    if not dat.axes.is_linear:
-        raise ValueError("The provided Dat must be linear")
-
-    axes = dat.axes.regionless
-
-    layout = just_one(axes.leaf_subst_layouts.values())
-    return LinearDatBufferExpression(BufferRef(dat.buffer), layout)

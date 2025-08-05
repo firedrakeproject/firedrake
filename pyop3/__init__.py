@@ -1,6 +1,5 @@
 import os as _os
 from pyop3.config import config as _config
-from pyop3.tree.index_tree.parse import as_index_forest
 
 def _fixup_pytools():
     # Many pyop3 objects inherit from pytools.RecordWithoutPickling.
@@ -40,7 +39,7 @@ from pyop3.expr.tensor import (  # noqa: F401
     Tensor, FancyIndexWriteException, Dat, Scalar, Mat,
     RowDatPythonMatContext, ColumnDatPythonMatContext,
 )
-from pyop3.expr.tensor.dat import as_linear_buffer_expression
+from pyop3.expr import as_linear_buffer_expression
 from pyop3.tree.axis_tree import (  # noqa: F401
     Axis,
     AxisComponent,
@@ -66,7 +65,6 @@ from pyop3.tree.index_tree import (  # noqa: F401
     SubsetSliceComponent,
     TabulatedMapComponent,
     ScalarIndex,
-    as_index_forest,
 )
 from pyop3.insn import (  # noqa: F401
     INC,
@@ -89,6 +87,7 @@ from pyop3.insn import (  # noqa: F401
 from pyop3.sf import StarForest, single_star_sf, local_sf
 import pyop3.sf
 from . import utils
+from pyop3.tree.index_tree.parse import as_index_forest
 
 del _os
 del _config

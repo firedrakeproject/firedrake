@@ -25,6 +25,7 @@ from pyrsistent import PMap, pmap
 from pyop3 import utils
 from pyop3.tree.axis_tree import AxisTree
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, ContextFree, ContextSensitive
+from pyop3.expr import BufferExpression
 from pyop3.config import config
 from pyop3.dtypes import dtype_limits
 from pyop3.exceptions import Pyop3Exception
@@ -150,6 +151,7 @@ class IntentMismatchError(Exception):
     pass
 
 
+# FIXME: This is not a thing any more
 class KernelArgument(abc.ABC):
     """Abstract class for types that may be passed as arguments to kernels.
 
@@ -578,8 +580,6 @@ class Terminal(Instruction, metaclass=abc.ABCMeta):
 
     @property
     def buffer_arguments(self) -> tuple[BufferExpression, ...]:
-        from pyop3.expr.tensor.dat import BufferExpression
-
         return tuple(utils.filter_type(BufferExpression, self.arguments))
 
 

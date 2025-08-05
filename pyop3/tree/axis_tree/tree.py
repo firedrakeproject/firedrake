@@ -991,16 +991,12 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
 
     def section(self, path: PathT, component: ComponentT) -> PETSc.Section:
         from pyop3 import Dat
-        from pyop3.tree.axis_tree.layout import _axis_tree_size_rec
-        # from pyop3.expr.visitors import extract_axes
-
-        # TODO: cast component to AxisComponent
 
         path = as_path(path)
         axis = self.node_map[path]
 
         subpath = path | {axis.label: component.label}
-        size_expr = _axis_tree_size_rec(self, subpath)
+        size_expr = self.materialize().subtree(subpath).size
 
         # NOTE: This is bizarre, what was I doing?
         if isinstance(size_expr, numbers.Integral):

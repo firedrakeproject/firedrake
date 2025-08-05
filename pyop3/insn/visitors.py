@@ -1,31 +1,22 @@
 from __future__ import annotations
 
 import abc
-import collections
 import functools
 from itertools import zip_longest
 import numbers
-import operator
 from collections.abc import Iterable, Mapping
-from os import access
-from typing import Any, Union
+from typing import Any
 
-import numpy as np
 from petsc4py import PETSc
-from pyop3.expr.tensor.dat import BufferExpression
-from pyop3.sf import local_sf
-from pyrsistent import pmap, PMap
 from immutabledict import immutabledict
 
 import pyop3.expr.base as expr_types
 from pyop3 import utils
-from pyop3.expr.tensor import Scalar, Dat, Tensor, Mat, NonlinearDatBufferExpression, LinearDatBufferExpression, NonlinearMatBufferExpression, LinearMatBufferExpression
-from pyop3.tree.axis_tree import Axis, AxisTree, ContextFree, ContextSensitive, ContextMismatchException, ContextAware
+from pyop3.expr import Scalar, Dat, Tensor, Mat, LinearDatBufferExpression, BufferExpression
+from pyop3.tree.axis_tree import AxisTree
 from pyop3.tree.axis_tree.tree import merge_axis_trees
-from pyop3.buffer import AbstractBuffer, BufferRef, PetscMatBuffer, ArrayBuffer, NullBuffer, AllocatedPetscMatBuffer
-from pyop3.dtypes import IntType
-from pyop3.tree.index_tree import Map, TabulatedMapComponent, collect_loop_contexts
-from pyop3.tree.index_tree.tree import LoopIndex, LoopIndexVar, Slice, AffineSliceComponent, IndexTree
+from pyop3.buffer import AbstractBuffer, PetscMatBuffer
+from pyop3.tree.index_tree.tree import LoopIndex
 from pyop3.tree.index_tree.parse import _as_context_free_indices
 from pyop3.expr.visitors import (
     get_shape,
@@ -91,7 +82,7 @@ def expand_loop_contexts(insn: Instruction, /) -> InstructionList:
     """
     This function also drops zero-sized loops.
     """
-    return _expand_loop_contexts_rec(insn, loop_context_acc=pmap())
+    return _expand_loop_contexts_rec(insn, loop_context_acc=immutabledict())
 
 
 @functools.singledispatch

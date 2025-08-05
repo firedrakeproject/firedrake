@@ -21,8 +21,6 @@ from pyop3.tree.axis_tree.tree import (
     AbstractAxisTree,
     AxisTree,
     ContextSensitiveAxisTree,
-    ContextFree,
-    IndexedAxisTree,
 )
 from pyop3.tree.axis_tree import as_axis_tree
 from pyop3.buffer import FullPetscMatBufferSpec, NullBuffer, AbstractBuffer, PetscMatAxisSpec, PetscMatBuffer, AllocatedPetscMatBuffer, PetscMatPreallocatorBuffer, PetscMatBufferSpec, MatBufferSpec, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec
@@ -184,7 +182,8 @@ class Mat(Tensor):
         return layout_vec.local_size // layout_vec.block_size
 
     def getitem(self, row_index, column_index, *, strict=False):
-        from pyop3.tree.index_tree import as_index_forest, index_axes
+        from pyop3.tree.index_tree import index_axes
+        from pyop3.tree.index_tree.parse import as_index_forest
         # does not work as indices may not be hashable, parse first?
         # cache_key = (indices, strict)
         # if cache_key in self._cache:

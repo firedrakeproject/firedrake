@@ -17,7 +17,6 @@ from petsc4py import PETSc
 from pyop3 import utils
 from pyop3.config import config
 from pyop3.dtypes import IntType, ScalarType, DTypeT
-from pyop3.insn import KernelArgument
 from pyop2.mpi import COMM_SELF
 from pyop3.sf import NullStarForest, StarForest, local_sf
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
@@ -59,7 +58,7 @@ def record_modified(func):
     return wrapper
 
 
-class AbstractBuffer(KernelArgument, metaclass=abc.ABCMeta):
+class AbstractBuffer(metaclass=abc.ABCMeta):
 
     DEFAULT_PREFIX = "buffer"
     DEFAULT_DTYPE = ScalarType

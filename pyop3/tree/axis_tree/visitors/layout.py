@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import functools
 import numbers
+from typing import Any
 
 from immutabledict import immutabledict as idict
-from typing import Any
 
 import numpy as np
 from petsc4py import PETSc
 
-from pyop3 import utils
+from pyop3 import expr as op3_expr, utils
 from pyop3.dtypes import IntType
 from pyop3.expr import AxisVar, LoopIndexVar, LinearDatBufferExpression, Dat, ExpressionT
 from pyop3.expr.base import NAN
@@ -335,6 +336,7 @@ def _collect_regions(axes: AxisTree, *, path: PathT = idict()):
 
 # TODO: singledispatch (but needs import thoughts)
 # TODO: should cache this!!!
+@functools.singledispatch
 def _accumulate_step_sizes(obj: Any, axis):
     """TODO
 
@@ -342,18 +344,37 @@ def _accumulate_step_sizes(obj: Any, axis):
     into an offset array.
 
     """
-    from pyop3.expr import base as expr_types
+    raise TypeError
 
-    if isinstance(obj, numbers.Number):
-        return obj
-    elif isinstance(obj, expr_types.Mul):
-        return _accumulate_step_sizes(obj.a, axis) * _accumulate_step_sizes(obj.b, axis)
-    elif isinstance(obj, expr_types.Add):
-        return _accumulate_step_sizes(obj.a, axis) + _accumulate_step_sizes(obj.b, axis)
-    elif isinstance(obj, LinearDatBufferExpression):
-        return _accumulate_dat_expr(obj, axis).concretize()
-    else:
-        raise NotImplementedError
+
+@_accumulate_step_sizes.register(numbers.Number)
+def _(num: numbers.Number, /, axis: Axis) -> numbers.Number:
+    return num
+
+
+@_accumulate_step_sizes.register(op3_expr.Mul)
+def _(mul: op3_expr.Mul, /, axis: Axis) -> op3_expr.Mul:
+    return _accumulate_step_sizes(mul.a, axis) * _accumulate_step_sizes(mul.b, axis)
+
+
+@_accumulate_step_sizes.register(op3_expr.Add)
+def _(add: op3_expr.Add, /, axis: Axis) -> op3_expr.Add:
+    return _accumulate_step_sizes(add.a, axis) + _accumulate_step_sizes(add.b, axis)
+
+
+@_accumulate_step_sizes.register(op3_expr.BinaryCondition)
+def _(cond: op3_expr.BinaryCondition, /, axis: Axis) -> op3_expr.BinaryCondition:
+    return type(cond)(*(_accumulate_step_sizes(op, axis) for op in cond.operands))
+
+
+@_accumulate_step_sizes.register(op3_expr.Conditional)
+def _(cond: op3_expr.Conditional, /, axis: Axis) -> op3_expr.Conditional:
+    return op3_expr.Conditional(*(_accumulate_step_sizes(op, axis) for op in cond.operands))
+
+
+@_accumulate_step_sizes.register(LinearDatBufferExpression)
+def _(dat_expr: LinearDatBufferExpression, /, axis: Axis) -> LinearDatBufferExpression:
+    return _accumulate_dat_expr(dat_expr, axis).concretize()
 
 
 def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis):
