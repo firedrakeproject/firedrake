@@ -25,8 +25,12 @@ def disable_conditional_breakpoints(marker=None):
 
 
 def maybe_breakpoint(marker=None):
-    if _stopping[marker]:
+    if breakpoint_enabled(marker):
         breakpoint()
+
+
+def breakpoint_enabled(marker=None):
+    return _stopping[marker]
 
 
 def print_with_rank(*args, comm: Optional[Union[PETSc.Comm, MPI.Comm]] = None) -> None:

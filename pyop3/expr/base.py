@@ -479,7 +479,7 @@ class AxisVar(Terminal):
     @cached_property
     def shape(self) -> tuple[AxisTree]:
         from pyop3.tree.axis_tree.tree import full_shape
-        return (merge_axis_trees((full_shape(self.axis.as_tree()), self.axis.as_tree())),)
+        return (merge_axis_trees((full_shape(self.axis.as_tree())[0], self.axis.as_tree())),)
 
     loop_axes = idict()
 

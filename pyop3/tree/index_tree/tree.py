@@ -41,6 +41,7 @@ from pyop3.dtypes import IntType
 from pyop3.sf import StarForest
 from pyop3.tree.labelled_tree import (
     ConcretePathT,
+    as_node_map,
     LabelledNodeComponent,
     LabelledTree,
     MultiComponentLabelledNode,
@@ -76,9 +77,21 @@ class Index(MultiComponentLabelledNode):
 # NOTE: index trees are not really labelled trees. The component labels are always
 # nonsense. Instead I think they should just advertise a degree and then attach
 # to matching index (instead of label).
+@utils.frozenrecord()
 class IndexTree(MutableLabelledTreeMixin, LabelledTree):
 
+    # {{{ instance attrs
+
+    _node_map: idict
+
+    def __init__(self, node_map: Mapping[PathT, Node] | None | None = None) -> None:
+        object.__setattr__(self, "_node_map", as_node_map(node_map))
+
+    # }}}
+
     # {{{ interface impls
+
+    node_map = utils.attr("_node_map")
 
     @functools.singledispatchmethod
     @classmethod
@@ -1453,7 +1466,6 @@ def index_axes(
             return UnitIndexedAxisTree(
                 orig_axes,
                 targets=indexed_target_paths_and_exprs,
-                layout_exprs={},
                 outer_loops=outer_loops,
             )
         else:
@@ -1461,7 +1473,6 @@ def index_axes(
                 indexed_axes.node_map,
                 orig_axes,
                 targets=indexed_target_paths_and_exprs + (indexed_axes._source_path_and_exprs,),
-                layout_exprs={},
                 outer_loops=outer_loops,
             )
 
@@ -1502,7 +1513,6 @@ def index_axes(
         return UnitIndexedAxisTree(
             orig_axes.unindexed,
             targets=indexed_target_paths_and_exprs,
-            layout_exprs={},
             outer_loops=outer_loops,
         )
     else:
@@ -1510,7 +1520,6 @@ def index_axes(
             indexed_axes.node_map,
             orig_axes.unindexed,
             targets=all_target_paths_and_exprs,
-            layout_exprs={},
             outer_loops=outer_loops,
         )
 

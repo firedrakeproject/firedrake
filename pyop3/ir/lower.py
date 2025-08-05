@@ -374,6 +374,7 @@ class ModuleExecutor:
 
         # if len(self.loopy_code.callables_table) > 1:
         #     breakpoint()
+        pyop3.extras.debug.maybe_breakpoint("b")
         # if len(self.loopy_kernel.args) > 3:
         # selfstr = str(self)
         # if all(k not in selfstr for k in SAFE_KERNELS):

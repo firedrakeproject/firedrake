@@ -132,6 +132,13 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     contiguous data and so are meaningless.
 
     """
+    full_axis_tree, replace_map = full_shape(axis_tree)
+    if full_axis_tree != axis_tree:
+        breakpoint()
+    return _compute_layouts(full_axis_tree)
+
+
+def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     # First traverse the axis tree and compute everything we can.
     to_tabulate = []
     tabulated = {}
@@ -369,6 +376,9 @@ def _(cond: op3_expr.BinaryCondition, /, axis: Axis) -> op3_expr.BinaryCondition
 
 @_accumulate_step_sizes.register(op3_expr.Conditional)
 def _(cond: op3_expr.Conditional, /, axis: Axis) -> op3_expr.Conditional:
+    import pyop3
+    if pyop3.extras.debug.breakpoint_enabled("a"):
+        pyop3.extras.debug.enable_conditional_breakpoints("b")
     return op3_expr.Conditional(*(_accumulate_step_sizes(op, axis) for op in cond.operands))
 
 
@@ -394,7 +404,7 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
     #       offset[i, j] = offset[i, j-1] + size[i, j]
 
     # by definition the current axis is in size_expr
-    offset_axes = merge_axis_trees((utils.just_one(get_shape(size_expr)), full_shape(linear_axis.as_tree())))
+    offset_axes = merge_axis_trees((utils.just_one(get_shape(size_expr)), full_shape(linear_axis.as_tree())[0]))
 
     # remove current axis as we need to scan over it
     loc = utils.just_one(path for path, axis_ in offset_axes.node_map.items() if axis_ == linear_axis)
@@ -421,6 +431,8 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
         )
 
     else:
+        import pyop3
+        pyop3.extras.debug.maybe_breakpoint("b")
         exscan(offset_dat.concretize(), size_expr, "+", linear_axis, eager=True)
 
     return offset_dat

@@ -76,10 +76,102 @@ ConcreteNodeMapT = idict[ConcretePathT, Node | None]
 
 
 
-# TODO delete this class, no longer different tree types
-class AbstractTree(abc.ABC):
-    def __init__(self, node_map: Mapping[PathT, Node] | None | None = None) -> None:
-        self.node_map = as_node_map(node_map)
+class LabelledNodeComponent(pytools.ImmutableRecord):
+    fields = {"label"}
+
+    def __init__(self, label=None):
+        self.label = label
+
+
+class MultiComponentLabelledNode(Node, Labelled):
+    fields = Node.fields | {"label"}
+
+    def __init__(self, label=None):
+        Node.__init__(self)
+        Labelled.__init__(self, label)
+
+        if not utils.has_unique_entries(self.component_labels):
+            raise ValueError("Duplicate component labels found")
+
+    @property
+    def degree(self) -> int:
+        return len(self.component_labels)
+
+    @property
+    @abc.abstractmethod
+    def component_labels(self) -> tuple:
+        pass
+
+    @property
+    def component_label(self):
+        return just_one(self.component_labels)
+
+
+class LabelledTree:
+
+    # {{{ abstract methods
+
+    @property
+    @abc.abstractmethod
+    def node_map(self) -> idict:
+        pass
+
+    @classmethod
+    @abc.abstractmethod
+    def as_node(self, obj: Any) -> Node:
+        """Convert an object into a tree node."""
+
+    # }}}
+
+    # {{{ constructors
+
+    @classmethod
+    def from_iterable(cls, iterable: Iterable) -> LabelledTree:
+        if not iterable:
+            return cls()
+
+        node_map = {}
+        path = idict()
+        for node in iterable:
+            node = cls.as_node(node)
+            node_map.update({path: node})
+            path = path | {node.label: node.component_label}
+        return cls(node_map)
+
+    @classmethod
+    def from_nest(cls, nest: Mapping[Node, Sequence[Mapping | Node]] | Node) -> LabelledTree:
+        if isinstance(nest, Node):
+            return cls(nest)
+        else:
+            node_map = cls._node_map_from_nest(nest=nest, path=idict())
+            return cls(node_map)
+
+    @classmethod
+    def _node_map_from_nest(cls, *, nest: Mapping[Node, Sequence[Mapping | Node]], path: ConcretePathT) -> ConcretePathT:
+        if len(nest) > 1:
+            raise InvalidTreeException(
+                "Nest contains multiple nodes at the same level"
+            )
+
+        node, subnests = utils.just_one(nest.items())
+        node = cls.as_node(node)
+
+        if isinstance(subnests, Node) and node.degree == 1:
+            subnests = (subnests,)
+
+        node_map = {path: node}
+        for component_label, subnest in zip(node.component_labels, subnests, strict=True):
+            path_ = path | {node.label: component_label}
+
+            if isinstance(subnest, Mapping):
+                sub_node_map = cls._node_map_from_nest(nest=subnest, path=path_)
+            else:
+                sub_node_map = {path_: subnest}
+            node_map |= sub_node_map
+        return idict(node_map)
+
+    # }}}
+
 
     def __str__(self) -> str:
         if self.is_empty:
@@ -113,10 +205,6 @@ class AbstractTree(abc.ABC):
             return postvisit(self, lambda _, *o: max(o or [0]) + 1)
 
     @cached_property
-    def node_ids(self):
-        return frozenset(node.id for node in self.nodes)
-
-    @cached_property
     def child_to_parent(self):
         child_to_parent_ = {}
         for parent_id, children in self.node_map.items():
@@ -128,16 +216,6 @@ class AbstractTree(abc.ABC):
     @cached_property
     def nodes(self) -> tuple[Node]:
         return tuple(filter(None, self.node_map.values()))
-
-    # @property
-    # @abc.abstractmethod
-    # def leaves(self):
-    #     """Return the leaves of the tree."""
-    #     pass
-    #
-    # @property
-    # def leaf(self):
-    #     return just_one(self.leaves)
 
     def is_leaf(self, node):
         return self._as_node(node) in self.leaves
@@ -198,172 +276,6 @@ class AbstractTree(abc.ABC):
             return None
         else:
             return node if isinstance(node, Node) else self.id_to_node[node]
-
-    @staticmethod
-    def _as_node_id(node):
-        return node.id if isinstance(node, Node) else node
-
-
-class LabelledNodeComponent(pytools.ImmutableRecord):
-    fields = {"label"}
-
-    def __init__(self, label=None):
-        self.label = label
-
-
-class MultiComponentLabelledNode(Node, Labelled):
-    fields = Node.fields | {"label"}
-
-    def __init__(self, label=None):
-        Node.__init__(self)
-        Labelled.__init__(self, label)
-
-        if not utils.has_unique_entries(self.component_labels):
-            raise ValueError("Duplicate component labels found")
-
-    @property
-    def degree(self) -> int:
-        return len(self.component_labels)
-
-    @property
-    @abc.abstractmethod
-    def component_labels(self) -> tuple:
-        pass
-
-    @property
-    def component_label(self):
-        return just_one(self.component_labels)
-
-
-class LabelledTree(AbstractTree):
-
-    # {{{ abstract methods
-
-    @classmethod
-    @abc.abstractmethod
-    def as_node(self, obj: Any) -> Node:
-        """Convert an object into a tree node."""
-
-    # }}}
-
-    # {{{ constructors
-
-    @classmethod
-    def from_iterable(cls, iterable: Iterable) -> LabelledTree:
-        if not iterable:
-            return cls()
-
-        node_map = {}
-        path = idict()
-        for node in iterable:
-            node = cls.as_node(node)
-            node_map.update({path: node})
-            path = path | {node.label: node.component_label}
-        return cls(node_map)
-
-    @classmethod
-    def from_nest(cls, nest: Mapping[Node, Sequence[Mapping | Node]] | Node) -> LabelledTree:
-        if isinstance(nest, Node):
-            return cls(nest)
-        else:
-            node_map = cls._node_map_from_nest(nest=nest, path=idict())
-            return cls(node_map)
-
-    @classmethod
-    def _node_map_from_nest(cls, *, nest: Mapping[Node, Sequence[Mapping | Node]], path: ConcretePathT) -> ConcretePathT:
-        if len(nest) > 1:
-            raise InvalidTreeException(
-                "Nest contains multiple nodes at the same level"
-            )
-
-        node, subnests = utils.just_one(nest.items())
-        node = cls.as_node(node)
-
-        if isinstance(subnests, Node) and node.degree == 1:
-            subnests = (subnests,)
-
-        node_map = {path: node}
-        for component_label, subnest in zip(node.component_labels, subnests, strict=True):
-            path_ = path | {node.label: component_label}
-
-            if isinstance(subnest, Mapping):
-                sub_node_map = cls._node_map_from_nest(nest=subnest, path=path_)
-            else:
-                sub_node_map = {path_: subnest}
-            node_map |= sub_node_map
-        return idict(node_map)
-
-    # }}}
-
-    def __init__(self, node_map=None):
-        super().__init__(node_map=node_map)
-        self._cache = {}
-
-    def __eq__(self, other):
-        return type(other) is type(self) and other._hash_key == self._hash_key
-
-    def __hash__(self):
-        return hash(self._hash_key)
-
-    @cached_property
-    def _hash_key(self):
-        return (self._hash_node_map,)
-
-    @cached_property
-    def _hash_node_map(self):
-        if self.is_empty:
-            return idict()
-
-        counter = itertools.count()
-        return self._collect_hash_node_map(None, None, counter)
-
-    def _collect_hash_node_map(self, old_parent_id, new_parent_id, counter):
-        if old_parent_id not in self.node_map:
-            return idict()
-
-        nodes = []
-        node_map = {}
-        for old_node in self.node_map[old_parent_id]:
-            if old_node is not None:
-                new_node = old_node.copy(id=f"id_{next(counter)}")
-                node_map.update(self._collect_hash_node_map(old_node.id, new_node.id, counter))
-            else:
-                new_node = None
-
-            nodes.append(new_node)
-
-        node_map[new_parent_id] = freeze(nodes)
-        return freeze(node_map)
-
-    def child(self, parent: ParentT) -> Node:
-        assert False, "old code, just use node_map"
-        """Return the child node of ``parent``.
-
-        Parameters
-        ----------
-        parent :
-            The parent node specification. This can be a 2-tuple of parent
-            node and component (label) or `None`, which will return the
-            root node.
-
-        Returns
-        -------
-        child : Node
-            The child node.
-
-        """
-        if parent is None:
-            return self.root
-
-        return self.node_map[parent]
-
-        path, component = parent
-        parent_node = self.node_map[path]
-        # full_path = 
-        # return utils.just_one(self.node_map[path].components
-        component_label = as_component_label(parent_component)
-        component_index = parent_node.component_labels.index(component_label)
-        return children[component_index]
 
     @cached_property
     def leaves(self) -> tuple[Node]:

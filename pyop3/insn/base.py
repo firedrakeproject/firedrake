@@ -619,8 +619,8 @@ class Function:
         self._access_descrs = access_descrs
 
     def __call__(self, *args):
-        if not all(isinstance(a, FunctionArgument) for a in args):
-            raise TypeError("invalid kernel argument type")
+        # if not all(isinstance(a, FunctionArgument) for a in args):
+        #     raise TypeError("invalid kernel argument type")
         if len(args) != len(self.argspec):
             raise ValueError(
                 f"Wrong number of arguments provided, expected {len(self.argspec)} "

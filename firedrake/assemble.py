@@ -1561,8 +1561,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         # everything is fine here!
         print("XXX C", flush=True)
 
-        pyop3.extras.debug.enable_conditional_breakpoints("a")
-
         # Pretend that we are doing assembly by looping over the right
         # iteration sets and using the right maps.
         for iter_index, rmap, cmap, indices in maps_and_regions:
@@ -1579,6 +1577,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
         # but die before getting here
         print("XXX D", flush=True)
+        pyop3.extras.debug.enable_conditional_breakpoints("a")
+
         time.sleep(5)
         numpy.empty(100000)
         sparsity.assemble()

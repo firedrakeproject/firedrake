@@ -33,6 +33,7 @@ from pyop3.sf import NullStarForest, StarForest, local_sf, single_star_sf
 from pyop2.mpi import collective
 from pyop3 import utils
 from pyop3.tree.labelled_tree import (
+    as_node_map,
     ComponentLabelT,
     ComponentRegionLabelT,
     ComponentT,
@@ -741,7 +742,7 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
             return (as_axis_component(components),)
 
 
-class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
+class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree):
 
     # {{{ abstract methods
 
@@ -786,10 +787,6 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
         return Axis(AxisComponent(num))
 
     # }}}
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        CacheMixin.__init__(self)
 
     def __getitem__(self, indices):
         return self.getitem(indices, strict=False)
@@ -1269,9 +1266,21 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, CacheMixin):
     # }}}
 
 
+@utils.frozenrecord()
 class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
 
+    # {{{ instance attrs
+
+    _node_map: idict
+
+    def __init__(self, node_map: Mapping[PathT, Node] | None | None = None) -> None:
+        object.__setattr__(self, "_node_map", as_node_map(node_map))
+
+    # }}}
+
     # {{{ interface impls
+
+    node_map = utils.attr("_node_map")
 
     @property
     def unindexed(self) -> AxisTree:
@@ -1405,9 +1414,52 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         return slice(self.size)
 
 
+@utils.frozenrecord()
 class IndexedAxisTree(AbstractAxisTree):
 
+    # {{{ instance attrs
+
+    _node_map: idict
+    _unindexed: AxisTree | None
+    targets: idict
+    _outer_loops: Any
+
+    # NOTE: It is OK for unindexed to be None, then we just have a map-like thing
+    def __init__(
+        self,
+        node_map,
+        unindexed,  # allowed to be None
+        *,
+        targets,
+        outer_loops=(),
+    ):
+        if isinstance(node_map, AxisTree):
+            node_map = node_map.node_map
+
+        # drop duplicate entries as they are necessarily equivalent
+        targets = utils.unique(targets)
+        targets = utils.freeze(targets)
+
+        if outer_loops is None:
+            outer_loops = ()
+
+        object.__setattr__(self, "_node_map", as_node_map(node_map))
+        object.__setattr__(self, "targets", targets)
+        object.__setattr__(self, "_unindexed", unindexed)
+        object.__setattr__(self, "_outer_loops", tuple(outer_loops))
+
+    # FIXME
+    @property
+    def unindexed(self):
+        return self._unindexed
+
+    # }}}
+
     # {{{ interface impls
+
+    node_map = utils.attr("_node_map")
+    unindexed = utils.attr("_unindexed")
+    outer_loops = utils.attr("_outer_loops")
 
     @cached_property
     def _materialized(self) -> AxisTree:
@@ -1424,10 +1476,6 @@ class IndexedAxisTree(AbstractAxisTree):
             unindexed=self.unindexed.regionless,
             outer_loops=self.outer_loops,
         )
-
-    @property
-    def unindexed(self):
-        return self._unindexed
 
     # TODO: Should have nest indices and nest labels as separate concepts.
     # The former is useful for buffers and the latter for trees
@@ -1530,34 +1578,6 @@ class IndexedAxisTree(AbstractAxisTree):
     # }}}
 
 
-    # NOTE: It is OK for unindexed to be None, then we just have a map-like thing
-    def __init__(
-        self,
-        node_map,
-        unindexed,  # allowed to be None
-        *,
-        targets,
-        layout_exprs=None,  # not used
-        outer_loops=(),
-    ):
-        if isinstance(node_map, AxisTree):
-            node_map = node_map.node_map
-
-        # drop duplicate entries as they are necessarily equivalent
-        targets = utils.unique(targets)
-        targets = utils.freeze(targets)
-
-        if layout_exprs is None:
-            layout_exprs = idict()
-        if outer_loops is None:
-            outer_loops = ()
-
-        self.targets = targets
-        self._unindexed = unindexed
-        self._outer_loops = tuple(outer_loops)
-        super().__init__(node_map)
-
-
     # old alias
     @property
     def _targets(self):
@@ -1645,10 +1665,6 @@ class IndexedAxisTree(AbstractAxisTree):
     @property
     def layouts(self):
         return self.unindexed.layouts
-
-    @property
-    def outer_loops(self):
-        return self._outer_loops
 
     def linearize(self, path: PathT, *, partial: bool = False) -> IndexedAxisTree:
         """Return the axis tree dropping all components not specified in the path."""
@@ -2137,16 +2153,20 @@ def relabel_path(path, suffix:str):
 
 def full_shape(axes):
     """Augment axes with extra axes from the size expressions."""
-    from pyop3.expr.visitors import get_shape
+    # from pyop3.expr.visitors import get_shape
+    from pyop3.expr.visitors import loopified_shape
 
     # only deal in axis trees
     axes = axes.materialize()
+
+    replace_map = {}
 
     shapes = []
     for axis in axes.nodes:
         for component in axis.components:
             for region in component.regions:
-                region_shape = utils.just_one(get_shape(region.size))
+                region_shape, mymap = loopified_shape(region.size)
+                replace_map |= mymap
                 if region_shape.size != 1:
                     shapes.append(region_shape)
 
@@ -2158,9 +2178,9 @@ def full_shape(axes):
     if shapes:
         fulltree = AxisTree.from_iterable(shape_axes)
         fulltree = fulltree.add_subtree(fulltree.leaf_path, axes)
-        return fulltree
+        return fulltree, replace_map
     else:
-        return axes
+        return axes, replace_map
 
 
 IteratorIndexT = tuple[ConcretePathT, idict[AxisLabelT, int]]
