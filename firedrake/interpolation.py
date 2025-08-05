@@ -767,9 +767,32 @@ class SameMeshInterpolator(Interpolator):
 
     @no_annotations
     def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE,
-                 bcs=None, matfree=True, **kwargs):
+                 bcs=None, allow_missing_dofs=False, matfree=True, **kwargs):
+        if subset is None:
+            target = V.function_space().mesh().topology if isinstance(V, firedrake.Function) else V.mesh().topology
+            temp = extract_unique_domain(expr)
+            source = target if temp is None else temp.topology
+            if all(isinstance(m, firedrake.mesh.MeshTopology) for m in [target, source]):
+                if target is source:
+                    pass
+                elif target in source.submesh_ancesters:
+                    # Need subset as target > source.
+                    if allow_missing_dofs:
+                        composed_map, target_integral_type = target.trans_mesh_entity_map(source, "cell", "everywhere", None)
+                        if target_integral_type != "cell":
+                            raise ValueError(f"target integral type ({target_integral_type}) != \"cell\"")
+                        subset = op2.Subset(composed_map.toset, composed_map.values_with_halo)
+                    else:
+                        raise RuntimeError("target mesh larger than source; interpolate with `allow_missing_dofs=True`")
+                elif source in target.submesh_ancesters:
+                    # Do not need subset as target < source.
+                    pass
+                else:
+                    raise NotImplementedError(
+                        f"Only implemented for target \subset source or source \subset target, where target = {target} and source = {source}"
+                    )
         super().__init__(expr, V, subset=subset, freeze_expr=freeze_expr,
-                         access=access, bcs=bcs, matfree=matfree)
+                         access=access, bcs=bcs, allow_missing_dofs=allow_missing_dofs, matfree=matfree)
         try:
             self.callable, arguments = make_interpolator(expr, V, subset, access, bcs=bcs, matfree=matfree)
         except FIAT.hdiv_trace.TraceError:

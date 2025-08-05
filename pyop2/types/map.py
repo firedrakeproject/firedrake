@@ -278,7 +278,11 @@ class ComposedMap(Map):
 
     @utils.cached_property
     def values_with_halo(self):
-        raise RuntimeError("ComposedMap does not store values directly")
+        arrays = tuple(m.values_with_halo for m in self.maps_)
+        for array in arrays:
+            if any(array < 0):
+                raise RuntimeError("Not for arrays with negative entries")
+        return functools.reduce(lambda a, b: a[b], arrays)
 
     def __str__(self):
         return "OP2 ComposedMap of Maps: [%s]" % ",".join([str(m) for m in self.maps_])

@@ -52,7 +52,7 @@ def _test_submesh_interpolate_cell_cell(mesh, subdomain_cond, fe_fesub):
     g.interpolate(f)
     temp = Constant(999.*np.ones(V.value_shape))
     g.interpolate(temp, subset=mesh.topology.cell_subset(label_value))  # pollute the data
-    g.interpolate(gsub, subset=mesh.topology.cell_subset(label_value))
+    g.interpolate(gsub, allow_missing_dofs=True)
     assert assemble(inner(g - f, g - f) * dx(label_value)).real < 1e-14
 
 
