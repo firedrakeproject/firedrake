@@ -685,36 +685,6 @@ def _(buffer_expr: op3_expr.NonlinearDatBufferExpression, layouts, key):
 def _(mat_expr: op3_expr.MatPetscMatBufferExpression, /, layouts, key) -> op3_expr.MatPetscMatBufferExpression:
     row_layout = layouts[key + ((mat_expr, 0),)]
     column_layout = layouts[key + ((mat_expr, 1),)]
-
-    # TODO: explain more
-
-    # convert the generic expressions to 
-    # for example:
-    #
-    #   map0[3*i0 + i1]
-    #   map0[3*i0 + i2 + 3]
-    #
-    # to the shared top-level layout:
-    #
-    #   map0[3*i0]
-    #
-    # which is what Mat{Get,Set}Values() needs.
-    # subst_layouts = []
-    # for layout in [row_layout, column_layout]:
-    #     subst_sublayouts = []
-    #     for sublayout in layout.layouts.values():
-    #         axis_var_zero_replace_map = {
-    #             axis_var: 0
-    #             for axis_var in collect_axis_vars(sublayout)
-    #         }
-    #         subst_sublayout = replace(sublayout, axis_var_zero_replace_map)
-    #         subst_sublayouts.append(subst_sublayout)
-    #     subst_sublayout = utils.single_valued(subst_sublayouts)
-    #
-    #     subst_layout = LinearDatBufferExpression(layout.buffer, subst_sublayout)
-    #     subst_layouts.append(subst_layout)
-    # row_layout, column_layout = subst_layouts
-
     return mat_expr.__record_init__(row_layout=row_layout, column_layout=column_layout)
 
 
@@ -744,6 +714,7 @@ def _(op: op3_expr.Operator):
 
 @collect_axis_vars.register(numbers.Number)
 @collect_axis_vars.register(op3_expr.LoopIndexVar)
+@collect_axis_vars.register(op3_expr.NaN)
 def _(var):
     return OrderedSet()
 
@@ -832,6 +803,7 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
     #     for (loop_var, axis_var) in loop_index_replace_map
     # }
 
+    to_skip = set()
     for path, expr in composite_dat.leaf_exprs.items():
         expr = replace(expr, loop_var_replace_map)
 
@@ -852,29 +824,23 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
 
         if assignee_.size > 0:
             assignee_.assign(expr, eager=True)
+        else:
+            to_skip.add(path)
 
     # step 3: replace axis vars with loop indices in the layouts
     # NOTE: We need *all* the layouts here (i.e. not just the leaves) because matrices do not want the full path here. Instead
     # they want to abort once the loop indices are handled.
     newlayouts = {}
     axis_to_loop_var_replace_map = utils.invert_mapping(loop_var_replace_map)
-    # dumb_inv_replace_map = {
-    #     axis_var.axis_label: loop_var
-    #     for (loop_var, axis_var) in loop_index_replace_map
-    # }
     if isinstance(composite_dat.axis_tree, _UnitAxisTree):
         layout = assignee.axes.leaf_subst_layout
         newlayout = replace(layout, axis_to_loop_var_replace_map)
         newlayouts[idict()] = newlayout
     else:
-        for path, mynode in composite_dat.axis_tree.node_map.items():
-
-            if mynode is None:
+        for path_ in composite_dat.axis_tree.leaf_paths:
+            if path_ in to_skip:
                 continue
-
-            for component in mynode.components:
-                path_ = path | {mynode.label: component.label}
-
+            else:
                 fullpath = composite_dat.loop_tree.leaf_path | path_
                 layout = assignee.axes.subst_layouts()[fullpath]
                 newlayout = replace(layout, axis_to_loop_var_replace_map)
@@ -883,14 +849,9 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
     if isinstance(composite_dat, op3_expr.LinearCompositeDat):
         layout = newlayouts[axes.leaf_path]
         assert not isinstance(layout, NaN)
-        # layouts cannot contain more arrays
-        # assert "[" not in str(layout)
         materialized_expr = op3_expr.LinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), layout)
     else:
         assert isinstance(composite_dat, op3_expr.NonlinearCompositeDat)
-        # layouts cannot contain more arrays - not sure about this
-        # assert all("[" not in str(layout) for layout in newlayouts.values())
-
         materialized_expr = op3_expr.NonlinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), newlayouts)
 
     return materialized_expr
