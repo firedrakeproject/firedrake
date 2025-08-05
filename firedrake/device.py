@@ -71,7 +71,7 @@ def _put_slice_(x, n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, p
     y = tl.where(ind==1, input_slice, x)
     return y
 
-        """    
+"""    
 
     def write_file(self, arrays, maps):
         
@@ -79,6 +79,12 @@ def _put_slice_(x, n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, p
             file.write("import cupy as cp\n")
             file.write("import cupyx as cpx\n")
             if self.kernel_type == "triton":
+                file.write("import numpy as np\n")
+                file.write("import triton\n")
+                file.write("import triton.language as tl\n")
+                file.write("import torch\n")
+                file.write("import pdb\n")
+                file.write("DEVICE=triton.runtime.driver.active.get_active_torch_device()\n")
                 file.write(self.triton_slicing())
             for kernel in self.kernel_string:
                 file.write(kernel+ "\n")
@@ -90,7 +96,7 @@ def _put_slice_(x, n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, p
             for array, map_i, i in zip(arrays, maps, [i for i in range(len(arrays)+2)]):
                 print(i)
                 a = repr(array).replace("object", "cp.float64")
-                m = repr(map_i).replace("object", "cp.int32")
+                m = repr(map_i).replace("int32", "cp.int32")
                 file.write(f"\ta{i} = cp.{a}\n")
                 file.write(f"\tm{i} = cp.{m}\n")
                 if num_cells is None:
@@ -101,31 +107,42 @@ def _put_slice_(x, n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, p
             if self.kernel_type =="triton":
                 for name, array in self.kernel_data["arrays"]:
                     if array is not None:
-                        file.write(f"\t{name} = cp.{repr(array)}\n")
+                        file.write(f"\t{name} = torch.from_numpy(np.{repr(array)})\n")
                 
             # hate
             real_kernel_args = list(list(zip(*(self.kernel_data["sizes_pow2"] + self.kernel_data["sizes_actual"] + self.kernel_data["strides"])))[1])
             real_kernel_args = [str(int(i)) for i in real_kernel_args]
             # cell loop needed here
-            file.write(f"\tfor i in range({num_cells}):\n")
+            indent = 1
+            index = ""
+            grid = ""
+            if self.kernel_type != "triton":
+                file.write(f"\tfor i in range({num_cells}):\n")
+                index = "[i]"
+                indent += 1
+            else:
+                file.write(f"\tgrid = lambda meta: (triton.cdiv({num_cells}, meta['BLOCK_SIZE_C']), )\n")
+                grid = "[grid]"
             for j, kernel in enumerate(self.kernel_string):
                 for k, arg in enumerate(self.kernel_args[j]): 
                     # get arg data
                     if arg == "coords": 
-                        file.write(f"\t\ta_g{k} = cp.take(a{k}, m{k}[i], axis=0).flatten()\n")
+                        file.write(indent * "\t" + f"a_g{k} = cp.take(a{k}, m{k}{index}, axis=0)\n")
                     elif arg == "A":
-                        file.write(f"\t\ta_g{k} = cp.zeros_like(m{k}[i], dtype=cp.float64)\n")
+                        file.write(indent * "\t" + f"a_g{k} = cp.zeros_like(m{k}{index}, dtype=cp.float64)\n")
                     else:
-                        file.write(f"\t\ta_g{k} = cp.take(a{k}, m{k}[i], axis=0)\n")
-                gathered_args = [f"a_g{j}" for j in range(len(self.kernel_args[j]))]
-                arg_str = ",".join(gathered_args + real_kernel_args)
-                file.write(f"\t\t{self.kernel_type}_kernel{j}({arg_str})\n")
+                        file.write(indent * "\t" + f"a_g{k} = cp.take(a{k}, m{k}{index}, axis=0)\n")
+                    if self.kernel_type == "triton":
+                        file.write(indent * "\t" + f"a_g{k} = torch.from_numpy(a_g{k}.get()).float().to(DEVICE)\n") 
+                gathered_args = [f"a_g{j}" for j in range(len(self.kernel_args[j]))] + [name for name, val in self.kernel_data["arrays"] if val is not None]
+                arg_str = ",".join(gathered_args + real_kernel_args + ["BLOCK_SIZE_C=1"])
+                file.write("\tbreakpoint()\n")
+                file.write(indent * "\t" + f"{self.kernel_type}_kernel{j}{grid}({arg_str})\n")
                 for k, arg in enumerate(self.kernel_args[j]): 
                     # get arg data
                     if arg == "A": 
-                        file.write(f"\t\tcpx.scatter_add(a{k}, m{k}[i], a_g{k})\n")
-                file.write(f"\tprint(a{k})")
-            breakpoint()
+                        file.write(indent * "\t" + f"cpx.scatter_add(a{k}, m{k}{index}, a_g{k})\n")
+                file.write(f"\tprint(a{k})\n")
 
     def context_manager(self):    
         yield self
