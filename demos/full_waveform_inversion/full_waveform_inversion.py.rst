@@ -296,7 +296,7 @@ we have a custom ``ReducedFunctional``, we need to do this ourselves::
     from pyadjoint.reduced_functional_numpy import ReducedFunctionalNumPy
     Jnumpy = ReducedFunctionalNumPy(J_hat)
 
-    c_optimised = minimize(Jnumpy, method="L-BFGS-B", options={"disp": True, "maxiter": 1, "ftol": 0.9},
+    c_optimised = minimize(Jnumpy, method="L-BFGS-B", options={"disp": True, "maxiter": 3, "ftol": 0.9},
                            bounds=(1.5, 2.0))
 
 The ``minimize`` function executes the optimisation algorithm until the stopping criterion (``maxiter``) is met.
