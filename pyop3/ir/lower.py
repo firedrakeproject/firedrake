@@ -372,6 +372,14 @@ class ModuleExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
+        mystr = """    p_4 = idat_16[i_0];
+    p_5 = idat_17[i_0];
+    irow_0 = idat_18[idat_19[i_0] + ((idat_20[3 * i_0] <= 0) ? 0 : idat_21[3 * i_0])];
+    icol_0 = idat_18[idat_19[i_0] + ((idat_20[3 * i_0] <= 0) ? 0 : idat_21[3 * i_0])];
+    MatSetValuesLocal(mat_0, p_4, &(irow_0), p_5, &(icol_0), &(t_0[0]), ADD_VALUES);
+"""
+        if mystr in str(self):
+            breakpoint()
         # if len(self.loopy_code.callables_table) > 1:
         #     breakpoint()
         # pyop3.extras.debug.maybe_breakpoint("b")

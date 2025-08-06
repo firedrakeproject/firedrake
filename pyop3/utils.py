@@ -582,6 +582,7 @@ def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
             f"Unrecognised arguments encountered during initialisation: {', '.join(attrs)}"
         )
 
+    # FIXME: This means that __post_init__ is only called for __record_init__, not regular __init__
     if hasattr(new, "__post_init__"):
         new.__post_init__()
 

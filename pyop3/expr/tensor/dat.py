@@ -612,7 +612,7 @@ class CompositeDat(abc.ABC):
     @property
     def loop_axes(self):
         return idict({
-            loop_index: tuple(axis for axis in loop_index.iterset.nodes)
+            loop_index: tuple(axis.localize() for axis in loop_index.iterset.nodes)
             for loop_index in self.loop_indices
         })
 
@@ -641,7 +641,7 @@ class CompositeDat(abc.ABC):
         for loop_index in self.loop_indices:
             assert loop_index.iterset.is_linear
             for loop_axis in loop_index.iterset.nodes:
-                vars.append(LoopIndexVar(loop_index, loop_axis))
+                vars.append(LoopIndexVar(loop_index, loop_axis.localize()))
         return tuple(vars)
 
 
@@ -670,6 +670,8 @@ class LinearCompositeDat(CompositeDat):
     def __init__(self, axis_tree, leaf_expr, loop_indices):
         assert axis_tree.is_linear
         assert all(isinstance(index, LoopIndex) for index in loop_indices)
+        assert len(axis_tree._all_region_labels) == 0
+
 
         loop_indices = tuple(loop_indices)
 
@@ -700,6 +702,7 @@ class NonlinearCompositeDat(CompositeDat):
     def __init__(self, axis_tree, leaf_exprs, loop_indices):
         assert set(axis_tree.leaf_paths) == leaf_exprs.keys()
         assert all(isinstance(index, LoopIndex) for index in loop_indices)
+        assert len(axis_tree._all_region_labels) == 0
 
         leaf_exprs = idict(leaf_exprs)
         loop_indices = tuple(loop_indices)

@@ -226,7 +226,7 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
     @classmethod
     def from_axis_trees(cls, buffer_ref, row_axes, column_axes) -> MatPetscMatBufferExpression:
         row_layout, column_layout = (
-            NonlinearCompositeDat(axis_tree.materialize(), axis_tree.leaf_subst_layouts, axis_tree.outer_loops)
+            NonlinearCompositeDat(axis_tree.materialize().regionless, axis_tree.leaf_subst_layouts, axis_tree.outer_loops)
             for axis_tree in [row_axes, column_axes]
         )
         return cls(buffer_ref, row_layout, column_layout)

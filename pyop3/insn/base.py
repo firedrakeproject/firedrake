@@ -71,15 +71,19 @@ MAX_WRITE = Intent.MAX_WRITE
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class CompilerParameters:
-    # Optimisation options
+    # {{{ optimisation options
 
     compress_indirection_maps: bool = False
     interleave_comp_comm: bool = False
 
-    # Profiling options
+    # }}}
+
+    # {{{ profiling options
 
     add_likwid_markers: bool = False
     add_petsc_event: bool = False
+
+    # }}}
 
     # Debugging options
 

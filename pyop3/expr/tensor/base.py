@@ -137,7 +137,7 @@ class Tensor(ContextAware, Expression, abc.ABC):
             for loop in axes.outer_loops
         )
         return idict({
-            loop: tuple(axis for axis in loop.iterset.nodes)
+            loop: tuple(axis.localize() for axis in loop.iterset.nodes)
             for axes in self.axis_trees
             for loop in axes.outer_loops
         })

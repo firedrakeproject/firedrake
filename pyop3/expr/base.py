@@ -497,6 +497,8 @@ class AxisVar(Terminal):
 
     def __init__(self, axis: Axis) -> None:
         assert len(axis.components) == 1
+        assert axis.component.sf is None
+        assert tuple(r.label for r in axis.component.regions) == (None,)
         self.axis = axis
 
     # TODO: when we use frozenrecord
@@ -561,6 +563,7 @@ class LoopIndexVar(Terminal):
 
         assert not isinstance(axis, str), "changed"
         assert isinstance(loop_index, LoopIndex)
+        assert axis.component.sf is None
         self.loop_index = loop_index
         self.axis = axis
 
@@ -651,5 +654,7 @@ def loopified_shape(expr: Expression) -> tuple[AxisTree, Mapping[LoopIndexVar, A
             new_node_map[path] = axis.copy(components=new_components)
         subtree = AxisTree(new_node_map)
         axis_tree = loop_tree.add_subtree(loop_tree.leaf_path, subtree)
+
+    assert not axis_tree._all_region_labels
 
     return axis_tree, loop_var_replace_map

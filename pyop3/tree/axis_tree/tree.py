@@ -224,6 +224,7 @@ class _UnitAxisTree(CacheMixin):
     sf = single_star_sf(MPI.COMM_SELF) # no idea if this is right
     leaf_paths = (idict(),)
     nodes = ()
+    _all_region_labels = ()
 
     unindexed = property(lambda self: self)
     regionless = property(lambda self: self)
@@ -654,40 +655,9 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
     def _localized(self):
         return self.copy(components=[c.localize() for c in self.components])
 
-    # TODO: Most of these should be deleted
-    # Ideally I want to cythonize a lot of these methods
-    def component_numbering(self, component):
-        cidx = self.component_index(component)
-        return self._default_to_applied_numbering[cidx]
-
-    def component_permutation(self, component):
-        cidx = self.component_index(component)
-        return self._default_to_applied_permutation[cidx]
-
-    def default_to_applied_component_number(self, component, number):
-        cidx = self.component_index(component)
-        return self._default_to_applied_numbering[cidx][number]
-
-    def applied_to_default_component_number(self, component, number):
-        cidx = self.component_index(component)
-        return self._applied_to_default_numbering[cidx][number]
-
-    def axis_to_component_number(self, number):
-        # return axis_to_component_number(self, number)
-        cidx = self._axis_number_to_component_index(number)
-        return self.components[cidx], number - self._component_offsets[cidx]
-
     def component_offset(self, component):
         cidx = self.component_index(component)
         return self._component_offsets[cidx]
-
-    def component_to_axis_number(self, component, number):
-        cidx = self.component_index(component)
-        return self._component_offsets[cidx] + number
-
-    def renumber_point(self, component, point):
-        renumbering = self.component_numbering(component)
-        return renumbering[point]
 
     @cached_property
     def _tree(self):
@@ -1192,10 +1162,10 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree):
         if path == idict():
             source_exprs |= {idict(): idict()}
 
-        axis = self.node_map[path]
+        axis = self.node_map[path].localize()
         for component in axis.components:
             path_ = path | {axis.label: component.label}
-            source_exprs |= {path_: idict({axis.label: AxisVar(axis.linearize(component.label))})}
+            source_exprs |= {path_: idict({axis.label: AxisVar(axis.linearize(component.label).regionless)})}
             if self.node_map[path_]:
                 source_exprs |= self._collect_source_exprs(path=path_)
         return idict(source_exprs)

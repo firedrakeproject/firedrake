@@ -12,7 +12,7 @@ from petsc4py import PETSc
 from pyop3 import expr as op3_expr, utils
 from pyop3.dtypes import IntType
 from pyop3.expr import AxisVar, LoopIndexVar, LinearDatBufferExpression, Dat, ExpressionT
-from pyop3.expr.base import NAN
+from pyop3.expr.base import NAN, get_loop_tree, loopified_shape
 from pyop3.expr.visitors import get_shape, replace
 from pyop3.insn import exscan, loop_
 from pyop3.tree import (
@@ -132,21 +132,26 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     contiguous data and so are meaningless.
 
     """
-    loopified_axis_tree, axis_var_replace_map = loopify_axis_tree(axis_tree)
-    loopified_layouts = _compute_layouts(loopified_axis_tree)
-
-    if loopified_axis_tree == axis_tree:
-        return loopified_layouts
-
-    layouts = {}
-    for loopified_path, loopified_layout in loopified_layouts.items():
-        path = idict({
-            axis_label: component_label
-            for axis_label, component_label in loopified_path.items()
-            if axis_label in axis_tree.node_labels
-        })
-        layouts[path] = replace(loopified_layout, axis_var_replace_map)
-    return idict(layouts)
+    return _compute_layouts(axis_tree)
+    # This old approach doesn't quite work as it adds layouts for the non-existent
+    # axes. I think a more robust approach is to reconstruct as needed during
+    # tabulation.
+    #
+    # loopified_axis_tree, axis_var_replace_map = loopify_axis_tree(axis_tree)
+    # loopified_layouts = _compute_layouts(loopified_axis_tree)
+    #
+    # if loopified_axis_tree == axis_tree:
+    #     return loopified_layouts
+    #
+    # layouts = {}
+    # for loopified_path, loopified_layout in loopified_layouts.items():
+    #     path = idict({
+    #         axis_label: component_label
+    #         for axis_label, component_label in loopified_path.items()
+    #         if axis_label in axis_tree.node_labels
+    #     })
+    #     layouts[path] = replace(loopified_layout, axis_var_replace_map)
+    # return idict(layouts)
 
 
 def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
@@ -258,7 +263,7 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
         else:
             subtree_has_non_trivial_regions = False
 
-        linear_axis = axis.linearize(component.label)
+        linear_axis = axis.linearize(component.label).localize()
         parent_axes_ = parent_axes + (linear_axis,)
 
         # The subtree contains regions so we cannot have a layout function here.
@@ -380,6 +385,11 @@ def _(add: op3_expr.Add, /, axis: Axis) -> op3_expr.Add:
     return _accumulate_step_sizes(add.a, axis) + _accumulate_step_sizes(add.b, axis)
 
 
+@_accumulate_step_sizes.register(op3_expr.Sub)
+def _(sub: op3_expr.Sub, /, axis: Axis) -> op3_expr.Sub:
+    return _accumulate_step_sizes(sub.a, axis) - _accumulate_step_sizes(sub.b, axis)
+
+
 @_accumulate_step_sizes.register(op3_expr.BinaryCondition)
 def _(cond: op3_expr.BinaryCondition, /, axis: Axis) -> op3_expr.BinaryCondition:
     return type(cond)(*(_accumulate_step_sizes(op, axis) for op in cond.operands))
@@ -395,7 +405,7 @@ def _(cond: op3_expr.Conditional, /, axis: Axis) -> op3_expr.Conditional:
 
 @_accumulate_step_sizes.register(LinearDatBufferExpression)
 def _(dat_expr: LinearDatBufferExpression, /, axis: Axis) -> LinearDatBufferExpression:
-    return _accumulate_dat_expr(dat_expr, axis).concretize()
+    return _accumulate_dat_expr(dat_expr, axis)
 
 
 def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis):
@@ -414,16 +424,20 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
     #     for j  # (the current axis)
     #       offset[i, j] = offset[i, j-1] + size[i, j]
 
-    # by definition the current axis is in size_expr
-    offset_axes = merge_axis_trees((utils.just_one(get_shape(size_expr)), full_shape(linear_axis.as_tree())[0]))
+    # by definition the current axis is in size_expr but other axes may be needed from 'linear_axis'
+    offset_axes_subtree = merge_axis_trees((utils.just_one(get_shape(size_expr)), full_shape(linear_axis.as_tree())[0]))
+    size_expr_loop_tree, size_expr_loop_var_replace_map = get_loop_tree(size_expr)
+
+    offset_axes = size_expr_loop_tree.add_subtree(size_expr_loop_tree.leaf_path, offset_axes_subtree)
 
     # remove current axis as we need to scan over it
     loc = utils.just_one(path for path, axis_ in offset_axes.node_map.items() if axis_ == linear_axis)
     outer_loop_tree = offset_axes.drop_node(loc)
     assert linear_axis not in outer_loop_tree.nodes
 
-
     offset_dat = Dat.zeros(offset_axes.regionless, dtype=IntType)
+
+    size_expr_alt0 = replace(size_expr, size_expr_loop_var_replace_map)
 
     if not outer_loop_tree.is_empty:
         ix = outer_loop_tree.index()
@@ -433,7 +447,7 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
             for ax in ix.iterset.nodes
         }
 
-        size_expr_alt = replace(size_expr, axis_to_loop_var_replace_map)
+        size_expr_alt = replace(size_expr_alt0, axis_to_loop_var_replace_map)
 
         assignee = offset_dat[ix].concretize()
         scan_axis = replace_exprs(linear_axis, axis_to_loop_var_replace_map)
@@ -446,7 +460,15 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
         # pyop3.extras.debug.maybe_breakpoint("b")
         exscan(offset_dat.concretize(), size_expr, "+", linear_axis, eager=True)
 
-    return offset_dat
+    offset_expr = offset_dat.concretize()
+
+    # more subst needed - replace the axes with loop indices...
+    if not size_expr_loop_var_replace_map:
+        return offset_expr
+    else:
+        invmap = utils.invert_mapping(size_expr_loop_var_replace_map)
+        retval = replace(offset_expr, invmap)
+        return retval
 
 
 # This gets the sizes right for a particular dat, then we merge them above

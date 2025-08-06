@@ -366,7 +366,7 @@ class LoopIndex(Index):
         replace_map = {
             immutabledict(): (
                 self.iterset.leaf_path,
-                {axis.label: LoopIndexVar(self, axis) for axis, _ in self.iterset.visited_nodes(self.iterset.leaf_path)},
+                {axis.label: LoopIndexVar(self, axis.localize()) for axis, _ in self.iterset.visited_nodes(self.iterset.leaf_path)},
             )
         }
         replace_map = replace_map[immutabledict()][1]
@@ -1104,7 +1104,7 @@ def _(loop_index: LoopIndex, /, target_axes, **kwargs):
     # then this will return
     #     LoopIndexVar(p, "a") * 2      and LoopIndexVar(p, "b")
     replace_map = {
-        axis.label: LoopIndexVar(loop_index, axis)
+        axis.label: LoopIndexVar(loop_index, axis.localize())
         for axis, _ in loop_index.iterset.visited_nodes(loop_index.iterset.leaf_path)
     }
     targets = {immutabledict(): []}
@@ -1290,7 +1290,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
             c for c in target_axis.components if c.label == target_component_label
         )
 
-        linear_axis = axis.linearize(axis_component.label)
+        linear_axis = axis.linearize(axis_component.label).localize().regionless
 
         if isinstance(slice_component, RegionSliceComponent):
             if slice_component.region in {OWNED_REGION_LABEL, GHOST_REGION_LABEL}:

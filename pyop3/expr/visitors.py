@@ -72,6 +72,11 @@ def _(expr: op3_expr.Add, /, **kwargs) -> Any:
 
 
 @_evaluate.register
+def _(sub: op3_expr.Sub, /, **kwargs) -> Any:
+    return _evaluate(sub.a, **kwargs) - _evaluate(sub.b, **kwargs)
+
+
+@_evaluate.register
 def _(mul: op3_expr.Mul, /, **kwargs) -> Any:
     return _evaluate(mul.a, **kwargs) * _evaluate(mul.b, **kwargs)
 
@@ -786,6 +791,7 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
     #     return None
 
     big_tree, loop_var_replace_map = loopified_shape(composite_dat)
+    assert not big_tree._all_region_labels
 
     # step 2: assign
     assignee = Dat.empty(big_tree, dtype=IntType)
@@ -826,7 +832,7 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
     newlayouts = {}
     axis_to_loop_var_replace_map = utils.invert_mapping(loop_var_replace_map)
     if isinstance(composite_dat.axis_tree, _UnitAxisTree):
-        layout = assignee.axes.leaf_subst_layout
+        layout = utils.just_one(assignee.axes.leaf_subst_layouts.values())
         newlayout = replace(layout, axis_to_loop_var_replace_map)
         newlayouts[idict()] = newlayout
     else:
