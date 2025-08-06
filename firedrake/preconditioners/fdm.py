@@ -40,33 +40,6 @@ import ctypes
 __all__ = ("FDMPC", "PoissonFDMPC")
 
 
-def broken_function(V, val):
-    W = FunctionSpace(V.mesh(), restrict(V.ufl_element(), "broken"))
-    w = Function(W, dtype=val.dtype)
-    v = Function(V, val=val)
-    domain = "{[i]: 0 <= i < v.dofs}"
-    instructions = """
-    for i
-        w[i] = v[i]
-    end
-    """
-    par_loop((domain, instructions), ufl.dx, {'w': (w, op2.WRITE), 'v': (v, op2.READ)})
-    return w
-
-
-def mask_local_indices(V, lgmap, repeated=False):
-    mask = lgmap.indices
-    if repeated:
-        w = broken_function(V, mask)
-        V = w.function_space()
-        mask = w.dat.data_ro_with_halos
-    indices = numpy.arange(len(mask), dtype=PETSc.IntType)
-    indices[mask == -1] = -1
-    indices_dat = V.make_dat(val=indices)
-    indices_acc = indices_dat(op2.READ, V.cell_node_map())
-    return indices_acc
-
-
 class FDMPC(PCBase):
     """
     A preconditioner for tensor-product elements that changes the shape
@@ -710,7 +683,7 @@ class FDMPC(PCBase):
     def assembly_lgmaps(self):
         if self.mat_type != "is":
             return {Vsub: Vsub.dof_dset.lgmap for Vsub in self.V}
-        return {Vsub: get_matis_lgmap(Vsub, self.allow_repeated) for Vsub in self.V}
+        return {Vsub: unghosted_lgmap(Vsub, Vsub.dof_dset.lgmap, self.allow_repeated) for Vsub in self.V}
 
     def setup_block(self, Vrow, Vcol):
         # Preallocate the auxiliary sparse operator
@@ -1649,15 +1622,42 @@ def diff_blocks(tdim, formdegree, A00, A11, A10):
     return A_blocks
 
 
-def get_matis_lgmap(Vsub, allow_repeated):
-    """Construct the local to global mapping for MatIS assembly."""
-    lgmap = Vsub.dof_dset.lgmap
+def broken_function(V, val):
+    W = FunctionSpace(V.mesh(), restrict(V.ufl_element(), "broken"))
+    w = Function(W, dtype=val.dtype)
+    v = Function(V, val=val)
+    domain = "{[i]: 0 <= i < v.dofs}"
+    instructions = """
+    for i
+        w[i] = v[i]
+    end
+    """
+    par_loop((domain, instructions), ufl.dx, {'w': (w, op2.WRITE), 'v': (v, op2.READ)})
+    return w
+
+
+def mask_local_indices(V, lgmap, allow_repeated):
+    mask = lgmap.indices
     if allow_repeated:
-        indices = broken_function(Vsub, lgmap.indices).dat.data_ro
+        w = broken_function(V, mask)
+        V = w.function_space()
+        mask = w.dat.data_ro_with_halos
+
+    indices = numpy.arange(mask.size, dtype=PETSc.IntType)
+    indices[mask == -1] = -1
+    indices_dat = V.make_dat(val=indices)
+    indices_acc = indices_dat(op2.READ, V.cell_node_map())
+    return indices_acc
+
+
+def unghosted_lgmap(V, lgmap, allow_repeated):
+    """Construct the local to global mapping for MatIS assembly."""
+    if allow_repeated:
+        indices = broken_function(V, lgmap.indices).dat.data_ro
     else:
         indices = lgmap.indices.copy()
         local_indices = numpy.arange(indices.size, dtype=PETSc.IntType)
-        cell_node_map = broken_function(Vsub, local_indices).dat.data_ro
+        cell_node_map = broken_function(V, local_indices).dat.data_ro
         ghost = numpy.setdiff1d(local_indices, numpy.unique(cell_node_map), assume_unique=True)
         indices[ghost] = -1
 
@@ -1669,6 +1669,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
        Works for any tensor-product basis. These are the same matrices one needs for HypreAMS and friends."""
     if comm is None:
         comm = Vf.comm
+
     ec = Vc.finat_element
     ef = Vf.finat_element
     if ef.formdegree - ec.formdegree != 1:
@@ -1719,28 +1720,27 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
         temp.destroy()
         eye.destroy()
 
+    if mat_type != "is":
+        allow_repeated = False
     spaces = (Vf, Vc)
     bcs = (fbcs, cbcs)
+    lgmaps = tuple(V.local_to_global_map(bcs) for V, bcs in zip(spaces, bcs))
+    indices_acc = tuple(mask_local_indices(V, lgmap, allow_repeated) for V, lgmap in zip(spaces, lgmaps))
     if mat_type == "is":
-        assert not any(bcs)
-        lgmaps = tuple(get_matis_lgmap(V, allow_repeated) for V in spaces)
-    else:
-        allow_repeated = False
-        lgmaps = tuple(V.local_to_global_map(bcs) for V, bcs in zip(spaces, bcs))
+        lgmaps = tuple(unghosted_lgmap(V, lgmap, allow_repeated) for V, lgmap in zip(spaces, lgmaps))
 
-    indices_acc = tuple(mask_local_indices(V, V.dof_dset.lgmap, allow_repeated) for V in spaces)
-
-    sizes = tuple(V.dof_dset.layout_vec.getSizes() for V in (Vf, Vc))
+    sizes = tuple(V.dof_dset.layout_vec.getSizes() for V in spaces)
     preallocator = PETSc.Mat().create(comm=comm)
     preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
     preallocator.setSizes(sizes)
     preallocator.setLGMap(*lgmaps)
+    preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
     preallocator.setUp()
 
-    kernel = ElementKernel(Dhat, name="exterior_derivative").kernel(mat_type=mat_type)
-    assembler = op2.ParLoop(kernel,
+    kernel = ElementKernel(Dhat, name="exterior_derivative")
+    assembler = op2.ParLoop(kernel.kernel(mat_type=mat_type),
                             Vc.mesh().cell_set,
-                            *(op2.PassthroughArg(op2.OpaqueType("Mat"), m.handle) for m in (preallocator, Dhat)),
+                            *kernel.make_args(preallocator),
                             *indices_acc)
     assembler()
     preallocator.assemble()
@@ -1758,8 +1758,8 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
     Dmat.setUp()
     assembler.arguments[0].data = Dmat.handle
     assembler()
-
     Dmat.assemble()
+
     Dhat.destroy()
     return Dmat
 

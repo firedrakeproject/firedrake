@@ -63,7 +63,7 @@ class BDDCPC(PCBase):
 
         # Handle boundary dofs
         ctx = get_appctx(dm)
-        bcs = tuple(ctx._problem.bcs)
+        bcs = tuple(ctx._problem.dirichlet_bcs())
         if V.extruded:
             boundary_nodes = numpy.unique(numpy.concatenate(list(map(V.boundary_nodes, ("on_boundary", "top", "bottom")))))
         else:
@@ -156,27 +156,27 @@ def get_divergence_mat(V, mat_type="aij", allow_repeated=False):
     s = assemble(inner(TrialFunction(Q)*(1/Jdet), TestFunction(Q))*dx(degree=0), diagonal=True)
     with s.dat.vec as svec:
         B.diagonalScale(svec, None)
-
-    return (B,), dict()
+    return (B,), {}
 
 
 def get_discrete_gradient(V):
     from firedrake import VectorSpaceBasis
 
     Q = FunctionSpace(V.mesh(), curl_to_grad(V.ufl_element()))
-    degree = max(as_tuple(Q.ufl_element().degree()))
-    variant = Q.ufl_element().variant()
     gradient = tabulate_exterior_derivative(Q, V)
 
+    variant = Q.ufl_element().variant()
     if variant == "fdm":
         vdofs = get_restricted_dofs(Q, "vertex")
         gradient.compose('_elements_corners', vdofs)
 
+    if False:
         # Constant moments along edges
         wdofs = get_low_order_dofs(V)
         v0 = Function(V)
         with v0.dat.vec as y:
             y.setValues(wdofs, numpy.ones((wdofs.getSizes()[0],), dtype=PETSc.RealType))
+            y.assemble()
 
         # Linear moments along edges
         # Constant moments of gradients of H1 edge bubbles
@@ -187,6 +187,7 @@ def get_discrete_gradient(V):
         edofs = edofs.difference(vdofs)
         with q.dat.vec as qvec, p.dat.vec as pvec:
             qvec.setValues(edofs, pvec.getValues(edofs))
+            qvec.assemble()
 
         v1 = Function(V)
         with v1.dat.vec as y, q.dat.vec as x:
@@ -196,6 +197,7 @@ def get_discrete_gradient(V):
         nsp = VectorSpaceBasis([v0, v1])
         gradient.compose("_constraints", nsp.nullspace())
 
+    degree = max(as_tuple(Q.ufl_element().degree()))
     grad_args = (gradient,)
     grad_kwargs = {'order': degree}
     return grad_args, grad_kwargs
