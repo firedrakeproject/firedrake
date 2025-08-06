@@ -137,8 +137,8 @@ ENV CFLAGS="-mtune=generic" CPPFLAGS="-mtune=generic"
 ENV MPICC=$CC
 
 # Install Firedrake
-RUN \
-   git clone --single-branch --branch ${TARGET} \
+RUN pip install -U pip \
+   && git clone --single-branch --branch ${TARGET} \
       https://github.com/firedrakeproject/firedrake.git /opt/firedrake \
    && pip cache purge \
    && pip install --verbose ${PETSC_DIR}/src/binding/petsc4py \
@@ -146,7 +146,8 @@ RUN \
    && pip install --verbose --no-build-isolation \
       ${SLEPC_DIR}/externalpackages/git.slepc/src/binding/slepc4py \
    && pip install --verbose --no-binary h5py --no-build-isolation \
-      --editable /opt/firedrake[docker] || exit; \
+      --editable /opt/firedrake \
+      --group /opt/firedrake/pyproject.toml:docker || exit; \
    if [ ${TARGET} == "master" ]; then \
       for pkg in \
          "git+https://github.com/dolfin-adjoint/pyadjoint.git#egg=pyadjoint-ad" \
