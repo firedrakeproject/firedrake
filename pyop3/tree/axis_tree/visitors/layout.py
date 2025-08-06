@@ -21,7 +21,7 @@ from pyop3.tree import (
     AxisTree,
     merge_axis_trees,
 )
-from pyop3.tree.axis_tree.tree import full_shape, replace_exprs  # TODO: move this to visitors?
+from pyop3.tree.axis_tree.tree import full_shape, loopify_axis_tree, replace_exprs  # TODO: move this to visitors?
 
 from .size import compute_axis_tree_component_size
 
@@ -132,10 +132,21 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     contiguous data and so are meaningless.
 
     """
-    full_axis_tree, replace_map = full_shape(axis_tree)
-    if full_axis_tree != axis_tree:
-        breakpoint()
-    return _compute_layouts(full_axis_tree)
+    loopified_axis_tree, axis_var_replace_map = loopify_axis_tree(axis_tree)
+    loopified_layouts = _compute_layouts(loopified_axis_tree)
+
+    if loopified_axis_tree == axis_tree:
+        return loopified_layouts
+
+    layouts = {}
+    for loopified_path, loopified_layout in loopified_layouts.items():
+        path = idict({
+            axis_label: component_label
+            for axis_label, component_label in loopified_path.items()
+            if axis_label in axis_tree.node_labels
+        })
+        layouts[path] = replace(loopified_layout, axis_var_replace_map)
+    return idict(layouts)
 
 
 def _compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
@@ -431,8 +442,8 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
         )
 
     else:
-        import pyop3
-        pyop3.extras.debug.maybe_breakpoint("b")
+        # import pyop3
+        # pyop3.extras.debug.maybe_breakpoint("b")
         exscan(offset_dat.concretize(), size_expr, "+", linear_axis, eager=True)
 
     return offset_dat

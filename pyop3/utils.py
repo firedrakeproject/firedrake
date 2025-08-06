@@ -393,8 +393,10 @@ def strides(sizes, *, drop_last=True) -> np.ndarray[int]:
 
     """
     assert drop_last, "old code otherwise"
-    reversed_sizes = np.asarray(sizes, dtype=int)[::-1]
-    strides_ = np.concatenate([[1], np.cumprod(reversed_sizes[:-1])], dtype=int)
+    # reversed_sizes = np.asarray(sizes, dtype=int)[::-1]
+    # strides_ = np.concatenate([[1], np.cumprod(reversed_sizes[:-1])], dtype=int)
+    reversed_sizes = np.asarray(sizes)[::-1]
+    strides_ = np.concatenate([[1], np.cumprod(reversed_sizes[:-1])])
     return readonly(strides_[::-1])
 
 

@@ -2151,9 +2151,33 @@ def relabel_path(path, suffix:str):
     return {f"{axis_label}_{suffix}": component_label for axis_label, component_label in path.items()}
 
 
+def loopify_axis_tree(axis_tree: AbstractAxisTree) -> tuple[AxisTree, Mapping]:
+    from pyop3.expr.base import get_loop_tree
+
+    loop_axes = utils.OrderedSet()
+    loop_var_replace_map = {}
+    replaced_node_map = {}
+    for path, axis in axis_tree.node_map.items():
+        if axis is None:
+            continue
+
+        for component in axis.components:
+            for region in component.regions:
+                region_loop_tree, region_loop_var_replace_map = get_loop_tree(region.size)
+                loop_axes |= region_loop_tree.nodes
+                loop_var_replace_map |= region_loop_var_replace_map
+        replaced_node_map[path] = replace_exprs(axis, loop_var_replace_map)
+
+    loop_tree = AxisTree.from_iterable(loop_axes)
+    loopified_axis_tree = loop_tree.add_subtree(loop_tree.leaf_path, AxisTree(replaced_node_map))
+
+    axis_var_replace_map = utils.invert_mapping(loop_var_replace_map)
+
+    return loopified_axis_tree, axis_var_replace_map
+
+
 def full_shape(axes):
     """Augment axes with extra axes from the size expressions."""
-    # from pyop3.expr.visitors import get_shape
     from pyop3.expr.visitors import loopified_shape
 
     # only deal in axis trees

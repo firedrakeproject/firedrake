@@ -374,7 +374,7 @@ class ModuleExecutor:
 
         # if len(self.loopy_code.callables_table) > 1:
         #     breakpoint()
-        pyop3.extras.debug.maybe_breakpoint("b")
+        # pyop3.extras.debug.maybe_breakpoint("b")
         # if len(self.loopy_kernel.args) > 3:
         # selfstr = str(self)
         # if all(k not in selfstr for k in SAFE_KERNELS):
@@ -858,7 +858,7 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
         #     expr_data = np.full((max_size, max_size), expr, dtype=mat.buffer.buffer.dtype)
         array_buffer = BufferRef(ArrayBuffer(expr_data, constant=True))
     else:
-        assert isinstance(expr, BufferExpression)
+        assert isinstance(expr, op3_expr.BufferExpression)
         array_buffer = expr.buffer
 
     # now emit the right line of code, this should properly be a lp.ScalarCallable
@@ -1200,6 +1200,7 @@ def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indice
     offset_expr = 0
     strides = utils.strides(shape) if shape else (1,)
     for stride, layout, iname_map in zip(strides, layouts, iname_maps, strict=True):
+        stride = lower_expr(stride, [iname_map], loop_indices, context)
         offset_expr += stride * lower_expr(layout, [iname_map], loop_indices, context)
 
     indices = maybe_multiindex(buffer, offset_expr, context)

@@ -437,11 +437,13 @@ def _(mat: op3_expr.Mat, /, axis_trees: Iterable[AxisTree, ...]) -> op3_expr.Buf
 
     # For PETSc matrices we must always tabulate the indices
     if isinstance(mat.buffer, PetscMatBuffer):
-        return op3_expr.MatPetscMatBufferExpression.from_axis_trees(buffer_ref, row_axes, column_axes)
+        mat_expr = op3_expr.MatPetscMatBufferExpression.from_axis_trees(buffer_ref, row_axes, column_axes)
     else:
         row_layouts = row_axes.leaf_subst_layouts
         column_layouts = column_axes.leaf_subst_layouts
-        return op3_expr.MatArrayBufferExpression(buffer_ref, row_layouts, column_layouts)
+        mat_expr = op3_expr.MatArrayBufferExpression(buffer_ref, row_layouts, column_layouts)
+
+    return concretize_layouts(mat_expr, axis_trees)
 
 
 @concretize_layouts.register(op3_expr.LinearBufferExpression)
@@ -457,11 +459,11 @@ def _(dat_expr: op3_expr.NonlinearDatBufferExpression, /, axis_trees: Iterable[A
     # NOTE: This assumes that we have uniform axis trees for all elements of the
     # expression (i.e. not dat1[i] <- dat2[j]). When that assumption is eventually
     # violated this will raise a KeyError.
-    pruned_layouts = {
+    pruned_layouts = idict({
         path: layout
         for path, layout in dat_expr.layouts.items()
         if path in axis_tree.leaf_paths
-    }
+    })
     return dat_expr.__record_init__(layouts=pruned_layouts)
 
 
@@ -473,11 +475,11 @@ def _(mat_expr: op3_expr.MatArrayBufferExpression, /, axis_trees: Iterable[AxisT
         # NOTE: This assumes that we have uniform axis trees for all elements of the
         # expression (i.e. not dat1[i] <- dat2[j]). When that assumption is eventually
         # violated this will raise a KeyError.
-        pruned_layouts = {
+        pruned_layouts = idict({
             path: layout
             for path, layout in orig_layouts.items()
             if path in axis_tree.leaf_paths
-        }
+        })
         pruned_layoutss.append(pruned_layouts)
     row_layouts, column_layouts = pruned_layoutss
     return mat_expr.__record_init__(row_layouts=row_layouts, column_layouts=column_layouts)
@@ -674,10 +676,10 @@ def _(buffer_expr: op3_expr.LinearDatBufferExpression, layouts, key):
 
 @concretize_materialized_tensor_indirections.register(op3_expr.NonlinearDatBufferExpression)
 def _(buffer_expr: op3_expr.NonlinearDatBufferExpression, layouts, key):
-    new_layouts = {
+    new_layouts = idict({
         leaf_path: layouts[key + ((buffer_expr, leaf_path),)]
         for leaf_path in buffer_expr.layouts.keys()
-    }
+    })
     return buffer_expr.__record_init__(layouts=new_layouts)
 
 
@@ -694,10 +696,10 @@ def _(buffer_expr: op3_expr.MatArrayBufferExpression, /, layouts, key):
     new_buffer_layoutss = []
     buffer_layoutss = [buffer_expr.row_layouts, buffer_expr.column_layouts]
     for i, buffer_layouts in enumerate(buffer_layoutss):
-        new_buffer_layouts = {
+        new_buffer_layouts = idict({
             path: layouts[key + ((buffer_expr, i, path),)]
             for path in buffer_layouts.keys()
-        }
+        })
         new_buffer_layoutss.append(new_buffer_layouts)
     return buffer_expr.__record_init__(row_layouts=new_buffer_layoutss[0], column_layouts=new_buffer_layoutss[1])
 
@@ -798,11 +800,6 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
         loop_slice = Slice(new_axis.label, [AffineSliceComponent(orig_axis.component.label)])
         loop_slices.append(loop_slice)
 
-    # dumb_replace_map = {
-    #     (loop_var.loop_id, loop_var.axis_label): axis_var
-    #     for (loop_var, axis_var) in loop_index_replace_map
-    # }
-
     to_skip = set()
     for path, expr in composite_dat.leaf_exprs.items():
         expr = replace(expr, loop_var_replace_map)
@@ -815,10 +812,6 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
             myslice = Slice(axis, [AffineSliceComponent(component)])
             myslices.append(myslice)
         iforest = IndexTree.from_iterable((*loop_slices, *myslices))
-        #
-        # # NOTE: not sure about this!
-        # if iforest.is_empty:
-        #     continue
 
         assignee_ = assignee[iforest]
 
@@ -845,6 +838,7 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
                 layout = assignee.axes.subst_layouts()[fullpath]
                 newlayout = replace(layout, axis_to_loop_var_replace_map)
                 newlayouts[path_] = newlayout
+    newlayouts = idict(newlayouts)
 
     if isinstance(composite_dat, op3_expr.LinearCompositeDat):
         layout = newlayouts[axes.leaf_path]

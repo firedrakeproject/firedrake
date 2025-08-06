@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import functools
 from functools import cached_property
+from immutabledict import immutabledict as idict
 from typing import ClassVar
 
 from pyop3 import utils
@@ -62,7 +63,7 @@ class BufferExpression(Expression, metaclass=abc.ABCMeta):
 # class ScalarBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
 
 
-@utils.record()
+@utils.frozenrecord()
 class ScalarBufferExpression(BufferExpression):
 
     # {{{ instance attrs
@@ -78,7 +79,7 @@ class ScalarBufferExpression(BufferExpression):
     # }}}
 
     def __init__(self, buffer) -> None:
-        self._buffer = buffer
+        object.__setattr__(self, "_buffer", buffer)
 
     @property
     def _full_str(self) -> str:
@@ -98,7 +99,7 @@ class NonlinearBufferExpression(BufferExpression, metaclass=abc.ABCMeta):
     pass
 
 
-@utils.record()
+@utils.frozenrecord()
 class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
     """A dat with fixed (?) layout.
 
@@ -140,8 +141,8 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
         if isinstance(buffer, AbstractBuffer):
             buffer = BufferRef(buffer)
 
-        self._buffer = buffer
-        self.layout = layout
+        object.__setattr__(self, "_buffer", buffer)
+        object.__setattr__(self, "layout", layout)
 
     def __post_init__(self) -> None:
         from pyop3.expr.visitors import get_shape
@@ -152,7 +153,7 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
         return self
 
 
-@utils.record()
+@utils.frozenrecord()
 class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpression):
     """A dat with fixed layouts.
 
@@ -161,11 +162,14 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
     Unlike `_ExpressionDat` a `_ConcretizedDat` is permitted to be multi-component.
 
     """
-    # {{{ Instance attrs
+    # {{{ instance attrs
 
     _buffer: BufferRef
-    layouts: Any
-    # _loop_axes: tuple[Axis]
+    layouts: idict
+
+    def __post_init__(self) -> None:
+        assert isinstance(self._buffer, BufferRef)
+        assert isinstance(self.layouts, idict)
 
     # }}}
 
@@ -201,7 +205,7 @@ class MatBufferExpression(BufferExpression):
     pass
 
 
-@utils.record()
+@utils.frozenrecord()
 class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
 
     # {{{ instance attrs
@@ -211,9 +215,9 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
     column_layout: ExprT
 
     def __init__(self, buffer, row_layout, column_layout):
-        self._buffer = buffer
-        self.row_layout = row_layout
-        self.column_layout = column_layout
+        object.__setattr__(self, "_buffer", buffer)
+        object.__setattr__(self, "row_layout", row_layout)
+        object.__setattr__(self, "column_layout", column_layout)
 
     # }}}
 
@@ -249,19 +253,24 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
     # }}}
 
 
-@utils.record()
+@utils.frozenrecord()
 class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
 
     # {{{ instance attrs
 
     _buffer: BufferRef
-    row_layouts: ExprT
-    column_layouts: ExprT
+    row_layouts: idict
+    column_layouts: idict
 
-    def __init__(self, buffer, row_layouts, column_layouts):
-        self._buffer = buffer
-        self.row_layouts = row_layouts
-        self.column_layouts = column_layouts
+    def __init__(self, buffer, row_layouts, column_layouts) -> None:
+        object.__setattr__(self, "_buffer", buffer)
+        object.__setattr__(self, "row_layouts", row_layouts)
+        object.__setattr__(self, "column_layouts", column_layouts)
+
+    def __post_init__(self) -> None:
+        assert isinstance(self._buffer, BufferRef)
+        assert isinstance(self.row_layouts, idict)
+        assert isinstance(self.column_layouts, idict)
 
     # }}}
 
@@ -280,7 +289,7 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
 
     @property
     def _full_str(self) -> str:
-        return f"{self.buffer.buffer.name}[{as_str(self.row_layout)}, {as_str(self.column_layout)}]"
+        return f"{self.buffer.buffer.name}[{self.row_layouts}, {self.column_layouts}]"
 
     # }}}
 

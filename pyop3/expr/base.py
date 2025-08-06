@@ -375,6 +375,12 @@ class TernaryOperator(Operator, metaclass=abc.ABCMeta):
         self.b = b
         self.c = c
 
+    def __eq__(self, other):
+        return type(other) == type(self) and other.operands == self.operands
+
+    def __hash__(self):
+        return hash((type(self), self.operands))
+
 
 class Conditional(TernaryOperator):
 
