@@ -1116,16 +1116,16 @@ class ParloopFormAssembler(FormAssembler):
                         if form_degree > 1:
                             raise NotImplementedError("GPU assembly currently only supported on 1-forms")
                         fs = self._form.arguments()[0].function_space()
-                        arrays += [np.empty_like(Function(fs).dat.data_ro)]
+                        arrays += [np.empty_like(Function(fs).dat.buffer.data)]
                         # TODO this does not work and i made these maps up
                         import cupy as cp
                         maps += [cp.array([[0,1,2],[2,3,1]])]
                         #maps += [fs.cell_node_list]
                         pass # this is the output array
                     else:
-                        if arg_counter > 0:
-                            args += [self._form.coefficients()[arg_counter].dat.data_ro]
-                            maps += [self.coefficents()[arg_counter].function_space().cell_node_list]
+                        
+                        arrays += [self._form.coefficients()[arg_counter].dat.buffer.data]
+                        maps += [self._form.coefficients()[arg_counter].function_space().cell_node_list]
                         arg_counter += 1
             compute_device.write_file(arrays, maps)
         

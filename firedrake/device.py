@@ -123,6 +123,7 @@ def _put_slice_(x, n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, p
             else:
                 file.write(f"\tgrid = lambda meta: (triton.cdiv({num_cells}, meta['BLOCK_SIZE_C']), )\n")
                 grid = "[grid]"
+            breakpoint()
             for j, kernel in enumerate(self.kernel_string):
                 for k, arg in enumerate(self.kernel_args[j]): 
                     # get arg data
@@ -135,14 +136,14 @@ def _put_slice_(x, n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, p
                     if self.kernel_type == "triton":
                         file.write(indent * "\t" + f"a_g{k} = torch.from_numpy(a_g{k}.get()).float().to(DEVICE)\n") 
                 gathered_args = [f"a_g{j}" for j in range(len(self.kernel_args[j]))] + [name for name, val in self.kernel_data["arrays"] if val is not None]
-                arg_str = ",".join(gathered_args + real_kernel_args + ["BLOCK_SIZE_C=1"])
-                file.write("\tbreakpoint()\n")
+                arg_str = ",".join(gathered_args + ["BLOCK_SIZE_C=2"])
                 file.write(indent * "\t" + f"{self.kernel_type}_kernel{j}{grid}({arg_str})\n")
                 for k, arg in enumerate(self.kernel_args[j]): 
                     # get arg data
                     if arg == "A": 
                         file.write(indent * "\t" + f"cpx.scatter_add(a{k}, m{k}{index}, a_g{k})\n")
-                file.write(f"\tprint(a{k})\n")
+                        file.write("\tbreakpoint()\n")
+                        file.write(f"\tprint(a{k})\n")
 
     def context_manager(self):    
         yield self
