@@ -241,7 +241,8 @@ def test_dirichlet():
 
 
 @pytest.mark.skipcomplex
-def test_burgers():
+@pytest.mark.parametrize("solve_type", ["solve", "nlvs"])
+def test_burgers(solve_type):
     tape = Tape()
     set_working_tape(tape)
     n = 100
@@ -273,9 +274,24 @@ def test_burgers():
     F = (Dt(u, ic, timestep)*v
          + u*u.dx(0)*v + nu*u.dx(0)*v.dx(0))*dx
     bc = DirichletBC(V, 0.0, "on_boundary")
-
     t = 0.0
-    solve(F == 0, u, bc, solver_parameters=params)
+
+    if solve_type == "nlvs":
+        use_nlvs = True
+    elif solve_type == "solve":
+        use_nlvs = False
+    else:
+        raise ValueError(f"Unrecognised solve type {solve_type}")
+
+    if use_nlvs:
+        solver = NonlinearVariationalSolver(
+            NonlinearVariationalProblem(F, u),
+            solver_parameters=params)
+
+    if use_nlvs:
+        solver.solve()
+    else:
+        solve(F == 0, u, bc, solver_parameters=params)
     u_.assign(u)
     t += float(timestep)
 
@@ -284,7 +300,10 @@ def test_burgers():
 
     end = 0.2
     while (t <= end):
-        solve(F == 0, u, bc, solver_parameters=params)
+        if use_nlvs:
+            solver.solve()
+        else:
+            solve(F == 0, u, bc, solver_parameters=params)
         u_.assign(u)
 
         t += float(timestep)
