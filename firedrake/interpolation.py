@@ -789,7 +789,7 @@ class SameMeshInterpolator(Interpolator):
                     pass
                 else:
                     raise NotImplementedError(
-                        f"Only implemented for target \subset source or source \subset target, where target = {target} and source = {source}"
+                        f"Only implemented for target \\subset source or source \\subset target, where target = {target} and source = {source}"
                     )
         super().__init__(expr, V, subset=subset, freeze_expr=freeze_expr,
                          access=access, bcs=bcs, allow_missing_dofs=allow_missing_dofs, matfree=matfree)
