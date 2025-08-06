@@ -473,15 +473,6 @@ class CrossMeshInterpolator(Interpolator):
             )
         self.src_mesh = src_mesh
         self.dest_mesh = dest_mesh
-        if numpy.any(
-            numpy.asarray(src_mesh.coordinates.function_space().ufl_element().degree())
-            > 1
-        ):
-            # Need to implement vertex-only mesh immersion in high order meshes
-            # for this to work.
-            raise NotImplementedError(
-                "Cannot yet interpolate from high order meshes to other meshes."
-            )
 
         self.sub_interpolators = []
 

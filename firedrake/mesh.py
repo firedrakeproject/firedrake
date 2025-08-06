@@ -3368,11 +3368,6 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     _, pdim = vertexcoords.shape
     if not np.isclose(np.sum(abs(vertexcoords.imag)), 0):
         raise ValueError("Point coordinates must have zero imaginary part")
-    # Bendy meshes require a smarter bounding box algorithm at partition and
-    # (especially) cell level. Projecting coordinates to Bernstein may be
-    # sufficient.
-    if np.any(np.asarray(mesh.coordinates.function_space().ufl_element().degree()) > 1):
-        raise NotImplementedError("Only straight edged meshes are supported")
     # Currently we take responsibility for locating the mesh cells in which the
     # vertices lie.
     #
