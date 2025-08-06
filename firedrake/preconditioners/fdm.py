@@ -686,50 +686,25 @@ class FDMPC(PCBase):
         return {Vsub: unghosted_lgmap(Vsub, Vsub.dof_dset.lgmap, self.allow_repeated) for Vsub in self.V}
 
     def setup_block(self, Vrow, Vcol):
-        # Preallocate the auxiliary sparse operator
+        """Preallocate the auxiliary sparse operator."""
         sizes = tuple(Vsub.dof_dset.layout_vec.getSizes() for Vsub in (Vrow, Vcol))
         rmap = self.assembly_lgmaps[Vrow]
         cmap = self.assembly_lgmaps[Vcol]
         on_diag = Vrow == Vcol
         ptype = self.mat_type if on_diag else PETSc.Mat.Type.AIJ
 
-        preallocator = PETSc.Mat().create(comm=self.comm)
-        preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
-        preallocator.setSizes(sizes)
-        preallocator.setISAllowRepeated(self.allow_repeated)
-        preallocator.setLGMap(rmap, cmap)
-        preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
-        if ptype.endswith("sbaij"):
-            preallocator.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
-        preallocator.setUp()
+        preallocator = get_preallocator(self.comm, sizes, rmap, cmap, mat_type=ptype)
         self.set_values(preallocator, Vrow, Vcol)
         preallocator.assemble()
-        dnz, onz = get_preallocation(preallocator, sizes[0][0])
-        if on_diag:
-            numpy.maximum(dnz, 1, out=dnz)
+        P = allocate_matrix(preallocator, ptype, on_diag=on_diag, allow_repeated=self.allow_repeated)
         preallocator.destroy()
-        P = PETSc.Mat().create(comm=self.comm)
-        P.setType(ptype)
-        P.setSizes(sizes)
-        P.setISAllowRepeated(self.allow_repeated)
-        P.setLGMap(rmap, cmap)
-        if on_diag and ptype == "is" and self.allow_repeated:
-            bsize = Vrow.finat_element.space_dimension() * Vrow.block_size
+
+        if on_diag and P.type == "is" and self.allow_repeated:
+            bsize = Vrow.block_size * Vrow.finat_element.space_dimension()
             local_mat = P.getISLocalMat()
             nblocks = local_mat.getSize()[0] // bsize
             sizes = numpy.full((nblocks,), bsize, dtype=PETSc.IntType)
             local_mat.setVariableBlockSizes(sizes)
-        P.setPreallocationNNZ((dnz, onz))
-
-        if not (ptype.endswith("sbaij") or ptype == "is"):
-            P.setOption(PETSc.Mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
-        P.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
-        P.setOption(PETSc.Mat.Option.STRUCTURALLY_SYMMETRIC, on_diag)
-        P.setOption(PETSc.Mat.Option.FORCE_DIAGONAL_ENTRIES, True)
-        P.setOption(PETSc.Mat.Option.KEEP_NONZERO_PATTERN, True)
-        if ptype.endswith("sbaij"):
-            P.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
-        P.setUp()
         return P
 
     @PETSc.Log.EventDecorator("FDMSetValues")
@@ -1623,6 +1598,7 @@ def diff_blocks(tdim, formdegree, A00, A11, A10):
 
 
 def broken_function(V, val):
+    """Return a Function(V, val=val) interpolated onto the broken space."""
     W = FunctionSpace(V.mesh(), restrict(V.ufl_element(), "broken"))
     w = Function(W, dtype=val.dtype)
     v = Function(V, val=val)
@@ -1637,6 +1613,7 @@ def broken_function(V, val):
 
 
 def mask_local_indices(V, lgmap, allow_repeated):
+    """Return a numpy array with the masked local indices."""
     mask = lgmap.indices
     if allow_repeated:
         w = broken_function(V, mask)
@@ -1660,8 +1637,46 @@ def unghosted_lgmap(V, lgmap, allow_repeated):
         cell_node_map = broken_function(V, local_indices).dat.data_ro
         ghost = numpy.setdiff1d(local_indices, numpy.unique(cell_node_map), assume_unique=True)
         indices[ghost] = -1
-
     return PETSc.LGMap().create(indices, bsize=lgmap.getBlockSize(), comm=lgmap.getComm())
+
+
+def get_preallocator(comm, sizes, rmap, cmap, mat_type=None):
+    """Set up a matrix preallocator."""
+    preallocator = PETSc.Mat().create(comm=comm)
+    preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
+    preallocator.setSizes(sizes)
+    preallocator.setLGMap(rmap, cmap)
+    preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
+    if mat_type is not None and mat_type.endswith("sbaij"):
+        preallocator.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
+    preallocator.setUp()
+    return preallocator
+
+
+def allocate_matrix(preallocator, mat_type, on_diag=False, allow_repeated=False):
+    """Set up a matrix from a preallocator."""
+    sizes = preallocator.getSizes()
+    nnz = get_preallocation(preallocator, sizes[0][0])
+    if on_diag:
+        numpy.maximum(nnz[0], 1, out=nnz[0])
+
+    A = PETSc.Mat().create(comm=preallocator.getComm())
+    A.setType(mat_type)
+    A.setSizes(sizes)
+    A.setBlockSize(preallocator.getBlockSize())
+    A.setISAllowRepeated(allow_repeated)
+    A.setLGMap(*preallocator.getLGMap())
+    A.setPreallocationNNZ(nnz)
+    if mat_type.endswith("sbaij"):
+        A.setOption(PETSc.Mat.Option.IGNORE_LOWER_TRIANGULAR, True)
+    if not (mat_type.endswith("sbaij") or mat_type == "is"):
+        A.setOption(PETSc.Mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
+    A.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+    A.setOption(PETSc.Mat.Option.STRUCTURALLY_SYMMETRIC, on_diag)
+    A.setOption(PETSc.Mat.Option.FORCE_DIAGONAL_ENTRIES, on_diag)
+    A.setOption(PETSc.Mat.Option.KEEP_NONZERO_PATTERN, True)
+    A.setUp()
+    return A
 
 
 def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="aij", allow_repeated=False):
@@ -1730,12 +1745,7 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
         lgmaps = tuple(unghosted_lgmap(V, lgmap, allow_repeated) for V, lgmap in zip(spaces, lgmaps))
 
     sizes = tuple(V.dof_dset.layout_vec.getSizes() for V in spaces)
-    preallocator = PETSc.Mat().create(comm=comm)
-    preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
-    preallocator.setSizes(sizes)
-    preallocator.setLGMap(*lgmaps)
-    preallocator.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, False)
-    preallocator.setUp()
+    preallocator = get_preallocator(comm, sizes, *lgmaps)
 
     kernel = ElementKernel(Dhat, name="exterior_derivative")
     assembler = op2.ParLoop(kernel.kernel(mat_type=mat_type),
@@ -1744,22 +1754,12 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
                             *indices_acc)
     assembler()
     preallocator.assemble()
-    nnz = get_preallocation(preallocator, sizes[0][0])
-    preallocator.destroy()
 
-    Dmat = PETSc.Mat().create(comm=comm)
-    Dmat.setType(mat_type)
-    Dmat.setSizes(sizes)
-    Dmat.setBlockSize(Vf.block_size)
-    Dmat.setISAllowRepeated(allow_repeated)
-    Dmat.setLGMap(*lgmaps)
-    Dmat.setPreallocationNNZ(nnz)
-    Dmat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
-    Dmat.setUp()
+    Dmat = allocate_matrix(preallocator, mat_type, allow_repeated=allow_repeated)
     assembler.arguments[0].data = Dmat.handle
+    preallocator.destroy()
     assembler()
     Dmat.assemble()
-
     Dhat.destroy()
     return Dmat
 
