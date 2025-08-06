@@ -2484,8 +2484,16 @@ values from f.)"""
             info_red("libspatialindex does not support 1-dimension, falling back on brute force.")
             return None
 
+        if self.ufl_coordinate_element().degree() == 1:
+            mesh = self
+        else:
+            # For bendy meshes we project the coordinate function onto Bernstein
+            bernstein_fs = functionspace.VectorFunctionSpace(self, "Bernstein", 3)
+            f = function.Function(bernstein_fs)
+            f.project(self.coordinates)
+            mesh = Mesh(f)
         # Calculate the bounding boxes for all cells by running a kernel
-        V = functionspace.VectorFunctionSpace(self, "DG", 0, dim=gdim)
+        V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=gdim)
         coords_min = function.Function(V, dtype=RealType)
         coords_max = function.Function(V, dtype=RealType)
 
@@ -2493,15 +2501,15 @@ values from f.)"""
         coords_max.dat.data.fill(-np.inf)
 
         if utils.complex_mode:
-            if not np.allclose(self.coordinates.dat.data_ro.imag, 0):
+            if not np.allclose(mesh.coordinates.dat.data_ro.imag, 0):
                 raise ValueError("Coordinate field has non-zero imaginary part")
-            coords = function.Function(self.coordinates.function_space(),
-                                       val=self.coordinates.dat.data_ro_with_halos.real.copy(),
+            coords = function.Function(mesh.coordinates.function_space(),
+                                       val=mesh.coordinates.dat.data_ro_with_halos.real.copy(),
                                        dtype=RealType)
         else:
-            coords = self.coordinates
+            coords = mesh.coordinates
 
-        cell_node_list = self.coordinates.function_space().cell_node_list
+        cell_node_list = mesh.coordinates.function_space().cell_node_list
         _, nodes_per_cell = cell_node_list.shape
 
         domain = "{{[d, i]: 0 <= d < {0} and 0 <= i < {1}}}".format(gdim, nodes_per_cell)
@@ -2518,8 +2526,8 @@ values from f.)"""
 
         # Reorder bounding boxes according to the cell indices we use
         column_list = V.cell_node_list.reshape(-1)
-        coords_min = self._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
-        coords_max = self._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
+        coords_min = mesh._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
+        coords_max = mesh._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
 
         # Change min and max to refer to an n-hypercube, where n is the
         # geometric dimension of the mesh, centred on the midpoint of the
