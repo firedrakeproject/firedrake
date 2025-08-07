@@ -9,6 +9,7 @@ from immutabledict import immutabledict as idict
 import numpy as np
 from petsc4py import PETSc
 
+from pyop2.caching import scoped_cache
 from pyop3 import expr as op3_expr, utils
 from pyop3.dtypes import IntType
 from pyop3.expr import AxisVar, LoopIndexVar, LinearDatBufferExpression, Dat, ExpressionT
@@ -27,7 +28,7 @@ from .size import compute_axis_tree_component_size
 
 
 @PETSc.Log.EventDecorator()
-@utils.unsafe_cache
+@scoped_cache(get_comm=lambda axis_tree: axis_tree.comm)
 def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     """Compute the layout functions for an axis tree.
 
@@ -276,9 +277,9 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
         elif component.has_non_trivial_regions and not subtree_has_non_trivial_regions:
             offset_axes = AxisTree.from_iterable(parent_axes_)
             if subtree:
-                offset_dat = _tabulate_regions(offset_axes, subtree.size)
+                offset_dat = _tabulate_regions(offset_axes, subtree.size, axis_tree.comm)
             else:
-                offset_dat = _tabulate_regions(offset_axes, 1)
+                offset_dat = _tabulate_regions(offset_axes, 1, axis_tree.comm)
             to_tabulate.append((offset_axes, offset_dat))
 
             assert layout_expr_acc == 0
@@ -292,7 +293,7 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
 
         # Tabulate
         else:
-            step_expr = _accumulate_step_sizes(subtree.size, linear_axis)
+            step_expr = _accumulate_step_sizes(subtree.size, linear_axis, axis_tree.comm)
 
             if linear_axis not in utils.just_one(get_shape(step_expr)).nodes:
                 step_expr = AxisVar(linear_axis) * step_expr
@@ -361,7 +362,7 @@ def _collect_regions(axes: AxisTree, *, path: PathT = idict()):
 # TODO: singledispatch (but needs import thoughts)
 # TODO: should cache this!!!
 @functools.singledispatch
-def _accumulate_step_sizes(obj: Any, axis):
+def _accumulate_step_sizes(obj: Any, axis, comm):
     """TODO
 
     This is suitable for ragged expressions where step sizes need to be accumulated
@@ -372,44 +373,42 @@ def _accumulate_step_sizes(obj: Any, axis):
 
 
 @_accumulate_step_sizes.register(numbers.Number)
-def _(num: numbers.Number, /, axis: Axis) -> numbers.Number:
+def _(num: numbers.Number, /, axis: Axis, comm) -> numbers.Number:
     return num
 
 
 @_accumulate_step_sizes.register(op3_expr.Mul)
-def _(mul: op3_expr.Mul, /, axis: Axis) -> op3_expr.Mul:
-    return _accumulate_step_sizes(mul.a, axis) * _accumulate_step_sizes(mul.b, axis)
+def _(mul: op3_expr.Mul, /, axis: Axis, comm) -> op3_expr.Mul:
+    return _accumulate_step_sizes(mul.a, axis, comm) * _accumulate_step_sizes(mul.b, axis, comm)
 
 
 @_accumulate_step_sizes.register(op3_expr.Add)
-def _(add: op3_expr.Add, /, axis: Axis) -> op3_expr.Add:
-    return _accumulate_step_sizes(add.a, axis) + _accumulate_step_sizes(add.b, axis)
+def _(add: op3_expr.Add, /, axis: Axis, comm) -> op3_expr.Add:
+    return _accumulate_step_sizes(add.a, axis, comm) + _accumulate_step_sizes(add.b, axis, comm)
 
 
 @_accumulate_step_sizes.register(op3_expr.Sub)
-def _(sub: op3_expr.Sub, /, axis: Axis) -> op3_expr.Sub:
-    return _accumulate_step_sizes(sub.a, axis) - _accumulate_step_sizes(sub.b, axis)
+def _(sub: op3_expr.Sub, /, axis: Axis, comm) -> op3_expr.Sub:
+    return _accumulate_step_sizes(sub.a, axis, comm) - _accumulate_step_sizes(sub.b, axis, comm)
 
 
 @_accumulate_step_sizes.register(op3_expr.BinaryCondition)
-def _(cond: op3_expr.BinaryCondition, /, axis: Axis) -> op3_expr.BinaryCondition:
-    return type(cond)(*(_accumulate_step_sizes(op, axis) for op in cond.operands))
+def _(cond: op3_expr.BinaryCondition, /, axis: Axis, comm) -> op3_expr.BinaryCondition:
+    return type(cond)(*(_accumulate_step_sizes(op, axis, comm) for op in cond.operands))
 
 
 @_accumulate_step_sizes.register(op3_expr.Conditional)
-def _(cond: op3_expr.Conditional, /, axis: Axis) -> op3_expr.Conditional:
-    import pyop3
-    if pyop3.extras.debug.breakpoint_enabled("a"):
-        pyop3.extras.debug.enable_conditional_breakpoints("b")
-    return op3_expr.Conditional(*(_accumulate_step_sizes(op, axis) for op in cond.operands))
+def _(cond: op3_expr.Conditional, /, axis: Axis, comm) -> op3_expr.Conditional:
+    return op3_expr.Conditional(*(_accumulate_step_sizes(op, axis, comm) for op in cond.operands))
 
 
 @_accumulate_step_sizes.register(LinearDatBufferExpression)
-def _(dat_expr: LinearDatBufferExpression, /, axis: Axis) -> LinearDatBufferExpression:
-    return _accumulate_dat_expr(dat_expr, axis)
+def _(dat_expr: LinearDatBufferExpression, /, axis: Axis, comm) -> LinearDatBufferExpression:
+    return _accumulate_dat_expr(dat_expr, axis, comm)
 
 
-def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis):
+@scoped_cache()
+def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis, comm):
     # If the current axis does not form part of the step expression then the
     # layout function is actually just 'size_expr * AxisVar(axis)'.
     if linear_axis not in utils.just_one(get_shape(size_expr)):
@@ -473,7 +472,8 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
 
 
 # This gets the sizes right for a particular dat, then we merge them above
-def _tabulate_regions(offset_axes, step):
+@scoped_cache()
+def _tabulate_regions(offset_axes, step, comm):
     # Regions are always tabulated using all available free indices (i.e. all
     # parent axes) because they get interleaved.
 
