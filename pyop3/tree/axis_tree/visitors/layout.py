@@ -27,8 +27,8 @@ from pyop3.tree.axis_tree.tree import full_shape, loopify_axis_tree, replace_exp
 from .size import compute_axis_tree_component_size
 
 
+@scoped_cache()
 @PETSc.Log.EventDecorator()
-@scoped_cache(get_comm=lambda axis_tree: axis_tree.comm)
 def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     """Compute the layout functions for an axis tree.
 

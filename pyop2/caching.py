@@ -531,8 +531,6 @@ def parallel_cache(
     get_comm: Callable = default_get_comm,
     make_cache: Callable[[], Mapping] = lambda: DEFAULT_CACHE(),
     bcast=False,
-    *,
-    scoped=False,  # TODO: document (assuming it works), needs a .cache_id attr
 ):
     """Parallel cache decorator.
 
@@ -569,26 +567,13 @@ def parallel_cache(
             # when the wrapper exits
 
             with temp_internal_comm(get_comm(*args, **kwargs)) as comm:
-                if scoped:
-                    lifetime_obj = comm.Get_attr(HEAVY_CACHE_COMM_KEYVAL)
-                    # FIXME: This is not properly safe - instead we should have
-                    # a unique creation index for each lifetime object
-                    cache_id_ = (cache_id, id(lifetime_obj))
-                else:
-                    cache_id_ = cache_id
-
                 # Get the right cache from the comm
                 comm_caches = get_comm_caches(comm)
                 try:
-                    cache = comm_caches[cache_id_]
+                    cache = comm_caches[cache_id]
                 except KeyError:
-                    cache = comm_caches.setdefault(cache_id_, make_cache())
-                    _KNOWN_CACHES.append(_CacheRecord(cache_id_, comm, func, cache))
-
-                    # If the cache is tied to an object then make it such that
-                    # when that object dies that the cache is also destroyed
-                    if scoped:
-                        weakref.finalize(lifetime_obj, lambda: comm_caches.pop(cache_id_))
+                    cache = comm_caches.setdefault(cache_id, make_cache())
+                    _KNOWN_CACHES.append(_CacheRecord(cache_id, comm, func, cache))
 
                 key = hashkey(*args, **kwargs)
                 value = get_cache_entry(comm, cache, key)
@@ -669,7 +654,29 @@ def memory_and_disk_cache(*args, cachedir=configuration["cache_dir"], **kwargs):
     return decorator
 
 
-HEAVY_CACHE_COMM_KEYVAL = MPI.Comm.Create_keyval()
+# I *think* that we are fine to not worry about comms here because we can
+# be confident about collectiveness.
+_active_scoped_cache = None
+
+
+class active_scoped_cache:
+    def __init__(self, cache):
+        self._cache = cache
+
+    def __enter__(self):
+        global _active_scoped_cache
+
+        if _active_scoped_cache is None:
+            _active_scoped_cache = self._cache
+            self._set_cache = True
+        else:
+            self._set_cache = False
+
+    def __exit__(self, *exc):
+        global _active_scoped_cache
+
+        if self._set_cache:
+            _active_scoped_cache = None
 
 
 def scoped_cache(*args, **kwargs):
@@ -682,25 +689,41 @@ def scoped_cache(*args, **kwargs):
     caching happens.
 
     """
-    return memory_cache(*args, **kwargs, scoped=True)
+    return cachetools.cached(cache=_active_scoped_cache, **kwargs)
 
 
-class active_scoped_cache:
-    """
-    """
-    def __init__(self, lifetime_obj):
-        self._lifetime_obj = lifetime_obj
-
-    def __enter__(self):
-        with temp_internal_comm(self._lifetime_obj.comm) as comm:
-            # only overwrite if no object exists yet
-            if comm.Get_attr(HEAVY_CACHE_COMM_KEYVAL) is None:
-                comm.Set_attr(HEAVY_CACHE_COMM_KEYVAL, self._lifetime_obj)
-                self._set = True
-            else:
-                self._set = False
-
-    def __exit__(self, *exc):
-        if self._set:
-            with temp_internal_comm(self._lifetime_obj.comm) as comm:
-                comm.Set_attr(HEAVY_CACHE_COMM_KEYVAL, None)
+# HEAVY_CACHE_COMM_KEYVAL = MPI.Comm.Create_keyval()
+#
+#
+# def scoped_cache(*args, **kwargs):
+#     """Cache decorator for 'heavy' objects.
+#
+#     Unlike the other cache decorators this cache is scoped to another object
+#     and will be cleaned up with that object.
+#
+#     If a cache scope has not been set with `active_scoped_cache` then no
+#     caching happens.
+#
+#     """
+#     return memory_cache(*args, **kwargs, scoped=True)
+#
+#
+# class active_scoped_cache:
+#     """
+#     """
+#     def __init__(self, lifetime_obj):
+#         self._lifetime_obj = lifetime_obj
+#
+#     def __enter__(self):
+#         with temp_internal_comm(self._lifetime_obj.comm) as comm:
+#             # only overwrite if no object exists yet
+#             if comm.Get_attr(HEAVY_CACHE_COMM_KEYVAL) is None:
+#                 comm.Set_attr(HEAVY_CACHE_COMM_KEYVAL, self._lifetime_obj)
+#                 self._set = True
+#             else:
+#                 self._set = False
+#
+#     def __exit__(self, *exc):
+#         if self._set:
+#             with temp_internal_comm(self._lifetime_obj.comm) as comm:
+#                 comm.Set_attr(HEAVY_CACHE_COMM_KEYVAL, None)

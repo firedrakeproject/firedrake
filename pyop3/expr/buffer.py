@@ -294,21 +294,27 @@ class MatArrayBufferExpression(MatBufferExpression, NonlinearBufferExpression):
     # }}}
 
 
+def as_linear_buffer_expression(obj):
+    return _as_linear_buffer_expression(obj)
+
+    # can't do this as it affects assignees
+    # if expr.min_value == expr.max_value:
+    #     return expr.min_value
+
+
 @functools.singledispatch
-def as_linear_buffer_expression(obj: Any) -> LinearDatBufferExpression:
+def _as_linear_buffer_expression(obj: Any) -> LinearDatBufferExpression:
     raise TypeError
 
 
-@as_linear_buffer_expression.register
+@_as_linear_buffer_expression.register
 def _(expr: LinearDatBufferExpression) -> LinearDatBufferExpression:
     return expr
 
 
-@as_linear_buffer_expression.register
+@_as_linear_buffer_expression.register
 def _(dat: Dat) -> LinearDatBufferExpression:
-
     assert dat.parent is None
-
     if not dat.axes.is_linear:
         raise ValueError("The provided Dat must be linear")
 

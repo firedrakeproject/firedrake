@@ -109,41 +109,41 @@ class Expression(abc.ABC):
             return Neg(self)
 
     def __lt__(self, other):
-        from pyop3.expr.visitors import max_, min_
+        from pyop3.expr.visitors import max_value, min_value
 
-        if max_(self) < min_(other):
+        if max_value(self) < min_value(other):
             return True
-        elif min_(self) >= max_(other):
+        elif min_value(self) >= max_value(other):
             return False
         else:
             return LessThan(self, other)
 
     def __gt__(self, other):
-        from pyop3.expr.visitors import max_, min_
+        from pyop3.expr.visitors import max_value, min_value
 
-        if min_(self) > max_(other):
+        if min_value(self) > max_value(other):
             return True
-        elif max_(self) <= min_(other):
+        elif max_value(self) <= min_value(other):
             return False
         else:
             return GreaterThan(self, other)
 
     def __le__(self, other):
-        from pyop3.expr.visitors import max_, min_
+        from pyop3.expr.visitors import max_value, min_value
 
-        if max_(self) <= min_(other):
+        if max_value(self) <= min_value(other):
             return True
-        elif min_(self) > max_(other):
+        elif min_value(self) > max_value(other):
             return False
         else:
             return LessThanOrEqual(self, other)
 
     def __ge__(self, other):
-        from pyop3.expr.visitors import max_, min_
+        from pyop3.expr.visitors import max_value, min_value
 
-        if min_(self) >= max_(other):
+        if min_value(self) >= max_value(other):
             return True
-        elif max_(self) < min_(other):
+        elif max_value(self) < min_value(other):
             return False
         else:
             return GreaterThanOrEqual(self, other)
@@ -184,6 +184,18 @@ class Expression(abc.ABC):
             else:
                 assert b_result is None
                 return Or(a, b)
+
+    @cached_property
+    def max_value(self) -> numbers.Number:
+        from pyop3.expr.visitors import max_value
+
+        return max_value(self)
+
+    @cached_property
+    def min_value(self) -> numbers.Number:
+        from pyop3.expr.visitors import min_value
+
+        return min_value(self)
 
 
 class Operator(Expression, metaclass=abc.ABCMeta):
@@ -395,11 +407,6 @@ class Conditional(TernaryOperator):
         return f"{as_str(self.predicate)} ? {as_str(self.if_true)} : {as_str(self.if_false)}"
 
     # }}}
-
-    def __init__(self, predicate, if_true, if_false) -> None:
-        # if if_true is self:
-        #     breakpoint()
-        super().__init__(predicate, if_true, if_false)
 
     @property
     def shape(self):

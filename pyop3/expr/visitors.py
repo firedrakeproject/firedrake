@@ -5,10 +5,11 @@ import itertools
 import numbers
 from collections.abc import Iterable, Mapping
 from functools import partial
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 from immutabledict import immutabledict as idict
+from pyop2.caching import scoped_cache
 from pyop3.expr.tensor import Scalar
 from pyop3.buffer import BufferRef, PetscMatBuffer
 from pyop3.tree.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
@@ -22,7 +23,8 @@ from pyop3.dtypes import IntType
 from pyop3.utils import OrderedSet, just_one
 
 import pyop3.expr as op3_expr
-from .base import conditional, loopified_shape
+from pyop3.insn.base import loop_
+from .base import ExpressionT, conditional, loopified_shape
 from .tensor import Dat
 
 
@@ -916,48 +918,38 @@ def _(num: numbers.Number):
     return {}
 
 
-@utils.unsafe_cache
-def max_(expr) -> numbers.Number:
-    return _max(expr)
+@functools.singledispatch
+def max_value(obj: Any) -> numbers.Number:
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
+
+
+@max_value.register(numbers.Number)
+def _(num: numbers.Number) -> numbers.Number:
+    return num
+
+
+@max_value.register(op3_expr.Expression)
+def _(expr: op3_expr.Expression) -> numbers.Number:
+    return _find_extremum(expr, partial(max_, lazy=True))
 
 
 @functools.singledispatch
-def _max(expr):
-    raise TypeError
+def min_value(obj: Any) -> numbers.Number:
+    raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 
-@_max.register(numbers.Number)
-def _(expr):
-    return expr
+@min_value.register(numbers.Number)
+def _(num: numbers.Number) -> numbers.Number:
+    return num
 
 
-@_max.register(op3_expr.Expression)
-def _(expr):
-    return _expr_extremum(expr, "max")
+@min_value.register(op3_expr.Expression)
+@scoped_cache()
+def _(expr: op3_expr.Expression) -> numbers.Number:
+    return _find_extremum(expr, partial(min_, lazy=True))
 
 
-@utils.unsafe_cache
-def min_(expr) -> numbers.Number:
-    return _min(expr)
-
-@functools.singledispatch
-def _min(expr):
-    raise TypeError
-
-
-@_min.register(numbers.Number)
-def _(expr):
-    return expr
-
-
-@_min.register(op3_expr.Expression)
-def _(expr):
-    return _expr_extremum(expr, "min")
-
-
-def _expr_extremum(expr, extremum_type: str):
-    from pyop3 import do_loop
-
+def _find_extremum(expr, extremum: Callable[[ExpressionT, ExpressionT], op3_expr.Conditional | numbers.Number]) -> numbers.Number:
     axes, loop_var_replace_map = loopified_shape(expr)
     expr = replace(expr, loop_var_replace_map)
     loop_index = axes.index()
@@ -970,19 +962,22 @@ def _expr_extremum(expr, extremum_type: str):
     expr = replace_terminals(expr, loop_var_replace_map)
     result = op3_expr.Dat.zeros(UNIT_AXIS_TREE, dtype=IntType)
 
-    if extremum_type == "max":
-        predicate = op3_expr.GreaterThanOrEqual(result, expr)
-    else:
-        assert extremum_type == "min"
-        predicate = op3_expr.LessThanOrEqual(result, expr)
-
-    do_loop(
+    loop_(
         loop_index,
-        result.assign(conditional(predicate, result, expr))
+        result.assign(extremum(result, expr)),
+        eager=True
     )
     return just_one(result.buffer._data)
 
 
-# this is better to call min that the existing choice (min_value)
-def mymin(a, b, /):
-    return conditional(a < b, a, b)
+def max_(a, b, /, *, lazy: bool = False) -> op3_expr.Conditional | numbers.Number:
+    if not lazy:
+        return conditional(a > b, a, b)
+    else:
+        return op3_expr.Conditional(op3_expr.GreaterThan(a, b), a, b)
+
+def min_(a, b, /, *, lazy: bool = False) -> op3_expr.Conditional | numbers.Number:
+    if not lazy:
+        return conditional(a < b, a, b)
+    else:
+        return op3_expr.Conditional(op3_expr.LessThan(a, b), a, b)

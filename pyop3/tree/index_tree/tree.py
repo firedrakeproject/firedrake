@@ -2138,7 +2138,7 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
 
     """
     from pyop3.expr import conditional
-    from pyop3.expr.visitors import replace_terminals as expr_replace, mymin
+    from pyop3.expr.visitors import replace_terminals as expr_replace, min_
 
     size = sum(r.size for r in regions)
     start, stop, step = affine_component.with_size(size)
@@ -2171,7 +2171,7 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
             out_of_bounds = (upper_bound < start) | (lower_bound >= stop)
         # if not isinstance(region.size, numbers.Number):
         #     breakpoint()
-        region_size = conditional(out_of_bounds, 0, utils.ceildiv((mymin(region.size, stop-loc) - offset), step))
+        region_size = conditional(out_of_bounds, 0, utils.ceildiv((min_(region.size, stop-loc) - offset), step))
         offset = conditional(out_of_bounds, offset-region.size, (offset+region.size) % step)
 
         # Make sure that we apply any parent indexing to the size expression

@@ -930,9 +930,9 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree):
 
     @cached_property
     def max_size(self):
-        from pyop3.expr.visitors import max_
+        from pyop3.expr.visitors import max_value
 
-        return max_(self.size)
+        return max_value(self.size)
 
     @cached_property
     @collective
