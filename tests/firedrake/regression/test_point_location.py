@@ -1,5 +1,6 @@
 from firedrake import *
 
+
 def test_high_order_location():
     mesh = UnitSquareMesh(2, 2)
     V = VectorFunctionSpace(mesh, "CG", 3, variant="equispaced")
