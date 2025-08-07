@@ -2474,8 +2474,12 @@ values from f.)"""
             info_red("libspatialindex does not support 1-dimension, falling back on brute force.")
             return None
 
-        coord_degree = self.ufl_coordinate_element().degree()
+        coord_element = self.ufl_coordinate_element()
+        coord_degree = coord_element.degree()
         if coord_degree == 1:
+            mesh = self
+        elif coord_element.family() == "Bernstein":
+            # Already have Bernstein coordinates, no need to project
             mesh = self
         else:
             # For bendy meshes we project the coordinate function onto Bernstein
