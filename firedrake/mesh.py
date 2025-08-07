@@ -2477,7 +2477,10 @@ values from f.)"""
 
         coord_element = self.ufl_coordinate_element()
         coord_degree = coord_element.degree()
-        if coord_degree == 1:
+        if ufl.cell.simplex(self.topological_dimension()) != self.ufl_cell():
+            # Non-simplex element, e.g. quad or tensor product
+            mesh = self
+        elif coord_degree == 1:
             mesh = self
         elif coord_element.family() == "Bernstein":
             # Already have Bernstein coordinates, no need to project
@@ -3386,6 +3389,13 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     _, pdim = vertexcoords.shape
     if not np.isclose(np.sum(abs(vertexcoords.imag)), 0):
         raise ValueError("Point coordinates must have zero imaginary part")
+    if (
+        ufl.cell.simplex(mesh.topological_dimension()) != mesh.ufl_cell() and
+        np.any(np.asarray(mesh.ufl_coordinate_element().degree()) > 1)
+    ):
+        raise NotImplementedError(
+            "Cannot yet immerse a VertexOnlyMesh in non-simplicial higher-order meshes."
+        )
     # Currently we take responsibility for locating the mesh cells in which the
     # vertices lie.
     #
