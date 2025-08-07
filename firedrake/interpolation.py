@@ -465,6 +465,13 @@ class CrossMeshInterpolator(Interpolator):
         V_dest = V.function_space() if isinstance(V, firedrake.Function) else V
         src_mesh = extract_unique_domain(expr)
         dest_mesh = as_domain(V_dest)
+        if (
+            ufl.cell.simplex(src_mesh.topological_dimension()) != src_mesh.ufl_cell()
+            and numpy.any(numpy.asarray(src_mesh.ufl_coordinate_element().degree()) > 1)
+        ):
+            raise NotImplementedError(
+                "Cannot yet interpolate from non-simplicial higher-order meshes into other meshes."
+            )
         src_mesh_gdim = src_mesh.geometric_dimension()
         dest_mesh_gdim = dest_mesh.geometric_dimension()
         if src_mesh_gdim != dest_mesh_gdim:
@@ -473,15 +480,6 @@ class CrossMeshInterpolator(Interpolator):
             )
         self.src_mesh = src_mesh
         self.dest_mesh = dest_mesh
-        if numpy.any(
-            numpy.asarray(src_mesh.coordinates.function_space().ufl_element().degree())
-            > 1
-        ):
-            # Need to implement vertex-only mesh immersion in high order meshes
-            # for this to work.
-            raise NotImplementedError(
-                "Cannot yet interpolate from high order meshes to other meshes."
-            )
 
         self.sub_interpolators = []
 
