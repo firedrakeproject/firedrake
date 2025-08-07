@@ -2465,6 +2465,7 @@ values from f.)"""
         If we have a higher-order (bendy) mesh we project the mesh coordinates into
         a Bernstein finite element space. Functions on a Bernstein element are 
         Bezier curves and are completely contained in the convex hull of the mesh nodes.
+        Hence the bounding box will contain the entire element.
         """        
         from firedrake import function, functionspace
         from firedrake.parloops import par_loop, READ, MIN, MAX
