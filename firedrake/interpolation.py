@@ -785,9 +785,11 @@ class SameMeshInterpolator(Interpolator):
                         descend_map_inv, target_integral_type = common.trans_mesh_entity_map(target, "cell", "everywhere", None)
                         if target_integral_type != "cell":
                             raise AssertionError(f"target integral type ({target_integral_type}) != \"cell\"")
-                        if descend_map_inv.fromset is not target.cell_set:
-                            raise AssertionError(f"{descend_map_inv.fromset} is not {target.cell_set}")
-                        _, indices, _ = np.intersect1d(
+                        if ascend_map.toset is not descend_map_inv.toset:
+                            raise AssertionError(f"{ascend_map.toset} is not {descend_map_inv.toset}")
+                        if descend_map_inv.iterset is not target.cell_set:
+                            raise AssertionError(f"{descend_map_inv.iterset} is not {target.cell_set}")
+                        _, indices, _ = numpy.intersect1d(
                             descend_map_inv.values_with_halo,
                             ascend_map.values_with_halo,
                             assume_unique=True,

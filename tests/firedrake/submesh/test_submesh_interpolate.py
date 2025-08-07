@@ -126,6 +126,39 @@ def test_submesh_interpolate_cell_cell_quad_3_processes(fe_fesub, condx, condy, 
     _test_submesh_interpolate_cell_cell(mesh, cond, fe_fesub)
 
 
+@pytest.mark.parallel(nprocs=2)
+def test_submesh_interpolate_subcell_subcell_2_processes():
+    mesh = RectangleMesh(
+        3, 1, 3., 1., quadrilateral=True, distribution_parameters={"partitioner_type": "simple"},
+    )
+    dim = mesh.topological_dimension()
+    x, _ = SpatialCoordinate(mesh)
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    f_l = Function(DG0).interpolate(conditional(x < 2.0, 1, 0))
+    f_r = Function(DG0).interpolate(conditional(x > 1.0, 1, 0))
+    mesh = RelabeledMesh(mesh, [f_l, f_r], [111, 222])
+    mesh_l = Submesh(mesh, dim, 111)
+    mesh_r = Submesh(mesh, dim, 222)
+    V_l = FunctionSpace(mesh_l, "CG", 1)
+    V_r = FunctionSpace(mesh_r, "CG", 1)
+    f_l = Function(V_l)
+    f_r = Function(V_r)
+    f_l.dat.data_with_halos[:] = 1.0
+    f_r.dat.data_with_halos[:] = 2.0
+    f_l.interpolate(f_r, allow_missing_dofs=True)
+    g_l = Function(V_l).interpolate(conditional(x > 0.999, 2.0, 1.0))
+    assert np.allclose(f_l.dat.data_with_halos, g_l.dat.data_with_halos)
+    f_l.dat.data_with_halos[:] = 3.0
+    f_r.interpolate(f_l, allow_missing_dofs=True)
+    # Want to use:
+    # g_r = Function(V_r).interpolate(conditional(x < 2.001, 3.0, 2.0))
+    # , but there is a parallel interpolation bug;
+    # see https://github.com/firedrakeproject/firedrake/issues/4483.
+    # Check the following anyway to test that subcell-subcell map is correct.
+    g_r = Function(V_r).interpolate(conditional(x < 1.999, 3.0, 2.0))
+    assert np.allclose(f_r.dat.data_with_halos, g_r.dat.data_with_halos)
+
+
 @pytest.mark.parallel(nprocs=5)
 @pytest.mark.parametrize('hexahedral', [False, True])
 @pytest.mark.parametrize('direction', ['x', 'y', 'z'])
