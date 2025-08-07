@@ -2484,14 +2484,16 @@ values from f.)"""
             info_red("libspatialindex does not support 1-dimension, falling back on brute force.")
             return None
 
-        if self.ufl_coordinate_element().degree() == 1:
+        coord_degree = self.ufl_coordinate_element().degree()
+        if coord_degree == 1:
             mesh = self
         else:
             # For bendy meshes we project the coordinate function onto Bernstein
-            bernstein_fs = functionspace.VectorFunctionSpace(self, "Bernstein", 3)
+            bernstein_fs = functionspace.VectorFunctionSpace(self, "Bernstein", coord_degree)
             f = function.Function(bernstein_fs)
             f.project(self.coordinates)
             mesh = Mesh(f)
+
         # Calculate the bounding boxes for all cells by running a kernel
         V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=gdim)
         coords_min = function.Function(V, dtype=RealType)
