@@ -248,8 +248,6 @@ class ImplicitPackUnpackExpander(Transformer):
                     temporary = Dat.null(arg.axes.materialize().regionless, dtype=arg.dtype, prefix="t")
                 else:
                     assert isinstance(arg, Mat)
-                    if arg.raxes._all_region_labels:
-                        breakpoint()
                     temporary = Mat.null(arg.raxes.materialize().regionless, arg.caxes.materialize().regionless, dtype=arg.dtype, prefix="t")
 
                 if intent == READ:

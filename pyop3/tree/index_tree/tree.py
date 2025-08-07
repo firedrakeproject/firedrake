@@ -479,13 +479,8 @@ class Slice(Index):
         super().__init__(label=label)
 
     @property
-    @utils.deprecated("components")
-    def slices(self):
-        return self.components
-
-    @property
     def component_labels(self) -> tuple:
-        return tuple(s.label for s in self.slices)
+        return tuple(s.label for s in self.components)
 
     @cached_property
     def leaf_target_paths(self):
@@ -494,7 +489,7 @@ class Slice(Index):
         # 'equivalent' target paths.
         return tuple(
             (immutabledict({self.axis: subslice.component}),)
-            for subslice in self.slices
+            for subslice in self.components
         )
 
     @property
@@ -505,7 +500,7 @@ class Slice(Index):
         new_slice_components = []
         for path in paths:
             found = False
-            for slice_component in self.slices:
+            for slice_component in self.components:
                 if immutabledict({self.label: slice_component.label}) == path:
                     new_slice_components.append(slice_component)
                     found = True
@@ -516,7 +511,7 @@ class Slice(Index):
 
     @property
     def datamap(self):
-        return merge_dicts([s.datamap for s in self.slices])
+        return merge_dicts([s.datamap for s in self.components])
 
 
 # class DuplicateIndexException(Pyop3Exception):
@@ -946,7 +941,7 @@ def _(scalar_index: ScalarIndex, /, *args, **kwargs):
 def _(slice_: Slice) -> tuple[tuple[immutabledict[str, str]], ...]:
     return tuple(
         (immutabledict({slice_.axis: slice_component.component}),)
-        for slice_component in slice_.slices
+        for slice_component in slice_.components
     )
 
 
@@ -1188,7 +1183,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
     # TODO: Just have a special type for this!
     is_full = all(
         isinstance(s, AffineSliceComponent) and s.is_full and s.label_was_none
-        for s in slice_.slices
+        for s in slice_.components
     )
     # NOTE: We should be able to eagerly return here?
 
@@ -1200,7 +1195,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
     components = []
     component_paths = []
     component_exprs = []
-    for slice_component in slice_.slices:
+    for slice_component in slice_.components:
         targets = target_axes[immutabledict({slice_.label: slice_component.label})]
         target_axis, target_component_label = just_one(targets.items())
         target_component = just_one(
@@ -1283,7 +1278,7 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
     axis = Axis(components, label=axis_label)
 
     # now do target expressions
-    for slice_component, axis_component in zip(slice_.slices, axis.components, strict=True):
+    for slice_component, axis_component in zip(slice_.components, axis.components, strict=True):
         targets = target_axes[immutabledict({slice_.label: slice_component.label})]
         target_axis, target_component_label = just_one(targets.items())
         target_component = just_one(

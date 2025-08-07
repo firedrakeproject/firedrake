@@ -1521,18 +1521,11 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         if any(len(a.function_space()) > 1 for a in [test, trial]) and mat_spec.mat_type == "baij":
             raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
 
-        # print("XXX A")
-        # time.sleep(5)
-        # numpy.empty(100000)
-
         sparsity = op3.Mat.sparsity(
             test.function_space().axes,
             trial.function_space().axes,
             buffer_spec=mat_spec,
         )
-        # print("XXX B")
-        # time.sleep(5)
-        # numpy.empty(100000)
 
         if type(test.function_space().ufl_element()) is finat.ufl.MixedElement:
             n = len(test.function_space())
@@ -1545,10 +1538,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         else:
             diag_blocks = [(Ellipsis, Ellipsis)]
 
-        # FIXME: need to redo this as it breaks for RFS
-        # import pyop3.extras.debug
-        # pyop3.extras.debug.enable_conditional_breakpoints()
-        # pyop3.extras.debug.warn_todo("Populate the diagonal!")
         for rindex, cindex in diag_blocks:
             import pyop3.extras.debug
             pyop3.extras.debug.enable_conditional_breakpoints()
@@ -1557,9 +1546,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 p := extract_unique_domain(test).points.index(),
                 sparsity[rindex, cindex][p, p].assign(666)
             )
-
-        # everything is fine here!
-        print("XXX C", flush=True)
 
         # Pretend that we are doing assembly by looping over the right
         # iteration sets and using the right maps.
@@ -1575,12 +1561,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 sparsity[rindex, cindex][rmap, cmap].assign(666)
             )
 
-        # but die before getting here
-        print("XXX D", flush=True)
-        pyop3.extras.debug.enable_conditional_breakpoints("a")
-
-        time.sleep(5)
-        numpy.empty(100000)
         sparsity.assemble()
         return sparsity
 

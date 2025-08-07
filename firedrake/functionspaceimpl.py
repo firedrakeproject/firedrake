@@ -747,7 +747,7 @@ class FunctionSpace:
     def axes(self) -> op3.IndexedAxisTree:
         strata_slice = self._mesh._strata_slice
         index_tree = op3.IndexTree(strata_slice)
-        for slice_component in strata_slice.slices:
+        for slice_component in strata_slice.components:
             path = {strata_slice.label: slice_component.label}
 
             dim = slice_component.label
