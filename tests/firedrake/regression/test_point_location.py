@@ -28,3 +28,17 @@ def test_high_order_location():
     assert mesh.locate_cell([0.25, -0.7], tolerance=0.0001) is not None
     assert mesh.locate_cell([0.25, -0.95], tolerance=0.0001) is not None
     assert mesh.locate_cell([0.25, -1.05], tolerance=0.0001) is None
+
+
+def test_high_order_location_internal():
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, "CG", 3, variant="equispaced")
+    f = Function(V)
+    f.interpolate(mesh.coordinates)
+
+    warp_indices = np.where((f.dat.data[:, 0] > 0.0) & (f.dat.data[:, 0] < 0.5) & np.isclose(f.dat.data[:, 1], 0.5))[0]
+    f.dat.data[warp_indices, 1] += 0.1
+    mesh = Mesh(f)
+
+    assert mesh.locate_cell([0.25, 0.605], tolerance=0.0001) == 1
+    assert mesh.locate_cell([0.25, 0.62], tolerance=0.0001) == 3
