@@ -773,24 +773,34 @@ class SameMeshInterpolator(Interpolator):
             temp = extract_unique_domain(expr)
             source = target if temp is None else temp.topology
             if all(isinstance(m, firedrake.mesh.MeshTopology) for m in [target, source]):
-                if target is source:
-                    pass
-                elif target in source.submesh_ancesters:
-                    # Need subset as target > source.
-                    if allow_missing_dofs:
-                        composed_map, target_integral_type = target.trans_mesh_entity_map(source, "cell", "everywhere", None)
+                common = target.submesh_youngest_common_ancester(source)
+                if common in source.submesh_ancesters[1:]:
+                    # Need subset.
+                    if not allow_missing_dofs:
+                        raise ValueError("iteration (sub)set unclear: run with `allow_missing_dofs=True`")
+                    ascend_map, target_integral_type = common.trans_mesh_entity_map(source, "cell", "everywhere", None)
+                    if target_integral_type != "cell":
+                        raise AssertionError(f"target integral type ({target_integral_type}) != \"cell\"")
+                    if common in target.submesh_ancesters[1:]:
+                        descend_map_inv, target_integral_type = common.trans_mesh_entity_map(target, "cell", "everywhere", None)
                         if target_integral_type != "cell":
-                            raise ValueError(f"target integral type ({target_integral_type}) != \"cell\"")
-                        subset = op2.Subset(composed_map.toset, composed_map.values_with_halo)
+                            raise AssertionError(f"target integral type ({target_integral_type}) != \"cell\"")
+                        if descend_map_inv.fromset is not target.cell_set:
+                            raise AssertionError(f"{descend_map_inv.fromset} is not {target.cell_set}")
+                        _, indices, _ = np.intersect1d(
+                            descend_map_inv.values_with_halo,
+                            ascend_map.values_with_halo,
+                            assume_unique=True,
+                            return_indices=True,
+                        )
                     else:
-                        raise RuntimeError("target mesh larger than source; interpolate with `allow_missing_dofs=True`")
-                elif source in target.submesh_ancesters:
-                    # Do not need subset as target < source.
-                    pass
+                        if ascend_map.toset is not target.cell_set:
+                            raise AssertionError(f"{ascend_map.toset} is not {target.cell_set}")
+                        indices = ascend_map.values_with_halo
+                    subset = op2.Subset(target.cell_set, indices)
                 else:
-                    raise NotImplementedError(
-                        f"Only implemented for target \\subset source or source \\subset target, where target = {target} and source = {source}"
-                    )
+                    # Do not need subset as target <= source = common.
+                    pass
         super().__init__(expr, V, subset=subset, freeze_expr=freeze_expr,
                          access=access, bcs=bcs, allow_missing_dofs=allow_missing_dofs, matfree=matfree)
         try:
