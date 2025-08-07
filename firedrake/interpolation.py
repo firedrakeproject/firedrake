@@ -466,8 +466,8 @@ class CrossMeshInterpolator(Interpolator):
         src_mesh = extract_unique_domain(expr)
         dest_mesh = as_domain(V_dest)
         if (
-            ufl.cell.simplex(src_mesh.topological_dimension()) != src_mesh.ufl_cell() and
-            numpy.any(numpy.asarray(src_mesh.ufl_coordinate_element().degree()) > 1)
+            ufl.cell.simplex(src_mesh.topological_dimension()) != src_mesh.ufl_cell()
+            and numpy.any(numpy.asarray(src_mesh.ufl_coordinate_element().degree()) > 1)
         ):
             raise NotImplementedError(
                 "Cannot yet interpolate from non-simplicial higher-order meshes into other meshes."

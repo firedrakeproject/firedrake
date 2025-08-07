@@ -3390,8 +3390,8 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     if not np.isclose(np.sum(abs(vertexcoords.imag)), 0):
         raise ValueError("Point coordinates must have zero imaginary part")
     if (
-        ufl.cell.simplex(mesh.topological_dimension()) != mesh.ufl_cell() and
-        np.any(np.asarray(mesh.ufl_coordinate_element().degree()) > 1)
+        ufl.cell.simplex(mesh.topological_dimension()) != mesh.ufl_cell()
+        and np.any(np.asarray(mesh.ufl_coordinate_element().degree()) > 1)
     ):
         raise NotImplementedError(
             "Cannot yet immerse a VertexOnlyMesh in non-simplicial higher-order meshes."
