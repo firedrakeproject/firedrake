@@ -2561,7 +2561,11 @@ values from f.)"""
         # within the mesh tolerance.
         # NOTE: getattr doesn't work here due to the inheritance games that are
         # going on in getattr.
-        coords_min, coords_max = self.bounding_box_coords
+        if self.bounding_box_coords is None:
+            # This happens in 1D meshes
+            return None
+        else:
+            coords_min, coords_max = self.bounding_box_coords
         tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
         coords_mid = (coords_max + coords_min)/2
         d = np.max(coords_max - coords_min, axis=1)[:, None]
