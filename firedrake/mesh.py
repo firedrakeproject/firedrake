@@ -2289,6 +2289,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         # submesh
         self.submesh_parent = None
 
+        self._bounding_box_coords = None
         self._spatial_index = None
         self._saved_coordinate_dat_version = coordinates.dat.dat_version
 
@@ -2457,27 +2458,16 @@ values from f.)"""
         the coordinate field)."""
         self._spatial_index = None
 
-    @property
-    def spatial_index(self):
-        """Spatial index to quickly find which cell contains a given point.
+    @utils.cached_property
+    def bounding_box_coords(self):
+        """Calculates bounding boxes for spatial indexing.
 
-        Notes
-        -----
-
-        If this mesh has a :attr:`tolerance` property, which
-        should be a float, this tolerance is added to the extrama of the
-        spatial index so that points just outside the mesh, within tolerance,
-        can be found.
-
-        """
+        If we have a higher-order (bendy) mesh we project the mesh coordinates into
+        a Bernstein finite element space. Functions on a Bernstein element are 
+        Bezier curves and are completely contained in the convex hull of the mesh nodes.
+        """        
         from firedrake import function, functionspace
         from firedrake.parloops import par_loop, READ, MIN, MAX
-
-        if (
-            self._spatial_index
-            and self.coordinates.dat.dat_version == self._saved_coordinate_dat_version
-        ):
-            return self._spatial_index
 
         gdim = self.geometric_dimension()
         if gdim <= 1:
@@ -2531,6 +2521,27 @@ values from f.)"""
         coords_min = mesh._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
         coords_max = mesh._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
 
+        return coords_min, coords_max
+
+    @property
+    def spatial_index(self):
+        """Spatial index to quickly find which cell contains a given point.
+
+        Notes
+        -----
+
+        If this mesh has a :attr:`tolerance` property, which
+        should be a float, this tolerance is added to the extrama of the
+        spatial index so that points just outside the mesh, within tolerance,
+        can be found.
+
+        """
+        if self.coordinates.dat.dat_version != self._saved_coordinate_dat_version:
+            if "bounding_box_coords" in self.__dict__:
+                del self.bounding_box_coords
+        else:
+            if self._spatial_index:
+                return self._spatial_index
         # Change min and max to refer to an n-hypercube, where n is the
         # geometric dimension of the mesh, centred on the midpoint of the
         # bounding box. Its side length is the L1 diameter of the bounding box.
@@ -2538,11 +2549,11 @@ values from f.)"""
         # where points may be just off the mesh but should be evaluated.
         # TODO: This is perhaps unnecessary when we aren't in these special
         # cases.
-
         # We also push max and min out so we can find points on the boundary
         # within the mesh tolerance.
         # NOTE: getattr doesn't work here due to the inheritance games that are
         # going on in getattr.
+        coords_min, coords_max = self.bounding_box_coords
         tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
         coords_mid = (coords_max + coords_min)/2
         d = np.max(coords_max - coords_min, axis=1)[:, None]
