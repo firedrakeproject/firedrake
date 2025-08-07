@@ -128,6 +128,19 @@ def test_submesh_interpolate_cell_cell_quad_3_processes(fe_fesub, condx, condy, 
 
 @pytest.mark.parallel(nprocs=2)
 def test_submesh_interpolate_subcell_subcell_2_processes():
+    # mesh
+    # rank 0:
+    # 4---12----6---15---(8)-(18)-(10)
+    # |         |         |         |
+    # 11   0   13    1  (17)  (2) (19)
+    # |         |         |         |
+    # 3---14----5---16---(7)-(20)--(9)
+    # rank 1:
+    #          (7)-(13)---3----9----5
+    #           |         |         |
+    #          (12) (1)   8    0   10
+    #           |         |         |    plex points
+    #          (6)-(14)---2---11----4    () = ghost
     mesh = RectangleMesh(
         3, 1, 3., 1., quadrilateral=True, distribution_parameters={"partitioner_type": "simple"},
     )
