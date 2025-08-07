@@ -3694,6 +3694,8 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         self._spatial_index = None
         self._saved_coordinate_dat_version = coordinates.dat.buffer.state
 
+        self._cache = {}
+
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.extruded, self.variable_layers,
                 super()._ufl_signature_data_(*args, **kwargs))

@@ -1148,7 +1148,7 @@ def _(neg: op3_expr.Neg, /, *args, **kwargs) -> pym.Expression:
     return _lower_expr(neg.a, *args, **kwargs) // _lower_expr(neg.b, *args, **kwargs)
 
 
-@_lower_expr.register(op3_expr.BinaryCondition)
+@_lower_expr.register(op3_expr.Comparison)
 def _(cond, /, *args, **kwargs) -> pym.Expression:
     return pym.primitives.Comparison(
         _lower_expr(cond.a, *args, **kwargs),

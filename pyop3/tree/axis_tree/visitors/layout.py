@@ -392,8 +392,8 @@ def _(sub: op3_expr.Sub, /, axis: Axis, comm) -> op3_expr.Sub:
     return _accumulate_step_sizes(sub.a, axis, comm) - _accumulate_step_sizes(sub.b, axis, comm)
 
 
-@_accumulate_step_sizes.register(op3_expr.BinaryCondition)
-def _(cond: op3_expr.BinaryCondition, /, axis: Axis, comm) -> op3_expr.BinaryCondition:
+@_accumulate_step_sizes.register(op3_expr.Comparison)
+def _(cond: op3_expr.Comparison, /, axis: Axis, comm) -> op3_expr.Comparison:
     return type(cond)(*(_accumulate_step_sizes(op, axis, comm) for op in cond.operands))
 
 

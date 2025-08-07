@@ -109,44 +109,52 @@ class Expression(abc.ABC):
             return Neg(self)
 
     def __lt__(self, other):
-        from pyop3.expr.visitors import max_value, min_value
+        return LessThan(self, other)
 
-        if max_value(self) < min_value(other):
-            return True
-        elif min_value(self) >= max_value(other):
-            return False
-        else:
-            return LessThan(self, other)
+        # from pyop3.expr.visitors import max_value, min_value
+        #
+        # if max_value(self) < min_value(other):
+        #     return True
+        # elif min_value(self) >= max_value(other):
+        #     return False
+        # else:
+        #     return LessThan(self, other)
 
     def __gt__(self, other):
-        from pyop3.expr.visitors import max_value, min_value
+        return GreaterThan(self, other)
 
-        if min_value(self) > max_value(other):
-            return True
-        elif max_value(self) <= min_value(other):
-            return False
-        else:
-            return GreaterThan(self, other)
+        # from pyop3.expr.visitors import max_value, min_value
+        #
+        # if min_value(self) > max_value(other):
+        #     return True
+        # elif max_value(self) <= min_value(other):
+        #     return False
+        # else:
+        #     return GreaterThan(self, other)
 
     def __le__(self, other):
-        from pyop3.expr.visitors import max_value, min_value
+        return LessThanOrEqual(self, other)
 
-        if max_value(self) <= min_value(other):
-            return True
-        elif min_value(self) > max_value(other):
-            return False
-        else:
-            return LessThanOrEqual(self, other)
+        # from pyop3.expr.visitors import max_value, min_value
+        #
+        # if max_value(self) <= min_value(other):
+        #     return True
+        # elif min_value(self) > max_value(other):
+        #     return False
+        # else:
+        #     return LessThanOrEqual(self, other)
 
     def __ge__(self, other):
-        from pyop3.expr.visitors import max_value, min_value
+        return GreaterThanOrEqual(self, other)
 
-        if min_value(self) >= max_value(other):
-            return True
-        elif max_value(self) < min_value(other):
-            return False
-        else:
-            return GreaterThanOrEqual(self, other)
+        # from pyop3.expr.visitors import max_value, min_value
+        #
+        # if min_value(self) >= max_value(other):
+        #     return True
+        # elif max_value(self) < min_value(other):
+        #     return False
+        # else:
+        #     return GreaterThanOrEqual(self, other)
 
     def __or__(self, other) -> Or | bool:
         return self._maybe_eager_or(self, other)
@@ -199,16 +207,31 @@ class Expression(abc.ABC):
 
 
 class Operator(Expression, metaclass=abc.ABCMeta):
+
+    # {{{ abstract methods
+
     @property
     @abc.abstractmethod
-    def operands(self):
+    def operands(self) -> tuple[ExpressionT, ...]:
         pass
 
+    # }}}
 
 
+@utils.frozenrecord()
 class UnaryOperator(Operator, metaclass=abc.ABCMeta):
 
+    # {{{ instance attrs
+
+    a: ExpressionT
+
+    # }}}
+
     # {{{ interface impls
+
+    @property
+    def operands(self) -> tuple[ExpressionT]:
+        return (self.a,)
 
     @property
     def _full_str(self) -> str:
@@ -216,21 +239,18 @@ class UnaryOperator(Operator, metaclass=abc.ABCMeta):
 
     # }}}
 
-    @property
-    def operands(self):
-        return (self.a,)
-
-    @property
-    def operand(self):
-        return utils.just_one(self.operands)
+    # {{{ abstract methods
 
     @property
     @abc.abstractmethod
     def symbol(self) -> str:
         pass
 
-    def __init__(self, a, /) -> None:
-        self.a = a
+    # }}}
+
+    @property
+    def operand(self):
+        return utils.just_one(self.operands)
 
     @property
     def shape(self):
@@ -247,14 +267,33 @@ class Neg(UnaryOperator):
         return "-"
 
 
+@utils.frozenrecord()
 class BinaryOperator(Operator, metaclass=abc.ABCMeta):
+
+    # {{{ instance attrs
+
+    a: ExpressionT
+    b: ExpressionT
+
+    # }}}
+
+    # {{{ interface impls
+
     @property
-    def operands(self):
+    def operands(self) -> tuple[ExpressionT, ExpressionT]:
         return (self.a, self.b)
 
-    def __init__(self, a, b, /):
-        self.a = a
-        self.b = b
+    # }}}
+
+    # {{{ abstract methods
+
+    @property
+    @abc.abstractmethod
+    def _symbol(self) -> str:
+        pass
+
+
+    # }}}
 
     @cached_property
     def shape(self) -> tuple[AxisTree]:
@@ -278,24 +317,10 @@ class BinaryOperator(Operator, metaclass=abc.ABCMeta):
             axes[loop_index] = utils.unique((*axes[loop_index], *loop_axes))
         return idict(axes)
 
-    def __hash__(self) -> int:
-        return hash((type(self), self.a, self.b))
-
-    def __eq__(self, other, /) -> bool:
-        return type(self) == type(other) and other.a == self.a  and other.b == self.b
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.a!r}, {self.b!r})"
-
     @property
     def _full_str(self) -> str:
         # Always use brackets to avoid having to deal with operator precedence rules
         return f"({as_str(self.a)} {self._symbol} {as_str(self.b)})"
-
-    @property
-    @abc.abstractmethod
-    def _symbol(self) -> str:
-        pass
 
     # def as_str(self, *, full=True) -> str:
     #     # Always use brackets to avoid having to deal with operator precedence rules
@@ -306,12 +331,6 @@ class Add(BinaryOperator):
     @property
     def _symbol(self) -> str:
         return "+"
-
-    # def __init__(self, *args):
-    #     super().__init__(*args)
-    #
-    #     if "array_22" in str(self):
-    #         breakpoint()
 
 
 class Sub(BinaryOperator):
@@ -338,75 +357,83 @@ class Modulo(BinaryOperator):
         return "%"
 
 
-class Condition(Operator, metaclass=abc.ABCMeta):
+class Comparison(BinaryOperator, metaclass=abc.ABCMeta):
     pass
 
 
-class BinaryCondition(BinaryOperator, Condition, metaclass=abc.ABCMeta):
-    pass
-
-
-class LessThan(BinaryCondition):
+class LessThan(Comparison):
     @property
     def _symbol(self) -> str:
         return "<"
 
 
-class GreaterThan(BinaryCondition):
+class GreaterThan(Comparison):
     @property
     def _symbol(self) -> str:
         return ">"
 
 
-class LessThanOrEqual(BinaryCondition):
+class LessThanOrEqual(Comparison):
     @property
     def _symbol(self) -> str:
         return "<="
 
 
-class GreaterThanOrEqual(BinaryCondition):
+class GreaterThanOrEqual(Comparison):
     @property
     def _symbol(self) -> str:
         return ">="
 
 
-class Or(BinaryCondition):
+class Or(Comparison):
 
     @property
     def _symbol(self) -> str:
         return "|"
 
 
+@utils.frozenrecord()
 class TernaryOperator(Operator, metaclass=abc.ABCMeta):
-    @property
-    def operands(self):
-        return (self.a, self.b, self.c)
 
-    def __init__(self, a, b, c, /) -> None:
-        self.a = a
-        self.b = b
-        self.c = c
+    # {{{ instance attrs
 
-    def __eq__(self, other):
-        return type(other) == type(self) and other.operands == self.operands
+    a: ExpressionT
+    b: ExpressionT
+    c: ExpressionT
 
-    def __hash__(self):
-        return hash((type(self), self.operands))
-
-
-class Conditional(TernaryOperator):
+    # }}}
 
     # {{{ interface impls
 
-    # TODO: should have a way of truncating here to keep a bit of all of them, maybe we also need a "short str" method?
-    def __str__(self) -> str:
-        return f"{self.predicate} ? {self.if_true} : {self.if_false}"
+    @property
+    def operands(self) -> tuple[ExpressionT, ExpressionT, ExpressionT]:
+        return (self.a, self.b, self.c)
+
+    # }}}
+
+
+@utils.frozenrecord()
+class Conditional(TernaryOperator):
+
+    # {{{ interface impls
 
     @property
     def _full_str(self) -> str:
         return f"{as_str(self.predicate)} ? {as_str(self.if_true)} : {as_str(self.if_false)}"
 
     # }}}
+
+    @property
+    def predicate(self) -> ExpressionT:
+        return self.a
+
+    @property
+    def if_true(self) -> ExpressionT:
+        return self.b
+
+    @property
+    def if_false(self) -> ExpressionT:
+        return self.c
 
     @property
     def shape(self):
@@ -429,27 +456,15 @@ class Conditional(TernaryOperator):
     def loop_axes(self) -> tuple[Axis]:
         from pyop3.expr.visitors import get_loop_axes
 
-        a_loop_axes = get_loop_axes(self.a)
-        b_loop_axes = get_loop_axes(self.b)
-        c_loop_axes = get_loop_axes(self.b)
+        a_loop_axes = get_loop_axes(self.predicate)
+        b_loop_axes = get_loop_axes(self.if_true)
+        c_loop_axes = get_loop_axes(self.if_false)
         axes = collections.defaultdict(tuple, a_loop_axes)
         for loop_index, loop_axes in b_loop_axes.items():
             axes[loop_index] = utils.unique((*axes[loop_index], *loop_axes))
         for loop_index, loop_axes in c_loop_axes.items():
             axes[loop_index] = utils.unique((*axes[loop_index], *loop_axes))
         return idict(axes)
-
-    @property
-    def predicate(self):
-        return self.a
-
-    @property
-    def if_true(self):
-        return self.b
-
-    @property
-    def if_false(self):
-        return self.c
 
 
 def conditional(predicate, if_true, if_false):

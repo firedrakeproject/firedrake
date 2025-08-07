@@ -37,6 +37,7 @@ from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
 from firedrake.utils import ScalarType, assert_empty, tuplify
 from pyop2 import op2
+from pyop2.caching import active_scoped_cache
 from pyop2.exceptions import MapValueError, SparsityFormatError
 
 
@@ -146,6 +147,7 @@ def assemble(expr, *args, **kwargs):
     for key in ("tensor", "current_state"):
         if key in kwargs:
             assemble_kwargs[key] = kwargs.pop(key, None)
+
     return get_assembler(expr, *args, **kwargs).assemble(**assemble_kwargs)
 
 
@@ -192,7 +194,7 @@ def get_assembler(form, *args, **kwargs):
         raise ValueError(f'Expecting a BaseForm, slate.TensorBase, or Expr object: got {form}')
 
 
-class ExprAssembler(object):
+class ExprAssembler:
     """Expression assembler.
 
     Parameters
@@ -1080,36 +1082,38 @@ class ParloopFormAssembler(FormAssembler):
                 "Use assemble instead."
             )
 
-        # debug
-        # pyop3_compiler_parameters = {"optimize": True}
-        # pyop3_compiler_parameters = {"optimize": False, "attach_debugger": True}
-        pyop3_compiler_parameters = {"optimize": False}
-        pyop3_compiler_parameters.update(self._pyop3_compiler_parameters)
+        mesh = self._form.ufl_domains()[0]
+        with active_scoped_cache(mesh._cache):  # NOTE: This doesn't really do anything
+            # debug
+            # pyop3_compiler_parameters = {"optimize": True}
+            # pyop3_compiler_parameters = {"optimize": False, "attach_debugger": True}
+            pyop3_compiler_parameters = {"optimize": False}
+            pyop3_compiler_parameters.update(self._pyop3_compiler_parameters)
 
-        if tensor is None:
-            tensor = self.allocate()
-        else:
-            self._check_tensor(tensor)
-            if self._needs_zeroing:
-                self._as_pyop3_type(tensor).zero(eager=True)
-
-        for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
-            subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
-
-            # TODO: move this elsewhere, or avoid entirely?
-            if isinstance(subtensor, op3.Mat) and subtensor.buffer.mat_type == "python":
-                subtensor = subtensor.buffer.mat.getPythonContext().dat
-
-            if isinstance(self, ExplicitMatrixAssembler):
-                with _modified_lgmaps(subtensor, lgmaps):
-                    parloop({self._tensor_name[local_kernel]: subtensor.buffer}, compiler_parameters=pyop3_compiler_parameters)
+            if tensor is None:
+                tensor = self.allocate()
             else:
-                parloop({self._tensor_name[local_kernel]: subtensor.buffer}, compiler_parameters=pyop3_compiler_parameters)
+                self._check_tensor(tensor)
+                if self._needs_zeroing:
+                    self._as_pyop3_type(tensor).zero(eager=True)
 
-        for bc in self._bcs:
-            self._apply_bc(tensor, bc, u=current_state)
+            for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
+                subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
 
-        return self.result(tensor)
+                # TODO: move this elsewhere, or avoid entirely?
+                if isinstance(subtensor, op3.Mat) and subtensor.buffer.mat_type == "python":
+                    subtensor = subtensor.buffer.mat.getPythonContext().dat
+
+                if isinstance(self, ExplicitMatrixAssembler):
+                    with _modified_lgmaps(subtensor, lgmaps):
+                        parloop({self._tensor_name[local_kernel]: subtensor.buffer}, compiler_parameters=pyop3_compiler_parameters)
+                else:
+                    parloop({self._tensor_name[local_kernel]: subtensor.buffer}, compiler_parameters=pyop3_compiler_parameters)
+
+            for bc in self._bcs:
+                self._apply_bc(tensor, bc, u=current_state)
+
+            return self.result(tensor)
 
     @abc.abstractmethod
     def _apply_bc(self, tensor, bc, u=None):

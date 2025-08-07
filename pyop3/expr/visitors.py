@@ -357,30 +357,45 @@ def _(dat: op3_expr.Dat, /, replace_map):
 @replace.register(op3_expr.LinearDatBufferExpression)
 def _(expr: op3_expr.LinearDatBufferExpression, /, replace_map):
     # TODO: Can have a flag that determines the replacement order (pre/post)
-    if expr in replace_map:
+    try:
         return replace_map[expr]
+    except KeyError:
+        pass
+
+    # reuse if untouched
+    updated_layout = replace(expr.layout, replace_map)
+    if updated_layout == expr.layout:
+        return expr
     else:
-        new_layout = replace(expr.layout, replace_map)
-        return expr.__record_init__(layout=new_layout)
+        return expr.__record_init__(layout=updated_layout)
 
 
 @replace.register(op3_expr.CompositeDat)
 def _(dat: op3_expr.CompositeDat, /, replace_map):
     # TODO: Can have a flag that determines the replacement order (pre/post)
-    if dat in replace_map:
+    try:
         return replace_map[dat]
-    else:
-        raise AssertionError("Not sure about this here...")
-        replaced_layout = replace(dat.layout, replace_map)
-        return dat.reconstruct(layout=replaced_layout)
+    except KeyError:
+        pass
+
+    raise AssertionError("Not sure about this here...")
+    replaced_layout = replace(dat.layout, replace_map)
+    return dat.reconstruct(layout=replaced_layout)
 
 
 @replace.register(op3_expr.Operator)
-def _(op: op3_expr.Operator, /, replace_map) -> op3_expr.BinaryOperator:
+def _(op: op3_expr.Operator, /, replace_map) -> op3_expr.Operator:
     try:
         return replace_map[op]
     except KeyError:
-        return type(op)(*(map(partial(replace, replace_map=replace_map), op.operands)))
+        pass
+
+    # reuse if untouched
+    updated_operands = tuple(replace(operand, replace_map=replace_map) for operand in op.operands)
+    if updated_operands == op.operands:
+        return op
+    else:
+        return type(op)(*updated_operands)
 
 
 @functools.singledispatch
