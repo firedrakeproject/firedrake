@@ -427,9 +427,9 @@ class Conditional(TernaryOperator):
         c_loop_axes = get_loop_axes(self.b)
         axes = collections.defaultdict(tuple, a_loop_axes)
         for loop_index, loop_axes in b_loop_axes.items():
-            axes[loop_index] = utils.unique(axes[loop_index], loop_axes)
+            axes[loop_index] = utils.unique((*axes[loop_index], *loop_axes))
         for loop_index, loop_axes in c_loop_axes.items():
-            axes[loop_index] = utils.unique(axes[loop_index], loop_axes)
+            axes[loop_index] = utils.unique((*axes[loop_index], *loop_axes))
         return idict(axes)
 
     @property

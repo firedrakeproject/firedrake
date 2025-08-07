@@ -14,6 +14,8 @@ def compare_function_space_assembly(function_space, restricted_function_space,
     restricted_form = inner(u2, v2) * dx
 
     normal_fs_matrix = assemble(original_form, bcs=bcs)
+    import pyop3.extras.debug
+    pyop3.extras.debug.enable_conditional_breakpoints("ABC")
     restricted_fs_matrix = assemble(restricted_form, bcs=res_bcs)
 
     identity = np.identity(normal_fs_matrix.M.nrows)

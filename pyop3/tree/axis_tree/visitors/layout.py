@@ -27,6 +27,7 @@ from .size import compute_axis_tree_component_size
 
 
 @PETSc.Log.EventDecorator()
+@utils.unsafe_cache
 def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     """Compute the layout functions for an axis tree.
 

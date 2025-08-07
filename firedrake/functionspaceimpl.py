@@ -786,7 +786,7 @@ class FunctionSpace:
         #   n2 -> (p1, d0)
         #   ...
         #
-        # We realise this by computing the joint mappings:
+        # We realise this by computing the pair of mappings:
         #
         #   n0 -> p0, n1 -> p0, n2 -> p1, ...
         #
@@ -1431,6 +1431,28 @@ class RestrictedFunctionSpace(FunctionSpace):
 
     def collapse(self):
         return type(self)(self.function_space.collapse(), boundary_set=self.boundary_set)
+
+    @cached_property
+    def nodal_axes(self) -> op3.IndexedAxisTree:
+        # NOTE: This might be a good candidate for axis forests so we could have
+        # V.axes and index it with node things or mesh things
+        scalar_axis_tree = self.axes.blocked(self.shape)
+        num_nodes = scalar_axis_tree.size
+
+        node_axis = op3.Axis([op3.AxisComponent(num_nodes, sf=scalar_axis_tree.sf)], "nodes")
+        axis_tree = op3.AxisTree(node_axis)
+        for i, dim in enumerate(self.shape):
+            axis_tree = axis_tree.add_axis(axis_tree.leaf_path, op3.Axis({"XXX": dim}, f"dim{i}"))
+
+        # Reuse the targets from the unconstrained space as they do not affect
+        # the layout functions.
+        targets = self.function_space.nodal_axes.targets
+
+        return op3.IndexedAxisTree(
+            axis_tree,
+            unindexed=self.layout_axes,
+            targets=targets,
+        )
 
 
 class MixedFunctionSpace:

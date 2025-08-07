@@ -585,16 +585,12 @@ def _(var: Any, /, *args, **kwargs) -> tuple[tuple[Any, int]]:
 
 @collect_candidate_indirections.register(op3_expr.Operator)
 def _(op: op3_expr.Operator, /, visited_axes, loop_indices, *, compress: bool) -> tuple:
-    # a_result = collect_candidate_indirections(op.a, visited_axes, loop_indices, compress=compress)
-    # b_result = collect_candidate_indirections(op.b, visited_axes, loop_indices, compress=compress)
-
     operand_candidatess = tuple(
         collect_candidate_indirections(operand, visited_axes, loop_indices, compress=compress)
         for operand in op.operands
     )
 
     candidates = []
-    # for (a_expr, a_cost), (b_expr, b_cost) in itertools.product(a_result, b_result):
     for operand_candidates in itertools.product(*operand_candidatess):
         operand_exprs, operand_costs = zip(*operand_candidates, strict=True)
         candidate_expr = type(op)(*operand_exprs)
@@ -608,15 +604,16 @@ def _(op: op3_expr.Operator, /, visited_axes, loop_indices, *, compress: bool) -
         # and not benefit from the optimisation.
         if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
             # op_axes, op_loop_axes = extract_axes(op, visited_axes, loop_indices, {})
-            op_axes = op.shape
+            op_axes = utils.just_one(op.shape)
             op_loop_axes = op.loop_axes
             compressed_expr = op3_expr.LinearCompositeDat(op_axes, op, loop_indices)
 
             op_cost = op_axes.size
-            for loop_axis in op_loop_axes:
-                # NOTE: This makes (and asserts) a strong assumption that loops are
-                # linear by now. It may be good to encode this into the type system.
-                op_cost *= loop_axis.component.max_size
+            for loop_axes in op_loop_axes.values():
+                for loop_axis in loop_axes:
+                    # NOTE: This makes (and asserts) a strong assumption that loops are
+                    # linear by now. It may be good to encode this into the type system.
+                    op_cost *= loop_axis.component.max_size
             candidates.append((compressed_expr, op_cost))
 
     return tuple(candidates)
@@ -848,7 +845,7 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
 
     if isinstance(composite_dat, op3_expr.LinearCompositeDat):
         layout = newlayouts[axes.leaf_path]
-        assert not isinstance(layout, NaN)
+        assert not isinstance(layout, op3_expr.NaN)
         materialized_expr = op3_expr.LinearDatBufferExpression(BufferRef(assignee.buffer, axes.nest_indices), layout)
     else:
         assert isinstance(composite_dat, op3_expr.NonlinearCompositeDat)
@@ -919,19 +916,43 @@ def _(num: numbers.Number):
     return {}
 
 
+@utils.unsafe_cache
+def max_(expr) -> numbers.Number:
+    return _max(expr)
+
+
 @functools.singledispatch
-def max_(expr):
+def _max(expr):
     raise TypeError
 
 
-@max_.register(numbers.Number)
+@_max.register(numbers.Number)
 def _(expr):
     return expr
 
 
-@max_.register(op3_expr.Expression)
+@_max.register(op3_expr.Expression)
 def _(expr):
     return _expr_extremum(expr, "max")
+
+
+@utils.unsafe_cache
+def min_(expr) -> numbers.Number:
+    return _min(expr)
+
+@functools.singledispatch
+def _min(expr):
+    raise TypeError
+
+
+@_min.register(numbers.Number)
+def _(expr):
+    return expr
+
+
+@_min.register(op3_expr.Expression)
+def _(expr):
+    return _expr_extremum(expr, "min")
 
 
 def _expr_extremum(expr, extremum_type: str):
@@ -962,16 +983,6 @@ def _expr_extremum(expr, extremum_type: str):
     return just_one(result.buffer._data)
 
 
-@functools.singledispatch
-def min_(expr):
-    raise TypeError
-
-
-@min_.register(numbers.Number)
-def _(expr):
-    return expr
-
-
-@min_.register(op3_expr.Expression)
-def _(expr):
-    return _expr_extremum(expr, "min")
+# this is better to call min that the existing choice (min_value)
+def mymin(a, b, /):
+    return conditional(a < b, a, b)

@@ -676,3 +676,9 @@ def regexify(pattern: str):
     pattern = pattern.replace("#", r"\d+")
 
     return pattern
+
+
+def unsafe_cache(*args, **kwargs):
+    import pyop3
+    pyop3.extras.debug.warn_todo("This cache is not safe in parallel and can also get very big!")
+    return functools.cache(*args, **kwargs)
