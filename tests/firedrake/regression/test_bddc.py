@@ -138,10 +138,10 @@ def mesh(request):
 @pytest.mark.parametrize("degree", range(1, 3))
 @pytest.mark.parametrize("variant", ("spectral", "fdm"))
 def test_vertex_dofs(mesh, variant, degree):
-    from firedrake.preconditioners.bddc import get_vertex_dofs
+    from firedrake.preconditioners.bddc import get_restricted_dofs
     P1 = FunctionSpace(mesh, "Lagrange", 1, variant=variant)
     V0 = FunctionSpace(mesh, "Lagrange", degree, variant=variant)
-    v = get_vertex_dofs(V0)
+    v = get_restricted_dofs(V0, "vertex")
     assert v.getSizes() == P1.dof_dset.layout_vec.getSizes()
 
 

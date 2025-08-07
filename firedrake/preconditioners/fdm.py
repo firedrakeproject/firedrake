@@ -107,7 +107,10 @@ class FDMPC(PCBase):
 
         # Transform the problem into the space with FDM shape functions
         V = J.arguments()[-1].function_space()
-        V_fdm = V.reconstruct(variant=self._variant)
+        if self._variant == "fdm" and V.ufl_element().variant() in {"fdm", "demkowicz", "demkowiczmass"}:
+            V_fdm = V
+        else:
+            V_fdm = V.reconstruct(variant=self._variant)
         if V == V_fdm:
             J_fdm, bcs_fdm = (J, bcs)
         else:

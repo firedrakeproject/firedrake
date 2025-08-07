@@ -339,8 +339,7 @@ def test_ipdg_direct_solver(fs):
 
 @pytest.mark.parallel(nprocs=2)
 @pytest.mark.parametrize("mat_type", ("aij",))
-@pytest.mark.parametrize("degree", (1, 4))
-@pytest.mark.parametrize("variant", ("spectral", "integral", "fdm"))
+@pytest.mark.parametrize("variant,degree", [("spectral", 1), ("spectral", 4), ("integral", 4), ("fdm", 4)])
 def test_tabulate_gradient(mesh, variant, degree, mat_type):
     from firedrake.preconditioners.fdm import tabulate_exterior_derivative
     tdim = mesh.topological_dimension()
@@ -362,8 +361,7 @@ def test_tabulate_gradient(mesh, variant, degree, mat_type):
 
 @pytest.mark.parallel(nprocs=2)
 @pytest.mark.parametrize("mat_type", ("aij",))
-@pytest.mark.parametrize("degree", (1, 4))
-@pytest.mark.parametrize("variant", ("spectral", "integral", "fdm"))
+@pytest.mark.parametrize("variant,degree", [("spectral", 1), ("spectral", 4), ("integral", 4), ("fdm", 4)])
 def test_tabulate_curl(mesh, variant, degree, mat_type):
     from firedrake.preconditioners.fdm import tabulate_exterior_derivative
     tdim = mesh.topological_dimension()
@@ -386,8 +384,7 @@ def test_tabulate_curl(mesh, variant, degree, mat_type):
 
 @pytest.mark.parallel(nprocs=2)
 @pytest.mark.parametrize("mat_type", ("aij", "is"))
-@pytest.mark.parametrize("degree", (1, 4))
-@pytest.mark.parametrize("variant", ("spectral", "integral", "fdm"))
+@pytest.mark.parametrize("variant,degree", [("spectral", 1), ("spectral", 4), ("integral", 4), ("fdm", 4)])
 def test_tabulate_divergence(mesh, variant, degree, mat_type):
     from firedrake.preconditioners.fdm import tabulate_exterior_derivative
     tdim = mesh.topological_dimension()

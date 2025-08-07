@@ -58,7 +58,7 @@ class BDDCPC(PCBase):
         # Do not use CSR of local matrix to define dofs connectivity unless requested
         # Using the CSR only makes sense for H1/H2 problems
         is_h1h2 = sobolev_space in [H1, H2]
-        if "pc_bddc_use_local_mat_graph" not in opts and (not is_h1h2 or variant == "fdm"):
+        if "pc_bddc_use_local_mat_graph" not in opts and (not is_h1h2 or variant in {"fdm", "demkowicz", "demkowiczmass"}):
             opts["pc_bddc_use_local_mat_graph"] = False
 
         # Handle boundary dofs
@@ -131,19 +131,11 @@ class BDDCPC(PCBase):
         self.pc.applyTranspose(x, y)
 
 
-def get_dof_mapping(V, W):
+def get_restricted_dofs(V, domain):
+    W = FunctionSpace(V.mesh(), restrict(V.ufl_element(), domain))
     indices = get_restriction_indices(V, W)
     indices = V.dof_dset.lgmap.apply(indices)
     return PETSc.IS().createGeneral(indices, comm=V.comm)
-
-
-def get_restricted_dofs(V, domain):
-    W = FunctionSpace(V.mesh(), restrict(V.ufl_element(), domain))
-    return get_dof_mapping(V, W)
-
-
-def get_low_order_dofs(V):
-    return get_dof_mapping(V, V.reconstruct(degree=1))
 
 
 def get_divergence_mat(V, mat_type="aij", allow_repeated=False):
@@ -160,42 +152,13 @@ def get_divergence_mat(V, mat_type="aij", allow_repeated=False):
 
 
 def get_discrete_gradient(V):
-    from firedrake import VectorSpaceBasis
-
     Q = FunctionSpace(V.mesh(), curl_to_grad(V.ufl_element()))
     gradient = tabulate_exterior_derivative(Q, V)
 
     variant = Q.ufl_element().variant()
-    if variant == "fdm":
+    if variant in {"fdm", "demkowicz", "demkowiczmass"}:
         vdofs = get_restricted_dofs(Q, "vertex")
         gradient.compose('_elements_corners', vdofs)
-
-    if False:
-        # Constant moments along edges
-        wdofs = get_low_order_dofs(V)
-        v0 = Function(V)
-        with v0.dat.vec as y:
-            y.setValues(wdofs, numpy.ones((wdofs.getSizes()[0],), dtype=PETSc.RealType))
-            y.assemble()
-
-        # Linear moments along edges
-        # Constant moments of gradients of H1 edge bubbles
-        p = Function(Q).interpolate(1)
-        q = Function(Q)
-
-        edofs = get_restricted_dofs(Q, "edge")
-        edofs = edofs.difference(vdofs)
-        with q.dat.vec as qvec, p.dat.vec as pvec:
-            qvec.setValues(edofs, pvec.getValues(edofs))
-            qvec.assemble()
-
-        v1 = Function(V)
-        with v1.dat.vec as y, q.dat.vec as x:
-            gradient.mult(x, y)
-            y.chop(1E-14)
-
-        nsp = VectorSpaceBasis([v0, v1])
-        gradient.compose("_constraints", nsp.nullspace())
 
     degree = max(as_tuple(Q.ufl_element().degree()))
     grad_args = (gradient,)
