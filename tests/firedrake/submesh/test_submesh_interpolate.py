@@ -46,8 +46,8 @@ def _test_submesh_interpolate_cell_cell(mesh, subdomain_cond, fe_fesub):
     assert np.allclose(fsub.dat.data_ro_with_halos, gsub.dat.data_ro_with_halos)
     f = Function(V_).interpolate(f)
     g = Function(V)
-    # interpolation on subdomain only makes sense
-    # if there is no ambiguity on the subdomain boundary.
+    # interpolation on subset is unsafe in parallel;
+    # see https://github.com/firedrakeproject/firedrake/issues/4483.
     # For testing, the following suffices.
     g.interpolate(f)
     temp = Constant(999.*np.ones(V.value_shape))
