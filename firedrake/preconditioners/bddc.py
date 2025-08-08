@@ -54,6 +54,9 @@ class BDDCPC(PCBase):
         bddcpc.setOperators(*pc.getOperators())
         bddcpc.setType(PETSc.PC.Type.BDDC)
 
+        # Allow viewing preconditioning matrix for debugging purposes
+        P.viewFromOptions('-view_mat', bddcpc)
+
         opts = PETSc.Options(bddcpc.getOptionsPrefix())
         # Do not use CSR of local matrix to define dofs connectivity unless requested
         # Using the CSR only makes sense for H1/H2 problems
