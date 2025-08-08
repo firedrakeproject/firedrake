@@ -46,13 +46,13 @@ def _test_submesh_interpolate_cell_cell(mesh, subdomain_cond, fe_fesub):
     assert np.allclose(fsub.dat.data_ro_with_halos, gsub.dat.data_ro_with_halos)
     f = Function(V_).interpolate(f)
     g = Function(V)
-    # interpolation on subdomain only makes sense
-    # if there is no ambiguity on the subdomain boundary.
+    # interpolation on subset is unsafe in parallel;
+    # see https://github.com/firedrakeproject/firedrake/issues/4483.
     # For testing, the following suffices.
     g.interpolate(f)
     temp = Constant(999.*np.ones(V.value_shape))
     g.interpolate(temp, subset=mesh.topology.cell_subset(label_value))  # pollute the data
-    g.interpolate(gsub, subset=mesh.topology.cell_subset(label_value))
+    g.interpolate(gsub, allow_missing_dofs=True)
     assert assemble(inner(g - f, g - f) * dx(label_value)).real < 1e-14
 
 
@@ -124,6 +124,52 @@ def test_submesh_interpolate_cell_cell_quad_3_processes(fe_fesub, condx, condy, 
     cond = conditional(condx(x, 0.5), 1,
            conditional(condy(y, 0.5), 1, 0))  # noqa: E128
     _test_submesh_interpolate_cell_cell(mesh, cond, fe_fesub)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_submesh_interpolate_subcell_subcell_2_processes():
+    # mesh
+    # rank 0:
+    # 4---12----6---15---(8)-(18)-(10)
+    # |         |         |         |
+    # 11   0   13    1  (17)  (2) (19)
+    # |         |         |         |
+    # 3---14----5---16---(7)-(20)--(9)
+    # rank 1:
+    #          (7)-(13)---3----9----5
+    #           |         |         |
+    #          (12) (1)   8    0   10
+    #           |         |         |    plex points
+    #          (6)-(14)---2---11----4    () = ghost
+    mesh = RectangleMesh(
+        3, 1, 3., 1., quadrilateral=True, distribution_parameters={"partitioner_type": "simple"},
+    )
+    dim = mesh.topological_dimension()
+    x, _ = SpatialCoordinate(mesh)
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    f_l = Function(DG0).interpolate(conditional(x < 2.0, 1, 0))
+    f_r = Function(DG0).interpolate(conditional(x > 1.0, 1, 0))
+    mesh = RelabeledMesh(mesh, [f_l, f_r], [111, 222])
+    mesh_l = Submesh(mesh, dim, 111)
+    mesh_r = Submesh(mesh, dim, 222)
+    V_l = FunctionSpace(mesh_l, "CG", 1)
+    V_r = FunctionSpace(mesh_r, "CG", 1)
+    f_l = Function(V_l)
+    f_r = Function(V_r)
+    f_l.dat.data_with_halos[:] = 1.0
+    f_r.dat.data_with_halos[:] = 2.0
+    f_l.interpolate(f_r, allow_missing_dofs=True)
+    g_l = Function(V_l).interpolate(conditional(x > 0.999, 2.0, 1.0))
+    assert np.allclose(f_l.dat.data_with_halos, g_l.dat.data_with_halos)
+    f_l.dat.data_with_halos[:] = 3.0
+    f_r.interpolate(f_l, allow_missing_dofs=True)
+    # Want to use:
+    # g_r = Function(V_r).interpolate(conditional(x < 2.001, 3.0, 2.0))
+    # , but there is a parallel interpolation bug;
+    # see https://github.com/firedrakeproject/firedrake/issues/4483.
+    # Check the following anyway to test that subcell-subcell map is correct.
+    g_r = Function(V_r).interpolate(conditional(x < 1.999, 3.0, 2.0))
+    assert np.allclose(f_r.dat.data_with_halos, g_r.dat.data_with_halos)
 
 
 @pytest.mark.parallel(nprocs=5)
