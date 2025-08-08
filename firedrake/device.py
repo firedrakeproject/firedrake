@@ -28,14 +28,22 @@ class GPUDevice(ComputeDevice):
     identity = "gpu"
     array_type = cp.ndarray
     
-    def __init__(self, num_threads=32):
+    def __init__(self, blocks = [("cell", 1)]):
         self.identity = "gpu"
-        self.num_threads=num_threads
         self.stream = cp.cuda.Stream(non_blocking=True)
         self.kernel_string = []
         self.kernel_args = []
         self.file_name = "temp_kernel_device"
         self.kernel_type = None
+        self.blocks = [] 
+        for block_type, dim in blocks:
+            if 2**int(np.log2(dim)) != dim:
+                raise ValueError(f"Block dim must be a power of two, not {dim}")
+            if block_type == "cell":
+                self.blocks += [("BLOCK_SIZE_C", dim)]
+            else:   
+                raise NotImplementedError("Other block types beyond cell not yet supported")
+                
 
     def array(self, arr):
         return cp.array(arr)
@@ -158,10 +166,10 @@ def _put_slice_(x, n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, p
 compute_device = CPUDevice()
 
 @contextlib.contextmanager
-def device(type="cpu"):
+def device(type="cpu", blocks=[("cell", 1)]):
     global compute_device
     if type=="gpu":
-        gpu = GPUDevice()
+        gpu = GPUDevice(blocks)
         orig_device = compute_device
         compute_device = gpu
         os.environ["FIREDRAKE_USE_GPU"] = "1" 
