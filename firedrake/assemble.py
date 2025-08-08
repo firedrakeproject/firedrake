@@ -1097,42 +1097,42 @@ class ParloopFormAssembler(FormAssembler):
 
         constructed_parloops = self.parloops(tensor)
 
-        if "FIREDRAKE_USE_GPU" in os.environ:
-            from firedrake.device import compute_device
-            arrays = []
-            maps = []
-            for kernel, args in zip(compute_device.kernel_string, compute_device.kernel_args):
-                arg_counter = 0
-                for arg in args:
-                    if arg == "coords":
-                         coordinate_space = FunctionSpace(self._form.ufl_domain(), self._form.ufl_domain()._ufl_coordinate_element)
-                         arrays += [self._form.ufl_domain().coordinates.dat.buffer.data.reshape((-1,) + coordinate_space.shape)]
-                         # TODO this does not work and i made these maps up
-                         import cupy as cp
-                         maps += [cp.array([[0,1,2],[2,3,1]])]
-                         # maps += [coordinate_space.cell_node_list]
-                    elif arg == "A":
-                        form_degree = len(self._form.arguments()) 
-                        if form_degree > 1:
-                            raise NotImplementedError("GPU assembly currently only supported on 1-forms")
-                        fs = self._form.arguments()[0].function_space()
-                        arrays += [np.empty_like(Function(fs).dat.buffer.data)]
-                        # TODO this does not work and i made these maps up
-                        import cupy as cp
-                        maps += [cp.array([[0,1,2],[2,3,1]])]
-                        #maps += [fs.cell_node_list]
-                        pass # this is the output array
-                    else:
-                        
-                        arrays += [self._form.coefficients()[arg_counter].dat.buffer.data]
-                        maps += [self._form.coefficients()[arg_counter].function_space().cell_node_list]
-                        arg_counter += 1
-            compute_device.write_file(arrays, maps)
-        
-        if "FIREDRAKE_USE_GPU" in os.environ:
-            temp_file = __import__(compute_device.file_name)
-            temp_file.gpu_parloop()
-        breakpoint()
+        #if "FIREDRAKE_USE_GPU" in os.environ:
+        #    from firedrake.device import compute_device
+        #    arrays = []
+        #    maps = []
+        #    for kernel, args in zip(compute_device.kernel_string, compute_device.kernel_args):
+        #        arg_counter = 0
+        #        for arg in args:
+        #            if arg == "coords":
+        #                 coordinate_space = FunctionSpace(self._form.ufl_domain(), self._form.ufl_domain()._ufl_coordinate_element)
+        #                 arrays += [self._form.ufl_domain().coordinates.dat.buffer.data.reshape((-1,) + coordinate_space.shape)]
+        #                 # TODO this does not work and i made these maps up
+        #                 import cupy as cp
+        #                 maps += [cp.array([[0,1,2],[2,3,1]])]
+        #                 # maps += [coordinate_space.cell_node_list]
+        #            elif arg == "A":
+        #                form_degree = len(self._form.arguments()) 
+        #                if form_degree > 1:
+        #                    raise NotImplementedError("GPU assembly currently only supported on 1-forms")
+        #                fs = self._form.arguments()[0].function_space()
+        #                arrays += [np.empty_like(Function(fs).dat.buffer.data)]
+        #                # TODO this does not work and i made these maps up
+        #                import cupy as cp
+        #                maps += [cp.array([[0,1,2],[2,3,1]])]
+        #                #maps += [fs.cell_node_list]
+        #                pass # this is the output array
+        #            else:
+        #                
+        #                arrays += [self._form.coefficients()[arg_counter].dat.buffer.data]
+        #                maps += [self._form.coefficients()[arg_counter].function_space().cell_node_list]
+        #                arg_counter += 1
+        #    compute_device.write_file(arrays, maps)
+        #
+        #if "FIREDRAKE_USE_GPU" in os.environ:
+        #    temp_file = __import__(compute_device.file_name)
+        #    temp_file.gpu_parloop()
+
         for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, constructed_parloops):
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
 

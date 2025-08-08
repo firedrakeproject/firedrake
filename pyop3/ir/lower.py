@@ -420,16 +420,54 @@ class CuPyCodegenContext(CodegenContext):
     def subkernels(self) -> tuple:
         return tuple(self._subkernels)
 
+    def triton_slicing(self):
+        return """
+# Ops for slicing (take/put) local tensor (extension to https://github.com/triton-lang/triton/pull/2715)
+# extension found https://github.com/triton-lang/triton/issues/656
+@triton.jit
+def _indicator_(n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, pos_dim: tl.constexpr):
+    tl.static_assert(idx < n_dims)
+    tl.static_assert(pos < pos_dim)
+    y = tl.arange(0, pos_dim)
+    y = tl.where(y==pos, 1, 0)
+    
+    for n in tl.static_range(0, n_dims):
+        if n != n_dims - 1 - idx:
+            y = tl.expand_dims(y, n)
+    return y
+
+@triton.jit
+def _take_slice_(x, n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, pos_dim:tl.constexpr, keep_dim: tl.constexpr = True):
+    ind = _indicator_(n_dims, idx, pos, pos_dim)
+    y = tl.sum(x * ind, n_dims - 1 - idx)
+    if keep_dim:
+        y = tl.expand_dims(y, n_dims - 1 - idx)
+
+    return y
+
+@triton.jit
+def _put_slice_(x, n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, pos_dim:tl.constexpr, input_slice):
+    ind = _indicator_(n_dims, idx, pos, pos_dim)
+    y = tl.where(ind==1, input_slice, x)
+    return y
+
+"""    
+
     @property
     def preambles(self) -> list:
         preambles = [ "import numpy as np",
                       "import cupy as cp",
-                      "import cupyx as cpx"
+                      "import cupyx as cpx",
+                      "import torch",
+                      "import triton",
+                      "import triton.language as tl",
+                      "from triton.language.extra import libdevice",
+                      "DEVICE=triton.runtime.driver.active.get_active_torch_device()",
+                      self.triton_slicing()
         ]
         return preambles
     
     def make_translation_unit(self, function_name, compiler_parameters):
-        
         tu = CuPyTranslationUnit(self.domains, self.instructions, self.arguments, self.temporaries, self.subkernels, function_name)
         tu.compile(self.preambles)
         return tu, tu.default_entrypoint 
@@ -578,7 +616,7 @@ class CuPyCodegenContext(CodegenContext):
         shape = tuple([int(s) for s in shape])
         if initializer is not None:
             from firedrake.device import compute_device
-            arg = CuPyTemporary(name_in_kernel, dtype, shape, compute_device.arr(initializer))
+            arg = CuPyTemporary(name_in_kernel, dtype, shape, compute_device.array(initializer))
         else:
             arg = CuPyTemporary(name_in_kernel, dtype, shape)
         self._temporaries.append(arg)
@@ -683,6 +721,8 @@ class ModuleExecutor:
         #if len(self.code.callables_table) > 1:
         #    breakpoint()
         # pyop3.extras.debug.maybe_breakpoint()
+        import os
+        #if "FIREDRAKE_USE_GPU" not in os.environ:
         self.executable(*exec_arguments)
         pass
 
@@ -1122,15 +1162,31 @@ def _cupy(call: StandaloneCalledFunction, loop_indices, context: CuPyCodegenCont
         name_in_kernel = context.add_buffer(arg.buffer, spec.intent)
 
         subarrayrefs[arg] = f"{name_in_kernel}"
+        context.add_assignment(f"{name_in_kernel}", f"torch.from_numpy({name_in_kernel}.get()).float().to(DEVICE)")
     assignees = tuple(
         (subarrayrefs[arg], spec)
         for arg, spec in zip(call.arguments, call.argspec, strict=True)
         if spec.intent in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE}
     )
-    arg_str = ",".join([subarrayrefs[arg] for arg in call.arguments])
-    expression = f"{call.function.code.default_entrypoint.name}({arg_str})"
+    args = [subarrayrefs[arg] for arg in call.arguments]
+    from firedrake.device import compute_device
+    for t in call.function.code.temps:
+        initializer =  [a[1] for a in compute_device.kernel_data["arrays"] if a[0] == t][0]
+        args += [context.add_temporary("temp", shape=initializer.shape, initializer=initializer, dtype=initializer.dtype)]
+    #handle grids and blocks here too
+    grid = ""
+    if compute_device.kernel_type == "triton":
+        blocks = compute_device.kernel_data["blocks"]
+        context.add_assignment("grid", f"lambda meta: (triton.cdiv(2, meta['{blocks[0][0]}']), )")
+        args += [f"{blocks[0][0]} = {blocks[0][1]}"]
+        grid = "[grid]"
+    arg_str = ",".join(args)
+    expression = f"{call.function.code.default_entrypoint.name}{grid}({arg_str})"
 
     context.add_function_call(assignees, expression)
+
+    for a in call.arguments:
+        context.add_assignment(f"{subarrayrefs[a]}", f"cp.array({subarrayrefs[a]})")
     subkernel = call.function.code
     context.add_subkernel(subkernel)
 

@@ -8,6 +8,7 @@ import gem
 from gem.flop_count import count_flops
 
 import loopy as lp
+import os
 
 from tsfc import kernel_args
 from finat.element_factory import create_element

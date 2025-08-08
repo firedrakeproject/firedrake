@@ -156,13 +156,17 @@ class CuPyTranslationUnit():
         args = ", ".join([a.name for a in self._arguments]) #add types?
         code_lines += ["\t"*indent + f"def {self.function_name}({args}):"]
         indent += 1
+        from firedrake.device import compute_device
         for temp in self._temporaries:
             if temp.initializer is not None:
-                code_lines += [ "\t"*indent + f"{temp.name} : {temp.dtype} = {initialiser}"]
+                code_lines += [ "\t"*indent + f"{temp.name} : {temp.dtype} = cp.{repr(temp.initializer).replace('dtype=', 'dtype=cp.')}"]
             elif len(temp.shape) != 0:
                 code_lines += [ "\t"*indent + f"{temp.name} : {temp.dtype} = cp.zeros({temp.shape},dtype=cp.{temp.dtype})"]
             else:
                 code_lines += [ "\t"*indent + f"{temp.name} : {temp.dtype}"]
+        
+            if compute_device.kernel_type == "triton" and temp.name[:4] == "temp":
+                code_lines += ['\t'*indent + f"{temp.name} = torch.from_numpy({temp.name}.get()).float().to(DEVICE)"]
         #code_lines += ["\t"*indent + "breakpoint()"]
 
         current_inames = set()
