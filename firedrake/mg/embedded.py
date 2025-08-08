@@ -94,7 +94,7 @@ class TransferManager(object):
             return self.caches.setdefault(key, TransferManager.Cache(*key))
 
     def cache_key(self, V):
-        return (V.dim(), tuple(V.boundary_set))
+        return (V.mesh(), tuple(V.boundary_set))
 
     def V_dof_weights(self, V):
         """Dof weights for averaging projection.
