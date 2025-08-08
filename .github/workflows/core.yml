@@ -253,6 +253,19 @@ jobs:
         timeout-minutes: 10
 
 
+      - name: Run Irksome smoke tests
+        # Only test Irksome in real mode
+        if: |
+          inputs.run_tests &&
+          (success() || steps.install.conclusion == 'success') &&
+          matrix.arch == 'default'
+        run: |
+          . venv/bin/activate
+          git clone --depth 1 https://github.com/firedrakeproject/irksome.git irksome-repo
+          pip install --verbose ./irksome-repo
+          python -m pytest -n 8 --verbose irksome-repo/tests
+        timeout-minutes: 10
+
       - name: Run Firedrake tests (nprocs = 1)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
