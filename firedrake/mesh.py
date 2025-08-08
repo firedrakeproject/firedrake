@@ -2462,6 +2462,12 @@ values from f.)"""
     def bounding_box_coords(self):
         """Calculates bounding boxes for spatial indexing.
 
+        Returns a tuple of arrays of shape (num_cells, gdim) containing
+        the minimum and maximum coordinates of each cell's bounding box.
+
+        Notes
+        -----
+        
         If we have a higher-order (bendy) mesh we project the mesh coordinates into
         a Bernstein finite element space. Functions on a Bernstein element are
         Bezier curves and are completely contained in the convex hull of the mesh nodes.
@@ -2539,7 +2545,7 @@ values from f.)"""
         -----
 
         If this mesh has a :attr:`tolerance` property, which
-        should be a float, this tolerance is added to the extrama of the
+        should be a float, this tolerance is added to the extrema of the
         spatial index so that points just outside the mesh, within tolerance,
         can be found.
 
