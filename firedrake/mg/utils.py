@@ -140,7 +140,7 @@ def physical_node_locations(V):
     try:
         return cache[key]
     except KeyError:
-        Vc = V.collapse().reconstruct(element=finat.ufl.VectorElement(element, dim=mesh.geometric_dimension()))
+        Vc = V.collapse().reconstruct(element=finat.ufl.VectorElement(element))
 
         # FIXME: This is unsafe for DG coordinates and CG target spaces.
         locations = firedrake.assemble(firedrake.Interpolate(firedrake.SpatialCoordinate(mesh), Vc))
@@ -171,5 +171,5 @@ def has_level(obj):
 def _cache_key(Vc, Vf):
     return (entity_dofs_key(Vc.finat_element.entity_dofs())
             + entity_dofs_key(Vf.finat_element.entity_dofs())
-            + (Vc.dim(), Vf.dim())
+            + (Vc.mesh(), Vf.mesh())
             + (tuple(Vc.boundary_set), tuple(Vf.boundary_set)))
