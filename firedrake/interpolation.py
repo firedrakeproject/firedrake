@@ -772,36 +772,19 @@ class SameMeshInterpolator(Interpolator):
             target = V.function_space().mesh().topology if isinstance(V, firedrake.Function) else V.mesh().topology
             temp = extract_unique_domain(expr)
             source = target if temp is None else temp.topology
-            if all(isinstance(m, firedrake.mesh.MeshTopology) for m in [target, source]):
-                common = target.submesh_youngest_common_ancester(source)
-                if common in source.submesh_ancesters[1:]:
-                    # Need subset.
+            if all(isinstance(m, firedrake.mesh.MeshTopology) for m in [target, source]) and target is not source:
+                composed_map, result_integral_type = source.trans_mesh_entity_map(target, "cell", "everywhere", None)
+                if result_integral_type != "cell":
+                    raise AssertionError(f"target integral type ({result_integral_type}) != \"cell\"")
+                indices = composed_map.values_with_halo.reshape(-1)
+                make_subset = any(indices < 0)
+                make_subset = target.comm.allreduce(make_subset, op=MPI.LOR)
+                if make_subset:
                     if not allow_missing_dofs:
                         raise ValueError("iteration (sub)set unclear: run with `allow_missing_dofs=True`")
-                    ascend_map, target_integral_type = common.trans_mesh_entity_map(source, "cell", "everywhere", None)
-                    if target_integral_type != "cell":
-                        raise AssertionError(f"target integral type ({target_integral_type}) != \"cell\"")
-                    if common in target.submesh_ancesters[1:]:
-                        descend_map_inv, target_integral_type = common.trans_mesh_entity_map(target, "cell", "everywhere", None)
-                        if target_integral_type != "cell":
-                            raise AssertionError(f"target integral type ({target_integral_type}) != \"cell\"")
-                        if ascend_map.toset is not descend_map_inv.toset:
-                            raise AssertionError(f"{ascend_map.toset} is not {descend_map_inv.toset}")
-                        if descend_map_inv.iterset is not target.cell_set:
-                            raise AssertionError(f"{descend_map_inv.iterset} is not {target.cell_set}")
-                        _, indices, _ = numpy.intersect1d(
-                            descend_map_inv.values_with_halo,
-                            ascend_map.values_with_halo,
-                            assume_unique=True,
-                            return_indices=True,
-                        )
-                    else:
-                        if ascend_map.toset is not target.cell_set:
-                            raise AssertionError(f"{ascend_map.toset} is not {target.cell_set}")
-                        indices = ascend_map.values_with_halo
-                    subset = op2.Subset(target.cell_set, indices)
+                    subset = op2.Subset(target.cell_set, numpy.where(indices >= 0))
                 else:
-                    # Do not need subset as target <= source = common.
+                    # Do not need subset as target <= source.
                     pass
         super().__init__(expr, V, subset=subset, freeze_expr=freeze_expr,
                          access=access, bcs=bcs, allow_missing_dofs=allow_missing_dofs, matfree=matfree)

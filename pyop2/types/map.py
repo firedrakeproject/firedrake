@@ -278,11 +278,16 @@ class ComposedMap(Map):
 
     @utils.cached_property
     def values_with_halo(self):
-        arrays = tuple(m.values_with_halo for m in self.maps_)
-        for array in arrays:
-            if any(array < 0):
-                raise RuntimeError("Not for arrays with negative entries")
-        return functools.reduce(lambda a, b: a[b], arrays)
+        if self._arity != 1:
+            raise NotImplementedError("Only for self._arity = 1")
+        mask = np.full(self._iterset.total_size, True, dtype=bool)
+        r = np.arange(self._iterset.total_size, dtype=Map.dtype)
+        for m in reversed(self.maps_):
+            a = m.values_with_halo.reshape(-1)
+            mask[mask] &= a[r[mask]] >= 0
+            r[mask] = a[r[mask]]
+        r[~mask] = -1
+        return r.reshape(self.shape)
 
     def __str__(self):
         return "OP2 ComposedMap of Maps: [%s]" % ",".join([str(m) for m in self.maps_])
