@@ -108,7 +108,8 @@ def test_high_order_location():
     assert mesh.locate_cell([0.25, -1.05], tolerance=0.0001) is None
 
 
-def test_high_order_location_internal():
+def test_high_order_interior_facet_location():
+    # Here we bend an interior facet and check the right cell is located.
     mesh = UnitSquareMesh(2, 2)
     V = VectorFunctionSpace(mesh, "CG", 3, variant="equispaced")
     f = Function(V)
