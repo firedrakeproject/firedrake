@@ -1,4 +1,5 @@
 import numpy as np
+import numpy.typing as npt
 import ctypes
 import os
 import sys
@@ -6,6 +7,7 @@ import ufl
 import finat.ufl
 import FIAT
 import weakref
+from typing import Tuple
 from collections import OrderedDict, defaultdict
 from collections.abc import Sequence
 from ufl.classes import ReferenceGrad
@@ -2459,15 +2461,19 @@ values from f.)"""
         self._spatial_index = None
 
     @utils.cached_property
-    def bounding_box_coords(self):
+    def bounding_box_coords(self) -> Tuple[npt.NDArray, npt.NDArray] | None:
         """Calculates bounding boxes for spatial indexing.
 
-        Returns a tuple of arrays of shape (num_cells, gdim) containing
+        Returns
+        -------
+        Tuple of arrays of shape (num_cells, gdim) containing
         the minimum and maximum coordinates of each cell's bounding box.
+
+        None if the geometric dimension is 1, since libspatialindex
+        does not support 1D.
 
         Notes
         -----
-        
         If we have a higher-order (bendy) mesh we project the mesh coordinates into
         a Bernstein finite element space. Functions on a Bernstein element are
         Bezier curves and are completely contained in the convex hull of the mesh nodes.
@@ -2539,11 +2545,16 @@ values from f.)"""
 
     @property
     def spatial_index(self):
-        """Spatial index to quickly find which cell contains a given point.
+        """Builds spatial index from bounding box coordinates, expanding
+        the bounding box by the mesh tolerance.
+
+        Returns
+        -------
+        :class:`~.spatialindex.SpatialIndex` or None if the mesh is
+        one-dimensional.
 
         Notes
         -----
-
         If this mesh has a :attr:`tolerance` property, which
         should be a float, this tolerance is added to the extrema of the
         spatial index so that points just outside the mesh, within tolerance,
