@@ -788,6 +788,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
         if isinstance(dFdm, firedrake.Argument):
             #  Corner case. Should be fixed more permanently upstream in UFL.
+            #  See: https://github.com/FEniCS/ufl/issues/395
             dFdm = ufl.Action(dFdm, adj_sol)
         else:
             dFdm = dFdm * adj_sol

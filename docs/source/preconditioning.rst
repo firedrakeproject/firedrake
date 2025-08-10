@@ -138,7 +138,7 @@ operator instead.
    implemented for quadrilateral and hexahedral cells. The assembled
    matrix becomes as sparse as a low-order refined preconditioner, to
    which one may apply other preconditioners such as :class:`.ASMStarPC` or
-   :class:`.ASMExtrudedStarPC`. See details in :cite:`Brubeck2022`.
+   :class:`.ASMExtrudedStarPC`. See details in :cite:`Brubeck2022` and :cite:`Brubeck2024`.
 :class:`.MassInvPC`
    Preconditioner for applying an inverse mass matrix.
 :class:`~.PCDPC`

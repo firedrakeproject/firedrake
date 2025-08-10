@@ -6,7 +6,8 @@ import numpy as np
 from firedrake import *
 from firedrake.adjoint import *
 from pyadjoint import Block, MinimizationProblem, TAOSolver, get_working_tape
-from pyadjoint.optimization.tao_solver import OptionsManager, PETScVecInterface
+from pyadjoint.optimization.tao_solver import PETScVecInterface
+import petsctools
 
 
 @pytest.fixture(autouse=True)
@@ -68,18 +69,24 @@ def test_petsc_roundtrip_multiple():
 def minimize_tao_lmvm(rf):
     problem = MinimizationProblem(rf)
     solver = TAOSolver(problem, {"tao_type": "lmvm",
-                                 "tao_gatol": 1.0e-4,
+                                 "tao_monitor": None,
+                                 "tao_converged_reason": None,
+                                 "tao_gatol": 1.0e-5,
                                  "tao_grtol": 0.0,
-                                 "tao_gttol": 0.0})
+                                 "tao_gttol": 1.0e-6,
+                                 "tao_monitor": None})
     return solver.solve()
 
 
 def minimize_tao_nls(rf):
     problem = MinimizationProblem(rf)
     solver = TAOSolver(problem, {"tao_type": "nls",
-                                 "tao_gatol": 1.0e-7,
+                                 "tao_monitor": None,
+                                 "tao_converged_reason": None,
+                                 "tao_gatol": 1.0e-5,
                                  "tao_grtol": 0.0,
-                                 "tao_gttol": 0.0})
+                                 "tao_gttol": 1.0e-6,
+                                 "tao_monitor": None})
     return solver.solve()
 
 
@@ -149,7 +156,7 @@ def test_simple_inversion(riesz_representation):
 @pytest.mark.parametrize("riesz_representation", [None, "l2", "L2", "H1"])
 @pytest.mark.skipcomplex
 def test_tao_simple_inversion(minimize, riesz_representation):
-    """Test inversion of source term in helmholze eqn using TAO."""
+    """Test inversion of source term in helmholtz eqn using TAO."""
     mesh = UnitIntervalMesh(10)
     V = FunctionSpace(mesh, "CG", 1)
     source_ref = Function(V)
@@ -213,11 +220,13 @@ def transform(v, transform_type, *args, mfn_parameters=None, **kwargs):
         M_mat.setUp()
 
         mfn = SLEPc.MFN().create(comm=comm)
-        options = OptionsManager(mfn_parameters, None)
-        options.set_default_parameter("fn_type", "sqrt")
+        petsctools.attach_options(
+            mfn, parameters=mfn_parameters,
+            options_prefix=None)
+        petsctools.set_default_parameter(mfn, "fn_type", "sqrt")
         mfn.setOperator(M_mat)
 
-        options.set_from_options(mfn)
+        petsctools.set_from_options(mfn)
         mfn.setUp()
         if mfn.getFN().getType() != SLEPc.FN.Type.SQRT:
             raise ValueError("Invalid FN type")
@@ -229,7 +238,8 @@ def transform(v, transform_type, *args, mfn_parameters=None, **kwargs):
         if y.norm(PETSc.NormType.NORM_INFINITY) == 0:
             x.zeroEntries()
         else:
-            mfn.solve(y, x)
+            with petsctools.inserted_options(mfn):
+                mfn.solve(y, x)
             if mfn.getConvergedReason() <= 0:
                 raise RuntimeError("Convergence failure")
 
@@ -276,10 +286,11 @@ def test_simple_inversion_riesz_representation(tao_type):
     mfn_parameters = {"mfn_type": "krylov",
                       "mfn_tol": 1.0e-12}
     tao_parameters = {"tao_type": tao_type,
+                      "tao_monitor": None,
+                      "tao_converged_reason": None,
                       "tao_gatol": 1.0e-5,
                       "tao_grtol": 0.0,
-                      "tao_gttol": 0.0,
-                      "tao_monitor": None}
+                      "tao_gttol": 0.0}
 
     with stop_annotating():
         mesh = UnitIntervalMesh(10)
@@ -347,6 +358,8 @@ def test_tao_bounds():
     lb = 0.5 - 7.0 / 11.0
     problem = MinimizationProblem(rf, bounds=(lb, None))
     solver = TAOSolver(problem, {"tao_type": "bnls",
+                                 "tao_monitor": None,
+                                 "tao_converged_reason": None,
                                  "tao_gatol": 1.0e-7,
                                  "tao_grtol": 0.0,
                                  "tao_gttol": 0.0})

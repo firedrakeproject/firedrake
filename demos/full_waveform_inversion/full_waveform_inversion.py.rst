@@ -217,8 +217,6 @@ The receiver mesh is required in order to interpolate the wave equation solution
 
 We are now able to proceed with the synthetic data computations and record them on the receivers::
 
-    from firedrake.__future__ import interpolate
-
     true_data_receivers = []
     total_steps = int(final_time / dt) + 1
     f = Cofunction(V.dual())  # Wave equation forcing term.
@@ -298,7 +296,7 @@ we have a custom ``ReducedFunctional``, we need to do this ourselves::
     from pyadjoint.reduced_functional_numpy import ReducedFunctionalNumPy
     Jnumpy = ReducedFunctionalNumPy(J_hat)
 
-    c_optimised = minimize(Jnumpy, method="L-BFGS-B", options={"disp": True, "maxiter": 1},
+    c_optimised = minimize(Jnumpy, method="L-BFGS-B", options={"disp": True, "maxiter": 1, "ftol": 0.9},
                            bounds=(1.5, 2.0))
 
 The ``minimize`` function executes the optimisation algorithm until the stopping criterion (``maxiter``) is met.
@@ -312,9 +310,7 @@ For 20 iterations, the predicted velocity model is shown in the following figure
 .. warning::
 
     The ``minimize`` function uses the SciPy library for optimisation. However, for scenarios that require higher
-    levels of spatial parallelism, you should assess whether SciPy is the most suitable option for your problem.
-    SciPy's optimisation algorithm is not inner-product-aware. Therefore, we configure the options with
-    ``derivative_options={"riesz_representation": 'l2'}`` to account for this requirement.
+    levels of spatial parallelism, you should assess whether SciPy is the most suitable option for your problem such as the pyadjoint's TAOSolver.
 
 .. note::
 
