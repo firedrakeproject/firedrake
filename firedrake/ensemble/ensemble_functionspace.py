@@ -22,7 +22,7 @@ def _is_primal_or_dual(local_spaces, ensemble):
 
     local_spaces : Collection
         The list of :class:`~firedrake.functionspaceimpl.FunctionSpace` on the local ensemble.comm.
-    ensemble : :class:`.ensemble.Ensemble`
+    ensemble : :class:`~.ensemble.Ensemble`
         The Ensemble to test collectively over.
 
     Returns
@@ -66,7 +66,7 @@ def _is_primal_or_dual(local_spaces, ensemble):
 
 class EnsembleFunctionSpaceBase:
     """
-    Base class for mixed function spaces defined on an :class:`.ensemble.Ensemble`.
+    Base class for mixed function spaces defined on an :class:`~.ensemble.Ensemble`.
     The subcomponents are distributed over the ensemble members, and are specified locally.
 
 
@@ -74,13 +74,13 @@ class EnsembleFunctionSpaceBase:
     ----------
     local_spaces : Collection
         The list of function spaces on the local ensemble.comm.
-    ensemble : `.ensemble.Ensemble`
+    ensemble : `~.ensemble.Ensemble`
         The communicator that the function space is defined over.
 
     Notes
     -----
     Passing a list of dual local_spaces to :class:`EnsembleFunctionSpace`
-    will return an instance of :class:`firedrake.EnsembleDualSpace`.
+    will return an instance of :class:`EnsembleDualSpace`.
 
     This class does not carry UFL symbolic information, unlike a
     :class:`~firedrake.functionspaceimpl.FunctionSpace`. UFL expressions can only be defined locally
@@ -88,8 +88,8 @@ class EnsembleFunctionSpaceBase:
     `EnsembleFunctionSpace.local_spaces`.
 
     See also:
-    - Primal ensemble objects: :class:`EnsembleFunctionSpace` and :class:`.ensemble_function.EnsembleFunction`.
-    - Dual ensemble objects: :class:`firedrake.EnsembleDualSpace` and :class:`.ensemble_function.EnsembleCofunction`.
+    - Primal ensemble objects: :class:`EnsembleFunctionSpace` and :class:`~firedrake.ensemble.ensemble_function.EnsembleFunction`.
+    - Dual ensemble objects: :class:`EnsembleDualSpace` and :class:`~firedrake.ensemble.ensemble_function.EnsembleCofunction`.
     """
     def __init__(self, local_spaces: Collection, ensemble: Ensemble):
         meshes = set(V.mesh() for V in local_spaces)
@@ -114,25 +114,25 @@ class EnsembleFunctionSpaceBase:
 
     @property
     def ensemble(self):
-        """The :class:`.ensemble.Ensemble` that the function space is defined over
+        """The :class:`~.ensemble.Ensemble` that the function space is defined over
         """
         return self._ensemble
 
     @property
     def comm(self):
-        """The spatial communicator from the :class:`.ensemble.Ensemble` communicator.
+        """The spatial communicator from the :class:`~.ensemble.Ensemble` communicator.
         """
         return self._ensemble.comm
 
     @property
     def ensemble_comm(self):
-        """The ensemble communicator from the :class:`.ensemble.Ensemble` communicator.
+        """The ensemble communicator from the :class:`~.ensemble.Ensemble` communicator.
         """
         return self._ensemble.ensemble_comm
 
     @property
     def global_comm(self):
-        """The global communicator from the :class:`.ensemble.Ensemble` communicator.
+        """The global communicator from the :class:`~.ensemble.Ensemble` communicator.
         """
         return self._ensemble.global_comm
 
@@ -143,13 +143,13 @@ class EnsembleFunctionSpaceBase:
         return self._local_spaces
 
     def mesh(self):
-        """The :class:`firedrake.Mesh` on the local ensemble.comm.
+        """The :class:`~firedrake.Mesh` on the local ensemble.comm.
         """
         return self._mesh
 
     def dual(self):
         """The dual to this function space.
-        A :class:`firedrake.EnsembleDualSpace` if self is a :class:`EnsembleFunctionSpace`, and vice-versa.
+        A :class:`EnsembleDualSpace` if self is a :class:`EnsembleFunctionSpace`, and vice-versa.
         """
         return EnsembleFunctionSpace(
             [V.dual() for V in self.local_spaces], self.ensemble)
@@ -193,18 +193,15 @@ class EnsembleFunctionSpaceBase:
         return tuple(offset + j for j in range(len(self.local_spaces[i])))
 
     def create_vec(self):
-        """Return a PETSc Vec on the `ensemble.global_comm` with the same layout as a
-        :class:`~firedrake.EnsembleFunction` or :class:`~firedrake.EnsembleCofunction`
+        """Return a PETSc Vec on the ``Ensemble.global_comm`` with the same layout
+        as a :class:`~firedrake.ensemble.ensemble_functionspace.EnsembleFunction`
+        or :class:`~firedrake.ensemble.ensemble_functionspace.EnsembleCofunction`
         in this function space.
         """
         vec = PETSc.Vec().create(comm=self.global_comm)
         vec.setSizes((self.nlocal_dofs, self.nglobal_dofs))
         vec.setUp()
         return vec
-
-    def local_to_global_ises(self, i):
-        # COMM_SELF or global_comm?
-        pass
 
     def __eq__(self, other):
         if not isinstance(other, type(self)):
@@ -228,15 +225,15 @@ class EnsembleFunctionSpaceBase:
 
 class EnsembleFunctionSpace(EnsembleFunctionSpaceBase):
     """
-    A mixed primal function space defined on an :class:`.ensemble.Ensemble`.
+    A mixed primal function space defined on an :class:`~.ensemble.Ensemble`.
     The subcomponents are distributed over the ensemble members, but
     are specified locally on each ensemble member.
 
     Parameters
     ----------
     local_spaces : Collection
-        The list of primal function spaces on the local ensemble.comm.
-    ensemble : :class:`.ensemble.Ensemble`
+        The list of primal function spaces on the local ``Ensemble.comm``.
+    ensemble : :class:`~.ensemble.Ensemble`
         The communicator that the function space is defined over.
 
     Notes
