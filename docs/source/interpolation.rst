@@ -2,6 +2,8 @@
 
   .. contents::
 
+.. _firedrake_interpolation:
+
 Interpolation
 =============
 
@@ -35,18 +37,6 @@ where :math:`\bar{\phi}^*_i` is the :math:`i`-th dual basis function to
 
 The interpolate operator
 ------------------------
-
-.. note::
-   The semantics for interpolation in Firedrake are in the course of changing.
-   The documentation provided here is for the new behaviour, in which the
-   `interpolate` operator is symbolic. In order to access the behaviour
-   documented here (which is recommended), users need to use the following
-   import line:
-
-   .. code-block:: python3
-
-      from firedrake.__future__ import interpolate
-
 
 The basic syntax for interpolation is:
 
@@ -272,6 +262,7 @@ interpolation:
    :start-after: [test_cross_mesh 21]
    :end-before: [test_cross_mesh 22]
 
+.. _external_interpolation:
 
 Interpolation from external data
 --------------------------------

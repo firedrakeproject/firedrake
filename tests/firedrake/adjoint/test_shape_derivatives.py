@@ -2,7 +2,6 @@ import pytest
 
 import numpy as np
 from firedrake import *
-from firedrake.__future__ import *
 from firedrake.adjoint import *
 from pyadjoint import taylor_to_dict
 
@@ -40,8 +39,7 @@ def test_sin_weak_spatial():
     V = TestFunction(S)
     # Derivative (Cofunction)
     dJV = assemble(div(V)*sin(x[0])*dx + V[0]*cos(x[0])*dx)
-    # Apply L2 riesz representation to obtain the gradient.
-    actual = dJV.riesz_representation().vector().get_local()
+    actual = dJV.vector().get_local()
     assert np.allclose(computed, actual, rtol=1e-14)
 
 
@@ -96,8 +94,8 @@ def test_shape_hessian():
     h.interpolate(as_vector((cos(x[2]), A*cos(x[1]), A*x[1])))
 
     # Second order taylor
-    dJdm = assemble(inner(Jhat.derivative(), h)*dx)
-    Hm = assemble(inner(compute_hessian(J, c, h), h)*dx)
+    dJdm = assemble(inner(Jhat.derivative(apply_riesz=True), h)*dx)
+    Hm = assemble(inner(compute_hessian(J, c, h, apply_riesz=True), h)*dx)
     r2 = taylor_test(Jhat, s, h, dJdm=dJdm, Hm=Hm)
     print(r2)
     assert (r2 > 2.9)
@@ -151,8 +149,8 @@ def test_PDE_hessian_neumann():
     Jhat(s)
 
     # # Second order taylor
-    dJdm = assemble(inner(Jhat.derivative(), h)*dx)
-    Hm = assemble(inner(compute_hessian(J, c, h), h)*dx)
+    dJdm = assemble(inner(Jhat.derivative(apply_riesz=True), h)*dx)
+    Hm = assemble(inner(compute_hessian(J, c, h, apply_riesz=True), h)*dx)
     r2 = taylor_test(Jhat, s, h, dJdm=dJdm, Hm=Hm)
     assert (r2 > 2.95)
 
@@ -204,8 +202,8 @@ def test_PDE_hessian_dirichlet():
     Jhat(s)
 
     # # Second order taylor
-    dJdm = assemble(inner(Jhat.derivative(), h)*dx)
-    Hm = assemble(inner(compute_hessian(J, c, h), h)*dx)
+    dJdm = assemble(inner(Jhat.derivative(apply_riesz=True), h)*dx)
+    Hm = assemble(inner(compute_hessian(J, c, h, apply_riesz=True), h)*dx)
     r2 = taylor_test(Jhat, s, h, dJdm=dJdm, Hm=Hm)
     assert (r2 > 2.95)
 

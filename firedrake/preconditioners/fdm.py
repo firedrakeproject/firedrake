@@ -36,30 +36,6 @@ import finat
 import numpy
 import ctypes
 
-Citations().add("Brubeck2022", """
-@article{Brubeck2022,
-  title={A scalable and robust vertex-star relaxation for high-order {FEM}},
-  author={Brubeck, Pablo D. and Farrell, Patrick E.},
-  journal = {SIAM J. Sci. Comput.},
-  volume = {44},
-  number = {5},
-  pages = {A2991-A3017},
-  year = {2022},
-  doi = {10.1137/21M1444187}
-""")
-
-Citations().add("Brubeck2024", """
-@article{Brubeck2024,
-  title={{Multigrid solvers for the de Rham complex with optimal complexity in polynomial degree}},
-  author={Brubeck, Pablo D. and Farrell, Patrick E.},
-  journal = {SIAM J. Sci. Comput.},
-  volume = {46},
-  number = {3},
-  pages = {A1549-A1573},
-  year = {2024},
-  doi = {10.1137/22M1537370}
-""")
-
 
 __all__ = ("FDMPC", "PoissonFDMPC")
 
@@ -777,10 +753,11 @@ class FDMPC(PCBase):
         P.setISAllowRepeated(self.allow_repeated)
         P.setLGMap(rmap, cmap)
         if on_diag and ptype == "is" and self.allow_repeated:
-            bsize = Vrow.finat_element.space_dimension() * Vrow.value_size
+            bsize = Vrow.finat_element.space_dimension() * Vrow.block_size
             local_mat = P.getISLocalMat()
             nblocks = local_mat.getSize()[0] // bsize
-            local_mat.setVariableBlockSizes([bsize] * nblocks)
+            sizes = numpy.full((nblocks,), bsize, dtype=PETSc.IntType)
+            local_mat.setVariableBlockSizes(sizes)
         P.setPreallocationNNZ((dnz, onz))
 
         if not (ptype.endswith("sbaij") or ptype == "is"):

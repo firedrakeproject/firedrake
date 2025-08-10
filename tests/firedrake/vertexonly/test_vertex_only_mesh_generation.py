@@ -16,7 +16,6 @@ def cell_midpoints(m):
     `midpoints` are the midpoints for the entire mesh even if the mesh is
     distributed and `local_midpoints` are the midpoints of only the
     rank-local non-ghost cells."""
-    m.init()
     V = VectorFunctionSpace(m, "DG", 0)
     f = Function(V).interpolate(SpatialCoordinate(m))
     # since mesh may be distributed, the number of cells on the MPI rank
@@ -121,7 +120,6 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     assert vm.geometric_dimension() == gdim
     assert vm.topological_dimension() == 0
     # Can initialise
-    vm.init()
     # has correct name
     assert vm.name == name
     # Find in-bounds and non-halo-region input coordinates
@@ -427,15 +425,6 @@ def test_outside_boundary_behaviour(parentmesh):
     # by 2 orders of magnitude for this to work consistently
     vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-13, missing_points_behaviour=None)
     assert vm.cell_set.size == 1
-
-
-@pytest.mark.parallel
-def test_on_boundary_behaviour():
-    coords = np.array([[0.4, 0.2, 0.3]])
-    mesh = UnitCubeMesh(10, 10, 10)
-    vm = VertexOnlyMesh(mesh, coords)
-    total_num_cells = MPI.COMM_WORLD.allreduce(len(vm.coordinates.dat.data_ro_with_halos), op=MPI.SUM)
-    assert total_num_cells == 1
 
 
 @pytest.mark.parallel(nprocs=2)  # nprocs == total number of mesh cells

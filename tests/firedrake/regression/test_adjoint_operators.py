@@ -6,7 +6,6 @@ from ufl.classes import Zero
 
 from firedrake import *
 from firedrake.adjoint import *
-from firedrake.__future__ import *
 
 
 @pytest.fixture(autouse=True)
@@ -864,10 +863,10 @@ def test_assign_zero_cofunction():
     J = assemble(((sol + Constant(1.0)) ** 2) * dx)
     # The zero assignment should break the tape and hence cause a zero
     # gradient.
-    grad_l2 = compute_gradient(J, Control(k), options={"riesz_representation": "l2"})
-    grad_none = compute_gradient(J, Control(k), options={"riesz_representation": None})
-    grad_h1 = compute_gradient(J, Control(k), options={"riesz_representation": "H1"})
-    grad_L2 = compute_gradient(J, Control(k), options={"riesz_representation": "L2"})
+    grad_l2 = compute_derivative(J, Control(k, riesz_map="l2"), apply_riesz=True)
+    grad_none = compute_derivative(J, Control(k), apply_riesz=False)
+    grad_h1 = compute_derivative(J, Control(k, riesz_map="H1"), apply_riesz=True)
+    grad_L2 = compute_derivative(J, Control(k, riesz_map="L2"), apply_riesz=True)
     assert isinstance(grad_l2, Function) and isinstance(grad_L2, Function) \
         and isinstance(grad_h1, Function)
     assert isinstance(grad_none, Cofunction)
@@ -913,7 +912,6 @@ def test_riesz_representation_for_adjoints():
     space = FunctionSpace(mesh, "Lagrange", 1)
     f = Function(space).interpolate(SpatialCoordinate(mesh)[0])
     J = assemble((f ** 2) * dx)
-    rf = ReducedFunctional(J, Control(f))
     with stop_annotating():
         v = TestFunction(space)
         u = TrialFunction(space)
@@ -932,21 +930,27 @@ def test_riesz_representation_for_adjoints():
         dJdu_function_L2 = Function(space)
         solve(a == dJdu_cofunction, dJdu_function_L2)
 
-    dJdu_none = rf.derivative(options={"riesz_representation": None})
-    dJdu_l2 = rf.derivative(options={"riesz_representation": "l2"})
-    dJdu_H1 = rf.derivative(options={"riesz_representation": "H1"})
-    dJdu_L2 = rf.derivative(options={"riesz_representation": "L2"})
-    dJdu_default_L2 = rf.derivative()
-    assert (
-        isinstance(dJdu_none, Cofunction) and isinstance(dJdu_function_l2, Function)
-        and isinstance(dJdu_H1, Function) and isinstance(dJdu_default_L2, Function)
-        and isinstance(dJdu_L2, Function)
-        and np.allclose(dJdu_none.dat.data, dJdu_cofunction.dat.data)
-        and np.allclose(dJdu_l2.dat.data, dJdu_function_l2.dat.data)
-        and np.allclose(dJdu_H1.dat.data, dJdu_function_H1.dat.data)
-        and np.allclose(dJdu_default_L2.dat.data, dJdu_function_L2.dat.data)
-        and np.allclose(dJdu_L2.dat.data, dJdu_function_L2.dat.data)
+    dJdu_none = ReducedFunctional(J, Control(f)).derivative()
+    dJdu_l2 = ReducedFunctional(J, Control(f, riesz_map="l2")).derivative(
+        apply_riesz=True
     )
+    dJdu_H1 = ReducedFunctional(J, Control(f, riesz_map="H1")).derivative(
+        apply_riesz=True
+    )
+    dJdu_L2 = ReducedFunctional(J, Control(f, riesz_map="L2")).derivative(
+        apply_riesz=True
+    )
+    dJdu_default_L2 = ReducedFunctional(J, Control(f)).derivative(
+        apply_riesz=True
+    )
+    assert isinstance(dJdu_none, Cofunction) and isinstance(dJdu_function_l2, Function)
+    assert isinstance(dJdu_H1, Function) and isinstance(dJdu_default_L2, Function)
+    assert isinstance(dJdu_L2, Function)
+    assert np.allclose(dJdu_none.dat.data, dJdu_cofunction.dat.data)
+    assert np.allclose(dJdu_l2.dat.data, dJdu_function_l2.dat.data)
+    assert np.allclose(dJdu_H1.dat.data, dJdu_function_H1.dat.data)
+    assert np.allclose(dJdu_default_L2.dat.data, dJdu_function_L2.dat.data)
+    assert np.allclose(dJdu_L2.dat.data, dJdu_function_L2.dat.data)
 
 
 @pytest.mark.skipcomplex
@@ -971,13 +975,13 @@ def test_lvs_constant_jacobian(constant_jacobian):
 
     J_hat = ReducedFunctional(J, Control(u))
 
-    dJ = J_hat.derivative(options={"riesz_representation": None})
+    dJ = J_hat.derivative()
     assert np.allclose(dJ.dat.data_ro, 2 * assemble(inner(u_ref, test) * dx).dat.data_ro)
 
     u_ref = Function(space, name="u").interpolate(X[0] - 0.1)
     J_hat(u_ref)
 
-    dJ = J_hat.derivative(options={"riesz_representation": None})
+    dJ = J_hat.derivative()
     assert np.allclose(dJ.dat.data_ro, 2 * assemble(inner(u_ref, test) * dx).dat.data_ro)
 
 
@@ -998,13 +1002,14 @@ def test_cofunction_assign_functional():
     cof2.assign(cof)  # Test is checking that this is taped.
     J = assemble(action(cof2, f2))
     Jhat = ReducedFunctional(J, Control(f))
-    assert np.allclose(float(Jhat.derivative()), 1.0)
+    assert np.allclose(float(Jhat.derivative(apply_riesz=True)), 1.0)
     f.assign(2.0)
     assert np.allclose(Jhat(f), 2.0)
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_bdy_control():
+    from firedrake.adjoint_utils.dirichletbc import DirichletBCBlock
     # Test for the case the boundary condition is a control for a
     # domain with length different from 1.
     mesh = IntervalMesh(10, 0, 2)
@@ -1024,13 +1029,28 @@ def test_bdy_control():
     problem = LinearVariationalProblem(lhs(F), rhs(F), sol, bcs=bc)
     solver = LinearVariationalSolver(problem)
     solver.solve()
+
     # Analytical solution of the analytical Laplace equation is:
     # u(x) = a + (b - a)/2 * x
-    u_analytical = a + (b - a)/2 * X[0]
-    der_analytical0 = assemble(derivative((u_analytical**2) * dx, a))
-    der_analytical1 = assemble(derivative((u_analytical**2) * dx, b))
+    def u_analytical(x, a, b):
+        return a + (b - a)/2 * x
+    der_analytical0 = assemble(derivative(
+        (u_analytical(X[0], a, b)**2) * dx, a))
+    der_analytical1 = assemble(derivative(
+        (u_analytical(X[0], a, b)**2) * dx, b))
     J = assemble(sol * sol * dx)
     J_hat = ReducedFunctional(J, [Control(a), Control(b)])
-    adj_derivatives = J_hat.derivative(options={"riesz_representation": "l2"})
+    adj_derivatives = J_hat.derivative()
     assert np.allclose(adj_derivatives[0].dat.data_ro, der_analytical0.dat.data_ro)
     assert np.allclose(adj_derivatives[1].dat.data_ro, der_analytical1.dat.data_ro)
+    a = Function(R, val=1.5)
+    b = Function(R, val=2.5)
+    J_hat([a, b])
+    tape = get_working_tape()
+    # Check the checkpointed boundary conditions are not updating the
+    # user-defined boundary conditions ``bc_left`` and ``bc_right``.
+    assert isinstance(tape._blocks[0], DirichletBCBlock) and \
+        tape._blocks[0]._outputs[0].checkpoint.checkpoint is not bc_left._original_arg
+    # tape._blocks[1] is the DirichletBC block for the right boundary
+    assert isinstance(tape._blocks[1], DirichletBCBlock) and \
+        tape._blocks[1]._outputs[0].checkpoint.checkpoint is not bc_right._original_arg

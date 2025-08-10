@@ -14,8 +14,9 @@ from gem.node import traversal
 from gem.optimise import constant_fold_zero
 from gem.optimise import remove_componenttensors as prune
 from numpy import asarray
-from tsfc import fem, ufl_utils
+from tsfc import fem
 from finat.element_factory import as_fiat_cell, create_element
+from finat.ufl import MixedElement
 from tsfc.kernel_interface import KernelInterface
 from tsfc.logging import logger
 from ufl.utils.sequences import max_degree
@@ -131,9 +132,6 @@ class KernelBuilderMixin(object):
 
         See :meth:`create_context` for typical calling sequence.
         """
-        # Split Coefficients
-        if self.coefficient_split:
-            integrand = ufl_utils.split_coefficients(integrand, self.coefficient_split)
         # Compile: ufl -> gem
         info = self.integral_data_info
         functions = [*info.arguments, self.coordinate(info.domain), *info.coefficients]
@@ -298,10 +296,16 @@ def set_quad_rule(params, cell, integral_type, functions):
     # Check if the integral has a quad degree or quad element attached,
     # otherwise use the estimated polynomial degree attached by compute_form_data
     quad_rule = params.get("quadrature_rule", "default")
+    elements = []
+    for f in functions:
+        e = f.ufl_element()
+        if type(e) is MixedElement:
+            elements.extend(e.sub_elements)
+        else:
+            elements.append(e)
     try:
         quadrature_degree = params["quadrature_degree"]
     except KeyError:
-        elements = [f.ufl_function_space().ufl_element() for f in functions]
         quad_data = set((e.degree(), e.quadrature_scheme() or "default") for e in elements
                         if e.family() in {"Quadrature", "Boundary Quadrature"})
         if len(quad_data) == 0:
@@ -320,8 +324,7 @@ def set_quad_rule(params, cell, integral_type, functions):
     if isinstance(quad_rule, str):
         scheme = quad_rule
         fiat_cell = as_fiat_cell(cell)
-        finat_elements = set(create_element(f.ufl_element()) for f in functions
-                             if f.ufl_element().family() != "Real")
+        finat_elements = set(create_element(e) for e in elements if e.family() != "Real")
         fiat_cells = [fiat_cell] + [finat_el.complex for finat_el in finat_elements]
         fiat_cell = max_complex(fiat_cells)
 

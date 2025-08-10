@@ -60,8 +60,8 @@ def test_simple_solve():
     tape.evaluate_adj()
 
     m = f.copy(deepcopy=True)
-    dJdm = assemble(inner(Jhat.derivative(), h)*dx)
-    Hm = assemble(inner(Jhat.hessian(h), h)*dx)
+    dJdm = assemble(inner(Jhat.derivative(apply_riesz=True), h)*dx)
+    Hm = assemble(inner(Jhat.hessian(h, apply_riesz=True), h)*dx)
     assert taylor_test(Jhat, m, h, dJdm=dJdm, Hm=Hm) > 2.9
 
 
@@ -140,7 +140,7 @@ def test_function():
     J = assemble(c ** 2 * u ** 2 * dx)
 
     Jhat = ReducedFunctional(J, [control_c, control_f])
-    dJdc, dJdf = compute_gradient(J, [control_c, control_f])
+    dJdc, dJdf = compute_gradient(J, [control_c, control_f], apply_riesz=True)
 
     # Step direction for derivatives and convergence test
     h_c = Function(R, val=1.0)
@@ -148,11 +148,11 @@ def test_function():
     h_f.vector()[:] = 10*rng.random(V.dim())
 
     # Total derivative
-    dJdc, dJdf = compute_gradient(J, [control_c, control_f])
+    dJdc, dJdf = compute_gradient(J, [control_c, control_f], apply_riesz=True)
     dJdm = assemble(dJdc * h_c * dx + dJdf * h_f * dx)
 
     # Hessian
-    Hcc, Hff = compute_hessian(J, [control_c, control_f], [h_c, h_f])
+    Hcc, Hff = compute_hessian(J, [control_c, control_f], [h_c, h_f], apply_riesz=True)
     Hm = assemble(Hcc * h_c * dx + Hff * h_f * dx)
     assert taylor_test(Jhat, [c, f], [h_c, h_f], dJdm=dJdm, Hm=Hm) > 2.9
 
@@ -264,12 +264,18 @@ def test_burgers():
 
     timestep = Constant(1.0/n)
 
+    params = {
+        'snes_rtol': 1e-10,
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+    }
+
     F = (Dt(u, ic, timestep)*v
          + u*u.dx(0)*v + nu*u.dx(0)*v.dx(0))*dx
     bc = DirichletBC(V, 0.0, "on_boundary")
 
     t = 0.0
-    solve(F == 0, u, bc)
+    solve(F == 0, u, bc, solver_parameters=params)
     u_.assign(u)
     t += float(timestep)
 
@@ -278,7 +284,7 @@ def test_burgers():
 
     end = 0.2
     while (t <= end):
-        solve(F == 0, u, bc)
+        solve(F == 0, u, bc, solver_parameters=params)
         u_.assign(u)
 
         t += float(timestep)
