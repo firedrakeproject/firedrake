@@ -35,6 +35,7 @@ SERIAL_DEMOS = [
     Demo(("matrix_free", "poisson"), []),
     Demo(("matrix_free", "rayleigh-benard"), ["hypre", "mumps", "vtk"]),
     Demo(("matrix_free", "stokes"), ["hypre", "mumps", "vtk"]),
+    Demo(("multicomponent", "multicomponent"), ["vtk, netgen"]),
     Demo(("multigrid", "geometric_multigrid"), ["vtk"]),
     Demo(("netgen", "netgen_mesh"), ["mumps", "netgen", "slepc", "vtk"]),
     Demo(("nonlinear_QG_winddrivengyre", "qg_winddrivengyre"), ["vtk"]),
@@ -48,6 +49,7 @@ SERIAL_DEMOS = [
     Demo(("saddle_point_pc", "saddle_point_systems"), ["hypre", "mumps"]),
     Demo(("fast_diagonalisation", "fast_diagonalisation_poisson"), ["mumps"]),
     Demo(('vlasov_poisson_1d', 'vp1d'), []),
+    Demo(('shape_optimization', 'shape_optimization'), ["adjoint", "vtk"])
 ]
 PARALLEL_DEMOS = [
     Demo(("full_waveform_inversion", "full_waveform_inversion"), ["adjoint"]),

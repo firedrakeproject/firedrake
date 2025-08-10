@@ -24,7 +24,7 @@ import finat
 
 import firedrake
 from firedrake import tsfc_interface, utils, functionspaceimpl
-from firedrake.ufl_expr import Argument, action, adjoint as expr_adjoint
+from firedrake.ufl_expr import Argument, Coargument, action, adjoint as expr_adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype as get_dat_mpi_type
@@ -150,13 +150,13 @@ class Interpolate(ufl.Interpolate):
 
 
 @PETSc.Log.EventDecorator()
-def interpolate(expr, V, *args, **kwargs):
+def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False, default_missing_val=None, matfree=True):
     """Returns a UFL expression for the interpolation operation of ``expr`` into ``V``.
 
     :arg expr: a UFL expression.
-    :arg V: the :class:`.FunctionSpace` to interpolate into (or else
-        an existing :class:`.Function` or :class:`.Cofunction`).
-        Adjoint interpolation requires ``V`` to be a :class:`.Cofunction`.
+    :arg V: a :class:`.FunctionSpace` to interpolate into, or a :class:`.Cofunction`,
+        or :class:`.Coargument`, or a :class:`ufl.form.Form` with one argument (a one-form).
+        If a :class:`.Cofunction` or a one-form is provided, then we do adjoint interpolation.
     :kwarg subset: An optional :class:`pyop2.types.set.Subset` to apply the
         interpolation over. Cannot, at present, be used when interpolating
         across meshes unless the target mesh is a :func:`.VertexOnlyMesh`.
@@ -182,13 +182,15 @@ def interpolate(expr, V, *args, **kwargs):
         some ``output`` is given to the :meth:`interpolate` method or (b) set
         to zero. Ignored if interpolating within the same mesh or onto a
         :func:`.VertexOnlyMesh`.
-    :kwarg ad_block_tag: An optional string for tagging the resulting assemble block on the Pyadjoint tape.
+    :kwarg matfree: If ``False``, then construct the permutation matrix for interpolating
+        between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
+        and reduce operations.
     :returns: A symbolic :class:`.Interpolate` object
 
     .. note::
 
        If you use an access descriptor other than ``WRITE``, the
-       behaviour of interpolation is changes if interpolating into a
+       behaviour of interpolation changes if interpolating into a
        function space, or an existing function. If the former, then
        the newly allocated function will be initialised with
        appropriate values (e.g. for MIN access, it will be initialised
@@ -196,21 +198,34 @@ def interpolate(expr, V, *args, **kwargs):
        then it is assumed that its values should take part in the
        reduction (hence using MIN will compute the MIN between the
        existing values and any new values).
-
-    .. note::
-
-       If you find interpolating the same expression again and again
-       (for example in a time loop) you may find you get better
-       performance by using an :class:`Interpolator` instead.
-
     """
-    default_missing_val = kwargs.pop("default_missing_val", None)
-    if isinstance(V, Cofunction):
-        adjoint = bool(extract_arguments(expr))
-        return Interpolator(
-            expr, V.function_space().dual(), *args, **kwargs
-        ).interpolate(V, adjoint=adjoint, default_missing_val=default_missing_val)
-    return Interpolator(expr, V, *args, **kwargs).interpolate(default_missing_val=default_missing_val)
+    if isinstance(V, (Cofunction, Coargument)):
+        dual_arg = V
+    elif isinstance(V, ufl.Form):
+        rank = len(V.arguments())
+        if rank == 1:
+            dual_arg = V
+        else:
+            raise TypeError(f"Expected a one-form, provided form had {rank} arguments")
+    elif isinstance(V, functionspaceimpl.WithGeometry):
+        dual_arg = Coargument(V.dual(), 0)
+        expr_args = extract_arguments(expr)
+        if expr_args and expr_args[0].number() == 0:
+            # In this case we are doing adjoint interpolation
+            # When V is a FunctionSpace and expr contains Argument(0),
+            # we need to change expr argument number to 1 (in our current implementation)
+            v, = expr_args
+            expr = replace(expr, {v: v.reconstruct(number=1)})
+    else:
+        raise TypeError(f"V must be a FunctionSpace, Cofunction, Coargument or one-form, not a {type(V).__name__}")
+
+    interp = Interpolate(expr, dual_arg,
+                         subset=subset, access=access,
+                         allow_missing_dofs=allow_missing_dofs,
+                         default_missing_val=default_missing_val,
+                         matfree=matfree)
+
+    return interp
 
 
 class Interpolator(abc.ABC):
