@@ -176,13 +176,12 @@ def get_component_version(component: str) -> ComponentVersion:
 
     if direct_url_json:
         direct_url = json.loads(direct_url_json)
-        is_editable = direct_url.get("dir_info", {}).get("editable", False)
-        if is_editable:
+        try:
+            commit_id = direct_url["vcs_info"]["commit_id"]
+        except KeyError:
             # sniff the commit info from the repository
             repo = direct_url["url"].removeprefix("file://")
             commit_id = get_git_commit_info(repo)
-        else:
-            commit_id = direct_url["vcs_info"]["commit_id"]
         return VCSComponentVersion(commit_id)
     else:
         # 'direct_url_json' is 'None' if the package is installed via PyPI

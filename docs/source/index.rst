@@ -2,7 +2,7 @@
 
 .. only:: html
 
-   .. sidebar:: Latest commits to the Firedrake master branch on Github
+   .. sidebar:: Latest commits to the Firedrake main branch on Github
 
       .. raw:: html
 

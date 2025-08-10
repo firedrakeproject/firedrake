@@ -156,4 +156,4 @@ For either set of options, we expect 10 iterations to convergence for each mesh 
   3        10
 ======== ============
 
-A runnable python version of this demo can be found :demo:`here<stokes.py>`.
+A runnable python version of this demo can be found :demo:`here<stokes_vanka_patches.py>`.
