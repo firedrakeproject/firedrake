@@ -208,7 +208,6 @@ def test_ensemble_reduction_float():
     for i, dj in enumerate(dJ.subvec):
         dj *= (i+2)*0.3
     taylor = taylor_to_dict(Jhat, x, dJ)
-    print(f"{taylor = }")
 
     # derivative and hessian should be "exact"
     assert mean(taylor['R0']['Rate'])
