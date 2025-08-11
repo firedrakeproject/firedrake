@@ -1,5 +1,4 @@
 import numpy as np
-import numpy.typing as npt
 import ctypes
 import os
 import sys
@@ -2461,7 +2460,7 @@ values from f.)"""
         self._spatial_index = None
 
     @utils.cached_property
-    def bounding_box_coords(self) -> Tuple[npt.NDArray, npt.NDArray] | None:
+    def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray] | None:
         """Calculates bounding boxes for spatial indexing.
 
         Returns
