@@ -7,9 +7,6 @@ from firedrake.petsc import PETSc
 PETSc.Sys.popErrorHandler()
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 def run_test():
     # mesh = UnitSquareMesh(10, 10)
     mesh = UnitSquareMesh(2, 2)

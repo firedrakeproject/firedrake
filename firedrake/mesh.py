@@ -337,40 +337,43 @@ class _FacetContext:
     @property
     def _facet_label(self):
         if self._facet_type == "exterior":
-            return "ext_facets"
+            return "exterior_facets"
         else:
             assert self._facet_type == "interior"
-            return "int_facets"
+            return "interior_facets"
 
     @property
     def _owned_facet_label(self):
+        assert False, "old"
         return (self._facet_label, "owned")
 
     @cached_property
     def _facet_axis(self):
-        nowned_facets = len(self._owned_facet_data)
-        nfacets = len(self._facet_data)
-        return op3.Axis(
-            op3.AxisComponent(
-                (nowned_facets, nfacets),
-                label=self._facet_label,
-                rank_equal=False,
-            ),
-            self.mesh.topology.name,
-        )
+        return utils.just_one(self.mesh.points[self.facet_subset].nodes)
+        # nowned_facets = len(self._owned_facet_data)
+        # nfacets = len(self._facet_data)
+        # return op3.Axis(
+        #     op3.AxisComponent(
+        #         (nowned_facets, nfacets),
+        #         label=self._facet_label,
+        #         rank_equal=False,
+        #     ),
+        #     self.mesh.topology.name,
+        # )
 
     @cached_property
     def _owned_facet_axis(self):
-        nowned_facets = len(self._owned_facet_data)
-        return op3.Axis(
-            op3.AxisComponent(
-                (nowned_facets, nowned_facets),
-                label=(self._facet_label, "owned"),
-                rank_equal=False,
-            ),
-            self.mesh.topology.name,
-        )
-        # return self._facet_axis.owned  # does not work
+        return utils.just_one(self.mesh.points[self.facet_subset].nodes)
+        # nowned_facets = len(self._owned_facet_data)
+        # return op3.Axis(
+        #     op3.AxisComponent(
+        #         (nowned_facets, nowned_facets),
+        #         label=(self._facet_label, "owned"),
+        #         rank_equal=False,
+        #     ),
+        #     self.mesh.topology.name,
+        # )
+        # # return self._facet_axis.owned  # does not work
 
     @cached_property
     def _facet_dat(self):
@@ -378,11 +381,11 @@ class _FacetContext:
             self._facet_axis, data=self._facet_data
         )
 
-    @cached_property
-    def _owned_facet_dat(self):
-        return op3.Dat(
-            self._owned_facet_axis, data=self._owned_facet_data
-        )
+    # @cached_property
+    # def _owned_facet_dat(self):
+    #     return op3.Dat(
+    #         self._owned_facet_axis, data=self._owned_facet_data
+    #     )
 
     @cached_property
     def facet_indices_renumbered(self) -> np.ndarray:
@@ -396,17 +399,23 @@ class _FacetContext:
         #     facets[fi] = facet_numbering[facet - f_start]
         # return facets
 
+    @property
+    def _facet_data(self):
+        # old name I think
+        return self.facet_indices_renumbered
+
+
     @cached_property
     def facet_subset(self) -> op3.Slice:
         dim = self.mesh.topology.dimension - 1
         indices = self.facet_indices_renumbered
         subset_dat = op3.Dat(op3.Axis(indices.size), data=indices, prefix="subset")
-        subset = op3.Subset(dim, subset_dat)
-        return op3.Slice(self.mesh.topology.points.root.label, [subset])
+        subset = op3.Subset(dim, subset_dat, label=0)
+        return op3.Slice(self.mesh.topology.points.root.label, [subset], label=self._facet_label)
 
     @cached_property
     def _owned_facet_data(self) -> np.ndarray:
-        nowned_facets = self.mesh.points.owned_count_per_component[self.mesh.facet_label]
+        nowned_facets = self.mesh.points[self.mesh.facet_label].owned.size
         return self._facet_data[self._facet_data < nowned_facets]
 
     @cached_property
@@ -1433,38 +1442,46 @@ class AbstractMeshTopology(abc.ABC):
         #     ]
 
         # Add specific support maps for the different facet types
-        supports[immutabledict({self.name: "ext_facets"})] = [
-            op3.TabulatedMapComponent(
-                self.name,
-                self.cell_label,
-                self._facet_support_dat("exterior", include_ghost_points=True),
-                label="XXX",  # needed?
+        # supports[immutabledict({self.name: "ext_facets"})] = [
+        #     op3.TabulatedMapComponent(
+        #         self.name,
+        #         self.cell_label,
+        #         self._facet_support_dat("exterior", include_ghost_points=True),
+        #         label="XXX",  # needed?
+        #     ),
+        # ]
+
+        # 1-tuple here because in theory support(facet) could map to other valid things (like points)
+        supports[immutabledict({"exterior_facets": 0})] = (
+            (
+                op3.TabulatedMapComponent(
+                    self.name,
+                    self.cell_label,
+                    self._facet_support_dat("exterior"),
+                    label="XXX",  # needed?
+                ),
             ),
-        ]
-        supports[immutabledict({self.name: ("ext_facets", "owned")})] = [
-            op3.TabulatedMapComponent(
-                self.name,
-                self.cell_label,
-                self._facet_support_dat("exterior", include_ghost_points=False),
-                label="XXX",  # needed?
+        )
+        # supports[immutabledict({self.name: "int_facets"})] = [
+        #     op3.TabulatedMapComponent(
+        #         self.name,
+        #         self.cell_label,
+        #         self._facet_support_dat("interior", include_ghost_points=True),
+        #         label="XXX",  # needed?
+        #     ),
+        # ]
+
+        # 1-tuple here because in theory support(facet) could map to other valid things (like points)
+        supports[immutabledict({"interior_facets": 0})] = (
+            (
+                op3.TabulatedMapComponent(
+                    self.name,
+                    self.cell_label,
+                    self._facet_support_dat("interior"),
+                    label="XXX",  # needed?
+                ),
             ),
-        ]
-        supports[immutabledict({self.name: "int_facets"})] = [
-            op3.TabulatedMapComponent(
-                self.name,
-                self.cell_label,
-                self._facet_support_dat("interior", include_ghost_points=True),
-                label="XXX",  # needed?
-            ),
-        ]
-        supports[immutabledict({self.name: ("int_facets", "owned")})] = [
-            op3.TabulatedMapComponent(
-                self.name,
-                self.cell_label,
-                self._facet_support_dat("interior", include_ghost_points=False),
-                label="XXX",  # needed?
-            ),
-        ]
+        )
 
         return op3.Map(supports, name="support")
 
@@ -1495,8 +1512,9 @@ class AbstractMeshTopology(abc.ABC):
                 )
             )
 
-            outer_axis = self.points[str(dim)].root
-            size_dat = op3.Dat(outer_axis, data=size, max_value=max(size), prefix="size")
+            outer_axis = self.points[dim].root
+            # size_dat = op3.Dat(outer_axis, data=size, max_value=max(size), prefix="size")
+            size_dat = op3.Dat(outer_axis, data=size, prefix="size")
             inner_axis = op3.Axis(size_dat)
             map_axes = op3.AxisTree.from_nest(
                 {outer_axis: inner_axis}
@@ -1505,11 +1523,15 @@ class AbstractMeshTopology(abc.ABC):
             supports.append({map_dim: map_dat})
         return tuple(supports)
 
-    def _facet_support_dat(self, facet_type, *, include_ghost_points):
+    def _facet_support_dat(self, facet_type, *, include_ghost_points=False):
+        if include_ghost_points:
+            # since some facets have only a single cell in the support
+            raise NotImplementedError("Need ragged maps at this point")
         assert facet_type in {"exterior", "interior"}
 
         # Get the support map for *all* facets in the mesh, not just the
-        # exterior/interior ones. We have to filter it.
+        # exterior/interior ones. We have to filter it. Note that these
+        # dats are ragged because support sizes are not consistent.
         facet_support_dat = self._support_dats[int(self.facet_label)][int(self.cell_label)]
 
         if facet_type == "exterior":
@@ -1542,17 +1564,23 @@ class AbstractMeshTopology(abc.ABC):
             data=np.full(selected_facet_support_axes.size, -1, dtype=IntType),
         )
 
-        nowned_facets = self.points.owned_count_per_component[self.facet_label]
+        mysubset = op3.Slice(self.name, [op3.Subset(self.facet_label, op3.Dat.from_array(selected_facets))])
+
+        return facet_support_dat[mysubset]
+
+        nowned_facets = self.points[self.facet_label].owned.size
         if facet_type == "exterior":
             if include_ghost_points:
                 for fi, facet in enumerate(selected_facets):
                     cell = facet_support_dat.get_value([facet, 0])
                     selected_facet_support_dat.set_value([fi, 0], cell)
             else:
-                for fi, facet in enumerate(selected_facets):
-                    if facet < nowned_facets:
-                        cell = facet_support_dat.get_value([facet, 0])
-                        selected_facet_support_dat.set_value([fi, 0], cell)
+                # selected_facet_support_dat.data_wo[...] = facet_support_dat.data_ro[selected_facets < nowned_facets]
+                selected_facet_support_dat.data_wo[...] = facet_support_dat.data_ro[selected_facets]
+                # for fi, facet in enumerate(selected_facets):
+                #     if facet < nowned_facets:
+                #         cell = facet_support_dat.get_value([facet, 0])
+                #         selected_facet_support_dat.set_value([fi, 0], cell)
         else:
             assert facet_type == "interior"
             if include_ghost_points:
@@ -1563,11 +1591,12 @@ class AbstractMeshTopology(abc.ABC):
                         cell = facet_support_dat.get_value([facet, ci])
                         selected_facet_support_dat.set_value([fi, ci], cell)
             else:
-                for fi, facet in enumerate(selected_facets):
-                    if facet < nowned_facets:
-                        for ci in range(2):
-                            cell = facet_support_dat.get_value([facet, ci])
-                            selected_facet_support_dat.set_value([fi, ci], cell)
+                selected_facet_support_dat.assign(facet_support_dat[selected_facets], eager=True)
+                # for fi, facet in enumerate(selected_facets):
+                #     if facet < nowned_facets:
+                #         for ci in range(2):
+                #             cell = facet_support_dat.get_value([facet, ci])
+                #             selected_facet_support_dat.set_value([fi, ci], cell)
 
         return selected_facet_support_dat
 

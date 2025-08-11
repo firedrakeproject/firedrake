@@ -1336,6 +1336,7 @@ def _(called_map: CalledMap, *args, **kwargs):
 def _make_leaf_axis_from_called_map_new(map_, map_name, output_spec, input_paths_and_exprs):
     from pyop3 import Dat
     from pyop3.expr.visitors import replace_terminals
+    from pyop3.expr.buffer import LinearDatBufferExpression
 
     components = []
     replace_map = merge_dicts(t for _, t in input_paths_and_exprs.values())
@@ -1343,9 +1344,9 @@ def _make_leaf_axis_from_called_map_new(map_, map_name, output_spec, input_paths
         # NOTE: This should be done more eagerly.
         arity = map_output.arity
         if not isinstance(arity, numbers.Integral):
-            assert isinstance(arity, Dat)
-            arity = arity[map_.index]
-        # arity = replace_terminals(map_output.arity, replace_map)
+            assert isinstance(arity, LinearDatBufferExpression)
+            # arity = arity[map_.index]
+            arity = replace_terminals(map_output.arity, replace_map)
         component = AxisComponent(arity, label=map_output.label)
         components.append(component)
     axis = Axis(components, label=map_name)

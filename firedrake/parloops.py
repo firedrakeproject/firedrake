@@ -498,8 +498,11 @@ def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.Ind
 
 
 def _facet_integral_pack_indices(V: WithGeometry, facet: op3.LoopIndex) -> op3.IndexTree:
-    raise NotImplementedError("TODO, reuse cell packing code")
-    plex = V.ufl_domain().topology
+    if len(V) > 1:
+        raise NotImplementedError("At present all forms are split by this point")
+
+    mesh = V._mesh
+    return mesh.closure(mesh.support(facet))
 
     indices = op3.IndexTree.from_nest({
         plex._fiat_closure(plex.support(facet)): [
