@@ -567,6 +567,10 @@ def _make_record(**kwargs):
     def wrapper(cls):
         cls = dataclasses.dataclass(**kwargs)(cls)
         cls.__record_init__ = _record_init
+
+        if kwargs.get("frozen", False):
+            cls.__hash__ = _frozenrecord_hash
+
         return cls
     return wrapper
 
@@ -582,11 +586,20 @@ def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
             f"Unrecognised arguments encountered during initialisation: {', '.join(attrs)}"
         )
 
-    # FIXME: This means that __post_init__ is only called for __record_init__, not regular __init__
+    # FIXME: __post_init__ is not called when a custom __init__ method is provided
     if hasattr(new, "__post_init__"):
         new.__post_init__()
 
     return new
+
+
+def _frozenrecord_hash(self):
+    if hasattr(self, "_cached_hash"):
+        return self._cached_hash
+
+    hash_ = hash(dataclasses.fields(self))
+    object.__setattr__(self, "_cached_hash", hash_)
+    return hash_
 
 
 def attr(attr_name: str) -> property:
