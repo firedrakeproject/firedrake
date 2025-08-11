@@ -269,8 +269,6 @@ class LoopyCodegenContext(CodegenContext):
                 return self._reusable_temporaries[key]
 
         name_in_kernel = self.unique_name(prefix)
-        # if pyop3.extras.debug.breakpoint_enabled("ABC") and name_in_kernel == "j_0":
-        #     breakpoint()
         arg = lp.TemporaryVariable(
             name_in_kernel,
             dtype=dtype,
@@ -374,18 +372,8 @@ class ModuleExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
-        mystr = """j_0 = 0 + idat_4[i_0] * (((idat_5[3 * i_0 + i_1] + ((idat_6[3 * i_0 + i_1] >= 1) ? 0 : 1 + -1 * idat_7[3 * i_0 + i_1] + -1 * idat_8[3 * i_0 + i_1]) <= 0) ? 0 : idat_9[3 * i_0 + i_1] + ((idat_10[3 * i_0 + i_1] >= 1) ? 0 : 1 + -1 * idat_11[3 * i_0 + i_1] + -1 * idat_12[3 * i_0 + i_1])) + ((idat_13[3 * i_0 + i_1] >= idat_14[3 * i_0 + i_1] + ((idat_15[3 * i_0 + i_1] >= 1) ? 0 : 1 + -1 * idat_16[3 * i_0 + i_1] + -1 * idat_17[3 * i_0 + i_1])) ? 0 : idat_18[3 * i_0 + i_1] + ((idat_19[3 * i_0 + i_1] >= 1) ? 0 : 1 + -1 * idat_20[3 * i_0 + i_1] + -1 * idat_21[3 * i_0 + i_1]) + -1 * idat_22[3 * i_0 + i_1] + -1 * idat_23[3 * i_0 + i_1]) + i_2) + 1 * (((idat_5[3 * i_0 + i_3] + ((idat_6[3 * i_0 + i_3] >= 1) ? 0 : 1 + -1 * idat_7[3 * i_0 + i_3] + -1 * idat_8[3 * i_0 + i_3]) <= 0) ? 0 : idat_9[3 * i_0 + i_3] + ((idat_10[3 * i_0 + i_3] >= 1) ? 0 : 1 + -1 * idat_11[3 * i_0 + i_3] + -1 * idat_12[3 * i_0 + i_3])) + ((idat_13[3 * i_0 + i_3] >= idat_14[3 * i_0 + i_3] + ((idat_15[3 * i_0 + i_3] >= 1) ? 0 : 1 + -1 * idat_16[3 * i_0 + i_3] + -1 * idat_17[3 * i_0 + i_3])) ? 0 : idat_18[3 * i_0 + i_3] + ((idat_19[3 * i_0 + i_3] >= 1) ? 0 : 1 + -1 * idat_20[3 * i_0 + i_3] + -1 * idat_21[3 * i_0 + i_3]) + -1 * idat_22[3 * i_0 + i_3] + -1 * idat_23[3 * i_0 + i_3]) + i_4);"""
-        # if mystr in str(self):
+        # if len(self.loopy_code.callables_table) > 1 and "expression_kernel" not in str(self):
         #     breakpoint()
-        # if len(self.loopy_code.callables_table) > 1:
-        #     breakpoint()
-        # pyop3.extras.debug.maybe_breakpoint("b")
-        # if len(self.loopy_kernel.args) > 3:
-        # selfstr = str(self)
-        # if all(k not in selfstr for k in SAFE_KERNELS):
-        #     pyop3.extras.debug.maybe_breakpoint("a")
-        # pyop3.extras.debug.maybe_breakpoint()
-
 
         self.executable(*exec_arguments)
         pass

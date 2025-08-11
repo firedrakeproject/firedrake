@@ -2138,10 +2138,21 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
 
     """
     from pyop3.expr import conditional
-    from pyop3.expr.visitors import replace_terminals as expr_replace, min_
+    from pyop3.expr.visitors import replace_terminals as expr_replace, min_, min_value, max_value
 
     size = sum(r.size for r in regions)
     start, stop, step = affine_component.with_size(size)
+
+    utils.debug_assert(lambda: min_value(start) >= 0)
+    utils.debug_assert(lambda: max_value(stop) <= max_value(size))
+
+    # For single region components we can simplify things because we know that
+    # the slice is always in bounds for the region.
+    if len(regions) == 1:
+        region = utils.just_one(regions)
+        region_size = utils.ceildiv((stop - start), step)
+        indexed_region = AxisComponentRegion(region_size, region.label)
+        return (indexed_region,)
 
     indexed_regions = []
     loc = 0
@@ -2169,8 +2180,6 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
             out_of_bounds = True
         else:
             out_of_bounds = (upper_bound < start) | (lower_bound >= stop)
-        # if not isinstance(region.size, numbers.Number):
-        #     breakpoint()
         region_size = conditional(out_of_bounds, 0, utils.ceildiv((min_(region.size, stop-loc) - offset), step))
         offset = conditional(out_of_bounds, offset-region.size, (offset+region.size) % step)
 

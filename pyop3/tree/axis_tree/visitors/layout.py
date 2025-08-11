@@ -270,7 +270,7 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
 
         # The subtree contains regions so we cannot have a layout function here.
         if subtree_has_non_trivial_regions:
-            layout_expr_acc_ = layout_expr_acc
+            layout_expr_acc_ = layout_expr_acc + start
             layouts[path_acc_] = NAN
 
         # At the bottom region - now can compute layouts involving all regions

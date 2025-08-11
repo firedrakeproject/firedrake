@@ -1526,7 +1526,7 @@ class MixedFunctionSpace:
             # i.e. a full slice
             targets[leaf_path] = (
                 immutabledict({field_axis.label: field_component.label}),
-                immutabledict({"field": op3.AxisVar(field_axis)})
+                immutabledict({"field": op3.AxisVar(field_axis.linearize(field_component.label))})
             )
             subtargets, _ = subaxes.targets
             for sub_path, sub_target in subtargets.items():

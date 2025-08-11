@@ -212,6 +212,26 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     _pending_reduction: Callable | None = None
     _finalizer: Callable | None = None
 
+    def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, max_value: numbers.Number | None=None, ordered:bool=False):
+        data = data.flatten()
+        if sf is None:
+            sf = NullStarForest()
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+        if max_value is not None:
+            max_value = utils.as_numpy_scalar(max_value)
+        if ordered:
+            utils.debug_assert(lambda: (data == np.sort(data)).all())
+
+        self._lazy_data = data
+        self.sf = sf
+        self._name = name
+        self._constant = constant
+        self._max_value = max_value
+        self._ordered = ordered
+
+        if name == "array_46" or name == "array_49":
+            breakpoint()
+
     # }}}
 
     # {{{ Class attrs
@@ -287,23 +307,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         return cls(data, **kwargs)
 
     # }}}
-
-    def __init__(self, data: np.ndarray, sf: StarForest | None = None, *, name: str|None=None,prefix:str|None=None,constant:bool=False, max_value: numbers.Number | None=None, ordered:bool=False):
-        data = data.flatten()
-        if sf is None:
-            sf = NullStarForest()
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-        if max_value is not None:
-            max_value = utils.as_numpy_scalar(max_value)
-        if ordered:
-            utils.debug_assert(lambda: (data == np.sort(data)).all())
-
-        self._lazy_data = data
-        self.sf = sf
-        self._name = name
-        self._constant = constant
-        self._max_value = max_value
-        self._ordered = ordered
 
     @property
     def comm(self) -> MPI.Comm | None:
