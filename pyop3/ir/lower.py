@@ -523,6 +523,7 @@ def _put_slice_(x, n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, p
             insn = f"{expression}"
         else:
              insn = f"{assignee[0]} = {expression}"
+        self._add_instruction("breakpoint()")
         self._add_instruction(insn)
 
     def add_buffer(self, buffer_ref: BufferRef, intent: Intent | None = None) -> str:
@@ -1176,9 +1177,13 @@ def _cupy(call: StandaloneCalledFunction, loop_indices, context: CuPyCodegenCont
     #handle grids and blocks here too
     grid = ""
     if compute_device.kernel_type == "triton":
-        blocks = compute_device.kernel_data["blocks"]
-        context.add_assignment("grid", f"lambda meta: (triton.cdiv(2, meta['{blocks[0][0]}']), )")
-        args += [f"{blocks[0][0]} = {blocks[0][1]}"]
+        blocks = compute_device.blocks
+        # TODO generalise, default values?
+        context.add_assignment("grid", f"lambda meta: (triton.cdiv(p_0.item(), meta['{blocks['vars'][0][0]}']) * triton.cdiv(12, meta['{blocks['temps'][0][0]}']), )")
+        args += [f"size_{blocks['vars'][0][0][-1]} = {blocks['vars'][0][2]}"]
+        args += [f"size_{blocks['temps'][0][0][-1]} = {blocks['temps'][0][2]}"]
+        args += [f"{blocks['vars'][0][0]} = {blocks['vars'][0][1]}"]
+        args += [f"{blocks['temps'][0][0]} = {blocks['temps'][0][1]}"]
         grid = "[grid]"
     arg_str = ",".join(args)
     expression = f"{call.function.code.default_entrypoint.name}{grid}({arg_str})"

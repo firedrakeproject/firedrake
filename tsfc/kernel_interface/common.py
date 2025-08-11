@@ -137,6 +137,12 @@ class KernelBuilderMixin(object):
         functions = [*info.arguments, self.coordinate(info.domain), *info.coefficients]
         set_quad_rule(params, info.domain.ufl_cell(), info.integral_type, functions)
         quad_rule = params["quadrature_rule"]
+
+        import os
+        if "FIREDRAKE_USE_GPU" in os.environ:
+            from firedrake.device import compute_device
+            compute_device.add_info("BLOCK_SIZE_Q", len(quad_rule.weights))
+
         config = self.fem_config()
         config['argument_multiindices'] = self.argument_multiindices
         config['quadrature_rule'] = quad_rule
