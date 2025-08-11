@@ -3,6 +3,7 @@ import operator
 
 import numpy as np
 from pyadjoint.tape import annotate_tape
+from pyop2 import op2
 from pyop2.utils import cached_property
 import pytools
 import finat.ufl
@@ -145,22 +146,32 @@ class Assigner:
         if isinstance(expression, Vector):
             expression = expression.function
         expression = as_ufl(expression)
-
+        source_domains = set()
         for coeff in extract_coefficients(expression):
             if isinstance(coeff, Function) and coeff.ufl_element().family() != "Real":
                 if coeff.ufl_element() != assignee.ufl_element():
                     raise ValueError("All functions in the expression must have the same "
                                      "element as the assignee")
-                if extract_unique_domain(coeff) != extract_unique_domain(assignee):
-                    raise ValueError("All functions in the expression must use the same "
-                                     "mesh as the assignee")
-
+                source_domains.add(extract_unique_domain(coeff))
+        if len(source_domains) == 0:
+            pass
+        elif len(source_domains) == 1:
+            target_domain = extract_unique_domain(assignee)
+            source_domain, = source_domains
+            if target_domain.submesh_youngest_common_ancester(source_domain) is None:
+                raise ValueError(
+                    "All functions in the expression must be defined on a single domain "
+                    "that is in the same submesh family as domain of the assignee"
+                )
+        else:
+            raise ValueError(
+                "All functions in the expression must be defined on a single domain"
+            )
         if (subset and type(assignee.ufl_element()) == finat.ufl.MixedElement
                 and any(el.family() == "Real"
                         for el in assignee.ufl_element().sub_elements)):
             raise ValueError("Subset is not a valid argument for assigning to a mixed "
                              "element including a real element")
-
         self._assignee = assignee
         self._expression = expression
         self._subset = subset
@@ -179,7 +190,6 @@ class Assigner:
                 "Taping with explicit Assigner objects is not supported yet. "
                 "Use Function.assign instead."
             )
-
         # To minimize communication during assignment we perform a number of tricks:
         # * If we are not assigning to a subset then we can always write to the
         #   halo. The validity of the original assignee dat halo does not matter
@@ -194,28 +204,51 @@ class Assigner:
         #   end up doing a lot of halo exchanges for the expression just to avoid
         #   a single halo exchange for the assignee.
         # * If we do write to the halo then the resulting halo will never be dirty.
-
-        func_halos_valid = all(f.dat.halo_valid for f in self._functions)
-        assign_to_halos = (
-            func_halos_valid and (not self._subset or self._assignee.dat.halo_valid))
-
-        if assign_to_halos:
-            subset_indices = self._subset.indices if self._subset else ...
-            data_ro = operator.attrgetter("data_ro_with_halos")
-        else:
-            subset_indices = self._subset.owned_indices if self._subset else ...
-            data_ro = operator.attrgetter("data_ro")
-
         # If mixed, loop over individual components
-        for lhs_dat, *func_dats in zip(self._assignee.dat.split,
-                                       *(f.dat.split for f in self._functions)):
-            func_data = np.array([data_ro(f)[subset_indices] for f in func_dats])
+        for lhs_func, *funcs in zip(self._assignee.subfunctions, *(f.subfunctions for f in self._functions)):
+            subset = self._subset
+            target_domain = extract_unique_domain(lhs_func)
+            source_domains = set()
+            source_Vs = set()
+            for f in funcs:
+                source_domains.add(extract_unique_domain(f))
+                source_Vs.add(f.function_space())
+            subset_indices_target = ... if subset is None else subset.indices
+            subset_indices_source = subset_indices_target
+            flag = False
+            if len(source_domains) == 0:
+                source_domain = target_domain
+            elif len(source_domains) == 1:
+                source_domain, = source_domains
+                if target_domain is source_domain:
+                    pass
+                else:
+                    target_V = lhs_func.function_space()
+                    source_V, = source_Vs
+                    composed_map = source_V.topological.entity_node_map(target_domain.topology, "cell", "everywhere", None)
+                    indices_active = composed_map.indices_active_with_halo
+                    subset_indices_target = target_V.cell_node_map().values_with_halo[indices_active, :].reshape(-1)
+                    subset_indices_source = composed_map.values_with_halo[indices_active, :].reshape(-1)
+                    finfo = np.finfo(lhs_func.dat.dtype)
+                    temp = lhs_func
+                    lhs_func = Function(target_V)
+                    temp.dat._data[:] = finfo.min
+                    flag = True
+            else:
+                raise ValueError("All functions in the expression must be defined on a single domain")
+            func_data = np.array([f.dat.data_ro_with_halos[subset_indices_source] for f in funcs])
             rvalue = self._compute_rvalue(func_data)
-            self._assign_single_dat(lhs_dat, subset_indices, rvalue, assign_to_halos)
-
-        # if we have bothered writing to halo it naturally must not be dirty
-        if assign_to_halos:
-            self._assignee.dat.halo_valid = True
+            self._assign_single_dat(lhs_func.dat, subset_indices_target, rvalue, True)
+            if flag:
+                lhs_func.dat.local_to_global_begin(op2.MAX)
+                lhs_func.dat.local_to_global_end(op2.MAX)
+                indices = np.where(lhs_func.dat.data_ro_with_halos > finfo.min * 0.999)
+                temp.dat.data_with_halos[indices] = lhs_func.dat.data_ro_with_halos[indices]
+                lhs_func = temp
+            if (
+                target_domain is source_domain and (subset is None or lhs_func.dat.halo_valid)
+            ):
+                lhs_func.dat.halo_valid = True
 
     @cached_property
     def _constants(self):
