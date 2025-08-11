@@ -3,6 +3,7 @@ import operator
 
 import numpy as np
 from pyadjoint.tape import annotate_tape
+from pyop2 import op2
 from pyop2.utils import cached_property
 import pytools
 import finat.ufl
@@ -16,6 +17,8 @@ from firedrake.constant import Constant
 from firedrake.function import Function
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType, split_by
+
+from mpi4py import MPI
 
 
 def _isconstant(expr):
@@ -142,22 +145,38 @@ class Assigner:
 
     def __init__(self, assignee, expression, subset=None):
         expression = as_ufl(expression)
-
+        source_meshes = set()
         for coeff in extract_coefficients(expression):
             if isinstance(coeff, Function) and coeff.ufl_element().family() != "Real":
                 if coeff.ufl_element() != assignee.ufl_element():
                     raise ValueError("All functions in the expression must have the same "
                                      "element as the assignee")
-                if extract_unique_domain(coeff) != extract_unique_domain(assignee):
-                    raise ValueError("All functions in the expression must use the same "
-                                     "mesh as the assignee")
-
-        if (subset and type(assignee.ufl_element()) == finat.ufl.MixedElement
-                and any(el.family() == "Real"
-                        for el in assignee.ufl_element().sub_elements)):
-            raise ValueError("Subset is not a valid argument for assigning to a mixed "
-                             "element including a real element")
-
+                source_meshes.add(extract_unique_domain(coeff))
+        if len(source_meshes) == 0:
+            pass
+        elif len(source_meshes) == 1:
+            target_mesh = extract_unique_domain(assignee)
+            source_mesh, = source_meshes
+            if target_mesh.submesh_youngest_common_ancester(source_mesh) is None:
+                raise ValueError(
+                    "All functions in the expression must be defined on a single domain "
+                    "that is in the same submesh family as domain of the assignee"
+                )
+        else:
+            raise ValueError(
+                "All functions in the expression must be defined on a single domain"
+            )
+        if subset is None:
+            subset = tuple(None for _ in assignee.function_space())
+        if len(subset) != len(assignee.function_space()):
+            raise ValueError(f"Provided subset ({subset}) incompatible with assignee ({assignee})")
+        if type(assignee.ufl_element()) == finat.ufl.MixedElement:
+            for subs, el in zip(subset, assignee.function_space().ufl_element().sub_elements):
+                if subs is not None and el.family() == "Real":
+                    raise ValueError(
+                        "Subset is not a valid argument for assigning to a mixed "
+                        "element including a real element"
+                    )
         self._assignee = assignee
         self._expression = expression
         self._subset = subset
@@ -169,14 +188,20 @@ class Assigner:
         return f"{self.__class__.__name__}({self._assignee!r}, {self._expression!r})"
 
     @PETSc.Log.EventDecorator()
-    def assign(self):
-        """Perform the assignment."""
+    def assign(self, allow_missing_dofs=False):
+        """Perform the assignment.
+
+        Parameters
+        ----------
+        allow_missing_dofs : bool
+            If True, ignore assignee nodes with no matching assigner nodes.
+
+        """
         if annotate_tape():
             raise NotImplementedError(
                 "Taping with explicit Assigner objects is not supported yet. "
                 "Use Function.assign instead."
             )
-
         # To minimize communication during assignment we perform a number of tricks:
         # * If we are not assigning to a subset then we can always write to the
         #   halo. The validity of the original assignee dat halo does not matter
@@ -191,28 +216,78 @@ class Assigner:
         #   end up doing a lot of halo exchanges for the expression just to avoid
         #   a single halo exchange for the assignee.
         # * If we do write to the halo then the resulting halo will never be dirty.
-
-        func_halos_valid = all(f.dat.halo_valid for f in self._functions)
-        assign_to_halos = (
-            func_halos_valid and (not self._subset or self._assignee.dat.halo_valid))
-
-        if assign_to_halos:
-            subset_indices = self._subset.indices if self._subset else ...
-            data_ro = operator.attrgetter("data_ro_with_halos")
-        else:
-            subset_indices = self._subset.owned_indices if self._subset else ...
-            data_ro = operator.attrgetter("data_ro")
-
         # If mixed, loop over individual components
-        for lhs_dat, *func_dats in zip(self._assignee.dat.split,
-                                       *(f.dat.split for f in self._functions)):
-            func_data = np.array([data_ro(f)[subset_indices] for f in func_dats])
-            rvalue = self._compute_rvalue(func_data)
-            self._assign_single_dat(lhs_dat, subset_indices, rvalue, assign_to_halos)
-
-        # if we have bothered writing to halo it naturally must not be dirty
-        if assign_to_halos:
-            self._assignee.dat.halo_valid = True
+        for lhs_func, subset, *funcs in zip(self._assignee.subfunctions, self._subset, *(f.subfunctions for f in self._functions)):
+            target_mesh = extract_unique_domain(lhs_func)
+            target_V = lhs_func.function_space()
+            if subset is not None:
+                if subset is target_V.node_set:
+                    # The whole set.
+                    subset = None
+                elif subset.superset is target_V.node_set:
+                    # op2.Subset of target_V.node_set
+                    pass
+                else:
+                    raise ValueError(f"subset ({subset}) not a subset of target_V.node_set ({target_V.node_set})")
+            source_meshes = set()
+            for f in funcs:
+                source_meshes.add(extract_unique_domain(f))
+            single_mesh_assign = True
+            if len(source_meshes) == 0:
+                pass
+            elif len(source_meshes) == 1:
+                source_mesh, = source_meshes
+                if target_mesh is source_mesh:
+                    pass
+                else:
+                    single_mesh_assign = False
+            else:
+                raise ValueError("All functions in the expression must be defined on a single domain")
+            if single_mesh_assign:
+                assign_to_halos = all(f.dat.halo_valid for f in funcs) and (lhs_func.dat.halo_valid or subset is None)
+                if assign_to_halos:
+                    subset_indices = ... if subset is None else subset.indices
+                    data_ro = operator.attrgetter("data_ro_with_halos")
+                else:
+                    subset_indices = ... if subset is None else subset.owned_indices
+                    data_ro = operator.attrgetter("data_ro")
+                func_data = np.array([data_ro(f.dat)[subset_indices] for f in funcs])
+                rvalue = self._compute_rvalue(func_data)
+                self._assign_single_dat(lhs_func.dat, subset_indices, rvalue, assign_to_halos)
+                if assign_to_halos:
+                    lhs_func.dat.halo_valid = True
+            else:
+                source_V, = set(f.function_space() for f in funcs)
+                composed_map = source_V.topological.entity_node_map(target_mesh.topology, "cell", "everywhere", None)
+                indices_active = composed_map.indices_active_with_halo
+                indices_active_all = indices_active.all()
+                indices_active_all = target_mesh.comm.allreduce(indices_active_all, op=MPI.LAND)
+                if subset is None:
+                    if not indices_active_all and not allow_missing_dofs:
+                        raise ValueError("Found assignee nodes with no matching assigner nodes: run with `allow_missing_dofs=True`")
+                    subset_indices_target = target_V.cell_node_map().values_with_halo[indices_active, :].reshape(-1)
+                    subset_indices_source = composed_map.values_with_halo[indices_active, :].reshape(-1)
+                else:
+                    subset_indices_target, perm, _ = np.intersect1d(
+                        target_V.cell_node_map().values_with_halo[indices_active, :].reshape(-1),
+                        subset.indices,
+                        return_indices=True,
+                    )
+                    if len(subset.indices) > len(subset_indices_target) and not allow_missing_dofs:
+                        raise ValueError("Found assignee nodes with no matching assigner nodes: run with `allow_missing_dofs=True`")
+                    subset_indices_source = composed_map.values_with_halo[indices_active, :].reshape(-1)[perm]
+                # TODO: Use work array?
+                buffer = Function(target_V)
+                finfo = np.finfo(lhs_func.dat.dtype)
+                buffer.dat._data[:] = finfo.max
+                func_data = np.array([f.dat.data_ro_with_halos[subset_indices_source] for f in funcs])
+                rvalue = self._compute_rvalue(func_data)
+                self._assign_single_dat(buffer.dat, subset_indices_target, rvalue, True)
+                # Make all owned DoFs up-to-date; ghost DoFs may or may not be up-to-date after this.
+                buffer.dat.local_to_global_begin(op2.MIN)
+                buffer.dat.local_to_global_end(op2.MIN)
+                indices = np.where(buffer.dat.data_ro_with_halos < finfo.max * 0.999999999999)
+                lhs_func.dat.data_wo_with_halos[indices] = buffer.dat.data_ro_with_halos[indices]
 
     @cached_property
     def _constants(self):
