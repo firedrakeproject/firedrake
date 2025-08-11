@@ -229,9 +229,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._max_value = max_value
         self._ordered = ordered
 
-        if name == "array_46" or name == "array_49":
-            breakpoint()
-
     # }}}
 
     # {{{ Class attrs
