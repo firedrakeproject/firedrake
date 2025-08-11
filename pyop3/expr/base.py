@@ -111,50 +111,14 @@ class Expression(abc.ABC):
     def __lt__(self, other):
         return LessThan(self, other)
 
-        # from pyop3.expr.visitors import max_value, min_value
-        #
-        # if max_value(self) < min_value(other):
-        #     return True
-        # elif min_value(self) >= max_value(other):
-        #     return False
-        # else:
-        #     return LessThan(self, other)
-
     def __gt__(self, other):
         return GreaterThan(self, other)
-
-        # from pyop3.expr.visitors import max_value, min_value
-        #
-        # if min_value(self) > max_value(other):
-        #     return True
-        # elif max_value(self) <= min_value(other):
-        #     return False
-        # else:
-        #     return GreaterThan(self, other)
 
     def __le__(self, other):
         return LessThanOrEqual(self, other)
 
-        # from pyop3.expr.visitors import max_value, min_value
-        #
-        # if max_value(self) <= min_value(other):
-        #     return True
-        # elif min_value(self) > max_value(other):
-        #     return False
-        # else:
-        #     return LessThanOrEqual(self, other)
-
     def __ge__(self, other):
         return GreaterThanOrEqual(self, other)
-
-        # from pyop3.expr.visitors import max_value, min_value
-        #
-        # if min_value(self) >= max_value(other):
-        #     return True
-        # elif max_value(self) < min_value(other):
-        #     return False
-        # else:
-        #     return GreaterThanOrEqual(self, other)
 
     def __or__(self, other) -> Or | bool:
         return self._maybe_eager_or(self, other)
@@ -195,15 +159,15 @@ class Expression(abc.ABC):
 
     @cached_property
     def max_value(self) -> numbers.Number:
-        from pyop3.expr.visitors import max_value
+        from pyop3.expr.visitors import find_max_value
 
-        return max_value(self)
+        return find_max_value(self)
 
     @cached_property
     def min_value(self) -> numbers.Number:
-        from pyop3.expr.visitors import min_value
+        from pyop3.expr.visitors import find_min_value
 
-        return min_value(self)
+        return find_min_value(self)
 
 
 class Operator(Expression, metaclass=abc.ABCMeta):

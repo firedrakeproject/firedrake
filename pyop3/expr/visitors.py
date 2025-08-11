@@ -945,7 +945,7 @@ def _(num: numbers.Number) -> numbers.Number:
 
 @max_value.register(op3_expr.Expression)
 def _(expr: op3_expr.Expression) -> numbers.Number:
-    return _find_extremum(expr, partial(max_, lazy=True))
+    return expr.max_value
 
 
 @functools.singledispatch
@@ -959,9 +959,16 @@ def _(num: numbers.Number) -> numbers.Number:
 
 
 @min_value.register(op3_expr.Expression)
-@scoped_cache()
 def _(expr: op3_expr.Expression) -> numbers.Number:
-    return _find_extremum(expr, partial(min_, lazy=True))
+    return expr.min_value
+
+
+def find_max_value(expr: op3_expr.Expression) -> numbers.Number:
+    return _find_extremum(expr, max_)
+
+
+def find_min_value(expr: op3_expr.Expression) -> numbers.Number:
+    return _find_extremum(expr, min_)
 
 
 def _find_extremum(expr, extremum: Callable[[ExpressionT, ExpressionT], op3_expr.Conditional | numbers.Number]) -> numbers.Number:
