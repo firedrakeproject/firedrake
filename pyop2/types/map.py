@@ -30,6 +30,7 @@ class Map:
     """
 
     dtype = dtypes.IntType
+    VALUE_UNDEFINED = -1
 
     @utils.validate_type(('iterset', Set, ex.SetTypeError), ('toset', Set, ex.SetTypeError),
                          ('arity', numbers.Integral, ex.ArityTypeError), ('name', str, ex.NameTypeError))
@@ -278,7 +279,21 @@ class ComposedMap(Map):
 
     @utils.cached_property
     def values_with_halo(self):
-        raise RuntimeError("ComposedMap does not store values directly")
+        r = np.empty(self.shape, dtype=Map.dtype)
+        # Initialise map values.
+        r[:, 0] = np.arange(r.shape[0])
+        # Initialise mask values.
+        mask = np.full(r.shape[0], True, dtype=bool)
+        temp = np.empty_like(mask)
+        for m in reversed(self.maps_):
+            a = m.values_with_halo
+            # Update mask according to whether map target is defined or not.
+            temp[:] = mask[:]
+            mask[temp] &= a[r[:, 0][temp], 0] != Map.VALUE_UNDEFINED
+            # Update map values (only where targets are defined).
+            r[mask, :] = a[r[:, 0][mask], :]
+        r[~mask, :] = Map.VALUE_UNDEFINED
+        return r
 
     def __str__(self):
         return "OP2 ComposedMap of Maps: [%s]" % ",".join([str(m) for m in self.maps_])
