@@ -109,10 +109,12 @@ built over the ``my_ensemble.comm`` (spatial) communicator.
         dt = 0.03  # time step in seconds
         final_time = 0.6  # final time in seconds
         nx, ny = 15, 15
+        ftol = 0.9  # optimisation tolerance
     else:
         dt = 0.002  # time step in seconds
         final_time = 1.0  # final time in seconds
         nx, ny = 80, 80
+        ftol = 1e-2  # optimisation tolerance
 
     mesh = UnitSquareMesh(nx, ny, comm=my_ensemble.comm)
 
@@ -296,10 +298,10 @@ we have a custom ``ReducedFunctional``, we need to do this ourselves::
     from pyadjoint.reduced_functional_numpy import ReducedFunctionalNumPy
     Jnumpy = ReducedFunctionalNumPy(J_hat)
 
-    c_optimised = minimize(Jnumpy, method="L-BFGS-B", options={"disp": True, "maxiter": 1, "ftol": 0.9},
+    c_optimised = minimize(Jnumpy, method="L-BFGS-B", options={"disp": True, "ftol": ftol},
                            bounds=(1.5, 2.0))
 
-The ``minimize`` function executes the optimisation algorithm until the stopping criterion (``maxiter``) is met.
+The ``minimize`` function executes the optimisation algorithm until the stopping criterion (``ftol``) is met.
 For 20 iterations, the predicted velocity model is shown in the following figure.
 
 .. image:: c_predicted.png
