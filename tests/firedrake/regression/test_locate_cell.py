@@ -1,6 +1,12 @@
 import pytest
 import numpy as np
 from firedrake import *
+from functools import reduce
+from operator import mul
+
+
+def warp(x, p):
+    return p * x * (2 * x - 1)
 
 
 @pytest.fixture(scope="module", params=[False, True])
@@ -84,12 +90,8 @@ def test_high_order_location():
     f = Function(V)
     f.interpolate(mesh.coordinates)
 
-    def warp(x, p):
-        return p * x * (2 * x - 1)
-
     warp_indices = np.where((f.dat.data[:, 0] > 0.0) & (f.dat.data[:, 0] < 0.5) & (f.dat.data[:, 1] == 0.0))[0]
     f.dat.data[warp_indices, 1] = warp(f.dat.data[warp_indices, 0], 5.0)
-
     mesh = Mesh(f)
 
     # The point (0.25, -0.6) *is* in the mesh, but falls outside the Lagrange bounding box
@@ -108,7 +110,7 @@ def test_high_order_location():
     assert mesh.locate_cell([0.25, -1.05], tolerance=0.0001) is None
 
 
-def test_high_order_interior_facet_location():
+def test_high_order_location_warped_interior_facet():
     # Here we bend an interior facet and check the right cell is located.
     mesh = UnitSquareMesh(2, 2)
     V = VectorFunctionSpace(mesh, "CG", 3, variant="equispaced")
@@ -121,3 +123,26 @@ def test_high_order_interior_facet_location():
 
     assert mesh.locate_cell([0.25, 0.605], tolerance=0.0001) == 1
     assert mesh.locate_cell([0.25, 0.62], tolerance=0.0001) == 3
+
+
+@pytest.mark.parallel([1, 3])
+def test_parallel_high_order_location():
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, "CG", 3, variant="equispaced")
+    f = Function(V)
+    f.interpolate(mesh.coordinates)
+
+    warp_indices = np.where((f.dat.data[:, 0] > 0.0) & (f.dat.data[:, 0] < 0.5) & (f.dat.data[:, 1] == 0.0))[0]
+    f.dat.data[warp_indices, 1] = warp(f.dat.data[warp_indices, 0], 5.0)
+
+    mesh = Mesh(f)
+    V = FunctionSpace(mesh, "CG", 3)
+    f = Function(V).interpolate(reduce(mul, SpatialCoordinate(mesh)))
+
+    vom = VertexOnlyMesh(mesh, [[0.25, -0.6]], tolerance=0.0001, redundant=False)
+    P0DG = FunctionSpace(vom, "DG", 0)
+    P0DG_io = FunctionSpace(vom.input_ordering, "DG", 0)
+    f_at = assemble(interpolate(f, P0DG))
+    f_at_correct_order = assemble(interpolate(f_at, P0DG_io))
+
+    assert np.allclose(f_at_correct_order.dat.data_ro, [-0.6 * 0.25], atol=0.002)
