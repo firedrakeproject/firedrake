@@ -425,29 +425,40 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign
-    def assign(self, expr, subset=None):
-        r"""Set the :class:`Function` value to the pointwise value of
-        expr. expr may only contain :class:`Function`\s on the same
-        :class:`.FunctionSpace` as the :class:`Function` being assigned to.
+    def assign(self, expr, subset=None, allow_missing_dofs=False):
+        """Set value to the pointwise value of expr.
 
+        Parameters
+        ----------
+        subset : pyop2.types.set.Set or pyop2.types.set.Subset or pyop2.types.set.MixedSet
+            ``self.node_set`` or `pyop2.types.set.Subset` of ``self.node_set`` or
+            `pyop2.types.set.MixedSet` composed of them if `self` is a mixed function.
+        allow_missing_dofs : bool
+            If True, ignore assignee nodes with no matching assigner nodes; only
+            significant if assigning across submeshes.
+
+        Returns
+        -------
+        firedrake.function.Function
+            Returns `self`.
+
+        Notes
+        -----
+        expr may only contain :class:`Function` s on the same :class:`.FunctionSpace` as the
+        assignee :class:`Function` or those on the similar spaces on submeshes.
         Similar functionality is available for the augmented assignment
-        operators `+=`, `-=`, `*=` and `/=`. For example, if `f` and `g` are
+        operators `+=`, `-=`, `*=` and `/=`. For example, if ``f`` and ``g`` are
         both Functions on the same :class:`.FunctionSpace` then::
 
           f += 2 * g
 
-        will add twice `g` to `f`.
+        will add twice ``g`` to ``f``.
 
-        If present, subset must be an :class:`pyop2.types.set.Subset` of this
-        :class:`Function`'s ``node_set``.  The expression will then
-        only be assigned to the nodes on that subset.
+        Assignment can only be performed for simple weighted sum expressions and constant
+        values. Things like ``u.assign(2*v + Constant(3.0))``. For more complicated
+        expressions (e.g. involving the product of functions) :meth:`.Function.interpolate`
+        should be used.
 
-        .. note::
-
-            Assignment can only be performed for simple weighted sum expressions and constant
-            values. Things like ``u.assign(2*v + Constant(3.0))``. For more complicated
-            expressions (e.g. involving the product of functions) :meth:`.Function.interpolate`
-            should be used.
         """
         if self.ufl_element().family() == "Real" and isinstance(expr, (Number, Collection)):
             try:
@@ -458,7 +469,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             self.dat.zero(subset=subset)
         else:
             from firedrake.assign import Assigner
-            Assigner(self, expr, subset).assign()
+            Assigner(self, expr, subset).assign(allow_missing_dofs=allow_missing_dofs)
         return self
 
     def riesz_representation(self, riesz_map='L2'):
