@@ -4,7 +4,6 @@ from firedrake import *
 
 @pytest.mark.skiphypre
 @pytest.mark.skipcomplex
->>>>>>> origin/master
 def test_homogeneous_field_linear():
     mesh = UnitCubeMesh(10, 10, 10)
     V = FunctionSpace(mesh, "RT", 1)

@@ -182,101 +182,104 @@ class Mat(Tensor):
         return layout_vec.local_size // layout_vec.block_size
 
     def getitem(self, row_index, column_index, *, strict=False):
-        from pyop3.tree.index_tree import index_axes
-        from pyop3.tree.index_tree.parse import as_index_forest
-        # does not work as indices may not be hashable, parse first?
-        # cache_key = (indices, strict)
-        # if cache_key in self._cache:
-        #     return self._cache[cache_key]
-
-        # Combine the loop contexts of the row and column indices. Consider
-        # a loop over a multi-component axis with components "a" and "b":
+        indexed_row_axes = self.raxes.getitem(row_index, strict=strict)
+        indexed_column_axes = self.caxes.getitem(column_index, strict=strict)
+        return self.__record_init__(raxes=indexed_row_axes, caxes=indexed_column_axes)
+        # from pyop3.tree.index_tree import index_axes
+        # from pyop3.tree.index_tree.parse import as_index_forest
+        # # does not work as indices may not be hashable, parse first?
+        # # cache_key = (indices, strict)
+        # # if cache_key in self._cache:
+        # #     return self._cache[cache_key]
         #
-        #   loop(p, mat[p, p])
+        # # Combine the loop contexts of the row and column indices. Consider
+        # # a loop over a multi-component axis with components "a" and "b":
+        # #
+        # #   loop(p, mat[p, p])
+        # #
+        # # The row and column index forests with "merged" loop contexts would
+        # # look like:
+        # #
+        # #   {
+        # #     {p: "a"}: [rtree0, ctree0],
+        # #     {p: "b"}: [rtree1, ctree1]
+        # #   }
+        # #
+        # # By contrast, distinct loop indices are combined as a product, not
+        # # merged. For example, the loop
+        # #
+        # #   loop(p, loop(q, mat[p, q]))
+        # #
+        # # with p still a multi-component loop over "a" and "b" and q the same
+        # # over "x" and "y". This would give the following combined set of
+        # # index forests:
+        # #
+        # #   {
+        # #     {p: "a", q: "x"}: [rtree0, ctree0],
+        # #     {p: "a", q: "y"}: [rtree0, ctree1],
+        # #     {p: "b", q: "x"}: [rtree1, ctree0],
+        # #     {p: "b", q: "y"}: [rtree1, ctree1],
+        # #   }
         #
-        # The row and column index forests with "merged" loop contexts would
-        # look like:
+        # rtrees = as_index_forest(row_index, self.raxes, strict=strict)
+        # ctrees = as_index_forest(column_index, self.caxes, strict=strict)
+        # rcforest = {}
+        # for rctx, rtree in rtrees.items():
+        #     for cctx, ctree in ctrees.items():
+        #         # skip if the row and column contexts are incompatible
+        #         if any(idx in rctx and rctx[idx] != path for idx, path in cctx.items()):
+        #             continue
+        #         rcforest[rctx | cctx] = (rtree, ctree)
         #
-        #   {
-        #     {p: "a"}: [rtree0, ctree0],
-        #     {p: "b"}: [rtree1, ctree1]
-        #   }
+        # # If there are no outer loops then we can return a context-free array.
+        # if len(rcforest) == 1:
+        #     rtree, ctree = just_one(rcforest.values())
         #
-        # By contrast, distinct loop indices are combined as a product, not
-        # merged. For example, the loop
+        #     indexed_raxess = tuple(
+        #         index_axes(restricted, pmap(), self.raxes)
+        #         for restricted in rtree
+        #     )
+        #     indexed_caxess = tuple(
+        #         index_axes(restricted, pmap(), self.caxes)
+        #         for restricted in ctree
+        #     )
+        #     if len(indexed_raxess) > 1 or len(indexed_caxess) > 1:
+        #         raise NotImplementedError("Need axis forests")
+        #     else:
+        #         indexed_raxes = just_one(indexed_raxess)
+        #         indexed_caxes = just_one(indexed_caxess)
         #
-        #   loop(p, loop(q, mat[p, q]))
+        #     mat = self.__record_init__(raxes=indexed_raxes, caxes=indexed_caxes)
+        # else:
+        #     # Otherwise we are context-sensitive
+        #     cs_indexed_raxess = {}
+        #     cs_indexed_caxess = {}
+        #     for loop_context, (rindex_forest, cindex_forest) in rcforest.items():
+        #         indexed_raxess = tuple(
+        #             index_axes(restricted, loop_context, self.raxes)
+        #             for restricted in rindex_forest
+        #         )
+        #         indexed_caxess = tuple(
+        #             index_axes(restricted, loop_context, self.caxes)
+        #             for restricted in cindex_forest
+        #         )
         #
-        # with p still a multi-component loop over "a" and "b" and q the same
-        # over "x" and "y". This would give the following combined set of
-        # index forests:
+        #         if len(indexed_raxess) > 1 or len(indexed_caxess) > 1:
+        #             raise NotImplementedError("Need axis forests")
+        #         else:
+        #             indexed_raxes = just_one(indexed_raxess)
+        #             indexed_caxes = just_one(indexed_caxess)
         #
-        #   {
-        #     {p: "a", q: "x"}: [rtree0, ctree0],
-        #     {p: "a", q: "y"}: [rtree0, ctree1],
-        #     {p: "b", q: "x"}: [rtree1, ctree0],
-        #     {p: "b", q: "y"}: [rtree1, ctree1],
-        #   }
-
-        rtrees = as_index_forest(row_index, self.raxes, strict=strict)
-        ctrees = as_index_forest(column_index, self.caxes, strict=strict)
-        rcforest = {}
-        for rctx, rtree in rtrees.items():
-            for cctx, ctree in ctrees.items():
-                # skip if the row and column contexts are incompatible
-                if any(idx in rctx and rctx[idx] != path for idx, path in cctx.items()):
-                    continue
-                rcforest[rctx | cctx] = (rtree, ctree)
-
-        # If there are no outer loops then we can return a context-free array.
-        if len(rcforest) == 1:
-            rtree, ctree = just_one(rcforest.values())
-
-            indexed_raxess = tuple(
-                index_axes(restricted, pmap(), self.raxes)
-                for restricted in rtree
-            )
-            indexed_caxess = tuple(
-                index_axes(restricted, pmap(), self.caxes)
-                for restricted in ctree
-            )
-            if len(indexed_raxess) > 1 or len(indexed_caxess) > 1:
-                raise NotImplementedError("Need axis forests")
-            else:
-                indexed_raxes = just_one(indexed_raxess)
-                indexed_caxes = just_one(indexed_caxess)
-
-            mat = self.__record_init__(raxes=indexed_raxes, caxes=indexed_caxes)
-        else:
-            # Otherwise we are context-sensitive
-            cs_indexed_raxess = {}
-            cs_indexed_caxess = {}
-            for loop_context, (rindex_forest, cindex_forest) in rcforest.items():
-                indexed_raxess = tuple(
-                    index_axes(restricted, loop_context, self.raxes)
-                    for restricted in rindex_forest
-                )
-                indexed_caxess = tuple(
-                    index_axes(restricted, loop_context, self.caxes)
-                    for restricted in cindex_forest
-                )
-
-                if len(indexed_raxess) > 1 or len(indexed_caxess) > 1:
-                    raise NotImplementedError("Need axis forests")
-                else:
-                    indexed_raxes = just_one(indexed_raxess)
-                    indexed_caxes = just_one(indexed_caxess)
-
-                cs_indexed_raxess[loop_context] = indexed_raxes
-                cs_indexed_caxess[loop_context] = indexed_caxes
-
-            cs_indexed_raxess = ContextSensitiveAxisTree(cs_indexed_raxess)
-            cs_indexed_caxess = ContextSensitiveAxisTree(cs_indexed_caxess)
-
-            mat = self.__record_init__(raxes=cs_indexed_raxess, caxes=cs_indexed_caxess)
-
-        # self._cache[cache_key] = mat
-        return mat
+        #         cs_indexed_raxess[loop_context] = indexed_raxes
+        #         cs_indexed_caxess[loop_context] = indexed_caxes
+        #
+        #     cs_indexed_raxess = ContextSensitiveAxisTree(cs_indexed_raxess)
+        #     cs_indexed_caxess = ContextSensitiveAxisTree(cs_indexed_caxess)
+        #
+        #     mat = self.__record_init__(raxes=cs_indexed_raxess, caxes=cs_indexed_caxess)
+        #
+        # # self._cache[cache_key] = mat
+        # return mat
 
     def with_context(self, context):
         row_axes = self.raxes.with_context(context)

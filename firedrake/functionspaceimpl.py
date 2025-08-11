@@ -1516,7 +1516,7 @@ class MixedFunctionSpace:
             axis for axis in self.layout_axes.nodes if axis.label == "field"
         ))
         axis_tree = op3.AxisTree(field_axis)
-        targets = {}
+        targets = utils.StrictlyUniqueDict()
         for field_component, subspace in zip(field_axis.components, self._orig_spaces, strict=True):
             leaf_path = immutabledict({field_axis.label: field_component.label})
             subaxes = subspace.axes
@@ -2023,7 +2023,7 @@ class RealFunctionSpace(FunctionSpace):
 
         # Now map the mesh-aware axis tree back to the actual one
         # constitutes two steps:
-        #
+        #All
         #   1. All references to the mesh must be removed.
         #   2. Attempts to address cell DoFs should map to the "dof" axis
         #      in the actual layout axis tree.
@@ -2032,6 +2032,13 @@ class RealFunctionSpace(FunctionSpace):
         # can be left unchanged.
         targets = {}
         for source_path, (orig_target_path, orig_target_exprs) in fake_axes._source_path_and_exprs.items():
+
+            # this avoids a later failure
+            if not source_path:
+                assert not orig_target_path
+                assert not orig_target_exprs
+                continue
+
             new_target_path = {}
             for target_axis_label, target_component_label in orig_target_path.items():
                 if target_axis_label == self._mesh.name:

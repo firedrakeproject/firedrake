@@ -16,6 +16,7 @@ from pyop3.utils import (  # noqa: F401
     is_single_valued,
     strictly_all,
     freeze,
+    StrictlyUniqueDict,
 )
 
 import petsctools

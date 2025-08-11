@@ -1505,18 +1505,22 @@ def index_axes(
 
     # TODO: reorder so the if statement captures the composition and this line is only needed once
     if indexed_axes is UNIT_AXIS_TREE:
-        return UnitIndexedAxisTree(
+        retval = UnitIndexedAxisTree(
             orig_axes.unindexed,
             targets=indexed_target_paths_and_exprs,
             outer_loops=outer_loops,
         )
     else:
-        return IndexedAxisTree(
+        retval = IndexedAxisTree(
             indexed_axes.node_map,
             orig_axes.unindexed,
             targets=all_target_paths_and_exprs,
             outer_loops=outer_loops,
         )
+
+    # debugging
+    retval._matching_target
+    return retval
 
 
 def collect_index_tree_target_paths(index_tree: IndexTree) -> immutabledict:
@@ -1634,9 +1638,6 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
     """
     from pyop3.expr.visitors import replace_terminals
 
-    # if len(axis_path) == 1:
-    #     breakpoint()
-
     assert not orig_axes.is_empty
 
     composed_target_paths_and_exprs = {}
@@ -1647,7 +1648,7 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
         none_mapped_target_path = {}
         none_mapped_target_exprs = {}
 
-        orig_none_mapped_target_path, orig_none_mapped_target_exprs = orig_target_paths_and_exprs.get(axis_path, ({}, {}))
+        orig_none_mapped_target_path, orig_none_mapped_target_exprs = orig_target_paths_and_exprs.get(immutabledict(), ({}, {}))
 
         myreplace_map = indexed_target_paths_and_exprs.get(immutabledict(), ({}, {}))[1]
         none_mapped_target_path |= orig_none_mapped_target_path
@@ -1655,7 +1656,7 @@ def compose_targets(orig_axes, orig_target_paths_and_exprs, indexed_axes, indexe
             none_mapped_target_exprs[orig_axis_label] = replace_terminals(orig_index_expr, myreplace_map)
 
         # Now add any extra 'None-indexed' axes.
-        target_axis_paths, replace_map = indexed_target_paths_and_exprs.get(immutabledict(), [(), immutabledict()])
+        target_axis_paths, replace_map = indexed_target_paths_and_exprs.get(immutabledict(), ((), immutabledict()))
 
         for target_axis_path in target_axis_paths:
             orig_target_path, orig_target_exprs = orig_target_paths_and_exprs.get(target_axis_path, (immutabledict(), immutabledict()))

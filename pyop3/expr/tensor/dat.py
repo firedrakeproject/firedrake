@@ -186,66 +186,9 @@ class Dat(Tensor):
     def __getitem__(self, indices):
         return self.getitem(indices, strict=False)
 
-    # For some reason this is breaking stuff
-    # @cachedmethod(lambda self: self.axes._cache)
     def getitem(self, index, *, strict=False):
-        from pyop3.tree.index_tree import index_axes
-        from pyop3.tree.index_tree.parse import as_index_forest
-
-        if index is Ellipsis:
-            return self
-
-        # key = (indices, strict)
-        # if key in self._cache:
-        #     return self._cache[key]
-
-        index_forest = as_index_forest(index, axes=self.axes, strict=strict)
-
-        if len(index_forest) == 1:
-            # There is no outer loop context to consider. Needn't return a
-            # context sensitive object.
-            index_trees = just_one(index_forest.values())
-
-            # Loop over "restricted" index trees. This is necessary because maps
-            # can yield multiple equivalent indexed axis trees. For example,
-            # closure(cell) can map any of:
-            #
-            #   "points"  ->  {"points"}
-            #   "points"  ->  {"cells", "edges", "vertices"}
-            #   "cells"   ->  {"points"}
-            #   "cells"   ->  {"cells", "edges", "vertices"}
-            #
-            # In each case the required arrays are different from each other and the
-            # resulting axis tree is also different. Hence in order for things to work
-            # we need to consider each of these separately and produce an axis *forest*.
-            indexed_axess = []
-            for restricted_index_tree in index_trees:
-                indexed_axes = index_axes(restricted_index_tree, idict(), self.axes)
-                indexed_axess.append(indexed_axes)
-
-            if len(indexed_axess) > 1:
-                raise NotImplementedError("Need axis forests")
-            else:
-                indexed_axes = just_one(indexed_axess)
-                dat = self.__record_init__(axes=indexed_axes)
-        else:
-            # TODO: This is identical to what happens above, refactor
-            axis_tree_context_map = {}
-            for loop_context, index_trees in index_forest.items():
-                indexed_axess = []
-                for index_tree in index_trees:
-                    indexed_axes = index_axes(index_tree, idict(), self.axes)
-                    indexed_axess.append(indexed_axes)
-
-                if len(indexed_axess) > 1:
-                    raise NotImplementedError("Need axis forests")
-                else:
-                    indexed_axes = just_one(indexed_axess)
-                    axis_tree_context_map[loop_context] = indexed_axes
-            context_sensitive_axis_tree = ContextSensitiveAxisTree(axis_tree_context_map)
-            dat = self.__record_init__(axes=context_sensitive_axis_tree)
-        # self._cache[key] = dat
-        return dat
+        indexed_axes = self.axes.getitem(index, strict=strict)
+        return self.__record_init__(axes=indexed_axes)
 
     def get_value(self, indices, path=None, *, loop_exprs=idict()):
         offset = self.axes.offset(indices, path, loop_exprs=loop_exprs)

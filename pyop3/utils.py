@@ -576,15 +576,18 @@ def _make_record(**kwargs):
 
 
 def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
+    changed_attrs = {}
+    for attr_name, attr in attrs.items():
+        if getattr(self, attr_name) != attr:
+            changed_attrs[attr_name] = attr
+
+    if not changed_attrs:
+        return self
+
     new = object.__new__(type(self))
     for field in dataclasses.fields(self):
-        attr = attrs.pop(field.name, getattr(self, field.name))
+        attr = changed_attrs.pop(field.name, getattr(self, field.name))
         object.__setattr__(new, field.name, attr)
-
-    if attrs:
-        raise ValueError(
-            f"Unrecognised arguments encountered during initialisation: {', '.join(attrs)}"
-        )
 
     # FIXME: __post_init__ is not called when a custom __init__ method is provided
     if hasattr(new, "__post_init__"):
