@@ -117,14 +117,6 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             subfuncs = []
             for subspace in self.function_space():
                 subdat = self.dat[subspace.index]
-                # relabel the axes (remove suffix)
-                # subaxes = subdat.axes.relabel({
-                #     label: label.removesuffix(f"_{subspace.index}")
-                #     for label in subdat.axes.node_labels
-                #     if label.startswith("dof")
-                # })
-                # # .with_axes
-                # subdat = op3.Dat(subaxes, data=subdat.buffer, name=subdat.name)
                 subfunc = type(self)(
                     subspace, subdat, name=f"{self.name()}[{subspace.index}]"
                 )
@@ -135,7 +127,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
     @utils.cached_property
     def _components(self):
-        if self.function_space()._cdim == 1:
+        if self.function_space().value_size == 1:
             return (self,)
         else:
             if len(self.function_space().shape) > 1:
@@ -432,18 +424,3 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
     def cell_node_map(self):
         return self.function_space().cell_node_map()
-
-    # @property
-    # def vec_ro(self):
-    #     cdim = self.function_space()._cdim
-    #     return self.dat.vec_ro(bsize=cdim)
-    #
-    # @property
-    # def vec_wo(self):
-    #     cdim = self.function_space()._cdim
-    #     return self.dat.vec_wo(bsize=cdim)
-    #
-    # @property
-    # def vec_rw(self):
-    #     cdim = self.function_space()._cdim
-    #     return self.dat.vec_rw(bsize=cdim)

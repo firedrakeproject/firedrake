@@ -401,7 +401,7 @@ class _FacetContext:
         dim = self.mesh.topology.dimension - 1
         indices = self.facet_indices_renumbered
         subset_dat = op3.Dat(op3.Axis(indices.size), data=indices, prefix="subset")
-        subset = op3.Subset(str(dim), subset_dat)
+        subset = op3.Subset(dim, subset_dat)
         return op3.Slice(self.mesh.topology.points.root.label, [subset])
 
     @cached_property

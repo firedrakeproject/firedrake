@@ -901,18 +901,10 @@ class FunctionSpace:
     def template_vec(self):
         """Dummy PETSc Vec of the right size for this set of axes."""
         vec = PETSc.Vec().create(comm=self.comm)
-        # TODO handle cdim, we move this code into Firedrake and out of PyOP2/3
-        # because cdim is not really something pyop3 considers.
-        # size = (self.size * self.cdim, None)
-        # "size" is a 2-tuple of (local size, global size), setting global size
-        # to None means PETSc will determine it for us.
-        # import pyop3.extras.debug as dbg
-        # dbg.enable_conditional_breakpoints()
-        size = (self.axes.owned.size, None)
-        # vec.setSizes(size, bsize=self.cdim)
-
-
-        vec.setSizes(size)
+        vec.setSizes(
+            (self.layout_axes.owned.size, self.layout_axes.size),
+            bsize=self.value_size,
+        )
         vec.setUp()
         return vec
 
@@ -943,7 +935,7 @@ class FunctionSpace:
         nrows = self.axes.size
         iset = PETSc.IS().createStride(nrows, first=offset, step=1,
                                        comm=self.comm)
-        iset.setBlockSize(self._cdim)
+        iset.setBlockSize(self.value_size)
         ises.append(iset)
         offset += nrows
         return tuple(ises)
@@ -953,7 +945,7 @@ class FunctionSpace:
         iset = PETSc.IS().createStride(
             self.axes.size, first=0, step=1, comm=mpi.COMM_SELF
         )
-        iset.setBlockSize(self._cdim)
+        iset.setBlockSize(self.value_size)
         return (iset,)
 
     # TODO: cythonize
@@ -1010,33 +1002,26 @@ class FunctionSpace:
 
         return section
 
-    # TODO: This is identical to value_size, remove
-    @property
-    def _cdim(self):
-        return self.value_size
-
     @utils.cached_property
     def cell_node_list(self):
         r"""A numpy array mapping mesh cells to function space nodes."""
         # internal detail really, do not expose in pyop3/__init__.py
-        from pyop3.expr.visitors import NonlinearCompositeDat, materialize_composite_dat
+        from pyop3.expr.visitors import loopified_shape, get_shape
+        from firedrake.parloops import pack_pyop3_tensor
 
-        import pyop3.extras.debug as dbg
-        dbg.warn_todo("Need to renumber dofs in closure, this will break degree > 1")
+        indices_axes = self.axes.blocked(self.shape)
+        indices_array = numpy.arange(indices_axes.size, dtype=IntType)
+        indices_dat = op3.Dat(indices_axes, data=indices_array)
 
-        blocked_axes = self.axes.blocked(self.shape)
+        cell_index = self._mesh.cells.owned.iter()
+        map_expr = pack_pyop3_tensor(indices_dat, self, cell_index, "cell")
+        map_axes = op3.AxisTree(self._mesh.cells.owned.root)
+        map_axes = map_axes.add_subtree(map_axes.leaf_path, get_shape(map_expr)[0])
+        map_dat = op3.Dat.empty(map_axes, dtype=IntType)
 
-        mesh = self._mesh
-        cell = mesh.cells.owned.index()
-        indexed_axes = blocked_axes[self._mesh.closure(cell)]
-        cell_node_expr = NonlinearCompositeDat(
-            indexed_axes.materialize(),
-            indexed_axes.leaf_subst_layouts,
-            indexed_axes.outer_loops,
-        )
-        cell_node_buffer_expr = materialize_composite_dat(cell_node_expr)
-        shape = (self._mesh.cells.owned.size, indexed_axes.size)
-        return utils.readonly(cell_node_buffer_expr.buffer.buffer.data_ro.reshape(shape))
+        op3.loop(cell_index, map_dat[cell_index].assign(map_expr), eager=True)
+
+        return map_dat.data_ro.reshape((self._mesh.cells.owned.size, -1))
 
     @utils.cached_property
     def topological(self):
@@ -1320,12 +1305,12 @@ class FunctionSpace:
     def _lgmap(self) -> PETSc.LGMap:
         """Return the mapping from process-local to global DoF numbering."""
         indices = self.block_axes.global_numbering
-        return PETSc.LGMap().create(indices, bsize=self._cdim, comm=self.comm)
+        return PETSc.LGMap().create(indices, bsize=self.value_size, comm=self.comm)
 
     @utils.cached_property
     def _unblocked_lgmap(self) -> PETSc.LGMap:
         """Return the local-to-global mapping with a block size of 1."""
-        if self._cdim == 1:
+        if self.value_size == 1:
             return self._lgmap
         else:
             indices = self.axes.global_numbering
@@ -1798,7 +1783,7 @@ class MixedFunctionSpace:
         for i, subspace in enumerate(self._spaces):
             nrows = self.axes[i].size if local else self.axes[i].owned.size
             iset = PETSc.IS().createStride(nrows, first=start, step=1, comm=self.comm)
-            iset.setBlockSize(subspace._cdim)
+            iset.setBlockSize(subspace.value_size)
             ises.append(iset)
             start += nrows
         return tuple(ises)

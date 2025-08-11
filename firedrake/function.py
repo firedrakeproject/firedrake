@@ -127,7 +127,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         if self.function_space().rank == 0:
             return (self,)
         else:
-            if self.function_space()._cdim == 1:
+            if self.function_space().value_size == 1:
                 return (CoordinatelessFunction(self.function_space().sub(0), val=self.dat,
                                                name=f"view[0]({self.name()})"),)
             else:
@@ -687,17 +687,17 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @property
     def vec_ro(self):
-        cdim = self.function_space()._cdim
+        cdim = self.function_space().value_size
         return self.dat.vec_ro(bsize=cdim)
 
     @property
     def vec_wo(self):
-        cdim = self.function_space()._cdim
+        cdim = self.function_space().value_size
         return self.dat.vec_wo(bsize=cdim)
 
     @property
     def vec_rw(self):
-        cdim = self.function_space()._cdim
+        cdim = self.function_space().value_size
         return self.dat.vec_rw(bsize=cdim)
 
 

@@ -94,7 +94,7 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs) ->
                 raise RuntimeError("Only READ access is allowed to Constant")
             # Constants modelled as Globals, so no need for double
             # indirection
-            ndof = func.function_space()._cdim
+            ndof = func.function_space().value_size
             kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,), is_input=is_input, is_output=is_output))
         else:
             # Do we have a component of a mixed function?
@@ -102,7 +102,7 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs) ->
                 c, i = func.ufl_operands
                 idx = i._indices[0]._value
                 ndof = c.function_space()[idx].finat_element.space_dimension()
-                cdim = c.function_space()[idx]._cdim
+                cdim = c.function_space()[idx].value_size
                 dtype = c.dat[idx].dtype
             else:
                 if func.function_space().ufl_element().family() == "Real":
@@ -113,7 +113,7 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs) ->
                     if len(func.function_space()) > 1:
                         raise NotImplementedError("Must index mixed function in par_loop.")
                     ndof = func.function_space().finat_element.space_dimension()
-                    cdim = func.function_space()._cdim
+                    cdim = func.function_space().value_size
                     dtype = func.dat.dtype
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2

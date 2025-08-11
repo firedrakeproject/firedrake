@@ -7,7 +7,7 @@ import pytest
 
 def test_scalar_constant():
     for m in [UnitIntervalMesh(5), UnitSquareMesh(2, 2), UnitCubeMesh(2, 2, 2)]:
-        c = Constant(1, domain=m)
+        c = Constant(1)
         # Check that the constant has the correct dimension.
         assert c._ad_dim() == 1
         assert abs(assemble(c*dx(domain=m)) - 1.0) < 1e-10
@@ -15,7 +15,7 @@ def test_scalar_constant():
 
 def test_scalar_constant_assign():
     for m in [UnitIntervalMesh(5), UnitSquareMesh(2, 2), UnitCubeMesh(2, 2, 2)]:
-        c = Constant(1, domain=m)
+        c = Constant(1)
         assert abs(assemble(c*dx(domain=m)) - 1.0) < 1e-10
         c.assign(4)
         assert abs(assemble(c*dx(domain=m)) - 4.0) < 1e-10

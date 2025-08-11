@@ -903,7 +903,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
             # Callable will do interpolation into our pre-supplied function f
             # when it is called.
             assert f.dat is tensor
-            wrapper.mpi_type, _ = op3.dtypes.get_mpi_dtype(f.dat.dtype, f.function_space()._cdim)
+            wrapper.mpi_type, _ = op3.dtypes.get_mpi_dtype(f.dat.dtype, f.function_space().value_size)
             assert not len(arguments)
 
             def callable():
@@ -919,7 +919,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
             # after cofunctions are fully implemented, this will need to be
             # reconsidered.
             temp_source_func = firedrake.Function(argfs)
-            wrapper.mpi_type, _ = op3.dtypes.get_mpi_dtype(temp_source_func.dat.dtype, argfs._cdim)
+            wrapper.mpi_type, _ = op3.dtypes.get_mpi_dtype(temp_source_func.dat.dtype, argfs.value_size)
 
             # Leave wrapper inside a callable so we can access the handle
             # property (which is pretending to be a petsc mat)
