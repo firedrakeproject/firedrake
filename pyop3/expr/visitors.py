@@ -11,7 +11,7 @@ import numpy as np
 from immutabledict import immutabledict as idict
 from pyop2.caching import scoped_cache
 from pyop3.expr.tensor import Scalar
-from pyop3.buffer import BufferRef, PetscMatBuffer
+from pyop3.buffer import BufferRef, PetscMatBuffer, ConcreteBuffer
 from pyop3.tree.index_tree.tree import LoopIndex, Slice, AffineSliceComponent, IndexTree, LoopIndexIdT
 from pyrsistent import pmap, PMap
 from petsc4py import PETSc
@@ -458,7 +458,8 @@ def _(mat: op3_expr.Mat, /, axis_trees: Iterable[AxisTree, ...]) -> op3_expr.Buf
     buffer_ref = BufferRef(mat.buffer, nest_indices)
 
     # For PETSc matrices we must always tabulate the indices
-    if isinstance(mat.buffer, PetscMatBuffer):
+    # NOTE: we can't check isinstance(PetscMatBuffer) here because of MATPYTHON
+    if isinstance(buffer_ref.buffer, ConcreteBuffer) and isinstance(buffer_ref.handle, PETSc.Mat):
         mat_expr = op3_expr.MatPetscMatBufferExpression.from_axis_trees(buffer_ref, row_axes, column_axes)
     else:
         row_layouts = row_axes.leaf_subst_layouts

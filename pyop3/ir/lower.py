@@ -1174,14 +1174,14 @@ def _(expr: op3_expr.NonlinearDatBufferExpression, /, iname_maps, loop_indices, 
     return lower_buffer_access(expr.buffer, [expr.layouts[path]], iname_maps, loop_indices, context, intent=intent)
 
 
-# @_lower_expr.register(LinearMatBufferExpression)
-# def _(expr: LinearMatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
-#     layouts = (expr.row_layout, expr.column_layout)
-#     return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, shape=shape)
+# @_lower_expr.register(op3_expr.MatPetscMatBufferExpression)
+# def _(mat_expr: op3_expr.MatPetscMatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
+#     layouts = (mat_expr.row_layout, mat_expr.column_layout)
+#     return lower_buffer_access(mat_expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, shape=shape)
 
 
-@_lower_expr.register(op3_expr.MatBufferExpression)
-def _(expr: op3_expr.MatBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
+@_lower_expr.register(op3_expr.MatArrayBufferExpression)
+def _(expr: op3_expr.MatArrayBufferExpression, /, iname_maps, loop_indices, context, *, intent, paths, shape) -> pym.Expression:
     row_path, column_path = paths
     layouts = (expr.row_layouts[row_path], expr.column_layouts[column_path])
     return lower_buffer_access(expr.buffer, layouts, iname_maps, loop_indices, context, intent=intent, shape=shape)

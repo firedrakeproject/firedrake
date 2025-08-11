@@ -578,7 +578,10 @@ def _make_record(**kwargs):
 def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
     changed_attrs = {}
     for attr_name, attr in attrs.items():
-        if getattr(self, attr_name) != attr:
+        try:
+            if getattr(self, attr_name) != attr:
+                changed_attrs[attr_name] = attr
+        except ValueError:  # __eq__ not always available (e.g. numpy arrays)
             changed_attrs[attr_name] = attr
 
     if not changed_attrs:
