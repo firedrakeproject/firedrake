@@ -2524,7 +2524,7 @@ values from f.)"""
         cell_node_list = mesh.coordinates.function_space().cell_node_list
         _, nodes_per_cell = cell_node_list.shape
 
-        domain = "{{[d, i]: 0 <= d < {0} and 0 <= i < {1}}}".format(gdim, nodes_per_cell)
+        domain = f"{{[d, i]: 0 <= d < {gdim} and 0 <= i < {nodes_per_cell}}}"
         instructions = """
         for d, i
             f_min[0, d] = fmin(f_min[0, d], f[i, d])
