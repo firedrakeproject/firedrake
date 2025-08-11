@@ -24,8 +24,8 @@ def _test_submesh_mixed_cell_base():
     # pgfplot(f, "mesh_tri.dat", degree=2)
     dx_t = Measure("dx", mesh_t)
     dx_q = Measure("dx", mesh_q)
-    ds_t = Measure("ds", mesh_t, extra_measures=(Measure("ds", mesh_q),))
-    ds_q = Measure("ds", mesh_q, extra_measures=(Measure("ds", mesh_t),))
+    ds_t = Measure("ds", mesh_t, intersect_measures=(Measure("ds", mesh_q),))
+    ds_q = Measure("ds", mesh_q, intersect_measures=(Measure("ds", mesh_t),))
     A_t = assemble(Constant(1) * dx_t)
     A_q = assemble(Constant(1) * dx_q)
     assert abs(A_t + A_q -1.0) < 1.e-13
@@ -91,8 +91,8 @@ def test_submesh_mixed_cell_assemble():
     v_t, v_q = split(v)
     dx_t = Measure("dx", mesh_t)
     dx_q = Measure("dx", mesh_q)
-    ds_t = Measure("ds", mesh_t, extra_measures=(Measure("ds", mesh_q),))
-    ds_q = Measure("ds", mesh_q, extra_measures=(Measure("ds", mesh_t),))
+    ds_t = Measure("ds", mesh_t, intersect_measures=(Measure("ds", mesh_q),))
+    ds_q = Measure("ds", mesh_q, intersect_measures=(Measure("ds", mesh_t),))
     # Test against the base cases.
     c = x_t**2 * y_t**2
     a = c * inner(u_t, v_q) * ds_t(label_interf)
@@ -147,8 +147,8 @@ def test_submesh_mixed_cell_solve():
     v_t, v_q = split(v)
     dx_t = Measure("dx", mesh_t)
     dx_q = Measure("dx", mesh_q)
-    ds_t = Measure("ds", mesh_t, extra_measures=(Measure("ds", mesh_q),))
-    ds_q = Measure("ds", mesh_q, extra_measures=(Measure("ds", mesh_t),))
+    ds_t = Measure("ds", mesh_t, intersect_measures=(Measure("ds", mesh_q),))
+    ds_q = Measure("ds", mesh_q, intersect_measures=(Measure("ds", mesh_t),))
     g_t = cos(2 * pi * x_t) * cos(2 * pi * y_t)
     g_q = cos(2 * pi * x_q) * cos(2 * pi * y_q)
     f_t = 8 * pi**2 * g_t
