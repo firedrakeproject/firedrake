@@ -9,7 +9,10 @@ def test_ensemble_manual_example():
     # [test_ensemble_manual_example 1 <]
 
     # [test_ensemble_manual_example 2 >]
-    mesh = UnitSquareMesh(20, 20, comm=my_ensemble.comm)
+    mesh = UnitSquareMesh(
+        20, 20, comm=my_ensemble.comm,
+        distribution_parameters={"partitioner_type": "simple"})
+
     x, y = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
@@ -35,7 +38,7 @@ def test_ensemble_manual_example():
     my_ensemble.reduce(u, usum, root=root)
     my_ensemble.allreduce(u, usum)
 
-    my_ensemble.bcast(u, root)
+    my_ensemble.bcast(u, root=root)
     # [test_ensemble_manual_example 4 <]
 
     # [test_ensemble_manual_example 5 >]
@@ -80,5 +83,5 @@ def test_ensemble_manual_example():
 
     # [test_ensemble_manual_example 8 >]
     with efunc.vec_ro() as vec:
-        PETSc.Sys.Print(f"{vec.norm() = }")
+        PETSc.Sys.Print(f"{vec.norm()=}")
     # [test_ensemble_manual_example 8 <]
