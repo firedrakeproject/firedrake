@@ -383,9 +383,6 @@ def _(
     if V.mesh() != target_mesh:
         index = target_mesh.cell_parent_cell_map(index)
 
-    # if V.ufl_element().family() == "Real":
-    #     return array
-
     if integral_type == "cell":
         # TODO ideally the FIAT permutation would not need to be known
         # about by the mesh topology and instead be handled here. This
@@ -398,7 +395,7 @@ def _(
     else:
         raise NotImplementedError
 
-    indexed = array.getitem(pack_indices, strict=True)
+    indexed = array[pack_indices]
 
     plex = V.mesh().topology  # used?
 
@@ -462,7 +459,7 @@ def _(
     else:
         raise NotImplementedError
 
-    indexed = mat.getitem(rmap, cmap, strict=True)
+    indexed = mat[rmap, cmap]
 
     row_perm = _flatten_entity_dofs(Vrow.finat_element.entity_dofs())
     row_perm = invert_permutation(row_perm)
@@ -493,65 +490,11 @@ def _(
     return indexed
 
 def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.IndexTree:
-    mesh = V.mesh()
-
-    # mixed
-    if isinstance(V.topological, MixedFunctionSpace):
-        field_slice = op3.Slice(
-            "field",
-            [op3.AffineSliceComponent(str(i)) for i, _ in enumerate(V)]
-        )
-        index_tree = op3.IndexTree(field_slice)
-
-        for i, (Vsub, ileaf) in enumerate(zip(V, index_tree.leaves, strict=True)):
-            closure_tree = _cell_closure_index_tree(Vsub, cell)
-            subspace_tree = closure_tree
-
-            tensor_slices = tuple(
-                op3.Slice(f"dim{i}", [op3.AffineSliceComponent("XXX")])
-                for i, dim in enumerate(Vsub.shape)
-            )
-            shape_tree = op3.IndexTree.from_iterable(tensor_slices)
-
-            for leaf in closure_tree.leaves:
-                subspace_tree = subspace_tree.add_subtree(shape_tree, leaf, uniquify_ids=True)
-
-            index_tree.add_subtree(subspace_tree, ileaf)
+    if len(V) > 1:
+        raise NotImplementedError("At present all forms are split by this point")
+        # return (slice(None), V._mesh.closure(cell))
     else:
-        closure_tree = _cell_closure_index_tree(V, cell)
-        index_tree = closure_tree
-
-        tensor_slices = tuple(
-            op3.Slice(f"dim{i}", [op3.AffineSliceComponent("XXX")])
-            for i, dim in enumerate(V.shape)
-        )
-        shape_tree = op3.IndexTree.from_iterable(tensor_slices)
-
-        for leaf_path in closure_tree.leaf_paths:
-            index_tree = index_tree.add_subtree(leaf_path, shape_tree)
-
-    return index_tree
-
-
-def _cell_closure_index_tree(V, cell: op3.LoopIndex) -> op3.IndexTree:
-    from firedrake.assemble import _is_real_space
-
-    mesh = V.mesh()
-
-    # if _is_real_space(V):
-    if False:
-        # Real spaces don't really know anything about the mesh so
-        # the 'closure' map is simpler.
-        return op3.IndexTree(
-            op3.Slice(f"dof{mesh.cell_label}", [op3.AffineSliceComponent("XXX")])
-        )
-    else:
-        return op3.IndexTree.from_nest({
-            mesh._fiat_closure(cell): [
-                op3.Slice(f"dof{d}", [op3.AffineSliceComponent("XXX")])
-                for d in mesh._closure_sizes[mesh.cell_label].keys()
-            ]
-        })
+        return V._mesh.closure(cell)
 
 
 def _facet_integral_pack_indices(V: WithGeometry, facet: op3.LoopIndex) -> op3.IndexTree:
@@ -703,10 +646,10 @@ def _with_shape_axes(V, axes, target_paths, index_exprs, integral_type):
     return tree, freeze(new_target_paths), freeze(new_index_exprs)
 
 
-@functools.cache
-def _entity_permutations(V):
-    mesh = V.mesh().topology
-    elem = V.finat_element
+@serial_cache(lambda fs: fs.finat_element)
+def _entity_permutations(fs: WithGeometry):
+    mesh = fs.mesh().topology
+    elem = fs.finat_element
 
     perm_dats = []
     for dim in range(mesh.dimension+1):
