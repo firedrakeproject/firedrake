@@ -54,9 +54,7 @@ def test_tlm_assemble():
     h = Function(V)
     h.vector()[:] = rand(h.dof_dset.size)
     g = f.copy(deepcopy=True)
-    f.block_variable.tlm_value = h
-    tape.evaluate_tlm()
-    assert (taylor_test(Jhat, g, h, dJdm=J.block_variable.tlm_value) > 1.9)
+    assert (taylor_test(Jhat, g, h, dJdm=Jhat.tlm(h)) > 1.9)
 
 
 @pytest.mark.skipcomplex
@@ -80,12 +78,7 @@ def test_tlm_bc():
     J = assemble(c ** 2 * u * dx)
     Jhat = ReducedFunctional(J, Control(c))
 
-    # Need to specify the domain for the constant as `ufl.action`, which requires `ufl.Constant`
-    # to have a function space, will be applied on the tlm value.
-    c.block_variable.tlm_value = Function(R, val=1)
-    tape.evaluate_tlm()
-
-    assert (taylor_test(Jhat, c, Function(R, val=1), dJdm=J.block_variable.tlm_value) > 1.9)
+    assert (taylor_test(Jhat, c, Function(R, val=1), dJdm=Jhat.tlm(Function(R, val=1))) > 1.9)
 
 
 @pytest.mark.skipcomplex
@@ -113,10 +106,8 @@ def test_tlm_func():
     h = Function(V)
     h.vector()[:] = rand(h.dof_dset.size)
     g = c.copy(deepcopy=True)
-    c.block_variable.tlm_value = h
-    tape.evaluate_tlm()
 
-    assert (taylor_test(Jhat, g, h, dJdm=J.block_variable.tlm_value) > 1.9)
+    assert (taylor_test(Jhat, g, h, dJdm=Jhat.tlm(h)) > 1.9)
 
 
 @pytest.mark.parametrize("solve_type",
@@ -170,9 +161,7 @@ def test_time_dependent(solve_type):
     Jhat = ReducedFunctional(J, control)
     h = Function(V)
     h.vector()[:] = rand(h.dof_dset.size)
-    u_1.tlm_value = h
-    tape.evaluate_tlm()
-    assert (taylor_test(Jhat, control.tape_value(), h, dJdm=J.block_variable.tlm_value) > 1.9)
+    assert (taylor_test(Jhat, control.tape_value(), h, dJdm=Jhat.tlm(h)) > 1.9)
 
 
 @pytest.mark.skipcomplex
@@ -224,9 +213,7 @@ def test_burgers():
     h = Function(V)
     h.vector()[:] = rand(h.dof_dset.size)
     g = ic.copy(deepcopy=True)
-    ic.block_variable.tlm_value = h
-    tape.evaluate_tlm()
-    assert (taylor_test(Jhat, g, h, dJdm=J.block_variable.tlm_value) > 1.9)
+    assert (taylor_test(Jhat, g, h, dJdm=Jhat.tlm(h)) > 1.9)
 
 
 @pytest.mark.skipcomplex
@@ -255,9 +242,7 @@ def test_projection():
     J = assemble(u_**2*dx)
     Jhat = ReducedFunctional(J, Control(k))
 
-    k.block_variable.tlm_value = Constant(1)
-    tape.evaluate_tlm()
-    assert (taylor_test(Jhat, k, Function(R, val=1), dJdm=J.block_variable.tlm_value) > 1.9)
+    assert (taylor_test(Jhat, k, Function(R, val=1), dJdm=Jhat.tlm(Constant(1))) > 1.9)
 
 
 @pytest.mark.skipcomplex
@@ -268,7 +253,6 @@ def test_projection_function():
     V = FunctionSpace(mesh, "CG", 1)
 
     bc = DirichletBC(V, Constant(1), "on_boundary")
-    # g = Function(V)
     x, y = SpatialCoordinate(mesh)
     g = project(sin(x)*sin(y), V, annotate=False)
     expr = sin(g*x)
@@ -289,6 +273,4 @@ def test_projection_function():
     h = Function(V)
     h.vector()[:] = rand(h.dof_dset.size)
     m = g.copy(deepcopy=True)
-    g.block_variable.tlm_value = h
-    tape.evaluate_tlm()
-    assert (taylor_test(Jhat, m, h, dJdm=J.block_variable.tlm_value) > 1.9)
+    assert (taylor_test(Jhat, m, h, dJdm=Jhat.tlm(h)) > 1.9)
