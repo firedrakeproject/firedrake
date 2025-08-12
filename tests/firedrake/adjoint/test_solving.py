@@ -76,7 +76,8 @@ def test_singular_linear_problem():
 
 
 @pytest.mark.skipcomplex
-def test_nonlinear_problem():
+@pytest.mark.parametrize("pre_apply_bcs", (True, False))
+def test_nonlinear_problem(pre_apply_bcs):
     """This tests whether nullspace and solver_parameters are passed on in adjoint solves"""
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
@@ -91,7 +92,7 @@ def test_nonlinear_problem():
     def J(f):
         a = f*inner(grad(u), grad(v))*dx + u**2*v*dx - f*v*dx
         L = 0
-        solve(a == L, u, bc)
+        solve(a == L, u, bc, pre_apply_bcs=pre_apply_bcs)
         return assemble(u**2*dx)
 
     _test_adjoint(J, f)
