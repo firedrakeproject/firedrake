@@ -1,193 +1,66 @@
-from pyadjoint import stop_annotating, get_working_tape, OverloadedType, Control, Tape, ReducedFunctional
+from pyadjoint import (
+    OverloadedType, Control, ReducedFunctional,
+    stop_annotating, pause_annotation, continue_annotation,
+    annotate_tape, set_working_tape)
+from pyadjoint.reduced_functional import AbstractReducedFunctional
 from pyadjoint.enlisting import Enlist
-from typing import Optional
 
 
-def intermediate_options(options: dict):
+def _rename(obj, name):
+    if hasattr(obj, "rename"):
+        obj.rename(name)
+
+
+def _ad_sub(left, right):
+    result = right._ad_copy()
+    result._ad_imul(-1)
+    result._ad_iadd(left)
+    return result
+
+
+# @set_working_tape()  # ends up using old_tape = None because evaluates when imported - need separate decorator
+def isolated_rf(operation, control,
+                functional_name=None,
+                control_name=None):
     """
-    Options set for the intermediate stages of a chain of ReducedFunctionals
-
-    Takes all elements of the options except riesz_representation, which
-    is set to None to prevent returning derivatives to the primal space.
-
-    Parameters
-    ----------
-    options
-        The dictionary of options provided by the user
-
-    Returns
-    -------
-    dict
-        The options for ReducedFunctionals at intermediate stages
-
+    Return a ReducedFunctional where the functional is `operation` applied
+    to a copy of `control`, and the tape contains only `operation`.
     """
-    return {
-        **{k: v for k, v in (options or {}).items()
-           if k != 'riesz_representation'},
-        'riesz_representation': None
-    }
-
-
-def compute_tlm(J: OverloadedType,
-                m: Control,
-                m_dot: OverloadedType,
-                options: Optional[dict] = None,
-                tape: Optional[Tape] = None):
-    """
-    Compute the tangent linear model of J in a direction m_dot at the current value of m
-
-    Parameters
-    ----------
-
-    J
-        The objective functional.
-    m
-        The (list of) :class:`pyadjoint.Control` for the functional.
-    m_dot
-        The direction in which to compute the Hessian.
-        Must be a (list of) :class:`pyadjoint.OverloadedType`.
-    options
-        A dictionary of options. To find a list of available options
-        have a look at the specific control type.
-    tape
-        The tape to use. Default is the current tape.
-
-    Returns
-    -------
-    pyadjoint.OverloadedType
-        The tangent linear with respect to the control in direction m_dot.
-        Should be an instance of the same type as the control.
-
-    """
-    tape = tape or get_working_tape()
-
-    # reset tlm values
-    tape.reset_tlm_values()
-
-    m = Enlist(m)
-    m_dot = Enlist(m_dot)
-
-    # set initial tlm values
-    for mi, mdi in zip(m, m_dot):
-        mi.tlm_value = mdi
-
-    # evaluate tlm
     with stop_annotating():
-        with tape.marked_nodes(m):
-            tape.evaluate_tlm(markings=True)
+        controls = Enlist(control)
+        control_copies = [control._ad_copy() for control in controls]
 
-    # return functional's tlm
-    return J._ad_convert_type(J.block_variable.tlm_value,
-                              options=options or {})
+        if control_name:
+            for control, name in zip(control_copies, Enlist(control_name)):
+                _rename(control, name)
 
+    annotating = annotate_tape()
+    if not annotating:
+        continue_annotation()
+    with set_working_tape() as tape:
+        functional = operation(
+            controls.delist(control_copies))
 
-def compute_hessian(J: OverloadedType,
-                    m: Control,
-                    options: Optional[dict] = None,
-                    tape: Optional[Tape] = None,
-                    hessian_value: Optional[OverloadedType] = 0.):
-    """
-    Compute the Hessian of J at the current value of m with the current tlm values on the tape.
+        if functional_name:
+            _rename(functional, functional_name)
 
-    Parameters
-    ----------
-    J
-        The objective functional.
-    m
-        The (list of) :class:`pyadjoint.Control` for the functional.
-    options
-        A dictionary of options. To find a list of available options
-        have a look at the specific control type.
-    tape
-        The tape to use. Default is the current tape.
-    hessian_value
-        The initial hessian_value to start accumulating from.
+        control = controls.delist(
+            [Control(control_copy)
+             for control_copy in control_copies])
 
-    Returns
-    -------
-    pyadjoint.OverloadedType
-        The second derivative with respect to the control in direction m_dot.
-        Should be an instance of the same type as the control.
+        Jhat = ReducedFunctional(
+            functional, control, tape=tape)
 
-    """
-    tape = tape or get_working_tape()
-
-    # reset hessian values
-    tape.reset_hessian_values()
-
-    m = Enlist(m)
-
-    # set initial hessian_value
-    J.block_variable.hessian_value = J._ad_convert_type(
-        hessian_value, options=intermediate_options(options))
-
-    # evaluate hessian
-    with stop_annotating():
-        with tape.marked_nodes(m):
-            tape.evaluate_hessian(markings=True)
-
-    # return controls' hessian values
-    return m.delist([v.get_hessian(options=options or {}) for v in m])
+    if not annotating:
+        pause_annotation()
+    return Jhat
 
 
-def tlm(rf: ReducedFunctional,
-        m_dot: OverloadedType,
-        options: Optional[dict] = None):
-    """Returns the action of the tangent linear model of the functional w.r.t. the control on a vector m_dot.
-
-    Parameters
-    ----------
-    rf
-        The :class:`pyadjoint.ReducedFunctional` to evaluate the tlm of.
-    m_dot
-        The direction in which to compute the action of the tangent linear model.
-    options
-        A dictionary of options. To find a list of available options
-        have a look at the specific control type.
-
-    Returns
-    -------
-    pyadjoint.OverloadedType
-        The action of the tangent linear model in the direction m_dot.
-        Should be an instance of the same type as the control.
-
-    """
-    return compute_tlm(rf.functional, rf.controls, m_dot,
-                       tape=rf.tape, options=options)
+def identity_reduced_functional(value):
+    return isolated_rf(lambda v: v._ad_init_zero()._ad_add(v), value)
 
 
-def hessian(rf: ReducedFunctional,
-            options: Optional[dict] = None,
-            hessian_value: Optional[OverloadedType] = 0.):
-    """Returns the action of the Hessian of the functional w.r.t. the control.
-
-    Using the second-order adjoint method, the action of the Hessian of the
-    functional with respect to the control, around the last supplied value
-    of the control and the last tlm values, is computed and returned.
-
-    Parameters
-    ----------
-    rf
-        The :class:`pyadjoint.ReducedFunctional` to evaluate the tlm of.
-    options
-        A dictionary of options. To find a list of available options
-        have a look at the specific control type.
-    hessian_value
-        The initial hessian_value to start accumulating from.
-
-    Returns
-    -------
-    pyadjoint.OverloadedType
-        The action of the Hessian. Should be an instance of the same type as the control.
-
-    """
-    return rf.controls.delist(
-        compute_hessian(rf.functional, rf.controls,
-                        tape=rf.tape, options=options,
-                        hessian_value=hessian_value))
-
-
-class CompositeReducedFunctional:
+class CompositeReducedFunctional(AbstractReducedFunctional):
     """Class representing the composition of two reduced functionals.
 
     For two reduced functionals J1: X->Y and J2: Y->Z, this is a convenience
@@ -206,6 +79,10 @@ class CompositeReducedFunctional:
     def __init__(self, rf1, rf2):
         self.rf1 = rf1
         self.rf2 = rf2
+
+    @property
+    def controls(self):
+        return self.rf1.controls
 
     def __call__(self, values: OverloadedType):
         """Computes the reduced functional with supplied control value.
@@ -227,7 +104,7 @@ class CompositeReducedFunctional:
         """
         return self.rf2(self.rf1(values))
 
-    def derivative(self, adj_input: Optional[float] = 1.0, options: Optional[dict] = None):
+    def derivative(self, adj_input: float = 1.0, apply_riesz: bool = False):
         """Returns the derivative of the functional w.r.t. the control.
         Using the adjoint method, the derivative of the functional with
         respect to the control, around the last supplied value of the
@@ -238,8 +115,8 @@ class CompositeReducedFunctional:
         adj_input
             The adjoint input.
 
-        options
-            Additional options for the derivative computation.
+        apply_riesz
+            Whether to apply the Riesz map to the result to obtain the primal value.
 
         Returns
         -------
@@ -249,12 +126,12 @@ class CompositeReducedFunctional:
 
         """
         deriv2 = self.rf2.derivative(
-            adj_input=adj_input, options=intermediate_options(options))
+            adj_input=adj_input, apply_riesz=False)
         deriv1 = self.rf1.derivative(
-            adj_input=deriv2, options=options or {})
+            adj_input=deriv2, apply_riesz=apply_riesz)
         return deriv1
 
-    def tlm(self, m_dot: OverloadedType, options: Optional[dict] = None):
+    def tlm(self, m_dot: OverloadedType):
         """Returns the action of the tangent linear model of the functional w.r.t. the control on a vector m_dot.
 
         Parameters
@@ -263,10 +140,6 @@ class CompositeReducedFunctional:
         m_dot
             The direction in which to compute the action of the Hessian.
 
-        options
-            A dictionary of options. To find a list of available options
-            have a look at the specific control type.
-
         Returns
         -------
         pyadjoint.OverloadedType
@@ -274,15 +147,9 @@ class CompositeReducedFunctional:
             Should be an instance of the same type as the control.
 
         """
-        tlm1 = self._eval_tlm(
-            self.rf1, m_dot, intermediate_options(options)),
-        tlm2 = self._eval_tlm(
-            self.rf2, tlm1, options)
-        return tlm2
+        return self.rf2.tlm(self.rf1.tlm(m_dot))
 
-    def hessian(self, m_dot: OverloadedType,
-                options: Optional[dict] = None,
-                evaluate_tlm: Optional[bool] = True):
+    def hessian(self, m_dot, hessian_input=None, evaluate_tlm=True, apply_riesz=False):
         """Returns the action of the Hessian of the functional w.r.t. the control on a vector m_dot.
 
         Using the second-order adjoint method, the action of the Hessian of the
@@ -294,10 +161,6 @@ class CompositeReducedFunctional:
 
         m_dot
             The direction in which to compute the action of the Hessian.
-
-        options
-            A dictionary of options. To find a list of available options
-            have a look at the specific control type.
 
         evaluate_tlm
             If True, the tlm values on the tape will be reset and evaluated before
@@ -312,21 +175,9 @@ class CompositeReducedFunctional:
 
         """
         if evaluate_tlm:
-            self.tlm(m_dot, options=intermediate_options(options))
-        hess2 = self._eval_hessian(
-            self.rf2, 0., intermediate_options(options))
-        hess1 = self._eval_hessian(
-            self.rf1, hess2, options or {})
-        return hess1
-
-    def _eval_tlm(self, rf, m_dot, options):
-        if isinstance(rf, CompositeReducedFunctional):
-            return rf.tlm(m_dot, options=options)
-        else:
-            return tlm(rf, m_dot=m_dot, options=options)
-
-    def _eval_hessian(self, rf, hessian_value, options):
-        if isinstance(rf, CompositeReducedFunctional):
-            return rf.hessian(None, options, evaluate_tlm=False)
-        else:
-            return hessian(rf, hessian_value=hessian_value, options=options)
+            self.tlm(m_dot)
+        return self.rf1.hessian(
+            None, evaluate_tlm=False, apply_riesz=apply_riesz,
+            hessian_input=self.rf2.hessian(
+                None, evaluate_tlm=False, apply_riesz=False,
+                hessian_input=hessian_input))

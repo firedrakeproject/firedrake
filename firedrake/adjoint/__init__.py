@@ -32,13 +32,15 @@ from pyadjoint.verification import taylor_test, taylor_to_dict  # noqa F401
 from pyadjoint.drivers import compute_gradient, compute_derivative, compute_hessian  # noqa F401
 from pyadjoint.adjfloat import AdjFloat  # noqa F401
 from pyadjoint.control import Control  # noqa F401
-from pyadjoint import IPOPTSolver, ROLSolver, MinimizationProblem, \
+from pyadjoint import TAOSolver, IPOPTSolver, ROLSolver, MinimizationProblem, \
     InequalityConstraint, minimize  # noqa F401
 
 from firedrake.adjoint.ufl_constraints import UFLInequalityConstraint, \
     UFLEqualityConstraint  # noqa F401
-from firedrake.adjoint.ensemble_reduced_functional import EnsembleReducedFunctional  # noqa F401
-from firedrake.adjoint.fourdvar_reduced_functional import FourDVarReducedFunctional  # noqa F401
+from firedrake.adjoint.fourdvar_reduced_functional import *  # noqa F401
+from firedrake.adjoint.ensemble_reduced_functional import *  # noqa F401
+from firedrake.adjoint.ensemble_adjvec import EnsembleAdjVec  # noqa F401
+from firedrake.adjoint.allatonce_reduced_functional import AllAtOnceReducedFunctional  # noqa F401
 import numpy_adjoint  # noqa F401
 import firedrake.ufl_expr
 import types

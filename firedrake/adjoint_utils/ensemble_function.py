@@ -1,5 +1,5 @@
 from pyadjoint.overloaded_type import OverloadedType
-from firedrake.petsc import PETSc
+import firedrake
 from .checkpointing import disk_checkpointing
 
 from functools import wraps
@@ -13,7 +13,7 @@ class EnsembleFunctionMixin(OverloadedType):
     Enables EnsembleFunction to do the following:
     - Be a Control for a NumpyReducedFunctional (_ad_to_list and _ad_assign_numpy)
     - Be used with pyadjoint TAO solver (_ad_{to,from}_petsc)
-    - Be used as a Control for Taylor tests (_ad_dot)
+    - Be used as a Control for Taylor tests (_ad_dot, _ad_add, _ad_mul)
     """
 
     @staticmethod
@@ -31,6 +31,7 @@ class EnsembleFunctionMixin(OverloadedType):
 
     @staticmethod
     def _ad_to_list(m):
+        PETSc = firedrake.PETSc
         with m.vec_ro() as gvec:
             scatter, lvec = PETSc.Scatter().toAll(gvec)
             scatter.scatter(gvec, lvec, addv=PETSc.InsertMode.INSERT_VALUES)
@@ -48,15 +49,22 @@ class EnsembleFunctionMixin(OverloadedType):
         local_dot = sum(uself._ad_dot(uother, options=options)
                         for uself, uother in zip(self.subfunctions,
                                                  other.subfunctions))
-        return self.function_space().ensemble_comm.allreduce(local_dot)
+        return self.function_space().ensemble.ensemble_comm.allreduce(local_dot)
 
-    def _ad_convert_riesz(self, value, options=None):
-        raise NotImplementedError
+    def _ad_init_zero(self, dual=False):
+        from firedrake import EnsembleFunction
+        space = self.function_space()
+        if dual:
+            space = space.dual()
+        return EnsembleFunction(space)
+
+    def _ad_convert_riesz(self, value, riesz_map=None):
+        return value.riesz_representation(riesz_map=riesz_map or "L2")
 
     def _ad_create_checkpoint(self):
         if disk_checkpointing():
             raise NotImplementedError(
-                "Disk checkpointing not implemented for EnsembleFunctions")
+                f"Disk checkpointing not implemented for {type(self).__name__}")
         else:
             return self.copy()
 
@@ -64,7 +72,7 @@ class EnsembleFunctionMixin(OverloadedType):
         if type(checkpoint) is type(self):
             return checkpoint
         raise NotImplementedError(
-            "Disk checkpointing not implemented for EnsembleFunctions")
+            f"Disk checkpointing not implemented for {type(self).__name__}")
 
     def _ad_from_petsc(self, vec):
         with self.vec_wo() as self_v:
