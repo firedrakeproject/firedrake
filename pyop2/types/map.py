@@ -295,6 +295,27 @@ class ComposedMap(Map):
         r[~mask, :] = Map.VALUE_UNDEFINED
         return r
 
+    @utils.cached_property
+    def indices_active_with_halo(self):
+        """Return boolean array for active indices.
+
+        Returns
+        -------
+        numpy.ndarray
+            Boolean array of size (self._iterset.total_size,), whose values
+            are `False` if the corresponding entries in the iterset have
+            no targets, or if the target values are `Map.VALUE_UNDEFINED`.
+
+        """
+        r = self.values_with_halo[:, 0] != Map.VALUE_UNDEFINED
+        if (
+            (self.values_with_halo[r, :] == Map.VALUE_UNDEFINED).any() or not (self.values_with_halo[~r, :] == Map.VALUE_UNDEFINED).all()
+        ):
+            raise AssertionError(
+                "target values of a given entry must be all defined or all undefined"
+            )
+        return r
+
     def __str__(self):
         return "OP2 ComposedMap of Maps: [%s]" % ",".join([str(m) for m in self.maps_])
 

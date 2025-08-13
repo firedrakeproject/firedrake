@@ -835,13 +835,13 @@ class SameMeshInterpolator(Interpolator):
                 composed_map, result_integral_type = source.trans_mesh_entity_map(target, "cell", "everywhere", None)
                 if result_integral_type != "cell":
                     raise AssertionError("Only cell-cell interpolation supported")
-                indices = composed_map.values_with_halo.reshape(-1)
-                make_subset = any(indices == op2.Map.VALUE_UNDEFINED)
+                indices_active = composed_map.indices_active_with_halo
+                make_subset = not indices_active.all()
                 make_subset = target.comm.allreduce(make_subset, op=MPI.LOR)
                 if make_subset:
                     if not allow_missing_dofs:
                         raise ValueError("iteration (sub)set unclear: run with `allow_missing_dofs=True`")
-                    subset = op2.Subset(target.cell_set, numpy.where(indices != op2.Map.VALUE_UNDEFINED))
+                    subset = op2.Subset(target.cell_set, numpy.where(indices_active))
                 else:
                     # Do not need subset as target <= source.
                     pass
