@@ -50,7 +50,7 @@ def test_right_external_integral(f):
 
 
 def test_internal_integral(f):
-    if f.function_space().mesh().num_cells() == 1:
+    if f.function_space().mesh().num_cells == 1:
         # Quadrilateral case, no internal facet
         assert abs(assemble(f('+') * dS)) < 1.0e-14
     else:
@@ -107,25 +107,25 @@ def test_vector_bilinear_exterior_facet_integral():
 
 @pytest.mark.parametrize('restrictions',
                          # ((trial space restrictions), (test space restrictions))
-                         [(('+',), ('+',)),  # pass
-                          (('+',), ('-',)),  # fail
-                          (('-',), ('+',)),  # fail
-                          (('-',), ('-',)),  # pass
-                          (('-', '+'), ('+', '+')),  # fail
-                          (('-', '+'), ('-', '+')),  # pass
-                          (('-', '+'), ('+', '-')),  # fail
-                          (('-', '+'), ('-', '-')),  # fail
-                          (('+', '+'), ('+', '+')),  # pass
-                          (('+', '+'), ('-', '+')),  # fail
-                          (('+', '+'), ('+', '-')),  # fail
-                          (('+', '+'), ('-', '-')),  # fail
-                          (('-', '-'), ('+', '+')),  # fail
-                          (('-', '-'), ('-', '+')),  # fail
-                          (('-', '-'), ('+', '-')),  # fail
-                          (('-', '-'), ('-', '-')),  # fail
-                          (('+', '-'), ('+', '+')),  # fail
-                          (('+', '-'), ('-', '+')),  # fail
-                          (('+', '-'), ('+', '-')),  # pass
+                         [(('+',), ('+',)),
+                          (('+',), ('-',)),
+                          (('-',), ('+',)),
+                          (('-',), ('-',)),
+                          (('-', '+'), ('+', '+')),
+                          (('-', '+'), ('-', '+')),
+                          (('-', '+'), ('+', '-')),
+                          (('-', '+'), ('-', '-')),
+                          (('+', '+'), ('+', '+')),
+                          (('+', '+'), ('-', '+')),
+                          (('+', '+'), ('+', '-')),
+                          (('+', '+'), ('-', '-')),
+                          (('-', '-'), ('+', '+')),
+                          (('-', '-'), ('-', '+')),
+                          (('-', '-'), ('+', '-')),
+                          (('-', '-'), ('-', '-')),
+                          (('+', '-'), ('+', '+')),
+                          (('+', '-'), ('-', '+')),
+                          (('+', '-'), ('+', '-')),
                           (('+', '-'), ('-', '-')),
                           (('+', '+', '-', '-'), ('+', '-', '+', '-'))])
 def test_bilinear_interior_facet_integral(dg_trial_test, restrictions):
@@ -191,7 +191,7 @@ def test_facet_map_no_reshape():
     assert efnm.values_with_halo.shape == (4, 1)
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
+@pytest.mark.xfail(reason="pyop3 TODO")
 def test_mesh_with_no_facet_markers():
     mesh = UnitTriangleMesh()
     mesh.init()

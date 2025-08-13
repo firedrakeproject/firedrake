@@ -3,13 +3,10 @@ import pytest
 
 from firedrake import *
 
-from firedrake.petsc import PETSc
-PETSc.Sys.popErrorHandler()
 
-
-def run_test():
-    # mesh = UnitSquareMesh(10, 10)
-    mesh = UnitSquareMesh(2, 2)
+@pytest.mark.parallel([1, 3])
+def test_interior_facet_solve():
+    mesh = UnitSquareMesh(10, 10)
     x = SpatialCoordinate(mesh)
     U = VectorFunctionSpace(mesh, 'DG', 1)
     H = FunctionSpace(mesh, 'CG', 2)
@@ -26,22 +23,10 @@ def run_test():
     F = (inner(sol, test)*dx - inner(f, div(test_U))*dx
          + inner(avg(f), jump(normal, test_U)) * dS + f * inner(normal, test_U)*ds)
 
-    # debug
-    assemble(F)
-
     solve(F == 0, sol)
 
-    assert np.allclose(sol.dat[0].data, [1., 0.])
-    assert np.allclose(sol.dat[1].data, 0.0)
-
-
-def test_interior_facet_solve():
-    run_test()
-
-
-@pytest.mark.parallel
-def test_interior_facet_solve_parallel():
-    run_test()
+    assert np.allclose(sol.dat[0].data_ro.reshape((-1, 2)), [1., 0.])
+    assert np.allclose(sol.dat[1].data_ro, 0.0)
 
 
 def test_interior_facet_vfs_horiz_rhs():

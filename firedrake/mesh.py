@@ -301,8 +301,9 @@ class _FacetContext:
                 if f_start <= point < f_stop:
                     nmarked_facets += 1
         # renumber the points
+        # TODO: Cythonize
         marked_points_renum = np.empty(nmarked_facets, dtype=IntType)
-        facet_numbering = self.mesh.points.component_numbering(self.mesh.facet_label)
+        facet_numbering = self.mesh._entity_numbering(self.mesh.facet_label)
         fi = 0
         for marked_points in marked_points_list:
             for point in marked_points:
@@ -317,8 +318,9 @@ class _FacetContext:
         )
         indices_dat = op3.Dat(op3.Axis(len(indices)), data=indices)
         subset = op3.Slice(
-            self.mesh.topology.name,
-            [op3.Subset(self._owned_facet_label, indices_dat)],
+            self._facet_label,
+            # [op3.Subset(self._owned_facet_label, indices_dat)],
+            [op3.Subset(0, indices_dat)],
         )
         return self._subsets.setdefault(markers, subset)
 
