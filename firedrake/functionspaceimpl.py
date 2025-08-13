@@ -580,9 +580,6 @@ class FunctionSpace:
         :class:`finat.ufl.mixedelement.TensorElement` have rank 1 and 2
         respectively."""
 
-        self.block_size = int(numpy.prod(self.shape, dtype=int))
-        r"""The total number of degrees of freedom at each function
-        space node."""
         self.name = name
         r"""The (optional) descriptive name for this space."""
 
@@ -877,6 +874,11 @@ class FunctionSpace:
     @utils.cached_property
     def _ad_parent_space(self):
         return self.parent
+
+    @property
+    def block_size(self) -> int:
+        """The total number of degrees of freedom at each function space node."""
+        return int(numpy.prod(self.shape, dtype=int))
 
     @utils.cached_property
     def dm(self):
@@ -1612,6 +1614,10 @@ class MixedFunctionSpace:
         composed of."""
         return sum(fs.value_size for fs in self._spaces)
 
+    @property
+    def block_size(self) -> int:
+        return 1
+
     @utils.cached_property
     def node_count(self):
         r"""Return a tuple of :attr:`FunctionSpace.node_count`\s of the
@@ -1631,25 +1637,6 @@ class MixedFunctionSpace:
 
         See also :attr:`FunctionSpace.dof_count` and :attr:`FunctionSpace.node_count`."""
         return self.dof_dset.layout_vec.getSize()
-
-    @utils.cached_property
-    def node_set(self):
-        r"""A :class:`pyop2.types.set.MixedSet` containing the nodes of this
-        :class:`MixedFunctionSpace`. This is composed of the
-        :attr:`FunctionSpace.node_set`\s of the underlying
-        :class:`FunctionSpace`\s this :class:`MixedFunctionSpace` is
-        composed of one or (for VectorFunctionSpaces) more degrees of freedom
-        are stored at each node."""
-        return op2.MixedSet(s.node_set for s in self._spaces)
-
-    @utils.cached_property
-    def dof_dset(self):
-        r"""A :class:`pyop2.types.dataset.MixedDataSet` containing the degrees of freedom of
-        this :class:`MixedFunctionSpace`. This is composed of the
-        :attr:`FunctionSpace.dof_dset`\s of the underlying
-        :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
-        composed."""
-        return op2.MixedDataSet(s.dof_dset for s in self._spaces)
 
     def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
         r"""Return entity node map rebased on ``source_mesh``.
@@ -1724,8 +1711,7 @@ class MixedFunctionSpace:
         from firedrake.mg.utils import get_level
 
         dm = PETSc.DMShell().create(comm=self.comm)
-        breakpoint()
-        dm.setLocalSection(self.local_section)
+        # dm.setLocalSection(self.local_section)
         dm.setGlobalVector(self.template_vec)
         _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level)
@@ -1738,15 +1724,7 @@ class MixedFunctionSpace:
         if self.comm.size > 1:
             raise NotImplementedError
         vec = PETSc.Vec().create(comm=self.comm)
-        # TODO handle cdim, we move this code into Firedrake and out of PyOP2/3
-        # because cdim is not really something pyop3 considers.
-        # size = (self.size * self.cdim, None)
-        # "size" is a 2-tuple of (local size, global size), setting global size
-        # to None means PETSc will determine it for us.
-        # size = (self.axes.owned.size, None)
-        size = (self.axes.size, None)
-        # vec.setSizes(size, bsize=self.cdim)
-        vec.setSizes(size)
+        vec.setSizes((self.axes.owned.size, self.axes.size), bsize=1)
         vec.setUp()
         return vec
 

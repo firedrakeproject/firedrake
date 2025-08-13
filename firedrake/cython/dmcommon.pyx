@@ -293,27 +293,21 @@ def local_facet_number(mesh, facet_type):
         np.ndarray closure_facets
 
     plex = mesh.topology_dm
-    cell_numbering = mesh.points.component_numbering(mesh.cell_label)
-    facet_numbering = mesh.points.component_numbering(mesh.facet_label)
+    cell_numbering = mesh._entity_numbering(mesh.cell_label)
+    facet_numbering = mesh._entity_numbering(mesh.facet_label)
 
     fStart, _ = plex.getHeightStratum(1)
+    closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_label]
 
-    # TODO This could be easier to access
-    key = pmap({mesh.name: mesh.cell_label})
-    tdim = mesh.dimension
-    closure_facets_map = mesh._fiat_closure.connectivity[key][tdim-1]
-    nfacets_in_closure = closure_facets_map.arity
-    closure_facets = closure_facets_map.array.data_ro.reshape(
-        (mesh.num_cells(), nfacets_in_closure)
-    )
+    nfacets_in_closure = closure_facets.shape[1]
 
     if facet_type == "exterior":
         ncells_per_facet = 1
-        facets = mesh.exterior_facets._facet_data_default
+        facets = mesh.exterior_facets.facet_indices
     else:
         assert facet_type == "interior"
         ncells_per_facet = 2
-        facets = mesh.interior_facets._facet_data_default
+        facets = mesh.interior_facets.facet_indices
 
     nfacets = len(facets)
     facet_number = np.full((nfacets, ncells_per_facet), -1, dtype=IntType)

@@ -993,14 +993,14 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree):
         subpath = path | {axis.label: component.label}
         size_expr = self.materialize().subtree(subpath).size
 
-        # NOTE: This is bizarre, what was I doing?
-        if isinstance(size_expr, numbers.Integral):
-            size_axes = Axis(component.local_size)
-        else:
-            # size_axes, _ = extract_axes(size_expr, self, (), {})
-            size_axes = utils.just_one(size_expr.shape).linearize(subpath, partial=True)
+        # # NOTE: This is bizarre, what was I doing?
+        # if isinstance(size_expr, numbers.Integral):
+        #     size_axes = 
+        # else:
+        #     # size_axes, _ = extract_axes(size_expr, self, (), {})
+        #     size_axes = utils.just_one(size_expr.shape).linearize(subpath, partial=True)
 
-        size_dat = Dat.empty(size_axes, dtype=IntType)
+        size_dat = Dat.empty(axis.linearize(component.label).regionless, dtype=IntType)
         size_dat.assign(size_expr, eager=True)
 
         sizes = size_dat.buffer.data_ro_with_halos

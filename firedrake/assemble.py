@@ -1440,7 +1440,7 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
         submat_specs = numpy.empty((ntest, ntrial), dtype=object)
         for i, test_subspace in enumerate(test_space):
             for j, trial_subspace in enumerate(trial_space):
-                block_shape = (test_subspace.value_size, trial_subspace.value_size)
+                block_shape = (test_subspace.block_size, trial_subspace.block_size)
 
                 if _is_real_space(test_subspace):
                     sub_mat_type_ = "cvec"
@@ -1456,7 +1456,7 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
                 submat_specs[i, j] = (subspace_key, op3.NonNestedPetscMatBufferSpec(sub_mat_type_, block_shape))
         mat_spec = op3.PetscMatNestBufferSpec(submat_specs)
     else:
-        block_shape = (test_space.value_size, trial_space.value_size)
+        block_shape = (test_space.block_size, trial_space.block_size)
         mat_spec = op3.NonNestedPetscMatBufferSpec(mat_type, block_shape)
     return mat_spec
 

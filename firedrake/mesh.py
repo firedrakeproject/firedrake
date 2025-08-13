@@ -1523,6 +1523,7 @@ class AbstractMeshTopology(abc.ABC):
             supports.append({map_dim: map_dat})
         return tuple(supports)
 
+    # this is almost completely pointless
     def _facet_support_dat(self, facet_type, *, include_ghost_points=False):
         if include_ghost_points:
             # since some facets have only a single cell in the support
@@ -1564,9 +1565,16 @@ class AbstractMeshTopology(abc.ABC):
             data=np.full(selected_facet_support_axes.size, -1, dtype=IntType),
         )
 
-        mysubset = op3.Slice(self.name, [op3.Subset(self.facet_label, op3.Dat.from_array(selected_facets))])
+        mysubset = op3.Slice(self.name, [op3.Subset(self.facet_label, op3.Dat.from_array(selected_facets))], label=f"{facet_type}_facets")
+        # mysubset = slice(None)
+        # mysubset = op3.Slice(self.name, [op3.AffineSliceComponent(self.facet_label, label=self.facet_label)], label=self.name)
 
-        return facet_support_dat[mysubset]
+        *others, (leaf_axis_label, leaf_component_label) = facet_support_dat.axes.leaf_path.items()
+        myslice = op3.Slice(leaf_axis_label, [op3.AffineSliceComponent(leaf_component_label, stop=arity)], label="support")
+
+        # TODO: This should work
+        # return facet_support_dat[mysubset, slice(arity)]
+        return facet_support_dat[mysubset, myslice]
 
         nowned_facets = self.points[self.facet_label].owned.size
         if facet_type == "exterior":

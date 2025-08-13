@@ -372,7 +372,8 @@ class ModuleExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
-        # if len(self.loopy_code.callables_table) > 1 and "expression_kernel" not in str(self):
+        # if len(self.loopy_code.callables_table) > 1 and "MatSetValues" in str(self):
+        # if "MatSetValues" in str(self):
         #     breakpoint()
 
         self.executable(*exec_arguments)
@@ -907,18 +908,13 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
         layout_exprs.append(layout_expr)
     irow, icol = layout_exprs
 
-    irow_var_name = context.add_temporary("irow")
-    icol_var_name = context.add_temporary("icol")
-
-    context.add_assignment(pym.var(irow_var_name), irow)
-    context.add_assignment(pym.var(icol_var_name), icol)
-
     # FIXME:
     blocked = False
 
     # hacky
     myargs = [
-        assignment, mat_name, array_name, rsize_var, csize_var, irow_var_name, icol_var_name, blocked
+        # assignment, mat_name, array_name, rsize_var, csize_var, irow_var_name, icol_var_name, blocked
+        assignment, mat_name, array_name, rsize_var, csize_var, irow, icol, blocked
     ]
     if setting_mat_values:
         match assignment.assignment_type:
