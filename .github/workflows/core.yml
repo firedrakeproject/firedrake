@@ -212,7 +212,6 @@ jobs:
           pip install -U pip
           pip install --group ./firedrake-repo/pyproject.toml:ci
 
-
           firedrake-clean
           pip list
 
