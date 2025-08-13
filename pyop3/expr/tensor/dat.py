@@ -535,7 +535,7 @@ class CompositeDat(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def leaf_exprs(self) -> idict:
+    def exprs(self) -> idict:
         pass
 
     # @abc.abstractmethod
@@ -594,7 +594,7 @@ class LinearCompositeDat(CompositeDat):
     # {{{ instance attrs
 
     _axis_tree: AxisTree
-    leaf_expr: Any
+    _exprs: Any
     _loop_indices: tuple[Axis]
 
     # }}}
@@ -604,13 +604,13 @@ class LinearCompositeDat(CompositeDat):
     axis_tree = utils.attr("_axis_tree")
     loop_indices = utils.attr("_loop_indices")
 
-    @property
-    def leaf_exprs(self) -> idict:
-        return idict({self.axis_tree.leaf_path: self.leaf_expr})
+    # @property
+    # def exprs(self) -> idict:
+    #     return idict({self.axis_tree.leaf_path: self.leaf_expr})
 
     # }}}
 
-    def __init__(self, axis_tree, leaf_expr, loop_indices):
+    def __init__(self, axis_tree, exprs, loop_indices):
         assert axis_tree.is_linear
         assert all(isinstance(index, LoopIndex) for index in loop_indices)
         assert len(axis_tree._all_region_labels) == 0
@@ -629,7 +629,7 @@ class NonlinearCompositeDat(CompositeDat):
     # {{{ instance attrs
 
     _axis_tree: AxisTree
-    _leaf_exprs: idict
+    _exprs: idict
     _loop_indices: tuple[LoopIndex]
 
     # }}}
@@ -637,21 +637,20 @@ class NonlinearCompositeDat(CompositeDat):
     # {{{ interface impls
 
     axis_tree = utils.attr("_axis_tree")
-    leaf_exprs: ClassVar[idict] = utils.attr("_leaf_exprs")
+    exprs: ClassVar[idict] = utils.attr("_exprs")
     loop_indices = utils.attr("_loop_indices")
 
     # }}}
 
-    def __init__(self, axis_tree, leaf_exprs, loop_indices):
-        assert set(axis_tree.leaf_paths) == leaf_exprs.keys()
+    def __init__(self, axis_tree, exprs, loop_indices):
         assert all(isinstance(index, LoopIndex) for index in loop_indices)
         assert len(axis_tree._all_region_labels) == 0
 
-        leaf_exprs = idict(leaf_exprs)
+        exprs = idict(exprs)
         loop_indices = tuple(loop_indices)
 
         object.__setattr__(self, "_axis_tree", axis_tree)
-        object.__setattr__(self, "_leaf_exprs", leaf_exprs)
+        object.__setattr__(self, "_exprs", exprs)
         object.__setattr__(self, "_loop_indices", loop_indices)
 
     # def __str__(self) -> str:

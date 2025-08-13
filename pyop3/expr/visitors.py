@@ -822,14 +822,15 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
         loop_slices.append(loop_slice)
 
     to_skip = set()
-    for path, expr in composite_dat.leaf_exprs.items():
+    for leaf_path in composite_dat.axis_tree.leaf_paths:
+        expr = composite_dat.exprs[leaf_path]
         expr = replace(expr, loop_var_replace_map)
 
         # is this broken?
         # assignee_ = assignee.with_axes(assignee.axes.linearize(composite_dat.loop_tree.leaf_path | path))
 
         myslices = []
-        for axis, component in path.items():
+        for axis, component in leaf_path.items():
             myslice = Slice(axis, [AffineSliceComponent(component)])
             myslices.append(myslice)
         iforest = IndexTree.from_iterable((*loop_slices, *myslices))
@@ -839,7 +840,7 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
         if assignee_.size > 0:
             assignee_.assign(expr, eager=True)
         else:
-            to_skip.add(path)
+            to_skip.add(leaf_path)
 
     # step 3: replace axis vars with loop indices in the layouts
     # NOTE: We need *all* the layouts here (i.e. not just the leaves) because matrices do not want the full path here. Instead
@@ -851,8 +852,10 @@ def materialize_composite_dat(composite_dat: op3_expr.CompositeDat) -> op3_expr.
         newlayout = replace(layout, axis_to_loop_var_replace_map)
         newlayouts[idict()] = newlayout
     else:
-        for path_ in composite_dat.axis_tree.leaf_paths:
-            if path_ in to_skip:
+        # for path_ in composite_dat.axis_tree.leaf_paths:
+        for path_ in composite_dat.axis_tree.node_map:
+            # if path_ in to_skip:
+            if False:
                 continue
             else:
                 fullpath = composite_dat.loop_tree.leaf_path | path_

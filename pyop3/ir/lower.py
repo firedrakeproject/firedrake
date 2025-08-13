@@ -23,7 +23,7 @@ from petsc4py import PETSc
 import loopy as lp
 import numpy as np
 import pymbolic as pym
-from immutabledict import immutabledict
+from immutabledict import immutabledict as idict
 
 import pyop2
 
@@ -406,8 +406,8 @@ class ModuleExecutor:
         return "", "<PetscMat>"
 
     @cached_property
-    def _buffer_ref_indices(self) -> immutabledict[str, int]:
-        return immutabledict({
+    def _buffer_ref_indices(self) -> idict[str, int]:
+        return idict({
             (buffer_ref.buffer.name, buffer_ref.nest_indices): i for i, buffer_ref in enumerate(self._buffer_refs)
         })
 
@@ -616,7 +616,7 @@ def _collect_temporary_shapes(expr):
 
 
 @_collect_temporary_shapes.register(InstructionList)
-def _(insn_list: InstructionList, /) -> immutabledict:
+def _(insn_list: InstructionList, /) -> idict:
     return merge_dicts(_collect_temporary_shapes(insn) for insn in insn_list)
 
 
@@ -637,13 +637,13 @@ def _(loop: Loop, /):
 @_collect_temporary_shapes.register(AbstractAssignment)
 @_collect_temporary_shapes.register(NullInstruction)
 @_collect_temporary_shapes.register(Exscan)  # assume we are fine
-def _(assignment: AbstractAssignment, /) -> immutabledict:
-    return immutabledict()
+def _(assignment: AbstractAssignment, /) -> idict:
+    return idict()
 
 
 @_collect_temporary_shapes.register
 def _(call: StandaloneCalledFunction):
-    return immutabledict(
+    return idict(
         {
             (arg.buffer.buffer.name, arg.buffer.nest_indices): lp_arg.shape
             for lp_arg, arg in zip(
@@ -707,8 +707,8 @@ def parse_loop_properly_this_time(
 
     if strictly_all(x is None for x in {axis, path, iname_map}):
         axis = axes.root
-        path = immutabledict()
-        iname_map = immutabledict()
+        path = idict()
+        iname_map = idict()
 
     for component in axis.components:
         path_ = path | {axis.label: component.label}
@@ -735,7 +735,7 @@ def parse_loop_properly_this_time(
             for index_exprs in axes.index_exprs:
                 for axis_label, index_expr in index_exprs.get(path_, {}).items():
                     loop_exprs[(loop.index.id, axis_label)] = lower_expr(index_expr, [iname_replace_map_], loop_indices, codegen_context, paths=[path_])
-            loop_exprs = immutabledict(loop_exprs)
+            loop_exprs = idict(loop_exprs)
 
             if subaxis := axes.node_map[path_]:
                 parse_loop_properly_this_time(
@@ -894,15 +894,7 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
     layout_exprs = []
     for layout in [mat.row_layout, mat.column_layout]:
         assert isinstance(layout, NonlinearDatBufferExpression)
-        sublayout_exprs_ = []
-        for sublayout in layout.layouts.values():
-            axis_var_zero_replace_map = {
-                axis_var: 0
-                for axis_var in collect_axis_vars(sublayout)
-            }
-            subst_sublayout_ = replace(sublayout, axis_var_zero_replace_map)
-            sublayout_exprs_.append(subst_sublayout_)
-        subst_sublayout = utils.single_valued(sublayout_exprs_)
+        subst_sublayout = layout.layouts[idict()]
         subst_layout = op3_expr.LinearDatBufferExpression(layout.buffer, subst_sublayout)
         layout_expr = lower_expr(subst_layout, ((),), loop_indices, context)
         layout_exprs.append(layout_expr)
@@ -972,8 +964,8 @@ def compile_array_assignment(
     if axis_tree is None:
         axis_tree, *axis_trees = axis_trees
 
-        paths += [immutabledict()]
-        iname_replace_maps += [immutabledict()]
+        paths += [idict()]
+        iname_replace_maps += [idict()]
 
         if axis_tree.is_empty or axis_tree is UNIT_AXIS_TREE or isinstance(axis_tree, IndexedAxisTree):
             if axis_trees:
