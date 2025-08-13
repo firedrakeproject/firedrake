@@ -212,8 +212,6 @@ jobs:
           pip install -U pip
           pip install --group ./firedrake-repo/pyproject.toml:ci
 
-          : # TODO: Remove before merge
-          pip install --verbose --editable git+https://github.com/dolfin-adjoint/pyadjoint.git@dham/abstract_reduced_functional#egg=pyadjoint-ad
 
           firedrake-clean
           pip list
