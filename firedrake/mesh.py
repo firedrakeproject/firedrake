@@ -2500,7 +2500,7 @@ values from f.)"""
             # For bendy meshes we project the coordinate function onto Bernstein
             bernstein_fs = functionspace.VectorFunctionSpace(self, "Bernstein", coord_degree)
             f = function.Function(bernstein_fs)
-            f.project(self.coordinates)
+            f.interpolate(self.coordinates)
             mesh = Mesh(f)
 
         # Calculate the bounding boxes for all cells by running a kernel
