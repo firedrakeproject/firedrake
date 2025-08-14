@@ -146,19 +146,19 @@ class Assigner:
         if isinstance(expression, Vector):
             expression = expression.function
         expression = as_ufl(expression)
-        source_domains = set()
+        source_meshes = set()
         for coeff in extract_coefficients(expression):
             if isinstance(coeff, Function) and coeff.ufl_element().family() != "Real":
                 if coeff.ufl_element() != assignee.ufl_element():
                     raise ValueError("All functions in the expression must have the same "
                                      "element as the assignee")
-                source_domains.add(extract_unique_domain(coeff))
-        if len(source_domains) == 0:
+                source_meshes.add(extract_unique_domain(coeff))
+        if len(source_meshes) == 0:
             pass
-        elif len(source_domains) == 1:
-            target_domain = extract_unique_domain(assignee)
-            source_domain, = source_domains
-            if target_domain.submesh_youngest_common_ancester(source_domain) is None:
+        elif len(source_meshes) == 1:
+            target_mesh = extract_unique_domain(assignee)
+            source_mesh, = source_meshes
+            if target_mesh.submesh_youngest_common_ancester(source_mesh) is None:
                 raise ValueError(
                     "All functions in the expression must be defined on a single domain "
                     "that is in the same submesh family as domain of the assignee"
@@ -205,50 +205,56 @@ class Assigner:
         #   a single halo exchange for the assignee.
         # * If we do write to the halo then the resulting halo will never be dirty.
         # If mixed, loop over individual components
+        # TODO: Do our best to avoid repeated memory allocations in the below.
+        #       Store work arrays in FunctionSpace?
         for lhs_func, *funcs in zip(self._assignee.subfunctions, *(f.subfunctions for f in self._functions)):
             subset = self._subset
-            target_domain = extract_unique_domain(lhs_func)
-            source_domains = set()
-            source_Vs = set()
+            target_mesh = extract_unique_domain(lhs_func)
+            source_meshes = set()
             for f in funcs:
-                source_domains.add(extract_unique_domain(f))
-                source_Vs.add(f.function_space())
-            subset_indices_target = ... if subset is None else subset.indices
-            subset_indices_source = subset_indices_target
-            flag = False
-            if len(source_domains) == 0:
-                source_domain = target_domain
-            elif len(source_domains) == 1:
-                source_domain, = source_domains
-                if target_domain is source_domain:
+                source_meshes.add(extract_unique_domain(f))
+            single_mesh_assign = True
+            if len(source_meshes) == 0:
+                pass
+            elif len(source_meshes) == 1:
+                source_mesh, = source_meshes
+                if target_mesh is source_mesh:
                     pass
                 else:
-                    target_V = lhs_func.function_space()
-                    source_V, = source_Vs
-                    composed_map = source_V.topological.entity_node_map(target_domain.topology, "cell", "everywhere", None)
-                    indices_active = composed_map.indices_active_with_halo
-                    subset_indices_target = target_V.cell_node_map().values_with_halo[indices_active, :].reshape(-1)
-                    subset_indices_source = composed_map.values_with_halo[indices_active, :].reshape(-1)
-                    finfo = np.finfo(lhs_func.dat.dtype)
-                    temp = lhs_func
-                    lhs_func = Function(target_V)
-                    lhs_func.dat._data[:] = finfo.min
-                    flag = True
+                    single_mesh_assign = False
             else:
                 raise ValueError("All functions in the expression must be defined on a single domain")
-            func_data = np.array([f.dat.data_ro_with_halos[subset_indices_source] for f in funcs])
-            rvalue = self._compute_rvalue(func_data)
-            self._assign_single_dat(lhs_func.dat, subset_indices_target, rvalue, True)
-            if flag:
-                lhs_func.dat.local_to_global_begin(op2.MAX)
-                lhs_func.dat.local_to_global_end(op2.MAX)
-                indices = np.where(lhs_func.dat.data_ro_with_halos > finfo.min * 0.999)
-                temp.dat.data_with_halos[indices] = lhs_func.dat.data_ro_with_halos[indices]
-                lhs_func = temp
-            if (
-                target_domain is source_domain and (subset is None or lhs_func.dat.halo_valid)
-            ):
-                lhs_func.dat.halo_valid = True
+            if single_mesh_assign:
+                assign_to_halos = all(f.dat.halo_valid for f in funcs) and (lhs_func.dat.halo_valid or subset is None)
+                if assign_to_halos:
+                    subset_indices = ... if subset is None else subset.indices
+                    data_ro = operator.attrgetter("data_ro_with_halos")
+                else:
+                    subset_indices = ... if subset is None else subset.owned_indices
+                    data_ro = operator.attrgetter("data_ro")
+                func_data = np.array([data_ro(f.dat)[subset_indices] for f in funcs])
+                rvalue = self._compute_rvalue(func_data)
+                self._assign_single_dat(lhs_func.dat, subset_indices, rvalue, assign_to_halos)
+                if assign_to_halos:
+                    lhs_func.dat.halo_valid = True
+            else:
+                target_V = lhs_func.function_space()
+                source_V, = set(f.function_space() for f in funcs)
+                composed_map = source_V.topological.entity_node_map(target_mesh.topology, "cell", "everywhere", None)
+                indices_active = composed_map.indices_active_with_halo
+                subset_indices_target = target_V.cell_node_map().values_with_halo[indices_active, :].reshape(-1)
+                subset_indices_source = composed_map.values_with_halo[indices_active, :].reshape(-1)
+                buffer = Function(target_V)
+                finfo = np.finfo(lhs_func.dat.dtype)
+                buffer.dat._data[:] = finfo.min
+                func_data = np.array([f.dat.data_ro_with_halos[subset_indices_source] for f in funcs])
+                rvalue = self._compute_rvalue(func_data)
+                self._assign_single_dat(buffer.dat, subset_indices_target, rvalue, True)
+                # Make all owned DoFs up-to-date; ghost DoFs may or may not be up-to-date after this.
+                buffer.dat.local_to_global_begin(op2.MAX)
+                buffer.dat.local_to_global_end(op2.MAX)
+                indices = np.where(buffer.dat.data_ro_with_halos > finfo.min * 0.999)
+                lhs_func.dat.data_wo_with_halos[indices] = buffer.dat.data_ro_with_halos[indices]
 
     @cached_property
     def _constants(self):

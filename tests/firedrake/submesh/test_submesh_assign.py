@@ -1,8 +1,6 @@
 import pytest
 from firedrake import *
 import finat
-import numpy as np
-from ufl.conditional import GT, LT
 from os.path import abspath, dirname, join
 
 
@@ -46,27 +44,27 @@ def test_submesh_assign_3_quads_2_processes():
     x = SpatialCoordinate(mesh)
     f = Function(V).assign(mesh_l.coordinates)
     e = sqrt(assemble(inner(f - x, f - x) * dx(left)))
-    assert(abs(e) < 1.e-15)
+    assert abs(e) < 1.e-15
     x = SpatialCoordinate(mesh)
     f = Function(V).assign(mesh_r.coordinates)
     e = sqrt(assemble(inner(f - x, f - x) * dx(right)))
-    assert(abs(e) < 1.e-15)
+    assert abs(e) < 1.e-15
     x = SpatialCoordinate(mesh_l)
     f = Function(V_l).assign(mesh.coordinates)
     e = sqrt(assemble(inner(f - x, f - x) * dx(left)))
-    assert(abs(e) < 1.e-15)
+    assert abs(e) < 1.e-15
     x = SpatialCoordinate(mesh_r)
     f = Function(V_r).assign(mesh.coordinates)
     e = sqrt(assemble(inner(f - x, f - x) * dx(right)))
-    assert(abs(e) < 1.e-15)
+    assert abs(e) < 1.e-15
     x = SpatialCoordinate(mesh_r)
     f = Function(V_r).assign(mesh_l.coordinates)
     e = sqrt(assemble(inner(f - x, f - x) * dx(middle)))
-    assert(abs(e) < 1.e-15)
+    assert abs(e) < 1.e-15
     x = SpatialCoordinate(mesh_l)
     f = Function(V_l).assign(mesh_r.coordinates)
     e = sqrt(assemble(inner(f - x, f - x) * dx(middle)))
-    assert(abs(e) < 1.e-15)
+    assert abs(e) < 1.e-15
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -86,7 +84,7 @@ def test_submesh_assign_2_quads_2_processes_no_overlap():
     #           1----8----3    () = ghost
     left = 111
     right = 222
-    distribution_parameters={
+    distribution_parameters = {
         "overlap_type": (DistributedMeshOverlapType.NONE, 0),
         "partitioner_type": "simple",
     }
@@ -103,17 +101,15 @@ def test_submesh_assign_2_quads_2_processes_no_overlap():
     mesh_r = Submesh(mesh, dim, right)
     elem = mesh.ufl_coordinate_element()
     V = FunctionSpace(mesh, elem)
-    V_l = FunctionSpace(mesh_l, elem)
-    V_r = FunctionSpace(mesh_r, elem)
     # Test various combinations.
     x = SpatialCoordinate(mesh)
     f = Function(V).assign(mesh_r.coordinates)
     e = sqrt(assemble(inner(f - x, f - x) * dx(right)))
-    assert(abs(e) < 1.e-15)
+    assert abs(e) < 1.e-15
     x = SpatialCoordinate(mesh)
     f = Function(V).assign(mesh_l.coordinates)
     e = sqrt(assemble(inner(f - x, f - x) * dx(left)))
-    assert(abs(e) < 1.e-15)
+    assert abs(e) < 1.e-15
 
 
 @pytest.mark.parallel(nprocs=8)
@@ -160,24 +156,24 @@ def test_submesh_assign_unstructured_8_processes(simplex, distribution_parameter
     x = SpatialCoordinate(mesh)
     f_ = Function(V).assign(f_l)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(left)))
-    assert(abs(e) / A_l < 1.e-14)
+    assert abs(e) / A_l < 1.e-14
     x = SpatialCoordinate(mesh)
     f_ = Function(V).assign(f_r)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(right)))
-    assert(abs(e) / A_r < 1.e-14)
+    assert abs(e) / A_r < 1.e-14
     x = SpatialCoordinate(mesh_l)
     f_ = Function(V_l).assign(f)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(left)))
-    assert(abs(e) / A_l < 1.e-14)
+    assert abs(e) / A_l < 1.e-14
     x = SpatialCoordinate(mesh_r)
     f_ = Function(V_r).assign(f)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(right)))
-    assert(abs(e) / A_r < 1.e-14)
+    assert abs(e) / A_r < 1.e-14
     x = SpatialCoordinate(mesh_l)
     f_ = Function(V_l).assign(f_r)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(middle)))
-    assert(abs(e) / A_m < 1.e-14)
+    assert abs(e) / A_m < 1.e-14
     x = SpatialCoordinate(mesh_r)
     f_ = Function(V_r).assign(f_l)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(middle)))
-    assert(abs(e) / A_m < 1.e-14)
+    assert abs(e) / A_m < 1.e-14
