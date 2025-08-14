@@ -826,8 +826,27 @@ class SameMeshInterpolator(Interpolator):
     """
 
     @no_annotations
-    def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE, bcs=None, **kwargs):
-        super().__init__(expr, V, subset, freeze_expr, access, bcs)
+    def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE, bcs=None, allow_missing_dofs=False, **kwargs):
+        if subset is None:
+            target = V.function_space().mesh().topology if isinstance(V, firedrake.Function) else V.mesh().topology
+            temp = extract_unique_domain(expr)
+            source = target if temp is None else temp.topology
+            if all(isinstance(m, firedrake.mesh.MeshTopology) for m in [target, source]) and target is not source:
+                composed_map, result_integral_type = source.trans_mesh_entity_map(target, "cell", "everywhere", None)
+                if result_integral_type != "cell":
+                    raise AssertionError("Only cell-cell interpolation supported")
+                indices_active = composed_map.indices_active_with_halo
+                make_subset = not indices_active.all()
+                make_subset = target.comm.allreduce(make_subset, op=MPI.LOR)
+                if make_subset:
+                    if not allow_missing_dofs:
+                        raise ValueError("iteration (sub)set unclear: run with `allow_missing_dofs=True`")
+                    subset = op2.Subset(target.cell_set, numpy.where(indices_active))
+                else:
+                    # Do not need subset as target <= source.
+                    pass
+        super().__init__(expr, V, subset=subset, freeze_expr=freeze_expr,
+                         access=access, bcs=bcs, allow_missing_dofs=allow_missing_dofs)
         try:
             self.callable, arguments = make_interpolator(expr, V, subset, access, bcs=bcs)
         except FIAT.hdiv_trace.TraceError:
