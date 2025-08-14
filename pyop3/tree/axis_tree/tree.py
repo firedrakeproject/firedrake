@@ -223,6 +223,7 @@ class _UnitAxisTree(CacheMixin):
     is_empty = False
     sf = single_star_sf(MPI.COMM_SELF) # no idea if this is right
     leaf_paths = (idict(),)
+    leaf_path = idict()
     nodes = ()
     _all_region_labels = ()
 

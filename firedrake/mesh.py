@@ -332,9 +332,9 @@ class _FacetContext:
             if plex.getStratumSize(dmcommon.FACE_SETS_LABEL, i):
                 indices_list.append(plex.getStratumIS(dmcommon.FACE_SETS_LABEL, i).indices)
         if indices_list:
-            return np.setdiff1d(self._facet_data_default, np.concatenate(indices_list))
+            return np.setdiff1d(self.facet_indices, np.concatenate(indices_list))
         else:
-            return self._facet_data_default
+            return self.facet_indices
 
     @property
     def _facet_label(self):
