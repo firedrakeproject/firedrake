@@ -497,7 +497,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                     (row, col) = lhs.arguments()
                     # The matrix-vector product lives in the dual of the test space.
                     res = tensor if tensor else firedrake.Function(row.function_space().dual())
-                    with rhs.dat.vec_ro as v_vec, res.dat.vec as res_vec:
+                    with rhs.dat.vec_ro() as v_vec, res.dat.vec_wo() as res_vec:
                         petsc_mat.mult(v_vec, res_vec)
                     return res
                 elif isinstance(rhs, matrix.MatrixBase):
@@ -511,7 +511,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             elif isinstance(lhs, (firedrake.Cofunction, firedrake.Function)):
                 if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
                     # Return scalar value
-                    with lhs.dat.vec_ro as x, rhs.dat.vec_ro as y:
+                    with lhs.dat.vec_ro() as x, rhs.dat.vec_ro() as y:
                         res = x.dot(y)
                     return res
                 else:

@@ -1410,11 +1410,9 @@ class AbstractMeshTopology(abc.ABC):
         else:
             sizes_renum = np.empty_like(sizes)
             offsets = op3.utils.steps(sizes)
-            # offsets_renum = np.empty_like(offsets)
             for stratum_pt, src_pt in enumerate(range(src_start, src_end)):
                 stratum_pt_renum = src_renumbering[stratum_pt]
                 sizes_renum[stratum_pt_renum] = sizes[stratum_pt]
-                # offsets_renum[stratum_pt_renum] = offsets[stratum_pt]
 
             offsets_renum = op3.utils.steps(sizes_renum)
             map_pts_renum = np.empty_like(map_pts)
@@ -1511,8 +1509,6 @@ class AbstractMeshTopology(abc.ABC):
                     to_dim,
                     size,
                 )
-
-            breakpoint()
 
             # only the next dimension has entries
             map_dim = dim + 1

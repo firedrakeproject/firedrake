@@ -905,7 +905,7 @@ class FunctionSpace:
         vec = PETSc.Vec().create(comm=self.comm)
         vec.setSizes(
             (self.layout_axes.owned.size, self.layout_axes.size),
-            bsize=self.value_size,
+            bsize=self.block_size,
         )
         vec.setUp()
         return vec
@@ -937,7 +937,7 @@ class FunctionSpace:
         nrows = self.axes.size
         iset = PETSc.IS().createStride(nrows, first=offset, step=1,
                                        comm=self.comm)
-        iset.setBlockSize(self.value_size)
+        iset.setBlockSize(self.block_size)
         ises.append(iset)
         offset += nrows
         return tuple(ises)
