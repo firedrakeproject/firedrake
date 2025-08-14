@@ -232,7 +232,7 @@ class Assigner:
                     finfo = np.finfo(lhs_func.dat.dtype)
                     temp = lhs_func
                     lhs_func = Function(target_V)
-                    temp.dat._data[:] = finfo.min
+                    lhs_func.dat._data[:] = finfo.min
                     flag = True
             else:
                 raise ValueError("All functions in the expression must be defined on a single domain")
