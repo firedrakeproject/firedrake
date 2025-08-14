@@ -2,7 +2,6 @@ import numbers
 from collections.abc import Sequence
 import numpy as np
 import ufl
-import finat.ufl
 
 from tsfc.ufl_utils import TSFCConstantMixin
 from pyop2 import op2
