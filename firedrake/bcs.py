@@ -310,7 +310,7 @@ class BCBase:
                 val = val.sub(idx)
         else:
             assert np.isscalar(val)
-        r.assign(val, subset=self.constrained_points)
+        r.assign(val, subset=self.node_set)
 
     def integrals(self):
         raise NotImplementedError("integrals() method has to be overwritten")

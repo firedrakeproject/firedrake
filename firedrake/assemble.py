@@ -29,9 +29,7 @@ from firedrake.formmanipulation import split_form
 from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_unique_domain
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
-from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
-from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
-from firedrake.parloops import pack_tensor, _with_shape_indices, _facet_integral_pack_indices, _cell_integral_pack_indices, pack_pyop3_tensor
+from firedrake.parloops import pack_tensor, _facet_integral_pack_indices, _cell_integral_pack_indices, pack_pyop3_tensor
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
@@ -1988,12 +1986,15 @@ class ParloopBuilder:
                     column_block_shape = ()
                 else:
                     assert matrix.M.buffer.mat_type == "baij"
-                    row_block_shape  = self.test_function_space[ibc].value_shape
-                    column_block_shape = self.trial_function_space[jbc].value_shape
+                    row_block_shape  = (self.test_function_space[ibc].block_size,)
+                    column_block_shape = (self.trial_function_space[jbc].block_size,)
 
-                submat = matrix.M[i, j]
-                rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, submat.raxes, row_block_shape)
-                clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, submat.caxes, column_block_shape)
+                # Don't do this because we want the lgmaps for the full space
+                # submat = matrix.M[i, j]
+                # rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, submat.raxes, row_block_shape)
+                # clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, submat.caxes, column_block_shape)
+                rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, matrix.M.raxes, row_block_shape)
+                clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, matrix.M.caxes, column_block_shape)
                 lgmaps.append((i, j, rlgmap, clgmap))
 
             return tuple(lgmaps)

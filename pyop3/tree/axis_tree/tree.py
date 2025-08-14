@@ -1808,6 +1808,8 @@ class UnitIndexedAxisTree:
     def leaf_subst_layouts(self) -> idict:
         return idict({leaf_path: self._subst_layouts_default[leaf_path] for leaf_path in self.leaf_paths})
 
+    subst_layouts = lambda self: self.leaf_subst_layouts
+
     @cached_property
     def _matching_target(self):
         return find_matching_target(self)

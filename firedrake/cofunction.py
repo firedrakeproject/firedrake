@@ -95,12 +95,9 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             and copy values.  If ``False``, then the new
             :class:`firedrake.function.CoordinatelessFunction` will share the dof values.
         """
-        if deepcopy:
-            val = type(self.dat)(self.dat)
-        else:
-            val = self.dat
+        dat = self.dat.copy() if deepcopy else self.dat
         return type(self)(self.function_space(),
-                          val=val, name=self.name(),
+                          val=dat, name=self.name(),
                           dtype=self.dat.dtype)
 
     def _analyze_form_arguments(self):

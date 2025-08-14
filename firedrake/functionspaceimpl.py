@@ -13,7 +13,7 @@ from collections import OrderedDict
 from collections.abc import Mapping, Sequence, Set
 from dataclasses import dataclass
 from functools import cached_property
-from immutabledict import immutabledict
+from immutabledict import immutabledict as idict
 from typing import Optional
 
 import finat.ufl
@@ -498,7 +498,7 @@ class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
 @dataclass(frozen=True)
 class AxisConstraint:
     axis: op3.Axis
-    within_axes: Mapping[str, str] = dataclasses.field(default_factory=immutabledict)
+    within_axes: Mapping[str, str] = dataclasses.field(default_factory=idict)
 
     def with_constraint(self, constraint) -> AxisConstraint:
         return type(self)(self.axis, self.within_axes | constraint)
@@ -729,7 +729,7 @@ class FunctionSpace:
 
         constraint = AxisConstraint(
             dof_axis,
-            immutabledict({mesh_axis.label: mesh_axis.component.label})
+            idict({mesh_axis.label: mesh_axis.component.label})
         )
         constraints.append(constraint)
 
@@ -1505,18 +1505,50 @@ class MixedFunctionSpace:
         axis_tree = op3.AxisTree(field_axis)
         targets = utils.StrictlyUniqueDict()
         for field_component, subspace in zip(field_axis.components, self._orig_spaces, strict=True):
-            leaf_path = immutabledict({field_axis.label: field_component.label})
+            leaf_path = idict({field_axis.label: field_component.label})
             subaxes = subspace.axes
             axis_tree = axis_tree.add_subtree(
                 leaf_path, subaxes.materialize()
             )
             # i.e. a full slice
             targets[leaf_path] = (
-                immutabledict({field_axis.label: field_component.label}),
-                immutabledict({"field": op3.AxisVar(field_axis.linearize(field_component.label))})
+                idict({field_axis.label: field_component.label}),
+                idict({"field": op3.AxisVar(field_axis.linearize(field_component.label))})
             )
             subtargets, _ = subaxes.targets
             for sub_path, sub_target in subtargets.items():
+                targets[leaf_path | sub_path] = sub_target
+
+        # TODO: This looks quite hacky
+        targets = (targets,) + (axis_tree._source_path_and_exprs,)
+
+        return op3.IndexedAxisTree(
+            axis_tree, unindexed=self.layout_axes, targets=targets,
+        )
+
+    # This is very very close to .axes
+    @cached_property
+    def nodal_axes(self) -> op3.IndexedAxisTree:
+        field_axis = utils.single_valued((
+            axis for axis in self.layout_axes.nodes if axis.label == "field"
+        ))
+        axis_tree = op3.AxisTree(field_axis)
+        targets = utils.StrictlyUniqueDict()
+        for field_component, subspace in zip(field_axis.components, self._orig_spaces, strict=True):
+            leaf_path = idict({field_axis.label: field_component.label})
+            subaxes = subspace.nodal_axes
+            axis_tree = axis_tree.add_subtree(
+                leaf_path, subaxes.materialize()
+            )
+            # i.e. a full slice
+            targets[leaf_path] = (
+                idict({field_axis.label: field_component.label}),
+                idict({"field": op3.AxisVar(field_axis.linearize(field_component.label))})
+            )
+            subtargets, _ = subaxes.targets
+            for sub_path, sub_target in subtargets.items():
+                if sub_target == (idict(), idict()):
+                    continue
                 targets[leaf_path | sub_path] = sub_target
 
         # TODO: This looks quite hacky
@@ -2172,7 +2204,7 @@ def layout_from_spec(layout_spec: Any, axis_constraints: Sequence) -> op3.AxisTr
     return op3.AxisTree.from_nest(axis_nest)
 
 
-def _parse_layout_spec(layout_spec: Sequence[str], axis_specs: Sequence, visited_axes) -> immutabledict:
+def _parse_layout_spec(layout_spec: Sequence[str], axis_specs: Sequence, visited_axes) -> idict:
     if len(layout_spec) == 0:
         return _axis_nest_from_constraints(axis_specs, visited_axes)
 
@@ -2249,13 +2281,13 @@ def _parse_layout_spec(layout_spec: Sequence[str], axis_specs: Sequence, visited
                 sub_axis_nest = _axis_nest_from_constraints(axis_specs_, visited_axes_)
                 axis_nest[selected_axis].append(sub_axis_nest)
 
-        return immutabledict(axis_nest)
+        return idict(axis_nest)
     else:
         assert not sub_layout_specs, "More layout information provided than available axes"
         return selected_axis
 
 
-def _axis_nest_from_constraints(axis_constraints: Sequence[AxisConstraint], visited_axes: Set[tuple[str, str]]) -> immutabledict | op3.Axis:
+def _axis_nest_from_constraints(axis_constraints: Sequence[AxisConstraint], visited_axes: Set[tuple[str, str]]) -> idict | op3.Axis:
     constraint, *subconstraints = axis_constraints
     axis = constraint.axis
 
@@ -2276,7 +2308,7 @@ def _axis_nest_from_constraints(axis_constraints: Sequence[AxisConstraint], visi
             subnest = _axis_nest_from_constraints(subconstraints_, visited_axes)
             axis_nest[axis].append(subnest)
 
-    return immutabledict(axis_nest) if axis_nest else axis
+    return idict(axis_nest) if axis_nest else axis
 
 
 

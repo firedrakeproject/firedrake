@@ -130,8 +130,7 @@ def test_linear_solves_equivalent():
     """solve(a == L, out) should return the same as solving with the assembled objects.
 
     This relies on two different code paths agreeing on the same set of solver parameters."""
-    # mesh = UnitSquareMesh(50, 50)
-    mesh = UnitSquareMesh(5, 5)
+    mesh = UnitSquareMesh(50, 50)
 
     V = FunctionSpace(mesh, "CG", 1)
 
