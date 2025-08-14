@@ -32,6 +32,7 @@ dependencies = [
   "petsctools",
   "pkgconfig",
   "progress",
+  # TODO RELEASE: use a release
   "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint",
   "pycparser",
   "pytools[siphash]",
