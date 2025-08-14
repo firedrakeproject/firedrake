@@ -1458,6 +1458,15 @@ class MixedFunctionSpace:
        :func:`.MixedFunctionSpace`.
     """
     def __init__(self, spaces, name=None, *, layout=None):
+        # If any of 'spaces' is an indexed function space (i.e. from an already
+        # mixed space) then recover the original space to use here.
+        orig_spaces = []
+        for space in spaces:
+            if isinstance(space, ProxyFunctionSpace) and space.index is not None:
+                space = space.parent._orig_spaces[space.index]
+            orig_spaces.append(space)
+        spaces = orig_spaces
+
         # If 'layout' isn't provided then build from the subspaces
         if layout is None:
             layout = ("field", tuple(subspace.layout for subspace in spaces))
@@ -1515,7 +1524,7 @@ class MixedFunctionSpace:
                 idict({field_axis.label: field_component.label}),
                 idict({"field": op3.AxisVar(field_axis.linearize(field_component.label))})
             )
-            subtargets, _ = subaxes.targets
+            subtargets, *_ = subaxes.targets
             for sub_path, sub_target in subtargets.items():
                 targets[leaf_path | sub_path] = sub_target
 

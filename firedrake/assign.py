@@ -145,7 +145,7 @@ class Assigner:
 
     _coefficient_collector = CoefficientCollector()
 
-    def __init__(self, assignee, expression, subset):
+    def __init__(self, assignee, expression, subset=Ellipsis):
         if isinstance(expression, Vector):
             expression = expression.function
         expression = as_ufl(expression)
@@ -245,18 +245,23 @@ class Assigner:
 
     def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
         lhs_dat = lhs.dat.with_axes(lhs.function_space().nodal_axes)[subset]
-        if assign_to_halos:
-            assignee = lhs_dat.data_wo_with_halos = rvalue
+        if isinstance(rvalue, numbers.Number) or rvalue.size == 1:
+            if assign_to_halos:
+                lhs_dat.data_wo_with_halos = rvalue
+            else:
+                lhs_dat.data_wo = rvalue
+        elif assign_to_halos and rvalue.size == lhs_dat.axes.size:
+            lhs_dat.data_wo_with_halos = rvalue.flatten()
+        elif not assign_to_halos and rvalue.size == lhs_dat.axes.owned.size:
+            lhs_dat.data_wo = rvalue.flatten()
         else:
-            assignee = lhs_dat.data_wo = rvalue
+            block_shape = self._assignee.function_space().shape
+            if rvalue.size != np.prod(block_shape, dtype=int):
+                raise ValueError("Assignee and assignment values are different shapes")
 
-        # if isinstance(rvalue, numbers.Number) or rvalue.shape in {(1,), assignee.shape}:
-        #     assignee[...] = rvalue
-        # else:
-        #     cdim = self._assignee.function_space().value_size
-        #     if rvalue.shape != (cdim,):
-        #         raise ValueError("Assignee and assignment values are different shapes")
-        #     assignee.reshape((-1, cdim))[...] = rvalue
+            expr_axes = op3.AxisTree.from_iterable((op3.Axis({"XXX": dim}, f"dim{i}") for i, dim in enumerate(block_shape)))
+            expr = op3.Dat(expr_axes, data=rvalue)
+            lhs_dat.assign(expr, eager=True)
 
     def _compute_rvalue(self, func_data):
         # There are two components to the rvalue: weighted functions (in the same function space),

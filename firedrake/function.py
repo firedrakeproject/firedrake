@@ -687,18 +687,15 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @property
     def vec_ro(self):
-        cdim = self.function_space().value_size
-        return self.dat.vec_ro(bsize=cdim)
+        return self.dat.vec_ro(bsize=self.function_space().block_size)
 
     @property
     def vec_wo(self):
-        cdim = self.function_space().value_size
-        return self.dat.vec_wo(bsize=cdim)
+        return self.dat.vec_wo(bsize=self.function_space().block_size)
 
     @property
     def vec_rw(self):
-        cdim = self.function_space().value_size
-        return self.dat.vec_rw(bsize=cdim)
+        return self.dat.vec_rw(bsize=self.function_space().block_size)
 
 
 class PointNotInDomainError(Exception):

@@ -31,6 +31,7 @@ def _create_const(value, comm):
     rank = len(shape)
 
     if rank == 0:
+        # could maybe be a Scalar
         sf = op3.sf.single_star_sf(comm)
         axes = op3.AxisTree(op3.Axis(op3.AxisComponent(1, sf=sf)))
     else:
