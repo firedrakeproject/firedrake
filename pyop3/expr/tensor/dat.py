@@ -602,6 +602,7 @@ class LinearCompositeDat(CompositeDat):
     # {{{ interface impls
 
     axis_tree = utils.attr("_axis_tree")
+    exprs = utils.attr("_exprs")
     loop_indices = utils.attr("_loop_indices")
 
     # @property
@@ -619,7 +620,7 @@ class LinearCompositeDat(CompositeDat):
         loop_indices = tuple(loop_indices)
 
         object.__setattr__(self, "_axis_tree", axis_tree)
-        object.__setattr__(self, "leaf_expr", leaf_expr)
+        object.__setattr__(self, "_exprs", exprs)
         object.__setattr__(self, "_loop_indices", loop_indices)
 
 

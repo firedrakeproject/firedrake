@@ -955,7 +955,7 @@ class AbstractMeshTopology(abc.ABC):
 
         # Start with a local numbering
         if self._dm_renumbering:
-            numbering = self._dm_renumbering.indices.copy()
+            numbering = self._dm_renumbering_inv.indices.copy()
         else:
             numbering = np.arange(self.points.size, dtype=IntType)
 
@@ -1409,20 +1409,20 @@ class AbstractMeshTopology(abc.ABC):
             return readonly(map_pts_renum)
         else:
             sizes_renum = np.empty_like(sizes)
-            offsets = op3.utils.steps(sizes, drop_last=True)
-            offsets_renum = np.empty_like(offsets)
+            offsets = op3.utils.steps(sizes)
+            # offsets_renum = np.empty_like(offsets)
             for stratum_pt, src_pt in enumerate(range(src_start, src_end)):
                 stratum_pt_renum = src_renumbering[stratum_pt]
                 sizes_renum[stratum_pt_renum] = sizes[stratum_pt]
-                offsets_renum[stratum_pt_renum] = offsets[stratum_pt]
+                # offsets_renum[stratum_pt_renum] = offsets[stratum_pt]
 
+            offsets_renum = op3.utils.steps(sizes_renum)
             map_pts_renum = np.empty_like(map_pts)
             for src_stratum_pt, src_plex_pt in enumerate(range(src_start, src_end)):
                 src_stratum_pt_renum = src_renumbering[src_stratum_pt]
                 for i in range(sizes[src_stratum_pt]):
                     dest_pt = map_pts[offsets[src_stratum_pt]+i]
-                    dest_stratum_pt = dest_pt - dest_start
-                    dest_stratum_pt_renum = dest_renumbering[dest_stratum_pt]
+                    dest_stratum_pt_renum = dest_renumbering[dest_pt-dest_start]
                     map_pts_renum[offsets_renum[src_stratum_pt_renum]+i] = dest_stratum_pt_renum
 
             return readonly(map_pts_renum), readonly(sizes_renum)
@@ -1500,8 +1500,19 @@ class AbstractMeshTopology(abc.ABC):
                 supports.append({})
                 continue
 
-            # because this is ragged things are already renumbered
             map_data, sizes = self._memoize_map(support_func, dim)
+            map_data_old = map_data.copy()
+            sizes_old = sizes.copy()
+            # renumber it
+            for to_dim, size in sizes.items():
+                map_data[to_dim], sizes[to_dim] = self._renumber_map(
+                    map_data[to_dim],
+                    dim,
+                    to_dim,
+                    size,
+                )
+
+            breakpoint()
 
             # only the next dimension has entries
             map_dim = dim + 1
@@ -1536,7 +1547,7 @@ class AbstractMeshTopology(abc.ABC):
         # Get the support map for *all* facets in the mesh, not just the
         # exterior/interior ones. We have to filter it. Note that these
         # dats are ragged because support sizes are not consistent.
-        facet_support_dat = self._support_dats[int(self.facet_label)][int(self.cell_label)]
+        facet_support_dat = self._support_dats[self.facet_label][self.cell_label]
 
         if facet_type == "exterior":
             facet_context = self.exterior_facets
@@ -1827,19 +1838,6 @@ class AbstractMeshTopology(abc.ABC):
     def extruded_periodic(self):
         return self.cell_set._extruded_periodic
 
-    @utils.cached_property
-    def _default_global_numbering(self):
-        # ghost points are stored "involuted" -(pt+1), see
-        # https://petsc.org/release/manualpages/DMPlex/DMPlexCreatePointNumbering/
-        numbering_with_negative_ghosts = self.topology_dm.createPointNumbering().indices
-        numbering = np.empty_like(numbering_with_negative_ghosts)
-        for i, global_pt in enumerate(numbering_with_negative_ghosts):
-            if global_pt < 0:
-                global_pt = -global_pt - 1
-            numbering[i] = global_pt
-
-        return numbering
-
     @cached_property
     def _plex_closures(self) -> dict[Any, np.ndarray]:
         # TODO: Provide more detail about the return type
@@ -1898,11 +1896,6 @@ class AbstractMeshTopology(abc.ABC):
 
     @cached_property
     def _fiat_cell_closures_localized(self) -> immutabledict[int, np.ndarray]:
-        """
-
-        Reorders verts -> cell from cell -> verts
-
-        """
         localized_closures = {}
         from_dim = self.dimension
         offset = 0
@@ -1925,26 +1918,6 @@ class AbstractMeshTopology(abc.ABC):
             closure_data[i] = closure_func(pt)
 
         return op3.utils.readonly(closure_data)
-
-    # @utils.cached_property
-    # def _global_numbering(self):
-    #     numbering = [None] * (self.dimension+1)
-    #     for stratum in self.points.components:
-    #         stratum_dim = int(stratum.label)
-    #         numbering[stratum_dim] = np.full(stratum.count, -1, dtype=IntType)
-    #     numbering = tuple(numbering)
-    #
-    #     for local_pt, global_pt in enumerate(self._default_global_numbering):
-    #         stratum, stratum_pt = self.points.axis_to_component_number(local_pt)
-    #         stratum_dim = int(stratum.label)
-    #         stratum_index = self.points.component_index(stratum)
-    #
-    #         stratum_pt_renum = self.points.renumber_point(stratum, stratum_pt)
-    #         global_stratum_pt = global_pt - self.points._component_offsets[stratum_index]
-    #         numbering[stratum_dim][stratum_pt_renum] = global_stratum_pt
-    #
-    #     debug_assert(lambda: all(np.all(n >= 0) for n in numbering))
-    #     return numbering
 
     # submesh
 
@@ -2395,14 +2368,14 @@ class MeshTopology(AbstractMeshTopology):
         npoints = p_end - p_start
 
         # Store arities
-        sizes = np.zeros((self.dimension+1, npoints), dtype=IntType)
+        sizes = {to_dim: np.zeros(npoints, dtype=IntType) for to_dim in range(self.dimension+1)}
         for stratum_pt, pt in enumerate(range(p_start, p_end)):
             for map_pt in map_func(pt):
                 map_dim = get_dim(map_pt)
-                sizes[map_dim, stratum_pt] += 1
+                sizes[map_dim][stratum_pt] += 1
 
         # Now store map data
-        map_pts = tuple(np.full(sum(sizes[d]), -1, dtype=IntType) for d in range(self.dimension+1))
+        map_pts = {to_dim: np.full(sum(sizes[to_dim]), -1, dtype=IntType) for to_dim in range(self.dimension+1)}
         offsets = tuple(op3.utils.steps(sizes[d]) for d in range(self.dimension+1))
         plex_pt_offsets = np.empty(self.dimension+1, dtype=IntType)
         for stratum_pt, plex_pt in enumerate(range(p_start, p_end)):

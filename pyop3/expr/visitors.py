@@ -624,7 +624,7 @@ def _(op: op3_expr.Operator, /, visited_axes, loop_indices, *, compress: bool) -
             # op_axes, op_loop_axes = extract_axes(op, visited_axes, loop_indices, {})
             op_axes = utils.just_one(op.shape)
             op_loop_axes = op.loop_axes
-            compressed_expr = op3_expr.LinearCompositeDat(op_axes, op, loop_indices)
+            compressed_expr = op3_expr.LinearCompositeDat(op_axes, {op_axes.leaf_path: op}, loop_indices)
 
             op_cost = op_axes.size
             for loop_axes in op_loop_axes.values():
@@ -665,7 +665,7 @@ def _(expr: op3_expr.LinearDatBufferExpression, /, visited_axes, loop_indices, *
 
     if compress:
         if any(cost > MINIMUM_COST_TABULATION_THRESHOLD for _, cost in candidates):
-            candidates.append((op3_expr.LinearCompositeDat(dat_axes, expr, loop_indices), dat_cost))
+            candidates.append((op3_expr.LinearCompositeDat(dat_axes, {dat_axes.leaf_path: expr}, loop_indices), dat_cost))
 
     return tuple(candidates)
 
