@@ -274,8 +274,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         if np.isscalar(expr):
             self.dat += expr
             return self
-        if isinstance(expr, vector.Vector):
-            expr = expr.function
         if isinstance(expr, Cofunction) and \
            expr.function_space() == self.function_space():
             self.dat += expr.dat
@@ -290,8 +288,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         if np.isscalar(expr):
             self.dat -= expr
             return self
-        if isinstance(expr, vector.Vector):
-            expr = expr.function
         if isinstance(expr, Cofunction) and \
            expr.function_space() == self.function_space():
             self.dat -= expr.dat
@@ -306,8 +302,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         if np.isscalar(expr):
             self.dat *= expr
             return self
-        if isinstance(expr, vector.Vector):
-            expr = expr.function
         if isinstance(expr, Cofunction) and \
            expr.function_space() == self.function_space():
             self.dat *= expr.dat

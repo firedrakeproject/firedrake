@@ -317,7 +317,7 @@ class FunctionMixin(FloatingType):
         npdata = self.dat.data_ro
         for i in range(len(npdata)):
             npdata[i] = f(npdata[i])
-        vec.set_local(npdata)
+        self.dat.data_wo[...] = npdata
 
     def _applyBinary(self, f, y):
         npdata = self.dat.data_ro
