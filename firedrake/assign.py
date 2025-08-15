@@ -150,8 +150,8 @@ class Assigner:
         expression = as_ufl(expression)
         source_meshes = set()
         for coeff in extract_coefficients(expression):
-            if isinstance(coeff, Function) and coeff.ufl_element().family() != "Real":
-                if coeff.ufl_element() != assignee.ufl_element():
+            if isinstance(coeff, Function):
+                if coeff.ufl_element().family() != "Real" and coeff.ufl_element() != assignee.ufl_element():
                     raise ValueError("All functions in the expression must have the same "
                                      "element as the assignee")
                 source_meshes.add(extract_unique_domain(coeff))
@@ -169,11 +169,17 @@ class Assigner:
             raise ValueError(
                 "All functions in the expression must be defined on a single domain"
             )
-        if (subset and type(assignee.ufl_element()) == finat.ufl.MixedElement
-                and any(el.family() == "Real"
-                        for el in assignee.ufl_element().sub_elements)):
-            raise ValueError("Subset is not a valid argument for assigning to a mixed "
-                             "element including a real element")
+        if subset is None:
+            subset = tuple(None for _ in assignee.function_space())
+        if len(subset) != len(assignee.function_space()):
+            raise ValueError(f"Provided subset ({subset}) incompatible with assignee ({assignee})")
+        if type(assignee.ufl_element()) == finat.ufl.MixedElement:
+            for subs, el in zip(subset, assignee.function_space().ufl_element()):
+                if subs is not None and el.family() == "Real":
+                    raise ValueError(
+                        "Subset is not a valid argument for assigning to a mixed "
+                        "element including a real element"
+                    )
         self._assignee = assignee
         self._expression = expression
         self._subset = subset
@@ -209,8 +215,7 @@ class Assigner:
         # If mixed, loop over individual components
         # TODO: Do our best to avoid repeated memory allocations in the below.
         #       Store work arrays in FunctionSpace?
-        for lhs_func, *funcs in zip(self._assignee.subfunctions, *(f.subfunctions for f in self._functions)):
-            subset = self._subset
+        for lhs_func, subset, *funcs in zip(self._assignee.subfunctions, self._subset, *(f.subfunctions for f in self._functions)):
             target_mesh = extract_unique_domain(lhs_func)
             source_meshes = set()
             for f in funcs:
