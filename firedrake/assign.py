@@ -150,8 +150,8 @@ class Assigner:
         expression = as_ufl(expression)
         source_meshes = set()
         for coeff in extract_coefficients(expression):
-            if isinstance(coeff, Function):
-                if coeff.ufl_element().family() != "Real" and coeff.ufl_element() != assignee.ufl_element():
+            if isinstance(coeff, Function) and coeff.ufl_element().family() != "Real":
+                if coeff.ufl_element() != assignee.ufl_element():
                     raise ValueError("All functions in the expression must have the same "
                                      "element as the assignee")
                 source_meshes.add(extract_unique_domain(coeff))
