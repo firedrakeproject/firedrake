@@ -51,7 +51,7 @@ def test_mismatching_meshes_indexed_function(mesh1, mesh3):
 def test_mismatching_meshes_constant(mesh1, mesh3):
     V2 = FunctionSpace(mesh3, "CG", 1)
 
-    donor = Constant(1)
+    donor = Function(mesh1, "R").assign(1)
     target = Function(V2)
 
     with pytest.raises(NotImplementedError):

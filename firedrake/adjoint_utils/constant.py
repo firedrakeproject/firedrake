@@ -148,4 +148,4 @@ class ConstantMixin(OverloadedType):
 
         """
         values = self.dat.data_ro.reshape(-1) if values is None else values
-        return type(self)(numpy.reshape(values, self.ufl_shape), domain=extract_unique_domain(self))
+        return type(self)(numpy.reshape(values, self.ufl_shape))
