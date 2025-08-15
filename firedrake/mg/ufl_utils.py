@@ -195,7 +195,7 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
             for bc in cctx._problem.dirichlet_bcs():
                 bc.apply(cctx._x)
 
-    dm = problem.u.function_space().dm
+    dm = problem.u_restrict.function_space().dm
     if not dm.getAttr("_coarsen_hook"):
         # The hook is persistent and cumulative, but also problem-independent.
         # Therefore, we are only adding it once.
@@ -209,7 +209,7 @@ def coarsen_nlvp(problem, self, coefficient_mapping=None):
     F = self(problem.F, self, coefficient_mapping=coefficient_mapping)
     J = self(problem.J, self, coefficient_mapping=coefficient_mapping)
     Jp = self(problem.Jp, self, coefficient_mapping=coefficient_mapping)
-    u = coefficient_mapping[problem.u]
+    u = coefficient_mapping[problem.u_restrict]
 
     fine = problem
     problem = firedrake.NonlinearVariationalProblem(F, u, bcs=bcs, J=J, Jp=Jp, is_linear=problem.is_linear,
@@ -283,7 +283,7 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
         if isinstance(val, (firedrake.Function, firedrake.Cofunction)):
             V = val.function_space()
             coarseneddm = V.dm
-            parentdm = get_parent(context._problem.u.function_space().dm)
+            parentdm = get_parent(context._problem.u_restrict.function_space().dm)
 
             # Now attach the hook to the parent DM
             if get_appctx(coarseneddm) is None:
@@ -374,8 +374,8 @@ def create_interpolation(dmc, dmf):
 
     manager = get_transfer_manager(dmf)
 
-    V_c = cctx._problem.u.function_space()
-    V_f = fctx._problem.u.function_space()
+    V_c = cctx._problem.u_restrict.function_space()
+    V_f = fctx._problem.u_restrict.function_space()
 
     row_size = V_f.dof_dset.layout_vec.getSizes()
     col_size = V_c.dof_dset.layout_vec.getSizes()
@@ -400,8 +400,8 @@ def create_injection(dmc, dmf):
 
     manager = get_transfer_manager(dmf)
 
-    V_c = cctx._problem.u.function_space()
-    V_f = fctx._problem.u.function_space()
+    V_c = cctx._problem.u_restrict.function_space()
+    V_f = fctx._problem.u_restrict.function_space()
 
     row_size = V_c.dof_dset.layout_vec.getSizes()
     col_size = V_f.dof_dset.layout_vec.getSizes()
