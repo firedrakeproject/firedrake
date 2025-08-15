@@ -129,25 +129,3 @@ def test_tensor_identity_parallel():
 @pytest.mark.parallel(nprocs=2)
 def test_tensor_identity_nonstandard_shape_parallel():
     assert (run_tensor_test_nonstandard_shape() < 1e-6).all()
-
-
-if __name__ == "__main__":
-    mesh = UnitCubeMesh(3, 3, 3)
-    fs = FunctionSpace(mesh, "P", 1)
-    x = SpatialCoordinate(mesh)
-
-    f = Function(fs)
-    out = Function(fs)
-
-    u = TrialFunction(fs)
-    v = TestFunction(fs)
-
-    a = inner(u, v) * dx
-
-    f.interpolate(x[0])
-
-    L = inner(f, v) * dx
-
-    solve(a == L, out)
-
-    print("done")

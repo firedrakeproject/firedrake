@@ -17,9 +17,6 @@ def test_cofunction_assign_cofunction_with_subset(V):
     g = Cofunction(V.dual())
     g.dat.data_wo[...] = 2.0
 
-    import pyop3.extras.debug
-    pyop3.extras.debug.enable_conditional_breakpoints()
-
     f.assign(g, subset=[0, 1, 2])
     assert np.allclose(f.dat.data_ro[:3], 2.0)
     assert np.allclose(f.dat.data_ro[3:], 1.0)

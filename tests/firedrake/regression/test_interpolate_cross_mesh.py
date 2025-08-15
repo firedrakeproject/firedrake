@@ -7,7 +7,6 @@ from functools import reduce
 from operator import mul, add
 import subprocess
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 def allgather(comm, coords):
     """Gather all coordinates from all ranks."""

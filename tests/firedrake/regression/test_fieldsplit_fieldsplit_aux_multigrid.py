@@ -12,7 +12,6 @@ import pytest
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 def BoundaryConditions(mesh):
     y_component = Constant(0)

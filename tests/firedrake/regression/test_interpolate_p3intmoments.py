@@ -12,7 +12,6 @@ from finat.element_factory import convert, as_fiat_cell
 import finat.ufl
 
 ufcint = UFCInterval()
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 # Purpose of these tests: test interpolation with a simple 1D element newly

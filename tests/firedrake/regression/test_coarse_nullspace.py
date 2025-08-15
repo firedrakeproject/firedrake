@@ -1,9 +1,6 @@
-import pytest
-
 from firedrake import *
 
 
-@pytest.mark.skip(reason="pyop3 TODO, multigrid")
 def test_coarse_nullspace():
     base = UnitSquareMesh(10, 10)
     mh = MeshHierarchy(base, 1)

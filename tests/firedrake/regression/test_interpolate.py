@@ -172,7 +172,6 @@ def test_compound_expression():
     assert np.allclose(g.dat.data, h.dat.data)
 
 
-@pytest.mark.xfail(reason="pyop3 extruded")
 def test_hdiv_extruded_interval():
     mesh = ExtrudedMesh(UnitIntervalMesh(10), 10, 0.1)
     x = SpatialCoordinate(mesh)
@@ -184,7 +183,6 @@ def test_hdiv_extruded_interval():
     assert np.allclose(u.dat.data, u_proj.dat.data)
 
 
-@pytest.mark.xfail(reason="pyop3 extruded")
 def test_hcurl_extruded_interval():
     mesh = ExtrudedMesh(UnitIntervalMesh(10), 10, 0.1)
     x = SpatialCoordinate(mesh)
@@ -377,7 +375,6 @@ def test_interpolator_tets():
     assert np.allclose(x_P2.dat.data, x_P2_direct.dat.data)
 
 
-@pytest.mark.xfail(reason="pyop3 extruded")
 def test_interpolator_extruded():
     mesh = ExtrudedMesh(UnitSquareMesh(10, 10), 10, 0.1)
     x = SpatialCoordinate(mesh)
@@ -465,7 +462,6 @@ def test_function_cofunction(degree):
     assert np.allclose(norm_i, norm)
 
 
-@pytest.mark.xfail(reason="pyop3 par_loop")
 @pytest.mark.skipcomplex  # complex numbers are not orderable
 def test_interpolate_periodic_coords_max():
     mesh = PeriodicUnitSquareMesh(4, 4)
@@ -478,7 +474,6 @@ def test_interpolate_periodic_coords_max():
                        [0.25, 0.5, 0.75, 1])
 
 
-@pytest.mark.xfail(reason="cell_node_map no longer implemented, but it could be")
 def test_basic_dual_eval_cg3():
     mesh = UnitIntervalMesh(1)
     V = FunctionSpace(mesh, "CG", 3)
@@ -527,7 +522,6 @@ def test_quadrature():
     assert np.allclose(wq.dat.data_ro, fiat_rule._weights)
 
 
-@pytest.mark.skip(reason="too expensive to run currently")
 def test_interpolation_tensor_convergence():
     errors = []
     for n in range(2, 9):
@@ -568,8 +562,7 @@ def test_interpolation_tensor_symmetric():
     assert np.isclose(norm(fexp - f), 0)
 
 
-# FIXME: Fails in parallel but works in serial
-# @pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel
 def test_interpolation_on_hex():
     # "cube_hex.msh" contains all possible facet orientations.
     meshfile = join(cwd, "..", "meshes", "cube_hex.msh")

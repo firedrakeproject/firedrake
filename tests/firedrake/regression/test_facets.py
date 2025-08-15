@@ -183,7 +183,6 @@ def test_internal_integral_unit_tet():
     assert abs(assemble(u('+') * dS)) < 1.0e-14
 
 
-@pytest.mark.xfail(reason="pyop3 TODO")
 def test_facet_map_no_reshape():
     m = UnitSquareMesh(1, 1)
     V = FunctionSpace(m, "DG", 0)
@@ -191,7 +190,6 @@ def test_facet_map_no_reshape():
     assert efnm.values_with_halo.shape == (4, 1)
 
 
-@pytest.mark.xfail(reason="pyop3 TODO")
 def test_mesh_with_no_facet_markers():
     mesh = UnitTriangleMesh()
     with pytest.raises(LookupError):

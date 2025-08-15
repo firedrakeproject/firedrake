@@ -171,11 +171,10 @@ def test_constant_assign_to_mixed():
     f.sub(0).assign(c)
     f.sub(1).assign(c)
 
-
     assert np.allclose(f.sub(0).sub(0).dat.data_ro, 10)
     assert np.allclose(f.sub(0).sub(1).dat.data_ro, 11)
     assert np.allclose(f.sub(1).sub(0).dat.data_ro, 10)
-    assert np.allclose(f.sub(0).sub(1).dat.data_ro, 11)
+    assert np.allclose(f.sub(1).sub(1).dat.data_ro, 11)
 
 
 def test_constant_multiplies_function():
