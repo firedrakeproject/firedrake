@@ -8,9 +8,6 @@ from firedrake import *
 from firedrake.adjoint import *
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 @pytest.fixture(autouse=True)
 def handle_taping():
     yield

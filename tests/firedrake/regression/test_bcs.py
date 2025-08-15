@@ -50,7 +50,6 @@ def test_init_bcs_illegal(mesh, v):
         DirichletBC(FunctionSpace(mesh, "CG", 1), v, 0)
 
 
-@pytest.mark.skip(reason="TODO pyop3")
 @pytest.mark.parametrize('measure', [dx, ds])
 def test_assemble_bcs_wrong_fs(V, measure):
     "Assemble a Matrix with a DirichletBC on an incompatible FunctionSpace."
@@ -61,7 +60,6 @@ def test_assemble_bcs_wrong_fs(V, measure):
         assemble(inner(u, v)*measure, bcs=[DirichletBC(W, 32, 1)])
 
 
-@pytest.mark.xfail(reason="TODO pyop3")
 def test_assemble_bcs_wrong_fs_interior(V):
     "Assemble a Matrix with a DirichletBC on an incompatible FunctionSpace."
     u, v = TrialFunction(V), TestFunction(V)
@@ -78,7 +76,6 @@ def test_apply_bcs_wrong_fs(V, f2):
         bc.apply(f2)
 
 
-@pytest.mark.xfail(reason="TODO pyop3")
 def test_zero_bcs_wrong_fs(V, f2):
     "Zeroing a DirichletBC on a Function on an incompatible FunctionSpace."
     bc = DirichletBC(V, 32, 1)
@@ -343,7 +340,6 @@ def test_invalid_marker_raises_error(a, V):
         assemble(a, bcs=[bc1])
 
 
-@pytest.mark.xfail(reason="pyop3 TODO")
 @pytest.mark.parallel(nprocs=2)
 def test_bc_nodes_cover_ghost_dofs():
     #         4
@@ -403,7 +399,6 @@ def test_bc_nodes_cover_ghost_dofs():
     assert np.array_equal(offsets, expected)
 
 
-@pytest.mark.xfail(reason="pyop3 TODO extruded mesh needs fixing")
 def test_bcs_string_bc_list():
     N = 10
     base = SquareMesh(N, N, 1, quadrilateral=True)
@@ -424,7 +419,6 @@ def test_bcs_string_bc_list():
     assert np.allclose(u0.dat.data, u1.dat.data)
 
 
-@pytest.mark.xfail(reason="pyop3 TODO matnest")
 def test_bcs_mixed_real():
     mesh = UnitSquareMesh(1, 1, quadrilateral=True)
     V0 = FunctionSpace(mesh, "CG", 1)
@@ -439,7 +433,6 @@ def test_bcs_mixed_real():
     assert np.allclose(A.M[1][0].values, [[0.00, 0.00, 0.25, 0.25]])
 
 
-@pytest.mark.xfail(reason="pyop3 TODO matnest")
 def test_bcs_mixed_real_vector():
     mesh = UnitSquareMesh(1, 1, quadrilateral=True)
     V0 = VectorFunctionSpace(mesh, "CG", 1)

@@ -151,7 +151,6 @@ def test_vector_formsum(a):
         assert np.allclose(f.dat.data, f2.dat.data, atol=1e-12)
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 def test_matrix_formsum(M):
     res = assemble(M)
     sumfirst = assemble(M+M)
