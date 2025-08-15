@@ -202,7 +202,6 @@ def test_fresh_constant_hashes_different():
 
 def test_constants_are_renumbered_in_form_signature():
     mesh = UnitSquareMesh(1, 1)
-    mesh.init()
     c = Constant(1)
     d = Constant(1)
 

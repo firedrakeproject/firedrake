@@ -159,6 +159,8 @@ The essence of this process is:
    derived automatically by applying UFL's :func:`~ufl.derivative`,
    :func:`~ufl.adjoint`, and :func:`~ufl.action` operators.
 
+.. _adjoint-taping:
+
 Taping an example calculation
 -----------------------------
 

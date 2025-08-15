@@ -417,7 +417,6 @@ class WithGeometryBase:
     @classmethod
     def make_function_space(cls, mesh, element, name=None, **kwargs):
         r"""Factory method for :class:`.WithGeometryBase`."""
-        mesh.init()
         topology = mesh.topology
         # Create a new abstract (Mixed/Real)FunctionSpace, these are neither primal nor dual.
         if type(element) is finat.ufl.MixedElement:

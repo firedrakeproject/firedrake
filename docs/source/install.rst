@@ -20,6 +20,13 @@ it should be installable on any Linux distribution. Windows users are encouraged
 to use WSL_ or one of Firedrake's
 :ref:`alternative installation mechanisms<alternative_install>`.
 
+If installing on an HPC system most of the following steps should remain
+applicable, though care will have to be taken to make sure that the right system
+packages are used. A community-maintained collection of instructions for how to install
+Firedrake onto a number of different HPC systems may be found
+`here <https://github.com/firedrakeproject/firedrake/wiki/HPC-installation>`__.
+If install on an HPC system not included in the wiki, please consider contributing a
+page describing the installation on that system.
 
 .. _pip_install_firedrake:
 
@@ -42,8 +49,9 @@ Prerequisites
 -------------
 
 On Linux the only prerequisite needed to install Firedrake is a suitable version
-of Python (3.10 or greater). On macOS it is important that homebrew_ is installed
-and that the homebrew-installed Python is used instead of the system one.
+of Python (3.10 or greater). On macOS it is important that homebrew_ and Xcode_
+are installed and up to date and that the homebrew-installed Python is used
+instead of the system one.
 
 
 .. _firedrake_configure:
@@ -54,7 +62,7 @@ firedrake-configure
 To simplify the installation process, Firedrake provides a utility script called
 ``firedrake-configure``. This script can be downloaded by executing::
 
-  $ curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-configure
+  $ curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/main/scripts/firedrake-configure
 
 Note that ``firedrake-configure`` **does not install Firedrake for you**. It
 is simply a helper script that emits the configuration options that Firedrake
@@ -91,9 +99,20 @@ which will install the following packages:
 .. literalinclude:: homebrew_deps.txt
    :language: text
 
-If you do not have one of these systems then these dependencies will need to
-be installed manually.
+The packages installed here are a combination of system dependencies,
+like a C compiler, BLAS, and MPI,  and 'external packages' that are used by PETSc, like
+MUMPS and HDF5.
 
+If you are not installing onto Ubuntu or macOS then it is your responsibility to
+ensure that these system dependencies are in place. Some of the dependencies
+(e.g. a C compiler) must come from your system whereas others, if desired, may be
+downloaded by PETSc ``configure`` by passing additional flags like
+``--download-mpich`` or ``--download-openblas`` (run ``./configure --help | less`` to
+see what is available). To give you a guide as to what system dependencies are
+needed, on Ubuntu they are:
+
+.. literalinclude:: minimal_apt_deps.txt
+   :language: text
 
 .. _install_petsc:
 
@@ -158,6 +177,25 @@ install Firedrake. To do this perform the following steps:
    This is optional but strongly recommended to avoid polluting your system Python
    environment.
 
+#. Purge the pip cache::
+
+      $ pip cache purge
+
+   This is also optional but strongly recommended as some cached pip packages
+   may be linked against old or missing libraries and hence will break your
+   installation. For a lighter-weight alternative you could run some or all
+   of the following::
+
+      $ pip cache remove mpi4py
+      $ pip cache remove petsc4py
+      $ pip cache remove h5py
+      $ pip cache remove slepc4py
+      $ pip cache remove libsupermesh
+      $ pip cache remove firedrake
+
+   Noting that this list may not be exhaustive.
+
+
 #. Set any necessary environment variables. This can be achieved using
    ``firedrake-configure``::
 
@@ -178,8 +216,6 @@ install Firedrake. To do this perform the following steps:
 
 #. Install Firedrake::
 
-      $ pip cache remove petsc4py
-      $ pip cache remove firedrake
       $ pip install --no-binary h5py 'firedrake[check]'
 
    .. note::
@@ -220,6 +256,12 @@ Updating Firedrake involves following the same steps as above when
 to set the right environment variables and then run::
 
      $ pip install --upgrade firedrake
+
+Previously generated code may not be compatible with a newer
+Firedrake installation, and may crash with cryptic messages.
+We recommend removing any cached code after updating by running::
+
+     $ firedrake-clean
 
 Updating PETSc
 ~~~~~~~~~~~~~~
@@ -274,15 +316,20 @@ Missing symbols post install
 
 If the installation completes but then you get errors regarding missing symbols
 when you import Firedrake this is usually a sign that one of the Python bindings
-packages used by Firedrake (h5py, mpi4py, petsc4py, slepc4py) is linked against
-the wrong compiled library. This is usually caused by issues with caching.
+packages used by Firedrake (h5py, mpi4py, petsc4py, slepc4py), or Firedrake
+itself, is linked against the wrong compiled library. This is usually caused
+by issues with caching.
 
-To resolve the problem you should first remove any existing cached packages::
+To resolve the problem we recommend removing your virtual environment, purging
+the cache and then :ref:`attempting another installation<install_firedrake>`:
 
-   $ pip uninstall -y h5py mpi4py petsc4py slepc4py
+.. code-block:: bash
+
+   $ deactivate  # needed if venv-firedrake is currently activated
+   $ rm -r venv-firedrake
    $ pip cache purge
-
-before re-running the instruction to install Firedrake.
+   $ python3 -m venv venv-firedrake
+   # etc
 
 Unable to configure PETSc on macOS
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -348,10 +395,9 @@ To install Firedrake with SLEPc support you should:
 
    $ export SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH
 
-#. Continue with the installation as normal but remove slepc4py from the pip cache
-   and install Firedrake with the ``slepc`` optional dependency. For example::
+#. Continue with the installation as normal but install Firedrake with the
+   ``slepc`` optional dependency. For example::
 
-   $ pip cache remove slepc4py
    $ pip install --no-binary h5py 'firedrake[check,slepc]'
 
 VTK
@@ -532,18 +578,27 @@ should be followed:
 
    $ export $(python3 firedrake-configure --show-env)
 
+#. Create and activate a virtual environment::
+
+   $ python3 -m venv venv-firedrake
+   $ . venv-firedrake/bin/activate
+
 #. Install petsc4py and Firedrake's other build dependencies:
 
    .. code-block:: text
 
-      $ pip cache remove petsc4py
+      $ pip cache purge
       $ pip install $PETSC_DIR/src/binding/petsc4py
       $ pip install -r ./firedrake/requirements-build.txt
 
-#. Install Firedrake in editable mode without build isolation::
+#. Install Firedrake in editable mode without build isolation along with
+   any developer dependencies::
 
-   $ pip install --no-build-isolation --no-binary h5py --editable './firedrake[check]'
+   $ pip install --no-build-isolation --no-binary h5py --editable './firedrake' --group ./firedrake/pyproject.toml:dev
 
+   .. note::
+      Installing the developer dependencies requires pip to be version 25.1
+      or greater. You may need to run ``pip install -U pip`` first.
 
 Editing subpackages
 -------------------
@@ -565,6 +620,7 @@ package.
 .. _discussion: https://github.com/firedrakeproject/firedrake/discussions
 .. _issue: https://github.com/firedrakeproject/firedrake/issues
 .. _homebrew: https://brew.sh/
+.. _Xcode: https://developer.apple.com/xcode/
 .. _PETSc: https://petsc.org/
 .. _petsc4py: https://petsc.org/release/petsc4py/reference/petsc4py.html
 .. _venv: https://docs.python.org/3/tutorial/venv.html

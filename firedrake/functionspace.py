@@ -234,7 +234,8 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
 
     """
     sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant)
-    shape = shape or (mesh.geometric_dimension(),) * 2
+    if shape is None:
+        shape = (mesh.geometric_dimension(),) * 2
     element = finat.ufl.TensorElement(sub_element, shape=shape, symmetry=symmetry)
     return FunctionSpace(mesh, element, name=name)
 

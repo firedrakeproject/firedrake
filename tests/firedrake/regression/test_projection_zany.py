@@ -25,9 +25,15 @@ def jrc(a, b, n):
 
 
 @pytest.fixture
-def hierarchy(request):
+def hierarchy_2d(request):
     msh = UnitSquareMesh(2, 2)
     return MeshHierarchy(msh, 4)
+
+
+@pytest.fixture
+def hierarchy_3d(request):
+    n = 2
+    return [UnitCubeMesh(n*2**r, n*2**r, n*2**r) for r in range(3)]
 
 
 def do_projection(mesh, el_type, degree):
@@ -58,6 +64,12 @@ def do_projection(mesh, el_type, degree):
     return sqrt(assemble(inner(fh - f, fh - f) * dx))
 
 
+def run_convergence_test(mh, el, degree, convrate):
+    err = [do_projection(m, el, degree) for m in mh]
+    conv = np.diff(-np.log2(err))
+    assert (conv > convrate).all()
+
+
 @pytest.mark.parametrize(('el', 'deg', 'convrate'),
                          [('Johnson-Mercier', 1, 1.8),
                           ('Morley', 2, 2.4),
@@ -70,10 +82,15 @@ def do_projection(mesh, el_type, degree):
                           ('Bell', 5, 4.7),
                           ('Argyris', 5, 5.8),
                           ('Argyris', 6, 6.7)])
-def test_projection_zany_convergence_2d(hierarchy, el, deg, convrate):
-    diff = np.array([do_projection(m, el, deg) for m in hierarchy[2:]])
-    conv = np.log2(diff[:-1] / diff[1:])
-    assert (np.array(conv) > convrate).all()
+def test_projection_zany_convergence_2d(hierarchy_2d, el, deg, convrate):
+    run_convergence_test(hierarchy_2d[2:], el, deg, convrate)
+
+
+@pytest.mark.parametrize(('el', 'deg', 'convrate'),
+                         [('Johnson-Mercier', 1, 1.8),
+                          ('Morley', 2, 2.4)])
+def test_projection_zany_convergence_3d(hierarchy_3d, el, deg, convrate):
+    run_convergence_test(hierarchy_3d, el, deg, convrate)
 
 
 @pytest.mark.parametrize(('element', 'degree'),
@@ -82,9 +99,9 @@ def test_projection_zany_convergence_2d(hierarchy, el, deg, convrate):
                           ('HCT', 4),
                           ('Argyris', 5),
                           ('Argyris', 6)])
-def test_mass_conditioning(element, degree, hierarchy):
+def test_mass_conditioning(element, degree, hierarchy_2d):
     mass_cond = []
-    for msh in hierarchy[1:4]:
+    for msh in hierarchy_2d[1:4]:
         V = FunctionSpace(msh, element, degree)
         u = TrialFunction(V)
         v = TestFunction(V)

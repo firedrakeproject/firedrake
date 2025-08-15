@@ -251,7 +251,6 @@ def test_periodic_unit_cube_parallel():
 def assert_num_exterior_facets_equals_zero(m):
     # Need to initialise the mesh so that exterior facets have been
     # built.
-    m.init()
     assert m.exterior_facets.set.total_size == 0
 
 
@@ -430,7 +429,6 @@ def _mesh_is_reordered(mesh):
 def test_mesh_reordering_defaults_on():
     assert parameters["reorder_meshes"]
     m = UnitSquareMesh(1, 1)
-    m.init()
 
     assert _mesh_is_reordered(m)
 
@@ -458,7 +456,6 @@ def test_mesh_validation_parallel():
                          [False, True])
 def test_force_reordering_works(reorder):
     m = UnitSquareMesh(1, 1, reorder=reorder)
-    m.init()
 
     assert _mesh_is_reordered(m) == reorder
 
@@ -470,7 +467,6 @@ def test_changing_default_reorder_works(reorder):
     try:
         parameters["reorder_meshes"] = reorder
         m = UnitSquareMesh(1, 1)
-        m.init()
 
         assert _mesh_is_reordered(m) == reorder
     finally:
@@ -481,7 +477,6 @@ def test_changing_default_reorder_works(reorder):
                          [("default", 6)])
 def test_boxmesh_kind(kind, num_cells):
     m = BoxMesh(1, 1, 1, 1, 1, 1, diagonal=kind)
-    m.init()
     assert m.num_cells() == num_cells
 
 

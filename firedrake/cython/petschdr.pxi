@@ -30,6 +30,27 @@ cdef extern from "petscsys.h" nogil:
     int PetscFree2(void*,void*)
     int PetscSortIntWithArray(PetscInt,PetscInt[],PetscInt[])
 
+cdef extern from "petscdmtypes.h" nogil:
+    ctypedef enum PetscDMPolytopeType "DMPolytopeType":
+        DM_POLYTOPE_POINT
+        DM_POLYTOPE_SEGMENT
+        DM_POLYTOPE_POINT_PRISM_TENSOR
+        DM_POLYTOPE_TRIANGLE
+        DM_POLYTOPE_QUADRILATERAL
+        DM_POLYTOPE_SEG_PRISM_TENSOR
+        DM_POLYTOPE_TETRAHEDRON
+        DM_POLYTOPE_HEXAHEDRON
+        DM_POLYTOPE_TRI_PRISM
+        DM_POLYTOPE_TRI_PRISM_TENSOR
+        DM_POLYTOPE_QUAD_PRISM_TENSOR
+        DM_POLYTOPE_PYRAMID
+        DM_POLYTOPE_FV_GHOST
+        DM_POLYTOPE_INTERIOR_GHOST
+        DM_POLYTOPE_UNKNOWN
+        DM_POLYTOPE_UNKNOWN_CELL
+        DM_POLYTOPE_UNKNOWN_FACE
+        DM_NUM_POLYTOPES
+
 cdef extern from "petscdmplex.h" nogil:
     int DMPlexGetHeightStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
     int DMPlexGetDepthStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
@@ -56,6 +77,9 @@ cdef extern from "petscdmplex.h" nogil:
     int DMPlexGetSubpointIS(PETSc.PetscDM,PETSc.PetscIS*)
     int DMPlexGetSubpointMap(PETSc.PetscDM,PETSc.PetscDMLabel*)
     int DMPlexSetSubpointMap(PETSc.PetscDM,PETSc.PetscDMLabel)
+
+    int DMPlexSetCellType(PETSc.PetscDM,PetscInt,PetscDMPolytopeType)
+    int DMPlexGetCellType(PETSc.PetscDM,PetscInt,PetscDMPolytopeType*)
 
 cdef extern from "petscdmlabel.h" nogil:
     struct _n_DMLabel
