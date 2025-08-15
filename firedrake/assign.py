@@ -174,7 +174,7 @@ class Assigner:
         if len(subset) != len(assignee.function_space()):
             raise ValueError(f"Provided subset ({subset}) incompatible with assignee ({assignee})")
         if type(assignee.ufl_element()) == finat.ufl.MixedElement:
-            for subs, el in zip(subset, assignee.function_space().ufl_element().sub_elements()):
+            for subs, el in zip(subset, assignee.function_space().ufl_element().sub_elements):
                 if subs is not None and el.family() == "Real":
                     raise ValueError(
                         "Subset is not a valid argument for assigning to a mixed "
