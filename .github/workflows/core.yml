@@ -212,6 +212,8 @@ jobs:
           pip install -U pip
           pip install --group ./firedrake-repo/pyproject.toml:ci
 
+          pip uninstall firedrake-fiat -y; pip cache remove firedrake_fiat; pip install git+https://github.com/firedrakeproject/fiat.git@ksagiyam/tpc_is_macrocell
+
           firedrake-clean
           pip list
 
