@@ -97,9 +97,9 @@ one, we must explicitly specify the domain we wish to integrate over. ::
   x, y = SpatialCoordinate(mesh)
   fexpr = exp(-(cos(x)**2 + cos(y)**2))
   f = Function(V).interpolate(fexpr)
-  scaling = assemble(Constant(1, domain=mesh)*dx)/assemble(f*dx)
+  scaling = assemble(Constant(1)*dx(domain=mesh))/assemble(f*dx)
   f *= scaling
-  assert abs(assemble(f*dx)-assemble(Constant(1, domain=mesh)*dx)) < 1.0e-8
+  assert abs(assemble(f*dx)-assemble(Constant(1)*dx(domain=mesh))) < 1.0e-8
 
 Now we build the UFL expression for the variational form. We will use
 the nonlinear solve, so the form needs to be a 1-form that depends on

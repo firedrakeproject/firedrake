@@ -6,8 +6,6 @@ from pyadjoint.overloaded_type import OverloadedType, create_overloaded_object
 from firedrake.functionspace import FunctionSpace
 from firedrake.adjoint_utils.blocks import ConstantAssignBlock
 
-from ufl.domain import extract_unique_domain
-
 import numpy
 
 
@@ -148,4 +146,4 @@ class ConstantMixin(OverloadedType):
 
         """
         values = self.dat.data_ro.reshape(-1) if values is None else values
-        return type(self)(numpy.reshape(values, self.ufl_shape), domain=extract_unique_domain(self))
+        return type(self)(numpy.reshape(values, self.ufl_shape))
