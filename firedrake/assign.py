@@ -217,6 +217,16 @@ class Assigner:
         #       Store work arrays in FunctionSpace?
         for lhs_func, subset, *funcs in zip(self._assignee.subfunctions, self._subset, *(f.subfunctions for f in self._functions)):
             target_mesh = extract_unique_domain(lhs_func)
+            target_V = lhs_func.function_space()
+            if subset is not None:
+                if subset is target_V.node_set:
+                    # The whole set.
+                    subset = None
+                elif subset.superset is target_V.node_set:
+                    # op2.Subset of target_V.node_set
+                    pass
+                else:
+                    raise ValueError(f"subset ({subset}) not a subset of target_V.node_set ({target_V.node_set})")
             source_meshes = set()
             for f in funcs:
                 source_meshes.add(extract_unique_domain(f))
@@ -245,16 +255,23 @@ class Assigner:
                 if assign_to_halos:
                     lhs_func.dat.halo_valid = True
             else:
-                target_V = lhs_func.function_space()
                 source_V, = set(f.function_space() for f in funcs)
                 composed_map = source_V.topological.entity_node_map(target_mesh.topology, "cell", "everywhere", None)
                 indices_active = composed_map.indices_active_with_halo
                 indices_active_all = indices_active.all()
                 indices_active_all = target_mesh.comm.allreduce(indices_active_all, op=MPI.LAND)
-                if not indices_active_all and not allow_missing_dofs:
-                    raise ValueError("Found target DoFs whose values are undefined: run with `allow_missing_dofs=True`")
-                subset_indices_target = target_V.cell_node_map().values_with_halo[indices_active, :].reshape(-1)
-                subset_indices_source = composed_map.values_with_halo[indices_active, :].reshape(-1)
+                if subset is None:
+                    if not indices_active_all and not allow_missing_dofs:
+                        raise ValueError("Found target DoFs whose values are undefined: run with `allow_missing_dofs=True`")
+                    subset_indices_target = target_V.cell_node_map().values_with_halo[indices_active, :].reshape(-1)
+                    subset_indices_source = composed_map.values_with_halo[indices_active, :].reshape(-1)
+                else:
+                    subset_indices_target, perm, _ = np.intersect1d(
+                        target_V.cell_node_map().values_with_halo[indices_active, :].reshape(-1),
+                        subset.indices,
+                        return_indices=True,
+                    )
+                    subset_indices_source = composed_map.values_with_halo[indices_active, :].reshape(-1)[perm]
                 buffer = Function(target_V)
                 finfo = np.finfo(lhs_func.dat.dtype)
                 buffer.dat._data[:] = finfo.min
