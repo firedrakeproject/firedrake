@@ -21,7 +21,6 @@ from firedrake.utils import ScalarType, IntType, as_ctypes
 from firedrake import functionspaceimpl
 from firedrake.cofunction import Cofunction, RieszMap
 from firedrake import utils
-from firedrake import vector
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
 
@@ -178,10 +177,6 @@ class CoordinatelessFunction(ufl.Coefficient):
     def exterior_facet_node_map(self):
         return self.function_space().exterior_facet_node_map()
     exterior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.exterior_facet_node_map.__doc__
-
-    def vector(self):
-        r"""Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
-        return vector.Vector(self)
 
     def function_space(self):
         r"""Return the :class:`.FunctionSpace`, or
@@ -360,10 +355,6 @@ class Function(ufl.Coefficient, FunctionMixin):
             on which this :class:`Function` is defined.
         """
         return self._function_space
-
-    def vector(self):
-        r"""Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
-        return vector.Vector(self)
 
     @PETSc.Log.EventDecorator()
     def interpolate(

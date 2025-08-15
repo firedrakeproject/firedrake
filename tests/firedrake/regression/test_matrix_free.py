@@ -315,7 +315,7 @@ def test_duplicate(a, bcs):
     with solution1.dat.vec_ro as x, solution2.dat.vec_ro as y:
         B_petsc.mult(x, y)
     # Check if original rhs is equal to BA^-1 (rhs)
-    assert np.allclose(rhs.vector().array(), solution2.vector().array())
+    assert np.allclose(rhs.dat.data_ro, solution2.dat.data_ro)
 
 
 def test_matrix_free_fieldsplit_with_real():

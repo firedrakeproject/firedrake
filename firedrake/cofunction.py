@@ -8,7 +8,7 @@ from pyadjoint.tape import stop_annotating, annotate_tape, get_working_tape
 from finat.ufl import MixedElement
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
-from firedrake import utils, vector, ufl_expr
+from firedrake import utils, ufl_expr
 from firedrake.utils import ScalarType
 from firedrake.adjoint_utils.function import CofunctionMixin
 from firedrake.adjoint_utils.checkpointing import DelegatedFunctionCheckpoint
@@ -322,11 +322,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         from firedrake import interpolation
         interp = interpolation.Interpolate(ufl_expr.Argument(self.function_space().dual(), 0), expression)
         return firedrake.assemble(interp, tensor=self)
-
-    def vector(self):
-        r"""Return a :class:`.Vector` wrapping the data in this
-        :class:`Cofunction`"""
-        return vector.Vector(self)
 
     @property
     def cell_set(self):
