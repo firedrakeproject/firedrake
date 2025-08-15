@@ -20,9 +20,9 @@ u = 42
 
 which appears in the variational form as the term: -<42*tau, n>
 """
-
-
+import numpy as np
 import pytest
+
 from firedrake import *
 
 
@@ -39,9 +39,7 @@ def setup_poisson():
 
     # Define the source function
     f = Function(V)
-    import numpy as np
-    fvector = f.vector()
-    fvector.set_local(np.random.uniform(size=fvector.local_size()))
+    f.dat.data_wo[...] = np.random.uniform(size=f.dat.data_ro.size)
 
     # Define the variational forms
     a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx

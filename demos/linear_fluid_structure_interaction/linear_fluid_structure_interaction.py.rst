@@ -287,11 +287,11 @@ To save data for visualization, we change the position of the nodes in the mesh,
         output_data.counter += 1
         if output_data.counter % output_data_every_x_time_steps != 0:
             return
-        mesh_static = mesh.coordinates.vector().get_local()
-        mesh.coordinates.vector().set_local(mesh_static + X.vector().get_local())
-        mesh.coordinates.dat.data[:, 1] += eta.dat.data_ro
+        mesh_static = mesh.coordinates.copy(deepcopy=True)
+        mesh.coordinates += X
+        mesh.coordinates.dat.data_wo[:, 1] += eta.dat.data_ro
         outfile_phi.write(phi)
-        mesh.coordinates.vector().set_local(mesh_static)
+        mesh.coordinates.assign(mesh_static)
 
 
     output_data.counter = -1  # -1 to exclude counting print of initial state

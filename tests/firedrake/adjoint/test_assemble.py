@@ -34,8 +34,6 @@ def test_assemble_0_forms():
     a2 = assemble(u**2 * dx)
     a3 = assemble(u**3 * dx)
 
-    # this previously failed when in Firedrake "vectorial" adjoint values
-    # where stored as a Function instead of Vector()
     s = a1 + a2 + 2.0 * a3
     rf = ReducedFunctional(s, Control(u))
     dJdm = rf.derivative(apply_riesz=True)
@@ -52,8 +50,6 @@ def test_assemble_0_forms_mixed():
     a2 = assemble(u[0]**2 * dx)
     a3 = assemble(u[0]**3 * dx)
 
-    # this previously failed when in Firedrake "vectorial" adjoint values
-    # where stored as a Function instead of Vector()
     s = a1 + 2. * a2 + a3
     s -= a3  # this is done deliberately to end up with an adj_input of 0.0 for the a3 AssembleBlock
     rf = ReducedFunctional(s, Control(u))
@@ -98,8 +94,7 @@ def test_assemble_1_forms_tlm():
     J = sum(inner_dual(c) for c in (w1, w2, w3))
 
     Jhat = ReducedFunctional(J, Control(f))
-    h = Function(V)
-    h.vector()[:] = rand(h.dof_dset.size)
+    h = Function(V).assign(rand(h.dof_dset.size))
     g = f.copy(deepcopy=True)
     f.block_variable.tlm_value = h
     tape.evaluate_tlm()
@@ -113,8 +108,7 @@ def _test_adjoint(J, f):
     set_working_tape(tape)
 
     V = f.function_space()
-    h = Function(V)
-    h.vector()[:] = numpy.random.rand(V.dim())
+    h = Function(V).assign(numpy.random.rand(V.dim()))
 
     eps_ = [0.01 / 2.0**i for i in range(5)]
     residuals = []
@@ -126,9 +120,9 @@ def _test_adjoint(J, f):
         Jm.block_variable.adj_value = 1.0
         tape.evaluate_adj()
 
-        dJdf = f.block_variable.adj_value.vector()
+        dJdf = f.block_variable.adj_value.dat
 
-        residual = abs(Jp - Jm - eps * dJdf.inner(h.vector()))
+        residual = abs(Jp - Jm - eps * dJdf.inner(h.dat))
         residuals.append(residual)
 
     r = convergence_rates(residuals, eps_)

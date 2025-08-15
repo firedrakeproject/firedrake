@@ -49,7 +49,7 @@ def test_moore_spence():
     ev_re, ev_im = petsc_B.getVecs()
     es.getEigenpair(0, ev_re, ev_im)
     eigenmode = Function(V)
-    eigenmode.vector().set_local(ev_re)
+    eigenmode.assign(ev_re.buffer)
 
     Z = MixedFunctionSpace([V, R, V])
 

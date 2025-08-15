@@ -93,13 +93,11 @@ discontinuous space. ::
     #
         f = Function(V)
 
-To initialise this function to a random value we access its :class:`~.Vector`
-form and use numpy_ to set the values::
+We initialise this function to hold random values::
 
     #
         import numpy as np
-        fvector = f.vector()
-        fvector.set_local(np.random.uniform(size=fvector.local_size()))
+        f.assign(np.random.uniform(size=f.dof_dset.size))
 
 Note that the homogeneous Dirichlet conditions in the primal
 formulation turn into homogeneous Neumann conditions on the dual

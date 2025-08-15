@@ -103,17 +103,17 @@ def test_homogeneous_bcs(a, u, V):
     # Compute solution - this should have the solution u = 0
     solve(a == 0, u, bcs=bcs)
 
-    assert abs(u.vector().array()).max() == 0.0
+    assert abs(u.dat.data_ro).max() == 0.0
 
 
 def test_homogenize_doesnt_overwrite_function(a, u, V, f):
     bc = DirichletBC(V, f, 1)
     bc.homogenize()
 
-    assert (f.vector().array() == 10.0).all()
+    assert (f.dat.data_ro == 10.0).all()
 
     solve(a == 0, u, bcs=[bc])
-    assert abs(u.vector().array()).max() == 0.0
+    assert abs(u.dat.data_ro).max() == 0.0
 
 
 def test_homogenize(V):
@@ -132,11 +132,11 @@ def test_restore_bc_value(a, u, V, f):
     bc.homogenize()
 
     solve(a == 0, u, bcs=[bc])
-    assert abs(u.vector().array()).max() == 0.0
+    assert abs(u.dat.data_ro).max() == 0.0
 
     bc.restore()
     solve(a == 0, u, bcs=[bc])
-    assert np.allclose(u.vector().array(), 10.0)
+    assert np.allclose(u.dat.data_ro, 10.0)
 
 
 def test_set_bc_value(a, u, V, f):
@@ -146,7 +146,7 @@ def test_set_bc_value(a, u, V, f):
 
     solve(a == 0, u, bcs=[bc])
 
-    assert np.allclose(u.vector().array(), 7.0)
+    assert np.allclose(u.dat.data_ro, 7.0)
 
 
 def test_homogenize_old_function_arg_unchanged(a, u, V, f):
@@ -185,13 +185,13 @@ def test_update_bc_constant(a, u, V, f):
     solve(a == 0, u, bcs=[bc])
 
     # We should get the value in the constant
-    assert np.allclose(u.vector().array(), 1.0)
+    assert np.allclose(u.dat.data_ro, 1.0)
 
     c.assign(2.0)
     solve(a == 0, u, bcs=[bc])
 
     # Updating the constant value should give new value.
-    assert np.allclose(u.vector().array(), 2.0)
+    assert np.allclose(u.dat.data_ro, 2.0)
 
     c.assign(3.0)
     bc.homogenize()
@@ -199,26 +199,26 @@ def test_update_bc_constant(a, u, V, f):
 
     # Homogenized bcs shouldn't be overridden by the constant
     # changing.
-    assert np.allclose(u.vector().array(), 0.0)
+    assert np.allclose(u.dat.data_ro, 0.0)
 
     bc.restore()
     solve(a == 0, u, bcs=[bc])
 
     # Restoring the bcs should give the new constant value.
-    assert np.allclose(u.vector().array(), 3.0)
+    assert np.allclose(u.dat.data_ro, 3.0)
 
     bc.set_value(7)
     solve(a == 0, u, bcs=[bc])
 
     # Setting a value should replace the constant
-    assert np.allclose(u.vector().array(), 7.0)
+    assert np.allclose(u.dat.data_ro, 7.0)
 
     c.assign(4.0)
     solve(a == 0, u, bcs=[bc])
 
     # And now we should just have the new value (since the constant
     # is gone)
-    assert np.allclose(u.vector().array(), 7.0)
+    assert np.allclose(u.dat.data_ro, 7.0)
 
 
 def test_preassembly_doesnt_modify_assembled_rhs(V, f):
@@ -231,13 +231,13 @@ def test_preassembly_doesnt_modify_assembled_rhs(V, f):
     L = inner(f, v)*dx
     b = assemble(L)
 
-    b_vals = b.vector().array()
+    b_vals = b.dat.data_ro
 
     u = Function(V)
     solve(A, u, b)
-    assert np.allclose(u.vector().array(), 10.0)
+    assert np.allclose(u.dat.data_ro, 10.0)
 
-    assert np.allclose(b_vals, b.vector().array())
+    assert np.allclose(b_vals, b.dat.data_ro)
 
 
 def test_preassembly_bcs_caching(V):

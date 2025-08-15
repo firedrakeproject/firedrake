@@ -40,8 +40,7 @@ def test_assign_linear_combination():
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V)
-    h.vector()[:] = rand(V.dim())
+    h = Function(V).assign(rand(V.dim()))
     assert taylor_test(rf, f, h) > 1.9
 
 
@@ -61,8 +60,7 @@ def test_assign_vector_valued():
     J = assemble(inner(f, g)*u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V)
-    h.vector()[:] = 1
+    h = Function(V).assign(1)
     assert taylor_test(rf, f, h) > 1.9
 
 
@@ -82,8 +80,7 @@ def test_assign_tlm():
     J = assemble(inner(f, g)*u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V)
-    h.vector()[:] = 1
+    h = Function(V).assign(1)
     f.block_variable.tlm_value = h
 
     tape = get_working_tape()
@@ -137,8 +134,7 @@ def test_assign_hessian():
 
     dJdm = rf.derivative()
 
-    h = Function(V)
-    h.vector()[:] = 1.0
+    h = Function(V).assign(1)
     Hm = rf.hessian(h)
     assert taylor_test(rf, f, h, dJdm=h._ad_dot(dJdm), Hm=h._ad_dot(Hm)) > 2.9
 
@@ -158,8 +154,7 @@ def test_assign_nonlincom():
     J = assemble(u ** 2 * dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V)
-    h.vector()[:] = rand(V.dim())
+    h = Function(V).assign(rand(V.dim()))
     assert taylor_test(rf, f, h) > 1.9
 
 
@@ -213,11 +208,9 @@ def test_assign_nonlin_changing():
     J = assemble(u ** 2 * dx)
     rf = ReducedFunctional(J, control)
 
-    g = Function(V)
-    g.vector()[:] = rand(V.dim())
+    g = Function(V).assign(rand(V.dim()))
 
-    h = Function(V)
-    h.vector()[:] = rand(V.dim())
+    h = Function(V).assign(rand(V.dim()))
     assert taylor_test(rf, g, h) > 1.9
 
 

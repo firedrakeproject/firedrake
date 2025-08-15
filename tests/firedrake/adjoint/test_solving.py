@@ -28,8 +28,7 @@ def test_linear_problem():
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
     R = FunctionSpace(mesh, "R", 0)
-    f = Function(V)
-    f.vector()[:] = 1
+    f = Function(V).assign(1)
 
     u = TrialFunction(V)
     u_ = Function(V)
@@ -56,8 +55,7 @@ def test_singular_linear_problem():
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "CG", 1)
 
-    f = Function(V)
-    f.vector()[:] = 1
+    f = Function(V).assign(1)
 
     u = TrialFunction(V)
     u_ = Function(V)
@@ -82,8 +80,7 @@ def test_nonlinear_problem(pre_apply_bcs):
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
     R = FunctionSpace(mesh, "R", 0)
-    f = Function(V)
-    f.vector()[:] = 1
+    f = Function(V).assign(1)
 
     u = Function(V)
     v = TestFunction(V)
@@ -114,8 +111,7 @@ def test_mixed_boundary():
 
     g1 = Constant(2)
     g2 = Constant(1)
-    f = Function(V)
-    f.vector()[:] = 10
+    f = Function(V).assign(10)
 
     def J(f):
         a = f*inner(grad(u), grad(v))*dx
@@ -164,8 +160,7 @@ def xtest_wrt_function_dirichlet_boundary():
 
     g1 = Constant(2)
     g2 = Constant(1)
-    f = Function(V)
-    f.vector()[:] = 10
+    f = Function(V).assign(10)
 
     def J(bc):
         a = inner(grad(u), grad(v))*dx
@@ -195,8 +190,7 @@ def test_wrt_function_neumann_boundary():
 
     g1 = Function(R, val=2)
     g2 = Function(R, val=1)
-    f = Function(V)
-    f.vector()[:] = 10
+    f = Function(V).assign(10)
 
     def J(g1):
         a = inner(grad(u), grad(v))*dx
@@ -248,8 +242,7 @@ def test_wrt_constant_neumann_boundary():
 
     g1 = Function(R, val=2)
     g2 = Function(R, val=1)
-    f = Function(V)
-    f.vector()[:] = 10
+    f = Function(V).assign(10)
 
     def J(g1):
         a = inner(grad(u), grad(v))*dx
@@ -285,8 +278,7 @@ def test_time_dependent():
     f = Function(R, val=1)
 
     def J(f):
-        u_1 = Function(V)
-        u_1.vector()[:] = 1
+        u_1 = Function(V).assign(1)
 
         a = u_1*u*v*dx + dt*f*inner(grad(u), grad(v))*dx
         L = u_1*v*dx
@@ -343,14 +335,12 @@ def _test_adjoint_function_boundary(J, bc, f):
     set_working_tape(tape)
 
     V = f.function_space()
-    h = Function(V)
-    h.vector()[:] = 1
+    h = Function(V).assign(1)
     g = Function(V)
     eps_ = [0.4/2.0**i for i in range(4)]
     residuals = []
     for eps in eps_:
-        # f = bc.value()
-        g.vector()[:] = f.vector()[:] + eps*h.vector()[:]
+        g.assign(f + eps*h)
         bc.set_value(g)
         Jp = J(bc)
         tape.clear_tape()
@@ -361,7 +351,7 @@ def _test_adjoint_function_boundary(J, bc, f):
 
         dJdbc = bc.block_variable.adj_value
 
-        residual = abs(Jp - Jm - eps*dJdbc.inner(h.vector()))
+        residual = abs(Jp - Jm - eps*dJdbc.inner(h))
         residuals.append(residual)
 
     r = convergence_rates(residuals, eps_)
@@ -417,7 +407,7 @@ def _test_adjoint_constant(J, c):
         Jm.block_variable.adj_value = 1.0
         tape.evaluate_adj()
 
-        dJdc = c.block_variable.adj_value.vector()[0]
+        dJdc = c.block_variable.adj_value.dat.data_ro[0]
         print(dJdc)
 
         residual = abs(Jp - Jm - eps*dJdc)
@@ -436,8 +426,7 @@ def _test_adjoint(J, f):
     set_working_tape(tape)
 
     V = f.function_space()
-    h = Function(V)
-    h.vector()[:] = numpy.random.rand(V.dim())
+    h = Function(V).assign(numpy.random.rand(V.dim()))
 
     eps_ = [0.01/2.0**i for i in range(5)]
     residuals = []
@@ -449,9 +438,9 @@ def _test_adjoint(J, f):
         Jm.block_variable.adj_value = 1.0
         tape.evaluate_adj()
 
-        dJdf = f.block_variable.adj_value.vector()
+        dJdf = f.block_variable.adj_value.dat.data_ro
 
-        residual = abs(Jp - Jm - eps*dJdf.inner(h.vector()))
+        residual = abs(Jp - Jm - eps*dJdf.inner(h.dat.data_ro))
         residuals.append(residual)
 
     r = convergence_rates(residuals, eps_)

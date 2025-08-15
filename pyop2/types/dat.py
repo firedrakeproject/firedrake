@@ -242,6 +242,18 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
         v.setflags(write=True)
         return v
 
+    @property
+    @mpi.collective
+    def global_data(self):
+        with self.vec_ro as vec:
+            v = PETSc.Vec().createSeq(vec.size, comm=mpi.COMM_SELF)
+            is_ = PETSc.IS().createStride(vec.size, 0, 1, comm=mpi.COMM_SELF)
+
+            vscat = PETSc.Scatter().create(vec, is_, v, None)
+            vscat.scatterBegin(vec, v, addv=PETSc.InsertMode.INSERT_VALUES)
+            vscat.scatterEnd(vec, v, addv=PETSc.InsertMode.INSERT_VALUES)
+        return v.array
+
     def save(self, filename):
         """Write the data array to file ``filename`` in NumPy format."""
         np.save(filename, self.data_ro)

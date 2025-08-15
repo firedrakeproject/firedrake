@@ -133,7 +133,7 @@ def test_split_subvariables_update(Z):
     z = Function(Z)
     u = z.sub(0)
     u.project(Constant(1.))
-    assert np.allclose(z.sub(0).vector().dat.data, u.vector().dat.data)
+    assert np.allclose(z.sub(0).dat.data, u.dat.data)
 
 
 @pytest.mark.skipcomplex
