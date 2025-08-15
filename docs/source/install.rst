@@ -594,11 +594,7 @@ should be followed:
 #. Install Firedrake in editable mode without build isolation along with
    any developer dependencies::
 
-   $ pip install --no-build-isolation --no-binary h5py --editable './firedrake' --group ./firedrake/pyproject.toml:dev
-
-   .. note::
-      Installing the developer dependencies requires pip to be version 25.1
-      or greater. You may need to run ``pip install -U pip`` first.
+   $ pip install --no-build-isolation --no-binary h5py --editable './firedrake[check]'
 
 Editing subpackages
 -------------------
