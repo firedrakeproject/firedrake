@@ -32,8 +32,7 @@ def test_simple_solve():
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
 
-    f = Function(V)
-    f.vector()[:] = 2
+    f = Function(V).assign(2)
 
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -54,8 +53,7 @@ def test_simple_solve():
     c = Control(f)
     Jhat = ReducedFunctional(J, c)
 
-    h = Function(V)
-    h.vector()[:] = rng.random(V.dim())
+    h = Function(V).assign(rng.random(V.dim()))
 
     tape.evaluate_adj()
 
@@ -73,12 +71,10 @@ def test_mixed_derivatives():
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
 
-    f = Function(V)
-    f.vector()[:] = 2
+    f = Function(V).assign(2)
     control_f = Control(f)
 
-    g = Function(V)
-    g.vector()[:] = 3
+    g = Function(V).assign(3)
     control_g = Control(g)
 
     u = TrialFunction(V)
@@ -94,8 +90,7 @@ def test_mixed_derivatives():
     Jhat = ReducedFunctional(J, [control_f, control_g])
 
     # Direction to take a step for convergence test
-    h = Function(V)
-    h.vector()[:] = rng.random(V.dim())
+    h = Function(V).assign(rng.random(V.dim()))
 
     # Evaluate TLM
     control_f.tlm_value = h
@@ -111,7 +106,7 @@ def test_mixed_derivatives():
     tape.evaluate_hessian()
 
     dJdm = J.block_variable.tlm_value
-    Hm = control_f.hessian_value.vector().inner(h.vector()) + control_g.hessian_value.vector().inner(h.vector())
+    Hm = control_f.hessian_value.dat.inner(h.dat) + control_g.hessian_value.dat.inner(h.dat)
 
     assert taylor_test(Jhat, [f, g], [h, h], dJdm, Hm) > 2.9
 
@@ -126,8 +121,7 @@ def test_function():
     R = FunctionSpace(mesh, "R", 0)
     c = Function(R, val=4)
     control_c = Control(c)
-    f = Function(V)
-    f.vector()[:] = 3
+    f = Function(V).assign(3)
     control_f = Control(f)
 
     u = Function(V)
@@ -144,8 +138,7 @@ def test_function():
 
     # Step direction for derivatives and convergence test
     h_c = Function(R, val=1.0)
-    h_f = Function(V)
-    h_f.vector()[:] = 10*rng.random(V.dim())
+    h_f = Function(V).assign(10*rng.random(V.dim()))
 
     # Total derivative
     dJdc, dJdf = compute_gradient(J, [control_c, control_f], apply_riesz=True)
@@ -165,8 +158,7 @@ def test_nonlinear():
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "Lagrange", 1)
     R = FunctionSpace(mesh, "R", 0)
-    f = Function(V)
-    f.vector()[:] = 5
+    f = Function(V).assign(5)
 
     u = Function(V)
     v = TestFunction(V)
@@ -178,8 +170,7 @@ def test_nonlinear():
     J = assemble(u ** 4 * dx)
     Jhat = ReducedFunctional(J, Control(f))
 
-    h = Function(V)
-    h.vector()[:] = 10*rng.random(V.dim())
+    h = Function(V).assign(10*rng.random(V.dim()))
 
     J.block_variable.adj_value = 1.0
     f.block_variable.tlm_value = h
@@ -193,7 +184,7 @@ def test_nonlinear():
     g = f.copy(deepcopy=True)
 
     dJdm = J.block_variable.tlm_value
-    Hm = f.block_variable.hessian_value.vector().inner(h.vector())
+    Hm = f.block_variable.hessian_value.dat.inner(h.dat)
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.8
 
 
@@ -205,13 +196,11 @@ def test_dirichlet():
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "Lagrange", 1)
 
-    f = Function(V)
-    f.vector()[:] = 30
+    f = Function(V).assign(30)
 
     u = Function(V)
     v = TestFunction(V)
-    c = Function(V)
-    c.vector()[:] = 1
+    c = Function(V).assign(1)
     bc = DirichletBC(V, c, "on_boundary")
 
     F = inner(grad(u), grad(v)) * dx + u**4*v*dx - f**2 * v * dx
@@ -220,8 +209,7 @@ def test_dirichlet():
     J = assemble(u ** 4 * dx)
     Jhat = ReducedFunctional(J, Control(c))
 
-    h = Function(V)
-    h.vector()[:] = rng.random(V.dim())
+    h = Function(V).assign(rng.random(V.dim()))
 
     J.block_variable.adj_value = 1.0
     c.block_variable.tlm_value = h
@@ -236,7 +224,7 @@ def test_dirichlet():
 
     dJdm = J.block_variable.tlm_value
 
-    Hm = c.block_variable.hessian_value.vector().inner(h.vector())
+    Hm = c.block_variable.hessian_value.dat.inner(h.dat)
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
 
 
@@ -254,8 +242,7 @@ def test_burgers(solve_type):
 
     x, = SpatialCoordinate(mesh)
     pr = project(sin(2*pi*x), V, annotate=False)
-    ic = Function(V)
-    ic.vector()[:] = pr.vector()[:]
+    ic = Function(V).assign(pr)
 
     u_ = Function(V)
     u = Function(V)
@@ -311,8 +298,7 @@ def test_burgers(solve_type):
     J = assemble(u_*u_*dx + ic*ic*dx)
 
     Jhat = ReducedFunctional(J, Control(ic))
-    h = Function(V)
-    h.vector()[:] = rng.random(V.dim())
+    h = Function(V).assign(rng.random(V.dim()))
     g = ic.copy(deepcopy=True)
     J.block_variable.adj_value = 1.0
     ic.block_variable.tlm_value = h
@@ -323,5 +309,5 @@ def test_burgers(solve_type):
     tape.evaluate_hessian()
 
     dJdm = J.block_variable.tlm_value
-    Hm = ic.block_variable.hessian_value.vector().inner(h.vector())
+    Hm = ic.block_variable.hessian_value.dat.inner(h.dat)
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9

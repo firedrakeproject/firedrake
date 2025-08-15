@@ -76,8 +76,7 @@ def test_interpolate_with_arguments():
     J = assemble(u ** 2 * dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V1)
-    h.vector()[:] = rand(V1.dim())
+    h = Function(V1).assign(rand(V1.dim()))
     assert taylor_test(rf, f, h) > 1.9
 
 
@@ -98,13 +97,11 @@ def test_interpolate_scalar_valued():
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V1)
-    h.vector()[:] = rand(V1.dim())
+    h = Function(V1).assign(rand(V1.dim()))
     assert taylor_test(rf, f, h) > 1.9
 
     rf = ReducedFunctional(J, Control(g))
-    h = Function(V2)
-    h.vector()[:] = rand(V2.dim())
+    h = Function(V2).assign(rand(V2.dim()))
     assert taylor_test(rf, g, h) > 1.9
 
 
@@ -124,8 +121,7 @@ def test_interpolate_vector_valued():
     J = assemble(inner(f, g)*u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V1)
-    h.vector()[:] = 1
+    h = Function(V1).assign(1)
     assert taylor_test(rf, f, h) > 1.9
 
 
@@ -145,8 +141,7 @@ def test_interpolate_tlm():
     J = assemble(inner(f, g)*u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V1)
-    h.vector()[:] = 1
+    h = Function(V1).assign(1)
     f.block_variable.tlm_value = h
 
     tape = get_working_tape()
@@ -292,8 +287,7 @@ def test_interpolate_hessian_linear_expr():
     # space h and perterbation direction g.
     W = FunctionSpace(mesh, "Lagrange", 2)
     R = FunctionSpace(mesh, "R", 0)
-    f = Function(W)
-    f.vector()[:] = 5
+    f = Function(W).assign(5)
     # Note that we interpolate from a linear expression
     expr_interped = Function(V).interpolate(2*f)
 
@@ -308,8 +302,7 @@ def test_interpolate_hessian_linear_expr():
     Jhat = ReducedFunctional(J, Control(f))
 
     # Note functions are in W, not V.
-    h = Function(W)
-    h.vector()[:] = 10*rand(W.dim())
+    h = Function(W).assign(10*rand(W.dim()))
 
     J.block_variable.adj_value = 1.0
     f.block_variable.tlm_value = h
@@ -349,8 +342,7 @@ def test_interpolate_hessian_nonlinear_expr():
     # space h and perterbation direction g.
     W = FunctionSpace(mesh, "Lagrange", 2)
     R = FunctionSpace(mesh, "R", 0)
-    f = Function(W)
-    f.vector()[:] = 5
+    f = Function(W).assign(5)
     # Note that we interpolate from a nonlinear expression
     expr_interped = Function(V).interpolate(f**2)
 
@@ -365,8 +357,7 @@ def test_interpolate_hessian_nonlinear_expr():
     Jhat = ReducedFunctional(J, Control(f))
 
     # Note functions are in W, not V.
-    h = Function(W)
-    h.vector()[:] = 10*rand(W.dim())
+    h = Function(W).assign(10*rand(W.dim()))
 
     J.block_variable.adj_value = 1.0
     f.block_variable.tlm_value = h
@@ -406,10 +397,8 @@ def test_interpolate_hessian_nonlinear_expr_multi():
     # space h and perterbation direction g.
     W = FunctionSpace(mesh, "Lagrange", 2)
     R = FunctionSpace(mesh, "R", 0)
-    f = Function(W)
-    f.vector()[:] = 5
-    w = Function(W)
-    w.vector()[:] = 4
+    f = Function(W).assign(5)
+    w = Function(W).assign(4)
     c = Function(R, val=2.0)
     # Note that we interpolate from a nonlinear expression with 3 coefficients
     expr_interped = Function(V).interpolate(f**2+w**2+c**2)
@@ -425,8 +414,7 @@ def test_interpolate_hessian_nonlinear_expr_multi():
     Jhat = ReducedFunctional(J, Control(f))
 
     # Note functions are in W, not V.
-    h = Function(W)
-    h.vector()[:] = 10*rand(W.dim())
+    h = Function(W).assign(10*rand(W.dim()))
 
     J.block_variable.adj_value = 1.0
     # Note only the tlm_value of f is set here - unclear why.
@@ -469,10 +457,8 @@ def test_interpolate_hessian_nonlinear_expr_multi_cross_mesh():
     mesh_src = UnitSquareMesh(11, 11)
     R_src = FunctionSpace(mesh_src, "R", 0)
     W = FunctionSpace(mesh_src, "Lagrange", 2)
-    f = Function(W)
-    f.vector()[:] = 5
-    w = Function(W)
-    w.vector()[:] = 4
+    f = Function(W).assign(5)
+    w = Function(W).assign(4)
     c = Function(R_src, val=2.0)
     # Note that we interpolate from a nonlinear expression with 3 coefficients
     expr_interped = Function(V).interpolate(f**2+w**2+c**2)
@@ -488,8 +474,7 @@ def test_interpolate_hessian_nonlinear_expr_multi_cross_mesh():
     Jhat = ReducedFunctional(J, Control(f))
 
     # Note functions are in W, not V.
-    h = Function(W)
-    h.vector()[:] = 10*rand(W.dim())
+    h = Function(W).assign(10*rand(W.dim()))
 
     J.block_variable.adj_value = 1.0
     f.block_variable.tlm_value = h
@@ -651,8 +636,7 @@ def test_supermesh_project_gradient(vector):
     rf = ReducedFunctional(J, control)
 
     # Taylor test
-    h = Function(source_space)
-    h.vector()[:] = rand(source_space.dim())
+    h = Function(source_space).assign(rand(source_space.dim()))
     minconv = taylor_test(rf, source, h)
     assert minconv > 1.9
 
@@ -686,8 +670,7 @@ def test_supermesh_project_hessian(vector):
     rf = ReducedFunctional(J, control)
 
     source_space = source.function_space()
-    h = Function(source_space)
-    h.vector()[:] = 10*rand(source_space.dim())
+    h = Function(source_space).assign(10*rand(source_space.dim()))
 
     J.block_variable.adj_value = 1.0
     source.block_variable.tlm_value = h

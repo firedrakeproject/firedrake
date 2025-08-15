@@ -83,7 +83,6 @@ from firedrake.ufl_expr import *
 from firedrake.utility_meshes import *
 from firedrake.variational_solver import *
 from firedrake.eigensolver import *
-from firedrake.vector import *
 from firedrake.ensemble import *
 from firedrake.randomfunctiongen import *
 from firedrake.external_operators import *
