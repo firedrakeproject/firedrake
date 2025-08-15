@@ -586,14 +586,10 @@ should be followed:
       $ pip install $PETSC_DIR/src/binding/petsc4py
       $ pip install -r ./firedrake/requirements-build.txt
 
-#. Install Firedrake in editable mode without build isolation along with
-   any developer dependencies::
+#. Install Firedrake in editable mode without build isolation::
 
-   $ pip install --no-build-isolation --no-binary h5py --editable './firedrake' --group ./firedrake/pyproject.toml:dev
+   $ pip install --no-build-isolation --no-binary h5py --editable './firedrake[check]'
 
-   .. note::
-      Installing the developer dependencies requires pip to be version 25.1
-      or greater. You may need to run ``pip install -U pip`` first.
 
 Editing subpackages
 -------------------

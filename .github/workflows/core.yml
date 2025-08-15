@@ -205,10 +205,7 @@ jobs:
           pip install --verbose $EXTRA_PIP_FLAGS \
             --no-binary h5py \
             --extra-index-url https://download.pytorch.org/whl/cpu \
-            "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)"
-
-          pip install -U pip
-          pip install --group ./firedrake-repo/pyproject.toml:ci
+            "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci,docs]"
 
           firedrake-clean
           pip list
