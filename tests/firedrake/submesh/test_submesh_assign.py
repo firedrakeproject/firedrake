@@ -42,11 +42,11 @@ def test_submesh_assign_3_quads_2_processes():
     V_r = VectorFunctionSpace(mesh_r, "CG", 1)
     # Test various combinations.
     x = SpatialCoordinate(mesh)
-    f = Function(V).assign(mesh_l.coordinates)
+    f = Function(V).assign(mesh_l.coordinates, allow_missing_dofs=True)
     e = sqrt(assemble(inner(f - x, f - x) * dx(left)))
     assert abs(e) < 1.e-15
     x = SpatialCoordinate(mesh)
-    f = Function(V).assign(mesh_r.coordinates)
+    f = Function(V).assign(mesh_r.coordinates, allow_missing_dofs=True)
     e = sqrt(assemble(inner(f - x, f - x) * dx(right)))
     assert abs(e) < 1.e-15
     x = SpatialCoordinate(mesh_l)
@@ -58,11 +58,11 @@ def test_submesh_assign_3_quads_2_processes():
     e = sqrt(assemble(inner(f - x, f - x) * dx(right)))
     assert abs(e) < 1.e-15
     x = SpatialCoordinate(mesh_r)
-    f = Function(V_r).assign(mesh_l.coordinates)
+    f = Function(V_r).assign(mesh_l.coordinates, allow_missing_dofs=True)
     e = sqrt(assemble(inner(f - x, f - x) * dx(middle)))
     assert abs(e) < 1.e-15
     x = SpatialCoordinate(mesh_l)
-    f = Function(V_l).assign(mesh_r.coordinates)
+    f = Function(V_l).assign(mesh_r.coordinates, allow_missing_dofs=True)
     e = sqrt(assemble(inner(f - x, f - x) * dx(middle)))
     assert abs(e) < 1.e-15
 
@@ -103,11 +103,11 @@ def test_submesh_assign_2_quads_2_processes_no_overlap():
     V = FunctionSpace(mesh, elem)
     # Test various combinations.
     x = SpatialCoordinate(mesh)
-    f = Function(V).assign(mesh_r.coordinates)
+    f = Function(V).assign(mesh_r.coordinates, allow_missing_dofs=True)
     e = sqrt(assemble(inner(f - x, f - x) * dx(right)))
     assert abs(e) < 1.e-15
     x = SpatialCoordinate(mesh)
-    f = Function(V).assign(mesh_l.coordinates)
+    f = Function(V).assign(mesh_l.coordinates, allow_missing_dofs=True)
     e = sqrt(assemble(inner(f - x, f - x) * dx(left)))
     assert abs(e) < 1.e-15
 
@@ -154,11 +154,11 @@ def test_submesh_assign_unstructured_8_processes(simplex, distribution_parameter
     A_m = assemble(Constant(1.) * dx(domain=mesh, subdomain_id=middle))
     # Test various combinations.
     x = SpatialCoordinate(mesh)
-    f_ = Function(V).assign(f_l)
+    f_ = Function(V).assign(f_l, allow_missing_dofs=True)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(left)))
     assert abs(e) / A_l < 1.e-14
     x = SpatialCoordinate(mesh)
-    f_ = Function(V).assign(f_r)
+    f_ = Function(V).assign(f_r, allow_missing_dofs=True)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(right)))
     assert abs(e) / A_r < 1.e-14
     x = SpatialCoordinate(mesh_l)
@@ -170,10 +170,10 @@ def test_submesh_assign_unstructured_8_processes(simplex, distribution_parameter
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(right)))
     assert abs(e) / A_r < 1.e-14
     x = SpatialCoordinate(mesh_l)
-    f_ = Function(V_l).assign(f_r)
+    f_ = Function(V_l).assign(f_r, allow_missing_dofs=True)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(middle)))
     assert abs(e) / A_m < 1.e-14
     x = SpatialCoordinate(mesh_r)
-    f_ = Function(V_r).assign(f_l)
+    f_ = Function(V_r).assign(f_l, allow_missing_dofs=True)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(middle)))
     assert abs(e) / A_m < 1.e-14

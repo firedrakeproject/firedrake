@@ -19,6 +19,8 @@ from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType, split_by
 from firedrake.vector import Vector
 
+from mpi4py import MPI
+
 
 def _isconstant(expr):
     return isinstance(expr, Constant) or \
@@ -183,7 +185,7 @@ class Assigner:
         return f"{self.__class__.__name__}({self._assignee!r}, {self._expression!r})"
 
     @PETSc.Log.EventDecorator()
-    def assign(self):
+    def assign(self, allow_missing_dofs=False):
         """Perform the assignment."""
         if annotate_tape():
             raise NotImplementedError(
@@ -242,6 +244,10 @@ class Assigner:
                 source_V, = set(f.function_space() for f in funcs)
                 composed_map = source_V.topological.entity_node_map(target_mesh.topology, "cell", "everywhere", None)
                 indices_active = composed_map.indices_active_with_halo
+                indices_active_all = indices_active.all()
+                indices_active_all = target_mesh.comm.allreduce(indices_active_all, op=MPI.LAND)
+                if not indices_active_all and not allow_missing_dofs:
+                    raise ValueError("Found target DoFs whose values are undefined: run with `allow_missing_dofs=True`")
                 subset_indices_target = target_V.cell_node_map().values_with_halo[indices_active, :].reshape(-1)
                 subset_indices_source = composed_map.values_with_halo[indices_active, :].reshape(-1)
                 buffer = Function(target_V)

@@ -425,7 +425,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign
-    def assign(self, expr, subset=None):
+    def assign(self, expr, subset=None, allow_missing_dofs=False):
         r"""Set the :class:`Function` value to the pointwise value of
         expr. expr may only contain :class:`Function`\s on the same
         :class:`.FunctionSpace` as the :class:`Function` being assigned to.
@@ -458,7 +458,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             self.dat.zero(subset=subset)
         else:
             from firedrake.assign import Assigner
-            Assigner(self, expr, subset).assign()
+            Assigner(self, expr, subset).assign(allow_missing_dofs=allow_missing_dofs)
         return self
 
     def riesz_representation(self, riesz_map='L2'):
