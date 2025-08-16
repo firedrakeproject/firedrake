@@ -112,7 +112,7 @@ def test_submesh_assign_2_quads_2_processes_no_overlap():
     assert abs(e) < 1.e-15
 
 
-@pytest.mark.parallel(nprocs=5)
+@pytest.mark.parallel(nprocs=8)
 @pytest.mark.parametrize('simplex', [True, False])
 @pytest.mark.parametrize('distribution_parameters', [None, {"overlap_type": (DistributedMeshOverlapType.NONE, 0)}])
 def test_submesh_assign_unstructured_5_processes(simplex, distribution_parameters):
