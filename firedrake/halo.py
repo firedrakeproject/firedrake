@@ -4,8 +4,8 @@ import numpy
 from functools import partial
 
 from firedrake.petsc import PETSc
+from firedrake.utils import ScalarType, complex_mode
 import firedrake.cython.dmcommon as dmcommon
-
 
 _MPI_types = {}
 
@@ -77,6 +77,8 @@ def reduction_op(op, invec, inoutvec, datatype):
     inoutvec[:] = op(invec, inoutvec)
 
 
+# Use the following for complex scalar, too,
+# as MPI_{MAX, MIN} operations are not defined for complex scalar.
 _contig_min_op = MPI.Op.Create(partial(reduction_op, numpy.minimum), commute=True)
 _contig_max_op = MPI.Op.Create(partial(reduction_op, numpy.maximum), commute=True)
 
@@ -140,13 +142,16 @@ class Halo(op2.Halo):
         assert insert_mode in {op2.INC, op2.MIN, op2.MAX}, "%s LtoG not supported" % insert_mode
         if self.comm.size == 1:
             return
+        complex_type = complex_mode and dat.dtype == ScalarType
         mtype, builtin = _get_mtype(dat)
-        op = {(False, op2.INC): MPI.SUM,
-              (True, op2.INC): MPI.SUM,
-              (False, op2.MIN): _contig_min_op,
-              (True, op2.MIN): MPI.MIN,
-              (False, op2.MAX): _contig_max_op,
-              (True, op2.MAX): MPI.MAX}[(builtin, insert_mode)]
+        op = {
+            (False, op2.INC): MPI.SUM,
+            (True, op2.INC): MPI.SUM,
+            (False, op2.MIN): _contig_min_op,
+            (True, op2.MIN): _contig_min_op if complex_type else MPI.MIN,
+            (False, op2.MAX): _contig_max_op,
+            (True, op2.MAX): _contig_max_op if complex_type else MPI.MAX,
+        }[(builtin, insert_mode)]
         self.sf.reduceBegin(mtype, dat._data, dat._data, op)
 
     @PETSc.Log.EventDecorator()
@@ -154,11 +159,14 @@ class Halo(op2.Halo):
         assert insert_mode in {op2.INC, op2.MIN, op2.MAX}, "%s LtoG not supported" % insert_mode
         if self.comm.size == 1:
             return
+        complex_type = complex_mode and dat.dtype == ScalarType
         mtype, builtin = _get_mtype(dat)
-        op = {(False, op2.INC): MPI.SUM,
-              (True, op2.INC): MPI.SUM,
-              (False, op2.MIN): _contig_min_op,
-              (True, op2.MIN): MPI.MIN,
-              (False, op2.MAX): _contig_max_op,
-              (True, op2.MAX): MPI.MAX}[(builtin, insert_mode)]
+        op = {
+            (False, op2.INC): MPI.SUM,
+            (True, op2.INC): MPI.SUM,
+            (False, op2.MIN): _contig_min_op,
+            (True, op2.MIN): _contig_min_op if complex_type else MPI.MIN,
+            (False, op2.MAX): _contig_max_op,
+            (True, op2.MAX): _contig_max_op if complex_type else MPI.MAX,
+        }[(builtin, insert_mode)]
         self.sf.reduceEnd(mtype, dat._data, dat._data, op)
