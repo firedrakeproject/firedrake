@@ -1964,8 +1964,9 @@ class ParloopBuilder:
         This is only needed when applying boundary conditions to 2-forms.
 
         """
-
         if len(self._form.arguments()) == 2 and not self._diagonal:
+            breakpoint()
+
             if not self._bcs:
                 return None
             lgmaps = []
@@ -1977,13 +1978,17 @@ class ParloopBuilder:
                 i = Ellipsis if i is None else i
                 j = Ellipsis if j is None else j
 
-                if matrix.M.buffer.mat_type in {"seqaij", "mpiaij"}:
-                    row_block_shape = ()
-                    column_block_shape = ()
-                else:
-                    assert matrix.M.buffer.mat_type == "baij"
-                    row_block_shape  = (self.test_function_space[ibc].block_size,)
-                    column_block_shape = (self.trial_function_space[jbc].block_size,)
+                mat_buffer = matrix.M.buffer
+
+                mat_spec = mat_buffer.mat_spec
+                if isinstance(mat_spec, numpy.ndarray):
+                    mat_spec = mat_spec[i, j]
+
+                row_block_shape = mat_spec.row_spec.block_shape
+                column_block_shape = mat_spec.column_spec.block_shape
+
+                # debugging
+                assert isinstance(row_block_shape, tuple)
 
                 # Don't do this because we want the lgmaps for the full space
                 # submat = matrix.M[i, j]

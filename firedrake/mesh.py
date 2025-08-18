@@ -1755,7 +1755,7 @@ class AbstractMeshTopology(abc.ABC):
                                                       sid)
                             for sid in all_integer_subdomain_ids)
                 to_remove = np.unique(np.concatenate(ids))
-                indices = np.arange(self.cell_set.total_size, dtype=IntType)
+                indices = np.arange(self.cell_set.size, dtype=IntType)
                 indices = np.delete(indices, to_remove)
             else:
                 indices = dmcommon.get_cell_markers(self.topology_dm,
@@ -1763,11 +1763,10 @@ class AbstractMeshTopology(abc.ABC):
                                                     subdomain_id)
             # Explicitly cull ghost cells:
             # Ideally self.points[slce].owned with full indices would just work.
-            num_owned = self.points.owned_count_per_component[self.cell_label]
-            indices = indices[indices < num_owned]
+            indices = indices[indices < self.points[self.cell_label].owned.size]
             n, = indices.shape
-            harray = op3.Dat(op3.Axis(n), data=indices, prefix="subset", dtype=utils.IntType)
-            slce = op3.Slice(self.points.label, [op3.Subset(self.cell_label, harray)])
+            harray = op3.Dat(n, data=indices, prefix="subset")
+            slce = op3.Slice(self.points.root.label, [op3.Subset(self.cell_label, harray)])
             return self._subsets.setdefault(key, self.points[slce])
 
     @PETSc.Log.EventDecorator()

@@ -112,7 +112,8 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         of this this :class:`Cofunction`'s :class:`.FunctionSpace`."""
         if len(self.function_space()) > 1:
             subfuncs = []
-            for subspace in self.function_space():
+            for i in range(len(self.function_space())):
+                subspace = self.function_space().sub(i, weak=False)
                 subdat = self.dat[subspace.index]
                 subfunc = type(self)(
                     subspace, subdat, name=f"{self.name()}[{subspace.index}]"

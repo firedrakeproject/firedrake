@@ -2106,7 +2106,7 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_cell_markers(PETSc.DM dm, PETSc.Section cell_numbering,
+def get_cell_markers(PETSc.DM dm, np.ndarray cell_numbering,
                      subdomain_id):
     """Get the cells marked by a given subdomain_id.
 
@@ -2158,8 +2158,7 @@ def get_cell_markers(PETSc.DM dm, PETSc.Section cell_numbering,
     for i in range(n):
         c = indices[i]
         if cStart <= c < cEnd:
-            CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &offset))
-            cells[j] = offset
+            cells[j] = cell_numbering[c]
             j += 1
     return cells
 

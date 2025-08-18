@@ -539,7 +539,11 @@ class FullPetscMatBufferSpec:
 class PetscMatAxisSpec:
     size: int
     lgmap: PETSc.LGMap
-    block_size: int = 1
+    block_shape: tuple[int, ...] = ()
+
+    @property
+    def block_size(self) -> int:
+        return np.prod(self.block_shape, dtype=int)
 
 
 class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
@@ -552,6 +556,11 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
     @property
     @abc.abstractmethod
     def mat(self) -> PETSc.Mat:
+        pass
+
+    @property
+    @abc.abstractmethod
+    def mat_spec(self) -> FullPetscMatBufferSpec:
         pass
 
     # {{{ interface impls
@@ -663,6 +672,7 @@ class AllocatedPetscMatBuffer(PetscMatBuffer):
     # {{{ Instance attrs
 
     _mat: PETSc.Mat
+    _mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec]
     _name: str
     _constant: bool
 
@@ -671,6 +681,7 @@ class AllocatedPetscMatBuffer(PetscMatBuffer):
     # {{{ interface impls
 
     mat: ClassVar[property] = utils.attr("_mat")
+    mat_spec: ClassVar[property] = utils.attr("_mat_spec")
     name: ClassVar[property] = utils.attr("_name")
     constant: ClassVar[property] = utils.attr("_constant")
 
@@ -681,14 +692,15 @@ class AllocatedPetscMatBuffer(PetscMatBuffer):
     @classmethod
     def empty(cls, mat_spec: PetscMatSpec | np.ndarray[PetscMatSpec], **kwargs):
         mat = cls._make_petsc_mat(mat_spec)
-        return cls(mat, **kwargs)
+        return cls(mat, mat_spec, **kwargs)
 
     # }}}
 
-    def __init__(self, mat: PETSc.Mat, *, name:str|None=None, prefix:str|None=None,constant:bool=False):
+    def __init__(self, mat: PETSc.Mat, mat_spec: FullPetscMatBufferSpec, *, name:str|None=None, prefix:str|None=None,constant:bool=False):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         self._mat = mat
+        self._mat_spec = mat_spec
         self._name = name
         self._constant = constant
 
@@ -700,7 +712,7 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
     # {{{ Instance attrs
 
     _mat: PETSc.Mat
-    mat_spec: FullPetscMatBufferSpec | Mapping
+    _mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec]
     _name: str
     _constant: bool
 
@@ -711,6 +723,7 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
     # {{{ interface impls
 
     mat: ClassVar[property] = utils.attr("_mat")
+    mat_spec: ClassVar[property] = utils.attr("_mat_spec")
     name: ClassVar[property] = utils.attr("_name")
     constant: ClassVar[property] = utils.attr("_constant")
 
@@ -719,17 +732,17 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
     # {{{ factory methods
 
     @classmethod
-    def empty(cls, mat_spec: MatSpec | np.ndarray[MatSpec], **kwargs):
+    def empty(cls, mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec], **kwargs):
         mat = cls._make_petsc_mat(mat_spec, preallocator=True)
-        return cls(mat, mat_spec=mat_spec, **kwargs)
+        return cls(mat, mat_spec, **kwargs)
 
     # }}}
 
-    def __init__(self, mat: PETSc.Mat, mat_spec: FullPetscMatBufferSpec | Mapping, *, name:str|None=None, prefix:str|None=None,constant:bool=False):
+    def __init__(self, mat: PETSc.Mat, mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec], *, name:str|None=None, prefix:str|None=None,constant:bool=False):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         self._mat = mat
-        self.mat_spec = mat_spec
+        self._mat_spec = mat_spec
         self._name = name
         self._constant = constant
 
@@ -749,7 +762,7 @@ class PetscMatPreallocatorBuffer(PetscMatBuffer):
             self._lazy_template = template
 
         mat = duplicate_mat(self._lazy_template, copy=False)
-        return AllocatedPetscMatBuffer(mat)
+        return AllocatedPetscMatBuffer(mat, self.mat_spec)
 
     def _preallocate(self, preallocator: PETSc.Mat, template: PETSc.Mat) -> None:
         if template.type == "nest":

@@ -293,7 +293,7 @@ def test_assemble_sparsity_no_redundant_entries():
     for i in range(len(W)):
         for j in range(len(W)):
             if i != j:
-                assert np.all(A.M.sparsity[i][j].nnz == np.zeros(9, dtype=IntType))
+                assert np.allclose(A.petscmat.getNestSubMatrix(i, j).getRowSum(), 0)
 
 
 def test_assemble_sparsity_diagonal_entries_for_bc():
@@ -305,7 +305,7 @@ def test_assemble_sparsity_diagonal_entries_for_bc():
     bc = DirichletBC(W.sub(1), 0, "on_boundary")
     A = assemble(inner(u[1], v[0]) * dx, bcs=[bc], mat_type="nest")
     # Make sure that diagonals are allocated.
-    assert np.all(A.M.sparsity[1][1].nnz == np.ones(4, dtype=IntType))
+    assert np.allclose(A.petscmat.getNestSubMatrix(1, 1).getRowSum(), 1)
 
 
 @pytest.mark.skipcomplex

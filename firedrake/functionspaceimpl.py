@@ -1112,7 +1112,7 @@ class FunctionSpace:
     @utils.cached_property
     def _weak_components(self):
         if self.rank == 0:
-            return self.subspaces
+            return self.weak_subspaces
         else:
             components = numpy.empty(self.shape, dtype=object)
             for ix in numpy.ndindex(self.shape):
@@ -1123,9 +1123,9 @@ class FunctionSpace:
         r"""Return a view into the ith component."""
         indices = parse_component_indices(indices, self.shape)
         if weak:
-            return self._weak_components[indices]
+            return self._weak_components[indices or 0]
         else:
-            return self._components[indices]
+            return self._components[indices or 0]
 
     def __mul__(self, other):
         r"""Create a :class:`.MixedFunctionSpace` composed of this

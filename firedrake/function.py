@@ -302,9 +302,12 @@ class Function(ufl.Coefficient, FunctionMixin):
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        return tuple(
-            type(self)(self.function_space().sub(i, weak=False), val)
-            for (i, val) in zip(range(len(self.function_space())), self.topological.subfunctions))
+        if len(self.function_space()) > 1:
+            return tuple(
+                type(self)(self.function_space().sub(i, weak=False), val)
+                for (i, val) in zip(range(len(self.function_space())), self.topological.subfunctions))
+        else:
+            return (self,)
 
     @utils.cached_property
     def _components(self):
