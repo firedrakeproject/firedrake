@@ -1507,24 +1507,7 @@ class IndexedAxisTree(AbstractAxisTree):
         subtree_unindexed = self.unindexed[nest_label].materialize()
 
         # remove the nest label from the targets
-        subtree_targets = tuple(
-            {
-                axis_path: (
-                    {
-                        axis_label: path
-                        for axis_label, path in target_spec[0].items()
-                        if axis_label != self.unindexed.root.label
-                    },
-                    {
-                        axis_label: expr
-                        for axis_label, expr in target_spec[1].items()
-                        if axis_label != self.unindexed.root.label
-                    },
-                )
-                for axis_path, target_spec in target.items()
-            }
-            for target in self.targets
-        )
+        subtree_targets = trim_axis_targets(self.targets, {self.unindexed.root.label})
 
         return IndexedAxisTree(
             self.node_map,
@@ -1546,24 +1529,7 @@ class IndexedAxisTree(AbstractAxisTree):
 
         # remove the block axes from the targets
         block_axis_labels = frozenset(index.axis for index in block_indices)
-        targets_blocked = tuple(
-            {
-                axis_path: (
-                    {
-                        axis_label: path
-                        for axis_label, path in target_spec[0].items()
-                        if axis_label not in block_axis_labels
-                    },
-                    {
-                        axis_label: expr
-                        for axis_label, expr in target_spec[1].items()
-                        if axis_label not in block_axis_labels
-                    },
-                )
-                for axis_path, target_spec in target.items()
-            }
-            for target in self_blocked.targets
-        )
+        targets_blocked = trim_axis_targets(self_blocked.targets, block_axis_labels)
 
         return IndexedAxisTree(
             self_blocked.node_map,
@@ -2264,3 +2230,24 @@ def gather_loop_indices_from_targets(targets):
                 for loop_var in collect_loop_index_vars(expr):
                     loop_indices.add(loop_var.loop_index)
     return tuple(loop_indices)
+
+
+def trim_axis_targets(targets, to_trim):
+    return tuple(
+        {
+            axis_path: (
+                {
+                    axis_label: path
+                    for axis_label, path in target_spec[0].items()
+                    if axis_label not in to_trim
+                },
+                {
+                    axis_label: expr
+                    for axis_label, expr in target_spec[1].items()
+                    if axis_label not in to_trim
+                },
+            )
+            for axis_path, target_spec in target.items()
+        }
+        for target in targets
+    )

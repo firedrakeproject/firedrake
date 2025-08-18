@@ -1871,11 +1871,35 @@ class ProxyFunctionSpace(FunctionSpace):
 
     @cached_property
     def axes(self):
-        return self.parent.axes[self._slice]
+        trimmed = self.parent.axes[self._slice]
+        trimmed_unindexed = self.parent.layout_axes[self._slice].materialize()
+        trimmed_targets = op3.tree.axis_tree.trim_axis_targets(trimmed.targets, self._trimmed_axis_labels)
+
+        return op3.IndexedAxisTree(
+            trimmed.node_map,
+            unindexed=trimmed_unindexed,
+            targets=trimmed_targets,
+        )
 
     @cached_property
     def nodal_axes(self):
-        return self.parent.nodal_axes[self._slice]
+        trimmed = self.parent.nodal_axes[self._slice]
+        trimmed_unindexed = self.parent.layout_axes[self._slice].materialize()
+        trimmed_targets = op3.tree.axis_tree.trim_axis_targets(trimmed.targets, self._trimmed_axis_labels)
+
+        return op3.IndexedAxisTree(
+            trimmed.node_map,
+            unindexed=trimmed_unindexed,
+            targets=trimmed_targets,
+        )
+
+    @cached_property
+    def _trimmed_axis_labels(self) -> frozenset:
+        if self.identifier == "indexed":
+            return frozenset({"field"})
+        else:
+            assert self.identifier == "component"
+            return frozenset({f"dim{dim}" for dim, _ in enumerate(self.component)})
 
     @cached_property
     def _slice(self):

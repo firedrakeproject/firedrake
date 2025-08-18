@@ -1,5 +1,6 @@
 from .tree import (  # noqa: F401
     Axis,
+    trim_axis_targets,
     ContextMismatchException,
     AxisComponent,
     AxisComponentRegion,

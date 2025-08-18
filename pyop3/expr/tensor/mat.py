@@ -48,6 +48,31 @@ class Mat(Tensor):
     _name: str
     _parent: Mat | None
 
+    def __init__(
+        self,
+        raxes,
+        caxes,
+        buffer: AbstractBuffer,
+        *,
+        name=None,
+        prefix=None,
+        parent=None,
+    ):
+        if not isinstance(buffer, AbstractBuffer):
+            raise TypeError(f"Provided buffer has the wrong type ({type(buffer).__name__})")
+
+        raxes = as_axis_tree(raxes)
+        caxes = as_axis_tree(caxes)
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        self.raxes = raxes
+        self.caxes = caxes
+        self._buffer = buffer
+        self._name = name
+        self._parent = parent
+
+        # self._cache = {}
+
     # }}}
 
     # {{{ class attrs
@@ -108,32 +133,6 @@ class Mat(Tensor):
         return cls(row_axes, column_axes, buffer=buffer, **kwargs)
 
     # }}}
-
-
-    def __init__(
-        self,
-        raxes,
-        caxes,
-        buffer: AbstractBuffer,
-        *,
-        name=None,
-        prefix=None,
-        parent=None,
-    ):
-        if not isinstance(buffer, AbstractBuffer):
-            raise TypeError(f"Provided buffer has the wrong type ({type(buffer).__name__})")
-
-        raxes = as_axis_tree(raxes)
-        caxes = as_axis_tree(caxes)
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-
-        self.raxes = raxes
-        self.caxes = caxes
-        self._buffer = buffer
-        self._name = name
-        self._parent = parent
-
-        # self._cache = {}
 
     # {{{ Array impls
 
