@@ -2,9 +2,6 @@ import pytest
 from firedrake import *
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 @pytest.mark.parametrize(("degree", "hdiv_family", "quadrilateral"),
                          [(1, "RT", False), (1, "RTCF", True),
                           (2, "RT", False), (2, "RTCF", True)])

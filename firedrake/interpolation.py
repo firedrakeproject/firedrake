@@ -151,7 +151,7 @@ class Interpolate(ufl.Interpolate):
 
 
 @PETSc.Log.EventDecorator()
-def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False, default_missing_val=None, matfree=True):
+def interpolate(expr, V, subset=None, access=op3.WRITE, allow_missing_dofs=False, default_missing_val=None, matfree=True):
     """Returns a UFL expression for the interpolation operation of ``expr`` into ``V``.
 
     :arg expr: a UFL expression.

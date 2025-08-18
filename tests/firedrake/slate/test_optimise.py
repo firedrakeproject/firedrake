@@ -3,7 +3,6 @@ from firedrake import *
 import numpy as np
 from firedrake.slate.slac.optimise import optimise
 from firedrake.parameters import parameters
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture

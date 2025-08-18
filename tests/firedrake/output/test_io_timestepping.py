@@ -5,7 +5,6 @@ import ufl
 import finat.ufl
 import os
 import numpy as np
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 cwd = os.path.abspath(os.path.dirname(__file__))
 

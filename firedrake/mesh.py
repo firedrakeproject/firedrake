@@ -803,7 +803,6 @@ class AbstractMeshTopology(abc.ABC):
         self._dm_renumbering = dm_renumbering
         self._dm_renumbering_inv = dm_renumbering_inv
 
-        self._callback = callback
         # Set/Generate names to be used when checkpointing.
         self._distribution_name = distribution_name or _generate_default_mesh_topology_distribution_name(self.topology_dm.comm.size, self._distribution_parameters)
         self._permutation_name = permutation_name or _generate_default_mesh_topology_permutation_name(reorder)
@@ -1046,15 +1045,6 @@ class AbstractMeshTopology(abc.ABC):
     @abc.abstractmethod
     def dm_cell_types(self):
         """All DM.PolytopeTypes of cells in the mesh."""
-        pass
-
-    @property
-    @abc.abstractmethod
-    def cell_closure(self):
-        """2D array of ordered cell closures
-
-        Each row contains ordered cell entities for a cell, one row per cell.
-        """
         pass
 
     @property

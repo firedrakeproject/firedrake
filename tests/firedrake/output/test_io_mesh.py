@@ -4,7 +4,6 @@ from firedrake import *
 from firedrake.utils import IntType
 from pyop2.mpi import COMM_WORLD
 import numpy as np
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 mesh_name = "m"

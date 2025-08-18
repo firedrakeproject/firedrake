@@ -33,7 +33,6 @@ def test_dsn(mesh, domains):
     assert np.allclose(assemble(form), len(domains))
 
 
-@pytest.mark.skip(reason="pyop3 parallel")
 @pytest.mark.parallel
 def test_dsn_parallel(mesh):
     for d in domains:

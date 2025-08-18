@@ -4,7 +4,6 @@ from os import listdir
 from os.path import isfile, join
 
 from firedrake import *
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 try:
     from firedrake.output import VTKFile

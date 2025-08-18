@@ -2,7 +2,6 @@ import pytest
 from firedrake import *
 from pyop2.mpi import COMM_WORLD
 import os
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 cwd = os.path.abspath(os.path.dirname(__file__))
 

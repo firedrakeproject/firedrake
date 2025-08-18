@@ -10,8 +10,6 @@ from firedrake.embedding import get_embedding_method_for_checkpointing
 from firedrake.utils import IntType
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
 cwd = abspath(dirname(__file__))
 mesh_name = "m"
 extruded_mesh_name = "m_extruded"

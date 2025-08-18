@@ -4,9 +4,6 @@ from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 @pytest.fixture(params=["scalar",
                         pytest.param("vector", marks=pytest.mark.skipcomplexnoslate),
                         pytest.param("mixed", marks=pytest.mark.skipcomplexnoslate)])

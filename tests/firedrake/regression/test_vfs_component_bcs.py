@@ -4,9 +4,6 @@ from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 import numpy as np
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 @pytest.fixture
 def m():
     return UnitSquareMesh(4, 4)
@@ -78,7 +75,6 @@ def test_poisson_in_components(V):
     assert np.allclose(g.dat.data, expect.dat.data)
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.parametrize("mat_type", ["aij", "nest"])
 def test_poisson_in_mixed_plus_vfs_components(V, mat_type):
     # Solve five decoupled poisson problems with different boundary
@@ -144,7 +140,6 @@ def test_cant_subscript_outside_components(V, cmpt):
         return V.sub(cmpt)
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 def test_stokes_component_all():
     mesh = UnitSquareMesh(10, 10)
 
@@ -212,7 +207,6 @@ def test_component_full_bcs(V):
     assert A_mixed.petscmat.equal(A_full.petscmat)
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 def test_component_full_bcs_overlap(V):
     u = TrialFunction(V)
     v = TestFunction(V)

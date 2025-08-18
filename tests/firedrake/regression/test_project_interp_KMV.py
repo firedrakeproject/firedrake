@@ -4,9 +4,6 @@ from firedrake import *
 import finat
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 @pytest.fixture(params=["square", "cube"])
 def mesh_type(request):
     return request.param

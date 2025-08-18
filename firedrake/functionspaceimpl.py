@@ -139,8 +139,6 @@ class WithGeometryBase:
         assert mesh.topology is function_space.mesh()
         assert mesh.topology is not mesh
 
-        mesh.init()
-
         element = function_space.ufl_element().reconstruct(cell=mesh.ufl_cell())
 
         topological = function_space

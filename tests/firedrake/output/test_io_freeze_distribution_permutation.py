@@ -5,8 +5,6 @@ import numpy as np
 import os
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
 cwd = os.path.abspath(os.path.dirname(__file__))
 mesh_name = "m"
 func_name = "f"
