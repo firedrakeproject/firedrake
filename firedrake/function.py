@@ -112,7 +112,8 @@ class CoordinatelessFunction(ufl.Coefficient):
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
         if len(self.function_space()) > 1:
             subfuncs = []
-            for subspace in self.function_space():
+            for i in range(len(self.function_space())):
+                subspace = self.function_space().sub(i, weak=False)
                 subdat = self.dat[subspace.index]
                 subfunc = CoordinatelessFunction(
                     subspace, subdat, name=f"{self.name()}[{subspace.index}]"
@@ -128,7 +129,7 @@ class CoordinatelessFunction(ufl.Coefficient):
             return (self,)
         else:
             if self.function_space().value_size == 1:
-                return (CoordinatelessFunction(self.function_space().sub(0), val=self.dat,
+                return (CoordinatelessFunction(self.function_space().sub(0, weak=False), val=self.dat,
                                                name=f"view[0]({self.name()})"),)
             else:
                 components = []
@@ -139,7 +140,7 @@ class CoordinatelessFunction(ufl.Coefficient):
                     ))
                     subdat = self.dat[indices]
                     component = CoordinatelessFunction(
-                        self.function_space().sub(i),
+                        self.function_space().sub(i, weak=False),
                         val=subdat,
                         name=f"view[{i}]({self.name()})"
                     )
@@ -301,15 +302,16 @@ class Function(ufl.Coefficient, FunctionMixin):
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        return tuple(type(self)(V, val)
-                     for (V, val) in zip(self.function_space(), self.topological.subfunctions))
+        return tuple(
+            type(self)(self.function_space().sub(i, weak=False), val)
+            for (i, val) in zip(range(len(self.function_space())), self.topological.subfunctions))
 
     @utils.cached_property
     def _components(self):
         if self.function_space().rank == 0:
             return (self, )
         else:
-            return tuple(type(self)(self.function_space().sub(i), self.topological.sub(i))
+            return tuple(type(self)(self.function_space().sub(i, weak=False), self.topological.sub(i))
                          for i in range(self.function_space().block_size))
 
     @PETSc.Log.EventDecorator()

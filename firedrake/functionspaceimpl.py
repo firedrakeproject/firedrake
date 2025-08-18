@@ -178,6 +178,12 @@ class WithGeometryBase:
         return tuple(type(self).create(subspace, self.mesh())
                      for subspace in self.topological.subspaces)
 
+    @utils.cached_property
+    def weak_subspaces(self):
+        r"""Split into a tuple of constituent spaces."""
+        return tuple(type(self).create(subspace, self.mesh())
+                     for subspace in self.topological.weak_subspaces)
+
     @property
     def subfunctions(self):
         import warnings
@@ -203,16 +209,29 @@ class WithGeometryBase:
     def _components(self):
         components = numpy.empty(self.shape, dtype=object)
         for ix in numpy.ndindex(self.shape):
-            components[ix] = type(self).create(self.topological.sub(ix), self.mesh())
+            components[ix] = type(self).create(self.topological.sub(ix, weak=False), self.mesh())
+        return utils.readonly(components)
+
+    @utils.cached_property
+    def _weak_components(self):
+        components = numpy.empty(self.shape, dtype=object)
+        for ix in numpy.ndindex(self.shape):
+            components[ix] = type(self).create(self.topological.sub(ix, weak=True), self.mesh())
         return utils.readonly(components)
 
     @PETSc.Log.EventDecorator()
-    def sub(self, indices):
+    def sub(self, indices, *, weak: bool = True):
         if type(self.ufl_element()) is finat.ufl.MixedElement:
-            return self.subspaces[indices]
+            if weak:
+                return self.weak_subspaces[indices]
+            else:
+                return self.subspaces[indices]
         else:
             indices = parse_component_indices(indices, self.shape)
-            return self._components[indices]
+            if weak:
+                return self._weak_components[indices]
+            else:
+                return self._components[indices]
 
     @utils.cached_property
     def dm(self):
@@ -1065,6 +1084,8 @@ class FunctionSpace:
         """Split into a tuple of constituent spaces."""
         return (self,)
 
+    weak_subspaces = property(lambda self: self.subspaces)
+
     @property
     def subfunctions(self):
         import warnings
@@ -1085,13 +1106,26 @@ class FunctionSpace:
         else:
             components = numpy.empty(self.shape, dtype=object)
             for ix in numpy.ndindex(self.shape):
+                components[ix] = ComponentFunctionSpace(self, ix, weak=False)
+            return utils.readonly(components)
+
+    @utils.cached_property
+    def _weak_components(self):
+        if self.rank == 0:
+            return self.subspaces
+        else:
+            components = numpy.empty(self.shape, dtype=object)
+            for ix in numpy.ndindex(self.shape):
                 components[ix] = ComponentFunctionSpace(self, ix)
             return utils.readonly(components)
 
-    def sub(self, indices):
+    def sub(self, indices, *, weak: bool = True):
         r"""Return a view into the ith component."""
         indices = parse_component_indices(indices, self.shape)
-        return self._components[indices]
+        if weak:
+            return self._weak_components[indices]
+        else:
+            return self._components[indices]
 
     def __mul__(self, other):
         r"""Create a :class:`.MixedFunctionSpace` composed of this
@@ -1474,7 +1508,9 @@ class MixedFunctionSpace:
 
         self._orig_spaces = spaces
         self.layout = layout
-        self._spaces = tuple(IndexedFunctionSpace(i, s, self)
+        self._spaces = tuple(IndexedFunctionSpace(i, s, self, weak=False)
+                             for i, s in enumerate(spaces))
+        self._weak_spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
         mesh, = set(s.mesh() for s in spaces)
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(),
@@ -1606,11 +1642,17 @@ class MixedFunctionSpace:
     def __hash__(self):
         return hash(tuple(self))
 
-    @utils.cached_property
+    @property
     def subspaces(self):
         r"""The list of :class:`FunctionSpace`\s of which this
         :class:`MixedFunctionSpace` is composed."""
         return self._spaces
+
+    @property
+    def weak_subspaces(self):
+        r"""The list of :class:`FunctionSpace`\s of which this
+        :class:`MixedFunctionSpace` is composed."""
+        return self._weak_spaces
 
     @property
     def subfunctions(self):
@@ -1619,10 +1661,13 @@ class MixedFunctionSpace:
                       "'subspaces' property instead", category=FutureWarning)
         return self.subspaces
 
-    def sub(self, i):
+    def sub(self, i, *, weak=True):
         r"""Return the `i`th :class:`FunctionSpace` in this
         :class:`MixedFunctionSpace`."""
-        return self._spaces[i]
+        if weak:
+            return self._weak_spaces[i]
+        else:
+            return self._spaces[i]
 
     def num_sub_spaces(self):
         r"""Return the number of :class:`FunctionSpace`\s of which this
@@ -1854,6 +1899,18 @@ class ProxyFunctionSpace(FunctionSpace):
              self.index,
              self.component)
 
+    # TODO: This is awful, but I use it here to make the issue explicit
+    weak = True
+    """The extent to which this proxy function space relate to the original space.
+
+    If `True` then we are dealing with a subspace that we can freely create Dats with.
+    If `False` then we have a proper indexed axis tree that references the larger space.
+
+    The main implication of this is what ``function_space.unindexed`` returns. Is it
+    the full space or the indexed space?
+
+    """
+
     identifier = None
     r"""An optional identifier, for debugging purposes."""
 
@@ -1871,6 +1928,9 @@ class ProxyFunctionSpace(FunctionSpace):
 
     @cached_property
     def axes(self):
+        if not self.weak:
+            return self.parent.axes[self._slice]
+
         trimmed = self.parent.axes[self._slice]
         trimmed_unindexed = self.parent.layout_axes[self._slice].materialize()
         trimmed_targets = op3.tree.axis_tree.trim_axis_targets(trimmed.targets, self._trimmed_axis_labels)
@@ -1883,6 +1943,9 @@ class ProxyFunctionSpace(FunctionSpace):
 
     @cached_property
     def nodal_axes(self):
+        if not self.weak:
+            return self.parent.nodal_axes[self._slice]
+
         trimmed = self.parent.nodal_axes[self._slice]
         trimmed_unindexed = self.parent.layout_axes[self._slice].materialize()
         trimmed_targets = op3.tree.axis_tree.trim_axis_targets(trimmed.targets, self._trimmed_axis_labels)
@@ -1962,7 +2025,7 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
         return super(ProxyRestrictedFunctionSpace, self).make_dat(*args, **kwargs)
 
 
-def IndexedFunctionSpace(index, space, parent):
+def IndexedFunctionSpace(index, space, parent, *, weak: bool = True):
     r"""Build a new FunctionSpace that remembers it is a particular
     subspace of a :class:`MixedFunctionSpace`.
 
@@ -1981,11 +2044,12 @@ def IndexedFunctionSpace(index, space, parent):
     new.index = index
     new.parent = parent
     new.identifier = "indexed"
+    new.weak = weak
 
     return new
 
 
-def ComponentFunctionSpace(parent, component):
+def ComponentFunctionSpace(parent, component, *, weak: bool = True):
     r"""Build a new FunctionSpace that remembers it represents a
     particular component.  Used for applying boundary conditions to
     components of a :func:`.VectorFunctionSpace` or :func:`.TensorFunctionSpace`.
@@ -2003,6 +2067,7 @@ def ComponentFunctionSpace(parent, component):
     new.identifier = "component"
     new.component = component
     new.parent = parent
+    new.weak = weak
 
     return new
 

@@ -157,7 +157,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
                     indices = indices.add_subtree(subtree, *leaf, uniquify_ids=True)
 
                 subfunc = type(self)(
-                    self.function_space().sub(i),
+                    self.function_space().sub(i, weak=False),
                     # val=self.dat[indices],
                     val=self.dat.getitem(indices, strict=True),
                     name=f"view[{i}]({self.name()})"
