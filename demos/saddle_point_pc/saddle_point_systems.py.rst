@@ -97,7 +97,7 @@ We initialise this function to hold random values::
 
     #
         import numpy as np
-        f.assign(np.random.uniform(size=f.dof_dset.size))
+        f.dat.data_wo[...] = np.random.uniform(size=f.dof_dset.size)
 
 Note that the homogeneous Dirichlet conditions in the primal
 formulation turn into homogeneous Neumann conditions on the dual

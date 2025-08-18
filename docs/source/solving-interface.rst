@@ -778,8 +778,7 @@ in Firedrake, we first must define the null space, and then inform the
 solver of its existance.  We use a
 :class:`~firedrake.nullspace.VectorSpaceBasis` to hold the vectors
 which span the null space.  We must provide a list of
-:class:`~.Function`\s or
-:class:`~.Vector`\s spanning the space.  Additionally,
+:class:`~.Function`\s spanning the space.  Additionally,
 since removing a constant null space is such a common operation, we
 can pass ``constant=True`` to the constructor (rather than
 constructing the constant vector by hand).  Note that the vectors we

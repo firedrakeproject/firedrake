@@ -278,8 +278,8 @@ class FunctionMixin(FloatingType):
     def _ad_assign_numpy(dst, src, offset):
         range_begin, range_end = dst.dat.dataset.layout_vec.getOwnershipRange()
         m_a_local = src[offset + range_begin:offset + range_end]
-        dst.dat.data_wo[...] = m_a_local
-        offset += dst.dat.data_ro.size
+        dst.dat.data_wo[...] = m_a_local.reshape((-1, *dst.dat.dataset.dim))
+        offset += dst.dat.dataset.layout_vec.size
         return dst, offset
 
     @staticmethod
