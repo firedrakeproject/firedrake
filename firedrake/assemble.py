@@ -1479,8 +1479,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
                  mat_spec=None, options_prefix=None, appctx=None, weight=1.0,
-                 allocation_integral_types=None):
-        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=needs_zeroing)
+                 allocation_integral_types=None, pyop3_compiler_parameters=None):
+        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, pyop3_compiler_parameters=pyop3_compiler_parameters, needs_zeroing=needs_zeroing)
         self._mat_spec = mat_spec
         self._options_prefix = options_prefix
         self._appctx = appctx

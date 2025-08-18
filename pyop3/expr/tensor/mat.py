@@ -486,6 +486,11 @@ class Mat(Tensor):
         else:
             raise NotImplementedError
 
+    # For PyOP2 compatibility
+    @property
+    def handle(self):
+        return self.buffer.mat
+
     @cached_property
     def nest_indices(self) -> tuple[tuple[int, int], ...]:
         return tuple(itertools.zip_longest(self.raxes.nest_indices, self.caxes.nest_indices))
