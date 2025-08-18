@@ -223,5 +223,5 @@ def from_jax(x: "jax.Array", V: Optional[WithGeometry] = None) -> Union[Function
         return Constant(val)
     else:
         x_F = Function(V)
-        x_F.dat.data_wo = np.asarray(x)
+        x_F.dat.data_wo[...] = np.asarray(x)
         return x_F

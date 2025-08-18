@@ -76,7 +76,8 @@ def test_interpolate_with_arguments():
     J = assemble(u ** 2 * dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V1).assign(rand(V1.dim()))
+    h = Function(V1)
+    h.dat.data_wo[...] = rand(V1.dim())
     assert taylor_test(rf, f, h) > 1.9
 
 
@@ -97,11 +98,13 @@ def test_interpolate_scalar_valued():
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V1).assign(rand(V1.dim()))
+    h = Function(V1)
+    h.dat.data_wo[...] = rand(V1.dim())
     assert taylor_test(rf, f, h) > 1.9
 
     rf = ReducedFunctional(J, Control(g))
-    h = Function(V2).assign(rand(V2.dim()))
+    h = Function(V2)
+    h.dat.data_wo[...] = rand(V2.dim())
     assert taylor_test(rf, g, h) > 1.9
 
 
@@ -302,7 +305,8 @@ def test_interpolate_hessian_linear_expr():
     Jhat = ReducedFunctional(J, Control(f))
 
     # Note functions are in W, not V.
-    h = Function(W).assign(10*rand(W.dim()))
+    h = Function(W)
+    h.dat.data_wo[...] = 10*rand(W.dim())
 
     J.block_variable.adj_value = 1.0
     f.block_variable.tlm_value = h
@@ -357,7 +361,8 @@ def test_interpolate_hessian_nonlinear_expr():
     Jhat = ReducedFunctional(J, Control(f))
 
     # Note functions are in W, not V.
-    h = Function(W).assign(10*rand(W.dim()))
+    h = Function(W)
+    h.dat.data_wo[...] = 10*rand(W.dim())
 
     J.block_variable.adj_value = 1.0
     f.block_variable.tlm_value = h
@@ -414,7 +419,8 @@ def test_interpolate_hessian_nonlinear_expr_multi():
     Jhat = ReducedFunctional(J, Control(f))
 
     # Note functions are in W, not V.
-    h = Function(W).assign(10*rand(W.dim()))
+    h = Function(W)
+    h.dat.data_wo[...] = 10*rand(W.dim())
 
     J.block_variable.adj_value = 1.0
     # Note only the tlm_value of f is set here - unclear why.
@@ -474,7 +480,8 @@ def test_interpolate_hessian_nonlinear_expr_multi_cross_mesh():
     Jhat = ReducedFunctional(J, Control(f))
 
     # Note functions are in W, not V.
-    h = Function(W).assign(10*rand(W.dim()))
+    h = Function(W)
+    h.dat.data_wo[...] = 10*rand(W.dim())
 
     J.block_variable.adj_value = 1.0
     f.block_variable.tlm_value = h
@@ -636,7 +643,8 @@ def test_supermesh_project_gradient(vector):
     rf = ReducedFunctional(J, control)
 
     # Taylor test
-    h = Function(source_space).assign(rand(source_space.dim()))
+    h = Function(source_space)
+    h.dat.data_wo[...] = rand(source_space.dim())
     minconv = taylor_test(rf, source, h)
     assert minconv > 1.9
 
@@ -670,7 +678,8 @@ def test_supermesh_project_hessian(vector):
     rf = ReducedFunctional(J, control)
 
     source_space = source.function_space()
-    h = Function(source_space).assign(10*rand(source_space.dim()))
+    h = Function(source_space)
+    h.dat.data_wo[...] = 10*rand(source_space.dim())
 
     J.block_variable.adj_value = 1.0
     source.block_variable.tlm_value = h

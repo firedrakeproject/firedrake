@@ -51,8 +51,8 @@ class CoordinatelessFunction(ufl.Coefficient):
 
             Alternatively, another :class:`Function` may be passed here and its function space
             will be used to build this :class:`Function`.
-        :param val: NumPy array-like (or :class:`pyop2.types.dat.Dat` or
-            :class:`~.Vector`) providing initial values (optional).
+        :param val: NumPy array-like (or :class:`pyop2.types.dat.Dat`)
+            providing initial values (optional).
             This :class:`Function` will share data with the provided
             value.
         :param name: user-defined name for this :class:`Function` (optional).
