@@ -612,12 +612,12 @@ class LinearCompositeDat(CompositeDat):
     # }}}
 
     def __init__(self, axis_tree, exprs, loop_indices):
+        loop_indices = tuple(loop_indices)
+
         assert axis_tree.is_linear
         assert all(isinstance(index, LoopIndex) for index in loop_indices)
         assert len(axis_tree._all_region_labels) == 0
-
-
-        loop_indices = tuple(loop_indices)
+        assert utils.has_unique_entries(loop_indices)
 
         object.__setattr__(self, "_axis_tree", axis_tree)
         object.__setattr__(self, "_exprs", exprs)
@@ -646,6 +646,7 @@ class NonlinearCompositeDat(CompositeDat):
     def __init__(self, axis_tree, exprs, loop_indices):
         assert all(isinstance(index, LoopIndex) for index in loop_indices)
         assert len(axis_tree._all_region_labels) == 0
+        assert utils.has_unique_entries(loop_indices)
 
         exprs = idict(exprs)
         loop_indices = tuple(loop_indices)

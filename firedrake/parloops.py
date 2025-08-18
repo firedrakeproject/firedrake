@@ -491,18 +491,17 @@ def _(
 
 def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.IndexTree:
     if len(V) > 1:
-        raise NotImplementedError("At present all forms are split by this point")
-        # return (slice(None), V._mesh.closure(cell))
+        return (slice(None), V._mesh.closure(cell))
     else:
         return V._mesh.closure(cell)
 
 
 def _facet_integral_pack_indices(V: WithGeometry, facet: op3.LoopIndex) -> op3.IndexTree:
-    if len(V) > 1:
-        raise NotImplementedError("At present all forms are split by this point")
-
     mesh = V._mesh
-    return mesh.closure(mesh.support(facet))
+    if len(V) > 1:
+        return (slice(None), mesh.closure(mesh.support(facet)))
+    else:
+        return mesh.closure(mesh.support(facet))
 
 
 @serial_cache(lambda fs: fs.finat_element)

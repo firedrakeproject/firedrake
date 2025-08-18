@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import collections
+import itertools
 import functools
 import numbers
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from immutabledict import immutabledict
+from immutabledict import immutabledict as idict
 
 from pyop3 import utils
 from pyop3.expr.tensor.dat import Dat
@@ -27,7 +28,7 @@ class IncompletelyIndexedException(Pyop3Exception):
 # NOTE: Now really should be plural: 'forests'
 # NOTE: Is this definitely the case? I think at the moment I always return just a single
 # tree per context.
-def as_index_forests(forest: Any, /, axes: AbstractAxisTree | None = None, *, strict: bool = False) -> immutabledict:
+def as_index_forests(forest: Any, /, axes: AbstractAxisTree | None = None, *, strict: bool = False) -> idict:
     """Return a collection of index trees, split by loop context.
 
     Parameters
@@ -55,7 +56,7 @@ def as_index_forests(forest: Any, /, axes: AbstractAxisTree | None = None, *, st
         raise ValueError("Cannot do strict checking if no axes are provided to match against")
 
     if forest is Ellipsis:
-        return immutabledict({immutabledict(): (forest,)})
+        return idict({idict(): (forest,)})
 
     forests = {}
     compressed_loop_contexts = collect_loop_contexts(forest)
@@ -109,7 +110,7 @@ def as_index_forests(forest: Any, /, axes: AbstractAxisTree | None = None, *, st
             )
 
         forests[loop_context] = tuple(matched_forest)
-    return immutabledict(forests)
+    return idict(forests)
 
 
 # old alias, remove
@@ -184,7 +185,7 @@ def _(index_tree: IndexTree, /, *args, **kwargs) -> tuple[IndexTree]:
 
 @_as_index_forest.register(Index)
 def _(index: Index, /, axes, loop_context) -> tuple[IndexTree]:
-    cf_indices = _as_context_free_indices(index, loop_context)
+    cf_indices = _as_context_free_indices(index, loop_context, axis_tree=axes, path=idict())
     return tuple(IndexTree(cf_index) for cf_index in cf_indices)
 
 
@@ -194,23 +195,39 @@ def _(seq: Sequence, /, axes, loop_context) -> tuple[IndexTree]:
     # `Index`) and 'sugar' indices (e.g. integers, strings and slices). The former
     # may be used in any order since they declare the axes they target whereas
     # the latter are order dependent.
-    index_nests = _index_forest_from_iterable(seq, axes, loop_context)
+    index_nests = _index_forest_from_iterable(seq, axes, loop_context, path=idict())
     return tuple(map(IndexTree.from_nest, index_nests))
 
 
-def _index_forest_from_iterable(indices, axes, loop_context):
+def _index_forest_from_iterable(indices, axes, loop_context, *, path):
     index, *subindices = indices
 
-    index_nests = []
-    cf_indices = _as_context_free_indices(index, loop_context)
+    cf_indices = _as_context_free_indices(index, loop_context, axis_tree=axes, path=path)
 
     if not subindices:
         return cf_indices
 
+    index_nests = []
     for cf_index in cf_indices:
-        subnests = _index_forest_from_iterable(subindices, axes, loop_context)
-        for subnest in subnests:
-            index_nest = {cf_index: [subnest] * cf_index.degree}
+        subnestss = {}
+        for component_index in range(cf_index.degree):
+            # 'leaf_target_paths' is a tuple of tuples due to having both equivalent
+            # targets (e.g. cells and nodes) and multiple components. If there are
+            # equivalent targets then we cannot uniquely parse (Python) slices
+            # properly and so we set 'path' to 'None' to indicate this.
+            if len(cf_index.leaf_target_paths) > 1:
+                path_ = None  # disable Python slice parsing
+            else:
+                path_ = path | cf_index.leaf_target_paths[0][component_index]
+
+            # Each index can produce multiple index trees because of equivalent
+            # targets, so we have to collect all of them.
+            subnests = _index_forest_from_iterable(subindices, axes, loop_context, path=path_)
+            subnestss[component_index] = subnests
+
+        # Now combine all combinations of the possible subtrees
+        for subnests in itertools.product(*subnestss.values()):
+            index_nest = {cf_index: subnests}
             index_nests.append(index_nest)
     return tuple(index_nests)
 
@@ -240,7 +257,7 @@ def _(dat: Dat, /, *args, **kwargs) -> tuple[IndexTree]:
 @_as_index_forest.register(str)
 @_as_index_forest.register(numbers.Integral)
 def _(index: Any, /, axes, loop_context) -> tuple[IndexTree]:
-    desugared = _desugar_index(index, axes=axes, path=immutabledict())
+    desugared = _desugar_index(index, axes=axes, path=idict())
     return _as_index_forest(desugared, axes, loop_context)
 
 
@@ -267,16 +284,25 @@ def _(int_: numbers.Integral, /, *, axes, path) -> Index:
 @_desugar_index.register(slice)
 def _(slice_: slice, /, *, axes, path) -> Slice:
     axis = axes.node_map[path]
-    if len(axis.components) > 1:
+    if len(axis.components) == 1:
+        return Slice(
+            axis.label,
+            [AffineSliceComponent(axis.component.label, slice_.start, slice_.stop, slice_.step)]
+        )
+    elif slice_.start in {None, 0} and slice_.stop is None and slice_.step in {None, 1}:
+        # just take everything
+        return Slice(
+            axis.label,
+            [AffineSliceComponent(component.label) for component in axis.components]
+        )
+    else:
         # badindexexception?
+        # NOTE: We could in principle match multi-component things if the component
+        # labels form a continuous sequence of integers
         raise ValueError(
             "Cannot slice multi-component things using generic slices, ambiguous"
         )
 
-    return Slice(
-        axis.label,
-        [AffineSliceComponent(axis.component.label, slice_.start, slice_.stop, slice_.step)]
-    )
 
 
 @_desugar_index.register(str)
@@ -293,7 +319,7 @@ def _(label: str, /, *, axes, path) -> Index:
 
 # TODO: This function needs overhauling to work in more cases.
 def complete_index_tree(index_tree: IndexTree, axes: AxisTree) -> IndexTree:
-    return _complete_index_tree_rec(index_tree=index_tree, axes=axes, path=immutabledict(), possible_target_paths_acc=(immutabledict(),))
+    return _complete_index_tree_rec(index_tree=index_tree, axes=axes, path=idict(), possible_target_paths_acc=(idict(),))
 
 
 def _complete_index_tree_rec(
@@ -330,7 +356,7 @@ def _complete_index_tree_rec(
         else:
             # At the bottom of the index tree, add any extra slices if needed.
             complete_sub_index_tree = _complete_index_tree_with_slices(
-                axes=axes, target_paths=possible_target_paths_acc_, axis_path=immutabledict()
+                axes=axes, target_paths=possible_target_paths_acc_, axis_path=idict()
             )
 
         complete_index_tree = complete_index_tree.add_subtree(
@@ -381,7 +407,7 @@ def _complete_index_tree_with_slices(*, axes, target_paths, axis_path: ConcreteP
             return IndexTree()
 
 
-def  _index_tree_completely_indexes_axes(index_tree: IndexTree, axes, *, index_path=immutabledict(), possible_target_paths_acc=None) -> bool:
+def  _index_tree_completely_indexes_axes(index_tree: IndexTree, axes, *, index_path=idict(), possible_target_paths_acc=None) -> bool:
     """Return whether the index tree completely indexes the axis tree.
 
     This is done by traversing the index tree and collecting the possible target
@@ -389,8 +415,8 @@ def  _index_tree_completely_indexes_axes(index_tree: IndexTree, axes, *, index_p
     possible target paths correspond to a valid path to a leaf of the axis tree.
 
     """
-    if index_path == immutabledict():
-        possible_target_paths_acc = (immutabledict(),)
+    if index_path == idict():
+        possible_target_paths_acc = (idict(),)
 
     index = index_tree.node_map[index_path]
     for component_label, equivalent_target_paths in zip(
@@ -419,18 +445,25 @@ def  _index_tree_completely_indexes_axes(index_tree: IndexTree, axes, *, index_p
 
 
 @functools.singledispatch
-def _as_context_free_indices(obj: Any, /, loop_context: Mapping) -> Index:
+def _as_context_free_indices(obj: Any, /, loop_context: Mapping, path: ConcretePathT) -> Index:
     raise TypeError(f"No handler provided for {type(obj).__name__}")
+
+
+@_as_context_free_indices.register(slice)
+def _(slice_: slice, /, loop_context: Mapping, *, axis_tree: AbstractAxisTree, path: ConcretePathT) -> tuple[Slice]:
+    if path is None:
+        raise RuntimeError("Cannot parse Python slices here due to ambiguity")
+    return (_desugar_index(slice_, axes=axis_tree, path=path),)
 
 
 @_as_context_free_indices.register(Slice)
 @_as_context_free_indices.register(ScalarIndex)
-def _(index, /, loop_context: Mapping) -> tuple[Index]:
+def _(index, /, loop_context: Mapping, **kwargs) -> tuple[Index]:
     return (index,)
 
 
 @_as_context_free_indices.register(LoopIndex)
-def _(loop_index: LoopIndex, /, loop_context) -> tuple[LoopIndex]:
+def _(loop_index: LoopIndex, /, loop_context, **kwargs) -> tuple[LoopIndex]:
     if loop_index.is_context_free:
         return (loop_index,)
     else:
@@ -470,7 +503,7 @@ def _(loop_index: LoopIndex, /, loop_context) -> tuple[LoopIndex]:
 
 
 @_as_context_free_indices.register(CalledMap)
-def _(called_map, /, loop_context):
+def _(called_map, /, loop_context, **kwargs):
     cf_maps = []
     cf_indices = _as_context_free_indices(called_map.from_index, loop_context)
 

@@ -1462,14 +1462,12 @@ def index_axes(
             return UnitIndexedAxisTree(
                 orig_axes,
                 targets=indexed_target_paths_and_exprs,
-                outer_loops=outer_loops,
             )
         else:
             return IndexedAxisTree(
                 indexed_axes.node_map,
                 orig_axes,
                 targets=indexed_target_paths_and_exprs + (indexed_axes._source_path_and_exprs,),
-                outer_loops=outer_loops,
             )
 
     if orig_axes is None:
@@ -1509,14 +1507,12 @@ def index_axes(
         retval = UnitIndexedAxisTree(
             orig_axes.unindexed,
             targets=indexed_target_paths_and_exprs,
-            outer_loops=outer_loops,
         )
     else:
         retval = IndexedAxisTree(
             indexed_axes.node_map,
             orig_axes.unindexed,
             targets=all_target_paths_and_exprs,
-            outer_loops=outer_loops,
         )
 
     # debugging

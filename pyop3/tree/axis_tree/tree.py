@@ -1422,7 +1422,6 @@ class IndexedAxisTree(AbstractAxisTree):
     _node_map: idict
     _unindexed: AxisTree | None
     targets: idict
-    _outer_loops: Any
 
     # NOTE: It is OK for unindexed to be None, then we just have a map-like thing
     def __init__(
@@ -1431,7 +1430,6 @@ class IndexedAxisTree(AbstractAxisTree):
         unindexed,  # allowed to be None
         *,
         targets,
-        outer_loops=(),
     ):
         if isinstance(node_map, AxisTree):
             node_map = node_map.node_map
@@ -1440,13 +1438,9 @@ class IndexedAxisTree(AbstractAxisTree):
         targets = utils.unique(targets)
         targets = utils.freeze(targets)
 
-        if outer_loops is None:
-            outer_loops = ()
-
         object.__setattr__(self, "_node_map", as_node_map(node_map))
         object.__setattr__(self, "targets", targets)
         object.__setattr__(self, "_unindexed", unindexed)
-        object.__setattr__(self, "_outer_loops", tuple(outer_loops))
 
     # FIXME
     @property
@@ -1459,7 +1453,12 @@ class IndexedAxisTree(AbstractAxisTree):
 
     node_map = utils.attr("_node_map")
     unindexed = utils.attr("_unindexed")
-    outer_loops = utils.attr("_outer_loops")
+
+    # TODO: Should this return LoopIndexVars?
+    # TODO: We should check the sizes of the axes for loop indices too (and for AxisTrees)
+    @cached_property
+    def outer_loops(self) -> tuple[LoopIndex, ...]:
+        return gather_loop_indices_from_targets(self.targets)
 
     @cached_property
     def _materialized(self) -> AxisTree:
@@ -1474,7 +1473,6 @@ class IndexedAxisTree(AbstractAxisTree):
             self.materialize().regionless,
             targets=self.targets,
             unindexed=self.unindexed.regionless,
-            outer_loops=self.outer_loops,
         )
 
     # TODO: Should have nest indices and nest labels as separate concepts.
@@ -1532,7 +1530,6 @@ class IndexedAxisTree(AbstractAxisTree):
             self.node_map,
             unindexed=subtree_unindexed,
             targets=subtree_targets,
-            outer_loops=self.outer_loops,
         )
 
     def blocked(self, block_shape: Sequence[int, ...]) -> IndexedAxisTree:
@@ -1572,7 +1569,6 @@ class IndexedAxisTree(AbstractAxisTree):
             self_blocked.node_map,
             unindexed=unindexed_blocked,
             targets=targets_blocked,
-            outer_loops=self.outer_loops,
         )
 
     # }}}
@@ -1776,18 +1772,19 @@ class UnitIndexedAxisTree:
         unindexed,  # allowed to be None
         *,
         targets,
-        layout_exprs=None,  # not used
-        outer_loops=(),  # not used?
     ):
         # drop duplicate entries as they are necessarily equivalent
         targets = utils.unique(targets)
 
         self.unindexed = unindexed
         self.targets = targets
-        self.outer_loops = outer_loops
 
     def __str__(self) -> str:
         return "<UNIT>"
+
+    @cached_property
+    def outer_loops(self):
+        return gather_loop_indices_from_targets(self.targets)
 
     def materialize(self):
         return UNIT_AXIS_TREE
@@ -2255,3 +2252,15 @@ def _(region: AxisComponentRegion, /, replace_map):
     from pyop3.expr.visitors import replace
 
     return region.__record_init__(size=replace(region.size, replace_map))
+
+
+def gather_loop_indices_from_targets(targets):
+    from pyop3.expr.visitors import collect_loop_index_vars
+
+    loop_indices = utils.OrderedSet()
+    for target in targets:
+        for _, exprs in target.values():
+            for expr in exprs.values():
+                for loop_var in collect_loop_index_vars(expr):
+                    loop_indices.add(loop_var.loop_index)
+    return tuple(loop_indices)

@@ -507,15 +507,18 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
             nrows = row_axes.unindexed.owned.size
             ncolumns = column_axes.unindexed.owned.size
 
-            row_bsize, column_bsize = partial_spec.block_shape
-            if row_bsize > 1:
-                blocked_row_axes = row_axes.blocked([row_bsize])
+            row_block_shape, column_block_shape = partial_spec.block_shape
+            if row_block_shape:
+                blocked_row_axes = row_axes.blocked(row_block_shape)
             else:
                 blocked_row_axes = row_axes
-            if column_bsize > 1:
-                blocked_column_axes = column_axes.blocked([column_bsize])
+            if column_block_shape:
+                blocked_column_axes = column_axes.blocked(column_block_shape)
             else:
                 blocked_column_axes = column_axes
+
+            row_bsize = np.prod(row_block_shape, dtype=int)
+            column_bsize = np.prod(column_block_shape, dtype=int)
 
             row_lgmap = PETSc.LGMap().create(
                 blocked_row_axes.unindexed.global_numbering, bsize=row_bsize, comm=comm
