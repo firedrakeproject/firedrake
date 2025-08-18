@@ -45,6 +45,12 @@ class Argument(ufl.argument.Argument):
                                        number, part=part)
         self._function_space = function_space
 
+    def arguments(self):
+        return (self,)
+
+    def coefficients(self):
+        return ()
+
     @utils.cached_property
     def cell_node_map(self):
         return self.function_space().cell_node_map

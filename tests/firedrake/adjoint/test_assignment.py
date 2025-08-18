@@ -179,11 +179,11 @@ def test_assign_with_constant():
     J = assemble(u ** 2 * dx)
 
     rf = ReducedFunctional(J, Control(c))
-    dJdc = rf.derivative()
+    dJdc = rf.derivative(apply_riesz=True)
     assert_approx_equal(float(dJdc), 10.)
 
     rf = ReducedFunctional(J, Control(d))
-    dJdd = rf.derivative()
+    dJdd = rf.derivative(apply_riesz=True)
     assert_approx_equal(float(dJdd), 228.)
 
 
