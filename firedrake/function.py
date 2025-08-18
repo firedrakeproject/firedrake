@@ -19,7 +19,7 @@ from finat.ufl import MixedElement
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
 from firedrake import functionspaceimpl
-from firedrake.cofunction import Cofunction
+from firedrake.cofunction import Cofunction, RieszMap
 from firedrake import utils
 from firedrake import vector
 from firedrake.adjoint_utils import FunctionMixin
@@ -425,29 +425,40 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_assign
-    def assign(self, expr, subset=None):
-        r"""Set the :class:`Function` value to the pointwise value of
-        expr. expr may only contain :class:`Function`\s on the same
-        :class:`.FunctionSpace` as the :class:`Function` being assigned to.
+    def assign(self, expr, subset=None, allow_missing_dofs=False):
+        """Set value to the pointwise value of expr.
 
+        Parameters
+        ----------
+        subset : pyop2.types.set.Set or pyop2.types.set.Subset or pyop2.types.set.MixedSet
+            ``self.node_set`` or `pyop2.types.set.Subset` of ``self.node_set`` or
+            `pyop2.types.set.MixedSet` composed of them if `self` is a mixed function.
+        allow_missing_dofs : bool
+            If True, ignore assignee nodes with no matching assigner nodes; only
+            significant if assigning across submeshes.
+
+        Returns
+        -------
+        firedrake.function.Function
+            Returns `self`.
+
+        Notes
+        -----
+        expr may only contain :class:`Function` s on the same :class:`.FunctionSpace` as the
+        assignee :class:`Function` or those on the similar spaces on submeshes.
         Similar functionality is available for the augmented assignment
-        operators `+=`, `-=`, `*=` and `/=`. For example, if `f` and `g` are
+        operators `+=`, `-=`, `*=` and `/=`. For example, if ``f`` and ``g`` are
         both Functions on the same :class:`.FunctionSpace` then::
 
           f += 2 * g
 
-        will add twice `g` to `f`.
+        will add twice ``g`` to ``f``.
 
-        If present, subset must be an :class:`pyop2.types.set.Subset` of this
-        :class:`Function`'s ``node_set``.  The expression will then
-        only be assigned to the nodes on that subset.
+        Assignment can only be performed for simple weighted sum expressions and constant
+        values. Things like ``u.assign(2*v + Constant(3.0))``. For more complicated
+        expressions (e.g. involving the product of functions) :meth:`.Function.interpolate`
+        should be used.
 
-        .. note::
-
-            Assignment can only be performed for simple weighted sum expressions and constant
-            values. Things like ``u.assign(2*v + Constant(3.0))``. For more complicated
-            expressions (e.g. involving the product of functions) :meth:`.Function.interpolate`
-            should be used.
         """
         if self.ufl_element().family() == "Real" and isinstance(expr, (Number, Collection)):
             try:
@@ -458,43 +469,33 @@ class Function(ufl.Coefficient, FunctionMixin):
             self.dat.zero(subset=subset)
         else:
             from firedrake.assign import Assigner
-            Assigner(self, expr, subset).assign()
+            Assigner(self, expr, subset).assign(allow_missing_dofs=allow_missing_dofs)
         return self
 
     def riesz_representation(self, riesz_map='L2'):
-        """Return the Riesz representation of this :class:`Function` with respect to the given Riesz map.
+        """Return the Riesz representation of this :class:`Function`.
 
-        Example: For a L2 Riesz map, the Riesz representation is obtained by taking the action
-        of ``M`` on ``self``, where M is the L2 mass matrix, i.e. M = <u, v>
-        with u and v trial and test functions, respectively.
+        Example: For a L2 Riesz map, the Riesz representation is obtained by
+        taking the action of ``M`` on ``self``, where M is the L2 mass matrix,
+        i.e. M = <u, v> with u and v trial and test functions, respectively.
 
         Parameters
         ----------
-        riesz_map : str or collections.abc.Callable
-                    The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a callable.
+        riesz_map : str or ufl.sobolevspace.SobolevSpace or
+        collections.abc.Callable
+            The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a
+            callable which applies the Riesz map.
 
         Returns
         -------
         firedrake.cofunction.Cofunction
-            Riesz representation of this :class:`Function` with respect to the given Riesz map.
+            Riesz representation of this :class:`Function` with respect to the
+            given Riesz map.
         """
-        from firedrake.ufl_expr import action
-        from firedrake.assemble import assemble
+        if not callable(riesz_map):
+            riesz_map = RieszMap(self.function_space(), riesz_map)
 
-        V = self.function_space()
-        if riesz_map == "l2":
-            return Cofunction(V.dual(), val=self.dat)
-
-        elif riesz_map in ("L2", "H1"):
-            a = self._define_riesz_map_form(riesz_map, V)
-            return assemble(action(a, self))
-
-        elif callable(riesz_map):
-            return riesz_map(self)
-
-        else:
-            raise NotImplementedError(
-                "Unknown Riesz representation %s" % riesz_map)
+        return riesz_map(self)
 
     @FunctionMixin._ad_annotate_iadd
     def __iadd__(self, expr):
