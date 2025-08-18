@@ -283,8 +283,8 @@ class FunctionMixin(FloatingType):
         return dst, offset
 
     @staticmethod
-    def _ad_to_list(dat):
-        return dat.global_data.tolist()
+    def _ad_to_list(m):
+        return m.dat.global_data.tolist()
 
     def _ad_copy(self):
         from firedrake import Function

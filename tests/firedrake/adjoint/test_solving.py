@@ -426,7 +426,8 @@ def _test_adjoint(J, f):
     set_working_tape(tape)
 
     V = f.function_space()
-    h = Function(V).assign(numpy.random.rand(V.dim()))
+    h = Function(V)
+    h.dat.data_wo[...] = numpy.random.rand(V.dim())
 
     eps_ = [0.01/2.0**i for i in range(5)]
     residuals = []
@@ -438,9 +439,9 @@ def _test_adjoint(J, f):
         Jm.block_variable.adj_value = 1.0
         tape.evaluate_adj()
 
-        dJdf = f.block_variable.adj_value.dat.data_ro
+        dJdf = f.block_variable.adj_value.dat
 
-        residual = abs(Jp - Jm - eps*dJdf.inner(h.dat.data_ro))
+        residual = abs(Jp - Jm - eps*dJdf.inner(h.dat))
         residuals.append(residual)
 
     r = convergence_rates(residuals, eps_)

@@ -245,14 +245,12 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
     @property
     @mpi.collective
     def global_data(self):
-        with self.vec_ro as vec:
-            v = PETSc.Vec().createSeq(vec.size, comm=mpi.COMM_SELF)
-            is_ = PETSc.IS().createStride(vec.size, 0, 1, comm=mpi.COMM_SELF)
-
-            vscat = PETSc.Scatter().create(vec, is_, v, None)
-            vscat.scatterBegin(vec, v, addv=PETSc.InsertMode.INSERT_VALUES)
-            vscat.scatterEnd(vec, v, addv=PETSc.InsertMode.INSERT_VALUES)
-        return v.array
+        """Return all the data for the Dat gathered onto individual ranks."""
+        with self.vec_ro as gvec:
+            scatter, lvec = PETSc.Scatter().toAll(gvec)
+            scatter.scatter(
+                gvec, lvec, addv=PETSc.InsertMode.INSERT_VALUES)
+        return lvec.array_r
 
     def save(self, filename):
         """Write the data array to file ``filename`` in NumPy format."""

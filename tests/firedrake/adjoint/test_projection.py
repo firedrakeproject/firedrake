@@ -111,7 +111,8 @@ def test_project_nonlincom():
     J = assemble(u ** 2 * dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V1).assign(rand(V1.dim()))
+    h = Function(V1)
+    h.dat.data_wo[...] = rand(V1.dim())
     assert taylor_test(rf, f, h) > 1.9
 
 
@@ -141,9 +142,11 @@ def test_project_nonlin_changing():
     J = assemble(u ** 2 * dx)
     rf = ReducedFunctional(J, control)
 
-    g = Function(V).assign(rand(V.dim()))
+    g = Function(V)
+    g.dat.data_wo[...] = rand(V.dim())
 
-    h = Function(V).assign(rand(V.dim()))
+    h = Function(V)
+    h.dat.data_wo[...] = rand(V.dim())
     assert taylor_test(rf, g, h) > 1.9
 
 
