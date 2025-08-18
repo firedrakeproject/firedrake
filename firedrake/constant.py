@@ -48,8 +48,8 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
     which avoids the need to recompile the kernel if the form is assembled for
     a different value of the constant.
 
-    Parameters
-    ----------
+    Arguments
+    ---------
     value :
         The value of the constant.  May either be a scalar, an
         iterable of values (for a vector-valued constant), or an iterable
@@ -59,11 +59,6 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         Optional name for the constant.
     count :
         Internal identifier.
-
-    Notes
-    -----
-   If you intend to use this `Constant` in a `~ufl.form.Form` on its own you
-   need to pass a `~.Mesh` as the ``domain`` argument.
 
     """
     _ufl_typecode_ = UFLType._ufl_num_typecodes_
