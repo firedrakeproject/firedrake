@@ -16,14 +16,14 @@ include "petschdr.pxi"
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
+def get_entity_renumbering(PETSc.DM plex, numbering, entity_type):
     """
     Given a section numbering a type of topological entity, return the
     renumberings from original plex numbers to new firedrake numbers
     (and vice versa)
 
     :arg plex: The DMPlex object
-    :arg section: The Section defining the renumbering
+    :arg numbering: The renumbering
     :arg entity_type: The type of entity (either ``"cell"`` or
         ``"vertex"``)
     """
@@ -44,11 +44,9 @@ def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
     new_to_old = np.empty(end - start, dtype=PETSc.IntType)
 
     for p in range(start, end):
-        CHKERR(PetscSectionGetDof(section.sec, p, &ndof))
-        if ndof > 0:
-            CHKERR(PetscSectionGetOffset(section.sec, p, &entity))
-            new_to_old[entity] = p - start
-            old_to_new[p - start] = entity
+        entity = numbering[p-start]
+        new_to_old[entity] = p - start
+        old_to_new[p - start] = entity
 
     return old_to_new, new_to_old
 

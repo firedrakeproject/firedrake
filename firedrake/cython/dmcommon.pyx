@@ -16,6 +16,8 @@ from finat.element_factory import as_fiat_cell
 from pyrsistent import pmap
 import pyop3 as op3
 
+from firedrake import utils
+
 cimport numpy as np
 cimport mpi4py.MPI as MPI
 cimport petsc4py.PETSc as PETSc
@@ -2550,6 +2552,8 @@ def filter_sf(
     """
     neednt be ordered
 
+    but must be unique
+
     """
     cdef:
         PETSc.SF      sf_filtered
@@ -2557,6 +2561,10 @@ def filter_sf(
 
         PetscInt      nPoints_c, i_c, p_c
         PetscInt      *remoteOffsets_c = NULL
+
+    utils.debug_assert(lambda: p_start <= min(selected_points))
+    utils.debug_assert(lambda: p_end >= max(selected_points))
+    utils.debug_assert(lambda: utils.has_unique_entries(selected_points))
 
     nPoints_c = len(selected_points)
 

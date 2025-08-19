@@ -119,7 +119,11 @@ class BCBase:
 
     @utils.cached_property
     def nodes(self):
-        '''The list of nodes at which this boundary condition applies.'''
+        '''The list of nodes at which this boundary condition applies.
+
+        These must be unique.
+
+        '''
 
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
         V = self._function_space
@@ -179,7 +183,7 @@ class BCBase:
                     bcnodes1.append(hermite_stride(self._function_space.boundary_nodes(ss)))
                 bcnodes1 = functools.reduce(np.intersect1d, bcnodes1)
                 bcnodes.append(bcnodes1)
-        return np.concatenate(bcnodes)
+        return np.unique(np.concatenate(bcnodes))
 
     @cached_property
     def node_set(self) -> op3.Slice:

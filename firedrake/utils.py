@@ -14,7 +14,9 @@ from pyop3.utils import (  # noqa: F401
     just_one,
     single_valued,
     is_single_valued,
+    has_unique_entries,
     strictly_all,
+    debug_assert,
     freeze,
     StrictlyUniqueDict,
 )

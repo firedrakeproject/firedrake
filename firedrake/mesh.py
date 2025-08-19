@@ -409,10 +409,9 @@ class _FacetContext:
 
     @cached_property
     def facet_subset(self) -> op3.Slice:
-        dim = self.mesh.topology.dimension - 1
         indices = self.facet_indices_renumbered
         subset_dat = op3.Dat(op3.Axis(indices.size), data=indices, prefix="subset")
-        subset = op3.Subset(dim, subset_dat, label=0)
+        subset = op3.Subset(self.mesh.facet_label, subset_dat, label=0)
         return op3.Slice(self.mesh.topology.points.root.label, [subset], label=self._facet_label)
 
     @cached_property
@@ -1826,7 +1825,7 @@ class AbstractMeshTopology(abc.ABC):
 
     @utils.cached_property
     def extruded_periodic(self):
-        return self.cell_set._extruded_periodic
+        return self.periodic
 
     @cached_property
     def _plex_closures(self) -> dict[Any, np.ndarray]:
@@ -2851,6 +2850,7 @@ class ExtrudedMeshTopology(MeshTopology):
         Citations().register("Bercea2016")
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
+        self._cache = self._shared_data_cache  # alias, yuck
 
         if isinstance(mesh.topology, VertexOnlyMeshTopology):
             raise NotImplementedError("Extrusion not implemented for VertexOnlyMeshTopology")
@@ -2890,6 +2890,7 @@ class ExtrudedMeshTopology(MeshTopology):
             """
         else:
             self.variable_layers = False
+        self.periodic = periodic
         # submesh
         self.submesh_parent = None
 
@@ -3181,11 +3182,7 @@ class ExtrudedMeshTopology(MeshTopology):
         if kind not in ["interior", "exterior"]:
             raise ValueError("Unknown facet type '%s'" % kind)
         base = getattr(self._base_mesh, "%s_facets" % kind)
-        return _FacetContext(self, base.facets, base.classes,
-                       kind,
-                       base.facet_cell,
-                       base.local_facet_dat.data_ro_with_halos,
-                       unique_markers=base.unique_markers)
+        return _FacetContext(self, kind, unique_markers=base.unique_markers)
 
     def make_cell_node_list(self, global_numbering, entity_dofs, entity_permutations, offsets):
         """Builds the DoF mapping.

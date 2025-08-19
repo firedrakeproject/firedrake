@@ -311,14 +311,11 @@ def test_mixed_bcs(diagonal):
     bc = DirichletBC(W.sub(1), 0.0, "on_boundary")
 
     A = assemble(inner(u, v)*dx, bcs=bc, diagonal=diagonal)
-    for pt in V.axes[bc.constrained_points].iter():
-        if diagonal:
-            assert A.dat[1].get_value(pt.target_exprs, path=pt.target_path) == 1.0
-        else:
-            data = A.M[1, 1]
-            row_offset = data.raxes.offset(pt.target_exprs, path=pt.target_path)
-            col_offset = data.caxes.offset(pt.target_exprs, path=pt.target_path)
-            assert data.values[row_offset, col_offset] == 1.0
+    if diagonal:
+        data = A.dat[1].data_ro
+    else:
+        data = A.M[1, 1].values.diagonal()
+    assert np.allclose(data[bc.nodes], 1.0)
 
 
 def test_bcs_rhs_assemble(a, V):
