@@ -268,6 +268,8 @@ def _desugar_index(obj: Any, /, *args, **kwargs) -> Index:
 
 @_desugar_index.register(numbers.Integral)
 def _(int_: numbers.Integral, /, *, axes, path) -> Index:
+    if path is None:
+        raise RuntimeError("Cannot parse Python slices here due to ambiguity")
     axis = axes.node_map[path]
     if len(axis.components) > 1:  # match on component label
         component = just_one(c for c in axis.components if c.label == int_)
@@ -283,6 +285,8 @@ def _(int_: numbers.Integral, /, *, axes, path) -> Index:
 
 @_desugar_index.register(slice)
 def _(slice_: slice, /, *, axes, path) -> Slice:
+    if path is None:
+        raise RuntimeError("Cannot parse Python slices here due to ambiguity")
     axis = axes.node_map[path]
     if len(axis.components) == 1:
         return Slice(
@@ -445,15 +449,14 @@ def  _index_tree_completely_indexes_axes(index_tree: IndexTree, axes, *, index_p
 
 
 @functools.singledispatch
-def _as_context_free_indices(obj: Any, /, loop_context: Mapping, path: ConcretePathT) -> Index:
+def _as_context_free_indices(obj: Any, /, loop_context: Mapping, **kwargs) -> Index:
     raise TypeError(f"No handler provided for {type(obj).__name__}")
 
 
 @_as_context_free_indices.register(slice)
-def _(slice_: slice, /, loop_context: Mapping, *, axis_tree: AbstractAxisTree, path: ConcretePathT) -> tuple[Slice]:
-    if path is None:
-        raise RuntimeError("Cannot parse Python slices here due to ambiguity")
-    return (_desugar_index(slice_, axes=axis_tree, path=path),)
+@_as_context_free_indices.register(numbers.Integral)
+def _(obj: slice, /, loop_context: Mapping, *, axis_tree: AbstractAxisTree, path: ConcretePathT) -> tuple[Slice]:
+    return (_desugar_index(obj, axes=axis_tree, path=path),)
 
 
 @_as_context_free_indices.register(Slice)

@@ -1820,6 +1820,17 @@ class UnitIndexedAxisTree:
             nest_indices_.append(component_index)
         return tuple(nest_indices_)
 
+    def restrict_nest(self, nest_label: ComponentLabelT) -> UnitIndexedAxisTree:
+        subtree_unindexed = self.unindexed[nest_label].materialize()
+
+        # remove the nest label from the targets
+        subtree_targets = trim_axis_targets(self.targets, {self.unindexed.root.label})
+
+        return UnitIndexedAxisTree(
+            unindexed=subtree_unindexed,
+            targets=subtree_targets,
+        )
+
     # TODO: shared with other index tree
     @cached_property
     def _matching_target(self):

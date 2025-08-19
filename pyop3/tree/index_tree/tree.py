@@ -1506,7 +1506,7 @@ def index_axes(
     if indexed_axes is UNIT_AXIS_TREE:
         retval = UnitIndexedAxisTree(
             orig_axes.unindexed,
-            targets=indexed_target_paths_and_exprs,
+            targets=all_target_paths_and_exprs,
         )
     else:
         retval = IndexedAxisTree(

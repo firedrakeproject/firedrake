@@ -1275,7 +1275,7 @@ class FunctionSpace:
         return self._shared_data.boundary_nodes(self, sub_domain)
 
     @PETSc.Log.EventDecorator()
-    def mask_lgmap(self, bcs, axes, block_shape) -> PETSc.LGMap:
+    def mask_lgmap(self, bcs, mat_spec) -> PETSc.LGMap:
         """Return a map from process-local to global DoF numbering.
 
         # update this#
@@ -1292,8 +1292,11 @@ class FunctionSpace:
             The local-to-global mapping.
 
         """
+        lgmap = mat_spec.lgmap  # perhaps get from the buffer
+        block_shape = mat_spec.block_shape
+
         if not bcs:
-            return axes.lgmap(block_shape=block_shape)
+            return lgmap
 
         for bc in bcs:
             fs = bc.function_space()
@@ -1304,10 +1307,13 @@ class FunctionSpace:
 
         unblocked = any(bc.function_space().component is not None for bc in bcs)
         if unblocked:
+            indices = lgmap.indices
             block_shape = ()
+        else:
+            indices = lgmap.block_indices
 
         # Set constrained values in the lgmap to -1
-        indices = axes.lgmap(block_shape=block_shape).indices
+        # indices = axes.lgmap(block_shape=block_shape).indices
         blocked_axes = self.nodal_axes.blocked(block_shape)
         indices_dat = op3.Dat(blocked_axes.materialize(), data=indices)
         for bc in bcs:

@@ -1537,9 +1537,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             diag_blocks = [(Ellipsis, Ellipsis)]
 
         for rindex, cindex in diag_blocks:
-            import pyop3.extras.debug
-            pyop3.extras.debug.enable_conditional_breakpoints()
-
             op3.do_loop(
                 p := extract_unique_domain(test).points.index(),
                 sparsity[rindex, cindex][p, p].assign(666)
@@ -1695,7 +1692,17 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             mat.assemble()
 
             p = V.nodal_axes[bc.node_set].index()
-            assignee = mat[index, index].with_axes(spaces[0].nodal_axes[index], spaces[1].nodal_axes[index])[p, p]
+            # if index is not Ellipsis:
+            #     p = (index, V.nodal_axes[bc.node_set].index()
+            # assignee = mat[index, index].with_axes(spaces[0].nodal_axes[index], spaces[1].nodal_axes[index])[p, p]
+            # op3.extras.debug.enable_conditional_breakpoints()
+            # assignee = mat.with_axes(spaces[0].nodal_axes, spaces[1].nodal_axes)[index, index][p, p]
+            assignee1 = mat.with_axes(spaces[0].nodal_axes, spaces[1].nodal_axes)
+            assignee2 = assignee1[index, index]
+            import pyop3.extras.debug
+            pyop3.extras.debug.enable_conditional_breakpoints()
+            assignee3 = assignee2[p, p]
+            assignee = assignee3
 
             # If setting a block then use an identity matrix
             size = utils.single_valued((
@@ -1982,15 +1989,8 @@ class ParloopBuilder:
             if isinstance(mat_spec, numpy.ndarray):
                 mat_spec = mat_spec[i, j]
 
-            row_block_shape = mat_spec.row_spec.block_shape
-            column_block_shape = mat_spec.column_spec.block_shape
-
-            # Don't do this because we want the lgmaps for the full space
-            # submat = matrix.M[i, j]
-            # rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, submat.raxes, row_block_shape)
-            # clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, submat.caxes, column_block_shape)
-            rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, matrix.M.raxes, row_block_shape)
-            clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, matrix.M.caxes, column_block_shape)
+            rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, mat_spec.row_spec)
+            clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, mat_spec.column_spec)
             return (rlgmap, clgmap)
         else:
             return None
