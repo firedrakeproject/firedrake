@@ -55,7 +55,7 @@ class BDDCPC(PCBase):
         bddcpc.setType(PETSc.PC.Type.BDDC)
 
         # Allow viewing preconditioning matrix for debugging purposes
-        P.viewFromOptions('-view_mat', bddcpc)
+        P.viewFromOptions('-view_pmat', bddcpc)
 
         opts = PETSc.Options(bddcpc.getOptionsPrefix())
         # Do not use CSR of local matrix to define dofs connectivity unless requested
@@ -97,7 +97,6 @@ class BDDCPC(PCBase):
 
         tdim = V.mesh().topological_dimension()
         if tdim >= 2 and V.finat_element.formdegree == tdim-1:
-            A, P = pc.getOperators()
             allow_repeated = P.getISAllowRepeated()
             get_divergence = appctx.get("get_divergence_mat", get_divergence_mat)
             divergence = get_divergence(V, mat_type="is", allow_repeated=allow_repeated)
@@ -141,7 +140,7 @@ def get_restricted_dofs(V, domain):
     return PETSc.IS().createGeneral(indices, comm=V.comm)
 
 
-def get_divergence_mat(V, mat_type="aij", allow_repeated=False):
+def get_divergence_mat(V, mat_type="is", allow_repeated=False):
     from firedrake import assemble
     degree = max(as_tuple(V.ufl_element().degree()))
     Q = TensorFunctionSpace(V.mesh(), "DG", 0, variant=f"integral({degree-1})", shape=V.value_shape[:-1])
@@ -155,9 +154,14 @@ def get_divergence_mat(V, mat_type="aij", allow_repeated=False):
 
 
 def get_discrete_gradient(V):
+    from firedrake import Constant
+    from firedrake.nullspace import VectorSpaceBasis
+
     Q = FunctionSpace(V.mesh(), curl_to_grad(V.ufl_element()))
     gradient = tabulate_exterior_derivative(Q, V)
-
+    nsp = VectorSpaceBasis([Function(Q).interpolate(Constant(1))])
+    nsp.orthonormalize()
+    gradient.setNearNullSpace(nsp.nullspace())
     variant = Q.ufl_element().variant()
     if variant in {"fdm", "demkowicz", "demkowiczmass"}:
         vdofs = get_restricted_dofs(Q, "vertex")
