@@ -8,7 +8,7 @@ from petsctools import OptionsManager
 from firedrake.cython import hdf5interface as h5i
 from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc
-from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, DEFAULT_MESH_NAME, make_mesh_from_coordinates, DistributedMeshOverlapType
+from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, DEFAULT_MESH_NAME, make_mesh_from_coordinates, DistributedMeshOverlapType, make_mesh_from_coordinates_begin, make_mesh_from_coordinates_end, make_coordinate_element
 from firedrake.functionspace import FunctionSpace
 from firedrake import functionspaceimpl as impl
 from firedrake.functionspacedata import get_global_numbering, create_element
@@ -1109,11 +1109,13 @@ class CheckpointFile(object):
             # Load firedrake coordinates directly.
             coord_element = self._load_ufl_element(path, PREFIX + "_coordinate_element")
             coord_name = self.get_attr(path, PREFIX + "_coordinates")
-
             element = make_coordinate_element(tmesh)
             mesh = make_mesh_from_coordinates_begin(element, self._comm)
+            mesh._topology = tmesh
             coordinates = self._load_function_topology(mesh, coord_element, coord_name)
             make_mesh_from_coordinates_end(mesh, coordinates, name)
+            # coordinates = self._load_function_topology(tmesh, coord_element, coord_name)
+            # mesh = make_mesh_from_coordinates(coordinates, name)
 
             # Load plex coordinates for a complete representation of plex.
             tmesh.topology_dm.coordinatesLoad(self.viewer, tmesh.sfXC)
@@ -1295,7 +1297,7 @@ class CheckpointFile(object):
                     # The same section has already been cached.
                     dm.setSection(cached_section)
             self._function_load_utils[tmesh_key + sd_key] = (dm, gsf, lsf)
-        return FunctionSpace(mesh, element)
+        return FunctionSpace(tmesh, element)
 
     @PETSc.Log.EventDecorator("LoadFunction")
     def load_function(self, mesh, name, idx=None):

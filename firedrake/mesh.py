@@ -2272,6 +2272,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             The `CoordinatelessFunction` containing the coordinates.
 
         """
+        self.coordinates_dat = coordinates.dat
         topology = coordinates.function_space().mesh()
 
         # this is codegen information so we attach it to the MeshGeometry rather than its cargo
@@ -2305,10 +2306,11 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         later called to set its coordinates and finalise the initialisation.
         """
         import firedrake.functionspace as functionspace
+        import firedrake.functionspaceimpl as functionspaceimpl
         import firedrake.function as function
 
         self._topology = topology
-        coordinates_fs = functionspace.FunctionSpace(self.topology, self.ufl_coordinate_element())
+        coordinates_fs = functionspaceimpl.WithGeometry.make_function_space(self, self.ufl_coordinate_element())
         coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
                                                      (self.num_vertices(), self.geometric_dimension()))
         coordinates = function.Function(coordinates_fs,
@@ -3308,9 +3310,12 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
 
     if gdim is None:
         gdim = mesh.geometric_dimension() + (extrusion_type == "uniform")
-    coordinates_fs = functionspace.VectorFunctionSpace(topology, element, dim=gdim)
 
-    coordinates = function.CoordinatelessFunction(coordinates_fs, name=_generate_default_mesh_coordinates_name(name))
+    emesh = make_mesh_from_coordinates_begin(finat.ufl.VectorElement(element, dim=gdim), mesh._comm)
+    emesh._topology = topology
+    coordinates_fs = functionspace.VectorFunctionSpace(emesh, element, dim=gdim)
+    coordinates = function.Function(coordinates_fs, name=_generate_default_mesh_coordinates_name(name))
+    make_mesh_from_coordinates_end(emesh, coordinates, name)
 
     eutils.make_extruded_coords(topology, mesh._coordinates, coordinates,
                                 layer_height, extrusion_type=extrusion_type, kernel=kernel)
@@ -4599,7 +4604,7 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
         if not plex1.hasLabel(label_name):
             plex1.createLabel(label_name)
     for f, subid in zip(indicator_functions, subdomain_ids):
-        elem = f.topological.function_space().ufl_element()
+        elem = f.function_space().ufl_element()
         if elem.reference_value_shape != ():
             raise RuntimeError(f"indicator functions must be scalar: got {elem.reference_value_shape} != ()")
         if elem.family() in {"Discontinuous Lagrange", "DQ"} and elem.degree() == 0:
@@ -4617,7 +4622,7 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
         # Clear label stratum; this is a copy, so safe to change.
         plex1.clearLabelStratum(dmlabel_name, subid)
         dmlabel = plex1.getLabel(dmlabel_name)
-        section = f.topological.function_space().dm.getSection()
+        section = f.function_space().dm.getSection()
         dmcommon.mark_points_with_function_array(plex, section, height, f.dat.data_ro_with_halos.real.astype(IntType), dmlabel, subid)
     distribution_parameters_noop = {"partition": False,
                                     "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
