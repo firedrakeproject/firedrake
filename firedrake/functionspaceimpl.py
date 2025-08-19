@@ -1514,9 +1514,9 @@ class MixedFunctionSpace:
 
         self._orig_spaces = spaces
         self.layout = layout
-        self._spaces = tuple(IndexedFunctionSpace(i, s, self, weak=False)
+        self._strong_spaces = tuple(IndexedFunctionSpace(i, s, self, weak=False)
                              for i, s in enumerate(spaces))
-        self._weak_spaces = tuple(IndexedFunctionSpace(i, s, self)
+        self._spaces = tuple(IndexedFunctionSpace(i, s, self)
                              for i, s in enumerate(spaces))
         mesh, = set(s.mesh() for s in spaces)
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(),
@@ -1649,16 +1649,16 @@ class MixedFunctionSpace:
         return hash(tuple(self))
 
     @property
+    def strong_subspaces(self):
+        r"""The list of :class:`FunctionSpace`\s of which this
+        :class:`MixedFunctionSpace` is composed."""
+        return self._strong_spaces
+
+    @property
     def subspaces(self):
         r"""The list of :class:`FunctionSpace`\s of which this
         :class:`MixedFunctionSpace` is composed."""
         return self._spaces
-
-    @property
-    def weak_subspaces(self):
-        r"""The list of :class:`FunctionSpace`\s of which this
-        :class:`MixedFunctionSpace` is composed."""
-        return self._weak_spaces
 
     @property
     def subfunctions(self):
@@ -1671,9 +1671,9 @@ class MixedFunctionSpace:
         r"""Return the `i`th :class:`FunctionSpace` in this
         :class:`MixedFunctionSpace`."""
         if weak:
-            return self._weak_spaces[i]
-        else:
             return self._spaces[i]
+        else:
+            return self._strong_spaces[i]
 
     def num_sub_spaces(self):
         r"""Return the number of :class:`FunctionSpace`\s of which this
