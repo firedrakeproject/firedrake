@@ -6,6 +6,10 @@ on:
       tag:
         description: Docker image tag
         type: string
+      build_dev:
+        description: Whether to build a developer vanilla-default container
+        type: boolean
+        default: false
     secrets:
       DOCKERHUB_USER:
         required: true
@@ -16,10 +20,32 @@ on:
       tag:
         description: Docker image tag
         type: string
+      build_dev:
+        description: Whether to build a developer vanilla-default container
+        type: boolean
+        default: false
 
 jobs:
+  # Developer container only
+  docker_build_dev:
+    if: ${{ inputs.build_dev }}
+    uses: ./.github/workflows/docker_build_dev.yml
+    with:
+      os: Linux
+      platform: linux/amd64
+      arch: default
+      # TODO: target: firedrake-vanilla-default
+      target: firedrake-dev-test
+      # TODO: build_target: ${{ inputs.build_target }}
+      build_target: main
+      # TODO: tag: dev-${{ inputs.tag }}
+      tag: dev-main
+      dockerfile: docker/Dockerfile.vanilla
+    secrets: inherit
+
   # Firedrake only
   docker_build_vanilla:
+    if: ${{ ! inputs.build_dev }}
     strategy:
       fail-fast: false
       matrix:
@@ -41,6 +67,7 @@ jobs:
     secrets: inherit
 
   docker_merge_vanilla:
+    if: ${{ ! inputs.build_dev }}
     needs: docker_build_vanilla
     strategy:
       fail-fast: false
@@ -54,6 +81,7 @@ jobs:
 
   # Firedrake and friends
   docker_build_firedrake:
+    if: ${{ ! inputs.build_dev }}
     needs: docker_merge_vanilla
     uses: ./.github/workflows/docker_build.yml
     # Only build the 'firedrake' container for 'linux/amd64' because
@@ -69,6 +97,7 @@ jobs:
     secrets: inherit
 
   docker_merge_firedrake:
+    if: ${{ ! inputs.build_dev }}
     uses: ./.github/workflows/docker_merge.yml
     needs: docker_build_firedrake
     with:
@@ -78,6 +107,7 @@ jobs:
 
   # Firedrake with Jupyter notebooks
   docker_build_jupyter:
+    if: ${{ ! inputs.build_dev }}
     needs: docker_merge_firedrake
     uses: ./.github/workflows/docker_build.yml
     with:
@@ -89,6 +119,7 @@ jobs:
     secrets: inherit
 
   docker_merge_jupyter:
+    if: ${{ ! inputs.build_dev }}
     uses: ./.github/workflows/docker_merge.yml
     needs: docker_build_jupyter
     with:
