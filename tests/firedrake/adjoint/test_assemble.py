@@ -95,7 +95,7 @@ def test_assemble_1_forms_tlm():
 
     Jhat = ReducedFunctional(J, Control(f))
     h = Function(V)
-    h.dat.data_wo[...] = rand(h.dat.data_wo.shape)
+    h.dat.data_wo[...] = rand(h.dat.data_wo.size)
     g = f.copy(deepcopy=True)
     f.block_variable.tlm_value = h
     tape.evaluate_tlm()
@@ -109,7 +109,7 @@ def _test_adjoint(J, f):
 
     V = f.function_space()
     h = Function(V)
-    h.dat.data_wo[...] = rand(h.dat.data_wo.shape)
+    h.dat.data_wo[...] = rand(h.dat.data_wo.size)
 
     eps_ = [0.01 / 2.0**i for i in range(5)]
     residuals = []

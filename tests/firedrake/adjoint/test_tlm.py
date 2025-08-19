@@ -51,7 +51,7 @@ def test_tlm_assemble():
     Jhat = ReducedFunctional(J, Control(f))
 
     h = Function(V)
-    h.dat.data_wo[...] = rand(h.dat.data_wo.shape)
+    h.dat.data_wo[...] = rand(h.dat.data_wo.size)
     g = f.copy(deepcopy=True)
     assert (taylor_test(Jhat, g, h, dJdm=Jhat.tlm(h)) > 1.9)
 
@@ -100,7 +100,7 @@ def test_tlm_func():
     Jhat = ReducedFunctional(J, Control(c))
 
     h = Function(V)
-    h.dat.data_wo[...] = rand(h.dat.data_wo.shape)
+    h.dat.data_wo[...] = rand(h.dat.data_wo.size)
     g = c.copy(deepcopy=True)
 
     assert (taylor_test(Jhat, g, h, dJdm=Jhat.tlm(h)) > 1.9)
@@ -154,7 +154,7 @@ def test_time_dependent(solve_type):
 
     Jhat = ReducedFunctional(J, control)
     h = Function(V)
-    h.dat.data_wo[...] = rand(h.dat.data_wo.shape)
+    h.dat.data_wo[...] = rand(h.dat.data_wo.size)
     assert (taylor_test(Jhat, control.tape_value(), h, dJdm=Jhat.tlm(h)) > 1.9)
 
 
@@ -204,7 +204,7 @@ def test_burgers():
 
     Jhat = ReducedFunctional(J, Control(ic))
     h = Function(V)
-    h.dat.data_wo[...] = rand(h.dat.data_wo.shape)
+    h.dat.data_wo[...] = rand(h.dat.data_wo.size)
     g = ic.copy(deepcopy=True)
     assert (taylor_test(Jhat, g, h, dJdm=Jhat.tlm(h)) > 1.9)
 
@@ -264,6 +264,6 @@ def test_projection_function():
     Jhat = ReducedFunctional(J, Control(g))
 
     h = Function(V)
-    h.dat.data_wo[...] = rand(h.dat.data_wo.shape)
+    h.dat.data_wo[...] = rand(h.dat.data_wo.size)
     m = g.copy(deepcopy=True)
     assert (taylor_test(Jhat, m, h, dJdm=Jhat.tlm(h)) > 1.9)

@@ -112,7 +112,7 @@ def test_project_nonlincom():
     rf = ReducedFunctional(J, Control(f))
 
     h = Function(V1)
-    h.dat.data_wo[...] = rand(h.dat.data_wo.shape)
+    h.dat.data_wo[...] = rand(h.dat.data_wo.size)
     assert taylor_test(rf, f, h) > 1.9
 
 
@@ -143,10 +143,10 @@ def test_project_nonlin_changing():
     rf = ReducedFunctional(J, control)
 
     g = Function(V)
-    g.dat.data_wo[...] = rand(g.dat.data_wo.shape)
+    g.dat.data_wo[...] = rand(g.dat.data_wo.size)
 
     h = Function(V)
-    h.dat.data_wo[...] = rand(h.dat.data_wo.shape)
+    h.dat.data_wo[...] = rand(h.dat.data_wo.size)
     assert taylor_test(rf, g, h) > 1.9
 
 

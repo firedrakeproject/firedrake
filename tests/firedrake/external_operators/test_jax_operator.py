@@ -119,7 +119,7 @@ def test_jvp(u, nn):
     # Set δu
     V = N.function_space()
     delta_u = Function(V)
-    delta_u.dat.data_wo[...] = np.random.rand(delta_u.dat.data_wo.shape)
+    delta_u.dat.data_wo[...] = np.random.rand(delta_u.dat.data_wo.size)
 
     # Symbolic compute: <∂N/∂u, δu>
     dN = action(derivative(N, u), delta_u)
@@ -148,7 +148,7 @@ def test_vjp(u, nn):
     # Set δN
     V = N.function_space()
     delta_N = Cofunction(V.dual())
-    delta_N.dat.data_wo[...] = np.random.rand(delta_N.dat.data_wo.shape)
+    delta_N.dat.data_wo[...] = np.random.rand(delta_N.dat.data_wo.size)
 
     # Symbolic compute: <(∂N/∂u)*, δN>
     dNdu = expand_derivatives(derivative(N, u))
