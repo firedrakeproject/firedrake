@@ -121,10 +121,11 @@ jobs:
       - name: Install system dependencies (1)
         run: apt-get -y install git python3
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
+          repository: ${{ github.repository }}
 
       - name: Validate single source of truth
         run: ./firedrake-repo/scripts/check-config
@@ -449,10 +450,11 @@ jobs:
         # Make sure the current directory is empty
         run: find . -delete
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
+          repository: ${{ github.repository }}
 
       - name: Install system dependencies
         run: |
@@ -528,9 +530,10 @@ jobs:
     name: Lint codebase
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.source_ref }}
+          repository: ${{ github.repository }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
