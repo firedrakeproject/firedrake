@@ -30,7 +30,7 @@ def Rvector():
     return VectorFunctionSpace(mesh, "R", 0, dim=4)
 
 
-def reshape(function):
+def reshape_function(function):
     """Reshape function data to conform to the function space shape."""
     return function.dat.data_ro.reshape((-1, *function.function_space().shape))
 

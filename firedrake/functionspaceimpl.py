@@ -1303,6 +1303,7 @@ class FunctionSpace:
             while fs.component is not None and fs.parent is not None:
                 fs = fs.parent
             if fs.topological != self.topological:
+                breakpoint()
                 raise RuntimeError("Dirichlet BC defined on a different function space")
 
         unblocked = any(bc.function_space().component is not None for bc in bcs)

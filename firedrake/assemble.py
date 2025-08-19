@@ -1992,8 +1992,8 @@ class ParloopBuilder:
             # breakpoint()
             # rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, mat_spec.row_spec)
             # clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, mat_spec.column_spec)
-            rlgmap = self.test_function_space.sub(ibc, weak=False).mask_lgmap(row_bcs, mat_spec.row_spec)
-            clgmap = self.trial_function_space.sub(jbc, weak=False).mask_lgmap(col_bcs, mat_spec.column_spec)
+            rlgmap = self.test_function_space.strong_subspaces[ibc].mask_lgmap(row_bcs, mat_spec.row_spec)
+            clgmap = self.trial_function_space.strong_subspaces[jbc].mask_lgmap(col_bcs, mat_spec.column_spec)
             return (rlgmap, clgmap)
         else:
             return None
