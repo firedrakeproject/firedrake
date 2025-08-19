@@ -1989,8 +1989,11 @@ class ParloopBuilder:
             if isinstance(mat_spec, numpy.ndarray):
                 mat_spec = mat_spec[i, j]
 
-            rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, mat_spec.row_spec)
-            clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, mat_spec.column_spec)
+            # breakpoint()
+            # rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, mat_spec.row_spec)
+            # clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, mat_spec.column_spec)
+            rlgmap = self.test_function_space.sub(ibc, weak=False).mask_lgmap(row_bcs, mat_spec.row_spec)
+            clgmap = self.trial_function_space.sub(jbc, weak=False).mask_lgmap(col_bcs, mat_spec.column_spec)
             return (rlgmap, clgmap)
         else:
             return None
@@ -2195,7 +2198,7 @@ def _modified_lgmaps(mat: op3.Mat, indices, lgmaps):
         return
 
     petscmat = mat.handle
-    if indices != (None, None):
+    if petscmat.type == "nest":
         petscmat = petscmat.getNestSubMatrix(*indices)
 
     orig_lgmaps = petscmat.getLGMap()

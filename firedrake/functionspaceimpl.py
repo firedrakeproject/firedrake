@@ -173,16 +173,16 @@ class WithGeometryBase:
         self.cargo.topological = val
 
     @utils.cached_property
+    def strong_subspaces(self):
+        r"""Split into a tuple of constituent spaces."""
+        return tuple(type(self).create(subspace, self.mesh())
+                     for subspace in self.topological.strong_subspaces)
+
+    @utils.cached_property
     def subspaces(self):
         r"""Split into a tuple of constituent spaces."""
         return tuple(type(self).create(subspace, self.mesh())
                      for subspace in self.topological.subspaces)
-
-    @utils.cached_property
-    def weak_subspaces(self):
-        r"""Split into a tuple of constituent spaces."""
-        return tuple(type(self).create(subspace, self.mesh())
-                     for subspace in self.topological.weak_subspaces)
 
     @property
     def subfunctions(self):
@@ -206,14 +206,14 @@ class WithGeometryBase:
         return self.mesh().ufl_cell()
 
     @utils.cached_property
-    def _components(self):
+    def _strong_components(self):
         components = numpy.empty(self.shape, dtype=object)
         for ix in numpy.ndindex(self.shape):
             components[ix] = type(self).create(self.topological.sub(ix, weak=False), self.mesh())
         return utils.readonly(components)
 
     @utils.cached_property
-    def _weak_components(self):
+    def _components(self):
         components = numpy.empty(self.shape, dtype=object)
         for ix in numpy.ndindex(self.shape):
             components[ix] = type(self).create(self.topological.sub(ix, weak=True), self.mesh())
@@ -223,15 +223,15 @@ class WithGeometryBase:
     def sub(self, indices, *, weak: bool = True):
         if type(self.ufl_element()) is finat.ufl.MixedElement:
             if weak:
-                return self.weak_subspaces[indices]
-            else:
                 return self.subspaces[indices]
+            else:
+                return self.strong_subspaces[indices]
         else:
             indices = parse_component_indices(indices, self.shape)
             if weak:
-                return self._weak_components[indices]
-            else:
                 return self._components[indices]
+            else:
+                return self._strong_components[indices]
 
     @utils.cached_property
     def dm(self):
@@ -1084,7 +1084,7 @@ class FunctionSpace:
         """Split into a tuple of constituent spaces."""
         return (self,)
 
-    weak_subspaces = property(lambda self: self.subspaces)
+    strong_subspaces = property(lambda self: self.subspaces)
 
     @property
     def subfunctions(self):
@@ -1100,9 +1100,9 @@ class FunctionSpace:
         return self
 
     @utils.cached_property
-    def _components(self):
+    def _strong_components(self):
         if self.rank == 0:
-            return self.subspaces
+            return self.strong_subspaces
         else:
             components = numpy.empty(self.shape, dtype=object)
             for ix in numpy.ndindex(self.shape):
@@ -1110,9 +1110,9 @@ class FunctionSpace:
             return utils.readonly(components)
 
     @utils.cached_property
-    def _weak_components(self):
+    def _components(self):
         if self.rank == 0:
-            return self.weak_subspaces
+            return self.subspaces
         else:
             components = numpy.empty(self.shape, dtype=object)
             for ix in numpy.ndindex(self.shape):
@@ -1123,9 +1123,9 @@ class FunctionSpace:
         r"""Return a view into the ith component."""
         indices = parse_component_indices(indices, self.shape)
         if weak:
-            return self._weak_components[indices or 0]
-        else:
             return self._components[indices or 0]
+        else:
+            return self._strong_components[indices or 0]
 
     def __mul__(self, other):
         r"""Create a :class:`.MixedFunctionSpace` composed of this
@@ -1315,7 +1315,8 @@ class FunctionSpace:
         # Set constrained values in the lgmap to -1
         # indices = axes.lgmap(block_shape=block_shape).indices
         blocked_axes = self.nodal_axes.blocked(block_shape)
-        indices_dat = op3.Dat(blocked_axes.materialize(), data=indices)
+        # indices_dat = op3.Dat(blocked_axes.materialize(), data=indices)
+        indices_dat = op3.Dat(blocked_axes, data=indices)
         for bc in bcs:
             # p = self._mesh.points[bc.node_set].index()
 
@@ -1340,7 +1341,7 @@ class FunctionSpace:
             # op3.do_loop(p, idat[p].assign(-1))
             op3.do_loop(p := blocked_axes[bc.node_set].index(), indices_dat[p].assign(-1))
 
-        indices = indices_dat.data_ro_with_halos
+        indices = indices_dat.buffer._data
         bsize = numpy.prod(block_shape, dtype=int)
         return PETSc.LGMap().create(indices, bsize=bsize, comm=self.comm)
 

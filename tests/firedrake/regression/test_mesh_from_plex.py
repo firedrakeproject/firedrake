@@ -1,7 +1,5 @@
 from firedrake import *
 import numpy as np
-import pytest
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 def remove_pyop2_label(plex):

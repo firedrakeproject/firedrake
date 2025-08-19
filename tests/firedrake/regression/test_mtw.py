@@ -1,9 +1,6 @@
 from firedrake import *
 import numpy as np
 
-import pytest
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
 
 convergence_orders = lambda x: np.log2(np.array(x)[:-1] / np.array(x)[1:])
 

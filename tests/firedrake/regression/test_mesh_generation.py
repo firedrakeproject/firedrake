@@ -2,9 +2,6 @@ import pytest
 import numpy as np
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 from firedrake import *
 # Must come after firedrake import (that loads MPI)
 try:

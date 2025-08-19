@@ -20,7 +20,6 @@ f = cos(x[0]*pi*2)*cos(x[1]*pi*2)
 import pytest
 import numpy as np
 from firedrake import *
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 def trace_galerkin_projection(degree, quad=False,

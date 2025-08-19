@@ -2,7 +2,6 @@ from __future__ import absolute_import, print_function, division
 import pytest
 from firedrake import *
 import numpy
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(params=[1, 2, 3])
