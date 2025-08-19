@@ -541,6 +541,9 @@ class PetscMatAxisSpec:
     lgmap: PETSc.LGMap
     block_shape: tuple[int, ...] = ()
 
+    def __post_init__(self) -> None:
+        assert isinstance(self.block_shape, tuple)
+
     @property
     def block_size(self) -> int:
         return np.prod(self.block_shape, dtype=int)

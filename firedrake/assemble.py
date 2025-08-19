@@ -1099,7 +1099,7 @@ class ParloopFormAssembler(FormAssembler):
                     subtensor = subtensor.buffer.mat.getPythonContext().dat
 
                 if isinstance(self, ExplicitMatrixAssembler):
-                    with _modified_lgmaps(subtensor, lgmaps):
+                    with _modified_lgmaps(subtensor, local_kernel.indices, lgmaps):
                         parloop({self._tensor_name[local_kernel]: subtensor.buffer}, compiler_parameters=pyop3_compiler_parameters)
                 else:
                     parloop({self._tensor_name[local_kernel]: subtensor.buffer}, compiler_parameters=pyop3_compiler_parameters)
@@ -1148,7 +1148,7 @@ class ParloopFormAssembler(FormAssembler):
                     self.all_integer_subdomain_ids[local_kernel.indices],
                     diagonal=self.diagonal,
                 )
-                parloops_.append((parloop_builder.build(), parloop_builder.collect_lgmaps(tensor)))
+                parloops_.append((parloop_builder.build(), parloop_builder.collect_lgmaps(tensor, local_kernel.indices)))
             self._parloops = parloops_
             self._tensor_name = tensor_name
 
@@ -1695,7 +1695,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             mat.assemble()
 
             p = V.nodal_axes[bc.node_set].index()
-            assignee = mat[index, index].with_axes(spaces[0].nodal_axes, spaces[1].nodal_axes)[p, p]
+            assignee = mat[index, index].with_axes(spaces[0].nodal_axes[index], spaces[1].nodal_axes[index])[p, p]
 
             # If setting a block then use an identity matrix
             size = utils.single_valued((
@@ -1958,47 +1958,40 @@ class ParloopBuilder:
                         return True
         return False
 
-    def collect_lgmaps(self, matrix):
+    def collect_lgmaps(self, matrix, indices):
         """Return any local-to-global maps that need to be swapped out.
 
         This is only needed when applying boundary conditions to 2-forms.
 
         """
         if len(self._form.arguments()) == 2 and not self._diagonal:
-            breakpoint()
-
             if not self._bcs:
                 return None
-            lgmaps = []
-            for i, j in self.get_indicess():
-                ibc = 0 if i is None else i
-                jbc = 0 if j is None else j
-                row_bcs, col_bcs = self._filter_bcs(ibc, jbc)
+            i, j = indices
 
-                i = Ellipsis if i is None else i
-                j = Ellipsis if j is None else j
+            ibc = 0 if i is None else i
+            jbc = 0 if j is None else j
+            row_bcs, col_bcs = self._filter_bcs(ibc, jbc)
 
-                mat_buffer = matrix.M.buffer
+            i = Ellipsis if i is None else i
+            j = Ellipsis if j is None else j
 
-                mat_spec = mat_buffer.mat_spec
-                if isinstance(mat_spec, numpy.ndarray):
-                    mat_spec = mat_spec[i, j]
+            mat_buffer = matrix.M.buffer
 
-                row_block_shape = mat_spec.row_spec.block_shape
-                column_block_shape = mat_spec.column_spec.block_shape
+            mat_spec = mat_buffer.mat_spec
+            if isinstance(mat_spec, numpy.ndarray):
+                mat_spec = mat_spec[i, j]
 
-                # debugging
-                assert isinstance(row_block_shape, tuple)
+            row_block_shape = mat_spec.row_spec.block_shape
+            column_block_shape = mat_spec.column_spec.block_shape
 
-                # Don't do this because we want the lgmaps for the full space
-                # submat = matrix.M[i, j]
-                # rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, submat.raxes, row_block_shape)
-                # clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, submat.caxes, column_block_shape)
-                rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, matrix.M.raxes, row_block_shape)
-                clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, matrix.M.caxes, column_block_shape)
-                lgmaps.append((i, j, rlgmap, clgmap))
-
-            return tuple(lgmaps)
+            # Don't do this because we want the lgmaps for the full space
+            # submat = matrix.M[i, j]
+            # rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, submat.raxes, row_block_shape)
+            # clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, submat.caxes, column_block_shape)
+            rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, matrix.M.raxes, row_block_shape)
+            clgmap = self.trial_function_space[jbc].mask_lgmap(col_bcs, matrix.M.caxes, column_block_shape)
+            return (rlgmap, clgmap)
         else:
             return None
 
@@ -2196,19 +2189,18 @@ def _is_real_space(space):
 
 
 @contextlib.contextmanager
-def _modified_lgmaps(mat: op3.Mat, lgmaps):
+def _modified_lgmaps(mat: op3.Mat, indices, lgmaps):
     if lgmaps is None:
-        yield mat
+        yield
         return
 
-    if mat.buffer.mat_type == "nest":
-        raise NotImplementedError("Think about extracting the right sub-blocks")
+    petscmat = mat.handle
+    if indices != (None, None):
+        petscmat = petscmat.getNestSubMatrix(*indices)
 
-    # TODO: Fixup API so this isn't needed
-    (i, j, row_lgmap, column_lgmap), = lgmaps
-    orig_rlgmap, orig_clgmap = mat.buffer.mat.getLGMap()
-    mat.buffer.mat.setLGMap(row_lgmap, column_lgmap)
+    orig_lgmaps = petscmat.getLGMap()
+    petscmat.setLGMap(*lgmaps)
 
     yield
 
-    mat.buffer.mat.setLGMap(orig_rlgmap, orig_clgmap)
+    mat.buffer.mat.setLGMap(*orig_lgmaps)

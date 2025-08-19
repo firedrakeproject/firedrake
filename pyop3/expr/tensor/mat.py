@@ -526,8 +526,8 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
                 blocked_column_axes.unindexed.global_numbering, bsize=column_bsize, comm=comm
             )
 
-            row_spec = PetscMatAxisSpec(nrows, row_lgmap, row_bsize)
-            column_spec = PetscMatAxisSpec(ncolumns, column_lgmap, column_bsize)
+            row_spec = PetscMatAxisSpec(nrows, row_lgmap, row_block_shape)
+            column_spec = PetscMatAxisSpec(ncolumns, column_lgmap, column_block_shape)
         full_spec = FullPetscMatBufferSpec(partial_spec.mat_type, row_spec, column_spec)
     else:  # MATNEST
         assert isinstance(partial_spec, PetscMatNestBufferSpec)
