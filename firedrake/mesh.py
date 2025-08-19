@@ -1512,7 +1512,7 @@ class AbstractMeshTopology(abc.ABC):
             # supports should only target a single dimension
             op3.utils.debug_assert(
                 lambda: all(
-                    (s == 0).all() for d, s in enumerate(sizes) if d != map_dim
+                    (s == 0).all() for d, s in sizes.items() if d != map_dim
                 )
             )
 

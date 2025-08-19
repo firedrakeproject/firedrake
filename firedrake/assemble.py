@@ -1762,13 +1762,11 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # Walk through row blocks associated with index.
             for j, s in enumerate(space):
                 if j != index and _is_real_space(s):
-                    raise NotImplementedError
-                    self._apply_bcs_mat_real_block(mat, index, j, component, bc.node_set)
+                    self._apply_bcs_mat_real_block(mat, spaces[0].nodal_axes[index], spaces[1].nodal_axes[index], index, j, component, bc.node_set)
             # Walk through col blocks associated with index.
             for i, s in enumerate(space):
                 if i != index and _is_real_space(s):
-                    raise NotImplementedError
-                    self._apply_bcs_mat_real_block(mat, i, index, component, bc.node_set)
+                    self._apply_bcs_mat_real_block(mat, spaces[0].nodal_axes[index], spaces[1].nodal_axes[index], i, index, component, bc.node_set)
         elif isinstance(bc, EquationBCSplit):
             for j, s in enumerate(spaces[1]):
                 if _is_real_space(s):
@@ -1779,12 +1777,18 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             raise AssertionError
 
     @staticmethod
-    def _apply_bcs_mat_real_block(op2tensor, i, j, component, node_set):
-        raise NotImplementedError
-        dat = op2tensor[i, j].handle.getPythonContext().dat
+    def _apply_bcs_mat_real_block(op2tensor, raxes, caxes, i, j, component, node_set):
+        dat = op2tensor.handle.getNestSubMatrix(i, j).getPythonContext().dat
+        mat_type = op2tensor.buffer.mat_spec[i, j].mat_type
+        if mat_type == "rvec":
+            nodal_axes = raxes 
+        else:
+            nodal_axes = caxes 
+        dat = dat.with_axes(nodal_axes)
+
         if component is not None:
-            dat = op2.DatView(dat, component)
-        dat.zero(subset=node_set, eager=True)
+            dat = dat[:, *component]
+        dat[node_set].zero(eager=True)
 
     def _check_tensor(self, tensor):
         if tensor.a.arguments() != self._form.arguments():
@@ -1988,6 +1992,9 @@ class ParloopBuilder:
             mat_spec = mat_buffer.mat_spec
             if isinstance(mat_spec, numpy.ndarray):
                 mat_spec = mat_spec[i, j]
+
+            if mat_spec.mat_type in {"rvec", "cvec"}:
+                return None
 
             # breakpoint()
             # rlgmap = self.test_function_space[ibc].mask_lgmap(row_bcs, mat_spec.row_spec)

@@ -1554,7 +1554,7 @@ def make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_path
         seen_target_exprs=seen_target_exprs,
     )
 
-    target_paths_and_exprs = dict(index_target_paths_and_exprs)
+    target_paths_and_exprs = collections.defaultdict(tuple, index_target_paths_and_exprs)
 
     # # merge target paths and exprs (ugly but currently necessary)
     # # we want this to look like: {axis_key: [targets1, targets2]}

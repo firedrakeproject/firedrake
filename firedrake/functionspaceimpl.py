@@ -1329,7 +1329,7 @@ class FunctionSpace:
         """
         V = self # fixme
         _, sub_domain, boundary_set = key
-        cell_node_list = V.cell_node_list
+        cell_node_list = V.cell_node_list  # ah, now for the whole thing...
         offset = V.offset
         if mesh.variable_layers:
             return extnum.top_bottom_boundary_nodes(mesh, cell_node_list,
@@ -1379,7 +1379,6 @@ class FunctionSpace:
             while fs.component is not None and fs.parent is not None:
                 fs = fs.parent
             if fs.topological != self.topological:
-                breakpoint()
                 raise RuntimeError("Dirichlet BC defined on a different function space")
 
         unblocked = any(bc.function_space().component is not None for bc in bcs)
