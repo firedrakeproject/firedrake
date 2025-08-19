@@ -44,7 +44,6 @@ def compute_form_data(form,
                       do_apply_restrictions=True,
                       do_estimate_degrees=True,
                       coefficients_to_split=None,
-                      do_assume_single_integral_type=False,
                       complex_mode=False):
     """Preprocess UFL form in a format suitable for TSFC. Return
     form data.
@@ -64,7 +63,6 @@ def compute_form_data(form,
         do_estimate_degrees=do_estimate_degrees,
         do_replace_functions=True,
         coefficients_to_split=coefficients_to_split,
-        do_assume_single_integral_type=do_assume_single_integral_type,
         complex_mode=complex_mode
     )
     constants = extract_firedrake_constants(form)
