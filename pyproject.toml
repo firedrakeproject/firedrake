@@ -64,6 +64,7 @@ firedrake-clean = "firedrake.scripts.firedrake_clean:main"
 firedrake-preprocess-bibtex = "firedrake.scripts.firedrake_preprocess_bibtex:main"
 pyop2-clean = "pyop2.compilation:clear_compiler_disk_cache"
 
+
 [project.optional-dependencies]
 check = [
   "mpi-pytest>=2025.7",
@@ -115,7 +116,7 @@ ci = [
   "pygraphviz",
   "pylit",
   "pytest",
-  "pytest-split",
+  "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
   # TODO RELEASE
@@ -123,7 +124,7 @@ ci = [
   "torch",  # requires passing '--extra-index-url' to work
   "vtk",
 ]
-docker = [  # used in firedrake-vanilla containers
+docker = [  # Used in firedrake-vanilla container
   "ipympl",  # needed for notebook testing
   "matplotlib",
   "mpi-pytest>=2025.7",
