@@ -1,10 +1,14 @@
 import pytest
 
-from numpy.random import rand
 from numpy.testing import assert_allclose
 
 from firedrake import *
 from firedrake.adjoint import *
+
+
+@pytest.fixture
+def rg():
+    return RandomGenerator(PCG64(seed=1234))
 
 
 @pytest.fixture(autouse=True)
@@ -60,7 +64,7 @@ def test_assemble_0_forms_mixed():
 
 
 @pytest.mark.skipcomplex
-def test_assemble_1_forms_adjoint():
+def test_assemble_1_forms_adjoint(rg):
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
     v = TestFunction(V)
@@ -74,11 +78,11 @@ def test_assemble_1_forms_adjoint():
         inner_dual = lambda x: assemble(action(x, x.riesz_representation()))
         return sum(inner_dual(c) for c in (w1, w2, w3))
 
-    _test_adjoint(J, f)
+    _test_adjoint(J, f, rg)
 
 
 @pytest.mark.skipcomplex
-def test_assemble_1_forms_tlm():
+def test_assemble_1_forms_tlm(rg):
     tape = Tape()
     set_working_tape(tape)
 
@@ -94,8 +98,8 @@ def test_assemble_1_forms_tlm():
     J = sum(inner_dual(c) for c in (w1, w2, w3))
 
     Jhat = ReducedFunctional(J, Control(f))
-    h = Function(V)
-    h.dat.data_wo[...] = rand(h.dat.data_wo.size)
+
+    h = rg.uniform(V)
     g = f.copy(deepcopy=True)
     f.block_variable.tlm_value = h
     tape.evaluate_tlm()
@@ -103,13 +107,12 @@ def test_assemble_1_forms_tlm():
 
 
 @pytest.mark.skipcomplex
-def _test_adjoint(J, f):
+def _test_adjoint(J, f, rg):
     tape = Tape()
     set_working_tape(tape)
 
     V = f.function_space()
-    h = Function(V)
-    h.dat.data_wo[...] = rand(h.dat.data_wo.size)
+    h = rg.uniform(V)
 
     eps_ = [0.01 / 2.0**i for i in range(5)]
     residuals = []

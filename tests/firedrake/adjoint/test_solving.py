@@ -5,6 +5,11 @@ from firedrake.adjoint import *
 from numpy.testing import assert_approx_equal
 
 
+@pytest.fixture
+def rg():
+    return RandomGenerator(PCG64(seed=1234))
+
+
 @pytest.fixture(autouse=True)
 def handle_taping():
     yield
@@ -420,14 +425,12 @@ def _test_adjoint_constant(J, c):
     assert (r[-1] > 2-tol)
 
 
-def _test_adjoint(J, f):
-    import numpy.random
+def _test_adjoint(J, f, rg):
     tape = Tape()
     set_working_tape(tape)
 
     V = f.function_space()
-    h = Function(V)
-    h.dat.data_wo[...] = numpy.random.rand(h.dat.data_wo.size)
+    h = rg.uniform(V)
 
     eps_ = [0.01/2.0**i for i in range(5)]
     residuals = []

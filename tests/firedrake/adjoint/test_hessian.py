@@ -7,6 +7,11 @@ from numpy.random import default_rng
 rng = default_rng()
 
 
+@pytest.fixture
+def rg():
+    return RandomGenerator(PCG64(seed=1234))
+
+
 @pytest.fixture(autouse=True)
 def handle_taping():
     yield
@@ -25,7 +30,7 @@ def handle_annotation():
 
 
 @pytest.mark.skipcomplex
-def test_simple_solve():
+def test_simple_solve(rg):
     tape = Tape()
     set_working_tape(tape)
 
@@ -53,8 +58,7 @@ def test_simple_solve():
     c = Control(f)
     Jhat = ReducedFunctional(J, c)
 
-    h = Function(V)
-    h.dat.data_wo[...] = rng.random(h.dat.data_wo.shape)
+    h = rg.uniform(V)
 
     tape.evaluate_adj()
 
@@ -65,7 +69,7 @@ def test_simple_solve():
 
 
 @pytest.mark.skipcomplex
-def test_mixed_derivatives():
+def test_mixed_derivatives(rg):
     tape = Tape()
     set_working_tape(tape)
 
@@ -91,8 +95,7 @@ def test_mixed_derivatives():
     Jhat = ReducedFunctional(J, [control_f, control_g])
 
     # Direction to take a step for convergence test
-    h = Function(V)
-    h.dat.data_wo[...] = rng.random(h.dat.data_wo.shape)
+    h = rg.uniform(V)
 
     # Evaluate TLM
     control_f.tlm_value = h
@@ -114,7 +117,7 @@ def test_mixed_derivatives():
 
 
 @pytest.mark.skipcomplex
-def test_function():
+def test_function(rg):
     tape = Tape()
     set_working_tape(tape)
 
@@ -140,8 +143,7 @@ def test_function():
 
     # Step direction for derivatives and convergence test
     h_c = Function(R, val=1.0)
-    h_f = Function(V)
-    h_f.dat.data_wo[...] = 10*rng.random(h_f.dat.data_wo.shape)
+    h_f = rg.uniform(V, 0, 10)
 
     # Total derivative
     dJdc, dJdf = compute_gradient(J, [control_c, control_f], apply_riesz=True)
@@ -154,7 +156,7 @@ def test_function():
 
 
 @pytest.mark.skipcomplex
-def test_nonlinear():
+def test_nonlinear(rg):
     tape = Tape()
     set_working_tape(tape)
 
@@ -173,8 +175,7 @@ def test_nonlinear():
     J = assemble(u ** 4 * dx)
     Jhat = ReducedFunctional(J, Control(f))
 
-    h = Function(V)
-    h.dat.data_wo[...] = 10*rng.random(h.dat.data_wo.shape)
+    h = rg.uniform(V, 0, 10)
 
     J.block_variable.adj_value = 1.0
     f.block_variable.tlm_value = h
@@ -193,7 +194,7 @@ def test_nonlinear():
 
 
 @pytest.mark.skipcomplex
-def test_dirichlet():
+def test_dirichlet(rg):
     tape = Tape()
     set_working_tape(tape)
 
@@ -213,8 +214,7 @@ def test_dirichlet():
     J = assemble(u ** 4 * dx)
     Jhat = ReducedFunctional(J, Control(c))
 
-    h = Function(V)
-    h.dat.data_wo[...] = rng.random(h.dat.data_wo.shape)
+    h = rg.uniform(V)
 
     J.block_variable.adj_value = 1.0
     c.block_variable.tlm_value = h
@@ -235,7 +235,7 @@ def test_dirichlet():
 
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("solve_type", ["solve", "nlvs"])
-def test_burgers(solve_type):
+def test_burgers(solve_type, rg):
     tape = Tape()
     set_working_tape(tape)
     n = 100
@@ -303,8 +303,7 @@ def test_burgers(solve_type):
     J = assemble(u_*u_*dx + ic*ic*dx)
 
     Jhat = ReducedFunctional(J, Control(ic))
-    h = Function(V)
-    h.dat.data_wo[...] = rng.random(h.dat.data_wo.shape)
+    h = rg.uniform(V)
     g = ic.copy(deepcopy=True)
     J.block_variable.adj_value = 1.0
     ic.block_variable.tlm_value = h

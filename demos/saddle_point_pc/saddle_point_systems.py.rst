@@ -87,17 +87,12 @@ problem.  We will need some trial and test functions for the spaces::
         sigma, u = TrialFunctions(W)
         tau, v = TestFunctions(W)
 
-along with a function to hold the forcing term, living in the
+along with a random function to hold the forcing term, living in the
 discontinuous space. ::
 
     #
-        f = Function(V)
-
-We initialise this function to hold random values::
-
-    #
-        import numpy as np
-        f.dat.data_wo[...] = np.random.uniform(size=f.dat.data_wo.shape)
+        rg = RandomGenerator()
+        f = rg.uniform(V)
 
 Note that the homogeneous Dirichlet conditions in the primal
 formulation turn into homogeneous Neumann conditions on the dual

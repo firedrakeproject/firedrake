@@ -5,6 +5,12 @@ from ufl.algorithms.ad import expand_derivatives
 
 from firedrake import *
 
+
+@pytest.fixture
+def rg():
+    return RandomGenerator(PCG64(seed=1234))
+
+
 try:
     from firedrake.ml.jax import *
     import jax
@@ -111,15 +117,14 @@ def test_forward(u, nn):
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 @pytest.mark.skipjax  # Skip if JAX is not installed
-def test_jvp(u, nn):
+def test_jvp(u, nn, rg):
     # Set JaxOperator
     N = nn(u)
     # Get model
     model = N.model
     # Set δu
     V = N.function_space()
-    delta_u = Function(V)
-    delta_u.dat.data_wo[...] = np.random.rand(delta_u.dat.data_wo.size)
+    delta_u = rg.uniform(V)
 
     # Symbolic compute: <∂N/∂u, δu>
     dN = action(derivative(N, u), delta_u)
@@ -140,15 +145,14 @@ def test_jvp(u, nn):
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 @pytest.mark.skipjax  # Skip if JAX is not installed
-def test_vjp(u, nn):
+def test_vjp(u, nn, rg):
     # Set JaxOperator
     N = nn(u)
     # Get model
     model = N.model
     # Set δN
     V = N.function_space()
-    delta_N = Cofunction(V.dual())
-    delta_N.dat.data_wo[...] = np.random.rand(delta_N.dat.data_wo.size)
+    delta_N = rg.uniform(V.dual())
 
     # Symbolic compute: <(∂N/∂u)*, δN>
     dNdu = expand_derivatives(derivative(N, u))
