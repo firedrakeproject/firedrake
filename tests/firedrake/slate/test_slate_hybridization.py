@@ -39,7 +39,7 @@ def setup_poisson():
 
     # Define the source function
     f = Function(V)
-    f.dat.data_wo[...] = np.random.uniform(size=f.dat.data_ro.size)
+    f.dat.data_wo[...] = np.random.uniform(size=f.dat.data_wo.shape)
 
     # Define the variational forms
     a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx

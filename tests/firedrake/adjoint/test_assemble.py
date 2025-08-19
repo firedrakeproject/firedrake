@@ -95,7 +95,7 @@ def test_assemble_1_forms_tlm():
 
     Jhat = ReducedFunctional(J, Control(f))
     h = Function(V)
-    h.dat.data_wo[...] = rand(h.dof_dset.size)
+    h.dat.data_wo[...] = rand(h.dat.data_wo.shape)
     g = f.copy(deepcopy=True)
     f.block_variable.tlm_value = h
     tape.evaluate_tlm()
@@ -104,13 +104,12 @@ def test_assemble_1_forms_tlm():
 
 @pytest.mark.skipcomplex
 def _test_adjoint(J, f):
-    import numpy.random
     tape = Tape()
     set_working_tape(tape)
 
     V = f.function_space()
     h = Function(V)
-    h.dat.data_wo[...] = numpy.random.rand(V.dim())
+    h.dat.data_wo[...] = rand(h.dat.data_wo.shape)
 
     eps_ = [0.01 / 2.0**i for i in range(5)]
     residuals = []

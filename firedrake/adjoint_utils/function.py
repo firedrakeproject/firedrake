@@ -278,7 +278,7 @@ class FunctionMixin(FloatingType):
     def _ad_assign_numpy(dst, src, offset):
         range_begin, range_end = dst.dat.dataset.layout_vec.getOwnershipRange()
         m_a_local = src[offset + range_begin:offset + range_end]
-        dst.dat.data_wo[...] = m_a_local.reshape(dst.dat.data_ro.shape)
+        dst.dat.data_wo[...] = m_a_local.reshape(dst.dat.data_wo.shape)
         offset += dst.dat.dataset.layout_vec.size
         return dst, offset
 
@@ -314,17 +314,12 @@ class FunctionMixin(FloatingType):
         return r0
 
     def _applyUnary(self, f):
-        npdata = self.dat.data_ro
-        for i in range(len(npdata)):
-            npdata[i] = f(npdata[i])
-        self.dat.data_wo[...] = npdata
+        for i in range(len(self.dat.data_ro)):
+            self.dat.data_wo[i] = f(self.dat.data_ro[i])
 
     def _applyBinary(self, f, y):
-        npdata = self.dat.data_ro
-        npdatay = y.dat.data_ro
-        for i in range(len(npdata)):
-            npdata[i] = f(npdata[i], npdatay[i])
-        self.dat.data_wo[...] = npdata
+        for i in range(len(self.dat.data_ro)):
+            self.dat.data_wo[i] = f(self.dat.data_ro[i], y.dat.data_ro[i])
 
     def _ad_from_petsc(self, vec):
         with self.dat.vec_wo as self_v:

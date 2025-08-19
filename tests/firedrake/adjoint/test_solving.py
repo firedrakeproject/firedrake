@@ -427,7 +427,7 @@ def _test_adjoint(J, f):
 
     V = f.function_space()
     h = Function(V)
-    h.dat.data_wo[...] = numpy.random.rand(V.dim())
+    h.dat.data_wo[...] = numpy.random.rand(h.dat.data_wo.shape)
 
     eps_ = [0.01/2.0**i for i in range(5)]
     residuals = []

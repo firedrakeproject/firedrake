@@ -289,7 +289,7 @@ To save data for visualization, we change the position of the nodes in the mesh,
             return
         mesh_static = mesh.coordinates.copy(deepcopy=True)
         mesh.coordinates += X
-        mesh.coordinates.dat.data_wo[:, 1] += eta.dat.data_ro
+        mesh.coordinates.dat.data_rw[:, 1] += eta.dat.data_ro
         outfile_phi.write(phi)
         mesh.coordinates.assign(mesh_static)
 

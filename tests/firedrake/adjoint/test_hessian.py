@@ -54,7 +54,7 @@ def test_simple_solve():
     Jhat = ReducedFunctional(J, c)
 
     h = Function(V)
-    h.dat.data_wo[...] = rng.random(V.dim())
+    h.dat.data_wo[...] = rng.random(h.dat.data_wo.shape)
 
     tape.evaluate_adj()
 
@@ -92,7 +92,7 @@ def test_mixed_derivatives():
 
     # Direction to take a step for convergence test
     h = Function(V)
-    h.dat.data_wo[...] = rng.random(V.dim())
+    h.dat.data_wo[...] = rng.random(h.dat.data_wo.shape)
 
     # Evaluate TLM
     control_f.tlm_value = h
@@ -141,7 +141,7 @@ def test_function():
     # Step direction for derivatives and convergence test
     h_c = Function(R, val=1.0)
     h_f = Function(V)
-    h_f.dat.data_wo[...] = 10*rng.random(V.dim())
+    h_f.dat.data_wo[...] = 10*rng.random(h_f.dat.data_wo.shape)
 
     # Total derivative
     dJdc, dJdf = compute_gradient(J, [control_c, control_f], apply_riesz=True)
@@ -174,7 +174,7 @@ def test_nonlinear():
     Jhat = ReducedFunctional(J, Control(f))
 
     h = Function(V)
-    h.dat.data_wo[...] = 10*rng.random(V.dim())
+    h.dat.data_wo[...] = 10*rng.random(h.dat.data_wo.shape)
 
     J.block_variable.adj_value = 1.0
     f.block_variable.tlm_value = h
@@ -214,7 +214,7 @@ def test_dirichlet():
     Jhat = ReducedFunctional(J, Control(c))
 
     h = Function(V)
-    h.dat.data_wo[...] = rng.random(V.dim())
+    h.dat.data_wo[...] = rng.random(h.dat.data_wo.shape)
 
     J.block_variable.adj_value = 1.0
     c.block_variable.tlm_value = h
@@ -304,7 +304,7 @@ def test_burgers(solve_type):
 
     Jhat = ReducedFunctional(J, Control(ic))
     h = Function(V)
-    h.dat.data_wo[...] = rng.random(V.dim())
+    h.dat.data_wo[...] = rng.random(h.dat.data_wo.shape)
     g = ic.copy(deepcopy=True)
     J.block_variable.adj_value = 1.0
     ic.block_variable.tlm_value = h
