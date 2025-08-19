@@ -250,7 +250,7 @@ class AbstractDat(DataCarrier, EmptyDataMixin, abc.ABC):
             scatter, lvec = PETSc.Scatter().toAll(gvec)
             scatter.scatter(
                 gvec, lvec, addv=PETSc.InsertMode.INSERT_VALUES)
-        return lvec.array_r
+        return lvec.array
 
     def save(self, filename):
         """Write the data array to file ``filename`` in NumPy format."""
