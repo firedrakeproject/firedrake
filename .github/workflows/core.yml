@@ -8,7 +8,7 @@ on:
         type: string
         required: true
       target_branch:
-        description: The target branch (usually 'master' or 'release')
+        description: The target branch (usually 'main' or 'release')
         type: string
         required: true
       run_tests:
@@ -39,7 +39,7 @@ on:
         type: string
         required: true
       target_branch:
-        description: The target branch (usually 'master' or 'release')
+        description: The target branch (usually 'main' or 'release')
         type: string
         required: true
       run_tests:
@@ -93,7 +93,9 @@ jobs:
       FIREDRAKE_CI: 1
       PYOP2_CI_TESTS: 1
       PYOP2_SPMD_STRICT: 1
-      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660
+      # NOTE: One should occasionally update test_durations.json by running
+      # 'make test_durations' inside a 'firedrake:latest' Docker image.
+      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 --durations-path=./firedrake-repo/tests/test_durations.json
       PYTEST_MPI_MAX_NPROCS: 8
     steps:
       - name: Fix HOME
@@ -106,13 +108,20 @@ jobs:
         # Make sure the current directory is empty
         run: find . -delete
 
+      # Use a different mirror to fetch apt packages from to get around
+      # temporary outage.
+      # (https://askubuntu.com/questions/1549622/problem-with-archive-ubuntu-com-most-of-the-servers-are-not-responding)
+      # The mirror was chosen from https://launchpad.net/ubuntu/+archivemirrors.
+      - name: Configure apt
+        run: |
+          sed -i 's|http://archive.ubuntu.com/ubuntu|http://www.mirrorservice.org/sites/archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources
+          apt-get update
+
       # Git is needed for actions/checkout and Python for firedrake-configure
       - name: Install system dependencies (1)
-        run: |
-          apt-get update
-          apt-get -y install git python3
+        run: apt-get -y install git python3
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
@@ -137,9 +146,7 @@ jobs:
             $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
           apt-get -y install python3-venv
           : # Dependencies needed to run the test suite
-          apt-get -y install parallel
-          : # Dependencies needed to build the documentation
-          apt-get -y install inkscape texlive-full
+          apt-get -y install fonts-dejavu graphviz graphviz-dev parallel poppler-utils
 
       - name: Install PETSc
         run: |
@@ -169,10 +176,6 @@ jobs:
           python3 -m venv venv
           . venv/bin/activate
 
-          : # Hotfix for petsc4py build, see https://gitlab.com/petsc/petsc/-/issues/1759
-          echo 'Cython<3.1' > constraints.txt
-          export PIP_CONSTRAINT=constraints.txt
-
           : # Force a rebuild of petsc4py as the cached one will not link to the fresh
           : # install of PETSc.
           pip cache remove petsc4py
@@ -190,7 +193,7 @@ jobs:
             : # because they rely on non-PyPI versions of petsc4py.
             pip install --no-build-isolation --no-deps \
               "$PETSC_DIR"/"$PETSC_ARCH"/externalpackages/git.slepc/src/binding/slepc4py
-            pip install --no-deps ngsPETSc netgen-mesher netgen-occt
+            pip install --no-deps git+https://github.com/NGSolve/ngsPETSc.git netgen-mesher netgen-occt
 
             : # We have to pass '--no-build-isolation' to use a custom petsc4py
             EXTRA_BUILD_ARGS='--no-isolation'
@@ -234,7 +237,7 @@ jobs:
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/tsfc
-        timeout-minutes: 60
+        timeout-minutes: 10
 
       - name: Run PyOP2 tests
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
@@ -246,7 +249,7 @@ jobs:
           firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
           firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
           firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/pyop2
-        timeout-minutes: 15
+        timeout-minutes: 10
 
 
       - name: Run Firedrake tests (nprocs = 1)
@@ -256,14 +259,14 @@ jobs:
           : # Use pytest-xdist here so we can have a single collated output (not possible
           : # for parallel tests)
           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 60
+        timeout-minutes: 90
 
       - name: Run tests (nprocs = 2)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 30
+        timeout-minutes: 60
 
       - name: Run tests (nprocs = 3)
         if: inputs.run_tests && (success() || steps.install.conclusion == 'success')
@@ -366,6 +369,10 @@ jobs:
           name: firedrake-logs-${{ matrix.arch }}
           path: pytest_*.log
 
+      - name: Install system dependencies (3)
+        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
+        run: apt-get -y install inkscape texlive-full
+
       - name: Check bibtex
         if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
         run: |
@@ -418,6 +425,8 @@ jobs:
             echo Error: there are untracked files in the repository
             echo The output from 'git status' is:
             git status
+            echo The output from 'git diff' is:
+            git diff
             exit 1
           fi
 
@@ -442,7 +451,7 @@ jobs:
         # Make sure the current directory is empty
         run: find . -delete
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
@@ -484,6 +493,10 @@ jobs:
           : # like h5py or mpi4py if changing HDF5/MPI libraries.
           pip cache remove petsc4py
 
+          : # Hotfix for petsc4py build, see https://gitlab.com/petsc/petsc/-/issues/1759
+          echo 'Cython<3.1' > constraints.txt
+          export PIP_CONSTRAINT=constraints.txt
+
           if [ ${{ inputs.target_branch }} = 'release' ]; then
             EXTRA_PIP_FLAGS=''
           else
@@ -517,7 +530,7 @@ jobs:
     name: Lint codebase
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.source_ref }}
       - uses: actions/setup-python@v5
@@ -533,12 +546,12 @@ jobs:
   deploy_website:
     name: Deploy GitHub pages (optional)
     needs: test_linux
-    # Only deploy the website for master here, the release branch is managed
+    # Only deploy the website for main here, the release branch is managed
     # by https://github.com/firedrakeproject/firedrakeproject.github.io
     if: |
       always() &&
       inputs.deploy_website &&
-      inputs.target_branch == 'master' &&
+      inputs.target_branch == 'main' &&
       needs.test_linux.outputs.docs_conclusion == 'success'
     permissions:
       pages: write
@@ -562,8 +575,6 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-    permissions:
-      id-token: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -571,6 +582,8 @@ jobs:
           path: dist
       - name: Push to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
 
   upload_testpypi:
     name: Upload to TestPyPI (optional)

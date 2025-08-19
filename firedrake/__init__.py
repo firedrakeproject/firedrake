@@ -1,24 +1,38 @@
-import sys
-from firedrake.configuration import setup_cache_dirs
+# The range of PETSc versions supported by Firedrake. Note that unlike in
+# firedrake-configure and pyproject.toml where we want to be strict about
+# the specific version, here we are more permissive. This is to catch the
+# case where users don't update their PETSc for a really long time or
+# accidentally install a too-new release that isn't yet supported.
+PETSC_SUPPORTED_VERSIONS = ">=3.23.0"
+
+
+def init_petsc():
+    import os
+    import sys
+    import petsctools
+
+    # We conditionally pass '-options_left no' as in some circumstances (e.g.
+    # when running pytest) PETSc complains that command line options are not
+    # PETSc options.
+    if os.getenv("FIREDRAKE_DISABLE_OPTIONS_LEFT") == "1":
+        petsctools.init(sys.argv + ["-options_left", "no"], version_spec=PETSC_SUPPORTED_VERSIONS)
+    else:
+        petsctools.init(sys.argv, version_spec=PETSC_SUPPORTED_VERSIONS)
+
+
+# Ensure petsc is initialised right away
+init_petsc()
 
 # Set up the cache directories before importing PyOP2.
+from firedrake.configuration import setup_cache_dirs
+
 setup_cache_dirs()
 
-# Ensure petsc is initialised by us before anything else gets in there.
-# We conditionally pass '-options_left no' as in some circumstances (e.g.
-# when running pytest) PETSc complains that command line options are not
-# PETSc options.
-import os
-import petsc4py
-if os.getenv("FIREDRAKE_DISABLE_OPTIONS_LEFT") == "1":
-    petsc4py.init(sys.argv + ["-options_left", "no"])
-else:
-    petsc4py.init(sys.argv)
-del os, petsc4py
 
 # Initialise PETSc events for both import and entire duration of program
+import petsctools
 from firedrake import petsc
-_is_logging = "log_view" in petsc.OptionsManager.commandline_options
+_is_logging = "log_view" in petsctools.get_commandline_options()
 if _is_logging:
     _main_event = petsc.PETSc.Log.Event("firedrake")
     _main_event.begin()
@@ -29,6 +43,7 @@ if _is_logging:
     import atexit
     atexit.register(lambda: _main_event.end())
     del atexit
+del petsctools
 del petsc
 
 from ufl import *
@@ -85,6 +100,7 @@ from firedrake._deprecation import plot, File  # noqa: F401
 #   from firedrake._deprecation import output
 #   sys.modules["firedrake.output"] = output
 from firedrake.output import *
+import sys
 sys.modules["firedrake.plot"] = plot
 from firedrake.plot import *
 
@@ -104,7 +120,7 @@ def set_blas_num_threads():
 
     """
     from ctypes import cdll
-    from firedrake.petsc import get_blas_library
+    from petsctools import get_blas_library
 
     try:
         blas_lib_path = get_blas_library()

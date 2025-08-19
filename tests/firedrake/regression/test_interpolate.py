@@ -2,7 +2,6 @@ from os.path import abspath, dirname, join
 import numpy as np
 import pytest
 from firedrake import *
-from firedrake.__future__ import *
 
 cwd = abspath(dirname(__file__))
 
@@ -403,6 +402,10 @@ def test_adjoint_Pk(degree):
     v_adj = assemble(interpolate(TestFunction(Pk), assemble(v * dx)))
 
     assert np.allclose(u_Pk.dat.data, v_adj.dat.data)
+
+    v_adj_form = assemble(interpolate(TestFunction(Pk), v * dx))
+
+    assert np.allclose(v_adj_form.dat.data, v_adj.dat.data)
 
 
 def test_adjoint_quads():

@@ -135,6 +135,7 @@ nitpick_ignore_regex = [
     (r'py:.*', r'ufl\..*'),
     (r'py:.*', r'PETSc\..*'),
     (r'py:.*', r'progress\..*'),
+    (r'py:.*', r'petsctools\..*'),
     # Ignore undocumented PyOP2
     ('py:class', 'pyop2.caching.Cached'),
     # Ignore mission docs from Firedrake internal "private" code
@@ -164,6 +165,10 @@ linkcheck_ignore = [
     r'https://www.crosscountrytrains.co.uk/',
     r'https://www.siam.org/',
     r'https://aims.ac.rw',
+    r'https://mpecdt.ac.uk',
+    r'https://www.hilton.com/en/hotels/leehnhn-hilton-leeds-city/',
+    r'https://www.radissonhotels.com/en-us/hotels/park-plaza-leeds',
+    r'https://www.radissonhotels.com/en-us/hotels/radisson-blu-leeds'
 ]
 linkcheck_timeout = 30
 
@@ -248,10 +253,11 @@ htmlhelp_basename = 'Firedrakedoc'
 
 # Optional header warning about docs version
 rst_prolog = """
-.. only:: master
+.. only:: main
 
     .. warning::
-        You are reading a version of the website built against the unstable ``master`` branch. This content is liable to change without notice and may be inappropriate for your use case.
+        You are reading a version of the website built against the unstable ``main`` branch. This content is liable to change without notice and may be inappropriate for your use case.
+        You can find the documentation for the current stable release `here <https://firedrakeproject.org/>`__.
 """
 
 # -- Options for LaTeX output --------------------------------------------
@@ -275,6 +281,7 @@ latex_elements = {
     # Additional stuff for the LaTeX preamble.
     'preamble': r'''\newcommand{\require}[1]{}
 \usepackage{cancel}
+\usepackage{mathrsfs}
 
 % \sphinxDUC{2730}{\ding{80}}
 \sphinxDUC{27F6}{$\rightarrow$}
@@ -404,6 +411,7 @@ texinfo_documents = [(
 intersphinx_mapping = {
     'pyop2': ('https://op2.github.io/PyOP2', None),
     'ufl': ('https://fenics.readthedocs.io/projects/ufl/en/latest/', None),
+    'ufl': ('https://docs.fenicsproject.org/ufl/main/', None),
     'FIAT': ('https://fenics.readthedocs.io/projects/fiat/en/latest/', None),
     'FInAT': ('https://finat.github.io/FInAT/', None),
     'mpi4py': ('https://mpi4py.readthedocs.io/en/stable/', None),
@@ -422,9 +430,19 @@ intersphinx_mapping = {
 bibtex_bibfiles = ['demos/demo_references.bib', '_static/bibliography.bib', '_static/firedrake-apps.bib', '_static/references.bib']
 
 #  -- Options for sphinx.ext.extlinks ------------------------------------
-extlinks = {
-    'demo': ('https://firedrakeproject.org/demos/%s', None)
-}
+extlinks = {}
+if tags.has('main'):
+    extlinks['demo'] = (
+        'https://firedrakeproject.org/firedrake/demos/%s', None
+    )
+elif tags.has('release'):
+    extlinks['demo'] = (
+        'https://firedrakeproject.org/demos/%s', None
+    )
+else:
+    extlinks['demo'] = (
+        '%s', None
+    )
 
 #  -- Options for sphinx_reredirects ------------------------------------
 redirects = {

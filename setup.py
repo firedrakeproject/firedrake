@@ -1,47 +1,27 @@
-import logging
 import os
+import pkgconfig
 import platform
-import sys
-import site
 import shutil
+import site
+from dataclasses import dataclass, field
+from glob import glob
+from pathlib import Path
+
+import libsupermesh
 import numpy as np
 import pybind11
-import petsc4py
+import petsctools
 import rtree
-import libsupermesh
-import pkgconfig
-from dataclasses import dataclass, field
+from Cython.Build import cythonize
 from setuptools import setup, find_packages, Extension
 from setuptools.command.editable_wheel import editable_wheel as _editable_wheel
 from setuptools.command.sdist import sdist as _sdist
-from glob import glob
-from pathlib import Path
-from Cython.Build import cythonize
+from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
 
 
-petsc_config = petsc4py.get_config()
-
-
-def get_petsc_dir():
-    """Attempts to find the PETSc directory on the system
-    """
-    petsc_dir = petsc_config["PETSC_DIR"]
-    petsc_arch = petsc_config["PETSC_ARCH"]
-    pathlist = [petsc_dir]
-    if petsc_arch:
-        pathlist.append(os.path.join(petsc_dir, petsc_arch))
-    return pathlist
-
-
-def get_petsc_variables():
-    """Attempts obtain a dictionary of PETSc configuration settings
-    """
-    path = [get_petsc_dir()[-1], "lib/petsc/conf/petscvariables"]
-    variables_path = os.path.join(*path)
-    with open(variables_path) as fh:
-        # Split lines on first '=' (assignment)
-        splitlines = (line.split("=", maxsplit=1) for line in fh.readlines())
-    return {k.strip(): v.strip() for k, v in splitlines}
+# Ensure that the PETSc getting linked against is compatible
+petsctools.init(version_spec=">=3.23.0")
+import petsc4py
 
 
 @dataclass
@@ -94,16 +74,18 @@ numpy_ = ExternalDependency(include_dirs=[np.get_include()])
 # example:
 # gcc -I$PETSC_DIR/include -I$PETSC_DIR/$PETSC_ARCH/include -I/petsc4py/include
 # gcc -L$PETSC_DIR/$PETSC_ARCH/lib -lpetsc -Wl,-rpath,$PETSC_DIR/$PETSC_ARCH/lib
-petsc_dirs = get_petsc_dir()
+petsc_dir = petsctools.get_petsc_dir()
+petsc_arch = petsctools.get_petsc_arch()
+petsc_dirs = [petsc_dir, os.path.join(petsc_dir, petsc_arch)]
 petsc_ = ExternalDependency(
     libraries=["petsc"],
     include_dirs=[petsc4py.get_include()] + [os.path.join(d, "include") for d in petsc_dirs],
     library_dirs=[os.path.join(petsc_dirs[-1], "lib")],
     runtime_library_dirs=[os.path.join(petsc_dirs[-1], "lib")],
 )
-petsc_variables = get_petsc_variables()
-petsc_hdf5_compile_args = petsc_variables.get("HDF5_INCLUDE", "")
-petsc_hdf5_link_args = petsc_variables.get("HDF5_LIB", "")
+petscvariables = petsctools.get_petscvariables()
+petsc_hdf5_compile_args = petscvariables.get("HDF5_INCLUDE", "")
+petsc_hdf5_link_args = petscvariables.get("HDF5_LIB", "")
 
 # HDF5
 # example:
@@ -113,15 +95,15 @@ if petsc_hdf5_link_args and petsc_hdf5_compile_args:
     # We almost always want to be in this first case!!!
     # PETSc variables only contains the compile/link args, not the paths
     hdf5_ = ExternalDependency(
-        extra_compile_args = petsc_hdf5_compile_args.split(),
-        extra_link_args = petsc_hdf5_link_args.split()
+        extra_compile_args=petsc_hdf5_compile_args.split(),
+        extra_link_args=petsc_hdf5_link_args.split()
     )
 elif os.environ.get("HDF5_DIR"):
     hdf5_dir = Path(os.environ.get("HDF5_DIR"))
     hdf5_ = ExternalDependency(
         libraries=["hdf5"],
-        include_dirs = [str(hdf5_dir.joinpath("include"))],
-        library_dirs = [str(hdf5_dir.joinpath("lib"))]
+        include_dirs=[str(hdf5_dir.joinpath("include"))],
+        library_dirs=[str(hdf5_dir.joinpath("lib"))]
     )
 elif pkgconfig.exists("hdf5"):
     hdf5_ = ExternalDependency(**pkgconfig.parse("hdf5"))
@@ -165,9 +147,10 @@ libsupermesh_ = ExternalDependency(
     libraries=["supermesh"],
 )
 
+
 # The following extensions need to be linked accordingly:
 def extensions():
-    ## CYTHON EXTENSIONS
+    # CYTHON EXTENSIONS
     cython_list = []
     # firedrake/cython/dmcommon.pyx: petsc, numpy
     cython_list.append(Extension(
@@ -225,7 +208,7 @@ def extensions():
         sources=[os.path.join("pyop2", "sparsity.pyx")],
         **(petsc_ + numpy_)
     ))
-    ## PYBIND11 EXTENSIONS
+    # PYBIND11 EXTENSIONS
     pybind11_list = []
     # tinyasm/tinyasm.cpp: petsc, pybind11
     pybind11_list.append(Extension(
@@ -237,9 +220,7 @@ def extensions():
     return cythonize(cython_list) + pybind11_list
 
 
-# TODO: It would be good to have a single source of truth for these files
 FIREDRAKE_CHECK_FILES = (
-    "Makefile",
     "tests/firedrake/conftest.py",
     "tests/firedrake/regression/test_stokes_mini.py",
     "tests/firedrake/regression/test_locate_cell.py",
@@ -252,9 +233,15 @@ FIREDRAKE_CHECK_FILES = (
 
 
 def copy_check_files():
-    """Copy Makefile and tests into firedrake/_check."""
+    """Copy tests into firedrake/_check."""
     dest_dir = Path("firedrake/_check")
     for check_file in map(Path, FIREDRAKE_CHECK_FILES):
+        # If we are building a wheel from an sdist then the files have
+        # already been moved
+        if not check_file.exists():
+            assert (dest_dir / check_file).exists()
+            continue
+
         os.makedirs(dest_dir / check_file.parent, exist_ok=True)
         shutil.copy(check_file, dest_dir / check_file.parent)
 
@@ -271,8 +258,18 @@ class sdist(_sdist):
         super().run()
 
 
+class bdist_wheel(_bdist_wheel):
+    def run(self):
+        copy_check_files()
+        super().run()
+
+
 setup(
-    cmdclass={"editable_wheel": editable_wheel, "sdist": sdist},
+    cmdclass={
+        "editable_wheel": editable_wheel,
+        "sdist": sdist,
+        "bdist_wheel": bdist_wheel,
+    },
     packages=find_packages(),
     ext_modules=extensions(),
 )
