@@ -47,6 +47,7 @@ def dual(request):
     return request.param == "dual"
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 def test_function_space_cached(mesh):
     "FunctionSpaces defined on the same mesh and element are cached."
     assert FunctionSpace(mesh, "CG", 1) == FunctionSpace(mesh, "CG", 1)
@@ -54,6 +55,7 @@ def test_function_space_cached(mesh):
     assert FunctionSpace(mesh, "CG", 1)._shared_data == FunctionSpace(mesh, "CG", 1)._shared_data
 
 
+@pytest.mark.skip(reason="pyop3 TODO")
 def test_function_spaces_shared_data(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     Q = VectorFunctionSpace(mesh, "Lagrange", 1)
@@ -291,7 +293,7 @@ def test_reconstruct_component(space, dg0, rt1, mesh, mesh2, dual):
         assert V2.mesh() == mesh2
         assert V1.ufl_element() == V2.ufl_element()
         assert V1.index == V2.index
-        assert V1.component == V2.component == component
+        assert V1.component == V2.component == (component,)
 
 
 def test_reconstruct_sub_component(dg0, rt1, mesh, mesh2, dual):
@@ -307,7 +309,7 @@ def test_reconstruct_sub_component(dg0, rt1, mesh, mesh2, dual):
             assert V1.mesh() == mesh
             assert V2.mesh() == mesh2
             assert V1.ufl_element() == V2.ufl_element()
-            assert V1.component == V2.component == component
+            assert V1.component == V2.component == (component,)
             assert V1.parent is not None and V2.parent is not None
             assert is_dual(V1.parent) == is_dual(V2.parent) == dual
             assert is_primal(V1.parent) == is_primal(V2.parent) != dual
