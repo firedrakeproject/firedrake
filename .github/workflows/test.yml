@@ -8,12 +8,9 @@ on:
 jobs:
   container:
     name: Build dev Docker container
-
     runs-on: [self-hosted, linux]
-
     strategy:
       fail-fast: true
-
     steps:
       - name: Pre-cleanup
         if: always()
@@ -57,6 +54,27 @@ jobs:
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
           retention-days: 1
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests_firedrake-dev-test_linux
+          merge-multiple: true
+
+      # NOTE: This action pushes a new image with the given tag but also updates
+      # the 'latest' tag.
+      - name: Merge and push the per-platform images
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create \
+            -t firedrakeproject/firedrake-dev-test:main \
+            -t firedrakeproject/firedrake-dev-test:latest \
+            $(printf 'firedrakeproject/firedrake-dev-test@sha256:%s ' *)
+
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect firedrakeproject/firedrake-dev-test:main
 
       - name: Post-cleanup
         if: always()
