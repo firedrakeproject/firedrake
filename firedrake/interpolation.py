@@ -1572,7 +1572,7 @@ class VomOntoVomDummyMat(object):
                     raise ValueError("Need to provide a source dat for the argument!")
                 arg = self.arguments[0]
                 arg_coeff = firedrake.Function(arg.function_space())
-                arg_coeff.dat.data_wo[:] = source_vec.getArray().reshape(
+                arg_coeff.dat.data_wo[:] = source_vec.getArray(readonly=True).reshape(
                     arg_coeff.dat.data_wo.shape
                 )
                 coeff_expr = ufl.replace(self.expr, {arg: arg_coeff})
