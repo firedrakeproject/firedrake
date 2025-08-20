@@ -1661,7 +1661,10 @@ class VomOntoVomDummyMat(object):
     def _create_permutation_mat(self):
         """Creates the PETSc matrix that represents the interpolation operator from a vertex-only mesh to
         its input ordering vertex-only mesh"""
-        mat = PETSc.Mat().createAIJ((self.target_size, self.source_size), nnz=1, comm=self.V.comm)
+        dim = self.V.value_size
+        target_size = tuple(dim * s for s in self.target_size)
+        source_size = tuple(dim * s for s in self.source_size)
+        mat = PETSc.Mat().createAIJ((target_size, source_size), nnz=1, comm=self.V.comm)
         mat.setUp()
         start = sum(self._local_sizes[:self.V.comm.rank])
         end = start + self.source_size[0]
@@ -1669,8 +1672,9 @@ class VomOntoVomDummyMat(object):
         perm = numpy.zeros(self.target_size[0], dtype=utils.IntType)
         self.sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
         self.sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
-        rows = numpy.arange(self.target_size[0] + 1, dtype=utils.IntType)
-        mat.setValuesCSR(rows, perm, numpy.ones_like(perm, dtype=utils.IntType))
+        rows = numpy.arange(target_size[0] + 1, dtype=utils.IntType)
+        cols = (dim * perm[:, None] + numpy.arange(dim, dtype=utils.IntType)[None, :]).reshape(-1)
+        mat.setValuesCSR(rows, cols, numpy.ones_like(cols, dtype=utils.IntType))
         mat.assemble()
         if self.forward_reduce:
             mat.transpose()
