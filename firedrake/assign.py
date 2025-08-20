@@ -16,7 +16,6 @@ from firedrake.constant import Constant
 from firedrake.function import Function
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType, split_by
-from firedrake.vector import Vector
 
 
 def _isconstant(expr):
@@ -142,8 +141,6 @@ class Assigner:
     _coefficient_collector = CoefficientCollector()
 
     def __init__(self, assignee, expression, subset=None):
-        if isinstance(expression, Vector):
-            expression = expression.function
         expression = as_ufl(expression)
 
         for coeff in extract_coefficients(expression):

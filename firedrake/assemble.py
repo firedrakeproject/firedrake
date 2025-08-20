@@ -1249,7 +1249,7 @@ class OneFormAssembler(ParloopFormAssembler):
             else:
                 # The residual belongs to a mixed space that is dual on the boundary nodes
                 # and primal on the interior nodes. Therefore, this is a type-safe operation.
-                r = tensor.riesz_representation("l2")
+                r = firedrake.Function(tensor.function_space().dual(), val=tensor.dat)
                 bc.apply(r, u=u)
         elif isinstance(bc, EquationBCSplit):
             bc.zero(tensor)

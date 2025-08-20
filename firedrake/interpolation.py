@@ -465,6 +465,13 @@ class CrossMeshInterpolator(Interpolator):
         V_dest = V.function_space() if isinstance(V, firedrake.Function) else V
         src_mesh = extract_unique_domain(expr)
         dest_mesh = as_domain(V_dest)
+        if (
+            ufl.cell.simplex(src_mesh.topological_dimension()) != src_mesh.ufl_cell()
+            and numpy.any(numpy.asarray(src_mesh.ufl_coordinate_element().degree()) > 1)
+        ):
+            raise NotImplementedError(
+                "Cannot yet interpolate from non-simplicial higher-order meshes into other meshes."
+            )
         src_mesh_gdim = src_mesh.geometric_dimension()
         dest_mesh_gdim = dest_mesh.geometric_dimension()
         if src_mesh_gdim != dest_mesh_gdim:
@@ -473,15 +480,6 @@ class CrossMeshInterpolator(Interpolator):
             )
         self.src_mesh = src_mesh
         self.dest_mesh = dest_mesh
-        if numpy.any(
-            numpy.asarray(src_mesh.coordinates.function_space().ufl_element().degree())
-            > 1
-        ):
-            # Need to implement vertex-only mesh immersion in high order meshes
-            # for this to work.
-            raise NotImplementedError(
-                "Cannot yet interpolate from high order meshes to other meshes."
-            )
 
         self.sub_interpolators = []
 
@@ -767,9 +765,27 @@ class SameMeshInterpolator(Interpolator):
 
     @no_annotations
     def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE,
-                 bcs=None, matfree=True, **kwargs):
+                 bcs=None, matfree=True, allow_missing_dofs=False, **kwargs):
+        if subset is None:
+            target = V.function_space().mesh().topology if isinstance(V, firedrake.Function) else V.mesh().topology
+            temp = extract_unique_domain(expr)
+            source = target if temp is None else temp.topology
+            if all(isinstance(m, firedrake.mesh.MeshTopology) for m in [target, source]) and target is not source:
+                composed_map, result_integral_type = source.trans_mesh_entity_map(target, "cell", "everywhere", None)
+                if result_integral_type != "cell":
+                    raise AssertionError("Only cell-cell interpolation supported")
+                indices_active = composed_map.indices_active_with_halo
+                make_subset = not indices_active.all()
+                make_subset = target.comm.allreduce(make_subset, op=MPI.LOR)
+                if make_subset:
+                    if not allow_missing_dofs:
+                        raise ValueError("iteration (sub)set unclear: run with `allow_missing_dofs=True`")
+                    subset = op2.Subset(target.cell_set, numpy.where(indices_active))
+                else:
+                    # Do not need subset as target <= source.
+                    pass
         super().__init__(expr, V, subset=subset, freeze_expr=freeze_expr,
-                         access=access, bcs=bcs, matfree=matfree)
+                         access=access, bcs=bcs, matfree=matfree, allow_missing_dofs=allow_missing_dofs)
         try:
             self.callable, arguments = make_interpolator(expr, V, subset, access, bcs=bcs, matfree=matfree)
         except FIAT.hdiv_trace.TraceError:

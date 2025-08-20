@@ -257,6 +257,7 @@ rst_prolog = """
 
     .. warning::
         You are reading a version of the website built against the unstable ``main`` branch. This content is liable to change without notice and may be inappropriate for your use case.
+        You can find the documentation for the current stable release `here <https://firedrakeproject.org/>`__.
 """
 
 # -- Options for LaTeX output --------------------------------------------

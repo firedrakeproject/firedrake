@@ -6,6 +6,7 @@ import ufl
 import finat.ufl
 import FIAT
 import weakref
+from typing import Tuple
 from collections import OrderedDict, defaultdict
 from collections.abc import Sequence
 from ufl.classes import ReferenceGrad
@@ -2289,6 +2290,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         # submesh
         self.submesh_parent = None
 
+        self._bounding_box_coords = None
         self._spatial_index = None
         self._saved_coordinate_dat_version = coordinates.dat.dat_version
 
@@ -2457,35 +2459,52 @@ values from f.)"""
         the coordinate field)."""
         self._spatial_index = None
 
-    @property
-    def spatial_index(self):
-        """Spatial index to quickly find which cell contains a given point.
+    @utils.cached_property
+    def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray] | None:
+        """Calculates bounding boxes for spatial indexing.
+
+        Returns
+        -------
+        Tuple of arrays of shape (num_cells, gdim) containing
+        the minimum and maximum coordinates of each cell's bounding box.
+
+        None if the geometric dimension is 1, since libspatialindex
+        does not support 1D.
 
         Notes
         -----
-
-        If this mesh has a :attr:`tolerance` property, which
-        should be a float, this tolerance is added to the extrama of the
-        spatial index so that points just outside the mesh, within tolerance,
-        can be found.
-
+        If we have a higher-order (bendy) mesh we project the mesh coordinates into
+        a Bernstein finite element space. Functions on a Bernstein element are
+        Bezier curves and are completely contained in the convex hull of the mesh nodes.
+        Hence the bounding box will contain the entire element.
         """
         from firedrake import function, functionspace
         from firedrake.parloops import par_loop, READ, MIN, MAX
-
-        if (
-            self._spatial_index
-            and self.coordinates.dat.dat_version == self._saved_coordinate_dat_version
-        ):
-            return self._spatial_index
 
         gdim = self.geometric_dimension()
         if gdim <= 1:
             info_red("libspatialindex does not support 1-dimension, falling back on brute force.")
             return None
 
+        coord_element = self.ufl_coordinate_element()
+        coord_degree = coord_element.degree()
+        if ufl.cell.simplex(self.topological_dimension()) != self.ufl_cell():
+            # Non-simplex element, e.g. quad or tensor product
+            mesh = self
+        elif coord_degree == 1:
+            mesh = self
+        elif coord_element.family() == "Bernstein":
+            # Already have Bernstein coordinates, no need to project
+            mesh = self
+        else:
+            # For bendy meshes we project the coordinate function onto Bernstein
+            bernstein_fs = functionspace.VectorFunctionSpace(self, "Bernstein", coord_degree)
+            f = function.Function(bernstein_fs)
+            f.interpolate(self.coordinates)
+            mesh = Mesh(f)
+
         # Calculate the bounding boxes for all cells by running a kernel
-        V = functionspace.VectorFunctionSpace(self, "DG", 0, dim=gdim)
+        V = functionspace.VectorFunctionSpace(mesh, "DG", 0, dim=gdim)
         coords_min = function.Function(V, dtype=RealType)
         coords_max = function.Function(V, dtype=RealType)
 
@@ -2493,18 +2512,18 @@ values from f.)"""
         coords_max.dat.data.fill(-np.inf)
 
         if utils.complex_mode:
-            if not np.allclose(self.coordinates.dat.data_ro.imag, 0):
+            if not np.allclose(mesh.coordinates.dat.data_ro.imag, 0):
                 raise ValueError("Coordinate field has non-zero imaginary part")
-            coords = function.Function(self.coordinates.function_space(),
-                                       val=self.coordinates.dat.data_ro_with_halos.real.copy(),
+            coords = function.Function(mesh.coordinates.function_space(),
+                                       val=mesh.coordinates.dat.data_ro_with_halos.real.copy(),
                                        dtype=RealType)
         else:
-            coords = self.coordinates
+            coords = mesh.coordinates
 
-        cell_node_list = self.coordinates.function_space().cell_node_list
+        cell_node_list = mesh.coordinates.function_space().cell_node_list
         _, nodes_per_cell = cell_node_list.shape
 
-        domain = "{{[d, i]: 0 <= d < {0} and 0 <= i < {1}}}".format(gdim, nodes_per_cell)
+        domain = f"{{[d, i]: 0 <= d < {gdim} and 0 <= i < {nodes_per_cell}}}"
         instructions = """
         for d, i
             f_min[0, d] = fmin(f_min[0, d], f[i, d])
@@ -2518,9 +2537,35 @@ values from f.)"""
 
         # Reorder bounding boxes according to the cell indices we use
         column_list = V.cell_node_list.reshape(-1)
-        coords_min = self._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
-        coords_max = self._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
+        coords_min = mesh._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
+        coords_max = mesh._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
 
+        return coords_min, coords_max
+
+    @property
+    def spatial_index(self):
+        """Builds spatial index from bounding box coordinates, expanding
+        the bounding box by the mesh tolerance.
+
+        Returns
+        -------
+        :class:`~.spatialindex.SpatialIndex` or None if the mesh is
+        one-dimensional.
+
+        Notes
+        -----
+        If this mesh has a :attr:`tolerance` property, which
+        should be a float, this tolerance is added to the extrema of the
+        spatial index so that points just outside the mesh, within tolerance,
+        can be found.
+
+        """
+        if self.coordinates.dat.dat_version != self._saved_coordinate_dat_version:
+            if "bounding_box_coords" in self.__dict__:
+                del self.bounding_box_coords
+        else:
+            if self._spatial_index:
+                return self._spatial_index
         # Change min and max to refer to an n-hypercube, where n is the
         # geometric dimension of the mesh, centred on the midpoint of the
         # bounding box. Its side length is the L1 diameter of the bounding box.
@@ -2528,11 +2573,15 @@ values from f.)"""
         # where points may be just off the mesh but should be evaluated.
         # TODO: This is perhaps unnecessary when we aren't in these special
         # cases.
-
         # We also push max and min out so we can find points on the boundary
         # within the mesh tolerance.
         # NOTE: getattr doesn't work here due to the inheritance games that are
         # going on in getattr.
+        if self.bounding_box_coords is None:
+            # This happens in 1D meshes
+            return None
+        else:
+            coords_min, coords_max = self.bounding_box_coords
         tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
         coords_mid = (coords_max + coords_min)/2
         d = np.max(coords_max - coords_min, axis=1)[:, None]
@@ -3360,11 +3409,13 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     _, pdim = vertexcoords.shape
     if not np.isclose(np.sum(abs(vertexcoords.imag)), 0):
         raise ValueError("Point coordinates must have zero imaginary part")
-    # Bendy meshes require a smarter bounding box algorithm at partition and
-    # (especially) cell level. Projecting coordinates to Bernstein may be
-    # sufficient.
-    if np.any(np.asarray(mesh.coordinates.function_space().ufl_element().degree()) > 1):
-        raise NotImplementedError("Only straight edged meshes are supported")
+    if (
+        ufl.cell.simplex(mesh.topological_dimension()) != mesh.ufl_cell()
+        and np.any(np.asarray(mesh.ufl_coordinate_element().degree()) > 1)
+    ):
+        raise NotImplementedError(
+            "Cannot yet immerse a VertexOnlyMesh in non-simplicial higher-order meshes."
+        )
     # Currently we take responsibility for locating the mesh cells in which the
     # vertices lie.
     #

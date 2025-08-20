@@ -167,7 +167,7 @@ def test_snespatch(mesh, CG1, solver_params):
     u = Function(CG1)
     v = TestFunction(CG1)
 
-    f = Constant(1, domain=mesh)
+    f = Constant(1)
     F = inner(grad(u), grad(v))*dx - inner(f, v)*dx + inner(u**3 - u, v)*dx
 
     bcs = DirichletBC(CG1, 0, "on_boundary")
