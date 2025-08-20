@@ -90,7 +90,7 @@ class FacetSplitPC(PCBase):
             self.set_nullspaces(pc)
             self.work_vecs = self.mixed_opmat.createVecs()
         elif self.subset:
-            global_indices = V.dof_dset.lgmap.apply(self.subset.indices)
+            global_indices = V.axes.lgmap(V.block_shape).apply(self.subset.indices)
             self._global_iperm = PETSc.IS().createGeneral(global_indices, comm=pc.comm)
             self._permute_op = partial(PETSc.Mat().createSubMatrixVirtual, P, self._global_iperm, self._global_iperm)
             self.mixed_opmat = self._permute_op()

@@ -1256,7 +1256,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree):
     # {{{ parallel
 
     # TODO: cached method
-    def lgmap(self, *, block_shape: tuple[int, ...] = ()) -> PETSc.LGMap:
+    def lgmap(self, block_shape: tuple[int, ...] = ()) -> PETSc.LGMap:
         blocked_axes = self.blocked(block_shape)
         indices = blocked_axes.global_numbering
         bsize = np.prod(block_shape, dtype=int)
