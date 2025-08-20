@@ -303,11 +303,11 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
 
 
 class Interpolation(object):
-    def __init__(self, coarse, fine, manager, cbcs=None, fbcs=None):
-        self.cprimal = coarse
-        self.fprimal = fine
-        self.cdual = coarse.riesz_representation(riesz_map="l2")
-        self.fdual = fine.riesz_representation(riesz_map="l2")
+    def __init__(self, Vcoarse, Vfine, manager, cbcs=None, fbcs=None):
+        self.cprimal = firedrake.Function(Vcoarse)
+        self.fprimal = firedrake.Function(Vfine)
+        self.cdual = firedrake.Cofunction(Vcoarse.dual())
+        self.fdual = firedrake.Cofunction(Vfine.dual())
         self.cbcs = cbcs or []
         self.fbcs = fbcs or []
         self.manager = manager
@@ -352,9 +352,9 @@ class Interpolation(object):
 
 
 class Injection(object):
-    def __init__(self, cfn, ffn, manager, cbcs=None):
-        self.cfn = cfn
-        self.ffn = ffn
+    def __init__(self, Vcoarse, Vfine, manager, cbcs=None):
+        self.cfn = firedrake.Function(Vcoarse)
+        self.ffn = firedrake.Function(Vfine)
         self.cbcs = cbcs or []
         self.manager = manager
 
@@ -379,13 +379,10 @@ def create_interpolation(dmc, dmf):
 
     row_size = V_f.dof_dset.layout_vec.getSizes()
     col_size = V_c.dof_dset.layout_vec.getSizes()
-
-    cfn = firedrake.Function(V_c)
-    ffn = firedrake.Function(V_f)
     cbcs = tuple(cctx._problem.dirichlet_bcs())
     fbcs = tuple(fctx._problem.dirichlet_bcs())
 
-    ctx = Interpolation(cfn, ffn, manager, cbcs, fbcs)
+    ctx = Interpolation(V_c, V_f, manager, cbcs, fbcs)
     mat = PETSc.Mat().create(comm=dmc.comm)
     mat.setSizes((row_size, col_size))
     mat.setType(mat.Type.PYTHON)
@@ -406,10 +403,7 @@ def create_injection(dmc, dmf):
     row_size = V_c.dof_dset.layout_vec.getSizes()
     col_size = V_f.dof_dset.layout_vec.getSizes()
 
-    cfn = firedrake.Function(V_c)
-    ffn = firedrake.Function(V_f)
-
-    ctx = Injection(cfn, ffn, manager)
+    ctx = Injection(V_c, V_f, manager)
     mat = PETSc.Mat().create(comm=dmc.comm)
     mat.setSizes((row_size, col_size))
     mat.setType(mat.Type.PYTHON)
