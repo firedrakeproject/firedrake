@@ -20,7 +20,6 @@ u = 42
 
 which appears in the variational form as the term: -<42*tau, n>
 """
-import numpy as np
 import pytest
 
 from firedrake import *
