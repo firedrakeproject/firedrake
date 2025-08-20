@@ -42,14 +42,7 @@ def make_high_order(m_low_order, degree):
         "unitsquare",
         "circlemanifold",
         "circlemanifold_to_high_order",
-        pytest.param(
-            "unitsquare_from_high_order",
-            marks=pytest.mark.xfail(
-                # CalledProcessError is so the parallel tests correctly xfail
-                raises=(subprocess.CalledProcessError, NotImplementedError),
-                reason="Cannot yet interpolate from high order meshes to other meshes.",
-            ),
-        ),
+        "unitsquare_from_high_order",
         "unitsquare_to_high_order",
         "extrudedcube",
         "unitsquare_vfs",
