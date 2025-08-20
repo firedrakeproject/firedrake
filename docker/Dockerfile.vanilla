@@ -55,16 +55,12 @@ RUN git clone --depth 1 --branch $(python3 /opt/firedrake-configure --show-petsc
 ENV PETSC_DIR=/opt/petsc PETSC_ARCH=arch-firedrake-$ARCH
 ENV PATH="$PETSC_DIR/$PETSC_ARCH/bin:$PATH"
 
-ENV HDF5_MPI=ON
-ENV CC=mpicc CXX=mpicxx
-ENV CFLAGS="-O3 -mtune=generic" CPPFLAGS="-O3 -mtune=generic"
-ENV MPICC=$CC
+ENV MPICC=mpicc CFLAGS="-O3 -mtune=generic" CPPFLAGS="-O3 -mtune=generic"
 
 # Install Firedrake
-RUN pip install --verbose --no-binary h5py --src /opt \
+RUN CC=mpicc CXX=mpicxx HDF5_MPI=ON \
+    pip install --verbose --no-binary h5py --src /opt \
         --editable git+https://github.com/firedrakeproject/firedrake.git@release#egg=firedrake[docker]
 
-# Unset CC=mpicc and CXX=mpicxx as they are just a hack to correctly compile Firedrake compiled extensions
-ENV CC= CXX=
 # Force '-mtune=generic' for JIT-ted code
 ENV PYOP2_CFLAGS=$CFLAGS
