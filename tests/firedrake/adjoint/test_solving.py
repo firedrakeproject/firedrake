@@ -28,7 +28,7 @@ def handle_annotation():
 
 
 @pytest.mark.skipcomplex
-def test_linear_problem():
+def test_linear_problem(rg):
     assert len(get_working_tape()._blocks) == 0
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
@@ -51,11 +51,11 @@ def test_linear_problem():
     rf = ReducedFunctional(J0, Control(f))
     assert_approx_equal(rf(f), J0)
     assert rf.tape.recompute_count == 1
-    _test_adjoint(J, f)
+    _test_adjoint(J, f, rg)
 
 
 @pytest.mark.skipcomplex
-def test_singular_linear_problem():
+def test_singular_linear_problem(rg):
     """This tests whether nullspace and solver_parameters are passed on in adjoint solves"""
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "CG", 1)
@@ -75,12 +75,12 @@ def test_singular_linear_problem():
               solver_parameters=solver_parameters)
         return assemble(u_**2*dx)
 
-    _test_adjoint(J, f)
+    _test_adjoint(J, f, rg)
 
 
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("pre_apply_bcs", (True, False))
-def test_nonlinear_problem(pre_apply_bcs):
+def test_nonlinear_problem(pre_apply_bcs, rg):
     """This tests whether nullspace and solver_parameters are passed on in adjoint solves"""
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
@@ -97,11 +97,11 @@ def test_nonlinear_problem(pre_apply_bcs):
         solve(a == L, u, bc, pre_apply_bcs=pre_apply_bcs)
         return assemble(u**2*dx)
 
-    _test_adjoint(J, f)
+    _test_adjoint(J, f, rg)
 
 
 @pytest.mark.skipcomplex
-def test_mixed_boundary():
+def test_mixed_boundary(rg):
     mesh = UnitSquareMesh(10, 10)
 
     V = FunctionSpace(mesh, "CG", 1)
@@ -126,7 +126,7 @@ def test_mixed_boundary():
 
         return assemble(u_**2*dx)
 
-    _test_adjoint(J, f)
+    _test_adjoint(J, f, rg)
 
 
 def xtest_wrt_constant_dirichlet_boundary():
@@ -360,7 +360,6 @@ def _test_adjoint_function_boundary(J, bc, f):
         residuals.append(residual)
 
     r = convergence_rates(residuals, eps_)
-    print(r)
 
     tol = 1E-1
     assert (r[-1] > 2-tol)
@@ -390,7 +389,6 @@ def _test_adjoint_constant_boundary(J, bc):
         residuals.append(residual)
 
     r = convergence_rates(residuals, eps_)
-    print(r)
 
     tol = 1E-1
     assert (r[-1] > 2-tol)
@@ -413,13 +411,11 @@ def _test_adjoint_constant(J, c):
         tape.evaluate_adj()
 
         dJdc = c.block_variable.adj_value.dat.data_ro[0]
-        print(dJdc)
 
         residual = abs(Jp - Jm - eps*dJdc)
         residuals.append(residual)
 
     r = convergence_rates(residuals, eps_)
-    print(r)
 
     tol = 1E-1
     assert (r[-1] > 2-tol)
@@ -448,8 +444,6 @@ def _test_adjoint(J, f, rg):
         residuals.append(residual)
 
     r = convergence_rates(residuals, eps_)
-    print(r)
-    print(residuals)
 
     tol = 1E-1
     assert (r[-1] > 2-tol)
