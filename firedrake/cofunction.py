@@ -485,7 +485,7 @@ class RieszMap:
 
             if self._inner_product == "l2":
                 for o, c in zip(output.subfunctions, value.subfunctions):
-                    o.dat.data[:] = c.dat.data[:]
+                    o.dat.data[:] = c.dat.data_ro[:]
             else:
                 solve, rhs, soln = self._solver
                 rhs.assign(value)
@@ -499,7 +499,7 @@ class RieszMap:
             if self._inner_product == "l2":
                 output = Cofunction(self._function_space.dual())
                 for o, c in zip(output.subfunctions, value.subfunctions):
-                    o.dat.data[:] = c.dat.data[:]
+                    o.dat.data[:] = c.dat.data_ro[:]
             else:
                 output = firedrake.assemble(
                     firedrake.action(self._inner_product, value)
