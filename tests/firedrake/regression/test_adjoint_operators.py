@@ -1,11 +1,15 @@
 import pytest
 import numpy as np
-from numpy.random import rand
 from pyadjoint.tape import get_working_tape, pause_annotation, stop_annotating
 from ufl.classes import Zero
 
 from firedrake import *
 from firedrake.adjoint import *
+
+
+@pytest.fixture
+def rg():
+    return RandomGenerator(PCG64(seed=1234))
 
 
 @pytest.fixture(autouse=True)
@@ -62,7 +66,7 @@ def test_interpolate_constant():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_interpolate_with_arguments():
+def test_interpolate_with_arguments(rg):
     mesh = UnitSquareMesh(10, 10)
     V1 = FunctionSpace(mesh, "CG", 1)
     V2 = FunctionSpace(mesh, "CG", 2)
@@ -76,13 +80,12 @@ def test_interpolate_with_arguments():
     J = assemble(u ** 2 * dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V1)
-    h.dat.data_wo[...] = rand(h.dat.data_wo.size)
+    h = rg.uniform(V1)
     assert taylor_test(rf, f, h) > 1.9
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_interpolate_scalar_valued():
+def test_interpolate_scalar_valued(rg):
     mesh = IntervalMesh(10, 0, 1)
     V1 = FunctionSpace(mesh, "CG", 1)
     V2 = FunctionSpace(mesh, "CG", 2)
@@ -98,13 +101,11 @@ def test_interpolate_scalar_valued():
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V1)
-    h.dat.data_wo[...] = rand(h.dat.data_wo.size)
+    h = rg.uniform(V1)
     assert taylor_test(rf, f, h) > 1.9
 
     rf = ReducedFunctional(J, Control(g))
-    h = Function(V2)
-    h.dat.data_wo[...] = rand(h.dat.data_wo.size)
+    h = rg.uniform(V2)
     assert taylor_test(rf, g, h) > 1.9
 
 
@@ -274,7 +275,7 @@ def test_interpolate_to_function_space_cross_mesh():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_interpolate_hessian_linear_expr():
+def test_interpolate_hessian_linear_expr(rg):
     # Note this is a direct copy of
     # pyadjoint/tests/firedrake_adjoint/test_hessian.py::test_nonlinear
     # with modifications where indicated.
@@ -305,8 +306,7 @@ def test_interpolate_hessian_linear_expr():
     Jhat = ReducedFunctional(J, Control(f))
 
     # Note functions are in W, not V.
-    h = Function(W)
-    h.dat.data_wo[...] = 10*rand(h.dat.data_wo.size)
+    h = rg.uniform(W, 0, 10)
 
     J.block_variable.adj_value = 1.0
     f.block_variable.tlm_value = h
@@ -330,7 +330,7 @@ def test_interpolate_hessian_linear_expr():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_interpolate_hessian_nonlinear_expr():
+def test_interpolate_hessian_nonlinear_expr(rg):
     # Note this is a direct copy of
     # pyadjoint/tests/firedrake_adjoint/test_hessian.py::test_nonlinear
     # with modifications where indicated.
@@ -361,8 +361,7 @@ def test_interpolate_hessian_nonlinear_expr():
     Jhat = ReducedFunctional(J, Control(f))
 
     # Note functions are in W, not V.
-    h = Function(W)
-    h.dat.data_wo[...] = 10*rand(h.dat.data_wo.size)
+    h = rg.uniform(W, 0, 10)
 
     J.block_variable.adj_value = 1.0
     f.block_variable.tlm_value = h
@@ -386,7 +385,7 @@ def test_interpolate_hessian_nonlinear_expr():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_interpolate_hessian_nonlinear_expr_multi():
+def test_interpolate_hessian_nonlinear_expr_multi(rg):
     # Note this is a direct copy of
     # pyadjoint/tests/firedrake_adjoint/test_hessian.py::test_nonlinear
     # with modifications where indicated.
@@ -419,8 +418,7 @@ def test_interpolate_hessian_nonlinear_expr_multi():
     Jhat = ReducedFunctional(J, Control(f))
 
     # Note functions are in W, not V.
-    h = Function(W)
-    h.dat.data_wo[...] = 10*rand(h.dat.data_wo.size)
+    h = rg.uniform(W, 0, 10)
 
     J.block_variable.adj_value = 1.0
     # Note only the tlm_value of f is set here - unclear why.
@@ -445,7 +443,7 @@ def test_interpolate_hessian_nonlinear_expr_multi():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_interpolate_hessian_nonlinear_expr_multi_cross_mesh():
+def test_interpolate_hessian_nonlinear_expr_multi_cross_mesh(rg):
     # Note this is a direct copy of
     # pyadjoint/tests/firedrake_adjoint/test_hessian.py::test_nonlinear
     # with modifications where indicated.
@@ -480,8 +478,7 @@ def test_interpolate_hessian_nonlinear_expr_multi_cross_mesh():
     Jhat = ReducedFunctional(J, Control(f))
 
     # Note functions are in W, not V.
-    h = Function(W)
-    h.dat.data_wo[...] = 10*rand(h.dat.data_wo.size)
+    h = rg.uniform(W, 0, 10)
 
     J.block_variable.adj_value = 1.0
     f.block_variable.tlm_value = h
@@ -634,7 +631,7 @@ def test_supermesh_project_to_function_space():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_supermesh_project_gradient(vector):
+def test_supermesh_project_gradient(vector, rg):
     source, target_space = supermesh_setup()
     source_space = source.function_space()
     control = Control(source)
@@ -643,8 +640,7 @@ def test_supermesh_project_gradient(vector):
     rf = ReducedFunctional(J, control)
 
     # Taylor test
-    h = Function(source_space)
-    h.dat.data_wo[...] = rand(h.dat.data_wo.size)
+    h = rg.uniform(source_space)
     minconv = taylor_test(rf, source, h)
     assert minconv > 1.9
 
@@ -670,7 +666,7 @@ def test_supermesh_project_tlm(vector):
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_supermesh_project_hessian(vector):
+def test_supermesh_project_hessian(vector, rg):
     source, target_space = supermesh_setup()
     control = Control(source)
     target = project(source, target_space)
@@ -678,8 +674,7 @@ def test_supermesh_project_hessian(vector):
     rf = ReducedFunctional(J, control)
 
     source_space = source.function_space()
-    h = Function(source_space)
-    h.dat.data_wo[...] = 10*rand(h.dat.data_wo.size)
+    h = rg.uniform(source_space, 0, 10)
 
     J.block_variable.adj_value = 1.0
     source.block_variable.tlm_value = h
