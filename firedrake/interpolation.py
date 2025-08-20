@@ -1526,12 +1526,17 @@ class VomOntoVomDummyMat(object):
         self.source_vom = source_vom
         self.expr = expr
         self.arguments = arguments
+        # Value size of data we are moving, e.g. 1 for scalar, 2 for vector in R^2, etc.
+        self.dim = self.V.value_size
         # Calculate correct local and global sizes for the matrix
         nroots, leaves, _ = sf.getGraph()
         self.nleaves = len(leaves)
         self._local_sizes = V.comm.allgather(nroots)
-        self.source_size = (nroots, sum(self._local_sizes))
-        self.target_size = (self.nleaves, self.V.comm.allreduce(self.nleaves, op=MPI.SUM))
+        self.source_size = (self.dim * nroots, self.dim * sum(self._local_sizes))
+        self.target_size = (
+            self.dim * self.nleaves,
+            self.dim * V.comm.allreduce(self.nleaves, op=MPI.SUM),
+        )
 
     @property
     def mpi_type(self):
@@ -1653,19 +1658,16 @@ class VomOntoVomDummyMat(object):
     def _create_permutation_mat(self):
         """Creates the PETSc matrix that represents the interpolation operator from a vertex-only mesh to
         its input ordering vertex-only mesh"""
-        dim = self.V.value_size
-        target_size = tuple(dim * s for s in self.target_size)
-        source_size = tuple(dim * s for s in self.source_size)
-        mat = PETSc.Mat().createAIJ((target_size, source_size), nnz=1, comm=self.V.comm)
+        mat = PETSc.Mat().createAIJ((self.target_size, self.source_size), nnz=1, comm=self.V.comm)
         mat.setUp()
         start = sum(self._local_sizes[:self.V.comm.rank])
         end = start + self.source_size[0]
         contiguous_indices = numpy.arange(start, end, dtype=utils.IntType)
-        perm = numpy.zeros(self.target_size[0], dtype=utils.IntType)
+        perm = numpy.zeros(self.nleaves, dtype=utils.IntType)
         self.sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
         self.sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
-        rows = numpy.arange(target_size[0] + 1, dtype=utils.IntType)
-        cols = (dim * perm[:, None] + numpy.arange(dim, dtype=utils.IntType)[None, :]).reshape(-1)
+        rows = numpy.arange(self.target_size[0] + 1, dtype=utils.IntType)
+        cols = (self.dim * perm[:, None] + numpy.arange(self.dim, dtype=utils.IntType)[None, :]).reshape(-1)
         mat.setValuesCSR(rows, cols, numpy.ones_like(cols, dtype=utils.IntType))
         mat.assemble()
         if self.forward_reduce:
@@ -1674,13 +1676,10 @@ class VomOntoVomDummyMat(object):
 
     def _wrap_dummy_mat(self):
         mat = PETSc.Mat().create(comm=self.V.comm)
-        dim = self.V.value_size
-        source_size = tuple(dim * i for i in self.source_size)
-        target_size = tuple(dim * i for i in self.target_size)
         if self.forward_reduce:
-            mat_size = (source_size, target_size)
+            mat_size = (self.source_size, self.target_size)
         else:
-            mat_size = (target_size, source_size)
+            mat_size = (self.target_size, self.source_size)
         mat.setSizes(mat_size)
         mat.setType(mat.Type.PYTHON)
         mat.setPythonContext(self)
