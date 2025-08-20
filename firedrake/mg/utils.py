@@ -136,7 +136,7 @@ def physical_node_locations(V):
     # This is a defaultdict, so the first time we access the key we
     # get a fresh dict for the cache.
     cache = mesh._geometric_shared_data_cache["hierarchy_physical_node_locations"]
-    key = (element, tuple(V.boundary_set))
+    key = (element, V.boundary_set)
     try:
         return cache[key]
     except KeyError:
@@ -173,4 +173,4 @@ def _cache_key(Vc, Vf):
     _, levelc = get_level(Vc.mesh())
     return (entity_dofs_key(Vf.finat_element.entity_dofs())
             + (levelc, levelf)
-            + (tuple(Vc.boundary_set), tuple(Vf.boundary_set)))
+            + (Vc.boundary_set, Vf.boundary_set))

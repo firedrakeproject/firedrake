@@ -1212,7 +1212,7 @@ class StandaloneInterpolationMatrix(object):
     def work_function(self, V):
         if isinstance(V, firedrake.Function):
             return V
-        key = (V.ufl_element(), V.mesh(), tuple(V.boundary_set))
+        key = (V.ufl_element(), V.mesh(), V.boundary_set)
         try:
             return self._cache_work[key]
         except KeyError:
