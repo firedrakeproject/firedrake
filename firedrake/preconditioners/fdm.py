@@ -222,7 +222,7 @@ class FDMPC(PCBase):
         elif len(ifacet) == 1:
             Vfacet = V[ifacet[0]]
             ebig, = set(unrestrict_element(Vsub.ufl_element()) for Vsub in V)
-            Vbig = FunctionSpace(V.mesh(), ebig)
+            Vbig = FunctionSpace(V.mesh().unique(), ebig)
             if len(V) > 1:
                 dims = [Vsub.finat_element.space_dimension() for Vsub in V]
                 assert sum(dims) == Vbig.finat_element.space_dimension()
