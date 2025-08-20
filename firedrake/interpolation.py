@@ -1528,10 +1528,10 @@ class VomOntoVomDummyMat(object):
         self.arguments = arguments
         # Calculate correct local and global sizes for the matrix
         nroots, leaves, _ = sf.getGraph()
-        nleaves = len(leaves)
+        self.nleaves = len(leaves)
         self._local_sizes = V.comm.allgather(nroots)
         self.source_size = (nroots, sum(self._local_sizes))
-        self.target_size = (nleaves, self.V.comm.allreduce(nleaves, op=MPI.SUM))
+        self.target_size = (self.nleaves, self.V.comm.allreduce(self.nleaves, op=MPI.SUM))
 
     @property
     def mpi_type(self):
@@ -1649,14 +1649,6 @@ class VomOntoVomDummyMat(object):
             # matrix will then have rows of zeros for those points.
             target_vec.zeroEntries()
             self.reduce(source_vec, target_vec)
-
-    def _get_sizes(self):
-        nroots, leaves, _ = self.sf.getGraph()
-        nleaves = len(leaves)
-        local_sizes = self.V.comm.allgather(nroots)
-        source_size = (nroots, sum(local_sizes))
-        target_size = (nleaves, self.V.comm.allreduce(nleaves, op=MPI.SUM))
-        return source_size, target_size
 
     def _create_permutation_mat(self):
         """Creates the PETSc matrix that represents the interpolation operator from a vertex-only mesh to
