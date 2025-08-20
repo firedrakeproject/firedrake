@@ -217,6 +217,5 @@ def from_torch(x, V=None):
             val = val[0]
         return Constant(val)
     else:
-        x_F = Function(V)
-        x_F.dat.data_wo[...] = x.detach().numpy()
+        x_F = Function(V, val=x.detach().numpy())
         return x_F
