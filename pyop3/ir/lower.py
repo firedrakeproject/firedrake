@@ -376,6 +376,7 @@ class ModuleExecutor:
         #     breakpoint()
         # if "MatSetValues" in str(self):
         #     breakpoint()
+        # pyop3.extras.debug.maybe_breakpoint()
 
         self.executable(*exec_arguments)
         pass

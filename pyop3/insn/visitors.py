@@ -393,7 +393,7 @@ def _(assignment: ArrayAssignment, /) -> InstructionList:
     else:
         bare_assignment = ArrayAssignment(bare_assignee, bare_expression, "write")
 
-    return maybe_enlist((*extra_input_insns, bare_assignment, *extra_output_insns))
+    return maybe_enlist((*extra_input_insns, bare_assignment, *reversed(extra_output_insns)))
 
 
 # TODO: better word than "mode"? And use an enum.
@@ -452,9 +452,6 @@ def _(array: Tensor, /, access_type):
             temp_reshaped = temp_initial.with_axes(array.raxes, array.caxes)
 
         transformed_dat, extra_insns = _expand_reshapes(array.parent, access_type)
-
-        if extra_insns:
-            raise NotImplementedError("Pretty sure this doesn't work as is")
 
         if access_type == ArrayAccessType.READ:
             assignment = ArrayAssignment(temp_initial, transformed_dat, "write")

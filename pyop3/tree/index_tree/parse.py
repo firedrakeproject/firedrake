@@ -14,7 +14,7 @@ from pyop3.expr.tensor.dat import Dat
 from pyop3.tree.axis_tree import AxisTree
 from pyop3.tree.axis_tree.tree import AbstractAxisTree, IndexedAxisTree
 from pyop3.exceptions import Pyop3Exception
-from pyop3.tree.index_tree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map
+from pyop3.tree.index_tree.tree import CalledMap, IndexTree, LoopIndex, Slice, AffineSliceComponent, ScalarIndex, Index, Map, SubsetSliceComponent
 from pyop3.tree.labelled_tree import ConcretePathT
 from pyop3.utils import OrderedSet, debug_assert, expand_collection_of_iterables, strictly_all, single_valued, just_one
 
@@ -161,6 +161,7 @@ def _(called_map: CalledMap, /) -> OrderedSet:
 @collect_loop_contexts.register(slice)
 @collect_loop_contexts.register(Slice)
 @collect_loop_contexts.register(ScalarIndex)
+@collect_loop_contexts.register(Dat)
 def _(index: Any, /) -> OrderedSet:
     return OrderedSet()
 
@@ -232,30 +233,10 @@ def _index_forest_from_iterable(indices, axes, loop_context, *, path):
     return tuple(index_nests)
 
 
-@_as_index_forest.register(Dat)
-def _(dat: Dat, /, *args, **kwargs) -> tuple[IndexTree]:
-    raise NotImplementedError
-    # NOTE: This is the same behaviour as for slices
-    parent = axes._node_from_path(path)
-    if parent is not None:
-        parent_axis, parent_cpt = parent
-        target_axis = axes.child(parent_axis, parent_cpt)
-    else:
-        target_axis = axes.root
-
-    if target_axis.degree > 1:
-        raise ValueError(
-            "Passing arrays as indices is only allowed when there is no ambiguity"
-        )
-
-    slice_cpt = Subset(target_axis.component.label, arg)
-    slice_ = Slice(target_axis.label, [slice_cpt])
-    return {immutabledict(): IndexTree(slice_)}
-
-
 @_as_index_forest.register(slice)
 @_as_index_forest.register(str)
 @_as_index_forest.register(numbers.Integral)
+@_as_index_forest.register(Dat)
 def _(index: Any, /, axes, loop_context) -> tuple[IndexTree]:
     desugared = _desugar_index(index, axes=axes, path=idict())
     return _as_index_forest(desugared, axes, loop_context)
@@ -308,6 +289,22 @@ def _(slice_: slice, /, *, axes, path) -> Slice:
         )
 
 
+@_desugar_index.register(Dat)
+def _(dat: Dat, /, *, axes, path) -> Slice:
+    if path is None:
+        raise RuntimeError("Cannot parse Python slices here due to ambiguity")
+    axis = axes.node_map[path]
+
+    if len(axis.components) == 1:
+        slice_cpt = SubsetSliceComponent(axis.component.label, dat)
+        return Slice(axis.label, [slice_cpt])
+    else:
+        # badindexexception?
+        # NOTE: We could in principle match multi-component things if the component
+        # labels form a continuous sequence of integers
+        raise ValueError(
+            "Cannot slice multi-component things using generic slices, ambiguous"
+        )
 
 @_desugar_index.register(str)
 def _(label: str, /, *, axes, path) -> Index:

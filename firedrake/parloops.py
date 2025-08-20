@@ -5,6 +5,7 @@ import collections
 import functools
 import warnings
 from cachetools import LRUCache
+from immutabledict import immutabledict as idict
 from typing import Any
 
 import finat
@@ -401,19 +402,41 @@ def _(
 
     # handle entity_dofs - this is done treating all nodes as equivalent so we have to
     # discard shape beforehand
-    dof_numbering = _flatten_entity_dofs(V.finat_element.entity_dofs())
-    perm = invert_permutation(dof_numbering)
+    subaxes = []
+    sub_perms = []
+    permutation_needed = False
+    for subspace in V:
+        dof_numbering = _flatten_entity_dofs(subspace.finat_element.entity_dofs())
+        perm = invert_permutation(dof_numbering)
 
-    # skip if identity
-    if not np.all(perm == np.arange(perm.size, dtype=IntType)):
+        # skip if identity
+        if not np.all(perm == np.arange(perm.size, dtype=IntType)):
+            permutation_needed = True
+
         perm_dat = op3.Dat.from_array(perm, prefix="perm", buffer_kwargs={"constant": True})
         perm_axis = perm_dat.axes.root
         perm_subset = op3.Slice(perm_axis.label, [op3.Subset(perm_axis.component.label, perm_dat)])
+        sub_perms.append(perm_subset)
 
-        indexed_axes = op3.AxisTree.from_iterable([perm_axis, *V.shape])
+        indexed_axes = op3.AxisTree.from_iterable([perm_axis, *subspace.shape])
+        subaxes.append(indexed_axes)
 
-        # TODO: Should be able to just pass a Dat here and have it DTRT
-        indexed = indexed.reshape(indexed_axes)[perm_subset]
+    if permutation_needed:
+        if len(V) > 1:
+            indexed_axes = op3.AxisTree(indexed.axes.root)
+            for subspace, subtree in zip(V, subaxes, strict=True):
+                indexed_axes = indexed_axes.add_subtree(idict({"field": subspace.index}), subtree)
+
+            field_slice = op3.Slice("field", [op3.AffineSliceComponent(subspace.index, label=subspace.index) for subspace in V], label="field")
+            index_tree = op3.IndexTree.from_nest({field_slice: sub_perms})
+
+            # indexed = indexed.reshape(indexed_axes)[:, sub_perms]
+            indexed = indexed.reshape(indexed_axes)[index_tree]
+        else:
+            # TODO: Should be able to just pass a Dat here and have it DTRT
+            indexed_axes = utils.just_one(subaxes)
+            perm_subset = utils.just_one(sub_perms)
+            indexed = indexed.reshape(indexed_axes)[perm_subset]
 
     if plex.ufl_cell() == ufl.hexahedron:
         raise NotImplementedError

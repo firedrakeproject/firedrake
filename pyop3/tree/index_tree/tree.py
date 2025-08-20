@@ -2142,7 +2142,12 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
     start, stop, step = affine_component.with_size(size)
 
     utils.debug_assert(lambda: min_value(start) >= 0)
-    utils.debug_assert(lambda: max_value(stop) <= max_value(size))
+
+    # TODO: This check doesn't always hold. For example if we have the arities of
+    # facets and are expecting interior facets but there aren't any. Then the max
+    # value here is 1 not 2. We could avoid this by letting buffers define, instead
+    # of computing, a max_value.
+    # utils.debug_assert(lambda: max_value(stop) <= max_value(size))
 
     # For single region components we can simplify things because we know that
     # the slice is always in bounds for the region.

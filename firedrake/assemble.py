@@ -1699,8 +1699,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # assignee = mat.with_axes(spaces[0].nodal_axes, spaces[1].nodal_axes)[index, index][p, p]
             assignee1 = mat.with_axes(spaces[0].nodal_axes, spaces[1].nodal_axes)
             assignee2 = assignee1[index, index]
-            import pyop3.extras.debug
-            pyop3.extras.debug.enable_conditional_breakpoints()
             assignee3 = assignee2[p, p]
             assignee = assignee3
 

@@ -2562,9 +2562,10 @@ def filter_sf(
         PetscInt      nPoints_c, i_c, p_c
         PetscInt      *remoteOffsets_c = NULL
 
-    utils.debug_assert(lambda: p_start <= min(selected_points))
-    utils.debug_assert(lambda: p_end >= max(selected_points))
-    utils.debug_assert(lambda: utils.has_unique_entries(selected_points))
+    if len(selected_points) > 0:
+        utils.debug_assert(lambda: p_start <= min(selected_points))
+        utils.debug_assert(lambda: p_end >= max(selected_points))
+        utils.debug_assert(lambda: utils.has_unique_entries(selected_points))
 
     nPoints_c = len(selected_points)
 

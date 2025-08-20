@@ -1,7 +1,9 @@
 from functools import partial
 from mpi4py import MPI
-from pyop2 import op2, PermutedMap
+import pyop3 as op3
 from finat.ufl import RestrictedElement, MixedElement, TensorElement, VectorElement
+from firedrake.function import Function
+from firedrake.parloops import pack_tensor
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 import firedrake.dmhooks as dmhooks
@@ -248,27 +250,25 @@ def restricted_dofs(celem, felem):
 def get_restriction_indices(V, W):
     """Return the list of dofs in the space V such that W = V[indices].
     """
-    vdat = V.make_dat(val=numpy.arange(V.dof_count, dtype=PETSc.IntType))
-    wdats = [Wsub.make_dat(val=numpy.full((Wsub.dof_count,), -1, dtype=PETSc.IntType)) for Wsub in W]
-    wdat = wdats[0] if len(W) == 1 else op2.MixedDat(wdats)
+    v_func = Function(V, val=numpy.arange(V.axes.size, dtype=PETSc.IntType), dtype=PETSc.IntType)
+    w_func = Function(W, val=numpy.full(W.axes.size, -1, dtype=PETSc.IntType), dtype=PETSc.IntType)
 
     vsize = sum(Vsub.finat_element.space_dimension() for Vsub in V)
     eperm = numpy.concatenate([restricted_dofs(Wsub.finat_element, V.finat_element) for Wsub in W])
     if len(eperm) < vsize:
         eperm = numpy.concatenate((eperm, numpy.setdiff1d(numpy.arange(vsize, dtype=PETSc.IntType), eperm)))
-    pmap = PermutedMap(V.cell_node_map(), eperm)
+    eperm_dat = op3.Dat.from_array(eperm, prefix="perm", buffer_kwargs={"constant": True})
 
-    wsize = sum(Vsub.finat_element.space_dimension() * Vsub.block_size for Vsub in W)
-    kernel_code = f"""
-    void copy(PetscInt *restrict w, const PetscInt *restrict v) {{
-        for (PetscInt i=0; i<{wsize}; i++) w[i] = v[i];
-    }}"""
-    kernel = op2.Kernel(kernel_code, "copy", requires_zeroed_output_arguments=False)
-    op2.par_loop(kernel, V.mesh().cell_set,
-                 wdat(op2.WRITE, W.cell_node_map()),
-                 vdat(op2.READ, pmap),
-                 )
-    indices = wdat.data_ro
-    if len(W) > 1:
-        indices = numpy.concatenate(indices)
-    return indices
+    # debug
+    c = V.mesh().cells.owned.iter()
+    b = pack_tensor(v_func, c, "cell")[eperm_dat]
+    a = pack_tensor(w_func, c, "cell").reshape(b.axes.materialize())
+
+    # import pyop3.extras.debug
+    # pyop3.extras.debug.enable_conditional_breakpoints()
+    op3.loop(
+        c,
+        a.assign(b),
+        eager=True,
+    )
+    return w_func.dat.data_ro
