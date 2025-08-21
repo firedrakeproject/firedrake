@@ -703,7 +703,7 @@ class PointEvaluator:
     r"""Convenience class for evaluating a :class:`Function` at a set of points."""
 
     def __init__(self, mesh: MeshGeometry, points: np.ndarray | list, tolerance: float | None = None, 
-                 missing_points_behaviour: str | None = "error") -> None:
+                 missing_points_behaviour: str | None = "error", redundant: bool = True) -> None:
         r"""
         Parameters
         ----------
@@ -722,7 +722,7 @@ class PointEvaluator:
         from firedrake.mesh import VertexOnlyMesh
         self.mesh = mesh
         self.points = np.asarray(points, dtype=utils.ScalarType)
-        self.vom = VertexOnlyMesh(mesh, points, missing_points_behaviour=missing_points_behaviour, redundant=False, tolerance=tolerance)
+        self.vom = VertexOnlyMesh(mesh, points, missing_points_behaviour=missing_points_behaviour, redundant=redundant, tolerance=tolerance)
 
     def evaluate(self, function: Function, input_ordered: bool = True) -> np.ndarray | list[np.ndarray]:
         r"""Evaluate the given :class:`Function` at the points provided to this
