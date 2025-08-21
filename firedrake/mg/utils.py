@@ -171,6 +171,7 @@ def has_level(obj):
 def _cache_key(Vc, Vf):
     _, levelf = get_level(Vf.mesh())
     _, levelc = get_level(Vc.mesh())
-    return (entity_dofs_key(Vf.finat_element.entity_dofs())
+    return (entity_dofs_key(Vc.finat_element.entity_dofs())
+            + entity_dofs_key(Vf.finat_element.entity_dofs())
             + (levelc, levelf)
             + (Vc.boundary_set, Vf.boundary_set))
