@@ -18,7 +18,7 @@ from pyop2.exceptions import DataTypeError, DataValueError
 from finat.ufl import MixedElement
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
-from firedrake import functionspaceimpl
+from firedrake import functionspaceimpl, VertexOnlyMesh, FunctionSpace, assemble, interpolate
 from firedrake.cofunction import Cofunction, RieszMap
 from firedrake import utils
 from firedrake.adjoint_utils import FunctionMixin
@@ -697,6 +697,43 @@ class PointNotInDomainError(Exception):
     def __str__(self):
         return "domain %s does not contain point %s" % (self.domain, self.point)
 
+
+class PointEvaluator:
+    r"""Convenience class for evaluating a :class:`Function` at a set of points."""
+
+    def __init__(self, mesh, points, tolerance=None, ignore_missing_points=False, input_ordered=True):
+        r"""
+        :arg mesh: The :class:`Mesh` on which the :class:`Function` is defined.
+        :arg points: Array of points to evaluate the function at.
+        :kwarg tolerance: Tolerance to use when checking if a point is
+            in a cell. Default is the ``tolerance`` of the :class:`Mesh`.
+        :kwarg ignore_missing_points: If ``True``, do not raise an error if a point is not found.
+        :kwarg input_ordered: If ``True``, return results in the order of the input points.
+        """
+        self.mesh = mesh
+        self.points = np.asarray(points, dtype=utils.ScalarType)
+        self.tolerance = tolerance or mesh.tolerance
+        self.ignore_missing_points = ignore_missing_points
+        self.input_ordered = input_ordered
+        self.vom = VertexOnlyMesh(mesh, points, missing_points_behaviour="warn", redundant=False, tolerance=tolerance)
+
+    def evaluate(self, function):
+        r"""Evaluate the given :class:`Function` at the points provided to this
+        :class:`PointEvaluator`.
+
+        :arg function: The :class:`Function` to evaluate.
+        :returns: A NumPy array of values at the points.
+        """
+        if not isinstance(function, Function):
+            raise TypeError(f"Expected a Function, got f{type(function).__name__}")
+
+        P0DG = FunctionSpace(self.vom, "DG", 0)
+        f_at_points = assemble(interpolate(function, P0DG))
+        if self.input_ordered:
+            P0DG_io = FunctionSpace(self.vom.input_ordering, "DG", 0)
+            f_at_points = assemble(interpolate(f_at_points, P0DG_io))
+        return f_at_points.dat.data_ro
+        
 
 @PETSc.Log.EventDecorator()
 def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
