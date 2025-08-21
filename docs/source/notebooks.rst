@@ -29,7 +29,7 @@ Ballarin <https://www.francescoballarin.it>`__, you can run the notebooks on
 Google Colab through your web browser, without installing Firedrake.
 
 Non-interactive renderings of the notebooks can also be seen on `GitHub
-<https://github.com/firedrakeproject/firedrake/tree/main/docs/notebooks>`__.
+<https://github.com/firedrakeproject/firedrake/tree/release/docs/notebooks>`__.
 
 
 A first example
