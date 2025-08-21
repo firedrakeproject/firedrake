@@ -75,23 +75,3 @@ jobs:
       target: firedrake
       tag: ${{ inputs.tag }}
     secrets: inherit
-
-  # Firedrake with Jupyter notebooks
-  docker_build_jupyter:
-    needs: docker_merge_firedrake
-    uses: ./.github/workflows/docker_build.yml
-    with:
-      os: Linux
-      platform: linux/amd64
-      target: firedrake-jupyter
-      tag: ${{ inputs.tag }}
-      dockerfile: docker/Dockerfile.jupyter
-    secrets: inherit
-
-  docker_merge_jupyter:
-    uses: ./.github/workflows/docker_merge.yml
-    needs: docker_build_jupyter
-    with:
-      target: firedrake-jupyter
-      tag: ${{ inputs.tag }}
-    secrets: inherit
