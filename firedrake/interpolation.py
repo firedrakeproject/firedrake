@@ -1526,16 +1526,14 @@ class VomOntoVomDummyMat(object):
         self.source_vom = source_vom
         self.expr = expr
         self.arguments = arguments
-        # Value size of data we are moving, e.g. 1 for scalar, 2 for vector in R^2, etc.
-        self.dim = self.V.value_size
         # Calculate correct local and global sizes for the matrix
         nroots, leaves, _ = sf.getGraph()
         self.nleaves = len(leaves)
         self._local_sizes = V.comm.allgather(nroots)
-        self.source_size = (self.dim * nroots, self.dim * sum(self._local_sizes))
+        self.source_size = (self.V.block_size * nroots, self.V.block_size * sum(self._local_sizes))
         self.target_size = (
-            self.dim * self.nleaves,
-            self.dim * V.comm.allreduce(self.nleaves, op=MPI.SUM),
+            self.V.block_size * self.nleaves,
+            self.V.block_size * V.comm.allreduce(self.nleaves, op=MPI.SUM),
         )
 
     @property
@@ -1667,7 +1665,7 @@ class VomOntoVomDummyMat(object):
         self.sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
         self.sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
         rows = numpy.arange(self.target_size[0] + 1, dtype=utils.IntType)
-        cols = (self.dim * perm[:, None] + numpy.arange(self.dim, dtype=utils.IntType)[None, :]).reshape(-1)
+        cols = (self.V.block_size * perm[:, None] + numpy.arange(self.V.block_size, dtype=utils.IntType)[None, :]).reshape(-1)
         mat.setValuesCSR(rows, cols, numpy.ones_like(cols, dtype=utils.IntType))
         mat.assemble()
         if self.forward_reduce:
