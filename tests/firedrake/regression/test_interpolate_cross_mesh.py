@@ -107,7 +107,7 @@ def parameters(request):
         m_dest = CircleManifoldMesh(1000, degree=2)  # note degree!
         # Function.at often gets conflicting answers across boundaries for this
         # mesh, so we lower the tolerance a bit for this test
-        m_dest.tolerance = 0.01
+        m_dest.tolerance = 1e-10
         coords = np.array(
             [
                 [0, 1],
