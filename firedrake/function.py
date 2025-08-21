@@ -722,9 +722,10 @@ class PointEvaluator:
         from firedrake.mesh import VertexOnlyMesh
         self.mesh = mesh
         self.points = np.asarray(points, dtype=utils.ScalarType)
+        self.redundant = redundant
         self.vom = VertexOnlyMesh(mesh, points, missing_points_behaviour=missing_points_behaviour, redundant=redundant, tolerance=tolerance)
 
-    def evaluate(self, function: Function, input_ordered: bool = True) -> np.ndarray | list[np.ndarray]:
+    def evaluate(self, function: Function) -> np.ndarray | list[np.ndarray]:
         r"""Evaluate the given :class:`Function` at the points provided to this
         :class:`PointEvaluator`.
 
@@ -752,7 +753,7 @@ class PointEvaluator:
         if len(subfunctions) > 1:
             result = []
             for subfunction in subfunctions:
-                result.append(self.evaluate(subfunction, input_ordered=input_ordered))
+                result.append(self.evaluate(subfunction))
             return result
 
         shape = function.ufl_function_space().value_shape
@@ -765,14 +766,16 @@ class PointEvaluator:
         P0DG = fs(self.vom, "DG", 0)
         f_at_points = assemble(interpolate(function, P0DG))
 
-        if input_ordered:
-            P0DG_io = fs(self.vom.input_ordering, "DG", 0)
-            f_at_points_io = Function(P0DG_io).assign(np.nan)
-            f_at_points_io.interpolate(f_at_points)
-            return f_at_points_io.dat.data_ro
-        else:
-            return f_at_points.dat.data_ro
-
+        P0DG_io = fs(self.vom.input_ordering, "DG", 0)
+        f_at_points_io = Function(P0DG_io).assign(np.nan)
+        f_at_points_io.interpolate(f_at_points)
+        result = f_at_points_io.dat.data_ro
+        # If redundant, only rank 0 did the work. Broadcast ordered results to all ranks.
+        if self.redundant and self.mesh.comm.size > 1:
+            if self.mesh.comm.rank != 0:
+                result = np.empty((len(self.points),) + shape, dtype=utils.ScalarType)
+            self.mesh.comm.Bcast(result, root=0)
+        return result
 
 @PETSc.Log.EventDecorator()
 def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
