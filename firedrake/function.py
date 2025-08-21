@@ -701,7 +701,7 @@ class PointNotInDomainError(Exception):
 class PointEvaluator:
     r"""Convenience class for evaluating a :class:`Function` at a set of points."""
 
-    def __init__(self, mesh, points, tolerance=None, missing_points_behaviour: str = "error", input_ordered=True):
+    def __init__(self, mesh, points, tolerance=None, missing_points_behaviour: str = "error"):
         r"""
         :arg mesh: The :class:`Mesh` on which the :class:`Function` is defined.
         :arg points: Array of points to evaluate the function at.
@@ -711,20 +711,19 @@ class PointEvaluator:
         "error": raise a :class:`VertexOnlyMeshMissingPointsError` if a point is not found in the mesh. 
         "warn": warn if a point is not found in the mesh, but continue.
         "ignore": ignore points not found in the mesh.
-        :kwarg input_ordered: If ``True``, return results in the order of the input points.
         """
         from firedrake.mesh import VertexOnlyMesh
         self.mesh = mesh
         self.points = np.asarray(points, dtype=utils.ScalarType)
         self.tolerance = tolerance or mesh.tolerance
-        self.input_ordered = input_ordered
         self.vom = VertexOnlyMesh(mesh, points, missing_points_behaviour=missing_points_behaviour, redundant=False, tolerance=tolerance)
 
-    def evaluate(self, function):
+    def evaluate(self, function: Function, input_ordered: bool = True):
         r"""Evaluate the given :class:`Function` at the points provided to this
         :class:`PointEvaluator`.
 
         :arg function: The :class:`Function` to evaluate.
+        :kwarg input_ordered: If ``True``, return results in the order of the input points.
         :returns: A NumPy array of values at the points.
         """
         if not isinstance(function, Function):
@@ -733,7 +732,7 @@ class PointEvaluator:
 
         P0DG = FunctionSpace(self.vom, "DG", 0)
         f_at_points = assemble(interpolate(function, P0DG))
-        if self.input_ordered:
+        if input_ordered:
             P0DG_io = FunctionSpace(self.vom.input_ordering, "DG", 0)
             f_at_points = assemble(interpolate(f_at_points, P0DG_io))
         return f_at_points.dat.data_ro
