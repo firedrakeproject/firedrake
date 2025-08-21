@@ -723,7 +723,8 @@ class PointEvaluator:
         :class:`PointEvaluator`.
 
         :arg function: The :class:`Function` to evaluate.
-        :kwarg input_ordered: If ``True``, return results in the order of the input points.
+        :kwarg input_ordered: If ``True``, return results in the order of the input points. If any 
+        points were not found in the mesh, they will be return as np.nan.
         :returns: A NumPy array of values at the points.
         """
         if not isinstance(function, Function):
@@ -734,8 +735,11 @@ class PointEvaluator:
         f_at_points = assemble(interpolate(function, P0DG))
         if input_ordered:
             P0DG_io = FunctionSpace(self.vom.input_ordering, "DG", 0)
-            f_at_points = assemble(interpolate(f_at_points, P0DG_io))
-        return f_at_points.dat.data_ro
+            f_at_points_io = Function(P0DG_io).assign(np.nan)
+            f_at_points_io.interpolate(f_at_points)
+            return f_at_points_io.dat.data_ro
+        else:
+            return f_at_points.dat.data_ro
 
 
 @PETSc.Log.EventDecorator()
