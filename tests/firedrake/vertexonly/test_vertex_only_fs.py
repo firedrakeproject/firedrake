@@ -360,3 +360,23 @@ def test_input_ordering_missing_point():
         assert not len(data_input_ordering.dat.data_ro)
         # Accessing data_ro [*here] is collective, hence this redundant call
         _ = len(data_input_ordering.dat.data_ro)
+
+
+@pytest.mark.parallel([1, 3])
+def test_tensorfs_permutation():
+    np.random.seed(0)
+    mesh = UnitSquareMesh(2, 2)
+    coords = np.random.random_sample(size=(10, 2))
+    vom = VertexOnlyMesh(mesh, coords)
+    V = TensorFunctionSpace(vom, "DG", 0, shape=(2, 2))
+    W = TensorFunctionSpace(vom.input_ordering, "DG", 0, shape=(2, 2))
+    f = Function(V)
+    x = SpatialCoordinate(vom)
+    f.interpolate(outer(x, x) + Identity(2))
+    f_in_W = assemble(interpolate(f, W))
+    python_mat = assemble(interpolate(TestFunction(V), W, matfree=False))
+    f_in_W_2 = assemble(python_mat @ f)
+    assert np.allclose(f_in_W.dat.data_ro, f_in_W_2.dat.data_ro)
+    petsc_mat = assemble(interpolate(TestFunction(V), W, matfree=True))
+    f_in_W_petsc = assemble(petsc_mat @ f)
+    assert np.allclose(f_in_W.dat.data_ro, f_in_W_petsc.dat.data_ro)
