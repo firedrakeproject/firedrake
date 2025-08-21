@@ -701,22 +701,24 @@ class PointNotInDomainError(Exception):
 class PointEvaluator:
     r"""Convenience class for evaluating a :class:`Function` at a set of points."""
 
-    def __init__(self, mesh, points, tolerance=None, ignore_missing_points=False, input_ordered=True):
+    def __init__(self, mesh, points, tolerance=None, missing_points_behaviour: str = "error", input_ordered=True):
         r"""
         :arg mesh: The :class:`Mesh` on which the :class:`Function` is defined.
         :arg points: Array of points to evaluate the function at.
         :kwarg tolerance: Tolerance to use when checking if a point is
             in a cell. Default is the ``tolerance`` of the :class:`Mesh`.
-        :kwarg ignore_missing_points: If ``True``, do not raise an error if a point is not found.
+        :kwarg missing_points_behaviour: Behaviour when a point is not found in the mesh. Options are:
+        "error": raise a :class:`VertexOnlyMeshMissingPointsError` if a point is not found in the mesh. 
+        "warn": warn if a point is not found in the mesh, but continue.
+        "ignore": ignore points not found in the mesh.
         :kwarg input_ordered: If ``True``, return results in the order of the input points.
         """
         from firedrake.mesh import VertexOnlyMesh
         self.mesh = mesh
         self.points = np.asarray(points, dtype=utils.ScalarType)
         self.tolerance = tolerance or mesh.tolerance
-        self.ignore_missing_points = ignore_missing_points
         self.input_ordered = input_ordered
-        self.vom = VertexOnlyMesh(mesh, points, missing_points_behaviour="warn", redundant=False, tolerance=tolerance)
+        self.vom = VertexOnlyMesh(mesh, points, missing_points_behaviour=missing_points_behaviour, redundant=False, tolerance=tolerance)
 
     def evaluate(self, function):
         r"""Evaluate the given :class:`Function` at the points provided to this
