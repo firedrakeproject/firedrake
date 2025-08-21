@@ -18,14 +18,14 @@ from pyop2.exceptions import DataTypeError, DataValueError
 from finat.ufl import MixedElement
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
-from firedrake import functionspaceimpl, VertexOnlyMesh, FunctionSpace, assemble, interpolate
+from firedrake import functionspaceimpl
 from firedrake.cofunction import Cofunction, RieszMap
 from firedrake import utils
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
 
 
-__all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction']
+__all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction', 'PointEvaluator']
 
 
 class _CFunction(ctypes.Structure):
@@ -710,6 +710,7 @@ class PointEvaluator:
         :kwarg ignore_missing_points: If ``True``, do not raise an error if a point is not found.
         :kwarg input_ordered: If ``True``, return results in the order of the input points.
         """
+        from firedrake.mesh import VertexOnlyMesh
         self.mesh = mesh
         self.points = np.asarray(points, dtype=utils.ScalarType)
         self.tolerance = tolerance or mesh.tolerance
@@ -726,6 +727,7 @@ class PointEvaluator:
         """
         if not isinstance(function, Function):
             raise TypeError(f"Expected a Function, got f{type(function).__name__}")
+        from firedrake import interpolate, assemble, FunctionSpace
 
         P0DG = FunctionSpace(self.vom, "DG", 0)
         f_at_points = assemble(interpolate(function, P0DG))
@@ -733,7 +735,7 @@ class PointEvaluator:
             P0DG_io = FunctionSpace(self.vom.input_ordering, "DG", 0)
             f_at_points = assemble(interpolate(f_at_points, P0DG_io))
         return f_at_points.dat.data_ro
-        
+
 
 @PETSc.Log.EventDecorator()
 def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
