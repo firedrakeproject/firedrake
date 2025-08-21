@@ -24,7 +24,7 @@ from firedrake.cofunction import Cofunction, RieszMap
 from firedrake import utils
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
-
+from firedrake.mesh import MeshGeometry
 
 __all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction', 'PointEvaluator']
 
@@ -702,32 +702,47 @@ class PointNotInDomainError(Exception):
 class PointEvaluator:
     r"""Convenience class for evaluating a :class:`Function` at a set of points."""
 
-    def __init__(self, mesh, points, tolerance=None, missing_points_behaviour: str = "error"):
+    def __init__(self, mesh: MeshGeometry, points: np.ndarray | list, tolerance: float | None = None, 
+                 missing_points_behaviour: str | None = "error") -> None:
         r"""
-        :arg mesh: The :class:`Mesh` on which the :class:`Function` is defined.
-        :arg points: Array of points to evaluate the function at.
-        :kwarg tolerance: Tolerance to use when checking if a point is
-            in a cell. Default is the ``tolerance`` of the :class:`Mesh`.
-        :kwarg missing_points_behaviour: Behaviour when a point is not found in the mesh. Options are:
-        "error": raise a :class:`VertexOnlyMeshMissingPointsError` if a point is not found in the mesh. 
-        "warn": warn if a point is not found in the mesh, but continue.
-        "ignore": ignore points not found in the mesh.
+        Parameters
+        ----------
+        mesh : :class:`MeshGeometry`
+            The :class:`Mesh` on which the :class:`Function` is defined.
+        points : np.ndarray | list
+            Array of points to evaluate the function at.
+        tolerance : float | None
+            Tolerance to use when checking if a point is in a cell. Default is the ``tolerance`` of the :class:`Mesh`.
+        missing_points_behaviour : str | None
+            Behaviour when a point is not found in the mesh. Options are:
+            "error": raise a :class:`VertexOnlyMeshMissingPointsError` if a point is not found in the mesh. 
+            "warn": warn if a point is not found in the mesh, but continue.
+            None: ignore points not found in the mesh.
         """
         from firedrake.mesh import VertexOnlyMesh
         self.mesh = mesh
         self.points = np.asarray(points, dtype=utils.ScalarType)
-        self.tolerance = tolerance or mesh.tolerance
         self.vom = VertexOnlyMesh(mesh, points, missing_points_behaviour=missing_points_behaviour, redundant=False, tolerance=tolerance)
 
-    def evaluate(self, function: Function, input_ordered: bool = True):
+    def evaluate(self, function: Function, input_ordered: bool = True) -> np.ndarray | list[np.ndarray]:
         r"""Evaluate the given :class:`Function` at the points provided to this
         :class:`PointEvaluator`.
 
-        :arg function: The :class:`Function` to evaluate.
-        :kwarg input_ordered: If ``True``, return results in the order of the input points. If any 
-        points were not found in the mesh, they will be return as np.nan.
-        :returns: A Numpy array of values at the points. If the function is a mixed function, a list
-        of Numpy arrays is returned, one for each subfunction.
+        Parameters
+        ----------
+        function : :class:`Function`
+            The :class:`Function` to evaluate.
+        input_ordered : bool
+            If ``True``, return results in the order of the input points. If any 
+            points were not found in the mesh, they will be return as np.nan.
+
+        Returns
+        -------
+        np.ndarray | list[np.ndarray]
+            A Numpy array of values at the points. If the function is scalar-valued, the Numpy array
+            has shape (len(points),). If the function is vector-valued with shape (n,), the Numpy array has shape
+            (len(points), n). If the function is tensor-valued with shape (n, m), the Numpy array has shape
+            (len(points), n, m). If the function is a mixed function, a list of Numpy arrays is returned, one for each subfunction.
         """
         if not isinstance(function, Function):
             raise TypeError(f"Expected a Function, got f{type(function).__name__}")
