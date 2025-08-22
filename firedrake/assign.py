@@ -13,6 +13,7 @@ from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
 from ufl.domain import extract_unique_domain
 
+from firedrake.cofunction import Cofunction
 from firedrake.constant import Constant
 from firedrake.function import Function
 from firedrake.petsc import PETSc
@@ -27,7 +28,7 @@ def _isconstant(expr):
 
 
 def _isfunction(expr):
-    return isinstance(expr, Function) and expr.ufl_element().family() != "Real"
+    return isinstance(expr, (Function, Cofunction)) and expr.ufl_element().family() != "Real"
 
 
 class CoefficientCollector(MultiFunction):
@@ -102,6 +103,9 @@ class CoefficientCollector(MultiFunction):
     def coefficient(self, o):
         return ((o, 1),)
 
+    def cofunction(self, o):
+        return ((o, 1),)
+
     def constant_value(self, o):
         return ((o, 1),)
 
@@ -147,7 +151,7 @@ class Assigner:
         expression = as_ufl(expression)
         source_meshes = set()
         for coeff in extract_coefficients(expression):
-            if isinstance(coeff, Function) and coeff.ufl_element().family() != "Real":
+            if isinstance(coeff, (Function, Cofunction)) and coeff.ufl_element().family() != "Real":
                 if coeff.ufl_element() != assignee.ufl_element():
                     raise ValueError("All functions in the expression must have the same "
                                      "element as the assignee")
@@ -277,7 +281,7 @@ class Assigner:
                         raise ValueError("Found assignee nodes with no matching assigner nodes: run with `allow_missing_dofs=True`")
                     subset_indices_source = composed_map.values_with_halo[indices_active, :].reshape(-1)[perm]
                 # TODO: Use work array?
-                buffer = Function(target_V)
+                buffer = type(lhs_func)(target_V)
                 finfo = np.finfo(lhs_func.dat.dtype)
                 buffer.dat._data[:] = finfo.max
                 func_data = np.array([f.dat.data_ro_with_halos[subset_indices_source] for f in funcs])

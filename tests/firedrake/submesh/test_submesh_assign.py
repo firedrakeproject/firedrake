@@ -8,7 +8,7 @@ cwd = abspath(dirname(__file__))
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_submesh_assign_3_quads_2_processes():
+def test_submesh_assign_function_3_quads_2_processes():
     # mesh
     # rank 0:
     # 4---12----6---15---(8)-(18)-(10)
@@ -68,7 +68,7 @@ def test_submesh_assign_3_quads_2_processes():
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_submesh_assign_2_quads_2_processes_no_overlap():
+def test_submesh_assign_function_2_quads_2_processes_no_overlap():
     # mesh
     # rank 0:
     # 2----6---(4)
@@ -115,7 +115,7 @@ def test_submesh_assign_2_quads_2_processes_no_overlap():
 @pytest.mark.parallel(nprocs=8)
 @pytest.mark.parametrize('simplex', [True, False])
 @pytest.mark.parametrize('distribution_parameters', [None, {"overlap_type": (DistributedMeshOverlapType.NONE, 0)}])
-def test_submesh_assign_unstructured_8_processes(simplex, distribution_parameters):
+def test_submesh_assign_function_unstructured_8_processes(simplex, distribution_parameters):
     if not simplex and distribution_parameters == {"overlap_type": (DistributedMeshOverlapType.NONE, 0)}:
         pytest.skip(reason="quad orientation bug; see https://github.com/firedrakeproject/firedrake/issues/4476")
     left = 111
@@ -180,7 +180,7 @@ def test_submesh_assign_unstructured_8_processes(simplex, distribution_parameter
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_submesh_assign_subset_3_quads_2_processes():
+def test_submesh_assign_function_subset_3_quads_2_processes():
     left = 111
     right = 222
     middle = 111222
@@ -244,3 +244,65 @@ def test_submesh_assign_subset_3_quads_2_processes():
     f_.assign(f, subset=subset)
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(rightright)))
     assert abs(e) < 1.e-14
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_submesh_assign_cofunction_3_quads_2_processes():
+    # mesh
+    # rank 0:
+    # 4---12----6---15---(8)-(18)-(10)
+    # |         |         |         |
+    # 11   0   13    1  (17)  (2) (19)
+    # |         |         |         |
+    # 3---14----5---16---(7)-(20)--(9)
+    # rank 1:
+    #          (7)-(13)---3----9----5
+    #           |         |         |
+    #          (12) (1)   8    0   10
+    #           |         |         |    plex points
+    #          (6)-(14)---2---11----4    () = ghost
+    left = 111
+    right = 222
+    middle = 111222
+    mesh = RectangleMesh(
+        3, 1, 3., 1., quadrilateral=True, distribution_parameters={"partitioner_type": "simple"},
+    )
+    dim = mesh.topological_dimension()
+    x, _ = SpatialCoordinate(mesh)
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    f_l = Function(DG0).interpolate(conditional(x < 2.0, 1, 0))
+    f_r = Function(DG0).interpolate(conditional(x > 1.0, 1, 0))
+    f_m = Function(DG0).interpolate(conditional(And(x < 2.0, x > 1.0), 1, 0))
+    mesh = RelabeledMesh(mesh, [f_l, f_r, f_m], [left, right, middle])
+    mesh_l = Submesh(mesh, dim, left)
+    mesh_r = Submesh(mesh, dim, right)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    V_l = VectorFunctionSpace(mesh_l, "CG", 1)
+    V_r = VectorFunctionSpace(mesh_r, "CG", 1)
+    v = TestFunction(V)
+    v_l = TestFunction(V_l)
+    v_r = TestFunction(V_r)
+    coords = Function(V).interpolate(SpatialCoordinate(mesh))
+    coords_l = Function(V_l).interpolate(SpatialCoordinate(mesh_l))
+    coords_r = Function(V_r).interpolate(SpatialCoordinate(mesh_r))
+    cof = assemble(inner(SpatialCoordinate(mesh), v) * dx)
+    cof_l = assemble(inner(SpatialCoordinate(mesh_l), v_l) * dx)
+    cof_r = assemble(inner(SpatialCoordinate(mesh_r), v_r) * dx)
+    # Test assign on the left two cells.
+    # -- mesh_l -> mesh
+    cof_ = Cofunction(V.dual()).assign(cof_l, allow_missing_dofs=True)
+    subset_indices = np.where(coords.dat.data_ro_with_halos[:, 0] < 1.001)
+    assert np.allclose(cof_.dat.data_ro_with_halos[subset_indices], cof.dat.data_ro_with_halos[subset_indices])
+    # -- mesh -> mesh_l
+    cof_ = Cofunction(V_l.dual()).assign(cof)
+    subset_indices = np.where(coords_l.dat.data_ro_with_halos[:, 0] < 1.001)
+    assert np.allclose(cof_.dat.data_ro_with_halos[subset_indices], cof_l.dat.data_ro_with_halos[subset_indices])
+    # Test assign on the right two cells.
+    # -- mesh_r -> mesh
+    cof_ = Cofunction(V.dual()).assign(cof_r, allow_missing_dofs=True)
+    subset_indices = np.where(coords.dat.data_ro_with_halos[:, 0] > 1.999)
+    assert np.allclose(cof_.dat.data_ro_with_halos[subset_indices], cof.dat.data_ro_with_halos[subset_indices])
+    # -- mesh -> mesh_r
+    cof_ = Cofunction(V_r.dual()).assign(cof)
+    subset_indices = np.where(coords_r.dat.data_ro_with_halos[:, 0] > 1.999)
+    assert np.allclose(cof_.dat.data_ro_with_halos[subset_indices], cof_r.dat.data_ro_with_halos[subset_indices])
