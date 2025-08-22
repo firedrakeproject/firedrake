@@ -11,6 +11,8 @@ from ctypes import POINTER, c_int, c_double, c_void_p
 from collections.abc import Collection
 from numbers import Number
 from pathlib import Path
+from functools import partial
+from typing import Tuple
 
 from pyop2 import op2, mpi
 from pyop2.exceptions import DataTypeError, DataValueError
@@ -23,9 +25,10 @@ from firedrake.cofunction import Cofunction, RieszMap
 from firedrake import utils
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
+from firedrake.mesh import MeshGeometry, VertexOnlyMesh
+from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 
-
-__all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction']
+__all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction', 'PointEvaluator']
 
 
 class _CFunction(ctypes.Structure):
@@ -696,6 +699,88 @@ class PointNotInDomainError(Exception):
 
     def __str__(self):
         return "domain %s does not contain point %s" % (self.domain, self.point)
+
+
+class PointEvaluator:
+    r"""Convenience class for evaluating a :class:`Function` at a set of points."""
+
+    def __init__(self, mesh: MeshGeometry, points: np.ndarray | list, tolerance: float | None = None,
+                 missing_points_behaviour: str | None = "error", redundant: bool = True) -> None:
+        r"""
+        Parameters
+        ----------
+        mesh : :class:`MeshGeometry`
+            The :class:`Mesh` on which the :class:`Function` is defined.
+        points : np.ndarray | list
+            Array of points to evaluate the function at.
+        tolerance : float | None
+            Tolerance to use when checking if a point is in a cell. Default is the `tolerance` of the :class:`MeshGeometry`.
+        missing_points_behaviour : str | None
+            Behaviour when a point is not found in the mesh. Options are:
+            "error": raise a :class:`VertexOnlyMeshMissingPointsError` if a point is not found in the mesh.
+            "warn": warn if a point is not found in the mesh, but continue.
+            None: ignore points not found in the mesh.
+        redundant : bool
+            If True, only the points on rank 0 are evaluated, and the result is broadcast to all ranks.
+            If False, each rank evaluates the points it has been given. False is useful if you are inputting
+            external data that is already distributed across ranks.
+            Default is True.
+        """
+        self.mesh = mesh
+        self.points = np.asarray(points, dtype=utils.ScalarType)
+        self.redundant = redundant
+        self.vom = VertexOnlyMesh(
+            mesh, points, missing_points_behaviour=missing_points_behaviour,
+            redundant=redundant, tolerance=tolerance
+        )
+
+    def evaluate(self, function: Function) -> np.ndarray | Tuple[np.ndarray, ...]:
+        r"""Evaluate the :class:`Function`.
+        Points that were not found in the mesh will be evaluated to np.nan.
+
+        Parameters
+        ----------
+        function :
+            The `Function` to evaluate.
+
+        Returns
+        -------
+        np.ndarray | Tuple[np.ndarray, ...]
+            A Numpy array of values at the points. If the function is scalar-valued, the Numpy array
+            has shape (len(points),). If the function is vector-valued with shape (n,), the Numpy array has shape
+            (len(points), n). If the function is tensor-valued with shape (n, m), the Numpy array has shape
+            (len(points), n, m). If the function is a mixed function, a tuple of Numpy arrays is returned,
+            one for each subfunction.
+        """
+        from firedrake import assemble, interpolate
+        if not isinstance(function, Function):
+            raise TypeError(f"Expected a Function, got f{type(function).__name__}")
+        if function.function_space().mesh() is not self.mesh:
+            raise ValueError("Function mesh must be the same Mesh object as the PointEvaluator mesh.")
+        subfunctions = function.subfunctions
+        if len(subfunctions) > 1:
+            return tuple(self.evaluate(subfunction) for subfunction in subfunctions)
+
+        shape = function.ufl_function_space().value_shape
+        if len(shape) == 0:
+            fs = FunctionSpace
+        elif len(shape) == 1:
+            fs = partial(VectorFunctionSpace, dim=shape[0])
+        else:
+            fs = partial(TensorFunctionSpace, shape=shape)
+        P0DG = fs(self.vom, "DG", 0)
+        f_at_points = assemble(interpolate(function, P0DG))
+
+        P0DG_io = fs(self.vom.input_ordering, "DG", 0)
+        f_at_points_io = Function(P0DG_io).assign(np.nan)
+        f_at_points_io.interpolate(f_at_points)
+        result = f_at_points_io.dat.data_ro
+        # If redundant, only rank 0 did the work. Broadcast ordered results to all ranks.
+        if self.redundant and self.mesh.comm.size > 1:
+            if self.mesh.comm.rank != 0:
+                result = np.empty((len(self.points),) + shape, dtype=utils.ScalarType)
+            self.mesh.comm.Bcast(result)
+        return result
 
 
 @PETSc.Log.EventDecorator()
