@@ -181,8 +181,7 @@ def test_point_evaluator_scalar(mesh_and_points):
     f.interpolate(x + y)
 
     # Test standard scalar function evaluation at points
-    eval = PointEvaluator(mesh, points)
-    f_at_points = eval.evaluate(f)
+    f_at_points = evaluator.evaluate(f)
     assert np.allclose(f_at_points, [0.2, 0.4, 0.6])
 
     # Test standard scalar function with missing points
