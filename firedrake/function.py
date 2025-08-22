@@ -731,7 +731,8 @@ class PointEvaluator:
 
     def evaluate(self, function: Function) -> np.ndarray | list[np.ndarray]:
         r"""Evaluate the given :class:`Function` at the points provided to this
-        :class:`PointEvaluator`.
+        :class:`PointEvaluator`. Points that were not found in the mesh will be
+        evaluated to np.nan.
 
         Parameters
         ----------
@@ -763,7 +764,7 @@ class PointEvaluator:
         if len(shape) == 0:
             fs = FunctionSpace
         elif len(shape) == 1:
-            fs = VectorFunctionSpace
+            fs = partial(VectorFunctionSpace, dim=shape[0])
         else:
             fs = partial(TensorFunctionSpace, shape=shape)
         P0DG = fs(self.vom, "DG", 0)
@@ -777,7 +778,7 @@ class PointEvaluator:
         if self.redundant and self.mesh.comm.size > 1:
             if self.mesh.comm.rank != 0:
                 result = np.empty((len(self.points),) + shape, dtype=utils.ScalarType)
-            self.mesh.comm.Bcast(result, root=0)
+            self.mesh.comm.Bcast(result)
         return result
 
 
