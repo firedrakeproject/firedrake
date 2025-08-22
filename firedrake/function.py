@@ -705,7 +705,7 @@ class PointEvaluator:
     r"""Convenience class for evaluating a :class:`Function` at a set of points."""
 
     def __init__(self, mesh: MeshGeometry, points: np.ndarray | list, tolerance: float | None = None,
-                 missing_points_behaviour: str | None = "error", redundant: bool = True) -> None:
+                 missing_points_behaviour: str = "error", redundant: bool = True) -> None:
         r"""
         Parameters
         ----------
@@ -715,11 +715,11 @@ class PointEvaluator:
             Array of points to evaluate the function at.
         tolerance : float | None
             Tolerance to use when checking if a point is in a cell. Default is the `tolerance` of the :class:`MeshGeometry`.
-        missing_points_behaviour : str | None
+        missing_points_behaviour : str
             Behaviour when a point is not found in the mesh. Options are:
             "error": raise a :class:`VertexOnlyMeshMissingPointsError` if a point is not found in the mesh.
             "warn": warn if a point is not found in the mesh, but continue.
-            None: ignore points not found in the mesh.
+            "ignore": ignore points not found in the mesh.
         redundant : bool
             If True, only the points on rank 0 are evaluated, and the result is broadcast to all ranks.
             If False, each rank evaluates the points it has been given. False is useful if you are inputting
