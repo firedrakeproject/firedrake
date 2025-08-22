@@ -1188,7 +1188,6 @@ class StandaloneInterpolationMatrix(object):
     """
 
     _cache_kernels = {}
-    _cache_work = {}
 
     def __init__(self, Vc, Vf, Vc_bcs, Vf_bcs):
         self.uc = self.work_function(Vc)
@@ -1212,11 +1211,12 @@ class StandaloneInterpolationMatrix(object):
     def work_function(self, V):
         if isinstance(V, firedrake.Function):
             return V
-        key = (V.ufl_element(), V.mesh(), V.boundary_set)
+        cache = V.mesh()._shared_data_cache["pmg_work_function"]
+        key = (V.ufl_element(), V.value_shape, V.boundary_set)
         try:
-            return self._cache_work[key]
+            return cache[key]
         except KeyError:
-            return self._cache_work.setdefault(key, firedrake.Function(V))
+            return cache.setdefault(key, firedrake.Function(V))
 
     @cached_property
     def _weight(self):
