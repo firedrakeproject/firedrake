@@ -4,7 +4,6 @@ from firedrake.cython.patchimpl import set_patch_residual, set_patch_jacobian
 from firedrake.solving_utils import _SNESContext
 from firedrake.utils import cached_property, complex_mode, IntType
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
-from firedrake.functionspace import FunctionSpace
 from firedrake.interpolation import Interpolate
 
 from collections import namedtuple
@@ -653,22 +652,15 @@ class PlaneSmoother(object):
             raise RuntimeError("Must either set ndiv or divisions for PlaneSmoother!")
 
         mesh = dm.getAttr("__firedrake_mesh__")
-        ele = mesh.coordinates.function_space().ufl_element()
-        V = mesh.coordinates.function_space()
-        if V.finat_element.entity_dofs() == V.finat_element.entity_closure_dofs():
+        coordinates = mesh.coordinates
+        V = coordinates.function_space()
+        if V.finat_element.is_dg():
             # We're using DG or DQ for our coordinates, so we got
             # a periodic mesh. We need to interpolate to CGk
             # with access descriptor MAX to define a consistent opinion
             # about where the vertices are.
-            CGkele = ele.reconstruct(family="Lagrange")
-            # Need to supply the actual mesh to the FunctionSpace constructor,
-            # not its weakref proxy (the variable `mesh`)
-            # as interpolation fails because they are not hashable
-            CGk = FunctionSpace(mesh.coordinates.function_space().mesh(), CGkele)
-            coordinates = Interpolate(mesh.coordinates, CGk, access=op2.MAX)
-            coordinates = assemble(coordinates)
-        else:
-            coordinates = mesh.coordinates
+            CGk = V.reconstruct(family="Lagrange")
+            coordinates = assemble(Interpolate(coordinates, CGk, access=op2.MAX))
 
         select = partial(select_entity, dm=dm, exclude="pyop2_ghost")
         entities = [(p, self.coords(dm, p, coordinates)) for p in
