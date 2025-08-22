@@ -734,7 +734,7 @@ class PointEvaluator:
             redundant=redundant, tolerance=tolerance
         )
 
-    def evaluate(self, function: Function) -> np.ndarray | Tuple[np.ndarray]:
+    def evaluate(self, function: Function) -> np.ndarray | Tuple[np.ndarray, ...]:
         r"""Evaluate the :class:`Function`.
         Points that were not found in the mesh will be evaluated to np.nan.
 
@@ -745,7 +745,7 @@ class PointEvaluator:
 
         Returns
         -------
-        np.ndarray | Tuple[np.ndarray]
+        np.ndarray | Tuple[np.ndarray, ...]
             A Numpy array of values at the points. If the function is scalar-valued, the Numpy array
             has shape (len(points),). If the function is vector-valued with shape (n,), the Numpy array has shape
             (len(points), n). If the function is tensor-valued with shape (n, m), the Numpy array has shape
