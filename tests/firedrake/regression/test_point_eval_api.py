@@ -227,7 +227,7 @@ def test_point_evaluator_nonredundant(mesh_and_points):
     if mesh.comm.rank == 0:
         points = [[0.1, 0.1]]
     elif mesh.comm.rank == 1:
-        points = [[0.4, 0.4]]
+        points = [[0.4, 0.4], [0.5, 0.5]]
     else:
         points = [[0.8, 0.8]]
     V = FunctionSpace(mesh, "CG", 1)
@@ -239,6 +239,6 @@ def test_point_evaluator_nonredundant(mesh_and_points):
     if mesh.comm.rank == 0:
         assert np.allclose(f_at_points, [0.2])
     elif mesh.comm.rank == 1:
-        assert np.allclose(f_at_points, [0.8])
+        assert np.allclose(f_at_points, [0.8, 1.0])
     else:
         assert np.allclose(f_at_points, [1.6])
