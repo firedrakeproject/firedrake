@@ -12,6 +12,7 @@ from collections.abc import Collection
 from numbers import Number
 from pathlib import Path
 from functools import partial
+from typing import Tuple
 
 from pyop2 import op2, mpi
 from pyop2.exceptions import DataTypeError, DataValueError
@@ -712,7 +713,7 @@ class PointEvaluator:
         points : np.ndarray | list
             Array of points to evaluate the function at.
         tolerance : float | None
-            Tolerance to use when checking if a point is in a cell. Default is the ``tolerance`` of the :class:`Mesh`.
+            Tolerance to use when checking if a point is in a cell. Default is the `tolerance` of the :class:`MeshGeometry`.
         missing_points_behaviour : str | None
             Behaviour when a point is not found in the mesh. Options are:
             "error": raise a :class:`VertexOnlyMeshMissingPointsError` if a point is not found in the mesh.
@@ -720,7 +721,8 @@ class PointEvaluator:
             None: ignore points not found in the mesh.
         redundant : bool
             If True, only the points on rank 0 are evaluated, and the result is broadcast to all ranks.
-            If False, each rank evaluates the points it has been given.
+            If False, each rank evaluates the points it has been given. False is useful if you are inputting
+            external data that is already distributed across ranks.
             Default is True.
         """
         from firedrake.mesh import VertexOnlyMesh
@@ -732,23 +734,22 @@ class PointEvaluator:
             redundant=redundant, tolerance=tolerance
         )
 
-    def evaluate(self, function: Function) -> np.ndarray | list[np.ndarray]:
-        r"""Evaluate the given :class:`Function` at the points provided to this
-        :class:`PointEvaluator`. Points that were not found in the mesh will be
-        evaluated to np.nan.
+    def evaluate(self, function: Function) -> np.ndarray | Tuple[np.ndarray]:
+        r"""Evaluate the :class:`Function`.
+        Points that were not found in the mesh will be evaluated to np.nan.
 
         Parameters
         ----------
-        function : :class:`Function`
-            The :class:`Function` to evaluate.
+        function :
+            The `Function` to evaluate.
 
         Returns
         -------
-        np.ndarray | list[np.ndarray]
+        np.ndarray | Tuple[np.ndarray]
             A Numpy array of values at the points. If the function is scalar-valued, the Numpy array
             has shape (len(points),). If the function is vector-valued with shape (n,), the Numpy array has shape
             (len(points), n). If the function is tensor-valued with shape (n, m), the Numpy array has shape
-            (len(points), n, m). If the function is a mixed function, a list of Numpy arrays is returned,
+            (len(points), n, m). If the function is a mixed function, a tuple of Numpy arrays is returned,
             one for each subfunction.
         """
         if not isinstance(function, Function):
@@ -759,10 +760,7 @@ class PointEvaluator:
 
         subfunctions = function.subfunctions
         if len(subfunctions) > 1:
-            result = []
-            for subfunction in subfunctions:
-                result.append(self.evaluate(subfunction))
-            return result
+            return tuple(self.evaluate(subfunction) for subfunction in subfunctions)
 
         shape = function.ufl_function_space().value_shape
         if len(shape) == 0:
