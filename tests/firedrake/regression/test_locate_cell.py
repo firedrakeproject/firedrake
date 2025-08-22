@@ -146,3 +146,34 @@ def test_parallel_high_order_location():
     f_at_correct_order = assemble(interpolate(f_at, P0DG_io))
 
     assert np.allclose(f_at_correct_order.dat.data_ro, [-0.6 * 0.25], atol=0.002)
+
+
+def test_high_order_location_quad():
+    mesh = UnitSquareMesh(2, 2, quadrilateral=True)
+    V = VectorFunctionSpace(mesh, "CG", 3, variant="equispaced")
+    f = Function(V)
+    f.interpolate(mesh.coordinates)
+
+    warp_indices = np.where((f.dat.data[:, 0] > 0.0) & (f.dat.data[:, 0] < 0.5) & (f.dat.data[:, 1] == 0.0))[0]
+    f.dat.data[warp_indices, 1] = warp(f.dat.data[warp_indices, 0], 5.0)
+
+    mesh = Mesh(f)
+
+    assert mesh.locate_cell([0.25, -0.6], tolerance=0.001) is not None
+
+
+def test_high_order_location_extruded():
+    m = UnitSquareMesh(2, 2)
+    mesh = ExtrudedMesh(m, 3)
+    V = VectorFunctionSpace(mesh, "CG", 3, variant="equispaced")
+    f = Function(V)
+    f.interpolate(mesh.coordinates)
+
+    def warp(x, p):
+        return p*x*(2*x - 1)
+
+    warp_indices = np.where((f.dat.data[:, 0] > 0.0) & (f.dat.data[:, 0] < 0.5) & (f.dat.data[:, 1] == 0.0))[0]
+    f.dat.data[warp_indices, 1] = warp(f.dat.data[warp_indices, 0], 5.0)
+
+    mesh = Mesh(f)
+    assert mesh.locate_cell([0.25, -0.6, 0.1], tolerance=0.001) is not None
