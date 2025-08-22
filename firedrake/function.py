@@ -702,7 +702,7 @@ class PointNotInDomainError(Exception):
 class PointEvaluator:
     r"""Convenience class for evaluating a :class:`Function` at a set of points."""
 
-    def __init__(self, mesh: MeshGeometry, points: np.ndarray | list, tolerance: float | None = None, 
+    def __init__(self, mesh: MeshGeometry, points: np.ndarray | list, tolerance: float | None = None,
                  missing_points_behaviour: str | None = "error", redundant: bool = True) -> None:
         r"""
         Parameters
@@ -715,7 +715,7 @@ class PointEvaluator:
             Tolerance to use when checking if a point is in a cell. Default is the ``tolerance`` of the :class:`Mesh`.
         missing_points_behaviour : str | None
             Behaviour when a point is not found in the mesh. Options are:
-            "error": raise a :class:`VertexOnlyMeshMissingPointsError` if a point is not found in the mesh. 
+            "error": raise a :class:`VertexOnlyMeshMissingPointsError` if a point is not found in the mesh.
             "warn": warn if a point is not found in the mesh, but continue.
             None: ignore points not found in the mesh.
         redundant : bool
@@ -779,6 +779,7 @@ class PointEvaluator:
                 result = np.empty((len(self.points),) + shape, dtype=utils.ScalarType)
             self.mesh.comm.Bcast(result, root=0)
         return result
+
 
 @PETSc.Log.EventDecorator()
 def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
