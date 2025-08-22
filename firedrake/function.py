@@ -728,7 +728,7 @@ class PointEvaluator:
         self.points = np.asarray(points, dtype=utils.ScalarType)
         self.redundant = redundant
         self.vom = VertexOnlyMesh(
-            mesh, points, missing_points_behaviour=missing_points_behaviour, 
+            mesh, points, missing_points_behaviour=missing_points_behaviour,
             redundant=redundant, tolerance=tolerance
         )
 
@@ -748,7 +748,7 @@ class PointEvaluator:
             A Numpy array of values at the points. If the function is scalar-valued, the Numpy array
             has shape (len(points),). If the function is vector-valued with shape (n,), the Numpy array has shape
             (len(points), n). If the function is tensor-valued with shape (n, m), the Numpy array has shape
-            (len(points), n, m). If the function is a mixed function, a list of Numpy arrays is returned, 
+            (len(points), n, m). If the function is a mixed function, a list of Numpy arrays is returned,
             one for each subfunction.
         """
         if not isinstance(function, Function):
