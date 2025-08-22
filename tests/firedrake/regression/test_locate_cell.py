@@ -148,6 +148,7 @@ def test_parallel_high_order_location():
     assert np.allclose(f_at_correct_order.dat.data_ro, [-0.6 * 0.25], atol=0.002)
 
 
+@pytest.mark.parallel([1, 3])
 def test_high_order_location_quad():
     mesh = UnitSquareMesh(2, 2, quadrilateral=True)
     V = VectorFunctionSpace(mesh, "CG", 3, variant="equispaced")
@@ -158,10 +159,11 @@ def test_high_order_location_quad():
     f.dat.data[warp_indices, 1] = warp(f.dat.data[warp_indices, 0], 5.0)
 
     mesh = Mesh(f)
+    cells = mesh.comm.allgather(mesh.locate_cell([0.25, -0.6], tolerance=0.001))
+    assert any(c is not None for c in cells)
 
-    assert mesh.locate_cell([0.25, -0.6], tolerance=0.001) is not None
 
-
+@pytest.mark.parallel([1, 3])
 def test_high_order_location_extruded():
     m = UnitSquareMesh(2, 2)
     mesh = ExtrudedMesh(m, 3)
@@ -176,4 +178,5 @@ def test_high_order_location_extruded():
     f.dat.data[warp_indices, 1] = warp(f.dat.data[warp_indices, 0], 5.0)
 
     mesh = Mesh(f)
-    assert mesh.locate_cell([0.25, -0.6, 0.1], tolerance=0.001) is not None
+    cells = mesh.comm.allgather(mesh.locate_cell([0.25, -0.6, 0.1], tolerance=0.001))
+    assert any(c is not None for c in cells)
