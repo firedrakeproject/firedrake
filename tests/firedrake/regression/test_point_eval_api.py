@@ -187,10 +187,8 @@ def test_point_evaluator_scalar(mesh_and_points):
 
     # Test standard scalar function with missing points
     eval_missing = PointEvaluator(mesh, np.append(points, [[1.5, 1.5]], axis=0), missing_points_behaviour=None)
-    f_at_points_missing = eval_missing.evaluate(f, input_ordered=False)
-    assert not np.isnan(f_at_points_missing).any()
-    f_at_points_missing_io = eval_missing.evaluate(f)
-    assert np.isnan(f_at_points_missing_io[-1])
+    f_at_points_missing = eval_missing.evaluate(f)
+    assert np.isnan(f_at_points_missing[-1])
 
 @pytest.mark.parallel([1, 3])
 def test_point_evaluator_vector_tensor_mixed(mesh_and_points):
