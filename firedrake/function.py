@@ -718,6 +718,10 @@ class PointEvaluator:
             "error": raise a :class:`VertexOnlyMeshMissingPointsError` if a point is not found in the mesh. 
             "warn": warn if a point is not found in the mesh, but continue.
             None: ignore points not found in the mesh.
+        redundant : bool
+            If True, only the points on rank 0 are evaluated, and the result is broadcast to all ranks.
+            If False, each rank evaluates the points it has been given.
+            Default is True.
         """
         from firedrake.mesh import VertexOnlyMesh
         self.mesh = mesh
@@ -733,9 +737,6 @@ class PointEvaluator:
         ----------
         function : :class:`Function`
             The :class:`Function` to evaluate.
-        input_ordered : bool
-            If ``True``, return results in the order of the input points. If any 
-            points were not found in the mesh, they will be return as np.nan.
 
         Returns
         -------
@@ -747,6 +748,8 @@ class PointEvaluator:
         """
         if not isinstance(function, Function):
             raise TypeError(f"Expected a Function, got f{type(function).__name__}")
+        if function.function_space().mesh() is not self.mesh:
+            raise ValueError("Function mesh must be the same Mesh object as the PointEvaluator mesh.")
         from firedrake import interpolate, assemble, FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 
         subfunctions = function.subfunctions
