@@ -2488,7 +2488,7 @@ values from f.)"""
 
         coord_element = self.ufl_coordinate_element()
         coord_degree = coord_element.degree()
-        if coord_degree == 1:
+        if np.all(np.asarray(coord_degree) == 1):
             mesh = self
         elif coord_element.family() == "Bernstein":
             # Already have Bernstein coordinates, no need to project
