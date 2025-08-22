@@ -190,6 +190,7 @@ def test_point_evaluator_scalar(mesh_and_points):
     f_at_points_missing = eval_missing.evaluate(f)
     assert np.isnan(f_at_points_missing[-1])
 
+
 @pytest.mark.parallel([1, 3])
 def test_point_evaluator_vector_tensor_mixed(mesh_and_points):
     mesh, evaluator = mesh_and_points
@@ -205,8 +206,8 @@ def test_point_evaluator_vector_tensor_mixed(mesh_and_points):
     f_tensor = Function(V_tensor)
     f_tensor.interpolate(as_matrix([[x, y, x*y], [y, x, x*y]]))
     f_tensor_at_points = evaluator.evaluate(f_tensor)
-    tensor_expected = np.array([[[0.1, 0.1, 0.01], [0.1, 0.1, 0.01]], 
-                                [[0.2, 0.2, 0.04], [0.2, 0.2, 0.04]], 
+    tensor_expected = np.array([[[0.1, 0.1, 0.01], [0.1, 0.1, 0.01]],
+                                [[0.2, 0.2, 0.04], [0.2, 0.2, 0.04]],
                                 [[0.3, 0.3, 0.09], [0.3, 0.3, 0.09]]])
     assert np.allclose(f_tensor_at_points, tensor_expected)
 
@@ -218,6 +219,7 @@ def test_point_evaluator_vector_tensor_mixed(mesh_and_points):
     f_mixed_at_points = evaluator.evaluate(f_mixed)
     assert np.allclose(f_mixed_at_points[0], vec_expected)
     assert np.allclose(f_mixed_at_points[1], tensor_expected)
+
 
 @pytest.mark.parallel(3)
 def test_point_evaluator_nonredundant(mesh_and_points):
