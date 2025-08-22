@@ -2495,7 +2495,12 @@ values from f.)"""
             mesh = self
         else:
             # For bendy meshes we project the coordinate function onto Bernstein
-            bernstein_fs = functionspace.VectorFunctionSpace(self, "Bernstein", coord_degree)
+            if self.extruded:
+                bernstein_fs = functionspace.VectorFunctionSpace(
+                    self, "Bernstein", coord_degree[0], vfamily="Bernstein", vdegree=coord_degree[1]
+                )
+            else:
+                bernstein_fs = functionspace.VectorFunctionSpace(self, "Bernstein", coord_degree)
             f = function.Function(bernstein_fs)
             f.interpolate(self.coordinates)
             mesh = Mesh(f)
