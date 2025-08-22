@@ -47,13 +47,13 @@ class Expression(abc.ABC):
         else:
             return full_str
 
-    def __add__(self, other):
+    def __add__(self, other: ExpressionT, /) -> Expression:
         if other == 0:
             return self
         else:
             return Add(self, other)
 
-    def __radd__(self, other):
+    def __radd__(self, other: ExpressionT, /) -> Expression:
         if other == 0:
             return self
         else:

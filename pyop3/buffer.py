@@ -514,7 +514,7 @@ class PetscMatBufferSpec(MatBufferSpec, metaclass=abc.ABCMeta):
 @dataclasses.dataclass(frozen=True)
 class NonNestedPetscMatBufferSpec(PetscMatBufferSpec):
     mat_type: str
-    block_shape: tuple[int, int] = (1, 1)
+    block_shape: tuple[tuple[int, ...], tuple[int, ...]] = ((), ())
 
 
 @dataclasses.dataclass(frozen=True)

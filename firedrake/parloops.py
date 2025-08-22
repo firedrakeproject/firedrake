@@ -470,7 +470,8 @@ def _(
         dat = mat_context.dat
         return pack_pyop3_tensor(dat, space, index, integral_type)
 
-    plex = utils.single_valued(V.mesh().topology for V in {Vrow, Vcol})
+    if any(fs.mesh().ufl_cell() is ufl.hexahedron for fs in {Vrow, Vcol}):
+        raise NotImplementedError
 
     # First collect the DoFs in the cell closure in FIAT order.
     if integral_type == "cell":
@@ -484,9 +485,19 @@ def _(
 
     indexed = mat[rmap, cmap]
 
-    row_perm = _flatten_entity_dofs(Vrow.finat_element.entity_dofs())
+    return maybe_permute_packed_tensor(indexed, Vrow, Vcol)
+
+
+@functools.singledispatch
+def maybe_permute_packed_tensor(tensor: op3.Tensor, *spaces) -> op3.Tensor:
+    raise TypeError
+
+
+@maybe_permute_packed_tensor.register
+def _(packed_mat: op3.Mat, row_space, column_space):
+    row_perm = _flatten_entity_dofs(row_space.finat_element.entity_dofs())
     row_perm = invert_permutation(row_perm)
-    col_perm = _flatten_entity_dofs(Vcol.finat_element.entity_dofs())
+    col_perm = _flatten_entity_dofs(column_space.finat_element.entity_dofs())
     col_perm = invert_permutation(col_perm)
 
     # skip if identity
@@ -502,15 +513,12 @@ def _(
         col_perm_axis = col_perm_dat.axes.root
         col_perm_subset = op3.Slice(col_perm_axis.label, [op3.Subset(col_perm_axis.component.label, col_perm_dat)])
 
-        indexed_row_axes = op3.AxisTree.from_iterable([row_perm_axis, *Vrow.shape])
-        indexed_col_axes = op3.AxisTree.from_iterable([col_perm_axis, *Vcol.shape])
+        indexed_row_axes = op3.AxisTree.from_iterable([row_perm_axis, *row_space.shape])
+        indexed_col_axes = op3.AxisTree.from_iterable([col_perm_axis, *row_space.shape])
 
-        indexed = indexed.reshape(indexed_row_axes, indexed_col_axes)[row_perm_subset, col_perm_subset]
+        packed_mat = packed_mat.reshape(indexed_row_axes, indexed_col_axes)[row_perm_subset, col_perm_subset]
 
-    if plex.ufl_cell() is ufl.hexahedron:
-        raise NotImplementedError
-
-    return indexed
+    return packed_mat
 
 def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.IndexTree:
     if len(V) > 1:

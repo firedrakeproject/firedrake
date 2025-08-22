@@ -19,6 +19,7 @@ from pyop3.utils import (  # noqa: F401
     debug_assert,
     freeze,
     StrictlyUniqueDict,
+    invert,
 )
 
 import petsctools

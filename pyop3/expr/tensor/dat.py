@@ -63,6 +63,44 @@ class Dat(Tensor):
     _name: str
     _parent: Dat | None
 
+    def __init__(
+        self,
+        axes,
+        buffer: AbstractBuffer | None = None,
+        *,
+        data: np.ndarray | None = None,
+        name=None,
+        prefix=None,
+        parent=None,
+    ):
+        """
+        NOTE: buffer and data are equivalent options. Only one can be specified. I include both
+        because dat.data is an actual attribute (that returns dat.buffer.data) and so is intuitive
+        to provide as input.
+
+        We could maybe do something similar with dtype...
+        """
+        axes = as_axis_tree(axes)
+
+        assert buffer is None or data is None, "cant specify both"
+        if isinstance(buffer, ArrayBuffer):
+            assert buffer.sf == axes.unindexed.sf
+        elif isinstance(buffer, NullBuffer):
+            pass
+        else:
+            assert buffer is None and data is not None
+            assert len(data.shape) == 1, "cant do nested shape"
+            buffer = ArrayBuffer(data, axes.unindexed.sf)
+
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        self._name = name
+        self._parent = parent
+        self.axes = axes
+        self._buffer = buffer
+
+        # self._cache = {}
+
     # }}}
 
     # {{{ class attrs
@@ -97,19 +135,27 @@ class Dat(Tensor):
     @classmethod
     def empty(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = ArrayBuffer.empty(axes.unindexed.max_size, dtype=dtype, sf=axes.sf)
+        buffer = ArrayBuffer.empty(axes.unindexed.max_size, dtype=dtype, sf=axes.unindexed.sf)
         return cls(axes, buffer=buffer, **kwargs)
+
+    @classmethod
+    def empty_like(cls, dat: Dat, **kwargs) -> Dat:
+        return cls.empty(dat.axes, dtype=dat.dtype, **kwargs)
 
     @classmethod
     def zeros(cls, axes, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = ArrayBuffer.zeros(axes.unindexed.max_size, dtype=dtype, sf=axes.sf)
+        buffer = ArrayBuffer.zeros(axes.unindexed.max_size, dtype=dtype, sf=axes.unindexed.sf)
         return cls(axes, buffer=buffer, **kwargs)
+
+    @classmethod
+    def zeros_like(cls, dat: Dat, **kwargs) -> Dat:
+        return cls.zeros(dat.axes, dtype=dat.dtype, **kwargs)
 
     @classmethod
     def full(cls, axes, fill_value: numbers.Number, dtype=AbstractBuffer.DEFAULT_DTYPE, **kwargs) -> Dat:
         axes = as_axis_tree(axes)
-        buffer = ArrayBuffer.full(axes.unindexed.max_size, fill_value, dtype=dtype, sf=axes.sf)
+        buffer = ArrayBuffer.full(axes.unindexed.max_size, fill_value, dtype=dtype, sf=axes.unindexed.sf)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
@@ -132,44 +178,6 @@ class Dat(Tensor):
         return cls.from_array(array, **kwargs)
 
     # }}}
-
-    def __init__(
-        self,
-        axes,
-        buffer: AbstractBuffer | None = None,
-        *,
-        data: np.ndarray | None = None,
-        name=None,
-        prefix=None,
-        parent=None,
-    ):
-        """
-        NOTE: buffer and data are equivalent options. Only one can be specified. I include both
-        because dat.data is an actual attribute (that returns dat.buffer.data) and so is intuitive
-        to provide as input.
-
-        We could maybe do something similar with dtype...
-        """
-        axes = as_axis_tree(axes)
-
-        assert buffer is None or data is None, "cant specify both"
-        if isinstance(buffer, ArrayBuffer):
-            assert buffer.sf == axes.sf
-        elif isinstance(buffer, NullBuffer):
-            pass
-        else:
-            assert buffer is None and data is not None
-            assert len(data.shape) == 1, "cant do nested shape"
-            buffer = ArrayBuffer(data, axes.sf)
-
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-
-        self._name = name
-        self._parent = parent
-        self.axes = axes
-        self._buffer = buffer
-
-        # self._cache = {}
 
     @property
     def _full_str(self) -> str:
@@ -215,30 +223,10 @@ class Dat(Tensor):
 
     @property
     def kernel_dtype(self):
+        assert False, "old"
         # TODO Think about the fact that the dtype refers to either to dtype of the
         # array entries (e.g. double), or the dtype of the whole thing (double*)
         return self.dtype
-
-    @classmethod
-    def from_list(cls, data, axis_labels, name=None, dtype=ScalarType, inc=0):
-        """Return a multi-array formed from a list of lists.
-
-        The returned array must have one axis component per axis. These are
-        permitted to be ragged.
-
-        """
-        flat, count = cls._get_count_data(data)
-        flat = np.array(flat, dtype=dtype)
-
-        if isinstance(count, Sequence):
-            count = cls.from_list(count, axis_labels[:-1], name, dtype, inc + 1)
-            subaxis = Axis(count, axis_labels[-1])
-            axes = count.axes.add_axis(subaxis, count.axes.leaf)
-        else:
-            axes = AxisTree(Axis(count, axis_labels[-1]))
-
-        assert axes.depth == len(axis_labels)
-        return cls(axes, data=flat, dtype=dtype)
 
     @classmethod
     def _get_count_data(cls, data):
@@ -421,7 +409,7 @@ class Dat(Tensor):
             )
         return PETSc.Vec().createWithArray(
             array,
-            size=(self.axes.owned.size, self.axes.global_size),
+            size=(array.size, None),
             bsize=bsize,
             comm=self.comm,
         )
@@ -453,6 +441,28 @@ class Dat(Tensor):
             alpha * other.data_ro_with_halos, self.data_ro_with_halos,
             out=self.data_wo_with_halos
         )
+
+    def inner(self, other: Dat, /) -> np.number:
+        """Compute the l2 inner product against another dat.
+
+        Parameters
+        ----------
+        other :
+            The other `Dat` to compute the inner product against. Its complex
+            conjugate is taken.
+
+        Returns
+        -------
+        np.number :
+            The l2 inner product.
+
+        """
+        if other.axes != self.axes:
+            # TODO: custom exception type
+            raise ValueError
+
+        local_result = np.vdot(other.data_ro, self.data_ro)
+        return self.comm.reduce(local_result, op=MPI.SUM)
 
     # TODO: deprecate this and just look at axes
     @property

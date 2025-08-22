@@ -92,6 +92,26 @@ class Tensor(ContextAware, Expression, abc.ABC):
 
     # }}}
 
+    def __iadd__(self, other: ExpressionT, /) -> Self:
+        if other != 0:
+            self.iassign(other, eager=True)
+        return self
+
+    def __isub__(self, other: ExpressionT, /) -> Self:
+        if other != 0:
+            self.iassign(-other, eager=True)
+        return self
+
+    def __imul__(self, other: ExpressionT, /) -> Self:
+        if other != 1:
+            self.assign(self*other, eager=True)
+        return self
+
+    def __itruediv__(self, other: ExpressionT, /) -> Self:
+        if other != 1:
+            self.assign(self//other, eager=True)
+        return self
+
     @property
     def comm(self) -> MPI.Comm:
         return self.buffer.comm

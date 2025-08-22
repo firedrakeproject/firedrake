@@ -576,10 +576,10 @@ class DatPythonMatContext:
     def zeroEntries(self, mat):
         self.dat.zero()
 
-    def mult(self, x, y):
+    def mult(self, mat, x, y):
         """Set y = self @ x."""
-        with self.dat.vec_ro as A:
-            if self.is_row_matrix:
+        with self.dat.vec_ro() as A:
+            if isinstance(self, RowDatPythonMatContext):  # FIXME: inheritance
                 # Example:
                 # * 'A' (self) has global size (5, 2)
                 # * 'x' has global size (5, 2)
@@ -593,7 +593,7 @@ class DatPythonMatContext:
                 #             ■ ■
                 y.setValue(0, A.dot(x))
             else:
-                assert self.is_column_matrix
+                assert isinstance(self, ColumnDatPythonMatContext)  # FIXME: inheritance
                 # Example:
                 # * 'A' (self) has global size (5, 3)
                 # * 'x' has global size (3, 2)

@@ -1194,10 +1194,10 @@ class FunctionSpace:
             if isinstance(val, numpy.ndarray):
                 if valuetype is not None:
                     assert val.dtype == valuetype
-                data = val.flatten()
+                data = val
             else:
                 data = numpy.asarray(val, dtype=valuetype)
-            return op3.Dat(self.axes, data=data, name=name)
+            return op3.Dat(self.axes, data=data.flatten(), name=name)
         else:
             return op3.Dat.zeros(self.axes, dtype=valuetype, name=name)
 

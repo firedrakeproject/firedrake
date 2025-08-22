@@ -63,6 +63,7 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaul
 
     if any(V.ufl_element().family() == "Real"
            for a in arguments for V in a.function_space()):
+
         test, trial = arguments
         if test.function_space() != trial.function_space():
             # Don't know what to do here. How did it happen?
@@ -77,7 +78,8 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaul
                 fields.append(i)
         if len(fields) == 0:
             # Just reals, GMRES
-            opts = {"ksp_type": "gmres",
+            opts = {"mat_type": "rvec",
+                    "ksp_type": "gmres",
                     "pc_type": "none"}
             parameters.update(opts)
         else:

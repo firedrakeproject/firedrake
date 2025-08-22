@@ -967,20 +967,19 @@ class AbstractMeshTopology(abc.ABC):
 
     @utils.cached_property
     def cell_closure(self):
-        # internal detail really, do not expose in pyop3/__init__.py
-        from pyop3.expr.visitors import NonlinearCompositeDat, materialize_composite_dat
-        breakpoint()  # old code, fix?
+        from pyop3.expr import NonlinearCompositeDat
+        from pyop3.expr.visitors import materialize_composite_dat
 
-        cell = self.cells.owned.index()
+        cell = self.cells.owned.iter()
         indexed_axes = self.points[self.closure(cell)]
-        cell_node_expr = NonlinearCompositeDat(
+        cell_closure_expr = NonlinearCompositeDat(
             indexed_axes.materialize(),
             indexed_axes.leaf_subst_layouts,
             indexed_axes.outer_loops,
         )
-        cell_node_buffer_expr = materialize_composite_dat(cell_node_expr)
+        cell_closure_buffer_expr = materialize_composite_dat(cell_closure_expr)
         shape = (self.cells.owned.size, indexed_axes.size)
-        return utils.readonly(cell_node_buffer_expr.buffer.buffer.data_ro.reshape(shape))
+        return utils.readonly(cell_closure_buffer_expr.buffer.buffer.data_ro.reshape(shape))
 
     @property
     def comm(self):
@@ -3515,10 +3514,9 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         mesh cell order.
         """
         cell_parent_cell_list = np.copy(self.topology_dm.getField("parentcellnum").ravel())
-        breakpoint()
         self.topology_dm.restoreField("parentcellnum")
         # return cell_parent_cell_list[self.cell_closure[:, -1]]
-        return cell_parent_cell_list[self._cell_numbering]
+        return cell_parent_cell_list[utils.invert(self._cell_numbering)]
         # return cell_parent_cell_list[op3.utils.invert(self._cell_numbering)]
 
     @utils.cached_property  # TODO: Recalculate if mesh moves

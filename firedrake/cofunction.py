@@ -53,6 +53,9 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
                (defaults to ``ScalarType``).
         """
 
+        # debugging
+        self._dat = None
+
         V = function_space
         if isinstance(V, Cofunction):
             V = V.function_space()
@@ -85,6 +88,16 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
         if isinstance(function_space, Cofunction):
             self.dat.copy(function_space.dat)
+
+    # debug
+    @property
+    def dat(self):
+        return self._dat
+
+    @dat.setter
+    def dat(self, new):
+        assert isinstance(new, op3.Dat)
+        self._dat = new
 
     @PETSc.Log.EventDecorator()
     def copy(self, deepcopy=True):
