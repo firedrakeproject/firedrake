@@ -218,3 +218,25 @@ def test_point_evaluator_vector_tensor_mixed(mesh_and_points):
     f_mixed_at_points = evaluator.evaluate(f_mixed)
     assert np.allclose(f_mixed_at_points[0], vec_expected)
     assert np.allclose(f_mixed_at_points[1], tensor_expected)
+
+@pytest.mark.parallel(3)
+def test_point_evaluator_nonredundant(mesh_and_points):
+    mesh = mesh_and_points[0]
+    if mesh.comm.rank == 0:
+        points = [[0.1, 0.1]]
+    elif mesh.comm.rank == 1:
+        points = [[0.4, 0.4]]
+    else:
+        points = [[0.8, 0.8]]
+    V = FunctionSpace(mesh, "CG", 1)
+    f = Function(V)
+    x, y = SpatialCoordinate(mesh)
+    f.interpolate(x + y)
+    evaluator = PointEvaluator(mesh, points, redundant=False)
+    f_at_points = evaluator.evaluate(f)
+    if mesh.comm.rank == 0:
+        assert np.allclose(f_at_points, [0.2])
+    elif mesh.comm.rank == 1:
+        assert np.allclose(f_at_points, [0.8])
+    else:
+        assert np.allclose(f_at_points, [1.6])
