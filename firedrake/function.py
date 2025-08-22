@@ -25,7 +25,8 @@ from firedrake.cofunction import Cofunction, RieszMap
 from firedrake import utils
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
-from firedrake.mesh import MeshGeometry
+from firedrake.mesh import MeshGeometry, VertexOnlyMesh
+from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 
 __all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction', 'PointEvaluator']
 
@@ -725,7 +726,6 @@ class PointEvaluator:
             external data that is already distributed across ranks.
             Default is True.
         """
-        from firedrake.mesh import VertexOnlyMesh
         self.mesh = mesh
         self.points = np.asarray(points, dtype=utils.ScalarType)
         self.redundant = redundant
@@ -752,12 +752,11 @@ class PointEvaluator:
             (len(points), n, m). If the function is a mixed function, a tuple of Numpy arrays is returned,
             one for each subfunction.
         """
+        from firedrake import assemble, interpolate
         if not isinstance(function, Function):
             raise TypeError(f"Expected a Function, got f{type(function).__name__}")
         if function.function_space().mesh() is not self.mesh:
             raise ValueError("Function mesh must be the same Mesh object as the PointEvaluator mesh.")
-        from firedrake import interpolate, assemble, FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
-
         subfunctions = function.subfunctions
         if len(subfunctions) > 1:
             return tuple(self.evaluate(subfunction) for subfunction in subfunctions)
