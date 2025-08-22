@@ -172,7 +172,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @utils.known_pyop2_safe
-    def assign(self, expr, subset=None, expr_from_assemble=False):
+    def assign(self, expr, subset=None, expr_from_assemble=False, allow_missing_dofs=False):
         r"""Set the :class:`Cofunction` value to the pointwise value of
         expr. expr may only contain :class:`Cofunction`\s on the same
         :class:`.FunctionSpace` as the :class:`Cofunction` being assigned to.
@@ -216,7 +216,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
             expr.dat.copy(self.dat, subset=subset)
             return self
-        elif isinstance(expr, BaseForm):
+        elif isinstance(expr, BaseForm) and not isinstance(expr, Cofunction):
             # Enable c.assign(B) where c is a Cofunction and B an appropriate
             # BaseForm object. If annotation is enabled, the following
             # operation will result in an assemble block on the Pyadjoint tape.
@@ -226,7 +226,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
                 expr_from_assemble=True)
         else:
             from firedrake.assign import Assigner
-            Assigner(self, expr, subset).assign()
+            Assigner(self, expr, subset).assign(allow_missing_dofs=allow_missing_dofs)
         return self
 
     def riesz_representation(self, riesz_map='L2', *, bcs=None,
