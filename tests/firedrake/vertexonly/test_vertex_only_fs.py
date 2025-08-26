@@ -362,17 +362,49 @@ def test_input_ordering_missing_point():
         _ = len(data_input_ordering.dat.data_ro)
 
 
-@pytest.mark.parallel([1, 3])
-def test_tensorfs_permutation():
+@pytest.fixture(
+    params=[
+        ((2, 2), None),
+        (None, True),
+        ((), None),
+        ((2, 3), None),
+    ]
+)
+def tensorfs_and_expr(request):
+    shape, symmetry = request.param
     np.random.seed(0)
     mesh = UnitSquareMesh(2, 2)
     coords = np.random.random_sample(size=(10, 2))
     vom = VertexOnlyMesh(mesh, coords)
-    V = TensorFunctionSpace(vom, "DG", 0, shape=(2, 2))
-    W = TensorFunctionSpace(vom.input_ordering, "DG", 0, shape=(2, 2))
-    f = Function(V)
+
+    if shape is None:
+        V = TensorFunctionSpace(vom, "DG", 0, symmetry=symmetry)
+        W = TensorFunctionSpace(vom.input_ordering, "DG", 0, symmetry=symmetry)
+    elif shape == ():
+        V = TensorFunctionSpace(vom, "DG", 0, shape=(), symmetry=symmetry)
+        W = TensorFunctionSpace(vom.input_ordering, "DG", 0, shape=(), symmetry=symmetry)
+    else:
+        V = TensorFunctionSpace(vom, "DG", 0, shape=shape, symmetry=symmetry)
+        W = TensorFunctionSpace(vom.input_ordering, "DG", 0, shape=shape, symmetry=symmetry)
+
     x = SpatialCoordinate(vom)
-    f.interpolate(outer(x, x) + Identity(2))
+    if shape == ():
+        expr = inner(x, x)
+    elif shape is None or shape == (2, 2):
+        expr = outer(x, x) + Identity(2)
+    elif shape == (2, 3):
+        a = as_vector([x[0], x[1]])
+        b = as_vector([x[0], x[1], Constant(1.0)])
+        expr = outer(a, b)
+
+    return V, W, expr
+
+
+@pytest.mark.parallel([1, 3])
+def test_tensorfs_permutation(tensorfs_and_expr):
+    V, W, expr = tensorfs_and_expr
+    f = Function(V)
+    f.interpolate(expr)
     f_in_W = assemble(interpolate(f, W))
     python_mat = assemble(interpolate(TestFunction(V), W, matfree=False))
     f_in_W_2 = assemble(python_mat @ f)
