@@ -171,9 +171,6 @@ def test_high_order_location_extruded():
     f = Function(V)
     f.interpolate(mesh.coordinates)
 
-    def warp(x, p):
-        return p*x*(2*x - 1)
-
     warp_indices = np.where((f.dat.data[:, 0] > 0.0) & (f.dat.data[:, 0] < 0.5) & (f.dat.data[:, 1] == 0.0))[0]
     f.dat.data[warp_indices, 1] = warp(f.dat.data[warp_indices, 0], 5.0)
 
