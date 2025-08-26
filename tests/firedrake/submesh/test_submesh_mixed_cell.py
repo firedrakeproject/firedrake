@@ -180,3 +180,80 @@ def test_submesh_mixed_cell_solve():
     pgfplot(Function(V_t).interpolate(sol.subfunctions[0] - g_t), "mesh_tri.txt", degree=2)
     pgfplot(Function(V_q).interpolate(sol.subfunctions[1] - g_q), "mesh_quad.txt", degree=2)
     
+
+def _test_submesh_mixed_cell_solve_convergence(nref, degree):
+    dim = 2
+    label_ext = 1
+    label_interf = 2
+    distribution_parameters_noop = {
+        "partition": False,
+        "overlap_type": (DistributedMeshOverlapType.NONE, 0),
+    }
+    mesh = Mesh(os.path.join(cwd, "..", "meshes", "mixed_cell_unit_square.msh"), distribution_parameters=distribution_parameters_noop)
+    #mesh = MeshHierarchy(mesh, 1)[-1]
+    plex=mesh.topology_dm
+    for _ in range(nref):
+        plex = plex.refine()
+    plex.removeLabel("pyop2_core")
+    plex.removeLabel("pyop2_owned")
+    plex.removeLabel("pyop2_ghost")
+    mesh = Mesh(plex)
+    h = 0.1 / 2**nref  # roughly
+    mesh.topology_dm.markBoundaryFaces(dmcommon.FACE_SETS_LABEL, label_ext)
+    mesh_t = Submesh(mesh, dim, PETSc.DM.PolytopeType.TRIANGLE, label_name="celltype", name="mesh_tri")
+    x_t, y_t = SpatialCoordinate(mesh_t)
+    n_t = FacetNormal(mesh_t)
+    mesh_q = Submesh(mesh, dim, PETSc.DM.PolytopeType.QUADRILATERAL, label_name="celltype", name="mesh_quad")
+    x_q, y_q = SpatialCoordinate(mesh_q)
+    n_q = FacetNormal(mesh_q)
+    V_t = FunctionSpace(mesh_t, "P", degree)
+    V_q = FunctionSpace(mesh_q, "Q", degree)
+    V = V_t * V_q
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    u_t, u_q = split(u)
+    v_t, v_q = split(v)
+    dx_t = Measure("dx", mesh_t)
+    dx_q = Measure("dx", mesh_q)
+    ds_t = Measure("ds", mesh_t, intersect_measures=(Measure("ds", mesh_q),))
+    ds_q = Measure("ds", mesh_q, intersect_measures=(Measure("ds", mesh_t),))
+    g_t = cos(2 * pi * x_t) * cos(2 * pi * y_t)
+    g_q = cos(2 * pi * x_q) * cos(2 * pi * y_q)
+    f_t = 8 * pi**2 * g_t
+    f_q = 8 * pi**2 * g_q
+    a = (
+        inner(grad(u_t), grad(v_t)) * dx_t +
+        inner(grad(u_q), grad(v_q)) * dx_q
+        -inner(
+            (grad(u_q) + grad(u_t)) / 2,
+            (v_q * n_q + v_t * n_t)
+        ) * ds_q(label_interf)
+        -inner(
+            (u_q * n_q + u_t * n_t),
+            (grad(v_q) + grad(v_t)) / 2
+        ) * ds_t(label_interf)
+        + 100 / h * inner(u_q - u_t, v_q - v_t) * ds_q(label_interf)
+    )
+    L = (
+        inner(f_t, v_t) * dx_t +
+        inner(f_q, v_q) * dx_q
+    )
+    sol = Function(V)
+    bc_q = DirichletBC(V.sub(1), g_q, label_ext)
+    solve(a == L, sol, bcs=[bc_q])
+    sol_t, sol_q = split(sol)
+    L2error_t = assemble(inner(sol_t - g_t, sol_t - g_t) * dx_t)
+    L2error_q = assemble(inner(sol_q - g_q, sol_q - g_q) * dx_q)
+    H1error_t = assemble((inner(sol_t - g_t, sol_t - g_t) + inner(grad(sol_t - g_t), grad(sol_t - g_t)))* dx_t)
+    H1error_q = assemble((inner(sol_q - g_q, sol_q - g_q) + inner(grad(sol_q - g_q), grad(sol_q - g_q)))* dx_q)
+    return sqrt(L2error_t + L2error_q), sqrt(H1error_t + H1error_q)
+
+
+@pytest.mark.parallel(nprocs=8)
+def test_submesh_mixed_cell_solve_convergence():
+    for degree in range(1, 5):
+        print("degree: ", degree)
+        for nref in range(4):
+            print("nref: ", nref)
+            L2error, H1error = _test_submesh_mixed_cell_solve_convergence(nref, degree)
+            print('%.4f, %.4f\n' % (np.log2(L2error), np.log2(H1error)))
