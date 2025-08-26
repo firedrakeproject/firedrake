@@ -3,7 +3,10 @@ import pytest
 from firedrake import *
 from firedrake.adjoint import *
 
-from numpy.random import rand
+
+@pytest.fixture
+def rg():
+    return RandomGenerator(PCG64(seed=1234))
 
 
 @pytest.fixture(autouse=True)
@@ -39,8 +42,7 @@ def test_project_vector_valued():
     J = assemble(inner(f, g)*u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V)
-    h.vector()[:] = 1
+    h = Function(V).assign(1)
     assert taylor_test(rf, f, h) > 1.9
 
 
@@ -60,8 +62,7 @@ def test_project_tlm():
     J = assemble(inner(f, g)*u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V)
-    h.vector()[:] = 1
+    h = Function(V).assign(1)
     f.tlm_value = h
 
     tape = get_working_tape()
@@ -88,14 +89,13 @@ def test_project_hessian():
 
     dJdm = rf.derivative()
 
-    h = Function(V)
-    h.vector()[:] = 1.0
+    h = Function(V).assign(1)
     Hm = rf.hessian(h)
     assert taylor_test(rf, f, h, dJdm=h._ad_dot(dJdm), Hm=h._ad_dot(Hm)) > 2.9
 
 
 @pytest.mark.skipcomplex
-def test_project_nonlincom():
+def test_project_nonlincom(rg):
     mesh = IntervalMesh(10, 0, 1)
     element = FiniteElement("CG", mesh.ufl_cell(), degree=1)
     V1 = FunctionSpace(mesh, element)
@@ -114,13 +114,12 @@ def test_project_nonlincom():
     J = assemble(u ** 2 * dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V1)
-    h.vector()[:] = rand(V1.dim())
+    h = rg.uniform(V1)
     assert taylor_test(rf, f, h) > 1.9
 
 
 @pytest.mark.skipcomplex
-def test_project_nonlin_changing():
+def test_project_nonlin_changing(rg):
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "CG", 1)
 
@@ -145,11 +144,9 @@ def test_project_nonlin_changing():
     J = assemble(u ** 2 * dx)
     rf = ReducedFunctional(J, control)
 
-    g = Function(V)
-    g.vector()[:] = rand(V.dim())
+    g = rg.uniform(V)
 
-    h = Function(V)
-    h.vector()[:] = rand(V.dim())
+    h = rg.uniform(V)
     assert taylor_test(rf, g, h) > 1.9
 
 

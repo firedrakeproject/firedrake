@@ -19,9 +19,8 @@ from finat.ufl import MixedElement
 from firedrake.utils import ScalarType, IntType, as_ctypes
 
 from firedrake import functionspaceimpl
-from firedrake.cofunction import Cofunction
+from firedrake.cofunction import Cofunction, RieszMap
 from firedrake import utils
-from firedrake import vector
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
 
@@ -52,8 +51,8 @@ class CoordinatelessFunction(ufl.Coefficient):
 
             Alternatively, another :class:`Function` may be passed here and its function space
             will be used to build this :class:`Function`.
-        :param val: NumPy array-like (or :class:`pyop2.types.dat.Dat` or
-            :class:`~.Vector`) providing initial values (optional).
+        :param val: NumPy array-like (or :class:`pyop2.types.dat.Dat`)
+            providing initial values (optional).
             This :class:`Function` will share data with the provided
             value.
         :param name: user-defined name for this :class:`Function` (optional).
@@ -75,9 +74,6 @@ class CoordinatelessFunction(ufl.Coefficient):
         self._name = name or 'function_%d' % self.uid
         self._label = "a function"
 
-        if isinstance(val, vector.Vector):
-            # Allow constructing using a vector.
-            val = val.dat
         if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
             assert val.comm == self._comm
             self.dat = val
@@ -178,10 +174,6 @@ class CoordinatelessFunction(ufl.Coefficient):
     def exterior_facet_node_map(self):
         return self.function_space().exterior_facet_node_map()
     exterior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.exterior_facet_node_map.__doc__
-
-    def vector(self):
-        r"""Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
-        return vector.Vector(self)
 
     def function_space(self):
         r"""Return the :class:`.FunctionSpace`, or
@@ -361,10 +353,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         """
         return self._function_space
 
-    def vector(self):
-        r"""Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
-        return vector.Vector(self)
-
     @PETSc.Log.EventDecorator()
     def interpolate(
         self,
@@ -462,39 +450,29 @@ class Function(ufl.Coefficient, FunctionMixin):
         return self
 
     def riesz_representation(self, riesz_map='L2'):
-        """Return the Riesz representation of this :class:`Function` with respect to the given Riesz map.
+        """Return the Riesz representation of this :class:`Function`.
 
-        Example: For a L2 Riesz map, the Riesz representation is obtained by taking the action
-        of ``M`` on ``self``, where M is the L2 mass matrix, i.e. M = <u, v>
-        with u and v trial and test functions, respectively.
+        Example: For a L2 Riesz map, the Riesz representation is obtained by
+        taking the action of ``M`` on ``self``, where M is the L2 mass matrix,
+        i.e. M = <u, v> with u and v trial and test functions, respectively.
 
         Parameters
         ----------
-        riesz_map : str or collections.abc.Callable
-                    The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a callable.
+        riesz_map : str or ufl.sobolevspace.SobolevSpace or
+        collections.abc.Callable
+            The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a
+            callable which applies the Riesz map.
 
         Returns
         -------
         firedrake.cofunction.Cofunction
-            Riesz representation of this :class:`Function` with respect to the given Riesz map.
+            Riesz representation of this :class:`Function` with respect to the
+            given Riesz map.
         """
-        from firedrake.ufl_expr import action
-        from firedrake.assemble import assemble
+        if not callable(riesz_map):
+            riesz_map = RieszMap(self.function_space(), riesz_map)
 
-        V = self.function_space()
-        if riesz_map == "l2":
-            return Cofunction(V.dual(), val=self.dat)
-
-        elif riesz_map in ("L2", "H1"):
-            a = self._define_riesz_map_form(riesz_map, V)
-            return assemble(action(a, self))
-
-        elif callable(riesz_map):
-            return riesz_map(self)
-
-        else:
-            raise NotImplementedError(
-                "Unknown Riesz representation %s" % riesz_map)
+        return riesz_map(self)
 
     @FunctionMixin._ad_annotate_iadd
     def __iadd__(self, expr):

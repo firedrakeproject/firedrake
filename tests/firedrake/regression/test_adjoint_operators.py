@@ -1,11 +1,15 @@
 import pytest
 import numpy as np
-from numpy.random import rand
 from pyadjoint.tape import get_working_tape, pause_annotation, stop_annotating
 from ufl.classes import Zero
 
 from firedrake import *
 from firedrake.adjoint import *
+
+
+@pytest.fixture
+def rg():
+    return RandomGenerator(PCG64(seed=1234))
 
 
 @pytest.fixture(autouse=True)
@@ -62,7 +66,7 @@ def test_interpolate_constant():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_interpolate_with_arguments():
+def test_interpolate_with_arguments(rg):
     mesh = UnitSquareMesh(10, 10)
     V1 = FunctionSpace(mesh, "CG", 1)
     V2 = FunctionSpace(mesh, "CG", 2)
@@ -76,13 +80,12 @@ def test_interpolate_with_arguments():
     J = assemble(u ** 2 * dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V1)
-    h.vector()[:] = rand(V1.dim())
+    h = rg.uniform(V1)
     assert taylor_test(rf, f, h) > 1.9
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_interpolate_scalar_valued():
+def test_interpolate_scalar_valued(rg):
     mesh = IntervalMesh(10, 0, 1)
     V1 = FunctionSpace(mesh, "CG", 1)
     V2 = FunctionSpace(mesh, "CG", 2)
@@ -98,13 +101,11 @@ def test_interpolate_scalar_valued():
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V1)
-    h.vector()[:] = rand(V1.dim())
+    h = rg.uniform(V1)
     assert taylor_test(rf, f, h) > 1.9
 
     rf = ReducedFunctional(J, Control(g))
-    h = Function(V2)
-    h.vector()[:] = rand(V2.dim())
+    h = rg.uniform(V2)
     assert taylor_test(rf, g, h) > 1.9
 
 
@@ -124,8 +125,7 @@ def test_interpolate_vector_valued():
     J = assemble(inner(f, g)*u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V1)
-    h.vector()[:] = 1
+    h = Function(V1).assign(1)
     assert taylor_test(rf, f, h) > 1.9
 
 
@@ -145,8 +145,7 @@ def test_interpolate_tlm():
     J = assemble(inner(f, g)*u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V1)
-    h.vector()[:] = 1
+    h = Function(V1).assign(1)
     f.block_variable.tlm_value = h
 
     tape = get_working_tape()
@@ -276,7 +275,7 @@ def test_interpolate_to_function_space_cross_mesh():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_interpolate_hessian_linear_expr():
+def test_interpolate_hessian_linear_expr(rg):
     # Note this is a direct copy of
     # pyadjoint/tests/firedrake_adjoint/test_hessian.py::test_nonlinear
     # with modifications where indicated.
@@ -292,8 +291,7 @@ def test_interpolate_hessian_linear_expr():
     # space h and perterbation direction g.
     W = FunctionSpace(mesh, "Lagrange", 2)
     R = FunctionSpace(mesh, "R", 0)
-    f = Function(W)
-    f.vector()[:] = 5
+    f = Function(W).assign(5)
     # Note that we interpolate from a linear expression
     expr_interped = Function(V).interpolate(2*f)
 
@@ -308,8 +306,7 @@ def test_interpolate_hessian_linear_expr():
     Jhat = ReducedFunctional(J, Control(f))
 
     # Note functions are in W, not V.
-    h = Function(W)
-    h.vector()[:] = 10*rand(W.dim())
+    h = rg.uniform(W, 0, 10)
 
     J.block_variable.adj_value = 1.0
     f.block_variable.tlm_value = h
@@ -333,7 +330,7 @@ def test_interpolate_hessian_linear_expr():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_interpolate_hessian_nonlinear_expr():
+def test_interpolate_hessian_nonlinear_expr(rg):
     # Note this is a direct copy of
     # pyadjoint/tests/firedrake_adjoint/test_hessian.py::test_nonlinear
     # with modifications where indicated.
@@ -349,8 +346,7 @@ def test_interpolate_hessian_nonlinear_expr():
     # space h and perterbation direction g.
     W = FunctionSpace(mesh, "Lagrange", 2)
     R = FunctionSpace(mesh, "R", 0)
-    f = Function(W)
-    f.vector()[:] = 5
+    f = Function(W).assign(5)
     # Note that we interpolate from a nonlinear expression
     expr_interped = Function(V).interpolate(f**2)
 
@@ -365,8 +361,7 @@ def test_interpolate_hessian_nonlinear_expr():
     Jhat = ReducedFunctional(J, Control(f))
 
     # Note functions are in W, not V.
-    h = Function(W)
-    h.vector()[:] = 10*rand(W.dim())
+    h = rg.uniform(W, 0, 10)
 
     J.block_variable.adj_value = 1.0
     f.block_variable.tlm_value = h
@@ -390,7 +385,7 @@ def test_interpolate_hessian_nonlinear_expr():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_interpolate_hessian_nonlinear_expr_multi():
+def test_interpolate_hessian_nonlinear_expr_multi(rg):
     # Note this is a direct copy of
     # pyadjoint/tests/firedrake_adjoint/test_hessian.py::test_nonlinear
     # with modifications where indicated.
@@ -406,10 +401,8 @@ def test_interpolate_hessian_nonlinear_expr_multi():
     # space h and perterbation direction g.
     W = FunctionSpace(mesh, "Lagrange", 2)
     R = FunctionSpace(mesh, "R", 0)
-    f = Function(W)
-    f.vector()[:] = 5
-    w = Function(W)
-    w.vector()[:] = 4
+    f = Function(W).assign(5)
+    w = Function(W).assign(4)
     c = Function(R, val=2.0)
     # Note that we interpolate from a nonlinear expression with 3 coefficients
     expr_interped = Function(V).interpolate(f**2+w**2+c**2)
@@ -425,8 +418,7 @@ def test_interpolate_hessian_nonlinear_expr_multi():
     Jhat = ReducedFunctional(J, Control(f))
 
     # Note functions are in W, not V.
-    h = Function(W)
-    h.vector()[:] = 10*rand(W.dim())
+    h = rg.uniform(W, 0, 10)
 
     J.block_variable.adj_value = 1.0
     # Note only the tlm_value of f is set here - unclear why.
@@ -451,7 +443,7 @@ def test_interpolate_hessian_nonlinear_expr_multi():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_interpolate_hessian_nonlinear_expr_multi_cross_mesh():
+def test_interpolate_hessian_nonlinear_expr_multi_cross_mesh(rg):
     # Note this is a direct copy of
     # pyadjoint/tests/firedrake_adjoint/test_hessian.py::test_nonlinear
     # with modifications where indicated.
@@ -469,10 +461,8 @@ def test_interpolate_hessian_nonlinear_expr_multi_cross_mesh():
     mesh_src = UnitSquareMesh(11, 11)
     R_src = FunctionSpace(mesh_src, "R", 0)
     W = FunctionSpace(mesh_src, "Lagrange", 2)
-    f = Function(W)
-    f.vector()[:] = 5
-    w = Function(W)
-    w.vector()[:] = 4
+    f = Function(W).assign(5)
+    w = Function(W).assign(4)
     c = Function(R_src, val=2.0)
     # Note that we interpolate from a nonlinear expression with 3 coefficients
     expr_interped = Function(V).interpolate(f**2+w**2+c**2)
@@ -488,8 +478,7 @@ def test_interpolate_hessian_nonlinear_expr_multi_cross_mesh():
     Jhat = ReducedFunctional(J, Control(f))
 
     # Note functions are in W, not V.
-    h = Function(W)
-    h.vector()[:] = 10*rand(W.dim())
+    h = rg.uniform(W, 0, 10)
 
     J.block_variable.adj_value = 1.0
     f.block_variable.tlm_value = h
@@ -642,7 +631,7 @@ def test_supermesh_project_to_function_space():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_supermesh_project_gradient(vector):
+def test_supermesh_project_gradient(vector, rg):
     source, target_space = supermesh_setup()
     source_space = source.function_space()
     control = Control(source)
@@ -651,8 +640,7 @@ def test_supermesh_project_gradient(vector):
     rf = ReducedFunctional(J, control)
 
     # Taylor test
-    h = Function(source_space)
-    h.vector()[:] = rand(source_space.dim())
+    h = rg.uniform(source_space)
     minconv = taylor_test(rf, source, h)
     assert minconv > 1.9
 
@@ -678,7 +666,7 @@ def test_supermesh_project_tlm(vector):
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
-def test_supermesh_project_hessian(vector):
+def test_supermesh_project_hessian(vector, rg):
     source, target_space = supermesh_setup()
     control = Control(source)
     target = project(source, target_space)
@@ -686,8 +674,7 @@ def test_supermesh_project_hessian(vector):
     rf = ReducedFunctional(J, control)
 
     source_space = source.function_space()
-    h = Function(source_space)
-    h.vector()[:] = 10*rand(source_space.dim())
+    h = rg.uniform(source_space, 0, 10)
 
     J.block_variable.adj_value = 1.0
     source.block_variable.tlm_value = h
@@ -863,10 +850,10 @@ def test_assign_zero_cofunction():
     J = assemble(((sol + Constant(1.0)) ** 2) * dx)
     # The zero assignment should break the tape and hence cause a zero
     # gradient.
-    grad_l2 = compute_gradient(J, Control(k), options={"riesz_representation": "l2"})
-    grad_none = compute_gradient(J, Control(k), options={"riesz_representation": None})
-    grad_h1 = compute_gradient(J, Control(k), options={"riesz_representation": "H1"})
-    grad_L2 = compute_gradient(J, Control(k), options={"riesz_representation": "L2"})
+    grad_l2 = compute_derivative(J, Control(k, riesz_map="l2"), apply_riesz=True)
+    grad_none = compute_derivative(J, Control(k), apply_riesz=False)
+    grad_h1 = compute_derivative(J, Control(k, riesz_map="H1"), apply_riesz=True)
+    grad_L2 = compute_derivative(J, Control(k, riesz_map="L2"), apply_riesz=True)
     assert isinstance(grad_l2, Function) and isinstance(grad_L2, Function) \
         and isinstance(grad_h1, Function)
     assert isinstance(grad_none, Cofunction)
@@ -912,7 +899,6 @@ def test_riesz_representation_for_adjoints():
     space = FunctionSpace(mesh, "Lagrange", 1)
     f = Function(space).interpolate(SpatialCoordinate(mesh)[0])
     J = assemble((f ** 2) * dx)
-    rf = ReducedFunctional(J, Control(f))
     with stop_annotating():
         v = TestFunction(space)
         u = TrialFunction(space)
@@ -931,21 +917,27 @@ def test_riesz_representation_for_adjoints():
         dJdu_function_L2 = Function(space)
         solve(a == dJdu_cofunction, dJdu_function_L2)
 
-    dJdu_none = rf.derivative(options={"riesz_representation": None})
-    dJdu_l2 = rf.derivative(options={"riesz_representation": "l2"})
-    dJdu_H1 = rf.derivative(options={"riesz_representation": "H1"})
-    dJdu_L2 = rf.derivative(options={"riesz_representation": "L2"})
-    dJdu_default_L2 = rf.derivative()
-    assert (
-        isinstance(dJdu_none, Cofunction) and isinstance(dJdu_function_l2, Function)
-        and isinstance(dJdu_H1, Function) and isinstance(dJdu_default_L2, Function)
-        and isinstance(dJdu_L2, Function)
-        and np.allclose(dJdu_none.dat.data, dJdu_cofunction.dat.data)
-        and np.allclose(dJdu_l2.dat.data, dJdu_function_l2.dat.data)
-        and np.allclose(dJdu_H1.dat.data, dJdu_function_H1.dat.data)
-        and np.allclose(dJdu_default_L2.dat.data, dJdu_function_L2.dat.data)
-        and np.allclose(dJdu_L2.dat.data, dJdu_function_L2.dat.data)
+    dJdu_none = ReducedFunctional(J, Control(f)).derivative()
+    dJdu_l2 = ReducedFunctional(J, Control(f, riesz_map="l2")).derivative(
+        apply_riesz=True
     )
+    dJdu_H1 = ReducedFunctional(J, Control(f, riesz_map="H1")).derivative(
+        apply_riesz=True
+    )
+    dJdu_L2 = ReducedFunctional(J, Control(f, riesz_map="L2")).derivative(
+        apply_riesz=True
+    )
+    dJdu_default_L2 = ReducedFunctional(J, Control(f)).derivative(
+        apply_riesz=True
+    )
+    assert isinstance(dJdu_none, Cofunction) and isinstance(dJdu_function_l2, Function)
+    assert isinstance(dJdu_H1, Function) and isinstance(dJdu_default_L2, Function)
+    assert isinstance(dJdu_L2, Function)
+    assert np.allclose(dJdu_none.dat.data, dJdu_cofunction.dat.data)
+    assert np.allclose(dJdu_l2.dat.data, dJdu_function_l2.dat.data)
+    assert np.allclose(dJdu_H1.dat.data, dJdu_function_H1.dat.data)
+    assert np.allclose(dJdu_default_L2.dat.data, dJdu_function_L2.dat.data)
+    assert np.allclose(dJdu_L2.dat.data, dJdu_function_L2.dat.data)
 
 
 @pytest.mark.skipcomplex
@@ -970,13 +962,13 @@ def test_lvs_constant_jacobian(constant_jacobian):
 
     J_hat = ReducedFunctional(J, Control(u))
 
-    dJ = J_hat.derivative(options={"riesz_representation": None})
+    dJ = J_hat.derivative()
     assert np.allclose(dJ.dat.data_ro, 2 * assemble(inner(u_ref, test) * dx).dat.data_ro)
 
     u_ref = Function(space, name="u").interpolate(X[0] - 0.1)
     J_hat(u_ref)
 
-    dJ = J_hat.derivative(options={"riesz_representation": None})
+    dJ = J_hat.derivative()
     assert np.allclose(dJ.dat.data_ro, 2 * assemble(inner(u_ref, test) * dx).dat.data_ro)
 
 
@@ -997,7 +989,7 @@ def test_cofunction_assign_functional():
     cof2.assign(cof)  # Test is checking that this is taped.
     J = assemble(action(cof2, f2))
     Jhat = ReducedFunctional(J, Control(f))
-    assert np.allclose(float(Jhat.derivative()), 1.0)
+    assert np.allclose(float(Jhat.derivative(apply_riesz=True)), 1.0)
     f.assign(2.0)
     assert np.allclose(Jhat(f), 2.0)
 
@@ -1035,7 +1027,7 @@ def test_bdy_control():
         (u_analytical(X[0], a, b)**2) * dx, b))
     J = assemble(sol * sol * dx)
     J_hat = ReducedFunctional(J, [Control(a), Control(b)])
-    adj_derivatives = J_hat.derivative(options={"riesz_representation": "l2"})
+    adj_derivatives = J_hat.derivative()
     assert np.allclose(adj_derivatives[0].dat.data_ro, der_analytical0.dat.data_ro)
     assert np.allclose(adj_derivatives[1].dat.data_ro, der_analytical1.dat.data_ro)
     a = Function(R, val=1.5)

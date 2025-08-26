@@ -151,7 +151,7 @@ def test_stokes(mh, variant, mixed_element):
             Z,
             [Z.sub(0), VectorSpaceBasis(constant=True, comm=COMM_WORLD)]
         )
-        solve(a == L, zh, bcs=bcs, nullspace=nullspace, solver_parameters={"ksp_type": "preonly", "pc_type": "cholesky", "pc_factor_mat_solver_type": "mumps"})
+        solve(a == L, zh, bcs=bcs, nullspace=nullspace)
 
         uh, ph = zh.subfunctions
         u_err.append(errornorm(as_vector(uexact), uh))

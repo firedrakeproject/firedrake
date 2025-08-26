@@ -267,7 +267,7 @@ def resolve_tag(tag, components):
     token = os.getenv("FIREDRAKE_GITHUB_TOKEN")
     if token:
         check_github_token_scope(token)
-        github3.login(token=token)
+        gh = github3.login(token=token)
     else:
         log.error("""Need to provide FIREDRAKE_GITHUB_TOKEN for github to resolve tags.
 
@@ -276,7 +276,7 @@ variable FIREDRAKE_GITHUB_TOKEN to a github personal access token.""")
         sys.exit(1)
     result = []
     for component in components:
-        repo = get_component_repository(component)
+        repo = gh.repository("firedrakeproject", component)
         try:
             found, = [t for t in repo.tags() if t.name == tag]
         except ValueError:
@@ -587,7 +587,7 @@ with deposit:write scope.""")
     return publish
 
 
-def format_bibtex(record):
+def format_bibtex(record, tag):
     metadata = record["metadata"]
     template = """@misc{{{key},
  key   = {{{key}}},
@@ -634,7 +634,7 @@ If the release has only just been created, then the information may not yet have
         sys.exit(1)
     if result["hits"]["total"] > 1:
         log.error("More than one release for this tag found, please check bibtex carefully.")
-    return "\n".join(map(format_bibtex, result["hits"]["hits"]))
+    return "\n".join((format_bibtex(record, tag=tag) for record in result["hits"]["hits"]))
 
 
 if args.release_tag:
@@ -693,9 +693,9 @@ def create_zenodo_meta_release(meta_release: str) -> None:
     record = record.json()
     log.info("Created Zenodo meta-release.")
     log.info(f"Tag is `{tag}`")
-    log.info(f"DOI is {record[doi]}")
+    log.info(f"DOI is {record['doi']}")
     log.info(f"Zenodo URL is {record['links']['record_html']}")
-    log.info(f"BibTeX\n\n```bibtex\n{format_bibtex(record)}\n```")
+    log.info(f"BibTeX\n\n```bibtex\n{format_bibtex(record, tag)}\n```")
 
 
 if args.meta_release:
@@ -794,7 +794,12 @@ def check_ref_exists(component):
     if "version" in shas[component]:
         # component is versioned, a GitHub release should already exist
         if not release_already_exists(component, shas[component]["version"]):
-            log.error(f"A release of {component} is referenced but no corresponding release on GitHub can be found, aborting")
+            log.error(
+                f"A release of {component} is referenced but no corresponding "
+                "release on GitHub can be found. For repositories we do not own "
+                "(e.g. PETSc) it will be necessary to push the release tags to "
+                "the Firedrake fork before making a release."
+            )
             sys.exit(1)
     else:
         repo = get_component_repository(component)
@@ -808,12 +813,18 @@ def make_github_release_or_tag_existing(component: str) -> None:
         # component is versioned, a GitHub release should already exist
         release = get_matching_release(component, shas[component]["version"])
         tag_existing_release = True
-        commit_id = release.target_commitish
+
+        commit_id = None
+        for tag in repo.tags():
+            if tag.name == release.tag_name:
+                commit_id = tag.commit.sha
+                break
+        assert commit_id is not None
     else:
         # referencing a specific commit, may need to make a new release
 
         # make sure that 'commit_id' is not truncated
-        commit_id = repo.commit(shas[component]["commit_id"])
+        commit_id = repo.commit(shas[component]["commit_id"]).sha
 
         if commit_already_exists_in_release(component, commit_id):
             tag_existing_release = True
@@ -881,6 +892,10 @@ def release_already_exists(component: str, release_name: str) -> bool:
 
 
 def get_matching_release(component: str, release_name: str) -> github3.Release:
+    # PETSc prepend a 'v' to their releases
+    if component == "petsc":
+        release_name = "v" + release_name
+
     for release in get_component_repository(component).releases():
         if release.tag_name == release_name:
             return release
