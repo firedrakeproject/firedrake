@@ -61,7 +61,7 @@ patches yield a robust method.::
           "pc_type": "python",
           "pc_python_type": "firedrake.ASMStarPC",
           "pc_star_construct_dim": construct_dim,
-          "pc_star_backend_type": "tinyasm"
+          "pc_star_backend": "tinyasm"
       }
 
 Hiptmair proposed a finer space decomposition for Nedelec elements using edge

@@ -140,7 +140,7 @@ direct solver or a Krylov iteration on each one.::
   asm_relax = mg_params({
       "pc_type": "python",
       "pc_python_type": "firedrake.ASMStarPC",
-      "pc_star_backend_type": "tinyasm"})
+      "pc_star_backend": "tinyasm"})
 
 Now, for each parameter choice, we report the iteration count for the Poisson problem
 over a range of polynomial degrees.  We see that the Jacobi relaxation leads to growth

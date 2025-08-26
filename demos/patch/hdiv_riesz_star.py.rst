@@ -60,7 +60,7 @@ Arnold, Falk, and Winther show that either vertex (`construct_dim=0`) or edge pa
           "pc_type": "python",
           "pc_python_type": "firedrake.ASMStarPC",
           "pc_star_construct_dim": construct_dim,
-          "pc_star_backend_type": "tinyasm"
+          "pc_star_backend": "tinyasm"
       }
 
 Now, for each parameter choice, we report the iteration count for the Riesz map
