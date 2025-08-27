@@ -377,15 +377,8 @@ def tensorfs_and_expr(request):
     coords = np.random.random_sample(size=(10, 2))
     vom = VertexOnlyMesh(mesh, coords)
 
-    if shape is None:
-        V = TensorFunctionSpace(vom, "DG", 0, symmetry=symmetry)
-        W = TensorFunctionSpace(vom.input_ordering, "DG", 0, symmetry=symmetry)
-    elif shape == ():
-        V = TensorFunctionSpace(vom, "DG", 0, shape=(), symmetry=symmetry)
-        W = TensorFunctionSpace(vom.input_ordering, "DG", 0, shape=(), symmetry=symmetry)
-    else:
-        V = TensorFunctionSpace(vom, "DG", 0, shape=shape, symmetry=symmetry)
-        W = TensorFunctionSpace(vom.input_ordering, "DG", 0, shape=shape, symmetry=symmetry)
+    V = TensorFunctionSpace(vom, "DG", 0, shape=shape, symmetry=symmetry)
+    W = TensorFunctionSpace(vom.input_ordering, "DG", 0, shape=shape, symmetry=symmetry)
 
     x = SpatialCoordinate(vom)
     if shape == ():
