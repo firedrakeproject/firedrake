@@ -31,10 +31,10 @@ a few points.
    # evaluate f at one 2-dimensional point
    f.at([0.2, 0.4])
 
-   # evaluate f at two 2-dimensional point
+   # evaluate f at two 2-dimensional points
    f.at([0.2, 0.4], [1.2, 0.5])
 
-   # evaluate f at two 2-dimensional point (same as above)
+   # evaluate f at two 2-dimensional points (same as above)
    f.at([[0.2, 0.4], [1.2, 0.5]])
 
 While in these examples we have only shown lists, other *iterables*
@@ -210,7 +210,7 @@ by rank B then they will be moved to rank B.
 
 If the same coordinates are supplied more than once, they are always assumed to
 be a new vertex: this is true for both ``redundant = True`` and
-``redunant = False``. So if we have the same set of points on all MPI processes
+``redundant = False``. So if we have the same set of points on all MPI processes
 and switch from ``redundant = True`` to ``redundant = False`` we will get point
 duplication.
 
@@ -218,7 +218,7 @@ duplication.
 Points outside the domain
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Be default points outside the domain by more than the :ref:`specified
+By default points outside the domain by more than the :ref:`specified
 tolerance <tolerance>` will generate
 a :class:`~.VertexOnlyMeshMissingPointsError`. This can be switched to a
 warning or switched off entirely:
@@ -262,7 +262,7 @@ These equivalent expressions for point evaluation
 
 where :math:`N` is the number of points, :math:`x_i` is the :math:`i`\th point,
 :math:`\Omega` is a 'parent' mesh, :math:`f` is a function on that mesh,
-:math:`\delta` is a dirac delta distribition can therefore be written in
+:math:`\delta` is a Dirac delta distribution can therefore be written in
 Firedrake using :func:`~.VertexOnlyMesh` and :func:`~.interpolate` as
 
 .. literalinclude:: ../../tests/firedrake/vertexonly/test_vertex_only_manual.py
@@ -320,7 +320,7 @@ distributed** we can use :py:attr:`~.VertexOnlyMeshTopology.input_ordering` as f
 
 .. note::
 
-   When a a vertex-only mesh is created with ``redundant = True`` (which is the
+   When a vertex-only mesh is created with ``redundant = True`` (which is the
    default when creating a :func:`~.VertexOnlyMesh`) the
    :py:attr:`~.VertexOnlyMeshTopology.input_ordering` method will return a vertex-only
    mesh with all points on rank 0.
@@ -331,7 +331,7 @@ If we ran the example in parallel, the above code would print
 print ``[0.02, 0.08, 0.18]`` on all ranks and we would have point duplication.
 
 If any of the specified points were not found in the mesh, the value on the
-input ordering vertex-only mesh will not be effected by the interpolation from
+input ordering vertex-only mesh will not be affected by the interpolation from
 the original vertex-only mesh. In the above example, the values would be zero
 at those points. To make it more obvious that those points were not found, it's
 a good idea to set the values to ``nan`` before the interpolation:
@@ -430,7 +430,7 @@ works on any :py:class:`~.ufl.core.expr.Expr`, for example:
 
 .. code-block:: python3
 
-   (f*sin(f)([0.2, 0.4])
+   (f*sin(f))([0.2, 0.4])
 
 will evaluate :math:`f \cdot \sin(f)` at :math:`(0.2, 0.4)`.
 

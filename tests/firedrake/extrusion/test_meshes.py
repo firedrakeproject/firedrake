@@ -33,8 +33,8 @@ def hedgehog_mesh(request):
 
 
 def test_uniform_extrusion_volume(uniform_mesh):
-    assert np.allclose(assemble(Constant(1, domain=uniform_mesh)*dx), 1.0)
+    assert np.allclose(assemble(Constant(1)*dx(domain=uniform_mesh)), 1.0)
 
 
 def test_hedgehog_extrusion_volume(hedgehog_mesh):
-    assert np.allclose(assemble(Constant(1, domain=hedgehog_mesh)*dx), 1.0)
+    assert np.allclose(assemble(Constant(1)*dx(domain=hedgehog_mesh)), 1.0)

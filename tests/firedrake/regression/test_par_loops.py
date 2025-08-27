@@ -127,7 +127,7 @@ def test_dict_order_parallel():
     d = Function(FunctionSpace(mesh, "DG", 0))
     consts = []
     for i in range(20):
-        consts.append(Constant(i, domain=mesh))
+        consts.append(Constant(i))
 
     arg = {}
     if mesh.comm.rank == 0:
