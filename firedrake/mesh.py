@@ -3317,7 +3317,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
 
 
 class MissingPointsBehaviour(enum.Enum):
-    IGNORE = None
+    IGNORE = "ignore"
     ERROR = "error"
     WARN = "warn"
 
@@ -3358,7 +3358,8 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     :kwarg missing_points_behaviour: optional string argument for what to do
         when vertices which are outside of the mesh are discarded. If
         ``'warn'``, will print a warning. If ``'error'`` will raise a
-        :class:`~.VertexOnlyMeshMissingPointsError`.
+        :class:`~.VertexOnlyMeshMissingPointsError`. If ``'ignore'``, will do
+        nothing. Default is ``'error'``.
     :kwarg tolerance: The relative tolerance (i.e. as defined on the reference
         cell) for the distance a point can be from a mesh cell and still be
         considered to be in the cell. Note that this tolerance uses an L1
