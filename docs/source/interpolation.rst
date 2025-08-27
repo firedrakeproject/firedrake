@@ -163,11 +163,6 @@ For more on forms, see :ref:`this section of the manual <more_complicated_forms>
 Interpolating onto other meshes
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. note::
-
-   Interpolation *from* :ref:`high-order meshes <changing_coordinate_fs>` is
-   currently not supported.
-
 If the target mesh extends outside the source mesh domain, then cross-mesh
 interpolation will raise a :py:class:`~.DofNotDefinedError`.
 
