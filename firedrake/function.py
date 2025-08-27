@@ -721,7 +721,7 @@ class PointEvaluator:
             "warn": warn if a point is not found in the mesh, but continue.
             None: ignore points not found in the mesh.
         redundant : bool
-            If True, only the points on rank 0 are evaluated, and the result is broadcast to all ranks.
+            If True, only the points given to the constructor on rank 0 are evaluated, and the result is broadcast to all ranks.
             If False, each rank evaluates the points it has been given. False is useful if you are inputting
             external data that is already distributed across ranks.
             Default is True.
@@ -755,8 +755,11 @@ class PointEvaluator:
         from firedrake import assemble, interpolate
         if not isinstance(function, Function):
             raise TypeError(f"Expected a Function, got f{type(function).__name__}")
-        if function.function_space().mesh() is not self.mesh:
+        function_mesh = function.function_space().mesh()
+        if function_mesh is not self.mesh:
             raise ValueError("Function mesh must be the same Mesh object as the PointEvaluator mesh.")
+        # if function_mesh.coordinates.dat.dat_version != self.mesh.coordinates.dat.dat_version:
+        #     pass
         subfunctions = function.subfunctions
         if len(subfunctions) > 1:
             return tuple(self.evaluate(subfunction) for subfunction in subfunctions)
@@ -775,7 +778,7 @@ class PointEvaluator:
         f_at_points_io = Function(P0DG_io).assign(np.nan)
         f_at_points_io.interpolate(f_at_points)
         result = f_at_points_io.dat.data_ro
-        # If redundant, only rank 0 did the work. Broadcast ordered results to all ranks.
+        # If redundant, all points are now on rank 0, so we broadcast the result
         if self.redundant and self.mesh.comm.size > 1:
             if self.mesh.comm.rank != 0:
                 result = np.empty((len(self.points),) + shape, dtype=utils.ScalarType)
