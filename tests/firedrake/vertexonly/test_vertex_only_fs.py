@@ -281,7 +281,7 @@ def vectorfunctionspace_tests(vm, petsc_raises):
 
 @pytest.mark.parallel([1, 3])
 def test_functionspaces(parentmesh, vertexcoords, petsc_raises):
-    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour="ignore")
     functionspace_tests(vm, petsc_raises)
     vectorfunctionspace_tests(vm, petsc_raises)
     functionspace_tests(vm.input_ordering, petsc_raises)
@@ -313,7 +313,7 @@ def test_input_ordering_missing_point():
     m = UnitIntervalMesh(4)
     points = np.asarray([[0.125], [0.375], [0.625], [5.0]])
     data = np.asarray([1.0, 2.0, 3.0, 4.0])
-    vm = VertexOnlyMesh(m, points, missing_points_behaviour=None, redundant=True)
+    vm = VertexOnlyMesh(m, points, missing_points_behaviour="ignore", redundant=True)
 
     # put data on the input ordering
     P0DG_input_ordering = FunctionSpace(vm.input_ordering, "DG", 0)
