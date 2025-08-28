@@ -78,7 +78,7 @@ def assemble(expr, *args, **kwargs):
         not supplied, defaults to ``parameters["default_sub_matrix_type"]``.
     options_prefix : str
         PETSc options prefix to apply to matrices.
-    appctx : dict
+    appctx : petsctools.AppContext
         Additional information to hang on the assembled
         matrix if an implicit matrix is requested (mat_type ``"matfree"``).
     zero_bc_nodes : bool

@@ -13,10 +13,13 @@ __all__ = ("HypreADS",)
 
 
 class HypreADS(PCBase):
+    _prefix = "hypre_ads_"
+
     def initialize(self, obj):
         A, P = obj.getOperators()
         appctx = self.get_appctx(obj)
         prefix = obj.getOptionsPrefix() or ""
+        options_prefix = prefix + self.prefix
         V = get_function_space(obj.getDM())
         mesh = V.mesh()
 
@@ -28,12 +31,12 @@ class HypreADS(PCBase):
 
         P1 = FunctionSpace(mesh, "Lagrange", 1)
         NC1 = FunctionSpace(mesh, "N1curl" if mesh.ufl_cell().is_simplex() else "NCE", 1)
-        G_callback = appctx.get("get_gradient", None)
+        G_callback = appctx.get(options_prefix+"get_gradient", None)
         if G_callback is None:
             G = chop(assemble.assemble(interpolate(grad(TestFunction(P1)), NC1)).petscmat)
         else:
             G = G_callback(P1, NC1)
-        C_callback = appctx.get("get_curl", None)
+        C_callback = appctx.get(options_prefix+"get_curl", None)
         if C_callback is None:
             C = chop(assemble.assemble(interpolate(curl(TestFunction(NC1)), V)).petscmat)
         else:
@@ -41,7 +44,7 @@ class HypreADS(PCBase):
 
         pc = PETSc.PC().create(comm=obj.comm)
         pc.incrementTabLevel(1, parent=obj)
-        pc.setOptionsPrefix(prefix + "hypre_ads_")
+        pc.setOptionsPrefix(options_prefix)
         pc.setOperators(A, P)
 
         pc.setType('hypre')

@@ -138,7 +138,7 @@ class SCPC(SCBase):
         # Get nullspace for the condensed operator (if any).
         # This is provided as a user-specified callback which
         # returns the basis for the nullspace.
-        nullspace = self.cxt.appctx.get("condensed_field_nullspace", None)
+        nullspace = self.cxt.appctx.get(prefix+"nullspace", None)
         if nullspace is not None:
             nsp = nullspace(Vc)
             Smat.setNullSpace(nsp.nullspace())

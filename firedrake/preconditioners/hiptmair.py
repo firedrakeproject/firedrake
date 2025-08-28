@@ -37,9 +37,9 @@ class TwoLevelPC(PCBase):
 
     def initialize(self, pc):
         from firedrake.assemble import get_assembler
+        from dmhooks import get_appctx
         A, P = pc.getOperators()
-        appctx = self.get_appctx(pc)
-        fcp = appctx.get("form_compiler_parameters")
+        fcp = get_appctx(pc).fcp
 
         prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
@@ -168,13 +168,13 @@ class HiptmairPC(TwoLevelPC):
         coarse_space_bcs = [bc.reconstruct(V=coarse_space, g=0) for bc in bcs]
 
         if element.sobolev_space == ufl.HDiv:
-            G_callback = appctx.get("get_curl", None)
+            G_callback = appctx.get(options_prefix+"get_curl", None)
             dminus = ufl.curl
             if V.shape:
                 dminus = lambda u: ufl.as_vector([ufl.curl(u[k, ...])
                                                   for k in range(u.ufl_shape[0])])
         else:
-            G_callback = appctx.get("get_gradient", None)
+            G_callback = appctx.get(options_prefix+"get_gradient", None)
             dminus = ufl.grad
 
         # Get only the zero-th order term of the form
@@ -197,7 +197,7 @@ class HiptmairPC(TwoLevelPC):
 
         cdegree = max(as_tuple(celement.degree()))
         if formdegree > 1 and cdegree > 1:
-            shift = appctx.get("hiptmair_shift", None)
+            shift = appctx.get(options_prefix+"shift", None)
             if shift is not None:
                 b = beta(test, shift * trial)
                 coarse_operator += ufl.Form(b.integrals_by_type("cell"))

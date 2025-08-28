@@ -103,8 +103,7 @@ class PCDPC(PCBase):
 
         state = context._problem.u_restrict
 
-        re_key = opts.getInt(prefix+"re")
-        Re = context.appctx.get(re_key, Constant(1.0))
+        Re = context.appctx.get(prefix+"re", Constant(1.0))
 
         vel_idx = opts.getInt(prefix+"velocity_space")
 

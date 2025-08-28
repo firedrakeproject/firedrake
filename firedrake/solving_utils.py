@@ -141,9 +141,8 @@ class _SNESContext(object):
     :arg pmat_type: Indicates whether the preconditioner (if present) is assembled
         monolithically ('aij'), as a block sparse matrix ('nest') or
         matrix-free (as :class:`~.ImplicitMatrix`, 'matfree').
-    :arg appctx: Any extra information used in the assembler.  For the
-        matrix-free case this will contain the Newton state in
-        ``"state"``.
+    :arg appctx: A petsctools.AppContext containing application
+        context that is passed to the preconditioner if matrix-free.
     :arg pre_jacobian_callback: User-defined function called immediately
         before Jacobian assembly
     :arg post_jacobian_callback: User-defined function called immediately
@@ -194,14 +193,13 @@ class _SNESContext(object):
         self._x = problem.u_restrict
 
         if appctx is None:
-            appctx = {}
+            from petsctools import AppContext
+            appctx = AppContext()
         # A split context will already get the full state.
         # TODO, a better way of doing this.
         # Now we don't have a temporary state inside the snes
         # context we could just require the user to pass in the
         # full state on the outside.
-        appctx.setdefault("state", self._x)
-        appctx.setdefault("form_compiler_parameters", self.fcp)
 
         self.appctx = appctx
         self.matfree = matfree

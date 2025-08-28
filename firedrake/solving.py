@@ -20,6 +20,7 @@
 __all__ = ["solve"]
 
 import ufl
+from petsctools import AppContext
 
 import firedrake.linear_solver as ls
 from firedrake.matrix import MatrixBase
@@ -163,7 +164,7 @@ def _solve_varproblem(*args, **kwargs):
         form_compiler_parameters = {}
     form_compiler_parameters['scalar_type'] = ScalarType
 
-    appctx = kwargs.get("appctx", {})
+    appctx = kwargs.get("appctx", AppContext())
     if isinstance(eq.lhs, (ufl.Form, MatrixBase)) and isinstance(eq.rhs, ufl.BaseForm):
         # Create linear variational problem
         problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
@@ -238,7 +239,7 @@ def _la_solve(A, x, b, **kwargs):
     if bcs is not None:
         raise RuntimeError("It is no longer possible to apply or change boundary conditions after assembling the matrix `A`; pass any necessary boundary conditions to `assemble` when assembling `A`.")
 
-    appctx = solver_parameters.get("appctx", {})
+    appctx = solver_parameters.get("appctx", AppContext())
     solver = ls.LinearSolver(A=A, P=P, solver_parameters=solver_parameters,
                              nullspace=nullspace,
                              transpose_nullspace=nullspace_T,
