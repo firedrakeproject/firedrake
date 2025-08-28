@@ -34,12 +34,12 @@ def test_sin_weak_spatial():
 
     J = sin(x[0]) * dx
     Jhat = ReducedFunctional(assemble(J), Control(s))
-    computed = Jhat.derivative().vector().get_local()
+    computed = Jhat.derivative().dat.data_ro
 
     V = TestFunction(S)
     # Derivative (Cofunction)
     dJV = assemble(div(V)*sin(x[0])*dx + V[0]*cos(x[0])*dx)
-    actual = dJV.vector().get_local()
+    actual = dJV.dat.data_ro
     assert np.allclose(computed, actual, rtol=1e-14)
 
 
@@ -260,8 +260,8 @@ def test_multiple_assignments():
     J = assemble(u * dx)
 
     Jhat = ReducedFunctional(J, Control(s))
-    assert np.allclose(Jhat.derivative().vector().get_local(),
-                       dJdm.vector().get_local())
+    assert np.allclose(Jhat.derivative().dat.data_ro,
+                       dJdm.dat.data_ro)
 
     pert = as_vector((x * y, sin(x)))
     pert = assemble(interpolate(pert, S))

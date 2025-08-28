@@ -270,6 +270,13 @@ def test_vector_real_space_assign_zero(Rvector):
     assert np.allclose(f.dat.data_ro, 0)
 
 
+def test_function_riesz_representation_l2_dat_version(V):
+    f = Function(V)
+    version = f.dat.dat_version
+    _ = f.riesz_representation(riesz_map="l2")
+    assert f.dat.dat_version == version
+
+
 @pytest.mark.parallel(nprocs=2)
 def test_function_assign_mixed_subset_3_quads_2_processes():
     # mesh
