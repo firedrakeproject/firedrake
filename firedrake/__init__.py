@@ -55,6 +55,8 @@ Citations().register("FiredrakeUserManual")
 from pyop2 import op2                        # noqa: F401
 from pyop2.mpi import COMM_WORLD, COMM_SELF  # noqa: F401
 
+from petsctools import AppContext  # noqa: F401
+
 from firedrake.assemble import *
 from firedrake.bcs import *
 from firedrake.checkpointing import *

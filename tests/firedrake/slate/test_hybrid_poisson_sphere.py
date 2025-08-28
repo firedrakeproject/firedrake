@@ -26,24 +26,21 @@ def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
     L = inner(f, v)*dx
     w = Function(W)
 
+    # Provide a callback to construct the trace nullspace
+    def nullspace_basis(T):
+        return VectorSpaceBasis(constant=True, comm=COMM_WORLD)
+
+    appctx = AppContext()
+
     params = {
         'mat_type': 'matfree',
         'ksp_type': 'preonly',
         'pc_type': 'python',
         'pc_python_type': 'firedrake.HybridizationPC',
-        'hybridization': {
-            'ksp_type': 'preonly',
-            'pc_type': 'redundant',
-            'redundant_pc_type': 'lu',
-            'redundant_pc_factor': DEFAULT_DIRECT_SOLVER_PARAMETERS
-        }
+        'hybridization': DEFAULT_DIRECT_SOLVER_PARAMETERS,
+        'hybridization_trace_nullspace': appctx.add(nullspace_basis),
     }
 
-    # Provide a callback to construct the trace nullspace
-    def nullspace_basis(T):
-        return VectorSpaceBasis(constant=True)
-
-    appctx = {'trace_nullspace': nullspace_basis}
     solve(a == L, w, solver_parameters=params, appctx=appctx)
     u_h, _ = w.subfunctions
     error = errornorm(u_exact, u_h)

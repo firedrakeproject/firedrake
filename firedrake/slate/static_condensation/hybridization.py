@@ -211,7 +211,7 @@ class HybridizationPC(SCBase):
 
         Smat = self.S.petscmat
 
-        nullspace = self.ctx.appctx.get("trace_nullspace", None)
+        nullspace = self.ctx.appctx.get(prefix+"trace_nullspace", None)
         if nullspace is not None:
             nsp = nullspace(TraceSpace)
             Smat.setNullSpace(nsp.nullspace())
@@ -238,7 +238,7 @@ class HybridizationPC(SCBase):
         trace_ksp.setOperators(Smat, Smat)
 
         # Option to add custom monitor
-        monitor = self.ctx.appctx.get('custom_monitor', None)
+        monitor = self.ctx.appctx.get(prefix+'custom_monitor', None)
         if monitor:
             monitor.add_reconstructor(self.backward_substitution)
             trace_ksp.setMonitor(monitor)

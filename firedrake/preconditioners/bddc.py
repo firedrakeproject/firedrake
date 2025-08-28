@@ -53,7 +53,8 @@ class BDDCPC(PCBase):
         bddcpc.setOperators(*pc.getOperators())
         bddcpc.setType(PETSc.PC.Type.BDDC)
 
-        opts = PETSc.Options(bddcpc.getOptionsPrefix())
+        prefix = bddcpc.getOptionsPrefix()
+        opts = PETSc.Options(prefix)
         if V.ufl_element().variant() == "fdm" and "pc_bddc_use_local_mat_graph" not in opts:
             # Disable computation of disconected components of subdomain interfaces
             opts["pc_bddc_use_local_mat_graph"] = False
@@ -84,7 +85,7 @@ class BDDCPC(PCBase):
         tdim = V.mesh().topological_dimension()
         degree = max(as_tuple(V.ufl_element().degree()))
         if tdim >= 2 and V.finat_element.formdegree == tdim-1:
-            B = appctx.get("divergence_mat", None)
+            B = appctx.get(prefix+"divergence_mat", None)
             if B is None:
                 from firedrake.assemble import assemble
                 d = {HCurl: curl, HDiv: div}[sobolev_space]
@@ -99,7 +100,7 @@ class BDDCPC(PCBase):
                 B = assemble(b, mat_type="matfree")
             bddcpc.setBDDCDivergenceMat(B.petscmat)
         elif sobolev_space == HCurl:
-            gradient = appctx.get("discrete_gradient", None)
+            gradient = appctx.get(prefix+"discrete_gradient", None)
             if gradient is None:
                 from firedrake.preconditioners.fdm import tabulate_exterior_derivative
                 from firedrake.preconditioners.hiptmair import curl_to_grad

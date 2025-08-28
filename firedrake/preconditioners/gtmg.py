@@ -66,11 +66,14 @@ class GTMGPC(PCBase):
         :arg pc: PETSc preconditioner instance
         """
         from firedrake.assemble import assemble, get_assembler
+        from dmhooks import get_appctx
 
         Citations().register("Gopalakrishnan2009")
         _, P = pc.getOperators()
-        appctx = self.get_appctx(pc)
-        fcp = appctx.get("form_compiler_parameters")
+        ctx = get_appctx(pc)
+        fcp = ctx.fcp
+
+        appctx = ctx.appctx
 
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
@@ -119,21 +122,21 @@ class GTMGPC(PCBase):
         coarse_mat_type = opts.getString(coarse_options_prefix + "mat_type",
                                          parameters["default_matrix_type"])
 
-        get_coarse_space = appctx.get("get_coarse_space", None)
+        get_coarse_space = appctx.get(options_prefix+"get_coarse_space", None)
         if not get_coarse_space:
             raise ValueError("Need to provide a callback which provides the coarse space.")
         coarse_space = get_coarse_space()
 
-        get_coarse_operator = appctx.get("get_coarse_operator", None)
+        get_coarse_operator = appctx.get(options_prefix+"get_coarse_operator", None)
         if not get_coarse_operator:
             raise ValueError("Need to provide a callback which provides the coarse operator.")
         coarse_operator = get_coarse_operator()
 
-        coarse_space_bcs = appctx.get("coarse_space_bcs", None)
+        coarse_space_bcs = appctx.get(options_prefix+"coarse_space_bcs", None)
 
         # These should be callbacks which return the relevant nullspaces
-        get_coarse_nullspace = appctx.get("get_coarse_op_nullspace", None)
-        get_coarse_transpose_nullspace = appctx.get("get_coarse_op_transpose_nullspace", None)
+        get_coarse_nullspace = appctx.get(options_prefix+"get_coarse_op_nullspace", None)
+        get_coarse_transpose_nullspace = appctx.get(options_prefix+"get_coarse_op_transpose_nullspace", None)
 
         coarse_form_assembler = get_assembler(coarse_operator, bcs=coarse_space_bcs, form_compiler_parameters=fcp, mat_type=coarse_mat_type, options_prefix=coarse_options_prefix)
         self.coarse_op = coarse_form_assembler.allocate()
@@ -150,14 +153,14 @@ class GTMGPC(PCBase):
             tnsp = get_coarse_transpose_nullspace()
             coarse_opmat.setTransposeNullSpace(tnsp.nullspace())
 
-        interp_petscmat = appctx.get("interpolation_matrix", None)
+        interp_petscmat = appctx.get(options_prefix+"interpolation_matrix", None)
         if interp_petscmat is None:
             # Create interpolation matrix from coarse space to fine space
             fine_space = ctx.J.arguments()[0].function_space()
             coarse_test, coarse_trial = coarse_operator.arguments()
             interp = assemble(Interpolate(coarse_trial, fine_space))
             interp_petscmat = interp.petscmat
-        restr_petscmat = appctx.get("restriction_matrix", None)
+        restr_petscmat = appctx.get(options_prefix+"restriction_matrix", None)
 
         # We set up a PCMG object that uses the constructed interpolation
         # matrix to generate the restriction/prolongation operators.

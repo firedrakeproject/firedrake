@@ -101,17 +101,19 @@ class PCDPC(PCBase):
         Kksp.setFromOptions()
         self.Kksp = Kksp
 
-        state = context.appctx["state"]
+        state = context._problem.u_restrict
 
-        Re = context.appctx.get("Re", 1.0)
+        Re = context.appctx.get(prefix+"re", Constant(1.0))
 
-        velid = context.appctx["velocity_space"]
+        vel_idx = opts.getInt(prefix+"velocity_space")
 
-        u0 = split(state)[velid]
+        u0 = split(state)[vel_idx]
         fp = 1.0/Re * inner(grad(p), grad(q))*dx + inner(u0, grad(p))*q*dx
 
         self.Re = Re
-        form_assembler = get_assembler(fp, bcs=None, form_compiler_parameters=context.fc_params, mat_type=self.Fp_mat_type, options_prefix=prefix + "Fp_")
+        form_assembler = get_assembler(
+            fp, bcs=None, form_compiler_parameters=context.fc_params,
+            mat_type=self.Fp_mat_type, options_prefix=prefix + "Fp_")
         self.Fp = form_assembler.allocate()
         self._assemble_Fp = form_assembler.assemble
         self._assemble_Fp(tensor=self.Fp)

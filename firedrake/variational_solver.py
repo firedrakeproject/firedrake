@@ -179,8 +179,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                specify the near nullspace (for multigrid solvers).
         :kwarg solver_parameters: Solver parameters to pass to PETSc.
                This should be a dict mapping PETSc options to values.
-        :kwarg appctx: A dictionary containing application context that
-               is passed to the preconditioner if matrix-free.
+        :kwarg appctx: A petsctools.AppContext containing application
+               context that is passed to the preconditioner if matrix-free.
         :kwarg options_prefix: an optional prefix used to distinguish
                PETSc options.  If not provided a unique prefix will be
                created.  Use this option if you want to pass options
@@ -422,8 +422,8 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
         created.  Use this option if you want to pass options
         to the solver from the command line in addition to
         through the ``solver_parameters`` dict.
-    :kwarg appctx: A dictionary containing application context that
-        is passed to the preconditioner if matrix-free.
+    :kwarg appctx: A petsctools.AppContext containing application
+        context that is passed to the preconditioner if matrix-free.
     :kwarg pre_jacobian_callback: A user-defined function that will
            be called immediately before Jacobian assembly. This can
            be used, for example, to update a coefficient function

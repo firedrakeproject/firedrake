@@ -312,6 +312,7 @@ def test_ipdg_direct_solver(fs):
              + inner(outer(u_exact, n), alpha(2*num_flux_b(v) - grad(v))) * ds_Dir)
 
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
+    appctx = AppContext()
     solver = LinearVariationalSolver(problem, solver_parameters={
         "mat_type": "matfree",
         "ksp_type": "cg",
@@ -322,10 +323,11 @@ def test_ipdg_direct_solver(fs):
         "ksp_norm_type": "unpreconditioned",
         "pc_type": "python",
         "pc_python_type": "firedrake.PoissonFDMPC",
+        "fdm_eta": appctx.add(eta),
         "fdm_pc_type": "cholesky",
         "fdm_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
         "fdm_pc_factor_mat_ordering_type": "nd",
-    }, appctx={"eta": eta, })
+    }, appctx=appctx)
     solver.solve()
 
     assert solver.snes.ksp.getIterationNumber() == 1

@@ -18,13 +18,13 @@ class AssembledPC(PCBase):
 
     def initialize(self, pc):
         from firedrake.assemble import get_assembler
+        from dmhooks import get_appctx
         A, P = pc.getOperators()
 
         if pc.type != "python":
             raise ValueError("Expecting PC type python")
         opc = pc
-        appctx = self.get_appctx(pc)
-        fcp = appctx.get("form_compiler_parameters")
+        fcp = get_appctx(pc).fcp
 
         V = get_function_space(pc.getDM()).collapse()
         test = TestFunction(V)

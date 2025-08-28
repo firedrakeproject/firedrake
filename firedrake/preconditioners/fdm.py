@@ -2,6 +2,7 @@ from textwrap import dedent
 from functools import partial
 from itertools import chain, product
 from firedrake.petsc import PETSc
+from firedrake.dmhooks import get_appctx
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.pmg import (prolongation_matrix_matfree,
@@ -100,6 +101,8 @@ class FDMPC(PCBase):
         prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
         options = PETSc.Options(options_prefix)
+        self.options = options
+        self.options_prefix = options_prefix
 
         use_amat = options.getBool("pc_use_amat", True)
         use_static_condensation = options.getBool("static_condensation", False)
@@ -111,9 +114,8 @@ class FDMPC(PCBase):
             allow_repeated = options.getBool("mat_is_allow_repeated", True)
         self.allow_repeated = allow_repeated
 
-        appctx = self.get_appctx(pc)
-        fcp = appctx.get("form_compiler_parameters") or {}
-        self.appctx = appctx
+        fcp = get_appctx(pc).fcp
+        self.appctx = self.get_appctx(pc)
 
         # Get original Jacobian form and bcs
         J, bcs = self.form(pc)
@@ -1908,7 +1910,9 @@ class PoissonFDMPC(FDMPC):
         axes_shifts, = shifts
 
         degree = max(e.degree() for e in line_elements)
-        eta = float(self.appctx.get("eta", degree*(degree+1)))
+        eta = float(self.appctx.get(self.options_prefix+"eta",
+                                    default=degree*(degree+1)))
+
         is_dg = V.finat_element.is_dg()
         Afdm = []  # sparse interval mass and stiffness matrices for each direction
         Dfdm = []  # tabulation of normal derivatives at the boundary for each direction
@@ -2075,7 +2079,7 @@ class PoissonFDMPC(FDMPC):
                 raise NotImplementedError("Static condensation for SIPG not implemented")
             if tdim < V.mesh().geometric_dimension():
                 raise NotImplementedError("SIPG on immersed meshes is not implemented")
-            eta = float(self.appctx.get("eta"))
+            eta = float(self.appctx.get(self.options_prefix+"eta"))
 
             lgmap = self.lgmaps[V]
             index_facet, local_facet_data, nfacets = extrude_interior_facet_maps(V)

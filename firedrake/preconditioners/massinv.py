@@ -1,5 +1,5 @@
 from firedrake.preconditioners.assembled import AssembledPC
-from firedrake import inner, dx
+from firedrake import inner, dx, Constant
 
 __all__ = ("MassInvPC", )
 
@@ -23,7 +23,8 @@ class MassInvPC(AssembledPC):
         _, bcs = super(MassInvPC, self).form(pc)
 
         appctx = self.get_appctx(pc)
-        mu = appctx.get("mu", 1.0)
+        options_prefix = (pc.getOptionsPrefix() or "") + self._prefix
+        mu = appctx.get(options_prefix+"mu", Constant(1.0))
         a = inner((1/mu) * trial, test) * dx
         return a, bcs
 
