@@ -214,6 +214,7 @@ be a new vertex: this is true for both ``redundant = True`` and
 and switch from ``redundant = True`` to ``redundant = False`` we will get point
 duplication.
 
+.. _missing_points:
 
 Points outside the domain
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -240,6 +241,40 @@ warning or switched off entirely:
    :dedent:
    :start-after: [test_vom_manual_points_outside_domain 5]
    :end-before: [test_vom_manual_points_outside_domain 6]
+
+
+``PointEvaluator`` convenience object
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The :py:class:`~.PointEvaluator` class performs point evaluation using vertex-only meshes,
+as described above. First, create a :py:class:`~.PointEvaluator` object by passing the 
+parent mesh and the points to evaluate at:
+
+.. code-block:: python3
+
+   point_evaluator = PointEvaluator(mesh, points)
+
+Then to evaluate a :py:class:`~.Function` defined on the parent mesh at the given points,
+we use :meth:`~.PointEvaluator.evaluate`:
+
+.. code-block:: python3
+
+   f_at_points = point_evaluator.evaluate(f)
+
+Under the hood, this creates the appropriate P0DG function space on the vertex-only mesh
+and performs the interpolation. The points are then reordered to match the input ordering,
+as described in :ref:`the section on the input ordering property <input_ordering>`.
+
+If ``redundant=True`` (the default) was used when creating the :py:class:`~.PointEvaluator`,
+then only the points given to the constructor on rank 0 will be evaluated. The result is then
+broadcast to all ranks. Use this option if the same points are given on all ranks.
+If ``redundant=False`` was used when creating the :py:class:`~.PointEvaluator`, then
+each rank will evaluate the points it was given. Use this option if different points are given
+on different ranks, for example when using external point data.
+
+The parameters ``missing_points_behaviour`` and ``tolerance`` (discussed :ref:`here <missing_points>` 
+and :ref:`here <tolerance>` respectively) can be set when creating the :py:class:`~.PointEvaluator` 
+and will be passed to the :func:`~.VertexOnlyMesh` it creates internally.
 
 
 Expressions with point evaluations
