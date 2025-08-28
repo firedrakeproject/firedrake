@@ -185,7 +185,7 @@ def test_point_evaluator_scalar(mesh_and_points):
     assert np.allclose(f_at_points, [0.2, 0.4, 0.6])
 
     # Test standard scalar function with missing points
-    eval_missing = PointEvaluator(mesh, np.append(points, [[1.5, 1.5]], axis=0), missing_points_behaviour=None)
+    eval_missing = PointEvaluator(mesh, np.append(points, [[1.5, 1.5]], axis=0), missing_points_behaviour="ignore")
     f_at_points_missing = eval_missing.evaluate(f)
     assert np.isnan(f_at_points_missing[-1])
 
