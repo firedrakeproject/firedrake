@@ -136,10 +136,12 @@ class RestrictedReducedFunctionalMatCtx(ReducedFunctionalMatCtx):
 
         Args:
         ----------
-            A (ReducedFunctional):
+            A (PETSc.Mat):
                 Implicit matrix for which Ax is defined.
             x (PETSc.Vec):
-                `PETSc.Vec` which is converted to an `OverloadedType` object.
+                `PETSc.Vec` to which operator is applied to.
+            y (PETSc.Vec):
+                `PETSc.Vec` which is the result of the action of this operator.
 
         """
         self.xresinterface.from_petsc(x, self.xres)
@@ -157,10 +159,12 @@ class RestrictedReducedFunctionalMatCtx(ReducedFunctionalMatCtx):
 
         Args:
         ----------
-            A (ReducedFunctional):
+            A (PETSc.Mat):
                 Implicit matrix for which Ax is defined.
             x (PETSc.Vec):
-                `PETSc.Vec` which is converted to an `OverloadedType` object.
+                `PETSc.Vec` to which transpose of operator is applied to.
+            y (PETSc.Vec):
+                `PETSc.Vec` which is the result of the action of this operator.
 
         """
         self.yresinterface.from_petsc(x, self.yres)
