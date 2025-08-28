@@ -21,7 +21,6 @@ from firedrake.utils import ScalarType, IntType, as_ctypes
 from firedrake import functionspaceimpl
 from firedrake.cofunction import Cofunction, RieszMap
 from firedrake import utils
-from firedrake import vector
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
 
@@ -52,8 +51,8 @@ class CoordinatelessFunction(ufl.Coefficient):
 
             Alternatively, another :class:`Function` may be passed here and its function space
             will be used to build this :class:`Function`.
-        :param val: NumPy array-like (or :class:`pyop2.types.dat.Dat` or
-            :class:`~.Vector`) providing initial values (optional).
+        :param val: NumPy array-like (or :class:`pyop2.types.dat.Dat`)
+            providing initial values (optional).
             This :class:`Function` will share data with the provided
             value.
         :param name: user-defined name for this :class:`Function` (optional).
@@ -75,9 +74,6 @@ class CoordinatelessFunction(ufl.Coefficient):
         self._name = name or 'function_%d' % self.uid
         self._label = "a function"
 
-        if isinstance(val, vector.Vector):
-            # Allow constructing using a vector.
-            val = val.dat
         if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
             assert val.comm == self._comm
             self.dat = val
@@ -178,10 +174,6 @@ class CoordinatelessFunction(ufl.Coefficient):
     def exterior_facet_node_map(self):
         return self.function_space().exterior_facet_node_map()
     exterior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.exterior_facet_node_map.__doc__
-
-    def vector(self):
-        r"""Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
-        return vector.Vector(self)
 
     def function_space(self):
         r"""Return the :class:`.FunctionSpace`, or
@@ -360,10 +352,6 @@ class Function(ufl.Coefficient, FunctionMixin):
             on which this :class:`Function` is defined.
         """
         return self._function_space
-
-    def vector(self):
-        r"""Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
-        return vector.Vector(self)
 
     @PETSc.Log.EventDecorator()
     def interpolate(

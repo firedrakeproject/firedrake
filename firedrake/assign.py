@@ -13,11 +13,13 @@ from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
 from ufl.domain import extract_unique_domain
 
+from firedrake.cofunction import Cofunction
 from firedrake.constant import Constant
 from firedrake.function import Function
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType, split_by
-from firedrake.vector import Vector
+
+from mpi4py import MPI
 
 from mpi4py import MPI
 
@@ -28,7 +30,7 @@ def _isconstant(expr):
 
 
 def _isfunction(expr):
-    return isinstance(expr, Function) and expr.ufl_element().family() != "Real"
+    return isinstance(expr, (Function, Cofunction)) and expr.ufl_element().family() != "Real"
 
 
 class CoefficientCollector(MultiFunction):
@@ -103,6 +105,9 @@ class CoefficientCollector(MultiFunction):
     def coefficient(self, o):
         return ((o, 1),)
 
+    def cofunction(self, o):
+        return ((o, 1),)
+
     def constant_value(self, o):
         return ((o, 1),)
 
@@ -145,12 +150,10 @@ class Assigner:
     _coefficient_collector = CoefficientCollector()
 
     def __init__(self, assignee, expression, subset=None):
-        if isinstance(expression, Vector):
-            expression = expression.function
         expression = as_ufl(expression)
         source_meshes = set()
         for coeff in extract_coefficients(expression):
-            if isinstance(coeff, Function) and coeff.ufl_element().family() != "Real":
+            if isinstance(coeff, (Function, Cofunction)) and coeff.ufl_element().family() != "Real":
                 if coeff.ufl_element() != assignee.ufl_element():
                     raise ValueError("All functions in the expression must have the same "
                                      "element as the assignee")

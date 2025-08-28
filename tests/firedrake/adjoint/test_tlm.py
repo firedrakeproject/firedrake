@@ -3,7 +3,10 @@ import pytest
 from firedrake import *
 from firedrake.adjoint import *
 
-from numpy.random import rand
+
+@pytest.fixture
+def rg():
+    return RandomGenerator(PCG64(seed=1234))
 
 
 @pytest.fixture(autouse=True)
@@ -28,13 +31,12 @@ tol = 1E-10
 
 
 @pytest.mark.skipcomplex
-def test_tlm_assemble():
+def test_tlm_assemble(rg):
     tape = Tape()
     set_working_tape(tape)
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
-    f = Function(V)
-    f.vector()[:] = 5
+    f = Function(V).assign(5)
 
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -51,8 +53,7 @@ def test_tlm_assemble():
     J = assemble(u_**2*dx)
     Jhat = ReducedFunctional(J, Control(f))
 
-    h = Function(V)
-    h.vector()[:] = rand(h.dof_dset.size)
+    h = rg.uniform(V)
     g = f.copy(deepcopy=True)
     assert (taylor_test(Jhat, g, h, dJdm=Jhat.tlm(h)) > 1.9)
 
@@ -65,8 +66,7 @@ def test_tlm_bc():
     V = FunctionSpace(mesh, "Lagrange", 1)
     R = FunctionSpace(mesh, "R", 0)
     c = Function(R, val=1)
-    f = Function(V)
-    f.vector()[:] = 1
+    f = Function(V).assign(1)
 
     u = Function(V)
     v = TestFunction(V)
@@ -82,16 +82,14 @@ def test_tlm_bc():
 
 
 @pytest.mark.skipcomplex
-def test_tlm_func():
+def test_tlm_func(rg):
     tape = Tape()
     set_working_tape(tape)
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
 
-    c = Function(V)
-    c.vector()[:] = 1
-    f = Function(V)
-    f.vector()[:] = 1
+    c = Function(V).assign(1)
+    f = Function(V).assign(1)
 
     u = Function(V)
     v = TestFunction(V)
@@ -103,8 +101,7 @@ def test_tlm_func():
     J = assemble(c ** 2 * u * dx)
     Jhat = ReducedFunctional(J, Control(c))
 
-    h = Function(V)
-    h.vector()[:] = rand(h.dof_dset.size)
+    h = rg.uniform(V)
     g = c.copy(deepcopy=True)
 
     assert (taylor_test(Jhat, g, h, dJdm=Jhat.tlm(h)) > 1.9)
@@ -113,7 +110,7 @@ def test_tlm_func():
 @pytest.mark.parametrize("solve_type",
                          ["solve", "LVS"])
 @pytest.mark.skipcomplex
-def test_time_dependent(solve_type):
+def test_time_dependent(solve_type, rg):
     tape = Tape()
     set_working_tape(tape)
     # Defining the domain, 100 points from 0 to 1
@@ -133,11 +130,9 @@ def test_time_dependent(solve_type):
     # Some variables
     T = 0.5
     dt = 0.1
-    f = Function(V)
-    f.vector()[:] = 1
+    f = Function(V).assign(1)
 
-    u_1 = Function(V)
-    u_1.vector()[:] = 1
+    u_1 = Function(V).assign(1)
     control = Control(u_1)
 
     a = u_1 * u * v * dx + dt * f * inner(grad(u), grad(v)) * dx
@@ -159,13 +154,12 @@ def test_time_dependent(solve_type):
     J = assemble(u_1 ** 2 * dx)
 
     Jhat = ReducedFunctional(J, control)
-    h = Function(V)
-    h.vector()[:] = rand(h.dof_dset.size)
+    h = rg.uniform(V)
     assert (taylor_test(Jhat, control.tape_value(), h, dJdm=Jhat.tlm(h)) > 1.9)
 
 
 @pytest.mark.skipcomplex
-def test_burgers():
+def test_burgers(rg):
     tape = Tape()
     set_working_tape(tape)
     n = 30
@@ -177,8 +171,7 @@ def test_burgers():
 
     x, = SpatialCoordinate(mesh)
     pr = project(sin(2*pi*x), V)
-    ic = Function(V)
-    ic.vector()[:] = pr.vector()[:]
+    ic = Function(V).assign(pr)
 
     u_ = Function(V)
     u = Function(V)
@@ -210,8 +203,7 @@ def test_burgers():
     J = assemble(u_*u_*dx + ic*ic*dx)
 
     Jhat = ReducedFunctional(J, Control(ic))
-    h = Function(V)
-    h.vector()[:] = rand(h.dof_dset.size)
+    h = rg.uniform(V)
     g = ic.copy(deepcopy=True)
     assert (taylor_test(Jhat, g, h, dJdm=Jhat.tlm(h)) > 1.9)
 
@@ -246,7 +238,7 @@ def test_projection():
 
 
 @pytest.mark.skipcomplex
-def test_projection_function():
+def test_projection_function(rg):
     tape = Tape()
     set_working_tape(tape)
     mesh = UnitSquareMesh(10, 10)
@@ -270,7 +262,6 @@ def test_projection_function():
     J = assemble(u_**2*dx)
     Jhat = ReducedFunctional(J, Control(g))
 
-    h = Function(V)
-    h.vector()[:] = rand(h.dof_dset.size)
+    h = rg.uniform(V)
     m = g.copy(deepcopy=True)
     assert (taylor_test(Jhat, m, h, dJdm=Jhat.tlm(h)) > 1.9)
