@@ -1128,13 +1128,14 @@ class ParloopFormAssembler(FormAssembler):
         #                maps += [self._form.coefficients()[arg_counter].function_space().cell_node_list]
         #                arg_counter += 1
         #    compute_device.write_file(arrays, maps)
-        #
-        #if "FIREDRAKE_USE_GPU" in os.environ:
-        #    temp_file = __import__(compute_device.file_name)
-        #    temp_file.gpu_parloop()
+        
         if "FIREDRAKE_USE_GPU" in os.environ:
             from firedrake.device import compute_device
             compute_device.add_info("BLOCK_SIZE_C", self._form.ufl_domain().num_cells)
+        #if "FIREDRAKE_USE_GPU" in os.environ:
+        #    temp_file = __import__(compute_device.file_name)
+        #    temp_file.gpu_parloop()
+        #    quit()
 
         for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, constructed_parloops):
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)

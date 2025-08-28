@@ -132,8 +132,8 @@ def _put_slice_(x, n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, p
                         file.write(f"\t{name} = torch.from_numpy(np.{repr(array)}).float().to(DEVICE)\n")
                 
             # hate
-            real_kernel_args = list(list(zip(*(self.kernel_data["sizes_pow2"] + self.kernel_data["sizes_actual"] + self.kernel_data["strides"])))[1])
-            real_kernel_args = [str(int(i)) for i in real_kernel_args]
+            #real_kernel_args = list(list(zip(*(self.kernel_data["sizes_pow2"] + self.kernel_data["sizes_actual"] + self.kernel_data["strides"])))[1])
+            #real_kernel_args = [str(int(i)) for i in real_kernel_args]
             # cell loop needed here
             indent = 1
             index = ""
@@ -157,9 +157,10 @@ def _put_slice_(x, n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, p
                     if self.kernel_type == "triton":
                         file.write(indent * "\t" + f"a_g{k} = torch.from_numpy(a_g{k}.get()).float().to(DEVICE)\n") 
                 gathered_args = [f"a_g{j}" for j in range(len(self.kernel_args[j]))] + [name for name, val in self.kernel_data["arrays"] if val is not None]
-                arg_str = ",".join(gathered_args + ["BLOCK_SIZE_C=2"])
+                block_sizes = [f"size_{block[0][-1]}={block[2] if block[2] is not None else 2}" for block in self.blocks['vars'] + self.blocks['temps']]
+                arg_str = ",".join(gathered_args + block_sizes + [f"{block[0]}={block[1]}" for block in self.blocks['vars'] + self.blocks['temps']])
                 #file.write(indent * "\t" + "breakpoint()\n")
-                file.write(indent * "\t" + f"{self.kernel_type}_kernel{j}{grid}({arg_str})\n")
+                file.write(indent * "\t" + f"{self.kernel_type}_kernel{j}({arg_str})\n")
                 for k, arg in enumerate(self.kernel_args[j]): 
                     # get arg data
                     if arg == "A": 

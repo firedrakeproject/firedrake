@@ -523,8 +523,8 @@ def _put_slice_(x, n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, p
             insn = f"{expression}"
         else:
              insn = f"{assignee[0]} = {expression}"
-        self._add_instruction("breakpoint()")
         self._add_instruction(insn)
+        self._add_instruction("print(t_0)")
 
     def add_buffer(self, buffer_ref: BufferRef, intent: Intent | None = None) -> str:
         # TODO: This should check to make that we do not encounter any
@@ -1153,7 +1153,7 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
     context.add_subkernel(subkernel)
 
 def _cupy(call: StandaloneCalledFunction, loop_indices, context: CuPyCodegenContext) -> None:
-    
+    from firedrake.device import compute_device
     subarrayrefs = {}
     entry_args = call.function.code.default_entrypoint.args
     for entry_arg, arg, spec in zip(entry_args, call.arguments, call.argspec, strict=True):
@@ -1163,35 +1163,32 @@ def _cupy(call: StandaloneCalledFunction, loop_indices, context: CuPyCodegenCont
         name_in_kernel = context.add_buffer(arg.buffer, spec.intent)
 
         subarrayrefs[arg] = f"{name_in_kernel}"
-        context.add_assignment(f"{name_in_kernel}", f"torch.from_numpy({name_in_kernel}.get()).float().to(DEVICE)")
+        if compute_device.kernel_type == "triton":
+            context.add_assignment(f"{name_in_kernel}", f"torch.from_numpy({name_in_kernel}.get()).float().to(DEVICE)")
     assignees = tuple(
         (subarrayrefs[arg], spec)
         for arg, spec in zip(call.arguments, call.argspec, strict=True)
         if spec.intent in {WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE}
     )
     args = [subarrayrefs[arg] for arg in call.arguments]
-    from firedrake.device import compute_device
     for t in call.function.code.temps:
         initializer =  [a[1] for a in compute_device.kernel_data["arrays"] if a[0] == t][0]
         args += [context.add_temporary("temp", shape=initializer.shape, initializer=initializer, dtype=initializer.dtype)]
     #handle grids and blocks here too
-    grid = ""
+
+    blocks = compute_device.blocks
     if compute_device.kernel_type == "triton":
-        blocks = compute_device.blocks
-        # TODO generalise, default values?
-        context.add_assignment("grid", f"lambda meta: (triton.cdiv(p_0.item(), meta['{blocks['vars'][0][0]}']) * triton.cdiv(12, meta['{blocks['temps'][0][0]}']), )")
-        args += [f"size_{blocks['vars'][0][0][-1]} = {blocks['vars'][0][2]}"]
-        args += [f"size_{blocks['temps'][0][0][-1]} = {blocks['temps'][0][2]}"]
-        args += [f"{blocks['vars'][0][0]} = {blocks['vars'][0][1]}"]
-        args += [f"{blocks['temps'][0][0]} = {blocks['temps'][0][1]}"]
-        grid = "[grid]"
+        for name, block_size, total_size in blocks['vars'] + blocks['temps']:
+            args += [f"size_{name[-1]} = {total_size}"]
+            args += [f"{name} = {block_size}"]
     arg_str = ",".join(args)
-    expression = f"{call.function.code.default_entrypoint.name}{grid}({arg_str})"
+    expression = f"{call.function.code.default_entrypoint.name}({arg_str})"
 
     context.add_function_call(assignees, expression)
 
-    for a in call.arguments:
-        context.add_assignment(f"{subarrayrefs[a]}", f"cp.array({subarrayrefs[a]})")
+    if compute_device.kernel_type == "triton":
+        for a in call.arguments:
+            context.add_assignment(f"{subarrayrefs[a]}", f"cp.array({subarrayrefs[a]})")
     subkernel = call.function.code
     context.add_subkernel(subkernel)
 
