@@ -23,6 +23,9 @@ PARAMETERS = {
 
     # Whether to wrap the generated kernels in a PETSc event
     "add_petsc_events": False,
+
+    # Add extra dimensions to cell dependent variables to allow multiple cells at once
+    "vectorised_by_cell": False,
 }
 
 

@@ -72,7 +72,7 @@ class Kernel:
 
 class KernelBuilderBase(_KernelBuilderBase):
 
-    def __init__(self, scalar_type, interior_facet=False):
+    def __init__(self, scalar_type, interior_facet=False, vectorised_by_cell=False):
         """Initialise a kernel builder.
 
         :arg interior_facet: kernel accesses two cells
@@ -88,7 +88,13 @@ class KernelBuilderBase(_KernelBuilderBase):
             cell_orientations = gem.Variable("cell_orientations", (1,), dtype=gem.uint_type)
             self._cell_orientations = (gem.Indexed(cell_orientations, (0,)),)
 
-    def _coefficient(self, coefficient, name):
+        if vectorised_by_cell:
+            self.cell_index = (gem.Index(name="cell", extent=1),)
+            self.unsummed_coefficient_indices = self.unsummed_coefficient_indices.union(set(self.cell_index))
+        else:
+            self.cell_index = None
+
+    def _coefficient(self, coefficient, name, vectorised_by_cell=False):
         """Prepare a coefficient. Adds glue code for the coefficient
         and adds the coefficient to the coefficient map.
 
@@ -96,11 +102,15 @@ class KernelBuilderBase(_KernelBuilderBase):
         :arg name: coefficient name
         :returns: GEM expression representing the coefficient
         """
-        expr = prepare_coefficient(coefficient, name, interior_facet=self.interior_facet)
+        expr = prepare_coefficient(coefficient, name, interior_facet=self.interior_facet, vectorised_by_cell=vectorised_by_cell)
+        if vectorised_by_cell:
+            expr = gem.partial_indexed(expr, self.cell_index)
+            cell_index = set([i for i in expr.multiindex if i.name == "cell"])
+            self.unsummed_coefficient_indices = self.unsummed_coefficient_indices.union(cell_index)
         self.coefficient_map[coefficient] = expr
         return expr
 
-    def set_coordinates(self, domain):
+    def set_coordinates(self, domain, vectorised_by_cell):
         """Prepare the coordinate field.
 
         :arg domain: :class:`ufl.Domain`
@@ -108,9 +118,9 @@ class KernelBuilderBase(_KernelBuilderBase):
         # Create a fake coordinate coefficient for a domain.
         f = Coefficient(FunctionSpace(domain, domain.ufl_coordinate_element()))
         self.domain_coordinate[domain] = f
-        self._coefficient(f, "coords")
+        self._coefficient(f, "coords", vectorised_by_cell)
 
-    def set_cell_sizes(self, domain):
+    def set_cell_sizes(self, domain, vectorised_by_cell):
         """Setup a fake coefficient for "cell sizes".
 
         :arg domain: The domain of the integral.
@@ -128,7 +138,7 @@ class KernelBuilderBase(_KernelBuilderBase):
             # topological_dimension is 0 and the concept of "cell size"
             # is not useful for a vertex.
             f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
-            expr = prepare_coefficient(f, "cell_sizes", interior_facet=self.interior_facet)
+            expr = prepare_coefficient(f, "cell_sizes", interior_facet=self.interior_facet, vectorised_by_cell=vectorised_by_cell)
             self._cell_sizes = expr
 
     def create_element(self, element, **kwargs):
@@ -164,7 +174,7 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         self.oriented = False
         self.cell_sizes = False
 
-    def set_coefficients(self, coefficients):
+    def set_coefficients(self, coefficients, vectorised_by_cell=False):
         """Prepare the coefficients of the expression.
 
         :arg coefficients: UFL coefficients from Firedrake
@@ -176,9 +186,9 @@ class ExpressionKernelBuilder(KernelBuilderBase):
                 subcoeffs = coefficient.subfunctions  # Firedrake-specific
                 self.coefficient_split[coefficient] = subcoeffs
                 for j, subcoeff in enumerate(subcoeffs):
-                    self._coefficient(subcoeff, f"w_{i}_{j}")
+                    self._coefficient(subcoeff, f"w_{i}_{j}", vectorised_by_cell)
             else:
-                self._coefficient(coefficient, f"w_{i}")
+                self._coefficient(coefficient, f"w_{i}", vectorised_by_cell)
 
     def set_constants(self, constants):
         for i, const in enumerate(constants):
@@ -252,10 +262,10 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
     """Helper class for building a :class:`Kernel` object."""
 
     def __init__(self, integral_data_info, scalar_type,
-                 diagonal=False):
+                 diagonal=False, vectorised_by_cell=False):
         """Initialise a kernel builder."""
         integral_type = integral_data_info.integral_type
-        super(KernelBuilder, self).__init__(scalar_type, integral_type.startswith("interior_facet"))
+        super(KernelBuilder, self).__init__(scalar_type, integral_type.startswith("interior_facet"), vectorised_by_cell=vectorised_by_cell)
         self.fem_scalar_type = scalar_type
 
         self.diagonal = diagonal
@@ -311,7 +321,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         self.return_variables = return_variables
         self.argument_multiindices = argument_multiindices
 
-    def set_coefficients(self):
+    def set_coefficients(self, vectorised_by_cell=False):
         """Prepare the coefficients of the form."""
         info = self.integral_data_info
         k = 0
@@ -319,11 +329,11 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
             if coeff in info.coefficient_split:
                 for i, c in enumerate(info.coefficient_split[coeff]):
                     self.coefficient_number_index_map[c] = (n, i)
-                    self._coefficient(c, f"w_{k}")
+                    self._coefficient(c, f"w_{k}", vectorised_by_cell)
                     k += 1
             else:
                 self.coefficient_number_index_map[coeff] = (n, 0)
-                self._coefficient(coeff, f"w_{k}")
+                self._coefficient(coeff, f"w_{k}", vectorised_by_cell)
                 k += 1
 
     def set_constants(self, constants):

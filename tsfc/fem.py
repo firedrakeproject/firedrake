@@ -708,9 +708,14 @@ def translate_coefficient(terminal, mt, ctx):
                           for alpha, tables in per_derivative.items()}
 
     # Coefficient evaluation
+    
+    vectorised_by_cell = any([i.name == "cell" for i in vec.multiindex])
+    cell_index = tuple()
+    if vectorised_by_cell:
+        cell_index = [i.name == "cell" for i in vec.multiindex][0]
     beta = ctx.index_cache.setdefault(terminal.ufl_element(), element.get_indices())
     zeta = element.get_value_indices()
-    vec_beta, = gem.optimise.remove_componenttensors([gem.Indexed(vec, beta)])
+    vec_beta, = gem.optimise.remove_componenttensors([gem.Indexed(vec, cell_index + beta)])
     value_dict = {}
     for alpha, table in per_derivative.items():
         table_qi = gem.Indexed(table, beta + zeta)

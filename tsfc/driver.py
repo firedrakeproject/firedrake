@@ -147,14 +147,16 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
         coefficient_split=coefficient_split,
         coefficient_numbers=coefficient_numbers,
     )
+
     builder = firedrake_interface_loopy.KernelBuilder(
         integral_data_info,
         scalar_type,
         diagonal=diagonal,
+        vectorised_by_cell = parameters["vectorised_by_cell"],
     )
-    builder.set_coordinates(mesh)
-    builder.set_cell_sizes(mesh)
-    builder.set_coefficients()
+    builder.set_coordinates(mesh, vectorised_by_cell=parameters["vectorised_by_cell"])
+    builder.set_cell_sizes(mesh, vectorised_by_cell=parameters["vectorised_by_cell"])
+    builder.set_coefficients(vectorised_by_cell=parameters["vectorised_by_cell"])
     # TODO: We do not want pass constants to kernels that do not need them
     # so we should attach the constants to integral data instead
     builder.set_constants(form_data.constants)
@@ -178,6 +180,7 @@ def preprocess_parameters(parameters):
 
     if "FIREDRAKE_USE_GPU" in os.environ:
         parameters["unroll_indexsum"] = 0
+        parameters["vectorised_by_cell"] = True
 
     # Remove these here, they're handled later on.
     if parameters.get("quadrature_degree") in ["auto", "default", None, -1, "-1"]:

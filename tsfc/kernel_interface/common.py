@@ -474,7 +474,7 @@ def prepare_constant(constant, number):
                        constant.ufl_shape)
 
 
-def prepare_coefficient(coefficient, name, interior_facet=False):
+def prepare_coefficient(coefficient, name, interior_facet=False, vectorised_by_cell=None):
     """Bridges the kernel interface and the GEM abstraction for
     Coefficients.
 
@@ -497,6 +497,9 @@ def prepare_coefficient(coefficient, name, interior_facet=False):
     finat_element = create_element(coefficient.ufl_element())
     shape = finat_element.index_shape
     size = numpy.prod(shape, dtype=int)
+    if vectorised_by_cell:
+        # add empty cell dimension if vectorised
+        shape = (1,) + shape
 
     if not interior_facet:
         expression = gem.reshape(gem.Variable(name, (size,)), shape)
