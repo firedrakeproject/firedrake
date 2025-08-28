@@ -705,61 +705,68 @@ class PointEvaluator:
     r"""Convenience class for evaluating a :class:`Function` at a set of points."""
 
     def __init__(self, mesh: MeshGeometry, points: np.ndarray | list, tolerance: float | None = None,
-                 missing_points_behaviour: str | None = "error", redundant: bool = True) -> None:
+                 missing_points_behaviour: str = "error", redundant: bool = True) -> None:
         r"""
         Parameters
         ----------
-        mesh : :class:`MeshGeometry`
-            The :class:`Mesh` on which the :class:`Function` is defined.
-        points : np.ndarray | list
-            Array of points to evaluate the function at.
+        mesh : MeshGeometry
+            The mesh on which to embed the points.
+        points : numpy.ndarray | list
+            Array or list of points to evaluate at.
         tolerance : float | None
-            Tolerance to use when checking if a point is in a cell. Default is the `tolerance` of the :class:`MeshGeometry`.
-        missing_points_behaviour : str | None
+            Tolerance to use when checking if a point is in a cell.
+            If ``None`` (the default), the ``tolerance`` of the ``mesh`` is used.
+        missing_points_behaviour : str
             Behaviour when a point is not found in the mesh. Options are:
-            "error": raise a :class:`VertexOnlyMeshMissingPointsError` if a point is not found in the mesh.
+            "error": raise a :class:`~.VertexOnlyMeshMissingPointsError` if a point is not found in the mesh.
             "warn": warn if a point is not found in the mesh, but continue.
-            None: ignore points not found in the mesh.
+            "ignore": ignore points not found in the mesh.
         redundant : bool
             If True, only the points given to the constructor on rank 0 are evaluated, and the result is broadcast to all ranks.
             If False, each rank evaluates the points it has been given. False is useful if you are inputting
-            external data that is already distributed across ranks.
-            Default is True.
+            external data that is already distributed across ranks. Default is True.
         """
         self.mesh = mesh
         self.points = np.asarray(points, dtype=utils.ScalarType)
         self.redundant = redundant
+        self.missing_points_behaviour = missing_points_behaviour
+        self.tolerance = tolerance
         self.vom = VertexOnlyMesh(
             mesh, points, missing_points_behaviour=missing_points_behaviour,
             redundant=redundant, tolerance=tolerance
         )
 
     def evaluate(self, function: Function) -> np.ndarray | Tuple[np.ndarray, ...]:
-        r"""Evaluate the :class:`Function`.
+        r"""Evaluate the given :class:`Function`.
         Points that were not found in the mesh will be evaluated to np.nan.
 
         Parameters
         ----------
         function :
-            The `Function` to evaluate.
+            The :class:`Function` to evaluate.
 
         Returns
         -------
-        np.ndarray | Tuple[np.ndarray, ...]
+        numpy.ndarray | Tuple[numpy.ndarray, ...]
             A Numpy array of values at the points. If the function is scalar-valued, the Numpy array
-            has shape (len(points),). If the function is vector-valued with shape (n,), the Numpy array has shape
-            (len(points), n). If the function is tensor-valued with shape (n, m), the Numpy array has shape
-            (len(points), n, m). If the function is a mixed function, a tuple of Numpy arrays is returned,
+            has shape ``(len(points),)``. If the function is vector-valued with shape ``(n,)``, the Numpy array has shape
+            ``(len(points), n)``. If the function is tensor-valued with shape ``(n, m)``, the Numpy array has shape
+            ``(len(points), n, m)``. If the function is a mixed function, a tuple of Numpy arrays is returned,
             one for each subfunction.
         """
         from firedrake import assemble, interpolate
         if not isinstance(function, Function):
-            raise TypeError(f"Expected a Function, got f{type(function).__name__}")
+            raise TypeError(f"Expected a Function, got {type(function).__name__}")
         function_mesh = function.function_space().mesh()
         if function_mesh is not self.mesh:
             raise ValueError("Function mesh must be the same Mesh object as the PointEvaluator mesh.")
-        # if function_mesh.coordinates.dat.dat_version != self.mesh.coordinates.dat.dat_version:
-        #     pass
+        if function_mesh.coordinates.dat.dat_version != self.mesh._saved_coordinate_dat_version:
+            # The mesh coordinates have changed since the PointEvaluator was created
+            self.mesh = function_mesh
+            self.vom = VertexOnlyMesh(
+                self.mesh, self.points, missing_points_behaviour=self.missing_points_behaviour,
+                redundant=self.redundant, tolerance=self.tolerance
+            )
         subfunctions = function.subfunctions
         if len(subfunctions) > 1:
             return tuple(self.evaluate(subfunction) for subfunction in subfunctions)
