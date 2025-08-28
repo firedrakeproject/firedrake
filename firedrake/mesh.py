@@ -2488,17 +2488,19 @@ values from f.)"""
 
         coord_element = self.ufl_coordinate_element()
         coord_degree = coord_element.degree()
-        if ufl.cell.simplex(self.topological_dimension()) != self.ufl_cell():
-            # Non-simplex element, e.g. quad or tensor product
-            mesh = self
-        elif coord_degree == 1:
+        if np.all(np.asarray(coord_degree) == 1):
             mesh = self
         elif coord_element.family() == "Bernstein":
             # Already have Bernstein coordinates, no need to project
             mesh = self
         else:
             # For bendy meshes we project the coordinate function onto Bernstein
-            bernstein_fs = functionspace.VectorFunctionSpace(self, "Bernstein", coord_degree)
+            if self.extruded:
+                bernstein_fs = functionspace.VectorFunctionSpace(
+                    self, "Bernstein", coord_degree[0], vfamily="Bernstein", vdegree=coord_degree[1]
+                )
+            else:
+                bernstein_fs = functionspace.VectorFunctionSpace(self, "Bernstein", coord_degree)
             f = function.Function(bernstein_fs)
             f.interpolate(self.coordinates)
             mesh = Mesh(f)
@@ -3317,7 +3319,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
 
 
 class MissingPointsBehaviour(enum.Enum):
-    IGNORE = None
+    IGNORE = "ignore"
     ERROR = "error"
     WARN = "warn"
 
@@ -3358,7 +3360,8 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     :kwarg missing_points_behaviour: optional string argument for what to do
         when vertices which are outside of the mesh are discarded. If
         ``'warn'``, will print a warning. If ``'error'`` will raise a
-        :class:`~.VertexOnlyMeshMissingPointsError`.
+        :class:`~.VertexOnlyMeshMissingPointsError`. If ``'ignore'``, will do
+        nothing. Default is ``'error'``.
     :kwarg tolerance: The relative tolerance (i.e. as defined on the reference
         cell) for the distance a point can be from a mesh cell and still be
         considered to be in the cell. Note that this tolerance uses an L1
@@ -3409,13 +3412,6 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     _, pdim = vertexcoords.shape
     if not np.isclose(np.sum(abs(vertexcoords.imag)), 0):
         raise ValueError("Point coordinates must have zero imaginary part")
-    if (
-        ufl.cell.simplex(mesh.topological_dimension()) != mesh.ufl_cell()
-        and np.any(np.asarray(mesh.ufl_coordinate_element().degree()) > 1)
-    ):
-        raise NotImplementedError(
-            "Cannot yet immerse a VertexOnlyMesh in non-simplicial higher-order meshes."
-        )
     # Currently we take responsibility for locating the mesh cells in which the
     # vertices lie.
     #
