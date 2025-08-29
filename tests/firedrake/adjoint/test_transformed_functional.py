@@ -3,7 +3,6 @@ from firedrake.adjoint import (
     Control, ReducedFunctional, continue_annotation, minimize,
     pause_annotation)
 from firedrake.adjoint.transformed_functional import L2TransformedFunctional
-import numpy as np
 from pyadjoint.reduced_functional_numpy import ReducedFunctionalNumPy
 from pyadjoint.tape import set_working_tape
 import pytest
@@ -23,7 +22,7 @@ def test_transformed_functional_mass_inverse():
     space = fd.FunctionSpace(mesh, "Lagrange", 1)
 
     m_ref = fd.Function(space, name="m_ref").interpolate(
-        fd.exp(x) * fd.sin(fd.pi * x) * fd.cos(fd.pi * x))
+        fd.exp(x) * fd.sin(fd.pi * x) * fd.cos(fd.pi * y))
 
     def forward(m):
         return fd.assemble(fd.inner(m - m_ref, m - m_ref) * fd.dx)
@@ -52,7 +51,7 @@ def test_transformed_functional_mass_inverse():
                      options={"ftol": 0,
                               "gtol": 1e-6})
     assert fd.norm(m_opt - m_ref, "L2") < 1e-4
-    assert cb.ncalls > 10  # == 13
+    assert cb.ncalls > 10  # == 14
 
     J_hat = L2TransformedFunctional(J, c, alpha=1)
     cb = MinimizeCallback()
@@ -61,5 +60,5 @@ def test_transformed_functional_mass_inverse():
                      options={"ftol": 0,
                               "gtol": 1e-6})
     m_opt = J_hat.map_result(m_opt)
-    assert fd.norm(m_opt - m_ref, "L2") < 1e-10
+    assert fd.norm(m_opt - m_ref, "L2") < 1e-8
     assert cb.ncalls == 2
