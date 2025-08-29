@@ -595,7 +595,6 @@ should be followed:
 
    $ pip install --no-build-isolation --no-binary h5py --editable './firedrake[check]'
 
-
 Editing subpackages
 -------------------
 
