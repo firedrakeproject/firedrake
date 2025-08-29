@@ -268,3 +268,10 @@ def test_vector_real_space_assign_zero(Rvector):
     f = Function(Rvector, val=[9, 10, 11, 12])
     f.assign(zero())
     assert np.allclose(f.dat.data_ro, 0)
+
+
+def test_function_riesz_representation_l2_dat_version(V):
+    f = Function(V)
+    version = f.dat.dat_version
+    _ = f.riesz_representation(riesz_map="l2")
+    assert f.dat.dat_version == version

@@ -45,6 +45,12 @@ class Argument(ufl.argument.Argument):
                                        number, part=part)
         self._function_space = function_space
 
+    def arguments(self):
+        return (self,)
+
+    def coefficients(self):
+        return ()
+
     @utils.cached_property
     def cell_node_map(self):
         return self.function_space().cell_node_map
@@ -348,7 +354,6 @@ def CellSize(mesh):
 
     :arg mesh: the mesh for which to calculate the cell size.
     """
-    mesh.init()
     return ufl.CellDiameter(mesh)
 
 
@@ -358,7 +363,6 @@ def FacetNormal(mesh):
 
     :arg mesh: the mesh over which the normal should be represented.
     """
-    mesh.init()
     return ufl.FacetNormal(mesh)
 
 

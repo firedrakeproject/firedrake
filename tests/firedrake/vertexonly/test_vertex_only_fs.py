@@ -68,7 +68,7 @@ def pseudo_random_coords(size):
 
 # Function Space Generation Tests
 
-def functionspace_tests(vm):
+def functionspace_tests(vm, petsc_raises):
     # Prep
     num_cells = len(vm.coordinates.dat.data_ro)
     num_cells_mpi_global = MPI.COMM_WORLD.allreduce(num_cells, op=MPI.SUM)
@@ -120,7 +120,10 @@ def functionspace_tests(vm):
     idxs_to_include = input_ordering_parent_cell_nums != -1
     assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == -1)
-
+    # Using permutation matrix
+    perm_mat = assemble(interpolate(TestFunction(V), W, matfree=False))
+    h2 = assemble(perm_mat @ g)
+    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
     # check other interpolation APIs work identically
     h2 = assemble(interpolate(g, W))
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
@@ -153,13 +156,10 @@ def functionspace_tests(vm):
     h_star = h.riesz_representation(riesz_map="l2")
     g = assemble(I_io.interpolate(h_star, adjoint=True))
     assert np.allclose(g.dat.data_ro_with_halos, np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
-    with pytest.raises(NotImplementedError):
+    with petsc_raises(NotImplementedError):
         # Can't use adjoint on interpolators with expressions yet
-        try:
-            g2 = assemble(I2_io.interpolate(h_star, adjoint=True))
-            assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
-        except PETSc.Error as e:
-            raise e.__cause__ from None
+        g2 = assemble(I2_io.interpolate(h_star, adjoint=True))
+        assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
 
     I_io_adjoint = Interpolator(TestFunction(W), V)
     I2_io_adjoint = Interpolator(2*TestFunction(W), V)
@@ -167,20 +167,17 @@ def functionspace_tests(vm):
     h = h_star.riesz_representation(riesz_map="l2")
     assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
-    with pytest.raises(NotImplementedError):
+    with petsc_raises(NotImplementedError):
         # Can't use adjoint on interpolators with expressions yet
-        try:
-            h2 = assemble(I2_io_adjoint.interpolate(g, adjoint=True))
-            assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
-        except PETSc.Error as e:
-            raise e.__cause__ from None
+        h2 = assemble(I2_io_adjoint.interpolate(g, adjoint=True))
+        assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
     g = assemble(I_io_adjoint.interpolate(h))
     assert np.allclose(g.dat.data_ro_with_halos, np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
     g2 = assemble(I2_io_adjoint.interpolate(h))
     assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
 
 
-def vectorfunctionspace_tests(vm):
+def vectorfunctionspace_tests(vm, petsc_raises):
     # Prep
     gdim = vm.geometric_dimension()
     num_cells = len(vm.coordinates.dat.data_ro)
@@ -231,6 +228,10 @@ def vectorfunctionspace_tests(vm):
     idxs_to_include = input_ordering_parent_cell_nums != -1
     assert np.allclose(h.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == -1)
+    # Using permutation matrix
+    perm_mat = assemble(interpolate(TestFunction(V), W, matfree=False))
+    h2 = assemble(perm_mat @ g)
+    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
     # check other interpolation APIs work identically
     h2 = assemble(interpolate(g, W))
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
@@ -263,26 +264,20 @@ def vectorfunctionspace_tests(vm):
     h_star = h.riesz_representation(riesz_map="l2")
     g = assemble(I_io.interpolate(h_star, adjoint=True))
     assert np.allclose(g.dat.data_ro_with_halos, 2*vm.coordinates.dat.data_ro_with_halos)
-    with pytest.raises(NotImplementedError):
+    with petsc_raises(NotImplementedError):
         # Can't use adjoint on interpolators with expressions yet
-        try:
-            g2 = assemble(I2_io.interpolate(h_star, adjoint=True))
-            assert np.allclose(g2.dat.data_ro_with_halos, 4*vm.coordinates.dat.data_ro_with_halos)
-        except PETSc.Error as e:
-            raise e.__cause__ from None
+        g2 = assemble(I2_io.interpolate(h_star, adjoint=True))
+        assert np.allclose(g2.dat.data_ro_with_halos, 4*vm.coordinates.dat.data_ro_with_halos)
 
     I_io_adjoint = Interpolator(TestFunction(W), V)
     I2_io_adjoint = Interpolator(2*TestFunction(W), V)
     h_star = assemble(I_io_adjoint.interpolate(g, adjoint=True))
     assert np.allclose(h_star.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
     assert np.all(h_star.dat.data_ro_with_halos[~idxs_to_include] == 0)
-    with pytest.raises(NotImplementedError):
-        try:
-            # Can't use adjoint on interpolators with expressions yet
-            h2 = assemble(I2_io_adjoint.interpolate(g, adjoint=True))
-            assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
-        except PETSc.Error as e:
-            raise e.__cause__ from None
+    with petsc_raises(NotImplementedError):
+        # Can't use adjoint on interpolators with expressions yet
+        h2 = assemble(I2_io_adjoint.interpolate(g, adjoint=True))
+        assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
 
     h = h_star.riesz_representation(riesz_map="l2")
     g = assemble(I_io_adjoint.interpolate(h))
@@ -292,12 +287,12 @@ def vectorfunctionspace_tests(vm):
 
 
 @pytest.mark.parallel([1, 3])
-def test_functionspaces(parentmesh, vertexcoords):
-    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
-    functionspace_tests(vm)
-    vectorfunctionspace_tests(vm)
-    functionspace_tests(vm.input_ordering)
-    vectorfunctionspace_tests(vm.input_ordering)
+def test_functionspaces(parentmesh, vertexcoords, petsc_raises):
+    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour="ignore")
+    functionspace_tests(vm, petsc_raises)
+    vectorfunctionspace_tests(vm, petsc_raises)
+    functionspace_tests(vm.input_ordering, petsc_raises)
+    vectorfunctionspace_tests(vm.input_ordering, petsc_raises)
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -325,7 +320,7 @@ def test_input_ordering_missing_point():
     m = UnitIntervalMesh(4)
     points = np.asarray([[0.125], [0.375], [0.625], [5.0]])
     data = np.asarray([1.0, 2.0, 3.0, 4.0])
-    vm = VertexOnlyMesh(m, points, missing_points_behaviour=None, redundant=True)
+    vm = VertexOnlyMesh(m, points, missing_points_behaviour="ignore", redundant=True)
 
     # put data on the input ordering
     P0DG_input_ordering = FunctionSpace(vm.input_ordering, "DG", 0)
@@ -365,3 +360,48 @@ def test_input_ordering_missing_point():
         assert not len(data_input_ordering.dat.data_ro)
         # Accessing data_ro [*here] is collective, hence this redundant call
         _ = len(data_input_ordering.dat.data_ro)
+
+
+@pytest.fixture(
+    params=[
+        ((2, 2), None),
+        (None, True),
+        ((), None),
+        ((2, 3), None),
+    ]
+)
+def tensorfs_and_expr(request):
+    shape, symmetry = request.param
+    np.random.seed(0)
+    mesh = UnitSquareMesh(2, 2)
+    coords = np.random.random_sample(size=(10, 2))
+    vom = VertexOnlyMesh(mesh, coords)
+
+    V = TensorFunctionSpace(vom, "DG", 0, shape=shape, symmetry=symmetry)
+    W = TensorFunctionSpace(vom.input_ordering, "DG", 0, shape=shape, symmetry=symmetry)
+
+    x = SpatialCoordinate(vom)
+    if shape == ():
+        expr = inner(x, x)
+    elif shape is None or shape == (2, 2):
+        expr = outer(x, x) + Identity(2)
+    elif shape == (2, 3):
+        a = as_vector([x[0], x[1]])
+        b = as_vector([x[0], x[1], Constant(1.0)])
+        expr = outer(a, b)
+
+    return V, W, expr
+
+
+@pytest.mark.parallel([1, 3])
+def test_tensorfs_permutation(tensorfs_and_expr):
+    V, W, expr = tensorfs_and_expr
+    f = Function(V)
+    f.interpolate(expr)
+    f_in_W = assemble(interpolate(f, W))
+    python_mat = assemble(interpolate(TestFunction(V), W, matfree=False))
+    f_in_W_2 = assemble(python_mat @ f)
+    assert np.allclose(f_in_W.dat.data_ro, f_in_W_2.dat.data_ro)
+    petsc_mat = assemble(interpolate(TestFunction(V), W, matfree=True))
+    f_in_W_petsc = assemble(petsc_mat @ f)
+    assert np.allclose(f_in_W.dat.data_ro, f_in_W_petsc.dat.data_ro)

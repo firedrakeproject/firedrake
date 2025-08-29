@@ -981,10 +981,6 @@ class FormAssembler(AbstractFormAssembler):
 
     def __init__(self, form, bcs=None, form_compiler_parameters=None):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
-        # Ensure mesh is 'initialised' as we could have got here without building a
-        # function space (e.g. if integrating a constant).
-        for mesh in form.ufl_domains():
-            mesh.init()
         if any(c.dat.dtype != ScalarType for c in form.coefficients()):
             raise ValueError("Cannot assemble a form containing coefficients where the "
                              "dtype is not the PETSc scalar type.")
@@ -1253,7 +1249,7 @@ class OneFormAssembler(ParloopFormAssembler):
             else:
                 # The residual belongs to a mixed space that is dual on the boundary nodes
                 # and primal on the interior nodes. Therefore, this is a type-safe operation.
-                r = tensor.riesz_representation("l2")
+                r = firedrake.Function(tensor.function_space().dual(), val=tensor.dat)
                 bc.apply(r, u=u)
         elif isinstance(bc, EquationBCSplit):
             bc.zero(tensor)

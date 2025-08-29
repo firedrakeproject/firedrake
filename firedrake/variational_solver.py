@@ -87,7 +87,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
                 bcs = J.bcs
         if bcs and any(isinstance(bc, EquationBC) for bc in bcs):
             restrict = False
-        self.restrict = restrict
+        self.restrict = restrict and bcs
 
         if restrict and bcs:
             V_res = restricted_function_space(V, extract_subdomain_ids(bcs))
@@ -313,7 +313,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         :arg bounds: Optional bounds on the solution (lower, upper).
             ``lower`` and ``upper`` must both be
-            :class:`~.Function`\s. or :class:`~.Vector`\s.
+            :class:`~.Function`\s.
 
         .. note::
 

@@ -131,8 +131,7 @@ def test_assemble(V, f):
 
     # -- dNdu(u, v, w; δN, uhat) (Adjoint model) -- #
     # Define a random cofunction on V* since the adjoint model maps from V* to V*
-    delta_N = Cofunction(V.dual())
-    delta_N.vector()[:] = rg.beta(V, 15, 30).dat.data_ro[:]
+    delta_N = rg.beta(V.dual(), 15, 30)
     # Assemble the adjoint model
     adj_value = assemble(action(adjoint(dNdu), delta_N))
     # Check type
