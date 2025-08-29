@@ -43,9 +43,7 @@ def test_interp_self(V1):
 
 def test_assemble_interp_adjoint_tensor(mesh, V1, f1):
     a = assemble(conj(TestFunction(V1)) * dx)
-    # We want tensor to be a dependency of the input expression for this test
-    assemble(Interpolator(f1 * TestFunction(V1), V1).interpolate(a, adjoint=True),
-             tensor=a)
+    assemble(interpolate(f1 * TestFunction(V1), a), tensor=a)
 
     x, y = SpatialCoordinate(mesh)
     f2 = Function(V1, name="f2").interpolate(
@@ -125,8 +123,7 @@ def test_assemble_interp_adjoint_complex(mesh, V1, V2, f1):
         f1 = Constant(3 - 5.j) * f1
 
     a = assemble(conj(TestFunction(V1)) * dx)
-    b = assemble(Interpolator(f1 * TestFunction(V2), V1).interpolate(a, adjoint=True))
-
+    b = assemble(interpolate(f1 * TestFunction(V2), a))
     x, y = SpatialCoordinate(mesh)
     f2 = Function(V2, name="f2").interpolate(
         exp(x) * y)
