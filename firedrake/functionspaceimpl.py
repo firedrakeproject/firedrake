@@ -377,17 +377,20 @@ class WithGeometryBase(object):
             new = cls.create(new, mesh)
         return new
 
-    def reconstruct(self, mesh=None, name=None, **kwargs):
+    def reconstruct(self, mesh=None, element=None, name=None, **kwargs):
         r"""Reconstruct this :class:`.WithGeometryBase` .
 
         :kwarg mesh: the new :func:`~.Mesh` (defaults to same mesh)
+        :kwarg element: the new :class:`finat.ufl.FiniteElement` (defaults to same element)
         :kwarg name: the new name (defaults to None)
         :returns: the new function space of the same class as ``self``.
 
         Any extra kwargs are used to reconstruct the finite element.
         For details see :meth:`finat.ufl.finiteelement.FiniteElement.reconstruct`.
         """
+        from firedrake.bcs import restricted_function_space
         V_parent = self
+
         # Deal with ProxyFunctionSpace
         indices = []
         while True:
@@ -402,13 +405,21 @@ class WithGeometryBase(object):
 
         if mesh is None:
             mesh = V_parent.mesh()
+        if element is None:
+            element = V_parent.ufl_element()
 
-        element = V_parent.ufl_element()
         cell = mesh.topology.ufl_cell()
         if len(kwargs) > 0 or element.cell != cell:
             element = element.reconstruct(cell=cell, **kwargs)
 
+        # Reconstruct the parent space
         V = type(self).make_function_space(mesh, element, name=name)
+
+        # Deal with RestrictedFunctionSpace
+        boundary_sets = [V_.boundary_set for V_ in V_parent]
+        if any(boundary_sets):
+            V = restricted_function_space(V, boundary_sets)
+
         for i in reversed(indices):
             V = V.sub(i)
         return V
@@ -899,8 +910,7 @@ class RestrictedFunctionSpace(FunctionSpace):
                                                      function_space.ufl_element(),
                                                      label=self._label)
         self.function_space = function_space
-        self.name = name or (function_space.name or "Restricted" + "_"
-                             + "_".join(sorted(map(str, self.boundary_set))))
+        self.name = name or function_space.name
 
     def set_shared_data(self):
         sdata = get_shared_data(self._mesh, self.ufl_element(), self.boundary_set)
