@@ -123,7 +123,7 @@ patch operators for each patch from the already-assembled global stiffness matri
        "pc_python_type": "firedrake.ASMVankaPC",
        "pc_vanka_construct_dim": 0,
        "pc_vanka_exclude_subspaces": 1,
-       "pc_vanka_backend_type": "tinyasm"
+       "pc_vanka_backend": "tinyasm"
        })
 
 The `tinyasm` backend uses LAPACK to invert all the patch operators.  If this option
