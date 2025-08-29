@@ -95,7 +95,7 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
     if levelc + increment != levelf:
         raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
 
-    key = _cache_key(Vc, Vf)
+    key = _cache_key(Vc, Vf, needs_coarse_entity_dofs=False)
     cache = mesh._shared_data_cache["hierarchy_coarse_cell_to_fine_node_map"]
     try:
         return cache[key]
@@ -168,10 +168,16 @@ def has_level(obj):
     return hasattr(obj.topological, "__level_info__")
 
 
-def _cache_key(Vc, Vf):
+def _cache_key(Vc, Vf, needs_coarse_entity_dofs=True):
+    """Construct a cache key for node maps"""
     _, levelf = get_level(Vf.mesh())
     _, levelc = get_level(Vc.mesh())
-    return (entity_dofs_key(Vc.finat_element.entity_dofs())
-            + entity_dofs_key(Vf.finat_element.entity_dofs())
-            + (levelc, levelf)
-            + (Vc.boundary_set, Vf.boundary_set))
+
+    if needs_coarse_entity_dofs:
+        key = entity_dofs_key(Vc.finat_element.entity_dofs())
+    else:
+        key = ()
+    key += entity_dofs_key(Vf.finat_element.entity_dofs())
+    key += (levelc, levelf)
+    key += (Vc.boundary_set, Vf.boundary_set)
+    return key
