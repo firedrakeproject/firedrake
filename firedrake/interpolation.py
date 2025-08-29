@@ -472,16 +472,12 @@ class CrossMeshInterpolator(Interpolator):
                 for input_sub_func, target_subspace in zip(
                     expr_subfunctions, V_dest.subspaces
                 ):
-                    sub_interpolator = type(self)(
-                        input_sub_func,
-                        target_subspace,
-                        subset=subset,
-                        freeze_expr=freeze_expr,
-                        access=access,
-                        bcs=bcs,
-                        allow_missing_dofs=allow_missing_dofs,
+                    self.sub_interpolators.append(
+                        interpolate(
+                            input_sub_func, target_subspace, subset=subset,
+                            access=access, allow_missing_dofs=allow_missing_dofs
+                        )
                     )
-                    self.sub_interpolators.append(sub_interpolator)
                 return
 
         from firedrake.assemble import assemble
@@ -595,7 +591,7 @@ class CrossMeshInterpolator(Interpolator):
 
         if len(self.sub_interpolators):
             # MixedFunctionSpace case
-            for sub_interpolator, f_src_sub_func, output_sub_func in zip(
+            for sub_interpolate, f_src_sub_func, output_sub_func in zip(
                 self.sub_interpolators, f_src.subfunctions, output.subfunctions
             ):
                 if f_src is self.expr:
@@ -603,11 +599,9 @@ class CrossMeshInterpolator(Interpolator):
                     # so the sub_interpolators are already prepared to interpolate
                     # without needing to be given a Function
                     assert not self.nargs
-                    interp = sub_interpolator.interpolate(adjoint=adjoint, **kwargs)
-                    assemble(interp, tensor=output_sub_func)
+                    assemble(sub_interpolate, tensor=output_sub_func)
                 else:
-                    interp = sub_interpolator.interpolate(adjoint=adjoint, **kwargs)
-                    assemble(action(interp, f_src_sub_func), tensor=output_sub_func)
+                    assemble(action(sub_interpolate, f_src_sub_func), tensor=output_sub_func)
             return output
 
         if not adjoint:
