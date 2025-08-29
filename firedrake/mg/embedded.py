@@ -87,14 +87,14 @@ class TransferManager(object):
         return None
 
     def cache(self, V):
-        key = (V.ufl_element(), V.value_shape)
+        key = (V.ufl_element(), V.value_shape, V.boundary_set)
         try:
             return self.caches[key]
         except KeyError:
-            return self.caches.setdefault(key, TransferManager.Cache(*key))
+            return self.caches.setdefault(key, TransferManager.Cache(*key[:2]))
 
     def cache_key(self, V):
-        return (V.dim(), V.boundary_set)
+        return (V.dim(),)
 
     def V_dof_weights(self, V):
         """Dof weights for averaging projection.
