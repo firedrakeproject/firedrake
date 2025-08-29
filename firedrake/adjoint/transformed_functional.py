@@ -1,7 +1,9 @@
 from functools import cached_property
+from operator import itemgetter
 
 import firedrake as fd
 import finat
+from petsctools import flatten_parameters
 from pyadjoint.control import Control
 from pyadjoint.enlisting import Enlist
 from pyadjoint.reduced_functional import AbstractReducedFunctional, ReducedFunctional
@@ -84,11 +86,25 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         Controls. Must be :class:`firedrake.Function` objects.
     tape : Tape
         Tape used in evaluations involving :math:`J`.
+    alpha : Real
+        Modifies the derivative, equivalent to adding an extra term to
+        :math:`J \circ \Pi`
+
+        .. math::
+
+            \frac{1}{2} \alpha \left\| m_D - \Pi m_D \right\|_{L^2}^2.
+
+        e.g. in a minimization problem this adds a penalty term which can
+        be used to avoid ill-posedness due to the use of a larger discontinuous
+        space.
+    project_solver_parameters : Mapping
+        Solver parameters for an :math:`L^2` projection onto the domain of the
+        functional :math:`J`.
     """
 
     @no_annotations
     def __init__(self, functional, controls, *, tape=None,
-                 project_solver_parameters=None):
+                 alpha=0, project_solver_parameters=None):
         if not all(isinstance(control.control, fd.Function) for control in Enlist(controls)):
             raise TypeError("controls must be Function objects")
         if project_solver_parameters is None:
@@ -101,7 +117,9 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         self._C = tuple(map(L2Cholesky, self._space_d))
         self._controls = tuple(Control(fd.Cofunction(space_d.dual()), riesz_map="l2")
                                for space_d in self._space_d)
-        self._project_solver_parameters = dict(project_solver_parameters)
+        self._alpha = alpha
+        self._project_solver_parameters = flatten_parameters(project_solver_parameters)
+        self._m_k = None
 
         # Map the initial guess
         controls_t = self._primal_transform(tuple(control.control for control in self._J.controls))
@@ -112,19 +130,27 @@ class L2TransformedFunctional(AbstractReducedFunctional):
     def controls(self) -> list[Control]:
         return list(self._controls)
 
-    def _primal_transform(self, u):
+    def _primal_transform(self, u, u_D=None):
         u = Enlist(u)
         if len(u) != len(self.controls):
             raise ValueError("Invalid length")
+        if u_D is None:
+            u_D = tuple(None for _ in u)
+        else:
+            u_D = Enlist(u_D)
+        if len(u_D) != len(self.controls):
+            raise ValueError("Invalid length")
 
-        def transform(C, u, space_d):
+        def transform(C, u, u_D, space_d):
             # Map function to transformed 'cofunction':
             #     C_W^{-1} P_{VW}^*
             v = fd.assemble(fd.inner(u, fd.TestFunction(space_d)) * fd.dx)
+            if u_D is not None:
+                v.dat.axpy(1, u_D.dat)
             v = C.C_inv_action(v)
             return v
 
-        v = tuple(map(transform, self._C, u, self._space_d))
+        v = tuple(map(transform, self._C, u, u_D, self._space_d))
         return u.delist(v)
 
     def _dual_transform(self, u):
@@ -136,12 +162,12 @@ class L2TransformedFunctional(AbstractReducedFunctional):
             # Map transformed 'cofunction' to function:
             #     M_V^{-1} P_{VW} C_W^{-*}
             v = C.C_T_inv_action(u)  # for complex would need to be adjoint
-            v = fd.Function(space).project(
+            w = fd.Function(space).project(
                 v, solver_parameters=self._project_solver_parameters)
-            return v
+            return v, w
 
-        v = tuple(map(transform, self._C, u, self._space))
-        return u.delist(v)
+        vw = tuple(map(transform, self._C, u, self._space))
+        return u.delist(tuple(map(itemgetter(0), vw))), u.delist(tuple(map(itemgetter(1), vw)))
 
     @no_annotations
     def map_result(self, m):
@@ -162,12 +188,13 @@ class L2TransformedFunctional(AbstractReducedFunctional):
             :math:`J`.
         """
 
-        return self._dual_transform(m)
+        _, m_J = self._dual_transform(m)
+        return m_J
 
     @no_annotations
     def __call__(self, values):
-        v = self._dual_transform(values)
-        return self._J(v)
+        _, m_J = self._m_k = self._dual_transform(values)
+        return self._J(m_J)
 
     @no_annotations
     def derivative(self, adj_input=1.0, apply_riesz=False):
@@ -175,9 +202,16 @@ class L2TransformedFunctional(AbstractReducedFunctional):
             raise ValueError("adj_input != 1 not supported")
 
         u = Enlist(self._J.derivative())
-        v = self._primal_transform(
-            tuple(u_i.riesz_representation(solver_options=self._project_solver_parameters)
-                  for u_i in u))
+
+        v = tuple(u_i.riesz_representation(solver_options=self._project_solver_parameters)
+                  for u_i in u)
+        if self._alpha == 0:
+            v_alpha = None
+        else:
+            v_alpha = tuple(
+                fd.assemble(fd.Constant(self._alpha) * fd.inner(m_D_i - m_J_i, fd.TestFunction(space_d)) * fd.dx)
+                for space_d, m_D_i, m_J_i in zip(self._space_d, *self._m_k))
+        v = self._primal_transform(v, v_alpha)
         if apply_riesz:
             v = tuple(v_i._ad_convert_riesz(v_i, riesz_map=control.riesz_map)
                       for v_i, control in zip(v, self.controls))
