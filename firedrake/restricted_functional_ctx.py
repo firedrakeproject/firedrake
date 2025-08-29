@@ -110,7 +110,6 @@ class RestrictedReducedFunctionalMatCtx(ReducedFunctionalMatCtx):
         if action in (AdjointAction, TLMAction):
             self.restricted_functional_interface = PETScVecInterface(Function(restricted_space).interpolate(rf.functional), comm=comm) if restricted_space else self.functional_interface
 
-        # Override x/y interfaces and variables based on the action
         if action == HessianAction:
             self.xresinterface = self.restricted_control_interface
             self.yresinterface = self.restricted_control_interface
