@@ -320,57 +320,6 @@ class Interpolator(abc.ABC):
             expr = replace(expr, {v: v.reconstruct(number=1)})
         self.expr_renumbered = expr
 
-    def interpolate(self, *function, transpose=None, adjoint=False, default_missing_val=None):
-        """Define the :class:`Interpolate` object corresponding to the interpolation operation of interest.
-
-        Parameters
-        ----------
-        *function: firedrake.function.Function or firedrake.cofunction.Cofunction
-                   If the expression being interpolated contains an argument,
-                   then the function value to interpolate.
-        transpose : bool
-                   Deprecated, use adjoint instead.
-        adjoint: bool
-                   Set to true to apply the adjoint of the interpolation
-                   operator.
-        default_missing_val: bool
-                             For interpolation across meshes: the
-                             optional value to assign to DoFs in the target mesh that are
-                             outside the source mesh. If this is not set then the values are
-                             either (a) unchanged if some ``output`` is specified to the
-                             :meth:`interpolate` method or (b) set to zero. This does not affect
-                             adjoint interpolation. Ignored if interpolating within the same
-                             mesh or onto a :func:`.VertexOnlyMesh`.
-
-        Returns
-        -------
-        firedrake.interpolation.Interpolate or ufl.action.Action or ufl.adjoint.Adjoint
-            The symbolic object representing the interpolation operation.
-        """
-
-        V = self.V
-        if isinstance(V, firedrake.Function):
-            V = V.function_space()
-
-        interp = Interpolate(self.expr_renumbered, V,
-                             subset=self.subset,
-                             access=self.access,
-                             allow_missing_dofs=self._allow_missing_dofs,
-                             default_missing_val=default_missing_val,
-                             matfree=self.matfree)
-        if transpose is not None:
-            warnings.warn("'transpose' argument is deprecated, use 'adjoint' instead", FutureWarning)
-            adjoint = transpose or adjoint
-        if adjoint:
-            interp = expr_adjoint(interp)
-
-        if function:
-            f, = function
-            # Passing in a function is equivalent to taking the action.
-            interp = action(interp, f)
-        # Return the `ufl.Interpolate` object
-        return interp
-
     @abc.abstractmethod
     def _interpolate(self, *args, **kwargs):
         """
