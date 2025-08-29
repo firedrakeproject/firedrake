@@ -1208,7 +1208,7 @@ class ProxyFunctionSpace(FunctionSpace):
     """
     def __new__(cls, mesh, element, name=None):
         topology = mesh.topology
-        self = FunctionSpace.__new__(cls)
+        self = super(ProxyFunctionSpace, cls).__new__(cls)
         if mesh is not topology:
             return WithGeometry.create(self, mesh)
         else:
@@ -1263,7 +1263,7 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
     """
     def __new__(cls, function_space, boundary_set=frozenset(), name=None):
         topology = function_space._mesh.topology
-        self = FunctionSpace.__new__(cls)
+        self = super(ProxyRestrictedFunctionSpace, cls).__new__(cls)
         if function_space._mesh is not topology:
             return WithGeometry.create(self, function_space._mesh)
         else:
