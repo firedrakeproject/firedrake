@@ -105,8 +105,8 @@ class KernelBuilderBase(_KernelBuilderBase):
         expr = prepare_coefficient(coefficient, name, interior_facet=self.interior_facet, vectorised_by_cell=vectorised_by_cell)
         if vectorised_by_cell:
             expr = gem.partial_indexed(expr, self.cell_index)
-            cell_index = set([i for i in expr.multiindex if i.name == "cell"])
-            self.unsummed_coefficient_indices = self.unsummed_coefficient_indices.union(cell_index)
+            #cell_index = set([i for i in expr.multiindex if i.name == "cell"])
+            self.unsummed_coefficient_indices = self.unsummed_coefficient_indices.union(self.cell_index)
         self.coefficient_map[coefficient] = expr
         return expr
 
@@ -297,10 +297,10 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
                 '-': gem.OrientationVariableIndex(gem.Indexed(facet_orientation, (0,)))
             }
 
-        self.set_arguments(integral_data_info.arguments)
+        self.set_arguments(integral_data_info.arguments, vectorised_by_cell=vectorised_by_cell)
         self.integral_data_info = integral_data_info
 
-    def set_arguments(self, arguments):
+    def set_arguments(self, arguments, vectorised_by_cell=False):
         """Process arguments.
 
         :arg arguments: :class:`ufl.Argument`s
@@ -308,6 +308,11 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         """
         argument_multiindices = tuple(create_element(arg.ufl_element()).get_indices()
                                       for arg in arguments)
+
+        if vectorised_by_cell:
+            #argument_multiindices = ((gem.Index("cell", extent=1),),) + argument_multiindices
+            argument_multiindices = tuple( self.cell_index + a for a in argument_multiindices)
+
         if self.diagonal:
             # Error checking occurs in the builder constructor.
             # Diagonal assembly is obtained by using the test indices for
@@ -317,7 +322,8 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         return_variables = prepare_arguments(arguments,
                                              argument_multiindices,
                                              interior_facet=self.interior_facet,
-                                             diagonal=self.diagonal)
+                                             diagonal=self.diagonal,
+                                             vectorised_by_cell=vectorised_by_cell)
         self.return_variables = return_variables
         self.argument_multiindices = argument_multiindices
 

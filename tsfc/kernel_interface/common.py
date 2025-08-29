@@ -511,7 +511,7 @@ def prepare_coefficient(coefficient, name, interior_facet=False, vectorised_by_c
     return expression
 
 
-def prepare_arguments(arguments, multiindices, interior_facet=False, diagonal=False):
+def prepare_arguments(arguments, multiindices, interior_facet=False, diagonal=False, vectorised_by_cell=False):
     """Bridges the kernel interface and the GEM abstraction for
     Arguments.  Vector Arguments are rearranged here for interior
     facet integrals.
@@ -546,9 +546,6 @@ def prepare_arguments(arguments, multiindices, interior_facet=False, diagonal=Fa
         shapes = tuple(element.index_shape for element in elements)
         multiindices = multiindices[:1]
 
-    def expression(restricted):
-        return gem.Indexed(gem.reshape(restricted, *shapes),
-                           tuple(chain(*multiindices)))
 
     u_shape = numpy.array([numpy.prod(shape, dtype=int) for shape in shapes])
     if interior_facet:
@@ -559,6 +556,18 @@ def prepare_arguments(arguments, multiindices, interior_facet=False, diagonal=Fa
     else:
         c_shape = tuple(u_shape)
         slicez = [[slice(s) for s in u_shape]]
+
+    if vectorised_by_cell:
+        # add empty cell dimension if vectorised
+        # not sure this is correct for interior facet
+        #c_shape = (1,) + c_shape
+        #slicez = [ [slice(1)] + s for s in slicez]
+        #shapes = ((1,),) + shapes
+        shapes = [ (1,) + s for s in shapes]
+
+    def expression(restricted):
+        return gem.Indexed(gem.reshape(restricted, *shapes),
+                           tuple(chain(*multiindices)))
 
     varexp = gem.Variable("A", c_shape)
     expressions = [expression(gem.view(varexp, *slices)) for slices in slicez]

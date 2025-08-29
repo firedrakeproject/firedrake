@@ -664,6 +664,7 @@ def translate_argument(terminal, mt, ctx):
         mapper = gem.node.MemoizerArg(gem.optimise.filtered_replace_indices)
         table = mapper(table, tuple(zip(quad_multiindex, quad_multiindex_permuted)))
     argument_multiindex = ctx.argument_multiindices[terminal.number()]
+    argument_multiindex = tuple(i for i in argument_multiindex if i.name != "cell")
     return gem.partial_indexed(table, argument_multiindex)
 
 

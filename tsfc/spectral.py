@@ -2,7 +2,7 @@ from collections import OrderedDict, defaultdict, namedtuple
 from functools import partial, reduce
 from itertools import chain, zip_longest
 
-from gem.gem import Delta, Indexed, Sum, index_sum, one
+from gem.gem import Delta, Indexed, Sum, MathFunction, index_sum, one
 from gem.node import Memoizer
 from gem.optimise import delta_elimination as _delta_elimination
 from gem.optimise import remove_componenttensors, replace_division, unroll_indexsum
@@ -121,7 +121,7 @@ finalise_options = dict(replace_delta=False)
 
 def classify(argument_indices, expression, delta_inside):
     """Classifier for argument factorisation"""
-    n = len(argument_indices.intersection(expression.free_indices))
+    n = len([i for i in argument_indices.intersection(expression.free_indices) if i.name != "cell"])
     if n == 0:
         return OTHER
     elif n == 1:
