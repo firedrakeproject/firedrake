@@ -69,7 +69,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         - :math:`\Pi` is the :math:`L^2` projection onto a discontinuous
           superspace of the control space.
         - :math:`\Xi` represents a change of basis from an :math:`L^2`
-          othogonal basis to the finite element basis for the discontinuous
+          orthonormal basis to the finite element basis for the discontinuous
           superspace.
 
     The optimization is therefore transformed into an optimization problem
@@ -113,10 +113,10 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         self._J = ReducedFunctional(functional, controls, tape=tape)
         self._space = tuple(control.control.function_space()
                             for control in self._J.controls)
-        self._space_d = tuple(map(dg_space, self._space))
-        self._C = tuple(map(L2Cholesky, self._space_d))
-        self._controls = tuple(Control(fd.Cofunction(space_d.dual()), riesz_map="l2")
-                               for space_d in self._space_d)
+        self._space_D = tuple(map(dg_space, self._space))
+        self._C = tuple(map(L2Cholesky, self._space_D))
+        self._controls = tuple(Control(fd.Cofunction(space_D.dual()), riesz_map="l2")
+                               for space_D in self._space_D)
         self._alpha = alpha
         self._project_solver_parameters = flatten_parameters(project_solver_parameters)
         self._m_k = None
@@ -141,16 +141,16 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         if len(u_D) != len(self.controls):
             raise ValueError("Invalid length")
 
-        def transform(C, u, u_D, space_d):
+        def transform(C, u, u_D, space_D):
             # Map function to transformed 'cofunction':
             #     C_W^{-1} P_{VW}^*
-            v = fd.assemble(fd.inner(u, fd.TestFunction(space_d)) * fd.dx)
+            v = fd.assemble(fd.inner(u, fd.TestFunction(space_D)) * fd.dx)
             if u_D is not None:
                 v.dat.axpy(1, u_D.dat)
             v = C.C_inv_action(v)
             return v
 
-        v = tuple(map(transform, self._C, u, u_D, self._space_d))
+        v = tuple(map(transform, self._C, u, u_D, self._space_D))
         return u.delist(v)
 
     def _dual_transform(self, u):
@@ -209,8 +209,8 @@ class L2TransformedFunctional(AbstractReducedFunctional):
             v_alpha = None
         else:
             v_alpha = tuple(
-                fd.assemble(fd.Constant(self._alpha) * fd.inner(m_D_i - m_J_i, fd.TestFunction(space_d)) * fd.dx)
-                for space_d, m_D_i, m_J_i in zip(self._space_d, *self._m_k))
+                fd.assemble(fd.Constant(self._alpha) * fd.inner(m_D_i - m_J_i, fd.TestFunction(space_D)) * fd.dx)
+                for space_D, m_D_i, m_J_i in zip(self._space_D, *self._m_k))
         v = self._primal_transform(v, v_alpha)
         if apply_riesz:
             v = tuple(v_i._ad_convert_riesz(v_i, riesz_map=control.riesz_map)
