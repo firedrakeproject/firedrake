@@ -465,13 +465,6 @@ class CrossMeshInterpolator(Interpolator):
         V_dest = V.function_space() if isinstance(V, firedrake.Function) else V
         src_mesh = extract_unique_domain(expr)
         dest_mesh = as_domain(V_dest)
-        if (
-            ufl.cell.simplex(src_mesh.topological_dimension()) != src_mesh.ufl_cell()
-            and numpy.any(numpy.asarray(src_mesh.ufl_coordinate_element().degree()) > 1)
-        ):
-            raise NotImplementedError(
-                "Cannot yet interpolate from non-simplicial higher-order meshes into other meshes."
-            )
         src_mesh_gdim = src_mesh.geometric_dimension()
         dest_mesh_gdim = dest_mesh.geometric_dimension()
         if src_mesh_gdim != dest_mesh_gdim:
@@ -1528,10 +1521,13 @@ class VomOntoVomDummyMat(object):
         self.arguments = arguments
         # Calculate correct local and global sizes for the matrix
         nroots, leaves, _ = sf.getGraph()
-        nleaves = len(leaves)
+        self.nleaves = len(leaves)
         self._local_sizes = V.comm.allgather(nroots)
-        self.source_size = (nroots, sum(self._local_sizes))
-        self.target_size = (nleaves, self.V.comm.allreduce(nleaves, op=MPI.SUM))
+        self.source_size = (self.V.block_size * nroots, self.V.block_size * sum(self._local_sizes))
+        self.target_size = (
+            self.V.block_size * self.nleaves,
+            self.V.block_size * V.comm.allreduce(self.nleaves, op=MPI.SUM),
+        )
 
     @property
     def mpi_type(self):
@@ -1572,7 +1568,7 @@ class VomOntoVomDummyMat(object):
                     raise ValueError("Need to provide a source dat for the argument!")
                 arg = self.arguments[0]
                 arg_coeff = firedrake.Function(arg.function_space())
-                arg_coeff.dat.data_wo[:] = source_vec.getArray().reshape(
+                arg_coeff.dat.data_wo[:] = source_vec.getArray(readonly=True).reshape(
                     arg_coeff.dat.data_wo.shape
                 )
                 coeff_expr = ufl.replace(self.expr, {arg: arg_coeff})
@@ -1650,14 +1646,6 @@ class VomOntoVomDummyMat(object):
             target_vec.zeroEntries()
             self.reduce(source_vec, target_vec)
 
-    def _get_sizes(self):
-        nroots, leaves, _ = self.sf.getGraph()
-        nleaves = len(leaves)
-        local_sizes = self.V.comm.allgather(nroots)
-        source_size = (nroots, sum(local_sizes))
-        target_size = (nleaves, self.V.comm.allreduce(nleaves, op=MPI.SUM))
-        return source_size, target_size
-
     def _create_permutation_mat(self):
         """Creates the PETSc matrix that represents the interpolation operator from a vertex-only mesh to
         its input ordering vertex-only mesh"""
@@ -1666,11 +1654,12 @@ class VomOntoVomDummyMat(object):
         start = sum(self._local_sizes[:self.V.comm.rank])
         end = start + self.source_size[0]
         contiguous_indices = numpy.arange(start, end, dtype=utils.IntType)
-        perm = numpy.zeros(self.target_size[0], dtype=utils.IntType)
+        perm = numpy.zeros(self.nleaves, dtype=utils.IntType)
         self.sf.bcastBegin(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
         self.sf.bcastEnd(MPI.INT, contiguous_indices, perm, MPI.REPLACE)
         rows = numpy.arange(self.target_size[0] + 1, dtype=utils.IntType)
-        mat.setValuesCSR(rows, perm, numpy.ones_like(perm, dtype=utils.IntType))
+        cols = (self.V.block_size * perm[:, None] + numpy.arange(self.V.block_size, dtype=utils.IntType)[None, :]).reshape(-1)
+        mat.setValuesCSR(rows, cols, numpy.ones_like(cols, dtype=utils.IntType))
         mat.assemble()
         if self.forward_reduce:
             mat.transpose()
@@ -1678,13 +1667,10 @@ class VomOntoVomDummyMat(object):
 
     def _wrap_dummy_mat(self):
         mat = PETSc.Mat().create(comm=self.V.comm)
-        dim = self.V.value_size
-        source_size = tuple(dim * i for i in self.source_size)
-        target_size = tuple(dim * i for i in self.target_size)
         if self.forward_reduce:
-            mat_size = (source_size, target_size)
+            mat_size = (self.source_size, self.target_size)
         else:
-            mat_size = (target_size, source_size)
+            mat_size = (self.target_size, self.source_size)
         mat.setSizes(mat_size)
         mat.setType(mat.Type.PYTHON)
         mat.setPythonContext(self)
