@@ -334,21 +334,9 @@ def test_interpolate_unitsquare_mixed():
     assert np.allclose(got[:, 0], expected_1)
     assert np.allclose(got[:, 1], expected_2)
 
-    # can create interpolator and use it
-    interpolator = Interpolator(TestFunction(V_src), V_dest)
-    f_dest = assemble(interpolator.interpolate(f_src))
-    assert extract_unique_domain(f_dest) is m_dest
-    got = np.asarray(f_dest.at(coords))
-    assert np.allclose(got[:, 0], expected_1)
-    assert np.allclose(got[:, 1], expected_2)
-    f_dest = Function(V_dest)
-    assemble(interpolator.interpolate(f_src), tensor=f_dest)
-    assert extract_unique_domain(f_dest) is m_dest
-    got = np.asarray(f_dest.at(coords))
-    assert np.allclose(got[:, 0], expected_1)
-    assert np.allclose(got[:, 1], expected_2)
+    # adjoint
     cofunc_dest = assemble(inner(f_dest, TestFunction(V_dest)) * dx)
-    cofunc_src = assemble(interpolator.interpolate(cofunc_dest, adjoint=True))
+    cofunc_src = assemble(interpolate(TestFunction(V_src), cofunc_dest))
     assert not np.allclose(f_src.dat.data_ro[0], cofunc_src.dat.data_ro[0])
     assert not np.allclose(f_src.dat.data_ro[1], cofunc_src.dat.data_ro[1])
 
