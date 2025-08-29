@@ -381,10 +381,13 @@ def test_reconstruct_mixed_restricted():
     for i in range(len(Z)):
         # Test reconstruct for unrestricted component spaces
         Zsub = Z.sub(i)
+
         W = Zsub.reconstruct(mesh=new_mesh)
         assert W.mesh() is new_mesh
         assert W.parent is not None
         assert W.index == Zsub.index
+        assert not W.boundary_set
+        assert not W.collapse().boundary_set
 
         Zsub = Zres.sub(i)
         boundary_set = Zsub.boundary_set

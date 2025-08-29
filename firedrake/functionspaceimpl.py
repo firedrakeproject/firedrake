@@ -388,8 +388,7 @@ class WithGeometryBase(object):
         Any extra kwargs are used to reconstruct the finite element.
         For details see :meth:`finat.ufl.finiteelement.FiniteElement.reconstruct`.
         """
-        from firedrake.functionspace import RestrictedFunctionSpace as restrict
-        from firedrake.functionspace import MixedFunctionSpace as product
+        from firedrake.bcs import restricted_function_space
         V_parent = self
 
         # Deal with ProxyFunctionSpace
@@ -413,19 +412,13 @@ class WithGeometryBase(object):
         if len(kwargs) > 0 or element.cell != cell:
             element = element.reconstruct(cell=cell, **kwargs)
 
-        # Reconstruct V_parent
+        # Reconstruct the parent space
         V = type(self).make_function_space(mesh, element, name=name)
 
         # Deal with RestrictedFunctionSpace
         boundary_sets = [V_.boundary_set for V_ in V_parent]
         if any(boundary_sets):
-            subspaces = [restrict(V_, boundary_set=boundary_set, name=V_.name)
-                         if boundary_set else V_
-                         for V_, boundary_set in zip(V, boundary_sets)]
-            if len(subspaces) == 1:
-                V, = subspaces
-            else:
-                V = product(subspaces, name=V.name)
+            V = restricted_function_space(V, boundary_sets)
 
         for i in reversed(indices):
             V = V.sub(i)
