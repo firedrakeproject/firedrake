@@ -367,6 +367,37 @@ def test_restricted_function_space_extrusion_stokes(ncells):
     assert np.allclose(sol_res.subfunctions[1].dat.data_ro_with_halos, sol.subfunctions[1].dat.data_ro_with_halos)
 
 
+def test_reconstruct_mixed_restricted():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    Q = FunctionSpace(mesh, "CG", 2)
+    Z = V * Q
+
+    Vres = RestrictedFunctionSpace(V, ("on_boundary",))
+    Qres = RestrictedFunctionSpace(Q, (2,))
+    Zres = Vres * Qres
+
+    new_mesh = UnitSquareMesh(3, 3)
+    for i in range(len(Z)):
+        # Test reconstruct for unrestricted component spaces
+        Zsub = Z.sub(i)
+        W = Zsub.reconstruct(mesh=new_mesh)
+        assert W.mesh() is new_mesh
+        assert W.parent is not None
+        assert W.index == Zsub.index
+
+        Zsub = Zres.sub(i)
+        boundary_set = Zsub.boundary_set
+
+        # Test reconstruct for restricted component spaces
+        W = Zsub.reconstruct(mesh=new_mesh)
+        assert W.mesh() is new_mesh
+        assert W.parent is not None
+        assert W.index == Zsub.index
+        assert W.boundary_set == boundary_set
+        assert W.collapse().boundary_set == boundary_set
+
+
 @pytest.mark.parametrize("names", [(None, None), (None, "name1"), ("name0", "name1")])
 def test_restrict_fieldsplit(names):
     mesh = UnitSquareMesh(2, 2)
