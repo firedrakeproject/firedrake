@@ -113,42 +113,6 @@ class Interpolate(ufl.Interpolate):
         return ufl.Interpolate._ufl_expr_reconstruct_(self, expr, v=v, **interp_data)
 
 
-# Current behaviour of interpolation in Firedrake:
-# - v.interpolate(expr),
-#   interpolate(expr, v),
-#   Interpolator(expr, v).interpolate(),
-#   v = interpolate(expr, V) and
-#   Interpolator(expr, V).interpolate(v)
-#   - Works with UFL expressions which contain no UFL Arguments. The
-#     expression can contain functions (UFL Coefficients) from other
-#     function spaces which will be interpolated into V.
-#   - Either operates on a function v in V (UFL Coefficient) or outputs a
-#     function in V.
-#   - Maths: v = A(expr) where A : W_0 x ... x W_n-1 -> V
-#   - NOTE: this will seem to work on assembled 1-forms (cofunctions) but
-#     is mathematical nonsense due to the absence of UFL Cofunctions in
-#     Firedrake. See
-#     https://github.com/firedrakeproject/firedrake/issues/3017
-# - B = Interpolator(expr_1_argument, V)
-#   - creates the linear interpolation operator B : W -> V where the UFL
-#     Argument is linear in the expression and is in W. The UFL Argument must
-#     be number 0 (i.e. TestFunction(W) rather than TrialFunction(W)).
-#   - The rest of the expression, including any functions (UFL
-#     Coefficients), are already interpolated into V and are encorporated
-#     in the operator.
-#   - NOTE: Nonlinear Arguments are currently allowed in the expression and
-#     shouldn't be. See
-#     https://github.com/firedrakeproject/firedrake/issues/3018
-# - w = B.interpolate(v)
-#   - v is a function in V (NOT an expression).
-#   - w is a function in W.
-#   - Maths: v = Bw
-# - v_star = B.interpolate(w_star, adjoint=True)
-#   - w_star is a cofunction in W^* (such as an assembled 1-form).
-#   - v_star is a cofunction in V^*.
-#   - Maths: v^* = B^* w^*
-
-
 @PETSc.Log.EventDecorator()
 def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False, default_missing_val=None, matfree=True):
     """Returns a UFL expression for the interpolation operation of ``expr`` into ``V``.
@@ -327,8 +291,6 @@ class Interpolator(abc.ABC):
 
         .. note::
             This method is called when an :class:`Interpolate` object is being assembled.
-            For instance, calling ``Interpolator.interpolate`` results in defining an :class:`Interpolate`
-            object and assembling it, which in turn calls this method.
         """
         pass
 
