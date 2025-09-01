@@ -42,8 +42,10 @@ jobs:
         os: [Linux, macOS]
         arch: [default, complex]
         platform: [linux/amd64, linux/arm64]
+        # Cannot use inputs in exclude clauses, so add a dummy matrix dim
         is_dev_build:
           - ${{ inputs.build_dev }}
+        # exclude incompatible os+platform, and only build linux dev containers
         exclude:
           - os: Linux
             platform: linux/arm64

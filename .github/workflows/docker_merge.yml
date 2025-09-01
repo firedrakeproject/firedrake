@@ -54,7 +54,7 @@ jobs:
       - name: Merge and push the per-platform images
         working-directory: ${{ runner.temp }}/digests
         run: |
-          if [[ ${{ inputs.tag_latest }} ]]; then
+          if [[ "${{ inputs.tag_latest }}" == "true" ]]; then
             docker buildx imagetools create \
               -t firedrakeproject/${{ inputs.target }}:${{ inputs.tag }} \
               -t firedrakeproject/${{ inputs.target }}:latest \
