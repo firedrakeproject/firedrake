@@ -15,7 +15,7 @@ on:
         required: true
         type: string
       tag_latest:
-        description: Whether to add additional latest tag to containers
+        description: Whether to add additional 'latest' tag to containers
         default: false
         type: boolean
     secrets:
