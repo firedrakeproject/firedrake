@@ -10,6 +10,10 @@ on:
         description: Whether to build a developer vanilla-default container
         type: boolean
         default: false
+      branch:
+        description: Which Firedrake branch to build the containers from
+        type: string
+        default: "release"
     secrets:
       DOCKERHUB_USER:
         required: true
@@ -24,6 +28,10 @@ on:
         description: Whether to build a developer vanilla-default container
         type: boolean
         default: false
+      branch:
+        description: Which Firedrake branch to build the containers from
+        type: string
+        default: "release"
 
 jobs:
   # Developer container only
@@ -45,7 +53,6 @@ jobs:
 
   # Firedrake only
   docker_build_vanilla:
-    if: ${{ ! inputs.build_dev }}
     strategy:
       fail-fast: false
       matrix:
@@ -63,11 +70,11 @@ jobs:
       arch: ${{ matrix.arch }}
       target: firedrake-vanilla-${{ matrix.arch }}
       tag: ${{ inputs.tag }}
+      branch: ${{ inputs.branch }}
       dockerfile: docker/Dockerfile.vanilla
     secrets: inherit
 
   docker_merge_vanilla:
-    if: ${{ ! inputs.build_dev }}
     needs: docker_build_vanilla
     strategy:
       fail-fast: false
@@ -77,6 +84,7 @@ jobs:
     with:
       target: firedrake-vanilla-${{ matrix.arch }}
       tag: ${{ inputs.tag }}
+      tag_latest: ${{ ! inputs.build_dev }}
     secrets: inherit
 
   # Firedrake and friends
@@ -103,6 +111,7 @@ jobs:
     with:
       target: firedrake
       tag: ${{ inputs.tag }}
+      tag_latest: ${{ ! inputs.build_dev }}
     secrets: inherit
 
   # Firedrake with Jupyter notebooks
@@ -125,4 +134,5 @@ jobs:
     with:
       target: firedrake-jupyter
       tag: ${{ inputs.tag }}
+      tag_latest: ${{ ! inputs.build_dev }}
     secrets: inherit

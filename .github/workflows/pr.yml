@@ -19,4 +19,6 @@ jobs:
     uses: ./.github/workflows/docker.yml
     with:
       build_dev: true
+      tag: dev-main
+      branch: main
     secrets: inherit
