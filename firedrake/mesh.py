@@ -3319,7 +3319,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
 
 
 class MissingPointsBehaviour(enum.Enum):
-    IGNORE = None
+    IGNORE = "ignore"
     ERROR = "error"
     WARN = "warn"
 
