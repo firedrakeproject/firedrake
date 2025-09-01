@@ -254,7 +254,8 @@ parent mesh and the points to evaluate at:
 
    point_evaluator = PointEvaluator(mesh, points)
 
-Then to evaluate a :py:class:`~.Function` defined on the parent mesh at the given points,
+Internally, this creates a vertex-only mesh at the given points, immersed in the given mesh.
+To evaluate a :py:class:`~.Function` defined on the parent mesh at the given points,
 we use :meth:`~.PointEvaluator.evaluate`:
 
 .. code-block:: python3
@@ -275,6 +276,9 @@ on different ranks, for example when using external point data.
 The parameters ``missing_points_behaviour`` and ``tolerance`` (discussed :ref:`here <missing_points>` 
 and :ref:`here <tolerance>` respectively) can be set when creating the :py:class:`~.PointEvaluator` 
 and will be passed to the :func:`~.VertexOnlyMesh` it creates internally.
+
+If the :ref:`mesh coordinates are changed <changing_coordinate_fs>`, then the vertex-only mesh
+will be re-immersed in the new mesh the next time :meth:`~.PointEvaluator.evaluate` is called.
 
 
 Expressions with point evaluations
