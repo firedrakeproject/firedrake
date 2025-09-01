@@ -117,7 +117,7 @@ jobs:
           docker_version=$(grep FROM docker/Dockerfile.vanilla | cut -d ':' -f 2)
           if [[ "$docker_version" != "$latest_version" ]]; then
             echo "Ubuntu version ${docker_version} in Dockerfile is out of date with latest version ${latest_version}"
-            false
+            exit 1
           fi
 
       # Use a different mirror to fetch apt packages from to get around
