@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from functools import partial
+from functools import partial, wraps
 
 import firedrake as fd
 from firedrake.adjoint import (
@@ -19,6 +19,37 @@ def setup_tape():
         pause_annotation()
         yield
     pause_annotation()
+
+
+def count_calls(cls):
+    def init(fn):
+        @wraps(fn)
+        def wrapped(self, *args, **kwargs):
+            self._test_transformed_functional__ncalls = 0
+            return fn(self, *args, **kwargs)
+        return wrapped
+        
+    def call(fn):
+        @wraps(fn)
+        def wrapped(self, *args, **kwargs):
+            self._test_transformed_functional__ncalls += 1
+            return fn(self, *args, **kwargs)
+        return wrapped
+
+    cls.__init__ = init(cls.__init__)
+    cls.__call__ = call(cls.__call__)
+
+    return cls
+
+
+@count_calls
+class ReducedFunctional(ReducedFunctional):
+    pass
+
+
+@count_calls
+class L2TransformedFunctional(L2TransformedFunctional):
+    pass
 
 
 class MinimizeCallback(Sequence):
@@ -78,6 +109,7 @@ def test_transformed_functional_mass_inverse():
                           "gtol": 1e-6})
     assert 1e-6 < cb[-1] < 1e-5
     assert len(cb) > 12  # == 15
+    assert J_hat._test_transformed_functional__ncalls > 12  # == 15
 
     c = Control(m_0, riesz_map="l2")
     J_hat = L2TransformedFunctional(J, c, alpha=1)
@@ -93,6 +125,7 @@ def test_transformed_functional_mass_inverse():
                           "gtol": 1e-6})
     assert cb[-1] < 1e-8
     assert len(cb) == 3
+    assert J_hat._test_transformed_functional__ncalls == 3
 
 
 def test_transformed_functional_poisson():
@@ -146,6 +179,7 @@ def test_transformed_functional_poisson():
                           "gtol": 1e-10})
     assert 1e-2 < cb[-1] < 5e-2
     assert len(cb) > 80  # == 85
+    assert J_hat._test_transformed_functional__ncalls > 90  # == 95
 
     c = Control(m_0, riesz_map="l2")
     J_hat = L2TransformedFunctional(J, c, alpha=1e-5)
@@ -162,3 +196,4 @@ def test_transformed_functional_poisson():
                           "gtol": 1e-10})
     assert 1e-4 < cb[-1] < 5e-4
     assert len(cb) < 55  # == 50
+    assert J_hat._test_transformed_functional__ncalls < 55  # == 51
