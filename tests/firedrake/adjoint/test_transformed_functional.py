@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from functools import partial, wraps
+from functools import partial
 
 import firedrake as fd
 from firedrake.adjoint import (
@@ -21,35 +21,24 @@ def setup_tape():
     pause_annotation()
 
 
-def count_calls(cls):
-    def init(fn):
-        @wraps(fn)
-        def wrapped(self, *args, **kwargs):
-            self._test_transformed_functional__ncalls = 0
-            return fn(self, *args, **kwargs)
-        return wrapped
-        
-    def call(fn):
-        @wraps(fn)
-        def wrapped(self, *args, **kwargs):
-            self._test_transformed_functional__ncalls += 1
-            return fn(self, *args, **kwargs)
-        return wrapped
-
-    cls.__init__ = init(cls.__init__)
-    cls.__call__ = call(cls.__call__)
-
-    return cls
-
-
-@count_calls
 class ReducedFunctional(ReducedFunctional):
-    pass
+    def __init__(self, *args, **kwargs):
+        self._test_transformed_functional__ncalls = 0
+        super().__init__(*args, **kwargs)
+
+    def __call__(self, *args, **kwargs):
+        self._test_transformed_functional__ncalls += 1
+        return super().__call__(*args, **kwargs)
 
 
-@count_calls
 class L2TransformedFunctional(L2TransformedFunctional):
-    pass
+    def __init__(self, *args, **kwargs):
+        self._test_transformed_functional__ncalls = 0
+        super().__init__(*args, **kwargs)
+
+    def __call__(self, *args, **kwargs):
+        self._test_transformed_functional__ncalls += 1
+        return super().__call__(*args, **kwargs)
 
 
 class MinimizeCallback(Sequence):
