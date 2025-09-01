@@ -34,23 +34,6 @@ on:
         default: "release"
 
 jobs:
-  # Developer container only
-  docker_build_dev:
-    if: ${{ inputs.build_dev }}
-    uses: ./.github/workflows/docker_build_dev.yml
-    with:
-      os: Linux
-      platform: linux/amd64
-      arch: default
-      # TODO: target: firedrake-vanilla-default
-      target: firedrake-dev-test
-      # TODO: build_target: ${{ inputs.build_target }}
-      build_target: main
-      # TODO: tag: dev-${{ inputs.tag }}
-      tag: dev-main
-      dockerfile: docker/Dockerfile.vanilla
-    secrets: inherit
-
   # Firedrake only
   docker_build_vanilla:
     strategy:
@@ -58,6 +41,11 @@ jobs:
       matrix:
         os: [Linux, macOS]
         arch: [default, complex]
+        is_dev_build:
+          - ${{ ! inputs.build_dev }}
+        exclude:
+          - is_dev_build: true
+            os: macOS
         include:
           - os: Linux
             platform: linux/amd64

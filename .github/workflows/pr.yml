@@ -18,7 +18,7 @@ jobs:
     name: Build dev Docker containers
     uses: ./.github/workflows/docker.yml
     with:
-      build_dev: true
       tag: dev-main
       branch: main
+      build_dev: true
     secrets: inherit

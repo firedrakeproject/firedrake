@@ -17,7 +17,7 @@ jobs:
     secrets: inherit
 
   docker:
-    name: Build dev Docker containers
+    name: Build developer Docker containers
     uses: ./.github/workflows/docker.yml
     with:
       tag: dev-${{ github.ref_name }}
