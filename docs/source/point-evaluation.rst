@@ -146,18 +146,6 @@ at construction. In general :func:`~.VertexOnlyMesh` accepts any numpy array of
 shape ``(num_points, point_dim)`` (or equivalent list) as the set of points to
 create disconnected vertices at.
 
-The operator for evaluation at the points specified can be
-created by making an :py:class:`~.Interpolator` acting on a
-:py:func:`~.TestFunction`
-
-.. code-block:: python3
-
-   u = TestFunction(V)
-   Interpolator(u, P0DG)
-
-For more on :py:class:`~.Interpolator`\s and interpolation see the
-:doc:`interpolation <interpolation>` section.
-
 
 Vector and tensor valued function spaces
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
