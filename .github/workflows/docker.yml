@@ -42,7 +42,7 @@ jobs:
         os: [Linux, macOS]
         arch: [default, complex]
         is_dev_build:
-          - ${{ ! inputs.build_dev }}
+          - ${{ inputs.build_dev }}
         exclude:
           - is_dev_build: true
             os: macOS
