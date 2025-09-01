@@ -559,7 +559,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         # Called by UFL when evaluating expressions at coordinates
         if component or index_values:
             raise NotImplementedError("Unsupported arguments when attempting to evaluate Function.")
-        return self.at(coord)
+        evaluator = PointEvaluator(self.function_space().mesh(), coord)
+        return evaluator.evaluate(self)
 
     @PETSc.Log.EventDecorator()
     def at(self, arg, *args, **kwargs):
