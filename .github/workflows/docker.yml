@@ -46,6 +46,10 @@ jobs:
         exclude:
           - is_dev_build: true
             os: macOS
+            arch: default
+          - is_dev_build: true
+            os: macOS
+            arch: complex
         include:
           - os: Linux
             platform: linux/amd64
