@@ -110,8 +110,7 @@ ci = [
   "mpi-pytest>=2025.7",
   "nbval",
   "networkx",
-  # TODO RELEASE
-  # "ngsPETSc",
+  "ngsPETSc",
   "pdf2image",
   "pygraphviz",
   "pylit",
