@@ -313,7 +313,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         :arg bounds: Optional bounds on the solution (lower, upper).
             ``lower`` and ``upper`` must both be
-            :class:`~.Function`\s. or :class:`~.Vector`\s.
+            :class:`~.Function`\s.
 
         .. note::
 

@@ -276,22 +276,15 @@ class FunctionMixin(FloatingType):
 
     @staticmethod
     def _ad_assign_numpy(dst, src, offset):
-        range_begin, range_end = dst.vector().local_range()
+        range_begin, range_end = dst.dat.dataset.layout_vec.getOwnershipRange()
         m_a_local = src[offset + range_begin:offset + range_end]
-        dst.vector().set_local(m_a_local)
-        dst.vector().apply('insert')
-        offset += dst.vector().size()
+        dst.dat.data_wo[...] = m_a_local.reshape(dst.dat.data_wo.shape)
+        offset += dst.dat.dataset.layout_vec.size
         return dst, offset
 
     @staticmethod
     def _ad_to_list(m):
-        if not hasattr(m, "gather"):
-            m_v = m.vector()
-        else:
-            m_v = m
-        m_a = m_v.gather()
-
-        return m_a.tolist()
+        return m.dat.global_data.tolist()
 
     def _ad_copy(self):
         from firedrake import Function
@@ -315,25 +308,18 @@ class FunctionMixin(FloatingType):
         return self.ufl_function_space()
 
     def _reduce(self, r, r0):
-        vec = self.vector().get_local()
+        vec = self.dat.data_ro
         for i in range(len(vec)):
             r0 = r(vec[i], r0)
         return r0
 
     def _applyUnary(self, f):
-        vec = self.vector()
-        npdata = vec.get_local()
-        for i in range(len(npdata)):
-            npdata[i] = f(npdata[i])
-        vec.set_local(npdata)
+        for i in range(len(self.dat.data_ro)):
+            self.dat.data_wo[i] = f(self.dat.data_ro[i])
 
     def _applyBinary(self, f, y):
-        vec = self.vector()
-        npdata = vec.get_local()
-        npdatay = y.vector().get_local()
-        for i in range(len(npdata)):
-            npdata[i] = f(npdata[i], npdatay[i])
-        vec.set_local(npdata)
+        for i in range(len(self.dat.data_ro)):
+            self.dat.data_wo[i] = f(self.dat.data_ro[i], y.dat.data_ro[i])
 
     def _ad_from_petsc(self, vec):
         with self.dat.vec_wo as self_v:
