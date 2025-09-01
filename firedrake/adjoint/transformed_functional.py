@@ -87,7 +87,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
     tape : Tape
         Tape used in evaluations involving :math:`J`.
     alpha : Real
-        Modifies the derivative, equivalent to adding an extra term to
+        Modifies the functional, equivalent to adding an extra term to
         :math:`J \circ \Pi`
 
         .. math::
@@ -193,8 +193,12 @@ class L2TransformedFunctional(AbstractReducedFunctional):
 
     @no_annotations
     def __call__(self, values):
-        _, m_J = self._m_k = self._dual_transform(values)
-        return self._J(m_J)
+        m_D, m_J = self._m_k = self._dual_transform(values)
+        J = self._J(m_J)
+        if self._alpha != 0:
+            for m_D, m_J in zip(*self._m_k):
+                J += fd.assemble(0.5 * fd.Constant(self._alpha) * fd.inner(m_D - m_J, m_D - m_J) * fd.dx)
+        return J
 
     @no_annotations
     def derivative(self, adj_input=1.0, apply_riesz=False):
