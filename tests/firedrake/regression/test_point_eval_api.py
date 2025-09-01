@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 from firedrake import *
+from firedrake.mesh import VertexOnlyMeshMissingPointsError
 
 cwd = abspath(dirname(__file__))
 
@@ -241,3 +242,22 @@ def test_point_evaluator_nonredundant(mesh_and_points):
         assert np.allclose(f_at_points, [0.8, 1.0])
     else:
         assert np.allclose(f_at_points, [1.6])
+
+
+def test_point_evaluator_moving_mesh(mesh_and_points):
+    mesh, evaluator = mesh_and_points
+    V = FunctionSpace(mesh, "CG", 1)
+    f = Function(V)
+    x, y = SpatialCoordinate(mesh)
+    f.interpolate(x + y)
+
+    mesh.coordinates.dat.data[:, 0] += 1.0
+
+    with pytest.raises(VertexOnlyMeshMissingPointsError):
+        # The VOM is reimmersed, but the points
+        # are now outside of the mesh.
+        f_at_points = evaluator.evaluate(f)
+
+    mesh.coordinates.dat.data[:, 0] -= 1.0
+    f_at_points = evaluator.evaluate(f)
+    assert np.allclose(f_at_points, [0.2, 0.4, 0.6])
