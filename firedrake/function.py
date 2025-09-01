@@ -2,6 +2,7 @@ import numpy as np
 import rtree
 import sys
 import ufl
+import warnings
 from ufl.duals import is_dual
 from ufl.formatting.ufl2unicode import ufl2unicode
 from ufl.domain import extract_unique_domain
@@ -573,6 +574,10 @@ class Function(ufl.Coefficient, FunctionMixin):
             Changing this from default will cause the spatial index to
             be rebuilt which can take some time.
         """
+        warnings.warn(
+            "The ``Function.at`` method is deprecated and will be removed in a future release." \
+            "Please use the ``PointEvaluator`` class instead.", FutureWarning
+        )
         # Shortcut if function space is the R-space
         if self.ufl_element().family() == "Real":
             return self.dat.data_ro
