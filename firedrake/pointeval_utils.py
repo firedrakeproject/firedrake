@@ -124,7 +124,8 @@ def compile_element(expression, coordinates, parameters=None):
         "scalar_type": utils.ScalarType_c,
     }
     # if maps are the same, only need to pass one of them
-    if coordinates.cell_node_map() == coefficient.cell_node_map():
+    # if (coordinates.function_space().cell_node_list == coefficient.function_space().cell_node_list).all():
+    if False:
         code["wrapper_map_args"] = "%(IntType)s const *__restrict__ coords_map" % code
         code["map_args"] = "f->coords_map"
     else:

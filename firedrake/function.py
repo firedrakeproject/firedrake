@@ -1,3 +1,4 @@
+import textwrap
 import numpy as np
 from functools import cached_property
 import rtree
@@ -14,7 +15,7 @@ from numbers import Number
 from pathlib import Path
 from pyrsistent import freeze
 
-from pyop2 import mpi
+from pyop2 import mpi, MPI
 from pyop2.exceptions import DataTypeError, DataValueError
 import pyop3 as op3
 
@@ -580,15 +581,12 @@ class Function(ufl.Coefficient, FunctionMixin):
             Changing this from default will cause the spatial index to
             be rebuilt which can take some time.
         """
-        raise NotImplementedError("TODO pyop3")
         # Shortcut if function space is the R-space
         if self.ufl_element().family() == "Real":
             return self.dat.data_ro
 
         # Need to ensure data is up-to-date for reading
-        self.dat.global_to_local_begin(op2.READ)
-        self.dat.global_to_local_end(op2.READ)
-        from mpi4py import MPI
+        self.dat.buffer.assemble()
 
         if args:
             arg = (arg,) + args
@@ -722,9 +720,6 @@ class PointNotInDomainError(Exception):
 def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     r"""Generates, compiles and loads a C function to evaluate the
     given Firedrake :class:`Function`."""
-
-    raise NotImplementedError("TODO pyop3")
-
     from os import path
     from firedrake.pointeval_utils import compile_element
     from pyop2 import compilation
@@ -733,23 +728,30 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     import firedrake.pointquery_utils as pq_utils
 
     mesh = extract_unique_domain(function)
+    gdim = mesh.geometric_dimension()
     src = [pq_utils.src_locate_cell(mesh, tolerance=tolerance)]
     src.append(compile_element(function, mesh.coordinates))
 
-    args = []
-
-    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map())
-    args.append(arg)
-
-    arg = function.dat(op2.READ, function.cell_node_map())
-    args.append(arg)
+    coords_shape = np.prod(mesh.coordinates.function_space().shape, dtype=int)
+    func_shape = np.prod(function.function_space().shape, dtype=int)
 
     p_ScalarType_c = f"{utils.ScalarType_c}*"
-    src.append(generate_single_cell_wrapper(mesh.cell_set, args,
-                                            forward_args=[p_ScalarType_c,
-                                                          p_ScalarType_c],
-                                            kernel_name="evaluate_kernel",
-                                            wrapper_name="wrap_evaluate"))
+    wrapper_src = textwrap.dedent(f"""
+        void wrap_evaluate({p_ScalarType_c} const farg0, {p_ScalarType_c} const farg1, int32_t const start, int32_t const end, {utils.ScalarType_c} const *__restrict__ dat0, {utils.ScalarType_c} const *__restrict__ dat1, {utils.IntType_c} const *__restrict__ map0, {utils.IntType_c} const *__restrict__ map1)
+        {{
+          {utils.ScalarType_c} t0[{coords_shape}*{gdim}];
+          {utils.ScalarType_c} t1[{func_shape}*{gdim}];
+
+          for (int32_t i = 0; i < {coords_shape}; ++i)
+            for (int32_t j = 0; j < {gdim}; ++j)
+              t0[{gdim} * i + j] = dat0[{gdim} * map0[i + {coords_shape} * start] + j];
+          for (int32_t i = 0; i < {func_shape}; ++i)
+            for (int32_t j = 0; j < {gdim}; ++j)
+              t1[{gdim} * i + j] = dat1[{gdim} * map1[i + {func_shape} * start] + j];
+          evaluate_kernel(farg0, farg1, &(t0[0]), &(t1[0]));
+        }}"""
+    )
+    src.append(wrapper_src)
 
     src = "\n".join(src)
 
