@@ -2197,9 +2197,8 @@ def IcosahedralSphereMesh(
         )
         new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to sphere
-        new_coords.dat.data[:] *= (
-            radius / np.linalg.norm(new_coords.dat.data, axis=1)
-        ).reshape(-1, 1)
+        new_coords_data = new_coords.dat.data_rw.reshape((-1, 3))
+        new_coords_data *= radius / np.linalg.norm(new_coords_data, axis=1)[:, np.newaxis]
         m = mesh.Mesh(
             new_coords,
             name=name,
@@ -2651,10 +2650,9 @@ def CubedSphereMesh(
             functionspace.VectorFunctionSpace(m, "Q", degree)
         )
         new_coords.interpolate(ufl.SpatialCoordinate(m))
+        new_coords_data = new_coords.dat.data_rw.reshape((-1, 3))
         # "push out" to sphere
-        new_coords.dat.data[:] *= (
-            radius / np.linalg.norm(new_coords.dat.data, axis=1)
-        ).reshape(-1, 1)
+        new_coords_data[...] *= radius / np.linalg.norm(new_coords_data, axis=1)[:, np.newaxis]
         m = mesh.Mesh(
             new_coords,
             distribution_name=distribution_name,

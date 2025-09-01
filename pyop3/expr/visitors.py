@@ -611,7 +611,16 @@ def _(op: op3_expr.Operator, /, visited_axes, loop_indices, *, compress: bool) -
     candidates = []
     for operand_candidates in itertools.product(*operand_candidatess):
         operand_exprs, operand_costs = zip(*operand_candidates, strict=True)
+
+        # If there is at most one non-zero operand cost then there is no point
+        # in compressing the expression.
+        if len([cost for cost in operand_costs if cost > 0]) <= 1:
+            compress = False
+
         candidate_expr = type(op)(*operand_exprs)
+
+        # NOTE: This isn't quite correct. For example consider the expression
+        # 'mapA[i] + mapA[i]'. The cost is just the cost of 'mapA[i]', not double.
         candidate_cost = sum(operand_costs)
         candidates.append((candidate_expr, candidate_cost))
 

@@ -633,6 +633,9 @@ class LinearCompositeDat(CompositeDat):
         object.__setattr__(self, "_exprs", exprs)
         object.__setattr__(self, "_loop_indices", loop_indices)
 
+    def __str__(self) -> str:
+        return f"<{self.exprs[self.axis_tree.leaf_path]}>"
+
 
 @utils.frozenrecord()
 class NonlinearCompositeDat(CompositeDat):

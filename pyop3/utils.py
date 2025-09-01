@@ -546,6 +546,27 @@ def _expand_dict_of_iterables_rec(compressed_mut):
     return tuple(expanded)
 
 
+def split_by(condition, items):
+    """Split an iterable in two according to some condition.
+
+    :arg condition: Callable applied to each item in ``items``, returning ``True``
+        or ``False``.
+    :arg items: Iterable to split apart.
+    :returns: A 2-tuple of the form ``(yess, nos)``, where ``yess`` is a tuple containing
+        the entries of ``items`` where ``condition`` is ``True`` and ``nos`` is a tuple
+        of those where ``condition`` is ``False``.
+    """
+    result = [], []
+    for item in items:
+        if condition(item):
+            result[0].append(item)
+        else:
+            result[1].append(item)
+    return tuple(result[0]), tuple(result[1])
+
+
+
+
 def popfirst(dict_: dict) -> Any:
     """Remove the first item from a dictionary and return it with its key."""
     if not dict_:

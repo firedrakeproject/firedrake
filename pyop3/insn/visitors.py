@@ -540,6 +540,10 @@ def _(assignment: ArrayAssignment, /) -> NonEmptyArrayAssignment | NullInstructi
     return NonEmptyArrayAssignment(assignee, expression, axis_trees, assignment.assignment_type)
 
 
+MAX_COST_CONSIDERATION_FACTOR = 5
+"""Maximum factor an expression cost can exceed the minimum and still be considered."""
+
+
 @PETSc.Log.EventDecorator()
 def materialize_indirections(insn: Instruction, *, compress: bool = False) -> Instruction:
     # try setting a 'global' cache here
@@ -561,16 +565,16 @@ def materialize_indirections(insn: Instruction, *, compress: bool = False) -> In
         best_candidate[arg_id] = (expr, expr_cost)
         max_cost += expr_cost
 
-    # Optimise by dropping any immediately bad candidates. We do this by dropping
-    # any candidates whose cost (per-arg) is greater than the current best candidate.
-    expr_candidates = {
-        arg_id: tuple(
-            (arg_candidate, cost)
-            for arg_candidate, cost in arg_candidates
-            if cost <= max_cost
-        )
-        for arg_id, arg_candidates in expr_candidates.items()
-    }
+    # Optimise by dropping any immediately bad candidates
+    trimmed_expr_candidates = {}
+    for arg_id, arg_candidates in expr_candidates.items():
+        trimmed_arg_candidates = []
+        min_arg_cost = min((cost for _, cost in arg_candidates))
+        for arg_candidate, cost in arg_candidates:
+            if cost <= max_cost and cost <= min_arg_cost * MAX_COST_CONSIDERATION_FACTOR:
+                trimmed_arg_candidates.append((arg_candidate, cost))
+        trimmed_expr_candidates[arg_id] = tuple(trimmed_arg_candidates)
+    expr_candidates = trimmed_expr_candidates
 
     # Now select the combination with the lowest combined cost. We can make savings here
     # by sharing indirection maps between different arguments. For example, if we have
