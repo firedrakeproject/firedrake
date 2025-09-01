@@ -105,9 +105,6 @@ def parameters(request):
         m_src.coordinates.dat.data[:] *= 2
         m_src.coordinates.dat.data[:] -= 1
         m_dest = CircleManifoldMesh(1000, degree=2)  # note degree!
-        # Function.at often gets conflicting answers across boundaries for this
-        # mesh, so we lower the tolerance a bit for this test
-        m_dest.tolerance = 0.1
         coords = np.array(
             [
                 [0, 1],
@@ -224,12 +221,6 @@ def parameters(request):
                 [-sqrt(3) / 2, 1 / 2, 0],
             ]
         )  # points that ought to be on the unit circle, at z=0
-        # We don't add source and target mesh vertices since no amount of mesh
-        # tolerance loading allows .at to avoid getting different results on different
-        # processes for this mesh pair.
-        # Function.at often gets conflicting answers across boundaries for this
-        # mesh, so we lower the tolerance a bit for this test
-        m_dest.tolerance = 0.1
         # We use add to avoid TSFC complaints about too many indices for sum
         # factorisation when interpolating expressions of SpatialCoordinates(m_src)
         # into V_dest
@@ -257,12 +248,6 @@ def parameters(request):
                 [-sqrt(3) / 2 - sqrt(3) / 4, 1.0, 0],
             ]
         )  # points that ought to be on in the meshes, at z=0
-        # We don't add source and target mesh vertices since no amount of mesh
-        # tolerance loading allows .at to avoid getting different results on different
-        # processes for this mesh pair.
-        # Function.at often gets conflicting answers across boundaries for this
-        # mesh, so we lower the tolerance a bit for this test
-        m_dest.tolerance = 0.1
         # We use add to avoid TSFC complaints about too many indices for sum
         # factorisation when interpolating expressions of SpatialCoordinates(m_src)
         # into V_dest
@@ -330,7 +315,8 @@ def test_interpolate_unitsquare_mixed():
 
     f_dest = assemble(interpolate(f_src, V_dest))
     assert extract_unique_domain(f_dest) is m_dest
-    got = np.asarray(f_dest.at(coords))
+    dest_eval = PointEvaluator(m_dest, coords)
+    got = dest_eval.evaluate(f_dest)
     assert np.allclose(got[:, 0], expected_1)
     assert np.allclose(got[:, 1], expected_2)
 
@@ -481,16 +467,17 @@ def get_expected_values(
 def interpolate_function(
     m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
 ):
+    dest_eval = PointEvaluator(m_dest, coords)
     f_src = Function(V_src).interpolate(expr_src)
     f_dest = assemble(interpolate(f_src, V_dest))
     assert extract_unique_domain(f_dest) is m_dest
-    got = f_dest.at(coords)
+    got = dest_eval.evaluate(f_dest)
     assert np.allclose(got, expected, atol=atol)
 
     f_src = Function(V_src).interpolate(expr_src)
     f_dest = assemble(interpolate(f_src, V_dest))
     assert extract_unique_domain(f_dest) is m_dest
-    got = f_dest.at(coords)
+    got = dest_eval.evaluate(f_dest)
     assert np.allclose(got, expected, atol=atol)
 
     f_dest_2 = Function(V_dest).interpolate(expr_dest)
@@ -500,7 +487,7 @@ def interpolate_function(
     f_dest = Function(V_dest)
     f_dest.interpolate(f_src)
     assert extract_unique_domain(f_dest) is m_dest
-    got = f_dest.at(coords)
+    got = dest_eval.evaluate(f_dest)
     assert np.allclose(got, expected, atol=atol)
     assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
 
@@ -508,7 +495,7 @@ def interpolate_function(
     f_dest = Function(V_dest)
     assemble(Interpolate(f_src, V_dest), tensor=f_dest)
     assert extract_unique_domain(f_dest) is m_dest
-    got = f_dest.at(coords)
+    got = dest_eval.evaluate(f_dest)
     assert np.allclose(got, expected, atol=atol)
     assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
 
@@ -516,11 +503,12 @@ def interpolate_function(
 def interpolate_expression(
     m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
 ):
+    dest_eval = PointEvaluator(m_dest, coords)
     f_src = Function(V_src).interpolate(expr_src)
 
     f_dest = assemble(interpolate(expr_src, V_dest))
     assert extract_unique_domain(f_dest) is m_dest
-    got = f_dest.at(coords)
+    got = dest_eval.evaluate(f_dest)
     assert np.allclose(got, expected, atol=atol)
     f_dest_2 = Function(V_dest).interpolate(expr_dest)
     assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
@@ -529,7 +517,7 @@ def interpolate_expression(
     f_dest = Function(V_dest)
     assemble(Interpolate(expr_src, V_dest), tensor=f_dest)
     assert extract_unique_domain(f_dest) is m_dest
-    got = f_dest.at(coords)
+    got = dest_eval.evaluate(f_dest)
     assert np.allclose(got, expected, atol=atol)
     assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
 
@@ -565,27 +553,28 @@ def test_missing_dofs():
         Interpolator(TestFunction(V_src), V_dest)
     f_src = Function(V_src).interpolate(expr)
     f_dest = assemble(interpolate(f_src, V_dest, allow_missing_dofs=True))
+    dest_eval = PointEvaluator(m_dest, coords)
     # default value is zero
-    assert np.allclose(f_dest.at(coords), np.array([0.25, 0.0]))
+    assert np.allclose(dest_eval.evaluate(f_dest), np.array([0.25, 0.0]))
     f_dest = Function(V_dest).assign(Constant(1.0))
     # make sure we have actually changed f_dest before checking interpolation
-    assert np.allclose(f_dest.at(coords), np.array([1.0, 1.0]))
+    assert np.allclose(dest_eval.evaluate(f_dest), np.array([1.0, 1.0]))
     assemble(interpolate(f_src, V_dest, allow_missing_dofs=True), tensor=f_dest)
     # assigned value hasn't been changed
-    assert np.allclose(f_dest.at(coords), np.array([0.25, 1.0]))
+    assert np.allclose(dest_eval.evaluate(f_dest), np.array([0.25, 1.0]))
     f_dest = assemble(interpolate(f_src, V_dest, allow_missing_dofs=True, default_missing_val=2.0))
     # should take on the default value
-    assert np.allclose(f_dest.at(coords), np.array([0.25, 2.0]))
+    assert np.allclose(dest_eval.evaluate(f_dest), np.array([0.25, 2.0]))
     f_dest = Function(V_dest).assign(Constant(1.0))
     # make sure we have actually changed f_dest before checking interpolation
-    assert np.allclose(f_dest.at(coords), np.array([1.0, 1.0]))
+    assert np.allclose(dest_eval.evaluate(f_dest), np.array([1.0, 1.0]))
     assemble(interpolate(f_src, V_dest, allow_missing_dofs=True, default_missing_val=2.0), tensor=f_dest)
-    assert np.allclose(f_dest.at(coords), np.array([0.25, 2.0]))
+    assert np.allclose(dest_eval.evaluate(f_dest), np.array([0.25, 2.0]))
     f_dest = Function(V_dest).assign(Constant(1.0))
     # make sure we have actually changed f_dest before checking interpolation
-    assert np.allclose(f_dest.at(coords), np.array([1.0, 1.0]))
+    assert np.allclose(dest_eval.evaluate(f_dest), np.array([1.0, 1.0]))
     assemble(interpolate(f_src, V_dest, allow_missing_dofs=True, default_missing_val=0.0), tensor=f_dest)
-    assert np.allclose(f_dest.at(coords), np.array([0.25, 0.0]))
+    assert np.allclose(dest_eval.evaluate(f_dest), np.array([0.25, 0.0]))
 
     # Try the other way around so we can check adjoint is unaffected
     m_src = UnitSquareMesh(4, 5)
