@@ -154,6 +154,8 @@ class L2TransformedFunctional(AbstractReducedFunctional):
                 if space is space_D:
                     v = u
                 else:
+                    # Might be replaced with interpolation (does this work for
+                    # all spaces?)
                     v = u.riesz_representation(solver_options=self._project_solver_parameters)
                     v = fd.assemble(fd.inner(v, fd.TestFunction(space_D)) * fd.dx)
             else:
