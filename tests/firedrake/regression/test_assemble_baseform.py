@@ -112,7 +112,7 @@ def test_assemble_action(M, f):
             assert abs(f.dat.data.sum() - 0.5*f.function_space().value_size) < 1.0e-12
 
 
-@pytest.mark.parametrize("scale", ["float", "ufl", "Constant", "Real"])
+@pytest.mark.parametrize("scale", ["float", "numpy", "ufl", "Constant", "Real"])
 def test_scalar_formsum(f, scale):
     c = Cofunction(f.function_space().dual())
     c.assign(1)
@@ -122,7 +122,10 @@ def test_scalar_formsum(f, scale):
 
     s1 = 1.5
     s2 = 0.5
-    if scale == "ufl":
+    if scale == "numpy":
+        s1 = np.asarray(s1)
+        s2 = np.asarray(s2)
+    elif scale == "ufl":
         s1 = as_ufl(s1)
         s2 = as_ufl(s2)
     elif scale == "Constant":
