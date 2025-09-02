@@ -270,7 +270,7 @@ class Assigner:
                 if subset is None:
                     if not indices_active_all and not allow_missing_dofs:
                         raise ValueError("Found assignee nodes with no matching assigner nodes: run with `allow_missing_dofs=True`")
-                    subset_indices_target = target_V.cell_node_map().values_with_halo[indices_active, :].reshape(-1)
+                    subset_indices_target = target_V.cell_node_map().values_with_halo[indices_active, :].flatten()
                     subset_indices_source = composed_map.values_with_halo[indices_active, :].reshape(-1)
                 else:
                     subset_indices_target, perm, _ = np.intersect1d(
