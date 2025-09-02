@@ -130,7 +130,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         # Map the initial guess
         controls_t = self._primal_transform(tuple(control.control for control in self._J.controls), apply_riesz=False)
         for control, control_t in zip(self._controls, controls_t):
-            control.assign(control_t)
+            control.control.assign(control_t)
 
     @property
     def controls(self) -> list[Control]:
