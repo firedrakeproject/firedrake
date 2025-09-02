@@ -261,3 +261,24 @@ def test_point_evaluator_moving_mesh(mesh_and_points):
     mesh.coordinates.dat.data[:, 0] -= 1.0
     f_at_points = evaluator.evaluate(f)
     assert np.allclose(f_at_points, [0.2, 0.4, 0.6])
+
+
+def test_point_evaluator_tolerance():
+    mesh = UnitSquareMesh(1, 1)
+    old_tol = mesh.tolerance
+    f = Function(VectorFunctionSpace(mesh, "CG", 1)).interpolate(SpatialCoordinate(mesh))
+    ev = PointEvaluator(mesh, [[0.2, 0.4]])
+    assert np.allclose([0.2, 0.4], ev.evaluate(f))
+    # tolerance of mesh is not changed
+    assert mesh.tolerance == old_tol
+    # Outside mesh, but within tolerance
+    ev = PointEvaluator(mesh, [[-0.1, 0.4]], tolerance=0.2)
+    assert np.allclose([-0.1, 0.4], ev.evaluate(f))
+    # tolerance of mesh is changed
+    assert mesh.tolerance == 0.2
+    # works if mesh tolerance is changed
+    mesh.tolerance = 1e-11
+    with pytest.raises(VertexOnlyMeshMissingPointsError):
+        ev.evaluate(f)
+    ev = PointEvaluator(mesh, [[-1e-12, 0.4]])
+    assert np.allclose([-1e-12, 0.4], ev.evaluate(f))
