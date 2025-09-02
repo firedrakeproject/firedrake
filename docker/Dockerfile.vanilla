@@ -144,7 +144,6 @@ ENV MPICC=$CC
 #     packages. These are installed in editable mode.
 #     The order these are installed is important, e.g. FIAT must be installed
 #     before UFL otherwise `pip install fiat` will reinstall pypi ufl.
-#    && cd /opt/firedrake && git checkout JHopeCollins/more-flexible-docker && cd - \
 RUN git clone --branch ${BRANCH} \
       https://github.com/firedrakeproject/firedrake.git /opt/firedrake \
    && pip cache purge \
