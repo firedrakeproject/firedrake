@@ -20,7 +20,7 @@ class AuxiliaryOperatorSNES(SNESBase):
         parent_prefix = snes.getOptionsPrefix() or ""
         prefix = parent_prefix + self.prefix
         appctx = self.get_appctx(snes)
-        fcp = appctx.get("form_compiler_parameters")
+        fcp = get_dm_appctx(snes).fcp
 
         V = self.get_function_space(snes).collapse()
 
@@ -31,7 +31,7 @@ class AuxiliaryOperatorSNES(SNESBase):
         self.uk1 = uk1
         self.uk = uk
 
-        Gk1, bcs = self.form(snes, test, uk1)
+        Gk1, bcs = self.form(snes, uk, uk1, test)
 
         # forcing F(k) - G(k)
         Gk = replace(Gk1, {uk1: uk})
@@ -88,21 +88,23 @@ class AuxiliaryOperatorSNES(SNESBase):
             vec.copy(y)
             y.aypx(-1, x)
 
-    def form(self, snes, test, func):
+    def form(self, snes, state, func, test):
         """Return the preconditioning nonlinear form and boundary conditions.
 
         Parameters
         ----------
         snes : PETSc.SNES
             The PETSc nonlinear solver object.
-        test : ufl.TestFunction
-            The test function.
+        state : firedrake.Function
+            The current state of the outer SNES
         func : firedrake.Function
             The solution function.
+        test : ufl.TestFunction
+            The test function.
 
         Returns
         -------
-        a : ufl.Form
+        F : ufl.Form
             The preconditioning nonlinear form.
         bcs : DirichletBC[] or None
             The boundary conditions.
