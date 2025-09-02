@@ -134,8 +134,8 @@ def test_scalar_formsum(f, scale):
     elif scale == "Real":
         mesh = f.function_space().mesh()
         R = FunctionSpace(mesh, "R", 0)
-        s1 = Function(R).assign(s1)
-        s2 = Function(R).assign(s2)
+        s1 = Function(R, val=s1)
+        s2 = Function(R, val=s2)
 
     formsum = s1 * q + s2 * q
     assert isinstance(formsum, ufl.form.FormSum)
