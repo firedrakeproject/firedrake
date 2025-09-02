@@ -757,16 +757,20 @@ class PointEvaluator:
         from firedrake import assemble, interpolate
         if not isinstance(function, Function):
             raise TypeError(f"Expected a Function, got {type(function).__name__}")
+
         function_mesh = function.function_space().mesh()
         if function_mesh is not self.mesh:
             raise ValueError("Function mesh must be the same Mesh object as the PointEvaluator mesh.")
-        if function_mesh.coordinates.dat.dat_version != self.mesh._saved_coordinate_dat_version:
-            # The mesh coordinates have changed since the PointEvaluator was created
+        if coord_changed := function_mesh.coordinates.dat.dat_version != self.mesh._saved_coordinate_dat_version:
             self.mesh = function_mesh
+        if tol_changed := self.mesh.tolerance != self.tolerance:
+            self.tolerance = self.mesh.tolerance
+        if coord_changed or tol_changed:
             self.vom = VertexOnlyMesh(
                 self.mesh, self.points, missing_points_behaviour=self.missing_points_behaviour,
                 redundant=self.redundant, tolerance=self.tolerance
             )
+
         subfunctions = function.subfunctions
         if len(subfunctions) > 1:
             return tuple(self.evaluate(subfunction) for subfunction in subfunctions)
@@ -779,12 +783,13 @@ class PointEvaluator:
         else:
             fs = partial(TensorFunctionSpace, shape=shape)
         P0DG = fs(self.vom, "DG", 0)
-        f_at_points = assemble(interpolate(function, P0DG))
-
         P0DG_io = fs(self.vom.input_ordering, "DG", 0)
+
+        f_at_points = assemble(interpolate(function, P0DG))
         f_at_points_io = Function(P0DG_io).assign(np.nan)
         f_at_points_io.interpolate(f_at_points)
         result = f_at_points_io.dat.data_ro
+
         # If redundant, all points are now on rank 0, so we broadcast the result
         if self.redundant and self.mesh.comm.size > 1:
             if self.mesh.comm.rank != 0:
