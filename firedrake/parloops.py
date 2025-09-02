@@ -398,6 +398,8 @@ def _(
 
     indexed = array[pack_indices]
 
+    # TODO: use maybe_permute_packed_tensor here
+
     plex = V.mesh().topology  # used?
 
     # handle entity_dofs - this is done treating all nodes as equivalent so we have to
@@ -485,7 +487,7 @@ def _(
 
     indexed = mat[rmap, cmap]
 
-    return maybe_permute_packed_tensor(indexed, Vrow, Vcol)
+    return maybe_permute_packed_tensor(indexed, Vrow.finat_element, Vcol.finat_element, Vrow.shape, Vcol.shape)
 
 
 @functools.singledispatch
@@ -494,10 +496,26 @@ def maybe_permute_packed_tensor(tensor: op3.Tensor, *spaces) -> op3.Tensor:
 
 
 @maybe_permute_packed_tensor.register
-def _(packed_mat: op3.Mat, row_space, column_space):
-    row_perm = _flatten_entity_dofs(row_space.finat_element.entity_dofs())
+def _(packed_dat: op3.Dat, element, shape):
+    perm = _flatten_entity_dofs(element.entity_dofs())
+    perm = invert_permutation(perm)
+    # skip if identity
+    if np.any(perm != np.arange(perm.size, dtype=IntType)):
+        row_perm_dat = op3.Dat.from_array(perm, prefix="perm", buffer_kwargs={"constant": True})
+        row_perm_axis = row_perm_dat.axes.root
+        row_perm_subset = op3.Slice(row_perm_axis.label, [op3.Subset(row_perm_axis.component.label, row_perm_dat)])
+
+        indexed_row_axes = op3.AxisTree.from_iterable([row_perm_axis, *shape])
+
+        packed_dat = packed_dat.reshape(indexed_row_axes)[row_perm_subset]
+    return packed_dat
+
+
+@maybe_permute_packed_tensor.register
+def _(packed_mat: op3.Mat, row_element, column_element, row_shape, column_shape):
+    row_perm = _flatten_entity_dofs(row_element.entity_dofs())
     row_perm = invert_permutation(row_perm)
-    col_perm = _flatten_entity_dofs(column_space.finat_element.entity_dofs())
+    col_perm = _flatten_entity_dofs(column_element.entity_dofs())
     col_perm = invert_permutation(col_perm)
 
     # skip if identity
@@ -513,8 +531,8 @@ def _(packed_mat: op3.Mat, row_space, column_space):
         col_perm_axis = col_perm_dat.axes.root
         col_perm_subset = op3.Slice(col_perm_axis.label, [op3.Subset(col_perm_axis.component.label, col_perm_dat)])
 
-        indexed_row_axes = op3.AxisTree.from_iterable([row_perm_axis, *row_space.shape])
-        indexed_col_axes = op3.AxisTree.from_iterable([col_perm_axis, *row_space.shape])
+        indexed_row_axes = op3.AxisTree.from_iterable([row_perm_axis, *row_shape])
+        indexed_col_axes = op3.AxisTree.from_iterable([col_perm_axis, *column_shape])
 
         packed_mat = packed_mat.reshape(indexed_row_axes, indexed_col_axes)[row_perm_subset, col_perm_subset]
 

@@ -537,9 +537,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         # Store data into ``C struct''
         c_function = _CFunction()
         c_function.n_cells = mesh.num_cells
-        c_function.coords = coordinates.dat.data_ro.ctypes.data_as(c_void_p)
+        c_function.coords = coordinates.dat.data_rw.ctypes.data_as(c_void_p)
         c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
-        c_function.f = self.dat.data_ro.ctypes.data_as(c_void_p)
+        c_function.f = self.dat.data_rw.ctypes.data_as(c_void_p)
         c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
         return c_function
 
@@ -732,22 +732,24 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     src = [pq_utils.src_locate_cell(mesh, tolerance=tolerance)]
     src.append(compile_element(function, mesh.coordinates))
 
-    coords_shape = np.prod(mesh.coordinates.function_space().shape, dtype=int)
-    func_shape = np.prod(function.function_space().shape, dtype=int)
+    coords_shape = np.prod(mesh.coordinates.function_space().finat_element.index_shape, dtype=int)
+    func_shape = np.prod(function.function_space().finat_element.index_shape, dtype=int)
+    func_bsize = function.function_space().block_size
 
     p_ScalarType_c = f"{utils.ScalarType_c}*"
     wrapper_src = textwrap.dedent(f"""
         void wrap_evaluate({p_ScalarType_c} const farg0, {p_ScalarType_c} const farg1, int32_t const start, int32_t const end, {utils.ScalarType_c} const *__restrict__ dat0, {utils.ScalarType_c} const *__restrict__ dat1, {utils.IntType_c} const *__restrict__ map0, {utils.IntType_c} const *__restrict__ map1)
         {{
           {utils.ScalarType_c} t0[{coords_shape}*{gdim}];
-          {utils.ScalarType_c} t1[{func_shape}*{gdim}];
+          {utils.ScalarType_c} t1[{func_shape}*{func_bsize}];
 
           for (int32_t i = 0; i < {coords_shape}; ++i)
             for (int32_t j = 0; j < {gdim}; ++j)
               t0[{gdim} * i + j] = dat0[{gdim} * map0[i + {coords_shape} * start] + j];
           for (int32_t i = 0; i < {func_shape}; ++i)
-            for (int32_t j = 0; j < {gdim}; ++j)
-              t1[{gdim} * i + j] = dat1[{gdim} * map1[i + {func_shape} * start] + j];
+            for (int32_t j = 0; j < {func_bsize}; ++j) {{
+              t1[{func_bsize} * i + j] = dat1[{func_bsize} * map1[i + {func_shape} * start] + j];
+            }}
           evaluate_kernel(farg0, farg1, &(t0[0]), &(t1[0]));
         }}"""
     )

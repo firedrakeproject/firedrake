@@ -23,7 +23,8 @@ def subspace(V, indices):
         W = V[indices[0]]
     else:
         W = MixedFunctionSpace([V[i] for i in indices])
-    return W.collapse()
+    return W
+    # return W.collapse()  # this discards Proxy information
 
 
 class ExtractSubBlock(MultiFunction):
@@ -156,11 +157,11 @@ class ExtractSubBlock(MultiFunction):
             if a.number() in self.blocks:
                 asplit = self._subspace_argument(a)
                 for f in self.blocks[a.number()]:
-                    fset = V.dof_dset.field_ises[f]
+                    fset = V.field_ises[f]
                     iset = iset.expand(fset)
             else:
                 asplit = a
-                for fset in V.dof_dset.field_ises:
+                for fset in V.field_ises:
                     iset = iset.expand(fset)
 
             ises.append(iset)

@@ -1058,14 +1058,17 @@ class FunctionSpace:
         r"""A numpy array mapping mesh cells to function space nodes."""
         # internal detail really, do not expose in pyop3/__init__.py
         from pyop3.expr.visitors import loopified_shape, get_shape
-        from firedrake.parloops import pack_pyop3_tensor
+        from firedrake.parloops import maybe_permute_packed_tensor
+
+        mesh = self.mesh()
 
         indices_axes = self.axes.blocked(self.shape)
         indices_array = numpy.arange(indices_axes.size, dtype=IntType)
         indices_dat = op3.Dat(indices_axes, data=indices_array)
 
         cell_index = self._mesh.cells.owned.iter()
-        map_expr = pack_pyop3_tensor(indices_dat, self, cell_index, "cell")
+        # need to hide shape information here (hence the empty tuple)
+        map_expr = maybe_permute_packed_tensor(indices_dat[mesh.closure(cell_index)], self.finat_element, ())
         map_axes = op3.AxisTree(self._mesh.cells.owned.root)
         map_axes = map_axes.add_subtree(map_axes.leaf_path, get_shape(map_expr)[0])
         map_dat = op3.Dat.empty(map_axes, dtype=IntType)
@@ -1811,6 +1814,29 @@ class MixedFunctionSpace:
 
         See also :attr:`FunctionSpace.dof_count` and :attr:`FunctionSpace.node_count`."""
         return self.dof_dset.layout_vec.getSize()
+
+    @utils.cached_property
+    def field_ises(self):
+        """A list of PETSc ISes defining the global indices for each set in
+        the DataSet.
+
+        Used when extracting blocks from matrices for solvers."""
+        return self._ises  # the same???
+        # ises = []
+        # nlocal_rows = 0
+        # for dset in self:
+        #     nlocal_rows += dset.layout_vec.local_size
+        # offset = self.comm.scan(nlocal_rows)
+        # offset -= nlocal_rows
+        # for dset in self:
+        #     nrows = dset.layout_vec.local_size
+        #     iset = PETSc.IS().createStride(nrows, first=offset, step=1,
+        #                                    comm=self.comm)
+        #     iset.setBlockSize(dset.cdim)
+        #     ises.append(iset)
+        #     offset += nrows
+        # return tuple(ises)
+
 
     def entity_node_map(self, source_mesh, source_integral_type, source_subdomain_id, source_all_integer_subdomain_ids):
         r"""Return entity node map rebased on ``source_mesh``.
