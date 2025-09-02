@@ -136,7 +136,7 @@ Our approach will be to compute the estimator over all elements and selectively 
            error_est = sqrt(eta_.dot(eta_))
        return (eta, error_est)
 
-The next step is to choose which elements to refine. For this we Dörfler marking [Dörfler1996]:  
+The next step is to choose which elements to refine. For this we use Dörfler marking [Dörfler1996]:  
 
 .. math::
    \eta_K \geq \theta \text{max}_L \eta_L
