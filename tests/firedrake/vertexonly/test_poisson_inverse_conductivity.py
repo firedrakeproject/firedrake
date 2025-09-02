@@ -43,10 +43,6 @@ def test_poisson_inverse_conductivity(num_points):
     # Use pyadjoint to estimate an unknown conductivity in a
     # poisson-like forward model from point measurements
     m = UnitSquareMesh(2, 2)
-    if m.comm.size > 1:
-        # lower tolerance avoids issues with .at getting different results
-        # across ranks
-        m.tolerance = 1e-10
     V = FunctionSpace(m, family='CG', degree=2)
     Q = FunctionSpace(m, family='CG', degree=2)
 
@@ -79,9 +75,10 @@ def test_poisson_inverse_conductivity(num_points):
     signal_to_noise = 20
     U = u_true.dat.data_ro[:]
     u_range = U.max() - U.min()
-    σ = Constant(u_range / signal_to_noise)
-    ζ = generator.standard_normal(len(xs))
-    u_obs_vals = np.array(u_true.at(xs)) + float(σ) * ζ
+    sigma = Constant(u_range / signal_to_noise)
+    zeta = generator.standard_normal(len(xs))
+    eval_xs = PointEvaluator(m, xs)
+    u_obs_vals = eval_xs.evaluate(u_true) + float(sigma) * zeta
 
     # Store data on the point_cloud by setting input ordering dat
     P0DG_input_ordering = FunctionSpace(point_cloud.input_ordering, 'DG', 0)
