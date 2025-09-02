@@ -69,10 +69,11 @@ class MinimizeCallback(Sequence):
         self._data.append(error_norm)
 
 
-def test_transformed_functional_mass_inverse():
+@pytest.mark.parametrize("family", ("Lagrange", "Discontinuous Lagrange"))
+def test_transformed_functional_mass_inverse(family):
     mesh = fd.UnitSquareMesh(5, 5, diagonal="crossed")
     x, y = fd.SpatialCoordinate(mesh)
-    space = fd.FunctionSpace(mesh, "Lagrange", 1)
+    space = fd.FunctionSpace(mesh, family, 1, variant="equispaced")
 
     def forward(m):
         return fd.assemble(fd.inner(m - m_ref, m - m_ref) * fd.dx)
@@ -97,8 +98,14 @@ def test_transformed_functional_mass_inverse():
                  options={"ftol": 0,
                           "gtol": 1e-6})
     assert 1e-6 < cb[-1] < 1e-5
-    assert len(cb) > 12  # == 15
-    assert J_hat._test_transformed_functional__ncalls > 12  # == 15
+    if family == "Lagrange":
+        assert len(cb) > 12  # == 15
+        assert J_hat._test_transformed_functional__ncalls > 12  # == 15
+    elif family == "Discontinuous Lagrange":
+        assert len(cb) == 5
+        assert J_hat._test_transformed_functional__ncalls == 6
+    else:
+        raise ValueError(f"Invalid element family: '{family}'")
 
     J_hat = L2TransformedFunctional(J, c, alpha=1)
 

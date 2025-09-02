@@ -50,10 +50,16 @@ class L2Cholesky:
         return v
 
 
+def is_dg_space(space):
+    e, _ = finat.element_factory.convert(space.ufl_element())
+    return e.is_dg()
+
+
 def dg_space(space):
-    return fd.FunctionSpace(
-        space.mesh(),
-        finat.ufl.BrokenElement(space.ufl_element()))
+    if is_dg_space(space):
+        return space
+    else:
+        return fd.FunctionSpace(space.mesh(), finat.ufl.BrokenElement(space.ufl_element()))
 
 
 class L2TransformedFunctional(AbstractReducedFunctional):
@@ -122,7 +128,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         self._m_k = None
 
         # Map the initial guess
-        controls_t = self._primal_transform(tuple(control.control for control in self._J.controls))
+        controls_t = self._primal_transform(tuple(control.control for control in self._J.controls), apply_riesz=False)
         for control, control_t in zip(self._controls, controls_t):
             control.assign(control_t)
 
@@ -130,7 +136,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
     def controls(self) -> list[Control]:
         return list(self._controls)
 
-    def _primal_transform(self, u, u_D=None):
+    def _primal_transform(self, u, u_D=None, *, apply_riesz=False):
         u = Enlist(u)
         if len(u) != len(self.controls):
             raise ValueError("Invalid length")
@@ -141,16 +147,24 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         if len(u_D) != len(self.controls):
             raise ValueError("Invalid length")
 
-        def transform(C, u, u_D, space_D):
+        def transform(C, u, u_D, space, space_D):
             # Map function to transformed 'cofunction':
-            #     C_W^{-1} P_{VW}^*
-            v = fd.assemble(fd.inner(u, fd.TestFunction(space_D)) * fd.dx)
+            if apply_riesz:
+                # C_W^{-1} P_{VW}^* M_V^{-1}
+                if space is space_D:
+                    v = u
+                else:
+                    v = u.riesz_representation(solver_options=self._project_solver_parameters)
+                    v = fd.assemble(fd.inner(v, fd.TestFunction(space_D)) * fd.dx)
+            else:
+                # C_W^{-1} P_{VW}^*
+                v = fd.assemble(fd.inner(u, fd.TestFunction(space_D)) * fd.dx)
             if u_D is not None:
                 v.dat.axpy(1, u_D.dat)
             v = C.C_inv_action(v)
             return v
 
-        v = tuple(map(transform, self._C, u, u_D, self._space_D))
+        v = tuple(map(transform, self._C, u, u_D, self._space, self._space_D))
         return u.delist(v)
 
     def _dual_transform(self, u):
@@ -158,15 +172,18 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         if len(u) != len(self.controls):
             raise ValueError("Invalid length")
 
-        def transform(C, u, space):
+        def transform(C, u, space, space_D):
             # Map transformed 'cofunction' to function:
             #     M_V^{-1} P_{VW} C_W^{-*}
             v = C.C_T_inv_action(u)  # for complex would need to be adjoint
-            w = fd.Function(space).project(
-                v, solver_parameters=self._project_solver_parameters)
+            if space is space_D:
+                w = v
+            else:
+                w = fd.Function(space).project(
+                    v, solver_parameters=self._project_solver_parameters)
             return v, w
 
-        vw = tuple(map(transform, self._C, u, self._space))
+        vw = tuple(map(transform, self._C, u, self._space, self._space_D))
         return u.delist(tuple(map(itemgetter(0), vw))), u.delist(tuple(map(itemgetter(1), vw)))
 
     @no_annotations
@@ -196,8 +213,9 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         m_D, m_J = self._m_k = self._dual_transform(values)
         J = self._J(m_J)
         if self._alpha != 0:
-            for m_D, m_J in zip(*self._m_k):
-                J += fd.assemble(0.5 * fd.Constant(self._alpha) * fd.inner(m_D - m_J, m_D - m_J) * fd.dx)
+            for space, space_D, m_D, m_J in zip(self._space, self._space_D, *self._m_k):
+                if space is not space_D:
+                    J += fd.assemble(0.5 * fd.Constant(self._alpha) * fd.inner(m_D - m_J, m_D - m_J) * fd.dx)
         return J
 
     @no_annotations
@@ -207,15 +225,16 @@ class L2TransformedFunctional(AbstractReducedFunctional):
 
         u = Enlist(self._J.derivative())
 
-        v = tuple(u_i.riesz_representation(solver_options=self._project_solver_parameters)
-                  for u_i in u)
         if self._alpha == 0:
             v_alpha = None
         else:
-            v_alpha = tuple(
-                fd.assemble(fd.Constant(self._alpha) * fd.inner(m_D_i - m_J_i, fd.TestFunction(space_D)) * fd.dx)
-                for space_D, m_D_i, m_J_i in zip(self._space_D, *self._m_k))
-        v = self._primal_transform(v, v_alpha)
+            v_alpha = []
+            for space, space_D, m_D, m_J in zip(self._space, self._space_D, *self._m_k):
+                if space is space_D:
+                    v_alpha.append(None)
+                else:
+                    v_alpha.append(fd.assemble(fd.Constant(self._alpha) * fd.inner(m_D - m_J, fd.TestFunction(space_D)) * fd.dx))
+        v = self._primal_transform(u, v_alpha, apply_riesz=True)
         if apply_riesz:
             v = tuple(v_i._ad_convert_riesz(v_i, riesz_map=control.riesz_map)
                       for v_i, control in zip(v, self.controls))
