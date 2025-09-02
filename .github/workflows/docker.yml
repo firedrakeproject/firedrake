@@ -52,7 +52,7 @@ jobs:
           - os: macOS
             platform: linux/amd64
           - os: macOS
-            is_dev_build: true
+            build_dev: true
     uses: ./.github/workflows/docker_build.yml
     with:
       os: ${{ matrix.os }}
