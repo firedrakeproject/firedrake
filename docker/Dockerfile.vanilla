@@ -133,8 +133,8 @@ ENV PATH="$PETSC_DIR/$PETSC_ARCH/bin:$PATH"
 
 ENV HDF5_MPI=ON
 ENV CC=mpicc CXX=mpicxx
-ENV CFLAGS="-mtune=generic" CPPFLAGS="-mtune=generic"
 ENV MPICC=$CC
+ENV CFLAGS="-O3 -mtune=generic" CPPFLAGS="-O3 -mtune=generic"
 
 # Install Firedrake
 # - petsc4py and slepc4py are installed from source in PETSc repo.
@@ -162,6 +162,9 @@ RUN git clone --branch ${BRANCH} \
             pip install --verbose  --src /opt --editable ${pkg} || exit; \
         done; \
     fi
+
+# Force '-mtune=generic' for JIT-ed code
+ENV PYOP2_CFLAGS=$CFLAGS
 
 # Run the smoke tests.
 RUN cd /opt/firedrake/ \
