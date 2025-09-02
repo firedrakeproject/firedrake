@@ -2,9 +2,9 @@ Adaptive Multigrid Methods using the AdaptiveMeshHierarchy
 =================================================
 
 The purpose of this demo is to show how to use Firedrake's multigrid solver on a hierarchy of adaptively refined Netgen meshes.
-We will first have a look at how to use the AdaptiveMeshHierarchy to construct the mesh hierarchy with Netgen meshes, then we will consider a solution to the Poisson problem on an L shaped domain.
-Finally, we will show how to use the AdaptiveMeshHierarchy and AdaptiveTransferManager as arguments to Firedrake solvers. The AdaptiveMeshHierarchy contains information of the mesh hierarchy and the parent child relations between the meshes.
-The AdaptiveTransferManager deals with the transfer operator logic across any given levels in the hierarchy.
+We will first have a look at how to use the *AdaptiveMeshHierarchy* to construct the mesh hierarchy with Netgen meshes, then we will consider a solution to the Poisson problem on an L-shaped domain.
+Finally, we will show how to use the *AdaptiveMeshHierarchy* and *AdaptiveTransferManager* as arguments to Firedrake solvers. The *AdaptiveMeshHierarchy* contains information of the mesh hierarchy and the parent child relations between the meshes.
+The *AdaptiveTransferManager* deals with the transfer operator logic across any given levels in the hierarchy.
 We begin by importing the necessary libraries ::
 
    from firedrake import *
@@ -23,26 +23,26 @@ We begin with the L-shaped domain, which we build as the union of two rectangles
   ngmsh = geo.GenerateMesh(maxh=0.5)
   mesh = Mesh(ngmsh)
 
-It is important to convert the initial Netgen mesh into a Firedrake mesh before constructing the AdaptiveMeshHierarchy. To call the constructor to the hierarchy, we must pass the initial mesh as a list. Our initial mesh looks like this:
+It is important to convert the initial Netgen mesh into a Firedrake mesh before constructing the *AdaptiveMeshHierarchy*. To call the constructor to the hierarchy, we must pass the initial mesh. Our initial mesh looks like this:
 
 .. figure:: initial_mesh.png
    :align: center
    :alt: Initial mesh.
 
-We will also initialize the AdaptiveTransferManager here: ::
+We will also initialize the *AdaptiveTransferManager* here: ::
   
-  amh = AdaptiveMeshHierarchy([mesh])
+  amh = AdaptiveMeshHierarchy(mesh)
   atm = AdaptiveTransferManager()
 
 Poisson Problem
 -------------------------
-Now we can define a simple Poisson Problem
+Now we can define a simple Poisson problem
 
 .. math::
 
    - \nabla^2 u = f \text{ in } \Omega, \quad u = 0 \text{ on } \partial \Omega
 
-Our approach strongly follows the similar problem in this `lecture course <https://github.com/pefarrell/icerm2024>`_. We define the function solve_poisson. The first lines correspond to finding a solution in the CG1 space. The variational problem is formulated with F, where f is the constant function equal to 1. Since we want Dirichlet boundary conditions, we construct the DirichletBC object and apply it to the entire boundary: ::
+Our approach strongly follows the similar problem in this `lecture course <https://github.com/pefarrell/icerm2024>`_. We define the function ``solve_poisson``. The first lines correspond to finding a solution in the CG1 space. The variational problem is formulated with F, where f is the constant function equal to 1. Since we want Dirichlet boundary conditions, we construct the *DirichletBC* object and apply it to the entire boundary: ::
 
    def solve_poisson(mesh, params):
       V = FunctionSpace(mesh, "CG", 1)
@@ -58,7 +58,7 @@ Our approach strongly follows the similar problem in this `lecture course <https
       solver.solve()
       return uh
 
-Note the code after the construction of the NonlinearVariationalProblem(). To use the AdaptiveMeshHierarchy with the existing Firedrake solver, we have to set the AdaptiveTransferManager as the transfer manager of the multigrid solver.
+Note the code after the construction of the *NonlinearVariationalProblem()*. To use the *AdaptiveMeshHierarchy* with the existing Firedrake solver, we have to set the *AdaptiveTransferManager* as the transfer manager of the multigrid solver.
 For the parameters of the multigrid solver, we will be using patch relaxation, which we define with ::
    solver_params = {
             "mat_type": "matfree",
@@ -90,7 +90,7 @@ For the parameters of the multigrid solver, we will be using patch relaxation, w
             },
         }
 
-For more information about patch relaxation, see `Using patch relaxation for multigrid <https://www.firedrakeproject.org/demos/poisson_mg_patches.py.html>`_. The initial solution is shown below
+For more information about patch relaxation, see `Using patch relaxation for multigrid <https://www.firedrakeproject.org/demos/poisson_mg_patches.py.html>`_. The initial solution is shown below.
 
 .. figure:: solution_l1.png
    :align: center
@@ -99,13 +99,13 @@ For more information about patch relaxation, see `Using patch relaxation for mul
 
 Adaptive Mesh Refinement
 -------------------------
-In this section we will discuss how to adaptively refine select elements and add the newly refined mesh into the AdaptiveMeshHierarchy.
+In this section we will discuss how to adaptively refine select elements and add the newly refined mesh into the *AdaptiveMeshHierarchy*.
 For this problem, we will be using the Babuška-Rheinbolt a-posteriori estimate for an element:
 
 .. math::
    \eta_K^2 = h_K^2 \int_K | f + \nabla^2 u_h |^2 \mathrm{d}x + \frac{h_K}{2} \int_{\partial K \setminus \partial \Omega} \llbracket \nabla u_h \cdot n \rrbracket^2 \mathrm{d}s,
 
-where :math:`K` is the element, :math:`h_K` is the diameter of the element, :math:`n` is the normal, and :math:`\llbracket \cdot \rrbracket` is the jump operator. The a-posteriori estimator is computed using the solution at the current level :math:`h`. We can use a trick to compute the estimator on each element. We transform the above estimator into the variational problem 
+where :math:`K` is the element, :math:`h_K` is the diameter of the element, :math:`n` is the normal, and :math:`\llbracket \cdot \rrbracket` is the jump operator. The a-posteriori estimator is computed using the solution at the current level :math:`h`. Integrating over the domain and using the fact that the components of the estimator are piecewise constant on each cell, we can transform the above estimator into the variational problem 
 
 .. math::
    \int_\Omega \eta_K^2 w \mathrm{d}x = \int_\Omega \sum_K h_K^2 \int_K (f + \text{div} (\text{grad} u_h) )^2 \mathrm{d}x w \mathrm{d}x + \int_\Omega \sum_K \frac{h_K}{2} \int_{\partial K \setminus \partial \Omega} \llbracket \nabla u_h \cdot n \rrbracket^2 \mathrm{d}s w \mathrm{d}x
@@ -136,7 +136,7 @@ Our approach will be to compute the estimator over all elements and selectively 
            error_est = sqrt(eta_.dot(eta_))
        return (eta, error_est)
 
-The next step is to choose which elements to refine. For this we Dörfler marking, developed by Professor Willy Dörfler:  
+The next step is to choose which elements to refine. For this we Dörfler marking [Dörfler1996]:  
 
 .. math::
    \eta_K \geq \theta \text{max}_L \eta_L
@@ -163,7 +163,7 @@ With these helper functions complete, we can solve the system iteratively. In th
        if i != max_iterations - 1:
            amh.adapt(eta, theta)
 
-To perform Dörfler marking, refine the current mesh, and add the mesh to the AdaptiveMeshHierarchy, we us the amh.adapt(eta, theta) method. In this method the input is the recently computed error estimator :math:`eta` and the Dörfler marking parameter :math:`theta`. The method always performs this on the current fine mesh in the hierarchy. There is another method for adding a mesh to the hierarchy. This is the amh.add_mesh(mesh). In this method, refinement on the mesh is performed externally by some custom procedure and the resulting mesh directly gets added to the hierarchy.
+To perform Dörfler marking, refine the current mesh, and add the mesh to the *AdaptiveMeshHierarchy*, we us the ``amh.adapt(eta, theta)`` method. In this method the input is the recently computed error estimator :math:`eta` and the Dörfler marking parameter :math:`theta`. The method always performs this on the current fine mesh in the hierarchy. There is another method for adding a mesh to the hierarchy: ``amh.add_mesh(mesh)``. In this method, refinement on the mesh is performed externally by some custom procedure and the resulting mesh directly gets added to the hierarchy.
 The meshes now refine according to the error estimator. The error estimators at levels 3,5, and 15 are shown below. Zooming into the vertex of the L at level 15 shows the error indicator remains strongest there. Further refinements will focus on that area.
 
 +-------------------------------+-------------------------------+-------------------------------+
@@ -187,9 +187,13 @@ The solutions at level 4 and 15 are shown below.
 +------------------------------------+------------------------------------+
 
 
-The convergence follows the expected behavior:
+The convergence follows the expected optimal behavior:
 
 .. figure:: adaptive_convergence_9.png
    :align: center
    :alt: Convergence of the error estimator.
+
+References
+-------------------------
+[Dörfler1996] W. Dörfler. A convergent adaptive algorithm for poisson’s equation. SIAM Journal on Numerical Analysis, 33(3):1106–1124, 1996.
 
