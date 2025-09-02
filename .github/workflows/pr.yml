@@ -13,12 +13,3 @@ jobs:
       # Only run macOS tests if the PR is labelled 'macOS'
       test_macos: ${{ contains(github.event.pull_request.labels.*.name, 'macOS') }}
     secrets: inherit
-
-  docker:
-    name: Build dev Docker containers
-    uses: ./.github/workflows/docker.yml
-    with:
-      tag: dev-release
-      branch: release
-      build_dev: true
-    secrets: inherit
