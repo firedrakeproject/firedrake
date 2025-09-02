@@ -112,14 +112,29 @@ def test_assemble_action(M, f):
             assert abs(f.dat.data.sum() - 0.5*f.function_space().value_size) < 1.0e-12
 
 
-def test_scalar_formsum(f):
+@pytest.mark.parametrize("scale", ["float", "ufl", "Constant", "Real"])
+def test_scalar_formsum(f, scale):
     c = Cofunction(f.function_space().dual())
     c.assign(1)
 
     q = action(c, f)
     expected = 2 * assemble(q)
 
-    formsum = 1.5 * q + 0.5 * q
+    s1 = 1.5
+    s2 = 0.5
+    if scale == "ufl":
+        s1 = as_ufl(s1)
+        s2 = as_ufl(s2)
+    elif scale == "Constant":
+        s1 = Constant(s1)
+        s2 = Constant(s2)
+    elif scale == "Real":
+        mesh = f.function_space().mesh()
+        R = FunctionSpace(mesh, "R", 0)
+        s1 = Function(R).assign(s1)
+        s2 = Function(R).assign(s2)
+
+    formsum = s1 * q + s2 * q
     assert isinstance(formsum, ufl.form.FormSum)
     res2 = assemble(formsum)
     assert res2 == expected
@@ -128,9 +143,9 @@ def test_scalar_formsum(f):
     R = FunctionSpace(mesh, "R", 0)
     tensor = Cofunction(R.dual())
 
-    out = assemble(formsum, tensor=tensor)
-    assert out is tensor
-    assert tensor.dat.data[0] == expected
+    result = assemble(formsum, tensor=tensor)
+    assert result is tensor
+    assert result.dat.data_ro.item() == expected
 
 
 def test_vector_formsum(a):
