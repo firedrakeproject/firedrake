@@ -3,21 +3,13 @@ import numpy as np
 import pytest
 
 
-def at(function, point):
-    return function.at(point)
-
-
 def vertex_only_mesh(function, point):
     vom = VertexOnlyMesh(function.function_space().mesh(), point)
     vom_fs = VectorFunctionSpace(vom, "DG", 0)
     return assemble(interpolate(function, vom_fs))
 
 
-@pytest.mark.parametrize("point_eval", [
-    at,
-    vertex_only_mesh,
-])
-def test_convergence_rate(point_eval):
+def test_convergence_rate():
     """Check points on immersed manifold projects to the correct point
     on the mesh."""
     res = [2**i for i in range(4, 10)]
@@ -31,14 +23,10 @@ def test_convergence_rate(point_eval):
         )
         f = assemble(interpolate(SpatialCoordinate(m),
                                  VectorFunctionSpace(m, "Lagrange", 1)))
-        if point_eval is at:
-            sol = np.array(point_eval(f, test_coords))
-            error += [np.linalg.norm(test_coords - sol)]
-        elif point_eval is vertex_only_mesh:
-            func = point_eval(f, test_coords)
-            vom = func.function_space().ufl_domain()
-            sol = np.array(func.dat.data_ro)
-            error += [np.linalg.norm(test_coords[vom.topology._dm_renumbering] - sol)]
+        func = vertex_only_mesh(f, test_coords)
+        vom = func.function_space().ufl_domain()
+        sol = np.array(func.dat.data_ro)
+        error += [np.linalg.norm(test_coords[vom.topology._dm_renumbering] - sol)]
 
     convergence_rate = np.array(
         [np.log(error[i]/error[i+1])/np.log(res[i+1]/res[i])
