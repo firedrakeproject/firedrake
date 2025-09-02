@@ -198,7 +198,8 @@ class Assigner:
         Parameters
         ----------
         allow_missing_dofs : bool
-            If True, ignore assignee nodes with no matching assigner nodes.
+            Permit assignment between objects with mismatching nodes. If `True` then
+            assignee nodes with no matching assigner nodes are ignored.
 
         """
         if annotate_tape():
