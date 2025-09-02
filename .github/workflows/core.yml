@@ -108,6 +108,18 @@ jobs:
         # Make sure the current directory is empty
         run: find . -delete
 
+      # Check that the Dockerfile is using the latest Ubuntu version.
+      # The version is hardcoded into the Dockerfile so that the OS
+      # for each release is fixed.
+      - name: Check Dockerfile Ubuntu version
+        run: |
+          latest_version=$(grep "VERSION_ID=" /etc/os-release | cut -d '"' -f 2)
+          docker_version=$(grep FROM docker/Dockerfile.vanilla | cut -d ':' -f 2)
+          if [[ "$docker_version" != "$latest_version" ]]; then
+            echo "Ubuntu version ${docker_version} in Dockerfile is out of date with latest version ${latest_version}"
+            exit 1
+          fi
+
       # Use a different mirror to fetch apt packages from to get around
       # temporary outage.
       # (https://askubuntu.com/questions/1549622/problem-with-archive-ubuntu-com-most-of-the-servers-are-not-responding)
@@ -182,6 +194,7 @@ jobs:
           pip cache remove slepc4py
 
           if [ ${{ inputs.target_branch }} = 'release' ]; then
+            EXTRA_BUILD_ARGS=''
             EXTRA_PIP_FLAGS=''
           else
             : # Install build dependencies
@@ -192,15 +205,16 @@ jobs:
             : # because they rely on non-PyPI versions of petsc4py.
             pip install --no-build-isolation --no-deps \
               "$PETSC_DIR"/"$PETSC_ARCH"/externalpackages/git.slepc/src/binding/slepc4py
-            pip install --no-deps ngsPETSc netgen-mesher netgen-occt
+            pip install --no-deps git+https://github.com/NGSolve/ngsPETSc.git netgen-mesher netgen-occt
 
             : # We have to pass '--no-build-isolation' to use a custom petsc4py
+            EXTRA_BUILD_ARGS='--no-isolation'
             EXTRA_PIP_FLAGS='--no-build-isolation'
           fi
 
           : # Install from an sdist so we can make sure that it is not ill-formed
           pip install build
-          python -m build ./firedrake-repo --sdist
+          python -m build ./firedrake-repo --sdist "$EXTRA_BUILD_ARGS"
 
           pip install --verbose $EXTRA_PIP_FLAGS \
             --no-binary h5py \
@@ -368,7 +382,7 @@ jobs:
           path: pytest_*.log
 
       - name: Install system dependencies (3)
-        if: always()
+        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
         run: apt-get -y install inkscape texlive-full
 
       - name: Check bibtex
