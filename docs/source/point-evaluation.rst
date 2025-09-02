@@ -11,98 +11,6 @@ of a simulation, or for creating expressions which contain point evaluations.
 Three APIs are offered to this feature: two Firedrake-specific ones, and one
 from UFL.
 
-
-Firedrake convenience function
-------------------------------
-
-Firedrake's first API for evaluating functions at arbitrary points,
-:meth:`~.Function.at`, is designed for simple interrogation of a function with
-a few points.
-
-.. code-block:: python3
-
-   # evaluate f at a 1-dimensional point
-   f.at(0.3)
-
-   # evaluate f at two 1-dimensional points, or at one 2-dimensional point
-   # (depending on f's geometric dimension)
-   f.at(0.2, 0.4)
-
-   # evaluate f at one 2-dimensional point
-   f.at([0.2, 0.4])
-
-   # evaluate f at two 2-dimensional points
-   f.at([0.2, 0.4], [1.2, 0.5])
-
-   # evaluate f at two 2-dimensional points (same as above)
-   f.at([[0.2, 0.4], [1.2, 0.5]])
-
-While in these examples we have only shown lists, other *iterables*
-such as tuples and ``numpy`` arrays are also accepted. The following
-are equivalent:
-
-.. code-block:: python3
-
-   f.at(0.2, 0.4)
-   f.at((0.2, 0.4))
-   f.at([0.2, 0.4])
-   f.at(numpy.array([0.2, 0.4]))
-
-For a single point, the result is a ``numpy`` array, or a tuple of
-``numpy`` arrays in case of *mixed* functions.  When evaluating
-multiple points, the result is a list of values for each point.
-To summarise:
-
-* Single point, non-mixed: ``numpy`` array
-* Single point, mixed: tuple of ``numpy`` arrays
-* Multiple points, non-mixed: list of ``numpy`` arrays
-* Multiple points, mixed: list of tuples of ``numpy`` arrays
-
-
-Points outside the domain
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-When any point is outside the domain of the function,
-:py:class:`.PointNotInDomainError` exception is raised. If
-``dont_raise=True`` is passed to :meth:`~.Function.at`, the result is
-``None`` for those points which fall outside the domain.
-
-.. code-block:: python3
-
-   mesh = UnitIntervalMesh(8)
-   f = mesh.coordinates
-
-   f.at(1.2)                   # raises exception
-   f.at(1.2, dont_raise=True)  # returns None
-
-   f.at(0.5, 1.2)                   # raises exception
-   f.at(0.5, 1.2, dont_raise=True)  # returns [0.5, None]
-
-
-Evaluation on a moving mesh
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-If you move the mesh, by :doc:`changing the mesh coordinates
-<mesh-coordinates>`, then the bounding box tree that Firedrake
-maintains to ensure fast point evaluation must be rebuilt.  To do
-this, after moving the mesh, call
-:meth:`~.MeshGeometry.clear_spatial_index` on the mesh you have just
-moved.
-
-Evaluation with a distributed mesh
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-There is limited support for :meth:`~.Function.at` when running Firedrake
-in parallel. There is no special API, but there are some restrictions:
-
-* Point evaluation is a *collective* operation.
-* Each process must ask for the same list of points.
-* Each process will get the same values.
-
-If ``RuntimeError: Point evaluation gave different results across processes.``
-is raised, try lowering the :ref:`mesh tolerance <tolerance>`.
-
-
 .. _primary-api:
 
 Primary API: Interpolation onto a vertex-only mesh
@@ -447,6 +355,90 @@ To apply the new tolerance to a vertex-only mesh, a new vertex-only mesh must
 be created. Any existing immersed vertex-only mesh will have been created
 using the previous tolerance and will be unaffected by the change.
 
+
+``Function.at``
+------------------------------
+
+.. warning::
+
+   The following API is deprecated and will be removed in a future release.
+   Please use the primary API described above.
+
+The :meth:`~.Function.at` method is designed for simple interrogation of a :class:`~.Function` with
+a few points.
+
+.. code-block:: python3
+
+   # evaluate f at a 1-dimensional point
+   f.at(0.3)
+
+   # evaluate f at two 1-dimensional points, or at one 2-dimensional point
+   # (depending on f's geometric dimension)
+   f.at(0.2, 0.4)
+
+   # evaluate f at one 2-dimensional point
+   f.at([0.2, 0.4])
+
+   # evaluate f at two 2-dimensional points
+   f.at([0.2, 0.4], [1.2, 0.5])
+
+   # evaluate f at two 2-dimensional points (same as above)
+   f.at([[0.2, 0.4], [1.2, 0.5]])
+
+While in these examples we have only shown lists, other *iterables*
+such as tuples and ``numpy`` arrays are also accepted. The following
+are equivalent:
+
+.. code-block:: python3
+
+   f.at(0.2, 0.4)
+   f.at((0.2, 0.4))
+   f.at([0.2, 0.4])
+   f.at(numpy.array([0.2, 0.4]))
+
+For a single point, the result is a ``numpy`` array, or a tuple of
+``numpy`` arrays in case of *mixed* functions.  When evaluating
+multiple points, the result is a list of values for each point.
+To summarise:
+
+* Single point, non-mixed: ``numpy`` array
+* Single point, mixed: tuple of ``numpy`` arrays
+* Multiple points, non-mixed: list of ``numpy`` arrays
+* Multiple points, mixed: list of tuples of ``numpy`` arrays
+
+
+Points outside the domain
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When any point is outside the domain of the function,
+:py:class:`.PointNotInDomainError` exception is raised. If
+``dont_raise=True`` is passed to :meth:`~.Function.at`, the result is
+``None`` for those points which fall outside the domain.
+
+.. code-block:: python3
+
+   mesh = UnitIntervalMesh(8)
+   f = mesh.coordinates
+
+   f.at(1.2)                   # raises exception
+   f.at(1.2, dont_raise=True)  # returns None
+
+   f.at(0.5, 1.2)                   # raises exception
+   f.at(0.5, 1.2, dont_raise=True)  # returns [0.5, None]
+
+
+Evaluation with a distributed mesh
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+There is limited support for :meth:`~.Function.at` when running Firedrake
+in parallel. There is no special API, but there are some restrictions:
+
+* Point evaluation is a *collective* operation.
+* Each process must ask for the same list of points.
+* Each process will get the same values.
+
+If ``RuntimeError: Point evaluation gave different results across processes.``
+is raised, try lowering the :ref:`mesh tolerance <tolerance>`.
 
 UFL API
 -------
