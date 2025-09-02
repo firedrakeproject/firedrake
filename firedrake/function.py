@@ -166,7 +166,6 @@ class CoordinatelessFunction(ufl.Coefficient):
     def cell_node_map(self):
         return self.function_space().cell_node_map()
     cell_node_map.__doc__ = functionspaceimpl.FunctionSpace.cell_node_map.__doc__
-
     def interior_facet_node_map(self):
         return self.function_space().interior_facet_node_map()
     interior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.interior_facet_node_map.__doc__
@@ -418,12 +417,15 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         Parameters
         ----------
+        expr : ufl.expr.Expr
+            Expression to be assigned.
         subset : pyop2.types.set.Set or pyop2.types.set.Subset or pyop2.types.set.MixedSet
             ``self.node_set`` or `pyop2.types.set.Subset` of ``self.node_set`` or
             `pyop2.types.set.MixedSet` composed of them if `self` is a mixed function.
         allow_missing_dofs : bool
-            If True, ignore assignee nodes with no matching assigner nodes; only
-            significant if assigning across submeshes.
+            Permit assignment between objects with mismatching nodes. If `True` then
+            assignee nodes with no matching assigner nodes are ignored.
+            Only significant if assigning across submeshes.
 
         Returns
         -------
@@ -432,7 +434,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         Notes
         -----
-        expr may only contain :class:`Function` s on the same :class:`.FunctionSpace` as the
+        expr may only contain :class:`Function` s on the same :class:`.WithGeometry` as the
         assignee :class:`Function` or those on the similar spaces on submeshes.
         Similar functionality is available for the augmented assignment
         operators `+=`, `-=`, `*=` and `/=`. For example, if ``f`` and ``g`` are

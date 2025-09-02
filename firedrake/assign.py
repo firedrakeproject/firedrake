@@ -237,14 +237,16 @@ class Assigner:
             source_meshes = set()
             for f in funcs:
                 source_meshes.add(extract_unique_domain(f))
-            single_mesh_assign = True
             if len(source_meshes) == 0:
-                pass
+                # Assign constants only.
+                single_mesh_assign = True
             elif len(source_meshes) == 1:
                 source_mesh, = source_meshes
                 if target_mesh is source_mesh:
-                    pass
+                    # Assign (co)functions from one mesh to the same mesh.
+                    single_mesh_assign = True
                 else:
+                    # Assign (co)functions between a submesh and the parent or between two submeshes.
                     single_mesh_assign = False
             else:
                 raise ValueError("All functions in the expression must be defined on a single domain")
