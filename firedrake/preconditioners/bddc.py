@@ -161,7 +161,7 @@ def get_discrete_gradient(V):
     gradient = tabulate_exterior_derivative(Q, V)
     nsp = VectorSpaceBasis([Function(Q).interpolate(Constant(1))])
     nsp.orthonormalize()
-    gradient.setNearNullSpace(nsp.nullspace())
+    gradient.setNullSpace(nsp.nullspace())
     variant = Q.ufl_element().variant()
     if variant in {"fdm", "demkowicz", "demkowiczmass"}:
         vdofs = get_restricted_dofs(Q, "vertex")
