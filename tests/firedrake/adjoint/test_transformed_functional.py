@@ -84,8 +84,8 @@ def test_transformed_functional_mass_inverse():
     m_0 = fd.Function(space, name="m_0")
     J = forward(m_0)
     pause_annotation()
-
     c = Control(m_0, riesz_map="l2")
+
     J_hat = ReducedFunctional(J, c)
 
     def error_norm(m):
@@ -100,7 +100,6 @@ def test_transformed_functional_mass_inverse():
     assert len(cb) > 12  # == 15
     assert J_hat._test_transformed_functional__ncalls > 12  # == 15
 
-    c = Control(m_0, riesz_map="l2")
     J_hat = L2TransformedFunctional(J, c, alpha=1)
 
     def error_norm(m):
@@ -153,8 +152,8 @@ def test_transformed_functional_poisson():
     m_0 = fd.Function(space, name="m_0")
     J = forward_J(m_0)
     pause_annotation()
-
     c = Control(m_0, riesz_map="l2")
+
     J_hat = ReducedFunctional(J, c)
 
     def error_norm(m):
@@ -170,7 +169,6 @@ def test_transformed_functional_poisson():
     assert len(cb) > 80  # == 85
     assert J_hat._test_transformed_functional__ncalls > 90  # == 95
 
-    c = Control(m_0, riesz_map="l2")
     J_hat = L2TransformedFunctional(J, c, alpha=1e-5)
 
     def error_norm(m):
