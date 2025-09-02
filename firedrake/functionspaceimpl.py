@@ -124,8 +124,8 @@ class WithGeometryBase(object):
             if not isinstance(mesh, MeshSequenceGeometry):
                 raise TypeError(f"Can only use MixedFunctionSpace with MeshSequenceGeometry: got {type(mesh)}")
         function_space = function_space.topological
-        assert mesh.topology is function_space.mesh()
-        assert mesh.topology is not mesh
+        assert mesh.topology == function_space.mesh()
+        assert mesh.topology != mesh
 
         element = function_space.ufl_element().reconstruct(cell=mesh.ufl_cell())
 
