@@ -1883,7 +1883,7 @@ class AxisForest:
         self.trees = tuple(trees)
 
     def __repr__(self) -> str:
-        return f"AxisTree([{', '.join(repr(tree) for tree in self.trees)}])"
+        return f"AxisForest(({', '.join(repr(tree) for tree in self.trees)}))"
 
     def __getitem__(self, indices) -> AxisForest | AxisTree:
         return self.getitem(indices, strict=False)
@@ -1905,6 +1905,20 @@ class AxisForest:
 
     def materialize(self):
         return type(self)((tree.materialize() for tree in self.trees))
+
+    def blocked(self, block_shape):
+        return type(self)(map(operator.methodcaller("blocked", block_shape), self.trees))
+
+    # def prune(self):
+    #     return type(self)((tree.prune() for tree in self.trees))
+    #
+    # @property
+    # def regionless(self):
+    #     return type(self)((tree.regionless for tree in self.trees))
+
+    @property
+    def size(self) -> int:
+        return utils.single_valued((tree.size for tree in self.trees))
 
     def with_context(self, context):
         return type(self)((tree.with_context(context) for tree in self.trees))

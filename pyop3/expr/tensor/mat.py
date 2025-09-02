@@ -19,10 +19,11 @@ from .base import Tensor
 from .dat import Dat
 from pyop3.tree.axis_tree.tree import (
     AbstractAxisTree,
+    AxisForest,
     AxisTree,
     ContextSensitiveAxisTree,
 )
-from pyop3.tree.axis_tree import as_axis_tree
+from pyop3.tree.axis_tree import as_axis_tree, as_axis_forest
 from pyop3.buffer import FullPetscMatBufferSpec, NullBuffer, AbstractBuffer, PetscMatAxisSpec, PetscMatBuffer, AllocatedPetscMatBuffer, PetscMatPreallocatorBuffer, PetscMatBufferSpec, MatBufferSpec, NonNestedPetscMatBufferSpec, PetscMatNestBufferSpec
 from pyop3.dtypes import ScalarType
 from pyop3.typing import PetscSizeT
@@ -42,16 +43,16 @@ class Mat(Tensor):
 
     # {{{ instance attributes
 
-    raxes: AbstractAxisTree
-    caxes: AbstractAxisTree
+    row_axis_forest: AxisForest
+    column_axis_forest: AxisForest
     _buffer: AbstractBuffer
     _name: str
     _parent: Mat | None
 
     def __init__(
         self,
-        raxes,
-        caxes,
+        row_axes,
+        column_axes,
         buffer: AbstractBuffer,
         *,
         name=None,
@@ -61,17 +62,21 @@ class Mat(Tensor):
         if not isinstance(buffer, AbstractBuffer):
             raise TypeError(f"Provided buffer has the wrong type ({type(buffer).__name__})")
 
-        raxes = as_axis_tree(raxes)
-        caxes = as_axis_tree(caxes)
+        row_axis_forest = as_axis_forest(row_axes)
+        column_axis_forest = as_axis_forest(column_axes)
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
-        self.raxes = raxes
-        self.caxes = caxes
+        self.row_axis_forest = row_axis_forest
+        self.column_axis_forest = column_axis_forest
         self._buffer = buffer
         self._name = name
         self._parent = parent
 
-        # self._cache = {}
+        self.__post_init__()
+
+    def __post_init__(self) -> None:
+        assert isinstance(self.row_axis_forest, AxisForest)
+        assert isinstance(self.column_axis_forest, AxisForest)
 
     # }}}
 
@@ -181,9 +186,9 @@ class Mat(Tensor):
         return layout_vec.local_size // layout_vec.block_size
 
     def getitem(self, row_index, column_index, *, strict=False):
-        indexed_row_axes = self.raxes.getitem(row_index, strict=strict)
-        indexed_column_axes = self.caxes.getitem(column_index, strict=strict)
-        return self.__record_init__(raxes=indexed_row_axes, caxes=indexed_column_axes)
+        indexed_row_axes = self.row_axis_forest.getitem(row_index, strict=strict)
+        indexed_column_axes = self.column_axis_forest.getitem(column_index, strict=strict)
+        return self.__record_init__(row_axis_forest=indexed_row_axes, column_axis_forest=indexed_column_axes)
         # from pyop3.tree.index_tree import index_axes
         # from pyop3.tree.index_tree.parse import as_index_forest
         # # does not work as indices may not be hashable, parse first?
@@ -281,9 +286,9 @@ class Mat(Tensor):
         # return mat
 
     def with_context(self, context):
-        row_axes = self.raxes.with_context(context)
-        col_axes = self.caxes.with_context(context)
-        return self.__record_init__(raxes=row_axes, caxes=col_axes)
+        row_axes = self.row_axis_forest.with_context(context)
+        col_axes = self.column_axis_forest.with_context(context)
+        return self.__record_init__(row_axis_forest=row_axes, column_axis_forest=col_axes)
 
     @property
     def context_free(self):
@@ -291,8 +296,17 @@ class Mat(Tensor):
         col_axes = self.caxes.context_free
         return self.__record_init__(raxes=row_axes, caxes=col_axes)
 
+    # TODO: deprecate for row_axes
+    @property
+    def raxes(self):
+        return self.row_axis_forest.trees[0]
+
+    @property
+    def caxes(self):
+        return self.column_axis_forest.trees[0]
+
     def with_axes(self, row_axes, col_axes):
-        return self.__record_init__(raxes=row_axes, caxes=col_axes)
+        return self.__record_init__(row_axis_forest=AxisForest([row_axes]), column_axis_forest=AxisForest([col_axes]))
 
     @property
     def leaf_layouts(self):
@@ -321,7 +335,7 @@ class Mat(Tensor):
         assert isinstance(row_axes, AxisTree), "not indexed"
         assert isinstance(col_axes, AxisTree), "not indexed"
 
-        return self.__record_init__(raxes=row_axes, caxes=col_axes, _parent=self)
+        return self.__record_init__(row_axis_forest=AxisForest([row_axes]), column_axis_forest=AxisForest([col_axes]), _parent=self)
 
     @cached_property
     def size(self) -> Any:

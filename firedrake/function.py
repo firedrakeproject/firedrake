@@ -750,8 +750,6 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
           {utils.ScalarType_c} t0[{coords_shape}*{gdim}];
           {utils.ScalarType_c} t1[{func_shape}*{func_bsize}];
 
-          printf("dat1 offset: %d\\n", dat1_offset);
-
           for (int32_t i = 0; i < {coords_shape}; ++i)
             for (int32_t j = 0; j < {gdim}; ++j)
               t0[{gdim} * i + j] = dat0[{gdim} * map0[i + {coords_shape} * start] + j];

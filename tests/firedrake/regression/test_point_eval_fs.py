@@ -22,7 +22,7 @@ def mesh_triangle():
 @pytest.fixture
 def mesh_quadrilateral():
     m = UnitSquareMesh(1, 1, quadrilateral=True)
-    for row in m.coordinates.dat.data_wo.reshape((2, 2)):
+    for row in m.coordinates.dat.data_wo.reshape((4, 2)):
         row[...] = [1.1*row[0] - 0.1*row[1],
                     0.1*row[0] + 1.0*row[1]]
     return m
@@ -114,7 +114,6 @@ def test_triangle_mixed(mesh_triangle):
     f1, f2 = f.subfunctions
     x = SpatialCoordinate(mesh_triangle)
 
-    breakpoint()
     f1.interpolate(x[0] + 1.2*x[1])
     f2.project(as_vector((x[1], 0.8 + x[0])))
 
