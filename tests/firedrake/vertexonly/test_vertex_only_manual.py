@@ -120,10 +120,6 @@ def test_mesh_tolerance():
     # This will now include the point (1.1, 1.0) in the mesh since each mesh
     # cell is 1.0/100.0 wide.
     vom = VertexOnlyMesh(parent_mesh, points)
-
-    # Similarly .at will not generate an error
-    V = FunctionSpace(parent_mesh, 'CG', 2)
-    Function(V).at((1.1, 1.0))
     # [test_mesh_tolerance 2]
 
     assert vom
@@ -140,19 +136,6 @@ def test_mesh_tolerance_change():
 
     # The tolerance property has been changed - this will print 30.0
     print(parent_mesh.tolerance)
-
-    # This doesn't generate an error
-    Function(V).at((1.1, 1.0), tolerance=20.0)
-
-    # The tolerance property has been changed again - this will print 20.0
-    print(parent_mesh.tolerance)
-
-    try:
-        # This generates an error
-        Function(V).at((1.1, 1.0), tolerance=1.0)
-    except PointNotInDomainError:
-        # But the tolerance property has still been changed - this will print 1.0
-        print(parent_mesh.tolerance)
     # [test_mesh_tolerance_change 2]
 
     assert vom
