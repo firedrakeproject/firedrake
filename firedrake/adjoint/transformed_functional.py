@@ -66,7 +66,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
     where
 
         - :math:`J` is the functional definining an optimization problem.
-        - :math:`\Pi` is the :math:`L^2` projection onto a discontinuous
+        - :math:`\Pi` is the :math:`L^2` projection from a discontinuous
           superspace of the control space.
         - :math:`\Xi` represents a change of basis from an :math:`L^2`
           orthonormal basis to the finite element basis for the discontinuous
