@@ -1631,6 +1631,10 @@ class MixedFunctionSpace:
         return layout_from_spec(self.layout, self.axis_constraints)
 
     @cached_property
+    def axes(self):
+        return op3.AxisForest([self.plex_axes, self.nodal_axes])
+
+    @cached_property
     def plex_axes(self) -> op3.IndexedAxisTree:
         # It isn't possible to use an index tree here because the axes of Real
         # spaces aren't expressible using index trees. Hence we have to be clever
@@ -1643,7 +1647,7 @@ class MixedFunctionSpace:
         targets = utils.StrictlyUniqueDict()
         for field_component, subspace in zip(field_axis.components, self._orig_spaces, strict=True):
             leaf_path = idict({field_axis.label: field_component.label})
-            subaxes = subspace.axes
+            subaxes = subspace.plex_axes
             axis_tree = axis_tree.add_subtree(
                 leaf_path, subaxes.materialize()
             )
@@ -2043,9 +2047,9 @@ class ProxyFunctionSpace(FunctionSpace):
     @cached_property
     def plex_axes(self):
         if not self.weak:
-            return self.parent.axes[self._slice]
+            return self.parent.plex_axes[self._slice]
 
-        trimmed = self.parent.axes[self._slice]
+        trimmed = self.parent.plex_axes[self._slice]
         trimmed_unindexed = self.parent.layout_axes[self._slice].materialize()
         trimmed_targets = op3.tree.axis_tree.trim_axis_targets(trimmed.targets, self._trimmed_axis_labels)
 

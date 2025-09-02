@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import abc
 from functools import cached_property
+from typing import Any
 
 import numpy as np
 from mpi4py import MPI
@@ -19,6 +22,14 @@ class AbstractStarForest(abc.ABC):
     # {{{ abstract methods
 
     @abc.abstractmethod
+    def __hash__(self) -> int:
+        pass
+
+    @abc.abstractmethod
+    def __eq__(self, other: Any, /) -> bool:
+        pass
+
+    @abc.abstractmethod
     def broadcast_begin(self, *args):
         pass
 
@@ -36,6 +47,26 @@ class AbstractStarForest(abc.ABC):
 
 class StarForest(AbstractStarForest):
     """Convenience wrapper for a `petsc4py.SF`."""
+
+    # {{{ interface impls
+
+    def __hash__(self) -> int:
+        return hash((
+            type(self),
+            self.nroots,
+            self.ilocal.data.tobytes(),
+            self.iremote.data.tobytes(),
+        ))
+
+    def __eq__(self, /, other: Any) -> bool:
+        return (
+            type(other) is type(self)
+            and other.nroots == self.nroots
+            and (other.ilocal == self.ilocal).all()
+            and (other.iremote == self.iremote).all()
+        )
+
+    # }}}
 
     def __init__(self, sf, size: IntType):
         self.sf = sf

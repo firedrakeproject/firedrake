@@ -1689,16 +1689,12 @@ class IndexedAxisTree(AbstractAxisTree):
         # indices = just_one(np.nonzero(mask_dat.buffer.data_ro))
 
         indices_dat = Dat.empty(self.materialize().localize(), dtype=IntType, prefix="indices")
-        breakpoint()  # ah these don't match!
         for leaf_path in self.leaf_paths:
             iterset = self.linearize(leaf_path)
             p = iterset.index()
             offset_expr = just_one(self[p].leaf_subst_layouts.values())
-            pyop3.extras.debug.enable_conditional_breakpoints()
             do_loop(p, indices_dat[p].assign(offset_expr))
         indices = indices_dat.buffer.data_ro_with_halos
-
-        breakpoint()
 
         indices = np.unique(np.sort(indices))
 
@@ -1893,11 +1889,33 @@ class AxisForest:
         return self.getitem(indices, strict=False)
 
     def getitem(self, indices, *, strict=False):
-        breakpoint()
+        # FIXME: This will not always work, catch exceptions!
+        indexed_trees = []
+        for tree in self.trees:
+            try:
+                indexed_tree = tree.getitem(indices, strict=strict)
+                indexed_trees.append(indexed_tree)
+            except:  # TODO: don't use a bare 'except' here, pass a clear exception type
+                pass
+
+        if not indexed_trees:
+            raise RuntimeError("Cannot find any indexable candidates")
+
+        return type(self)(indexed_trees)
+
+    def materialize(self):
+        return type(self)((tree.materialize() for tree in self.trees))
+
+    def with_context(self, context):
+        return type(self)((tree.with_context(context) for tree in self.trees))
 
     @cached_property
     def unindexed(self):
         return utils.single_valued(tree.unindexed for tree in self.trees)
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return utils.unique_comm(self.trees)
 
 
 class ContextSensitiveAxisTree(ContextSensitiveLoopIterable):

@@ -66,7 +66,7 @@ class Dat(Tensor):
 
     def __init__(
         self,
-        axes,
+        axis_forest,
         buffer: AbstractBuffer | None = None,
         *,
         data: np.ndarray | None = None,
@@ -81,7 +81,7 @@ class Dat(Tensor):
 
         We could maybe do something similar with dtype...
         """
-        axis_forest = as_axis_forest(axes)
+        axis_forest = as_axis_forest(axis_forest)
 
         unindexed = axis_forest.trees[0].unindexed
 
@@ -202,8 +202,8 @@ class Dat(Tensor):
         return self.getitem(indices, strict=False)
 
     def getitem(self, index, *, strict=False):
-        indexed_axes = self.axes.getitem(index, strict=strict)
-        return self.__record_init__(axes=indexed_axes)
+        indexed_axes = self.axis_forest.getitem(index, strict=strict)
+        return self.__record_init__(axis_forest=indexed_axes)
 
     def get_value(self, indices, path=None, *, loop_exprs=idict()):
         offset = self.axes.offset(indices, path, loop_exprs=loop_exprs)
@@ -271,11 +271,11 @@ class Dat(Tensor):
 
     # TODO: dont do this here
     def with_context(self, context):
-        return self.__record_init__(axes=self.axes.with_context(context))
+        return self.__record_init__(axis_forest=self.axis_forest.with_context(context))
 
     @property
     def context_free(self):
-        return self.__record_init__(axes=self.axes.context_free)
+        return self.__record_init__(axis_forest=self.axis_forest.context_free)
 
     def concretize(self):
         """Convert to an expression, can no longer be indexed properly"""
@@ -510,7 +510,7 @@ class Dat(Tensor):
         """
         assert isinstance(axes, AxisTree), "not indexed"
 
-        return self.__record_init__(axes=axes, _parent=self)
+        return self.__record_init__(axis_forest=AxisForest([axes]), _parent=self)
 
     # NOTE: should this only accept AxisTrees, or are IndexedAxisTrees fine also?
     # is this ever used?
@@ -528,7 +528,7 @@ class Dat(Tensor):
             XXX
 
         """
-        return self.__record_init__(axes=axes)
+        return self.__record_init__(axis_forest=AxisForest([axes]))
 
 
 # should inherit from _Dat

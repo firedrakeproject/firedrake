@@ -599,6 +599,7 @@ def _make_record(**kwargs):
 def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
     changed_attrs = {}
     for attr_name, attr in attrs.items():
+        assert attr_name in self.__dataclass_fields__
         try:
             if getattr(self, attr_name) != attr:
                 changed_attrs[attr_name] = attr
