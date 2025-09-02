@@ -15,4 +15,4 @@ from .tree import (  # noqa: F401
     UNIT_AXIS_TREE,
     merge_axis_trees,
 )
-from .parse import as_axis_tree
+from .parse import as_axis_tree, as_axis_forest

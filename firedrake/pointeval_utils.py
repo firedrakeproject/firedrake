@@ -123,14 +123,8 @@ def compile_element(expression, coordinates, parameters=None):
         "IntType": as_cstr(IntType),
         "scalar_type": utils.ScalarType_c,
     }
-    # if maps are the same, only need to pass one of them
-    # if (coordinates.function_space().cell_node_list == coefficient.function_space().cell_node_list).all():
-    if False:
-        code["wrapper_map_args"] = "%(IntType)s const *__restrict__ coords_map" % code
-        code["map_args"] = "f->coords_map"
-    else:
-        code["wrapper_map_args"] = "%(IntType)s const *__restrict__ coords_map, %(IntType)s const *__restrict__ f_map" % code
-        code["map_args"] = "f->coords_map, f->f_map"
+    code["wrapper_map_args"] = "%(IntType)s const *__restrict__ coords_map, %(IntType)s const *__restrict__ f_map, int const f_offset" % code
+    code["map_args"] = "f->coords_map, f->f_map, f->f_offset"
 
     evaluate_template_c = """
 static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s* const X, %(IntType)s const start, %(IntType)s const end%(layers_arg)s,

@@ -1689,12 +1689,16 @@ class IndexedAxisTree(AbstractAxisTree):
         # indices = just_one(np.nonzero(mask_dat.buffer.data_ro))
 
         indices_dat = Dat.empty(self.materialize().localize(), dtype=IntType, prefix="indices")
+        breakpoint()  # ah these don't match!
         for leaf_path in self.leaf_paths:
             iterset = self.linearize(leaf_path)
             p = iterset.index()
             offset_expr = just_one(self[p].leaf_subst_layouts.values())
+            pyop3.extras.debug.enable_conditional_breakpoints()
             do_loop(p, indices_dat[p].assign(offset_expr))
         indices = indices_dat.buffer.data_ro_with_halos
+
+        breakpoint()
 
         indices = np.unique(np.sort(indices))
 
@@ -1890,6 +1894,10 @@ class AxisForest:
 
     def getitem(self, indices, *, strict=False):
         breakpoint()
+
+    @cached_property
+    def unindexed(self):
+        return utils.single_valued(tree.unindexed for tree in self.trees)
 
 
 class ContextSensitiveAxisTree(ContextSensitiveLoopIterable):

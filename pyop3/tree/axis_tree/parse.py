@@ -5,18 +5,35 @@ import functools
 import numbers
 from typing import Any
 
-from .tree import AxisTree, Axis, _UnitAxisTree, ContextSensitiveAxisTree, IndexedAxisTree, AxisComponent
+from .tree import AbstractAxisTree, AxisForest, AxisTree, Axis, _UnitAxisTree, ContextSensitiveAxisTree, IndexedAxisTree, AxisComponent
 
 
 @functools.singledispatch
-def as_axis_tree(arg: Any) -> AxisTree:
+def as_axis_forest(arg: Any) -> AxisForest:
+    raise TypeError
+
+
+@as_axis_forest.register(AxisForest)
+def _(arg):
+    return arg
+
+
+@as_axis_forest.register(AbstractAxisTree)
+@as_axis_forest.register(_UnitAxisTree)
+@as_axis_forest.register(ContextSensitiveAxisTree)
+def _(arg):
+    return AxisForest([arg])
+
+
+@as_axis_forest.register(Axis)
+def _(arg):
+    return as_axis_forest(as_axis_tree(arg))
+
+
+@functools.singledispatch
+def as_axis_tree(arg: Any) -> AxisTree | AxisForest:
     axis = as_axis(arg)
     return as_axis_tree(axis)
-
-
-@as_axis_tree.register
-def _(axes: ContextSensitiveAxisTree) -> ContextSensitiveAxisTree:
-    return axes
 
 
 @as_axis_tree.register
@@ -26,6 +43,8 @@ def _(axes_per_context: collections.abc.Mapping) -> ContextSensitiveAxisTree:
 
 @as_axis_tree.register(AxisTree)
 @as_axis_tree.register(_UnitAxisTree)
+@as_axis_tree.register(ContextSensitiveAxisTree)
+@as_axis_tree.register(AxisForest)
 def _(axes: AxisTree) -> AxisTree:
     return axes
 

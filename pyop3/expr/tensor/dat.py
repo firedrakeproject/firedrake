@@ -20,8 +20,9 @@ from pyop3.tree.axis_tree import (
     Axis,
     AxisTree,
     as_axis_tree,
+    as_axis_forest,
 )
-from pyop3.tree.axis_tree.tree import AbstractAxisTree, ContextSensitiveAxisTree
+from pyop3.tree.axis_tree.tree import AbstractAxisTree, AxisForest, ContextSensitiveAxisTree
 from pyop3.tree import LoopIndex
 from pyop3.buffer import AbstractBuffer, ArrayBuffer, BufferRef, NullBuffer, PetscMatBuffer
 from pyop3.dtypes import DTypeT, ScalarType, IntType
@@ -58,7 +59,7 @@ class Dat(Tensor):
 
     # {{{ instance attrs
 
-    axes: AbstractAxisTree
+    axis_forest: AxisForest
     _buffer: AbstractBuffer
     _name: str
     _parent: Dat | None
@@ -80,23 +81,25 @@ class Dat(Tensor):
 
         We could maybe do something similar with dtype...
         """
-        axes = as_axis_tree(axes)
+        axis_forest = as_axis_forest(axes)
+
+        unindexed = axis_forest.trees[0].unindexed
 
         assert buffer is None or data is None, "cant specify both"
         if isinstance(buffer, ArrayBuffer):
-            assert buffer.sf == axes.unindexed.sf
+            assert buffer.sf == unindexed.sf
         elif isinstance(buffer, NullBuffer):
             pass
         else:
             assert buffer is None and data is not None
             assert len(data.shape) == 1, "cant do nested shape"
-            buffer = ArrayBuffer(data, axes.unindexed.sf)
+            buffer = ArrayBuffer(data, unindexed.sf)
 
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         self._name = name
         self._parent = parent
-        self.axes = axes
+        self.axis_forest = axis_forest
         self._buffer = buffer
 
         # self._cache = {}
@@ -178,6 +181,10 @@ class Dat(Tensor):
         return cls.from_array(array, **kwargs)
 
     # }}}
+
+    @property
+    def axes(self) -> AbstractAxisTree:
+        return self.axis_forest.trees[0]
 
     @property
     def _full_str(self) -> str:

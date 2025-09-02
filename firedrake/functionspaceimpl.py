@@ -786,7 +786,11 @@ class FunctionSpace:
         return tuple(constraints)
 
     @cached_property
-    def axes(self) -> op3.IndexedAxisTree:
+    def axes(self) -> op3.AxisForest:
+        return op3.AxisForest([self.plex_axes, self.nodal_axes])
+
+    @cached_property
+    def plex_axes(self) -> op3.IndexedAxisTree:
         strata_slice = self._mesh._strata_slice
         index_tree = op3.IndexTree(strata_slice)
         for slice_component in strata_slice.components:
@@ -811,7 +815,7 @@ class FunctionSpace:
     def nodal_axes(self) -> op3.IndexedAxisTree:
         # NOTE: This might be a good candidate for axis forests so we could have
         # V.axes and index it with node things or mesh things
-        scalar_axis_tree = self.axes.blocked(self.shape)
+        scalar_axis_tree = self.plex_axes.blocked(self.shape)
         num_nodes = scalar_axis_tree.size
 
         node_axis = op3.Axis([op3.AxisComponent(num_nodes, sf=scalar_axis_tree.sf)], "nodes")
@@ -1053,6 +1057,7 @@ class FunctionSpace:
 
         return section
 
+    # IMPORTANT: This is only for the subspace - if addressing a subfunction with this an offset is needed
     @utils.cached_property
     def cell_node_list(self):
         r"""A numpy array mapping mesh cells to function space nodes."""
@@ -1626,7 +1631,7 @@ class MixedFunctionSpace:
         return layout_from_spec(self.layout, self.axis_constraints)
 
     @cached_property
-    def axes(self) -> op3.IndexedAxisTree:
+    def plex_axes(self) -> op3.IndexedAxisTree:
         # It isn't possible to use an index tree here because the axes of Real
         # spaces aren't expressible using index trees. Hence we have to be clever
         # how we combine things here to retain that information.
@@ -2036,7 +2041,7 @@ class ProxyFunctionSpace(FunctionSpace):
         return super(ProxyFunctionSpace, self).make_dat(*args, **kwargs)
 
     @cached_property
-    def axes(self):
+    def plex_axes(self):
         if not self.weak:
             return self.parent.axes[self._slice]
 
@@ -2216,7 +2221,7 @@ class RealFunctionSpace(FunctionSpace):
         return tuple(constraints)
 
     @cached_property
-    def axes(self) -> op3.IndexedAxisTree:
+    def plex_axes(self) -> op3.IndexedAxisTree:
         # For real function spaces the mesh is conceptually non-existent as all
         # cells map to the same globally-defined DoFs. We can trick pyop3 into
         # pretending that a mesh axis exists though by careful construction of

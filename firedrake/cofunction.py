@@ -126,7 +126,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         if len(self.function_space()) > 1:
             subfuncs = []
             for i in range(len(self.function_space())):
-                subspace = self.function_space().sub(i, weak=False)
+                subspace = self.function_space().sub(i, weak=True)
                 subdat = self.dat[subspace.index]
                 subfunc = type(self)(
                     subspace, subdat, name=f"{self.name()}[{subspace.index}]"
@@ -256,7 +256,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         expr = ufl.as_ufl(expr)
         if isinstance(expr, ufl.classes.Zero):
             with stop_annotating(modifies=(self,)):
-                self.dat.with_axes(self.function_space().nodal_axes)[subset].zero(eager=True)
+                self.dat[subset].zero(eager=True)
             return self
         elif (isinstance(expr, Cofunction)
               and expr.function_space() == self.function_space()):
@@ -275,8 +275,8 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
             # TODO: Shouldn't need to cast the axes
             # self.dat[subset].assign(expr.dat[subset], eager=True)
-            lhs = self.dat.with_axes(self.function_space().nodal_axes)[subset]
-            rhs = expr.dat.with_axes(expr.function_space().nodal_axes)[subset]
+            lhs = self.dat[subset]
+            rhs = expr.dat[subset]
             lhs.assign(rhs, eager=True)
             return self
         elif isinstance(expr, BaseForm):

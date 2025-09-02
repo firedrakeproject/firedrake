@@ -42,6 +42,7 @@ from pyop3.expr.tensor import (  # noqa: F401
 from pyop3.expr import as_linear_buffer_expression, AxisVar
 from pyop3.tree.axis_tree import (  # noqa: F401
     Axis,
+    AxisForest,
     AxisComponent,
     AxisComponentRegion,
     AxisTree,

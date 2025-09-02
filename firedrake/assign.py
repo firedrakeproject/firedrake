@@ -204,8 +204,10 @@ class Assigner:
         # TODO Does pyop3 know this already? Could it?
 
         func_halos_valid = all(f.dat.buffer.leaves_valid for f in self._functions)
-        assign_to_halos = (
-            func_halos_valid and (not self._subset or self._assignee.dat.buffer.leaves_valid))
+        # assign_to_halos = (
+        #     func_halos_valid and (not self._subset or self._assignee.dat.buffer.leaves_valid))
+        # disable for now
+        assign_to_halos = False
 
         if assign_to_halos:
             data_ro = operator.attrgetter("data_ro_with_halos")
@@ -218,7 +220,7 @@ class Assigner:
         lhs = self._assignee
         funcs = self._functions
 
-        func_data = np.array([data_ro(f.dat.with_axes(f.function_space().nodal_axes)[self._subset]) for f in funcs])
+        func_data = np.array([data_ro(f.dat[self._subset]) for f in funcs])
         rvalue = self._compute_rvalue(func_data)
 
         self._assign_single_dat(lhs, self._subset, rvalue, assign_to_halos)
@@ -244,7 +246,7 @@ class Assigner:
         return tuple(w for (c, w) in self._weighted_coefficients if _isfunction(c))
 
     def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
-        lhs_dat = lhs.dat.with_axes(lhs.function_space().nodal_axes)[subset]
+        lhs_dat = lhs.dat[subset]
         if isinstance(rvalue, numbers.Number) or rvalue.size == 1:
             if assign_to_halos:
                 lhs_dat.data_wo_with_halos = rvalue
@@ -285,7 +287,7 @@ class IAddAssigner(Assigner):
     symbol = "+="
 
     def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
-        lhs_dat = lhs.dat.with_axes(lhs.function_space().nodal_axes)
+        lhs_dat = lhs.dat
         # convert to a numpy type
         rval = rvalue.data_ro if isinstance(rvalue, op3.Dat) else rvalue
 
@@ -303,7 +305,7 @@ class ISubAssigner(Assigner):
     symbol = "-="
 
     def _assign_single_dat(self, lhs, subset, rvalue, assign_to_halos):
-        lhs_dat = lhs.dat.with_axes(lhs.function_space().nodal_axes)
+        lhs_dat = lhs.dat
         # convert to a numpy type
         rval = rvalue.data_ro if isinstance(rvalue, op3.Dat) else rvalue
 
@@ -324,7 +326,7 @@ class IMulAssigner(Assigner):
         if self._functions:
             raise ValueError("Only multiplication by scalars is supported")
 
-        lhs_dat = lhs.dat.with_axes(lhs.function_space().nodal_axes)
+        lhs_dat = lhs.dat
 
         if assign_to_halos:
             lhs_dat[indices].data_wo_with_halos[...] *= rvalue
@@ -340,7 +342,7 @@ class IDivAssigner(Assigner):
         if self._functions:
             raise ValueError("Only division by scalars is supported")
 
-        lhs_dat = lhs.dat.with_axes(lhs.function_space().nodal_axes)
+        lhs_dat = lhs.dat
 
         if assign_to_halos:
             # TODO set modified

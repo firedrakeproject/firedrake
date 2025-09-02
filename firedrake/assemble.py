@@ -495,7 +495,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                     (row, col) = lhs.arguments()
                     # The matrix-vector product lives in the dual of the test space.
                     res = tensor if tensor else firedrake.Function(row.function_space().dual())
-                    with rhs.dat.vec_ro() as v_vec, res.dat.vec_wo() as res_vec:
+                    with rhs.vec_ro as v_vec, res.vec_wo as res_vec:
                         petsc_mat.mult(v_vec, res_vec)
                     return res
                 elif isinstance(rhs, matrix.MatrixBase):
@@ -1098,6 +1098,9 @@ class ParloopFormAssembler(FormAssembler):
                 if isinstance(subtensor, op3.Mat) and subtensor.buffer.mat_type == "python":
                     subtensor = subtensor.buffer.mat.getPythonContext().dat
 
+                import pyop3.extras.debug
+                pyop3.extras.debug.enable_conditional_breakpoints()
+
                 if isinstance(self, ExplicitMatrixAssembler):
                     with _modified_lgmaps(subtensor, local_kernel.indices, lgmaps):
                         parloop({self._tensor_name[local_kernel]: subtensor.buffer}, compiler_parameters=pyop3_compiler_parameters)
@@ -1696,8 +1699,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             #     p = (index, V.nodal_axes[bc.node_set].index()
             # assignee = mat[index, index].with_axes(spaces[0].nodal_axes[index], spaces[1].nodal_axes[index])[p, p]
             # op3.extras.debug.enable_conditional_breakpoints()
-            # assignee = mat.with_axes(spaces[0].nodal_axes, spaces[1].nodal_axes)[index, index][p, p]
-            assignee1 = mat.with_axes(spaces[0].nodal_axes, spaces[1].nodal_axes)
+            # assignee = mat.w\ith_axes(spaces[0].nodal_axes, spaces[1].nodal_axes)[index, index][p, p]
+            assignee1 = mat
             assignee2 = assignee1[index, index]
             assignee3 = assignee2[p, p]
             assignee = assignee3
@@ -1782,7 +1785,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             nodal_axes = raxes 
         else:
             nodal_axes = caxes 
-        dat = dat.with_axes(nodal_axes)
 
         if component is not None:
             dat = dat[:, *component]

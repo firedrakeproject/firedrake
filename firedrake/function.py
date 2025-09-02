@@ -14,6 +14,7 @@ from collections.abc import Collection
 from numbers import Number
 from pathlib import Path
 from pyrsistent import freeze
+from immutabledict import immutabledict as idict
 
 from pyop2 import mpi, MPI
 from pyop2.exceptions import DataTypeError, DataValueError
@@ -40,6 +41,7 @@ class _CFunction(ctypes.Structure):
                 ("coords_map", POINTER(as_ctypes(IntType))),
                 ("f", c_void_p),
                 ("f_map", POINTER(as_ctypes(IntType))),
+                ("f_offset", c_int),
                 ("sidx", c_void_p)]
 
 
@@ -114,7 +116,9 @@ class CoordinatelessFunction(ufl.Coefficient):
         if len(self.function_space()) > 1:
             subfuncs = []
             for i in range(len(self.function_space())):
-                subspace = self.function_space().sub(i, weak=False)
+                # a guess, might not work
+                # subspace = self.function_space().sub(i, weak=False)
+                subspace = self.function_space().sub(i, weak=True)
                 subdat = self.dat[subspace.index]
                 subfunc = CoordinatelessFunction(
                     subspace, subdat, name=f"{self.name()}[{subspace.index}]"
@@ -305,7 +309,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
         if len(self.function_space()) > 1:
             return tuple(
-                type(self)(self.function_space().sub(i, weak=False), val)
+                # type(self)(self.function_space().sub(i, weak=False), val)
+                type(self)(self.function_space().sub(i, weak=True), val)  # a guess, might not work
                 for (i, val) in zip(range(len(self.function_space())), self.topological.subfunctions))
         else:
             return (self,)
@@ -451,7 +456,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             except (DataTypeError, DataValueError) as e:
                 raise ValueError(e)
         elif expr == 0:
-            self.dat.with_axes(self.function_space().nodal_axes)[subset].zero(eager=True)
+            self.dat[subset].zero(eager=True)
         else:
             from firedrake.assign import Assigner
             Assigner(self, expr, subset).assign()
@@ -539,8 +544,10 @@ class Function(ufl.Coefficient, FunctionMixin):
         c_function.n_cells = mesh.num_cells
         c_function.coords = coordinates.dat.data_rw.ctypes.data_as(c_void_p)
         c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
-        c_function.f = self.dat.data_rw.ctypes.data_as(c_void_p)
+        # c_function.f = self.dat.data_rw.ctypes.data_as(c_void_p)
+        c_function.f = self.dat.buffer.data_rw.ctypes.data_as(c_void_p)
         c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
+        c_function.f_offset = op3.evaluate(self.dat.axes.subst_layouts()[idict({mesh.topology.name: mesh.cell_label})], {mesh.topology.name: 0})
         return c_function
 
     @property
@@ -738,17 +745,19 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
 
     p_ScalarType_c = f"{utils.ScalarType_c}*"
     wrapper_src = textwrap.dedent(f"""
-        void wrap_evaluate({p_ScalarType_c} const farg0, {p_ScalarType_c} const farg1, int32_t const start, int32_t const end, {utils.ScalarType_c} const *__restrict__ dat0, {utils.ScalarType_c} const *__restrict__ dat1, {utils.IntType_c} const *__restrict__ map0, {utils.IntType_c} const *__restrict__ map1)
+        void wrap_evaluate({p_ScalarType_c} const farg0, {p_ScalarType_c} const farg1, int32_t const start, int32_t const end, {utils.ScalarType_c} const *__restrict__ dat0, {utils.ScalarType_c} const *__restrict__ dat1, {utils.IntType_c} const *__restrict__ map0, {utils.IntType_c} const *__restrict__ map1, int const dat1_offset)
         {{
           {utils.ScalarType_c} t0[{coords_shape}*{gdim}];
           {utils.ScalarType_c} t1[{func_shape}*{func_bsize}];
+
+          printf("dat1 offset: %d\\n", dat1_offset);
 
           for (int32_t i = 0; i < {coords_shape}; ++i)
             for (int32_t j = 0; j < {gdim}; ++j)
               t0[{gdim} * i + j] = dat0[{gdim} * map0[i + {coords_shape} * start] + j];
           for (int32_t i = 0; i < {func_shape}; ++i)
             for (int32_t j = 0; j < {func_bsize}; ++j) {{
-              t1[{func_bsize} * i + j] = dat1[{func_bsize} * map1[i + {func_shape} * start] + j];
+              t1[{func_bsize} * i + j] = dat1[{func_bsize} * map1[i + {func_shape} * start] + j + dat1_offset];
             }}
           evaluate_kernel(farg0, farg1, &(t0[0]), &(t1[0]));
         }}"""
