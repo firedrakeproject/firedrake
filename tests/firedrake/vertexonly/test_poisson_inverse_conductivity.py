@@ -98,17 +98,17 @@ def test_poisson_inverse_conductivity(num_points):
     solve(F == 0, u, bc)
 
     # Two terms in the functional
-    misfit_expr = 0.5 * ((u_obs - assemble(interpolate(u, P0DG))) / σ)**2
-    α = Constant(0.5)
-    regularisation_expr = 0.5 * α**2 * inner(grad(q), grad(q))
+    misfit_expr = 0.5 * ((u_obs - assemble(interpolate(u, P0DG))) / sigma)**2
+    alpha = Constant(0.5)
+    regularisation_expr = 0.5 * alpha**2 * inner(grad(q), grad(q))
 
     # Form functional and reduced functional
     J = assemble(misfit_expr * dx) + assemble(regularisation_expr * dx)
-    q̂ = Control(q)
-    Ĵ = ReducedFunctional(J, q̂)
+    q_hat = Control(q)
+    J_hat = ReducedFunctional(J, q_hat)
 
     # Estimate q using Newton-CG which evaluates the hessian action
-    minimize(Ĵ, method='Newton-CG', options={'maxiter': 10, 'xtol': 1e-1, 'disp': True})
+    minimize(J_hat, method='Newton-CG', options={'maxiter': 10, 'xtol': 1e-1, 'disp': True})
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
