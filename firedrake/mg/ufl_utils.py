@@ -266,10 +266,23 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
             except CoarseningError:
                 # Assume not something that needs coarsening (e.g. float)
                 new_appctx[k] = v
+
+    _, level = utils.get_level(problem.u_restrict.function_space().mesh())
+    if level == 0:
+        # Use different mat_type on coarsest level
+        opts = PETSc.Options(context.options_prefix)
+        mat_type = opts.getString("mg_coarse_mat_type", default=context.mat_type)
+        pmat_type = context.pmat_type if context.mat_type == mat_type else mat_type
+        pmat_type = opts.getString("mg_coarse_pmat_type", default=pmat_type)
+    else:
+        mat_type = context.mat_type
+        pmat_type = context.pmat_type
+
     coarse = type(context)(problem,
-                           mat_type=context.mat_type,
-                           pmat_type=context.pmat_type,
+                           mat_type=mat_type,
+                           pmat_type=pmat_type,
                            appctx=new_appctx,
+                           options_prefix=context.options_prefix,
                            transfer_manager=context.transfer_manager,
                            pre_apply_bcs=context.pre_apply_bcs)
     coarse._coefficient_mapping = coefficient_mapping
