@@ -231,6 +231,7 @@ class Assigner:
         for lhs_func, subset, *funcs in zip(self._assignee.subfunctions, self._subset, *(f.subfunctions for f in self._functions)):
             target_mesh = extract_unique_domain(lhs_func)
             target_V = lhs_func.function_space()
+            # Validate / Process subset.
             if subset is not None:
                 if subset is target_V.node_set:
                     # The whole set.
