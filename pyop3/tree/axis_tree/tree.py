@@ -1931,6 +1931,10 @@ class AxisForest:
     def comm(self) -> MPI.Comm:
         return utils.unique_comm(self.trees)
 
+    @property
+    def owned(self) -> AxisForest:
+        return type(self)((tree.owned for tree in self.trees))
+
 
 class ContextSensitiveAxisTree(ContextSensitiveLoopIterable):
     def __repr__(self) -> str:

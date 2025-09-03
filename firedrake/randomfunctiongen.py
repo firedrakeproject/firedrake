@@ -301,7 +301,7 @@ def __getattr__(module_attr):
                             V = args[0]
                             f = Function(V)
                             args = args[1:]
-                            with f.dat.vec_wo as v:
+                            with f.vec_wo as v:
                                 kwargs['size'] = (v.local_size,)
                                 v.array[:] = getattr(self, c_a)(*args, **kwargs)
                             return f
