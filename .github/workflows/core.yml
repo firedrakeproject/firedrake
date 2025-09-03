@@ -568,7 +568,7 @@ jobs:
 
   deploy_website:
     name: Deploy GitHub pages (optional)
-    needs: test_linux
+    needs: build_docs
     # Only deploy the website for main here, the release branch is managed
     # by https://github.com/firedrakeproject/firedrakeproject.github.io
     if: |
