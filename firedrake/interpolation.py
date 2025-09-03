@@ -284,6 +284,18 @@ class Interpolator(abc.ABC):
             expr = replace(expr, {v: v.reconstruct(number=1)})
         self.expr_renumbered = expr
 
+    def interpolate(self, *function, transpose=None, adjoint=False, default_missing_val=None):
+        """
+        .. warning::
+
+            This method is deprecated and will be removed after the next release.
+            Use the function :func:`interpolate` instead.
+        """
+        raise FutureWarning(
+            "The 'interpolate' method on Interpolator objects has been deprecated and will be "
+            "removed after the next release. Use the `interpolate` function instead."
+        )
+
     @abc.abstractmethod
     def _interpolate(self, *args, **kwargs):
         """
