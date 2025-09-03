@@ -1899,6 +1899,7 @@ class AxisForest:
                 pass
 
         if not indexed_trees:
+            breakpoint()
             raise RuntimeError("Cannot find any indexable candidates")
 
         return type(self)(indexed_trees)
@@ -1908,6 +1909,9 @@ class AxisForest:
 
     def blocked(self, block_shape):
         return type(self)(map(operator.methodcaller("blocked", block_shape), self.trees))
+
+    def restrict_nest(self, index):
+        return type(self)((tree.restrict_nest(index) for tree in self.trees))
 
     # def prune(self):
     #     return type(self)((tree.prune() for tree in self.trees))

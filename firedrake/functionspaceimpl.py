@@ -2235,7 +2235,7 @@ class RealFunctionSpace(FunctionSpace):
         # Create the pretend axis tree that includes the mesh axis. This is
         # just a DG0 function.
         dg_space = FunctionSpace(self._mesh, self.element.reconstruct(family="DG"))
-        fake_axes = dg_space.axes.materialize()
+        fake_axes = dg_space.plex_axes.materialize()
 
         # Now map the mesh-aware axis tree back to the actual one
         # constitutes two steps:
@@ -2273,7 +2273,7 @@ class RealFunctionSpace(FunctionSpace):
                     if target_axis_label == f"dof{self._mesh.cell_label}":
                         dof_axis = utils.single_valued(
                             axis
-                            for axis in dg_space.axes.nodes
+                            for axis in dg_space.plex_axes.nodes
                             if axis.label == f"dof{self._mesh.cell_label}"
                         )
                         new_target_exprs["dof"] = op3.AxisVar(dof_axis)
