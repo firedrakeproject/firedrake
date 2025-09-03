@@ -165,6 +165,7 @@ def test_real_extruded_mixed_one_form_assembly(coefficient):
                                    AA.dat.data)
 
 
+@pytest.mark.skip("pyop3 extruded")
 @pytest.mark.skipcomplex
 def test_real_extruded_mixed_two_form_assembly():
     m = UnitIntervalMesh(3)
