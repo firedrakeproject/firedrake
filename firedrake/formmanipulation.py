@@ -20,11 +20,10 @@ from firedrake.matrix import AssembledMatrix
 def subspace(V, indices):
     """Construct a collapsed subspace using components from V."""
     if len(indices) == 1:
-        W = V._orig_spaces[indices[0]]
+        W = V[indices[0]]
     else:
-        W = MixedFunctionSpace([V._orig_spaces[i] for i in indices])
-    return W
-    # return W.collapse()  # this discards Proxy information
+        W = MixedFunctionSpace([V[i] for i in indices])
+    return W.collapse()
 
 
 class ExtractSubBlock(MultiFunction):

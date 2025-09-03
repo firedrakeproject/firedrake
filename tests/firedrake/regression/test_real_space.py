@@ -35,7 +35,6 @@ def test_real_two_form_assembly():
     assert assemble(2*u*v * dx).M.values == 2.0
 
 
-@pytest.mark.skip("pyop3")
 @pytest.mark.skipcomplex
 def test_real_nonsquare_two_form_assembly():
     mesh = UnitIntervalMesh(3)
@@ -51,10 +50,10 @@ def test_real_nonsquare_two_form_assembly():
     v = TestFunction(rfs)
     m2 = assemble(2 * inner(u, v) * dx)
 
-    np.testing.assert_almost_equal(base_case.dat.data,
-                                   m1.M.values[:, 0])
-    np.testing.assert_almost_equal(base_case.dat.data,
-                                   m2.M.values[0, :])
+    np.testing.assert_almost_equal(base_case.dat.data_ro,
+                                   m1.M.values)
+    np.testing.assert_almost_equal(base_case.dat.data_ro,
+                                   m2.M.values)
 
 
 @pytest.mark.skipcomplex

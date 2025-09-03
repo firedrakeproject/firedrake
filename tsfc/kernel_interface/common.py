@@ -51,6 +51,7 @@ class KernelBuilderBase(KernelInterface):
         return frozenset()
 
     def coordinate(self, domain):
+        breakpoint()
         return self.domain_coordinate[domain]
 
     def coefficient(self, ufl_coefficient, restriction):

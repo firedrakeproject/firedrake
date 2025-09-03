@@ -1136,7 +1136,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
             bc_rows = [bc for bc in bcs if bc.function_space() == V]
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = [(V.local_to_global_map(bc_rows), Vcol.local_to_global_map(bc_cols))]
-        packed_tensor = maybe_permute_packed_tensor(tensor[rows_map(loop_index), columns_map(loop_index)], V, Vcol)
+        packed_tensor = maybe_permute_packed_tensor(tensor[rows_map(loop_index), columns_map(loop_index)], V.finat_element, Vcol.finat_element, V.shape, Vcol.shape)
         parloop_args.append(packed_tensor)
 
     if kernel.oriented:

@@ -45,6 +45,9 @@ class Argument(ufl.argument.Argument):
                                        number, part=part)
         self._function_space = function_space
 
+        if self.ufl_domain().ufl_id() == 1:
+            breakpoint()
+
     @utils.cached_property
     def cell_node_map(self):
         return self.function_space().cell_node_map
