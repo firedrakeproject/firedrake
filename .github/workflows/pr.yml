@@ -19,7 +19,7 @@ jobs:
     name: Build developer Docker containers
     uses: ./.github/workflows/docker.yml
     with:
-      tag: testing-dev-${{ github.ref_name }}
-      branch: ${{ github.ref_name }}
+      tag: testing-dev-${{ github.base_ref }}
+      branch: ${{ github.base_ref }}
       build_dev: true
     secrets: inherit
