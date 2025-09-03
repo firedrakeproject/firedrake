@@ -166,6 +166,7 @@ class CoordinatelessFunction(ufl.Coefficient):
     def cell_node_map(self):
         return self.function_space().cell_node_map()
     cell_node_map.__doc__ = functionspaceimpl.FunctionSpace.cell_node_map.__doc__
+
     def interior_facet_node_map(self):
         return self.function_space().interior_facet_node_map()
     interior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.interior_facet_node_map.__doc__
