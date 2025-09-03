@@ -418,7 +418,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         Parameters
         ----------
-        expr : ufl.expr.Expr
+        expr : ufl.core.expr.Expr
             Expression to be assigned.
         subset : pyop2.types.set.Set or pyop2.types.set.Subset or pyop2.types.set.MixedSet
             ``self.node_set`` or `pyop2.types.set.Subset` of ``self.node_set`` or
