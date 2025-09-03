@@ -192,7 +192,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
         Returns
         -------
-        firedrake.function.Cofunction
+        firedrake.cofunction.Cofunction
             Returns `self`.
 
         Notes
