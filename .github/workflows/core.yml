@@ -505,7 +505,7 @@ jobs:
         id: install
         run: |
           CC=mpicc CXX=mpicxx \
-          pip install --verbose --no-build-isolation --no-deps './firedrake-repo[check,docs]'
+            pip install --verbose --no-build-isolation './firedrake-repo[check,docs]'
           firedrake-clean
           pip list
 
