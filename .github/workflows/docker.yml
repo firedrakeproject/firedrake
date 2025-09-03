@@ -53,6 +53,12 @@ jobs:
             platform: linux/amd64
           - os: macOS
             build_dev: true
+        include:
+          # dev containers should contain documentation dependencies
+          - build_dev: true
+            extra_apt_packages: 'inkscape texlive-full'
+          - build_dev: false
+            extra_apt_packages: ''
     uses: ./.github/workflows/docker_build.yml
     with:
       os: ${{ matrix.os }}
@@ -62,6 +68,7 @@ jobs:
       tag: ${{ inputs.tag }}
       branch: ${{ inputs.branch }}
       dockerfile: docker/Dockerfile.vanilla
+      extra_apt_packages: ${{ matrix.extra_apt_packages }}
     secrets: inherit
 
   docker_merge_vanilla:

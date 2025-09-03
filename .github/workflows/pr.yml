@@ -13,3 +13,13 @@ jobs:
       # Only run macOS tests if the PR is labelled 'macOS'
       test_macos: ${{ contains(github.event.pull_request.labels.*.name, 'macOS') }}
     secrets: inherit
+
+  # UNDO BEFORE MERGE
+  docker:
+    name: Build developer Docker containers
+    uses: ./.github/workflows/docker.yml
+    with:
+      tag: testing-dev-${{ github.ref_name }}
+      branch: ${{ github.ref_name }}
+      build_dev: true
+    secrets: inherit

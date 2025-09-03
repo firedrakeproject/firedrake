@@ -38,6 +38,11 @@ on:
         required: false
         type: string
         default: 'release'
+      extra_apt_packages:
+        description: 'Additional apt packages to install into the container'
+        required: false
+        type: string
+        default: ''
     secrets:
       # Docker login information
       DOCKERHUB_USER:
@@ -75,7 +80,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push ${{ inputs.target }}
+      - name: Build and push ${{ inputs.target }} (dev)
         id: build
         uses: docker/build-push-action@v6
         with:
@@ -84,6 +89,7 @@ jobs:
           build-args: |
             ARCH=${{ inputs.arch }}
             BRANCH=${{ inputs.branch }}
+            APT_EXTRA_PACKAGES=${{ inputs.extra_apt_packages }}
           outputs: type=image,name=firedrakeproject/${{ inputs.target }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
