@@ -278,7 +278,7 @@ and :ref:`here <tolerance>` respectively) can be set when creating the :py:class
 and will be passed to the :func:`~.VertexOnlyMesh` it creates internally.
 
 If the :ref:`mesh coordinates are changed <changing_coordinate_fs>`, then the vertex-only mesh
-will be re-immersed in the new mesh the next time :meth:`~.PointEvaluator.evaluate` is called.
+will be reconstructed on the new mesh the next time :meth:`~.PointEvaluator.evaluate` is called.
 
 
 Expressions with point evaluations

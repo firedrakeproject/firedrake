@@ -753,6 +753,13 @@ class PointEvaluator:
             ``(len(points), n)``. If the function is tensor-valued with shape ``(n, m)``, the Numpy array has shape
             ``(len(points), n, m)``. If the function is a mixed function, a tuple of Numpy arrays is returned,
             one for each subfunction.
+
+
+        .. warning::
+
+            This method returns a numpy array and hence isn't taped for use with firedrake-adjoint.
+            If you want to use point evaluation with the adjoint, create a :class:`~.VertexOnlyMesh`
+            as described in the manual.
         """
         from firedrake import assemble, interpolate
         if not isinstance(function, Function):
@@ -762,6 +769,7 @@ class PointEvaluator:
         if function_mesh is not self.mesh:
             raise ValueError("Function mesh must be the same Mesh object as the PointEvaluator mesh.")
         if coord_changed := function_mesh.coordinates.dat.dat_version != self.mesh._saved_coordinate_dat_version:
+            # TODO: This is here until https://github.com/firedrakeproject/firedrake/issues/4540 is solved
             self.mesh = function_mesh
         if tol_changed := self.mesh.tolerance != self.tolerance:
             self.tolerance = self.mesh.tolerance
