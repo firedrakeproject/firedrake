@@ -271,9 +271,16 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     if level == 0:
         # Use different mat_type on coarsest level
         opts = PETSc.Options(context.options_prefix)
-        mat_type = opts.getString("mg_coarse_mat_type", default=context.mat_type)
+        if opts.getString("snes_type", "") == "fas":
+            solver_prefix = "fas_"
+        else:
+            solver_prefix = "mg_"
+
+        mat_type = opts.getString(f"{solver_prefix}coarse_mat_type",
+                                  default=context.mat_type)
         pmat_type = context.pmat_type if context.mat_type == mat_type else mat_type
-        pmat_type = opts.getString("mg_coarse_pmat_type", default=pmat_type)
+        pmat_type = opts.getString(f"{solver_prefix}coarse_pmat_type",
+                                   default=pmat_type)
     else:
         mat_type = context.mat_type
         pmat_type = context.pmat_type

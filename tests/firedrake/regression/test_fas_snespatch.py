@@ -150,6 +150,7 @@ def solver_params(request):
                "fas_coarse_snes_linesearch_type": "secant",
                "fas_coarse_ksp_type": "preonly",
                "fas_coarse_ksp_max_it": 1,
+               "fas_coarse_mat_type": "aij",
                "fas_coarse_pc_type": "lu",
                "fas_coarse_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
         }
