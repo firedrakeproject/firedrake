@@ -485,7 +485,7 @@ jobs:
 
   build_docs:
     name: Build documentation
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux]
     container:
       image: firedrakeproject/firedrake-vanilla-default:dev-${{ inputs.target_branch }}
     outputs:
