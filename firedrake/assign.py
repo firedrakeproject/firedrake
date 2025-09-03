@@ -288,7 +288,7 @@ class Assigner:
                         raise ValueError("Found assignee nodes with no matching assigner nodes: run with `allow_missing_dofs=True`")
                     subset_indices_source = composed_map.values_with_halo[indices_active, :].flatten()[perm]
                 # Use buffer array to make sure that owned DoFs are updated upon assigning.
-                # The following example illustrate the issue that a naive assignment would cause.
+                # The following example illustrates the issue that a naive assignment would cause.
                 #
                 # Consider the following target/source meshes distributed over 2 processes
                 # with no partition overlap:
