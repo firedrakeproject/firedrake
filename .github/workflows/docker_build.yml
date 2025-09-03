@@ -38,11 +38,6 @@ on:
         required: false
         type: string
         default: 'release'
-      extra_apt_packages:
-        description: 'Additional apt packages to install into the container'
-        required: false
-        type: string
-        default: ''
     secrets:
       # Docker login information
       DOCKERHUB_USER:
@@ -89,7 +84,6 @@ jobs:
           build-args: |
             ARCH=${{ inputs.arch }}
             BRANCH=${{ inputs.branch }}
-            APT_EXTRA_PACKAGES=${{ inputs.extra_apt_packages }}
           outputs: type=image,name=firedrakeproject/${{ inputs.target }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest

@@ -491,7 +491,6 @@ jobs:
     outputs:
       conclusion: ${{ steps.report_docs.outputs.conclusion }}
     steps:
-      # UNDO BEFORE MERGE - these should be added to the dev containers
       - name: Install system dependencies
         run: |
           apt-get update
