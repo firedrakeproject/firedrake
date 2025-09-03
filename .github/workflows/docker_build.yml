@@ -80,7 +80,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push ${{ inputs.target }} (dev)
+      - name: Build and push ${{ inputs.target }}
         id: build
         uses: docker/build-push-action@v6
         with:
