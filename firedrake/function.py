@@ -726,13 +726,21 @@ class PointEvaluator:
             If False, each rank evaluates the points it has been given. False is useful if you are inputting
             external data that is already distributed across ranks. Default is True.
         """
-        self.mesh = mesh
         self.points = np.asarray(points, dtype=utils.ScalarType)
+        if not self.points.shape:
+            self.points = self.points.reshape(-1)
+        gdim = mesh.geometric_dimension()
+        if self.points.shape[-1] != gdim and (len(self.points.shape) != 1 or gdim != 1):
+            raise ValueError(f"Point dimension ({self.points.shape[-1]}) does not match geometric dimension ({gdim}).")
+        self.points = self.points.reshape(-1, gdim)
+
+        self.mesh = mesh
+        
         self.redundant = redundant
         self.missing_points_behaviour = missing_points_behaviour
         self.tolerance = tolerance
         self.vom = VertexOnlyMesh(
-            mesh, points, missing_points_behaviour=missing_points_behaviour,
+            mesh, self.points, missing_points_behaviour=missing_points_behaviour,
             redundant=redundant, tolerance=tolerance
         )
 
@@ -764,6 +772,8 @@ class PointEvaluator:
         from firedrake import assemble, interpolate
         if not isinstance(function, Function):
             raise TypeError(f"Expected a Function, got {type(function).__name__}")
+        if function.function_space().ufl_element().family() == "Real":
+            return function.dat.data_ro
 
         function_mesh = function.function_space().mesh()
         if function_mesh is not self.mesh:
