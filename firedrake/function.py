@@ -576,7 +576,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             be rebuilt which can take some time.
         """
         warnings.warn(
-            "The ``Function.at`` method is deprecated and will be removed in a future release." \
+            "The ``Function.at`` method is deprecated and will be removed in a future release. "
             "Please use the ``PointEvaluator`` class instead.", FutureWarning
         )
         # Shortcut if function space is the R-space

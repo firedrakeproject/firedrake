@@ -142,7 +142,7 @@ def test_cross_mesh():
     # Setting the allow_missing_dofs keyword allows the interpolation to proceed.
     f_dest = assemble(interpolate(f_src, V_dest, allow_missing_dofs=True))
     # [test_cross_mesh 6]
-    
+
     dest_eval05 = PointEvaluator(dest_mesh, [[0.5, 0.5]])
     assert np.isclose(dest_eval05.evaluate(f_dest), 0.5)
 
