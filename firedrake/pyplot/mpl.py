@@ -21,9 +21,8 @@ import mpl_toolkits.mplot3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 from math import factorial
 from firedrake import (Interpolate, sqrt, inner, Function, SpatialCoordinate,
-                       FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
-                       Constant, assemble, dx)
-from firedrake.mesh import MeshGeometry
+                       FunctionSpace, VectorFunctionSpace, Constant, assemble, dx)
+from firedrake.mesh import MeshGeometry, VertexOnlyMeshMissingPointsError
 from firedrake.petsc import PETSc
 from ufl.domain import extract_unique_domain
 
@@ -407,7 +406,7 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
             eval_xdt = PointEvaluator(mesh, x + dt * v1, tolerance=loc_tolerance)
             v2 = toreal(direction * eval_xdt.evaluate(function),
                         complex_component)
-        except PointNotInDomainError:
+        except VertexOnlyMeshMissingPointsError:
             ds = _step_to_boundary(mesh, x, v1, dt, loc_tolerance)
             y = x + ds * v1
             eval_y = PointEvaluator(mesh, y, tolerance=loc_tolerance)
@@ -427,7 +426,7 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
                 vy = toreal(direction * eval_y.evaluate(function),
                             complex_component)
                 r = toreal(eval_y.evaluate(cell_sizes), "real")
-            except PointNotInDomainError:
+            except VertexOnlyMeshMissingPointsError:
                 v = (v1 + v2) / 2
                 ds = _step_to_boundary(mesh, x, v, dt, loc_tolerance)
                 y = x + ds * v
@@ -510,7 +509,7 @@ class Streamplotter(object):
                                    self.tolerance, self.loc_tolerance,
                                    complex_component=self.complex_component):
             delta = x - s[-1]
-            s.append(x)
+            s.append(x[0])
             T += dt
             L += np.sqrt(np.sum(delta**2))
 
