@@ -735,7 +735,7 @@ class PointEvaluator:
         self.points = self.points.reshape(-1, gdim)
 
         self.mesh = mesh
-        
+
         self.redundant = redundant
         self.missing_points_behaviour = missing_points_behaviour
         self.tolerance = tolerance

@@ -282,3 +282,62 @@ def test_point_evaluator_tolerance():
         ev.evaluate(f)
     ev = PointEvaluator(mesh, [[-1e-12, 0.4]])
     assert np.allclose([-1e-12, 0.4], ev.evaluate(f))
+
+
+def test_point_evaluator_inputs_1d():
+    mesh = UnitIntervalMesh(1)
+    f = mesh.coordinates
+
+    # one point
+    for input in [0.2, (0.2,), [0.2], np.array([0.2])]:
+        e = PointEvaluator(mesh, input)
+        assert np.allclose(0.2, e.evaluate(f))
+
+    # multiple points as tuples/list
+    for input in [
+        (0.2, 0.3), ((0.2,), (0.3,)), ([0.2], [0.3]),
+        (np.array(0.2), np.array(0.3)), (np.array([0.2]), np.array([0.3]))
+    ]:
+        e2 = PointEvaluator(mesh, input)
+        assert np.allclose([[0.2, 0.3]], e2.evaluate(f))
+        e3 = PointEvaluator(mesh, list(input))
+        assert np.allclose([[0.2, 0.3]], e3.evaluate(f))
+
+    # multiple points as numpy array
+    for input in [np.array([0.2, 0.3]), np.array([[0.2], [0.3]])]:
+        e = PointEvaluator(mesh, input)
+        assert np.allclose([[0.2, 0.3]], e.evaluate(f))
+
+    # test incorrect inputs
+    for input in [[[0.2, 0.3]], ([0.2, 0.3], [0.4, 0.5]), np.array([[0.2, 0.3]])]:
+        with pytest.raises(ValueError):
+            PointEvaluator(mesh, input)
+
+
+def test_point_evaluator_inputs_2d():
+    mesh = UnitSquareMesh(1, 1)
+    f = mesh.coordinates
+
+    # one point
+    for input in [(0.2, 0.4), [0.2, 0.4], [[0.2, 0.4]], np.array([0.2, 0.4])]:
+        e = PointEvaluator(mesh, input)
+        assert np.allclose([0.2, 0.4], e.evaluate(f))
+
+    # multiple points as tuple
+    for input in [
+        ((0.2, 0.4), (0.3, 0.5)), ([0.2, 0.4], [0.3, 0.5]),
+        (np.array([0.2, 0.4]), np.array([0.3, 0.5]))
+    ]:
+        e1 = PointEvaluator(mesh, input)
+        assert np.allclose([[0.2, 0.4], [0.3, 0.5]], e1.evaluate(f))
+        e2 = PointEvaluator(mesh, list(input))
+        assert np.allclose([[0.2, 0.4], [0.3, 0.5]], e2.evaluate(f))
+
+    # multiple points as numpy array
+    e = PointEvaluator(mesh, np.array([[0.2, 0.4], [0.3, 0.5]]))
+    assert np.allclose([[0.2, 0.4], [0.3, 0.5]], e.evaluate(f))
+
+    # test incorrect inputs
+    for input in [0.2, [0.2]]:
+        with pytest.raises(ValueError):
+            PointEvaluator(mesh, input)
