@@ -341,3 +341,14 @@ class CofunctionMixin(FunctionMixin):
 
     def _ad_dot(self, other):
         return firedrake.assemble(firedrake.action(self, other))
+
+    def _ad_init_object(cls, obj):
+        from firedrake import Cofunction
+        return Cofunction(cls.function_space()).assign(obj)
+
+    def _ad_init_zero(self, dual=False):
+        from firedrake import Function, Cofunction
+        if dual:
+            return Function(self.function_space().dual())
+        else:
+            return Cofunction(self.function_space())
