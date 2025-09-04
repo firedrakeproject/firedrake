@@ -6,6 +6,7 @@ from firedrake.function import Function, Cofunction
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake import utils
 from firedrake.exceptions import ConvergenceError
+from firedrake.functionspaceimpl import WithGeometry
 from ufl import replace, inner, dx, Form
 from petsc4py import PETSc
 from firedrake.adjoint import (
@@ -27,11 +28,21 @@ except ModuleNotFoundError:
     PETSc = None
     SLEPc = None
 
+try:
+    import mpi4py.MPI as MPI
+except ModuleNotFoundError:
+    MPI = None
+
+
 OneOrManyFunction   = Function   | list[Function]   | tuple[Function, ...]
 OneOrManyCofunction = Cofunction | list[Cofunction] | tuple[Cofunction, ...]
 VarsInterpolate = OneOrManyFunction | OneOrManyCofunction
+Comms = PETSc.Comm | MPI.Comm  | None
+AppCtxType = dict | None
+MassType = ReducedFunctional | Form | None
+BcType = DirichletBC | list[DirichletBC]
 
-__all__ = ["RFEigenproblem", "RFEigensolver"]
+__all__ = ["RFEigenproblem", "RFEigensolver", "RestrictedReducedFunctionalMat"]
 
 
 class RFEigenproblem:
@@ -96,16 +107,16 @@ class RFEigenproblem:
 
     def __init__(
         self,
-        rf,
-        M=None,
-        bcs=None,
+        rf: ReducedFunctional,
+        M: MassType = None,
+        bcs: BcType = None,
         bc_shift: float = 0.0,
         restrict: bool = True,
         identity: bool = False,
         apply_riesz: bool = True,
         action: str = "tlm",
-        appctx=None,
-        comm=None,
+        appctx: AppCtxType = None,
+        comm: Comms = None,
     ):
         if not SLEPc:
             raise ImportError(
@@ -144,7 +155,7 @@ class RFEigenproblem:
             self.M = None if identity else self.as_petsc_mat(M)
             self.A = self.as_petsc_mat(rf)
 
-    def restrict_obj(self, obj, V_res):
+    def restrict_obj(self, obj: MassType, V_res: WithGeometry):
         """
         Substitute variational formulation with functions from restricted space if necessary.
         Otherwise, try to convert obj to `SLEPc`-compatible operator.
@@ -169,7 +180,7 @@ class RFEigenproblem:
             obj = replace(obj, {u: u_res, v: v_res})
         return self.as_petsc_mat(obj) if obj else None
 
-    def as_petsc_mat(self, obj):
+    def as_petsc_mat(self, obj: MassType):
         """
         Convert a `ufl.Form` or a `ReducedFunctional` to a `PETSc.Mat` operator.
         Forward action of implicit matrix determined by action.
@@ -224,7 +235,7 @@ class RFEigenproblem:
             case "adjoint":
                 return AdjointAction
 
-    def output_space(self, rf):
+    def output_space(self, rf: MassType):
         """
         Determine the function space that the operator outputs into.
 
@@ -256,7 +267,7 @@ class RFEigenproblem:
         mass_form = inner(trial, test) * dx
         return mass_form
 
-    def get_bcs_union(self, rf):
+    def get_bcs_union(self, rf: ReducedFunctional):
         """
         Find the union of all the boundary conditions to remove the
         nodes related to these boundary conditions from the variational formulation.
@@ -353,13 +364,13 @@ class RFEigensolver:
 
     def __init__(
         self,
-        problem,
-        n_evals,
+        problem: RFEigenproblem,
+        n_evals: int,
         *,
-        options_prefix=None,
-        solver_parameters=None,
-        ncv=None,
-        mpd=None,
+        options_prefix: str = None,
+        solver_parameters: dict | None = None,
+        ncv: int = None,
+        mpd: int = None,
     ):
         self.es = SLEPc.EPS().create(comm=problem.dm.comm)
         self._problem = problem
@@ -411,11 +422,11 @@ class RFEigensolver:
                 f"Reason:\n{reason}"
             )
 
-    def eigenvalue(self, i):
+    def eigenvalue(self, i: int):
         r"""Return the i-th eigenvalue of the solved problem."""
         return self.es.getEigenvalue(i)
 
-    def eigenfunction(self, i):
+    def eigenfunction(self, i: int):
         r"""Return the i-th eigenfunction of the solved problem.
 
         Returns
@@ -438,7 +449,7 @@ class RFEigensolver:
         return eigenmodes_real, eigenmodes_imag
 
 
-def new_restricted_control_variable(reduced_functional:ReducedFunctional, function_space, dual=False):
+def new_restricted_control_variable(reduced_functional: ReducedFunctional, function_space: WithGeometry, dual: bool=False):
     """Return new variables suitable for storing a control value or its dual
         by interpolating into the space over which the 'ReducedFunctional' is
         defined.
@@ -459,7 +470,7 @@ def new_restricted_control_variable(reduced_functional:ReducedFunctional, functi
     )
 
 
-def interpolate_vars(variables:VarsInterpolate, function_space):
+def interpolate_vars(variables: VarsInterpolate, function_space: WithGeometry):
     """
     Interpolates primal/dual variables to restricted/unrestricted function spaces.
 
@@ -516,10 +527,10 @@ class RestrictedReducedFunctionalMatCtx(ReducedFunctionalMatCtx):
         rf: ReducedFunctional,
         action: RFAction = HessianAction,
         *,
-        apply_riesz=False,
-        appctx: Optional[dict] = None,
-        comm=PETSc.COMM_WORLD,
-        restricted_space=None,
+        apply_riesz: bool = False,
+        appctx: AppCtxType = None,
+        comm: Comms = PETSc.COMM_WORLD,
+        restricted_space: Optional[WithGeometry] = None,
     ):
         if restricted_space is None:
             raise ValueError(
@@ -576,19 +587,6 @@ class RestrictedReducedFunctionalMatCtx(ReducedFunctionalMatCtx):
             )
 
     def mult(self, A, x, y):
-        """
-        Compute `y = Ax` and store in `y`.
-        Ax is represented as the forward action of implicit matrix A.
-
-        Parameters
-        ----------
-            A (PETSc.Mat):
-                Implicit matrix for which Ax is defined.
-            x (PETSc.Vec):
-                `PETSc.Vec` to which operator is applied to.
-            y (PETSc.Vec):
-                `PETSc.Vec` which is the result of the action of this operator.
-        """
         self.xresinterface.from_petsc(x, self.xres)
         interpolated_x = interpolate_vars(self.xres, self.function_space)
         out = self.mult_impl(A, interpolated_x)
@@ -598,19 +596,6 @@ class RestrictedReducedFunctionalMatCtx(ReducedFunctionalMatCtx):
             y.axpy(self._shift, x)
 
     def multTranspose(self, A, x, y):
-        """
-        Compute `y = A^Tx` and store in `y`.
-        A^Tx is represented as the action of the transpose of implicit matrix A.
-
-        Parameters
-        ----------
-            A (PETSc.Mat):
-                Implicit matrix for which Ax is defined.
-            x (PETSc.Vec):
-                `PETSc.Vec` to which transpose of operator is applied to.
-            y (PETSc.Vec):
-                `PETSc.Vec` which is the result of the action of this operator.
-        """
         self.yresinterface.from_petsc(x, self.yres)
         interpolated_x = interpolate_vars(self.yres, self.function_space)
         out = self.mult_impl_transpose(A, interpolated_x)
@@ -624,10 +609,10 @@ def RestrictedReducedFunctionalMat(
     rf: ReducedFunctional,
     action: RFAction = HessianAction,
     *,
-    apply_riesz=False,
+    apply_riesz: bool = False,
     appctx: Optional[dict] = None,
-    comm=None,
-    restricted_space=None,
+    comm: Comms = None,
+    restricted_space: WithGeometry | None = None,
 ):
     """
     `PETSc.Mat` to apply the action of a linearisation of a `ReducedFunctional`.
