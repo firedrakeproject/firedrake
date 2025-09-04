@@ -1,6 +1,5 @@
 from firedrake import *
 import numpy as np
-import pytest
 
 
 def vertex_only_mesh(function, point):
