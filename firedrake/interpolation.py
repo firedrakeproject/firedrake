@@ -288,12 +288,12 @@ class Interpolator(abc.ABC):
         """
         .. warning::
 
-            This method is deprecated and will be removed after the next release.
-            Use the function :func:`interpolate` instead.
+            This method has been removed. Use the function :func:`interpolate` to return a symbolic
+            :class:`Interpolate` object.
         """
         raise FutureWarning(
-            "The 'interpolate' method on Interpolator objects has been deprecated and will be "
-            "removed after the next release. Use the `interpolate` function instead."
+            "The 'interpolate' method on `Interpolator` objects has been "
+            "removed. Use the `interpolate` function instead."
         )
 
     @abc.abstractmethod
