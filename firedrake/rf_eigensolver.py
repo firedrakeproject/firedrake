@@ -280,7 +280,7 @@ class RFEigenproblem:
             return self.output_space.dm
 
 
-class RFEigensolver(OptionsManager):
+class RFEigensolver:
     r"""Solve a LinearEigenproblem.
 
     Parameters
@@ -355,8 +355,8 @@ class RFEigensolver(OptionsManager):
         for key in self.DEFAULT_EPS_PARAMETERS:
             value = self.DEFAULT_EPS_PARAMETERS[key]
             solver_parameters.setdefault(key, value)
-        super().__init__(solver_parameters, options_prefix)
-        self.set_from_options(self.es)
+        self.options_manager = OptionsManager(solver_parameters, options_prefix)
+        self.options_manager.set_from_options(self.es)
 
     def solve(self):
         r"""Solve the eigenproblem.
@@ -375,7 +375,7 @@ class RFEigensolver(OptionsManager):
 
         self.es.setDimensions(nev=self.n_evals, ncv=self.ncv, mpd=self.mpd)
         self.es.setOperators(A, M)
-        with self.inserted_options():
+        with self.options_manager.inserted_options():
             self.es.solve()
         nconv = self.es.getConverged()
         if nconv == 0:
