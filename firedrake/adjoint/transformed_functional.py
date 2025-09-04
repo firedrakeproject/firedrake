@@ -88,7 +88,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
 
     functional : OverloadedType
         Functional defining the optimization problem, :math:`J`.
-    controls : Control or Sequence[Control, ...]
+    controls : Control or Sequence[Control]
         Controls. Must be :class:`firedrake.Function` objects.
     tape : Tape
         Tape used in evaluations involving :math:`J`.
@@ -98,14 +98,15 @@ class L2TransformedFunctional(AbstractReducedFunctional):
 
         .. math::
 
-            \frac{1}{2} \alpha \left\| m_D - \Pi m_D \right\|_{L^2}^2.
+            \frac{1}{2} \alpha \left\| m_D - \Pi ( m_D ) \right\|_{L^2}^2.
 
         e.g. in a minimization problem this adds a penalty term which can
         be used to avoid ill-posedness due to the use of a larger discontinuous
         space.
     project_solver_parameters : Mapping
-        Solver parameters for an :math:`L^2` projection onto the domain of the
-        functional :math:`J`.
+        Solver parameters for an :math:`L^2` projection from the discontinuous
+        space onto the control space. Ignored for controls in DG spaces,
+        where the projection is an identity.
     """
 
     @no_annotations
@@ -116,13 +117,15 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         if project_solver_parameters is None:
             project_solver_parameters = {}
 
+        super().__init__()
         self._J = ReducedFunctional(functional, controls, tape=tape)
         self._space = tuple(control.control.function_space()
                             for control in self._J.controls)
         self._space_D = tuple(map(dg_space, self._space))
         self._C = tuple(map(L2Cholesky, self._space_D))
-        self._controls = tuple(Control(fd.Cofunction(space_D.dual()), riesz_map="l2")
+        self._controls = tuple(Control(fd.Function(space_D), riesz_map="l2")
                                for space_D in self._space_D)
+        self._controls_delist = Enlist(Enlist(controls).delist(tuple(None for _ in self._controls))).delist
         self._alpha = alpha
         self._project_solver_parameters = flatten_parameters(project_solver_parameters)
         self._m_k = None
@@ -133,8 +136,8 @@ class L2TransformedFunctional(AbstractReducedFunctional):
             control.control.assign(control_t)
 
     @property
-    def controls(self) -> list[Control]:
-        return list(self._controls)
+    def controls(self) -> Enlist[Control]:
+        return Enlist(self._controls_delist(self._controls))
 
     def _primal_transform(self, u, u_D=None, *, apply_riesz=False):
         u = Enlist(u)
@@ -164,7 +167,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
             if u_D is not None:
                 v.dat.axpy(1, u_D.dat)
             v = C.C_inv_action(v)
-            return v
+            return v.riesz_representation("l2")
 
         v = tuple(map(transform, self._C, u, u_D, self._space, self._space_D))
         return u.delist(v)
@@ -195,16 +198,15 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         Parameters
         ----------
 
-        m : firedrake.Cofunction or Sequence[firedrake.Cofunction, ...]
+        m : firedrake.Cofunction or Sequence[firedrake.Cofunction]
             The result of the optimization. Represents an expansion in an
             :math:`L^2` orthonormal basis for the discontinuous space.
 
         Returns
         -------
 
-        firedrake.Function or list[firedrake.Function, ...]
-            The mapped control value in the domain of the functional
-            :math:`J`.
+        firedrake.Function or list[firedrake.Function]
+            The mapped result in the original control space.
         """
 
         _, m_J = self._dual_transform(m)
@@ -223,7 +225,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
     @no_annotations
     def derivative(self, adj_input=1.0, apply_riesz=False):
         if adj_input != 1:
-            raise ValueError("adj_input != 1 not supported")
+            raise NotImplementedError("adj_input != 1 not supported")
 
         u = Enlist(self._J.derivative())
 
@@ -244,7 +246,27 @@ class L2TransformedFunctional(AbstractReducedFunctional):
 
     @no_annotations
     def hessian(self, m_dot, hessian_input=None, evaluate_tlm=True, apply_riesz=False):
-        raise NotImplementedError("hessian not implemented")
+        if hessian_input is not None:
+            raise NotImplementedError("hessian_input not None not supported")
+
+        m_dot = Enlist(m_dot)
+        m_dot_D, m_dot_J = self._dual_transform(m_dot)
+        u = Enlist(self._J.hessian(m_dot.delist(m_dot_J), evaluate_tlm=evaluate_tlm))
+
+        if self._alpha == 0:
+            v_alpha = None
+        else:
+            v_alpha = []
+            for space, space_D, m_dot_D, m_dot_J in zip(self._space, self._space_D, m_dot_D, m_dot_J):
+                if space is space_D:
+                    v_alpha.append(None)
+                else:
+                    v_alpha.append(fd.assemble(fd.Constant(self._alpha) * fd.inner(m_dot_D - m_dot_J, fd.TestFunction(space_D)) * fd.dx))
+        v = self._primal_transform(u, v_alpha, apply_riesz=True)
+        if apply_riesz:
+            v = tuple(v_i._ad_convert_riesz(v_i, riesz_map=control.riesz_map)
+                      for v_i, control in zip(v, self.controls))
+        return u.delist(v)
 
     @no_annotations
     def tlm(self, m_dot):
