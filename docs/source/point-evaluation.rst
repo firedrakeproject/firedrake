@@ -242,12 +242,16 @@ warning or switched off entirely:
    :start-after: [test_vom_manual_points_outside_domain 5]
    :end-before: [test_vom_manual_points_outside_domain 6]
 
+.. _point_evaluator:
 
 ``PointEvaluator`` convenience object
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The :py:class:`~.PointEvaluator` class performs point evaluation using vertex-only meshes,
-as described above. First, create a :py:class:`~.PointEvaluator` object by passing the 
+as described above. This is a convenience object for users who want to evaluate
+functions at points without writing the vertex-only mesh boilerplate code each time.
+
+First, create a :py:class:`~.PointEvaluator` object by passing the 
 parent mesh and the points to evaluate at:
 
 .. code-block:: python3
@@ -264,7 +268,9 @@ we use :meth:`~.PointEvaluator.evaluate`:
 
 Under the hood, this creates the appropriate P0DG function space on the vertex-only mesh
 and performs the interpolation. The points are then reordered to match the input ordering,
-as described in :ref:`the section on the input ordering property <input_ordering>`.
+as described in :ref:`the section on the input ordering property <input_ordering>`. The result
+is a Numpy array containing the values of ``f`` at the given points, in the order the points were
+provided to the :py:class:`~.PointEvaluator` constructor.
 
 If ``redundant=True`` (the default) was used when creating the :py:class:`~.PointEvaluator`,
 then only the points given to the constructor on rank 0 will be evaluated. The result is then
@@ -277,7 +283,8 @@ The parameters ``missing_points_behaviour`` and ``tolerance`` (discussed :ref:`h
 and :ref:`here <tolerance>` respectively) can be set when creating the :py:class:`~.PointEvaluator` 
 and will be passed to the :func:`~.VertexOnlyMesh` it creates internally.
 
-If the :ref:`mesh coordinates are changed <changing_coordinate_fs>`, then the vertex-only mesh
+If the :ref:`coordinates <changing_coordinate_fs>` or the :ref:`tolerance <tolerance>` of the parent mesh
+are changed after creating the :py:class:`~.PointEvaluator`, then the vertex-only mesh
 will be reconstructed on the new mesh the next time :meth:`~.PointEvaluator.evaluate` is called.
 
 
