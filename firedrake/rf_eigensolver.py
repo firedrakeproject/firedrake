@@ -162,9 +162,9 @@ class RFEigenproblem:
 
         Parameters
         ----------
-        obj : Optional[ReducedFunctional, ufl.Form]
+        obj : 
             `Firedrake` operator converted to a 'PETSc.Mat'.
-        V_res : RestrictedFunctionSpace
+        V_res : 
             Function space to which restriction occurs.
 
         Returns
@@ -187,7 +187,7 @@ class RFEigenproblem:
 
         Parameters
         ----------
-        obj : Optional[ReducedFunctional, ufl.Form]
+        obj :
             `Firedrake` operator converted to a 'PETSc.Mat'.
 
         Returns
@@ -221,7 +221,7 @@ class RFEigenproblem:
 
         Parameters
         ----------
-        action : str
+        action :
             String representing the forward action of the matrix. 'tlm' or 'adjoint'.
 
         Returns
@@ -241,12 +241,12 @@ class RFEigenproblem:
 
         Parameters
         ----------
-        rf : Optional[ReducedFunctional, ufl.Form]
+        rf :
             Operator whose output space we want to find.
 
         Returns
         -------
-        firedrake.FunctionSpace
+        firedrake.functionspaceimpl.WithGeometry
             Function space into which operator outputs to.
         """
         if isinstance(rf, ReducedFunctional):
@@ -274,7 +274,7 @@ class RFEigenproblem:
 
         Parameters
         ----------
-        rf : ReducedFunctional
+        rf :
             Provides `pyadjoint.Tape` over which collection of the
             union of the boundary conditions occurs.
 
@@ -456,9 +456,10 @@ def new_restricted_control_variable(reduced_functional: ReducedFunctional, funct
 
     Parameters
     ----------
-        reduced_functional (ReducedFunctional): The `ReducedFunctional` whose
+        reduced_functional: The `ReducedFunctional` whose
         controls are to be copied.
-        dual (bool): whether to return a dual type. If False then a primal type is returned.
+        function_space: Function space to which we restrict variables to.
+        dual: whether to return a dual type. If False then a primal type is returned.
 
     Returns
     -------
@@ -476,11 +477,9 @@ def interpolate_vars(variables: VarsInterpolate, function_space: WithGeometry):
 
     Parameters
     ----------
-        variables (Optional[tuple(firedrake.Function), tuple(firedrake.Cofunction),
-                List(firedrake.Function), List(firedrake.Cofunction),
-                firedrake.Function, firedrake.Cofunction):
+        variables:
             Variables that are to be interpolated into unrestricted/restricted primal/dual spaces.
-        restricted_space (Optional[FunctionSpace, RestrictedFunctionSpace]):
+        restricted_space:
             The function space where `PETSc.Vec` objects will live.
 
     Returns
@@ -507,18 +506,18 @@ class RestrictedReducedFunctionalMatCtx(ReducedFunctionalMatCtx):
 
     Parameters
     ----------
-        rf (ReducedFunctional):
+        rf:
             Defines the forward model, and used to compute operator actions.
-        action (RFAction):
+        action:
             Whether to apply the TLM, adjoint, or Hessian action.
-        apply_riesz (bool):
+        apply_riesz:
             Whether to apply the Riesz map before returning the
             result of the action to `PETSc`.
-        appctx (Optional[dict]):
+        appctx:
             User provided context.
-        comm (Optional[petsc4py.PETSc.Comm,mpi4py.MPI.Comm]):
+        comm:
             Communicator that the `ReducedFunctional` is defined over.
-        restricted_space (Optional[FunctionSpace]):
+        restricted_space:
             If provided, the control space will be restricted to the passed space.
     """
 
@@ -625,13 +624,13 @@ def RestrictedReducedFunctionalMat(
 
     Parameters
     ----------
-        rf (ReducedFunctional): Defines the forward model, and used to compute operator actions.
-        action (RFAction): Whether to apply the TLM, adjoint, or Hessian action.
-        apply_riesz (bool): Whether to apply the Riesz map before returning the
+        rf: Defines the forward model, and used to compute operator actions.
+        action: Whether to apply the TLM, adjoint, or Hessian action.
+        apply_riesz: Whether to apply the Riesz map before returning the
             result of the action to `PETSc`.
-        appctx (Optional[dict]): User provided context.
-        comm (Optional[petsc4py.PETSc.Comm,mpi4py.MPI.Comm]): Communicator that the `ReducedFunctional` is defined over.
-        restricted_space (Optional[FunctionSpace]): If provided, the control space will be restricted to the passed space.
+        appctx: User provided context.
+        comm: Communicator that the `ReducedFunctional` is defined over.
+        restricted_space: If provided, the control space will be restricted to the passed space.
 
     Returns
     -------
