@@ -46,14 +46,15 @@ def test_compare_eigensolvers_helmholtz(expression):
 
     # ReducedFunctional-based, Jx = 1/cx
     continue_annotation()
-    f = Function(V)
-    f.interpolate(2 * x)
-    control = Control(f)
-    u_1 = Function(V)
-    v = TestFunction(V)
-    F = (inner(grad(u_1), grad(v)) + u_1 * v - f * v) * dx
-    solve(F == 0, u_1, bcs=bc)
-    J = ReducedFunctional(u_1, controls=[control])
+    with set_working_tape() as tape:
+        f = Function(V)
+        f.interpolate(2 * x)
+        control = Control(f)
+        u_1 = Function(V)
+        v = TestFunction(V)
+        F = (inner(grad(u_1), grad(v)) + u_1 * v - f * v) * dx
+        solve(F == 0, u_1, bcs=bc)
+        J = ReducedFunctional(u_1, controls=[control], tape=tape)
     pause_annotation()
 
     problem_rf = RFEigenproblem(J, bcs=bc, apply_riesz=False, restrict=True, identity=True)
