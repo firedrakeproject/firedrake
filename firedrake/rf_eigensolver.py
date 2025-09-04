@@ -73,12 +73,10 @@ class RFEigenproblem:
     identity : 
         If True, M is replaced by identity matrix. Differentiate between mass
         matrix being identity and inner product operator.
-    action : (Optional[TLMAction, AdjointAction])
-        Defines forward action of implicit matrix operator.
     apply_riez : 
         If True, when defining A's adjoint action, we can output into the dual space.
-    action :
-        Determine whether forward action is TLM or adjoint.
+    action : (Union["tlm", "adjoint"])
+        Defines forward action of implicit matrix operator.
     appctx :
         Context forwarded to the linearisation.
     comm :
