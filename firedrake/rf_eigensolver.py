@@ -307,22 +307,26 @@ class RFEigenproblem:
 
 
 class RFEigensolver:
-    r"""Solve a LinearEigenproblem.
+    r"""Solves an RFEigenproblem.
+    This is a generalisation of the linear eigenproblem which is
+    additionally able to cope with eigenproblems arising from
+    linearisations of operators represented by sequences of
+    Firedrake operations.
 
     Parameters
     ----------
-    problem : LinearEigenproblem
+    problem : 
         The eigenproblem to solve.
-    n_evals : int
+    n_evals : 
         The number of eigenvalues to compute.
-    options_prefix : str
+    options_prefix : 
         The options prefix to use for the eigensolver.
-    solver_parameters : dict
+    solver_parameters : 
         PETSc options for the eigenvalue problem.
-    ncv : int
+    ncv : 
         Maximum dimension of the subspace to be used by the solver. See
         `SLEPc.EPS.setDimensions`.
-    mpd : int
+    mpd : 
         Maximum dimension allowed for the projected problem. See
         `SLEPc.EPS.setDimensions`.
 
