@@ -547,13 +547,13 @@ class RestrictedReducedFunctionalMatCtx(ReducedFunctionalMatCtx):
                 else self.functional_interface
             )
 
-        if action == HessianAction:
+        if action is HessianAction:
             self.xresinterface = self.restricted_control_interface
             self.yresinterface = self.restricted_control_interface
             self.xres = new_restricted_control_variable(rf, self.restricted_space)
             self.yres = new_restricted_control_variable(rf, self.restricted_space)
 
-        elif action == AdjointAction:
+        elif action is AdjointAction:
             self.xresinterface = self.restricted_functional_interface
             self.yresinterface = self.restricted_control_interface
             self.xres = (
@@ -564,7 +564,7 @@ class RestrictedReducedFunctionalMatCtx(ReducedFunctionalMatCtx):
             )
             self.yres = new_restricted_control_variable(rf, self.restricted_space)
 
-        elif action == TLMAction:
+        elif action is TLMAction:
             self.xresinterface = self.restricted_control_interface
             self.yresinterface = self.restricted_functional_interface
             self.xres = new_restricted_control_variable(rf, self.restricted_space)
@@ -668,7 +668,7 @@ def RestrictedReducedFunctionalMat(
         ctx,
         comm=ctx.control_interface.comm,
     )
-    if action == HessianAction:
+    if action is HessianAction:
         mat.setOption(PETSc.Mat.Option.SYMMETRIC, True)
     mat.setUp()
     mat.assemble()
