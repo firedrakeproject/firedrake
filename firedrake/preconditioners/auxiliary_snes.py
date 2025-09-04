@@ -1,12 +1,13 @@
 from firedrake.preconditioners.base import SNESBase
 from firedrake.petsc import PETSc
+from ufl import replace
 from firedrake.dmhooks import get_appctx as get_dm_appctx
 
 __all__ = ("AuxiliaryOperatorSNES",)
 
 
 class AuxiliaryOperatorSNES(SNESBase):
-    prefix = "aux_"
+    _prefix = "aux_"
 
     @PETSc.Log.EventDecorator()
     def initialize(self, snes):
@@ -14,13 +15,14 @@ class AuxiliaryOperatorSNES(SNESBase):
             NonlinearVariationalSolver,
             NonlinearVariationalProblem,
             Function, TestFunction,
-            Cofunction, replace)
+            Cofunction)
         from firedrake.assemble import get_assembler
 
-        parent_prefix = snes.getOptionsPrefix() or ""
-        prefix = parent_prefix + self.prefix
+        ctx = get_dm_appctx(snes.dm)
         appctx = self.get_appctx(snes)
-        fcp = get_dm_appctx(snes).fcp
+
+        parent_prefix = snes.getOptionsPrefix() or ""
+        prefix = parent_prefix + self._prefix
 
         V = self.get_function_space(snes).collapse()
 
@@ -36,11 +38,16 @@ class AuxiliaryOperatorSNES(SNESBase):
         # forcing F(k) - G(k)
         Gk = replace(Gk1, {uk1: uk})
         b = Cofunction(V.dual())
-        Gk1 -= b
+        # Gk1 -= b
+
+        from firedrake import inner, dx
+        bu = Function(V)
+        Gk1 -= inner(bu, test)*dx
+        self.bu = bu
 
         self.assemble_gk = get_assembler(
             Gk, bcs=bcs,
-            form_compiler_parameters=fcp,
+            form_compiler_parameters=ctx.fcp,
             options_prefix=prefix
         ).assemble
 
@@ -48,13 +55,10 @@ class AuxiliaryOperatorSNES(SNESBase):
         self.Gk1 = Gk1
         self.b = b
 
-        # grab nullspaces from context
-        ctx = get_dm_appctx(snes.dm)
-
         self.solver = NonlinearVariationalSolver(
             NonlinearVariationalProblem(
                 Gk1, uk1, bcs=bcs,
-                form_compiler_parameters=fcp),
+                form_compiler_parameters=ctx.fcp),
             nullspace=ctx._nullspace,
             transpose_nullspace=ctx._nullspace_T,
             near_nullspace=ctx._near_nullspace,
@@ -80,6 +84,7 @@ class AuxiliaryOperatorSNES(SNESBase):
         if f is not None:
             with self.b.dat.vec as vec:
                 vec -= f
+        self.bu.assign(self.b.riesz_representation())
 
         self.uk1.assign(self.uk)
         self.solver.solve()
@@ -115,7 +120,11 @@ class AuxiliaryOperatorSNES(SNESBase):
         form. Use `self.get_appctx(obj)` to get the user-supplied
         application-context, if desired.
         """
-        raise NotImplementedError
+        ctx = get_dm_appctx(snes.dm)
+        u = ctx._x
+        form = replace(ctx._problem.F, {u: func})
+        bcs = tuple(ctx._problem.bcs)
+        return form, bcs
 
     def view(self, snes, viewer=None):
         super().view(snes, viewer)
