@@ -29,10 +29,9 @@ from firedrake.adjoint_utils.checkpointing import \
 from firedrake.adjoint_utils import get_solve_blocks  # noqa F401
 from pyadjoint.optimization.tao_solver import (
     ReducedFunctionalMat, ReducedFunctionalMatCtx, HessianAction,
-    TLMAction, AdjointAction, check_rf_action, get_valid_comm,
-    flatten_parameters, PETScVecInterface
+    TLMAction, AdjointAction, RFAction, check_rf_action,
+    flatten_parameters, PETScVecInterface, get_valid_comm
 )
-
 
 from pyadjoint.verification import taylor_test, taylor_to_dict  # noqa F401
 from pyadjoint.drivers import compute_gradient, compute_derivative, compute_hessian  # noqa F401
