@@ -466,7 +466,7 @@ def new_restricted_control_variable(reduced_functional: ReducedFunctional, funct
         tuple[OverloadedType]: New variables suitable for storing a control value.
     """
     return tuple(
-        Function(function_space).interpolate(control.control)._ad_init_zero(dual=dual)
+        Function(function_space.dual() if dual else function_space)
         for control in reduced_functional.controls
     )
 
