@@ -312,6 +312,11 @@ class RFEigensolver(OptionsManager):
     one would add this entry to `solver_options`::
 
         "eps_gen_hermitian": None
+    
+    Note that for eigenproblems arising from taped linearised operators, matrices in the
+    formulation are implicit (`PETSc.Mat.PYTHON` type), which restricts the available 
+    options to those that do not use the explicit matrix entries. For instance, spectral 
+    transforms won't work and solvers are restricted. 
 
     As always when specifying PETSc options, `None` indicates that the option
     in question is a flag and hence doesn't take an argument.
@@ -324,11 +329,6 @@ class RFEigensolver(OptionsManager):
 
         "eps_largest_real": None
     """
-
-    # Preconditioners won't work because of MATSHELL.
-    # Only iterative solvers work as well (refer to PETSc docs).
-    # Spectral transform changed with bcs (default) because sinvert won't work because of MATSHELL.
-    # If info about A and M, could pass HEP to problem_type parameter. If M identity, NHEP. If not, GNHEP.
 
     DEFAULT_EPS_PARAMETERS = {
         "eps_type": "krylovschur",
