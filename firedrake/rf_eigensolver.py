@@ -5,7 +5,6 @@ from firedrake.bcs import extract_subdomain_ids, restricted_function_space, Diri
 from firedrake.function import Function, Cofunction
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake import utils
-from firedrake.restricted_functional_ctx import RestrictedReducedFunctionalMat
 from firedrake.exceptions import ConvergenceError
 from ufl import replace, inner, dx, Form
 from petsc4py import PETSc
