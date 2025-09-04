@@ -5,15 +5,13 @@ __all__ = ("MassInvPC", )
 
 
 class MassInvPC(AssembledPC):
-    """A matrix free operator that assembles the mass matrix in the provided space.
 
-    Internally this creates a PETSc PC object that can be controlled
+    _prefix = "Mp_"
+
+    """A matrix free operator that inverts the mass matrix in the provided space.
+
+    Internally this creates a PETSc KSP object that can be controlled
     by options using the extra options prefix ``Mp_``.
-
-    A preconditioner with the (approximate) action of the inverse mass matrix
-    can be constructed by creating an internal PETSc KSP object by setting
-    ``-Mp_pc_type ksp`` and suitable inner options, such as
-    ``-Mp_ksp_ksp_type chebyshev`` and ``-Mp_ksp_pc_type jacobi``, for example.
 
     For Stokes problems, to be spectrally equivalent to the Schur
     complement, the mass matrix should be weighted by the viscosity.
@@ -21,9 +19,6 @@ class MassInvPC(AssembledPC):
     providing a field defining the viscosity in the application
     context, keyed on ``"mu"``.
     """
-
-    _prefix = "Mp_"
-
     def form(self, pc, test, trial):
         _, bcs = super(MassInvPC, self).form(pc)
 
