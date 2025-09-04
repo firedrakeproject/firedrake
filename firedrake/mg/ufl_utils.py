@@ -276,18 +276,22 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
         else:
             solver_prefix = "mg_"
 
-        mat_type = opts.getString(f"{solver_prefix}coarse_mat_type",
-                                  default=context.mat_type)
-        pmat_type = context.pmat_type if context.mat_type == mat_type else mat_type
-        pmat_type = opts.getString(f"{solver_prefix}coarse_pmat_type",
-                                   default=pmat_type)
+        coarse_mat_type = opts.getString(f"{solver_prefix}coarse_mat_type", "")
+        if coarse_mat_type == "":
+            coarse_mat_type = context.mat_type
+            default_pmat_type = context.pmat_type
+        else:
+            default_pmat_type = coarse_mat_type
+
+        coarse_pmat_type = opts.getString(f"{solver_prefix}coarse_pmat_type",
+                                          default_pmat_type)
     else:
-        mat_type = context.mat_type
-        pmat_type = context.pmat_type
+        coarse_mat_type = context.mat_type
+        coarse_pmat_type = context.pmat_type
 
     coarse = type(context)(problem,
-                           mat_type=mat_type,
-                           pmat_type=pmat_type,
+                           mat_type=coarse_mat_type,
+                           pmat_type=coarse_pmat_type,
                            appctx=new_appctx,
                            options_prefix=context.options_prefix,
                            transfer_manager=context.transfer_manager,
