@@ -20,11 +20,17 @@ __all__ = ["RFEigenproblem", "RFEigensolver"]
 
 
 class RFEigenproblem:
-    """Generalised linear eigenvalue problem.
+    """Generalised eigenvalue problem.
 
-    The problem has the form, find `u`, `λ` such that::
+    The linear problem has the form, find `u`, `λ` such that::
 
         A(u, v) = λM(u, v)    ∀ v ∈ V
+    
+    The new problem that can be formed has the form, find `v`, `k` such that::
+
+        dJ_m(v) = kv   
+
+    where for J: V -> V, dJ_m : V -> V is the linearisation of J around the state in the taped run.
 
     Parameters
     ----------

@@ -18,14 +18,14 @@ def new_restricted_control_variable(reduced_functional, function_space, dual=Fal
         by interpolating into the space over which the 'ReducedFunctional' is
         defined.
 
-    Args:
+    Parameters
     ----------
         reduced_functional (ReducedFunctional): The `ReducedFunctional` whose
         controls are to be copied.
         dual (bool): whether to return a dual type. If False then a primal type is returned.
 
-    Returns:
-    ----------
+    Returns
+    -------
         tuple[OverloadedType]: New variables suitable for storing a control value.
     """
     return tuple(
@@ -38,7 +38,7 @@ def interpolate_vars(variables, function_space):
     """
     Interpolates primal/dual variables to restricted/unrestricted function spaces.
 
-    Args:
+    Parameters
     ----------
         variables (Optional[tuple(firedrake.Function), tuple(firedrake.Cofunction),
                 List(firedrake.Function), List(firedrake.Cofunction),
@@ -47,8 +47,8 @@ def interpolate_vars(variables, function_space):
         restricted_space (Optional[FunctionSpace, RestrictedFunctionSpace]):
             The function space where `PETSc.Vec` objects will live.
 
-    Returns:
-    ----------
+    Returns
+    -------
             The same variable/variables but interpolated into the necessary function space.
     """
     if isinstance(variables, (tuple, list)):
@@ -69,7 +69,7 @@ class RestrictedReducedFunctionalMatCtx(ReducedFunctionalMatCtx):
     `PETSc.Mat.Python context to apply to the operator representing linearisation of a `ReducedFunctional`.
     Optional restriction of the control space to a provided `FunctionSpace`.
 
-    Args:
+    Parameters
     ----------
         rf (ReducedFunctional):
             Defines the forward model, and used to compute operator actions.
@@ -155,7 +155,7 @@ class RestrictedReducedFunctionalMatCtx(ReducedFunctionalMatCtx):
         Compute `y = Ax` and store in `y`.
         Ax is represented as the forward action of implicit matrix A.
 
-        Args:
+        Parameters
         ----------
             A (PETSc.Mat):
                 Implicit matrix for which Ax is defined.
@@ -177,7 +177,7 @@ class RestrictedReducedFunctionalMatCtx(ReducedFunctionalMatCtx):
         Compute `y = A^Tx` and store in `y`.
         A^Tx is represented as the action of the transpose of implicit matrix A.
 
-        Args:
+        Parameters
         ----------
             A (PETSc.Mat):
                 Implicit matrix for which Ax is defined.
@@ -213,7 +213,7 @@ def RestrictedReducedFunctionalMat(
     Adjoint : U* -> V*
     Hessian : V x U* -> V* | V -> V*
 
-    Args:
+    Parameters
     ----------
         rf (ReducedFunctional): Defines the forward model, and used to compute operator actions.
         action (RFAction): Whether to apply the TLM, adjoint, or Hessian action.
@@ -224,7 +224,7 @@ def RestrictedReducedFunctionalMat(
         restricted_space (Optional[FunctionSpace]): If provided, the control space will be restricted to the passed space.
 
     Returns
-    ----------
+    -------
         mat (PETSc.Mat):
             The `PETSc.Mat` whose action and transpose action are defined by the context.
     """
