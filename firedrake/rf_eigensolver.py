@@ -479,7 +479,7 @@ def interpolate_vars(variables: VarsInterpolate, function_space: WithGeometry):
     ----------
         variables:
             Variables that are to be interpolated into unrestricted/restricted primal/dual spaces.
-        restricted_space:
+        function_space:
             The function space where `PETSc.Vec` objects will live.
 
     Returns
