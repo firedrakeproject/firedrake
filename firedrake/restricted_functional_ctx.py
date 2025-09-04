@@ -1,19 +1,27 @@
 from firedrake.adjoint import (
+    ReducedFunctional,
     PETScVecInterface,
     TLMAction,
     AdjointAction,
     HessianAction,
+    RFAction,
     ReducedFunctionalMatCtx,
 )
 from firedrake import Function, Cofunction
+from typing import Optional
 
 try:
     import petsc4py.PETSc as PETSc
+    import mpi4py.MPI as MPI
 except ModuleNotFoundError:
     PETSc = None
 
+OneOrManyFunction   = Function   | list[Function]   | tuple[Function, ...]
+OneOrManyCofunction = Cofunction | list[Cofunction] | tuple[Cofunction, ...]
+VarsInterpolate = OneOrManyFunction | OneOrManyCofunction
+Comms = PETSc.Comm | MPI.Comm
 
-def new_restricted_control_variable(reduced_functional, function_space, dual=False):
+def new_restricted_control_variable(reduced_functional:ReducedFunctional, function_space, dual=False):
     """Return new variables suitable for storing a control value or its dual
         by interpolating into the space over which the 'ReducedFunctional' is
         defined.
@@ -34,7 +42,7 @@ def new_restricted_control_variable(reduced_functional, function_space, dual=Fal
     )
 
 
-def interpolate_vars(variables, function_space):
+def interpolate_vars(variables:VarsInterpolate, function_space):
     """
     Interpolates primal/dual variables to restricted/unrestricted function spaces.
 
@@ -88,17 +96,17 @@ class RestrictedReducedFunctionalMatCtx(ReducedFunctionalMatCtx):
 
     def __init__(
         self,
-        rf,
-        action=HessianAction,
+        rf: ReducedFunctional,
+        action: RFAction = HessianAction,
         *,
         apply_riesz=False,
-        appctx=None,
-        comm=PETSc.COMM_WORLD,
+        appctx: Optional[dict] = None,
+        comm: Comms = PETSc.COMM_WORLD,
         restricted_space=None,
     ):
         if restricted_space is None:
             raise ValueError(
-                "restricted_space must be provided for RestrictedReducedFunctionalMatCtx"
+                "restricted_space must be provided for RestrictedReducedFunctionalMatCtx."
             )
 
         super().__init__(rf, action=action, apply_riesz=apply_riesz, appctx=appctx, comm=comm)
@@ -196,12 +204,12 @@ class RestrictedReducedFunctionalMatCtx(ReducedFunctionalMatCtx):
 
 
 def RestrictedReducedFunctionalMat(
-    rf,
-    action=HessianAction,
+    rf: ReducedFunctional,
+    action: RFAction = HessianAction,
     *,
     apply_riesz=False,
-    appctx=None,
-    comm=None,
+    appctx: Optional[dict] = None,
+    comm: Comms = None,
     restricted_space=None,
 ):
     """
