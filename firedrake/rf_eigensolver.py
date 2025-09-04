@@ -46,44 +46,42 @@ __all__ = ["RFEigenproblem", "RFEigensolver", "RestrictedReducedFunctionalMat"]
 
 
 class RFEigenproblem:
-    """Generalised eigenvalue problem.
+    """
+    The new problem that can be formed has the form, find `u`, `λ` such that::
 
-    The linear problem has the form, find `u`, `λ` such that::
-
-        A(u, v) = λM(u, v)    ∀ v ∈ V
-    
-    The new problem that can be formed has the form, find `v`, `k` such that::
-
-        dJ_m(v) = kv   
+        dJ_m(u) = λu   
 
     where for J: V -> V, dJ_m : V -> V is the linearisation of J around the state in the taped run.
+    
+    Additionally, the class has the capabilities of solving the generalised eigenvalue problem
+    defined in `LinearEigenproblem`.
 
     Parameters
     ----------
-    rf : ReducedFunctional
+    rf :
         The bilinear operator A.
-    M : ufl.Form
+    M :
         The mass form M(u, v), defaults to inner(u, v) * dx if None and identity=False.
         If identity is True, M is treated as identity operator.
-    bcs : DirichletBC or list of DirichletBC
+    bcs :
         The Dirichlet boundary conditions.
-    bc_shift : float
+    bc_shift : 
         The value to shift the boundary condition eigenvalues by. Ignored if restrict == True.
-    restrict : bool
+    restrict : 
         If True, replace the function spaces of u and v with their restricted
         version. The output space remains unchanged.
-    identity : bool
+    identity : 
         If True, M is replaced by identity matrix. Differentiate between mass
         matrix being identity and inner product operator.
     action : (Optional[TLMAction, AdjointAction])
         Defines forward action of implicit matrix operator.
-    apply_riez : bool
+    apply_riez : 
         If True, when defining A's adjoint action, we can output into the dual space.
-    action : str
+    action :
         Determine whether forward action is TLM or adjoint.
-    appctx : Optional[dict]
+    appctx :
         Context forwarded to the linearisation.
-    comm : Optional[petsc4py.PETSc.Comm, mpi4py.MPI.Comm]
+    comm :
         Communicator that the rf is defined over.
 
     Notes
