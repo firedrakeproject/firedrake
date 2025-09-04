@@ -128,7 +128,6 @@ def test_mesh_tolerance():
 def test_mesh_tolerance_change():
     parent_mesh = UnitSquareMesh(100, 100, quadrilateral=True)
     points = [[0.1, 0.1], [0.2, 0.2], [1.1, 1.0]]
-    V = FunctionSpace(parent_mesh, 'CG', 2)
 
     # [test_mesh_tolerance_change 1]
     # The point (1.1, 1.0) will still be included in the vertex-only mesh
