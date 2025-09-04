@@ -317,8 +317,8 @@ def test_interpolate_unitsquare_mixed():
     assert extract_unique_domain(f_dest) is m_dest
     dest_eval = PointEvaluator(m_dest, coords)
     got = dest_eval.evaluate(f_dest)
-    assert np.allclose(got[:, 0], expected_1)
-    assert np.allclose(got[:, 1], expected_2)
+    assert np.allclose(got[0], expected_1)
+    assert np.allclose(got[1], expected_2)
 
     # adjoint
     cofunc_dest = assemble(inner(f_dest, TestFunction(V_dest)) * dx)
