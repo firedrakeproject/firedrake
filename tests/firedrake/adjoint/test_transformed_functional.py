@@ -248,7 +248,7 @@ def test_transformed_functional_poisson_tao_nls():
                                  "tao_monitor": None})
     m_opt = solver.solve()
     error_norm_opt = error_norm(m_opt)
-    print(f"{error_norm_opt=}")
+    print(f"{error_norm_opt=:.6g}")
     assert 1e-2 < error_norm_opt < 5e-2
     assert J_hat._test_transformed_functional__ncalls > 22  # == 24
 
@@ -269,6 +269,6 @@ def test_transformed_functional_poisson_tao_nls():
                                  "tao_monitor": None})
     m_opt = solver.solve()
     error_norm_opt = error_norm(m_opt)
-    print(f"{error_norm_opt=}")
+    print(f"{error_norm_opt=:.6g}")
     assert 1e-3 < error_norm_opt < 1e-2
     assert J_hat._test_transformed_functional__ncalls < 18  # == 16
