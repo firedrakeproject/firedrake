@@ -180,7 +180,10 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         def transform(C, u, space, space_D):
             # Map transformed 'cofunction' to function:
             #     M_V^{-1} P_{VW} C_W^{-*}
-            v = C.C_T_inv_action(u)  # for complex would need to be adjoint
+            if fd.utils.complex_mode:
+                # Would need to be adjoint
+                raise NotImplementedError("complex not supported")
+            v = C.C_T_inv_action(u)
             if space is space_D:
                 w = v
             else:
@@ -214,6 +217,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
 
     @no_annotations
     def __call__(self, values):
+        values = Enlist(values)
         m_D, m_J = self._m_k = self._dual_transform(values)
         J = self._J(m_J)
         if self._alpha != 0:
@@ -237,6 +241,8 @@ class L2TransformedFunctional(AbstractReducedFunctional):
                 if space is space_D:
                     v_alpha.append(None)
                 else:
+                    if fd.utils.complex_mode:
+                        raise RuntimeError("Not complex differentiable")
                     v_alpha.append(fd.assemble(fd.Constant(self._alpha) * fd.inner(m_D - m_J, fd.TestFunction(space_D)) * fd.dx))
         v = self._primal_transform(u, v_alpha, apply_riesz=True)
         if apply_riesz:
@@ -257,11 +263,13 @@ class L2TransformedFunctional(AbstractReducedFunctional):
             v_alpha = None
         else:
             v_alpha = []
-            for space, space_D, m_dot_D, m_dot_J in zip(self._space, self._space_D, m_dot_D, m_dot_J):
+            for space, space_D, m_dot_D_i, m_dot_J_i in zip(self._space, self._space_D, m_dot_D, m_dot_J):
                 if space is space_D:
                     v_alpha.append(None)
                 else:
-                    v_alpha.append(fd.assemble(fd.Constant(self._alpha) * fd.inner(m_dot_D - m_dot_J, fd.TestFunction(space_D)) * fd.dx))
+                    if fd.utils.complex_mode:
+                        raise RuntimeError("Not complex differentiable")
+                    v_alpha.append(fd.assemble(fd.Constant(self._alpha) * fd.inner(m_dot_D_i - m_dot_J_i, fd.TestFunction(space_D)) * fd.dx))
         v = self._primal_transform(u, v_alpha, apply_riesz=True)
         if apply_riesz:
             v = tuple(v_i._ad_convert_riesz(v_i, riesz_map=control.riesz_map)
@@ -270,4 +278,14 @@ class L2TransformedFunctional(AbstractReducedFunctional):
 
     @no_annotations
     def tlm(self, m_dot):
-        raise NotImplementedError("tlm not implemented")
+        m_dot = Enlist(m_dot)
+        m_dot_D, m_dot_J = self._dual_transform(m_dot)
+        tau_J = self._J.tlm(m_dot.delist(m_dot_J))
+
+        if self._alpha != 0:
+            for space, space_D, m_dot_D_i, m_D, m_J in zip(self._space, self._space_D, m_dot_D, *self._m_k):
+                if space is not space_D:
+                    if fd.utils.complex_mode:
+                        raise RuntimeError("Not complex differentiable")
+                    tau_J += fd.assemble(fd.Constant(self._alpha) * fd.inner(m_D - m_J, m_dot_D_i) * fd.dx)
+        return tau_J
