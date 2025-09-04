@@ -384,14 +384,6 @@ class RFEigensolver:
         self.options_manager = OptionsManager(solver_parameters, options_prefix)
         self.options_manager.set_from_options(self.es)
 
-    def solve(self):
-        r"""Solve the eigenproblem.
-
-        Returns
-        -------
-        int
-            The number of eigenvalues found.
-        """
         A = self._problem.A
         M = self._problem.M
         if not isinstance(A, PETSc.Mat):
@@ -401,6 +393,15 @@ class RFEigensolver:
 
         self.es.setDimensions(nev=self.n_evals, ncv=self.ncv, mpd=self.mpd)
         self.es.setOperators(A, M)
+
+    def solve(self):
+        r"""Solve the eigenproblem.
+
+        Returns
+        -------
+        int
+            The number of eigenvalues found.
+        """
         with self.options_manager.inserted_options():
             self.es.solve()
         nconv = self.es.getConverged()
@@ -466,7 +467,7 @@ def new_restricted_control_variable(reduced_functional: ReducedFunctional, funct
         tuple[OverloadedType]: New variables suitable for storing a control value.
     """
     return tuple(
-        Function(function_space).interpolate(control.control)._ad_init_zero(dual=dual)
+        Function(function_space.dual() if dual else function_space)
         for control in reduced_functional.controls
     )
 
