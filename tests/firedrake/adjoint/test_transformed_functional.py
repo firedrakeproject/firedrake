@@ -7,6 +7,7 @@ from firedrake.adjoint import (
     pause_annotation)
 from firedrake.adjoint.transformed_functional import L2TransformedFunctional
 import numpy as np
+from pyadjoint import MinimizationProblem, TAOSolver
 from pyadjoint.reduced_functional_numpy import ReducedFunctionalNumPy
 from pyadjoint.tape import set_working_tape
 import pytest
@@ -191,3 +192,83 @@ def test_transformed_functional_poisson():
     assert 1e-4 < cb[-1] < 5e-4
     assert len(cb) < 55  # == 50
     assert J_hat._test_transformed_functional__ncalls < 55  # == 51
+
+
+def test_transformed_functional_poisson_tao_nls():
+    mesh = fd.UnitSquareMesh(5, 5, diagonal="crossed")
+    x, y = fd.SpatialCoordinate(mesh)
+    space = fd.FunctionSpace(mesh, "Lagrange", 1)
+    test = fd.TestFunction(space)
+    trial = fd.TrialFunction(space)
+    bc = fd.DirichletBC(space, 0, "on_boundary")
+
+    def pre_process(m):
+        m_0 = fd.Function(space, name="m_0").assign(m)
+        bc.apply(m_0)
+        m_1 = fd.Function(space, name="m_1").assign(m - m_0)
+        return m_0, m_1
+
+    def forward(m):
+        m_0, m_1 = pre_process(m)
+        u = fd.Function(space, name="u")
+        fd.solve(fd.inner(fd.grad(trial), fd.grad(test)) * fd.dx
+                 == fd.inner(m_0, test) * fd.dx,
+                 u, bc)
+        return m_0, m_1, u
+
+    def forward_J(m, u_ref, alpha):
+        _, m_1, u = forward(m)
+        return fd.assemble(fd.inner(u - u_ref, u - u_ref) * fd.dx
+                           + fd.Constant(alpha ** 2) * fd.inner(m_1, m_1) * fd.ds)
+
+    m_ref = fd.Function(space, name="m_ref").interpolate(
+        fd.exp(x) * fd.sin(fd.pi * x) * fd.sin(fd.pi * y))
+    m_ref, _, u_ref = forward(m_ref)
+    forward_J = partial(forward_J, u_ref=u_ref, alpha=1)
+
+    continue_annotation()
+    m_0 = fd.Function(space, name="m_0")
+    J = forward_J(m_0)
+    pause_annotation()
+    c = Control(m_0)
+
+    J_hat = ReducedFunctional(J, c)
+
+    def error_norm(m):
+        m, _ = pre_process(m)
+        return fd.norm(m - m_ref, norm_type="L2")
+
+    problem = MinimizationProblem(J_hat)
+    solver = TAOSolver(problem, {"tao_type": "nls",
+                                 "tao_monitor": None,
+                                 "tao_converged_reason": None,
+                                 "tao_gatol": 1.0e-5,
+                                 "tao_grtol": 0.0,
+                                 "tao_gttol": 1.0e-6,
+                                 "tao_monitor": None})
+    m_opt = solver.solve()
+    error_norm_opt = error_norm(m_opt)
+    print(f"{error_norm_opt=}")
+    assert 1e-2 < error_norm_opt < 5e-2
+    assert J_hat._test_transformed_functional__ncalls > 22  # == 24
+
+    J_hat = L2TransformedFunctional(J, c, alpha=1e-5)
+
+    def error_norm(m):
+        m = J_hat.map_result(m)
+        m, _ = pre_process(m)
+        return fd.norm(m - m_ref, norm_type="L2")
+
+    problem = MinimizationProblem(J_hat)
+    solver = TAOSolver(problem, {"tao_type": "nls",
+                                 "tao_monitor": None,
+                                 "tao_converged_reason": None,
+                                 "tao_gatol": 1.0e-5,
+                                 "tao_grtol": 0.0,
+                                 "tao_gttol": 1.0e-6,
+                                 "tao_monitor": None})
+    m_opt = solver.solve()
+    error_norm_opt = error_norm(m_opt)
+    print(f"{error_norm_opt=}")
+    assert 1e-3 < error_norm_opt < 1e-2
+    assert J_hat._test_transformed_functional__ncalls < 18  # == 16
