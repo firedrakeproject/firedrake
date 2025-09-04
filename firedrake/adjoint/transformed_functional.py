@@ -125,7 +125,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         self._C = tuple(map(L2Cholesky, self._space_D))
         self._controls = tuple(Control(fd.Function(space_D), riesz_map="l2")
                                for space_D in self._space_D)
-        self._controls_delist = Enlist(Enlist(controls).delist(tuple(None for _ in self._controls))).delist
+        self._controls = Enlist(Enlist(controls).delist(self._controls))
         self._alpha = alpha
         self._project_solver_parameters = flatten_parameters(project_solver_parameters)
         self._m_k = None
@@ -137,7 +137,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
 
     @property
     def controls(self) -> Enlist[Control]:
-        return Enlist(self._controls_delist(self._controls))
+        return Enlist(self._controls.delist())
 
     def _primal_transform(self, u, u_D=None, *, apply_riesz=False):
         u = Enlist(u)
