@@ -16,12 +16,6 @@ from firedrake.adjoint_utils.blocks.function import CofunctionAssignBlock
 from firedrake.petsc import PETSc
 
 
-# Import 'FormArgument' from UFL so Sphinx can resolve attributes coming
-# from 'ufl.Cofunction'. See https://github.com/sphinx-doc/sphinx/issues/11225
-# for more information.
-from ufl import FormArgument  # noqa: F401
-
-
 class Cofunction(ufl.Cofunction, CofunctionMixin):
     r"""A :class:`Cofunction` represents a function on a dual space.
 
