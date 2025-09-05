@@ -86,6 +86,8 @@ jobs:
       sdist_conclusion: ${{ steps.report_sdist.outputs.conclusion }}
       docs_conclusion: ${{ steps.report_docs.outputs.conclusion }}
     env:
+      OMPI_ALLOW_RUN_AS_ROOT: 1
+      OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
       FIREDRAKE_CI: 1
@@ -95,17 +97,12 @@ jobs:
       # 'make test_durations' inside a 'firedrake:latest' Docker image.
       EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 --durations-path=./firedrake-repo/tests/test_durations.json
       PYTEST_MPI_MAX_NPROCS: 8
-    defaults:
-      run:
-        # Run (almost) all commands as an unprivileged user with the same UID
-        # as on CI to avoid permissions issues
-        shell: sudo -u ubuntu bash -e {0}
     steps:
-      - name: Install sudo
-        shell: bash -e {0}
-        run: |
-          apt-get update
-          apt-get -y install sudo
+      - name: Fix HOME
+        # For unknown reasons GitHub actions overwrite HOME to /github/home
+        # which will break everything unless fixed
+        # (https://github.com/actions/runner/issues/863)
+        run: echo "HOME=/root" >> "$GITHUB_ENV"
 
       - name: Pre-run cleanup
         # Make sure the current directory is empty
@@ -116,25 +113,18 @@ jobs:
       # (https://askubuntu.com/questions/1549622/problem-with-archive-ubuntu-com-most-of-the-servers-are-not-responding)
       # The mirror was chosen from https://launchpad.net/ubuntu/+archivemirrors.
       - name: Configure apt
-        shell: bash -e {0}
         run: |
           sed -i 's|http://archive.ubuntu.com/ubuntu|http://www.mirrorservice.org/sites/archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources
           apt-get update
 
       # Git is needed for actions/checkout and Python for firedrake-configure
       - name: Install system dependencies (1)
-        shell: bash -e {0}
-        run: |
-          apt-get -y install git python3
+        run: apt-get -y install git python3
 
       - uses: actions/checkout@v5
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
-
-      - name: Fix permissions
-        shell: bash -e {0}
-        run: chown -R ubuntu:ubuntu firedrake-repo
 
       - name: Validate single source of truth
         run: ./firedrake-repo/scripts/check-config
@@ -146,6 +136,8 @@ jobs:
         run: |
           latest_version=$(grep "VERSION_ID=" /etc/os-release | cut -d '"' -f 2)
           docker_version=$(grep FROM firedrake-repo/docker/Dockerfile.vanilla | cut -d ':' -f 2)
+          echo Latest version: $latest_version
+          echo Docker version: $docker_version
           if [[ "$docker_version" != "$latest_version" ]]; then
             echo "Ubuntu version ${docker_version} in Dockerfile is out of date with latest version ${latest_version}"
             exit 1
@@ -163,7 +155,6 @@ jobs:
           fi
 
       - name: Install system dependencies (2)
-        shell: bash -e {0}
         run: |
           apt-get -y install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
@@ -392,7 +383,6 @@ jobs:
 
       - name: Install system dependencies (3)
         if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
-        shell: bash -e {0}
         run: apt-get -y install inkscape texlive-full
 
       - name: Check bibtex
