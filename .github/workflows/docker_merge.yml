@@ -65,7 +65,7 @@ jobs:
             $(printf "firedrakeproject/${{ inputs.target }}@sha256:%s " *)
 
       - name: Merge and push the per-platform images (dev)
-        if: ! inputs.tag_latest
+        if: ${{ ! inputs.tag_latest }}
         working-directory: ${{ runner.temp }}/digests
         run: |
           docker buildx imagetools create \
