@@ -28,7 +28,7 @@ on:
 jobs:
   docker_merge:
     runs-on: [self-hosted, Linux]
-    container: ubuntu-latest
+    container: ubuntu:latest
     steps:
       - name: Pre-cleanup
         if: always()
