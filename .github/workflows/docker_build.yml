@@ -56,10 +56,11 @@ jobs:
         if: always()
         run: find . -delete
 
-      - name: Install Docker
+      - name: Set up Docker
         run: |
           apt-get update
           apt-get -y install docker.io
+          systemctl start docker.service
 
       - name: Check out the repo
         uses: actions/checkout@v5
