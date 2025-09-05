@@ -188,15 +188,6 @@ def test_scalar_function_interpolation(parentmesh, vertexcoords, fs):
     v = Function(V).interpolate(expr)
     w_v = assemble(interpolate(v, W))
     assert np.allclose(w_v.dat.data_ro, np.sum(vertexcoords, axis=1))
-    # try and make reusable Interpolator from V to W
-    A_w = Interpolator(TestFunction(V), W)
-    w_v = Function(W)
-    assemble(A_w.interpolate(v), tensor=w_v)
-    assert np.allclose(w_v.dat.data_ro, np.sum(vertexcoords, axis=1))
-    # use it again for a different Function in V
-    v = Function(V).assign(Constant(2))
-    assemble(A_w.interpolate(v), tensor=w_v)
-    assert np.allclose(w_v.dat.data_ro, 2)
 
 
 def test_vector_spatialcoordinate_interpolation(parentmesh, vertexcoords):
@@ -227,16 +218,6 @@ def test_vector_function_interpolation(parentmesh, vertexcoords, vfs):
     v = Function(V).interpolate(expr)
     w_v = assemble(interpolate(v, W))
     assert np.allclose(w_v.dat.data_ro, 2*np.asarray(vertexcoords))
-    # try and make reusable Interpolator from V to W
-    A_w = Interpolator(TestFunction(V), W)
-    w_v = Function(W)
-    assemble(A_w.interpolate(v), tensor=w_v)
-    assert np.allclose(w_v.dat.data_ro, 2*np.asarray(vertexcoords))
-    # use it again for a different Function in V
-    expr = 4 * SpatialCoordinate(parentmesh)
-    v = Function(V).interpolate(expr)
-    assemble(A_w.interpolate(v), tensor=w_v)
-    assert np.allclose(w_v.dat.data_ro, 4*np.asarray(vertexcoords))
 
 
 def test_tensor_spatialcoordinate_interpolation(parentmesh, vertexcoords):
@@ -279,16 +260,6 @@ def test_tensor_function_interpolation(parentmesh, vertexcoords, tfs):
         result = result.reshape(vertexcoords.shape + (parentmesh.geometric_dimension(),))
     w_v = assemble(interpolate(v, W))
     assert np.allclose(w_v.dat.data_ro.reshape(result.shape), result)
-    # try and make reusable Interpolator from V to W
-    A_w = Interpolator(TestFunction(V), W)
-    w_v = Function(W)
-    assemble(A_w.interpolate(v), tensor=w_v)
-    assert np.allclose(w_v.dat.data_ro.reshape(result.shape), result)
-    # use it again for a different Function in V
-    expr = 2*outer(x, x)
-    v = Function(V).interpolate(expr)
-    assemble(A_w.interpolate(v), tensor=w_v)
-    assert np.allclose(w_v.dat.data_ro.reshape(result.shape), 2*result)
 
 
 def test_mixed_function_interpolation(parentmesh, vertexcoords, tfs):
@@ -346,23 +317,6 @@ def test_scalar_real_interpolation(parentmesh, vertexcoords):
         return
     v = assemble(interpolate(Constant(1), V))
     w_v = assemble(interpolate(v, W))
-    assert np.allclose(w_v.dat.data_ro, 1.)
-
-
-def test_scalar_real_interpolator(parentmesh, vertexcoords):
-    # try and make reusable Interpolator from V to W
-    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour="ignore")
-    W = FunctionSpace(vm, "DG", 0)
-    V = FunctionSpace(parentmesh, "Real", 0)
-    # Remove below when interpolating constant onto Real works for extruded
-    if type(parentmesh.topology) is mesh.ExtrudedMeshTopology:
-        with pytest.raises(ValueError):
-            assemble(interpolate(Constant(1), V))
-        return
-    v = assemble(interpolate(Constant(1), V))
-    A_w = Interpolator(TestFunction(V), W)
-    w_v = Function(W)
-    assemble(A_w.interpolate(v), tensor=w_v)
     assert np.allclose(w_v.dat.data_ro, 1.)
 
 

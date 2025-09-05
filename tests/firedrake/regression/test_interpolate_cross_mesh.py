@@ -334,21 +334,9 @@ def test_interpolate_unitsquare_mixed():
     assert np.allclose(got[:, 0], expected_1)
     assert np.allclose(got[:, 1], expected_2)
 
-    # can create interpolator and use it
-    interpolator = Interpolator(TestFunction(V_src), V_dest)
-    f_dest = assemble(interpolator.interpolate(f_src))
-    assert extract_unique_domain(f_dest) is m_dest
-    got = np.asarray(f_dest.at(coords))
-    assert np.allclose(got[:, 0], expected_1)
-    assert np.allclose(got[:, 1], expected_2)
-    f_dest = Function(V_dest)
-    assemble(interpolator.interpolate(f_src), tensor=f_dest)
-    assert extract_unique_domain(f_dest) is m_dest
-    got = np.asarray(f_dest.at(coords))
-    assert np.allclose(got[:, 0], expected_1)
-    assert np.allclose(got[:, 1], expected_2)
+    # adjoint
     cofunc_dest = assemble(inner(f_dest, TestFunction(V_dest)) * dx)
-    cofunc_src = assemble(interpolator.interpolate(cofunc_dest, adjoint=True))
+    cofunc_src = assemble(interpolate(TestFunction(V_src), cofunc_dest))
     assert not np.allclose(f_src.dat.data_ro[0], cofunc_src.dat.data_ro[0])
     assert not np.allclose(f_src.dat.data_ro[1], cofunc_src.dat.data_ro[1])
 
@@ -386,17 +374,14 @@ def test_exact_refinement():
     # which has no interpolation error versus f_fine because we were able to
     # exactly represent expr_in_V_coarse in V_coarse and V_coarse is a subset
     # of V_fine
-    interpolator_coarse_to_fine = Interpolator(TestFunction(V_coarse), V_fine)
-    f_coarse_on_fine = assemble(interpolator_coarse_to_fine.interpolate(f_coarse))
+    f_coarse_on_fine = assemble(interpolate(f_coarse, V_fine))
     assert np.allclose(f_coarse_on_fine.dat.data_ro, f_fine.dat.data_ro)
 
     # Adjoint interpolation takes us from V_fine^* to V_coarse^* so we should
     # also get an exact result here.
     cofunction_coarse = assemble(inner(f_coarse, TestFunction(V_coarse)) * dx)
     cofunction_fine = assemble(inner(f_fine, TestFunction(V_fine)) * dx)
-    cofunction_fine_on_coarse = assemble(interpolator_coarse_to_fine.interpolate(
-        cofunction_fine, adjoint=True
-    ))
+    cofunction_fine_on_coarse = assemble(interpolate(TestFunction(V_coarse), cofunction_fine))
     assert np.allclose(
         cofunction_fine_on_coarse.dat.data_ro, cofunction_coarse.dat.data_ro
     )
@@ -414,8 +399,7 @@ def test_exact_refinement():
     # We still expect interpolation from V_coarse to V_fine to produce a result
     # which is consistent with building a function in V_coarse by directly
     # interpolating expr_coarse since V_coarse is a subset of V_fine.
-    interpolator_fine_to_coarse = Interpolator(TestFunction(V_fine), V_coarse)
-    f_fine_on_coarse = assemble(interpolator_fine_to_coarse.interpolate(f_fine))
+    f_fine_on_coarse = assemble(interpolate(f_fine, V_coarse))
     assert np.allclose(f_fine_on_coarse.dat.data_ro, f_coarse.dat.data_ro)
 
     # But adjoint interpolation, which takes us from V_coarse^* to V_fine^*
@@ -424,9 +408,7 @@ def test_exact_refinement():
     # exactly represent the expression in V_coarse.
     cofunction_fine = assemble(inner(f_fine, TestFunction(V_fine)) * dx)
     cofunction_coarse = assemble(inner(f_coarse, TestFunction(V_coarse)) * dx)
-    cofunction_coarse_on_fine = assemble(interpolator_fine_to_coarse.interpolate(
-        cofunction_coarse, adjoint=True
-    ))
+    cofunction_coarse_on_fine = assemble(interpolate(TestFunction(V_fine), cofunction_coarse))
     assert not np.allclose(
         cofunction_coarse_on_fine.dat.data_ro, cofunction_fine.dat.data_ro
     )
@@ -434,15 +416,12 @@ def test_exact_refinement():
     # We get a similar result going in the other direction. Forward
     # interpolation from V_coarse to V_fine similarly doesn't reproduce the
     # effect of interpolating expr_fine directly into V_fine
-    interpolator_coarse_to_fine = Interpolator(TestFunction(V_coarse), V_fine)
-    f_course_on_fine = assemble(interpolator_coarse_to_fine.interpolate(f_coarse))
-    assert not np.allclose(f_course_on_fine.dat.data_ro, f_fine.dat.data_ro)
+    f_coarse_on_fine = assemble(interpolate(f_coarse, V_fine))
+    assert not np.allclose(f_coarse_on_fine.dat.data_ro, f_fine.dat.data_ro)
 
     # But the adjoint operation, which takes us from V_fine^* to
     # V_coarse^* correctly reproduces cofunction_coarse from cofunction_fine
-    cofunction_fine_on_coarse = assemble(interpolator_coarse_to_fine.interpolate(
-        cofunction_fine, adjoint=True
-    ))
+    cofunction_fine_on_coarse = assemble(interpolate(TestFunction(V_coarse), cofunction_fine))
     assert not np.allclose(
         cofunction_fine_on_coarse.dat.data_ro, cofunction_coarse.dat.data_ro
     )
@@ -497,24 +476,6 @@ def get_expected_values(
     interpolate_expression(
         m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
     )
-    interpolator, f_src, f_dest, m_src = interpolator_function(
-        m_src,
-        m_dest,
-        V_src,
-        V_dest,
-        coords,
-        expected,
-        expr_src,
-        expr_dest,
-        atol,
-    )
-    cofunction_dest = assemble(inner(f_dest, TestFunction(V_dest)) * dx)
-    interpolator_function_adjoint(
-        interpolator, f_src, cofunction_dest, m_src, m_dest, coords, expected, atol
-    )
-    interpolator_expression(
-        m_src, m_dest, V_src, V_dest, coords, expected, expr_src, atol
-    )
 
 
 def interpolate_function(
@@ -555,6 +516,8 @@ def interpolate_function(
 def interpolate_expression(
     m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
 ):
+    f_src = Function(V_src).interpolate(expr_src)
+
     f_dest = assemble(interpolate(expr_src, V_dest))
     assert extract_unique_domain(f_dest) is m_dest
     got = f_dest.at(coords)
@@ -570,41 +533,15 @@ def interpolate_expression(
     assert np.allclose(got, expected, atol=atol)
     assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
 
-
-def interpolator_function(
-    m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
-):
-    f_src = Function(V_src).interpolate(expr_src)
-
-    interpolator = Interpolator(TestFunction(V_src), V_dest)
-    assert isinstance(interpolator, Interpolator)
-    assert isinstance(interpolator, interpolation.CrossMeshInterpolator)
-    f_dest = assemble(interpolator.interpolate(f_src))
-    assert extract_unique_domain(f_dest) is m_dest
-    got = f_dest.at(coords)
-    assert np.allclose(got, expected, atol=atol)
-    f_dest_2 = Function(V_dest).interpolate(expr_dest)
-    assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
-
-    with pytest.raises(TypeError):
-        # can't interpolate expressions using an interpolator
-        assemble(interpolator.interpolate(2 * f_src))
+    # adjoint
     cofunction_dest = assemble(inner(f_dest, TestFunction(V_dest)) * dx)
-    assemble(interpolator.interpolate(2 * cofunction_dest, adjoint=True))
-
-    return interpolator, f_src, f_dest, m_src
-
-
-def interpolator_function_adjoint(
-    interpolator, f_src, cofunction_dest, m_src, m_dest, coords, expected, atol
-):
-    f_dest = assemble(interpolator.interpolate(f_src))
-    cofunction_dest_on_src = assemble(interpolator.interpolate(cofunction_dest, adjoint=True))
+    cofunction_dest_on_src = assemble(interpolate(TestFunction(V_src), cofunction_dest))
     assert cofunction_dest_on_src.function_space().mesh() is m_src
     assert np.isclose(
         assemble(action(cofunction_dest_on_src, f_src)),
         assemble(action(cofunction_dest, f_dest)), atol=atol
     )
+
     if m_src.name == "src_sphere" and m_dest.name == "dest_sphere" and atol > 1e-8:
         # In the spheresphere case we actually DO get the same cofunction back with an
         # atol of 1e-3
@@ -613,27 +550,6 @@ def interpolator_function_adjoint(
         assert np.allclose(
             cofunction_dest_on_src.dat.data_ro, cofunction_src.dat.data_ro, atol=atol
         )
-
-
-def interpolator_expression(
-    m_src, m_dest, V_src, V_dest, coords, expected, expr_src, atol
-):
-    f_src = Function(V_src).interpolate(expr_src)
-
-    interpolator = Interpolator(2 * TestFunction(V_src), V_dest)
-    f_dest = assemble(interpolator.interpolate(f_src))
-    assert extract_unique_domain(f_dest) is m_dest
-    got = f_dest.at(coords)
-    assert np.allclose(got, 2 * expected, atol=2 * atol)
-    cofunction_dest = assemble(inner(f_dest, TestFunction(V_dest)) * dx)
-    cofunction_dest_on_src = assemble(interpolator.interpolate(
-        cofunction_dest, adjoint=True
-    ))
-    assert cofunction_dest_on_src.function_space().mesh() is m_src
-    assert np.isclose(
-        assemble(action(cofunction_dest_on_src, f_src)),
-        assemble(action(cofunction_dest, f_dest)), atol=atol
-    )
 
 
 def test_missing_dofs():
@@ -647,29 +563,28 @@ def test_missing_dofs():
     V_dest = FunctionSpace(m_dest, "CG", 3)
     with pytest.raises(DofNotDefinedError):
         Interpolator(TestFunction(V_src), V_dest)
-    interpolator = Interpolator(TestFunction(V_src), V_dest, allow_missing_dofs=True)
     f_src = Function(V_src).interpolate(expr)
-    f_dest = assemble(interpolator.interpolate(f_src))
+    f_dest = assemble(interpolate(f_src, V_dest, allow_missing_dofs=True))
     # default value is zero
     assert np.allclose(f_dest.at(coords), np.array([0.25, 0.0]))
     f_dest = Function(V_dest).assign(Constant(1.0))
     # make sure we have actually changed f_dest before checking interpolation
     assert np.allclose(f_dest.at(coords), np.array([1.0, 1.0]))
-    assemble(interpolator.interpolate(f_src), tensor=f_dest)
+    assemble(interpolate(f_src, V_dest, allow_missing_dofs=True), tensor=f_dest)
     # assigned value hasn't been changed
     assert np.allclose(f_dest.at(coords), np.array([0.25, 1.0]))
-    f_dest = assemble(interpolator.interpolate(f_src, default_missing_val=2.0))
+    f_dest = assemble(interpolate(f_src, V_dest, allow_missing_dofs=True, default_missing_val=2.0))
     # should take on the default value
     assert np.allclose(f_dest.at(coords), np.array([0.25, 2.0]))
     f_dest = Function(V_dest).assign(Constant(1.0))
     # make sure we have actually changed f_dest before checking interpolation
     assert np.allclose(f_dest.at(coords), np.array([1.0, 1.0]))
-    assemble(interpolator.interpolate(f_src, default_missing_val=2.0), tensor=f_dest)
+    assemble(interpolate(f_src, V_dest, allow_missing_dofs=True, default_missing_val=2.0), tensor=f_dest)
     assert np.allclose(f_dest.at(coords), np.array([0.25, 2.0]))
     f_dest = Function(V_dest).assign(Constant(1.0))
     # make sure we have actually changed f_dest before checking interpolation
     assert np.allclose(f_dest.at(coords), np.array([1.0, 1.0]))
-    assemble(interpolator.interpolate(f_src, default_missing_val=0.0), tensor=f_dest)
+    assemble(interpolate(f_src, V_dest, allow_missing_dofs=True, default_missing_val=0.0), tensor=f_dest)
     assert np.allclose(f_dest.at(coords), np.array([0.25, 0.0]))
 
     # Try the other way around so we can check adjoint is unaffected
@@ -681,11 +596,10 @@ def test_missing_dofs():
     expr = x * y
     V_src = FunctionSpace(m_src, "CG", 3)
     V_dest = FunctionSpace(m_dest, "CG", 2)
-    interpolator = Interpolator(TestFunction(V_src), V_dest, allow_missing_dofs=True)
     cofunction_src = assemble(inner(Function(V_dest), TestFunction(V_dest)) * dx)
     cofunction_src.dat.data_wo[:] = 1.0
-    cofunction_dest = assemble(interpolator.interpolate(
-        cofunction_src, adjoint=True, default_missing_val=2.0
+    cofunction_dest = assemble(interpolate(
+        TestFunction(V_dest), cofunction_src, allow_missing_dofs=True, default_missing_val=2.0
     ))
     assert np.all(cofunction_dest.dat.data_ro != 2.0)
 
