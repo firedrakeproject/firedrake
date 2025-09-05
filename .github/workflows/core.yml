@@ -82,6 +82,8 @@ jobs:
     runs-on: [self-hosted, Linux]
     container:
       image: ubuntu:latest
+      # match the UID of the 'github' user on the runner
+      options: --user 1000
     outputs:
       sdist_conclusion: ${{ steps.report_sdist.outputs.conclusion }}
       docs_conclusion: ${{ steps.report_docs.outputs.conclusion }}

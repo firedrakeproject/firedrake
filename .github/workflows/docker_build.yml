@@ -54,8 +54,7 @@ jobs:
     steps:
       - name: Pre-cleanup
         if: always()
-        run: |
-          rm -rf ${{ runner.temp }}/digests
+        run: find . -delete
 
       - name: Add homebrew to PATH
         if: inputs.os == 'macOS'
@@ -104,5 +103,4 @@ jobs:
 
       - name: Post-cleanup
         if: always()
-        run: |
-          rm -rf ${{ runner.temp }}/digests
+        run: find . -delete
