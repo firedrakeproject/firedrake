@@ -1,17 +1,13 @@
 import numpy as np
-import rtree
-import sys
 import ufl
-import warnings
 from ufl.duals import is_dual
 from ufl.formatting.ufl2unicode import ufl2unicode
 from ufl.domain import extract_unique_domain
 import cachetools
 import ctypes
-from ctypes import POINTER, c_int, c_double, c_void_p
+from ctypes import POINTER, c_int, c_void_p
 from collections.abc import Collection
 from numbers import Number
-from pathlib import Path
 from functools import partial
 from typing import Tuple
 
