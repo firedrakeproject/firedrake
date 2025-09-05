@@ -125,12 +125,16 @@ jobs:
       - name: Install system dependencies (1)
         shell: bash -e {0}
         run: |
-          sudo apt-get -y install git python3
+          apt-get -y install git python3
 
       - uses: actions/checkout@v5
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
+
+      - name: Fix permissions
+        shell: bash -e {0}
+        run: chown -R ubuntu:ubuntu firedrake-repo
 
       - name: Validate single source of truth
         run: ./firedrake-repo/scripts/check-config
