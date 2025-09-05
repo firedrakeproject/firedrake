@@ -352,8 +352,10 @@ def test_extruded_cell_parent_cell_list():
 
     # expected values at coordinates from tests/regression/test_locate_cell.py
     expected = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9])
-    assert np.allclose(fs.at(coords), expected)
-    assert np.allclose(fx.at(coords), expected)
+    ms_eval = PointEvaluator(ms, coords)
+    mx_eval = PointEvaluator(mx, coords)
+    assert np.allclose(ms_eval.evaluate(fs), expected)
+    assert np.allclose(mx_eval.evaluate(fx), expected)
     assert np.allclose(fs.dat.data[vms.cell_parent_cell_list], expected[vms.topology._dm_renumbering])
     assert np.allclose(fx.dat.data[vmx.cell_parent_cell_list], expected[vmx.topology._dm_renumbering])
 

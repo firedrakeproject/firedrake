@@ -143,7 +143,8 @@ def test_cross_mesh():
     f_dest = assemble(interpolate(f_src, V_dest, allow_missing_dofs=True))
     # [test_cross_mesh 6]
 
-    assert np.isclose(f_dest.at(0.5, 0.5), 0.5)
+    dest_eval05 = PointEvaluator(dest_mesh, [[0.5, 0.5]])
+    assert np.isclose(dest_eval05.evaluate(f_dest), 0.5)
 
     # or
     # [test_cross_mesh 7]
@@ -151,50 +152,51 @@ def test_cross_mesh():
     # [test_cross_mesh 8]
 
     # We get values at the points in the destination mesh as we would expect
-    f_dest.at(0.5, 0.5)  # returns 0.5**2 + 0.5**2 = 0.5
+    dest_eval05.evaluate(f_dest)  # returns 0.5**2 + 0.5**2 = 0.5
 
-    assert np.isclose(f_dest.at(0.5, 0.5), 0.5)
+    assert np.isclose(dest_eval05.evaluate(f_dest), 0.5)
 
     # By default the missing points are set to 0.0
     # [test_cross_mesh 9]
-    f_dest.at(1.5, 1.5)  # returns 0.0
+    dest_eval15 = PointEvaluator(dest_mesh, [[1.5, 1.5]])
+    dest_eval15.evaluate(f_dest)  # returns 0.0
     # [test_cross_mesh 10]
 
-    assert np.isclose(f_dest.at(1.5, 1.5), 0.0)
+    assert np.isclose(dest_eval15.evaluate(f_dest), 0.0)
 
     # We can alternatively specify a value to use for missing points:
     # [test_cross_mesh 11]
     f_dest = assemble(interpolate(
         f_src, V_dest, allow_missing_dofs=True, default_missing_val=np.nan
     ))
-    f_dest.at(1.5, 1.5)  # returns np.nan
+    dest_eval15.evaluate(f_dest)  # returns np.nan
     # [test_cross_mesh 12]
 
-    assert np.isclose(f_dest.at(0.5, 0.5), 0.5)
-    assert np.isnan(f_dest.at(1.5, 1.5))
+    assert np.isclose(dest_eval05.evaluate(f_dest), 0.5)
+    assert np.isnan(dest_eval15.evaluate(f_dest))
 
     # If we supply an output function and don't set default_missing_val
     # then any points outside the domain are left as they were.
     # [test_cross_mesh 13]
     x_dest, y_dest = SpatialCoordinate(dest_mesh)
     f_dest = Function(V_dest).interpolate(x_dest + y_dest)
-    f_dest.at(0.5, 0.5)  # returns x_dest + y_dest = 1.0
+    dest_eval05.evaluate(f_dest)  # returns x_dest + y_dest = 1.0
     # [test_cross_mesh 14]
 
-    assert np.isclose(f_dest.at(0.5, 0.5), 1.0)
+    assert np.isclose(dest_eval05.evaluate(f_dest), 1.0)
 
     # [test_cross_mesh 15]
     assemble(interpolate(f_src, V_dest, allow_missing_dofs=True), tensor=f_dest)
-    f_dest.at(0.5, 0.5)  # now returns x_src^2 + y_src^2 = 0.5
+    dest_eval05.evaluate(f_dest)  # now returns x_src^2 + y_src^2 = 0.5
     # [test_cross_mesh 16]
 
-    assert np.isclose(f_dest.at(0.5, 0.5), 0.5)
+    assert np.isclose(dest_eval05.evaluate(f_dest), 0.5)
 
-    f_dest.at(1.5, 1.5)  # still returns x_dest + y_dest = 3.0
+    dest_eval15.evaluate(f_dest)  # still returns x_dest + y_dest = 3.0
 
     f_dest.zero()
     f_dest.interpolate(x_dest + y_dest)
-    assert np.isclose(f_dest.at(0.5, 0.5), 1.0)  # x_dest + y_dest = 1.0
+    assert np.isclose(dest_eval05.evaluate(f_dest), 1.0)  # x_dest + y_dest = 1.0
 
     # Similarly, using the interpolate method on a function will not overwrite
     # the pre-existing values if default_missing_val is not set
@@ -202,5 +204,5 @@ def test_cross_mesh():
     f_dest.interpolate(f_src, allow_missing_dofs=True)
     # [test_cross_mesh 18]
 
-    assert np.isclose(f_dest.at(0.5, 0.5), 0.5)  # x_src^2 + y_src^2 = 0.5
-    assert np.isclose(f_dest.at(1.5, 1.5), 3.0)  # x_dest + y_dest = 3.0
+    assert np.isclose(dest_eval05.evaluate(f_dest), 0.5)  # x_src^2 + y_src^2 = 0.5
+    assert np.isclose(dest_eval15.evaluate(f_dest), 3.0)  # x_dest + y_dest = 3.0
