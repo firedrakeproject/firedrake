@@ -2,7 +2,7 @@ import abc
 
 from firedrake_citations import Citations
 from firedrake.petsc import PETSc
-from firedrake.dmhooks import get_appctx
+from firedrake.dmhooks import get_appctx, get_function_space
 
 __all__ = ("PCBase", "SNESBase", "PCSNESBase")
 
@@ -105,8 +105,12 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         return a, bcs
 
     @staticmethod
-    def get_appctx(pc):
-        return get_appctx(pc.getDM()).appctx
+    def get_appctx(obj):
+        return get_appctx(obj.getDM()).appctx
+
+    @staticmethod
+    def get_function_space(obj):
+        return get_function_space(obj.getDM())
 
     @staticmethod
     def new_snes_ctx(pc, op, bcs, mat_type, fcp=None, options_prefix=None, pre_apply_bcs=True):
