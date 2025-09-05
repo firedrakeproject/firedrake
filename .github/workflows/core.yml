@@ -97,6 +97,8 @@ jobs:
       PYTEST_MPI_MAX_NPROCS: 8
     defaults:
       run:
+        # Run (almost) all commands as an unprivileged user with the same UID
+        # as on CI to avoid permissions issues
         shell: sudo -u ubuntu bash -e {0}
     steps:
       - name: Install sudo
@@ -107,10 +109,7 @@ jobs:
 
       - name: Pre-run cleanup
         # Make sure the current directory is empty
-        run: |
-          id
-          find . -delete
-          exit 1
+        run: find . -delete
 
       # Use a different mirror to fetch apt packages from to get around
       # temporary outage.
@@ -118,14 +117,12 @@ jobs:
       # The mirror was chosen from https://launchpad.net/ubuntu/+archivemirrors.
       - name: Configure apt
         run: |
-          su ubuntu
           sudo sed -i 's|http://archive.ubuntu.com/ubuntu|http://www.mirrorservice.org/sites/archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources
           sudo apt-get update
 
       # Git is needed for actions/checkout and Python for firedrake-configure
       - name: Install system dependencies (1)
         run: |
-          su ubuntu
           sudo apt-get -y install git python3
 
       - uses: actions/checkout@v5
@@ -141,7 +138,6 @@ jobs:
       # for each release is fixed.
       - name: Check Dockerfile Ubuntu version
         run: |
-          su ubuntu
           latest_version=$(grep "VERSION_ID=" /etc/os-release | cut -d '"' -f 2)
           docker_version=$(grep FROM firedrake-repo/docker/Dockerfile.vanilla | cut -d ':' -f 2)
           if [[ "$docker_version" != "$latest_version" ]]; then
@@ -162,11 +158,11 @@ jobs:
 
       - name: Install system dependencies (2)
         run: |
-          apt-get -y install \
+          sudo apt-get -y install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
-          apt-get -y install python3-venv
+          sudo apt-get -y install python3-venv
           : # Dependencies needed to run the test suite
-          apt-get -y install fonts-dejavu graphviz graphviz-dev parallel poppler-utils
+          sudo apt-get -y install fonts-dejavu graphviz graphviz-dev parallel poppler-utils
 
       - name: Install PETSc
         run: |
@@ -389,7 +385,7 @@ jobs:
 
       - name: Install system dependencies (3)
         if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
-        run: apt-get -y install inkscape texlive-full
+        run: sudo apt-get -y install inkscape texlive-full
 
       - name: Check bibtex
         if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
