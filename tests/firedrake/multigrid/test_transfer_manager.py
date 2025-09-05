@@ -149,8 +149,8 @@ def RT_spaces(hierarchy):
     "V_dof_weights",
     "work_vec",
     "V_DG_mass",
-    "DG_inv_mass",
-    "V_approx_inv_mass",
+    pytest.param("DG_inv_mass", marks=pytest.mark.skipcomplexnoslate),
+    pytest.param("V_approx_inv_mass", marks=pytest.mark.skipcomplexnoslate),
     "V_inv_mass_ksp",
 ])
 def test_transfer_manager_cache(action, DG_spaces, RT_spaces):
