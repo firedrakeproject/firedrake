@@ -32,6 +32,12 @@ on:
         description: 'Firedrake arch to build'
         required: false
         type: string
+        default: 'default'
+      branch:
+        description: 'Firedrake branch to build'
+        required: false
+        type: string
+        default: 'release'
     secrets:
       # Docker login information
       DOCKERHUB_USER:
@@ -77,6 +83,7 @@ jobs:
           file: ${{ inputs.dockerfile }}
           build-args: |
             ARCH=${{ inputs.arch }}
+            BRANCH=${{ inputs.branch }}
           outputs: type=image,name=firedrakeproject/${{ inputs.target }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest

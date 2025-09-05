@@ -19,4 +19,6 @@ jobs:
     uses: ./.github/workflows/docker.yml
     with:
       tag: ${{ github.ref_name }}
+      branch: ${{ github.ref_name }}
+      build_dev: false
     secrets: inherit
