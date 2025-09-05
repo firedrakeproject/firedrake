@@ -209,6 +209,9 @@ jobs:
             --extra-index-url https://download.pytorch.org/whl/cpu \
             "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci,docs]"
 
+          pip uninstall firedrake-fiat -y; pip cache remove firedrake_fiat; pip install git+https://github.com/firedrakeproject/fiat.git@ksagiyam/introduce_mixed_map_mixed_cell
+          pip uninstall fenics-ufl -y; pip cache remove fenics-ufl; pip install git+https://github.com/firedrakeproject/ufl.git@ksagiyam/introduce_mixed_map_mixed_cell
+
           firedrake-clean
           pip list
 
@@ -318,7 +321,10 @@ jobs:
           matrix.arch == 'default'
         run: |
           . venv/bin/activate
-          git clone --depth 1 https://github.com/firedrakeproject/gusto.git gusto-repo
+          git clone https://github.com/firedrakeproject/gusto.git gusto-repo
+          cd gusto-repo
+          git checkout ksagiyam/submesh_core
+          cd ..
           pip install --verbose ./gusto-repo
           python -m pytest -n 8 --verbose \
             gusto-repo/integration-tests/balance/test_saturated_balance.py \
@@ -357,7 +363,10 @@ jobs:
           matrix.arch == 'default'
         run: |
           . venv/bin/activate
-          git clone --depth 1 https://github.com/g-adopt/g-adopt.git g-adopt-repo
+          git clone https://github.com/ksagiyam/g-adopt.git g-adopt-repo
+          cd g-adopt-repo
+          git checkout ksagiyam/submesh_core
+          cd ..
           pip install --verbose ./g-adopt-repo
           make -C g-adopt-repo/demos/mantle_convection/base_case check
         timeout-minutes: 5
