@@ -142,7 +142,7 @@ jobs:
 
       - name: Export digest
         run: |
-          : # Create a file in <tempdir>/digests with name matching the pushed image hash
+          : # Create a file in digests with name matching the pushed image hash
           mkdir digests
           digest="${{ steps.build.outputs.imageid }}"
           touch "digests/${digest#sha256:}"

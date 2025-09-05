@@ -42,7 +42,7 @@ jobs:
       - name: Download digests
         uses: actions/download-artifact@v4
         with:
-          path: ${{ runner.temp }}/digests
+          path: digests
           pattern: digests_${{ inputs.target }}_*
           merge-multiple: true
 
@@ -57,7 +57,7 @@ jobs:
 
       - name: Merge and push the per-platform images (release)
         if: inputs.tag_latest
-        working-directory: ${{ runner.temp }}/digests
+        working-directory: digests
         run: |
           docker buildx imagetools create \
             -t firedrakeproject/${{ inputs.target }}:${{ inputs.tag }} \
@@ -66,7 +66,7 @@ jobs:
 
       - name: Merge and push the per-platform images (dev)
         if: ${{ ! inputs.tag_latest }}
-        working-directory: ${{ runner.temp }}/digests
+        working-directory: digests
         run: |
           docker buildx imagetools create \
             -t firedrakeproject/${{ inputs.target }}:${{ inputs.tag }} \
