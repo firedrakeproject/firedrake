@@ -59,7 +59,7 @@ jobs:
       - name: Install Docker
         run: |
           apt-get update
-          apt-get -y install docker
+          apt-get -y install docker.io
 
       - name: Check out the repo
         uses: actions/checkout@v5
