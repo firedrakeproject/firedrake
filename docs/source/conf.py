@@ -149,6 +149,9 @@ nitpick_ignore_regex = [
     ('py:class', 'firedrake.solving_utils._SNESContext'),
     # Pyadjoint BlockVariable is not properly referenced in pyadjoint
     ('py:class', 'BlockVariable'),
+    # Cofunction.ufl_domains references FormArgument but it isn't picked
+    # up by Sphinx (see https://github.com/sphinx-doc/sphinx/issues/11225)
+    ('py:class', 'FormArgument'),
 ]
 
 # Dodgy links

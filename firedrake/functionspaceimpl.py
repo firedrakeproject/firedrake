@@ -19,6 +19,7 @@ from pyop2.utils import as_tuple
 
 from firedrake import dmhooks, utils
 from firedrake.functionspacedata import get_shared_data, create_element
+from firedrake.mesh import MeshGeometry
 from firedrake.petsc import PETSc
 
 
@@ -377,16 +378,32 @@ class WithGeometryBase(object):
             new = cls.create(new, mesh)
         return new
 
-    def reconstruct(self, mesh=None, element=None, name=None, **kwargs):
-        r"""Reconstruct this :class:`.WithGeometryBase` .
+    def reconstruct(
+        self,
+        mesh: MeshGeometry | None = None,
+        element: finat.ufl.FiniteElement | None = None,
+        name: str | None = None,
+        **kwargs,
+    ) -> "WithGeometryBase":
+        """Return a new function space with modified fields.
 
-        :kwarg mesh: the new :func:`~.Mesh` (defaults to same mesh)
-        :kwarg element: the new :class:`finat.ufl.FiniteElement` (defaults to same element)
-        :kwarg name: the new name (defaults to None)
-        :returns: the new function space of the same class as ``self``.
+        Parameters
+        ----------
+        mesh :
+            The mesh (defaults to same mesh).
+        element :
+            The finite element (defaults to same element).
+        name :
+            The name (defaults to `None`).
+
+        Returns
+        -------
+        WithGeometryBase :
+            The new function space of the same class as ``self``.
 
         Any extra kwargs are used to reconstruct the finite element.
-        For details see :meth:`finat.ufl.finiteelement.FiniteElement.reconstruct`.
+        For details see `finat.ufl.finiteelement.FiniteElement.reconstruct`.
+
         """
         from firedrake.bcs import restricted_function_space
         V_parent = self
