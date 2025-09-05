@@ -766,7 +766,7 @@ class PointEvaluator:
         .. warning::
 
             This method returns a numpy array and hence isn't taped for use with firedrake-adjoint.
-            If you want to use point evaluation with the adjoint, create a :class:`~.VertexOnlyMesh`
+            If you want to use point evaluation with the adjoint, create a :func:`~.VertexOnlyMesh`
             as described in the manual.
         """
         from firedrake import assemble, interpolate
