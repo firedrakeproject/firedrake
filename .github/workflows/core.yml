@@ -136,8 +136,8 @@ jobs:
         run: |
           latest_version=$(grep "VERSION_ID=" /etc/os-release | cut -d '"' -f 2)
           docker_version=$(grep FROM firedrake-repo/docker/Dockerfile.vanilla | cut -d ':' -f 2)
-          echo Latest version: $latest_version
-          echo Docker version: $docker_version
+          echo "Latest version: $latest_version"
+          echo "Docker version: $docker_version"
           if [[ "$docker_version" != "$latest_version" ]]; then
             echo "Ubuntu version ${docker_version} in Dockerfile is out of date with latest version ${latest_version}"
             exit 1
