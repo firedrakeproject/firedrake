@@ -99,7 +99,7 @@ jobs:
       - name: Setup privileges
         run: |
           apt-get update
-          apt-get install sudo
+          apt-get -y install sudo
           su ubuntu
 
       - name: Pre-run cleanup
