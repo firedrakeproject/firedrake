@@ -86,17 +86,16 @@ jobs:
 
       - name: Export digest
         run: |
-          : # Create a file in <tempdir>/digests with name matching the pushed image hash
-          rm -rf ${{ runner.temp }}/digests
-          mkdir -p ${{ runner.temp }}/digests
+          : # Create a file in './digests' with name matching the pushed image hash
+          mkdir digests
           digest="${{ steps.build.outputs.imageid }}"
-          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+          touch "digests/${digest#sha256:}"
 
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
           name: digests_${{ inputs.target }}_${{ inputs.os }}
-          path: ${{ runner.temp }}/digests/*
+          path: digests/*
           if-no-files-found: error
           retention-days: 1
 
@@ -144,16 +143,15 @@ jobs:
       - name: Export digest
         run: |
           : # Create a file in <tempdir>/digests with name matching the pushed image hash
-          rm -rf ${{ runner.temp }}/digests
-          mkdir -p ${{ runner.temp }}/digests
+          mkdir digests
           digest="${{ steps.build.outputs.imageid }}"
-          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+          touch "digests/${digest#sha256:}"
 
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
           name: digests_${{ inputs.target }}_${{ inputs.os }}
-          path: ${{ runner.temp }}/digests/*
+          path: digests/*
           if-no-files-found: error
           retention-days: 1
 
