@@ -56,6 +56,11 @@ jobs:
         if: always()
         run: find . -delete
 
+      - name: Install Docker
+        run: |
+          apt-get update
+          apt-get -y install docker
+
       - name: Check out the repo
         uses: actions/checkout@v5
 
