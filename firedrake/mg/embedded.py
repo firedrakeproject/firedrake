@@ -5,6 +5,7 @@ import weakref
 from enum import IntEnum
 from firedrake.petsc import PETSc
 from firedrake.embedding import get_embedding_dg_element
+from .utils import get_level
 
 
 __all__ = ("TransferManager", )
@@ -65,7 +66,6 @@ class TransferManager(object):
         """
         self.native_transfers = native_transfers or {}
         self.use_averaging = use_averaging
-        self.caches = {}
 
     def is_native(self, element, op):
         if element in self.native_transfers.keys():
@@ -87,14 +87,17 @@ class TransferManager(object):
         return None
 
     def cache(self, V):
+        mh, _ = get_level(V.mesh())
+        caches = mh._shared_data_cache["transfer_manager_cache"]
         key = (V.ufl_element(), V.value_shape, V.boundary_set)
         try:
-            return self.caches[key]
+            return caches[key]
         except KeyError:
-            return self.caches.setdefault(key, TransferManager.Cache(*key[:2]))
+            return caches.setdefault(key, TransferManager.Cache(*key[:2]))
 
     def cache_key(self, V):
-        return (V.dim(),)
+        _, level = get_level(V.mesh())
+        return (level,)
 
     def V_dof_weights(self, V):
         """Dof weights for averaging projection.
@@ -143,7 +146,7 @@ class TransferManager(object):
         :returns: A PETSc Mat.
         """
         cache = self.cache(DG)
-        key = DG.dim()
+        key = self.cache_key(DG)
         try:
             return cache._DG_inv_mass[key]
         except KeyError:

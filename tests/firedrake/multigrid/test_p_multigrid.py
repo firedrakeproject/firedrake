@@ -73,6 +73,17 @@ def test_reconstruct_degree(tp_mesh, mixed_family):
         assert e == PMGPC.reconstruct_degree(elist[0], degree)
 
 
+def test_work_function_cache(tp_mesh):
+    from firedrake.preconditioners.pmg import StandaloneInterpolationMatrix
+
+    V1 = FunctionSpace(tp_mesh, "Lagrange", 1)
+    V2 = FunctionSpace(tp_mesh, "Lagrange", 1)
+    assert V1 is not V2
+    w1 = StandaloneInterpolationMatrix.work_function(V1)
+    w2 = StandaloneInterpolationMatrix.work_function(V2)
+    assert w1 is w2
+
+
 @pytest.mark.parametrize("family", ["Q", "NCE", "NCF", "DQ"])
 def test_prolong_basic(tp_mesh, family):
     """ Interpolate a constant function between low-order and high-order spaces
