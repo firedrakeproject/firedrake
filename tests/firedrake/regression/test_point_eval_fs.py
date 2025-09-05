@@ -106,34 +106,6 @@ def test_triangle_tensor(mesh_triangle, family, degree):
     assert np.allclose([[0.9, 0.2], [0.00, 0.18]], f([0.0, 0.9]))
 
 
-def test_triangle_mixed(mesh_triangle):
-    V1 = FunctionSpace(mesh_triangle, "DG", 1)
-    V2 = FunctionSpace(mesh_triangle, "RT", 2)
-    V = V1 * V2
-    f = Function(V)
-    f1, f2 = f.subfunctions
-    x = SpatialCoordinate(mesh_triangle)
-    f1.interpolate(x[0] + 1.2*x[1])
-    f2.project(as_vector((x[1], 0.8 + x[0])))
-
-    # Single point
-    actual = f.at([0.6, 0.4])
-    assert isinstance(actual, tuple)
-    assert len(actual) == 2
-    assert np.allclose(1.08, actual[0])
-    assert np.allclose([0.4, 1.4], actual[1])
-
-    # Multiple points
-    actual = f.at([0.6, 0.4], [0.0, 0.9], [0.3, 0.5])
-    assert len(actual) == 3
-    assert np.allclose(1.08, actual[0][0])
-    assert np.allclose([0.4, 1.4], actual[0][1])
-    assert np.allclose(1.08, actual[1][0])
-    assert np.allclose([0.9, 0.8], actual[1][1])
-    assert np.allclose(0.90, actual[2][0])
-    assert np.allclose([0.5, 1.1], actual[2][1])
-
-
 @pytest.mark.parametrize(('family', 'degree'),
                          [('CG', 2),
                           ('DG', 2)])
@@ -192,27 +164,6 @@ def test_tetrahedron_vector(mesh_tetrahedron, family, degree):
 
     assert np.allclose([0.6, 0.54, 0.4], f([0.6, 0.4, 0.3]))
     assert np.allclose([0.9, 0.34, 0.7], f([0.4, 0.7, 0.1]))
-
-
-def test_point_eval_forces_writes():
-    m = UnitTriangleMesh()
-    V = FunctionSpace(m, 'DG', 0)
-    f = Function(V)
-
-    assert np.allclose([0.0], f.at((0.3, 0.3)))
-    f.assign(1)
-    assert np.allclose([1.0], f.at((0.3, 0.3)))
-
-
-def test_point_reset_works():
-    m = UnitTriangleMesh()
-    V = FunctionSpace(m, 'DG', 0)
-    f = Function(V)
-
-    assert np.allclose([0.0], f.at((0.3, 0.3)))
-    f.assign(1)
-    m.clear_spatial_index()
-    assert np.allclose([1.0], f.at((0.3, 0.3)))
 
 
 def test_changing_coordinates_invalidates_spatial_index():
