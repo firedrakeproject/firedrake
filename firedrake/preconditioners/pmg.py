@@ -1212,7 +1212,7 @@ class StandaloneInterpolationMatrix(object):
     def work_function(V):
         if isinstance(V, firedrake.Function):
             return V
-        cache = V.mesh()._shared_data_cache["pmg_work_function"]
+        cache = V.mesh()._geometric_shared_data_cache["pmg_work_function"]
         key = (V.ufl_element(), V.value_shape, V.boundary_set)
         try:
             return cache[key]
