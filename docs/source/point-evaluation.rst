@@ -8,8 +8,7 @@ Point evaluation
 Firedrake can evaluate :py:class:`~.Function`\s at arbitrary physical
 points.  This feature can be useful for the evaluation of the result
 of a simulation, or for creating expressions which contain point evaluations.
-Three APIs are offered to this feature: two Firedrake-specific ones, and one
-from UFL.
+Two APIs for this are offered: a Firedrake-specific one, and one from UFL.
 
 .. _primary-api:
 

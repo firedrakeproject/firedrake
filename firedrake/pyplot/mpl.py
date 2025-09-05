@@ -2,7 +2,6 @@ import enum
 import math
 import numpy as np
 import numpy.random as randomgen
-
 try:
     import matplotlib.pyplot as plt
 except ModuleNotFoundError as e:
