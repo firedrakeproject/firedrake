@@ -545,16 +545,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         # Return pointer
         return ctypes.pointer(c_function)
 
-    def _c_evaluate(self, tolerance=None):
-        cache = self.__dict__.setdefault("_c_evaluate_cache", {})
-        try:
-            return cache[tolerance]
-        except KeyError:
-            result = make_c_evaluate(self, tolerance=tolerance)
-            result.argtypes = [POINTER(_CFunction), POINTER(c_double), c_void_p]
-            result.restype = c_int
-            return cache.setdefault(tolerance, result)
-
     def evaluate(self, coord, mapping, component, index_values):
         # Called by UFL when evaluating expressions at coordinates
         if component or index_values:
