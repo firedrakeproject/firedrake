@@ -3,7 +3,6 @@ import math
 import numpy as np
 import numpy.random as randomgen
 
-from firedrake.function import PointEvaluator
 try:
     import matplotlib.pyplot as plt
 except ModuleNotFoundError as e:
@@ -12,7 +11,6 @@ except ModuleNotFoundError as e:
         "pip install matplotlib"
     ) from e
 import matplotlib.colors
-import matplotlib.patches
 import matplotlib.tri
 from matplotlib.path import Path
 from matplotlib.lines import Line2D
@@ -21,7 +19,8 @@ import mpl_toolkits.mplot3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 from math import factorial
 from firedrake import (Interpolate, sqrt, inner, Function, SpatialCoordinate,
-                       FunctionSpace, VectorFunctionSpace, Constant, assemble, dx)
+                       FunctionSpace, VectorFunctionSpace, Constant, assemble, dx,
+                       PointEvaluator)
 from firedrake.mesh import MeshGeometry, VertexOnlyMeshMissingPointsError
 from firedrake.petsc import PETSc
 from ufl.domain import extract_unique_domain
