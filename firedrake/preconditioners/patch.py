@@ -605,7 +605,7 @@ def bcdofs(bc, ghost=True):
         stop = bs
     nodes = bc.nodes
     if not ghost:
-        nodes = nodes[nodes < Z.dof_dset.size]
+        nodes = nodes[nodes < Z.axes.owned.size]
 
     return numpy.concatenate([nodes*bs + j for j in range(start, stop)]) + offset
 

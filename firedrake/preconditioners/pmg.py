@@ -1633,7 +1633,7 @@ def prolongation_matrix_matfree(Vc, Vf, Vc_bcs=[], Vf_bcs=[]):
     else:
         ctx = StandaloneInterpolationMatrix(Vc, Vf, Vc_bcs, Vf_bcs)
 
-    sizes = (Vf.dof_dset.layout_vec.getSizes(), Vc.dof_dset.layout_vec.getSizes())
+    sizes = (Vf.template_vec.sizes, Vc.template_vec.sizes)
     M_shll = PETSc.Mat().createPython(sizes, ctx, comm=Vf._comm)
     M_shll.setUp()
     return M_shll
