@@ -10,7 +10,8 @@ from .tree import AbstractAxisTree, AxisForest, AxisTree, Axis, _UnitAxisTree, C
 
 @functools.singledispatch
 def as_axis_forest(arg: Any) -> AxisForest:
-    raise TypeError
+    axis_tree = as_axis_tree(arg)
+    return as_axis_forest(axis_tree)
 
 
 @as_axis_forest.register(AxisForest)
