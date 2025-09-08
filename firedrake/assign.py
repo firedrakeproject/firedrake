@@ -26,7 +26,7 @@ from mpi4py import MPI
 
 def _isconstant(expr):
     return isinstance(expr, Constant) or \
-        (isinstance(expr, Function) and expr.ufl_element().family() == "Real")
+        (isinstance(expr, (Function, Cofunction)) and expr.ufl_element().family() == "Real")
 
 
 def _isfunction(expr):
@@ -139,11 +139,17 @@ class CoefficientCollector(MultiFunction):
 
 
 class Assigner:
-    """Class performing pointwise assignment of an expression to a :class:`firedrake.function.Function`.
+    """Class performing pointwise assignment of an expression to a function or a cofunction.
 
-    :param assignee: The :class:`~.firedrake.function.Function` being assigned to.
-    :param expression: The :class:`ufl.core.expr.Expr` to evaluate.
-    :param subset: Optional subset (:class:`pyop2.types.set.Subset`) to apply the assignment over.
+    Parameters
+    ----------
+    assignee : firedrake.function.Function or firedrake.cofunction.Cofunction
+        Function or Cofunction being assigned to.
+    expression : ufl.core.expr.Expr or ufl.form.BaseForm
+        Expression to be assigned.
+    subset : pyop2.types.set.Set or pyop2.types.set.Subset or pyop2.types.set.MixedSet
+        Subset to apply the assignment over.
+
     """
     symbol = "="
 
@@ -200,7 +206,8 @@ class Assigner:
         Parameters
         ----------
         allow_missing_dofs : bool
-            If True, ignore assignee nodes with no matching assigner nodes.
+            Permit assignment between objects with mismatching nodes. If `True` then
+            assignee nodes with no matching assigner nodes are ignored.
 
         """
         if annotate_tape():
@@ -226,6 +233,7 @@ class Assigner:
         for lhs_func, subset, *funcs in zip(self._assignee.subfunctions, self._subset, *(f.subfunctions for f in self._functions)):
             target_mesh = extract_unique_domain(lhs_func)
             target_V = lhs_func.function_space()
+            # Validate / Process subset.
             if subset is not None:
                 if subset is target_V.node_set:
                     # The whole set.
@@ -235,17 +243,17 @@ class Assigner:
                     pass
                 else:
                     raise ValueError(f"subset ({subset}) not a subset of target_V.node_set ({target_V.node_set})")
-            source_meshes = set()
-            for f in funcs:
-                source_meshes.add(extract_unique_domain(f))
-            single_mesh_assign = True
+            source_meshes = set(extract_unique_domain(f) for f in funcs)
             if len(source_meshes) == 0:
-                pass
+                # Assign constants only.
+                single_mesh_assign = True
             elif len(source_meshes) == 1:
                 source_mesh, = source_meshes
                 if target_mesh is source_mesh:
-                    pass
+                    # Assign (co)functions from one mesh to the same mesh.
+                    single_mesh_assign = True
                 else:
+                    # Assign (co)functions between a submesh and the parent or between two submeshes.
                     single_mesh_assign = False
             else:
                 raise ValueError("All functions in the expression must be defined on a single domain")
@@ -271,19 +279,49 @@ class Assigner:
                 if subset is None:
                     if not indices_active_all and not allow_missing_dofs:
                         raise ValueError("Found assignee nodes with no matching assigner nodes: run with `allow_missing_dofs=True`")
-                    subset_indices_target = target_V.cell_node_map().values_with_halo[indices_active, :].reshape(-1)
-                    subset_indices_source = composed_map.values_with_halo[indices_active, :].reshape(-1)
+                    subset_indices_target = target_V.cell_node_map().values_with_halo[indices_active, :].flatten()
+                    subset_indices_source = composed_map.values_with_halo[indices_active, :].flatten()
                 else:
                     subset_indices_target, perm, _ = np.intersect1d(
-                        target_V.cell_node_map().values_with_halo[indices_active, :].reshape(-1),
+                        target_V.cell_node_map().values_with_halo[indices_active, :].flatten(),
                         subset.indices,
                         return_indices=True,
                     )
                     if len(subset.indices) > len(subset_indices_target) and not allow_missing_dofs:
                         raise ValueError("Found assignee nodes with no matching assigner nodes: run with `allow_missing_dofs=True`")
+<<<<<<< HEAD
                     subset_indices_source = composed_map.values_with_halo[indices_active, :].reshape(-1)[perm]
                 # TODO: Use work array?
                 buffer = Function(target_V)
+=======
+                    subset_indices_source = composed_map.values_with_halo[indices_active, :].flatten()[perm]
+                # Use buffer array to make sure that owned DoFs are updated upon assigning.
+                # The following example illustrates the issue that a naive assignment would cause.
+                #
+                # Consider the following target/source meshes distributed over 2 processes
+                # with no partition overlap:
+                #
+                #                0----0----0----1----1
+                #                |         |         |
+                # target         0    0    0    1    1
+                # (parent mesh)  |         |         |
+                #                0----0----0----1----1  (owning ranks are shown)
+                #
+                #                          1----1----1
+                #                          |         |
+                # source                   1    1    1
+                # (submesh)                |         |
+                #                          1----1----1  (owning ranks are shown)
+                #
+                # Consider CG1 functions f (on parent) and fsub (on submesh). By a naive
+                # f.assign(fsub, subset=...), the DoFs shared by rank 0 and rank 1 would
+                # only be updated on rank 1, which sees those DoFs as ghost, and those
+                # updated values on rank 1 would be overridden by the old values on rank 0
+                # upon a halo exchange.
+                #
+                # TODO: Use work array for buffer?
+                buffer = type(lhs_func)(target_V)
+>>>>>>> 1094bc5dfc5f3fb53c8434690d9df0190ae46fbf
                 finfo = np.finfo(lhs_func.dat.dtype)
                 buffer.dat._data[:] = finfo.max
                 func_data = np.array([f.dat.data_ro_with_halos[subset_indices_source] for f in funcs])
