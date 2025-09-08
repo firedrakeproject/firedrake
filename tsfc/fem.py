@@ -155,36 +155,33 @@ class CoordinateMapping(PhysicalGeometry):
         config["interface"] = self.interface
         return config
 
+    def translate_point_expression(self, expr, point=None):
+        if self.mt.restriction == '+':
+            expr = PositiveRestricted(expr)
+        elif self.mt.restriction == '-':
+            expr = NegativeRestricted(expr)
+
+        cell = self.interface.fiat_cell
+        sd = cell.get_spatial_dimension()
+        if point is None:
+            point, = cell.make_points(sd, 0, sd+1)
+        config = {"point_set": PointSingleton(point)}
+        config.update(self.config)
+        config.update(use_canonical_quadrature_point_ordering=False)  # quad point ordering not relevant.
+        context = PointSetContext(**config)
+        expr = self.preprocess(expr, context)
+        return map_expr_dag(context.translator, expr)
+
     def cell_size(self):
         return self.interface.cell_size(self.mt.restriction)
 
     def jacobian_at(self, point):
-        ps = PointSingleton(point)
         expr = Jacobian(extract_unique_domain(self.mt.terminal))
-        assert ps.expression.shape == (extract_unique_domain(expr).topological_dimension(), )
-        if self.mt.restriction == '+':
-            expr = PositiveRestricted(expr)
-        elif self.mt.restriction == '-':
-            expr = NegativeRestricted(expr)
-        config = {"point_set": PointSingleton(point)}
-        config.update(self.config)
-        config.update(use_canonical_quadrature_point_ordering=False)  # quad point ordering not relevant.
-        context = PointSetContext(**config)
-        expr = self.preprocess(expr, context)
-        return map_expr_dag(context.translator, expr)
+        return self.translate_point_expression(expr, point=point)
 
     def detJ_at(self, point):
         expr = JacobianDeterminant(extract_unique_domain(self.mt.terminal))
-        if self.mt.restriction == '+':
-            expr = PositiveRestricted(expr)
-        elif self.mt.restriction == '-':
-            expr = NegativeRestricted(expr)
-        config = {"point_set": PointSingleton(point)}
-        config.update(self.config)
-        config.update(use_canonical_quadrature_point_ordering=False)  # quad point ordering not relevant.
-        context = PointSetContext(**config)
-        expr = self.preprocess(expr, context)
-        return map_expr_dag(context.translator, expr)
+        return self.translate_point_expression(expr, point=point)
 
     def reference_normals(self):
         cell = self.interface.fiat_cell
@@ -210,30 +207,25 @@ class CoordinateMapping(PhysicalGeometry):
 
     def physical_normals(self):
         cell = self.interface.fiat_cell
-        if not (isinstance(cell, UFCSimplex) and cell.get_dimension() == 2):
+        sd = cell.get_spatial_dimension()
+        num_faces = len(cell.get_topology()[sd-1])
+        if isinstance(cell, UFCSimplex) and sd == 2:
+            pts = self.physical_tangents()
+            return gem.ListTensor([[pts[i, 1], -1*pts[i, 0]] for i in range(num_faces)])
+        elif isinstance(cell, UFCSimplex) and sd == 3:
+            t = ufl.classes.CellEdgeVectors(extract_unique_domain(self.mt.terminal))
+            edges = cell.get_connectivity()[(sd-1, 1)]
+            normalize = lambda x: x / ufl.sqrt(ufl.dot(x, x))
+            expr = ufl.as_tensor([-2.0*normalize(ufl.cross(t[edges[i][0], :], t[edges[i][1], :]))
+                                  for i in range(num_faces)])
+            return self.translate_point_expression(expr)
+        else:
             raise NotImplementedError("Can't do physical normals on that cell yet")
-
-        num_edges = len(cell.get_topology()[1])
-        pts = self.physical_tangents()
-        return gem.ListTensor([[pts[i, 1], -1*pts[i, 0]] for i in range(num_edges)])
 
     def physical_edge_lengths(self):
         expr = ufl.classes.CellEdgeVectors(extract_unique_domain(self.mt.terminal))
-        if self.mt.restriction == '+':
-            expr = PositiveRestricted(expr)
-        elif self.mt.restriction == '-':
-            expr = NegativeRestricted(expr)
-
-        cell = self.interface.fiat_cell
-        sd = cell.get_spatial_dimension()
-        num_edges = len(cell.get_topology()[1])
-        expr = ufl.as_vector([ufl.sqrt(ufl.dot(expr[i, :], expr[i, :])) for i in range(num_edges)])
-        config = {"point_set": PointSingleton(cell.make_points(sd, 0, sd+1)[0])}
-        config.update(self.config)
-        config.update(use_canonical_quadrature_point_ordering=False)  # quad point ordering not relevant.
-        context = PointSetContext(**config)
-        expr = self.preprocess(expr, context)
-        return map_expr_dag(context.translator, expr)
+        expr = ufl.as_vector([ufl.sqrt(ufl.dot(expr[i, :], expr[i, :])) for i in range(expr.ufl_shape[0])])
+        return self.translate_point_expression(expr)
 
     def physical_points(self, point_set, entity=None):
         """Converts point_set from reference to physical space"""

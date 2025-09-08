@@ -8,7 +8,7 @@ on:
         type: string
         required: true
       target_branch:
-        description: The target branch (usually 'master' or 'release')
+        description: The target branch (usually 'main' or 'release')
         type: string
         required: true
       run_tests:
@@ -39,7 +39,7 @@ on:
         type: string
         required: true
       target_branch:
-        description: The target branch (usually 'master' or 'release')
+        description: The target branch (usually 'main' or 'release')
         type: string
         required: true
       run_tests:
@@ -93,7 +93,9 @@ jobs:
       FIREDRAKE_CI: 1
       PYOP2_CI_TESTS: 1
       PYOP2_SPMD_STRICT: 1
-      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660
+      # NOTE: One should occasionally update test_durations.json by running
+      # 'make test_durations' inside a 'firedrake:latest' Docker image.
+      EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 --durations-path=./firedrake-repo/tests/test_durations.json
       PYTEST_MPI_MAX_NPROCS: 8
     steps:
       - name: Fix HOME
@@ -105,6 +107,18 @@ jobs:
       - name: Pre-run cleanup
         # Make sure the current directory is empty
         run: find . -delete
+
+      # Check that the Dockerfile is using the latest Ubuntu version.
+      # The version is hardcoded into the Dockerfile so that the OS
+      # for each release is fixed.
+      - name: Check Dockerfile Ubuntu version
+        run: |
+          latest_version=$(grep "VERSION_ID=" /etc/os-release | cut -d '"' -f 2)
+          docker_version=$(grep FROM docker/Dockerfile.vanilla | cut -d ':' -f 2)
+          if [[ "$docker_version" != "$latest_version" ]]; then
+            echo "Ubuntu version ${docker_version} in Dockerfile is out of date with latest version ${latest_version}"
+            exit 1
+          fi
 
       # Use a different mirror to fetch apt packages from to get around
       # temporary outage.
@@ -119,7 +133,7 @@ jobs:
       - name: Install system dependencies (1)
         run: apt-get -y install git python3
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
@@ -144,7 +158,7 @@ jobs:
             $(python3 ./firedrake-repo/scripts/firedrake-configure --arch ${{ matrix.arch }} --show-system-packages)
           apt-get -y install python3-venv
           : # Dependencies needed to run the test suite
-          apt-get -y install parallel
+          apt-get -y install fonts-dejavu graphviz graphviz-dev parallel poppler-utils
 
       - name: Install PETSc
         run: |
@@ -367,7 +381,7 @@ jobs:
           path: pytest_*.log
 
       - name: Install system dependencies (3)
-        if: always()
+        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
         run: apt-get -y install inkscape texlive-full
 
       - name: Check bibtex
@@ -448,7 +462,7 @@ jobs:
         # Make sure the current directory is empty
         run: find . -delete
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
@@ -527,7 +541,7 @@ jobs:
     name: Lint codebase
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.source_ref }}
       - uses: actions/setup-python@v5
@@ -543,12 +557,12 @@ jobs:
   deploy_website:
     name: Deploy GitHub pages (optional)
     needs: test_linux
-    # Only deploy the website for master here, the release branch is managed
+    # Only deploy the website for main here, the release branch is managed
     # by https://github.com/firedrakeproject/firedrakeproject.github.io
     if: |
       always() &&
       inputs.deploy_website &&
-      inputs.target_branch == 'master' &&
+      inputs.target_branch == 'main' &&
       needs.test_linux.outputs.docs_conclusion == 'success'
     permissions:
       pages: write

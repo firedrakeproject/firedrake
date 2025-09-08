@@ -15,6 +15,7 @@ __pycache__/
 /demos/immersed_fem/immersed_domain.msh
 /docs/build/
 /docs/notebooks/.ipynb_checkpoints/
+/docs/notebooks/tape.pdf
 /docs/source/apt_deps.txt
 /docs/source/firedrake.rst
 /docs/source/firedrake.*.rst

@@ -16,14 +16,14 @@
 
       .. only:: not release
 
-         Latest Firedrake **master** branch status:
+         Latest Firedrake **main** branch status:
 
-         |firedrakemasterbuild|_
+         |firedrakemainbuild|_
 
       .. |firedrakereleasebuild| image:: https://github.com/firedrakeproject/firedrake/actions/workflows/push.yml/badge.svg?branch=release
       .. _firedrakereleasebuild: https://github.com/firedrakeproject/firedrake/actions/workflows/push.yml?branch=release
-      .. |firedrakemasterbuild| image:: https://github.com/firedrakeproject/firedrake/actions/workflows/push.yml/badge.svg?query=branch%3Amaster
-      .. _firedrakemasterbuild: https://github.com/firedrakeproject/firedrake/actions/workflows/push.yml?query=branch%3Amaster
+      .. |firedrakemainbuild| image:: https://github.com/firedrakeproject/firedrake/actions/workflows/push.yml/badge.svg?query=branch%3Amain
+      .. _firedrakemainbuild: https://github.com/firedrakeproject/firedrake/actions/workflows/push.yml?query=branch%3Amain
 
       Firedrake and its components are developed on `GitHub
       <http://github.com>`__.
