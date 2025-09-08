@@ -40,8 +40,9 @@ here we simply opt for the former. Arnold, Falk, and Winther show that vertex
 patches yield a robust method.::
 
 
-  def mg_params(relax):
+  def mg_params(relax, mat_type="aij"):
       return {
+          "mat_type": mat_type,
           "ksp_type": "cg",
           "pc_type": "mg",
           "mg_levels": {
@@ -50,6 +51,7 @@ patches yield a robust method.::
               **relax
           },
           "mg_coarse": {
+              "mat_type": "aij",
               "ksp_type": "preonly",
               "pc_type": "cholesky"
           }

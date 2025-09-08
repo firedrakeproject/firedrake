@@ -1,5 +1,5 @@
 from pyadjoint.overloaded_type import OverloadedType
-import firedrake
+from firedrake.petsc import PETSc
 from .checkpointing import disk_checkpointing
 
 from functools import wraps
@@ -31,7 +31,6 @@ class EnsembleFunctionMixin(OverloadedType):
 
     @staticmethod
     def _ad_to_list(m):
-        PETSc = firedrake.PETSc
         with m.vec_ro() as gvec:
             scatter, lvec = PETSc.Scatter().toAll(gvec)
             scatter.scatter(gvec, lvec, addv=PETSc.InsertMode.INSERT_VALUES)

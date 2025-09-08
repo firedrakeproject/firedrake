@@ -108,6 +108,18 @@ jobs:
         # Make sure the current directory is empty
         run: find . -delete
 
+      # Check that the Dockerfile is using the latest Ubuntu version.
+      # The version is hardcoded into the Dockerfile so that the OS
+      # for each release is fixed.
+      - name: Check Dockerfile Ubuntu version
+        run: |
+          latest_version=$(grep "VERSION_ID=" /etc/os-release | cut -d '"' -f 2)
+          docker_version=$(grep FROM docker/Dockerfile.vanilla | cut -d ':' -f 2)
+          if [[ "$docker_version" != "$latest_version" ]]; then
+            echo "Ubuntu version ${docker_version} in Dockerfile is out of date with latest version ${latest_version}"
+            exit 1
+          fi
+
       # Use a different mirror to fetch apt packages from to get around
       # temporary outage.
       # (https://askubuntu.com/questions/1549622/problem-with-archive-ubuntu-com-most-of-the-servers-are-not-responding)
@@ -121,7 +133,7 @@ jobs:
       - name: Install system dependencies (1)
         run: apt-get -y install git python3
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
@@ -207,10 +219,7 @@ jobs:
           pip install --verbose $EXTRA_PIP_FLAGS \
             --no-binary h5py \
             --extra-index-url https://download.pytorch.org/whl/cpu \
-            "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)"
-
-          pip install -U pip
-          pip install --group ./firedrake-repo/pyproject.toml:ci
+            "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci,docs]"
 
           : # TODO: Remove before merge
           pip install --verbose --editable git+https://github.com/dolfin-adjoint/pyadjoint.git@dham/abstract_reduced_functional#egg=pyadjoint-ad
@@ -457,7 +466,7 @@ jobs:
         # Make sure the current directory is empty
         run: find . -delete
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
@@ -536,7 +545,7 @@ jobs:
     name: Lint codebase
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.source_ref }}
       - uses: actions/setup-python@v5

@@ -605,8 +605,9 @@ class EnsembleReducedFunctional(AbstractReducedFunctional):
         ----------
         adj_input : float
             The adjoint input.
-        options : dict
-            Additional options for the derivative computation.
+        apply_riesz: bool
+            If True, apply the Riesz map of each control in order to return
+            a primal gradient rather than a derivative in the dual space.
 
         Returns
         -------

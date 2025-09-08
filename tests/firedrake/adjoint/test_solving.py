@@ -5,6 +5,11 @@ from firedrake.adjoint import *
 from numpy.testing import assert_approx_equal
 
 
+@pytest.fixture
+def rg():
+    return RandomGenerator(PCG64(seed=1234))
+
+
 @pytest.fixture(autouse=True)
 def handle_taping():
     yield
@@ -23,13 +28,12 @@ def handle_annotation():
 
 
 @pytest.mark.skipcomplex
-def test_linear_problem():
+def test_linear_problem(rg):
     assert len(get_working_tape()._blocks) == 0
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
     R = FunctionSpace(mesh, "R", 0)
-    f = Function(V)
-    f.vector()[:] = 1
+    f = Function(V).assign(1)
 
     u = TrialFunction(V)
     u_ = Function(V)
@@ -47,17 +51,16 @@ def test_linear_problem():
     rf = ReducedFunctional(J0, Control(f))
     assert_approx_equal(rf(f), J0)
     assert rf.tape.recompute_count == 1
-    _test_adjoint(J, f)
+    _test_adjoint(J, f, rg)
 
 
 @pytest.mark.skipcomplex
-def test_singular_linear_problem():
+def test_singular_linear_problem(rg):
     """This tests whether nullspace and solver_parameters are passed on in adjoint solves"""
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "CG", 1)
 
-    f = Function(V)
-    f.vector()[:] = 1
+    f = Function(V).assign(1)
 
     u = TrialFunction(V)
     u_ = Function(V)
@@ -72,18 +75,17 @@ def test_singular_linear_problem():
               solver_parameters=solver_parameters)
         return assemble(u_**2*dx)
 
-    _test_adjoint(J, f)
+    _test_adjoint(J, f, rg)
 
 
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("pre_apply_bcs", (True, False))
-def test_nonlinear_problem(pre_apply_bcs):
+def test_nonlinear_problem(pre_apply_bcs, rg):
     """This tests whether nullspace and solver_parameters are passed on in adjoint solves"""
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
     R = FunctionSpace(mesh, "R", 0)
-    f = Function(V)
-    f.vector()[:] = 1
+    f = Function(V).assign(1)
 
     u = Function(V)
     v = TestFunction(V)
@@ -95,11 +97,11 @@ def test_nonlinear_problem(pre_apply_bcs):
         solve(a == L, u, bc, pre_apply_bcs=pre_apply_bcs)
         return assemble(u**2*dx)
 
-    _test_adjoint(J, f)
+    _test_adjoint(J, f, rg)
 
 
 @pytest.mark.skipcomplex
-def test_mixed_boundary():
+def test_mixed_boundary(rg):
     mesh = UnitSquareMesh(10, 10)
 
     V = FunctionSpace(mesh, "CG", 1)
@@ -114,8 +116,7 @@ def test_mixed_boundary():
 
     g1 = Constant(2)
     g2 = Constant(1)
-    f = Function(V)
-    f.vector()[:] = 10
+    f = Function(V).assign(10)
 
     def J(f):
         a = f*inner(grad(u), grad(v))*dx
@@ -125,7 +126,7 @@ def test_mixed_boundary():
 
         return assemble(u_**2*dx)
 
-    _test_adjoint(J, f)
+    _test_adjoint(J, f, rg)
 
 
 def xtest_wrt_constant_dirichlet_boundary():
@@ -164,8 +165,7 @@ def xtest_wrt_function_dirichlet_boundary():
 
     g1 = Constant(2)
     g2 = Constant(1)
-    f = Function(V)
-    f.vector()[:] = 10
+    f = Function(V).assign(10)
 
     def J(bc):
         a = inner(grad(u), grad(v))*dx
@@ -195,8 +195,7 @@ def test_wrt_function_neumann_boundary():
 
     g1 = Function(R, val=2)
     g2 = Function(R, val=1)
-    f = Function(V)
-    f.vector()[:] = 10
+    f = Function(V).assign(10)
 
     def J(g1):
         a = inner(grad(u), grad(v))*dx
@@ -248,8 +247,7 @@ def test_wrt_constant_neumann_boundary():
 
     g1 = Function(R, val=2)
     g2 = Function(R, val=1)
-    f = Function(V)
-    f.vector()[:] = 10
+    f = Function(V).assign(10)
 
     def J(g1):
         a = inner(grad(u), grad(v))*dx
@@ -285,8 +283,7 @@ def test_time_dependent():
     f = Function(R, val=1)
 
     def J(f):
-        u_1 = Function(V)
-        u_1.vector()[:] = 1
+        u_1 = Function(V).assign(1)
 
         a = u_1*u*v*dx + dt*f*inner(grad(u), grad(v))*dx
         L = u_1*v*dx
@@ -343,14 +340,12 @@ def _test_adjoint_function_boundary(J, bc, f):
     set_working_tape(tape)
 
     V = f.function_space()
-    h = Function(V)
-    h.vector()[:] = 1
+    h = Function(V).assign(1)
     g = Function(V)
     eps_ = [0.4/2.0**i for i in range(4)]
     residuals = []
     for eps in eps_:
-        # f = bc.value()
-        g.vector()[:] = f.vector()[:] + eps*h.vector()[:]
+        g.assign(f + eps*h)
         bc.set_value(g)
         Jp = J(bc)
         tape.clear_tape()
@@ -361,11 +356,10 @@ def _test_adjoint_function_boundary(J, bc, f):
 
         dJdbc = bc.block_variable.adj_value
 
-        residual = abs(Jp - Jm - eps*dJdbc.inner(h.vector()))
+        residual = abs(Jp - Jm - eps*dJdbc.inner(h))
         residuals.append(residual)
 
     r = convergence_rates(residuals, eps_)
-    print(r)
 
     tol = 1E-1
     assert (r[-1] > 2-tol)
@@ -395,7 +389,6 @@ def _test_adjoint_constant_boundary(J, bc):
         residuals.append(residual)
 
     r = convergence_rates(residuals, eps_)
-    print(r)
 
     tol = 1E-1
     assert (r[-1] > 2-tol)
@@ -417,27 +410,23 @@ def _test_adjoint_constant(J, c):
         Jm.block_variable.adj_value = 1.0
         tape.evaluate_adj()
 
-        dJdc = c.block_variable.adj_value.vector()[0]
-        print(dJdc)
+        dJdc = c.block_variable.adj_value.dat.data_ro[0]
 
         residual = abs(Jp - Jm - eps*dJdc)
         residuals.append(residual)
 
     r = convergence_rates(residuals, eps_)
-    print(r)
 
     tol = 1E-1
     assert (r[-1] > 2-tol)
 
 
-def _test_adjoint(J, f):
-    import numpy.random
+def _test_adjoint(J, f, rg):
     tape = Tape()
     set_working_tape(tape)
 
     V = f.function_space()
-    h = Function(V)
-    h.vector()[:] = numpy.random.rand(V.dim())
+    h = rg.uniform(V)
 
     eps_ = [0.01/2.0**i for i in range(5)]
     residuals = []
@@ -449,14 +438,12 @@ def _test_adjoint(J, f):
         Jm.block_variable.adj_value = 1.0
         tape.evaluate_adj()
 
-        dJdf = f.block_variable.adj_value.vector()
+        dJdf = f.block_variable.adj_value.dat
 
-        residual = abs(Jp - Jm - eps*dJdf.inner(h.vector()))
+        residual = abs(Jp - Jm - eps*dJdf.inner(h.dat))
         residuals.append(residual)
 
     r = convergence_rates(residuals, eps_)
-    print(r)
-    print(residuals)
 
     tol = 1E-1
     assert (r[-1] > 2-tol)

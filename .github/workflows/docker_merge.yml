@@ -14,6 +14,10 @@ on:
         description: Docker image tag
         required: true
         type: string
+      tag_latest:
+        description: Whether to add additional 'latest' tag to containers
+        default: false
+        type: boolean
     secrets:
       # Docker login information
       DOCKERHUB_USER:
@@ -50,10 +54,16 @@ jobs:
       - name: Merge and push the per-platform images
         working-directory: ${{ runner.temp }}/digests
         run: |
-          docker buildx imagetools create \
-            -t firedrakeproject/${{ inputs.target }}:${{ inputs.tag }} \
-            -t firedrakeproject/${{ inputs.target }}:latest \
-            $(printf 'firedrakeproject/${{ inputs.target }}@sha256:%s ' *)
+          if [[ "${{ inputs.tag_latest }}" == "true" ]]; then
+            docker buildx imagetools create \
+              -t firedrakeproject/${{ inputs.target }}:${{ inputs.tag }} \
+              -t firedrakeproject/${{ inputs.target }}:latest \
+              $(printf "firedrakeproject/${{ inputs.target }}@sha256:%s " *)
+          else
+            docker buildx imagetools create \
+              -t firedrakeproject/${{ inputs.target }}:${{ inputs.tag }} \
+              $(printf "firedrakeproject/${{ inputs.target }}@sha256:%s " *)
+          fi
 
       - name: Inspect image
         run: |

@@ -316,7 +316,7 @@ def test_generate_random(parentmesh, vertexcoords):
         # TODO: This failure should be investigated
         pytest.skip(reason="This test hangs in parallel when using the simple partitioner")
     vm = VertexOnlyMesh(
-        parentmesh, vertexcoords, missing_points_behaviour=None, name="testvom"
+        parentmesh, vertexcoords, missing_points_behaviour="ignore", name="testvom"
     )
     verify_vertexonly_mesh(parentmesh, vm, vertexcoords, name="testvom")
 
@@ -360,7 +360,7 @@ def test_point_tolerance():
     assert vm.cell_set.size == 1
     # check that the tolerance is passed through to the parent mesh
     assert m.tolerance == 0.1
-    vm = VertexOnlyMesh(m, coords, tolerance=0.0, missing_points_behaviour=None)
+    vm = VertexOnlyMesh(m, coords, tolerance=0.0, missing_points_behaviour="ignore")
     assert vm.cell_set.size == 0
     assert m.tolerance == 0.0
     # See if changing the tolerance on the parent mesh changes the tolerance
@@ -369,7 +369,7 @@ def test_point_tolerance():
     vm = VertexOnlyMesh(m, coords)
     assert vm.cell_set.size == 1
     m.tolerance = 0.0
-    vm = VertexOnlyMesh(m, coords, missing_points_behaviour=None)
+    vm = VertexOnlyMesh(m, coords, missing_points_behaviour="ignore")
     assert vm.cell_set.size == 0
 
 
@@ -381,7 +381,7 @@ def test_missing_points_behaviour(parentmesh):
     inputcoord = np.full((1, parentmesh.geometric_dimension()), np.inf)
     assert len(inputcoord) == 1
     # Can surpress error
-    vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour=None)
+    vm = VertexOnlyMesh(parentmesh, inputcoord, missing_points_behaviour="ignore")
     assert vm.cell_set.size == 0
     # Error by default
     with pytest.raises(VertexOnlyMeshMissingPointsError):
@@ -419,11 +419,11 @@ def test_outside_boundary_behaviour(parentmesh):
     inputcoord = np.full((1, parentmesh.geometric_dimension()), edge_point-1e-15)
     assert len(inputcoord) == 1
     # Tolerance is too small to pick up point
-    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-16, missing_points_behaviour=None)
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-16, missing_points_behaviour="ignore")
     assert vm.cell_set.size == 0
     # Tolerance is large enough to pick up point - note that we need to go up
     # by 2 orders of magnitude for this to work consistently
-    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-13, missing_points_behaviour=None)
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-13, missing_points_behaviour="ignore")
     assert vm.cell_set.size == 1
 
 
@@ -471,10 +471,10 @@ def test_inside_boundary_behaviour(parentmesh):
     inputcoord = np.full((1, parentmesh.geometric_dimension()), edge_point+1e-15)
     assert len(inputcoord) == 1
     # Tolerance is large enough to pick up point
-    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-14, missing_points_behaviour=None)
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-14, missing_points_behaviour="ignore")
     assert vm.cell_set.size == 1
     # Tolerance might be too small to pick up point, but it's not deterministic
-    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-16, missing_points_behaviour=None)
+    vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-16, missing_points_behaviour="ignore")
     assert vm.cell_set.size == 0 or vm.cell_set.size == 1
 
 
@@ -491,5 +491,5 @@ def test_pyop2_labelling():
     vm = VertexOnlyMesh(m, points, redundant=True)
     assert vm.cell_set.total_size == 2*m.cell_set.total_size
     points = np.asarray([[-5.0]])
-    vm = VertexOnlyMesh(m, points, redundant=False, missing_points_behaviour=None)
+    vm = VertexOnlyMesh(m, points, redundant=False, missing_points_behaviour="ignore")
     assert vm.cell_set.total_size == 0

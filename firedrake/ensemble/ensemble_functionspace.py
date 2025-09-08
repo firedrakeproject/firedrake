@@ -207,10 +207,6 @@ class EnsembleFunctionSpaceBase:
     def layout_vec(self):
         return self.create_vec()
 
-    def local_to_global_ises(self, i):
-        # COMM_SELF or global_comm?
-        pass
-
     def __eq__(self, other):
         if not isinstance(other, type(self)):
             local_eq = False

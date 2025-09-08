@@ -8,7 +8,7 @@ from pyadjoint.tape import stop_annotating, annotate_tape, get_working_tape
 from finat.ufl import MixedElement
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
-from firedrake import utils, vector, ufl_expr
+from firedrake import utils, ufl_expr
 from firedrake.utils import ScalarType
 from firedrake.adjoint_utils.function import CofunctionMixin
 from firedrake.adjoint_utils.checkpointing import DelegatedFunctionCheckpoint
@@ -274,8 +274,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         if np.isscalar(expr):
             self.dat += expr
             return self
-        if isinstance(expr, vector.Vector):
-            expr = expr.function
         if isinstance(expr, Cofunction) and \
            expr.function_space() == self.function_space():
             self.dat += expr.dat
@@ -290,8 +288,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         if np.isscalar(expr):
             self.dat -= expr
             return self
-        if isinstance(expr, vector.Vector):
-            expr = expr.function
         if isinstance(expr, Cofunction) and \
            expr.function_space() == self.function_space():
             self.dat -= expr.dat
@@ -306,8 +302,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         if np.isscalar(expr):
             self.dat *= expr
             return self
-        if isinstance(expr, vector.Vector):
-            expr = expr.function
         if isinstance(expr, Cofunction) and \
            expr.function_space() == self.function_space():
             self.dat *= expr.dat
@@ -322,11 +316,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         from firedrake import interpolation
         interp = interpolation.Interpolate(ufl_expr.Argument(self.function_space().dual(), 0), expression)
         return firedrake.assemble(interp, tensor=self)
-
-    def vector(self):
-        r"""Return a :class:`.Vector` wrapping the data in this
-        :class:`Cofunction`"""
-        return vector.Vector(self)
 
     @property
     def cell_set(self):
@@ -485,7 +474,7 @@ class RieszMap:
 
             if self._inner_product == "l2":
                 for o, c in zip(output.subfunctions, value.subfunctions):
-                    o.dat.data[:] = c.dat.data[:]
+                    o.dat.data[:] = c.dat.data_ro[:]
             else:
                 solve, rhs, soln = self._solver
                 rhs.assign(value)
@@ -499,7 +488,7 @@ class RieszMap:
             if self._inner_product == "l2":
                 output = Cofunction(self._function_space.dual())
                 for o, c in zip(output.subfunctions, value.subfunctions):
-                    o.dat.data[:] = c.dat.data[:]
+                    o.dat.data[:] = c.dat.data_ro[:]
             else:
                 output = firedrake.assemble(
                     firedrake.action(self._inner_product, value)
