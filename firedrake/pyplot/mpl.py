@@ -268,9 +268,7 @@ def tripcolor(function, *args, complex_component="real", **kwargs):
     :arg kwargs: same as for matplotlib
     :return: matplotlib :class:`PolyCollection <matplotlib.collections.PolyCollection>` object
     """
-    element = function.ufl_element()
-    dg0 = (element.family() == "Discontinuous Lagrange") and (element.degree() == 0)
-    kwargs["shading"] = kwargs.get("shading", "flat" if dg0 else "gouraud")
+    kwargs["shading"] = kwargs.get("shading", "gouraud")
     return _plot_2d_field("tripcolor", function, *args, complex_component=complex_component, **kwargs)
 
 
