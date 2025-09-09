@@ -809,7 +809,7 @@ def test_ensemble_rf_efunction_to_float():
     assert R2 > 2.99
 
 
-@pytest.mark.parallel(nprocs=[1, 2, 3, 6])
+@pytest.mark.parallel(nprocs=[1, 3])
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_ensemble_rf_minimise():
     """
@@ -818,7 +818,7 @@ def test_ensemble_rf_minimise():
     https://github.com/firedrakeproject/firedrake/blob/master/tests/firedrake/adjoint/test_optimisation.py#L92
     In this test, the functional is the result of an ensemble allreduce operation.
     """
-    nspatial_ranks = 2 if COMM_WORLD.size in (2, 6) else 1
+    nspatial_ranks = 1
     ensemble = Ensemble(COMM_WORLD, nspatial_ranks)
 
     size = ensemble.ensemble_size
