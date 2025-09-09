@@ -182,14 +182,16 @@ def preprocess_parameters(parameters):
     return parameters
 
 
-def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
+def compile_expression_dual_evaluation(expression, dual_arg,
+                                       to_element, ufl_element, *,
                                        domain=None, interface=None,
                                        parameters=None):
     """Compile a UFL expression to be evaluated against a compile-time known reference element's dual basis.
 
     Useful for interpolating UFL expressions into e.g. N1curl spaces.
 
-    :arg expression: UFL expression
+    :arg expression: UFL expression to interpolate
+    :arg dual_arg: A Cofunction or Coargument to act on the interpolated expression
     :arg to_element: A FInAT element for the target space
     :arg ufl_element: The UFL element of the target space.
     :arg domain: optional UFL domain the expression is defined on (required when expression contains no domain).
@@ -210,7 +212,11 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     if isinstance(to_element, (PhysicallyMappedElement, DirectlyDefinedElement)):
         raise NotImplementedError("Don't know how to interpolate onto zany spaces, sorry")
 
-    orig_expression = expression
+    if not isinstance(dual_arg, (ufl.Coargument, ufl.Cofunction)):
+        raise ValueError(f"Expecting a Coargument or Cofunction, not {type(dual_arg).__name__}")
+
+    interp_expression = ufl.Interpolate(expression, dual_arg)
+    orig_expression = interp_expression
 
     # Map into reference space
     expression = apply_mapping(expression, ufl_element, domain)
@@ -235,7 +241,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     assert domain is not None
 
     # Collect required coefficients and determine numbering
-    coefficients = extract_coefficients(expression)
+    coefficients = extract_coefficients(interp_expression)
     orig_coefficients = extract_coefficients(orig_expression)
     coefficient_numbers = tuple(map(orig_coefficients.index, coefficients))
     builder.set_coefficient_numbers(coefficient_numbers)
@@ -252,7 +258,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
         needs_external_coords = True
     builder.set_coefficients(coefficients)
 
-    constants = extract_firedrake_constants(expression)
+    constants = extract_firedrake_constants(interp_expression)
     builder.set_constants(constants)
 
     # Split mixed coefficients
@@ -281,11 +287,23 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     # indices needed for compilation of the expression
     evaluation, basis_indices = to_element.dual_evaluation(fn)
 
+    # Compute the adjoint by contracting against the dual argument
+    if dual_arg in coefficients:
+        beta = basis_indices
+        shape = tuple(i.extent for i in beta)
+        gem_dual = gem.Variable(f"w_{coefficients.index(dual_arg)}", shape)
+        evaluation = gem.IndexSum(evaluation * gem_dual[beta], beta)
+        basis_indices = ()
+
     # Build kernel body
     return_indices = basis_indices + tuple(chain(*argument_multiindices))
     return_shape = tuple(i.extent for i in return_indices)
-    return_var = gem.Variable('A', return_shape)
-    return_expr = gem.Indexed(return_var, return_indices)
+    if return_shape:
+        return_var = gem.Variable('A', return_shape)
+        return_expr = gem.Indexed(return_var, return_indices)
+    else:
+        return_var = gem.Variable('A', (1,))
+        return_expr = gem.Indexed(return_var, (0,))
 
     # TODO: one should apply some GEM optimisations as in assembly,
     # but we don't for now.

@@ -591,17 +591,19 @@ class BaseFormAssembler(AbstractFormAssembler):
                 _, v1 = expr.arguments()
                 operand = ufl.replace(operand, {v1: v1.reconstruct(number=0)})
             # Get the interpolator
-            interp_data = expr.interp_data
+            interp_data = expr.interp_data.copy()
             default_missing_val = interp_data.pop('default_missing_val', None)
-            interpolator = firedrake.Interpolator(operand, V, **interp_data)
+            if (is_adjoint and rank == 1) or rank == 0:
+                interp_data["access"] = op2.INC
+            interpolator = firedrake.Interpolator(operand, v, **interp_data)
             # Assembly
             if rank == 0:
-                Iu = interpolator._interpolate(default_missing_val=default_missing_val)
-                return assemble(ufl.Action(v, Iu), tensor=tensor)
+                result = interpolator._interpolate(output=tensor, default_missing_val=default_missing_val)
+                return result.dat.data.item() if tensor is None else result
             elif rank == 1:
                 # Assembling the action of the Jacobian adjoint.
                 if is_adjoint:
-                    return interpolator._interpolate(v, output=tensor, adjoint=True, default_missing_val=default_missing_val)
+                    return interpolator._interpolate(v, output=tensor, default_missing_val=default_missing_val)
                 # Assembling the Jacobian action.
                 elif interpolator.nargs:
                     return interpolator._interpolate(operand, output=tensor, default_missing_val=default_missing_val)

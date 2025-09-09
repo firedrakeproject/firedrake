@@ -552,6 +552,8 @@ class CrossMeshInterpolator(Interpolator):
         else:
             if isinstance(self.V, (firedrake.Function, firedrake.Cofunction)):
                 V_dest = self.V.function_space()
+            elif isinstance(self.V, firedrake.Coargument):
+                V_dest = self.V.function_space().dual()
             else:
                 V_dest = self.V
         if output:
@@ -677,9 +679,10 @@ class SameMeshInterpolator(Interpolator):
     def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE,
                  bcs=None, matfree=True, allow_missing_dofs=False, **kwargs):
         if subset is None:
-            target = V.function_space().mesh().topology if isinstance(V, firedrake.Function) else V.mesh().topology
-            temp = extract_unique_domain(expr)
-            source = target if temp is None else temp.topology
+            target_mesh = as_domain(V)
+            source_mesh = extract_unique_domain(expr)
+            target = target_mesh.topology
+            source = target if source_mesh is None else source_mesh.topology
             if all(isinstance(m, firedrake.mesh.MeshTopology) for m in [target, source]) and target is not source:
                 composed_map, result_integral_type = source.trans_mesh_entity_map(target, "cell", "everywhere", None)
                 if result_integral_type != "cell":
@@ -732,7 +735,7 @@ class SameMeshInterpolator(Interpolator):
                     # Interpolation action
                     self.frozen_assembled_interpolator = assembled_interpolator.copy()
 
-        if self.nargs:
+        if self.nargs == 2:
             function, = function
             if not hasattr(function, "dat"):
                 raise ValueError("The expression had arguments: we therefore need to be given a Function (not an expression) to interpolate!")
@@ -770,20 +773,37 @@ class SameMeshInterpolator(Interpolator):
 @PETSc.Log.EventDecorator()
 def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
     assert isinstance(expr, ufl.classes.Expr)
+
+    if isinstance(V, (ufl.Coargument, ufl.Cofunction)):
+        dual_arg = V
+        V = dual_arg.function_space().dual()
+    elif isinstance(V, (ufl.FunctionSpace, ufl.Coefficient)):
+        fs = V if isinstance(V, ufl.FunctionSpace) else V.function_space()
+        dual_arg = Coargument(fs.dual(), number=0)
+
     arguments = extract_arguments(expr)
+    if isinstance(dual_arg, ufl.Coargument):
+        arguments.append(dual_arg)
+    rank = len(arguments)
+
     target_mesh = as_domain(V)
-    if len(arguments) == 0:
+    if rank <= 1:
         source_mesh = extract_unique_domain(expr) or target_mesh
         vom_onto_other_vom = (
             isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
             and isinstance(source_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
             and target_mesh is not source_mesh
         )
-        if isinstance(V, firedrake.Function):
+
+        if rank == 0:
+            R = firedrake.FunctionSpace(target_mesh, "Real", 0)
+            f = firedrake.Function(R)
+        elif isinstance(V, firedrake.Function):
             f = V
             V = f.function_space()
         else:
-            f = firedrake.Function(V)
+            V_dest = arguments[-1].function_space().dual()
+            f = firedrake.Function(V_dest)
             if access in {firedrake.MIN, firedrake.MAX}:
                 finfo = numpy.finfo(f.dat.dtype)
                 if access == firedrake.MIN:
@@ -792,11 +812,12 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
                     val = firedrake.Constant(finfo.min)
                 f.assign(val)
         tensor = f.dat
-    elif len(arguments) == 1:
+    elif rank == 2:
         if isinstance(V, firedrake.Function):
             raise ValueError("Cannot interpolate an expression with an argument into a Function")
         if len(V) > 1:
             raise NotImplementedError("Interpolation of mixed expressions with arguments is not supported")
+
         argfs = arguments[0].function_space()
         source_mesh = argfs.mesh()
         argfs_map = argfs.cell_node_map()
@@ -840,7 +861,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
             tensor = op2.Mat(sparsity)
         f = tensor
     else:
-        raise ValueError("Cannot interpolate an expression with %d arguments" % len(arguments))
+        raise ValueError("Cannot interpolate an expression with %d arguments" % rank)
 
     if vom_onto_other_vom:
         wrapper = VomOntoVomWrapper(V, source_mesh, target_mesh, expr, arguments, matfree)
@@ -859,7 +880,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
                 wrapper.forward_operation(f.dat)
                 return f
         else:
-            assert len(arguments) == 1
+            assert rank == 2
             assert tensor is None
             # we know we will be outputting either a function or a cofunction,
             # both of which will use a dat as a data carrier. At present, the
@@ -888,7 +909,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
                                % (V.value_size, numpy.prod(expr.ufl_shape, dtype=int)))
 
         if len(V) == 1:
-            loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
+            loops.extend(_interpolator(V, tensor, expr, dual_arg, subset, arguments, access, bcs=bcs))
         else:
             if (hasattr(expr, "subfunctions") and len(expr.subfunctions) == len(V)
                     and all(sub_expr.ufl_shape == Vsub.value_shape for Vsub, sub_expr in zip(V, expr.subfunctions))):
@@ -905,11 +926,18 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
                         components = [expr[offset + j] for j in range(Vsub.value_size)]
                         expressions.append(ufl.as_tensor(numpy.reshape(components, Vsub.value_shape)))
                     offset += Vsub.value_size
-            # Interpolate each sub expression into each function space
-            for Vsub, sub_tensor, sub_expr in zip(V, tensor, expressions):
-                loops.extend(_interpolator(Vsub, sub_tensor, sub_expr, subset, arguments, access, bcs=bcs))
 
-        if bcs and len(arguments) == 0:
+            if isinstance(dual_arg, Cofunction):
+                duals = dual_arg.subfunctions
+            elif isinstance(dual_arg, Coargument):
+                duals = [Coargument(Vsub.dual(), number=dual_arg.number()) for Vsub in V]
+            else:
+                raise ValueError("dual_arg must be a Cofunction or Coargument")
+            # Interpolate each sub expression into each function space
+            for Vsub, sub_tensor, sub_expr, sub_dual in zip(V, tensor, expressions, duals):
+                loops.extend(_interpolator(Vsub, sub_tensor, sub_expr, sub_dual, subset, arguments, access, bcs=bcs))
+
+        if bcs and rank == 1:
             loops.extend(partial(bc.apply, f) for bc in bcs)
 
         def callable(loops, f):
@@ -921,7 +949,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
 
 
 @utils.known_pyop2_safe
-def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
+def _interpolator(V, tensor, expr, dual_arg, subset, arguments, access, bcs=None):
     try:
         expr = ufl.as_ufl(expr)
     except ValueError:
@@ -977,13 +1005,31 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     parameters = {}
     parameters['scalar_type'] = utils.ScalarType
 
+    needs_weight = isinstance(dual_arg, ufl.Cofunction) and not to_element.is_dg()
+    if needs_weight:
+        W = dual_arg.function_space()
+        shapes = (W.finat_element.space_dimension(), W.block_size)
+        domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
+        instructions = """
+        for i, j
+            w[i,j] = w[i,j] + 1
+        end
+        """
+        weight = firedrake.Function(W)
+        firedrake.par_loop((domain, instructions), ufl.dx, {"w": (weight, op2.INC)})
+
+        tmp = firedrake.Function(W)
+        with weight.dat.vec as w, dual_arg.dat.vec as x, tmp.dat.vec as y:
+            y.pointwiseDivide(x, w)
+        dual_arg = tmp
+
     # We need to pass both the ufl element and the finat element
     # because the finat elements might not have the right mapping
     # (e.g. L2 Piola, or tensor element with symmetries)
     # FIXME: for the runtime unknown point set (for cross-mesh
     # interpolation) we have to pass the finat element we construct
     # here. Ideally we would only pass the UFL element through.
-    kernel = compile_expression(cell_set.comm, expr, to_element, V.ufl_element(),
+    kernel = compile_expression(cell_set.comm, expr, dual_arg, to_element, V.ufl_element(),
                                 domain=source_mesh, parameters=parameters)
     ast = kernel.ast
     oriented = kernel.oriented
@@ -996,7 +1042,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     parloop_args = [kernel, cell_set]
 
-    coefficients = tsfc_interface.extract_numbered_coefficients(expr, coefficient_numbers)
+    interp_expr = ufl.Interpolate(expr, dual_arg)
+    coefficients = tsfc_interface.extract_numbered_coefficients(interp_expr, coefficient_numbers)
     if needs_external_coords:
         coefficients = [source_mesh.coordinates] + coefficients
 
@@ -1014,7 +1061,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     if isinstance(tensor, op2.Global):
         parloop_args.append(tensor(access))
     elif isinstance(tensor, op2.Dat):
-        parloop_args.append(tensor(access, V.cell_node_map()))
+        V_dest = arguments[0].function_space() if isinstance(dual_arg, ufl.Cofunction) else V
+        parloop_args.append(tensor(access, V_dest.cell_node_map()))
     else:
         assert access == op2.WRITE  # Other access descriptors not done for Matrices.
         rows_map = V.cell_node_map()
@@ -1117,9 +1165,9 @@ except KeyError:
                                   f"firedrake-tsfc-expression-kernel-cache-uid{os.getuid()}")
 
 
-def _compile_expression_key(comm, expr, to_element, ufl_element, domain, parameters) -> tuple[Hashable, ...]:
+def _compile_expression_key(comm, expr, dual_arg, to_element, ufl_element, domain, parameters) -> tuple[Hashable, ...]:
     """Generate a cache key suitable for :func:`tsfc.compile_expression_dual_evaluation`."""
-    return (hash_expr(expr), hash(ufl_element), utils.tuplify(parameters))
+    return (hash_expr(expr), type(dual_arg), hash(ufl_element), utils.tuplify(parameters))
 
 
 @memory_and_disk_cache(
