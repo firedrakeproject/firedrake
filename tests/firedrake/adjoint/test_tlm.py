@@ -36,7 +36,7 @@ def test_tlm_assemble(rg):
     set_working_tape(tape)
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
-    f = Function(V).assign(5)
+    f = Function(V).assign(5.)
 
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -65,8 +65,8 @@ def test_tlm_bc():
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
     R = FunctionSpace(mesh, "R", 0)
-    c = Function(R, val=1)
-    f = Function(V).assign(1)
+    c = Function(R, val=1.)
+    f = Function(V).assign(1.)
 
     u = Function(V)
     v = TestFunction(V)
@@ -88,8 +88,8 @@ def test_tlm_func(rg):
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
 
-    c = Function(V).assign(1)
-    f = Function(V).assign(1)
+    c = Function(V).assign(1.)
+    f = Function(V).assign(1.)
 
     u = Function(V)
     v = TestFunction(V)
@@ -130,9 +130,9 @@ def test_time_dependent(solve_type, rg):
     # Some variables
     T = 0.5
     dt = 0.1
-    f = Function(V).assign(1)
+    f = Function(V).assign(1.)
 
-    u_1 = Function(V).assign(1)
+    u_1 = Function(V).assign(1.)
     control = Control(u_1)
 
     a = u_1 * u * v * dx + dt * f * inner(grad(u), grad(v)) * dx
@@ -216,8 +216,8 @@ def test_projection():
     V = FunctionSpace(mesh, "CG", 1)
     R = FunctionSpace(mesh, "R", 0)
 
-    bc = DirichletBC(V, Constant(1), "on_boundary")
-    k = Function(R, val=2)
+    bc = DirichletBC(V, Constant(1.), "on_boundary")
+    k = Function(R, val=2.)
     x, y = SpatialCoordinate(mesh)
     expr = sin(k*x)
     f = project(expr, V)
@@ -234,7 +234,7 @@ def test_projection():
     J = assemble(u_**2*dx)
     Jhat = ReducedFunctional(J, Control(k))
 
-    assert (taylor_test(Jhat, k, Function(R, val=1), dJdm=Jhat.tlm(Constant(1))) > 1.9)
+    assert (taylor_test(Jhat, k, Function(R, val=1.), dJdm=Jhat.tlm(Constant(1.))) > 1.9)
 
 
 @pytest.mark.skipcomplex
@@ -244,7 +244,7 @@ def test_projection_function(rg):
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "CG", 1)
 
-    bc = DirichletBC(V, Constant(1), "on_boundary")
+    bc = DirichletBC(V, Constant(1.), "on_boundary")
     x, y = SpatialCoordinate(mesh)
     g = project(sin(x)*sin(y), V, annotate=False)
     expr = sin(g*x)
