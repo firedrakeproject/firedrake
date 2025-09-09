@@ -105,6 +105,9 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     BoundaryCollection, InteriorCollection = _get_collection_types(gdim, tdim)
     quad = mesh.ufl_cell().cellname() == "quadrilateral"
 
+    if mesh.extruded:
+        raise NotImplementedError("Visualizing extruded meshes not implemented yet!")
+
     if axes is None:
         figure = plt.figure()
         if gdim == 3:
