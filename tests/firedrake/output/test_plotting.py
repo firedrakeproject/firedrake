@@ -165,6 +165,15 @@ def test_tricontour_extruded_mesh():
 
 
 @pytest.mark.skipplot
+def test_fn_plotter_extruded_mesh_multiple_layers():
+    nx, nz = 8, 4
+    interval = UnitIntervalMesh(nx)
+    rectangle = ExtrudedMesh(interval, nz)
+    fn_plotter = FunctionPlotter(rectangle, num_sample_points=1)
+    assert fn_plotter.triangulation.triangles.shape[0] == 2 * nx * nz
+
+
+@pytest.mark.skipplot
 def test_quiver_plot():
     mesh = UnitSquareMesh(10, 10)
     V = VectorFunctionSpace(mesh, "CG", 1)
