@@ -100,16 +100,19 @@ def test_tripcolor_shading():
     f0.project(x[0] + x[1])
     f1.project(x[0] + x[1])
 
-    fig, axes = plt.subplots(ncols=3, sharex=True, sharey=True)
+    fig, axes = plt.subplots(ncols=4, sharex=True, sharey=True)
 
     collection = tripcolor(f0, num_sample_points=1, axes=axes[0])
-    assert collection.get_array().shape == f0.dat.data_ro[:].shape
+    assert collection.get_array().shape[0] == 3 * mesh.num_cells()
 
     collection = tripcolor(f1, num_sample_points=1, axes=axes[1])
-    assert collection.get_array().shape == f1.dat.data_ro[:].shape
+    assert collection.get_array().shape[0] == 3 * mesh.num_cells()
 
-    collection = tripcolor(f1, num_sample_points=1, shading="flat", axes=axes[2])
-    assert collection.get_array().shape == f0.dat.data_ro[:].shape
+    collection = tripcolor(f0, num_sample_points=1, shading="flat", axes=axes[2])
+    assert collection.get_array().shape[0] == mesh.num_cells()
+
+    collection = tripcolor(f1, num_sample_points=1, shading="flat", axes=axes[3])
+    assert collection.get_array().shape[0] == mesh.num_cells()
 
 
 @pytest.mark.skipplot
@@ -162,6 +165,15 @@ def test_tricontour_extruded_mesh():
     colorbar = fig.colorbar(contours)
     assert contours is not None
     assert colorbar is not None
+
+
+@pytest.mark.skipplot
+def test_fn_plotter_extruded_mesh_multiple_layers():
+    nx, nz = 8, 4
+    interval = UnitIntervalMesh(nx)
+    rectangle = ExtrudedMesh(interval, nz)
+    fn_plotter = FunctionPlotter(rectangle, num_sample_points=1)
+    assert fn_plotter.triangulation.triangles.shape[0] == 2 * nx * nz
 
 
 @pytest.mark.skipplot
