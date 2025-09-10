@@ -182,16 +182,14 @@ def preprocess_parameters(parameters):
     return parameters
 
 
-def compile_expression_dual_evaluation(expression, dual_arg,
-                                       to_element, ufl_element, *,
+def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
                                        domain=None, interface=None,
                                        parameters=None):
     """Compile a UFL expression to be evaluated against a compile-time known reference element's dual basis.
 
     Useful for interpolating UFL expressions into e.g. N1curl spaces.
 
-    :arg expression: UFL expression to interpolate
-    :arg dual_arg: A Cofunction or Coargument to act on the interpolated expression
+    :arg expression: UFL expression
     :arg to_element: A FInAT element for the target space
     :arg ufl_element: The UFL element of the target space.
     :arg domain: optional UFL domain the expression is defined on (required when expression contains no domain).
@@ -212,18 +210,23 @@ def compile_expression_dual_evaluation(expression, dual_arg,
     if isinstance(to_element, (PhysicallyMappedElement, DirectlyDefinedElement)):
         raise NotImplementedError("Don't know how to interpolate onto zany spaces, sorry")
 
-    if not isinstance(dual_arg, (ufl.Coargument, ufl.Cofunction)):
-        raise ValueError(f"Expecting a Coargument or Cofunction, not {type(dual_arg).__name__}")
-
-    interp_expression = ufl.Interpolate(expression, dual_arg)
-    orig_expression = interp_expression
+    orig_expression = expression
+    if isinstance(expression, ufl.Interpolate):
+        operand, = expression.ufl_operands
+    else:
+        operand = expression
 
     # Map into reference space
-    expression = apply_mapping(expression, ufl_element, domain)
+    operand = apply_mapping(operand, ufl_element, domain)
 
     # Apply UFL preprocessing
-    expression = ufl_utils.preprocess_expression(expression,
-                                                 complex_mode=complex_mode)
+    operand = ufl_utils.preprocess_expression(operand, complex_mode=complex_mode)
+
+    if isinstance(expression, ufl.Interpolate):
+        dual_arg, _ = expression.argument_slots()
+        expression = ufl.Interpolate(operand, dual_arg)
+    else:
+        expression = operand
 
     # Initialise kernel builder
     if interface is None:
@@ -231,7 +234,7 @@ def compile_expression_dual_evaluation(expression, dual_arg,
         from tsfc.kernel_interface.firedrake_loopy import ExpressionKernelBuilder as interface
 
     builder = interface(parameters["scalar_type"])
-    arguments = extract_arguments(expression)
+    arguments = extract_arguments(operand)
     argument_multiindices = tuple(builder.create_element(arg.ufl_element()).get_indices()
                                   for arg in arguments)
 
@@ -241,7 +244,7 @@ def compile_expression_dual_evaluation(expression, dual_arg,
     assert domain is not None
 
     # Collect required coefficients and determine numbering
-    coefficients = extract_coefficients(interp_expression)
+    coefficients = extract_coefficients(expression)
     orig_coefficients = extract_coefficients(orig_expression)
     coefficient_numbers = tuple(map(orig_coefficients.index, coefficients))
     builder.set_coefficient_numbers(coefficient_numbers)
@@ -258,7 +261,7 @@ def compile_expression_dual_evaluation(expression, dual_arg,
         needs_external_coords = True
     builder.set_coefficients(coefficients)
 
-    constants = extract_firedrake_constants(interp_expression)
+    constants = extract_firedrake_constants(expression)
     builder.set_constants(constants)
 
     # Split mixed coefficients
@@ -280,8 +283,18 @@ def compile_expression_dual_evaluation(expression, dual_arg,
     if isinstance(to_element, finat.QuadratureElement):
         kernel_cfg["quadrature_rule"] = to_element._rule
 
+    # TODO register ufl.Interpolate in fem.compile_ufl
+    if isinstance(expression, ufl.Interpolate):
+        operand, = expression.ufl_operands
+        dual_arg = expression.argument_slots()[0]
+        if not isinstance(dual_arg, (ufl.Coargument, ufl.Cofunction)):
+            raise ValueError(f"Expecting a Coargument or Cofunction, not {type(dual_arg).__name__}")
+    else:
+        operand = expression
+        dual_arg = None
+
     # Create callable for translation of UFL expression to gem
-    fn = DualEvaluationCallable(expression, kernel_cfg)
+    fn = DualEvaluationCallable(operand, kernel_cfg)
 
     # Get the gem expression for dual evaluation and corresponding basis
     # indices needed for compilation of the expression
@@ -296,7 +309,7 @@ def compile_expression_dual_evaluation(expression, dual_arg,
         basis_indices = ()
 
     # Build kernel body
-    return_indices = basis_indices + tuple(chain(*argument_multiindices))
+    return_indices = tuple(chain(basis_indices, *argument_multiindices))
     return_shape = tuple(i.extent for i in return_indices)
     if return_shape:
         return_var = gem.Variable('A', return_shape)

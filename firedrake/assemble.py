@@ -590,12 +590,22 @@ class BaseFormAssembler(AbstractFormAssembler):
             if not is_adjoint and rank == 2:
                 _, v1 = expr.arguments()
                 operand = ufl.replace(operand, {v1: v1.reconstruct(number=0)})
+
+            target_mesh = V.mesh()
+            source_mesh = extract_unique_domain(operand) or target_mesh
+            same_mesh = source_mesh.topology is target_mesh.topology
+
             # Get the interpolator
-            interp_data = expr.interp_data.copy()
+            interp_data = expr.interp_data
             default_missing_val = interp_data.pop('default_missing_val', None)
-            if (is_adjoint and rank == 1) or rank == 0:
+            if same_mesh and ((is_adjoint and rank == 1) or rank == 0):
+                interp_data = interp_data.copy()
                 interp_data["access"] = op2.INC
-            interpolator = firedrake.Interpolator(operand, v, **interp_data)
+
+            dual_arg = v if same_mesh else V
+            interp_expr = firedrake.Interpolate(operand, v=dual_arg, **interp_data)
+            interpolator = firedrake.Interpolator(interp_expr, V, **interp_data)
+
             # Assembly
             if rank == 0:
                 result = interpolator._interpolate(output=tensor, default_missing_val=default_missing_val)
@@ -603,7 +613,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             elif rank == 1:
                 # Assembling the action of the Jacobian adjoint.
                 if is_adjoint:
-                    return interpolator._interpolate(v, output=tensor, default_missing_val=default_missing_val)
+                    return interpolator._interpolate(v, output=tensor, adjoint=True, default_missing_val=default_missing_val)
                 # Assembling the Jacobian action.
                 elif interpolator.nargs:
                     return interpolator._interpolate(operand, output=tensor, default_missing_val=default_missing_val)
@@ -611,7 +621,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 elif tensor is None:
                     return interpolator._interpolate(default_missing_val=default_missing_val)
                 else:
-                    return firedrake.Interpolator(operand, tensor, **interp_data)._interpolate(default_missing_val=default_missing_val)
+                    return firedrake.Interpolator(interp_expr, tensor, **interp_data)._interpolate(default_missing_val=default_missing_val)
             elif rank == 2:
                 res = tensor.petscmat if tensor else PETSc.Mat()
                 # Get the interpolation matrix

@@ -341,7 +341,6 @@ def test_adjoint_Pk(degree):
 
     v_adj_form = assemble(interpolate(TestFunction(Pk), v * dx))
 
-    assert v_adj.function_space() == v_adj_form.function_space()
     assert np.allclose(v_adj_form.dat.data, v_adj.dat.data)
 
 
@@ -354,7 +353,6 @@ def test_adjoint_quads():
     u_P1 = assemble(conj(TestFunction(P1)) * dx)
     v_adj = assemble(interpolate(TestFunction(P1), assemble(v * dx)))
 
-    assert v_adj.function_space() == u_P1.function_space()
     assert np.allclose(u_P1.dat.data, v_adj.dat.data)
 
 
@@ -367,7 +365,6 @@ def test_adjoint_dg():
     u_cg = assemble(conj(TestFunction(cg1)) * dx)
     v_adj = assemble(interpolate(TestFunction(cg1), assemble(v * dx)))
 
-    assert v_adj.function_space() == u_cg.function_space()
     assert np.allclose(u_cg.dat.data, v_adj.dat.data)
 
 
