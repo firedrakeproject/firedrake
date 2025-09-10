@@ -2,7 +2,6 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.ufl_expr import TestFunction, TrialFunction
 import firedrake.dmhooks as dmhooks
-from firedrake.dmhooks import get_function_space
 
 __all__ = ("AssembledPC", "AuxiliaryOperatorPC")
 
@@ -26,7 +25,7 @@ class AssembledPC(PCBase):
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
 
-        V = get_function_space(pc.getDM()).collapse()
+        V = self.get_function_space(pc).collapse()
         test = TestFunction(V)
         trial = TrialFunction(V)
 
