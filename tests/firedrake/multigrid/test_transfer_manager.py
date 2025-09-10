@@ -131,3 +131,73 @@ def test_transfer_manager_dat_version_cache(action, transfer_op, spaces):
 
     else:
         raise ValueError(f"Unrecognized action {action}")
+
+
+@pytest.fixture
+def DG_spaces(hierarchy):
+    return tuple(VectorFunctionSpace(mesh, "DG", 1) for mesh in hierarchy)
+
+
+@pytest.fixture
+def RT_spaces(hierarchy):
+    return tuple(RestrictedFunctionSpace(FunctionSpace(mesh, "RT", 1), ["on_boundary"]) for mesh in hierarchy)
+
+
+@pytest.mark.parametrize("action", [
+    "DG_work_function",
+    "DG_work_cofunction",
+    "V_dof_weights",
+    "work_vec",
+    "V_DG_mass",
+    pytest.param("DG_inv_mass", marks=pytest.mark.skipcomplexnoslate),
+    pytest.param("V_approx_inv_mass", marks=pytest.mark.skipcomplexnoslate),
+    "V_inv_mass_ksp",
+])
+def test_transfer_manager_cache(action, DG_spaces, RT_spaces):
+    V1 = RT_spaces[0]
+    DG1 = DG_spaces[0]
+
+    V2 = V1.reconstruct(name="V2")
+    DG2 = DG1.reconstruct(name="DG2")
+    assert V2 is not V1
+    assert DG2 is not DG1
+
+    if action == "DG_work_function":
+        w1 = transfer.DG_work(DG1)
+        w2 = transfer.DG_work(DG2)
+        assert w1 is w2
+
+    elif action == "DG_work_cofunction":
+        w1 = transfer.DG_work(DG1.dual())
+        w2 = transfer.DG_work(DG2.dual())
+        assert w1 is w2
+
+    elif action == "V_dof_weights":
+        w1 = transfer.V_dof_weights(V1)
+        w2 = transfer.V_dof_weights(V2)
+        assert w1 is w2
+
+    elif action == "work_vec":
+        w1 = transfer.work_vec(V1)
+        w2 = transfer.work_vec(V2)
+        assert w1 is w2
+
+    elif action == "V_DG_mass":
+        M1 = transfer.V_DG_mass(V1, DG1)
+        M2 = transfer.V_DG_mass(V2, DG2)
+        assert M1 is M2
+
+    elif action == "DG_inv_mass":
+        M1 = transfer.DG_inv_mass(DG1)
+        M2 = transfer.DG_inv_mass(DG2)
+        assert M1 is M2
+
+    elif action == "V_approx_inv_mass":
+        M1 = transfer.V_approx_inv_mass(V1, DG1)
+        M2 = transfer.V_approx_inv_mass(V2, DG2)
+        assert M1 is M2
+
+    elif action == "V_inv_mass_ksp":
+        ksp1 = transfer.V_inv_mass_ksp(V1)
+        ksp2 = transfer.V_inv_mass_ksp(V2)
+        assert ksp1 is ksp2
