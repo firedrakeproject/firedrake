@@ -1,16 +1,13 @@
 import numpy as np
-import rtree
-import sys
 import ufl
 from ufl.duals import is_dual
 from ufl.formatting.ufl2unicode import ufl2unicode
 from ufl.domain import extract_unique_domain
 import cachetools
 import ctypes
-from ctypes import POINTER, c_int, c_double, c_void_p
+from ctypes import POINTER, c_int, c_void_p
 from collections.abc import Collection
 from numbers import Number
-from pathlib import Path
 from functools import partial
 from typing import Tuple
 
@@ -544,143 +541,12 @@ class Function(ufl.Coefficient, FunctionMixin):
         # Return pointer
         return ctypes.pointer(c_function)
 
-    def _c_evaluate(self, tolerance=None):
-        cache = self.__dict__.setdefault("_c_evaluate_cache", {})
-        try:
-            return cache[tolerance]
-        except KeyError:
-            result = make_c_evaluate(self, tolerance=tolerance)
-            result.argtypes = [POINTER(_CFunction), POINTER(c_double), c_void_p]
-            result.restype = c_int
-            return cache.setdefault(tolerance, result)
-
     def evaluate(self, coord, mapping, component, index_values):
         # Called by UFL when evaluating expressions at coordinates
         if component or index_values:
             raise NotImplementedError("Unsupported arguments when attempting to evaluate Function.")
-        return self.at(coord)
-
-    @PETSc.Log.EventDecorator()
-    def at(self, arg, *args, **kwargs):
-        r"""Evaluate function at points.
-
-        :arg arg: The point to locate.
-        :arg args: Additional points.
-        :kwarg dont_raise: Do not raise an error if a point is not found.
-        :kwarg tolerance: Tolerence to use when checking if a point is
-            in a cell. Default is the ``tolerance`` provided when
-            creating the :func:`~.Mesh` the function is defined on.
-            Changing this from default will cause the spatial index to
-            be rebuilt which can take some time.
-        """
-        # Shortcut if function space is the R-space
-        if self.ufl_element().family() == "Real":
-            return self.dat.data_ro
-
-        # Need to ensure data is up-to-date for reading
-        self.dat.global_to_local_begin(op2.READ)
-        self.dat.global_to_local_end(op2.READ)
-        from mpi4py import MPI
-
-        if args:
-            arg = (arg,) + args
-        arg = np.asarray(arg, dtype=utils.ScalarType)
-        if utils.complex_mode:
-            if not np.allclose(arg.imag, 0):
-                raise ValueError("Provided points have non-zero imaginary part")
-            arg = arg.real.copy()
-
-        dont_raise = kwargs.get('dont_raise', False)
-
-        tolerance = kwargs.get('tolerance', None)
-        mesh = self.function_space().mesh()
-        if tolerance is None:
-            tolerance = mesh.tolerance
-        else:
-            mesh.tolerance = tolerance
-
-        # Handle f.at(0.3)
-        if not arg.shape:
-            arg = arg.reshape(-1)
-
-        if mesh.variable_layers:
-            raise NotImplementedError("Point evaluation not implemented for variable layers")
-
-        # Validate geometric dimension
-        gdim = mesh.geometric_dimension()
-        if arg.shape[-1] == gdim:
-            pass
-        elif len(arg.shape) == 1 and gdim == 1:
-            arg = arg.reshape(-1, 1)
-        else:
-            raise ValueError("Point dimension (%d) does not match geometric dimension (%d)." % (arg.shape[-1], gdim))
-
-        # Check if we have got the same points on each process
-        root_arg = self._comm.bcast(arg, root=0)
-        same_arg = arg.shape == root_arg.shape and np.allclose(arg, root_arg)
-        diff_arg = self._comm.allreduce(int(not same_arg), op=MPI.SUM)
-        if diff_arg:
-            raise ValueError("Points to evaluate are inconsistent among processes.")
-
-        def single_eval(x, buf):
-            r"""Helper function to evaluate at a single point."""
-            err = self._c_evaluate(tolerance=tolerance)(self._ctypes,
-                                                        x.ctypes.data_as(POINTER(c_double)),
-                                                        buf.ctypes.data_as(c_void_p))
-            if err == -1:
-                raise PointNotInDomainError(self.function_space().mesh(), x.reshape(-1))
-
-        if not len(arg.shape) <= 2:
-            raise ValueError("Function.at expects point or array of points.")
-        points = arg.reshape(-1, arg.shape[-1])
-        value_shape = self.ufl_shape
-
-        subfunctions = self.subfunctions
-        mixed = type(self.function_space().ufl_element()) is MixedElement
-
-        # Local evaluation
-        l_result = []
-        for i, p in enumerate(points):
-            try:
-                if mixed:
-                    l_result.append((i, tuple(f.at(p) for f in subfunctions)))
-                else:
-                    p_result = np.zeros(value_shape, dtype=ScalarType)
-                    single_eval(points[i:i+1], p_result)
-                    l_result.append((i, p_result))
-            except PointNotInDomainError:
-                # Skip point
-                pass
-
-        # Collecting the results
-        def same_result(a, b):
-            if mixed:
-                for a_, b_ in zip(a, b):
-                    if not np.allclose(a_, b_):
-                        return False
-                return True
-            else:
-                return np.allclose(a, b)
-
-        all_results = self.comm.allgather(l_result)
-        g_result = [None] * len(points)
-        for results in all_results:
-            for i, result in results:
-                if g_result[i] is None:
-                    g_result[i] = result
-                elif same_result(result, g_result[i]):
-                    pass
-                else:
-                    raise RuntimeError("Point evaluation gave different results across processes.")
-
-        if not dont_raise:
-            for i in range(len(g_result)):
-                if g_result[i] is None:
-                    raise PointNotInDomainError(self.function_space().mesh(), points[i].reshape(-1))
-
-        if len(arg.shape) == 1:
-            g_result = g_result[0]
-        return g_result
+        evaluator = PointEvaluator(self.function_space().mesh(), coord)
+        return evaluator.evaluate(self)
 
     def __str__(self):
         return ufl2unicode(self)
@@ -814,54 +680,3 @@ class PointEvaluator:
                 result = np.empty((len(self.points),) + shape, dtype=utils.ScalarType)
             self.mesh.comm.Bcast(result)
         return result
-
-
-@PETSc.Log.EventDecorator()
-def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
-    r"""Generates, compiles and loads a C function to evaluate the
-    given Firedrake :class:`Function`."""
-
-    from os import path
-    from firedrake.pointeval_utils import compile_element
-    from pyop2 import compilation
-    from pyop2.utils import get_petsc_dir
-    from pyop2.parloop import generate_single_cell_wrapper
-    import firedrake.pointquery_utils as pq_utils
-
-    mesh = extract_unique_domain(function)
-    src = [pq_utils.src_locate_cell(mesh, tolerance=tolerance)]
-    src.append(compile_element(function, mesh.coordinates))
-
-    args = []
-
-    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map())
-    args.append(arg)
-
-    arg = function.dat(op2.READ, function.cell_node_map())
-    args.append(arg)
-
-    p_ScalarType_c = f"{utils.ScalarType_c}*"
-    src.append(generate_single_cell_wrapper(mesh.cell_set, args,
-                                            forward_args=[p_ScalarType_c,
-                                                          p_ScalarType_c],
-                                            kernel_name="evaluate_kernel",
-                                            wrapper_name="wrap_evaluate"))
-
-    src = "\n".join(src)
-
-    if ldargs is None:
-        ldargs = []
-    libspatialindex_so = Path(rtree.core.rt._name).absolute()
-    lsi_runpath = f"-Wl,-rpath,{libspatialindex_so.parent}"
-    ldargs += [str(libspatialindex_so), lsi_runpath]
-    dll = compilation.load(
-        src, "c",
-        cppargs=[
-            f"-I{path.dirname(__file__)}",
-            f"-I{sys.prefix}/include",
-            f"-I{rtree.finder.get_include()}"
-        ] + [f"-I{d}/include" for d in get_petsc_dir()],
-        ldargs=ldargs,
-        comm=function.comm
-    )
-    return getattr(dll, c_name)
