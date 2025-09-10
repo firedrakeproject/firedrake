@@ -30,6 +30,7 @@ class Solver(Enum):
     FORWARD = 0
     ADJOINT = 1
     TLM = 2
+    HESSIAN = 3
 
 
 class GenericSolveBlock(Block):
@@ -228,6 +229,9 @@ class GenericSolveBlock(Block):
 
         return adj_sol, adj_sol_bdy
 
+    def _hessian_solve(self, *args):
+        return self._assemble_and_solve_adj_eq(*args)
+
     def _compute_adj_bdy(self, adj_sol, adj_sol_bdy, dFdu_adj_form, dJdu):
         adj_sol_bdy = firedrake.assemble(dJdu - firedrake.action(dFdu_adj_form, adj_sol))
         return adj_sol_bdy.riesz_representation("l2")
@@ -386,8 +390,7 @@ class GenericSolveBlock(Block):
         b = self._assemble_soa_eq_rhs(dFdu_form, adj_sol, hessian_input,
                                       d2Fdu2)
         dFdu_form = firedrake.adjoint(dFdu_form)
-        adj_sol2, adj_sol2_bdy = self._assemble_and_solve_adj_eq(dFdu_form, b,
-                                                                 compute_bdy)
+        adj_sol2, adj_sol2_bdy = self._hessian_solve(dFdu_form, b, compute_bdy)
         if self.adj2_cb is not None:
             self.adj2_cb(adj_sol2)
         if self.adj2_bdy_cb is not None and compute_bdy:
@@ -686,6 +689,22 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                 u_sol, adj_sol_bdy, jac_adj, dJdu_copy)
         return u_sol, adj_sol_bdy
 
+    def _hessian_solve(self, adj_form, rhs, compute_bdy):
+        # self._ad_solver_replace_forms(Solver.HESSIAN)
+        # self._ad_solvers["hessian_lvs"].invalidate_jacobian()
+        self._ad_solvers["hessian_lvs"]._problem.F._components[1].assign(rhs)
+        self._ad_solvers["hessian_lvs"].solve()
+        u_sol = self._ad_solvers["hessian_lvs"]._problem.u
+
+        adj_sol_bdy = None
+        if compute_bdy:
+            jac_adj = self._ad_solvers["hessian_lvs"]._problem.J
+            adj_sol_bdy = self._compute_adj_bdy(
+                u_sol, adj_sol_bdy, jac_adj, rhs.copy()
+            )
+
+        return u_sol, adj_sol_bdy
+
     def _ad_assign_map(self, form, solver):
         if solver == Solver.FORWARD:
             count_map = self._ad_solvers["forward_nlvs"]._problem._ad_count_map
@@ -704,8 +723,10 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
                            firedrake.Cofunction)):
                 coeff_count = coeff.count()
                 if coeff_count in form_ad_count_map:
-                    assign_map[form_ad_count_map[coeff_count]] = \
-                        block_variable.saved_output
+                    if solver == Solver.HESSIAN:
+                        assign_map[form_ad_count_map[coeff_count]] = block_variable.tlm_value
+                    else:
+                        assign_map[form_ad_count_map[coeff_count]] = block_variable.saved_output
 
         if (
             solver == Solver.ADJOINT
@@ -716,6 +737,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             if coeff_count in form_ad_count_map:
                 assign_map[form_ad_count_map[coeff_count]] = \
                     block_variable.saved_output
+
         return assign_map
 
     def _ad_assign_coefficients(self, form, solver):
@@ -734,6 +756,10 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         elif solver == Solver.TLM:
             self._ad_assign_coefficients(
                 self._ad_solvers["tlm_lvs"]._problem.J, solver
+            )
+        elif solver == Solver.HESSIAN:
+            self._ad_assign_coefficients(
+                self._ad_solvers["hessian_lvs"]._problem.J, solver
             )
 
     def prepare_evaluate_adj(self, inputs, adj_inputs, relevant_dependencies):
@@ -858,11 +884,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
         self._ad_solvers["tlm_lvs"].solve()
         return self._ad_solvers["tlm_lvs"]._problem.u
-        # return self._assemble_and_solve_tlm_eq(
-        #     firedrake.assemble(dFdu, bcs=bcs, **self.assemble_kwargs),
-        #     dFdm, dudm, bcs
-        # )
-
 
 
 class ProjectBlock(SolveVarFormBlock):

@@ -17,6 +17,7 @@ class NonlinearVariationalProblemMixin:
             self._ad_u = self.u_restrict
             self._ad_bcs = self.bcs
             self._ad_J = self.J
+
             try:
                 # Some forms (e.g. SLATE tensors) are not currently
                 # differentiable.
@@ -29,6 +30,7 @@ class NonlinearVariationalProblemMixin:
                     self._ad_adj_F = adjoint(dFdu, derivatives_expanded=True)
             except (ValueError, TypeError, NotImplementedError):
                 self._ad_adj_F = None
+
             self._ad_kwargs = {'Jp': self.Jp, 'form_compiler_parameters': self.form_compiler_parameters, 'is_linear': self.is_linear}
             self._ad_count_map = {}
         return wrapper
@@ -49,7 +51,8 @@ class NonlinearVariationalSolverMixin:
             self._ad_args = args
             self._ad_kwargs = kwargs
             self._ad_solvers = {"forward_nlvs": None, "adjoint_lvs": None,
-                                "recompute_count": 0, "tlm_lvs": None}
+                                "recompute_count": 0, "tlm_lvs": None,
+                                "hessian_lvs": None}
             self._ad_adj_cache = {}
 
         return wrapper
@@ -99,6 +102,12 @@ class NonlinearVariationalSolverMixin:
                             *block.adj_args, **block.adj_kwargs)
                         if self._ad_problem._constant_jacobian:
                             self._ad_solvers["update_adjoint"] = False
+
+                if not self._ad_solvers["hessian_lvs"]:
+                    with stop_annotating():
+                        self._ad_solvers["hessian_lvs"] = LinearVariationalSolver(
+                            self._ad_hessian_lvs_problem(block, problem._ad_adj_F),
+                        )
 
                 if not self._ad_solvers["tlm_lvs"]:
                     with stop_annotating():
@@ -160,6 +169,27 @@ class NonlinearVariationalSolverMixin:
         # `block.adj_F` coefficients.
         _ad_count_map, J_replace_map, _ = self._build_count_map(
             adj_F, block._dependencies,
+        )
+        lvp = LinearVariationalProblem(
+            replace(tmp_problem.J, J_replace_map), right_hand_side, adj_sol,
+            bcs=tmp_problem.bcs,
+            constant_jacobian=self._ad_problem._constant_jacobian)
+        lvp._ad_count_map_update(_ad_count_map)
+        return lvp
+
+    @no_annotations
+    def _ad_hessian_lvs_problem(self, block, adj_dFdu):
+        from firedrake import Function, Cofunction, LinearVariationalProblem
+
+        bcs = block._homogenize_bcs()
+        adj_sol = Function(block.function_space)
+        right_hand_side = Cofunction(block.function_space.dual())
+        tmp_problem = LinearVariationalProblem(
+            adj_dFdu, right_hand_side, adj_sol, bcs=bcs,
+            constant_jacobian=self._ad_problem._constant_jacobian)
+
+        _ad_count_map, J_replace_map, _ = self._build_count_map(
+            adj_dFdu, block._dependencies,
         )
         lvp = LinearVariationalProblem(
             replace(tmp_problem.J, J_replace_map), right_hand_side, adj_sol,
