@@ -49,7 +49,7 @@ class NonlinearVariationalSolverMixin:
             self._ad_args = args
             self._ad_kwargs = kwargs
             self._ad_solvers = {"forward_nlvs": None, "adjoint_lvs": None,
-                                "recompute_count": 0}
+                                "recompute_count": 0, "tlm_lvs": None}
             self._ad_adj_cache = {}
 
         return wrapper
@@ -99,6 +99,14 @@ class NonlinearVariationalSolverMixin:
                             *block.adj_args, **block.adj_kwargs)
                         if self._ad_problem._constant_jacobian:
                             self._ad_solvers["update_adjoint"] = False
+
+                if not self._ad_solvers["tlm_lvs"]:
+                    with stop_annotating():
+                        self._ad_solvers["tlm_lvs"] = LinearVariationalSolver(
+                            self._ad_tlm_lvs_problem(block, problem.F, problem.u_restrict)
+                        )
+                        if self._ad_problem._constant_jacobian:
+                            self._ad_solvers["update_tlm"] = False
 
                 block._ad_solvers = self._ad_solvers
 
@@ -151,11 +159,30 @@ class NonlinearVariationalSolverMixin:
         # linear variational problem is created with a deep copy of the
         # `block.adj_F` coefficients.
         _ad_count_map, J_replace_map, _ = self._build_count_map(
-            adj_F, block._dependencies)
+            adj_F, block._dependencies,
+        )
         lvp = LinearVariationalProblem(
             replace(tmp_problem.J, J_replace_map), right_hand_side, adj_sol,
             bcs=tmp_problem.bcs,
             constant_jacobian=self._ad_problem._constant_jacobian)
+        lvp._ad_count_map_update(_ad_count_map)
+        return lvp
+
+    @no_annotations
+    def _ad_tlm_lvs_problem(self, block, F, u):
+        from firedrake import Function, Cofunction, LinearVariationalProblem
+
+        lhs = derivative(F, u)
+        _ad_count_map, F_replace_map, _ = self._build_count_map(lhs, block._dependencies)
+        sol = Function(block.function_space)
+        rhs = Cofunction(block.function_space.dual())
+        lvp = LinearVariationalProblem(
+            replace(lhs, F_replace_map),
+            rhs,
+            sol,
+            bcs=block._homogenize_bcs(),
+            constant_jacobian=self._ad_problem._constant_jacobian,
+        )
         lvp._ad_count_map_update(_ad_count_map)
         return lvp
 
