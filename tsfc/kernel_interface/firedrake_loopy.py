@@ -105,7 +105,6 @@ class KernelBuilderBase(_KernelBuilderBase):
         expr = prepare_coefficient(coefficient, name, interior_facet=self.interior_facet, vectorised_by_cell=vectorised_by_cell)
         if vectorised_by_cell:
             expr = gem.partial_indexed(expr, self.cell_index)
-            #cell_index = set([i for i in expr.multiindex if i.name == "cell"])
             self.unsummed_coefficient_indices = self.unsummed_coefficient_indices.union(self.cell_index)
         self.coefficient_map[coefficient] = expr
         return expr

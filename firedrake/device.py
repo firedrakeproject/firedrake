@@ -36,7 +36,9 @@ class GPUDevice(ComputeDevice):
         self.file_name = "temp_kernel_device"
         self.kernel_type = None
         self.blocks = {"vars": [], "temps": []}
+        self.block_names = {}
         for block_type, dim in blocks:
+            self.block_names[block_type] = "BLOCK_SIZE_" + block_type[0].capitalize()
             if 2**int(np.log2(dim)) != dim:
                 raise ValueError(f"Block dim must be a power of two, not {dim}")
             if block_type == "cell":
