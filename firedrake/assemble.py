@@ -356,7 +356,9 @@ class BaseFormAssembler(AbstractFormAssembler):
             else:
                 test, trial = self._form.arguments()
                 sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_type, self._sub_mat_type, self.maps_and_regions)
-                return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType, options_prefix=self._options_prefix)
+                return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType,
+                                     sub_mat_type=self._sub_mat_type,
+                                     options_prefix=self._options_prefix)
         else:
             raise NotImplementedError("Only implemented for rank = 2 and diagonal = False")
 
@@ -1328,12 +1330,12 @@ def _get_mat_type(mat_type, sub_mat_type, arguments):
                for arg in arguments
                for V in arg.function_space()):
             mat_type = "nest"
-    if mat_type not in {"matfree", "aij", "baij", "nest", "dense"}:
+    if mat_type not in {"matfree", "aij", "baij", "nest", "dense", "is"}:
         raise ValueError(f"Unrecognised matrix type, '{mat_type}'")
     if sub_mat_type is None:
         sub_mat_type = parameters.parameters["default_sub_matrix_type"]
-    if sub_mat_type not in {"aij", "baij"}:
-        raise ValueError(f"Invalid submatrix type, '{sub_mat_type}' (not 'aij' or 'baij')")
+    if sub_mat_type not in {"aij", "baij", "is"}:
+        raise ValueError(f"Invalid submatrix type, '{sub_mat_type}' (not 'aij', 'baij', or 'is')")
     return mat_type, sub_mat_type
 
 
@@ -1377,6 +1379,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                                                           self._sub_mat_type,
                                                           self._make_maps_and_regions())
         return matrix.Matrix(self._form, self._bcs, self._mat_type, sparsity, ScalarType,
+                             sub_mat_type=self._sub_mat_type,
                              options_prefix=self._options_prefix,
                              fc_params=self._form_compiler_params)
 
@@ -1399,6 +1402,18 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         except SparsityFormatError:
             raise ValueError("Monolithic matrix assembly not supported for systems "
                              "with R-space blocks")
+
+        # TODO reconstruct dof_dset with the unghosted lgmap
+        if mat_type == "is":
+            rmap = unghosted_lgmap(sparsity._dsets[0].lgmap, test.function_space())
+            cmap = unghosted_lgmap(sparsity._dsets[1].lgmap, trial.function_space())
+            sparsity._lgmaps = (rmap, cmap)
+        elif mat_type == "nest" and sub_mat_type == "is":
+            for i, j in numpy.ndindex(sparsity.shape):
+                block = sparsity[i, j]
+                rmap = unghosted_lgmap(block._dsets[0].lgmap, test.function_space()[i])
+                cmap = unghosted_lgmap(block._dsets[1].lgmap, trial.function_space()[j])
+                block._lgmaps = (rmap, cmap)
         return sparsity
 
     def _make_maps_and_regions(self):
@@ -1494,7 +1509,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # block is on the matrix diagonal and its index matches the
             # index of the function space the bc is defined on.
             op2tensor[index, index].set_local_diagonal_entries(bc.nodes, idx=component, diag_val=self.weight)
-
             # Handle off-diagonal block involving real function space.
             # "lgmaps" is correctly constructed in _matrix_arg, but
             # is ignored by PyOP2 in this case.
@@ -2210,3 +2224,49 @@ class _FormHandler:
             return tuple(a.ufl_function_space()[i] for i, a in zip(indices, form.arguments()))
         else:
             raise AssertionError
+
+
+def masked_lgmap(lgmap, mask, block=True):
+    if block:
+        indices = lgmap.block_indices.copy()
+        bsize = lgmap.getBlockSize()
+    else:
+        indices = lgmap.indices.copy()
+        bsize = 1
+
+    if len(mask) > 0:
+        indices[mask] = -1
+    return PETSc.LGMap().create(indices=indices, bsize=bsize, comm=lgmap.comm)
+
+
+def unghosted_lgmap(lgmap, V, block=True):
+    if block:
+        ndofs = lgmap.getBlockIndices().size
+    else:
+        ndofs = lgmap.getIndices().size
+    mask = numpy.arange(ndofs, dtype=PETSc.IntType)
+
+    mesh = V._mesh
+    mesh_dm = mesh.topology_dm
+    start, end = mesh_dm.getHeightStratum(0)
+    for i, W in enumerate(V):
+        iset = V.dof_dset.local_ises[i]
+        W_local_indices = iset.indices
+        bsize = 1 if block else iset.getBlockSize()
+        section = W.dm.getDefaultSection()
+        for seed in range(start, end):
+            # Do not loop over ghost cells
+            if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
+                continue
+            closure, _ = mesh_dm.getTransitiveClosure(seed, useCone=True)
+            for p in closure:
+                dof = section.getDof(p)
+                if dof <= 0:
+                    continue
+                off = section.getOffset(p)
+                # Local indices within W
+                W_indices = slice(bsize * off, bsize * (off + dof))
+                mask[W_local_indices[W_indices]] = -1
+
+    mask = mask[mask > -1]
+    return masked_lgmap(lgmap, mask, block=block)
