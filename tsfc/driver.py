@@ -282,11 +282,8 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     if isinstance(to_element, finat.QuadratureElement):
         kernel_cfg["quadrature_rule"] = to_element._rule
 
-    # TODO register ufl.Interpolate in fem.compile_ufl
     if isinstance(expression, ufl.Interpolate):
         dual_arg, operand = expression.argument_slots()
-        if not isinstance(dual_arg, (ufl.Coargument, ufl.Cofunction)):
-            raise ValueError(f"Expecting a Coargument or Cofunction, not {type(dual_arg).__name__}")
     else:
         operand = expression
         dual_arg = None
@@ -299,11 +296,12 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     evaluation, basis_indices = to_element.dual_evaluation(fn)
 
     # Compute the adjoint by contracting against the dual argument
-    if dual_arg in coefficients:
-        beta = basis_indices[::-1]
+    if dual_arg and not isinstance(dual_arg, ufl.Coargument):
+        k = len(basis_indices)-len(operand.ufl_shape)
+        beta = basis_indices[k:] + basis_indices[:k]
         shape = tuple(i.extent for i in beta)
-        gem_dual = gem.Variable(f"w_{coefficients.index(dual_arg)}", shape)
-        evaluation = gem.IndexSum(evaluation * gem_dual[beta], beta)
+        gem_dual = gem.Variable(f"w_{coefficients.index(dual_arg)}", shape=shape)
+        evaluation = gem.IndexSum(evaluation * gem_dual[beta], basis_indices)
         basis_indices = ()
 
     # Build kernel body
