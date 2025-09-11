@@ -608,8 +608,13 @@ class BaseFormAssembler(AbstractFormAssembler):
 
             # Assembly
             if rank == 0:
-                result = interpolator._interpolate(output=tensor, default_missing_val=default_missing_val)
-                return result.dat.data.item() if tensor is None else result
+                # Assembling the double action.
+                if same_mesh:
+                    result = interpolator._interpolate(output=tensor, default_missing_val=default_missing_val)
+                    return result.dat.data.item() if tensor is None else result
+                else:
+                    Iu = interpolator._interpolate(default_missing_val=default_missing_val)
+                    return assemble(ufl.action(v, Iu), tensor=tensor)
             elif rank == 1:
                 # Assembling the action of the Jacobian adjoint.
                 if is_adjoint:
@@ -618,10 +623,8 @@ class BaseFormAssembler(AbstractFormAssembler):
                 elif interpolator.nargs:
                     return interpolator._interpolate(operand, output=tensor, default_missing_val=default_missing_val)
                 # Assembling the operator
-                elif tensor is None:
-                    return interpolator._interpolate(default_missing_val=default_missing_val)
                 else:
-                    return firedrake.Interpolator(interp_expr, tensor, **interp_data)._interpolate(default_missing_val=default_missing_val)
+                    return interpolator._interpolate(output=tensor, default_missing_val=default_missing_val)
             elif rank == 2:
                 res = tensor.petscmat if tensor else PETSc.Mat()
                 # Get the interpolation matrix

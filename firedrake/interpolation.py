@@ -783,7 +783,9 @@ class SameMeshInterpolator(Interpolator):
 
 @PETSc.Log.EventDecorator()
 def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
-    assert isinstance(expr, ufl.Interpolate)
+    if not isinstance(expr, ufl.Interpolate):
+        fs = V if isinstance(V, ufl.FunctionSpace) else V.function_space()
+        expr = Interpolate(expr, fs)
     dual_arg, operand = expr.argument_slots()
     assert isinstance(dual_arg, (ufl.Coargument, ufl.Cofunction))
 
@@ -818,7 +820,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
                 f.assign(val)
         tensor = f.dat
     elif rank == 2:
-        if isinstance(V, firedrake.Function):
+        if isinstance(V, (firedrake.Function, firedrake.Cofunction)):
             raise ValueError("Cannot interpolate an expression with an argument into a Function")
         if len(V) > 1:
             raise NotImplementedError("Interpolation of mixed expressions with arguments is not supported")
@@ -1191,7 +1193,7 @@ def compile_expression(comm, *args, **kwargs):
 
 
 @singledispatch
-def rebuild(element, expr, rt_var_name):
+def rebuild(element, expr_cell, rt_var_name):
     raise NotImplementedError(f"Cross mesh interpolation not implemented for a {element} element.")
 
 

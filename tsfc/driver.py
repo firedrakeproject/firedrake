@@ -223,8 +223,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     operand = ufl_utils.preprocess_expression(operand, complex_mode=complex_mode)
 
     if isinstance(expression, ufl.Interpolate):
-        dual_arg, _ = expression.argument_slots()
-        expression = ufl.Interpolate(operand, dual_arg)
+        expression = expression._ufl_expr_reconstruct_(operand)
     else:
         expression = operand
 
@@ -285,8 +284,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
 
     # TODO register ufl.Interpolate in fem.compile_ufl
     if isinstance(expression, ufl.Interpolate):
-        operand, = expression.ufl_operands
-        dual_arg = expression.argument_slots()[0]
+        dual_arg, operand = expression.argument_slots()
         if not isinstance(dual_arg, (ufl.Coargument, ufl.Cofunction)):
             raise ValueError(f"Expecting a Coargument or Cofunction, not {type(dual_arg).__name__}")
     else:
@@ -311,12 +309,8 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     # Build kernel body
     return_indices = tuple(chain(basis_indices, *argument_multiindices))
     return_shape = tuple(i.extent for i in return_indices)
-    if return_shape:
-        return_var = gem.Variable('A', return_shape)
-        return_expr = gem.Indexed(return_var, return_indices)
-    else:
-        return_var = gem.Variable('A', (1,))
-        return_expr = gem.Indexed(return_var, (0,))
+    return_var = gem.Variable('A', return_shape or (1,))
+    return_expr = gem.Indexed(return_var, return_indices or (0,))
 
     # TODO: one should apply some GEM optimisations as in assembly,
     # but we don't for now.
