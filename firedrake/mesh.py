@@ -20,7 +20,7 @@ from pathlib import Path
 
 from pyop2 import op2
 from pyop2.mpi import (
-    MPI, COMM_WORLD, internal_comm, is_pyop2_comm, temp_internal_comm
+    MPI, COMM_WORLD, internal_comm, temp_internal_comm
 )
 from pyop2.utils import as_tuple
 from petsctools import OptionsManager, get_external_packages
