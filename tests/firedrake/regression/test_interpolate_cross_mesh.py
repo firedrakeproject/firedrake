@@ -277,26 +277,6 @@ def parameters(request):
     return m_src, m_dest, coords, expr_src, expr_dest, expected, V_src, V_dest, V_dest_2
 
 
-def test_interpolate_cross_mesh(parameters):
-    (
-        m_src,
-        m_dest,
-        coords,
-        expr_src,
-        expr_dest,
-        expected,
-        V_src,
-        V_dest,
-        V_dest_2,
-    ) = parameters
-    get_expected_values(
-        m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest
-    )
-    get_expected_values(
-        m_src, m_dest, V_src, V_dest_2, coords, expected, expr_src, expr_dest
-    )
-
-
 def test_interpolate_unitsquare_mixed():
     # this has to be in its own test because UFL expressions on mixed function
     # spaces are not supported.
@@ -461,28 +441,10 @@ def test_interpolate_cross_mesh_not_point_eval():
         )
 
 
-def get_expected_values(
-    m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest
-):
-    if m_src.name == "src_sphere" and m_dest.name == "dest_sphere":
-        # Between immersed manifolds we will often be doing projection so we
-        # need a higher tolerance for our tests
-        atol = 1e-3
-    else:
-        atol = 1e-8  # default
-    interpolate_function(
-        m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
-    )
-    interpolate_expression(
-        m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
-    )
-
-
 def interpolate_function(
     m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
 ):
-    f_src = Function(V_src).interpolate(expr_src)
-    f_dest = assemble(interpolate(f_src, V_dest))
+    f_dest = Function(V_dest).interpolate(expr_src)
     assert extract_unique_domain(f_dest) is m_dest
     got = f_dest.at(coords)
     assert np.allclose(got, expected, atol=atol)
@@ -496,7 +458,7 @@ def interpolate_function(
     f_dest_2 = Function(V_dest).interpolate(expr_dest)
     assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
 
-    # works with Function interpolate method
+    # test Function.interpolate(...)
     f_dest = Function(V_dest)
     f_dest.interpolate(f_src)
     assert extract_unique_domain(f_dest) is m_dest
@@ -504,9 +466,9 @@ def interpolate_function(
     assert np.allclose(got, expected, atol=atol)
     assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
 
-    # output argument works
+    # test assemble(interpolate(Function, ...), tensor=...)
     f_dest = Function(V_dest)
-    assemble(Interpolate(f_src, V_dest), tensor=f_dest)
+    assemble(interpolate(f_src, V_dest), tensor=f_dest)
     assert extract_unique_domain(f_dest) is m_dest
     got = f_dest.at(coords)
     assert np.allclose(got, expected, atol=atol)
@@ -516,27 +478,35 @@ def interpolate_function(
 def interpolate_expression(
     m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
 ):
-    f_src = Function(V_src).interpolate(expr_src)
-
-    f_dest = assemble(interpolate(expr_src, V_dest))
+    f_dest = Function(V_dest).interpolate(expr_src)
     assert extract_unique_domain(f_dest) is m_dest
+
+    # test Function.interpolate(...)
     got = f_dest.at(coords)
     assert np.allclose(got, expected, atol=atol)
     f_dest_2 = Function(V_dest).interpolate(expr_dest)
     assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
 
-    # output argument works for expressions
+    # test assemble(interpolate(expr, ...), tensor=...)
     f_dest = Function(V_dest)
-    assemble(Interpolate(expr_src, V_dest), tensor=f_dest)
+    assemble(interpolate(expr_src, V_dest), tensor=f_dest)
     assert extract_unique_domain(f_dest) is m_dest
     got = f_dest.at(coords)
     assert np.allclose(got, expected, atol=atol)
     assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
 
-    # adjoint
+
+def interpolate_cofunction(
+    m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
+):
+    f_dest = Function(V_dest).interpolate(expr_src)
+    assert extract_unique_domain(f_dest) is m_dest
+
     cofunction_dest = assemble(inner(f_dest, TestFunction(V_dest)) * dx)
     cofunction_dest_on_src = assemble(interpolate(TestFunction(V_src), cofunction_dest))
     assert cofunction_dest_on_src.function_space().mesh() is m_src
+
+    f_src = Function(V_src).interpolate(expr_src)
     assert np.isclose(
         assemble(action(cofunction_dest_on_src, f_src)),
         assemble(action(cofunction_dest, f_dest)), atol=atol
@@ -550,6 +520,32 @@ def interpolate_expression(
         assert np.allclose(
             cofunction_dest_on_src.dat.data_ro, cofunction_src.dat.data_ro, atol=atol
         )
+
+
+@pytest.mark.parametrize("space", [0, 1])
+@pytest.mark.parametrize("run_test", [interpolate_expression, interpolate_function, interpolate_cofunction])
+def test_interpolate_cross_mesh(run_test, space, parameters):
+    (
+        m_src,
+        m_dest,
+        coords,
+        expr_src,
+        expr_dest,
+        expected,
+        V_src,
+        V_dest,
+        V_dest_2,
+    ) = parameters
+    V_dest = (V_dest, V_dest_2)[space]
+    if m_src.name == "src_sphere" and m_dest.name == "dest_sphere":
+        # Between immersed manifolds we will often be doing projection so we
+        # need a higher tolerance for our tests
+        atol = 1e-3
+    else:
+        atol = 1e-8  # default
+    run_test(
+        m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
+    )
 
 
 def test_missing_dofs():
