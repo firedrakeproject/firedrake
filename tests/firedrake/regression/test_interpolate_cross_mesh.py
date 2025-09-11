@@ -277,6 +277,7 @@ def parameters(request):
     return m_src, m_dest, coords, expr_src, expr_dest, expected, V_src, V_dest, V_dest_2
 
 
+@pytest.mark.parallel([1, 3])
 def test_interpolate_unitsquare_mixed():
     # this has to be in its own test because UFL expressions on mixed function
     # spaces are not supported.
@@ -328,6 +329,7 @@ def test_interpolate_unitsquare_mixed():
         assemble(interpolate(f_src_2, V_dest))
 
 
+@pytest.mark.parallel([1, 3])
 def test_exact_refinement():
     # With an exact mesh refinement, we can do error checks to see if our
     # forward and adjoint interpolations are exact where we expect them to
@@ -522,6 +524,7 @@ def interpolate_cofunction(
         )
 
 
+@pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("space", [0, 1])
 @pytest.mark.parametrize("run_test", [interpolate_expression, interpolate_function, interpolate_cofunction])
 def test_interpolate_cross_mesh(run_test, space, parameters):
@@ -548,6 +551,7 @@ def test_interpolate_cross_mesh(run_test, space, parameters):
     )
 
 
+@pytest.mark.parallel([1, 3])
 def test_missing_dofs():
     m_src = UnitSquareMesh(2, 3)
     m_dest = UnitSquareMesh(4, 5)
@@ -639,6 +643,7 @@ def test_line_integral():
     assert np.isclose(assemble(f_line_square * dx), 1.0)
 
 
+@pytest.mark.parallel([1, 3])
 def test_interpolate_matrix_cross_mesh():
     source_mesh = UnitSquareMesh(4, 4)
     target_mesh = UnitSquareMesh(5, 5)
@@ -687,37 +692,13 @@ def test_interpolate_matrix_cross_mesh():
     assert np.allclose(f_interp2.dat.data_ro, g.dat.data_ro)
 
 
-@pytest.mark.parallel
-def test_interpolate_cross_mesh_parallel(parameters):
-    test_interpolate_cross_mesh(parameters)
-
-
-@pytest.mark.parallel
-def test_interpolate_unitsquare_mixed_parallel():
-    test_interpolate_unitsquare_mixed()
-
-
-@pytest.mark.parallel
-def test_missing_dofs_parallel():
-    test_missing_dofs()
-
-
-@pytest.mark.parallel
-def test_exact_refinement_parallel():
-    test_exact_refinement()
-
-
-@pytest.mark.parallel
-def test_interpolate_matrix_cross_mesh_parallel():
-    test_interpolate_matrix_cross_mesh()
-
-
-def voting_algorithm_edgecases(nprocs):
+@pytest.mark.parallel([2, 3, 4])
+def test_voting_algorithm_edgecases():
     # this triggers lots of cases where the VOM voting algorithm has to deal
     # with points being claimed by multiple ranks: there are cases where each
     # rank will claim another one owns a point, for example, and yet also all
     # claim zero distance to the reference cell!
-    s = nprocs
+    s = COMM_WORLD.size
     nx = 2 * s
     mx = 3 * nx
     mh = [UnitCubeMesh(nx, nx, nx),
@@ -730,21 +711,6 @@ def voting_algorithm_edgecases(nprocs):
     uf = Function(Vf).interpolate(uc)
     uf2 = Function(Vf).interpolate(SpatialCoordinate(mh[1])[0])
     assert np.isclose(errornorm(uf, uf2), 0.0)
-
-
-@pytest.mark.parallel(nprocs=2)
-def test_voting_algorithm_edgecases_2_ranks():
-    voting_algorithm_edgecases(2)
-
-
-@pytest.mark.parallel(nprocs=3)
-def test_voting_algorithm_edgecases_3_ranks():
-    voting_algorithm_edgecases(3)
-
-
-@pytest.mark.parallel(nprocs=4)
-def test_voting_algorithm_edgecases_4_ranks():
-    voting_algorithm_edgecases(4)
 
 
 @pytest.mark.parallel
