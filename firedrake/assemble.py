@@ -596,14 +596,13 @@ class BaseFormAssembler(AbstractFormAssembler):
             same_mesh = source_mesh.topology is target_mesh.topology
 
             # Get the interpolator
-            interp_data = expr.interp_data
+            interp_data = expr.interp_data.copy()
             default_missing_val = interp_data.pop('default_missing_val', None)
             if same_mesh and ((is_adjoint and rank == 1) or rank == 0):
-                interp_data = interp_data.copy()
                 interp_data["access"] = op2.INC
 
             dual_arg = v if same_mesh else V
-            interp_expr = firedrake.Interpolate(operand, v=dual_arg, **interp_data)
+            interp_expr = reconstruct_interp(operand, v=dual_arg)
             interpolator = firedrake.Interpolator(interp_expr, V, **interp_data)
 
             # Assembly

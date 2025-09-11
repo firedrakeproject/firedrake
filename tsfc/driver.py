@@ -300,7 +300,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
 
     # Compute the adjoint by contracting against the dual argument
     if dual_arg in coefficients:
-        beta = basis_indices
+        beta = basis_indices[::-1]
         shape = tuple(i.extent for i in beta)
         gem_dual = gem.Variable(f"w_{coefficients.index(dual_arg)}", shape)
         evaluation = gem.IndexSum(evaluation * gem_dual[beta], beta)

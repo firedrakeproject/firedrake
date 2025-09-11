@@ -938,7 +938,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
 
             # Interpolate each sub expression into each function space
             for Vsub, sub_tensor, sub_op, sub_dual in zip(V, tensor, operands, duals):
-                sub_expr = ufl.Interpolate(sub_op, sub_dual)
+                sub_expr = expr._ufl_expr_reconstruct_(sub_op, sub_dual)
                 loops.extend(_interpolator(Vsub, sub_tensor, sub_expr, subset, arguments, access, bcs=bcs))
 
         if bcs and rank == 1:
