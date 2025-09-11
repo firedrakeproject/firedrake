@@ -1178,7 +1178,7 @@ def _cupy(call: StandaloneCalledFunction, loop_indices, context: CuPyCodegenCont
 
     blocks = compute_device.blocks
     if compute_device.kernel_type == "triton":
-        for name, block_size, total_size in blocks['vars'] + blocks['temps']:
+        for _, name, block_size, total_size in set(blocks[0] + blocks[1]):
             args += [f"size_{name[-1]} = {total_size}"]
             args += [f"{name} = {block_size}"]
     arg_str = ",".join(args)

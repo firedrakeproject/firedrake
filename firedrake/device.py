@@ -35,18 +35,22 @@ class GPUDevice(ComputeDevice):
         self.kernel_args = []
         self.file_name = "temp_kernel_device"
         self.kernel_type = None
-        self.blocks = {"vars": [], "temps": []}
+        self.blocks = {0:[], 1:[]}
         self.block_names = {}
         for block_type, dim in blocks:
             self.block_names[block_type] = "BLOCK_SIZE_" + block_type[0].capitalize()
             if 2**int(np.log2(dim)) != dim:
                 raise ValueError(f"Block dim must be a power of two, not {dim}")
             if block_type == "cell":
-                self.blocks["vars"] += [("BLOCK_SIZE_C", dim, None)]
+                block_def = (block_type, "BLOCK_SIZE_C", dim, None)
+                self.blocks[0] += [block_def]
+                self.blocks[1] += [block_def]
             elif block_type == "quad":
-                self.blocks["temps"] += [("BLOCK_SIZE_Q", dim, None)]
+                self.blocks[0] += [(block_type,"BLOCK_SIZE_Q", dim, None)]
+            elif block_type == "basis":
+                self.blocks[1] += [(block_type, "BLOCK_SIZE_B", dim, None)]
             else:   
-                raise NotImplementedError("Other block types beyond cell not yet supported")
+                raise NotImplementedError(f"Other block types {block_type} not yet supported")
                 
     def add_info(self, block_name, data):
         for key in self.blocks.keys():
