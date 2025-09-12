@@ -2082,6 +2082,7 @@ def PeriodicUnitCubeMesh(
 def IcosahedralSphereMesh(
     radius,
     refinement_level=0,
+    num_cells_per_edge_of_panel=1,
     degree=1,
     reorder=None,
     distribution_parameters=None,
@@ -2103,6 +2104,8 @@ def IcosahedralSphereMesh(
 
     :kwarg refinement_level: optional number of refinements (0 is an
         icosahedron).
+    :kwarg num_cells_per_edge_of_panel: number of cells per edge of each of
+        the 20 panels of the icosahedron (1 gives an icosahedron).
     :kwarg degree: polynomial degree of coordinate space (e.g.,
            flat triangles if degree=1).
     :kwarg reorder: (optional), should the mesh be reordered?
@@ -2116,102 +2119,418 @@ def IcosahedralSphereMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+
+    num_cells_per_edge_of_panel and refinement_level have these defaults for
+    backwards compatibility. It may be desirable to supply both arguments, e.g.
+    for multigrid.
     """
+
+    if num_cells_per_edge_of_panel < 1 or num_cells_per_edge_of_panel % 1:
+        raise RuntimeError("Number of cells per edge must be a positive integer")
+
     if refinement_level < 0 or refinement_level % 1:
         raise RuntimeError("Number of refinements must be a non-negative integer")
 
     if degree < 1:
         raise ValueError("Mesh coordinate degree must be at least 1")
-    from math import sqrt
 
-    phi = (1 + sqrt(5)) / 2
+    big_N = num_cells_per_edge_of_panel*2**refinement_level
+
+    # Strategy:
+    # A. Create lists for an actual icosahedron:
+    #     1. List corners of the icosahedron
+    #     2. Create a list of icosahedron edges: this list returns indices of
+    #        the vertices associated with this edge
+    #     3. Create a list of icosahedron panels: this list returns indices of
+    #        the edges associated with this panel
+    #     4. There may also be a use for a list of icosahedron vertices
+    #        associated with each panel
+    # B. Begin refinement. Create lists of refined vertices:
+    #     1. Make an array of coordinates of new vertices along each edge
+    #        (Work from lowest indexed vertex to higher one)
+    #     2. Make an array of coordinates of new vertices along each panel
+    #        (Work from near lowest indexed vertex, parallel to lowest indexed
+    #         edge and across)
+    #     3. Aggregate all the coordinates into a single array
+    # C. Find all the new faces -- list the indices of coordinates in the
+    #    coordinate array for the vertices of these new faces
+    #     1. Try to think in terms of faces. Work firstly in order of
+    #        icosahedral panels. Then start at the lowest indexed vertex and
+    #        move parallel to lowest indexed edge.
+
+    import math
+    phi = (1 + math.sqrt(5)) / 2
     # vertices of an icosahedron with an edge length of 2
-    vertices = np.array(
-        [
-            [-1, phi, 0],
-            [1, phi, 0],
-            [-1, -phi, 0],
-            [1, -phi, 0],
-            [0, -1, phi],
-            [0, 1, phi],
-            [0, -1, -phi],
-            [0, 1, -phi],
-            [phi, 0, -1],
-            [phi, 0, 1],
-            [-phi, 0, -1],
-            [-phi, 0, 1],
-        ],
-        dtype=np.double,
-    )
-    # faces of the base icosahedron
-    faces = np.array(
-        [
-            [0, 11, 5],
-            [0, 5, 1],
-            [0, 1, 7],
-            [0, 7, 10],
-            [0, 10, 11],
-            [1, 5, 9],
-            [5, 11, 4],
-            [11, 10, 2],
-            [10, 7, 6],
-            [7, 1, 8],
-            [3, 9, 4],
-            [3, 4, 2],
-            [3, 2, 6],
-            [3, 6, 8],
-            [3, 8, 9],
-            [4, 9, 5],
-            [2, 4, 11],
-            [6, 2, 10],
-            [8, 6, 7],
-            [9, 8, 1],
-        ],
-        dtype=np.int32,
-    )
+    base_vertices = np.array([[-1, phi, 0],
+                              [1, phi, 0],
+                              [-1, -phi, 0],
+                              [1, -phi, 0],
+                              [0, -1, phi],
+                              [0, 1, phi],
+                              [0, -1, -phi],
+                              [0, 1, -phi],
+                              [phi, 0, -1],
+                              [phi, 0, 1],
+                              [-phi, 0, -1],
+                              [-phi, 0, 1]],
+                             dtype=np.double)
 
-    plex = mesh.plex_from_cell_list(2, faces, vertices, comm)
-    plex.setRefinementUniform(True)
-    for i in range(refinement_level):
-        plex = plex.refine()
-    plex.setName(mesh._generate_default_mesh_topology_name(name))
+    # edges of the base icosahedron
+    panel_edges = np.array([[0, 11],
+                            [5, 11],
+                            [0, 5],
+                            [0, 1],
+                            [1, 5],
+                            [1, 7],
+                            [0, 7],
+                            [0, 10],
+                            [10, 11],
+                            [1, 9],
+                            [5, 9],
+                            [4, 5],
+                            [4, 11],
+                            [2, 10],
+                            [2, 11],
+                            [6, 7],
+                            [6, 10],
+                            [7, 10],
+                            [1, 8],
+                            [7, 8],
+                            [3, 4],
+                            [3, 9],
+                            [4, 9],
+                            [2, 3],
+                            [2, 4],
+                            [2, 6],
+                            [3, 6],
+                            [6, 8],
+                            [3, 8],
+                            [8, 9]], dtype=np.int32)
+
+    # edges of the base icosahedron
+    panel_edges = np.array([[0, 1],
+                            [0, 5],
+                            [0, 7],
+                            [0, 10],
+                            [0, 11],
+                            [1, 5],
+                            [1, 7],
+                            [1, 8],
+                            [1, 9],
+                            [2, 3],
+                            [2, 4],
+                            [2, 6],
+                            [2, 10],
+                            [2, 11],
+                            [3, 4],
+                            [3, 6],
+                            [3, 8],
+                            [3, 9],
+                            [4, 5],
+                            [4, 9],
+                            [4, 11],
+                            [5, 9],
+                            [5, 11],
+                            [6, 7],
+                            [6, 8],
+                            [6, 10],
+                            [7, 8],
+                            [7, 10],
+                            [8, 9],
+                            [10, 11]], dtype=np.int32)
+
+    # faces of the base icosahedron
+    panels = np.array([[0, 5, 11],
+                       [0, 1, 5],
+                       [0, 1, 7],
+                       [0, 7, 10],
+                       [0, 10, 11],
+                       [1, 5, 9],
+                       [4, 5, 11],
+                       [2, 10, 11],
+                       [6, 7, 10],
+                       [1, 7, 8],
+                       [3, 4, 9],
+                       [2, 3, 4],
+                       [2, 3, 6],
+                       [3, 6, 8],
+                       [3, 8, 9],
+                       [4, 5, 9],
+                       [2, 4, 11],
+                       [2, 6, 10],
+                       [6, 7, 8],
+                       [1, 8, 9]], dtype=np.int32)
+
+    panels_to_edges = np.array([[1, 4, 22],
+                                [0, 1, 5],
+                                [0, 2, 6],
+                                [2, 3, 27],
+                                [3, 4, 29],
+                                [5, 8, 21],
+                                [18, 20, 22],
+                                [12, 13, 29],
+                                [23, 25, 27],
+                                [6, 7, 26],
+                                [14, 17, 19],
+                                [9, 10, 14],
+                                [9, 11, 15],
+                                [15, 16, 24],
+                                [16, 17, 28],
+                                [18, 19, 21],
+                                [10, 13, 20],
+                                [11, 12, 25],
+                                [23, 24, 26],
+                                [7, 8, 28]], dtype=np.int32)
+
+    for i, (face_edge, face) in enumerate(zip(panels_to_edges, panels)):
+        edges_for_this_face = panel_edges[face_edge]
+        for edge in edges_for_this_face:
+            if edge[0] not in face:
+                raise ValueError('Something has gone wrong with the faces')
+            if edge[1] not in face:
+                raise ValueError('Something has gone wrong with the faces')
+
+    # 12 base vertices of icosahedron
+    num_base_vertices = 12
+    num_edge_vertices = 30 * (big_N - 1)
+    num_face_vertices = int(20 * (big_N - 1) * (big_N - 2) / 2)
+    total_num_vertices = num_base_vertices + num_edge_vertices + num_face_vertices
+
+    # We can find number of faces per panel by adding together two triangle numbers
+    num_faces_per_panel = int(big_N * (big_N + 1) / 2
+                              + big_N * (big_N - 1) / 2)
+
+    # This is the number of panels * triangle number of faces per icosahedral panel
+    total_num_faces = 20 * num_faces_per_panel
+
+    # ------------------------------------------------------------------------ #
+    # Fill array with all vertex values
+    # ------------------------------------------------------------------------ #
+
+    # First find vertices on edges ------------------------------------------- #
+    edge_vertices = np.zeros((num_edge_vertices, 3))
+
+    edge_weights = np.linspace(0, 1, num=(big_N+1))
+
+    # Loop through panel edges and add new vertices
+    if big_N > 1:
+        edge_vertex_counter = 0
+        for i, edge in enumerate(panel_edges):
+            # edge is a list of indices of its vertices
+            x0 = base_vertices[edge[0]]
+            x1 = base_vertices[edge[1]]
+
+            # Loop through vertices associated with panel edge
+            for j in range(big_N - 1):
+                w = edge_weights[j+1]
+                edge_vertices[edge_vertex_counter, :] = x0 + w * (x1 - x0)
+                edge_vertex_counter += 1
+
+    # Second find vertices on faces ------------------------------------------ #
+    face_vertices = np.zeros((num_face_vertices, 3))
+
+    if big_N > 2:
+        face_vertex_counter = 0
+
+        # Loop through panels
+        for i, this_panel_edges in enumerate(panels_to_edges):
+
+            # Work along lines parallel to lowest indexed edge
+            for j in range(big_N - 2):
+
+                # Therefore the points we want are on the 1st and 2nd indexed edges
+                x0 = edge_vertices[this_panel_edges[1]*(big_N-1) + j]
+                x1 = edge_vertices[this_panel_edges[2]*(big_N-1) + j]
+
+                face_row_weights = np.linspace(0, 1, num=(big_N-j))
+
+                for k in range(big_N - j - 2):
+                    w = face_row_weights[k+1]
+                    face_vertices[face_vertex_counter, :] = x0 + w * (x1 - x0)
+                    face_vertex_counter += 1
+
+    # Put all vertices together into array ----------------------------------- #
+    all_vertices = np.zeros((total_num_vertices, 3))
+
+    all_vertices[0:num_base_vertices] = base_vertices[:]
+    all_vertices[num_base_vertices:num_base_vertices+num_edge_vertices] = edge_vertices[:]
+    all_vertices[num_base_vertices+num_edge_vertices:] = face_vertices[:]
+
+    # ------------------------------------------------------------------------ #
+    # Fill array with all vertex values
+    # ------------------------------------------------------------------------ #
+    all_faces = np.zeros((total_num_faces, 3), dtype=np.int32)
+    vertices_per_edge = int(num_edge_vertices / len(panel_edges))
+    vertices_per_face = int(num_face_vertices / len(panels))
+
+    if big_N > 1:
+
+        # Loop over panels
+        for i in range(len(panels)):
+
+            # Find indices of vertices --------------------------------------- #
+
+            # We need to find the indices in all_vertices of the vertices for this panel
+            # We break this down into those associated with faces, edges and base vertices
+
+            # The vertices of the base icosahedron are the original panel indices
+            indices_of_base_vertices = panels[i]
+
+            # The vertices on edges. Store these indices as a list of indices (for each edge)
+            edge_indices = panels_to_edges[i]
+            indices_of_edge_vertices = np.empty((3, vertices_per_edge), dtype=np.int32)
+
+            for j, edge in enumerate(edge_indices):
+                indices_of_edge_vertices[j, :] = range(num_base_vertices + edge * vertices_per_edge,
+                                                       num_base_vertices + (edge+1) * vertices_per_edge)
+
+            # Get indices of vertices associated with faces
+            face_offset = num_base_vertices + num_edge_vertices
+            indices_of_face_vertices = range(face_offset + i * vertices_per_face,
+                                             face_offset + (i+1) * vertices_per_face)
+
+            # Iterate through to obtain the vertices for each new face ------- #
+            # If we are here then we have at least two cells per panel edge
+            this_panel_faces = np.empty((num_faces_per_panel, 3), dtype=np.int32)
+
+            # Start in the corner of the panel with the lowest indexed vertex
+            # Loop in rows from lowest indexed edge towards highest indexed vertex
+            # e.g. this would be the numbering of faces on a panel
+            # ---------------------------- #
+            # \       / \      / \       /
+            #  \  0  /   \  1 /   \  2  /
+            #   \   /  3  \  /  4  \   /
+            #    \ /       \/       \ /
+            #     \------- /\--------/
+            #      \  5   /  \  6   /
+            #       \    /    \    /
+            #        \  /  7   \  /
+            #         \/--------\/
+            #          \       /
+            #           \  8  /
+            #            \   /
+            #             \ /
+
+            face_counter = 0
+            for j in range(big_N):
+                # Loop across row from edge[1] to edge[2]
+                # First we do triangles oriented with panel
+                # 0-----1
+                #  \   /
+                #   \ /
+                #    2
+                for k in range(big_N - j):
+
+                    # First focus on vertex[0] and vertex[1]
+                    if j == 0:
+                        if k == 0:
+                            this_panel_faces[face_counter, 0] = indices_of_base_vertices[0]
+                        else:
+                            this_panel_faces[face_counter, 0] = indices_of_edge_vertices[0, k-1]
+
+                        if k == (big_N - j - 1):
+                            this_panel_faces[face_counter, 1] = indices_of_base_vertices[1]
+                        else:
+                            this_panel_faces[face_counter, 1] = indices_of_edge_vertices[0, k]
+
+                    else:
+                        if k == 0:
+                            this_panel_faces[face_counter, 0] = indices_of_edge_vertices[1, j-1]
+                        else:
+                            # Total number per face, subtract triangle number below row
+                            face_index = vertices_per_face - int((big_N-j-1)*(big_N-j) / 2) + k - 1
+                            this_panel_faces[face_counter, 0] = indices_of_face_vertices[face_index]
+
+                        if k == (big_N - j - 1):
+                            this_panel_faces[face_counter, 1] = indices_of_edge_vertices[2, j-1]
+                        else:
+                            # Total number per face, subtract triangle number below row
+                            face_index = vertices_per_face - int((big_N-j-1)*(big_N-j) / 2) + k
+                            this_panel_faces[face_counter, 1] = indices_of_face_vertices[face_index]
+
+                    # Now do vertex[2]
+                    if j == (big_N - 1):
+                        this_panel_faces[face_counter, 2] = indices_of_base_vertices[2]
+
+                    elif k == 0:
+                        this_panel_faces[face_counter, 2] = indices_of_edge_vertices[1, j]
+                    elif k == (big_N - j - 1):
+                        this_panel_faces[face_counter, 2] = indices_of_edge_vertices[2, j]
+                    else:
+                        # Total number per face, subtract triangle number below row
+                        face_index = vertices_per_face - int((big_N-j-2)*(big_N-j-1) / 2) + k - 1
+                        this_panel_faces[face_counter, 2] = indices_of_face_vertices[face_index]
+
+                    face_counter += 1
+
+                if j < big_N - 1:
+                    # Now do triangles oriented against panel
+                    #    0
+                    #   / \
+                    #  /   \
+                    # 2 ----1
+                    for k in range(big_N - j - 1):
+
+                        # vertex[0]
+                        if j == 0:
+                            this_panel_faces[face_counter, 0] = indices_of_edge_vertices[0, k]
+                        else:
+                            # Total number per face, subtract triangle number below row
+                            face_index = vertices_per_face - int((big_N-j-1)*(big_N-j) / 2) + k
+                            this_panel_faces[face_counter, 0] = indices_of_face_vertices[face_index]
+
+                        # vertex[1]
+                        if k == (big_N - j - 2):
+                            this_panel_faces[face_counter, 1] = indices_of_edge_vertices[2, j]
+                        else:
+                            # Total number per face, subtract triangle number below row
+                            face_index = vertices_per_face - int((big_N-j-2)*(big_N-j-1) / 2) + k
+                            this_panel_faces[face_counter, 1] = indices_of_face_vertices[face_index]
+
+                        # vertex[2]
+                        if k == 0:
+                            this_panel_faces[face_counter, 2] = indices_of_edge_vertices[1, j]
+                        else:
+                            # Total number per face, subtract triangle number below row
+                            face_index = vertices_per_face - int((big_N-j-2)*(big_N-j-1) / 2) + k - 1
+                            this_panel_faces[face_counter, 2] = indices_of_face_vertices[face_index]
+
+                        face_counter += 1
+
+            all_faces[i*num_faces_per_panel:(i+1)*num_faces_per_panel, :] = this_panel_faces[:, :]
+    else:
+        # If there is no refinement then we just use the original panels
+        all_faces = panels
+
+    num_occurrences = []
+    for i in range(len(all_vertices)):
+        num = np.count_nonzero(all_faces == i)
+        num_occurrences.append(num)
+        if num not in [5, 6]:
+            raise ValueError('Num of times vertex %i is called in all_faces is %i' % (i, num))
+
+    plex = mesh.plex_from_cell_list(2, all_faces, all_vertices, comm)
 
     coords = plex.getCoordinatesLocal().array.reshape(-1, 3)
     scale = (radius / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
     coords *= scale
-    m = mesh.Mesh(
-        plex,
-        dim=3,
-        reorder=reorder,
-        distribution_parameters=distribution_parameters,
-        name=name,
-        distribution_name=distribution_name,
-        permutation_name=permutation_name,
-        comm=comm,
-    )
+    m = mesh.Mesh(plex, dim=3, reorder=reorder, name=name, comm=comm,
+                  distribution_parameters=distribution_parameters)
     if degree > 1:
-        new_coords = function.Function(
-            functionspace.VectorFunctionSpace(m, "CG", degree)
-        )
+        new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to sphere
-        new_coords.dat.data[:] *= (
-            radius / np.linalg.norm(new_coords.dat.data, axis=1)
-        ).reshape(-1, 1)
-        m = mesh.Mesh(
-            new_coords,
-            name=name,
-            distribution_name=distribution_name,
-            permutation_name=permutation_name,
-            comm=comm,
-        )
+        new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
+        m = mesh.Mesh(new_coords, name=name, comm=comm)
     m._radius = radius
+
     return m
 
 
 @PETSc.Log.EventDecorator()
 def UnitIcosahedralSphereMesh(
     refinement_level=0,
+    num_cells_per_edge_of_panel=1,
     degree=1,
     reorder=None,
     distribution_parameters=None,
@@ -2224,6 +2543,8 @@ def UnitIcosahedralSphereMesh(
 
     :kwarg refinement_level: optional number of refinements (0 is an
         icosahedron).
+    :kwarg num_cells_per_edge_of_panel: number of cells per edge of each of
+        the 20 panels of the icosahedron (1 gives an icosahedron).
     :kwarg degree: polynomial degree of coordinate space (e.g.,
            flat triangles if degree=1).
     :kwarg reorder: (optional), should the mesh be reordered?
@@ -2237,10 +2558,15 @@ def UnitIcosahedralSphereMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+
+    num_cells_per_edge_of_panel and refinement_level have these defaults for
+    backwards compatibility. It may be desirable to supply both arguments, e.g.
+    for multigrid.
     """
     return IcosahedralSphereMesh(
         1.0,
         refinement_level=refinement_level,
+        num_cells_per_edge_of_panel=num_cells_per_edge_of_panel,
         degree=degree,
         reorder=reorder,
         comm=comm,
@@ -2458,8 +2784,8 @@ def UnitOctahedralSphereMesh(
     )
 
 
-def _cubedsphere_cells_and_coords(radius, refinement_level):
-    """Generate vertex and face lists for cubed sphere"""
+def _cubedsphere_cells_and_coords(radius, cells_per_cube_edge):
+    """Generate vertex and face lists for cubed sphere """
     # We build the mesh out of 6 panels of the cube
     # this allows to build the gnonomic cube transformation
     # which is defined separately for each panel
@@ -2467,7 +2793,7 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
     # Start by making a grid of local coordinates which we use
     # to map to each panel of the cubed sphere under the gnonomic
     # transformation
-    dtheta = 2 ** (-refinement_level + 1) * np.arctan(1.0)
+    dtheta = 2*np.arctan(1.0) / cells_per_cube_edge
     a = 3.0 ** (-0.5) * radius
     theta = np.arange(np.arctan(-1.0), np.arctan(1.0) + dtheta, dtheta, dtype=np.double)
     x = a * np.tan(theta)
@@ -2595,6 +2921,7 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
 def CubedSphereMesh(
     radius,
     refinement_level=0,
+    num_cells_per_edge_of_panel=1,
     degree=1,
     reorder=None,
     distribution_parameters=None,
@@ -2608,6 +2935,8 @@ def CubedSphereMesh(
 
     :arg radius: The radius of the sphere to approximate.
     :kwarg refinement_level: optional number of refinements (0 is a cube).
+    :kwarg num_cells_per_edge_of_panel: number of cells per edge of each of
+        the 6 panels of the cubed sphere (1 gives a cube).
     :kwarg degree: polynomial degree of coordinate space (e.g.,
            bilinear quads if degree=1).
     :kwarg reorder: (optional), should the mesh be reordered?
@@ -2621,14 +2950,22 @@ def CubedSphereMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+
+    num_cells_per_edge_of_panel and refinement_level have these defaults for
+    backwards compatibility. It may be desirable to supply both arguments, e.g.
+    for multigrid.
     """
+    if num_cells_per_edge_of_panel < 1 or num_cells_per_edge_of_panel % 1:
+        raise RuntimeError("Number of cells per edge must be a positive integer")
+
     if refinement_level < 0 or refinement_level % 1:
         raise RuntimeError("Number of refinements must be a non-negative integer")
 
     if degree < 1:
         raise ValueError("Mesh coordinate degree must be at least 1")
 
-    cells, coords = _cubedsphere_cells_and_coords(radius, refinement_level)
+    big_N = num_cells_per_edge_of_panel*2**refinement_level
+    cells, coords = _cubedsphere_cells_and_coords(radius, big_N)
     plex = mesh.plex_from_cell_list(
         2, cells, coords, comm, mesh._generate_default_mesh_topology_name(name)
     )
@@ -2666,6 +3003,7 @@ def CubedSphereMesh(
 @PETSc.Log.EventDecorator()
 def UnitCubedSphereMesh(
     refinement_level=0,
+    num_cells_per_edge_of_panel=1,
     degree=1,
     reorder=None,
     distribution_parameters=None,
@@ -2677,6 +3015,8 @@ def UnitCubedSphereMesh(
     """Generate a cubed approximation to the unit sphere.
 
     :kwarg refinement_level: optional number of refinements (0 is a cube).
+    :kwarg num_cells_per_edge_of_panel: number of cells per edge of each of
+        the 6 panels of the cubed sphere (1 gives a cube).
     :kwarg degree: polynomial degree of coordinate space (e.g.,
            bilinear quads if degree=1).
     :kwarg reorder: (optional), should the mesh be reordered?
@@ -2690,9 +3030,14 @@ def UnitCubedSphereMesh(
     :kwarg permutation_name: the name of entity permutation (reordering) used
            when checkpointing; if `None`, the name is automatically
            generated.
+
+    num_cells_per_edge_of_panel and refinement_level have these defaults for
+    backwards compatibility. It may be desirable to supply both arguments, e.g.
+    for multigrid.
     """
     return CubedSphereMesh(
         1.0,
+        num_cells_per_edge_of_panel=num_cells_per_edge_of_panel,
         refinement_level=refinement_level,
         degree=degree,
         reorder=reorder,
