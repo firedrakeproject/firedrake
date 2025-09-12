@@ -538,6 +538,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             result = expr.assemble(assembly_opts=opts)
             return tensor.assign(result) if tensor else result
         elif isinstance(expr, ufl.Interpolate):
+            orig_expr = expr
             # Replace assembled children
             _, operand = expr.argument_slots()
             v, *assembled_operand = args
@@ -588,14 +589,34 @@ class BaseFormAssembler(AbstractFormAssembler):
 
             # Workaround: Renumber argument when needed since Interpolator assumes it takes a zero-numbered argument.
             if not is_adjoint and rank == 2:
-                _, v1 = expr.arguments()
-                operand = ufl.replace(operand, {v1: v1.reconstruct(number=0)})
+                v0, v1 = expr.arguments()
+                expr = ufl.replace(expr, {v0: v0.reconstruct(number=v1.number()),
+                                          v1: v1.reconstruct(number=v0.number())})
+                v, operand = expr.argument_slots()
+
+            # Assemble the interpolator matrix if the meshes are different
+            target_mesh = V.mesh()
+            source_mesh = extract_unique_domain(operand) or target_mesh
+            if is_adjoint and source_mesh is not target_mesh:
+                expr = reconstruct_interp(operand, v=V)
+            matfree = (rank == len(expr.arguments())) and (rank < 2)
+
             # Get the interpolator
-            interp_data = expr.interp_data
+            interp_data = expr.interp_data.copy()
             default_missing_val = interp_data.pop('default_missing_val', None)
-            interpolator = firedrake.Interpolator(operand, V, **interp_data)
+            if matfree and ((is_adjoint and rank == 1) or rank == 0):
+                interp_data["access"] = op2.INC
+
+            if rank == 1 and matfree and isinstance(tensor, firedrake.Function):
+                V = tensor
+            interpolator = firedrake.Interpolator(expr, V, **interp_data)
+
             # Assembly
-            if rank == 0:
+            if matfree:
+                # Assembling the operator
+                return interpolator._interpolate(output=tensor, default_missing_val=default_missing_val)
+            elif rank == 0:
+                # Assembling the double action.
                 Iu = interpolator._interpolate(default_missing_val=default_missing_val)
                 return assemble(ufl.Action(v, Iu), tensor=tensor)
             elif rank == 1:
@@ -603,13 +624,8 @@ class BaseFormAssembler(AbstractFormAssembler):
                 if is_adjoint:
                     return interpolator._interpolate(v, output=tensor, adjoint=True, default_missing_val=default_missing_val)
                 # Assembling the Jacobian action.
-                elif interpolator.nargs:
-                    return interpolator._interpolate(operand, output=tensor, default_missing_val=default_missing_val)
-                # Assembling the operator
-                elif tensor is None:
-                    return interpolator._interpolate(default_missing_val=default_missing_val)
                 else:
-                    return firedrake.Interpolator(operand, tensor, **interp_data)._interpolate(default_missing_val=default_missing_val)
+                    return interpolator._interpolate(operand, output=tensor, default_missing_val=default_missing_val)
             elif rank == 2:
                 res = tensor.petscmat if tensor else PETSc.Mat()
                 # Get the interpolation matrix
@@ -622,10 +638,9 @@ class BaseFormAssembler(AbstractFormAssembler):
                     # Copy the interpolation matrix into the output tensor
                     petsc_mat.copy(result=res)
                 if tensor is None:
-                    tensor = self.assembled_matrix(expr, res)
+                    tensor = self.assembled_matrix(orig_expr, res)
                 return tensor
             else:
-                # The case rank == 0 is handled via the DAG restructuring
                 raise ValueError("Incompatible number of arguments.")
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
             return tensor.assign(expr)

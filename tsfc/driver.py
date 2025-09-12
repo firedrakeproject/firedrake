@@ -211,13 +211,22 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
         raise NotImplementedError("Don't know how to interpolate onto zany spaces, sorry")
 
     orig_expression = expression
+    if isinstance(expression, ufl.Interpolate):
+        operand, = expression.ufl_operands
+    else:
+        operand = expression
 
     # Map into reference space
-    expression = apply_mapping(expression, ufl_element, domain)
+    operand = apply_mapping(operand, ufl_element, domain)
 
     # Apply UFL preprocessing
-    expression = ufl_utils.preprocess_expression(expression,
-                                                 complex_mode=complex_mode)
+    operand = ufl_utils.preprocess_expression(operand, complex_mode=complex_mode)
+
+    if isinstance(expression, ufl.Interpolate):
+        v, _ = expression.argument_slots()
+        expression = ufl.Interpolate(operand, v)
+    else:
+        expression = operand
 
     # Initialise kernel builder
     if interface is None:
@@ -225,7 +234,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
         from tsfc.kernel_interface.firedrake_loopy import ExpressionKernelBuilder as interface
 
     builder = interface(parameters["scalar_type"])
-    arguments = extract_arguments(expression)
+    arguments = extract_arguments(operand)
     argument_multiindices = tuple(builder.create_element(arg.ufl_element()).get_indices()
                                   for arg in arguments)
 
@@ -274,18 +283,33 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     if isinstance(to_element, finat.QuadratureElement):
         kernel_cfg["quadrature_rule"] = to_element._rule
 
+    if isinstance(expression, ufl.Interpolate):
+        dual_arg, operand = expression.argument_slots()
+    else:
+        operand = expression
+        dual_arg = None
+
     # Create callable for translation of UFL expression to gem
-    fn = DualEvaluationCallable(expression, kernel_cfg)
+    fn = DualEvaluationCallable(operand, kernel_cfg)
 
     # Get the gem expression for dual evaluation and corresponding basis
     # indices needed for compilation of the expression
     evaluation, basis_indices = to_element.dual_evaluation(fn)
 
+    # Compute the adjoint by contracting against the dual argument
+    if dual_arg and not isinstance(dual_arg, ufl.Coargument):
+        k = len(basis_indices)-len(operand.ufl_shape)
+        beta = basis_indices[k:] + basis_indices[:k]
+        shape = tuple(i.extent for i in beta)
+        gem_dual = gem.Variable(f"w_{coefficients.index(dual_arg)}", shape=shape)
+        evaluation = gem.IndexSum(evaluation * gem_dual[beta], basis_indices)
+        basis_indices = ()
+
     # Build kernel body
-    return_indices = basis_indices + tuple(chain(*argument_multiindices))
+    return_indices = tuple(chain(basis_indices, *argument_multiindices))
     return_shape = tuple(i.extent for i in return_indices)
-    return_var = gem.Variable('A', return_shape)
-    return_expr = gem.Indexed(return_var, return_indices)
+    return_var = gem.Variable('A', return_shape or (1,))
+    return_expr = gem.Indexed(return_var, return_indices or (0,))
 
     # TODO: one should apply some GEM optimisations as in assembly,
     # but we don't for now.
