@@ -597,38 +597,35 @@ class BaseFormAssembler(AbstractFormAssembler):
             # Assemble the interpolator matrix if the meshes are different
             target_mesh = V.mesh()
             source_mesh = extract_unique_domain(operand) or target_mesh
-            same_mesh = source_mesh.topology is target_mesh.topology
-            if not same_mesh:
+            if is_adjoint and source_mesh is not target_mesh:
                 expr = reconstruct_interp(operand, v=V)
+            matfree = (rank == len(expr.arguments())) and (rank < 2)
 
             # Get the interpolator
-            interp_data = expr.interp_data
+            interp_data = expr.interp_data.copy()
             default_missing_val = interp_data.pop('default_missing_val', None)
-            if same_mesh and ((is_adjoint and rank == 1) or rank == 0):
+            if matfree and ((is_adjoint and rank == 1) or rank == 0):
                 interp_data["access"] = op2.INC
 
-            if rank == 1 and ((same_mesh and tensor) or isinstance(tensor, firedrake.Function)):
+            if rank == 1 and matfree and isinstance(tensor, firedrake.Function):
                 V = tensor
             interpolator = firedrake.Interpolator(expr, V, **interp_data)
 
             # Assembly
-            if rank == 0:
+            if matfree:
+                # Assembling the operator
+                return interpolator._interpolate(output=tensor, default_missing_val=default_missing_val)
+            elif rank == 0:
                 # Assembling the double action.
-                if same_mesh:
-                    return interpolator._interpolate(output=tensor, default_missing_val=default_missing_val)
-                else:
-                    Iu = interpolator._interpolate(default_missing_val=default_missing_val)
-                    return assemble(ufl.action(v, Iu), tensor=tensor)
+                Iu = interpolator._interpolate(default_missing_val=default_missing_val)
+                return assemble(ufl.Action(v, Iu), tensor=tensor)
             elif rank == 1:
                 # Assembling the action of the Jacobian adjoint.
                 if is_adjoint:
                     return interpolator._interpolate(v, output=tensor, adjoint=True, default_missing_val=default_missing_val)
                 # Assembling the Jacobian action.
-                elif interpolator.nargs:
-                    return interpolator._interpolate(operand, output=tensor, default_missing_val=default_missing_val)
-                # Assembling the operator
                 else:
-                    return interpolator._interpolate(output=tensor, default_missing_val=default_missing_val)
+                    return interpolator._interpolate(operand, output=tensor, default_missing_val=default_missing_val)
             elif rank == 2:
                 res = tensor.petscmat if tensor else PETSc.Mat()
                 # Get the interpolation matrix
@@ -644,7 +641,6 @@ class BaseFormAssembler(AbstractFormAssembler):
                     tensor = self.assembled_matrix(orig_expr, res)
                 return tensor
             else:
-                # The case rank == 0 is handled via the DAG restructuring
                 raise ValueError("Incompatible number of arguments.")
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
             return tensor.assign(expr)

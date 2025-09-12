@@ -736,7 +736,6 @@ class SameMeshInterpolator(Interpolator):
         if transpose is not None:
             warnings.warn("'transpose' argument is deprecated, use 'adjoint' instead", FutureWarning)
             adjoint = transpose or adjoint
-
         try:
             assembled_interpolator = self.frozen_assembled_interpolator
             copy_required = True
@@ -778,7 +777,7 @@ class SameMeshInterpolator(Interpolator):
             if output:
                 output.assign(assembled_interpolator)
                 return output
-            if isinstance(self.V, (firedrake.Function, firedrake.Cofunction)):
+            if isinstance(self.V, firedrake.Function):
                 if copy_required:
                     self.V.assign(assembled_interpolator)
                 return self.V
@@ -826,7 +825,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
                 f.assign(val)
         tensor = f.dat
     elif rank == 2:
-        if isinstance(V, (firedrake.Function, firedrake.Cofunction)):
+        if isinstance(V, firedrake.Function):
             raise ValueError("Cannot interpolate an expression with an argument into a Function")
         if len(V) > 1:
             raise NotImplementedError("Interpolation of mixed expressions with arguments is not supported")
