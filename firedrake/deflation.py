@@ -52,6 +52,10 @@ class DeflatedSNES(SNESBase):
         if hasattr(snes, "getVariableBounds") and typ.startswith("vi"):
             (lb, ub) = snes.getVariableBounds()
             self.inner.setVariableBounds(lb, ub)
+
+            # No idea why this is necessary for VINEWTONRSLS but not for NEWTONLS
+            with problem.u.dat.vec as x:
+                self.inner.setSolution(x)
         elif typ.startswith("vi") and not hasattr(snes, "getVariableBounds"):
             raise ValueError("Need a more recent PETSc with SNES.getVariableBounds wrapped")
 
