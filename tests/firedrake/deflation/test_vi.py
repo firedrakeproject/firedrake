@@ -26,7 +26,7 @@ def test_vi():
 
         return y
 
-    guess = Constant(2)
+    guess = Constant(1)
     u = Function(R)
     F = derivative(J(u)*dx, u)
 
@@ -51,7 +51,10 @@ def test_vi():
     for i in range(5):
         u.interpolate(guess)
         #solver.solve(bounds=(lb, ub))
-        solver.solve()
+        try:
+            solver.solve()
+        except ConvergenceError:
+            break
         soln = Function(u)
         print(f"Found solution: {soln.at((0.5,))}")
         deflation.append(soln)
