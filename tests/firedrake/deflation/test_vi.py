@@ -32,7 +32,7 @@ def test_vi():
 
     sp = {"snes_type": "python",
           "snes_python_type": "firedrake.DeflatedSNES",
-          "deflated_snes_type": "vinewtonrsls",
+          "deflated_snes_type": "newtonls",
           "deflated_snes_monitor": None,
           "deflated_snes_linesearch_type": "l2",
           "deflated_ksp_type": "preonly",
@@ -50,7 +50,8 @@ def test_vi():
     # Find the solutions and deflate
     for i in range(5):
         u.interpolate(guess)
-        solver.solve(bounds=(lb, ub))
+        #solver.solve(bounds=(lb, ub))
+        solver.solve()
         soln = Function(u)
         print(f"Found solution: {soln.at((0.5,))}")
         deflation.append(soln)
