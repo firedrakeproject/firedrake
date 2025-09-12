@@ -46,7 +46,7 @@ def test_vi():
     ub = Function(R).interpolate(Constant(100))
 
 
-    solutions = []
+    values = []
     # Find the solutions and deflate
     for i in range(5):
         u.interpolate(guess)
@@ -55,8 +55,28 @@ def test_vi():
         except ConvergenceError:
             break
         soln = Function(u)
-        print(f"Found solution: {soln.at((0.5,))}")
+        values.append(soln.at((0.5,)))
+        print(f"Found solution: {values[-1]}")
         deflation.append(soln)
 
+    assert len(values) == 5
+    return (mesh, J, values)
+
 if __name__ == "__main__":
-    test_vi()
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    (mesh, J, values) = test_vi()
+
+    W = FunctionSpace(mesh, "DG", 10)
+    x = SpatialCoordinate(mesh)[0]
+    J_ = Function(W, name="Energy").interpolate(J(x))
+
+    ax = plt.gca()
+    plot(J_, axes=ax)
+    for value in values:
+        plt.plot([value], [J_(value)], '*k')
+    plt.xlabel(r"$x$")
+    plt.ylabel(r"$J(x)$")
+    plt.title("Energy landscape and critical points")
+    plt.show()
