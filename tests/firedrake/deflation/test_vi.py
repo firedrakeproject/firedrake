@@ -1,8 +1,8 @@
 from firedrake import *
 
+
 def test_vi():
     mesh = IntervalMesh(1, 5)
-    x = SpatialCoordinate(mesh)[0]
     R = FunctionSpace(mesh, "DG", 0)
 
     # Energy function, specified by points to interpolate
@@ -39,12 +39,11 @@ def test_vi():
           "deflated_pc_type": "lu"}
 
     problem = NonlinearVariationalProblem(F, u)
-    deflation = Deflation(op = lambda x, y: inner(x-y, x-y)*dx)
+    deflation = Deflation(op=lambda x, y: inner(x-y, x-y)*dx)
     appctx = {"deflation": deflation}
     solver = NonlinearVariationalSolver(problem, solver_parameters=sp, appctx=appctx)
     lb = Function(R).interpolate(Constant(0))
     ub = Function(R).interpolate(Constant(100))
-
 
     values = []
     # Find the solutions and deflate
@@ -62,8 +61,8 @@ def test_vi():
     assert len(values) == 5
     return (mesh, J, values)
 
+
 if __name__ == "__main__":
-    import numpy as np
     import matplotlib.pyplot as plt
 
     (mesh, J, values) = test_vi()

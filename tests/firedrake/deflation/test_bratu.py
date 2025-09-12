@@ -1,5 +1,6 @@
 from firedrake import *
 
+
 def test_bratu():
     mesh = UnitIntervalMesh(10)
     V = FunctionSpace(mesh, "CG", 3)
@@ -23,7 +24,7 @@ def test_bratu():
           "deflated_ksp_type": "preonly",
           "deflated_pc_type": "lu"}
 
-    deflation = Deflation(op = lambda x, y: inner(x-y, x-y)*dx)
+    deflation = Deflation(op=lambda x, y: inner(x-y, x-y)*dx)
     appctx = {"deflation": deflation}
 
     # Find the first solution
@@ -42,6 +43,7 @@ def test_bratu():
     print(f"Norm of difference: {norm(first - second)}")
     assert norm(first - second) > 1
     return (first, second)
+
 
 if __name__ == "__main__":
     (first, second) = test_bratu()

@@ -4,12 +4,12 @@ from firedrake.dmhooks import get_appctx
 from firedrake.petsc import PETSc
 from firedrake import inner, dx
 
-from petsctools import OptionsManager
 from firedrake_citations import Citations
 
 import weakref
 
 __all__ = ['DeflatedSNES', 'Deflation']
+
 
 class DeflatedSNES(SNESBase):
     """
@@ -26,7 +26,6 @@ class DeflatedSNES(SNESBase):
 
     def update(self, snes):
         self.inner.setUp()
-
 
     def initialize(self, snes):
         Citations().register("Farrell2015")
@@ -71,7 +70,6 @@ class DeflatedSNES(SNESBase):
         self.inner.ksp = PETSc.KSP().createPython(defksp, comm=dm.comm)
         self.inner.ksp.pc.setType('none')
 
-
     def view(self, snes, viewer=None):
         if viewer is None:
             return
@@ -91,7 +89,6 @@ class DeflatedSNES(SNESBase):
 
         self.inner.view(viewer)
 
-
     def solve(self, snes, b, x):
         out = self.inner.solve(b, x)
         snes.reason = self.inner.reason
@@ -107,7 +104,6 @@ class DeflatedKSP(object):
         self.y = y
         self.ksp = ksp
         self.snes = weakref.proxy(snes)
-
 
     def solve(self, ksp, b, dy_pet):
         # Use the inner ksp to solve the original problem
@@ -127,7 +123,6 @@ class DeflatedKSP(object):
 
         ksp.setConvergedReason(self.ksp.getConvergedReason())
 
-
     def compute_tau(self, deflation, state, update_p, vi_inact):
         if deflation is not None:
             Edy = self.getEdy(deflation, state, update_p, vi_inact)
@@ -137,7 +132,6 @@ class DeflatedKSP(object):
             return tau
         else:
             return 1
-
 
     def getEdy(self, deflation, y, dy, vi_inact):
 
@@ -154,10 +148,8 @@ class DeflatedKSP(object):
 
         return out
 
-
     def reset(self, ksp):
         self.ksp.reset()
-
 
     def view(self, ksp, viewer):
         self.ksp.view(viewer)
@@ -180,7 +172,7 @@ class Deflation:
         self.append = self.roots.append
 
     def evaluate(self, y):
-        from firedrake import Function, assemble
+        from firedrake import assemble
 
         m = 1.0
         for root in self.roots:
@@ -199,10 +191,10 @@ class Deflation:
             return deta
 
         p = self.power
-        factors  = []
+        factors = []
         dfactors = []
         dnormsqs = []
-        normsqs  = []
+        normsqs = []
 
         for root in self.roots:
             form = self.op(y, root)
