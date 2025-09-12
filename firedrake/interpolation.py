@@ -784,7 +784,7 @@ class SameMeshInterpolator(Interpolator):
             else:
                 if copy_required:
                     return assembled_interpolator.copy()
-                elif isinstance(assembled_interpolator.dat, op2.Global):
+                elif len(self.arguments) == 0:
                     return assembled_interpolator.dat.data.item()
                 else:
                     return assembled_interpolator
@@ -1016,11 +1016,11 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         """
         weight = firedrake.Function(W)
         firedrake.par_loop((domain, instructions), ufl.dx, {"w": (weight, op2.INC)})
-
-        tmp = firedrake.Function(W)
-        with weight.dat.vec as w, dual_arg.dat.vec as x, tmp.dat.vec as y:
-            y.pointwiseDivide(x, w)
-        dual_arg = tmp
+        with weight.dat.vec as w:
+            w.reciprocal()
+            petscmat = PETSc.Mat().createDiagonal(w)
+        weight_mat = firedrake.AssembledMatrix((firedrake.TestFunction(W.dual()), firedrake.TrialFunction(W)), None, petscmat)
+        dual_arg = firedrake.assemble(ufl.action(weight_mat, dual_arg))
 
     # We need to pass both the ufl element and the finat element
     # because the finat elements might not have the right mapping
