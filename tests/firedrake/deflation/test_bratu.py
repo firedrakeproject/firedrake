@@ -1,8 +1,8 @@
 from firedrake import *
 
 def test_bratu():
-    mesh = UnitIntervalMesh(400)
-    V = FunctionSpace(mesh, "CG", 2)
+    mesh = UnitIntervalMesh(10)
+    V = FunctionSpace(mesh, "CG", 3)
     x = SpatialCoordinate(mesh)[0]
 
     u = Function(V)
@@ -17,7 +17,6 @@ def test_bratu():
 
     sp = {"snes_type": "python",
           "snes_python_type": "firedrake.DeflatedSNES",
-          #"snes_view": None,
           "deflated_snes_type": "newtonls",
           "deflated_snes_monitor": None,
           "deflated_snes_linesearch_type": "l2",

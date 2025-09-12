@@ -42,19 +42,20 @@ class DeflatedSNES(SNESBase):
         with dmhooks.add_hooks(dm, self, appctx=ctx, save=False):
             self.inner.setFromOptions()
 
-        # FIXME: Bounds.
-        # How do I get the bounds at this point?
-        # snes.getVariableBounds is not wrapped
-        # (lb, ub) = snes.getVariableBounds(lb, ub)
-        #if lb is not None and ub is not None:
-        #   self.inner.setVariableBounds(lb, ub)
-
-        self.inner.setUp()
-
         # Sanity check
         typ = self.inner.getType()
         if typ not in ["newtonls", "newtontr", "vinewtonrsls", "vinewtonssls"]:
             raise ValueError("We only know how to deflate with Newton-type methods")
+
+        # snes.getVariableBounds recently added,
+        # be nice to users with old PETSc versions
+        if hasattr(snes, "getVariableBounds") and typ.startswith("vi"):
+            (lb, ub) = snes.getVariableBounds()
+            self.inner.setVariableBounds(lb, ub)
+        elif typ.startswith("vi") and not hasattr(snes, "getVariableBounds"):
+            raise ValueError("Need a more recent PETSc with SNES.getVariableBounds wrapped")
+
+        self.inner.setUp()
 
         # Get the deflation object from the appctx
         appctx = ctx.appctx
