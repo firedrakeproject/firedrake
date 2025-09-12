@@ -614,7 +614,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 if same_mesh:
                     return interpolator._interpolate(output=tensor, default_missing_val=default_missing_val)
                 else:
-                    Iu = interpolator._interpolate(operand, default_missing_val=default_missing_val)
+                    Iu = interpolator._interpolate(default_missing_val=default_missing_val)
                     return assemble(ufl.action(v, Iu), tensor=tensor)
             elif rank == 1:
                 # Assembling the action of the Jacobian adjoint.

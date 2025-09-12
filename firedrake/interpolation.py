@@ -685,8 +685,9 @@ class SameMeshInterpolator(Interpolator):
         if isinstance(expr, ufl.Interpolate):
             operand, = expr.ufl_operands
         else:
+            fs = V if isinstance(V, ufl.FunctionSpace) else V.function_space()
             operand = expr
-            expr = Interpolate(operand, V)
+            expr = Interpolate(operand, fs)
         if subset is None:
             target_mesh = as_domain(V)
             source_mesh = extract_unique_domain(operand) or target_mesh
@@ -713,7 +714,7 @@ class SameMeshInterpolator(Interpolator):
         except FIAT.hdiv_trace.TraceError:
             raise NotImplementedError("Can't interpolate onto traces sorry")
         self.arguments = expr.arguments()
-        self.nargs = len(arguments)
+        self.nargs = len(extract_arguments(operand))
 
     @PETSc.Log.EventDecorator()
     def _interpolate(self, *function, output=None, transpose=None, adjoint=False, **kwargs):
@@ -725,11 +726,6 @@ class SameMeshInterpolator(Interpolator):
         if transpose is not None:
             warnings.warn("'transpose' argument is deprecated, use 'adjoint' instead", FutureWarning)
             adjoint = transpose or adjoint
-        if adjoint and not self.nargs:
-            raise ValueError("Can currently only apply adjoint interpolation with arguments.")
-        if self.nargs != len(function):
-            raise ValueError("Passed %d Functions to interpolate, expected %d"
-                             % (len(function), self.nargs))
         try:
             assembled_interpolator = self.frozen_assembled_interpolator
             copy_required = True
@@ -750,12 +746,12 @@ class SameMeshInterpolator(Interpolator):
                 raise ValueError("The expression had arguments: we therefore need to be given a Function (not an expression) to interpolate!")
             if adjoint:
                 mul = assembled_interpolator.handle.multHermitian
-                V = self.arguments[0].function_space().dual()
-                assert function.function_space() == self.arguments[1].function_space()
+                col, row = self.arguments
             else:
                 mul = assembled_interpolator.handle.mult
-                V = self.arguments[1].function_space().dual()
-                assert function.function_space() == self.arguments[0].function_space()
+                row, col = self.arguments
+            V = col.function_space().dual()
+            assert function.function_space() == row.function_space()
 
             result = output or firedrake.Function(V)
             with function.dat.vec_ro as x, result.dat.vec_wo as out:
