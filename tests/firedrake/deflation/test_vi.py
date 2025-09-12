@@ -1,7 +1,7 @@
 from firedrake import *
 
 
-def test_vi():
+def test_vi(output=False):
     mesh = IntervalMesh(1, 5)
     R = FunctionSpace(mesh, "DG", 0)
 
@@ -59,13 +59,15 @@ def test_vi():
         deflation.append(soln)
 
     assert len(values) == 5
-    return (mesh, J, values)
+
+    if output:
+        return (mesh, J, values)
 
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
-    (mesh, J, values) = test_vi()
+    (mesh, J, values) = test_vi(output=True)
 
     W = FunctionSpace(mesh, "DG", 10)
     x = SpatialCoordinate(mesh)[0]
