@@ -6,7 +6,7 @@ def test_bratu():
     x = SpatialCoordinate(mesh)[0]
 
     u = Function(V)
-    u.interpolate(x*(1-x))
+    u.interpolate(6*x*(1-x))
     v = TestFunction(V)
 
     lmbda = Constant(2)
@@ -17,14 +17,14 @@ def test_bratu():
 
     sp = {"snes_type": "python",
           "snes_python_type": "firedrake.DeflatedSNES",
-          "snes_view": None,
+          #"snes_view": None,
           "deflated_snes_type": "newtonls",
           "deflated_snes_monitor": None,
           "deflated_snes_linesearch_type": "l2",
           "deflated_ksp_type": "preonly",
           "deflated_pc_type": "lu"}
 
-    deflation = Deflation()
+    deflation = Deflation(op = lambda x, y: inner(x-y, x-y)*dx)
     appctx = {"deflation": deflation}
 
     # Find the first solution
@@ -33,9 +33,22 @@ def test_bratu():
 
     # Now deflate the first solution found, restore initial guess, and
     # find second solution
-    deflation.append(Function(u))
-    u.interpolate(x*(1-x))
+    first = Function(u)
+    deflation.append(first)
+    u.interpolate(6*x*(1-x))
     solver.solve()
 
+    second = Function(u)
+
+    print(f"Norm of difference: {norm(first - second)}")
+    assert norm(first - second) > 1
+    return (first, second)
+
 if __name__ == "__main__":
-    test_bratu()
+    (first, second) = test_bratu()
+
+    import matplotlib.pyplot as plt
+    ax = plt.gca()
+    plot(first, linestyle='-', edgecolor='tab:blue', axes=ax)
+    plot(second, linestyle='--', edgecolor='tab:red', axes=ax)
+    plt.show()

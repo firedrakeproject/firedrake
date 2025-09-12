@@ -61,10 +61,10 @@ class DeflatedSNES(SNESBase):
         deflation = appctx.get("deflation")
 
         # Hijack the KSP of the SNES we just created.
-        oldksp = snes.ksp
+        oldksp = self.inner.ksp
         defksp = DeflatedKSP(deflation, problem.u, oldksp, self.inner)
-        snes.ksp = PETSc.KSP().createPython(defksp, comm=dm.comm)
-        snes.ksp.pc.setType('none')
+        self.inner.ksp = PETSc.KSP().createPython(defksp, comm=dm.comm)
+        self.inner.ksp.pc.setType('none')
 
 
     def view(self, snes, viewer=None):
@@ -123,7 +123,7 @@ class DeflatedKSP(object):
         ksp.setConvergedReason(self.ksp.getConvergedReason())
 
 
-    def compute_tau(deflation, state, update_p, vi_inact):
+    def compute_tau(self, deflation, state, update_p, vi_inact):
         if deflation is not None:
             Edy = self.getEdy(deflation, state, update_p, vi_inact)
 
@@ -136,7 +136,7 @@ class DeflatedKSP(object):
 
     def getEdy(self, deflation, y, dy, vi_inact):
 
-        with deflation.derivative(y).dat.vec as deriv:
+        with deflation.deriv(y).dat.vec as deriv:
             if vi_inact is not None:
                 deriv_ = deriv.getSubVector(vi_inact)
             else:
@@ -175,6 +175,8 @@ class Deflation:
         self.append = self.roots.append
 
     def evaluate(self, y):
+        from firedrake import Function, assemble
+
         m = 1.0
         for root in self.roots:
             normsq = assemble(self.op(y, root))
@@ -183,9 +185,12 @@ class Deflation:
 
         return m
 
-    def derivative(self, y):
+    def deriv(self, y):
+        from firedrake import Cofunction, assemble, derivative
+        from ufl import product
+
         if len(self.roots) == 0:
-            deta = Function(y.function_space()).vector()
+            deta = Cofunction(y.function_space().dual())
             return deta
 
         p = self.power
@@ -208,10 +213,9 @@ class Deflation:
 
         eta = product(factors)
 
-        deta = Function(y.function_space()).vector()
+        deta = Cofunction(y.function_space().dual())
 
-        for (solution, factor, dfactor, dnormsq) in zip(self.roots, factors, dfactors, dnormsqs):
-            dnormsq = dnormsq.vector()
-            deta.axpy(float((eta/factor)*dfactor), dnormsq)
+        for (_, factor, dfactor, dnormsq) in zip(self.roots, factors, dfactors, dnormsqs):
+            deta.assign(float((eta/factor)*dfactor)*dnormsq + deta)
 
         return deta
