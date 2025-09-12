@@ -64,8 +64,6 @@ class KernelBuilderBase(KernelInterface):
         else:
             return kernel_arg[{'+': 0, '-': 1}[restriction]]
 
-    cofunction = coefficient
-
     def constant(self, const):
         return self.constant_map[const]
 

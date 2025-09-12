@@ -21,8 +21,8 @@ from gem.optimise import constant_fold_zero, ffc_rounding
 from gem.unconcatenate import unconcatenate
 from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
                          CellFacetJacobian, CellOrientation, CellOrigin,
-                         CellVertices, CellVolume, Coefficient, Cofunction,
-                         FacetArea, FacetCoordinate, GeometricQuantity, Jacobian,
+                         CellVertices, CellVolume, Coefficient, FacetArea,
+                         FacetCoordinate, GeometricQuantity, Jacobian,
                          JacobianDeterminant, NegativeRestricted,
                          PositiveRestricted, QuadratureWeight,
                          ReferenceCellEdgeVectors, ReferenceCellVolume,
@@ -665,7 +665,6 @@ def translate_constant_value(terminal, mt, ctx):
 
 
 @translate.register(Coefficient)
-@translate.register(Cofunction)
 def translate_coefficient(terminal, mt, ctx):
     vec = ctx.coefficient(terminal, mt.restriction)
 

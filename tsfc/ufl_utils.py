@@ -20,7 +20,7 @@ from ufl.algorithms.signature import compute_expression_signature
 from ufl.corealg.multifunction import MultiFunction
 from ufl.geometry import QuadratureWeight
 from ufl.geometry import Jacobian, JacobianDeterminant, JacobianInverse
-from ufl.classes import (Abs, Argument, CellOrientation, Cofunction,
+from ufl.classes import (Abs, Argument, CellOrientation,
                          Expr, FloatValue, Division,
                          Product,
                          ScalarValue, Sqrt, Zero, CellVolume, FacetArea)
@@ -171,7 +171,6 @@ class ModifiedTerminalMixin(object):
     reference_value = _modified_terminal
 
     terminal = _modified_terminal
-    cofunction = terminal
 
 
 class PickRestriction(MultiFunction, ModifiedTerminalMixin):
@@ -226,7 +225,6 @@ def _simplify_abs(o, self, in_abs):
     raise AssertionError("UFL node expected, not %s" % type(o))
 
 
-@_simplify_abs.register(Cofunction)
 @_simplify_abs.register(Expr)
 def _simplify_abs_expr(o, self, in_abs):
     # General case, only wrap the outer expression (if necessary)

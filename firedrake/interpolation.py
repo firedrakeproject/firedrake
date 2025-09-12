@@ -682,11 +682,12 @@ class SameMeshInterpolator(Interpolator):
     @no_annotations
     def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE,
                  bcs=None, matfree=True, allow_missing_dofs=False, **kwargs):
+        if isinstance(expr, ufl.Interpolate):
+            operand, = expr.ufl_operands
+        else:
+            operand = expr
+            expr = Interpolate(operand, V)
         if subset is None:
-            if isinstance(expr, ufl.Interpolate):
-                operand, = expr.ufl_operands
-            else:
-                operand = expr
             target_mesh = as_domain(V)
             source_mesh = extract_unique_domain(operand) or target_mesh
             target = target_mesh.topology
@@ -770,13 +771,15 @@ class SameMeshInterpolator(Interpolator):
             if output:
                 output.assign(assembled_interpolator)
                 return output
-            if isinstance(self.V, firedrake.Function):
+            if isinstance(self.V, (firedrake.Function, firedrake.Cofunction)):
                 if copy_required:
                     self.V.assign(assembled_interpolator)
                 return self.V
             else:
                 if copy_required:
                     return assembled_interpolator.copy()
+                elif isinstance(assembled_interpolator.dat, op2.Global):
+                    return assembled_interpolator.dat.data.item()
                 else:
                     return assembled_interpolator
 
