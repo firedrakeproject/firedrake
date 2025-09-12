@@ -602,10 +602,13 @@ class BaseFormAssembler(AbstractFormAssembler):
                 expr = reconstruct_interp(operand, v=V)
 
             # Get the interpolator
-            interp_data = expr.interp_data.copy()
+            interp_data = expr.interp_data
             default_missing_val = interp_data.pop('default_missing_val', None)
             if same_mesh and ((is_adjoint and rank == 1) or rank == 0):
                 interp_data["access"] = op2.INC
+
+            if rank == 1 and ((same_mesh and tensor) or isinstance(tensor, firedrake.Function)):
+                V = tensor
             interpolator = firedrake.Interpolator(expr, V, **interp_data)
 
             # Assembly

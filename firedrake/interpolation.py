@@ -93,10 +93,20 @@ class Interpolate(ufl.Interpolate):
                 and reduce operations.
         """
         # Check function space
+        expr = ufl.as_ufl(expr)
         if isinstance(v, functionspaceimpl.WithGeometry):
-            expr_args = extract_arguments(ufl.as_ufl(expr))
+            expr_args = extract_arguments(expr)
             is_adjoint = len(expr_args) and expr_args[0].number() == 0
             v = Argument(v.dual(), 1 if is_adjoint else 0)
+
+        V = v.arguments()[0].function_space()
+        if len(expr.ufl_shape) != len(V.value_shape):
+            raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
+                               % (len(expr.ufl_shape), len(V.value_shape)))
+
+        if expr.ufl_shape != V.value_shape:
+            raise RuntimeError('Shape mismatch: Expression shape %r, FunctionSpace shape %r'
+                               % (expr.ufl_shape, V.value_shape))
         super().__init__(expr, v)
 
         # -- Interpolate data (e.g. `subset` or `access`) -- #
@@ -173,7 +183,7 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
             raise TypeError(f"Expected a one-form, provided form had {rank} arguments")
     elif isinstance(V, functionspaceimpl.WithGeometry):
         dual_arg = Coargument(V.dual(), 0)
-        expr_args = extract_arguments(expr)
+        expr_args = extract_arguments(ufl.as_ufl(expr))
         if expr_args and expr_args[0].number() == 0:
             # In this case we are doing adjoint interpolation
             # When V is a FunctionSpace and expr contains Argument(0),
@@ -483,7 +493,7 @@ class CrossMeshInterpolator(Interpolator):
         if len(shape) == 0:
             fs_type = firedrake.FunctionSpace
         elif len(shape) == 1:
-            fs_type = firedrake.VectorFunctionSpace
+            fs_type = partial(firedrake.VectorFunctionSpace, dim=shape[0])
         else:
             fs_type = partial(firedrake.TensorFunctionSpace, shape=shape)
         P0DG_vom = fs_type(self.vom_dest_node_coords_in_src_mesh, "DG", 0)
@@ -710,7 +720,7 @@ class SameMeshInterpolator(Interpolator):
         super().__init__(expr, V, subset=subset, freeze_expr=freeze_expr,
                          access=access, bcs=bcs, matfree=matfree, allow_missing_dofs=allow_missing_dofs)
         try:
-            self.callable, arguments = make_interpolator(expr, V, subset, access, bcs=bcs, matfree=matfree)
+            self.callable = make_interpolator(expr, V, subset, access, bcs=bcs, matfree=matfree)
         except FIAT.hdiv_trace.TraceError:
             raise NotImplementedError("Can't interpolate onto traces sorry")
         self.arguments = expr.arguments()
@@ -726,6 +736,7 @@ class SameMeshInterpolator(Interpolator):
         if transpose is not None:
             warnings.warn("'transpose' argument is deprecated, use 'adjoint' instead", FutureWarning)
             adjoint = transpose or adjoint
+
         try:
             assembled_interpolator = self.frozen_assembled_interpolator
             copy_required = True
@@ -740,7 +751,7 @@ class SameMeshInterpolator(Interpolator):
                     # Interpolation action
                     self.frozen_assembled_interpolator = assembled_interpolator.copy()
 
-        if hasattr(assembled_interpolator, "handle") and len(function):
+        if len(self.arguments) == 2 and len(function):
             function, = function
             if not hasattr(function, "dat"):
                 raise ValueError("The expression had arguments: we therefore need to be given a Function (not an expression) to interpolate!")
@@ -783,15 +794,11 @@ class SameMeshInterpolator(Interpolator):
 @PETSc.Log.EventDecorator()
 def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
     if not isinstance(expr, ufl.Interpolate):
-        fs = V if isinstance(V, ufl.FunctionSpace) else V.function_space()
-        expr = Interpolate(expr, fs)
+        raise ValueError(f"Expecting to interpolate a ufl.Interpolate, got {type(expr).__name__}.")
     dual_arg, operand = expr.argument_slots()
-    assert isinstance(dual_arg, (ufl.Coargument, ufl.Cofunction))
 
     target_mesh = as_domain(dual_arg)
     source_mesh = extract_unique_domain(operand) or target_mesh
-    same_mesh = target_mesh is source_mesh
-
     vom_onto_other_vom = (
         isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
         and isinstance(source_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
@@ -803,7 +810,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
     if rank <= 1:
         if rank == 0:
             R = firedrake.FunctionSpace(target_mesh, "Real", 0)
-            f = firedrake.Function(R)
+            f = firedrake.Function(R, dtype=utils.ScalarType)
         elif isinstance(V, firedrake.Function):
             f = V
             V = f.function_space()
@@ -862,10 +869,8 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
     else:
         raise ValueError("Cannot interpolate an expression with %d arguments" % rank)
 
-    if not same_mesh:
-        arguments = extract_arguments(operand)
     if vom_onto_other_vom:
-        wrapper = VomOntoVomWrapper(V, source_mesh, target_mesh, operand, arguments, matfree)
+        wrapper = VomOntoVomWrapper(V, source_mesh, target_mesh, operand, matfree)
         # NOTE: get_dat_mpi_type ensures we get the correct MPI type for the
         # data, including the correct data size and dimensional information
         # (so for vector function spaces in 2 dimensions we might need a
@@ -875,13 +880,13 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
             # when it is called.
             assert f.dat is tensor
             wrapper.mpi_type, _ = get_dat_mpi_type(f.dat)
-            assert len(arguments) == 0
+            assert len(arguments) == 1
 
             def callable():
                 wrapper.forward_operation(f.dat)
                 return f
         else:
-            assert len(arguments) == 1
+            assert len(arguments) == 2
             assert tensor is None
             # we know we will be outputting either a function or a cofunction,
             # both of which will use a dat as a data carrier. At present, the
@@ -900,15 +905,9 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
             def callable():
                 return wrapper
 
-        return callable, arguments
+        return callable
     else:
-        # Make sure we have an expression of the right length i.e. a value for
-        # each component in the value shape of each function space
         loops = []
-        if numpy.prod(operand.ufl_shape, dtype=int) != V.value_size:
-            raise RuntimeError('Expression of length %d required, got length %d'
-                               % (V.value_size, numpy.prod(operand.ufl_shape, dtype=int)))
-
         if len(V) == 1:
             loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
         else:
@@ -933,8 +932,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
             elif isinstance(dual_arg, Coargument):
                 duals = [Coargument(Vsub, number=dual_arg.number()) for Vsub in dual_arg.function_space()]
             else:
-                raise ValueError("dual_arg must be a Cofunction or Coargument")
-
+                duals = [v for _, v in sorted(firedrake.formmanipulation.split_form(dual_arg))]
             # Interpolate each sub expression into each function space
             for Vsub, sub_tensor, sub_op, sub_dual in zip(V, tensor, operands, duals):
                 sub_expr = expr._ufl_expr_reconstruct_(sub_op, sub_dual)
@@ -948,7 +946,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
                 l()
             return f
 
-        return partial(callable, loops, f), arguments
+        return partial(callable, loops, f)
 
 
 @utils.known_pyop2_safe
@@ -965,14 +963,6 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     if access is op2.READ:
         raise ValueError("Can't have READ access for output function")
-
-    if len(operand.ufl_shape) != len(V.value_shape):
-        raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
-                           % (len(operand.ufl_shape), len(V.value_shape)))
-
-    if operand.ufl_shape != V.value_shape:
-        raise RuntimeError('Shape mismatch: Expression shape %r, FunctionSpace shape %r'
-                           % (operand.ufl_shape, V.value_shape))
 
     # NOTE: The par_loop is always over the target mesh cells.
     target_mesh = as_domain(V)
@@ -1401,9 +1391,6 @@ class VomOntoVomWrapper(object):
     expr : `ufl.Expr`
         The expression to interpolate. If ``arguments`` is not empty, those
         arguments must be present within it.
-    arguments : list of `ufl.Argument`
-        The arguments in the expression. These are not extracted from expr here
-        since, where we use this, we already have them.
     matfree : bool
         If ``False``, the matrix representating the permutation of the points is
         constructed and used to perform the interpolation. If ``True``, then the
@@ -1411,7 +1398,8 @@ class VomOntoVomWrapper(object):
         PETSc Star Forest.
     """
 
-    def __init__(self, V, source_vom, target_vom, expr, arguments, matfree):
+    def __init__(self, V, source_vom, target_vom, expr, matfree):
+        arguments = extract_arguments(expr)
         reduce = False
         if source_vom.input_ordering is target_vom:
             reduce = True

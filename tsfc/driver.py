@@ -223,7 +223,8 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     operand = ufl_utils.preprocess_expression(operand, complex_mode=complex_mode)
 
     if isinstance(expression, ufl.Interpolate):
-        expression = expression._ufl_expr_reconstruct_(operand)
+        v, _ = expression.argument_slots()
+        expression = ufl.Interpolate(operand, v)
     else:
         expression = operand
 
