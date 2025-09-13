@@ -296,9 +296,9 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     # indices needed for compilation of the expression
     evaluation, basis_indices = to_element.dual_evaluation(fn)
 
-    # Compute the adjoint by contracting against the dual argument
-    if dual_arg and not isinstance(dual_arg, ufl.Coargument):
-        k = len(basis_indices)-len(operand.ufl_shape)
+    # Compute the action against the dual argument
+    if dual_arg in coefficients:
+        k = len(basis_indices) - len(operand.ufl_shape)
         beta = basis_indices[k:] + basis_indices[:k]
         shape = tuple(i.extent for i in beta)
         gem_dual = gem.Variable(f"w_{coefficients.index(dual_arg)}", shape=shape)

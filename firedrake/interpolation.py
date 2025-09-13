@@ -724,7 +724,6 @@ class SameMeshInterpolator(Interpolator):
         except FIAT.hdiv_trace.TraceError:
             raise NotImplementedError("Can't interpolate onto traces sorry")
         self.arguments = expr.arguments()
-        self.nargs = len(extract_arguments(operand))
 
     @PETSc.Log.EventDecorator()
     def _interpolate(self, *function, output=None, transpose=None, adjoint=False, **kwargs):
@@ -743,7 +742,7 @@ class SameMeshInterpolator(Interpolator):
             assembled_interpolator = self.callable()
             copy_required = False  # Return the original
             if self.freeze_expr:
-                if self.nargs:
+                if len(self.arguments) == 2:
                     # Interpolation operator
                     self.frozen_assembled_interpolator = assembled_interpolator
                 else:
@@ -782,10 +781,10 @@ class SameMeshInterpolator(Interpolator):
                     self.V.assign(assembled_interpolator)
                 return self.V
             else:
-                if copy_required:
-                    return assembled_interpolator.copy()
-                elif len(self.arguments) == 0:
+                if len(self.arguments) == 0:
                     return assembled_interpolator.dat.data.item()
+                elif copy_required:
+                    return assembled_interpolator.copy()
                 else:
                     return assembled_interpolator
 
@@ -908,7 +907,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
     else:
         loops = []
         if len(V) == 1:
-            loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
+            expressions = (expr,)
         else:
             if (hasattr(operand, "subfunctions") and len(operand.subfunctions) == len(V)
                     and all(sub_op.ufl_shape == Vsub.value_shape for Vsub, sub_op in zip(V, operand.subfunctions))):
@@ -926,16 +925,18 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
                         operands.append(ufl.as_tensor(numpy.reshape(components, Vsub.value_shape)))
                     offset += Vsub.value_size
 
+            # Split the dual argument
             if isinstance(dual_arg, Cofunction):
                 duals = dual_arg.subfunctions
             elif isinstance(dual_arg, Coargument):
                 duals = [Coargument(Vsub, number=dual_arg.number()) for Vsub in dual_arg.function_space()]
             else:
                 duals = [v for _, v in sorted(firedrake.formmanipulation.split_form(dual_arg))]
-            # Interpolate each sub expression into each function space
-            for Vsub, sub_tensor, sub_op, sub_dual in zip(V, tensor, operands, duals):
-                sub_expr = expr._ufl_expr_reconstruct_(sub_op, sub_dual)
-                loops.extend(_interpolator(Vsub, sub_tensor, sub_expr, subset, arguments, access, bcs=bcs))
+            expressions = map(expr._ufl_expr_reconstruct_, operands, duals)
+
+        # Interpolate each sub expression into each function space
+        for Vsub, sub_tensor, sub_expr in zip(V, tensor, expressions):
+            loops.extend(_interpolator(Vsub, sub_tensor, sub_expr, subset, arguments, access, bcs=bcs))
 
         if bcs and rank == 1:
             loops.extend(partial(bc.apply, f) for bc in bcs)

@@ -597,7 +597,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             # Assemble the interpolator matrix if the meshes are different
             target_mesh = V.mesh()
             source_mesh = extract_unique_domain(operand) or target_mesh
-            if is_adjoint and source_mesh is not target_mesh:
+            if is_adjoint and rank < 2 and source_mesh is not target_mesh:
                 expr = reconstruct_interp(operand, v=V)
             matfree = (rank == len(expr.arguments())) and (rank < 2)
 
@@ -634,9 +634,11 @@ class BaseFormAssembler(AbstractFormAssembler):
                 if is_adjoint:
                     # Out-of-place Hermitian transpose
                     petsc_mat.hermitianTranspose(out=res)
-                else:
+                elif tensor:
                     # Copy the interpolation matrix into the output tensor
                     petsc_mat.copy(result=res)
+                else:
+                    res = petsc_mat
                 if tensor is None:
                     tensor = self.assembled_matrix(orig_expr, res)
                 return tensor
