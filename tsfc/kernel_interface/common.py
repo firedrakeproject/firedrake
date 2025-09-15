@@ -6,6 +6,7 @@ from itertools import chain, product
 
 import gem
 import gem.impero_utils as impero_utils
+import petsctools
 import numpy
 from FIAT.reference_element import TensorProductCell
 from finat.cell_tools import max_complex
@@ -412,13 +413,12 @@ def lower_integral_type(fiat_cell, integral_type):
 def pick_mode(mode):
     "Return one of the specialized optimisation modules from a mode string."
     try:
-        from firedrake_citations import Citations
         cites = {"vanilla": ("Homolya2017", ),
                  "coffee": ("Luporini2016", "Homolya2017", ),
                  "spectral": ("Luporini2016", "Homolya2017", "Homolya2017a"),
                  "tensor": ("Kirby2006", "Homolya2017", )}
         for c in cites[mode]:
-            Citations().register(c)
+            petsctools.cite(c)
     except ImportError:
         pass
     if mode == "vanilla":

@@ -23,6 +23,7 @@ from pyop2.mpi import (
     MPI, COMM_WORLD, internal_comm, is_pyop2_comm, temp_internal_comm
 )
 from pyop2.utils import as_tuple
+import petsctools
 from petsctools import OptionsManager, get_external_packages
 
 import firedrake.cython.dmcommon as dmcommon
@@ -1289,9 +1290,8 @@ class MeshTopology(AbstractMeshTopology):
                                              cell_numbering, entity_per_cell)
 
         elif cell.cellname() == "quadrilateral":
-            from firedrake_citations import Citations
-            Citations().register("Homolya2016")
-            Citations().register("McRae2016")
+            petsctools.cite("Homolya2016")
+            petsctools.cite("McRae2016")
             # Quadrilateral mesh
             cell_ranks = dmcommon.get_cell_remote_ranks(plex)
 
@@ -1695,9 +1695,8 @@ class ExtrudedMeshTopology(MeshTopology):
 
         # TODO: refactor to call super().__init__
 
-        from firedrake_citations import Citations
-        Citations().register("McRae2016")
-        Citations().register("Bercea2016")
+        petsctools.cite("McRae2016")
+        petsctools.cite("Bercea2016")
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
 
@@ -3122,8 +3121,7 @@ def Mesh(meshfile, **kwargs):
             from ngsPETSc import FiredrakeMesh
         except ImportError:
             raise ImportError("Unable to import ngsPETSc. Please ensure that ngsolve is installed and available to Firedrake.")
-        from firedrake_citations import Citations
-        Citations().register("Betteridge2024")
+        petsctools.cite("Betteridge2024")
         netgen_flags = kwargs.get("netgen_flags", {"quad": False, "transform": None, "purify_to_tets": False})
         netgen_firedrake_mesh = FiredrakeMesh(meshfile, netgen_flags, user_comm)
         plex = netgen_firedrake_mesh.meshMap.petscPlex
@@ -3398,8 +3396,7 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
         assumed to be a new vertex.
 
     """
-    from firedrake_citations import Citations
-    Citations().register("nixonhill2023consistent")
+    petsctools.cite("nixonhill2023consistent")
 
     if tolerance is None:
         tolerance = mesh.tolerance
