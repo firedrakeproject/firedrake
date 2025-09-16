@@ -169,5 +169,5 @@ ENV PYOP2_CFLAGS=$CFLAGS
 
 # Run the smoke tests.
 RUN cd /opt/firedrake/ \
-    && firedrake-check --mpiexec 'mpiexec --oversubscribe -n'
+    && firedrake-check --mpiexec 'mpiexec --oversubscribe -n' \
     && firedrake-clean
