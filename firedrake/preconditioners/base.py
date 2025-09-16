@@ -1,6 +1,6 @@
 import abc
 
-from firedrake_citations import Citations
+import petsctools
 from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_appctx
 
@@ -20,7 +20,7 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         - :meth:`~.PCBase.applyTranspose`
 
         """
-        Citations().register("Kirby2017")
+        petsctools.cite("Kirby2017")
         self.initialized = False
         super(PCSNESBase, self).__init__()
 

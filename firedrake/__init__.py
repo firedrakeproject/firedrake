@@ -43,17 +43,18 @@ if _is_logging:
     import atexit
     atexit.register(lambda: _main_event.end())
     del atexit
-del petsctools
 del petsc
 
 from ufl import *
 from finat.ufl import *
 
-from firedrake_citations import Citations    # noqa: F401
-# Always get the firedrake paper.
-Citations().register("FiredrakeUserManual")
 from pyop2 import op2                        # noqa: F401
 from pyop2.mpi import COMM_WORLD, COMM_SELF  # noqa: F401
+
+# Register possible citations
+import firedrake.citations  # noqa: F401
+petsctools.cite("FiredrakeUserManual")
+del petsctools
 
 from firedrake.assemble import *
 from firedrake.bcs import *

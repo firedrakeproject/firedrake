@@ -18,10 +18,10 @@ except ImportError:
 import collections
 from functools import partial
 
+import petsctools
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.constant import Constant
-from firedrake_citations import Citations
 
 from pyadjoint.reduced_functional import ReducedFunctional
 
@@ -106,8 +106,8 @@ def fem_operator(F):
     firedrake.ml.pytorch.fem_operator.FiredrakeTorchOperator
         A PyTorch custom operator that wraps the reduced functional `F`.
     """
-    Citations().register("Bouziani2023")
-    Citations().register("Bouziani2024")
+    petsctools.cite("Bouziani2023")
+    petsctools.cite("Bouziani2024")
 
     if not isinstance(F, ReducedFunctional):
         raise ValueError("F must be a ReducedFunctional")

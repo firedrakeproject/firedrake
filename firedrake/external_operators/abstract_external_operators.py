@@ -1,3 +1,4 @@
+import petsctools
 from ufl.core.ufl_type import UFLType
 from ufl.core.external_operator import ExternalOperator
 from ufl.argument import BaseArgument
@@ -64,9 +65,8 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
             over the UFL symbolic reconstructions making the operator data accessible to the external operators
             arising from symbolic operations on the original operator, such as the Jacobian of the external operator.
         """
-        from firedrake_citations import Citations
-        Citations().register("Bouziani2021")
-        Citations().register("Bouziani2024")
+        petsctools.cite("Bouziani2021")
+        petsctools.cite("Bouziani2024")
 
         # Check function space
         if not isinstance(function_space, functionspaceimpl.WithGeometry):

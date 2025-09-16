@@ -1,6 +1,6 @@
 """Non-nested multigrid preconditioner"""
 
-from firedrake_citations import Citations
+import petsctools
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.parameters import parameters
@@ -67,7 +67,7 @@ class GTMGPC(PCBase):
         """
         from firedrake.assemble import assemble, get_assembler
 
-        Citations().register("Gopalakrishnan2009")
+        petsctools.cite("Gopalakrishnan2009")
         _, P = pc.getOperators()
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")

@@ -1,6 +1,7 @@
 import abc
 import numpy
 
+import petsctools
 from pyop2.utils import as_tuple
 from firedrake.bcs import DirichletBC
 from firedrake.petsc import PETSc
@@ -9,7 +10,6 @@ from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.preconditioners.hypre_ams import chop
 from firedrake.preconditioners.facet_split import restrict
 from firedrake.parameters import parameters
-from firedrake_citations import Citations
 from firedrake.interpolation import Interpolator
 from ufl.algorithms.ad import expand_derivatives
 import firedrake.dmhooks as dmhooks
@@ -140,7 +140,7 @@ class HiptmairPC(TwoLevelPC):
     _prefix = "hiptmair_"
 
     def coarsen(self, pc):
-        Citations().register("Hiptmair1998")
+        petsctools.cite("Hiptmair1998")
         appctx = self.get_appctx(pc)
 
         a, bcs = self.form(pc)

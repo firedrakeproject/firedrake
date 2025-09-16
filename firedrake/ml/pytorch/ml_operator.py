@@ -20,6 +20,7 @@ except ImportError:
 
 from functools import partial
 
+import petsctools
 from firedrake.external_operators import MLOperator
 from firedrake import utils
 from firedrake.ml.pytorch import to_torch, from_torch
@@ -202,9 +203,8 @@ def ml_operator(model, function_space, inputs_format=0):
     collections.abc.Callable
         The partially initialised :class:`~.PytorchOperator` class.
     """
-    from firedrake_citations import Citations
-    Citations().register("Bouziani2021")
-    Citations().register("Bouziani2024")
+    petsctools.cite("Bouziani2021")
+    petsctools.cite("Bouziani2024")
 
     if inputs_format not in (0, 1):
         raise ValueError('Expecting inputs_format to be 0 or 1')

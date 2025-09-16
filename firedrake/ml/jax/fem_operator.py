@@ -21,11 +21,11 @@ import numpy as np
 from functools import partial
 from typing import Union, Optional
 
+import petsctools
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.functionspaceimpl import WithGeometry
 from firedrake.constant import Constant
-from firedrake_citations import Citations
 
 from pyadjoint.reduced_functional import ReducedFunctional
 
@@ -114,7 +114,7 @@ def fem_operator(F: ReducedFunctional) -> FiredrakeJaxOperator:
     firedrake.ml.jax.fem_operator.FiredrakeJaxOperator
         A JAX custom operator that wraps the reduced functional `F`.
     """
-    Citations().register("Bouziani2024")
+    petsctools.cite("Bouziani2024")
 
     if not isinstance(F, ReducedFunctional):
         raise ValueError("F must be a ReducedFunctional")
