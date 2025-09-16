@@ -144,8 +144,7 @@ ENV CFLAGS="-O3 -mtune=generic" CPPFLAGS="-O3 -mtune=generic"
 #     packages. These are installed in editable mode.
 #     The order these are installed is important, e.g. FIAT must be installed
 #     before UFL otherwise `pip install fiat` will reinstall pypi ufl.
-# UNDO ME
-RUN git clone --branch connorjward/arm-vtk-wheels \
+RUN git clone --branch ${BRANCH} \
       https://github.com/firedrakeproject/firedrake.git /opt/firedrake \
    && pip cache purge \
    && pip install --verbose ${PETSC_DIR}/src/binding/petsc4py \

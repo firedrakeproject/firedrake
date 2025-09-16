@@ -74,8 +74,7 @@ jobs:
     with:
       target: firedrake-vanilla-${{ matrix.arch }}
       tag: ${{ inputs.tag }}
-      # UNDO ME
-      tag_latest: false
+      tag_latest: ${{ ! inputs.build_dev }}
     secrets: inherit
 
   # Firedrake and friends
@@ -101,6 +100,5 @@ jobs:
     with:
       target: firedrake
       tag: ${{ inputs.tag }}
-      # UNDO ME
-      tag_latest: false
+      tag_latest: ${{ ! inputs.build_dev }}
     secrets: inherit
