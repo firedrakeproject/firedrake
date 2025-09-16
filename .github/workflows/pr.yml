@@ -13,3 +13,13 @@ jobs:
       # Only run macOS tests if the PR is labelled 'macOS'
       test_macos: ${{ contains(github.event.pull_request.labels.*.name, 'macOS') }}
     secrets: inherit
+
+  # UNDO ME
+  docker:
+    name: Build developer Docker containers
+    uses: ./.github/workflows/docker.yml
+    with:
+      tag: vtk-test
+      branch: ${{ github.base_ref }}
+      build_dev: false
+    secrets: inherit

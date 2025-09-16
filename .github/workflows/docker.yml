@@ -74,7 +74,8 @@ jobs:
     with:
       target: firedrake-vanilla-${{ matrix.arch }}
       tag: ${{ inputs.tag }}
-      tag_latest: ${{ ! inputs.build_dev }}
+      # UNDO ME
+      tag_latest: false
     secrets: inherit
 
   # Firedrake and friends
@@ -83,8 +84,7 @@ jobs:
     needs: docker_merge_vanilla
     uses: ./.github/workflows/docker_build.yml
     # Only build the 'firedrake' container for 'linux/amd64' because
-    # VTK (https://gitlab.kitware.com/vtk/vtk/-/issues/18772) and
-    # netgen-mesher do not have ARM wheels so many Firedrake apps cannot
+    # netgen-mesher does not have ARM wheels so many Firedrake apps cannot
     # be installed.
     with:
       os: Linux
@@ -101,5 +101,6 @@ jobs:
     with:
       target: firedrake
       tag: ${{ inputs.tag }}
-      tag_latest: ${{ ! inputs.build_dev }}
+      # UNDO ME
+      tag_latest: false
     secrets: inherit
