@@ -79,6 +79,7 @@ docs = [
   "sphinxcontrib-jquery",
   "sphinxcontrib-svg2pdfconverter",
   "sphinxcontrib-youtube",
+  "sphinx-copybutton",
   "vtk",  # needed to resolve API
 ]
 jax = [

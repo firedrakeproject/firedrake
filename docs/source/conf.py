@@ -36,6 +36,7 @@ extensions = [
     'sphinxcontrib.inkscapeconverter',
     'sphinx.ext.napoleon',
     'sphinx_reredirects',
+    'sphinx_copybutton',
 ]
 
 mathjax_path = 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.min.js'
@@ -444,3 +445,8 @@ else:
 redirects = {
     "download": "install.html",  # map download.html -> install.html
 }
+
+#  -- Options for sphinx_copybutton ------------------------------------
+
+# Do not copy the '$ ' at the start of shell instructions
+copybutton_prompt_text = "$ "
