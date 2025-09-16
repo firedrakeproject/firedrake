@@ -46,17 +46,14 @@ class DeflatedSNES(SNESBase):
         if typ not in ["newtonls", "newtontr", "vinewtonrsls", "vinewtonssls"]:
             raise ValueError("We only know how to deflate with Newton-type methods")
 
-        # snes.getVariableBounds recently added,
-        # be nice to users with old PETSc versions
-        if hasattr(snes, "getVariableBounds") and typ.startswith("vi"):
+        # If we're solving a VI, pass the bounds
+        if typ.startswith("vi"):
             (lb, ub) = snes.getVariableBounds()
             self.inner.setVariableBounds(lb, ub)
 
             # No idea why this is necessary for VINEWTONRSLS but not for NEWTONLS
             with problem.u.dat.vec as x:
                 self.inner.setSolution(x)
-        elif typ.startswith("vi") and not hasattr(snes, "getVariableBounds"):
-            raise ValueError("Need a more recent PETSc with SNES.getVariableBounds wrapped")
 
         self.inner.setUp()
 
