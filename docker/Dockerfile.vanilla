@@ -144,7 +144,8 @@ ENV CFLAGS="-O3 -mtune=generic" CPPFLAGS="-O3 -mtune=generic"
 #     packages. These are installed in editable mode.
 #     The order these are installed is important, e.g. FIAT must be installed
 #     before UFL otherwise `pip install fiat` will reinstall pypi ufl.
-RUN git clone --branch ${BRANCH} \
+# UNDO ME
+RUN git clone --branch connorjward/arm-vtk-wheels \
       https://github.com/firedrakeproject/firedrake.git /opt/firedrake \
    && pip cache purge \
    && pip install --verbose ${PETSC_DIR}/src/binding/petsc4py \
@@ -168,5 +169,5 @@ ENV PYOP2_CFLAGS=$CFLAGS
 
 # Run the smoke tests.
 RUN cd /opt/firedrake/ \
-    && firedrake-check \
+    && firedrake-check --mpiexec 'mpiexec --oversubscribe -n'
     && firedrake-clean

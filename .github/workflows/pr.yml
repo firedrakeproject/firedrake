@@ -20,6 +20,6 @@ jobs:
     uses: ./.github/workflows/docker.yml
     with:
       tag: vtk-test
-      branch: ${{ github.base_ref }}
+      branch: release
       build_dev: false
     secrets: inherit
