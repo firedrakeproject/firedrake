@@ -419,7 +419,7 @@ def pick_mode(mode):
                  "tensor": ("Kirby2006", "Homolya2017", )}
         for c in cites[mode]:
             petsctools.cite(c)
-    except ImportError:
+    except KeyError:
         pass
     if mode == "vanilla":
         import tsfc.vanilla as m
