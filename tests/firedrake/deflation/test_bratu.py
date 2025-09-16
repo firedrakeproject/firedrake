@@ -1,7 +1,7 @@
 from firedrake import *
 
 
-def test_bratu(output=False):
+def test_bratu():
     mesh = UnitIntervalMesh(10)
     V = FunctionSpace(mesh, "CG", 3)
     x = SpatialCoordinate(mesh)[0]
@@ -40,18 +40,4 @@ def test_bratu(output=False):
 
     second = Function(u)
 
-    print(f"Norm of difference: {norm(first - second)}")
     assert norm(first - second) > 1
-
-    if output:
-        return (first, second)
-
-
-if __name__ == "__main__":
-    (first, second) = test_bratu(output=True)
-
-    import matplotlib.pyplot as plt
-    ax = plt.gca()
-    plot(first, linestyle='-', edgecolor='tab:blue', axes=ax)
-    plot(second, linestyle='--', edgecolor='tab:red', axes=ax)
-    plt.show()

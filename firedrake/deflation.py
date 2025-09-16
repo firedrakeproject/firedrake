@@ -95,7 +95,7 @@ class DeflatedSNES(SNESBase):
         return out
 
 
-class DeflatedKSP(object):
+class DeflatedKSP:
     """A custom Python class that implements the key formulae for deflation
     after solving the linear system with the inner KSP."""
 
@@ -172,6 +172,7 @@ class Deflation:
         self.append = self.roots.append
 
     def evaluate(self, y):
+        """Evaluate the value of the deflation operator, at the current guess y."""
         from firedrake import assemble
 
         m = 1.0
@@ -183,6 +184,7 @@ class Deflation:
         return m
 
     def deriv(self, y):
+        """Evaluate the derivative of the deflation operator, at the current guess y."""
         from firedrake import Cofunction, assemble, derivative
         from ufl import product
 

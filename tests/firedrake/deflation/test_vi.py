@@ -1,7 +1,7 @@
 from firedrake import *
 
 
-def test_vi(output=False):
+def test_vi():
     mesh = IntervalMesh(1, 5)
     R = FunctionSpace(mesh, "DG", 0)
 
@@ -59,25 +59,3 @@ def test_vi(output=False):
         deflation.append(soln)
 
     assert len(values) == 5
-
-    if output:
-        return (mesh, J, values)
-
-
-if __name__ == "__main__":
-    import matplotlib.pyplot as plt
-
-    (mesh, J, values) = test_vi(output=True)
-
-    W = FunctionSpace(mesh, "DG", 10)
-    x = SpatialCoordinate(mesh)[0]
-    J_ = Function(W, name="Energy").interpolate(J(x))
-
-    ax = plt.gca()
-    plot(J_, axes=ax)
-    for value in values:
-        plt.plot([value], [J_(value)], '*k')
-    plt.xlabel(r"$x$")
-    plt.ylabel(r"$J(x)$")
-    plt.title("Energy landscape and critical points")
-    plt.show()
