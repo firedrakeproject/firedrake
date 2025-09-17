@@ -1,6 +1,8 @@
 from firedrake import *
+import pytest
 
 
+@pytest.mark.skipcomplex
 def test_bratu():
     mesh = UnitIntervalMesh(10)
     V = FunctionSpace(mesh, "CG", 3)

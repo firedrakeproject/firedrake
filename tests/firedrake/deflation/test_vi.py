@@ -1,6 +1,8 @@
 from firedrake import *
+import pytest
 
 
+@pytest.mark.skipcomplex
 def test_vi():
     mesh = IntervalMesh(1, 5)
     R = FunctionSpace(mesh, "DG", 0)
@@ -55,6 +57,5 @@ def test_vi():
             break
         soln = Function(u)
         values.append(soln.at((0.5,)))
-        print(f"Found solution: {values[-1]}")
 
     assert len(values) == 5
