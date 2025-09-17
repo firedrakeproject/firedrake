@@ -1007,7 +1007,6 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     needs_weight = isinstance(dual_arg, ufl.Cofunction) and not to_element.is_dg()
     if needs_weight:
         W = dual_arg.function_space()
-        # TODO cache DOF multiplicity
         shapes = (W.finat_element.space_dimension(), W.block_size)
         domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
         instructions = """
@@ -1017,11 +1016,14 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         """
         weight = firedrake.Function(W)
         firedrake.par_loop((domain, instructions), ufl.dx, {"w": (weight, op2.INC)})
-        with weight.dat.vec as w:
-            w.reciprocal()
-            petscmat = PETSc.Mat().createDiagonal(w)
-        weight_mat = firedrake.AssembledMatrix((firedrake.TestFunction(W.dual()), firedrake.TrialFunction(W)), None, petscmat)
-        dual_arg = firedrake.assemble(ufl.action(weight_mat, dual_arg))
+
+        # Create a copy and apply the weight
+        # TODO include this in the callables
+        v = firedrake.Function(dual_arg)
+        with v.dat.vec as x, weight.dat.vec as w:
+            x.pointwiseDivide(x, w)
+
+        expr = expr._ufl_expr_reconstruct_(operand, v=v)
 
     # We need to pass both the ufl element and the finat element
     # because the finat elements might not have the right mapping
@@ -1039,10 +1041,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     name = kernel.name
     kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
                         flop_count=kernel.flop_count, events=(kernel.event,))
-
     parloop_args = [kernel, cell_set]
 
-    expr = ufl.Interpolate(operand, v=dual_arg)
     coefficients = tsfc_interface.extract_numbered_coefficients(expr, coefficient_numbers)
     if needs_external_coords:
         coefficients = [source_mesh.coordinates] + coefficients

@@ -1,6 +1,7 @@
 import collections
 import time
 import sys
+import numpy
 from itertools import chain
 from finat.physically_mapped import DirectlyDefinedElement, PhysicallyMappedElement
 
@@ -298,11 +299,14 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
 
     # Compute the action against the dual argument
     if dual_arg in coefficients:
-        k = len(basis_indices) - len(operand.ufl_shape)
-        beta = basis_indices[k:] + basis_indices[:k]
-        shape = tuple(i.extent for i in beta)
-        gem_dual = gem.Variable(f"w_{coefficients.index(dual_arg)}", shape=shape)
-        evaluation = gem.IndexSum(evaluation * gem_dual[beta], basis_indices)
+        name = f"w_{coefficients.index(dual_arg)}"
+        shape = tuple(i.extent for i in basis_indices)
+        size = numpy.prod(shape, dtype=int)
+        gem_dual = gem.Variable(name, shape=(size,))
+        gem_dual = gem.reshape(gem_dual, shape)
+
+        evaluation = gem.IndexSum(evaluation * gem_dual[basis_indices], basis_indices)
+        evaluation = gem.optimise.sum_factorise(*gem.optimise.delta_elimination(*gem.optimise.traverse_product(evaluation)))
         basis_indices = ()
 
     # Build kernel body
