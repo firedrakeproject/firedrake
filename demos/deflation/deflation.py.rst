@@ -50,7 +50,7 @@ Applying deflation requires two ingredients: the ``DeflatedSNES`` nonlinear solv
           "snes_python_type": "firedrake.DeflatedSNES",
           "deflated_snes_type": "newtonls",
           "deflated_snes_monitor": None,
-          "deflated_snes_linesearch_type": "l2",
+          "deflated_snes_linesearch_type": "basic",
           "deflated_ksp_type": "preonly",
           "deflated_pc_type": "lu"}
 
@@ -64,20 +64,27 @@ We now find the first solution: ::
     u.assign(guess)
     solver.solve()
 
-With the first solution in hand, we record it in the `Deflation` object, reset our initial guess, and solve again: ::
+The first solution has now been deflated automatically in the ``Deflation`` object. If we reset our initial guess and solve again, we find the second solution: ::
 
-    first = Function(u)
-    deflation.append(first)
     u.assign(guess)
     solver.solve()
-    second = Function(u)
 
 We can check that the two solutions are distinct: ::
 
+    # Prints 'Norm of difference: 1.7514003250270025'
+    (first, second) = deflation.roots
     print(f"Norm of difference: {norm(first - second)}")
     assert norm(first - second) > 1
 
-The two solutions are plotted below (the first in blue, the second in red).
+We can plot the two solutions: ::
+
+    import matplotlib.pyplot as plt
+    ax = plt.gca()
+    plot(first, linestyle='-', edgecolor='tab:blue', axes=ax)
+    plot(second, linestyle='--', edgecolor='tab:red', axes=ax)
+    plt.show()
+
+This results in the plot below (the first in blue, the second in red):
 
 .. image:: solutions.png
     :align: center

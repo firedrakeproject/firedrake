@@ -25,13 +25,14 @@ class DeflatedSNES(SNESBase):
     """
 
     def update(self, snes):
-        self.inner.setUp()
+        pass
 
     def initialize(self, snes):
         Citations().register("Farrell2015")
         ctx = get_appctx(snes.getDM())
         problem = ctx._problem
         dm = problem.dm
+        self.problem = problem
 
         self.inner = PETSc.SNES().create(comm=dm.comm)
         prefix = snes.getOptionsPrefix() or ""
@@ -53,14 +54,17 @@ class DeflatedSNES(SNESBase):
             self.inner.setVariableBounds(lb, ub)
 
             # No idea why this is necessary for VINEWTONRSLS but not for NEWTONLS
-            with problem.u.dat.vec as x:
             with problem.u_restrict.dat.vec as x:
+                self.inner.setSolution(x)
 
         self.inner.setUp()
 
         # Get the deflation object from the appctx
         appctx = ctx.appctx
         deflation = appctx.get("deflation")
+        if deflation is None:
+            raise ValueError("To use DeflatedSNES you need to pass a Deflation object in the appctx.")
+        self.deflation = deflation
 
         # Hijack the KSP of the SNES we just created.
         oldksp = self.inner.ksp
@@ -68,6 +72,7 @@ class DeflatedSNES(SNESBase):
         self.inner.ksp = PETSc.KSP().createPython(defksp, comm=dm.comm)
         self.inner.ksp.pc.setType('none')
         defksp = DeflatedKSP(deflation, problem.u_restrict, oldksp, self.inner)
+
     def view(self, snes, viewer=None):
         if viewer is None:
             return
@@ -79,17 +84,18 @@ class DeflatedSNES(SNESBase):
         ctx = get_appctx(snes.getDM())
         appctx = ctx.appctx
         deflation = appctx.get("deflation")
-
-        if deflation:
-            viewer.printfASCII(f"Deflating {len(deflation.roots)} solutions\n")
-        else:
-            viewer.printfASCII("No deflation object found, not deflating any solutions\n")
+        viewer.printfASCII(f"Deflating {len(deflation.roots)} solutions\n")
 
         self.inner.view(viewer)
 
     def solve(self, snes, b, x):
+        from firedrake import Function
         out = self.inner.solve(b, x)
         snes.reason = self.inner.reason
+
+        # Record the solution we've just found
+        self.deflation.append(Function(self.problem.u))
+
         return out
 
 
@@ -173,7 +179,7 @@ class Deflation:
 
     def __iter__(self):
         return iter(self.roots)
-        
+
     def __len__(self):
         return len(self.roots)
 
@@ -192,7 +198,7 @@ class Deflation:
     def deriv(self, y):
         """Evaluate the derivative of the deflation operator, at the current guess y."""
         from firedrake import Cofunction, assemble, derivative
-        from ufl import product
+        from numpy import prod
 
         if len(self.roots) == 0:
             deta = Cofunction(y.function_space().dual())
@@ -216,7 +222,7 @@ class Deflation:
             factors.append(factor)
             dfactors.append(dfactor)
 
-        eta = product(factors)
+        eta = prod(factors)
 
         deta = assemble(sum(((eta/factor)*dfactor) * dnormsq
                             for factor, dfactor, dnormsq in zip(factors, dfactors, dnormsqs)))

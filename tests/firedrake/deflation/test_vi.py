@@ -56,6 +56,5 @@ def test_vi():
         soln = Function(u)
         values.append(soln.at((0.5,)))
         print(f"Found solution: {values[-1]}")
-        deflation.append(soln)
 
     assert len(values) == 5
