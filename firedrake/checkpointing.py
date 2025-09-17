@@ -264,7 +264,7 @@ class DumbCheckpoint(object):
         name = name or function.name()
         group = self._get_data_group()
         self._write_timestep_attr(group)
-        with function.dat.vec_ro as v:
+        with function.vec_ro as v:
             self.vwr.pushGroup(group)
             oname = v.getName()
             v.setName(name)
@@ -287,7 +287,7 @@ class DumbCheckpoint(object):
             raise ValueError("Can only load functions")
         name = name or function.name()
         group = self._get_data_group()
-        with function.dat.vec_wo as v:
+        with function.vec_wo as v:
             self.vwr.pushGroup(group)
             # PETSc replaces the array in the Vec, which screws things
             # up for us, so read into temporary Vec.
@@ -460,7 +460,7 @@ class HDF5File(object):
             suffix = "/%.15e" % timestamp
             path = path + suffix
 
-        with function.dat.vec_ro as v:
+        with function.vec_ro as v:
             dset = self._h5file.create_dataset(path, shape=(v.getSize(),), dtype=function.dat.dtype)
 
             # Another MPI/non-MPI difference
@@ -488,7 +488,7 @@ class HDF5File(object):
             suffix = "/%.15e" % timestamp
             path = path + suffix
 
-        with function.dat.vec_wo as v:
+        with function.vec_wo as v:
             dset = self._h5file[path]
             v.array[:] = dset[slice(*v.getOwnershipRange())]
 
@@ -1003,7 +1003,7 @@ class CheckpointFile(object):
                     assert idx is not None, "In timestepping mode: idx parameter must be set"
                 else:
                     assert idx is None, "In non-timestepping mode: idx parameter msut not be set"
-            with tf.dat.vec_ro as vec:
+            with tf.vec_ro as vec:
                 vec.setName(tf.name())
                 base_tmesh_name = topology_dm.getName()
                 with self.opts.inserted_options():
@@ -1367,7 +1367,7 @@ class CheckpointFile(object):
                     assert idx is None, "In non-timestepping mode: idx parameter msut not be set"
             else:
                 raise RuntimeError(f"Function {path} not found in {self.filename}")
-            with tf.dat.vec_wo as vec:
+            with tf.vec_wo as vec:
                 vec.setName(tf_name)
                 sd_key = self._get_shared_data_key_for_checkpointing(tmesh, element)
                 tmesh_key = self._generate_mesh_key_from_names(tmesh.name,

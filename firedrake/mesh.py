@@ -4659,15 +4659,15 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     if layers.shape:
         if periodic:
             raise ValueError("Must provide constant layer for periodic extrusion")
-        if layers.shape != (mesh.cell_set.total_size, 2):
+        if layers.shape != (mesh.cells.size, 2):
             raise ValueError("Must provide single layer number or array of shape (%d, 2), not %s",
-                             mesh.cell_set.total_size, layers.shape)
+                             mesh.cells.size, layers.shape)
         if layer_height is None:
             raise ValueError("Must provide layer height for variable layers")
 
         # variable-height layers need to be present for the maximum number
         # of extruded layers
-        num_layers = layers.sum(axis=1).max() if mesh.cell_set.total_size else 0
+        num_layers = layers.sum(axis=1).max() if mesh.cells.size else 0
         num_layers = mesh._comm.allreduce(num_layers, op=MPI.MAX)
 
         # Convert to internal representation
