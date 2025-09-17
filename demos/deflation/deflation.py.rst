@@ -34,7 +34,7 @@ We implement the usual weak formulation of the equation in Firedrake as standard
     x = SpatialCoordinate(mesh)[0]
 
     u = Function(V)
-    guess = 6*x*(1-x)
+    guess = Function(V).interpolate(6*x*(1-x))
     v = TestFunction(V)
 
     # For this value of lambda we expect two solutions
@@ -61,14 +61,14 @@ Applying deflation requires two ingredients: the ``DeflatedSNES`` nonlinear solv
 
 We now find the first solution: ::
 
-    u.interpolate(guess)
+    u.assign(guess)
     solver.solve()
 
 With the first solution in hand, we record it in the `Deflation` object, reset our initial guess, and solve again: ::
 
     first = Function(u)
     deflation.append(first)
-    u.interpolate(guess)
+    u.assign(guess)
     solver.solve()
     second = Function(u)
 

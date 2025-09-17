@@ -34,7 +34,8 @@ class DeflatedSNES(SNESBase):
         dm = problem.dm
 
         self.inner = PETSc.SNES().create(comm=dm.comm)
-        self.inner.setOptionsPrefix(snes.getOptionsPrefix() + "deflated_")
+        prefix = snes.getOptionsPrefix() or ""
+        self.inner.setOptionsPrefix(prefix + "deflated_")
         self.inner.setDM(dm)
         ctx.set_function(self.inner)
         ctx.set_jacobian(self.inner)
@@ -53,7 +54,7 @@ class DeflatedSNES(SNESBase):
 
             # No idea why this is necessary for VINEWTONRSLS but not for NEWTONLS
             with problem.u.dat.vec as x:
-                self.inner.setSolution(x)
+            with problem.u_restrict.dat.vec as x:
 
         self.inner.setUp()
 
@@ -66,7 +67,7 @@ class DeflatedSNES(SNESBase):
         defksp = DeflatedKSP(deflation, problem.u, oldksp, self.inner)
         self.inner.ksp = PETSc.KSP().createPython(defksp, comm=dm.comm)
         self.inner.ksp.pc.setType('none')
-
+        defksp = DeflatedKSP(deflation, problem.u_restrict, oldksp, self.inner)
     def view(self, snes, viewer=None):
         if viewer is None:
             return
@@ -131,6 +132,8 @@ class DeflatedKSP:
             return 1
 
     def getEdy(self, deflation, y, dy, vi_inact):
+        if len(deflation) == 0:
+            return 0
 
         with deflation.deriv(y).dat.vec as deriv:
             if vi_inact is not None:
@@ -160,13 +163,19 @@ class Deflation:
     def __init__(self, roots=None, power=2, shift=1, op=None):
         self.power = power
         self.shift = shift
-        self.roots = list(roots if roots else [])
+        self.roots = list(roots) if roots else []
 
         if op is None:
             op = lambda x, y: inner(x - y, x - y)*dx
         self.op = op
 
         self.append = self.roots.append
+
+    def __iter__(self):
+        return iter(self.roots)
+        
+    def __len__(self):
+        return len(self.roots)
 
     def evaluate(self, y):
         """Evaluate the value of the deflation operator, at the current guess y."""
@@ -175,7 +184,7 @@ class Deflation:
         m = 1.0
         for root in self.roots:
             normsq = assemble(self.op(y, root))
-            factor = normsq**(-self.power/2.0) + self.shift
+            factor = normsq**(-self.power/2.0) + float(self.shift)
             m *= factor
 
         return m
@@ -195,13 +204,13 @@ class Deflation:
         dnormsqs = []
         normsqs = []
 
-        for root in self.roots:
+        for root in self:
             form = self.op(y, root)
             normsqs.append(assemble(form))
             dnormsqs.append(assemble(derivative(form, y)))
 
         for normsq in normsqs:
-            factor = normsq**(-p/2.0) + self.shift
+            factor = normsq**(-p/2.0) + float(self.shift)
             dfactor = (-p/2.0) * normsq**((-p/2.0) - 1.0)
 
             factors.append(factor)
@@ -209,9 +218,7 @@ class Deflation:
 
         eta = product(factors)
 
-        deta = Cofunction(y.function_space().dual())
-
-        for (_, factor, dfactor, dnormsq) in zip(self.roots, factors, dfactors, dnormsqs):
-            deta.assign(float((eta/factor)*dfactor)*dnormsq + deta)
+        deta = assemble(sum(((eta/factor)*dfactor) * dnormsq
+                            for factor, dfactor, dnormsq in zip(factors, dfactors, dnormsqs)))
 
         return deta
