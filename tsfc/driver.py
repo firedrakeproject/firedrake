@@ -306,7 +306,6 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
         gem_dual = gem.reshape(gem_dual, shape)
 
         evaluation = gem.IndexSum(evaluation * gem_dual[basis_indices], basis_indices)
-        evaluation = gem.optimise.sum_factorise(*gem.optimise.delta_elimination(*gem.optimise.traverse_product(evaluation)))
         basis_indices = ()
 
     # Build kernel body
