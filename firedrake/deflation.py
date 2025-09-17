@@ -197,7 +197,7 @@ class Deflation:
 
     def deriv(self, y):
         """Evaluate the derivative of the deflation operator, at the current guess y."""
-        from firedrake import Cofunction, assemble, derivative
+        from firedrake import assemble, derivative
         from numpy import prod
 
         p = self.power
