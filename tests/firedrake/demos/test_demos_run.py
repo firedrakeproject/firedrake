@@ -22,6 +22,7 @@ SERIAL_DEMOS = [
     Demo(("boussinesq", "boussinesq"), []),
     Demo(("burgers", "burgers"), ["vtk"]),
     Demo(("camassa-holm", "camassaholm"), ["vtk"]),
+    Demo(("deflation", "deflation"), ["matplotlib"]),
     Demo(("DG_advection", "DG_advection"), ["matplotlib"]),
     Demo(("eigenvalues_QG_basinmodes", "qgbasinmodes"), ["matplotlib", "slepc", "vtk"]),
     Demo(("extruded_continuity", "extruded_continuity"), []),
