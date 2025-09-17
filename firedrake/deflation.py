@@ -200,10 +200,6 @@ class Deflation:
         from firedrake import Cofunction, assemble, derivative
         from numpy import prod
 
-        if len(self.roots) == 0:
-            deta = Cofunction(y.function_space().dual())
-            return deta
-
         p = self.power
         factors = []
         dfactors = []
