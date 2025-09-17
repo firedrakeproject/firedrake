@@ -302,9 +302,9 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
         name = f"w_{coefficients.index(dual_arg)}"
         shape = tuple(i.extent for i in basis_indices)
         size = numpy.prod(shape, dtype=int)
-        gem_dual = gem.Variable(name, shape=(size,))
-        gem_dual = gem.reshape(gem_dual, shape)
-
+        gem_dual = gem.reshape(gem.Variable(name, shape=(size,)), shape)
+        if complex_mode:
+            evaluation = gem.MathFunction('conj', evaluation)
         evaluation = gem.IndexSum(evaluation * gem_dual[basis_indices], basis_indices)
         basis_indices = ()
 
