@@ -29,6 +29,7 @@ from firedrake import utils
 from firedrake import vector
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
+from firedrake.functionspaceimpl import parse_component_indices
 
 
 __all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction']
@@ -129,7 +130,22 @@ class CoordinatelessFunction(ufl.Coefficient):
             return (self,)
 
     @utils.cached_property
-    def _components(self):
+    def _components(self) -> np.ndarray["CoordinatelessFunction"]:
+        shape = self.function_space().shape
+        components = np.empty(shape, dtype=object)
+        for ix in np.ndindex(shape):
+            indices = op3.IndexTree.from_iterable((
+                op3.ScalarIndex(f"dim{i_}", "XXX", j_)
+                for i_, j_ in enumerate(ix)
+            ))
+            component = type(self)(
+                self.function_space().sub(ix),
+                val=self.dat[indices],
+                name=f"view[{','.join(map(str, ix))}]({self.name()})"
+            )
+            components[ix] = component
+        return utils.readonly(components)
+
         if self.function_space().rank == 0:
             return (self,)
         else:
@@ -317,27 +333,40 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @utils.cached_property
     def _components(self):
-        if self.function_space().rank == 0:
-            return (self, )
-        else:
-            return tuple(type(self)(self.function_space().sub(i, weak=False), self.topological.sub(i))
-                         for i in range(self.function_space().block_size))
+        shape = self.function_space().shape
+        components = np.empty(shape, dtype=object)
+        for ix in np.ndindex(shape):
+            components[ix] = type(self)(self.function_space().sub(ix), self.topological.sub(ix))
+        return utils.readonly(components)
 
     @PETSc.Log.EventDecorator()
-    def sub(self, i):
-        r"""Extract the ith sub :class:`Function` of this :class:`Function`.
+    def sub(self, indices: tuple[int] | int) -> "Function":
+        """Extract the `i`th sub function of this function.
 
-        :arg i: the index to extract
+        If the `Function` is defined on a `~.VectorFunctionSpace` or
+        `~.TensorFunctionSpace` this returns a proxy object indexing the 'i'th
+        component of the space, suitable for use in boundary condition application.
 
-        See also :attr:`subfunctions`.
+        Parameters
+        ----------
+        indices :
+            Indices indicating the sub function to extract. If an `int` is
+            used then this is converted into a `tuple`.
 
-        If the :class:`Function` is defined on a
-        :func:`~.VectorFunctionSpace` or :func:`~.TensorFunctionSpace` this returns a proxy object
-        indexing the ith component of the space, suitable for use in
-        boundary condition application."""
-        mixed = type(self.function_space().ufl_element()) is MixedElement
-        data = self.subfunctions if mixed else self._components
-        return data[i]
+        Returns
+        -------
+        The sub function.
+
+        See Also
+        --------
+        subfunctions
+
+        """
+        if type(self.function_space().ufl_element()) is MixedElement:
+            return self.subfunctions[indices]
+        else:
+            indices = parse_component_indices(indices, self.function_space().shape)
+            return self._components[indices]
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_project
