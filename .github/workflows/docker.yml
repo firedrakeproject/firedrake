@@ -83,8 +83,7 @@ jobs:
     needs: docker_merge_vanilla
     uses: ./.github/workflows/docker_build.yml
     # Only build the 'firedrake' container for 'linux/amd64' because
-    # VTK (https://gitlab.kitware.com/vtk/vtk/-/issues/18772) and
-    # netgen-mesher do not have ARM wheels so many Firedrake apps cannot
+    # netgen-mesher does not have ARM wheels so many Firedrake apps cannot
     # be installed.
     with:
       os: Linux
