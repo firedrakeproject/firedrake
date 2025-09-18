@@ -1070,8 +1070,6 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     cell_index = cell_set.index()
     local_kernel_args = []
-    pack_insns = []
-    unpack_insns = []
 
     coefficients = tsfc_interface.extract_numbered_coefficients(expr, kernel.coefficient_numbers)
     if kernel.needs_external_coords:
@@ -1112,10 +1110,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     expr_arguments = extract_arguments(expr)
     if len(expr_arguments) == 0:
-        tensor_pack_insns, packed_tensor, tensor_unpack_insns = pack_pyop3_tensor(tensor, V, cell_index, "cell", access)
+        packed_tensor = pack_pyop3_tensor(tensor, V, cell_index, "cell")
         local_kernel_args.append(packed_tensor)
-        pack_insns.extend(tensor_pack_insns)
-        unpack_insns.extend(tensor_unpack_insns)
     else:
         raise NotImplementedError
         assert len(expr_arguments) == 1
@@ -1177,10 +1173,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
                 raise ValueError("Have coefficient with unexpected mesh")
         else:
             coeff_index = coefficient.function_space().cell_closure_map(cell_index)
-        coeff_pack_insns, packed_coeff, coeff_unpack_insns = pack_tensor(coefficient, cell_index, "cell", op3.READ, target_mesh=target_mesh)
+        packed_coeff = pack_tensor(coefficient, cell_index, "cell", target_mesh=target_mesh)
         local_kernel_args.append(packed_coeff)
-        pack_insns.extend(coeff_pack_insns)
-        unpack_insns.extend(coeff_unpack_insns)
 
     for const in extract_firedrake_constants(expr):
         # constants do not require indexing
@@ -1188,8 +1182,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in local_kernel_args[1:]])
     parloop = op3.loop(
-        cell_index,
-        [*pack_insns, expression_kernel(*local_kernel_args), *unpack_insns],
+        cell_index,expression_kernel(*local_kernel_args)
     )
     if len(expr_arguments) == 1:
         return parloop, tensor.assemble

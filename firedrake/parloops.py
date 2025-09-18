@@ -352,9 +352,9 @@ def pack_tensor(tensor: Any, index: op3.LoopIndex, integral_type: str, **kwargs)
 @pack_tensor.register(Function)
 @pack_tensor.register(Cofunction)
 @pack_tensor.register(CoordinatelessFunction)
-def _(func, index: op3.LoopIndex, integral_type: str, intent, *, target_mesh=None):
+def _(func, index: op3.LoopIndex, integral_type: str, *, target_mesh=None):
     return pack_pyop3_tensor(
-        func.dat, func.function_space(), index, integral_type, intent, target_mesh=target_mesh
+        func.dat, func.function_space(), index, integral_type, target_mesh=target_mesh
     )
 
 
@@ -378,7 +378,6 @@ def _(
     V: WithGeometry,
     loop_index: op3.LoopIndex,
     integral_type: str,
-    intent: op3.Intent,
     *,
     target_mesh=None
 ):
@@ -416,24 +415,19 @@ def _(
         raise NotImplementedError
 
     packed_dat = dat[mesh.closure(cell)]
-    work_dat = packed_dat.materialize()
-    g2l_transform_insns, local_result, l2g_transform_insns, global_result = transform_packed_cell_closure_dat(work_dat, V, cell)
+    dat_sequence = transform_packed_cell_closure_dat(packed_dat, V, cell)
+    assert len(dat_sequence) % 2 == 1, "Must have an odd number"
 
-    if intent == op3.READ:
-        pack_insns = (work_dat.assign(packed_dat), *g2l_transform_insns)
-        unpack_insns = ()
-    elif intent == op3.WRITE:
-        # pack_insns = ()  # unintuitively this does not work for interpolation
-        pack_insns = (work_dat.zero(),)
-        unpack_insns = (*l2g_transform_insns, packed_dat.assign(global_result))
-    else:
-        assert intent == op3.INC
-        pack_insns = (work_dat.zero(),)
-        unpack_insns = (*l2g_transform_insns, packed_dat.iassign(global_result))
+    # NOTE: This replicates some logic about packing that we already have, if we package up
+    # the pack and unpack instructions somehow we could delay actually doing them until
+    # the compiler could decide if they are needed.
+    if len(dat_sequence) > 1:
+        # need to have sequential assignments I think
+        raise NotImplementedError
 
-    return pack_insns, local_result, unpack_insns
+    kernel_dat = dat_sequence[len(dat_sequence) // 2]
 
-
+    return kernel_dat
 
 
     # if integral_type == "cell":
@@ -506,6 +500,7 @@ def _(
     index: op3.LoopIndex,
     integral_type: str
 ):
+    raise NotImplementedError
     if integral_type not in {"cell", "interior_facet", "exterior_facet"}:
         raise NotImplementedError("TODO")
 
@@ -537,29 +532,13 @@ def _(
     return maybe_permute_packed_tensor(indexed, Vrow.finat_element, Vcol.finat_element, Vrow.shape, Vcol.shape)
 
 
-def maybe_reorder_cell_closure(packed_dat: op3.Dat):
-    ...
-
-
-def pack_cell_closure(packed_dat: op3.Dat, space, cell: op3.Index):
-    assert len(space) == 1
-    mesh = space.mesh()
-
-    insns = []
-
-
 @functools.singledispatch
 def maybe_permute_packed_tensor(tensor: op3.Tensor, *spaces) -> op3.Tensor:
     raise TypeError
 
 
 def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op3.LoopIndex):
-    # by default do no transformation
-    local_result = packed_dat
-    global_result = local_result
-    g2l_transform_insns = []
-    l2g_transform_insns = []
-
+    dat_sequence = [packed_dat]
 
     dof_numbering = _flatten_entity_dofs(space.finat_element.entity_dofs())
     dof_perm = invert_permutation(dof_numbering)
@@ -580,13 +559,14 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
             [op3.Subset(None, dof_perm_dat)],
         )
 
-        local_result = local_result.reshape(nodal_axis_tree)[dof_perm_slice]
-        global_result = local_result[dof_numbering_slice].reshape(global_result.axes)  # inverse transformation
+        dat_sequence[-1] = dat_sequence[-1].reshape(nodal_axis_tree)[dof_perm_slice]
 
     if space.mesh() is ufl.hexahedron:
         raise NotImplementedError
         perms = _entity_permutations(element)
         mytree = _orientations(plex, perms, index, integral_type)
+
+    return dat_sequence
 
     return tuple(g2l_transform_insns), local_result, tuple(l2g_transform_insns), global_result
 

@@ -1897,21 +1897,14 @@ class ParloopBuilder:
         """Construct the parloop."""
         p = self._iterset.index()
         packed_args = []
-        pack_insns = []
-        unpack_insns = []
         for tsfc_arg in self._kinfo.arguments:
-            arg_pack_insns, packed_arg, arg_unpack_insns = self._as_parloop_arg(tsfc_arg, p)
+            packed_arg = self._as_parloop_arg(tsfc_arg, p)
             packed_args.append(packed_arg)
-            pack_insns.extend(arg_pack_insns)
-            unpack_insns.extend(arg_unpack_insns)
         self._kinfo.kernel.code = self._kinfo.kernel.code.with_entrypoints({self._kinfo.kernel.name})
         kernel = op3.Function(
             self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in packed_args[1:]]
         )
-        return op3.loop(
-            p,
-            [*pack_insns, kernel(*packed_args), *unpack_insns],
-        )
+        return op3.loop(p, kernel(*packed_args))
 
     @property
     def test_function_space(self):
@@ -2075,36 +2068,34 @@ class ParloopBuilder:
         Vs = self._indexed_function_spaces
 
         if rank == 0:
-            return (), tensor, ()
+            return tensor
         elif rank == 1 or rank == 2 and self._diagonal:
             V, = Vs
             dat = OneFormAssembler._as_pyop3_type(tensor, self._indices)
 
-            return pack_pyop3_tensor(dat, V, index, self._integral_type, op3.INC)
+            return pack_pyop3_tensor(dat, V, index, self._integral_type)
         elif rank == 2:
             mat = ExplicitMatrixAssembler._as_pyop3_type(tensor, self._indices)
-            return pack_pyop3_tensor(mat, *Vs, index, self._integral_type, op3.INC)
+            return pack_pyop3_tensor(mat, *Vs, index, self._integral_type)
         else:
             raise AssertionError
 
     @_as_parloop_arg.register(kernel_args.CoordinatesKernelArg)
     def _as_parloop_arg_coordinates(self, _, index):
-        return pack_tensor(self._mesh.coordinates, index, self._integral_type, op3.READ)
+        return pack_tensor(self._mesh.coordinates, index, self._integral_type)
 
     @_as_parloop_arg.register(kernel_args.CoefficientKernelArg)
     def _as_parloop_arg_coefficient(self, arg, index):
         coeff = next(self._active_coefficients)
-        return pack_tensor(coeff, index, self._integral_type, op3.READ)
+        return pack_tensor(coeff, index, self._integral_type)
 
     @_as_parloop_arg.register(kernel_args.ConstantKernelArg)
     def _as_parloop_arg_constant(self, arg, index):
-        raise NotImplementedError
         const = next(self._constants)
         return const.dat
 
     @_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
     def _as_parloop_arg_cell_orientations(self, _, index):
-        raise NotImplementedError
         return pack_tensor(self._mesh.cell_orientations(), index, self._integral_type)
 
     @_as_parloop_arg.register(kernel_args.CellSizesKernelArg)
