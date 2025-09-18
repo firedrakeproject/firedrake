@@ -640,7 +640,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 if is_adjoint:
                     # Out-of-place Hermitian transpose
                     petsc_mat.hermitianTranspose(out=res)
-                elif tensor:
+                elif res:
                     # Copy the interpolation matrix into the output tensor
                     petsc_mat.copy(result=res)
                 else:
