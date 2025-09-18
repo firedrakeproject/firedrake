@@ -74,8 +74,7 @@ def test_interpolate_with_arguments(rg):
     x, y = SpatialCoordinate(mesh)
     expr = x + y
     f = assemble(interpolate(expr, V1))
-    interpolator = Interpolator(TestFunction(V1), V2)
-    u = assemble(interpolator.interpolate(f))
+    u = assemble(interpolate(f, V2))
 
     J = assemble(u ** 2 * dx)
     rf = ReducedFunctional(J, Control(f))

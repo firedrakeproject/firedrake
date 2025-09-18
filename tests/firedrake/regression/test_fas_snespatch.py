@@ -59,11 +59,9 @@ def solver_params(request):
                "fas_coarse_snes_linesearch_type": "secant",
                "fas_coarse_ksp_type": "preonly",
                "fas_coarse_ksp_max_it": 1,
-               "fas_coarse_pc_type": "python",
-               "fas_coarse_pc_python_type": "firedrake.AssembledPC",
-               "fas_coarse_assembled_mat_type": "aij",
-               "fas_coarse_assembled_pc_type": "lu",
-               "fas_coarse_assembled_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
+               "fas_coarse_mat_type": "aij",
+               "fas_coarse_pc_type": "lu",
+               "fas_coarse_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
                "snes_view": None
         }
     elif request.param == 1:
@@ -106,11 +104,9 @@ def solver_params(request):
                "fas_coarse_snes_linesearch_type": "secant",
                "fas_coarse_ksp_type": "preonly",
                "fas_coarse_ksp_max_it": 1,
-               "fas_coarse_pc_type": "python",
-               "fas_coarse_pc_python_type": "firedrake.AssembledPC",
-               "fas_coarse_assembled_mat_type": "aij",
-               "fas_coarse_assembled_pc_type": "lu",
-               "fas_coarse_assembled_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
+               "fas_coarse_mat_type": "aij",
+               "fas_coarse_pc_type": "lu",
+               "fas_coarse_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
                "snes_view": None
         }
     else:
@@ -154,11 +150,9 @@ def solver_params(request):
                "fas_coarse_snes_linesearch_type": "secant",
                "fas_coarse_ksp_type": "preonly",
                "fas_coarse_ksp_max_it": 1,
-               "fas_coarse_pc_type": "python",
-               "fas_coarse_pc_python_type": "firedrake.AssembledPC",
-               "fas_coarse_assembled_mat_type": "aij",
-               "fas_coarse_assembled_pc_type": "lu",
-               "fas_coarse_assembled_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
+               "fas_coarse_mat_type": "aij",
+               "fas_coarse_pc_type": "lu",
+               "fas_coarse_pc_factor": DEFAULT_DIRECT_SOLVER_PARAMETERS,
         }
 
 

@@ -124,14 +124,7 @@ def functionspace_tests(vm, petsc_raises):
     perm_mat = assemble(interpolate(TestFunction(V), W, matfree=False))
     h2 = assemble(perm_mat @ g)
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
-    # check other interpolation APIs work identically
     h2 = assemble(interpolate(g, W))
-    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
-    I = Interpolator(g, W)
-    h2 = assemble(I.interpolate())
-    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
-    h2.zero()
-    assemble(I.interpolate(), tensor=h2)
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
     # check we can interpolate expressions
     h2 = Function(W)
@@ -141,39 +134,33 @@ def functionspace_tests(vm, petsc_raises):
     g.dat.data_wo_with_halos[:] = -1
     g.interpolate(h)
     assert np.allclose(g.dat.data_ro_with_halos, np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
-    # Can equivalently create interpolators and use them. NOTE the
-    # adjoint interpolator is equivilent to the inverse here because the
-    # inner product matrix in the reisz representer is the identity. TODO: when
-    # we introduce cofunctions, this will need to be rewritten.
-    I_io = Interpolator(TestFunction(V), W)
-    h = assemble(I_io.interpolate(g))
+
+    h = assemble(interpolate(g, W))
     assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
-    I2_io = Interpolator(2*TestFunction(V), W)
-    h2 = assemble(I2_io.interpolate(g))
+    h2 = assemble(interpolate(2*g, W))
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
 
     h_star = h.riesz_representation(riesz_map="l2")
-    g = assemble(I_io.interpolate(h_star, adjoint=True))
+    g = assemble(interpolate(TestFunction(V), h_star))
     assert np.allclose(g.dat.data_ro_with_halos, np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
     with petsc_raises(NotImplementedError):
-        # Can't use adjoint on interpolators with expressions yet
-        g2 = assemble(I2_io.interpolate(h_star, adjoint=True))
+        # Can't use adjoint on interpolates with expressions yet
+        g2 = assemble(interpolate(2 * TestFunction(V), h_star))
         assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
 
-    I_io_adjoint = Interpolator(TestFunction(W), V)
-    I2_io_adjoint = Interpolator(2*TestFunction(W), V)
-    h_star = assemble(I_io_adjoint.interpolate(g, adjoint=True))
+    h_star = assemble(interpolate(TestFunction(W), g))
     h = h_star.riesz_representation(riesz_map="l2")
     assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
     with petsc_raises(NotImplementedError):
-        # Can't use adjoint on interpolators with expressions yet
-        h2 = assemble(I2_io_adjoint.interpolate(g, adjoint=True))
+        # Can't use adjoint on interpolates with expressions yet
+        h2 = assemble(interpolate(2 * TestFunction(W), g))
         assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
-    g = assemble(I_io_adjoint.interpolate(h))
+
+    g = assemble(interpolate(h, V))
     assert np.allclose(g.dat.data_ro_with_halos, np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
-    g2 = assemble(I2_io_adjoint.interpolate(h))
+    g2 = assemble(interpolate(2 * h, V))
     assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
 
 
@@ -235,12 +222,6 @@ def vectorfunctionspace_tests(vm, petsc_raises):
     # check other interpolation APIs work identically
     h2 = assemble(interpolate(g, W))
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
-    I = Interpolator(g, W)
-    h2 = assemble(I.interpolate())
-    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
-    h2.zero()
-    assemble(I.interpolate(), tensor=h2)
-    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
     # check we can interpolate expressions
     h2 = Function(W)
     h2.interpolate(2*g)
@@ -249,40 +230,33 @@ def vectorfunctionspace_tests(vm, petsc_raises):
     g.dat.data_wo_with_halos[:] = -1
     g.interpolate(h)
     assert np.allclose(g.dat.data_ro_with_halos, 2*vm.coordinates.dat.data_ro_with_halos)
-    # Can equivalently create interpolators and use them. NOTE the
-    # adjoint interpolator is equivilent to the inverse here because the
-    # inner product matrix in the reisz representer is the identity. TODO: when
-    # we introduce cofunctions, this will need to be rewritten.
-    I_io = Interpolator(TestFunction(V), W)
-    h = assemble(I_io.interpolate(g))
+
+    h = assemble(interpolate(g, W))
     assert np.allclose(h.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
-    I2_io = Interpolator(2*TestFunction(V), W)
-    h2 = assemble(I2_io.interpolate(g))
+    h2 = assemble(interpolate(2*g, W))
     assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
 
     h_star = h.riesz_representation(riesz_map="l2")
-    g = assemble(I_io.interpolate(h_star, adjoint=True))
+    g = assemble(interpolate(TestFunction(V), h_star))
     assert np.allclose(g.dat.data_ro_with_halos, 2*vm.coordinates.dat.data_ro_with_halos)
     with petsc_raises(NotImplementedError):
-        # Can't use adjoint on interpolators with expressions yet
-        g2 = assemble(I2_io.interpolate(h_star, adjoint=True))
+        # Can't use adjoint on interpolate with expressions yet
+        g2 = assemble(interpolate(2 * TestFunction(V), h_star))
         assert np.allclose(g2.dat.data_ro_with_halos, 4*vm.coordinates.dat.data_ro_with_halos)
 
-    I_io_adjoint = Interpolator(TestFunction(W), V)
-    I2_io_adjoint = Interpolator(2*TestFunction(W), V)
-    h_star = assemble(I_io_adjoint.interpolate(g, adjoint=True))
+    h_star = assemble(interpolate(TestFunction(W), g))
     assert np.allclose(h_star.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
     assert np.all(h_star.dat.data_ro_with_halos[~idxs_to_include] == 0)
     with petsc_raises(NotImplementedError):
-        # Can't use adjoint on interpolators with expressions yet
-        h2 = assemble(I2_io_adjoint.interpolate(g, adjoint=True))
+        # Can't use adjoint on interpolate with expressions yet
+        h2 = assemble(interpolate(2 * TestFunction(W), g))
         assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
 
     h = h_star.riesz_representation(riesz_map="l2")
-    g = assemble(I_io_adjoint.interpolate(h))
+    g = assemble(interpolate(h, V))
     assert np.allclose(g.dat.data_ro_with_halos, 2*vm.coordinates.dat.data_ro_with_halos)
-    g2 = assemble(I2_io_adjoint.interpolate(h))
+    g2 = assemble(interpolate(2*h, V))
     assert np.allclose(g2.dat.data_ro_with_halos, 4*vm.coordinates.dat.data_ro_with_halos)
 
 
