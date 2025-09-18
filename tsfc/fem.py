@@ -710,7 +710,8 @@ def translate_coefficient(terminal, mt, ctx):
 
     # Coefficient evaluation
     
-    vectorised_by_cell = any([i.name == "cell" for i in vec.multiindex])
+    # vectorised_by_cell = any([i.name == "cell" for i in vec.multiindex])
+    vectorised_by_cell = False
     cell_index = tuple()
     if vectorised_by_cell:
         cell_index = [i.name == "cell" for i in vec.multiindex][0]

@@ -152,7 +152,8 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
         integral_data_info,
         scalar_type,
         diagonal=diagonal,
-        vectorised_by_cell = parameters["vectorised_by_cell"],
+        # vectorised_by_cell = parameters["vectorised_by_cell"],
+        vectorised_by_cell = False,
     )
     builder.set_coordinates(mesh, vectorised_by_cell=parameters["vectorised_by_cell"])
     builder.set_cell_sizes(mesh, vectorised_by_cell=parameters["vectorised_by_cell"])
@@ -180,7 +181,7 @@ def preprocess_parameters(parameters):
 
     if "FIREDRAKE_USE_GPU" in os.environ:
         parameters["unroll_indexsum"] = 0
-        parameters["vectorised_by_cell"] = True
+        parameters["vectorised_by_cell"] = False
 
     # Remove these here, they're handled later on.
     if parameters.get("quadrature_degree") in ["auto", "default", None, -1, "-1"]:
