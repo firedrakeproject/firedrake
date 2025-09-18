@@ -478,6 +478,43 @@ cdef inline PetscInt _reorder_plex_closure(PETSc.DM dm,
         #                         6---2---7
         raise NotImplementedError(f"Not implemented for {dm.getCellType(p)}")
     elif dm.getCellType(p) == PETSc.DM.PolytopeType.HEXAHEDRON:
+        # FInAT (tensor-product) hex numbering:
+        #
+        #           v3╶───╴e11╶─────╴v7            v3╶─────e11─────╴v7
+        #           ╱                ╱│            ╱|                │
+        #          ╱                ╱ │           ╱ |                │
+        #        e3       f5      e7  │         e3  |                │
+        #        ╱                ╱  e5         ╱  e1       f3      e5
+        #       ╱                ╱    │        ╱    |                │
+        #     v1╶─────e9──────╴v5     │      v1     |                │
+        #      │                │ f1  │       │ f0  |                │
+        #      │                │    v6       │     v2-----e10------v6
+        #      │                │    ╱        │    /                ╱
+        #     e0      f2       e4   ╱        e0   /                ╱
+        #      │                │ e6          │ e2       f4      e6
+        #      │                │ ╱           │ /                ╱
+        #      │                │╱            │/                ╱
+        #     v0╶─────e8──────╴v4            v0╶──────e8─────╴v4
+        #
+        # DMPlex hex numbering:
+        #
+        #
+        #           v7╶────╴e6╶─────╴v6            v7╶─────╴e6─────╴v6
+        #           ╱                ╱│            ╱|                │
+        #          ╱                ╱ │           ╱ |                │
+        #        e7       f1      e5  │         e7  |                │
+        #        ╱                ╱ e11         ╱ e10       f3     e11
+        #       ╱                ╱    │        ╱    |                │
+        #     v4╶─────e4──────╴v5     │      v4     |                │
+        #      │                │ f4  │       │ f5  |                │
+        #      │                │    v2       │     v1------e1------v2
+        #      │                │    ╱        │    /                ╱
+        #     e9      f2       e8   ╱        e9   /                ╱
+        #      │                │ e2          │ e0       f0      e2
+        #      │                │ ╱           │ /                ╱
+        #      │                │╱            │/                ╱
+        #     v0╶─────e3──────╴v3            v0╶──────e3─────╴v3
+        #
         # UFCHexahedron:            3--19---7     3--19---7
         #                         13.       |   13  25  15|
         # cell = 26               1 9  23  11   1--17---5 11
@@ -536,37 +573,51 @@ cdef inline PetscInt _reorder_plex_closure(PETSc.DM dm,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def create_cell_closure(PETSc.DM dm,
-                        _closureSize):
+def create_cell_closure(plex_closures):
     """Create a map from FIAT local entity numbers to DMPlex point numbers for each cell.
 
     :arg dm: The DM object encapsulating the mesh topology
     :arg _closureSize: Number of entities in the cell
     """
     cdef:
-        PetscInt c, cStart, cEnd, cell, i
-        PetscInt closureSize = _closureSize, closureSize1
-        PetscInt *closure = NULL
+        PetscInt c, cStart, cEnd, cell, i, ncells
+        PetscInt closureSize
+        PetscInt *plex_closure = NULL
         PetscInt *fiat_closure = NULL
         np.ndarray cell_closure
 
-    get_height_stratum(dm.dm, 0, &cStart, &cEnd)
-    if cEnd == cStart:
-        return np.empty((cEnd - cStart, closureSize), dtype=IntType)
-    for c in range(cStart, cEnd):
-        get_transitive_closure(dm.dm, c, PETSC_TRUE, &closureSize1, &closure)
-        if closureSize1 != closureSize:
-            raise RuntimeError(f"point 0 and point {c} have different cell types")
-        restore_transitive_closure(dm.dm, c, PETSC_TRUE, &closureSize1, &closure)
-    cell_closure = np.empty((cEnd - cStart, closureSize), dtype=IntType)
+    ncells, closureSize = plex_closures.shape
+    cell_closure = np.empty_like(plex_closures)
     CHKERR(PetscMalloc1(closureSize, &fiat_closure))
-    for c in range(cStart, cEnd):
-        get_transitive_closure(dm.dm, c, PETSC_TRUE, &closureSize1, &closure)
-        _reorder_plex_closure(dm, c, closure, fiat_closure)
-        restore_transitive_closure(dm.dm, c, PETSC_TRUE, &closureSize1, &closure)
-        for i in range(closureSize):
-            cell_closure[c, i] = fiat_closure[i]
-    CHKERR(PetscFree(fiat_closure))
+    for c in range(ncells):
+        # plex_closure = plex_closures[c]
+        cell_closure[c, 0] = plex_closures[c, 19]
+        cell_closure[c, 1] = plex_closures[c, 23]
+        cell_closure[c, 2] = plex_closures[c, 20]
+        cell_closure[c, 3] = plex_closures[c, 26]
+        cell_closure[c, 4] = plex_closures[c, 22]
+        cell_closure[c, 5] = plex_closures[c, 24]
+        cell_closure[c, 6] = plex_closures[c, 21]
+        cell_closure[c, 7] = plex_closures[c, 25]
+        cell_closure[c, 8] = plex_closures[c, 16]
+        cell_closure[c, 9] = plex_closures[c, 17]
+        cell_closure[c, 10] = plex_closures[c, 15]
+        cell_closure[c, 11] = plex_closures[c, 18]
+        cell_closure[c, 12] = plex_closures[c, 7]
+        cell_closure[c, 13] = plex_closures[c, 14]
+        cell_closure[c, 14] = plex_closures[c, 9]
+        cell_closure[c, 15] = plex_closures[c, 12]
+        cell_closure[c, 16] = plex_closures[c, 10]
+        cell_closure[c, 17] = plex_closures[c, 11]
+        cell_closure[c, 18] = plex_closures[c, 8]
+        cell_closure[c, 19] = plex_closures[c, 13]
+        cell_closure[c, 20] = plex_closures[c, 6]
+        cell_closure[c, 21] = plex_closures[c, 5]
+        cell_closure[c, 22] = plex_closures[c, 3]
+        cell_closure[c, 23] = plex_closures[c, 4]
+        cell_closure[c, 24] = plex_closures[c, 1]
+        cell_closure[c, 25] = plex_closures[c, 2]
+        cell_closure[c, 26] = plex_closures[c, 0]
     return cell_closure
 
 

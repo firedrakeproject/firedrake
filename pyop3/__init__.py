@@ -32,6 +32,7 @@ _init_likwid()
 del _init_likwid
 
 
+from pyop3.insn import Intent
 import pyop3.dtypes, pyop3.tree
 import pyop3.ir
 import pyop3.insn.visitors as insn_visitors
@@ -87,7 +88,6 @@ from pyop3.insn import (  # noqa: F401
 )
 from pyop3.sf import StarForest, single_star_sf, local_sf
 import pyop3.sf
-from . import utils
 from pyop3.tree.index_tree.parse import as_index_forest
 
 del _os

@@ -372,7 +372,7 @@ class ModuleExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
-        # if len(self.loopy_code.callables_table) > 1 and "MatSet" in str(self):
+        # if len(self.loopy_code.callables_table) > 1:
         #     breakpoint()
         # if "MatSetValues" in str(self):
         #     breakpoint()

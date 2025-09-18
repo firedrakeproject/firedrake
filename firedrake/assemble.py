@@ -29,7 +29,7 @@ from firedrake.formmanipulation import split_form
 from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_unique_domain
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
-from firedrake.parloops import pack_tensor, _facet_integral_pack_indices, _cell_integral_pack_indices, pack_pyop3_tensor
+from firedrake.parloops import pack_pyop3_tensor, pack_tensor
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
@@ -1896,15 +1896,22 @@ class ParloopBuilder:
     def build(self) -> op3.Loop:
         """Construct the parloop."""
         p = self._iterset.index()
-        args = []
+        packed_args = []
+        pack_insns = []
+        unpack_insns = []
         for tsfc_arg in self._kinfo.arguments:
-            arg = self._as_parloop_arg(tsfc_arg, p)
-            args.append(arg)
+            arg_pack_insns, packed_arg, arg_unpack_insns = self._as_parloop_arg(tsfc_arg, p)
+            packed_args.append(packed_arg)
+            pack_insns.extend(arg_pack_insns)
+            unpack_insns.extend(arg_unpack_insns)
         self._kinfo.kernel.code = self._kinfo.kernel.code.with_entrypoints({self._kinfo.kernel.name})
         kernel = op3.Function(
-            self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in args[1:]]
+            self._kinfo.kernel.code, [op3.INC] + [op3.READ for _ in packed_args[1:]]
         )
-        return op3.loop(p, kernel(*args))
+        return op3.loop(
+            p,
+            [*pack_insns, kernel(*packed_args), *unpack_insns],
+        )
 
     @property
     def test_function_space(self):
@@ -2068,34 +2075,36 @@ class ParloopBuilder:
         Vs = self._indexed_function_spaces
 
         if rank == 0:
-            return tensor
+            return (), tensor, ()
         elif rank == 1 or rank == 2 and self._diagonal:
             V, = Vs
             dat = OneFormAssembler._as_pyop3_type(tensor, self._indices)
 
-            return pack_pyop3_tensor(dat, V, index, self._integral_type)
+            return pack_pyop3_tensor(dat, V, index, self._integral_type, op3.INC)
         elif rank == 2:
             mat = ExplicitMatrixAssembler._as_pyop3_type(tensor, self._indices)
-            return pack_pyop3_tensor(mat, *Vs, index, self._integral_type)
+            return pack_pyop3_tensor(mat, *Vs, index, self._integral_type, op3.INC)
         else:
             raise AssertionError
 
     @_as_parloop_arg.register(kernel_args.CoordinatesKernelArg)
     def _as_parloop_arg_coordinates(self, _, index):
-        return pack_tensor(self._mesh.coordinates, index, self._integral_type)
+        return pack_tensor(self._mesh.coordinates, index, self._integral_type, op3.READ)
 
     @_as_parloop_arg.register(kernel_args.CoefficientKernelArg)
     def _as_parloop_arg_coefficient(self, arg, index):
         coeff = next(self._active_coefficients)
-        return pack_tensor(coeff, index, self._integral_type)
+        return pack_tensor(coeff, index, self._integral_type, op3.READ)
 
     @_as_parloop_arg.register(kernel_args.ConstantKernelArg)
     def _as_parloop_arg_constant(self, arg, index):
+        raise NotImplementedError
         const = next(self._constants)
         return const.dat
 
     @_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
     def _as_parloop_arg_cell_orientations(self, _, index):
+        raise NotImplementedError
         return pack_tensor(self._mesh.cell_orientations(), index, self._integral_type)
 
     @_as_parloop_arg.register(kernel_args.CellSizesKernelArg)
@@ -2107,14 +2116,17 @@ class ParloopBuilder:
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
     def _as_parloop_arg_exterior_facet(self, _, index):
+        raise NotImplementedError
         return self._topology.exterior_facets._local_facets[index]
 
     @_as_parloop_arg.register(kernel_args.InteriorFacetKernelArg)
     def _as_parloop_arg_interior_facet(self, _, index):
+        raise NotImplementedError
         return self._topology.interior_facets._local_facets[index]
 
     @_as_parloop_arg.register(CellFacetKernelArg)
     def _as_parloop_arg_cell_facet(self, _, index):
+        raise NotImplementedError
         return self._mesh.cell_to_facets[index]
 
     @_as_parloop_arg.register(LayerCountKernelArg)

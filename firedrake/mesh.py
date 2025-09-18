@@ -1282,99 +1282,7 @@ class AbstractMeshTopology(abc.ABC):
         return dmcommon.quadrilateral_closure_ordering(self, cell_orientations)
 
     def _reorder_closure_fiat_hex(self, plex_closures):
-        """
-
-        FInAT (tensor-product) hex numbering:
-
-                  v3╶───╴e11╶─────╴v7            v3╶─────e11─────╴v7
-                  ╱                ╱│            ╱|                │
-                 ╱                ╱ │           ╱ |                │
-               e3       f5      e7  │         e3  |                │
-               ╱                ╱  e5         ╱  e1       f3      e5
-              ╱                ╱    │        ╱    |                │
-            v1╶─────e9──────╴v5     │      v1     |                │
-             │                │ f1  │       │ f0  |                │
-             │                │    v6       │     v2-----e10------v6
-             │                │    ╱        │    /                ╱
-            e0      f2       e4   ╱        e0   /                ╱
-             │                │ e6          │ e2       f4      e6
-             │                │ ╱           │ /                ╱
-             │                │╱            │/                ╱
-            v0╶─────e8──────╴v4            v0╶──────e8─────╴v4
-
-        DMPlex hex numbering:
-
-
-                  v7╶────╴e6╶─────╴v6            v7╶─────╴e6─────╴v6
-                  ╱                ╱│            ╱|                │
-                 ╱                ╱ │           ╱ |                │
-               e7       f1      e5  │         e7  |                │
-               ╱                ╱ e11         ╱ e10       f3     e11
-              ╱                ╱    │        ╱    |                │
-            v4╶─────e4──────╴v5     │      v4     |                │
-             │                │ f4  │       │ f5  |                │
-             │                │    v2       │     v1------e1------v2
-             │                │    ╱        │    /                ╱
-            e9      f2       e8   ╱        e9   /                ╱
-             │                │ e2          │ e0       f0      e2
-             │                │ ╱           │ /                ╱
-             │                │╱            │/                ╱
-            v0╶─────e3──────╴v3            v0╶──────e3─────╴v3
-        """
-        # TODO: Move back to Cython
-        fiat_closures = tuple(
-            np.empty_like(plex_closures[d]) for d in range(self.dimension+1)
-        )
-
-        # also in dmcommon.closure_ordering
-        nverts_per_cell, nedges_per_cell, nfacets_per_cell, _ = \
-            self._closure_sizes[self.dimension]
-        # I think that the offsets here aren't right. DMPlex does cell -> vert
-        # whilst fiat does vert -> cell
-        raise NotImplementedError("This is almost certainly wrong")
-        cell_offset = 0
-        facet_offset = cell_offset + 1
-        edge_offset = facet_offset + nfacets_per_cell
-        vert_offset = edge_offset + nedges_per_cell
-
-        for ci in range(self.num_cells):
-            # vertices
-            # TODO: This could be a permutation...
-            fiat_closures[ci, vert_offset+0] = plex_closures[ci, vert_offset+0]
-            fiat_closures[ci, vert_offset+1] = plex_closures[ci, vert_offset+4]
-            fiat_closures[ci, vert_offset+2] = plex_closures[ci, vert_offset+1]
-            fiat_closures[ci, vert_offset+3] = plex_closures[ci, vert_offset+7]
-            fiat_closures[ci, vert_offset+4] = plex_closures[ci, vert_offset+3]
-            fiat_closures[ci, vert_offset+5] = plex_closures[ci, vert_offset+5]
-            fiat_closures[ci, vert_offset+6] = plex_closures[ci, vert_offset+2]
-            fiat_closures[ci, vert_offset+7] = plex_closures[ci, vert_offset+6]
-
-            # edges
-            fiat_closures[ci, edge_offset+0] = plex_closures[ci, edge_offset+9]
-            fiat_closures[ci, edge_offset+1] = plex_closures[ci, edge_offset+10]
-            fiat_closures[ci, edge_offset+2] = plex_closures[ci, edge_offset+0]
-            fiat_closures[ci, edge_offset+3] = plex_closures[ci, edge_offset+7]
-            fiat_closures[ci, edge_offset+4] = plex_closures[ci, edge_offset+8]
-            fiat_closures[ci, edge_offset+5] = plex_closures[ci, edge_offset+11]
-            fiat_closures[ci, edge_offset+6] = plex_closures[ci, edge_offset+2]
-            fiat_closures[ci, edge_offset+7] = plex_closures[ci, edge_offset+5]
-            fiat_closures[ci, edge_offset+8] = plex_closures[ci, edge_offset+3]
-            fiat_closures[ci, edge_offset+9] = plex_closures[ci, edge_offset+4]
-            fiat_closures[ci, edge_offset+10] = plex_closures[ci, edge_offset+1]
-            fiat_closures[ci, edge_offset+11] = plex_closures[ci, edge_offset+6]
-
-            # faces
-            fiat_closures[ci, facet_offset+0] = plex_closures[ci, facet_offset+5]
-            fiat_closures[ci, facet_offset+1] = plex_closures[ci, facet_offset+4]
-            fiat_closures[ci, facet_offset+2] = plex_closures[ci, facet_offset+2]
-            fiat_closures[ci, facet_offset+3] = plex_closures[ci, facet_offset+3]
-            fiat_closures[ci, facet_offset+4] = plex_closures[ci, facet_offset+0]
-            fiat_closures[ci, facet_offset+5] = plex_closures[ci, facet_offset+1]
-
-            # cell
-            fiat_closures[ci, cell_offset] = plex_closures[ci, cell_offset]
-
-        return fiat_closures
+        return dmcommon.create_cell_closure(plex_closures)
 
     def star(self, index, *, k=None):
         return self._star(k=k)(index)
@@ -1905,7 +1813,7 @@ class AbstractMeshTopology(abc.ABC):
         for i, pt in enumerate(range(p_start, p_end)):
             closure_data[i] = closure_func(pt)
 
-        return op3.utils.readonly(closure_data)
+        return utils.readonly(closure_data)
 
     # submesh
 

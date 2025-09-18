@@ -73,6 +73,7 @@ class Dat(Tensor):
         name=None,
         prefix=None,
         parent=None,
+        buffer_kwargs=None,
     ):
         """
         NOTE: buffer and data are equivalent options. Only one can be specified. I include both
@@ -85,6 +86,9 @@ class Dat(Tensor):
 
         unindexed = axis_forest.trees[0].unindexed
 
+        if buffer_kwargs is None:
+            buffer_kwargs = {}
+
         assert buffer is None or data is None, "cant specify both"
         if isinstance(buffer, ArrayBuffer):
             assert buffer.sf == unindexed.sf
@@ -93,7 +97,7 @@ class Dat(Tensor):
         else:
             assert buffer is None and data is not None
             assert len(data.shape) == 1, "cant do nested shape"
-            buffer = ArrayBuffer(data, unindexed.sf)
+            buffer = ArrayBuffer(data, unindexed.sf, **buffer_kwargs)
 
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
@@ -498,9 +502,7 @@ class Dat(Tensor):
 
     def materialize(self) -> Dat:
         """Return a new "unindexed" array with the same shape."""
-        assert False, "old code"
-        return type(self)(self.axes.materialize(), dtype=self.dtype)
-
+        return type(self).null(self.axes.materialize().regionless, dtype=self.dtype, prefix="t")
 
     def reshape(self, axes: AxisTree) -> Dat:
         """Return a reshaped view of the `Dat`.

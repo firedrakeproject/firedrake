@@ -1068,10 +1068,10 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     kernel = compile_expression(target_mesh._comm, expr, to_element, V.ufl_element(),
                                 domain=source_mesh, parameters=parameters)
 
-    loop_index = cell_set.index()
-    # loop_index = cell_set[0].index()
-    # loop_index = cell_set[1].index()
-    parloop_args = []
+    cell_index = cell_set.index()
+    local_kernel_args = []
+    pack_insns = []
+    unpack_insns = []
 
     coefficients = tsfc_interface.extract_numbered_coefficients(expr, kernel.coefficient_numbers)
     if kernel.needs_external_coords:
@@ -1112,8 +1112,12 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     expr_arguments = extract_arguments(expr)
     if len(expr_arguments) == 0:
-        parloop_args.append(pack_pyop3_tensor(tensor, V, loop_index, "cell"))
+        tensor_pack_insns, packed_tensor, tensor_unpack_insns = pack_pyop3_tensor(tensor, V, cell_index, "cell", access)
+        local_kernel_args.append(packed_tensor)
+        pack_insns.extend(tensor_pack_insns)
+        unpack_insns.extend(tensor_unpack_insns)
     else:
+        raise NotImplementedError
         assert len(expr_arguments) == 1
         assert access == op3.WRITE  # Other access descriptors not done for Matrices.
         rows_map = V.mesh().topology.closure
@@ -1136,15 +1140,15 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
             bc_rows = [bc for bc in bcs if bc.function_space() == V]
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = [(V.local_to_global_map(bc_rows), Vcol.local_to_global_map(bc_cols))]
-        packed_tensor = maybe_permute_packed_tensor(tensor[rows_map(loop_index), columns_map(loop_index)], V.finat_element, Vcol.finat_element, V.shape, Vcol.shape)
-        parloop_args.append(packed_tensor)
+        packed_tensor = maybe_permute_packed_tensor(tensor[rows_map(cell_index), columns_map(cell_index)], V.finat_element, Vcol.finat_element, V.shape, Vcol.shape)
+        local_kernel_args.append(packed_tensor)
 
     if kernel.oriented:
         co = target_mesh.cell_orientations()
-        parloop_args.append(pack_tensor(co, loop_index, "cell"))
+        local_kernel_args.append(pack_tensor(co, cell_index, "cell"))
     if kernel.needs_cell_sizes:
         cs = target_mesh.cell_sizes
-        parloop_args.append(pack_tensor(cs, loop_index, "cell"))
+        local_kernel_args.append(pack_tensor(cs, cell_index, "cell"))
 
     for coefficient in coefficients:
         if isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
@@ -1152,7 +1156,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
             if coeff_mesh is target_mesh or not coeff_mesh:
                 # NOTE: coeff_mesh is None is allowed e.g. when interpolating from
                 # a Real space
-                coeff_index = coefficient.function_space().cell_closure_map(loop_index)
+                coeff_index = coefficient.function_space().cell_closure_map(cell_index)
             elif coeff_mesh is source_mesh:
                 if coefficient.ufl_element().family() != "Real":
                     # Since the par_loop is over the target mesh cells we need to
@@ -1164,7 +1168,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
                         # this ourselves
                         m_ = vom_cell_parent_node_map_extruded(target_mesh, coefficient.cell_node_map())
                     else:
-                        coeff_index = coefficient.ufl_domain().topology.closure(target_mesh.topology.cell_parent_cell_map(loop_index), "fiat")
+                        coeff_index = coefficient.ufl_domain().topology.closure(target_mesh.topology.cell_parent_cell_map(cell_index), "fiat")
                 else:
                     # m_ is allowed to be None when interpolating from a Real space,
                     # even in the trans-mesh case.
@@ -1172,15 +1176,21 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
             else:
                 raise ValueError("Have coefficient with unexpected mesh")
         else:
-            coeff_index = coefficient.function_space().cell_closure_map(loop_index)
-        parloop_args.append(pack_tensor(coefficient, loop_index, "cell", target_mesh=target_mesh))
+            coeff_index = coefficient.function_space().cell_closure_map(cell_index)
+        coeff_pack_insns, packed_coeff, coeff_unpack_insns = pack_tensor(coefficient, cell_index, "cell", op3.READ, target_mesh=target_mesh)
+        local_kernel_args.append(packed_coeff)
+        pack_insns.extend(coeff_pack_insns)
+        unpack_insns.extend(coeff_unpack_insns)
 
     for const in extract_firedrake_constants(expr):
         # constants do not require indexing
-        parloop_args.append(const.dat)
+        local_kernel_args.append(const.dat)
 
-    expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in parloop_args[1:]])
-    parloop = op3.loop(loop_index, expression_kernel(*parloop_args))
+    expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in local_kernel_args[1:]])
+    parloop = op3.loop(
+        cell_index,
+        [*pack_insns, expression_kernel(*local_kernel_args), *unpack_insns],
+    )
     if len(expr_arguments) == 1:
         return parloop, tensor.assemble
     else:

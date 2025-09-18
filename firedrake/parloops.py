@@ -8,6 +8,7 @@ from cachetools import LRUCache
 from immutabledict import immutabledict as idict
 from typing import Any
 
+import FIAT
 import finat
 import loopy
 import numpy as np
@@ -351,9 +352,9 @@ def pack_tensor(tensor: Any, index: op3.LoopIndex, integral_type: str, **kwargs)
 @pack_tensor.register(Function)
 @pack_tensor.register(Cofunction)
 @pack_tensor.register(CoordinatelessFunction)
-def _(func, index: op3.LoopIndex, integral_type: str, *, target_mesh=None):
+def _(func, index: op3.LoopIndex, integral_type: str, intent, *, target_mesh=None):
     return pack_pyop3_tensor(
-        func.dat, func.function_space(), index, integral_type, target_mesh=target_mesh
+        func.dat, func.function_space(), index, integral_type, intent, target_mesh=target_mesh
     )
 
 
@@ -364,6 +365,8 @@ def _(matrix: Matrix, index: op3.LoopIndex, integral_type: str):
     )
 
 
+# TODO: rename to pack_tensor, and return tuple of instructions
+# TODO: Actually don't do that, pass indices in...
 @functools.singledispatch
 def pack_pyop3_tensor(tensor: Any, *args, **kwargs):
     raise TypeError(f"No handler defined for {type(tensor).__name__}")
@@ -371,84 +374,128 @@ def pack_pyop3_tensor(tensor: Any, *args, **kwargs):
 
 @pack_pyop3_tensor.register(op3.Dat)
 def _(
-    array: op3.Dat,
+    dat: op3.Dat,
     V: WithGeometry,
-    index: op3.LoopIndex,
+    loop_index: op3.LoopIndex,
     integral_type: str,
+    intent: op3.Intent,
     *,
     target_mesh=None
 ):
+    """
+    Consider:
+
+    t0 = dat[closure(cell)]
+    t1 = f(t0)
+    kernel(t1)
+    t2 = f^{-1}(t1)
+    dat[closure(cell)] += t2
+
+    To coordinate this we have to provide 'dat[closure(cell)]' and we need the instructions back along with t1 and t2 (not t0)
+    We use the terminology of 'local' and 'global' representations of the packed data.
+
+    """
     if target_mesh is None:
         target_mesh = V.mesh()
 
     if V.mesh() != target_mesh:
         index = target_mesh.cell_parent_cell_map(index)
 
+    mesh = V.mesh()
+
+    if len(V) > 1:
+        # do a loop
+        raise NotImplementedError
+
     if integral_type == "cell":
-        # TODO ideally the FIAT permutation would not need to be known
-        # about by the mesh topology and instead be handled here. This
-        # would probably require an oriented mesh
-        # (see https://github.com/firedrakeproject/firedrake/pull/3332)
-        # indexed = array.getitem(plex._fiat_closure(index), strict=True)
-        pack_indices = _cell_integral_pack_indices(V, index)
-    elif integral_type in {"exterior_facet", "interior_facet"}:
-        pack_indices = _facet_integral_pack_indices(V, index)
+        cell = loop_index
+    elif integral_type == "interior_facet":
+        facet = loop_index
+        cell = mesh.support(facet)
     else:
         raise NotImplementedError
 
-    indexed = array[pack_indices]
+    packed_dat = dat[mesh.closure(cell)]
+    work_dat = packed_dat.materialize()
+    g2l_transform_insns, local_result, l2g_transform_insns, global_result = transform_packed_cell_closure_dat(work_dat, V, cell)
 
-    # TODO: use maybe_permute_packed_tensor here
+    if intent == op3.READ:
+        pack_insns = (work_dat.assign(packed_dat), *g2l_transform_insns)
+        unpack_insns = ()
+    elif intent == op3.WRITE:
+        # pack_insns = ()  # unintuitively this does not work for interpolation
+        pack_insns = (work_dat.zero(),)
+        unpack_insns = (*l2g_transform_insns, packed_dat.assign(global_result))
+    else:
+        assert intent == op3.INC
+        pack_insns = (work_dat.zero(),)
+        unpack_insns = (*l2g_transform_insns, packed_dat.iassign(global_result))
 
-    plex = V.mesh().topology  # used?
+    return pack_insns, local_result, unpack_insns
 
-    # handle entity_dofs - this is done treating all nodes as equivalent so we have to
-    # discard shape beforehand
-    subaxes = []
-    sub_perms = []
-    permutation_needed = False
-    for subspace in V:
-        dof_numbering = _flatten_entity_dofs(subspace.finat_element.entity_dofs())
-        perm = invert_permutation(dof_numbering)
 
-        # skip if identity
-        if not np.all(perm == np.arange(perm.size, dtype=IntType)):
-            permutation_needed = True
 
-        perm_dat = op3.Dat.from_array(perm, prefix="perm", buffer_kwargs={"constant": True})
-        perm_axis = perm_dat.axes.root
-        perm_subset = op3.Slice(perm_axis.label, [op3.Subset(perm_axis.component.label, perm_dat)])
-        sub_perms.append(perm_subset)
 
-        indexed_axes = op3.AxisTree.from_iterable([perm_axis, *subspace.shape])
-        subaxes.append(indexed_axes)
-
-    if permutation_needed:
-        if len(V) > 1:
-            indexed_axes = op3.AxisTree(indexed.axes.root)
-            for subspace, subtree in zip(V, subaxes, strict=True):
-                indexed_axes = indexed_axes.add_subtree(idict({"field": subspace.index}), subtree)
-
-            field_slice = op3.Slice("field", [op3.AffineSliceComponent(subspace.index, label=subspace.index) for subspace in V], label="field")
-            index_tree = op3.IndexTree.from_nest({field_slice: sub_perms})
-
-            # indexed = indexed.reshape(indexed_axes)[:, sub_perms]
-            indexed = indexed.reshape(indexed_axes)[index_tree]
-        else:
-            # TODO: Should be able to just pass a Dat here and have it DTRT
-            indexed_axes = utils.just_one(subaxes)
-            perm_subset = utils.just_one(sub_perms)
-            indexed = indexed.reshape(indexed_axes)[perm_subset]
-
-    if plex.ufl_cell() == ufl.hexahedron:
-        raise NotImplementedError
-        perms = _entity_permutations(V)
-        mytree = _orientations(plex, perms, index, integral_type)
-        mytree = _with_shape_indices(V, mytree, integral_type in {"exterior_facet", "interior_facet"})
-
-        indexed = indexed.getitem(mytree, strict=True)
-
-    return indexed
+    # if integral_type == "cell":
+    #     pack_indices = _cell_integral_pack_indices(V, index)
+    # elif integral_type in {"exterior_facet", "interior_facet"}:
+    #     pack_indices = _facet_integral_pack_indices(V, index)
+    # else:
+    #     raise NotImplementedError
+    #
+    # return maybe_permute_packed_tensor(array[pack_indices], V.finat_element, V.shape)
+    #
+    # # TODO: use maybe_permute_packed_tensor here
+    #
+    # plex = V.mesh().topology  # used?
+    #
+    # # handle entity_dofs - this is done treating all nodes as equivalent so we have to
+    # # discard shape beforehand
+    # subaxes = []
+    # sub_perms = []
+    # permutation_needed = False
+    # for subspace in V:
+    #     dof_numbering = _flatten_entity_dofs(subspace.finat_element.entity_dofs())
+    #     perm = invert_permutation(dof_numbering)
+    #
+    #     # skip if identity
+    #     if not np.all(perm == np.arange(perm.size, dtype=IntType)):
+    #         permutation_needed = True
+    #
+    #     perm_dat = op3.Dat.from_array(perm, prefix="perm", buffer_kwargs={"constant": True})
+    #     perm_axis = perm_dat.axes.root
+    #     perm_subset = op3.Slice(perm_axis.label, [op3.Subset(perm_axis.component.label, perm_dat)])
+    #     sub_perms.append(perm_subset)
+    #
+    #     indexed_axes = op3.AxisTree.from_iterable([perm_axis, *subspace.shape])
+    #     subaxes.append(indexed_axes)
+    #
+    # if permutation_needed:
+    #     if len(V) > 1:
+    #         indexed_axes = op3.AxisTree(indexed.axes.root)
+    #         for subspace, subtree in zip(V, subaxes, strict=True):
+    #             indexed_axes = indexed_axes.add_subtree(idict({"field": subspace.index}), subtree)
+    #
+    #         field_slice = op3.Slice("field", [op3.AffineSliceComponent(subspace.index, label=subspace.index) for subspace in V], label="field")
+    #         index_tree = op3.IndexTree.from_nest({field_slice: sub_perms})
+    #
+    #         # indexed = indexed.reshape(indexed_axes)[:, sub_perms]
+    #         indexed = indexed.reshape(indexed_axes)[index_tree]
+    #     else:
+    #         # TODO: Should be able to just pass a Dat here and have it DTRT
+    #         indexed_axes = utils.just_one(subaxes)
+    #         perm_subset = utils.just_one(sub_perms)
+    #         indexed = indexed.reshape(indexed_axes)[perm_subset]
+    #
+    # if plex.ufl_cell() == ufl.hexahedron:
+    #     raise NotImplementedError
+    #     perms = _entity_permutations(V)
+    #     mytree = _orientations(plex, perms, index, integral_type)
+    #     mytree = _with_shape_indices(V, mytree, integral_type in {"exterior_facet", "interior_facet"})
+    #
+    #     indexed = indexed.getitem(mytree, strict=True)
+    #
+    # return indexed
 
 
 @pack_pyop3_tensor.register(op3.Mat)
@@ -490,25 +537,58 @@ def _(
     return maybe_permute_packed_tensor(indexed, Vrow.finat_element, Vcol.finat_element, Vrow.shape, Vcol.shape)
 
 
+def maybe_reorder_cell_closure(packed_dat: op3.Dat):
+    ...
+
+
+def pack_cell_closure(packed_dat: op3.Dat, space, cell: op3.Index):
+    assert len(space) == 1
+    mesh = space.mesh()
+
+    insns = []
+
+
 @functools.singledispatch
 def maybe_permute_packed_tensor(tensor: op3.Tensor, *spaces) -> op3.Tensor:
     raise TypeError
 
 
-@maybe_permute_packed_tensor.register
-def _(packed_dat: op3.Dat, element, shape):
-    perm = _flatten_entity_dofs(element.entity_dofs())
-    perm = invert_permutation(perm)
+def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op3.LoopIndex):
+    # by default do no transformation
+    local_result = packed_dat
+    global_result = local_result
+    g2l_transform_insns = []
+    l2g_transform_insns = []
+
+
+    dof_numbering = _flatten_entity_dofs(space.finat_element.entity_dofs())
+    dof_perm = invert_permutation(dof_numbering)
     # skip if identity
-    if np.any(perm != np.arange(perm.size, dtype=IntType)):
-        row_perm_dat = op3.Dat.from_array(perm, prefix="perm", buffer_kwargs={"constant": True})
-        row_perm_axis = row_perm_dat.axes.root
-        row_perm_subset = op3.Slice(row_perm_axis.label, [op3.Subset(row_perm_axis.component.label, row_perm_dat)])
+    if not (dof_perm != np.arange(dof_perm.size, dtype=IntType)).all():
+        nodal_axis_tree = op3.AxisTree.from_iterable([len(dof_numbering), *space.shape])
+        nodal_axis = nodal_axis_tree.root
 
-        indexed_row_axes = op3.AxisTree.from_iterable([row_perm_axis, *shape])
+        dof_numbering_dat = op3.Dat(nodal_axis, data=dof_numbering, prefix="perm", buffer_kwargs={"constant": True})
+        dof_perm_dat = op3.Dat(nodal_axis, data=dof_perm, prefix="perm", buffer_kwargs={"constant": True})
 
-        packed_dat = packed_dat.reshape(indexed_row_axes)[row_perm_subset]
-    return packed_dat
+        dof_numbering_slice = op3.Slice(
+            nodal_axis.label,
+            [op3.Subset(None, dof_numbering_dat)],
+        )
+        dof_perm_slice = op3.Slice(
+            nodal_axis.label,
+            [op3.Subset(None, dof_perm_dat)],
+        )
+
+        local_result = local_result.reshape(nodal_axis_tree)[dof_perm_slice]
+        global_result = local_result[dof_numbering_slice].reshape(global_result.axes)  # inverse transformation
+
+    if space.mesh() is ufl.hexahedron:
+        raise NotImplementedError
+        perms = _entity_permutations(element)
+        mytree = _orientations(plex, perms, index, integral_type)
+
+    return tuple(g2l_transform_insns), local_result, tuple(l2g_transform_insns), global_result
 
 
 @maybe_permute_packed_tensor.register
