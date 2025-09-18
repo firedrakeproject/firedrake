@@ -569,12 +569,16 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
     dof_perm = invert_permutation(dof_numbering)
     # skip if identity
     if (dof_perm != np.arange(dof_perm.size, dtype=IntType)).any():
-        breakpoint()
-        nodal_axis_tree = op3.AxisTree.from_iterable([len(dof_numbering), *space.shape])
-        nodal_axis = nodal_axis_tree.root
+        nodal_axis = op3.Axis(len(dof_numbering))
+
+        if packed_dat.axes.root.label == "support":
+            assert packed_dat.axes.node_map[idict({"support": "XXX"})].label == "closure"
+            nodal_axis_tree = op3.AxisTree.from_iterable([packed_dat.axes.root, nodal_axis, *space.shape])
+        else:
+            assert packed_dat.axes.root.label == "closure"
+            nodal_axis_tree = op3.AxisTree.from_iterable([nodal_axis, *space.shape])
 
         dof_perm_dat = op3.Dat(nodal_axis, data=dof_perm, prefix="perm", buffer_kwargs={"constant": True})
-
         dof_perm_slice = op3.Slice(
             nodal_axis.label,
             [op3.Subset(None, dof_perm_dat)],
