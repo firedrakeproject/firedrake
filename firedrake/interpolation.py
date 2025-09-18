@@ -175,9 +175,8 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
         dual_arg = Coargument(V.dual(), 0)
         expr_args = extract_arguments(expr)
         if expr_args and expr_args[0].number() == 0:
-            # In this case we are doing adjoint interpolation
-            # When V is a FunctionSpace and expr contains Argument(0),
-            # we need to change expr argument number to 1 (in our current implementation)
+            warnings.warn("Passing argument numbered 0 in expression for forward interpolation is deprecated. " \
+            "Use a TrialFunction in the expression.")
             v, = expr_args
             expr = replace(expr, {v: v.reconstruct(number=1)})
     else:
