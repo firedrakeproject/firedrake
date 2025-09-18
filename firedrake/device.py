@@ -3,9 +3,6 @@ import contextlib
 from cuda.core.experimental import Device as CuDevice, Stream
 import numpy as np
 import cupy as cp
-from cuda.bindings.driver import CUstream
-#import cutlass.cute as cute
-#import cutlass
 import os
 
 class ComputeDevice(abc.ABC):
@@ -24,7 +21,23 @@ class CPUDevice(ComputeDevice):
         yield self
 
 class GPUDevice(ComputeDevice):
+    """
+        Manages kernel construction on GPUs
 
+        Arguments:
+            blocks: list(tuple()), list of tuples (block_name, block_size)
+        
+        Properties:
+            identity: str, name of device type
+            stream: CUstream, cupy stream object, used to order kernels
+            kernel_string: list(str), list of kernel strings
+            kernel_args: list(dict), list of dictionaries that describe the kernels
+            file_name: str, name of file to store generated python
+            kernel_type: {"triton"|"cupy"}
+            blocks: dict, of form {kernel_num: [block_names]}
+            block_names: dict, maps short block names to their variable names
+    
+    """
     identity = "gpu"
     array_type = cp.ndarray
     
@@ -100,7 +113,14 @@ def _put_slice_(x, n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, p
 
 """    
 
-    def write_file(self, arrays, maps):
+    def write_file(self, arrays, maps) -> None:
+        """
+             Constructs the {CuPy | Triton} file 
+            
+            Arguments:
+                arrays: np.array array data
+                maps: np.array   global to local maps for each array
+        """
         
         with open(f"./{self.file_name}.py",'w') as file:
             file.write("import cupy as cp\n")
@@ -122,7 +142,6 @@ def _put_slice_(x, n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, p
             num_cells = None 
             file.write("def gpu_parloop():\n")
             for array, map_i, i in zip(arrays, maps, [i for i in range(len(arrays)+2)]):
-                print(i)
                 a = repr(array).replace("object", "cp.float64")
                 m = repr(map_i).replace("int32", "cp.int32")
                 file.write(f"\ta{i} = cp.{a}\n")
@@ -137,9 +156,6 @@ def _put_slice_(x, n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, p
                     if array is not None:
                         file.write(f"\t{name} = torch.from_numpy(np.{repr(array)}).float().to(DEVICE)\n")
                 
-            # hate
-            #real_kernel_args = list(list(zip(*(self.kernel_data["sizes_pow2"] + self.kernel_data["sizes_actual"] + self.kernel_data["strides"])))[1])
-            #real_kernel_args = [str(int(i)) for i in real_kernel_args]
             # cell loop needed here
             indent = 1
             index = ""
@@ -176,27 +192,30 @@ def _put_slice_(x, n_dims: tl.constexpr, idx: tl.constexpr, pos: tl.constexpr, p
 
     def context_manager(self):    
         yield self
-        #with self.stream:
-        #    self.stream.begin_capture()
-        #    yield self
-        #    g = self.stream.end_capture()
-        #g.launch(self.stream)
-        #self.stream.synchronize()
 
 compute_device = CPUDevice()
 
 @contextlib.contextmanager
-def device(type="cpu", blocks=[("cell", 1)]):
+def device(device_type="cpu", blocks=[("cell", 1)]):
+    """
+        Context manager to enable gpu usage:
+        
+        Arguments:
+            device_type: str, {"cpu" or "gpu"} describes the compute device required
+            blocks: list[tuple()], list of tuples containing (name, block_size)
+    """
     global compute_device
-    if type=="gpu":
+    if device_type=="gpu":
+        # creates GPU device and sets env variable
         gpu = GPUDevice(blocks)
         orig_device = compute_device
         compute_device = gpu
         os.environ["FIREDRAKE_USE_GPU"] = "1" 
         yield from compute_device.context_manager()
+
         compute_device = orig_device
         del os.environ['FIREDRAKE_USE_GPU']
-    elif type=="cpu":
+    elif device_type=="cpu":
         cpu = CPUDevice()
         orig_device = compute_device
         compute_device = cpu
@@ -205,9 +224,16 @@ def device(type="cpu", blocks=[("cell", 1)]):
     else:
        raise NotImplementedError(f"Device identity {type} unrecognised") 
     
-def add_kernel_string(k_str, args, k_type):
+def add_kernel_string(k_str, args, k_type) -> None:
+    # Add a kernel to the device  
+    # Arguments:
+    #   k_str: str, string containing python code for the kernel function
+    #   args: dict, kernel data dicts, contains information needed to call the kernel
+    #   k_type: str: either "cupy" or "triton" to describe the type of kernel
     global compute_device
     assert isinstance(compute_device, GPUDevice)        
+
+    
     compute_device.kernel_string += [k_str.replace(f"{k_type}_kernel", f"{k_type}_kernel{len(compute_device.kernel_string)}")] 
     if k_type=="triton":
         compute_device.kernel_data = args
