@@ -1006,8 +1006,13 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     parameters = {}
     parameters['scalar_type'] = utils.ScalarType
 
+    callables = ()
+    if access == op2.INC:
+        callables += (tensor.zero,)
+
     needs_weight = isinstance(dual_arg, ufl.Cofunction) and not to_element.is_dg()
     if needs_weight:
+        # Compute the reciprocal of the DOF multiplicity
         W = dual_arg.function_space()
         shapes = (W.finat_element.space_dimension(), W.block_size)
         domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
@@ -1018,14 +1023,14 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         """
         weight = firedrake.Function(W)
         firedrake.par_loop((domain, instructions), ufl.dx, {"w": (weight, op2.INC)})
+        with weight.dat.vec as w:
+            w.reciprocal()
 
-        # Create a copy and apply the weight
-        # TODO include this in the callables
-        v = firedrake.Function(dual_arg)
-        with v.dat.vec as x, weight.dat.vec as w:
-            x.pointwiseDivide(x, w)
-
+        # Create a buffer for the weighted Cofunction and a callable to apply the weight
+        v = firedrake.Function(W)
         expr = expr._ufl_expr_reconstruct_(operand, v=v)
+        with weight.dat.vec_ro as w, dual_arg.dat.vec_ro as x, v.dat.vec_wo as y:
+            callables += (partial(y.pointwiseMult, x, w),)
 
     # We need to pass both the ufl element and the finat element
     # because the finat elements might not have the right mapping
@@ -1043,6 +1048,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     name = kernel.name
     kernel = op2.Kernel(ast, name, requires_zeroed_output_arguments=True,
                         flop_count=kernel.flop_count, events=(kernel.event,))
+
     parloop_args = [kernel, cell_set]
 
     coefficients = tsfc_interface.extract_numbered_coefficients(expr, coefficient_numbers)
@@ -1158,7 +1164,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     if isinstance(tensor, op2.Mat):
         return parloop_compute_callable, tensor.assemble
     else:
-        return copyin + (parloop_compute_callable, ) + copyout
+        return copyin + callables + (parloop_compute_callable, ) + copyout
 
 
 try:

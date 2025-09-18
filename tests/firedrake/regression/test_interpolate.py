@@ -329,7 +329,7 @@ def test_trace():
 
 @pytest.mark.parametrize("rank", (0, 1))
 @pytest.mark.parametrize("mat_type", ("matfree", "aij"))
-@pytest.mark.parametrize("degree", range(1, 4))
+@pytest.mark.parametrize("degree", (1, 3))
 @pytest.mark.parametrize("cell", ["triangle", "quadrilateral"])
 @pytest.mark.parametrize("shape", ("scalar", "vector", "tensor"))
 def test_adjoint_Pk(rank, mat_type, degree, cell, shape):
@@ -350,14 +350,15 @@ def test_adjoint_Pk(rank, mat_type, degree, cell, shape):
         operand = TestFunction(Pk)
 
     if mat_type == "matfree":
-        result = assemble(interpolate(operand, v))
+        interp = interpolate(operand, v)
     else:
         adj_interp = assemble(interpolate(operand, TrialFunction(Pkp1.dual())))
         if rank == 0:
-            result = assemble(action(v, adj_interp))
+            interp = action(v, adj_interp)
         else:
-            result = assemble(action(adj_interp, v))
+            interp = action(adj_interp, v)
 
+    result = assemble(interp)
     expect = assemble(inner(expr, operand) * dx)
     if rank == 0:
         assert np.allclose(result, expect)

@@ -538,6 +538,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             result = expr.assemble(assembly_opts=opts)
             return tensor.assign(result) if tensor else result
         elif isinstance(expr, ufl.Interpolate):
+            if not isinstance(expr, firedrake.Interpolate):
+                expr = firedrake.Interpolate(*reversed(expr.dual_args()))
             orig_expr = expr
             # Replace assembled children
             _, operand = expr.argument_slots()
