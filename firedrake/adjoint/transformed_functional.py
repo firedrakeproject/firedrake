@@ -2,15 +2,16 @@ from functools import cached_property
 from operator import itemgetter
 
 import firedrake as fd
+from firedrake.adjoint import Control, ReducedFunctional
 import finat
-from petsctools import flatten_parameters
-from pyadjoint.control import Control
+from pyadjoint import no_annotations
 from pyadjoint.enlisting import Enlist
-from pyadjoint.reduced_functional import AbstractReducedFunctional, ReducedFunctional
-from pyadjoint.tape import no_annotations
+from pyadjoint.reduced_functional import AbstractReducedFunctional
+import ufl
 
 __all__ = \
     [
+        "L2RieszMap",
         "L2TransformedFunctional"
     ]
 
@@ -48,6 +49,25 @@ class L2Cholesky:
         with u.dat.vec_ro as u_v, v.dat.vec_wo as v_v:
             self.pc.applySymmetricRight(u_v, v_v)
         return v
+
+
+class L2RieszMap(fd.RieszMap):
+    """An :math:`L^2` Riesz map.
+
+    Parameters
+    ----------
+
+    target : WithGeometry
+        Target space.
+
+    Keyword arguments are passed to the :class:`firedrake.RieszMap`
+    constructor.
+    """
+
+    def __init__(self, target, **kwargs):
+        if not isinstance(target, fd.functionspaceimpl.WithGeometry):
+            raise TypeError("Target must be a WithGeometry")
+        super().__init__(target, ufl.L2, **kwargs)
 
 
 def is_dg_space(space):
@@ -90,8 +110,9 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         Functional defining the optimization problem, :math:`J`.
     controls : Control or Sequence[Control]
         Controls. Must be :class:`firedrake.Function` objects.
-    tape : Tape
-        Tape used in evaluations involving :math:`J`.
+    riesz_map : L2RieszMap or Sequence[L2RieszMap]
+        Used for projecting from the discontinuous space onto the control
+        space. Ignored for DG controls.
     alpha : Real
         Modifies the functional, equivalent to adding an extra term to
         :math:`J \circ \Pi`
@@ -103,19 +124,14 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         e.g. in a minimization problem this adds a penalty term which can
         be used to avoid ill-posedness due to the use of a larger discontinuous
         space.
-    project_solver_parameters : Mapping
-        Solver parameters for an :math:`L^2` projection from the discontinuous
-        space onto the control space. Ignored for controls in DG spaces,
-        where the projection is an identity.
+    tape : Tape
+        Tape used in evaluations involving :math:`J`.
     """
 
     @no_annotations
-    def __init__(self, functional, controls, *, tape=None,
-                 alpha=0, project_solver_parameters=None):
+    def __init__(self, functional, controls, *, riesz_map=None, alpha=0, tape=None):
         if not all(isinstance(control.control, fd.Function) for control in Enlist(controls)):
             raise TypeError("controls must be Function objects")
-        if project_solver_parameters is None:
-            project_solver_parameters = {}
 
         super().__init__()
         self._J = ReducedFunctional(functional, controls, tape=tape)
@@ -127,8 +143,13 @@ class L2TransformedFunctional(AbstractReducedFunctional):
                                for space_D in self._space_D)
         self._controls = Enlist(Enlist(controls).delist(self._controls))
         self._alpha = alpha
-        self._project_solver_parameters = flatten_parameters(project_solver_parameters)
         self._m_k = None
+
+        if riesz_map is None:
+            riesz_map = tuple(map(L2RieszMap, self._space))
+        self._riesz_map = Enlist(riesz_map)
+        if len(self._riesz_map) != len(self._controls):
+            raise ValueError("Invalid length")
 
         # Map the initial guess
         controls_t = self._primal_transform(tuple(control.control for control in self._J.controls), apply_riesz=False)
@@ -150,17 +171,14 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         if len(u_D) != len(self.controls):
             raise ValueError("Invalid length")
 
-        def transform(C, u, u_D, space, space_D):
+        def transform(C, u, u_D, space, space_D, riesz_map):
             # Map function to transformed 'cofunction':
             if apply_riesz:
                 # C_W^{-1} P_{VW}^* M_V^{-1}
                 if space is space_D:
                     v = u
                 else:
-                    # Might be replaced with interpolation (does this work for
-                    # all spaces?)
-                    v = u.riesz_representation(solver_options=self._project_solver_parameters)
-                    v = fd.assemble(fd.inner(v, fd.TestFunction(space_D)) * fd.dx)
+                    v = fd.assemble(fd.inner(riesz_map(u), fd.TestFunction(space_D)) * fd.dx)
             else:
                 # C_W^{-1} P_{VW}^*
                 v = fd.assemble(fd.inner(u, fd.TestFunction(space_D)) * fd.dx)
@@ -169,7 +187,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
             v = C.C_inv_action(v)
             return v.riesz_representation("l2")
 
-        v = tuple(map(transform, self._C, u, u_D, self._space, self._space_D))
+        v = tuple(map(transform, self._C, u, u_D, self._space, self._space_D, self._riesz_map))
         return u.delist(v)
 
     def _dual_transform(self, u):
@@ -177,7 +195,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         if len(u) != len(self.controls):
             raise ValueError("Invalid length")
 
-        def transform(C, u, space, space_D):
+        def transform(C, u, space, space_D, riesz_map):
             # Map transformed 'cofunction' to function:
             #     M_V^{-1} P_{VW} C_W^{-*}
             if fd.utils.complex_mode:
@@ -187,11 +205,10 @@ class L2TransformedFunctional(AbstractReducedFunctional):
             if space is space_D:
                 w = v
             else:
-                w = fd.Function(space).project(
-                    v, solver_parameters=self._project_solver_parameters)
+                w = riesz_map(fd.assemble(fd.inner(v, fd.TestFunction(space)) * fd.dx))
             return v, w
 
-        vw = tuple(map(transform, self._C, u, self._space, self._space_D))
+        vw = tuple(map(transform, self._C, u, self._space, self._space_D, self._riesz_map))
         return u.delist(tuple(map(itemgetter(0), vw))), u.delist(tuple(map(itemgetter(1), vw)))
 
     @no_annotations

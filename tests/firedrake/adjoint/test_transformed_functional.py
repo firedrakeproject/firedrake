@@ -3,13 +3,11 @@ from functools import partial
 
 import firedrake as fd
 from firedrake.adjoint import (
-    Control, ReducedFunctional, continue_annotation, minimize,
-    pause_annotation)
-from firedrake.adjoint.transformed_functional import L2TransformedFunctional
+    Control, L2TransformedFunctional, MinimizationProblem, ReducedFunctional,
+    continue_annotation, minimize, pause_annotation, set_working_tape)
 import numpy as np
-from pyadjoint import MinimizationProblem, TAOSolver
+from pyadjoint import TAOSolver
 from pyadjoint.reduced_functional_numpy import ReducedFunctionalNumPy
-from pyadjoint.tape import set_working_tape
 import pytest
 import ufl
 
@@ -119,7 +117,7 @@ def test_transformed_functional_mass_inverse(family):
                  callback=cb,
                  options={"ftol": 0,
                           "gtol": 1e-6})
-    assert cb[-1] < 1e-8
+    assert cb[-1] < 1e-10
     assert len(cb) == 3
     assert J_hat._test_transformed_functional__ncalls == 3
 
@@ -190,8 +188,8 @@ def test_transformed_functional_poisson():
                  options={"ftol": 0,
                           "gtol": 1e-10})
     assert 1e-4 < cb[-1] < 5e-4
-    assert len(cb) < 55  # == 50
-    assert J_hat._test_transformed_functional__ncalls < 55  # == 51
+    assert len(cb) < 55  # == 51
+    assert J_hat._test_transformed_functional__ncalls < 60  # == 55
 
 
 def test_transformed_functional_poisson_tao_nls():
@@ -244,13 +242,12 @@ def test_transformed_functional_poisson_tao_nls():
                                  "tao_converged_reason": None,
                                  "tao_gatol": 1.0e-5,
                                  "tao_grtol": 0.0,
-                                 "tao_gttol": 1.0e-6,
-                                 "tao_monitor": None})
+                                 "tao_gttol": 1.0e-6})
     m_opt = solver.solve()
     error_norm_opt = error_norm(m_opt)
     print(f"{error_norm_opt=:.6g}")
     assert 1e-2 < error_norm_opt < 5e-2
-    assert J_hat._test_transformed_functional__ncalls > 22  # == 24
+    assert J_hat._test_transformed_functional__ncalls > 22  # == 25
 
     J_hat = L2TransformedFunctional(J, c, alpha=1e-5)
 
@@ -265,8 +262,7 @@ def test_transformed_functional_poisson_tao_nls():
                                  "tao_converged_reason": None,
                                  "tao_gatol": 1.0e-5,
                                  "tao_grtol": 0.0,
-                                 "tao_gttol": 1.0e-6,
-                                 "tao_monitor": None})
+                                 "tao_gttol": 1.0e-6})
     m_opt = solver.solve()
     error_norm_opt = error_norm(m_opt)
     print(f"{error_norm_opt=:.6g}")
