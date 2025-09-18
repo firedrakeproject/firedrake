@@ -135,7 +135,6 @@ nitpick_ignore_regex = [
     (r'py:.*', r'ufl\..*'),
     (r'py:.*', r'PETSc\..*'),
     (r'py:.*', r'progress\..*'),
-    (r'py:.*', r'petsctools\..*'),
     # Ignore undocumented PyOP2
     ('py:class', 'pyop2.caching.Cached'),
     # Ignore mission docs from Firedrake internal "private" code
@@ -417,6 +416,7 @@ intersphinx_mapping = {
     'ufl': ('https://docs.fenicsproject.org/ufl/main/', None),
     'FIAT': ('https://fenics.readthedocs.io/projects/fiat/en/latest/', None),
     'FInAT': ('https://finat.github.io/FInAT/', None),
+    'petsctools': ('https://firedrakeproject.org/petsctools/', None),
     'mpi4py': ('https://mpi4py.readthedocs.io/en/stable/', None),
     'h5py': ('http://docs.h5py.org/en/latest/', None),
     'h5py.h5p': ('https://api.h5py.org/', None),
