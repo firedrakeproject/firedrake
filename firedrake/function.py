@@ -5,7 +5,7 @@ import ufl
 from ufl.duals import is_dual
 from ufl.formatting.ufl2unicode import ufl2unicode
 from ufl.domain import extract_unique_domain
-from pyadjoint import stop_annotating
+from pyadjoint import annotate_tape
 import cachetools
 import ctypes
 from ctypes import POINTER, c_int, c_double, c_void_p
@@ -774,6 +774,9 @@ class PointEvaluator:
         from firedrake import assemble, interpolate
         if not isinstance(function, Function):
             raise TypeError(f"Expected a Function, got {type(function).__name__}")
+        if annotate_tape():
+            raise RuntimeError("PointEvaluator.evaluate cannot be used when annotating."
+                "If you want to use point evaluation with the adjoint, create a VertexOnlyMesh as described in the manual.")
         if function.function_space().ufl_element().family() == "Real":
             return function.dat.data_ro
 
@@ -802,13 +805,13 @@ class PointEvaluator:
             fs = partial(VectorFunctionSpace, dim=shape[0])
         else:
             fs = partial(TensorFunctionSpace, shape=shape)
-        with stop_annotating():
-            P0DG = fs(self.vom, "DG", 0)
-            P0DG_io = fs(self.vom.input_ordering, "DG", 0)
-            f_at_points = assemble(interpolate(function, P0DG))
-            f_at_points_io = Function(P0DG_io).assign(np.nan)
-            f_at_points_io.interpolate(f_at_points)
-            result = f_at_points_io.dat.data_ro
+
+        P0DG = fs(self.vom, "DG", 0)
+        P0DG_io = fs(self.vom.input_ordering, "DG", 0)
+        f_at_points = assemble(interpolate(function, P0DG))
+        f_at_points_io = Function(P0DG_io).assign(np.nan)
+        f_at_points_io.interpolate(f_at_points)
+        result = f_at_points_io.dat.data_ro
 
         # If redundant, all points are now on rank 0, so we broadcast the result
         if self.redundant and self.mesh.comm.size > 1:
