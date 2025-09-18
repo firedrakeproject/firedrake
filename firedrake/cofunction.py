@@ -485,6 +485,7 @@ class RieszMap:
             else:
                 solve, rhs, soln = self._solver
                 rhs.assign(value)
+                soln.zero()
                 solve()
                 output.assign(soln)
         elif ufl.duals.is_primal(value):
