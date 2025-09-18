@@ -7,7 +7,7 @@ from petsctools import OptionsManager, flatten_parameters
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
 from firedrake.function import Function
-from firedrake.interpolation import Interpolate
+from firedrake.interpolation import interpolate
 from firedrake.matrix import MatrixBase
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
@@ -98,7 +98,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
                 F_arg, = F.arguments()
                 self.F = replace(F, {F_arg: v_res, self.u: self.u_restrict})
             else:
-                self.F = Interpolate(v_res, replace(F, {self.u: self.u_restrict}))
+                self.F = interpolate(v_res, replace(F, {self.u: self.u_restrict}))
 
             v_arg, u_arg = self.J.arguments()
             self.J = replace(self.J, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
