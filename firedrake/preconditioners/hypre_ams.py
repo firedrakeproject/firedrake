@@ -1,3 +1,4 @@
+import petsctools
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.function import Function
@@ -6,7 +7,6 @@ from firedrake.dmhooks import get_function_space
 from firedrake.utils import complex_mode
 from firedrake.interpolation import interpolate
 from ufl import grad, SpatialCoordinate
-from firedrake_citations import Citations
 from finat.ufl import VectorElement
 from pyop2.utils import as_tuple
 
@@ -35,7 +35,7 @@ class HypreAMS(PCBase):
         if complex_mode:
             raise NotImplementedError("HypreAMS preconditioner not yet implemented in complex mode")
 
-        Citations().register("Kolev2009")
+        petsctools.cite("Kolev2009")
         A, P = obj.getOperators()
         appctx = self.get_appctx(obj)
         prefix = obj.getOptionsPrefix() or ""

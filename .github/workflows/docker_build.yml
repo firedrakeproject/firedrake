@@ -46,19 +46,73 @@ on:
         required: true
 
 jobs:
-  docker_build:
-    name: "Build the ${{ inputs.target }} container"
-    strategy:
-      fail-fast: false
-    runs-on: [self-hosted, "${{ inputs.os }}"]
+  docker_build_linux:
+    name: Build the ${{ inputs.target }} container (Linux)
+    if: inputs.os == 'Linux'
+    runs-on: [self-hosted, Linux]
+    container: ubuntu:latest
     steps:
       - name: Pre-cleanup
         if: always()
+        run: find . -delete
+
+      - name: Set up Docker
         run: |
-          rm -rf ${{ runner.temp }}/digests
+          apt-get update
+          apt-get -y install docker.io
+
+      - name: Check out the repo
+        uses: actions/checkout@v5
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push ${{ inputs.target }}
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          platforms: ${{ inputs.platform }}
+          file: ${{ inputs.dockerfile }}
+          build-args: |
+            ARCH=${{ inputs.arch }}
+            BRANCH=${{ inputs.branch }}
+          outputs: type=image,name=firedrakeproject/${{ inputs.target }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        run: |
+          : # Create a file in './digests' with name matching the pushed image hash
+          mkdir digests
+          digest="${{ steps.build.outputs.imageid }}"
+          touch "digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests_${{ inputs.target }}_${{ inputs.os }}
+          path: digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Post-cleanup
+        if: always()
+        run: find . -delete
+
+  docker_build_macos:
+    name: Build the ${{ inputs.target }} container (macOS)
+    if: inputs.os == 'macOS'
+    runs-on: [self-hosted, macOS]
+    steps:
+      - name: Pre-cleanup
+        if: always()
+        run: find . -delete
 
       - name: Add homebrew to PATH
-        if: inputs.os == 'macOS'
         run: |
           : # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
           echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
@@ -88,21 +142,19 @@ jobs:
 
       - name: Export digest
         run: |
-          : # Create a file in <tempdir>/digests with name matching the pushed image hash
-          rm -rf ${{ runner.temp }}/digests
-          mkdir -p ${{ runner.temp }}/digests
+          : # Create a file in digests with name matching the pushed image hash
+          mkdir digests
           digest="${{ steps.build.outputs.imageid }}"
-          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+          touch "digests/${digest#sha256:}"
 
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
           name: digests_${{ inputs.target }}_${{ inputs.os }}
-          path: ${{ runner.temp }}/digests/*
+          path: digests/*
           if-no-files-found: error
           retention-days: 1
 
       - name: Post-cleanup
         if: always()
-        run: |
-          rm -rf ${{ runner.temp }}/digests
+        run: find . -delete

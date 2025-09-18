@@ -16,7 +16,7 @@ of the patch but not pressures.
 In practice, we arrive at mesh-independent multigrid convergence using these relaxation.
 We can construct Vanka patches either through :class:`~.PatchPC`, in which the bilinear form
 is assembled on each vertex patch, or through :class:`~.ASMVankaPC`, in which the patch
-operators are extracted from the globally assembled stiffness matrix.::
+operators are extracted from the globally assembled stiffness matrix. ::
 
   from firedrake import *
 
@@ -98,14 +98,14 @@ matrix to be assembled.  These are quite similar to the options used in
       mat_type="matfree")
 
 :class:`~.ASMStarPC`, on the other hand, does no re-discretization, but extracts the
-patch operators for each patch from the already-assembled global stiffness matrix.::
+patch operators for each patch from the already-assembled global stiffness matrix. ::
 
   asm_relax = mg_params(
       {"pc_type": "python",
        "pc_python_type": "firedrake.ASMVankaPC",
        "pc_vanka_construct_dim": 0,
        "pc_vanka_exclude_subspaces": 1,
-       "pc_vanka_backend_type": "tinyasm"
+       "pc_vanka_backend": "tinyasm"
        })
 
 The `tinyasm` backend uses LAPACK to invert all the patch operators.  If this option
@@ -116,7 +116,7 @@ direct or Krylov method on each one.
 Now, for each parameter choice, we report the iteration count for the Poisson problem
 over a range of polynomial degrees.  We see that the Jacobi relaxation leads to growth
 in iteration count, while both :class:`~.PatchPC` and :class:`~.ASMStarPC` do not.  Mathematically, the two
-latter options do the same operations, just via different code paths.::
+latter options do the same operations, just via different code paths. ::
 
   names = {"ASM Vanka": asm_relax,
            "Patch Vanka": patch_relax}
