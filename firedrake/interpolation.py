@@ -389,7 +389,9 @@ class CrossMeshInterpolator(Interpolator):
             )
 
         if isinstance(expr, ufl.Interpolate):
-            expr, = expr.ufl_operands
+            dual_arg, expr = expr.argument_slots()
+            if not isinstance(dual_arg, Coargument):
+                raise NotImplementedError(f"{type(self).__name__} does not support matrix-free adjoint interpolation.")
         super().__init__(expr, V, subset, freeze_expr, access, bcs, allow_missing_dofs, matfree)
 
         self.arguments = extract_arguments(expr)
@@ -749,7 +751,7 @@ class SameMeshInterpolator(Interpolator):
                     # Interpolation action
                     self.frozen_assembled_interpolator = assembled_interpolator.copy()
 
-        if len(self.arguments) == 2 and len(function):
+        if len(self.arguments) == 2 and len(function) > 0:
             function, = function
             if not hasattr(function, "dat"):
                 raise ValueError("The expression had arguments: we therefore need to be given a Function (not an expression) to interpolate!")
@@ -865,7 +867,7 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
             tensor = op2.Mat(sparsity)
         f = tensor
     else:
-        raise ValueError("Cannot interpolate an expression with %d arguments" % rank)
+        raise ValueError(f"Cannot interpolate an expression with {rank} arguments")
 
     if vom_onto_other_vom:
         wrapper = VomOntoVomWrapper(V, source_mesh, target_mesh, operand, matfree)

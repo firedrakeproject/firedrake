@@ -594,7 +594,8 @@ class BaseFormAssembler(AbstractFormAssembler):
                                           v1: v1.reconstruct(number=v0.number())})
                 v, operand = expr.argument_slots()
 
-            # Assemble the interpolator matrix if the meshes are different
+            # Matrix-free adjoint interpolation is only implemented by SameMeshInterpolator
+            # so we need assemble the interpolator matrix if the meshes are different
             target_mesh = V.mesh()
             source_mesh = extract_unique_domain(operand) or target_mesh
             if is_adjoint and rank < 2 and source_mesh is not target_mesh:
@@ -605,6 +606,9 @@ class BaseFormAssembler(AbstractFormAssembler):
             interp_data = expr.interp_data.copy()
             default_missing_val = interp_data.pop('default_missing_val', None)
             if matfree and ((is_adjoint and rank == 1) or rank == 0):
+                # Adjoint interpolation of a Cofunction or the action of a
+                # Cofunction on an interpolated Function require INC access
+                # on the output tensor
                 interp_data["access"] = op2.INC
 
             if rank == 1 and matfree and isinstance(tensor, firedrake.Function):
