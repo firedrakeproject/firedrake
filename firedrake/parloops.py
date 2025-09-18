@@ -408,7 +408,7 @@ def _(
 
     if integral_type == "cell":
         cell = loop_index
-    elif integral_type == "interior_facet":
+    elif integral_type in {"interior_facet", "exterior_facet"}:
         facet = loop_index
         cell = mesh.support(facet)
     else:
@@ -500,7 +500,6 @@ def _(
     index: op3.LoopIndex,
     integral_type: str
 ):
-    raise NotImplementedError
     if integral_type not in {"cell", "interior_facet", "exterior_facet"}:
         raise NotImplementedError("TODO")
 
@@ -514,22 +513,48 @@ def _(
         dat = mat_context.dat
         return pack_pyop3_tensor(dat, space, index, integral_type)
 
-    if any(fs.mesh().ufl_cell() is ufl.hexahedron for fs in {Vrow, Vcol}):
+    if Vrow.mesh() is not Vcol.mesh():
+        raise NotImplementedError("Think we need to have different loop indices for row+col")
+
+    if any(fs.mesh().ufl_cell() == ufl.hexahedron for fs in {Vrow, Vcol}):
         raise NotImplementedError
 
-    # First collect the DoFs in the cell closure in FIAT order.
     if integral_type == "cell":
-        rmap = _cell_integral_pack_indices(Vrow, index)
-        cmap = _cell_integral_pack_indices(Vcol, index)
-    elif integral_type in {"exterior_facet", "interior_facet"}:
-        rmap = _facet_integral_pack_indices(Vrow, index)
-        cmap = _facet_integral_pack_indices(Vcol, index)
+        cell = index
+    elif integral_type in {"interior_facet", "exterior_facet"}:
+        facet = index
+        cell = Vrow.mesh().support(facet)
     else:
         raise NotImplementedError
 
-    indexed = mat[rmap, cmap]
+    packed_mat = mat[Vrow.mesh().closure(cell), Vcol.mesh().closure(cell)]
+    dat_sequence = transform_packed_cell_closure_mat(packed_mat, Vrow, Vcol, cell)
+    assert len(dat_sequence) % 2 == 1, "Must have an odd number"
 
-    return maybe_permute_packed_tensor(indexed, Vrow.finat_element, Vcol.finat_element, Vrow.shape, Vcol.shape)
+    # NOTE: This replicates some logic about packing that we already have, if we package up
+    # the pack and unpack instructions somehow we could delay actually doing them until
+    # the compiler could decide if they are needed.
+    if len(dat_sequence) > 1:
+        # need to have sequential assignments I think
+        raise NotImplementedError
+
+    kernel_dat = dat_sequence[len(dat_sequence) // 2]
+
+    return kernel_dat
+
+    # # First collect the DoFs in the cell closure in FIAT order.
+    # if integral_type == "cell":
+    #     rmap = _cell_integral_pack_indices(Vrow, index)
+    #     cmap = _cell_integral_pack_indices(Vcol, index)
+    # elif integral_type in {"exterior_facet", "interior_facet"}:
+    #     rmap = _facet_integral_pack_indices(Vrow, index)
+    #     cmap = _facet_integral_pack_indices(Vcol, index)
+    # else:
+    #     raise NotImplementedError
+    #
+    # indexed = mat[rmap, cmap]
+    #
+    # return maybe_permute_packed_tensor(indexed, Vrow.finat_element, Vcol.finat_element, Vrow.shape, Vcol.shape)
 
 
 @functools.singledispatch
@@ -543,17 +568,13 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
     dof_numbering = _flatten_entity_dofs(space.finat_element.entity_dofs())
     dof_perm = invert_permutation(dof_numbering)
     # skip if identity
-    if not (dof_perm != np.arange(dof_perm.size, dtype=IntType)).all():
+    if (dof_perm != np.arange(dof_perm.size, dtype=IntType)).any():
+        breakpoint()
         nodal_axis_tree = op3.AxisTree.from_iterable([len(dof_numbering), *space.shape])
         nodal_axis = nodal_axis_tree.root
 
-        dof_numbering_dat = op3.Dat(nodal_axis, data=dof_numbering, prefix="perm", buffer_kwargs={"constant": True})
         dof_perm_dat = op3.Dat(nodal_axis, data=dof_perm, prefix="perm", buffer_kwargs={"constant": True})
 
-        dof_numbering_slice = op3.Slice(
-            nodal_axis.label,
-            [op3.Subset(None, dof_numbering_dat)],
-        )
         dof_perm_slice = op3.Slice(
             nodal_axis.label,
             [op3.Subset(None, dof_perm_dat)],
@@ -561,18 +582,20 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
 
         dat_sequence[-1] = dat_sequence[-1].reshape(nodal_axis_tree)[dof_perm_slice]
 
-    if space.mesh() is ufl.hexahedron:
+    if space.mesh().ufl_cell() == ufl.hexahedron:
         raise NotImplementedError
         perms = _entity_permutations(element)
         mytree = _orientations(plex, perms, index, integral_type)
 
     return dat_sequence
 
-    return tuple(g2l_transform_insns), local_result, tuple(l2g_transform_insns), global_result
+    # return tuple(g2l_transform_insns), local_result, tuple(l2g_transform_insns), global_result
 
 
-@maybe_permute_packed_tensor.register
-def _(packed_mat: op3.Mat, row_element, column_element, row_shape, column_shape):
+def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_space, cell_index: op3.Index):
+    row_element = row_space.finat_element
+    column_element = column_space.finat_element
+
     row_perm = _flatten_entity_dofs(row_element.entity_dofs())
     row_perm = invert_permutation(row_perm)
     col_perm = _flatten_entity_dofs(column_element.entity_dofs())
@@ -591,12 +614,12 @@ def _(packed_mat: op3.Mat, row_element, column_element, row_shape, column_shape)
         col_perm_axis = col_perm_dat.axes.root
         col_perm_subset = op3.Slice(col_perm_axis.label, [op3.Subset(col_perm_axis.component.label, col_perm_dat)])
 
-        indexed_row_axes = op3.AxisTree.from_iterable([row_perm_axis, *row_shape])
-        indexed_col_axes = op3.AxisTree.from_iterable([col_perm_axis, *column_shape])
+        indexed_row_axes = op3.AxisTree.from_iterable([row_perm_axis, *row_space.shape])
+        indexed_col_axes = op3.AxisTree.from_iterable([col_perm_axis, *column_space.shape])
 
         packed_mat = packed_mat.reshape(indexed_row_axes, indexed_col_axes)[row_perm_subset, col_perm_subset]
 
-    return packed_mat
+    return (packed_mat,)
 
 def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.IndexTree:
     if len(V) > 1:

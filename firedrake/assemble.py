@@ -29,7 +29,7 @@ from firedrake.formmanipulation import split_form
 from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_unique_domain
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
-from firedrake.parloops import pack_pyop3_tensor, pack_tensor
+from firedrake.parloops import pack_pyop3_tensor, pack_tensor, _cell_integral_pack_indices, _facet_integral_pack_indices
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
@@ -2107,17 +2107,14 @@ class ParloopBuilder:
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetKernelArg)
     def _as_parloop_arg_exterior_facet(self, _, index):
-        raise NotImplementedError
         return self._topology.exterior_facets._local_facets[index]
 
     @_as_parloop_arg.register(kernel_args.InteriorFacetKernelArg)
     def _as_parloop_arg_interior_facet(self, _, index):
-        raise NotImplementedError
         return self._topology.interior_facets._local_facets[index]
 
     @_as_parloop_arg.register(CellFacetKernelArg)
     def _as_parloop_arg_cell_facet(self, _, index):
-        raise NotImplementedError
         return self._mesh.cell_to_facets[index]
 
     @_as_parloop_arg.register(LayerCountKernelArg)
@@ -2132,12 +2129,12 @@ class ParloopBuilder:
         return op2.GlobalParloopArg(glob)
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetOrientationKernelArg)
-    def _as_parloop_arg_exterior_facet_orientation(_, self):
+    def _as_parloop_arg_exterior_facet_orientation(self, _, p):
         raise NotImplementedError
         return op2.DatParloopArg(self._mesh.exterior_facets.local_facet_orientation_dat)
 
     @_as_parloop_arg.register(kernel_args.InteriorFacetOrientationKernelArg)
-    def _as_parloop_arg_interior_facet_orientation(_, self):
+    def _as_parloop_arg_interior_facet_orientation(self, _, p):
         raise NotImplementedError
         return op2.DatParloopArg(self._mesh.interior_facets.local_facet_orientation_dat)
 
