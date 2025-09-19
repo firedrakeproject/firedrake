@@ -2,15 +2,15 @@
 
 .. title:: Firedrake '25
 
-.. image:: images/leeds_som.png
-   :alt: University of Leeds, School of Mathematics
+.. image:: images/firedrake_25.jpg
+   :alt: Photo showing conference attendees
    :width: 100%
    :align: center
 
 Firedrake '25
 -------------
 
-The tenth Firedrake user and developer workshop will be held at the
+The tenth Firedrake user and developer workshop was held at the
 `School of Mathematics <https://eps.leeds.ac.uk/maths>`__ together
 with
 `Leeds Institute of Fluid Dynamics <https://fluids.leeds.ac.uk/>`__,
