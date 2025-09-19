@@ -390,8 +390,8 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
     cell_sizes = mesh.cell_sizes
 
     x = np.array(point)
-    v1 = toreal(direction * function.at(x, tolerance=loc_tolerance), complex_component)
-    r = toreal(cell_sizes.at(x, tolerance=loc_tolerance), "real")
+    v1 = toreal(direction * function._at(x, tolerance=loc_tolerance), complex_component)
+    r = toreal(cell_sizes._at(x, tolerance=loc_tolerance), "real")
     v1norm = np.sqrt(np.sum(v1**2))
     if np.isclose(v1norm, 0.0):
         # Bail early for zero fields.
@@ -401,12 +401,12 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
 
     while True:
         try:
-            v2 = toreal(direction * function.at(x + dt * v1, tolerance=loc_tolerance),
+            v2 = toreal(direction * function._at(x + dt * v1, tolerance=loc_tolerance),
                         complex_component)
         except PointNotInDomainError:
             ds = _step_to_boundary(mesh, x, v1, dt, loc_tolerance)
             y = x + ds * v1
-            v1 = toreal(direction * function.at(y, tolerance=loc_tolerance),
+            v1 = toreal(direction * function._at(y, tolerance=loc_tolerance),
                         complex_component)
             yield y, v1, ds
             break
@@ -418,14 +418,14 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
         if error <= tolerance:
             y = x + dx2
             try:
-                vy = toreal(direction * function.at(y, tolerance=loc_tolerance),
+                vy = toreal(direction * function._at(y, tolerance=loc_tolerance),
                             complex_component)
-                r = toreal(cell_sizes.at(y, tolerance=loc_tolerance), "real")
+                r = toreal(cell_sizes._at(y, tolerance=loc_tolerance), "real")
             except PointNotInDomainError:
                 v = (v1 + v2) / 2
                 ds = _step_to_boundary(mesh, x, v, dt, loc_tolerance)
                 y = x + ds * v
-                v1 = toreal(direction * function.at(y, tolerance=loc_tolerance),
+                v1 = toreal(direction * function._at(y, tolerance=loc_tolerance),
                             complex_component)
                 yield y, v1, ds
                 break
@@ -653,7 +653,7 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     speeds = []
     widths = []
     for streamline in streamplotter.streamlines:
-        velocity = toreal(np.array(function.at(streamline, tolerance=loc_tolerance)),
+        velocity = toreal(np.array(function._at(streamline, tolerance=loc_tolerance)),
                           complex_component)
         speed = np.sqrt(np.sum(velocity**2, axis=1))
         speeds.extend(speed[:-1])

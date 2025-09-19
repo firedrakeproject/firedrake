@@ -608,7 +608,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         else:
             mesh.tolerance = tolerance
 
-        # Handle f.at(0.3)
+        # Handle f._at(0.3)
         if not arg.shape:
             arg = arg.reshape(-1)
 
@@ -652,7 +652,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         for i, p in enumerate(points):
             try:
                 if mixed:
-                    l_result.append((i, tuple(f.at(p) for f in subfunctions)))
+                    l_result.append((i, tuple(f._at(p) for f in subfunctions)))
                 else:
                     p_result = np.zeros(value_shape, dtype=ScalarType)
                     single_eval(points[i:i+1], p_result)
