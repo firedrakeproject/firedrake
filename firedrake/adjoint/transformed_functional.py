@@ -103,6 +103,10 @@ class L2TransformedFunctional(AbstractReducedFunctional):
     space. This can be used for mesh-independent optimization for libraries
     which support only an :math:`l_2` inner product.
 
+    The transformation is related to the factorization in section 4.1 of
+    https://doi.org/10.1137/18M1175239 -- specifically the factorization
+    in their equation (4.2) can be related to :math:`\Pi \circ \Xi`.
+
     Parameters
     ----------
 
