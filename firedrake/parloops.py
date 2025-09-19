@@ -405,16 +405,28 @@ def _(
     if len(V) > 1:
         # do a loop
         raise NotImplementedError
+        # This is tricky. Consider the case where you have a mixed space with hexes and
+        # each space needs a different (non-permutation) transform. That means that we
+        # have to generate code like:
+        #
+        # t0 = dat[:, closure(cell)]
+        # t1 = transform0(t0[0])  # (field 0)
+        # t2 = transform1(t0[1])  # (field 1)
+        # t3[0] = t1
+        # t3[1] = t2
+        #
+        # I think that the easiest approach here is to index the full thing before passing it
+        # down. We can then combine everything at the top-level
 
     if integral_type == "cell":
         cell = loop_index
         packed_dat = dat[mesh.closure(cell)]
-        path = ()
+        depth = 0
     elif integral_type in {"interior_facet", "exterior_facet"}:
         facet = loop_index
         cell = mesh.support(facet)
         packed_dat = dat[mesh.closure(cell)]
-        path = (slice(None),)
+        depth = 1
 
         # It is simplest to transform cell closures without having to think
         # about things like whether there is an extra axis indicating the
@@ -439,7 +451,7 @@ def _(
     else:
         raise NotImplementedError
 
-    dat_sequence = transform_packed_cell_closure_dat(packed_dat, V, cell, path)
+    dat_sequence = transform_packed_cell_closure_dat(packed_dat, V, cell, depth)
 
     assert len(dat_sequence) % 2 == 1, "Must have an odd number"
 
@@ -587,7 +599,7 @@ def maybe_permute_packed_tensor(tensor: op3.Tensor, *spaces) -> op3.Tensor:
     raise TypeError
 
 
-def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op3.LoopIndex, path):
+def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op3.LoopIndex, depth):
     dat_sequence = [packed_dat]
 
     dof_numbering = _flatten_entity_dofs(space.finat_element.entity_dofs())
@@ -596,13 +608,12 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
     if (dof_perm != np.arange(dof_perm.size, dtype=IntType)).any():
 
         outer_axes = []
-        outer_slices = []
-        for path_acc in op3.accumulate_path(path, skip_last=True):
-            axis = packed_dat.axes.node_map[path_acc]
-            assert len(axis.components) == 1  # don't think this makes sense otherwise, mixed done via recombination higher up
-            outer_axes.append(axis)
-            # TODO: can just use slice(None)
-            outer_slices.append(op3.Slice(axis.label, [op3.AffineSliceComponent(axis.component.label)]))
+        path = idict()
+        for _ in range(depth):
+            outer_axis = packed_dat.axes.node_map[path]
+            # don't think this makes sense otherwise, mixed done via recombination higher up
+            assert len(outer_axis.components) == 1
+            outer_axes.append(outer_axis)
 
         nodal_axis = op3.Axis(len(dof_numbering))
         nodal_axis_tree = op3.AxisTree.from_iterable([*outer_axes, nodal_axis, *space.shape])
@@ -613,7 +624,7 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
             [op3.Subset(None, dof_perm_dat)],
         )
 
-        dat_sequence[-1] = dat_sequence[-1].reshape(nodal_axis_tree)[*outer_slices, dof_perm_slice]
+        dat_sequence[-1] = dat_sequence[-1].reshape(nodal_axis_tree)[*(slice(None),)*depth, dof_perm_slice]
 
     if space.mesh().ufl_cell() == ufl.hexahedron:
         raise NotImplementedError
