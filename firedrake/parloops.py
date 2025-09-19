@@ -408,14 +408,39 @@ def _(
 
     if integral_type == "cell":
         cell = loop_index
+        packed_dat = dat[mesh.closure(cell)]
+        path = ()
     elif integral_type in {"interior_facet", "exterior_facet"}:
         facet = loop_index
         cell = mesh.support(facet)
+        packed_dat = dat[mesh.closure(cell)]
+        path = (slice(None),)
+
+        # It is simplest to transform cell closures without having to think
+        # about things like whether there is an extra axis indicating the
+        # facet. We therefore drop the facet axis, perform the transformation,
+        # and then put everything back together at the end.
+        # cell_packed_dat = packed_dat[0]
+        # cell_dat_sequence = transform_packed_cell_closure_dat(cell_packed_dat, V, cell)
+        # dat_sequence = []
+        # for cell_dat in cell_dat_sequence:
+        #     transformed_axes = op3.AxisTree(packed_dat.axes.root)
+        #     transformed_axes = transformed_axes.add_subtree(None, cell_dat.axes)
+        #
+        #     # targets = ???
+        #     breakpoint()
+        #
+        #     transformed_axes = op3.IndexedAxisTree(transformed_axes, targets=targets, unindexed=cell_dat.axes.unindexed)
+        #
+        #     if cell_dat.buffer is not packed_dat.buffer:
+        #         raise NotImplementedError("Equivalent to having these pesky temporaries")
+        #     tranformed_packed_dat = cell_dat.with_axes(transformed_axes)
+        #     dat_sequence.append(transformed_packed_dat)
     else:
         raise NotImplementedError
 
-    packed_dat = dat[mesh.closure(cell)]
-    dat_sequence = transform_packed_cell_closure_dat(packed_dat, V, cell)
+    dat_sequence = transform_packed_cell_closure_dat(packed_dat, V, cell, path)
+
     assert len(dat_sequence) % 2 == 1, "Must have an odd number"
 
     # NOTE: This replicates some logic about packing that we already have, if we package up
@@ -562,21 +587,25 @@ def maybe_permute_packed_tensor(tensor: op3.Tensor, *spaces) -> op3.Tensor:
     raise TypeError
 
 
-def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op3.LoopIndex):
+def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op3.LoopIndex, path):
     dat_sequence = [packed_dat]
 
     dof_numbering = _flatten_entity_dofs(space.finat_element.entity_dofs())
     dof_perm = invert_permutation(dof_numbering)
     # skip if identity
     if (dof_perm != np.arange(dof_perm.size, dtype=IntType)).any():
-        nodal_axis = op3.Axis(len(dof_numbering))
 
-        if packed_dat.axes.root.label == "support":
-            assert packed_dat.axes.node_map[idict({"support": "XXX"})].label == "closure"
-            nodal_axis_tree = op3.AxisTree.from_iterable([packed_dat.axes.root, nodal_axis, *space.shape])
-        else:
-            assert packed_dat.axes.root.label == "closure"
-            nodal_axis_tree = op3.AxisTree.from_iterable([nodal_axis, *space.shape])
+        outer_axes = []
+        outer_slices = []
+        for path_acc in op3.accumulate_path(path, skip_last=True):
+            axis = packed_dat.axes.node_map[path_acc]
+            assert len(axis.components) == 1  # don't think this makes sense otherwise, mixed done via recombination higher up
+            outer_axes.append(axis)
+            # TODO: can just use slice(None)
+            outer_slices.append(op3.Slice(axis.label, [op3.AffineSliceComponent(axis.component.label)]))
+
+        nodal_axis = op3.Axis(len(dof_numbering))
+        nodal_axis_tree = op3.AxisTree.from_iterable([*outer_axes, nodal_axis, *space.shape])
 
         dof_perm_dat = op3.Dat(nodal_axis, data=dof_perm, prefix="perm", buffer_kwargs={"constant": True})
         dof_perm_slice = op3.Slice(
@@ -584,7 +613,7 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
             [op3.Subset(None, dof_perm_dat)],
         )
 
-        dat_sequence[-1] = dat_sequence[-1].reshape(nodal_axis_tree)[dof_perm_slice]
+        dat_sequence[-1] = dat_sequence[-1].reshape(nodal_axis_tree)[*outer_slices, dof_perm_slice]
 
     if space.mesh().ufl_cell() == ufl.hexahedron:
         raise NotImplementedError

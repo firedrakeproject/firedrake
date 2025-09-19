@@ -89,6 +89,7 @@ from pyop3.insn import (  # noqa: F401
 from pyop3.sf import StarForest, single_star_sf, local_sf
 import pyop3.sf
 from pyop3.tree.index_tree.parse import as_index_forest
+from pyop3.tree import accumulate_path
 
 del _os
 del _config

@@ -613,8 +613,11 @@ class MutableLabelledTreeMixin:
 
         return type(self)(self.node_map | {path: node})
 
-    def add_subtree(self, path: PathT, subtree: LabelledTree) -> MutableLabelledTreeMixin:
+    def add_subtree(self, path: PathT | None, subtree: LabelledTree) -> MutableLabelledTreeMixin:
         """Attach another tree to a leaf of the current tree."""
+        if path is None:
+            path = self.leaf_path
+
         path = as_path(path)
 
         if path not in self.leaf_paths:
