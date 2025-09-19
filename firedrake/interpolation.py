@@ -291,19 +291,18 @@ class Interpolator(abc.ABC):
         self._allow_missing_dofs = allow_missing_dofs
         self.matfree = matfree
         self.callable = None
-        # Cope with the different convention of `Interpolate` and `Interpolator`:
-        #  -> Interpolate(Argument(V1, 1), Argument(V2.dual(), 0))
-        #  -> Interpolator(Argument(V1, 0), V2)
+        # Workaround for matrix-explicit adjoint of cross-mesh interpolation
+        # Return instead the forward operator
         target_mesh = as_domain(V)
         source_mesh = extract_unique_domain(operand) or target_mesh
-        if len(expr.arguments()) == 2 and target_mesh is not source_mesh:
+        if len(expr.arguments()) == 2 and (target_mesh is not source_mesh):
             expr_args = extract_arguments(operand)
             if expr_args and expr_args[0].number() == 0:
                 v0, v1 = expr.arguments()
                 expr = ufl.replace(expr, {v0: v0.reconstruct(number=v1.number()),
                                           v1: v1.reconstruct(number=v0.number())})
         self.expr_renumbered, = expr.ufl_operands
-        self.interpolate = expr
+        self.ufl_interpolate = expr
 
     def interpolate(self, *function, transpose=None, adjoint=False, default_missing_val=None):
         """
@@ -394,16 +393,14 @@ class CrossMeshInterpolator(Interpolator):
             raise NotImplementedError(
                 "Can only interpolate into spaces with point evaluation nodes."
             )
-        if not isinstance(expr, ufl.Interpolate):
-            fs = V if isinstance(V, ufl.FunctionSpace) else V.function_space()
-            expr = Interpolate(expr, fs)
-        dual_arg, expr = expr.argument_slots()
-        if not isinstance(dual_arg, Coargument):
-            raise NotImplementedError(f"{type(self).__name__} does not support matrix-free adjoint interpolation.")
-
+        if isinstance(expr, ufl.Interpolate):
+            dual_arg, operand = expr.argument_slots()
+            if not isinstance(dual_arg, ufl.Coargument):
+                raise NotImplementedError(f"{type(self).__name__} does not support matrix-free adjoint action.")
         super().__init__(expr, V, subset, freeze_expr, access, bcs, allow_missing_dofs, matfree)
 
-        self.arguments = extract_arguments(self.expr_renumbered)
+        expr = self.expr_renumbered
+        self.arguments = extract_arguments(expr)
         self.nargs = len(self.arguments)
 
         if self._allow_missing_dofs:
@@ -703,11 +700,11 @@ class SameMeshInterpolator(Interpolator):
     @no_annotations
     def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE,
                  bcs=None, matfree=True, allow_missing_dofs=False, **kwargs):
-        if not isinstance(expr, ufl.Interpolate):
-            fs = V if isinstance(V, ufl.FunctionSpace) else V.function_space()
-            expr = Interpolate(expr, fs)
         if subset is None:
-            operand, = expr.ufl_operands
+            if isinstance(expr, ufl.Interpolate):
+                operand, = expr.ufl_operands
+            else:
+                operand = expr
             target_mesh = as_domain(V)
             source_mesh = extract_unique_domain(operand) or target_mesh
             target = target_mesh.topology
@@ -728,7 +725,7 @@ class SameMeshInterpolator(Interpolator):
                     pass
         super().__init__(expr, V, subset=subset, freeze_expr=freeze_expr,
                          access=access, bcs=bcs, matfree=matfree, allow_missing_dofs=allow_missing_dofs)
-        expr = self.interpolate
+        expr = self.ufl_interpolate
         try:
             self.callable = make_interpolator(expr, V, subset, access, bcs=bcs, matfree=matfree)
         except FIAT.hdiv_trace.TraceError:

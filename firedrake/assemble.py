@@ -593,7 +593,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             # so we need assemble the interpolator matrix if the meshes are different
             target_mesh = V.mesh()
             source_mesh = extract_unique_domain(operand) or target_mesh
-            if is_adjoint and rank < 2 and source_mesh is not target_mesh:
+            if is_adjoint and rank < 2 and (source_mesh is not target_mesh):
                 expr = reconstruct_interp(operand, v=V)
             matfree = (rank == len(expr.arguments())) and (rank < 2)
 
