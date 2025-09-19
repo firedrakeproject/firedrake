@@ -2134,9 +2134,8 @@ class ParloopBuilder:
         return op2.DatParloopArg(self._mesh.exterior_facets.local_facet_orientation_dat)
 
     @_as_parloop_arg.register(kernel_args.InteriorFacetOrientationKernelArg)
-    def _as_parloop_arg_interior_facet_orientation(self, _, p):
-        raise NotImplementedError
-        return op2.DatParloopArg(self._mesh.interior_facets.local_facet_orientation_dat)
+    def _as_parloop_arg_interior_facet_orientation(self, _, facet_index: op3.LoopIndex):
+        return self._mesh.interior_facets.local_facet_orientation_dat[facet_index]
 
 
 class _FormHandler:

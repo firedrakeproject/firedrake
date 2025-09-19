@@ -444,8 +444,11 @@ class _FacetContext:
             local_facet_axes, data=owned_local_facet_number.flatten()
         )
 
+    @property
+    def facet_cell(self):
+        return self.mesh._facet_support_dat(self._facet_type)
 
-    @utils.cached_property
+    @cached_property
     def local_facet_orientation_dat(self):
         """Dat for the local facet orientations."""
         dtype = gem.uint_type
@@ -463,24 +466,23 @@ class _FacetContext:
         # this is a map from an exterior/interior facet to the corresponding local facet orientation/orientations.
         # Halo data are required by design, but not actually used.
         # -- Reshape as (-1, self._rank) to uniformly handle exterior and interior facets.
-        data = np.empty_like(self.local_facet_dat.data_ro_with_halos).reshape((-1, self._rank))
+        data = np.empty_like(self._local_facets.data_ro_with_halos).reshape((-1, self._rank))
         data.fill(np.iinfo(dtype).max)
         # Set local facet orientations on the block corresponding to the owned facets; i.e., data[:shape[0], :] below.
-        local_facets = self.local_facet_dat.data_ro  # do not need halos.
+        local_facets = self._local_facets.data_ro  # do not need halos.
         # -- Reshape as (-1, self._rank) to uniformly handle exterior and interior facets.
         local_facets = local_facets.reshape((-1, self._rank))
         shape = local_facets.shape
-        map_from_owned_facet_to_cells = self.facet_cell[:shape[0], :]
+        map_from_owned_facet_to_cells = self.mesh._facet_support_dat(self._facet_type).data_ro.reshape((-1, self._rank))
         data[:shape[0], :] = np.take_along_axis(
             map_from_cell_to_facet_orientations[map_from_owned_facet_to_cells],
             local_facets.reshape(shape + (1, )),  # reshape as required by take_along_axis.
             axis=2,
         ).reshape(shape)
-        return op2.Dat(
-            self.local_facet_dat.dataset,
-            data,
-            dtype,
-            f"{self.mesh.name}_{self.kind}_local_facet_orientation"
+        return op3.Dat(
+            self._local_facets.axes,
+            data=data.flatten(),
+            name=f"{self.mesh.name}_{self._facet_type}_local_facet_orientation",
         )
 
 
