@@ -766,6 +766,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree):
         if indices is Ellipsis:
             return self
 
+
         # key = (indices, strict)
         # if key in self._cache:
         #     return self._cache[key]

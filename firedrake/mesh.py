@@ -2263,6 +2263,21 @@ class MeshTopology(AbstractMeshTopology):
     def entity_orientations(self):
         return dmcommon.entity_orientations(self, self._fiat_cell_closures)
 
+    @cached_property
+    def entity_orientations_dat(self):
+        # FIXME: the following does not work because the labels change
+        # cell_axis = self.cells.root
+        # so instead we do
+        cell_axis = op3.Axis([self.points.root.components[0]], self.points.root.label)
+
+        # TODO: This is quite a funky way of getting this. We should be able to get
+        # it without calling the map.
+        closure_axis = self.closure(self.cells.iter()).axes.root
+        axis_tree = op3.AxisTree.from_nest({cell_axis: [closure_axis]})
+
+        assert axis_tree.size == self.entity_orientations.size
+        return op3.Dat(axis_tree, data=self.entity_orientations.flatten(), prefix="orientations")
+
     def _memoize_map(self, map_func, dim, sizes=None):
         if sizes is not None:
             return self._memoize_map_fixed(map_func, dim, sizes), sizes
@@ -3083,6 +3098,7 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @utils.cached_property
     def entity_orientations(self):
+        raise NotImplementedError
         return self._base_mesh.entity_orientations
 
     def _facets(self, kind):

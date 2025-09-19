@@ -588,6 +588,22 @@ class LabelledTree:
         else:
             raise TypeError(f"No handler defined for {type(node).__name__}")
 
+    def to_nest(self) -> idict:
+        return self._to_nest_rec(idict())
+
+    def _to_nest_rec(self, path):
+        node = self.node_map[path]
+
+        nest = {node: []}
+        for component_label in node.component_labels:
+            path_ = path | {node.label: component_label}
+            if self.node_map[path_]:
+                subnest = self._to_nest_rec(path_)
+                nest[node].append(subnest)
+            else:
+                nest[node].append(None)
+        return idict(nest)
+
 
 class MutableLabelledTreeMixin:
     def add_node(self, path: PathT, node: Node) -> MutableLabelledTreeMixin:

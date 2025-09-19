@@ -203,7 +203,14 @@ def _(seq: Sequence, /, axes, loop_context) -> tuple[IndexTree]:
 def _index_forest_from_iterable(indices, axes, loop_context, *, path):
     index, *subindices = indices
 
-    cf_indices = _as_context_free_indices(index, loop_context, axis_tree=axes, path=path)
+    if isinstance(index, IndexTree):
+        cf_index_tree = as_context_free_index_tree(index, loop_context)
+        if not subindices:
+            return (cf_index_tree.to_nest(),)
+        else:
+            raise NotImplementedError
+    else:
+        cf_indices = _as_context_free_indices(index, loop_context, axis_tree=axes, path=path)
 
     if not subindices:
         return cf_indices
@@ -562,3 +569,10 @@ def _(called_map, /, loop_context, **kwargs):
             restricted_map = Map(restricted_connectivity, called_map.name)(cf_index)
             cf_maps.append(restricted_map)
     return tuple(cf_maps)
+
+
+def as_context_free_index_tree(index_tree: IndexTree, loop_context) -> IndexTree:
+    index_forests = as_index_forests(index_tree)
+    loop_context_, index_forest = just_one(index_forests.items())
+    assert loop_context_ == loop_context
+    return just_one(index_forest)

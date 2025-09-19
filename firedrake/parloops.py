@@ -602,18 +602,26 @@ def maybe_permute_packed_tensor(tensor: op3.Tensor, *spaces) -> op3.Tensor:
 def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op3.LoopIndex, depth):
     dat_sequence = [packed_dat]
 
+    outer_axes = []
+    path = idict()
+    for _ in range(depth):
+        outer_axis = packed_dat.axes.node_map[path]
+        # don't think this makes sense otherwise, mixed done via recombination higher up
+        assert len(outer_axis.components) == 1
+        outer_axes.append(outer_axis)
+
+    # Do this before the DoF transformations because this occurs at the level of entities, not nodes
+    # TODO: Can be more fussy I think, only higher degree?
+    if space.ufl_element().cell == ufl.hexahedron:
+        perms = _entity_permutations(space)
+        orientation_perm = _orientations(space, perms, loop_index)
+        dat_sequence[-1] = dat_sequence[-1][*(slice(None),)*depth, orientation_perm]
+        breakpoint()
+
     dof_numbering = _flatten_entity_dofs(space.finat_element.entity_dofs())
     dof_perm = invert_permutation(dof_numbering)
     # skip if identity
     if (dof_perm != np.arange(dof_perm.size, dtype=IntType)).any():
-
-        outer_axes = []
-        path = idict()
-        for _ in range(depth):
-            outer_axis = packed_dat.axes.node_map[path]
-            # don't think this makes sense otherwise, mixed done via recombination higher up
-            assert len(outer_axis.components) == 1
-            outer_axes.append(outer_axis)
 
         nodal_axis = op3.Axis(len(dof_numbering))
         nodal_axis_tree = op3.AxisTree.from_iterable([*outer_axes, nodal_axis, *space.shape])
@@ -626,14 +634,7 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
 
         dat_sequence[-1] = dat_sequence[-1].reshape(nodal_axis_tree)[*(slice(None),)*depth, dof_perm_slice]
 
-    if space.mesh().ufl_cell() == ufl.hexahedron:
-        raise NotImplementedError
-        perms = _entity_permutations(element)
-        mytree = _orientations(plex, perms, index, integral_type)
-
     return dat_sequence
-
-    # return tuple(g2l_transform_insns), local_result, tuple(l2g_transform_insns), global_result
 
 
 def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_space, cell_index: op3.Index):
@@ -687,10 +688,9 @@ def _entity_permutations(fs: WithGeometry):
 
     perm_dats = []
     for dim in range(mesh.dimension+1):
-        # take the zeroth entry because they are all the same
-        perms = elem.entity_permutations[dim][0]
+        perms = utils.single_valued(elem.entity_permutations[dim].values())
         nperms = len(perms)
-        perm_size = len(perms[0])
+        perm_size = utils.single_valued(map(len, perms.values()))
         perms_concat = np.empty((nperms, perm_size), dtype=IntType)
         for ip, perm in perms.items():
             perms_concat[ip] = perm
@@ -703,9 +703,10 @@ def _entity_permutations(fs: WithGeometry):
     return tuple(perm_dats)
 
 
-def _orientations(mesh, perms, cell, integral_type):
+def _orientations(space, perms, cell):
+    mesh = space.mesh()
     pkey = pmap({mesh.name: mesh.cell_label})
-    closure_dats = mesh._fiat_closure.connectivity[pkey]
+    # closure_dats = mesh._fiat_closure.connectivity[pkey]
     orientations = mesh.entity_orientations_dat
 
     subsets = []
@@ -713,24 +714,19 @@ def _orientations(mesh, perms, cell, integral_type):
     for dim in range(mesh.dimension+1):
         perms_ = perms[dim]
 
-        mymap = closure_dats[dim]
-        subset = op3.AffineSliceComponent(mymap.target_component, label=mymap.target_component)
+        # mymap = closure_dats[dim]
+        subset = op3.AffineSliceComponent(dim, label=dim)
         subsets.append(subset)
 
         # Attempt to not relabel the interior axis, is this the right approach?
-        all_bits = op3.Slice("closure", [op3.AffineSliceComponent(str(dim), label=str(dim))], label="closure")
+        all_bits = op3.Slice("closure", [op3.AffineSliceComponent(dim, label=dim)], label="closure")
 
-        # FIXME (NEXT): If we have interior facets then this index is a facet, not a cell
-        # How do we get the cell from this? Just the support?
-        if integral_type == "cell":
-            inner_subset = orientations[dim][cell, all_bits]
-        else:
-            assert integral_type in {"exterior_facet", "interior_facet"}
-            inner_subset = orientations[dim][mesh.support(cell), all_bits]
+        # the orientations for these entities
+        inner_subset = orientations[cell, all_bits]
 
         # I am struggling to index this...
         # perm = perms_[inner_subset]
-        (root_label, root_clabel), (leaf_label, leaf_clabel) = op3.utils.just_one(perms_.axes.ordered_leaf_paths)
+        # (root_label, root_clabel), (leaf_label, leaf_clabel) = utils.just_one(perms_.axes.ordered_leaf_paths)
 
         # source_path = inner_subset.axes.path_with_nodes(*inner_subset.axes.leaf)
         # index_keys = [None] + [
@@ -743,22 +739,28 @@ def _orientations(mesh, perms, cell, integral_type):
         #     inner_subset.axes.index_exprs.get(key, {}) for key in index_keys
         # )
         # inner_subset_var = ArrayVar(inner_subset, myindices, target_path)
-        inner_subset_var = inner_subset
+        # inner_subset_var = inner_subset
+        #
+        # mypermindices = (
+        #     op3.ScalarIndex(root_label, root_clabel, inner_subset_var),
+        #     op3.Slice(leaf_label, [op3.AffineSliceComponent(leaf_clabel)]),
+        # )
+        # perm = perms_[mypermindices]
+        root = perms_.axes.root
+        inner_subset_really  = op3.ScalarIndex(root.label, root.component.label, inner_subset),
+        perm = perms_[inner_subset_really]
 
-        mypermindices = (
-            op3.ScalarIndex(root_label, root_clabel, inner_subset_var),
-            op3.Slice(leaf_label, [op3.AffineSliceComponent(leaf_clabel)]),
-        )
-        perm = perms_[mypermindices]
-
-        subtree = op3.Slice("dof", [op3.Subset("XXX", perm, label="XXX")], label="dof")
+        subtree = op3.Slice(f"dof{dim}", [op3.Subset("XXX", perm, label="XXX")], label="mydof")
         subtrees.append(subtree)
 
+    # return op3.IndexTree.from_nest({slice(None): subtrees})
+
     myroot = op3.Slice("closure", subsets, label="closure")
-    mychildren = {myroot.id: subtrees}
-    mynodemap = {None: (myroot,)}
-    mynodemap.update(mychildren)
-    return op3.IndexTree(mynodemap)
+    # mychildren = {myroot.id: subtrees}
+    # mynodemap = {None: (myroot,)}
+    # mynodemap.update(mychildren)
+    return op3.IndexTree(myroot)  # dbueg
+    # return op3.IndexTree.from_nest({myroot: subtrees})
 
 
 def _entity_dofs_hashkey(entity_dofs: dict) -> tuple:
