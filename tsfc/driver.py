@@ -6,7 +6,7 @@ from itertools import chain
 from finat.physically_mapped import DirectlyDefinedElement, PhysicallyMappedElement
 
 import ufl
-from ufl.algorithms import extract_arguments, extract_coefficients
+from ufl.algorithms import extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
 from ufl.classes import Form, GeometricQuantity
@@ -211,11 +211,12 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     if isinstance(to_element, (PhysicallyMappedElement, DirectlyDefinedElement)):
         raise NotImplementedError("Don't know how to interpolate onto zany spaces, sorry")
 
-    orig_expression = expression
+    orig_coefficients = extract_coefficients(expression)
     if isinstance(expression, ufl.Interpolate):
-        operand, = expression.ufl_operands
+        v, operand = expression.argument_slots()
     else:
         operand = expression
+        v = ufl.FunctionSpace(extract_unique_domain(operand), ufl_element)
 
     # Map into reference space
     operand = apply_mapping(operand, ufl_element, domain)
@@ -223,12 +224,6 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     # Apply UFL preprocessing
     operand = ufl_utils.preprocess_expression(operand, complex_mode=complex_mode)
 
-    if isinstance(expression, ufl.Interpolate):
-        v, _ = expression.argument_slots()
-    else:
-        arguments = extract_arguments(operand)
-        number = 1-arguments[0].number() if len(arguments) else 0
-        v = ufl.Coargument(ufl.FunctionSpace(domain, ufl_element), number=number)
     expression = ufl.Interpolate(operand, v)
 
     # Initialise kernel builder
@@ -249,7 +244,6 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
 
     # Collect required coefficients and determine numbering
     coefficients = extract_coefficients(expression)
-    orig_coefficients = extract_coefficients(orig_expression)
     coefficient_numbers = tuple(map(orig_coefficients.index, coefficients))
     builder.set_coefficient_numbers(coefficient_numbers)
 
@@ -321,7 +315,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     # but we don't for now.
     evaluation, = impero_utils.preprocess_gem([evaluation])
     impero_c = impero_utils.compile_gem([(return_expr, evaluation)], return_indices)
-    index_names = dict((idx, "p%d" % i) for (i, idx) in enumerate(basis_indices))
+    index_names = {idx: f"p{i}" for (i, idx) in enumerate(basis_indices)}
     # Handle kernel interface requirements
     builder.register_requirements([evaluation])
     builder.set_output(return_var)
