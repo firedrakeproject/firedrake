@@ -106,7 +106,11 @@ def test_assemble_interp_adjoint_matrix(V1, V2):
     # Interpolation from V2* to V1*
     c1 = Cofunction(V1.dual()).interpolate(c2)
     # Interpolation matrix (V2* -> V1*)
-    a = assemble(adjoint(Iv1))
+    adj_Iv1 = adjoint(Iv1)
+    a = assemble(adj_Iv1)
+    assert a.arguments() == adj_Iv1.arguments()
+    assert a.petscmat.getSize() == (V1.dim(), V2.dim())
+
     res = Cofunction(V1.dual())
     with c2.dat.vec_ro as x, res.dat.vec_ro as y:
         a.petscmat.mult(x, y)

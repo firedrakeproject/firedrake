@@ -225,9 +225,11 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
 
     if isinstance(expression, ufl.Interpolate):
         v, _ = expression.argument_slots()
-        expression = ufl.Interpolate(operand, v)
     else:
-        expression = operand
+        arguments = extract_arguments(operand)
+        number = 1-arguments[0].number() if len(arguments) else 0
+        v = ufl.Coargument(ufl.FunctionSpace(domain, ufl_element), number=number)
+    expression = ufl.Interpolate(operand, v)
 
     # Initialise kernel builder
     if interface is None:
@@ -235,9 +237,10 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
         from tsfc.kernel_interface.firedrake_loopy import ExpressionKernelBuilder as interface
 
     builder = interface(parameters["scalar_type"])
-    arguments = extract_arguments(operand)
-    argument_multiindices = tuple(builder.create_element(arg.ufl_element()).get_indices()
-                                  for arg in arguments)
+    arguments = expression.arguments()
+    argument_multiindices = {arg.number(): builder.create_element(arg.ufl_element()).get_indices()
+                             for arg in arguments}
+    assert len(argument_multiindices) == len(arguments)
 
     # Replace coordinates (if any) unless otherwise specified by kwarg
     if domain is None:
@@ -284,11 +287,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     if isinstance(to_element, finat.QuadratureElement):
         kernel_cfg["quadrature_rule"] = to_element._rule
 
-    if isinstance(expression, ufl.Interpolate):
-        dual_arg, operand = expression.argument_slots()
-    else:
-        operand = expression
-        dual_arg = None
+    dual_arg, operand = expression.argument_slots()
 
     # Create callable for translation of UFL expression to gem
     fn = DualEvaluationCallable(operand, kernel_cfg)
@@ -307,9 +306,13 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
             evaluation = gem.MathFunction('conj', evaluation)
         evaluation = gem.IndexSum(evaluation * gem_dual[basis_indices], basis_indices)
         basis_indices = ()
+    else:
+        argument_multiindices[dual_arg.number()] = basis_indices
+
+    argument_multiindices = dict(sorted(argument_multiindices.items()))
 
     # Build kernel body
-    return_indices = tuple(chain(basis_indices, *argument_multiindices))
+    return_indices = tuple(chain.from_iterable(argument_multiindices.values()))
     return_shape = tuple(i.extent for i in return_indices)
     return_var = gem.Variable('A', return_shape or (1,))
     return_expr = gem.Indexed(return_var, return_indices or (0,))
@@ -381,7 +384,7 @@ class DualEvaluationCallable(object):
         gem_expr, = fem.compile_ufl(self.expression, translation_context, point_sum=False)
         # In some cases ps.indices may be dropped from expr, but nothing
         # new should now appear
-        argument_multiindices = kernel_cfg["argument_multiindices"]
+        argument_multiindices = kernel_cfg["argument_multiindices"].values()
         assert set(gem_expr.free_indices) <= set(chain(ps.indices, *argument_multiindices))
 
         return gem_expr
