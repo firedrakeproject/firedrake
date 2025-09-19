@@ -775,8 +775,9 @@ class PointEvaluator:
         if not isinstance(function, Function):
             raise TypeError(f"Expected a Function, got {type(function).__name__}")
         if annotate_tape():
-            raise RuntimeError("PointEvaluator.evaluate cannot be used when annotating."
-                "If you want to use point evaluation with the adjoint, create a VertexOnlyMesh as described in the manual.")
+            raise RuntimeError("PointEvaluator.evaluate cannot be used when annotating. "
+                               "If you want to use point evaluation with the adjoint, "
+                               "create a VertexOnlyMesh as described in the manual.")
         if function.function_space().ufl_element().family() == "Real":
             return function.dat.data_ro
 
