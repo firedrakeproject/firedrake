@@ -605,13 +605,6 @@ class BaseFormAssembler(AbstractFormAssembler):
                     assemble(sub_interp, tensor=tensor.subfunctions[i])
                 return tensor
 
-            # Workaround: Renumber argument when needed since Interpolator assumes it takes a zero-numbered argument.
-            if not is_adjoint and rank == 2:
-                v0, v1 = expr.arguments()
-                expr = ufl.replace(expr, {v0: v0.reconstruct(number=v1.number()),
-                                          v1: v1.reconstruct(number=v0.number())})
-                v, operand = expr.argument_slots()
-
             # Matrix-free adjoint interpolation is only implemented by SameMeshInterpolator
             # so we need assemble the interpolator matrix if the meshes are different
             target_mesh = V.mesh()
@@ -653,7 +646,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # Get the interpolation matrix
                 op2_mat = interpolator.callable()
                 petsc_mat = op2_mat.handle
-                if is_adjoint:
+                if is_adjoint and (source_mesh is not target_mesh):
                     # Out-of-place Hermitian transpose
                     petsc_mat.hermitianTranspose(out=res)
                 elif res:
