@@ -5,7 +5,7 @@ FROM firedrakeproject/firedrake-vanilla-default:latest
 # Install optional dependencies
 RUN pip install --verbose \
         --extra-index-url https://download.pytorch.org/whl/cpu \
-        jax ngsPETSc torch vtk
+        jax ngsPETSc torch
 
 # Set PYTHONPATH so netgen can be found
 # (see https://github.com/NGSolve/netgen/issues/213)

@@ -132,6 +132,7 @@ docker = [  # Used in firedrake-vanilla container
   "pytest-timeout",
   "pytest-xdist",
   "slepc4py==3.23.2",
+  "vtk",
 ]
 
 [build-system]
