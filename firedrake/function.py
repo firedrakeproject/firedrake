@@ -562,8 +562,15 @@ class Function(ufl.Coefficient, FunctionMixin):
         evaluator = PointEvaluator(self.function_space().mesh(), coord)
         return evaluator.evaluate(self)
 
-    @PETSc.Log.EventDecorator()
     def at(self, arg, *args, **kwargs):
+        warnings.warn(
+            "The ``Function.at`` method is deprecated and will be removed in a future release. "
+            "Please use the ``PointEvaluator`` class instead.", FutureWarning
+        )
+        return self._at(arg, *args, **kwargs)
+
+    @PETSc.Log.EventDecorator()
+    def _at(self, arg, *args, **kwargs):
         r"""Evaluate function at points.
 
         :arg arg: The point to locate.
@@ -575,10 +582,6 @@ class Function(ufl.Coefficient, FunctionMixin):
             Changing this from default will cause the spatial index to
             be rebuilt which can take some time.
         """
-        warnings.warn(
-            "The ``Function.at`` method is deprecated and will be removed in a future release. "
-            "Please use the ``PointEvaluator`` class instead.", FutureWarning
-        )
         # Shortcut if function space is the R-space
         if self.ufl_element().family() == "Real":
             return self.dat.data_ro
