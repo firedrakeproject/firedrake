@@ -100,8 +100,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
 
     The optimization is therefore transformed into an optimization problem
     using an :math:`L^2` orthonormal basis for a discontinuous finite element
-    space. This can be used for mesh-independent optimization for libraries
-    which support only an :math:`l_2` inner product.
+    space.
 
     The transformation is related to the factorization in section 4.1 of
     https://doi.org/10.1137/18M1175239 -- specifically the factorization
@@ -222,7 +221,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         Parameters
         ----------
 
-        m : firedrake.Cofunction or Sequence[firedrake.Cofunction]
+        m : firedrake.Function or Sequence[firedrake.Function]
             The result of the optimization. Represents an expansion in an
             :math:`L^2` orthonormal basis for the discontinuous space.
 
