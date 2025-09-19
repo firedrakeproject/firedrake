@@ -175,15 +175,12 @@ class L2TransformedFunctional(AbstractReducedFunctional):
             raise ValueError("Invalid length")
 
         def transform(C, u, u_D, space, space_D, riesz_map):
-            # Map function to transformed 'cofunction':
             if apply_riesz:
-                # C_W^{-1} P_{VW}^* M_V^{-1}
                 if space is space_D:
                     v = u
                 else:
                     v = fd.assemble(fd.inner(riesz_map(u), fd.TestFunction(space_D)) * fd.dx)
             else:
-                # C_W^{-1} P_{VW}^*
                 v = fd.assemble(fd.inner(u, fd.TestFunction(space_D)) * fd.dx)
             if u_D is not None:
                 v.dat.axpy(1, u_D.dat)
@@ -199,8 +196,6 @@ class L2TransformedFunctional(AbstractReducedFunctional):
             raise ValueError("Invalid length")
 
         def transform(C, u, space, space_D, riesz_map):
-            # Map transformed 'cofunction' to function:
-            #     M_V^{-1} P_{VW} C_W^{-*}
             if fd.utils.complex_mode:
                 # Would need to be adjoint
                 raise NotImplementedError("complex not supported")
