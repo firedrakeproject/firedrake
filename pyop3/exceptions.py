@@ -15,3 +15,7 @@ class SizeMismatchException(Pyop3Exception):
 
 class CommMismatchException(Pyop3Exception):
     """Exception raised when MPI communicators do not match."""
+
+
+class InvalidIndexTargetException(Pyop3Exception):
+    """Exception raised when we try to match index information to a mismatching axis tree."""

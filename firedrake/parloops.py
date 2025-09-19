@@ -616,7 +616,6 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
         perms = _entity_permutations(space)
         orientation_perm = _orientations(space, perms, loop_index)
         dat_sequence[-1] = dat_sequence[-1][*(slice(None),)*depth, orientation_perm]
-        breakpoint()
 
     dof_numbering = _flatten_entity_dofs(space.finat_element.entity_dofs())
     dof_perm = invert_permutation(dof_numbering)
@@ -747,10 +746,13 @@ def _orientations(space, perms, cell):
         # )
         # perm = perms_[mypermindices]
         root = perms_.axes.root
-        inner_subset_really  = op3.ScalarIndex(root.label, root.component.label, inner_subset),
+        inner_subset_really  = op3.ScalarIndex(root.label, root.component.label, op3.as_linear_buffer_expression(inner_subset)),
         perm = perms_[inner_subset_really]
 
-        subtree = op3.Slice(f"dof{dim}", [op3.Subset("XXX", perm, label="XXX")], label="mydof")
+        perm = op3.as_linear_buffer_expression(perm)
+        # assert isinstance(perm, op3.LinearDatBufferExpression)
+
+        subtree = op3.Slice(f"dof{dim}", [op3.Subset("XXX", perm, label="XXX")], label=f"dof")  # I think the label must match 'perm'
         subtrees.append(subtree)
 
     # return op3.IndexTree.from_nest({slice(None): subtrees})
@@ -759,8 +761,8 @@ def _orientations(space, perms, cell):
     # mychildren = {myroot.id: subtrees}
     # mynodemap = {None: (myroot,)}
     # mynodemap.update(mychildren)
-    return op3.IndexTree(myroot)  # dbueg
-    # return op3.IndexTree.from_nest({myroot: subtrees})
+    # return op3.IndexTree(myroot)  # dbueg
+    return op3.IndexTree.from_nest({myroot: subtrees})
 
 
 def _entity_dofs_hashkey(entity_dofs: dict) -> tuple:

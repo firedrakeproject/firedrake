@@ -27,7 +27,7 @@ from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
 from pyop2.caching import active_scoped_cache, cached_on, CacheMixin
-from pyop3.exceptions import Pyop3Exception
+from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 from pyop3.dtypes import IntType
 from pyop3.sf import NullStarForest, StarForest, local_sf, single_star_sf
 from pyop2.mpi import collective
@@ -1896,11 +1896,10 @@ class AxisForest:
             try:
                 indexed_tree = tree.getitem(indices, strict=strict)
                 indexed_trees.append(indexed_tree)
-            except:  # TODO: don't use a bare 'except' here, pass a clear exception type
+            except InvalidIndexTargetException:
                 pass
 
         if not indexed_trees:
-            breakpoint()
             raise RuntimeError("Cannot find any indexable candidates")
 
         return type(self)(indexed_trees)

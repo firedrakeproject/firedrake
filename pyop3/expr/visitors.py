@@ -754,19 +754,6 @@ def _(var):
     return OrderedSet([var])
 
 
-@collect_axis_vars.register(op3_expr.Dat)
-def _(dat: op3_expr.Dat, /) -> OrderedSet:
-    loop_indices = OrderedSet()
-
-    if dat.parent:
-        loop_indices |= collect_axis_vars(dat.parent)
-
-    for leaf in dat.axes.leaves:
-        path = dat.axes.path(leaf)
-        loop_indices |= collect_axis_vars(dat.axes.subst_layouts()[path])
-    return loop_indices
-
-
 @collect_axis_vars.register(op3_expr.LinearDatBufferExpression)
 def _(dat: op3_expr.LinearDatBufferExpression, /) -> OrderedSet:
     return collect_axis_vars(dat.layout)

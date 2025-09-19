@@ -16,7 +16,7 @@ from typing import Any, Collection, Hashable, Mapping, Sequence, Type, cast, Opt
 
 import numpy as np
 import pymbolic as pym
-from pyop3.exceptions import Pyop3Exception
+from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 import pytools
 from immutabledict import immutabledict
 
@@ -65,10 +65,6 @@ import pyop3.extras.debug
 
 
 bsearch = pym.var("mybsearch")
-
-class InvalidIndexTargetException(Pyop3Exception):
-    """Exception raised when we try to match index information to a mismatching axis tree."""
-
 
 class Index(MultiComponentLabelledNode):
     pass
@@ -983,6 +979,12 @@ def match_target_paths_to_axis_tree_rec(
         if not index_tree.node_map[index_path_]:
             # At a leaf, can now determine the axes that are referenced by the path.
             # We only expect a single match from all the collected candidate paths.
+            if not any(
+                candidate_path in orig_axes.node_map
+                for candidate_path in candidate_target_paths_acc_
+            ):
+                raise InvalidIndexTargetException("Candidates do not target the axis tree")
+
             full_target_axes = utils.single_valued(
                 orig_axes.visited_nodes(candidate_path)
                 for candidate_path in candidate_target_paths_acc_
@@ -1300,7 +1302,11 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
         else:
             assert isinstance(slice_component, Subset)
             # replace the index information in the subset buffer
-            subset_axis_var = just_one(collect_axis_vars(slice_component.array.layout))
+            try:
+                subset_axis_var = just_one(collect_axis_vars(slice_component.array.layout))
+            except ValueError:
+                subset_axis_var = just_one(av for av in collect_axis_vars(slice_component.array.layout) if av.axis_label == slice_.label)
+
             replace_map = {subset_axis_var.axis_label: AxisVar(linear_axis)}
             slice_expr = replace_terminals(slice_component.array, replace_map)
         slice_expr = replace_terminals(slice_expr, seen_target_exprs)
