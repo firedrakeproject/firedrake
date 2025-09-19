@@ -2,7 +2,7 @@
 
 .. title:: Firedrake '25
 
-.. image:: images/firedrake_25.png
+.. image:: images/firedrake_25.jpg
    :alt: Photo showing conference attendees
    :width: 100%
    :align: center
