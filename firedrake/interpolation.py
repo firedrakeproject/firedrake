@@ -280,8 +280,9 @@ class Interpolator(abc.ABC):
     ):
         if not isinstance(expr, ufl.Interpolate):
             fs = V if isinstance(V, ufl.FunctionSpace) else V.function_space()
-            expr = firedrake.Interpolate(expr, fs)
-        operand, = expr.ufl_operands
+            expr = Interpolate(expr, fs)
+        dual_arg, operand = expr.argument_slots()
+        self.ufl_interpolate = expr
         self.expr = operand
         self.V = V
         self.subset = subset
@@ -291,18 +292,20 @@ class Interpolator(abc.ABC):
         self._allow_missing_dofs = allow_missing_dofs
         self.matfree = matfree
         self.callable = None
-        # Workaround for matrix-explicit adjoint of cross-mesh interpolation
-        # Return instead the forward operator
+        # Workaround for adjoint of cross-mesh interpolation
+        # Assemble the forward operator and then take its adjoint
         target_mesh = as_domain(V)
         source_mesh = extract_unique_domain(operand) or target_mesh
-        if len(expr.arguments()) == 2 and (target_mesh is not source_mesh):
+        if target_mesh is not source_mesh:
+            if not isinstance(dual_arg, ufl.Coargument):
+                expr = expr._ufl_expr_reconstruct_(operand, dual_arg.function_space().dual())
             expr_args = extract_arguments(operand)
             if expr_args and expr_args[0].number() == 0:
                 v0, v1 = expr.arguments()
                 expr = ufl.replace(expr, {v0: v0.reconstruct(number=v1.number()),
                                           v1: v1.reconstruct(number=v0.number())})
         self.expr_renumbered, = expr.ufl_operands
-        self.ufl_interpolate = expr
+        self.ufl_interpolate_renumbered = expr
 
     def interpolate(self, *function, transpose=None, adjoint=False, default_missing_val=None):
         """
@@ -325,6 +328,42 @@ class Interpolator(abc.ABC):
             This method is called when an :class:`Interpolate` object is being assembled.
         """
         pass
+
+    def assemble(self, tensor=None, default_missing_val=None):
+        """Assemble the operator (or its action)."""
+        from firedrake.assemble import assemble
+        renumbered = self.ufl_interpolate_renumbered != self.ufl_interpolate
+        arguments = self.ufl_interpolate.arguments()
+        if len(arguments) == 2:
+            # Assembling the operator
+            res = tensor.petscmat if tensor else PETSc.Mat()
+            # Get the interpolation matrix
+            op2mat = self.callable()
+            petsc_mat = op2mat.handle
+            if renumbered:
+                # Out-of-place Hermitian transpose
+                petsc_mat.hermitianTranspose(out=res)
+            elif res:
+                petsc_mat.copy(res)
+            else:
+                res = petsc_mat
+            if tensor is None:
+                tensor = firedrake.AssembledMatrix(arguments, self.bcs, res)
+            return tensor
+        else:
+            # Assembling the action
+            missing_args = ()
+            if renumbered:
+                dual_arg, _ = self.ufl_interpolate.argument_slots()
+                if not isinstance(dual_arg, ufl.Coargument):
+                    missing_args = (dual_arg,)
+
+            if renumbered and len(arguments) == 0:
+                Iu = self._interpolate(default_missing_val=default_missing_val)
+                return assemble(ufl.Action(*missing_args, Iu), tensor=tensor)
+            else:
+                return self._interpolate(*missing_args, output=tensor, adjoint=renumbered,
+                                         default_missing_val=default_missing_val)
 
 
 class DofNotDefinedError(Exception):
@@ -393,10 +432,6 @@ class CrossMeshInterpolator(Interpolator):
             raise NotImplementedError(
                 "Can only interpolate into spaces with point evaluation nodes."
             )
-        if isinstance(expr, ufl.Interpolate):
-            dual_arg, operand = expr.argument_slots()
-            if not isinstance(dual_arg, ufl.Coargument):
-                raise NotImplementedError(f"{type(self).__name__} does not support matrix-free adjoint action.")
         super().__init__(expr, V, subset, freeze_expr, access, bcs, allow_missing_dofs, matfree)
 
         expr = self.expr_renumbered
@@ -544,6 +579,7 @@ class CrossMeshInterpolator(Interpolator):
             raise ValueError(
                 "Can currently only apply adjoint interpolation with arguments."
             )
+
         if self.nargs != len(function):
             raise ValueError(
                 "Passed %d Functions to interpolate, expected %d"
@@ -725,7 +761,7 @@ class SameMeshInterpolator(Interpolator):
                     pass
         super().__init__(expr, V, subset=subset, freeze_expr=freeze_expr,
                          access=access, bcs=bcs, matfree=matfree, allow_missing_dofs=allow_missing_dofs)
-        expr = self.ufl_interpolate
+        expr = self.ufl_interpolate_renumbered
         try:
             self.callable = make_interpolator(expr, V, subset, access, bcs=bcs, matfree=matfree)
         except FIAT.hdiv_trace.TraceError:
@@ -801,7 +837,6 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
     if not isinstance(expr, ufl.Interpolate):
         raise ValueError(f"Expecting to interpolate a ufl.Interpolate, got {type(expr).__name__}.")
     dual_arg, operand = expr.argument_slots()
-
     target_mesh = as_domain(dual_arg)
     source_mesh = extract_unique_domain(operand) or target_mesh
     vom_onto_other_vom = (
