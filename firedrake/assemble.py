@@ -556,7 +556,6 @@ class BaseFormAssembler(AbstractFormAssembler):
             result = expr.assemble(assembly_opts=opts)
             return tensor.assign(result) if tensor else result
         elif isinstance(expr, ufl.Interpolate):
-            orig_expr = expr
             # Replace assembled children
             _, operand = expr.argument_slots()
             v, *assembled_operand = args
@@ -575,6 +574,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             # 4) Interpolate(Argument(V1, 0), Cofunction(...)) -> Action of the Jacobian adjoint
             # This can be generalized to the case where the first slot is an arbitray expression.
             rank = len(expr.arguments())
+            if rank > 2:
+                raise ValueError("Cannot assemble an Interpolate with more than two arguments")
             # If argument numbers have been swapped => Adjoint.
             arg_operand = ufl.algorithms.extract_arguments(operand)
             is_adjoint = (arg_operand and arg_operand[0].number() == 0)
@@ -605,60 +606,23 @@ class BaseFormAssembler(AbstractFormAssembler):
                     assemble(sub_interp, tensor=tensor.subfunctions[i])
                 return tensor
 
-            # Matrix-free adjoint interpolation is only implemented by SameMeshInterpolator
-            # so we need assemble the interpolator matrix if the meshes are different
-            target_mesh = V.mesh()
-            source_mesh = extract_unique_domain(operand) or target_mesh
-            if is_adjoint and rank < 2 and (source_mesh is not target_mesh):
-                expr = reconstruct_interp(operand, v=V)
-            matfree = (rank == len(expr.arguments())) and (rank < 2)
-
             # Get the interpolator
             interp_data = expr.interp_data.copy()
             default_missing_val = interp_data.pop('default_missing_val', None)
-            if matfree and ((is_adjoint and rank == 1) or rank == 0):
+
+            target_mesh = V.mesh()
+            source_mesh = extract_unique_domain(operand) or target_mesh
+            if (source_mesh is target_mesh) and ((is_adjoint and rank == 1) or rank == 0):
                 # Adjoint interpolation of a Cofunction or the action of a
                 # Cofunction on an interpolated Function require INC access
                 # on the output tensor
                 interp_data["access"] = op2.INC
 
-            if rank == 1 and matfree and isinstance(tensor, firedrake.Function):
+            if rank == 1 and isinstance(tensor, firedrake.Function):
                 V = tensor
             interpolator = firedrake.Interpolator(expr, V, **interp_data)
-
             # Assembly
-            if matfree:
-                # Assembling the operator
-                return interpolator._interpolate(output=tensor, default_missing_val=default_missing_val)
-            elif rank == 0:
-                # Assembling the double action.
-                Iu = interpolator._interpolate(default_missing_val=default_missing_val)
-                return assemble(ufl.Action(v, Iu), tensor=tensor)
-            elif rank == 1:
-                # Assembling the action of the Jacobian adjoint.
-                if is_adjoint:
-                    return interpolator._interpolate(v, output=tensor, adjoint=True, default_missing_val=default_missing_val)
-                # Assembling the Jacobian action.
-                else:
-                    return interpolator._interpolate(operand, output=tensor, default_missing_val=default_missing_val)
-            elif rank == 2:
-                res = tensor.petscmat if tensor else PETSc.Mat()
-                # Get the interpolation matrix
-                op2_mat = interpolator.callable()
-                petsc_mat = op2_mat.handle
-                if is_adjoint and (source_mesh is not target_mesh):
-                    # Out-of-place Hermitian transpose
-                    petsc_mat.hermitianTranspose(out=res)
-                elif res:
-                    # Copy the interpolation matrix into the output tensor
-                    petsc_mat.copy(result=res)
-                else:
-                    res = petsc_mat
-                if tensor is None:
-                    tensor = self.assembled_matrix(orig_expr, res)
-                return tensor
-            else:
-                raise ValueError("Incompatible number of arguments.")
+            return interpolator.assemble(tensor=tensor, default_missing_val=default_missing_val)
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
             return tensor.assign(expr)
         elif tensor and isinstance(expr, ufl.ZeroBaseForm):
