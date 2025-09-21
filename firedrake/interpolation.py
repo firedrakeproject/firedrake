@@ -576,7 +576,6 @@ class CrossMeshInterpolator(Interpolator):
             raise ValueError(
                 "Can currently only apply adjoint interpolation with arguments."
             )
-
         if self.nargs != len(function):
             raise ValueError(
                 "Passed %d Functions to interpolate, expected %d"
