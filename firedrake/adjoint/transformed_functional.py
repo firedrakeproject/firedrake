@@ -1,5 +1,4 @@
 from contextlib import contextmanager
-from functools import cached_property
 from operator import itemgetter
 
 import firedrake as fd
@@ -26,30 +25,33 @@ def local_vector(u, *, readonly=False):
 
 
 class L2Cholesky:
-    def __init__(self, space):
+    def __init__(self, space, *, constant_jacobian=True):
         self._space = space
+        self._constant_jacobian = constant_jacobian
+        self._pc = None
 
     @property
     def space(self):
         return self._space
 
-    @cached_property
-    def M(self):
-        return fd.assemble(fd.inner(fd.TrialFunction(self.space), fd.TestFunction(self.space)) * fd.dx,
-                           mat_type="aij")
-
-    @cached_property
-    def M_local(self):
-        return self.M.petscmat.getDiagonalBlock()
-
-    @cached_property
+    @property
     def pc(self):
         import petsc4py.PETSc as PETSc
-        pc = PETSc.PC().create(self.M_local.comm)
-        pc.setType(PETSc.PC.Type.CHOLESKY)
-        pc.setFactorSolverType(PETSc.Mat.SolverType.PETSC)
-        pc.setOperators(self.M_local)
-        pc.setUp()
+
+        pc = self._pc
+        if self._pc is None:
+            M = fd.assemble(fd.inner(fd.TrialFunction(self.space), fd.TestFunction(self.space)) * fd.dx,
+                            mat_type="aij")
+            M_local = M.petscmat.getDiagonalBlock()
+
+            pc = PETSc.PC().create(M_local.comm)
+            pc.setType(PETSc.PC.Type.CHOLESKY)
+            pc.setFactorSolverType(PETSc.Mat.SolverType.PETSC)
+            pc.setOperators(M_local)
+            pc.setUp()
+        if self._constant_jacobian:
+            self._pc = pc
+
         return pc
 
     def C_inv_action(self, u):
@@ -157,7 +159,6 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         self._space = tuple(control.control.function_space()
                             for control in self._J.controls)
         self._space_D = tuple(map(dg_space, self._space))
-        self._C = tuple(map(L2Cholesky, self._space_D))
         self._controls = tuple(Control(fd.Function(space_D), riesz_map="l2")
                                for space_D in self._space_D)
         self._controls = Enlist(Enlist(controls).delist(self._controls))
@@ -169,6 +170,8 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         self._riesz_map = Enlist(riesz_map)
         if len(self._riesz_map) != len(self._controls):
             raise ValueError("Invalid length")
+        self._C = tuple(L2Cholesky(space_D, constant_jacobian=riesz_map.constant_jacobian)
+                        for space_D, riesz_map in zip(self._space_D, self._riesz_map))
 
         # Map the initial guess
         controls_t = self._primal_transform(tuple(control.control for control in self._J.controls), apply_riesz=False)
