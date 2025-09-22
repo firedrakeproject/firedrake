@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from functools import cached_property
 from operator import itemgetter
 
@@ -16,6 +17,14 @@ __all__ = \
     ]
 
 
+@contextmanager
+def local_vector(u, *, readonly=False):
+    u_local = u.createLocalVector()
+    u.getLocalVector(u_local, readonly=readonly)
+    yield u_local
+    u.restoreLocalVector(u_local, readonly=readonly)
+
+
 class L2Cholesky:
     def __init__(self, space):
         self._space = space
@@ -26,28 +35,35 @@ class L2Cholesky:
 
     @cached_property
     def M(self):
-        return fd.assemble(fd.inner(fd.TrialFunction(self.space), fd.TestFunction(self.space)) * fd.dx)
+        return fd.assemble(fd.inner(fd.TrialFunction(self.space), fd.TestFunction(self.space)) * fd.dx,
+                           mat_type="aij")
 
     @cached_property
-    def solver(self):
-        return fd.LinearSolver(self.M, solver_parameters={"ksp_type": "preonly",
-                                                          "pc_type": "cholesky",
-                                                          "pc_factor_mat_ordering_type": "nd"})
+    def M_local(self):
+        return self.M.petscmat.getDiagonalBlock()
 
     @cached_property
     def pc(self):
-        return self.solver.ksp.getPC()
+        import petsc4py.PETSc as PETSc
+        pc = PETSc.PC().create(self.M_local.comm)
+        pc.setType(PETSc.PC.Type.CHOLESKY)
+        pc.setFactorSolverType(PETSc.Mat.SolverType.PETSC)
+        pc.setOperators(self.M_local)
+        pc.setUp()
+        return pc
 
     def C_inv_action(self, u):
         v = fd.Cofunction(self.space.dual())
         with u.dat.vec_ro as u_v, v.dat.vec_wo as v_v:
-            self.pc.applySymmetricLeft(u_v, v_v)
+            with local_vector(u_v, readonly=True) as u_v_s, local_vector(v_v) as v_v_s:
+                self.pc.applySymmetricLeft(u_v_s, v_v_s)
         return v
 
     def C_T_inv_action(self, u):
         v = fd.Function(self.space)
         with u.dat.vec_ro as u_v, v.dat.vec_wo as v_v:
-            self.pc.applySymmetricRight(u_v, v_v)
+            with local_vector(u_v, readonly=True) as u_v_s, local_vector(v_v) as v_v_s:
+                self.pc.applySymmetricRight(u_v_s, v_v_s)
         return v
 
 
