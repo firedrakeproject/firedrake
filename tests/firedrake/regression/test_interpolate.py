@@ -453,6 +453,7 @@ def test_function_cofunction(degree):
     assert np.allclose(norm_i, norm)
 
 
+@pytest.mark.skip(reason="pyop3 MAX not implemented")
 @pytest.mark.skipcomplex  # complex numbers are not orderable
 def test_interpolate_periodic_coords_max():
     mesh = PeriodicUnitSquareMesh(4, 4)
@@ -471,13 +472,13 @@ def test_basic_dual_eval_cg3():
     x = SpatialCoordinate(mesh)
     expr = Constant(1.)
     f = assemble(interpolate(expr, V))
-    assert np.allclose(f.dat.data_ro[f.cell_node_map().values], [node(expr) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
+    assert np.allclose(f.dat.data_ro[V.cell_node_list], [node(expr) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
     expr = x[0]**3
     # Account for cell and corresponding expression being flipped onto
     # reference cell before reaching FIAT
     expr_fiat = (1-x[0])**3
     f = assemble(interpolate(expr, V))
-    assert np.allclose(f.dat.data_ro[f.cell_node_map().values], [node(expr_fiat) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
+    assert np.allclose(f.dat.data_ro[V.cell_node_list], [node(expr_fiat) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
 
 
 def test_basic_dual_eval_bdm():

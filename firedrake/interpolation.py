@@ -1138,7 +1138,6 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = [(V.local_to_global_map(bc_rows), Vcol.local_to_global_map(bc_cols))]
         packed_tensor = transform_packed_cell_closure_mat(tensor[rows_map(cell_index), columns_map(cell_index)], V, Vcol, cell_index)
-        breakpoint()
         local_kernel_args.append(packed_tensor)
 
     if kernel.oriented:

@@ -462,26 +462,16 @@ def _(
 
     if integral_type == "cell":
         cell = index
+        depth = 0
     elif integral_type in {"interior_facet", "exterior_facet"}:
         facet = index
         cell = Vrow.mesh().support(facet)
+        depth = 1
     else:
         raise NotImplementedError
 
     packed_mat = mat[Vrow.mesh().closure(cell), Vcol.mesh().closure(cell)]
-    dat_sequence = transform_packed_cell_closure_mat(packed_mat, Vrow, Vcol, cell)
-    assert len(dat_sequence) % 2 == 1, "Must have an odd number"
-
-    # NOTE: This replicates some logic about packing that we already have, if we package up
-    # the pack and unpack instructions somehow we could delay actually doing them until
-    # the compiler could decide if they are needed.
-    if len(dat_sequence) > 1:
-        # need to have sequential assignments I think
-        raise NotImplementedError
-
-    kernel_dat = dat_sequence[len(dat_sequence) // 2]
-
-    return kernel_dat
+    return transform_packed_cell_closure_mat(packed_mat, Vrow, Vcol, cell, row_depth=depth, column_depth=depth)
 
 
 def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op3.LoopIndex, *, depth: int = 0):
