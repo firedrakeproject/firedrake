@@ -13,17 +13,11 @@ __all__ = ("Ensemble", )
 def _ensemble_mpi_dispatch(func):
     @wraps(func)
     def _mpi_dispatch(self, *args, **kwargs):
-        # if only kwargs are given we need to get the
-        # first kw value instead of the first arg.
-        if len(args) > 0:
-            arg0 = args[0]
-        else:
-            arg0 = [v for v in kwargs.values()][0]
-
         # dispatch to either our specialised impl
         # for # Firedrake or the default MPI impl
         # for everything else.
-        if isinstance(arg0, (Function, Cofunction)):
+        if any(isinstance(arg, (Function, Cofunction))
+               for arg in [*args, *kwargs.values()]):
             return func(self, *args, **kwargs)
         else:
             mpicall = getattr(
