@@ -1,91 +1,104 @@
+import numbers
+from collections.abc import Sequence
 import numpy as np
 import ufl
 
-from pyop2 import op2, mpi
+from tsfc.ufl_utils import TSFCConstantMixin
+from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
+from pyop2.mpi import collective
 from firedrake.petsc import PETSc
 from firedrake.utils import ScalarType
-from ufl.formatting.ufl2unicode import ufl2unicode
+from ufl.classes import all_ufl_classes, ufl_classes, terminal_classes
+from ufl.core.ufl_type import UFLType
+from ufl.corealg.multifunction import MultiFunction
+from ufl.formatting.ufl2unicode import (
+    Expression2UnicodeHandler, UC, subscript_number, PrecedenceRules,
+    colorama,
+)
+from ufl.utils.counted import Counted
 
 
 import firedrake.utils as utils
-from firedrake.adjoint.constant import ConstantMixin
+from firedrake.adjoint_utils.constant import ConstantMixin
+
 
 __all__ = ['Constant']
 
 
-def _globalify(value, comm):
+def _create_dat(op2type, value, comm):
+    if op2type is op2.Global and comm is None:
+        raise ValueError("Attempted to create pyop2 Global with no communicator")
+
     data = np.array(value, dtype=ScalarType)
     shape = data.shape
     rank = len(shape)
     if rank == 0:
-        dat = op2.Global(1, data, comm=comm)
+        dat = op2type(1, data, comm=comm)
     else:
-        dat = op2.Global(shape, data, comm=comm)
+        dat = op2type(shape, data, comm=comm)
     return dat, rank, shape
 
 
-class Constant(ufl.Coefficient, ConstantMixin):
+class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin, Counted):
+    """A parameter.
 
-    """A "constant" coefficient
+    The advantage of using a `Constant` in a form rather than a literal value
+    is that the constant will be passed as an argument to the generated kernel
+    which avoids the need to recompile the kernel if the form is assembled for
+    a different value of the constant.
 
-    A :class:`Constant` takes one value over the whole
-    :func:`~.Mesh`. The advantage of using a :class:`Constant` in a
-    form rather than a literal value is that the constant will be
-    passed as an argument to the generated kernel which avoids the
-    need to recompile the kernel if the form is assembled for a
-    different value of the constant.
+    Arguments
+    ---------
+    value :
+        The value of the constant.  May either be a scalar, an
+        iterable of values (for a vector-valued constant), or an iterable
+        of iterables (or numpy array with 2-dimensional shape) for a
+        tensor-valued constant.
+    name :
+        Optional name for the constant.
+    count :
+        Internal identifier.
 
-    :arg value: the value of the constant.  May either be a scalar, an
-         iterable of values (for a vector-valued constant), or an iterable
-         of iterables (or numpy array with 2-dimensional shape) for a
-         tensor-valued constant.
-
-    :arg domain: an optional :func:`~.Mesh` on which the constant is defined.
-
-    .. note::
-
-       If you intend to use this :class:`Constant` in a
-       :class:`~ufl.form.Form` on its own you need to pass a
-       :func:`~.Mesh` as the domain argument.
     """
+    _ufl_typecode_ = UFLType._ufl_num_typecodes_
+    _ufl_handler_name_ = "firedrake_constant"
 
-    def __new__(cls, *args, **kwargs):
-        # Hack to avoid hitting `ufl.Coefficient.__new__` which may perform operations
-        # meant for coefficients and not constants (e.g. check if the function space is dual or not)
-        # This is a consequence of firedrake.Constant inheriting from ufl.Coefficient instead of ufl.Constant.
-        return object.__new__(cls)
-
+    @collective
     @ConstantMixin._ad_annotate_init
-    def __init__(self, value, domain=None):
+    def __init__(
+        self,
+        value: numbers.Number | Sequence,
+        name: str | None = None,
+        count: int | None = None,
+    ) -> None:
         # Init also called in mesh constructor, but constant can be built without mesh
         utils._init()
 
-        if domain:
-            self.comm = domain.comm
-        else:
-            self.comm = mpi.COMM_WORLD
-        self._comm = mpi.internal_comm(self.comm)
-        self.dat, rank, shape = _globalify(value, self._comm)
+        self.dat, rank, self._ufl_shape = _create_dat(op2.Constant, value, None)
 
-        cell = None
-        if domain is not None:
-            domain = ufl.as_domain(domain)
-            cell = domain.ufl_cell()
-        if rank == 0:
-            e = ufl.FiniteElement("Real", cell, 0)
-        elif rank == 1:
-            e = ufl.VectorElement("Real", cell, 0, shape[0])
-        else:
-            e = ufl.TensorElement("Real", cell, 0, shape=shape)
+        super().__init__()
+        Counted.__init__(self, count, Counted)
+        self.name = name or f"constant_{self._count}"
 
-        fs = ufl.FunctionSpace(domain, e)
-        super(Constant, self).__init__(fs)
-        self._repr = 'Constant(%r, %r)' % (self.ufl_element(), self.count())
+    def __repr__(self):
+        return f"Constant({self.dat.data_ro}, name='{self.name}', count={self._count})"
 
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            mpi.decref(self._comm)
+    def _ufl_signature_data_(self, renumbering):
+        return (type(self).__name__, renumbering[self])
+
+    def __hash__(self):
+        return hash((type(self), self.count()))
+
+    def __eq__(self, other):
+        return type(self) == type(other) and self.count() == other.count()
+
+    @property
+    def ufl_shape(self):
+        return self._ufl_shape
+
+    def count(self):
+        return self._count
 
     @PETSc.Log.EventDecorator()
     def evaluate(self, x, mapping, component, index_values):
@@ -114,11 +127,6 @@ class Constant(ufl.Coefficient, ConstantMixin):
     @utils.cached_property
     def subfunctions(self):
         return (self,)
-
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
 
     def cell_node_map(self, bcs=None):
         """Return a null cell to node map."""
@@ -150,6 +158,10 @@ class Constant(ufl.Coefficient, ConstantMixin):
         except (DataTypeError, DataValueError) as e:
             raise ValueError(e)
 
+    def zero(self):
+        """Set the value of this constant to zero."""
+        return self.assign(0)
+
     def __iadd__(self, o):
         raise NotImplementedError("Augmented assignment to Constant not implemented")
 
@@ -159,8 +171,41 @@ class Constant(ufl.Coefficient, ConstantMixin):
     def __imul__(self, o):
         raise NotImplementedError("Augmented assignment to Constant not implemented")
 
-    def __idiv__(self, o):
+    def __itruediv__(self, o):
         raise NotImplementedError("Augmented assignment to Constant not implemented")
 
     def __str__(self):
-        return ufl2unicode(self)
+        return str(self.dat.data_ro)
+
+
+# Unicode handler for Firedrake constants
+def _unicode_format_firedrake_constant(self, o):
+    """Format a Firedrake constant."""
+    i = o.count()
+    var = "C"
+    if len(o.ufl_shape) == 1:
+        var += UC.combining_right_arrow_above
+    elif len(o.ufl_shape) > 1 and self.colorama_bold:
+        var = f"{colorama.Style.BRIGHT}{var}{colorama.Style.RESET_ALL}"
+    return f"{var}{subscript_number(i)}"
+
+
+# This monkey patches ufl2unicode support for Firedrake constants
+Expression2UnicodeHandler.firedrake_constant = _unicode_format_firedrake_constant
+
+# This is internally done in UFL by the ufl_type decorator, but we cannot
+# do the same here, because we want to use the class name Constant
+UFLType._ufl_num_typecodes_ += 1
+UFLType._ufl_all_classes_.append(Constant)
+UFLType._ufl_all_handler_names_.add('firedrake_constant')
+UFLType._ufl_obj_init_counts_.append(0)
+UFLType._ufl_obj_del_counts_.append(0)
+
+# And doing the above does not append to these magic UFL variables...
+all_ufl_classes.add(Constant)
+ufl_classes.add(Constant)
+terminal_classes.add(Constant)
+
+# These caches need rebuilding for the new type to be registered
+MultiFunction._handlers_cache = {}
+ufl.formatting.ufl2unicode._precrules = PrecedenceRules()

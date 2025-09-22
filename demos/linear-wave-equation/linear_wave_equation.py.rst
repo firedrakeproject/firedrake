@@ -66,7 +66,7 @@ output file::
 
 Output the initial conditions::
 
-  outfile = File("out.pvd")
+  outfile = VTKFile("out.pvd")
   outfile.write(phi)
 
 We next establish a boundary condition object. Since we have time-dependent
@@ -107,7 +107,7 @@ options at this point, we may either `lump` the mass, which reduces
 the inversion to a pointwise division::
 
       if lump_mass:
-          p += interpolate(assemble(dt * inner(nabla_grad(v), nabla_grad(phi))*dx) / assemble(v*dx), V)
+          p.dat.data[:] += assemble(dt * inner(nabla_grad(v), nabla_grad(phi))*dx).dat.data_ro / assemble(v*dx).dat.data_ro
 
 In the mass lumped case, we must now ensure that the resulting
 solution for :math:`p` satisfies the boundary conditions::
@@ -128,7 +128,7 @@ Step forward :math:`\phi` by the second half timestep::
       phi -= dt / 2 * p
 
 Advance time and output as appropriate, note how we pass the current
-timestep value into the :meth:`~.File.write` method, so that when
+timestep value into the :meth:`~.VTKFile.write` method, so that when
 visualising the results Paraview will use it::
 
       t += dt

@@ -5,6 +5,8 @@ from functools import partial
 from firedrake.slate.slac.utils import RemoveRestrictions
 from firedrake.tsfc_interface import compile_form as tsfc_compile
 
+from tsfc.ufl_utils import extract_firedrake_constants
+
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl import Form
 
@@ -12,6 +14,7 @@ from ufl import Form
 ContextKernel = collections.namedtuple("ContextKernel",
                                        ["tensor",
                                         "coefficients",
+                                        "constants",
                                         "original_integral_type",
                                         "tsfc_kernels"])
 ContextKernel.__doc__ = """\
@@ -22,6 +25,7 @@ particular integral type.
                list of TSFC assembly kernels.
 :param coefficients: The local coefficients of the tensor contained
                      in the integrands (arguments for TSFC subkernels).
+:param constants: The local constants of the tensor contained in the integrands.
 :param original_integral_type: The unmodified measure type
                                of the form integrals.
 :param tsfc_kernels: A list of local tensor assembly kernels
@@ -55,16 +59,16 @@ def compile_terminal_form(tensor, prefix, *, tsfc_parameters=None):
     cxt_kernels = []
     assert prefix is not None
     for orig_it_type, integrals in transformed_integrals.items():
-        subkernel_prefix = prefix + "%s_to_" % orig_it_type
         form = Form(integrals)
         kernels = tsfc_compile(form,
-                               subkernel_prefix,
+                               f"{prefix}{orig_it_type}_to_",
                                parameters=tsfc_parameters,
                                split=False, diagonal=tensor.diagonal)
 
         if kernels:
             cxt_k = ContextKernel(tensor=tensor,
                                   coefficients=form.coefficients(),
+                                  constants=extract_firedrake_constants(form),
                                   original_integral_type=orig_it_type,
                                   tsfc_kernels=kernels)
             cxt_kernels.append(cxt_k)

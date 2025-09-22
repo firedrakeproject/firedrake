@@ -37,7 +37,10 @@ class Parameters(dict):
     def __getstate__(self):
         # Remove non-picklable update function slot
         d = self.__dict__.copy()
-        del d["_update_function"]
+        try:
+            del d["_update_function"]
+        except KeyError:
+            pass
         return d
 
     def set_update_function(self, callable):

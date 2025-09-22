@@ -1,7 +1,7 @@
 Wind-Driven Gyres: Quasi-Geostrophic Limit
 ==========================================
 
-Contributed by Christine Kaufhold and `Francis Poulin <https://uwaterloo.ca/poulin-research-group/people-profiles/francis-poulin-bsc-msc-phd>`_.
+Contributed by Christine Kaufhold and `Francis Poulin <https://uwaterloo.ca/applied-mathematics/people-profiles/francis-poulin>`_.
 
 Building on the previous two demos that used the Quasi-Geostrophic
 (QG) model for the :doc:`time-stepping </demos/qg_1layer_wave.py>` and
@@ -72,7 +72,7 @@ in time, we can ignore the time derivative term, and we get
 
    \begin{gathered}
    (\vec{u} \cdot \vec\nabla)\left( \nabla^2 \psi - F \psi\right)
-   + \beta \frac{\partial \psi}{\partial x} = - rq + Q_{\textrm{winds}} 
+   + \beta \frac{\partial \psi}{\partial x} = - rq + Q_{\textrm{winds}}
    \end{gathered}
 
 We can write this out in one equation, which is the nonlinear Stommel
@@ -81,7 +81,7 @@ problem:
 .. math::
 
    \begin{gathered}
-   \vec u \cdot \vec\nabla \left( \nabla^2 \psi \right) + r(\nabla^{2} \psi - F\psi) + \beta \frac{\partial \psi}{\partial x} =  Q_{\textrm{winds}} 
+   \vec u \cdot \vec\nabla \left( \nabla^2 \psi \right) + r(\nabla^{2} \psi - F\psi) + \beta \frac{\partial \psi}{\partial x} =  Q_{\textrm{winds}}
    \end{gathered}
 
 Note that we dropped the :math:`-F \psi` term in the nonlinear advection
@@ -105,7 +105,7 @@ divergent free and then integrating by parts,
 
    \begin{aligned}
    \int_{\Omega} \phi (\vec u \cdot \vec\nabla) \nabla^2 \psi
-   =  \int_{\Omega} \phi \vec\nabla \cdot \left(\vec u (\nabla^2 \psi)\right) 
+   =  \int_{\Omega} \phi \vec\nabla \cdot \left(\vec u (\nabla^2 \psi)\right)
    = - \int_{\Omega}( \vec\nabla \phi \cdot \vec u){\nabla}^{2}\psi \, \mathrm{d}x.\end{aligned}
 
 Note that because we have no normal flow boundary conditions the
@@ -116,7 +116,7 @@ the walls
 .. math::
 
    \begin{aligned}
-   \int_{\Omega} r \phi \left( \vec{\nabla}^2 \psi - F \psi \right) \, \mathrm{d}x & 
+   \int_{\Omega} r \phi \left( \vec{\nabla}^2 \psi - F \psi \right) \, \mathrm{d}x &
    = -r \int_{\Omega}  \Big(\vec{\nabla}\phi \cdot \vec{\nabla}\psi
    + F \phi \psi \Big)\, \mathrm{d}x
    + r \int_{\partial\Omega} \phi \cdot \frac{\partial \psi}{\partial n} \,\mathrm{d}s
@@ -129,7 +129,7 @@ Finally we can put the equation back together again to produce the weak form of 
 .. math:: \int_{\Omega} \Bigg( - (\vec\nabla \phi \cdot \vec u) \vec{\nabla}^{2}\psi  -r \Big(\vec{\nabla}\phi \cdot \vec{\nabla}\psi + F \phi \psi \Big) + \beta\phi\frac{\partial \psi}{\partial x} \Bigg) \,\mathrm{d}x =  \int_{\Omega} \phi \cdot Q_{\textrm{winds}} \,\mathrm{d}x
 
 The above problem is the weak form of the nonlinear Stommel problem.  The linear term arises from neglecting the nonlinear advection, and can easily be obtained by neglecting the first term on the left hand side.
-	  
+
 Defining the Problem
 ~~~~~~~~~~~~~~~~~~~~
 
@@ -144,7 +144,7 @@ First, we import the Firedrake, PETSc, NumPy and UFL packages, ::
 
 Next, we can define the geometry of our domain. In this example, we
 will be using a square of length one with 50 cells. ::
-  
+
   n0 = 50           # Spatial resolution
   Ly = 1.0          # Meridonal length
   Lx = 1.0          # Zonal length
@@ -157,7 +157,7 @@ solution of the streamfunction will reside. ::
 
 We will also impose no-normal flow strongly to ensure that the
 boundary condition :math:`\psi = 0` will be met, ::
-  
+
   bc = DirichletBC(Vcg, 0.0, 'on_boundary')
 
 Now we will define all the parameters we are using in this tutorial. ::
@@ -219,7 +219,7 @@ elliptic solver, ::
   nonlinear_solver.solve()
 
 Now that we have the full solution to the nonlinear Stommel problem,
-we can plot it using the :func:`tripcolor <firedrake.plot.tripcolor>` function ::
+we can plot it using the :func:`tripcolor <firedrake.pyplot.tripcolor>` function ::
 
   try:
       import matplotlib.pyplot as plt
@@ -227,6 +227,7 @@ we can plot it using the :func:`tripcolor <firedrake.plot.tripcolor>` function :
       warning("Matplotlib not imported")
 
   try:
+      from firedrake.pyplot import tripcolor
       fig, axes = plt.subplots()
       colors = tripcolor(psi_non, axes=axes)
       fig.colorbar(colors)
@@ -238,7 +239,7 @@ we can plot it using the :func:`tripcolor <firedrake.plot.tripcolor>` function :
   except Exception as e:
       warning("Cannot show figure. Error msg '%s'" % e)
 
-  file = File('Nonlinear Streamfunction.pvd')
+  file = VTKFile('Nonlinear Streamfunction.pvd')
   file.write(psi_non)
 
 We can also see the difference between the linear solution and the
@@ -260,11 +261,11 @@ nonlinear solution. We do this by defining a weak form.  (Note: other approaches
   except Exception as e:
       warning("Cannot show figure. Error msg '%s'" % e)
 
-  file = File('Difference between Linear and Nonlinear Streamfunction.pvd')
-  file.write(difference) 
+  file = VTKFile('Difference between Linear and Nonlinear Streamfunction.pvd')
+  file.write(difference)
 
 Below is a plot of the linear solution to the QG wind-driven Stommel gyre.
-   
+
 .. figure:: fig_gyre.png
    :align: center
 
@@ -274,7 +275,7 @@ Below is a plot of the difference between the linear and nonlinear solutions to 
    :align: center
 
 This demo can be found as a Python script in :demo:`qg_winddrivengyre.py <qg_winddrivengyre.py>`.
-           
+
 .. rubric:: References
 
 .. bibliography:: demo_references.bib

@@ -5,20 +5,22 @@ cimport numpy as np
 cdef extern from "mpi-compat.h":
     pass
 
-IF COMPLEX:
-    ctypedef np.complex128_t PetscScalar
-ELSE:
-    ctypedef double PetscScalar
-
 cdef extern from "petsc.h":
     ctypedef long PetscInt
     ctypedef double PetscReal
+    ctypedef double PetscScalar
     ctypedef enum PetscBool:
         PETSC_TRUE, PETSC_FALSE
     ctypedef enum PetscCopyMode:
         PETSC_COPY_VALUES,
         PETSC_OWN_POINTER,
         PETSC_USE_POINTER
+    ctypedef enum PetscDataType:
+        PETSC_INT,
+        PETSC_REAL,
+        PETSC_SCALAR,
+        PETSC_COMPLEX,
+        PETSC_DATATYPE_UNKNOWN
 
 cdef extern from "petscsys.h" nogil:
     int PetscMalloc1(PetscInt,void*)
@@ -27,9 +29,32 @@ cdef extern from "petscsys.h" nogil:
     int PetscFree2(void*,void*)
     int PetscSortIntWithArray(PetscInt,PetscInt[],PetscInt[])
 
+cdef extern from "petscdmtypes.h" nogil:
+    ctypedef enum PetscDMPolytopeType "DMPolytopeType":
+        DM_POLYTOPE_POINT
+        DM_POLYTOPE_SEGMENT
+        DM_POLYTOPE_POINT_PRISM_TENSOR
+        DM_POLYTOPE_TRIANGLE
+        DM_POLYTOPE_QUADRILATERAL
+        DM_POLYTOPE_SEG_PRISM_TENSOR
+        DM_POLYTOPE_TETRAHEDRON
+        DM_POLYTOPE_HEXAHEDRON
+        DM_POLYTOPE_TRI_PRISM
+        DM_POLYTOPE_TRI_PRISM_TENSOR
+        DM_POLYTOPE_QUAD_PRISM_TENSOR
+        DM_POLYTOPE_PYRAMID
+        DM_POLYTOPE_FV_GHOST
+        DM_POLYTOPE_INTERIOR_GHOST
+        DM_POLYTOPE_UNKNOWN
+        DM_POLYTOPE_UNKNOWN_CELL
+        DM_POLYTOPE_UNKNOWN_FACE
+        DM_NUM_POLYTOPES
+
 cdef extern from "petscdmplex.h" nogil:
     int DMPlexGetHeightStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
     int DMPlexGetDepthStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
+    int DMPlexGetPointHeight(PETSc.PetscDM,PetscInt,PetscInt*)
+    int DMPlexGetPointDepth(PETSc.PetscDM,PetscInt,PetscInt*)
 
     int DMPlexGetChart(PETSc.PetscDM,PetscInt*,PetscInt*)
     int DMPlexGetConeSize(PETSc.PetscDM,PetscInt,PetscInt*)
@@ -45,6 +70,15 @@ cdef extern from "petscdmplex.h" nogil:
     int DMPlexSetAdjacencyUser(PETSc.PetscDM,int(*)(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt[],void*),void*)
     int DMPlexCreatePointNumbering(PETSc.PetscDM,PETSc.PetscIS*)
     int DMPlexLabelComplete(PETSc.PetscDM, PETSc.PetscDMLabel)
+    int DMPlexDistributeOverlap(PETSc.PetscDM,PetscInt,PETSc.PetscSF*,PETSc.PetscDM*)
+
+    int DMPlexFilter(PETSc.PetscDM,PETSc.PetscDMLabel,PetscInt,PetscBool,PetscBool,PETSc.PetscSF*,PETSc.PetscDM*)
+    int DMPlexGetSubpointIS(PETSc.PetscDM,PETSc.PetscIS*)
+    int DMPlexGetSubpointMap(PETSc.PetscDM,PETSc.PetscDMLabel*)
+    int DMPlexSetSubpointMap(PETSc.PetscDM,PETSc.PetscDMLabel)
+
+    int DMPlexSetCellType(PETSc.PetscDM,PetscInt,PetscDMPolytopeType)
+    int DMPlexGetCellType(PETSc.PetscDM,PetscInt,PetscDMPolytopeType*)
 
 cdef extern from "petscdmlabel.h" nogil:
     struct _n_DMLabel
@@ -56,31 +90,51 @@ cdef extern from "petscdmlabel.h" nogil:
     int DMLabelSetValue(DMLabel, PetscInt, PetscInt)
     int DMLabelGetValue(DMLabel, PetscInt, PetscInt*)
     int DMLabelClearValue(DMLabel, PetscInt, PetscInt)
+    int DMLabelGetStratumSize(DMLabel, PetscInt, PetscInt*)
+    int DMLabelGetStratumIS(DMLabel, PetscInt, PETSc.PetscIS*)
 
 cdef extern from "petscdm.h" nogil:
+    int DMCreateLabel(PETSc.PetscDM,char[])
     int DMGetLabel(PETSc.PetscDM,char[],DMLabel*)
     int DMGetPointSF(PETSc.PetscDM,PETSc.PetscSF*)
+    int DMSetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
+    int DMGetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt*)
 
 cdef extern from "petscdmswarm.h" nogil:
     int DMSwarmGetLocalSize(PETSc.PetscDM,PetscInt*)
+    int DMSwarmGetCellDM(PETSc.PetscDM, PETSc.PetscDM*)
+    int DMSwarmGetCellDMActive(PETSc.PetscDM, PETSc.PetscDMSwarmCellDM*)
+    int DMSwarmCellDMGetCellID(PETSc.PetscDMSwarmCellDM, const char *[])
+    int DMSwarmGetField(PETSc.PetscDM,const char[],PetscInt*,PetscDataType*,void**)
+    int DMSwarmRestoreField(PETSc.PetscDM,const char[],PetscInt*,PetscDataType*,void**)
 
 cdef extern from "petscvec.h" nogil:
     int VecGetArray(PETSc.PetscVec,PetscScalar**)
     int VecRestoreArray(PETSc.PetscVec,PetscScalar**)
+    int VecGetArrayRead(PETSc.PetscVec,const PetscScalar**)
+    int VecRestoreArrayRead(PETSc.PetscVec,const PetscScalar**)
 
 cdef extern from "petscis.h" nogil:
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
     int PetscSectionGetDof(PETSc.PetscSection,PetscInt,PetscInt*)
     int PetscSectionSetDof(PETSc.PetscSection,PetscInt,PetscInt)
+    int PetscSectionSetFieldDof(PETSc.PetscSection,PetscInt,PetscInt,PetscInt)
+    int PetscSectionGetFieldDof(PETSc.PetscSection,PetscInt,PetscInt,PetscInt*)
+    int PetscSectionGetConstraintDof(PETSc.PetscSection,PetscInt,PetscInt*)
+    int PetscSectionSetConstraintDof(PETSc.PetscSection,PetscInt,PetscInt)
+    int PetscSectionSetConstraintIndices(PETSc.PetscSection,PetscInt, PetscInt[])
+    int PetscSectionGetConstraintIndices(PETSc.PetscSection,PetscInt, const PetscInt**)
     int PetscSectionGetMaxDof(PETSc.PetscSection,PetscInt*)
     int PetscSectionSetPermutation(PETSc.PetscSection,PETSc.PetscIS)
     int ISGetIndices(PETSc.PetscIS,PetscInt*[])
+    int ISGetSize(PETSc.PetscIS,PetscInt*)
     int ISRestoreIndices(PETSc.PetscIS,PetscInt*[])
     int ISGeneralSetIndices(PETSc.PetscIS,PetscInt,PetscInt[],PetscCopyMode)
     int ISLocalToGlobalMappingCreateIS(PETSc.PetscIS,PETSc.PetscLGMap*)
     int ISLocalToGlobalMappingGetSize(PETSc.PetscLGMap,PetscInt*)
     int ISLocalToGlobalMappingGetBlockIndices(PETSc.PetscLGMap, const PetscInt**)
     int ISLocalToGlobalMappingRestoreBlockIndices(PETSc.PetscLGMap, const PetscInt**)
+    int ISDestroy(PETSc.PetscIS*)
 
 cdef extern from "petscsf.h" nogil:
     struct PetscSFNode_:
@@ -155,7 +209,7 @@ cdef inline int SETERR(int ierr) with gil:
         PyErr_SetObject(<object>PyExc_RuntimeError, <long>ierr)
     return ierr
 
-cdef inline int CHKERR(int ierr) nogil except -1:
+cdef inline int CHKERR(int ierr) except -1 nogil:
     if ierr == 0:
         return 0 # no error
     else:

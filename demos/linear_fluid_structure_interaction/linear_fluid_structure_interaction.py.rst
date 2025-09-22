@@ -278,7 +278,7 @@ Let us set the initial condition. We choose no motion at the beginning in both f
 
 A file to store data for visualization::
 
-    outfile_phi = File("results_pvd/phi.pvd")
+    outfile_phi = VTKFile("results_pvd/phi.pvd")
 
 To save data for visualization, we change the position of the nodes in the mesh, so that they represent the computed dynamic position of the free surface and the structure::
 
@@ -287,11 +287,11 @@ To save data for visualization, we change the position of the nodes in the mesh,
         output_data.counter += 1
         if output_data.counter % output_data_every_x_time_steps != 0:
             return
-        mesh_static = mesh.coordinates.vector().get_local()
-        mesh.coordinates.vector().set_local(mesh_static + X.vector().get_local())
-        mesh.coordinates.dat.data[:, 1] += eta.dat.data_ro
+        mesh_static = mesh.coordinates.copy(deepcopy=True)
+        mesh.coordinates += X
+        mesh.coordinates.dat.data_rw[:, 1] += eta.dat.data_ro
         outfile_phi.write(phi)
-        mesh.coordinates.vector().set_local(mesh_static)
+        mesh.coordinates.assign(mesh_static)
 
 
     output_data.counter = -1  # -1 to exclude counting print of initial state

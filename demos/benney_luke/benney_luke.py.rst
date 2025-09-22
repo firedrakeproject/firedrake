@@ -177,20 +177,14 @@ and define the exact solutions, which need to be updated at every time-step::
   expr_eta = 1/3.0*c*pow(cosh(0.5*sqrt(c*epsilon/mu)*(x[0]-x0-t_-epsilon*c*t_/6.0)),-2)
   expr_phi = 2/3.0*sqrt(c*mu/epsilon)*(tanh(0.5*sqrt(c*epsilon/mu)*(x[0]-x0-t_-epsilon*c*t_/6.0))+1)
 
-Since we will interpolate these values again and again, we use an
-:class:`~.Interpolator` whose :meth:`~.Interpolator.interpolate`
-method we can call to perform the interpolation. ::
-
-  eta_interpolator = Interpolator(expr_eta, ex_eta)
-  phi_interpolator = Interpolator(expr_phi, ex_phi)
-  phi_interpolator.interpolate()
-  eta_interpolator.interpolate()
+  ex_eta.interpolate(expr_eta)
+  ex_phi.interpolate(expr_phi)
 
 For visualisation, we save the computed and exact solutions to
 an output file.  Note that the visualised data will be interpolated
 from piecewise quadratic functions to piecewise linears::
 
-  output = File('output.pvd')
+  output = VTKFile('output.pvd')
   output.write(phi0, eta0, ex_phi, ex_eta, time=t)
 
 We are now ready to enter the main time iteration loop::
@@ -201,8 +195,8 @@ We are now ready to enter the main time iteration loop::
 
         t_.assign(t)
 
-        eta_interpolator.interpolate()
-        phi_interpolator.interpolate()
+        ex_eta.interpolate(expr_eta)
+        ex_phi.interpolate(expr_phi)
 
         phi_solver_h.solve()
         q_solver_h.solve()

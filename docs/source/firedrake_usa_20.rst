@@ -45,38 +45,12 @@ Key Dates
 * Abstract submission deadline: 15 January 2020
 * Workshop: 10-11 February 2020
 
-
-Abstract submission
--------------------
-
-If you are using or developing Firedrake, we'd absolutely love to see
-a presentation on your work at the workshop. Please submit a short abstract `on Easychair
-<https://easychair.org/conferences/?conf=firedrakeusa20>`_.
-
-
-Workshop dinner
-~~~~~~~~~~~~~~~
-
-There will be a workshop dinner in the evening of 10 February. More
-details will follow soon.
-
 Location
 ~~~~~~~~
 
-The workshop will be held in the `Data Science Studio
+The workshop was held in the `Data Science Studio
 <https://escience.washington.edu/wrf-data-science-studio/>`_ on the
 6th floor of the UW Physics and Astronomy Building.
-
-
-Registration
-------------
-
-Early registration is now open. Registration will rise to $40 for students and $100 for others after 15 January. Registration for the tutorial only is free.
-
-.. raw:: html
-
-   <div style="width:100%; text-align:left;"><iframe src="https://eventbrite.com/tickets-external?eid=85712932689&ref=etckt" frameborder="0" height="400" width="100%" vspace="0" hspace="0" marginheight="5" marginwidth="5" scrolling="auto" allowtransparency="true"></iframe><div style="padding:10px 0 5px; margin:2px; width:100%; text-align:left;" ><a class="powered-by-eb" style="color: #ADB0B6; text-decoration: none;" target="_blank" href="http://www.eventbrite.com/">Powered by Eventbrite</a></div></div>
-
 
 
 Organising Committee
@@ -86,9 +60,7 @@ Organising Committee
   University of Washington.
 * `David Ham <https://www.imperial.ac.uk/people/david.ham>`_, Imperial
   College London.
-* `Lawrence Mitchell
-  <https://www.dur.ac.uk/computer.science/staff/profile/?id=17243>`_,
-  Durham University.
+* Lawrence Mitchell, Durham University.
 
 
 Further details

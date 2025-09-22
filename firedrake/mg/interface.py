@@ -1,24 +1,31 @@
 from pyop2 import op2
 
 import firedrake
+from firedrake import ufl_expr
 from firedrake.petsc import PETSc
+from ufl.duals import is_dual
 from . import utils
 from . import kernels
-from ufl.domain import extract_unique_domain
 
 
 __all__ = ["prolong", "restrict", "inject"]
 
 
-def check_arguments(coarse, fine):
+def check_arguments(coarse, fine, needs_dual=False):
+    if is_dual(coarse) != needs_dual:
+        expected_type = firedrake.Cofunction if needs_dual else firedrake.Function
+        raise TypeError("Coarse argument is a %s, not a %s" % (type(coarse).__name__, expected_type.__name__))
+    if is_dual(fine) != needs_dual:
+        expected_type = firedrake.Cofunction if needs_dual else firedrake.Function
+        raise TypeError("Fine argument is a %s, not a %s" % (type(fine).__name__, expected_type.__name__))
     cfs = coarse.function_space()
     ffs = fine.function_space()
     hierarchy, lvl = utils.get_level(cfs.mesh())
     if hierarchy is None:
-        raise ValueError("Coarse function not from hierarchy")
+        raise ValueError("Coarse argument not from hierarchy")
     fhierarchy, flvl = utils.get_level(ffs.mesh())
     if lvl >= flvl:
-        raise ValueError("Coarse function must be from coarser space")
+        raise ValueError("Coarse argument must be from coarser space")
     if hierarchy is not fhierarchy:
         raise ValueError("Can't transfer between functions from different hierarchies")
     if coarse.ufl_shape != fine.ufl_shape:
@@ -45,13 +52,12 @@ def prolong(coarse, fine):
             src.copy(dest)
         return fine
 
-    hierarchy, coarse_level = utils.get_level(extract_unique_domain(coarse))
-    _, fine_level = utils.get_level(extract_unique_domain(fine))
+    hierarchy, coarse_level = utils.get_level(ufl_expr.extract_unique_domain(coarse))
+    _, fine_level = utils.get_level(ufl_expr.extract_unique_domain(fine))
     refinements_per_level = hierarchy.refinements_per_level
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = coarse_level * refinements_per_level
 
-    element = Vc.ufl_element()
     meshes = hierarchy._meshes
     for j in range(repeat):
         next_level += 1
@@ -59,10 +65,10 @@ def prolong(coarse, fine):
             next = fine
             Vf = fine.function_space()
         else:
-            Vf = firedrake.FunctionSpace(meshes[next_level], element)
+            Vf = Vc.reconstruct(mesh=meshes[next_level])
             next = firedrake.Function(Vf)
 
-        coarse_coords = Vc.ufl_domain().coordinates
+        coarse_coords = get_coordinates(Vc)
         fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
         fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
         kernel = kernels.prolong_kernel(coarse)
@@ -88,7 +94,7 @@ def prolong(coarse, fine):
 
 @PETSc.Log.EventDecorator()
 def restrict(fine_dual, coarse_dual):
-    check_arguments(coarse_dual, fine_dual)
+    check_arguments(coarse_dual, fine_dual, needs_dual=True)
     Vf = fine_dual.function_space()
     Vc = coarse_dual.function_space()
     if len(Vc) > 1:
@@ -106,13 +112,12 @@ def restrict(fine_dual, coarse_dual):
             src.copy(dest)
         return coarse_dual
 
-    hierarchy, coarse_level = utils.get_level(extract_unique_domain(coarse_dual))
-    _, fine_level = utils.get_level(extract_unique_domain(fine_dual))
+    hierarchy, coarse_level = utils.get_level(ufl_expr.extract_unique_domain(coarse_dual))
+    _, fine_level = utils.get_level(ufl_expr.extract_unique_domain(fine_dual))
     refinements_per_level = hierarchy.refinements_per_level
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = fine_level * refinements_per_level
 
-    element = Vc.ufl_element()
     meshes = hierarchy._meshes
 
     for j in range(repeat):
@@ -120,16 +125,16 @@ def restrict(fine_dual, coarse_dual):
         if j == repeat - 1:
             coarse_dual.dat.zero()
             next = coarse_dual
-            Vc = next.function_space()
         else:
-            Vc = firedrake.FunctionSpace(meshes[next_level], element)
-            next = firedrake.Function(Vc)
+            Vc = Vf.reconstruct(mesh=meshes[next_level])
+            next = firedrake.Cofunction(Vc)
+        Vc = next.function_space()
         # XXX: Should be able to figure out locations by pushing forward
         # reference cell node locations to physical space.
         # x = \sum_i c_i \phi_i(x_hat)
-        node_locations = utils.physical_node_locations(Vf)
+        node_locations = utils.physical_node_locations(Vf.dual())
 
-        coarse_coords = Vc.ufl_domain().coordinates
+        coarse_coords = get_coordinates(Vc.dual())
         fine_to_coarse = utils.fine_node_to_coarse_node_map(Vf, Vc)
         fine_to_coarse_coords = utils.fine_node_to_coarse_node_map(Vf, coarse_coords.function_space())
         # Have to do this, because the node set core size is not right for
@@ -180,15 +185,14 @@ def inject(fine, coarse):
     # solve inner(u_c, v_c)*dx_c == inner(f, v_c)*dx_c
 
     kernel, dg = kernels.inject_kernel(Vf, Vc)
-    hierarchy, coarse_level = utils.get_level(extract_unique_domain(coarse))
+    hierarchy, coarse_level = utils.get_level(ufl_expr.extract_unique_domain(coarse))
     if dg and not hierarchy.nested:
         raise NotImplementedError("Sorry, we can't do supermesh projections yet!")
-    _, fine_level = utils.get_level(extract_unique_domain(fine))
+    _, fine_level = utils.get_level(ufl_expr.extract_unique_domain(fine))
     refinements_per_level = hierarchy.refinements_per_level
     repeat = (fine_level - coarse_level)*refinements_per_level
     next_level = fine_level * refinements_per_level
 
-    element = Vc.ufl_element()
     meshes = hierarchy._meshes
 
     for j in range(repeat):
@@ -198,12 +202,12 @@ def inject(fine, coarse):
             next = coarse
             Vc = next.function_space()
         else:
-            Vc = firedrake.FunctionSpace(meshes[next_level], element)
+            Vc = Vf.reconstruct(mesh=meshes[next_level])
             next = firedrake.Function(Vc)
         if not dg:
             node_locations = utils.physical_node_locations(Vc)
 
-            fine_coords = Vf.ufl_domain().coordinates
+            fine_coords = get_coordinates(Vf)
             coarse_node_to_fine_nodes = utils.coarse_node_to_fine_node_map(Vc, Vf)
             coarse_node_to_fine_coords = utils.coarse_node_to_fine_node_map(Vc, fine_coords.function_space())
 
@@ -235,3 +239,11 @@ def inject(fine, coarse):
         fine = next
         Vf = Vc
     return coarse
+
+
+def get_coordinates(V):
+    coords = V.mesh().coordinates
+    if V.boundary_set:
+        W = V.reconstruct(element=coords.function_space().ufl_element())
+        coords = firedrake.Function(W).interpolate(coords)
+    return coords

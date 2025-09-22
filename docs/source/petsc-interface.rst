@@ -51,7 +51,7 @@ different.  For a bilinear form, the matrix is obtained with:
 
 .. code-block:: python3
 
-   petsc_mat = assemble(bilinear_form).M.handle
+   petsc_mat = assemble(bilinear_form).petscmat
 
 For a linear form, we need to use a context manager.  There are two
 options available here, depending on whether we want read-only or
@@ -136,7 +136,7 @@ newly defined class to compute the matrix action:
 
    # Assemble the bilinear form that defines A and get the concrete
    # PETSc matrix
-   A = assemble(bilinear_form).M.handle
+   A = assemble(bilinear_form).petscmat
 
    # Now do the same for the linear forms for u and v, making a copy
 
@@ -351,20 +351,20 @@ and the `PETSc manual`_ for details.
 
 If vertex coordinate information is to be accessed from the
 DMPlex then we must first establish a mapping between
-`its numbering`_ and the coordinates in the Firedrake mesh. This is done
+its numbering and the coordinates in the Firedrake mesh. This is done
 by establishing a 'section'. A section provides a way of associating
 data with the mesh - in this case, coordinate field data.
-For a $d$-dimensional mesh, we seek to establish offsets to recover
-$d$-tuple coordinates for the degrees of freedom.
+For a :math:`d`-dimensional mesh, we seek to establish offsets to recover
+:math:`d`-tuple coordinates for the degrees of freedom.
 
-For a linear mesh, we seek $d$ values at each vertex and no values for
+For a linear mesh, we seek :math:`d` values at each vertex and no values for
 entities of higher dimension. In 2D, for example, this corresponds to the array
 
 .. math::
 
    (d, 0, 0).
 
-For an order $p$ Lagrange mesh, it is a little more complicated. In
+For an order :math:`p` Lagrange mesh, it is a little more complicated. In
 the 2D triangular case, we require the following entities:
 
 .. math::
@@ -387,9 +387,7 @@ section to establish the mapping:
 
 .. code-block:: python3
 
-    from firedrake.cython.dmcommon import create_section
-
-    coord_section = create_section(mesh, entity_dofs)
+    coord_section = mesh.create_section(entity_dofs)
     plex = mesh.topology_dm
     plex_coords = plex.getCoordinateDM()
     plex_coords.setDefaultSection(coord_section)
@@ -410,4 +408,3 @@ entity ``d`` (according to the DMPlex numbering) by
 .. _Sherman-Morrison formula: https://en.wikipedia.org/wiki/Sherman%E2%80%93Morrison_formula
 .. _Firedrake DMPlex paper: https://arxiv.org/abs/1506.07749
 .. _PETSc manual: https://petsc.org/release/manual/dmplex/
-.. _its numbering: https://petsc.org/release/manual/dmplex/#data-layout-by-hand

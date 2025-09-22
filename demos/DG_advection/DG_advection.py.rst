@@ -112,13 +112,14 @@ As usual, we start by importing Firedrake.  We also import the math library to
 give us access to the value of pi.  We use a 40-by-40 mesh of squares. ::
 
   from firedrake import *
+  from firedrake.pyplot import FunctionPlotter, tripcolor
   import math
   import matplotlib.pyplot as plt
   from matplotlib.animation import FuncAnimation
 
   mesh = UnitSquareMesh(40, 40, quadrilateral=True)
 
-We set up a function space of discontinous bilinear elements for :math:`q`, and
+We set up a function space of discontinuous bilinear elements for :math:`q`, and
 a vector-valued continuous function space for our velocity field. ::
 
   V = FunctionSpace(mesh, "DQ", 1)
@@ -131,7 +132,7 @@ We set up the initial velocity field using a simple analytic expression. ::
   velocity = as_vector((0.5 - y, x - 0.5))
   u = Function(W).interpolate(velocity)
 
-Now, we set up the cosine-bell--cone--slotted-cylinder initial coniditon. The
+Now, we set up the cosine-bell--cone--slotted-cylinder initial condition. The
 first four lines declare various parameters relating to the positions of these
 objects, while the analytic expressions appear in the last three lines. ::
 
@@ -146,7 +147,7 @@ objects, while the analytic expressions appear in the last three lines. ::
                conditional(And(And(x > slot_left, x < slot_right), y < slot_top),
                  0.0, 1.0), 0.0)
 
-We then declare the inital condition of :math:`q` to be the sum of these fields.
+We then declare the initial condition of :math:`q` to be the sum of these fields.
 Furthermore, we add 1 to this, so that the initial field lies between 1 and 2,
 rather than between 0 and 1.  This ensures that we can't get away with
 neglecting the inflow boundary condition.  We also save the initial state so
@@ -278,7 +279,7 @@ to the initial condition. ::
 
 Finally, we'll animate our solution using matplotlib. We'll need to evaluate
 the solution at many points in every frame of the animation, so we'll employ a
-helper class that pre-computres some relevant data in order to speed up the
+helper class that pre-computes some relevant data in order to speed up the
 evaluation. ::
 
   nsp = 16

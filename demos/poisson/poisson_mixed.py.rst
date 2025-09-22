@@ -144,10 +144,10 @@ Lastly we write the component of the solution corresponding to the primal
 variable on the DG space to a file in VTK format for later inspection with a
 visualisation tool such as `ParaView <http://www.paraview.org/>`__ ::
 
-  File("poisson_mixed.pvd").write(u)
+  VTKFile("poisson_mixed.pvd").write(u)
 
 We could use the built in plot function of firedrake by calling
-:func:`plot <firedrake.plot.tripcolor>` to plot a surface graph. Before that,
+:func:`plot <firedrake.pyplot.tripcolor>` to plot a surface graph. Before that,
 matplotlib.pyplot should be installed and imported::
 
   try:
@@ -156,6 +156,7 @@ matplotlib.pyplot should be installed and imported::
     warning("Matplotlib not imported")
 
   try:
+    from firedrake.pyplot import tripcolor
     fig, axes = plt.subplots()
     colors = tripcolor(u, axes=axes)
     fig.colorbar(colors)
@@ -170,5 +171,5 @@ Don't forget to show the image::
     warning("Cannot show figure. Error msg '%s'" % e)
 
 This demo is based on the corresponding `DOLFIN mixed Poisson demo
-<http://fenicsproject.org/olddocs/dolfin/1.3.0/python/demo/documented/mixed-poisson/python/documentation.html>`__
+<https://olddocs.fenicsproject.org/dolfin/1.3.0/python/demo/documented/mixed-poisson/python/documentation.html>`__
 and can be found as a script in :demo:`poisson_mixed.py <poisson_mixed.py>`.

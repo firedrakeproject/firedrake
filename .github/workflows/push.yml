@@ -1,0 +1,26 @@
+name: Deploy after push
+
+on:
+  push:
+    branches:
+      - main
+      - release
+
+jobs:
+  test:
+    uses: ./.github/workflows/core.yml
+    with:
+      source_ref: ${{ github.ref_name }}
+      target_branch: ${{ github.ref_name }}
+      test_macos: true
+      deploy_website: true
+    secrets: inherit
+
+  docker:
+    name: Build developer Docker containers
+    uses: ./.github/workflows/docker.yml
+    with:
+      tag: dev-${{ github.ref_name }}
+      branch: ${{ github.ref_name }}
+      build_dev: true
+    secrets: inherit

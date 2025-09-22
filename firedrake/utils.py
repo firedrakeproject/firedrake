@@ -1,29 +1,35 @@
 # Some generic python utilities not really specific to our work.
 import collections.abc
+import warnings
 from decorator import decorator
 from pyop2.utils import cached_property  # noqa: F401
 from pyop2.datatypes import ScalarType, as_cstr
 from pyop2.datatypes import RealType     # noqa: F401
 from pyop2.datatypes import IntType      # noqa: F401
 from pyop2.datatypes import as_ctypes    # noqa: F401
-from firedrake_configuration import get_config
+from pyop2.mpi import MPI
+import petsctools
 
-_current_uid = 0
+
+# MPI key value for storing a per communicator universal identifier
+FIREDRAKE_UID = MPI.Comm.Create_keyval()
 
 RealType_c = as_cstr(RealType)
 ScalarType_c = as_cstr(ScalarType)
 IntType_c = as_cstr(IntType)
 
-complex_mode = get_config()["options"].get("complex", False)
+complex_mode = (petsctools.get_petscvariables()["PETSC_SCALAR"].lower() == "complex")
 
 # Remove this (and update test suite) when Slate supports complex mode.
 SLATE_SUPPORTS_COMPLEX = False
 
 
-def _new_uid():
-    global _current_uid
-    _current_uid += 1
-    return _current_uid
+def _new_uid(comm):
+    uid = comm.Get_attr(FIREDRAKE_UID)
+    if uid is None:
+        uid = 0
+    comm.Set_attr(FIREDRAKE_UID, uid + 1)
+    return uid
 
 
 def _init():
@@ -35,6 +41,16 @@ def _init():
     from firedrake.parameters import parameters
     if not op2.initialised():
         op2.init(**parameters["pyop2_options"])
+
+
+def unique(iterable):
+    """ Return tuple of unique items in iterable, items must be hashable
+    """
+    # Use dict to preserve order and compare by hash
+    unique_dict = {}
+    for item in iterable:
+        unique_dict[item] = None
+    return tuple(unique_dict.keys())
 
 
 def unique_name(name, nameset):
@@ -115,3 +131,40 @@ def split_by(condition, items):
         else:
             result[1].append(item)
     return tuple(result[0]), tuple(result[1])
+
+
+def assert_empty(iterator):
+    """Check that an iterator has been fully consumed.
+
+    Raises
+    ------
+    AssertionError
+        If the provided iterator is not empty.
+
+    Notes
+    -----
+    This function should only be used for assertions (where the program is
+    immediately terminated on failure). If the iterator is not empty then the
+    latest value is discarded.
+
+    """
+    try:
+        next(iterator)
+        raise AssertionError("Iterator is not empty")
+    except StopIteration:
+        pass
+
+
+# NOTE: Python 3.13 has warnings.deprecated which does exactly this
+def deprecated(prefer=None, internal=False):
+    """Decorator that emits a warning saying that the function is deprecated."""
+    def decorator(fn):
+        def wrapper(*args, **kwargs):
+            msg = f"{fn.__qualname__} is deprecated and will be removed"
+            if prefer:
+                msg += f", please use {prefer} instead"
+            warning_type = DeprecationWarning if internal else FutureWarning
+            warnings.warn(msg, warning_type)
+            return fn(*args, **kwargs)
+        return wrapper
+    return decorator

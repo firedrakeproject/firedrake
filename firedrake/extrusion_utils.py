@@ -1,14 +1,14 @@
 import collections
-import functools
 import itertools
 import numpy
 import islpy as isl
 
 import finat
 from pyop2 import op2
+from pyop2.caching import serial_cache
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType, RealType, ScalarType
-from tsfc.finatinterface import create_element
+from finat.element_factory import create_element
 import loopy as lp
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
 from firedrake.parameters import target
@@ -50,7 +50,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     coordinates on the extruded cell (to write to), the fixed layer
     height, and the current cell layer.
     """
-    _, vert_space = ext_coords.function_space().ufl_element().sub_elements()[0].sub_elements()
+    _, vert_space = ext_coords.function_space().ufl_element().sub_elements[0].factor_elements
     if kernel is None and not (vert_space.degree() == 1
                                and vert_space.family() in ['Lagrange',
                                                            'Discontinuous Lagrange']):
@@ -168,7 +168,10 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         _dd = _get_arity_axis_inames('_d')
         domains.extend(_get_lp_domains(dd, ext_shape[:adim]))
         domains.extend(_get_lp_domains(_dd, ext_shape[:adim]))
-        domains.extend(_get_lp_domains(('c0', 'c1', 'c2', 'c3', 'k', 'l'), (base_coord_dim, ) * 5 + (2, )))
+        if tdim == 1:
+            domains.extend(_get_lp_domains(('c0', 'c1', 'c2', 'k', 'l'), (base_coord_dim, ) * 4 + (2, )))
+        else:
+            domains.extend(_get_lp_domains(('c0', 'c1', 'c2', 'c3', 'k', 'l'), (base_coord_dim, ) * 5 + (2, )))
         # Formula for normal, n
         n_1_1 = """
         n[0] = -bc[1, 1] + bc[0, 1]
@@ -327,7 +330,15 @@ def entity_closures(cell):
     return closure
 
 
-@functools.lru_cache()
+def make_offset_key(finat_element):
+    from firedrake.functionspacedata import entity_dofs_key
+    # scalar-valued elements only
+    if isinstance(finat_element, finat.TensorFiniteElement):
+        finat_element = finat_element.base_element
+    return entity_dofs_key(finat_element.entity_dofs()), is_real_tensor_product_element(finat_element)
+
+
+@serial_cache(hashkey=make_offset_key)
 def calculate_dof_offset(finat_element):
     """Return the offset between the neighbouring cells of a
     column for each DoF.
@@ -355,7 +366,7 @@ def calculate_dof_offset(finat_element):
     return dof_offset
 
 
-@functools.lru_cache()
+@serial_cache(hashkey=make_offset_key)
 def calculate_dof_offset_quotient(finat_element):
     """Return the offset quotient for each DoF within the base cell.
 

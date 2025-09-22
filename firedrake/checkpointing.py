@@ -1,12 +1,13 @@
 import functools
 import pickle
 from petsc4py.PETSc import ViewerHDF5
-import ufl
+import finat.ufl
 from pyop2 import op2
-from pyop2.mpi import COMM_WORLD, internal_comm, decref, MPI
+from pyop2.mpi import COMM_WORLD, internal_comm, MPI
+from petsctools import OptionsManager
 from firedrake.cython import hdf5interface as h5i
 from firedrake.cython import dmcommon
-from firedrake.petsc import PETSc, OptionsManager
+from firedrake.petsc import PETSc
 from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, DEFAULT_MESH_NAME, make_mesh_from_coordinates, DistributedMeshOverlapType
 from firedrake.functionspace import FunctionSpace
 from firedrake import functionspaceimpl as impl
@@ -47,6 +48,11 @@ r"""The prefix attached to the attributes associated with immersed meshes."""
 PREFIX_EMBEDDED = "_".join([PREFIX, "embedded"])
 r"""The prefix attached to the DG function resulting from projecting the original function to the embedding DG space."""
 
+PREFIX_TIMESTEPPING = "_".join([PREFIX, "timestepping"])
+r"""The prefix attached to the attributes associated with timestepping."""
+
+PREFIX_TIMESTEPPING_HISTORY = "_".join([PREFIX_TIMESTEPPING, "history"])
+r"""The prefix attached to the attributes associated with timestepping history."""
 
 # This is the distribution_parameters and reorder that one must use when
 # distribution and permutation are loaded.
@@ -98,7 +104,7 @@ class DumbCheckpoint(object):
             warnings.warn("DumbCheckpoint class will soon be deprecated; use CheckpointFile class instead.",
                           DeprecationWarning)
         self.comm = comm or COMM_WORLD
-        self._comm = internal_comm(self.comm)
+        self._comm = internal_comm(self.comm, self)
         self.mode = mode
 
         self._single = single_file
@@ -341,9 +347,6 @@ class DumbCheckpoint(object):
 
     def __del__(self):
         self.close()
-        if hasattr(self, "_comm"):
-            decref(self._comm)
-            del self._comm
 
 
 class HDF5File(object):
@@ -376,7 +379,7 @@ class HDF5File(object):
             warnings.warn("HDF5File class will soon be deprecated; use CheckpointFile class instead.",
                           DeprecationWarning)
         self.comm = comm or COMM_WORLD
-        self._comm = internal_comm(self.comm)
+        self._comm = internal_comm(self.comm, self)
 
         self._filename = filename
         self._mode = file_mode
@@ -501,8 +504,6 @@ class HDF5File(object):
 
     def __del__(self):
         self.close()
-        if hasattr(self, "_comm"):
-            decref(self._comm)
 
 
 class CheckpointFile(object):
@@ -519,23 +520,37 @@ class CheckpointFile(object):
     One can also use different number of processes for saving and for loading.
 
     """
+
+    latest_version = '3.0.0'
+
     def __init__(self, filename, mode, comm=COMM_WORLD):
         self.viewer = ViewerHDF5()
         self.filename = filename
         self.comm = comm
-        self._comm = internal_comm(comm)
+        self._comm = internal_comm(comm, self)
         r"""The neme of the checkpoint file."""
         self.viewer.create(filename, mode=mode, comm=self._comm)
         self.commkey = self._comm.py2f()
         assert self.commkey != MPI.COMM_NULL.py2f()
         self._function_spaces = {}
         self._function_load_utils = {}
-        self.opts = OptionsManager({"dm_plex_view_hdf5_storage_version": "2.1.0"}, "")
+        if mode in [PETSc.Viewer.FileMode.WRITE, PETSc.Viewer.FileMode.W, "w"]:
+            version = CheckpointFile.latest_version
+            self.set_attr_byte_string("/", "dmplex_storage_version", version)
+        elif mode in [PETSc.Viewer.FileMode.APPEND, PETSc.Viewer.FileMode.A, "a"]:
+            if self.has_attr("/", "dmplex_storage_version"):
+                version = self.get_attr_byte_string("/", "dmplex_storage_version")
+            else:
+                version = CheckpointFile.latest_version
+                self.set_attr_byte_string("/", "dmplex_storage_version", version)
+        elif mode in [PETSc.Viewer.FileMode.READ, PETSc.Viewer.FileMode.R, "r"]:
+            if not self.has_attr("/", "dmplex_storage_version"):
+                raise RuntimeError(f"Only files generated with CheckpointFile are supported: got an invalid file ({filename})")
+            version = CheckpointFile.latest_version
+        else:
+            raise NotImplementedError(f"Unsupportd file mode: {mode} not in {'w', 'a', 'r'}")
+        self.opts = OptionsManager({"dm_plex_view_hdf5_storage_version": version}, "")
         r"""DMPlex HDF5 version options."""
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
 
     def __enter__(self):
         return self
@@ -551,7 +566,6 @@ class CheckpointFile(object):
         :kwarg distribution_name: the name under which distribution is saved; if `None`, auto-generated name will be used.
         :kwarg permutation_name: the name under which permutation is saved; if `None`, auto-generated name will be used.
         """
-        mesh.init()
         # Handle extruded mesh
         tmesh = mesh.topology
         if mesh.extruded:
@@ -577,7 +591,7 @@ class CheckpointFile(object):
                     # Save tmesh.layers, which contains (start layer, stop layer)-tuple for each cell
                     # Conceptually, we project these integer pairs onto DG0 vector space of dim=2.
                     cell = base_tmesh.ufl_cell()
-                    element = ufl.VectorElement("DP" if cell.is_simplex() else "DQ", cell, 0, dim=2)
+                    element = finat.ufl.VectorElement("DP" if cell.is_simplex() else "DQ", cell, 0, dim=2)
                     layers_tV = impl.FunctionSpace(base_tmesh, element)
                     self._save_function_space_topology(layers_tV)
                     # Note that _cell_numbering coincides with DG0 section, so we can use tmesh.layers directly.
@@ -654,23 +668,49 @@ class CheckpointFile(object):
     @PETSc.Log.EventDecorator("SaveMeshTopology")
     def _save_mesh_topology(self, tmesh):
         # -- Save DMPlex --
-        tmesh.init()
         topology_dm = tmesh.topology_dm
         tmesh_name = topology_dm.getName()
         distribution_name = tmesh._distribution_name
-        perm_is = tmesh._plex_renumbering
+        perm_is = tmesh._dm_renumbering
         permutation_name = tmesh._permutation_name
         if tmesh_name in self.require_group(self._path_to_topologies()):
+            version_str = self.opts.parameters['dm_plex_view_hdf5_storage_version']
+            version_major, version_minor, version_patch = tuple(int(ver) for ver in version_str.split('.'))
             # Check if the global number of DMPlex points and
             # the global sum of DMPlex cone sizes are consistent.
+            cell_dim = topology_dm.getDimension()
+            if version_major < 3:
+                path = os.path.join(self._path_to_topology(tmesh_name), "topology", "cells")
+            else:
+                path = os.path.join(self._path_to_topology(tmesh_name), "topology")
+            cell_dim1 = self.get_attr(path, "cell_dim")
+            if cell_dim1 != cell_dim:
+                raise ValueError(f"Mesh ({tmesh_name}) already exists in {self.filename}, but the topological dimension is inconsistent: {cell_dim1} ({self.filename}) != {cell_dim} ({tmesh_name})")
             order_array_size, ornt_array_size = dmcommon.compute_point_cone_global_sizes(topology_dm)
-            path = os.path.join(self._path_to_topology(tmesh_name), "topology")
-            order_array_size1 = self.h5pyfile[path]["order"].size
-            ornt_array_size1 = self.h5pyfile[path]["orientation"].size
-            if order_array_size1 != order_array_size:
-                raise ValueError(f"Mesh ({tmesh_name}) already exists in {self.filename}, but the global number of DMPlex points is inconsistent: {order_array_size1} ({self.filename}) != {order_array_size} ({tmesh_name})")
-            if ornt_array_size1 != ornt_array_size:
-                raise ValueError(f"Mesh ({tmesh_name}) already exists in {self.filename}, but the global sum of all DMPlex cone sizes is inconsistent: {ornt_array_size1} ({self.filename}) != {ornt_array_size} ({tmesh_name})")
+            if version_major < 3:
+                compressed_order = False
+                compressed_ornt = False
+                path = os.path.join(self._path_to_topology(tmesh_name), "topology")
+                order_array_size1 = self.h5pyfile[path]["order"].size
+                ornt_array_size1 = self.h5pyfile[path]["orientation"].size
+            else:
+                order_array_size1 = 0
+                ornt_array_size1 = 0
+                compressed_order = False
+                compressed_ornt = False
+                for d in range(cell_dim + 1):
+                    path = os.path.join(self._path_to_topology(tmesh_name), "topology", "strata", str(d))
+                    compressed_order = compressed_order or self.has_attr(os.path.join(path, "cone_sizes"), "compressed")
+                    order_array_size1 += self.h5pyfile[path]["cone_sizes"].size
+                    compressed_ornt = compressed_ornt or self.has_attr(os.path.join(path, "cones"), "compressed")
+                    ornt_array_size1 += self.h5pyfile[path]["cones"].size
+            # Check sizes if IS has not been compressed.
+            if not compressed_order:
+                if order_array_size1 != order_array_size:
+                    raise ValueError(f"Mesh ({tmesh_name}) already exists in {self.filename}, but the global number of DMPlex points is inconsistent: {order_array_size1} ({self.filename}) != {order_array_size} ({tmesh_name})")
+            if not compressed_ornt:
+                if ornt_array_size1 != ornt_array_size:
+                    raise ValueError(f"Mesh ({tmesh_name}) already exists in {self.filename}, but the global sum of all DMPlex cone sizes is inconsistent: {ornt_array_size1} ({self.filename}) != {ornt_array_size} ({tmesh_name})")
             # We assume that each (conceptually the same) mesh topology (plex)
             # is uniquely named (this is users' responsibility).
             # With the current setup, "distributions" folder will always contain
@@ -715,6 +755,82 @@ class CheckpointFile(object):
             perm_is.view(self.viewer)
             perm_is.setName(None)
             self.viewer.popGroup()
+
+    @PETSc.Log.EventDecorator("GetTimesteps")
+    def get_timestepping_history(self, mesh, name):
+        """
+        Retrieve the timestepping history and indices for a specified function within a mesh.
+
+        This method is primarily used in checkpointing scenarios during timestepping simulations.
+        It returns the indices associated with each function stored in the timestepping mode,
+        along with any additional timestepping-related information (like time or timestep values) if available.
+        If the specified function has not been stored in timestepping mode, it returns an empty dictionary.
+
+        Parameters
+        ----------
+        mesh : firedrake.mesh.MeshGeometry
+            The mesh containing the function to be queried.
+        name : str
+            The name of the function whose timestepping history is to be retrieved.
+
+        Returns
+        -------
+        dict
+            - Returns an empty dictionary if the function `name` has not been stored in timestepping mode.
+            - If the function `name` is stored in timestepping mode, returns a dictionary with the following contents:
+                - 'indices': A list of all stored indices for the function.
+                - Additional key-value pairs representing timestepping information, if available.
+
+        Raises
+        ------
+        RuntimeError
+            If the function `name` is not found within the given `mesh` in the current file.
+
+        See Also
+        --------
+        CheckpointFile.save_function : Describes how timestepping information should be provided.
+
+        Notes
+        -----
+        The function internally checks whether the specified function is mixed or exists in the file.
+        It then retrieves the appropriate data paths and extracts the timestepping information
+        as specified in the checkpoint file.
+        """
+
+        # check if the function is mixed, or even exists in file
+        if name in self._get_mixed_function_name_mixed_function_space_name_map(mesh.name):
+            V_name = self._get_mixed_function_name_mixed_function_space_name_map(mesh.name)[name]
+            base_path = self._path_to_mixed_function(mesh.name, V_name, name)
+            path = os.path.join(base_path, str(0))  # path to subfunction 0
+            fsub_name = self.get_attr(path, PREFIX + "_function")
+            return self.get_timestepping_history(mesh, fsub_name)
+        elif name in self._get_function_name_function_space_name_map(self._get_mesh_name_topology_name_map()[mesh.name], mesh.name):
+            tmesh_name = self._get_mesh_name_topology_name_map()[mesh.name]
+            V_name = self._get_function_name_function_space_name_map(tmesh_name, mesh.name)[name]
+            V = self._load_function_space(mesh, V_name)
+            tV = V.topological
+            path = self._path_to_function(tmesh_name, mesh.name, V_name, name)
+            if PREFIX_EMBEDDED in self.h5pyfile[path]:
+                path = self._path_to_function_embedded(tmesh_name, mesh.name, V_name, name)
+                _name = self.get_attr(path, PREFIX_EMBEDDED + "_function")
+                return self.get_timestepping_history(mesh, _name)
+            else:
+                tf_name = self.get_attr(path, PREFIX + "_vec")
+                dm_name = self._get_dm_name_for_checkpointing(tV.mesh(), tV.ufl_element())
+                timestepping_info = {}
+                tpath = self._path_to_vec_timestepping(tV.mesh().name, dm_name, tf_name)
+                path = self._path_to_function_timestepping(tmesh_name, mesh.name, V_name, name)
+                if tpath in self.h5pyfile:
+                    assert path in self.h5pyfile
+                    timestepping_info["index"] = self.get_attr(tpath, PREFIX_TIMESTEPPING_HISTORY + "_index")
+                    for key in self.h5pyfile[path].attrs.keys():
+                        if key.startswith(PREFIX_TIMESTEPPING_HISTORY):
+                            key_ = key.replace(PREFIX_TIMESTEPPING_HISTORY + "_", "", 1)
+                            timestepping_info[key_] = self.get_attr(path, key)
+                return timestepping_info
+        else:
+            raise RuntimeError(
+                f"""Function ({name}) not found in {self.filename}""")
 
     @PETSc.Log.EventDecorator("SaveFunctionSpace")
     def _save_function_space(self, V):
@@ -762,7 +878,7 @@ class CheckpointFile(object):
         path = self._path_to_dms(tmesh.name)
         if dm_name not in self.require_group(path):
             if element.family() == "Real":
-                assert not isinstance(element, (ufl.VectorElement, ufl.TensorElement))
+                assert not isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement))
             else:
                 dm = self._get_dm_for_checkpointing(tV)
                 topology_dm = tmesh.topology_dm
@@ -779,7 +895,7 @@ class CheckpointFile(object):
                     topology_dm.setName(base_tmesh_name)
 
     @PETSc.Log.EventDecorator("SaveFunction")
-    def save_function(self, f, idx=None, name=None):
+    def save_function(self, f, idx=None, name=None, timestepping_info={}):
         r"""Save a :class:`~.Function`.
 
         :arg f: the :class:`~.Function` to save.
@@ -789,12 +905,15 @@ class CheckpointFile(object):
             this method must always be called with the idx parameter
             set or never be called with the idx parameter set.
         :kwarg name: optional alternative name to save the function under.
+        :kwarg timestepping_info: optional (requires idx) additional information
+            such as time, timestepping that can be stored along a function for
+            each index.
         """
         V = f.function_space()
         mesh = V.mesh()
         if name:
             g = Function(V, val=f.dat, name=name)
-            return self.save_function(g, idx=idx)
+            return self.save_function(g, idx=idx, timestepping_info=timestepping_info)
         # -- Save function space --
         self._save_function_space(V)
         # -- Save function --
@@ -806,7 +925,7 @@ class CheckpointFile(object):
                 path = os.path.join(base_path, str(i))
                 self.require_group(path)
                 self.set_attr(path, PREFIX + "_function", fsub.name())
-                self.save_function(fsub, idx=idx)
+                self.save_function(fsub, idx=idx, timestepping_info=timestepping_info)
             self._update_mixed_function_name_mixed_function_space_name_map(mesh.name, {f.name(): V_name})
         else:
             tf = f.topological
@@ -815,7 +934,7 @@ class CheckpointFile(object):
             self._update_function_name_function_space_name_map(tmesh.name, mesh.name, {f.name(): V_name})
             # Embed if necessary
             element = V.ufl_element()
-            _element = get_embedding_element_for_checkpointing(element)
+            _element = get_embedding_element_for_checkpointing(element, V.value_shape)
             if _element != element:
                 path = self._path_to_function_embedded(tmesh.name, mesh.name, V_name, f.name())
                 self.require_group(path)
@@ -824,7 +943,7 @@ class CheckpointFile(object):
                 _name = "_".join([PREFIX_EMBEDDED, f.name()])
                 _f = Function(_V, name=_name)
                 self._project_function_for_checkpointing(_f, f, method)
-                self.save_function(_f, idx=idx)
+                self.save_function(_f, idx=idx, timestepping_info=timestepping_info)
                 self.set_attr(path, PREFIX_EMBEDDED + "_function", _name)
             else:
                 # -- Save function topology --
@@ -832,6 +951,26 @@ class CheckpointFile(object):
                 self.require_group(path)
                 self.set_attr(path, PREFIX + "_vec", tf.name())
                 self._save_function_topology(tf, idx=idx)
+                # store timstepping_info only if in timestepping mode
+                if idx is not None:
+                    path = self._path_to_function_timestepping(tmesh.name, mesh.name, V_name, f.name())
+                    new = path not in self.h5pyfile
+                    self.require_group(path)
+                    # We make sure the provided timestepping_info is consistent all along timestepping.
+                    if not new:
+                        existing_keys = {key.replace(PREFIX_TIMESTEPPING_HISTORY + "_", "", 1)
+                                         for key in self.h5pyfile[path].attrs.keys()
+                                         if key.startswith(PREFIX_TIMESTEPPING_HISTORY)}
+                        if timestepping_info.keys() != existing_keys:
+                            raise RuntimeError(
+                                r"Provided keys in timestepping_info must remain consistent")
+                    # store items in timestepping_info accordingly
+                    for ts_info_key, ts_info_value in timestepping_info.items():
+                        if not isinstance(ts_info_value, float):
+                            raise NotImplementedError(f"timestepping_info must have float values: got {type(ts_info_value)}")
+                        old_items = [] if new else self.get_attr(path, PREFIX_TIMESTEPPING_HISTORY + f"_{ts_info_key}")
+                        items = np.concatenate((old_items, [ts_info_value]))
+                        self.set_attr(path, PREFIX_TIMESTEPPING_HISTORY + f"_{ts_info_key}", items)
 
     @PETSc.Log.EventDecorator("SaveFunctionTopology")
     def _save_function_topology(self, tf, idx=None):
@@ -845,7 +984,7 @@ class CheckpointFile(object):
         tmesh = tV.mesh()
         element = tV.ufl_element()
         if element.family() == "Real":
-            assert not isinstance(element, (ufl.VectorElement, ufl.TensorElement))
+            assert not isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement))
             dm_name = self._get_dm_name_for_checkpointing(tmesh, element)
             path = self._path_to_vec(tmesh.name, dm_name, tf.name())
             self.require_group(path)
@@ -853,7 +992,8 @@ class CheckpointFile(object):
         else:
             topology_dm = tmesh.topology_dm
             dm = self._get_dm_for_checkpointing(tV)
-            path = self._path_to_vec(tmesh.name, dm.name, tf.name())
+            dm_name = dm.name
+            path = self._path_to_vec(tmesh.name, dm_name, tf.name())
             if path in self.h5pyfile:
                 try:
                     timestepping = self.get_attr(os.path.join(path, tf.name()), "timestepping")
@@ -872,16 +1012,33 @@ class CheckpointFile(object):
                     topology_dm.setName(base_tmesh_name)
         if idx is not None:
             self.viewer.popTimestepping()
+            path = self._path_to_vec_timestepping(tmesh.name, dm_name, tf.name())
+            new = path not in self.h5pyfile
+            self.require_group(path)
+            old_indices = [] if new else self.get_attr(path, PREFIX_TIMESTEPPING_HISTORY + "_index")
+            indices = np.concatenate((old_indices, [idx]))
+            self.set_attr(path, PREFIX_TIMESTEPPING_HISTORY + "_index", indices)
 
     @PETSc.Log.EventDecorator("LoadMesh")
-    def load_mesh(self, name=DEFAULT_MESH_NAME, reorder=None, distribution_parameters=None):
+    def load_mesh(self, name=DEFAULT_MESH_NAME, reorder=None, distribution_parameters=None, topology=None):
         r"""Load a mesh.
 
-        :arg name: the name of the mesh to load (default to :obj:`~.DEFAULT_MESH_NAME`).
-        :kwarg reorder: whether to reorder the mesh (bool); see :func:`~.Mesh`.
-        :kwarg distribution_parameters: the `distribution_parameters` used for
-            distributing the mesh; see :func:`~.Mesh`.
-        :returns: the loaded mesh.
+        Parameters
+        ----------
+        name : str
+            the name of the mesh to load (default to `firedrake.mesh.DEFAULT_MESH_NAME`).
+        reorder : bool
+            whether to reorder the mesh; see `firedrake.Mesh`.
+        distribution_parameters : dict
+            the `distribution_parameters` used for distributing the mesh; see `firedrake.Mesh`.
+        topology : firedrake.mesh.MeshTopology
+            the underlying mesh topology if already known.
+
+        Returns
+        -------
+        firedrake.mesh.MeshGeometry
+            the loaded mesh.
+
         """
         tmesh_name = self._get_mesh_name_topology_name_map()[name]
         path = self._path_to_topology_extruded(tmesh_name)
@@ -889,12 +1046,11 @@ class CheckpointFile(object):
             # -- Load mesh topology --
             base_tmesh_name = self.get_attr(path, PREFIX_EXTRUDED + "_base_mesh")
             base_tmesh = self._load_mesh_topology(base_tmesh_name, reorder, distribution_parameters)
-            base_tmesh.init()
             periodic = self.get_attr(path, PREFIX_EXTRUDED + "_periodic") if self.has_attr(path, PREFIX_EXTRUDED + "_periodic") else False
             variable_layers = self.get_attr(path, PREFIX_EXTRUDED + "_variable_layers")
             if variable_layers:
                 cell = base_tmesh.ufl_cell()
-                element = ufl.VectorElement("DP" if cell.is_simplex() else "DQ", cell, 0, dim=2)
+                element = finat.ufl.VectorElement("DP" if cell.is_simplex() else "DQ", cell, 0, dim=2)
                 _ = self._load_function_space_topology(base_tmesh, element)
                 base_tmesh_key = self._generate_mesh_key_from_names(base_tmesh.name,
                                                                     base_tmesh._distribution_name,
@@ -933,18 +1089,20 @@ class CheckpointFile(object):
             # The followings are conceptually redundant, but needed.
             path = os.path.join(self._path_to_mesh(tmesh_name, name), PREFIX_EXTRUDED)
             base_mesh_name = self.get_attr(path, PREFIX_EXTRUDED + "_base_mesh")
-            mesh._base_mesh = self.load_mesh(base_mesh_name)
+            mesh._base_mesh = self.load_mesh(base_mesh_name, reorder=reorder, distribution_parameters=distribution_parameters, topology=base_tmesh)
         else:
             utils._init()
             # -- Load mesh topology --
-            tmesh = self._load_mesh_topology(tmesh_name, reorder, distribution_parameters)
+            if topology is None:
+                tmesh = self._load_mesh_topology(tmesh_name, reorder, distribution_parameters)
+            else:
+                if topology.name != tmesh_name:
+                    raise RuntimeError(f"Got wrong mesh topology (f{topology.name}): expecting f{tmesh_name}")
+                tmesh = topology
             # -- Load coordinates --
             # tmesh.topology_dm has already been redistributed.
             path = self._path_to_mesh(tmesh_name, name)
             # Load firedrake coordinates directly.
-            # When implementing checkpointing for MeshHierarchy in the future,
-            # we will need to postpone calling tmesh.init().
-            tmesh.init()
             coord_element = self._load_ufl_element(path, PREFIX + "_coordinate_element")
             coord_name = self.get_attr(path, PREFIX + "_coordinates")
             coordinates = self._load_function_topology(tmesh, coord_element, coord_name)
@@ -955,7 +1113,7 @@ class CheckpointFile(object):
             path = self._path_to_mesh_immersed(tmesh.name, name)
             if path in self.h5pyfile:
                 cell = tmesh.ufl_cell()
-                element = ufl.FiniteElement("DP" if cell.is_simplex() else "DQ", cell, 0)
+                element = finat.ufl.FiniteElement("DP" if cell.is_simplex() else "DQ", cell, 0)
                 cell_orientations_tV = self._load_function_space_topology(tmesh, element)
                 tmesh_key = self._generate_mesh_key_from_names(tmesh.name,
                                                                tmesh._distribution_name,
@@ -1025,17 +1183,18 @@ class CheckpointFile(object):
         plex.setName(tmesh_name)
         # Check format
         path = os.path.join(self._path_to_topology(tmesh_name), "topology")
-        if any(d not in self.h5pyfile for d in [os.path.join(path, "cells"),
-                                                os.path.join(path, "cones"),
-                                                os.path.join(path, "order"),
-                                                os.path.join(path, "orientation")]):
-            raise RuntimeError(f"Unsupported PETSc ViewerHDF5 format used in {self.filename}")
         format = ViewerHDF5.Format.HDF5_PETSC
         self.viewer.pushFormat(format=format)
         plex.distributionSetName(distribution_name)
         sfXB = plex.topologyLoad(self.viewer)
         plex.distributionSetName(None)
+        plex.labelsLoad(self.viewer, sfXB)
         self.viewer.popFormat()
+        # These labels are distribution dependent.
+        # We should be able to save/load labels selectively.
+        plex.removeLabel("pyop2_core")
+        plex.removeLabel("pyop2_owned")
+        plex.removeLabel("pyop2_ghost")
         if load_distribution_permutation:
             chart_size = np.empty(1, dtype=utils.IntType)
             chart_sizes_iset = PETSc.IS().createGeneral(chart_size, comm=self._comm)
@@ -1061,21 +1220,10 @@ class CheckpointFile(object):
                              distribution_parameters=distribution_parameters, sfXB=sfXB, perm_is=perm_is,
                              distribution_name=distribution_name, permutation_name=permutation_name,
                              comm=self.comm)
-        self.viewer.pushFormat(format=format)
-        # tmesh.topology_dm has already been redistributed.
-        sfXCtemp = tmesh.sfXB.compose(tmesh.sfBC) if tmesh.sfBC is not None else tmesh.sfXB
-        plex.labelsLoad(self.viewer, sfXCtemp)
-        self.viewer.popFormat()
-        # These labels are distribution dependent.
-        # We should be able to save/load labels selectively.
-        plex.removeLabel("pyop2_core")
-        plex.removeLabel("pyop2_owned")
-        plex.removeLabel("pyop2_ghost")
         return tmesh
 
     @PETSc.Log.EventDecorator("LoadFunctionSpace")
     def _load_function_space(self, mesh, name):
-        mesh.init()
         mesh_key = self._generate_mesh_key_from_names(mesh.name,
                                                       mesh.topology._distribution_name,
                                                       mesh.topology._permutation_name)
@@ -1112,7 +1260,6 @@ class CheckpointFile(object):
 
     @PETSc.Log.EventDecorator("LoadFunctionSpaceTopology")
     def _load_function_space_topology(self, tmesh, element):
-        tmesh.init()
         if element.family() == "Real":
             return impl.RealFunctionSpace(tmesh, element, "unused_name")
         tmesh_key = self._generate_mesh_key_from_names(tmesh.name,
@@ -1125,7 +1272,7 @@ class CheckpointFile(object):
             dm.setName(self._get_dm_name_for_checkpointing(tmesh, element))
             dm.setPointSF(topology_dm.getPointSF())
             section = PETSc.Section().create(comm=tmesh._comm)
-            section.setPermutation(tmesh._plex_renumbering)
+            section.setPermutation(tmesh._dm_renumbering)
             dm.setSection(section)
             base_tmesh = tmesh._base_mesh if isinstance(tmesh, ExtrudedMeshTopology) else tmesh
             sfXC = base_tmesh.sfXC
@@ -1179,7 +1326,7 @@ class CheckpointFile(object):
                 _name = self.get_attr(path, PREFIX_EMBEDDED + "_function")
                 _f = self.load_function(mesh, _name, idx=idx)
                 element = V.ufl_element()
-                _element = get_embedding_element_for_checkpointing(element)
+                _element = get_embedding_element_for_checkpointing(element, V.value_shape)
                 method = get_embedding_method_for_checkpointing(element)
                 assert _element == _f.function_space().ufl_element()
                 f = Function(V, name=name)
@@ -1208,9 +1355,9 @@ class CheckpointFile(object):
             self.viewer.pushTimestepping()
             self.viewer.setTimestep(idx)
         if element.family() == "Real":
-            assert not isinstance(element, (ufl.VectorElement, ufl.TensorElement))
+            assert not isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement))
             value = self.get_attr(path, "_".join([PREFIX, "value" if idx is None else "value_" + str(idx)]))
-            tf.dat.data.itemset(value)
+            tf.dat.data[...] = value
         else:
             if path in self.h5pyfile:
                 timestepping = self.has_attr(os.path.join(path, tf.name()), "timestepping")
@@ -1247,10 +1394,10 @@ class CheckpointFile(object):
         V_names = [PREFIX + "_function_space"]
         for Vsub in V:
             elem = Vsub.ufl_element()
-            if isinstance(elem, ufl.RestrictedElement):
+            if isinstance(elem, finat.ufl.RestrictedElement):
                 # RestrictedElement.shortstr() contains '<>|{}'.
                 elem_name = "RestrictedElement(%s,%s)" % (elem.sub_element().shortstr(), elem.restriction_domain())
-            elif isinstance(elem, ufl.EnrichedElement):
+            elif isinstance(elem, finat.ufl.EnrichedElement):
                 # EnrichedElement.shortstr() contains '<>+'.
                 elem_name = "EnrichedElement(%s)" % ",".join(e.shortstr() for e in elem._elements)
             else:
@@ -1274,21 +1421,20 @@ class CheckpointFile(object):
         real_tensorproduct = eutils.is_real_tensor_product_element(finat_element)
         entity_dofs = finat_element.entity_dofs()
         nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
-        if isinstance(ufl_element, ufl.TensorElement):
-            shape = ufl_element.reference_value_shape()
-            block_size = np.product(shape)
-        elif isinstance(ufl_element, ufl.VectorElement):
-            shape = ufl_element.value_shape()[:1]
-            block_size = np.product(shape)
+        if isinstance(ufl_element, finat.ufl.TensorElement):
+            shape = ufl_element.reference_value_shape
+            block_size = np.prod(shape)
+        elif isinstance(ufl_element, finat.ufl.VectorElement):
+            block_size = ufl_element.reference_value_shape[0]
         else:
             block_size = 1
         return (nodes_per_entity, real_tensorproduct, block_size)
 
     def _get_dm_for_checkpointing(self, tV):
         sd_key = self._get_shared_data_key_for_checkpointing(tV.mesh(), tV.ufl_element())
-        if isinstance(tV.ufl_element(), (ufl.VectorElement, ufl.TensorElement)):
+        if isinstance(tV.ufl_element(), (finat.ufl.VectorElement, finat.ufl.TensorElement)):
             nodes_per_entity, real_tensorproduct, block_size = sd_key
-            global_numbering = tV.mesh().create_section(nodes_per_entity, real_tensorproduct, block_size=block_size)
+            global_numbering, _ = tV.mesh().create_section(nodes_per_entity, real_tensorproduct, block_size=block_size)
             topology_dm = tV.mesh().topology_dm
             dm = PETSc.DMShell().create(tV.mesh()._comm)
             dm.setPointSF(topology_dm.getPointSF())
@@ -1326,6 +1472,9 @@ class CheckpointFile(object):
     def _path_to_vec(self, tmesh_name, dm_name, tf_name):
         return os.path.join(self._path_to_vecs(tmesh_name, dm_name), tf_name)
 
+    def _path_to_vec_timestepping(self, tmesh_name, dm_name, tf_name):
+        return os.path.join(self._path_to_vec(tmesh_name, dm_name, tf_name), PREFIX_TIMESTEPPING)
+
     def _path_to_meshes(self, tmesh_name):
         return os.path.join(self._path_to_topology(tmesh_name), PREFIX + "_meshes")
 
@@ -1346,6 +1495,9 @@ class CheckpointFile(object):
 
     def _path_to_function(self, tmesh_name, mesh_name, V_name, function_name):
         return os.path.join(self._path_to_functions(tmesh_name, mesh_name, V_name), function_name)
+
+    def _path_to_function_timestepping(self, tmesh_name, mesh_name, V_name, function_name):
+        return os.path.join(self._path_to_function(tmesh_name, mesh_name, V_name, function_name), PREFIX_TIMESTEPPING)
 
     def _path_to_function_embedded(self, tmesh_name, mesh_name, V_name, function_name):
         return os.path.join(self._path_to_function(tmesh_name, mesh_name, V_name, function_name), PREFIX_EMBEDDED)
@@ -1421,6 +1573,7 @@ class CheckpointFile(object):
             globals = {}
             locals = {}
             exec("from ufl import *", globals, locals)
+            exec("from finat.ufl import *", globals, locals)
             return eval(self.get_attr(path, name + "_repr"), globals, locals)
         else:
             return self._unpickle(self.get_attr(path, name))  # backward compat.
@@ -1515,6 +1668,45 @@ class CheckpointFile(object):
         :returns: `True` if the attribute is found.
         """
         return key in self.h5pyfile[path].attrs
+
+    def set_attr_byte_string(self, path, key, string):
+        """Store string as byte string.
+
+        Parameters
+        ----------
+        path : str
+            Path.
+        key : str
+            Name of the attribute.
+        string : str
+            String to be stored as a byte string.
+
+        """
+        type_id = h5py.h5t.TypeID.copy(h5py.h5t.C_S1)
+        type_id.set_size(len(string) + 1)
+        type_id.set_strpad(h5py.h5t.STR_NULLTERM)
+        space = h5py.h5s.create(h5py.h5s.SCALAR)
+        grp = self.require_group(path)
+        aid = h5py.h5a.create(grp.id, key.encode('utf-8'), type_id, space)
+        aid.write(np.array(string.encode()))
+
+    def get_attr_byte_string(self, path, key):
+        """Return string stored as byte string.
+
+        Parameters
+        ----------
+        path : str
+            Path.
+        key : str
+            Name of the attribute.
+
+        Returns
+        -------
+        str
+            String stored as byte string.
+
+        """
+        return self.get_attr(path, key).decode()
 
     def close(self):
         r"""Close the checkpoint file."""

@@ -33,7 +33,7 @@ Key Dates
 
 * Early registration deadline: 20 April 2018
 * Registration deadline: 25 May 2018
-* `Abstract <https://easychair.org/conferences/?conf=firedrake18>`_ deadline: 20 April 2018
+* Abstract deadline: 20 April 2018
 * Workshop: 7-8 June 2018
 
 
@@ -46,15 +46,15 @@ Abstract submission is now closed.  The workshop programme is
 Workshop dinner
 ~~~~~~~~~~~~~~~
 
-There will be a workshop dinner in the evening of 7 June at `The
-Candlemaker <https://www.candlemaker.pub/>`_ in Battersea (easily
+There will be a workshop dinner in the evening of 7 June at The
+Candlemaker in Battersea (easily
 accessible from Imperial by bike, or public transport).
 
 Location
 ~~~~~~~~
 
 The workshop will be held in the `Centre for Doctoral Training in
-Mathematics of Planet Earth <http://mpecdt.org>`_ on Imperial College London's South
+Mathematics of Planet Earth <https://mpecdt.ac.uk>`__ on Imperial College London's South
 Kensington Campus.
 
 Registration
@@ -95,7 +95,7 @@ Co-location with PETSc '18 users meeting
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This year, Imperial College is also hosting the `PETSc users
-<https://www.mcs.anl.gov/petsc/meetings/2018/>`_ meeting, which will
+<https://petsc.gitlab.io/annual-meetings/2018/index.html>`_ meeting, which will
 be held in the first half of the week: 4-6 June 2018.  if you are
 interested in more general aspects of high-performance computational
 science, and the intricacies of composable solvers, we would encourage

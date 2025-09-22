@@ -1,6 +1,6 @@
 from collections import OrderedDict
 
-from ufl.algorithms.multifunction import MultiFunction
+from ufl.corealg.multifunction import MultiFunction
 
 from gem import (Literal, Sum, Product, Indexed, ComponentTensor, IndexSum,
                  Solve, Inverse, Variable, view, Delta, Index, Division)
@@ -195,7 +195,8 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
     """ Merges tsfc loopy kernels and slate loopy kernel into a wrapper kernel."""
     from firedrake.slate.slac.kernel_builder import SlateWrapperBag
     coeffs = builder.collect_coefficients()
-    builder.bag = SlateWrapperBag(coeffs)
+    constants = builder.collect_constants()
+    builder.bag = SlateWrapperBag(coeffs, constants)
 
     # In the initialisation the loopy tensors for the terminals are generated
     # Those are the needed again for generating the TSFC calls
@@ -224,6 +225,13 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
     # Add profiling for the whole kernel
     insns, slate_wrapper_event, preamble = profile_insns(name, insns, PETSc.Log.isActive())
 
+    # Add a no-op touching all kernel arguments to make sure they are not
+    # silently dropped
+    noop = lp.CInstruction(
+        (), "", read_variables=frozenset({a.name for a in loopy_args}),
+        within_inames=frozenset(), within_inames_is_final=True)
+    insns.append(noop)
+
     # Inames come from initialisations + loopyfying kernel args and lhs
     domains = builder.bag.index_creator.domains
 
@@ -239,13 +247,17 @@ def merge_loopy(slate_loopy, output_arg, builder, var2terminal, name):
 
     for tsfc_loopy in tsfc_kernels:
         slate_wrapper = merge([slate_wrapper, tsfc_loopy])
-        names = tsfc_loopy.callables_table
-        for name in names:
+    slate_wrapper = merge([slate_wrapper, slate_loopy])
+
+    # At this point the individual subkernels are no longer callable, we
+    # only want to access the generated code via the wrapper.
+    slate_wrapper = slate_wrapper.with_entrypoints({name})
+
+    for tsfc_loopy in tsfc_kernels:
+        for name in tsfc_loopy.callables_table:
             if isinstance(slate_wrapper.callables_table[name], CallableKernel):
                 slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
-    slate_wrapper = merge([slate_wrapper, slate_loopy])
-    names = slate_loopy.callables_table
-    for name in names:
+    for name in slate_loopy.callables_table:
         if isinstance(slate_wrapper.callables_table[name], CallableKernel):
             slate_wrapper = _match_caller_callee_argument_dimension_(slate_wrapper, name)
 

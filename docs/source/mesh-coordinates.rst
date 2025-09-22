@@ -36,6 +36,8 @@ This can also be used if `f` is a solution to a PDE.
    This will be fixed in a future Firedrake update.
 
 
+.. _changing_coordinate_fs:
+
 Changing the coordinate function space
 --------------------------------------
 
@@ -80,6 +82,30 @@ Or simply:
 .. code-block:: python3
 
    new_mesh = Mesh(Function(f))
+
+Immersing a mesh in higher dimensional space
+--------------------------------------------
+
+A useful special case of creating a mesh on modified coordinates is to immerse
+a lower dimensional mesh in a higher dimension, for example to create a mesh of
+a two-dimensional manifold immersed in 3D.
+
+This is accomplished by setting the value dimension of the new
+:py:func:`~.VectorFunctionSpace` to that of the space in which it should be
+immersed. For example, a mesh of square bent into a sine wave using
+linear (flat) elements can be created with:
+
+.. literalinclude:: ../../tests/firedrake/regression/test_mesh_generation.py
+   :language: python3
+   :dedent:
+   :start-after: start_immerse
+   :end-before: end_immerse
+
+
+.. figure:: images/sin_mesh.png
+  :align: center
+
+  A sine-wave shaped triangle mesh immersed in three-dimensional space.
 
 
 Replacing the mesh geometry of an existing function

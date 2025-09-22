@@ -4,27 +4,22 @@ Oceanic Basin Modes: Quasi-Geostrophic approach
 .. rst-class:: emphasis
 
    This tutorial was contributed by Christine Kaufhold and `Francis
-   Poulin <mailto:fpoulin@uwaterloo.ca>`__.
+   Poulin <mailto:fpoulin@uwaterloo.ca>`__. The tutorial was later updated by
+   Emma Rothwell to add in the restrict flag in the LinearEigenproblem.
 
-As a continuation of the Quasi-Geostrophic (QG) model described in the
-other tutorial, we will now see how we can use Firedrake to compute
-the spatial structure and frequencies of the freely evolving modes in this system,
-what are referred to as basin modes.
-Oceanic basin modes are low frequency structures that propagate
-zonally in the oceans that alter the dynamics of Western Boundary Currents,
-such as the Gulf Stream. In this particular tutorial we will show how to
-solve the QG eigenvalue problem with no basic state and no dissipative
-forces.
-Unlike the other demo that integrated the equations forward in time, in this
-problem it is necessary to compute the eigenvalues and eigenfunctions
-for a particular differential operator. This requires using
-`PETSc <http://www.mcs.anl.gov/petsc/>`__ matrices
-and eigenvalue solvers in `SLEPc <http://slepc.upv.es>`__.
+As a continuation of the Quasi-Geostrophic (QG) model described in the other
+tutorial, we will now see how we can use Firedrake to compute the spatial
+structure and frequencies of the freely evolving modes in this system, what are
+referred to as basin modes. Oceanic basin modes are low frequency structures
+that propagate zonally in the oceans that alter the dynamics of Western
+Boundary Currents, such as the Gulf Stream. In this particular tutorial we will
+show how to solve the QG eigenvalue problem with no basic state and no
+dissipative forces. Unlike the other demo that integrated the equations forward
+in time, in this problem it is necessary to compute the eigenvalues and
+eigenfunctions for a particular differential operator.
 
-This demo requires SLEPc and slepc4py to be installed.  This is most easily
-achieved by providing the optional `--slepc` flag to either `firedrake-install`
-(for a new installation), or `firedrake-update` (to add SLEPc to an existing
-installation).
+This demo requires SLEPc and slepc4py to be installed. For instructions on how
+to install them please follow `these instructions <https://www.firedrakeproject.org/install#slepc>`_.
 
 
 Governing PDE
@@ -105,133 +100,100 @@ Firedrake code
 --------------
 
 Using this form, we can now implement this eigenvalue problem in
-Firedrake. We import the Firedrake, PETSc, and SLEPc libraries. ::
+Firedrake. We start by importing Firedrake. ::
 
-   from firedrake import *
-   from firedrake.petsc import PETSc
-   try:
-       from slepc4py import SLEPc
-   except ImportError:
-       import sys
-       warning("Unable to import SLEPc, eigenvalue computation not possible (try firedrake-update --slepc)")
-       sys.exit(0)
-
+  from firedrake import *
+  from firedrake.pyplot import tripcolor
 
 We specify the geometry to be a square geometry with :math:`50` cells
 with length :math:`1`. ::
 
-   Lx   = 1.
-   Ly   = 1.
-   n0   = 50
-   mesh = RectangleMesh(n0, n0, Lx, Ly, reorder=None)
+  Lx   = 1.
+  Ly   = 1.
+  n0   = 50
+  mesh = RectangleMesh(n0, n0, Lx, Ly, reorder=None)
 
 Next we define the function spaces within which our solution will
 reside. ::
 
-   Vcg  = FunctionSpace(mesh,'CG',3)
+  Vcg  = FunctionSpace(mesh,'CG',3)
 
 We impose zero Dirichlet boundary conditions, in a strong sense, which
 guarantee that we have no-normal flow at the boundary walls. ::
 
-   bc = DirichletBC(Vcg, 0.0, "on_boundary")
+  bc = DirichletBC(Vcg, 0.0, "on_boundary")
 
 The two non-dimensional parameters are the :math:`\beta` parameter, set
 by the sphericity of the Earth, and the Froude number, the relative
 importance of rotation to stratification. ::
 
-   beta = Constant('1.0')
-   F    = Constant('1.0')
-
-Additionally, we can create some Functions to store the eigenmodes. ::
-
-   eigenmodes_real, eigenmodes_imag = Function(Vcg), Function(Vcg)
+  beta = Constant('1.0')
+  F    = Constant('1.0')
 
 We define the Test Function :math:`\phi` and the Trial Function
 :math:`\psi` in our function space. ::
 
-   phi, psi = TestFunction(Vcg), TrialFunction(Vcg)
+  phi, psi = TestFunction(Vcg), TrialFunction(Vcg)
 
 To build the weak formulation of our equation we need to build two PETSc
 matrices in the form of a generalized eigenvalue problem,
-:math:`A\psi = \lambda M\psi`. We impose the boundary conditions on the
-mass matrix :math:`M`, since that is where we used integration by parts. ::
+:math:`A\psi = \lambda M\psi`. This eigenproblem takes `restrict=True` to help
+users to avoid convergence failures by removing eigenvalues on the
+boundary, while preserving the original function space for the eigenmodes. ::
 
-   a =  beta*phi*psi.dx(0)*dx
-   m = -inner(grad(psi), grad(phi))*dx - F*psi*phi*dx
-   petsc_a = assemble(a).M.handle
-   petsc_m = assemble(m, bcs=bc).M.handle
+  eigenproblem = LinearEigenproblem(
+          A=beta*phi*psi.dx(0)*dx,
+          M=-inner(grad(psi), grad(phi))*dx - F*psi*phi*dx,
+          bcs=bc, restrict=True)
 
-We can declare how many eigenpairs, eigenfunctions and eigenvalues, we
-want to find ::
+Next we program our eigenvalue solver through the PETSc options system. The
+first is specifying that we have an generalized eigenvalue problem that is
+nonhermitian. Then, we ask for the eigenvalues with the largest imaginary
+part. Finally we set the spectral transform to shift with no target::
 
-   num_eigenvalues = 1
+  opts = {"eps_gen_non_hermitian": None,
+          "eps_largest_imaginary": None,
+          "st_type": "shift",
+          "eps_target": None,
+          "st_pc_factor_shift_type": "NONZERO"}
 
-Next we will impose parameters onto our eigenvalue solver. The first is
-specifying that we have an generalized eigenvalue problem that is
-nonhermitian. The second specifies the spectral transform shift factor
-to be non-zero. The third requires we use a Krylov-Schur method,
-which is the default so this is not strictly necessary. Then, we ask for
-the eigenvalues with the largest imaginary part. Finally, we specify the
-tolerance. ::
+Finally, we build our eigenvalue solver, specifying in this case that we just
+want to see the first eigenvalue, eigenvector pair::
 
-   opts = PETSc.Options()
-   opts.setValue("eps_gen_non_hermitian", None)
-   opts.setValue("st_pc_factor_shift_type", "NONZERO")
-   opts.setValue("eps_type", "krylovschur")
-   opts.setValue("eps_largest_imaginary", None)
-   opts.setValue("eps_tol", 1e-10)
+  eigensolver = LinearEigensolver(eigenproblem, n_evals=1,
+                                  solver_parameters=opts)
 
-Finally, we build our eigenvalue solver using SLEPc. We add our PETSc
-matrices into the solver as operators and use setFromOptions() to call
-the PETSc parameters we previously declared. ::
+Now solve the system. This returns the number of converged eigenvalues. ::
 
-   es = SLEPc.EPS().create(comm=COMM_WORLD)
-   es.setDimensions(num_eigenvalues)
-   es.setOperators(petsc_a, petsc_m)
-   es.setFromOptions()
-   es.solve()
-
-Additionally we can find the number of converged eigenvalues. ::
-
-   nconv = es.getConverged()
+  nconv = eigensolver.solve()
 
 We now get the real and imaginary parts of the eigenvalue and
 eigenvector for the leading eigenpair (that with the largest in
-magnitude imaginary part).  First we check if we actually managed to
-converge any eigenvalues at all. ::
+magnitude imaginary part). ::
 
-   if nconv == 0:
-       import sys
-       warning("Did not converge any eigenvalues")
-       sys.exit(0)
+  lam = eigensolver.eigenvalue(0)
 
-If we did, we go ahead and extract them from the SLEPc eigenvalue
-solver::
+and we gather the corresponding eigenfunctions ::
 
-   vr, vi = petsc_a.getVecs()
-
-   lam = es.getEigenpair(0, vr, vi)
-
-and we gather the final eigenfunctions ::
-
-   eigenmodes_real.vector()[:], eigenmodes_imag.vector()[:] = vr, vi
+  eigenmode_real, eigenmode_imag = eigensolver.eigenfunction(0)
 
 We can now list and show plots for the eigenvalues and eigenfunctions
 that were found. ::
 
-   print("Leading eigenvalue is:", lam)
+  print("Leading eigenvalue is:", lam)
 
-   try:
-       import matplotlib.pyplot as plt
-       fig, axes = plt.subplots()
-       colors = tripcolor(eigenmodes_real, axes=axes)
-       fig.colorbar(colors)
+  try:
+      import matplotlib.pyplot as plt
+      fig, axes = plt.subplots()
+      colors = tripcolor(eigenmode_real, axes=axes)
+      fig.colorbar(colors)
 
-       fig, axes = plt.subplots()
-       colors = tripcolor(eigenmodes_imag, axes=axes)
-       fig.colorbar(colors)
-   except ImportError:
-       warning("Matplotlib not available, not plotting eigemodes")
+      fig, axes = plt.subplots()
+      colors = tripcolor(eigenmode_imag, axes=axes)
+      fig.colorbar(colors)
+      plt.show()
+  except ImportError:
+      warning("Matplotlib not available, not plotting eigemodes")
 
 Below is a plot of the spatial structure of the real part of one of the eigenmodes computed above.
 

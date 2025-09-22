@@ -1,7 +1,8 @@
 # Code for projections and other fun stuff involving supermeshes.
 import firedrake
 import ctypes
-import sys
+import pathlib
+import libsupermesh
 from firedrake.cython.supermeshimpl import assemble_mixed_mass_matrix as ammm, intersection_finder
 from firedrake.mg.utils import get_level
 from firedrake.petsc import PETSc
@@ -118,9 +119,9 @@ each supermesh cell.
     assert V_A.value_size == V_B.value_size
     orig_value_size = V_A.value_size
     if V_A.value_size > 1:
-        V_A = firedrake.FunctionSpace(mesh_A, V_A.ufl_element().sub_elements()[0])
+        V_A = firedrake.FunctionSpace(mesh_A, V_A.ufl_element().sub_elements[0])
     if V_B.value_size > 1:
-        V_B = firedrake.FunctionSpace(mesh_B, V_B.ufl_element().sub_elements()[0])
+        V_B = firedrake.FunctionSpace(mesh_B, V_B.ufl_element().sub_elements[0])
 
     assert V_A.value_size == 1
     assert V_B.value_size == 1
@@ -192,7 +193,7 @@ each supermesh cell.
     V_S_A = FunctionSpace(reference_mesh, V_A.ufl_element())
     V_S_B = FunctionSpace(reference_mesh, V_B.ufl_element())
     M_SS = assemble(inner(TrialFunction(V_S_A), TestFunction(V_S_B)) * dx)
-    M_SS = M_SS.M.handle[:, :]
+    M_SS = M_SS.petscmat[:, :]
     node_locations_A = utils.physical_node_locations(V_S_A).dat.data_ro_with_halos
     node_locations_B = utils.physical_node_locations(V_S_B).dat.data_ro_with_halos
     num_nodes_A = node_locations_A.shape[0]
@@ -210,10 +211,11 @@ each supermesh cell.
 #define complex_mode %(complex_mode)s
 
     #define PrintInfo(...) do { if (PetscLogPrintInfo) printf(__VA_ARGS__); } while (0)
+    #define FPrintInfo(...) do { if (PetscLogPrintInfo) fprintf(stderr, __VA_ARGS__); } while (0)
     static void print_array(PetscScalar *arr, int d)
     {
         for(int j=0; j<d; j++)
-            PrintInfo(stderr, "%%+.2f ", arr[j]);
+            FPrintInfo("%%+.2f ", arr[j]);
     }
     static void print_coordinates(PetscScalar *simplex, int d)
     {
@@ -427,15 +429,20 @@ each supermesh cell.
         "complex_mode": 1 if complex_mode else 0
     }
 
-    dirs = get_petsc_dir() + (sys.prefix, )
+    libsupermesh_dir = pathlib.Path(libsupermesh.get_include()).parent.absolute()
+    dirs = get_petsc_dir() + (libsupermesh_dir,)
     includes = ["-I%s/include" % d for d in dirs]
     libs = ["-L%s/lib" % d for d in dirs]
     libs = libs + ["-Wl,-rpath,%s/lib" % d for d in dirs] + ["-lpetsc", "-lsupermesh"]
-    lib = load(supermesh_kernel_str, "c", "supermesh_kernel",
-               cppargs=includes,
-               ldargs=libs,
-               argtypes=[ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp],
-               restype=ctypes.c_int)
+    dll = load(
+        supermesh_kernel_str, "c",
+        cppargs=includes,
+        ldargs=libs,
+        comm=mesh_A._comm
+    )
+    lib = getattr(dll, "supermesh_kernel")
+    lib.argtypes = [ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp]
+    lib.restype = ctypes.c_int
 
     ammm(V_A, V_B, likely, node_locations_A, node_locations_B, M_SS, ctypes.addressof(lib), mat)
     if orig_value_size == 1:

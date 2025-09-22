@@ -8,7 +8,7 @@ compiler with appropriate kernel functions (in C) for evaluating integral
 expressions (finite element variational forms written in UFL).
 """
 import time
-from hashlib import md5
+from typing import Hashable
 
 from firedrake_citations import Citations
 from firedrake.tsfc_interface import SplitKernel, KernelInfo, TSFCKernel
@@ -20,7 +20,6 @@ from firedrake.slate.slac.optimise import optimise
 from firedrake import tsfc_interface
 from firedrake.logging import logger
 from firedrake.parameters import parameters
-from firedrake.petsc import get_petsc_variables
 from firedrake.utils import complex_mode
 from gem import impero_utils
 from itertools import chain
@@ -28,11 +27,13 @@ from itertools import chain
 from pyop2.utils import get_petsc_dir
 from pyop2.mpi import COMM_WORLD
 from pyop2.codegen.rep2loopy import SolveCallable, INVCallable
+from pyop2.caching import memory_and_disk_cache
 
 import firedrake.slate.slate as slate
 import numpy as np
 import loopy
 import gem
+import petsctools
 from gem import indices as make_indices
 from tsfc.kernel_args import OutputKernelArg, CoefficientKernelArg
 from tsfc.loopy import generate as generate_loopy
@@ -54,7 +55,7 @@ except ValueError:
 BLASLAPACK_LIB = None
 BLASLAPACK_INCLUDE = None
 if COMM_WORLD.rank == 0:
-    petsc_variables = get_petsc_variables()
+    petsc_variables = petsctools.get_petscvariables()
     BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
     BLASLAPACK_LIB = COMM_WORLD.bcast(BLASLAPACK_LIB, root=0)
     BLASLAPACK_INCLUDE = petsc_variables.get("BLASLAPACK_INCLUDE", "")
@@ -67,18 +68,33 @@ cell_to_facets_dtype = np.dtype(np.int8)
 
 
 class SlateKernel(TSFCKernel):
-    @classmethod
-    def _cache_key(cls, expr, compiler_parameters):
-        return md5(
-            (expr.expression_hash + str(sorted(compiler_parameters.items()))).encode()).hexdigest(), expr.ufl_domains()[0].comm
-
     def __init__(self, expr, compiler_parameters):
-        if self._initialized:
-            return
         self.split_kernel = generate_loopy_kernel(expr, compiler_parameters)
-        self._initialized = True
 
 
+def _compile_expression_hashkey(slate_expr, compiler_parameters=None) -> tuple[Hashable, ...]:
+    params = copy.deepcopy(parameters)
+    if compiler_parameters and "slate_compiler" in compiler_parameters.keys():
+        params["slate_compiler"].update(compiler_parameters.pop("slate_compiler"))
+    if compiler_parameters:
+        params["form_compiler"].update(compiler_parameters)
+    # The getattr here is to defer validation to the `compile_expression` call
+    # as the test suite checks the correct exceptions are raised on invalid input.
+    return (getattr(slate_expr, "expression_hash", "ERROR") + str(sorted(params.items())))
+
+
+def _compile_expression_comm(*args, **kwargs):
+    # args[0] is a slate_expr
+    domain, = args[0].ufl_domains()
+    return domain.comm
+
+
+@memory_and_disk_cache(
+    hashkey=_compile_expression_hashkey,
+    get_comm=_compile_expression_comm,
+    cachedir=tsfc_interface._cachedir
+)
+@PETSc.Log.EventDecorator()
 def compile_expression(slate_expr, compiler_parameters=None):
     """Takes a Slate expression `slate_expr` and returns the appropriate
     ``pyop2.op2.Kernel`` object representing the Slate expression.
@@ -102,15 +118,8 @@ def compile_expression(slate_expr, compiler_parameters=None):
     if compiler_parameters:
         params["form_compiler"].update(compiler_parameters)
 
-    # If the expression has already been symbolically compiled, then
-    # simply reuse the produced kernel.
-    cache = slate_expr._metakernel_cache
-    key = str(sorted(params.items()))
-    try:
-        return cache[key]
-    except KeyError:
-        kernel = SlateKernel(slate_expr, params).split_kernel
-        return cache.setdefault(key, kernel)
+    kernel = SlateKernel(slate_expr, params).split_kernel
+    return kernel
 
 
 def get_temp_info(loopy_kernel):
@@ -169,17 +178,26 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     orig_coeffs = orig_expr.coefficients()
     new_coeffs = slate_expr.coefficients()
     map_new_to_orig = [orig_coeffs.index(c) for c in new_coeffs]
-    coeff_map = tuple((map_new_to_orig[n], split_map) for (n, split_map) in slate_expr.coeff_map)
+    coefficient_numbers = tuple((map_new_to_orig[n], split_map) for (n, split_map) in slate_expr.coeff_map)
     coefficients = list(filter(lambda elm: isinstance(elm, CoefficientKernelArg), arguments))
-    assert len(list(chain(*(map[1] for map in coeff_map)))) == len(coefficients), "KernelInfo must be generated with a coefficient map that maps EXACTLY all cofficients there are in its arguments attribute."
-    assert len(loopy_merged.callables_table[name].subkernel.args) - int(builder.bag.needs_mesh_layers) == len(arguments), "Outer loopy kernel must have the same amount of args as there are in arguments"
+
+    # do the same for constants
+    orig_constants = orig_expr.constants()
+    new_constants = slate_expr.constants()
+    constant_numbers = tuple(orig_constants.index(c) for c in new_constants)
+
+    assert len(list(chain(*(map[1] for map in coefficient_numbers)))) == len(coefficients), \
+        "KernelInfo must be generated with a coefficient map that maps EXACTLY all coefficients that are in its arguments attribute."
+    assert len(loopy_merged.callables_table[name].subkernel.args) - int(builder.bag.needs_mesh_layers) == len(arguments), \
+        "Outer loopy kernel must have the same amount of args as there are in arguments"
 
     kinfo = KernelInfo(kernel=loopykernel,
                        integral_type="cell",  # slate can only do things as contributions to the cell integrals
                        oriented=builder.bag.needs_cell_orientations,
-                       subdomain_id="otherwise",
+                       subdomain_id=("otherwise",),
                        domain_number=0,
-                       coefficient_map=coeff_map,
+                       coefficient_numbers=coefficient_numbers,
+                       constant_numbers=constant_numbers,
                        needs_cell_facets=builder.bag.needs_cell_facets,
                        pass_layer_arg=builder.bag.needs_mesh_layers,
                        needs_cell_sizes=builder.bag.needs_cell_sizes,
@@ -222,4 +240,4 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type):
 
     # Part B: impero_c to loopy
     output_arg = OutputKernelArg(output_loopy_arg)
-    return generate_loopy(impero_c, args, scalar_type, "slate_loopy", [], log=PETSc.Log.isActive()), output_arg
+    return generate_loopy(impero_c, args, scalar_type, "slate_loopy", []), output_arg

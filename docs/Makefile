@@ -3,7 +3,7 @@
 
 # You can set these variables from the command line.
 SPHINXOPTS    =
-SPHINXBUILD   = sphinx-build
+SPHINXBUILD   = FIREDRAKE_BUILDING_DOCS=1 sphinx-build
 PAPER         =
 BUILDDIR      = build
 
@@ -16,7 +16,7 @@ I18NSPHINXOPTS  = $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) source
 
 .PHONY: help clean html dirhtml singlehtml pickle json htmlhelp qthelp \
 devhelp epub latex latexpdf text man changes linkcheck doctest gettext \
-publish publishpdf serve scp
+publish publishpdf serve reset_notebooks
 
 help:
 	@echo "Please use \`make <target>' where <target> is one of"
@@ -43,20 +43,15 @@ help:
 
 TARGETS = html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex latexpdf text man changes linkcheck doctest gettext
 
-GENERATED_FILES = source/team.rst source/demos source/element_list.csv source/firedrake_citations.rst
+GENERATED_FILES = source/team.rst source/demos source/element_list.csv source/firedrake_citations.rst source/apt_deps.txt source/homebrew_deps.txt source/minimal_apt_deps.txt source/petsc_configure_options.txt
 
 publishpdf:
 	env FIREDRAKE_MANUAL_RELEASE=`date +%Y-%m` $(MAKE) latexpdf
 
-publish: html
-# The raw IP address is used to circumvent some dns fiddling which
-# Imperial's ICT department are doing.
-	rsync --rsh=ssh -rv -r build/html/* 'cm3f3ymc8wnd@92.204.68.56:public_html/'
-
-scp:
-# The raw IP address is used to circumvent some dns fiddling which
-# Imperial's ICT department are doing.
-	rsync --rsh=ssh -rv build/html/* 'cm3f3ymc8wnd@92.204.68.56:public_html/'
+validate-bibtex:
+	../firedrake/scripts/firedrake_preprocess_bibtex.py --validate source/_static/bibliography.bib
+	../firedrake/scripts/firedrake_preprocess_bibtex.py --validate source/_static/firedrake-apps.bib
+	../firedrake/scripts/firedrake_preprocess_bibtex.py --validate source/_static/references.bib
 
 livehtml:
 	sphinx-autobuild -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
@@ -70,8 +65,18 @@ source/demos: copy_demos
 
 copy_demos:
 	install -d source/demos
-	cp ../demos/*/*.rst ../demos/demo_references.bib ../demos/*/*.geo ../demos/*/*.msh ../demos/*/*.png source/demos
-	for file in source/demos/*.py.rst; do ../pylit/pylit.py $$file; done
+	cp ../demos/*/*.rst ../demos/demo_references.bib ../demos/*/*.geo ../demos/*/*.msh ../demos/*/*.png ../demos/*/*.svg source/demos
+	for file in source/demos/*.py.rst; do pylit $$file; done
+
+reset_notebooks:
+	jupyter-nbconvert --clear-output ./notebooks/*.ipynb
+	env OMP_NUM_THREADS=1 jupyter-nbconvert \
+		--execute \
+		--ClearMetadataPreprocessor.enabled=True \
+		--allow-errors \
+		--to notebook \
+		--inplace \
+		./notebooks/*.ipynb
 
 source/element_list.csv: source/element_list.py
 	cd source; python element_list.py
@@ -81,8 +86,33 @@ source/team.rst: source/team2.py
 
 source/firedrake_citations.rst:
 	sphinx-apidoc -f -T -o source/ ../firedrake_citations
-	echo -e ":orphan:\n\n" | cat - source/firedrake_citations.rst > source/firedrake_citations.tmp
+	echo ":orphan:\n\n" | cat - source/firedrake_citations.rst > source/firedrake_citations.tmp
 	mv source/firedrake_citations.tmp source/firedrake_citations.rst
+
+source/apt_deps.txt:
+	python ../scripts/firedrake-configure \
+		--package-manager apt-x86_64 \
+		--show-system-packages > source/apt_deps.tmp
+	mv source/apt_deps.tmp source/apt_deps.txt
+
+source/homebrew_deps.txt:
+	python ../scripts/firedrake-configure \
+		--package-manager brew-arm64 \
+		--show-system-packages > source/homebrew_deps.tmp
+	mv source/homebrew_deps.tmp source/homebrew_deps.txt
+
+source/minimal_apt_deps.txt:
+	python ../scripts/firedrake-configure \
+		--package-manager apt-x86_64 \
+		--show-minimal-system-packages > source/minimal_apt_deps.tmp
+	mv source/minimal_apt_deps.tmp source/minimal_apt_deps.txt
+
+
+source/petsc_configure_options.txt:
+	python ../scripts/firedrake-configure \
+		--no-package-manager \
+		--show-petsc-configure-options > source/petsc_configure_options.tmp
+	mv source/petsc_configure_options.tmp source/petsc_configure_options.txt
 
 apidoc: $(GENERATED_FILES) copy_demos
 	sphinx-apidoc -f -T -o source/ ../firedrake ../firedrake/cython/*.so

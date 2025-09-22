@@ -11,7 +11,7 @@ class _NullProgressBar:
     def __enter__(self):
         pass
 
-    def __exit__(self):
+    def __exit__(self, *args, **kwargs):
         pass
 
     def iter(self, iterator):
@@ -39,7 +39,7 @@ class ProgressBar(FillingSquaresBar):
     -----
 
     Further parameters can be passed as per the `progress package documentation
-    <https://github.com/verigak/progress#readme>`_, or you can customise
+    <https://github.com/verigak/progress>`_, or you can customise
     further by subclassing.
 
     Examples

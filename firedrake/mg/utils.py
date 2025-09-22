@@ -3,7 +3,7 @@ from fractions import Fraction
 from pyop2 import op2
 from firedrake.utils import IntType
 from firedrake.functionspacedata import entity_dofs_key
-import ufl
+import finat.ufl
 import firedrake
 from firedrake.cython import mgimpl as impl
 
@@ -11,11 +11,11 @@ from firedrake.cython import mgimpl as impl
 def fine_node_to_coarse_node_map(Vf, Vc):
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
-        return op2.MixedMap(fine_node_to_coarse_node_map(f, c) for f, c in zip(Vf, Vc))
+        return op2.MixedMap(map(fine_node_to_coarse_node_map, Vf, Vc))
     mesh = Vf.mesh()
     assert hasattr(mesh, "_shared_data_cache")
-    hierarchyf, levelf = get_level(Vf.ufl_domain())
-    hierarchyc, levelc = get_level(Vc.ufl_domain())
+    hierarchyf, levelf = get_level(Vf.mesh())
+    hierarchyc, levelc = get_level(Vc.mesh())
 
     if hierarchyc != hierarchyf:
         raise ValueError("Can't map across hierarchies")
@@ -25,10 +25,7 @@ def fine_node_to_coarse_node_map(Vf, Vc):
     if levelc + increment != levelf:
         raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
 
-    key = (entity_dofs_key(Vc.finat_element.entity_dofs())
-           + entity_dofs_key(Vf.finat_element.entity_dofs())
-           + (levelc, levelf))
-
+    key = _cache_key(Vc, Vf)
     cache = mesh._shared_data_cache["hierarchy_fine_node_to_coarse_node_map"]
     try:
         return cache[key]
@@ -49,11 +46,11 @@ def fine_node_to_coarse_node_map(Vf, Vc):
 def coarse_node_to_fine_node_map(Vc, Vf):
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
-        return op2.MixedMap(coarse_node_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
+        return op2.MixedMap(map(coarse_node_to_fine_node_map, Vf, Vc))
     mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
-    hierarchyf, levelf = get_level(Vf.ufl_domain())
-    hierarchyc, levelc = get_level(Vc.ufl_domain())
+    hierarchyf, levelf = get_level(Vf.mesh())
+    hierarchyc, levelc = get_level(Vc.mesh())
 
     if hierarchyc != hierarchyf:
         raise ValueError("Can't map across hierarchies")
@@ -63,10 +60,7 @@ def coarse_node_to_fine_node_map(Vc, Vf):
     if levelc + increment != levelf:
         raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
 
-    key = (entity_dofs_key(Vc.finat_element.entity_dofs())
-           + entity_dofs_key(Vf.finat_element.entity_dofs())
-           + (levelc, levelf))
-
+    key = _cache_key(Vc, Vf)
     cache = mesh._shared_data_cache["hierarchy_coarse_node_to_fine_node_map"]
     try:
         return cache[key]
@@ -90,8 +84,8 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         return op2.MixedMap(coarse_cell_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
     mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
-    hierarchyf, levelf = get_level(Vf.ufl_domain())
-    hierarchyc, levelc = get_level(Vc.ufl_domain())
+    hierarchyf, levelf = get_level(Vf.mesh())
+    hierarchyc, levelc = get_level(Vc.mesh())
 
     if hierarchyc != hierarchyf:
         raise ValueError("Can't map across hierarchies")
@@ -101,7 +95,7 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
     if levelc + increment != levelf:
         raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
 
-    key = (entity_dofs_key(Vf.finat_element.entity_dofs()) + (levelc, levelf))
+    key = _cache_key(Vc, Vf, needs_coarse_entity_dofs=False)
     cache = mesh._shared_data_cache["hierarchy_coarse_cell_to_fine_node_map"]
     try:
         return cache[key]
@@ -135,20 +129,21 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
 
 def physical_node_locations(V):
     element = V.ufl_element()
-    if element.value_shape():
-        assert isinstance(element, (ufl.VectorElement, ufl.TensorElement))
-        element = element.sub_elements()[0]
+    if V.value_shape:
+        assert isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement))
+        element = element.sub_elements[0]
     mesh = V.mesh()
     # This is a defaultdict, so the first time we access the key we
     # get a fresh dict for the cache.
     cache = mesh._geometric_shared_data_cache["hierarchy_physical_node_locations"]
-    key = element
+    key = (element, V.boundary_set)
     try:
         return cache[key]
     except KeyError:
-        Vc = firedrake.FunctionSpace(mesh, ufl.VectorElement(element))
+        Vc = V.collapse().reconstruct(element=finat.ufl.VectorElement(element, dim=mesh.geometric_dimension()))
+
         # FIXME: This is unsafe for DG coordinates and CG target spaces.
-        locations = firedrake.interpolate(firedrake.SpatialCoordinate(mesh), Vc)
+        locations = firedrake.assemble(firedrake.Interpolate(firedrake.SpatialCoordinate(mesh), Vc))
         return cache.setdefault(key, locations)
 
 
@@ -171,3 +166,18 @@ def get_level(obj):
 def has_level(obj):
     """Does the provided object have level info?"""
     return hasattr(obj.topological, "__level_info__")
+
+
+def _cache_key(Vc, Vf, needs_coarse_entity_dofs=True):
+    """Construct a cache key for node maps"""
+    _, levelf = get_level(Vf.mesh())
+    _, levelc = get_level(Vc.mesh())
+
+    if needs_coarse_entity_dofs:
+        key = entity_dofs_key(Vc.finat_element.entity_dofs())
+    else:
+        key = ()
+    key += entity_dofs_key(Vf.finat_element.entity_dofs())
+    key += (levelc, levelf)
+    key += (Vc.boundary_set, Vf.boundary_set)
+    return key

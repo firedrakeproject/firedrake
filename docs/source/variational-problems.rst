@@ -77,6 +77,7 @@ of standard shapes.  1-dimensional intervals may be constructed with
 example to build unit square meshes).  See
 :mod:`~firedrake.utility_meshes` for full details.
 
+.. _immersed_manifolds:
 
 Immersed manifolds
 ~~~~~~~~~~~~~~~~~~
@@ -260,6 +261,9 @@ the horizontal and vertical spaces when building a function space on
 an extruded mesh.  We refer the reader to the :doc:`manual section on
 extrusion <extruded-meshes>` for details.
 
+
+.. _supported_elements:
+
 Supported finite elements
 -------------------------
 
@@ -277,14 +281,16 @@ operator can be used to create product elements on extruded meshes.
 Element variants
 ~~~~~~~~~~~~~~~~
 
-Some finite element spaces offer more than one choice of nodes. For Q,
-DQ, DQ L2, RTCE and RTCF spaces on intervals, quadrilaterals and
-hexahedra, Firedrake offers both equispaced points and better
-conditioned Legendre points. For discontinuous elements these are the
-Gauss-Legendre points, and for continuous elements these are the
-Gauss-Lobatto-Legendre points. These are selected by passing
-`variant="equispaced"` or `variant="spectral"` to the
-:py:class:`~ufl.classes.FiniteElement` constructor. For example:
+Some finite element spaces offer more than one choice of nodes.  For Q, DQ, DQ
+L2, RTCE, RTCF, NCE, and NCF spaces on intervals, quadrilaterals and hexahedra,
+Firedrake offers both equispaced points and better conditioned Legendre points.
+For discontinuous elements these are the Gauss-Legendre points, and for
+continuous elements these are the Gauss-Lobatto-Legendre points.
+For CG and DG spaces on simplices, Firedrake offers both equispaced points and
+the better conditioned recursive Legendre points from :cite:`Isaac2020` via the
+`recursivenodes`_ module. These are selected by passing `variant="equispaced"`
+or `variant="spectral"` to the :py:class:`~ufl.classes.FiniteElement` or
+:py:func:`~.FunctionSpace` constructors. For example:
 
 .. code-block:: python3
 
@@ -303,8 +309,48 @@ documentation <UFL_package_>`_ and the description of the language in
 for a more didactic introduction, we refer the reader to the
 :ref:`Firedrake tutorial examples <firedrake_tutorials>`.
 
-Building test and trial spaces
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+There are two ways to express a variational problem in UFL. A linear
+variational problem is defined in terms of a bilinear form
+:math:`a(u,v)` and a linear form :math:`L[v]`, seeking :math:`u\in V`
+such that :math:`a(u,v)=L[v]\,\forall v\in V` for some finite element
+space :math:`V`. The following section of the notes describes how such
+problems can be expressed in UFL and solved using Firedrake. We shall
+see that the solve is invoked by writing
+
+.. code-block:: python3
+
+   solve(a == L, s)
+
+but solver reuse can be achieved using :py:class:`~.LinearVariationalSolver`,
+which is usually the most efficient option for timestepping problems.
+   
+A nonlinear variational problem is defined in terms of a linear form
+:math:`F[u;v]` which is linear in the test function :math:`v` but may
+be nonlinear in the coefficient :math:`u`. The nonlinear variational
+problem seeks :math:`u\in V` such that :math:`F[u;v]=0\, \forall v\in
+V`. In UFL, the solution variable should be of type :py:class:`~.Function`
+instead of :py:class:`~firedrake.ufl_expr.TrialFunction`.
+
+.. code-block:: python3
+
+   solve(F == 0, s)
+
+but solver reuse can be achieved using
+:py:class:`~.NonlinearVariationalSolver`, which is usually the most
+efficient option for timestepping problems. The solution approach for
+this problems is some form of Newton's method. UFL automates the
+symbolic differentiation of :math:`F` to obtain the Jacobian expressed
+as a bilinear form, which is then solved. Note that nonlinear problems
+can be linear (Firedrake and UFL will make no effort to detect this),
+in which case Newton's method will converge in one iteration.
+
+For more details about nonlinear
+variational problems, see the `UFL manual
+<UFL_package_>`_ as well as the :ref:`Firedrake tutorials
+<firedrake_tutorials>`.
+
+Building test and trial spaces for linear variational problems
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Now that we have function spaces that our solution will live in, the
 next step is to actually write down the variational form of the
@@ -632,6 +678,8 @@ we can write:
        t += dt
        c.assign(t)
 
+.. _more_complicated_forms:
+
 More complicated forms
 ----------------------
 
@@ -655,3 +703,4 @@ problems.
 .. _UFL_package: http://fenics-ufl.readthedocs.io/en/latest/
 .. _FIAT: https://github.com/firedrakeproject/fiat
 .. _submanifold: https://en.wikipedia.org/wiki/Submanifold
+.. _recursivenodes: https://tisaac.gitlab.io/recursivenodes/

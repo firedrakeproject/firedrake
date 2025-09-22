@@ -4,26 +4,22 @@ transforms the TSFC-generated code to make it suitable for
 passing to the backends.
 
 """
-import pickle
-
-from hashlib import md5
 from os import path, environ, getuid, makedirs
-import gzip
-import os
-import zlib
 import tempfile
 import collections
 
 import ufl
-from ufl import Form, conj
+import finat.ufl
+from ufl import conj, Form, ZeroBaseForm
 from .ufl_expr import TestFunction
 
-from tsfc import compile_form as tsfc_compile_form
+from tsfc import compile_form as original_tsfc_compile_form
 from tsfc.parameters import PARAMETERS as tsfc_default_parameters
+from tsfc.ufl_utils import extract_firedrake_constants
 
 from pyop2 import op2
-from pyop2.caching import Cached
-from pyop2.mpi import COMM_WORLD, MPI
+from pyop2.caching import memory_and_disk_cache, default_parallel_hashkey
+from pyop2.mpi import COMM_WORLD
 
 from firedrake.formmanipulation import split_form
 from firedrake.parameters import parameters as default_parameters
@@ -41,7 +37,8 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "oriented",
                                      "subdomain_id",
                                      "domain_number",
-                                     "coefficient_map",
+                                     "coefficient_numbers",
+                                     "constant_numbers",
                                      "needs_cell_facets",
                                      "pass_layer_arg",
                                      "needs_cell_sizes",
@@ -49,92 +46,83 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "events"])
 
 
-class TSFCKernel(Cached):
+_cachedir = environ.get(
+    'FIREDRAKE_TSFC_KERNEL_CACHE_DIR',
+    path.join(tempfile.gettempdir(), f'firedrake-tsfc-kernel-cache-uid{getuid()}')
+)
 
-    _cache = {}
 
-    _cachedir = environ.get('FIREDRAKE_TSFC_KERNEL_CACHE_DIR',
-                            path.join(tempfile.gettempdir(),
-                                      'firedrake-tsfc-kernel-cache-uid%d' % getuid()))
+def tsfc_compile_form_hashkey(form, prefix, parameters, dont_split_numbers, diagonal):
+    return default_parallel_hashkey(
+        form.signature(),
+        prefix,
+        utils.tuplify(parameters),
+        dont_split_numbers,
+        diagonal,
+    )
 
-    @classmethod
-    def _cache_lookup(cls, key):
-        key, comm = key
-        # comm has to be part of the in memory key so that when
-        # compiling the same code on different subcommunicators we
-        # don't get deadlocks. But MPI_Comm objects are not hashable,
-        # so use comm.py2f() since this is an internal communicator and
-        # hence the C handle is stable.
-        commkey = comm.py2f()
-        assert commkey != MPI.COMM_NULL.py2f()
-        return cls._cache.get((key, commkey)) or cls._read_from_disk(key, comm)
 
-    @classmethod
-    def _read_from_disk(cls, key, comm):
-        if comm.rank == 0:
-            cache = cls._cachedir
-            shard, disk_key = key[:2], key[2:]
-            filepath = os.path.join(cache, shard, disk_key)
-            val = None
-            if os.path.exists(filepath):
-                try:
-                    with gzip.open(filepath, 'rb') as f:
-                        val = f.read()
-                except zlib.error:
-                    pass
+def _compile_form_comm(form, *args, **kwargs):
+    return form.ufl_domains()[0].comm
 
-            comm.bcast(val, root=0)
-        else:
-            val = comm.bcast(None, root=0)
 
-        if val is None:
-            raise KeyError(f"Object with key {key} not found")
-        return cls._cache.setdefault((key, comm.py2f()), pickle.loads(val))
+# Decorate the original tsfc.compile_form with a cache
+tsfc_compile_form = memory_and_disk_cache(
+    hashkey=tsfc_compile_form_hashkey,
+    get_comm=_compile_form_comm,
+    cachedir=_cachedir
+)(original_tsfc_compile_form)
 
-    @classmethod
-    def _cache_store(cls, key, val):
-        key, comm = key
-        cls._cache[(key, comm.py2f())] = val
-        _ensure_cachedir(comm=comm)
-        if comm.rank == 0:
-            val._key = key
-            shard, disk_key = key[:2], key[2:]
-            filepath = os.path.join(cls._cachedir, shard, disk_key)
-            tempfile = os.path.join(cls._cachedir, shard, "%s_p%d.tmp" % (disk_key, os.getpid()))
-            # No need for a barrier after this, since non root
-            # processes will never race on this file.
-            os.makedirs(os.path.join(cls._cachedir, shard), exist_ok=True)
-            with gzip.open(tempfile, 'wb') as f:
-                pickle.dump(val, f, 0)
-            os.rename(tempfile, filepath)
-        comm.barrier()
 
-    @classmethod
-    def _cache_key(cls, form, name, parameters, number_map, interface, diagonal=False):
-        return md5((form.signature() + name
-                    + str(sorted(parameters.items()))
-                    + str(number_map)
-                    + str(type(interface))
-                    + str(diagonal)).encode()).hexdigest(), form.ufl_domains()[0].comm
-
-    def __init__(self, form, name, parameters, number_map, interface, diagonal=False):
+class TSFCKernel:
+    def __init__(
+        self,
+        form,
+        name,
+        parameters,
+        coefficient_numbers,
+        constant_numbers,
+        dont_split_numbers,
+        diagonal=False
+    ):
         """A wrapper object for one or more TSFC kernels compiled from a given :class:`~ufl.classes.Form`.
 
-        :arg form: the :class:`~ufl.classes.Form` from which to compile the kernels.
-        :arg name: a prefix to be applied to the compiled kernel names. This is primarily useful for debugging.
-        :arg parameters: a dict of parameters to pass to the form compiler.
-        :arg number_map: a map from local coefficient numbers to the global coefficient numbers.
-        :arg interface: the KernelBuilder interface for TSFC (may be None)
+        Parameters
+        ----------
+        form : ufl.classes.Form
+            The :class:`~ufl.classes.Form` from which to compile the kernels.
+        name : str
+            A prefix to be applied to the compiled kernel names. This is primarily useful for debugging.
+        parameters : dict
+            A dict of parameters to pass to the form compiler.
+        coefficient_numbers : dict
+            Map from coefficient numbers in the provided (split) form to coefficient numbers in the original form.
+        constant_numbers : dict
+            Map from local constant numbers in the provided (split) form to constant numbers in the original form.
+        dont_split_numbers : tuple
+            Block-local coefficient numbers of coefficients that are not to be split into components by form compiler.
+        diagonal : bool
+            If assembling a matrix is it diagonal?
+
         """
-        if self._initialized:
-            return
         tree = tsfc_compile_form(form, prefix=name, parameters=parameters,
-                                 interface=interface,
-                                 diagonal=diagonal, log=PETSc.Log.isActive())
+                                 dont_split_numbers=dont_split_numbers,
+                                 diagonal=diagonal)
         kernels = []
         for kernel in tree:
-            # Unwind coefficient numbering
-            numbers = tuple((number_map[number], indices) for number, indices in kernel.coefficient_numbers)
+            # Individual kernels do not have to use all of the coefficients
+            # provided by the (split) form. Here we combine the numberings
+            # of (kernel coefficients -> split form coefficients) and
+            # (split form coefficients -> original form coefficients) to give
+            # the map (kernel coefficients -> original form coefficients).
+            coefficient_numbers_per_kernel = tuple(
+                (coefficient_numbers[index], subindices)
+                for index, subindices in kernel.coefficient_numbers
+            )
+            # Constants from the split form are currently passed to all of
+            # the kernels so the numbering is trivial.
+            constant_numbers_per_kernel = constant_numbers
+
             events = (kernel.event,)
             pyop2_kernel = as_pyop2_local_kernel(kernel.ast, kernel.name,
                                                  len(kernel.arguments),
@@ -145,35 +133,66 @@ class TSFCKernel(Cached):
                                       oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
                                       domain_number=kernel.domain_number,
-                                      coefficient_map=numbers,
+                                      coefficient_numbers=coefficient_numbers_per_kernel,
+                                      constant_numbers=constant_numbers_per_kernel,
                                       needs_cell_facets=False,
                                       pass_layer_arg=False,
                                       needs_cell_sizes=kernel.needs_cell_sizes,
                                       arguments=kernel.arguments,
                                       events=events))
         self.kernels = tuple(kernels)
-        self._initialized = True
 
 
-SplitKernel = collections.namedtuple("SplitKernel", ["indices",
-                                                     "kinfo"])
+SplitKernel = collections.namedtuple("SplitKernel", ["indices", "kinfo"])
+
+
+def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=(), diagonal=False):
+    return (
+        form.signature(),
+        name,
+        utils.tuplify(parameters),
+        split,
+        _make_dont_split_numbers(dont_split, form),
+        diagonal,
+    )
 
 
 @PETSc.Log.EventDecorator()
-def compile_form(form, name, parameters=None, split=True, interface=None, diagonal=False):
+@memory_and_disk_cache(
+    hashkey=_compile_form_hashkey,
+    get_comm=_compile_form_comm,
+    cachedir=_cachedir
+)
+@PETSc.Log.EventDecorator()
+def compile_form(form, name, parameters=None, split=True, dont_split=(), diagonal=False):
     """Compile a form using TSFC.
 
-    :arg form: the :class:`~ufl.classes.Form` to compile.
-    :arg name: a prefix for the generated kernel functions.
-    :arg parameters: optional dict of parameters to pass to the form
-         compiler. If not provided, parameters are read from the
-         ``form_compiler`` slot of the Firedrake
-         :data:`~.parameters` dictionary (which see).
-    :arg split: If ``False``, then don't split mixed forms.
+    Parameters
+    ----------
+    form : ufl.classes.Form
+        The :class:`~ufl.classes.Form` to compile.
+    name : str
+        A prefix for the generated kernel functions.
+    parameters : dict
+        Optional dict of parameters to pass to the form
+        compiler. If not provided, parameters are read from the
+        ``form_compiler`` slot of the Firedrake
+        :data:`~.parameters` dictionary (which see).
+    split : bool
+        If ``False``, then don't split mixed forms.
+    dont_split : tuple
+        Coefficients that are not to be split into components by form compiler.
+    diagonal : bool
+        If assembling a matrix is it diagonal?
 
-    Returns a tuple of tuples of
-    (index, integral type, subdomain id, coordinates, coefficients, needs_orientations, ``pyop2.op2.Kernel``).
+    Returns
+    -------
+    Tuple
+        A tuple of tuples of
+        (index, integral type, subdomain id, coordinates, coefficients, needs_orientations, ``pyop2.op2.Kernel``).
 
+    Notes
+    ----
     ``needs_orientations`` indicates whether the form requires cell
     orientation information (for correctly pulling back to reference
     elements on embedded manifolds).
@@ -195,18 +214,8 @@ def compile_form(form, name, parameters=None, split=True, interface=None, diagon
         parameters = default_parameters["form_compiler"].copy()
         parameters.update(_)
 
-    # We stash the compiled kernels on the form so we don't have to recompile
-    # if we assemble the same form again with the same optimisations
-    cache = form._cache.setdefault("firedrake_kernels", {})
-
-    key = (name, utils.tuplify(parameters), split, diagonal)
-    try:
-        return cache[key]
-    except KeyError:
-        pass
-
     kernels = []
-    coefficient_numbers = form.coefficient_numbering()
+    numbering = form.terminal_numbering()
     if split:
         iterable = split_form(form, diagonal=diagonal)
     else:
@@ -217,22 +226,35 @@ def compile_form(form, name, parameters=None, split=True, interface=None, diagon
         iterable = ([(None, )*nargs, form], )
     for idx, f in iterable:
         f = _real_mangle(f)
-        if not f.integrals():
+        if isinstance(f, ZeroBaseForm) or f.empty():
             # If we're assembling the R space component of a mixed argument,
             # and that component doesn't actually appear in the form then we
             # have an empty form, which we should not attempt to assemble.
             continue
-        # Map local coefficient numbers (as seen inside the
-        # compiler) to the global coefficient numbers
-        number_map = tuple(coefficient_numbers[c] for c in f.coefficients())
+        # Map local coefficient/constant numbers (as seen inside the
+        # compiler) to the global coefficient/constant numbers
+        coefficient_numbers = tuple(
+            numbering[c] for c in f.coefficients()
+        )
+        constant_numbers = tuple(
+            numbering[c] for c in extract_firedrake_constants(f)
+        )
+        dont_split_numbers = _make_dont_split_numbers(dont_split, f)
         prefix = name + "".join(map(str, (i for i in idx if i is not None)))
-        kinfos = TSFCKernel(f, prefix, parameters,
-                            number_map, interface, diagonal).kernels
-        for kinfo in kinfos:
+        tsfc_kernel = TSFCKernel(
+            f,
+            prefix,
+            parameters,
+            coefficient_numbers,
+            constant_numbers,
+            dont_split_numbers,
+            diagonal,
+        )
+        for kinfo in tsfc_kernel.kernels:
             kernels.append(SplitKernel(idx, kinfo))
 
     kernels = tuple(kernels)
-    return cache.setdefault(key, kernels)
+    return kernels
 
 
 def _real_mangle(form):
@@ -257,7 +279,7 @@ def clear_cache(comm=None):
     comm = comm or COMM_WORLD
     if comm.rank == 0:
         import shutil
-        shutil.rmtree(TSFCKernel._cachedir, ignore_errors=True)
+        shutil.rmtree(_cachedir, ignore_errors=True)
         _ensure_cachedir(comm=comm)
 
 
@@ -265,7 +287,7 @@ def _ensure_cachedir(comm=None):
     """Ensure that the TSFC kernel cache directory exists."""
     comm = comm or COMM_WORLD
     if comm.rank == 0:
-        makedirs(TSFCKernel._cachedir, exist_ok=True)
+        makedirs(_cachedir, exist_ok=True)
 
 
 def gather_integer_subdomain_ids(knls):
@@ -277,8 +299,9 @@ def gather_integer_subdomain_ids(knls):
     """
     all_integer_subdomain_ids = collections.defaultdict(list)
     for _, kinfo in knls:
-        if kinfo.subdomain_id != "otherwise":
-            all_integer_subdomain_ids[kinfo.integral_type].append(kinfo.subdomain_id)
+        for subdomain_id in kinfo.subdomain_id:
+            if subdomain_id != "otherwise":
+                all_integer_subdomain_ids[kinfo.integral_type].append(subdomain_id)
 
     for k, v in all_integer_subdomain_ids.items():
         all_integer_subdomain_ids[k] = tuple(sorted(v))
@@ -310,8 +333,18 @@ def extract_numbered_coefficients(expr, numbers):
     orig_coefficients = ufl.algorithms.extract_coefficients(expr)
     coefficients = []
     for coeff in (orig_coefficients[i] for i in numbers):
-        if type(coeff.ufl_element()) == ufl.MixedElement:
+        if type(coeff.ufl_element()) == finat.ufl.MixedElement:
             coefficients.extend(coeff.subfunctions)
         else:
             coefficients.append(coeff)
     return coefficients
+
+
+def _make_dont_split_numbers(dont_split, form):
+    return tuple(
+        sorted(
+            form.coefficients().index(c)
+            for c in dont_split
+            if c in form.coefficients()
+        )
+    )

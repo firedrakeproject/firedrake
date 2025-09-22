@@ -1,6 +1,6 @@
 import numpy
 
-from pyop2.mpi import COMM_WORLD, internal_comm, decref
+from pyop2.mpi import COMM_WORLD, internal_comm
 
 from firedrake import function
 from firedrake.logging import warning
@@ -16,8 +16,7 @@ class VectorSpaceBasis(object):
 
     You can use this basis to express the null space of a singular operator.
 
-    :arg vecs: a list of :class:`.Vector`\s or :class:`.Function`\s
-         spanning the space.
+    :arg vecs: a list of :class:`.Function`\s spanning the space.
     :arg constant: does the null space include the constant vector?
          If you pass ``constant=True`` you should not also include the
          constant vector in the list of ``vecs`` you supply.
@@ -58,11 +57,7 @@ class VectorSpaceBasis(object):
         else:
             warning("No comm specified for VectorSpaceBasis, COMM_WORLD assumed")
             self.comm = COMM_WORLD
-        self._comm = internal_comm(self.comm)
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
+        self._comm = internal_comm(self.comm, self)
 
     @PETSc.Log.EventDecorator()
     def nullspace(self, comm=None):
@@ -228,7 +223,7 @@ class MixedVectorSpaceBasis(object):
     def __init__(self, function_space, bases):
         self._function_space = function_space
         self.comm = function_space.comm
-        self._comm = internal_comm(self.comm)
+        self._comm = internal_comm(self.comm, self)
         for basis in bases:
             if isinstance(basis, VectorSpaceBasis):
                 continue
@@ -245,10 +240,6 @@ class MixedVectorSpaceBasis(object):
                 raise RuntimeError("FunctionSpace with index %d does not have %s as a parent" % (basis.index, function_space))
         self._bases = bases
         self._nullspace = None
-
-    def __del__(self):
-        if hasattr(self, "_comm"):
-            decref(self._comm)
 
     def _build_monolithic_basis(self):
         r"""Build a basis for the complete mixed space.

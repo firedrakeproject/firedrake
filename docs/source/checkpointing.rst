@@ -230,24 +230,137 @@ with `idx` parameter always unset, and the same :class:`~.Function` can only be
 loaded using the same mode.
 
 
-Using disk checkpointing in adjoint simulations
+Using checkpointing in adjoint simulations
 ===============================================
 
 When adjoint annotation is active, the result of every Firedrake operation is
-stored in memory. For some simulations, this can result in a very large memory
-footprint. As an alternative, it is possible to specify that those intermediate
-results in forward evaluations of the tape which have type
-:class:`~firedrake.function.Function` be written to disk. This is usually the
-bulk of the data stored on the tape so this largely alleviates the memory
-problem, at the cost of the time taken to read to and write from disk.
+stored in memory. For some time-dependent simulations, this can lead to a
+large memory footprint. To alleviate this, we can use checkpointing strategies to store only some intermediate forward data in memory or on disk.
 
-Having imported `firedrake_adjoint`, there are two steps required to enable
-disk checkpointing of the forward tape state.
+Checkpointing for time-dependent adjoint simulations in Firedrake employs
+schedules, which determine how forward data is stored. These schedules are
+implemented in the `checkpoint_schedules package
+<https://www.firedrakeproject.org/checkpoint_schedules/>`_.
 
-1. Call :func:`~firedrake.adjoint.checkpointing.enable_disk_checkpointing`.
-2. Wrap all mesh constructors in :func:`~firedrake.adjoint.checkpointing.checkpointable_mesh`.
 
-See the documentation of those functions for more detail.
+To store every time step of the forward data required for adjoint-based gradient
+computation **in memory**, first import the schedule from the
+``checkpoint_schedules`` package, start adjoint annotation with ``continue_annotation()``,
+get the working tape with ``get_working_tape()``:
+
+.. code-block:: python3
+
+    from firedrake import *
+    from firedrake.adjoint import *
+    from checkpoint_schedules import SingleMemoryStorageSchedule
+    continue_annotation()
+    tape = get_working_tape()
+
+Define the schedule:
+
+.. literalinclude:: ../../tests/firedrake/adjoint/test_burgers_newton.py
+    :language: python3
+    :dedent:
+    :start-after: [test_disk_checkpointing 4]
+    :end-before: [test_disk_checkpointing 5]
+
+and enable checkpointing:
+
+.. literalinclude:: ../../tests/firedrake/adjoint/test_burgers_newton.py
+    :language: python3
+    :dedent:
+    :start-after: [test_disk_checkpointing 6]
+    :end-before: [test_disk_checkpointing 7]
+
+**For any checkpointing approach, it is essential to call the time loop as
+follows when advancing the solver in time:**
+
+.. literalinclude:: ../../tests/firedrake/adjoint/test_burgers_newton.py
+    :language: python3
+    :dedent:
+    :start-after: [test_disk_checkpointing 10]
+    :end-before: [test_disk_checkpointing 11]
+
+
+``SingleMemoryStorageSchedule`` stores only the adjoint variables from the last adjoint
+time step, which corresponds to the zero forward time step due to the time-reversed nature
+of the adjoint solver.
+
+
+To store every time step of the forward data required for adjoint-based gradient
+computation **on disk**, write the necessary imports and start adjoint annotation:
+
+.. code-block:: python3
+
+    from firedrake import *
+    from firedrake.adjoint import *
+    from checkpoint_schedules import SingleDiskStorageSchedule
+
+    continue_annotation()
+    tape = get_working_tape()
+
+Then, enable disk checkpointing following the code below:
+
+.. literalinclude:: ../../tests/firedrake/adjoint/test_disk_checkpointing.py
+    :language: python3
+    :dedent:
+    :start-after: [test_disk_checkpointing 1]
+    :end-before: [test_disk_checkpointing 2]
+
+For disk checkpointing, all mesh constructors must be wrapped using
+:func:`~.checkpointing.checkpointable_mesh`. For example:
+
+.. literalinclude:: ../../tests/firedrake/adjoint/test_disk_checkpointing.py
+    :language: python3
+    :dedent:
+    :start-after: [test_disk_checkpointing 2]
+    :end-before: [test_disk_checkpointing 3]
+
+``SingleDiskStorageSchedule`` stores only the adjoint variables from the last adjoint
+time step (equivalent to the zero forward time step) in memory. This checkpointing strategy
+reduces memory usage at the cost of reading and writing data from disk.
+
+The ``checkpoint_schedules`` package provides other checkpointing
+strategies, such as Revolve, Mixed Schedule, and HRevolve. These methods
+store only a limited set of time steps, reducing memory usage at the cost of
+increased computational effort due to repeated forward calculations.
+
+For example, to use the **Revolve** schedule:
+
+.. code-block:: python3
+
+    from firedrake import *
+    from firedrake.adjoint import *
+    from checkpoint_schedules import Revolve
+
+    continue_annotation()
+    tape = get_working_tape()
+
+.. literalinclude:: ../../tests/firedrake/adjoint/test_burgers_newton.py
+    :language: python3
+    :dedent:
+    :start-after: [test_disk_checkpointing 8]
+    :end-before: [test_disk_checkpointing 9]
+
+.. literalinclude:: ../../tests/firedrake/adjoint/test_burgers_newton.py
+    :language: python3
+    :dedent:
+    :start-after: [test_disk_checkpointing 6]
+    :end-before: [test_disk_checkpointing 7]
+
+Then, advance the solver in time as follows:
+
+.. literalinclude:: ../../tests/firedrake/adjoint/test_burgers_newton.py
+    :language: python3
+    :dedent:
+    :start-after: [test_disk_checkpointing 10]
+    :end-before: [test_disk_checkpointing 11]
+
+``steps_to_store`` is the number of time steps stored in memory.
+
+For more details on available checkpointing strategies, refer to the
+`checkpoint_schedules package documentation
+<https://www.firedrakeproject.org/checkpoint_schedules/>`_.
 
 
 Checkpointing with DumbCheckpoint
@@ -504,9 +617,9 @@ Firedrake uses the PETSc_ HDF5 Viewer_ object to write and read state.
 As such, writing data is collective across processes.  h5py_ is used
 for attribute manipulation.  To this end, h5py_ *must* be linked
 against the same version of the HDF5 library that PETSc was built
-with.  The ``firedrake-install`` script automates this, however, if
-you build PETSc manually, you will need to ensure that h5py_ is linked
-correctly following the instructions for custom installation here_.
+with. If you have a custom installation of Firedrake then it may be
+necessary to manually ensure that h5py is linked correctly.
+Instructions for how to do this can be found here_.
 
 .. warning::
 
@@ -521,9 +634,9 @@ correctly following the instructions for custom installation here_.
 
 .. _HDF5: https://www.hdfgroup.org/HDF5/
 
-.. _PETSc: http://www.mcs.anl.gov/petsc/
+.. _PETSc: https://petsc.org/
 
-.. _Viewer: http://www.mcs.anl.gov/petsc/petsc-current/manualpages/Viewer/index.html
+.. _Viewer: https://petsc.org/release/manualpages/Viewer/
 .. _h5py: http://www.h5py.org
 
 .. _here: https://docs.h5py.org/en/latest/build.html#custom-installation

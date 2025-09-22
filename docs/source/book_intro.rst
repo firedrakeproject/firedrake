@@ -6,6 +6,6 @@ Introduction
 
    index
    team
-   download
+   install
    citing
    contact

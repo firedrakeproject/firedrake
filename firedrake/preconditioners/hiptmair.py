@@ -1,16 +1,21 @@
 import abc
+import numpy
 
+from pyop2.utils import as_tuple
+from firedrake.bcs import DirichletBC
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
-from firedrake.functionspace import FunctionSpace
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.preconditioners.hypre_ams import chop
+from firedrake.preconditioners.facet_split import restrict
 from firedrake.parameters import parameters
 from firedrake_citations import Citations
 from firedrake.interpolation import Interpolator
 from ufl.algorithms.ad import expand_derivatives
 import firedrake.dmhooks as dmhooks
+import firedrake.utils as utils
 import ufl
+import finat.ufl
 
 
 __all__ = ("TwoLevelPC", "HiptmairPC")
@@ -22,9 +27,6 @@ class TwoLevelPC(PCBase):
     should implement:
     - :meth:`coarsen`
     """
-
-    needs_python_pmat = False
-
     @abc.abstractmethod
     def coarsen(self, pc):
         """Return a tuple with coarse bilinear form, coarse
@@ -33,12 +35,12 @@ class TwoLevelPC(PCBase):
         raise NotImplementedError
 
     def initialize(self, pc):
-        from firedrake.assemble import allocate_matrix, TwoFormAssembler
+        from firedrake.assemble import get_assembler
         A, P = pc.getOperators()
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
 
-        prefix = pc.getOptionsPrefix()
+        prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
         opts = PETSc.Options()
 
@@ -48,15 +50,10 @@ class TwoLevelPC(PCBase):
         coarse_options_prefix = options_prefix + "mg_coarse_"
         coarse_mat_type = opts.getString(coarse_options_prefix + "mat_type",
                                          parameters["default_matrix_type"])
-        self.coarse_op = allocate_matrix(coarse_operator,
-                                         bcs=coarse_space_bcs,
-                                         form_compiler_parameters=fcp,
-                                         mat_type=coarse_mat_type,
-                                         options_prefix=coarse_options_prefix)
-        self._assemble_coarse_op = TwoFormAssembler(coarse_operator, tensor=self.coarse_op,
-                                                    form_compiler_parameters=fcp,
-                                                    bcs=coarse_space_bcs).assemble
-        self._assemble_coarse_op()
+        form_assembler = get_assembler(coarse_operator, bcs=coarse_space_bcs, form_compiler_parameters=fcp, mat_type=coarse_mat_type, options_prefix=coarse_options_prefix)
+        self.coarse_op = form_assembler.allocate()
+        self._assemble_coarse_op = form_assembler.assemble
+        self._assemble_coarse_op(tensor=self.coarse_op)
         coarse_opmat = self.coarse_op.petscmat
 
         # We set up a PCMG object that uses the constructed interpolation
@@ -98,13 +95,11 @@ class TwoLevelPC(PCBase):
                                           fcp,
                                           options_prefix=prefix)
 
-        with dmhooks.add_hooks(coarse_dm, self,
-                               appctx=self._ctx_ref,
-                               save=False):
+        with dmhooks.add_hooks(coarse_dm, self, appctx=self._ctx_ref, save=False):
             coarse_solver.setFromOptions()
 
     def update(self, pc):
-        self._assemble_coarse_op()
+        self._assemble_coarse_op(tensor=self.coarse_op)
         self.pc.setUp()
 
     def apply(self, pc, X, Y):
@@ -148,42 +143,37 @@ class HiptmairPC(TwoLevelPC):
         Citations().register("Hiptmair1998")
         appctx = self.get_appctx(pc)
 
-        _, P = pc.getOperators()
-        if P.getType() == "python":
-            ctx = P.getPythonContext()
-            a = ctx.a
-            bcs = tuple(ctx.bcs)
-        else:
-            ctx = dmhooks.get_appctx(pc.getDM())
-            a = ctx.Jp or ctx.J
-            bcs = tuple(ctx._problem.bcs)
-
+        a, bcs = self.form(pc)
         V = a.arguments()[-1].function_space()
-        mesh = V.mesh()
         element = V.ufl_element()
-        degree = element.degree()
-        try:
-            degree = max(degree)
-        except TypeError:
-            pass
         formdegree = V.finat_element.formdegree
         if formdegree == 1:
             celement = curl_to_grad(element)
-            dminus = ufl.grad
-            G_callback = appctx.get("get_gradient", None)
         elif formdegree == 2:
             celement = div_to_curl(element)
+        else:
+            raise ValueError("Hiptmair decomposition not available for", element)
+
+        prefix = pc.getOptionsPrefix() or ""
+        options_prefix = prefix + self._prefix
+        opts = PETSc.Options(options_prefix)
+        domain = opts.getString("mg_coarse_restriction_domain", "")
+        if domain:
+            celement = restrict(celement, domain)
+
+        coarse_space = V.reconstruct(element=celement)
+        assert coarse_space.finat_element.formdegree + 1 == formdegree
+        coarse_space_bcs = [bc.reconstruct(V=coarse_space, g=0) for bc in bcs]
+
+        if element.sobolev_space == ufl.HDiv:
+            G_callback = appctx.get("get_curl", None)
             dminus = ufl.curl
             if V.shape:
                 dminus = lambda u: ufl.as_vector([ufl.curl(u[k, ...])
                                                   for k in range(u.ufl_shape[0])])
-            G_callback = appctx.get("get_curl", None)
         else:
-            raise ValueError("Hiptmair decomposition not available for", element)
-
-        coarse_space = FunctionSpace(mesh, celement)
-        assert coarse_space.finat_element.formdegree + 1 == formdegree
-        coarse_space_bcs = tuple(bc.reconstruct(V=coarse_space, g=0) for bc in bcs)
+            G_callback = appctx.get("get_gradient", None)
+            dminus = ufl.grad
 
         # Get only the zero-th order term of the form
         replace_dict = {ufl.grad(t): ufl.zero(ufl.grad(t).ufl_shape) for t in a.arguments()}
@@ -191,13 +181,26 @@ class HiptmairPC(TwoLevelPC):
 
         test = TestFunction(coarse_space)
         trial = TrialFunction(coarse_space)
-        coarse_operator = beta(dminus(test), dminus(trial), coefficients={})
+        coarse_operator = beta(dminus(test), dminus(trial))
 
-        if formdegree > 1 and degree > 1:
+        zero_beta = opts.getBool("zero_beta_poisson", True)
+        if zero_beta:
+            from firedrake.assemble import assemble
+            # Remove coarse nodes where beta is zero
+            coarse_diagonal = assemble(coarse_operator, diagonal=True)
+            diag = numpy.abs(coarse_diagonal.dat.data_ro_with_halos)
+            atol = numpy.max(diag) * 1E-10
+            bc_nodes = numpy.flatnonzero(diag <= atol).astype(PETSc.IntType)
+            coarse_space_bcs.append(BCFromNodes(coarse_space, 0, bc_nodes))
+
+        cdegree = max(as_tuple(celement.degree()))
+        if formdegree > 1 and cdegree > 1:
             shift = appctx.get("hiptmair_shift", None)
             if shift is not None:
-                coarse_operator += beta(test, shift*trial, coefficients={})
+                b = beta(test, shift * trial)
+                coarse_operator += ufl.Form(b.integrals_by_type("cell"))
 
+        coarse_space_bcs = tuple(coarse_space_bcs)
         if G_callback is None:
             interp_petscmat = chop(Interpolator(dminus(test), V, bcs=bcs + coarse_space_bcs).callable().handle)
         else:
@@ -207,61 +210,65 @@ class HiptmairPC(TwoLevelPC):
 
 
 def curl_to_grad(ele):
-    if isinstance(ele, ufl.VectorElement):
-        return type(ele)(curl_to_grad(ele._sub_element), dim=ele.num_sub_elements())
-    elif isinstance(ele, ufl.TensorElement):
-        return type(ele)(curl_to_grad(ele._sub_element), shape=ele.value_shape(), symmetry=ele.symmetry())
-    elif isinstance(ele, ufl.MixedElement):
-        return type(ele)(*(curl_to_grad(e) for e in ele.sub_elements()))
-    elif isinstance(ele, ufl.RestrictedElement):
-        return ufl.RestrictedElement(curl_to_grad(ele._element), ele.restriction_domain())
+    if isinstance(ele, finat.ufl.VectorElement):
+        return type(ele)(curl_to_grad(ele._sub_element), dim=ele.num_sub_elements)
+    elif isinstance(ele, finat.ufl.TensorElement):
+        return type(ele)(curl_to_grad(ele._sub_element), shape=ele._shape, symmetry=ele.symmetry())
+    elif isinstance(ele, finat.ufl.MixedElement):
+        return type(ele)(*(curl_to_grad(e) for e in ele.sub_elements))
+    elif isinstance(ele, finat.ufl.RestrictedElement):
+        return finat.ufl.RestrictedElement(curl_to_grad(ele._element), ele.restriction_domain())
     else:
-        cell = ele.cell()
+        cell = ele.cell
         family = ele.family()
         variant = ele.variant()
         degree = ele.degree()
         if family.startswith("Sminus"):
             family = "S"
         else:
+            if family in ["Nedelec 2nd kind H(curl)", "Brezzi-Douglas-Marini"]:
+                degree = degree + 1
             family = "CG"
             if isinstance(degree, tuple) and isinstance(cell, ufl.TensorProductCell):
-                cells = ele.cell().sub_cells()
-                elems = [ufl.FiniteElement(family, cell=c, degree=d, variant=variant) for c, d in zip(cells, degree)]
-                return ufl.TensorProductElement(*elems, cell=cell)
-        return ufl.FiniteElement(family, cell=cell, degree=degree, variant=variant)
+                cells = ele.cell.sub_cells()
+                elems = [finat.ufl.FiniteElement(family, cell=c, degree=d, variant=variant) for c, d in zip(cells, degree)]
+                return finat.ufl.TensorProductElement(*elems, cell=cell)
+        return finat.ufl.FiniteElement(family, cell=cell, degree=degree, variant=variant)
 
 
 def div_to_curl(ele):
-    if isinstance(ele, ufl.VectorElement):
-        return type(ele)(div_to_curl(ele._sub_element), dim=ele.num_sub_elements())
-    elif isinstance(ele, ufl.TensorElement):
-        return type(ele)(div_to_curl(ele._sub_element), shape=ele.value_shape(), symmetry=ele.symmetry())
-    elif isinstance(ele, ufl.MixedElement):
-        return type(ele)(*(div_to_curl(e) for e in ele.sub_elements()))
-    elif isinstance(ele, ufl.RestrictedElement):
-        return ufl.RestrictedElement(div_to_curl(ele._element), ele.restriction_domain())
-    elif isinstance(ele, ufl.EnrichedElement):
+    if isinstance(ele, finat.ufl.VectorElement):
+        return type(ele)(div_to_curl(ele._sub_element), dim=ele.num_sub_elements)
+    elif isinstance(ele, finat.ufl.TensorElement):
+        return type(ele)(div_to_curl(ele._sub_element), shape=ele._shape, symmetry=ele.symmetry())
+    elif isinstance(ele, finat.ufl.MixedElement):
+        return type(ele)(*(div_to_curl(e) for e in ele.sub_elements))
+    elif isinstance(ele, finat.ufl.RestrictedElement):
+        return finat.ufl.RestrictedElement(div_to_curl(ele._element), ele.restriction_domain())
+    elif isinstance(ele, finat.ufl.EnrichedElement):
         return type(ele)(*(div_to_curl(e) for e in reversed(ele._elements)))
-    elif isinstance(ele, ufl.TensorProductElement):
-        return type(ele)(*(div_to_curl(e) for e in ele.sub_elements()), cell=ele.cell())
-    elif isinstance(ele, ufl.WithMapping):
+    elif isinstance(ele, finat.ufl.TensorProductElement):
+        return type(ele)(*(div_to_curl(e) for e in ele.factor_elements), cell=ele.cell)
+    elif isinstance(ele, finat.ufl.WithMapping):
         return type(ele)(div_to_curl(ele.wrapee), ele.mapping())
-    elif isinstance(ele, ufl.BrokenElement):
+    elif isinstance(ele, finat.ufl.BrokenElement):
         return type(ele)(div_to_curl(ele._element))
-    elif isinstance(ele, ufl.HDivElement):
-        return ufl.HCurlElement(div_to_curl(ele._element))
-    elif isinstance(ele, ufl.HCurlElement):
+    elif isinstance(ele, finat.ufl.HDivElement):
+        return finat.ufl.HCurlElement(div_to_curl(ele._element))
+    elif isinstance(ele, finat.ufl.HCurlElement):
         raise ValueError("Expecting an H(div) element")
     else:
         degree = ele.degree()
         family = ele.family()
         if family in ["Lagrange", "CG", "Q"]:
-            family = "DG" if ele.cell().is_simplex() else "DQ"
-            degree = degree-1
+            family = "DG" if ele.cell.is_simplex() else "DQ"
+            degree = degree - 1
         elif family in ["Discontinuous Lagrange", "DG", "DQ"]:
             family = "CG"
-            degree = degree+1
+            degree = degree + 1
         else:
+            if family == "Brezzi-Douglas-Marini":
+                degree = degree + 1
             replace_dict = {
                 "Raviart-Thomas": "N1curl",
                 "Brezzi-Douglas-Marini": "N2curl",
@@ -274,3 +281,14 @@ def div_to_curl(ele):
             if family is None:
                 raise ValueError("Unexpected family %s" % family)
         return ele.reconstruct(degree=degree, family=family)
+
+
+class BCFromNodes(DirichletBC):
+
+    def __init__(self, V, g, nodes):
+        self._nodes = nodes
+        super(BCFromNodes, self).__init__(V, g, tuple())
+
+    @utils.cached_property
+    def nodes(self):
+        return self._nodes

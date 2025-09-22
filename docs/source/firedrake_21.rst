@@ -6,7 +6,6 @@
    :width: 80%
    :alt: gather.town
    :align: center
-   :target: https://fpaps.memberclicks.net/assets/images/2021_Symposium/fpa-gather-town-avatars.jpg
 
 Firedrake '21
 -------------
@@ -38,12 +37,12 @@ The recorded talks are available on `Vimeo <https://vimeo.com/showcase/8850810>`
 Prizes
 ------
 
-The prizes for best presentation by a student or postdoc were won by `Fabian
-Laakmann <https://www.maths.ox.ac.uk/people/fabian.laakmann>`_ and
+The prizes for best presentation by a student or postdoc were won by Fabian
+Laakmann and
 `Reuben Nixon-Hill <https://www.imperial.ac.uk/people/reuben.nixon-hill10>`_.
 
 Each winner receives a copy of `PETSc for Partial Differential Equations:
-Numerical Solutions in C and Python <https://my.siam.org/Store/Product/viewproduct/?ProductId=32850137>`_
+Numerical Solutions in C and Python <https://epubs.siam.org/doi/10.1137/1.9781611976311>`_
 by Ed Bueler, which contains an excellent chapter on using Firedrake.
 
 Further details

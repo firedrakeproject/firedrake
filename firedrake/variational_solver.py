@@ -1,15 +1,18 @@
 import ufl
 from itertools import chain
 from contextlib import ExitStack
+from types import MappingProxyType
+from petsctools import OptionsManager, flatten_parameters
 
-from firedrake import dmhooks
-from firedrake import slate
-from firedrake import solving_utils
-from firedrake import ufl_expr
-from firedrake import utils
-from firedrake.petsc import PETSc, OptionsManager, flatten_parameters
-from firedrake.bcs import DirichletBC
-from firedrake.adjoint import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
+from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
+from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
+from firedrake.function import Function
+from firedrake.interpolation import Interpolate
+from firedrake.matrix import MatrixBase
+from firedrake.ufl_expr import TrialFunction, TestFunction
+from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
+from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
+from ufl import replace, Form
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -18,16 +21,16 @@ __all__ = ["LinearVariationalProblem",
 
 
 def check_pde_args(F, J, Jp):
-    if not isinstance(F, (ufl.Form, slate.slate.TensorBase)):
-        raise TypeError("Provided residual is a '%s', not a Form or Slate Tensor" % type(F).__name__)
+    if not isinstance(F, (ufl.BaseForm, slate.slate.TensorBase)):
+        raise TypeError("Provided residual is a '%s', not a BaseForm or Slate Tensor" % type(F).__name__)
     if len(F.arguments()) != 1:
         raise ValueError("Provided residual is not a linear form")
-    if not isinstance(J, (ufl.Form, slate.slate.TensorBase)):
-        raise TypeError("Provided Jacobian is a '%s', not a Form or Slate Tensor" % type(J).__name__)
+    if not isinstance(J, (ufl.BaseForm, slate.slate.TensorBase)):
+        raise TypeError("Provided Jacobian is a '%s', not a BaseForm or Slate Tensor" % type(J).__name__)
     if len(J.arguments()) != 2:
         raise ValueError("Provided Jacobian is not a bilinear form")
-    if Jp is not None and not isinstance(Jp, (ufl.Form, slate.slate.TensorBase)):
-        raise TypeError("Provided preconditioner is a '%s', not a Form or Slate Tensor" % type(Jp).__name__)
+    if Jp is not None and not isinstance(Jp, (ufl.BaseForm, slate.slate.TensorBase)):
+        raise TypeError("Provided preconditioner is a '%s', not a BaseForm or Slate Tensor" % type(Jp).__name__)
     if Jp is not None and len(Jp.arguments()) != 2:
         raise ValueError("Provided preconditioner is not a bilinear form")
 
@@ -47,7 +50,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
                  form_compiler_parameters=None,
-                 is_linear=False):
+                 is_linear=False, restrict=False):
         r"""
         :param F: the nonlinear form
         :param u: the :class:`.Function` to solve for
@@ -60,24 +63,57 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             compiler (optional)
         :is_linear: internally used to check if all domain/bc forms
             are given either in 'A == b' style or in 'F == 0' style.
+        :param restrict: (optional) If `True`, use restricted function spaces,
+            that exclude Dirichlet boundary condition nodes,  internally for
+            the test and trial spaces.
         """
-        from firedrake import solving
-        from firedrake import function
+        V = u.function_space()
+        self.output_space = V
+        self.u = u
+
+        if not isinstance(self.u, Function):
+            raise TypeError("Provided solution is a '%s', not a Function" % type(self.u).__name__)
+
+        # Use the user-provided Jacobian. If none is provided, derive
+        # the Jacobian from the residual.
+        self.J = J or ufl_expr.derivative(F, u)
+        self.F = F
+        self.Jp = Jp
+        if isinstance(J, MatrixBase):
+            if bcs:
+                raise RuntimeError("It is not possible to apply or change boundary conditions to an already assembled Jacobian; pass any necessary boundary conditions to `assemble` when assembling the Jacobian.")
+            if J.has_bcs:
+                # Use the bcs from the assembled Jacobian
+                bcs = J.bcs
+        if bcs and any(isinstance(bc, EquationBC) for bc in bcs):
+            restrict = False
+        self.restrict = restrict and bcs
+
+        if restrict and bcs:
+            V_res = restricted_function_space(V, extract_subdomain_ids(bcs))
+            bcs = [bc.reconstruct(V=V_res, indices=bc._indices) for bc in bcs]
+            self.u_restrict = Function(V_res).interpolate(u)
+            v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
+            if isinstance(F, Form):
+                F_arg, = F.arguments()
+                self.F = replace(F, {F_arg: v_res, self.u: self.u_restrict})
+            else:
+                self.F = Interpolate(v_res, replace(F, {self.u: self.u_restrict}))
+
+            v_arg, u_arg = self.J.arguments()
+            self.J = replace(self.J, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
+            if self.Jp:
+                v_arg, u_arg = self.Jp.arguments()
+                self.Jp = replace(self.Jp, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
+            self.restricted_space = V_res
+        else:
+            self.u_restrict = u
 
         self.bcs = solving._extract_bcs(bcs)
         # Check form style consistency
         self.is_linear = is_linear
         is_form_consistent(self.is_linear, self.bcs)
         self.Jp_eq_J = Jp is None
-
-        self.u = u
-        self.F = F
-        self.Jp = Jp
-        if not isinstance(self.u, function.Function):
-            raise TypeError("Provided solution is a '%s', not a Function" % type(self.u).__name__)
-        # Use the user-provided Jacobian. If none is provided, derive
-        # the Jacobian from the residual.
-        self.J = J or ufl_expr.derivative(F, u)
 
         # Argument checking
         check_pde_args(self.F, self.J, self.Jp)
@@ -92,18 +128,32 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
 
     @utils.cached_property
     def dm(self):
-        return self.u.function_space().dm
+        return self.u_restrict.function_space().dm
+
+    @staticmethod
+    def compute_bc_lifting(J, u):
+        """Return the action of the bilinear form J (without bcs) on a Function u."""
+        if isinstance(J, MatrixBase) and J.has_bcs:
+            # Extract the full form without bcs
+            if not isinstance(J.a, (ufl.BaseForm, slate.slate.TensorBase)):
+                raise TypeError(f"Could not remove bcs from {type(J).__name__}.")
+            J = J.a
+        return ufl_expr.action(J, u)
 
 
 class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
     r"""Solves a :class:`NonlinearVariationalProblem`."""
 
-    DEFAULT_SNES_PARAMETERS = {"snes_type": "newtonls",
-                               "snes_linesearch_type": "basic"}
+    DEFAULT_SNES_PARAMETERS = DEFAULT_SNES_PARAMETERS
 
     # Looser default tolerance for KSP inside SNES.
-    DEFAULT_KSP_PARAMETERS = solving_utils.DEFAULT_KSP_PARAMETERS.copy()
-    DEFAULT_KSP_PARAMETERS["ksp_rtol"] = 1e-5
+    # TODO: When we drop Python 3.8 replace this mess with
+    # DEFAULT_KSP_PARAMETERS = MappingProxyType(DEFAULT_KSP_PARAMETERS | {'ksp_rtol': 1e-5})
+    DEFAULT_KSP_PARAMETERS = MappingProxyType({
+        k: v
+        if k != 'ksp_rtol' else 1e-5
+        for k, v in DEFAULT_KSP_PARAMETERS.items()
+    })
 
     @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_init
@@ -116,7 +166,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                  pre_jacobian_callback=None,
                  post_jacobian_callback=None,
                  pre_function_callback=None,
-                 post_function_callback=None):
+                 post_function_callback=None,
+                 pre_apply_bcs=True):
         r"""
         :arg problem: A :class:`NonlinearVariationalProblem` to solve.
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
@@ -145,6 +196,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                before residual assembly.
         :kwarg post_function_callback: As above, but called immediately
                after residual assembly.
+        :kwarg pre_apply_bcs: If `True`, the bcs are applied before the solve.
+               Otherwise, the problem is linearised around the initial guess
+               before imposing bcs, and the bcs are appended to the nonlinear system.
 
         Example usage of the ``solver_parameters`` option: to set the
         nonlinear solver type to just use a linear solver, use
@@ -179,6 +233,17 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         assert isinstance(problem, NonlinearVariationalProblem)
 
         solver_parameters = flatten_parameters(solver_parameters or {})
+
+        if isinstance(problem.J, MatrixBase):
+            solver_parameters.setdefault("mat_type", problem.J.mat_type)
+            if solver_parameters["mat_type"] != problem.J.mat_type:
+                raise ValueError("Cannot change the mat_type of an already assembled matrix.")
+
+        if isinstance(problem.Jp, MatrixBase):
+            solver_parameters.setdefault("pmat_type", problem.Jp.mat_type)
+            if solver_parameters["pmat_type"] != problem.Jp.mat_type:
+                raise ValueError("Cannot change the mat_type of an already assembled matrix.")
+
         solver_parameters = solving_utils.set_defaults(solver_parameters,
                                                        problem.J.arguments(),
                                                        ksp_defaults=self.DEFAULT_KSP_PARAMETERS,
@@ -196,14 +261,15 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                          pre_function_callback=pre_function_callback,
                                          post_jacobian_callback=post_jacobian_callback,
                                          post_function_callback=post_function_callback,
-                                         options_prefix=self.options_prefix)
+                                         options_prefix=self.options_prefix,
+                                         pre_apply_bcs=pre_apply_bcs)
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
 
         self._problem = problem
 
         self._ctx = ctx
-        self._work = problem.u.dof_dset.layout_vec.duplicate()
+        self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
         self.snes.setDM(problem.dm)
 
         ctx.set_function(self.snes)
@@ -247,7 +313,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         :arg bounds: Optional bounds on the solution (lower, upper).
             ``lower`` and ``upper`` must both be
-            :class:`~.Function`\s. or :class:`~.Vector`\s.
+            :class:`~.Function`\s.
 
         .. note::
 
@@ -258,31 +324,43 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._ctx.set_function(self.snes)
         self._ctx.set_jacobian(self.snes)
 
-        # Make sure appcontext is attached to the DM before we solve.
-        dm = self.snes.getDM()
-        for dbc in self._problem.dirichlet_bcs():
-            dbc.apply(self._problem.u)
+        # Make sure appcontext is attached to every coefficient DM before we solve.
+        problem = self._problem
+        forms = (problem.F, problem.J, problem.Jp)
+        coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
+        # Make sure the solution dm is visited last
+        solution_dm = self.snes.getDM()
+        problem_dms = [V.dm for V in utils.unique(chain.from_iterable(c.function_space() for c in coefficients)) if V.dm != solution_dm]
+        problem_dms.append(solution_dm)
+
+        if self._ctx.pre_apply_bcs:
+            for bc in problem.dirichlet_bcs():
+                bc.apply(problem.u_restrict)
 
         if bounds is not None:
             lower, upper = bounds
             with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
+
         work = self._work
-        with self._problem.u.dat.vec as u:
+        with problem.u_restrict.dat.vec as u:
             u.copy(work)
             with ExitStack() as stack:
                 # Ensure options database has full set of options (so monitors
                 # work right)
-                for ctx in chain((self.inserted_options(), dmhooks.add_hooks(dm, self, appctx=self._ctx)),
+                for ctx in chain([self.inserted_options()],
+                                 [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms],
                                  self._transfer_operators):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
             work.copy(u)
         self._setup = True
+        if problem.restrict:
+            problem.u.interpolate(problem.u_restrict)
         solving_utils.check_snes_convergence(self.snes)
 
         # Grab the comm associated with the `_problem` and call PETSc's garbage cleanup routine
-        comm = self._problem.u.function_space().mesh()._comm
+        comm = self._problem.u_restrict.function_space().mesh()._comm
         PETSc.garbage_cleanup(comm=comm)
 
 
@@ -292,7 +370,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
     @PETSc.Log.EventDecorator()
     def __init__(self, a, L, u, bcs=None, aP=None,
                  form_compiler_parameters=None,
-                 constant_jacobian=False):
+                 constant_jacobian=False, restrict=False):
         r"""
         :param a: the bilinear form
         :param L: the linear form
@@ -307,22 +385,24 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
                  Jacobian is constant (i.e. does not depend on
                  varying fields).  If your Jacobian does not change, set
                  this flag to ``True``.
+        :param restrict: (optional) If `True`, use restricted function spaces,
+            that exclude Dirichlet boundary condition nodes,  internally for
+            the test and trial spaces.
         """
-        # In the linear case, the Jacobian is the equation LHS.
-        J = a
+        # In the linear case, the Jacobian is the equation LHS (J=a).
         # Jacobian is checked in superclass, but let's check L here.
-        if not isinstance(L, (ufl.Form, slate.slate.TensorBase)) and L == 0:
-            F = ufl_expr.action(J, u)
+        if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)) and L == 0:
+            F = self.compute_bc_lifting(a, u)
         else:
-            if not isinstance(L, (ufl.Form, slate.slate.TensorBase)):
+            if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)):
                 raise TypeError("Provided RHS is a '%s', not a Form or Slate Tensor" % type(L).__name__)
-            if len(L.arguments()) != 1:
+            if len(L.arguments()) != 1 and not L.empty():
                 raise ValueError("Provided RHS is not a linear form")
-            F = ufl_expr.action(J, u) - L
+            F = self.compute_bc_lifting(a, u) - L
 
-        super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
+        super(LinearVariationalProblem, self).__init__(F, u, bcs=bcs, J=a, Jp=aP,
                                                        form_compiler_parameters=form_compiler_parameters,
-                                                       is_linear=True)
+                                                       is_linear=True, restrict=restrict)
         self._constant_jacobian = constant_jacobian
 
 
@@ -354,13 +434,16 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
            before residual assembly.
     :kwarg post_function_callback: As above, but called immediately
            after residual assembly.
+    :kwarg pre_apply_bcs: If `True`, the bcs are applied before the solve.
+           Otherwise, the bcs are included as part of the linear system.
 
     See also :class:`NonlinearVariationalSolver` for nonlinear problems.
     """
 
     DEFAULT_SNES_PARAMETERS = {"snes_type": "ksponly"}
 
-    DEFAULT_KSP_PARAMETERS = solving_utils.DEFAULT_KSP_PARAMETERS
+    # Tighter default tolerance for KSP only.
+    DEFAULT_KSP_PARAMETERS = DEFAULT_KSP_PARAMETERS
 
     def invalidate_jacobian(self):
         r"""

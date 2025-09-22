@@ -1,0 +1,24 @@
+name: Publish release
+
+on:
+  release:
+    types: [released]
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/core.yml
+    with:
+      source_ref: release
+      target_branch: release
+      run_tests: false
+      upload_pypi: true
+    secrets: inherit
+
+  docker:
+    name: Build Docker containers
+    uses: ./.github/workflows/docker.yml
+    with:
+      tag: ${{ github.ref_name }}
+      branch: ${{ github.ref_name }}
+      build_dev: false
+    secrets: inherit

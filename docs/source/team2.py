@@ -5,6 +5,8 @@ from urllib.request import urlopen
 
 
 class Table:
+    """ This class makes it easier to generate tables in jinja templates
+    """
     def __init__(self, data, cols, transpose=False):
         self.data = [*data]
         if isinstance(self.data[0], str):
@@ -37,31 +39,12 @@ class Table:
         return range(self.nrows)
 
 
-def cache_web_image(name, url):
-    img_name = "".join(name.split()).lower().encode("punycode").decode()
-    img_name = img_name[:-1] if img_name[-1] == "-" else img_name
-    with urlopen(url) as response:
-        filetype = response.getheader("Content-Type")
-        ext = filetype.split("/")[1]
-        if ext == "jpeg":
-            ext = "jpg"
-        with open("images/" + img_name + "." + ext, "wb") as fh:
-            fh.write(response.read())
-
-
-#
+# Read the current team information from configuration file
 team = ConfigParser(interpolation=ExtendedInterpolation())
 team.optionxform = lambda x: x
 team.read("team.ini")
 
-#
-for name, links in team["active-team"].items():
-    parts = links.split(",")
-    if parts[1:]:
-        website = parts[1]
-        cache_web_image(name, website)
-
-#
+# Environment for applying templates
 env = Environment(
     loader=FileSystemLoader("."),
     autoescape=select_autoescape(),
@@ -69,12 +52,12 @@ env = Environment(
     lstrip_blocks=True
 )
 
-#
+# Collect names for the team page
 extra = [*team["contributing-individual"].items()]
 exclude = [*team["active-team"].keys()] + [*team["inactive-team"].keys()]
 extra = [e for e in extra if e[0] not in exclude]
 
-#
+# Create team webpage from template
 team_rst = env.get_template("team.rst_t")
 with open("team.rst", "w") as fh:
     fh.write(team_rst.render(
@@ -84,7 +67,7 @@ with open("team.rst", "w") as fh:
         ctable=Table(extra, 3, transpose=True)
     ))
 
-#
+# Create authors file for the Github repository
 authors_rst = env.get_template("authors.rst_t")
 
 institution_set = set(chain(

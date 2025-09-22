@@ -193,7 +193,7 @@ from mpi4py.libmpi cimport (MPI_Op_create, MPI_OP_NULL, MPI_Op_free,
                             MPI_User_function)
 from pyop2 import op2
 from firedrake.utils import IntType
-from tsfc.finatinterface import as_fiat_cell
+from finat.element_factory import as_fiat_cell
 
 cimport numpy
 cimport mpi4py.MPI as MPI
@@ -503,7 +503,7 @@ def entity_layers(mesh, height, label=None):
 
     layer_extents = mesh.layer_extents
     offset = 0
-    CHKERR(ISGetIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
+    CHKERR(ISGetIndices((<PETSc.IS?>mesh._dm_renumbering).iset, &renumbering))
     if label is not None:
         CHKERR(DMGetLabel(dm.dm, label.encode(), &clabel))
         CHKERR(DMLabelCreateIndex(clabel, pStart, pEnd))
@@ -518,7 +518,7 @@ def entity_layers(mesh, height, label=None):
             layers[offset, 1] = layer_extents[point, 3]
             offset += 1
 
-    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
+    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._dm_renumbering).iset, &renumbering))
     if label is not None:
         CHKERR(DMLabelDestroyIndex(clabel))
     return layers

@@ -1,2 +1,5 @@
-include versioneer.py
-include firedrake/_version.py
+# This file contains all the non-standard files that need to be included
+# in the source distribution.
+
+recursive-include firedrake/cython *.pyx *.pxi
+recursive-exclude firedrake/cython *.c

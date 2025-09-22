@@ -87,19 +87,12 @@ problem.  We will need some trial and test functions for the spaces::
         sigma, u = TrialFunctions(W)
         tau, v = TestFunctions(W)
 
-along with a function to hold the forcing term, living in the
+along with a random function to hold the forcing term, living in the
 discontinuous space. ::
 
     #
-        f = Function(V)
-
-To initialise this function to a random value we access its :class:`~.Vector`
-form and use numpy_ to set the values::
-
-    #
-        import numpy as np
-        fvector = f.vector()
-        fvector.set_local(np.random.uniform(size=fvector.local_size()))
+        rg = RandomGenerator()
+        f = rg.uniform(V)
 
 Note that the homogeneous Dirichlet conditions in the primal
 formulation turn into homogeneous Neumann conditions on the dual
@@ -124,22 +117,13 @@ if ``aP`` is provided. ::
         if aP is not None:
             aP = aP(W)
 
-Now we have all the pieces to build our linear system.  We will return
-a :class:`~.LinearSolver` object from this function, so we preassemble
-the operators to build it.  It is here that we must specify whether we
-want a monolithic matrix or not, by setting the matrix type
-parameter to :func:`~.assemble`.  ::
+Now we have all the pieces to build our linear system.  We will return a
+:class:`~.LinearVariationalSolver` object from this function.  It is here that
+we must specify whether we want a monolithic matrix or not, by setting the
+preconditioner matrix type in the solver parameters.  ::
 
     #
-        if block_matrix:
-            mat_type = 'nest'
-        else:
-            mat_type = 'aij'
-
-        if aP is not None:
-            P = assemble(aP, mat_type=mat_type)
-        else:
-            P = None
+        parameters['pmat_type'] = 'nest' if block_matrix else 'aij'
 
         w = Function(W)
         vpb = LinearVariationalProblem(a, L, w, aP=aP)
@@ -163,7 +147,7 @@ To illustrate the problem, we first attempt to solve the problem on a
 sequence of finer and finer meshes preconditioning the problem with
 zero-fill incomplete LU factorisation.  Configuration of the solver is
 carried out by providing appropriate parameters when constructing the
-:class:`~.LinearSolver` object through the ``solver_parameters``
+:class:`~.LinearVariationalSolver` object through the ``solver_parameters``
 keyword argument which should be a :class:`dict` of parameters.  These
 parameters are passed directly to PETSc_, and their form is described
 in more detail in :doc:`/solving-interface`.  For this problem, we use
@@ -622,6 +606,5 @@ A runnable python script version of this demo is available :demo:`here
 
 .. _PETSc: https://petsc.org/
 .. _hypre: https://hypre.readthedocs.io/en/latest/
-.. _PyOP2: https://github.com/OP2/PyOP2/
 .. _numpy: https://www.numpy.org
 .. _MUMPS: https://mumps-solver.org/index.php

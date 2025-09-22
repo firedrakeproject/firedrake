@@ -4,6 +4,7 @@ from fractions import Fraction
 from pyop2 import op2
 from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
 from firedrake.functionspacedata import entity_dofs_key
+from firedrake.functionspaceimpl import FiredrakeDualSpace
 import firedrake
 from firedrake.mg import utils
 
@@ -19,6 +20,7 @@ import gem
 import gem.impero_utils as impero_utils
 
 import ufl
+import finat.ufl
 import tsfc
 
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
@@ -28,7 +30,7 @@ from tsfc import fem, ufl_utils, spectral
 from tsfc.driver import TSFCIntegralDataInfo
 from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.parameters import default_parameters
-from tsfc.finatinterface import create_element
+from finat.element_factory import create_element
 from finat.quadrature import make_quadrature
 from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, celldist_l1_c_expr
 from firedrake.pointquery_utils import to_reference_coords_newton_step as to_reference_coords_newton_step_body
@@ -43,12 +45,12 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
         parameters = _
 
     # Create FInAT element
-    element = tsfc.finatinterface.create_element(ufl_coordinate_element)
-
-    cell = ufl_coordinate_element.cell()
+    element = finat.element_factory.create_element(ufl_coordinate_element)
+    gdim, = ufl_coordinate_element.reference_value_shape
+    cell = ufl_coordinate_element.cell
 
     code = {
-        "geometric_dimension": cell.geometric_dimension(),
+        "geometric_dimension": gdim,
         "topological_dimension": cell.topological_dimension(),
         "to_reference_coords_newton_step": to_reference_coords_newton_step_body(ufl_coordinate_element, parameters, x0_dtype=ScalarType, dX_dtype="double"),
         "init_X": init_X(element.cell, parameters),
@@ -141,6 +143,7 @@ def compile_element(expression, dual_space=None, parameters=None,
 
     config = dict(interface=builder,
                   ufl_cell=cell,
+                  integral_type="cell",
                   point_indices=(),
                   point_expr=point,
                   argument_multiindices=argument_multiindices,
@@ -174,11 +177,10 @@ def compile_element(expression, dual_space=None, parameters=None,
         return_variable = gem.Indexed(gem.Variable('R', finat_elem.index_shape), argument_multiindex)
         result = gem.Indexed(result, tensor_indices)
         if dual_space:
-            elem = create_element(dual_space.ufl_element())
-            if elem.value_shape:
-                var = gem.Indexed(gem.Variable("b", elem.value_shape),
-                                  tensor_indices)
-                b_arg = [lp.GlobalArg("b", dtype=ScalarType, shape=elem.value_shape)]
+            value_shape = dual_space.value_shape
+            if value_shape:
+                var = gem.Indexed(gem.Variable("b", value_shape), tensor_indices)
+                b_arg = [lp.GlobalArg("b", dtype=ScalarType, shape=value_shape)]
             else:
                 var = gem.Indexed(gem.Variable("b", (1, )), (0, ))
                 b_arg = [lp.GlobalArg("b", dtype=ScalarType, shape=(1,))]
@@ -208,18 +210,18 @@ def compile_element(expression, dual_space=None, parameters=None,
 def prolong_kernel(expression):
     meshc = extract_unique_domain(expression)
     hierarchy, level = utils.get_level(extract_unique_domain(expression))
-    levelf = level + Fraction(1 / hierarchy.refinements_per_level)
+    levelf = level + Fraction(1, hierarchy.refinements_per_level)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     coordinates = extract_unique_domain(expression).coordinates
     if meshc.cell_set._extruded:
         idx = levelf * hierarchy.refinements_per_level
         assert idx == int(idx)
-        level_ratio = (hierarchy._meshes[int(idx)].layers - 1) // (meshc.layers - 1)
-    else:
-        level_ratio = 1
-    key = (("prolong", level_ratio)
-           + expression.ufl_element().value_shape()
-           + entity_dofs_key(expression.function_space().finat_element.entity_dofs())
+        assert hierarchy._meshes[int(idx)].cell_set._extruded
+    V = expression.function_space()
+    key = (("prolong",)
+           + V.value_shape
+           + entity_dofs_key(V.finat_element.complex.get_topology())
+           + entity_dofs_key(V.finat_element.entity_dofs())
            + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
     try:
         return cache[key]
@@ -280,8 +282,8 @@ def prolong_kernel(expression):
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": eval_code,
                "spacedim": element.cell.get_spatial_dimension(),
-               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1] * level_ratio,
-               "Rdim": numpy.prod(element.value_shape),
+               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
+               "Rdim": V.value_size,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
@@ -292,25 +294,25 @@ def prolong_kernel(expression):
 
 
 def restrict_kernel(Vf, Vc):
-    hierarchy, level = utils.get_level(Vc.ufl_domain())
-    levelf = level + Fraction(1 / hierarchy.refinements_per_level)
+    hierarchy, level = utils.get_level(Vc.mesh())
+    levelf = level + Fraction(1, hierarchy.refinements_per_level)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
-    coordinates = Vc.ufl_domain().coordinates
+    coordinates = Vc.mesh().coordinates
     if Vf.extruded:
         assert Vc.extruded
-        level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
-    else:
-        level_ratio = 1
-    key = (("restrict", level_ratio)
-           + Vf.ufl_element().value_shape()
+    key = (("restrict",)
+           + Vf.value_shape
+           + entity_dofs_key(Vf.finat_element.complex.get_topology())
+           + entity_dofs_key(Vc.finat_element.complex.get_topology())
            + entity_dofs_key(Vf.finat_element.entity_dofs())
            + entity_dofs_key(Vc.finat_element.entity_dofs())
            + entity_dofs_key(coordinates.function_space().finat_element.entity_dofs()))
     try:
         return cache[key]
     except KeyError:
+        assert isinstance(Vc, FiredrakeDualSpace) and isinstance(Vf, FiredrakeDualSpace)
         mesh = extract_unique_domain(coordinates)
-        evaluate_code = compile_element(firedrake.TestFunction(Vc), Vf)
+        evaluate_code = compile_element(firedrake.TestFunction(Vc.dual()), Vf.dual())
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
         coords_element = create_element(coordinates.ufl_element())
         element = create_element(Vc.ufl_element())
@@ -366,7 +368,7 @@ def restrict_kernel(Vf, Vc):
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
-               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1]*level_ratio,
+               "ncandidate": hierarchy.fine_to_coarse_cells[levelf].shape[1],
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
@@ -378,16 +380,18 @@ def restrict_kernel(Vf, Vc):
 
 
 def inject_kernel(Vf, Vc):
-    hierarchy, level = utils.get_level(Vc.ufl_domain())
+    hierarchy, level = utils.get_level(Vc.mesh())
     cache = hierarchy._shared_data_cache["transfer_kernels"]
-    coordinates = Vf.ufl_domain().coordinates
+    coordinates = Vf.mesh().coordinates
     if Vf.extruded:
         assert Vc.extruded
         level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
     else:
         level_ratio = 1
     key = (("inject", level_ratio)
-           + Vf.ufl_element().value_shape()
+           + Vf.value_shape
+           + entity_dofs_key(Vc.finat_element.complex.get_topology())
+           + entity_dofs_key(Vf.finat_element.complex.get_topology())
            + entity_dofs_key(Vc.finat_element.entity_dofs())
            + entity_dofs_key(Vf.finat_element.entity_dofs())
            + entity_dofs_key(Vc.mesh().coordinates.function_space().finat_element.entity_dofs())
@@ -399,7 +403,7 @@ def inject_kernel(Vf, Vc):
         if Vc.finat_element.entity_dofs() == Vc.finat_element.entity_closure_dofs():
             return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
 
-        coordinates = Vf.ufl_domain().coordinates
+        coordinates = Vf.mesh().coordinates
         evaluate_code = compile_element(ufl.Coefficient(Vf))
         to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
 
@@ -458,9 +462,9 @@ def inject_kernel(Vf, Vc):
             "inside_cell": inside_check(Vc.finat_element.cell, eps=1e-8, X="Xref"),
             "spacedim": Vc.finat_element.cell.get_spatial_dimension(),
             "celldist_l1_c_expr": celldist_l1_c_expr(Vc.finat_element.cell, X="Xref"),
-            "tdim": Vc.ufl_domain().topological_dimension(),
+            "tdim": Vc.mesh().topological_dimension(),
             "ncandidate": ncandidate,
-            "Rdim": numpy.prod(Vf_element.value_shape),
+            "Rdim": numpy.prod(Vf.value_shape),
             "Xf_cell_inc": coords_element.space_dimension(),
             "f_cell_inc": Vf_element.space_dimension()
         }
@@ -481,10 +485,9 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
 
     def set_coefficients(self, coefficients):
         self.coefficients = []
-        self.coefficient_split = {}
         self.kernel_args = []
         for i, coefficient in enumerate(coefficients):
-            if type(coefficient.ufl_element()) == ufl.MixedElement:
+            if type(coefficient.ufl_element()) == finat.ufl.MixedElement:
                 raise NotImplementedError("Sorry, not for mixed.")
             self.coefficients.append(coefficient)
             self.kernel_args.append(self._coefficient(coefficient, "macro_w_%d" % (i, )))
@@ -521,12 +524,19 @@ def dg_injection_kernel(Vf, Vc, ncell):
     macro_builder.set_coordinates(Vf.mesh())
 
     Vfe = create_element(Vf.ufl_element())
-    macro_quadrature_rule = make_quadrature(Vfe.cell, estimate_total_polynomial_degree(ufl.inner(f, f)))
+    ref_complex = Vfe.complex
+    variant = Vf.ufl_element().variant() or "default"
+    if "alfeld" in variant.lower():
+        from FIAT import macro
+        ref_complex = macro.PowellSabinSplit(Vfe.cell)
+
+    macro_quadrature_rule = make_quadrature(ref_complex, estimate_total_polynomial_degree(ufl.inner(f, f)))
     index_cache = {}
     parameters = default_parameters()
     integration_dim, entity_ids = lower_integral_type(Vfe.cell, "cell")
     macro_cfg = dict(interface=macro_builder,
                      ufl_cell=Vf.ufl_cell(),
+                     integral_type="cell",
                      integration_dim=integration_dim,
                      entity_ids=entity_ids,
                      index_cache=index_cache,
@@ -545,10 +555,11 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     info = TSFCIntegralDataInfo(domain=Vc.mesh(),
                                 integral_type="cell",
-                                subdomain_id="otherwise",
+                                subdomain_id=("otherwise",),
                                 domain_number=0,
                                 arguments=(ufl.TestFunction(Vc), ),
                                 coefficients=(),
+                                coefficient_split={},
                                 coefficient_numbers=())
 
     coarse_builder = firedrake_interface.KernelBuilder(info, parameters["scalar_type"])
@@ -563,6 +574,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     coarse_cfg = dict(interface=coarse_builder,
                       ufl_cell=Vc.ufl_cell(),
+                      integral_type="cell",
                       integration_dim=integration_dim,
                       entity_ids=entity_ids,
                       index_cache=index_cache,
@@ -708,9 +720,10 @@ def dg_injection_kernel(Vf, Vc, ncell):
     kernel = lp.make_kernel(
         domains, instructions, kernel_data, name=kernel_name,
         target=tsfc.parameters.target, lang_version=(2018, 2))
-    kernel = lp.merge([kernel, *subkernels])
+    kernel = lp.merge([kernel, *subkernels]).with_entrypoints({kernel_name})
     return op2.Kernel(
-        kernel, name=kernel_name, include_dirs=Ainv.include_dirs, headers=Ainv.headers)
+        kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
+        headers=Ainv.headers, events=Ainv.events)
 
 
 def _generate_call_insn(name, args, *, iname_prefix=None, **kwargs):
