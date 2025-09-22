@@ -1063,7 +1063,7 @@ class FunctionSpace:
         r"""A numpy array mapping mesh cells to function space nodes."""
         # internal detail really, do not expose in pyop3/__init__.py
         from pyop3.expr.visitors import loopified_shape, get_shape
-        from firedrake.parloops import maybe_permute_packed_tensor
+        from firedrake.parloops import transform_packed_cell_closure_dat
 
         mesh = self.mesh()
 
@@ -1073,7 +1073,7 @@ class FunctionSpace:
 
         cell_index = self._mesh.cells.owned.iter()
         # need to hide shape information here (hence the empty tuple)
-        map_expr = maybe_permute_packed_tensor(indices_dat[mesh.closure(cell_index)], self.finat_element, ())
+        map_expr = transform_packed_cell_closure_dat(indices_dat[mesh.closure(cell_index)], self, cell_index)
         map_axes = op3.AxisTree(self._mesh.cells.owned.root)
         map_axes = map_axes.add_subtree(map_axes.leaf_path, get_shape(map_expr)[0])
         map_dat = op3.Dat.empty(map_axes, dtype=IntType)

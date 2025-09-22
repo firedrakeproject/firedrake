@@ -29,7 +29,7 @@ from firedrake.formmanipulation import split_form
 from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_unique_domain
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
-from firedrake.parloops import pack_pyop3_tensor, pack_tensor, _cell_integral_pack_indices, _facet_integral_pack_indices
+from firedrake.parloops import pack_pyop3_tensor, pack_tensor
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
@@ -1608,8 +1608,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     if integral_type == "cell":
                         iterset = mesh.cells.owned
                         index = iterset.index()
-                        rmap = _cell_integral_pack_indices(Vrow, index)
-                        cmap = _cell_integral_pack_indices(Vcol, index)
+                        rmap = mesh.closure(index)
+                        cmap = rmap
                     elif integral_type in {"exterior_facet", "interior_facet"}:
                         if integral_type == "exterior_facet":
                             iterset = plex.exterior_facets.set
@@ -1618,8 +1618,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                             iterset = plex.interior_facets.set
 
                         index = iterset.index()
-                        rmap = _facet_integral_pack_indices(Vrow, index)
-                        cmap = _facet_integral_pack_indices(Vcol, index)
+                        rmap = mesh.closure(mesh.support(index))
+                        cmap = rmap
 
                     loop = (index, rmap, cmap, local_kernel.indices)
                     loops.append(loop)
@@ -1629,7 +1629,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     def _make_maps_and_regions_default(test, trial, allocation_integral_types):
         assert allocation_integral_types is not None
 
-        mesh = op3.utils.single_valued(extract_unique_domain(a) for a in {test, trial})
+        mesh = utils.single_valued(extract_unique_domain(a) for a in {test, trial})
         plex = mesh.topology
         Vrow = test.function_space()
         Vcol = trial.function_space()
@@ -1642,8 +1642,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             if integral_type == "cell":
                 iterset = plex.cells.owned
                 index = iterset.index()
-                rmap = _cell_integral_pack_indices(Vrow, index)
-                cmap = _cell_integral_pack_indices(Vcol, index)
+                rmap = mesh.closure(index)
+                cmap = rmap
             elif integral_type in {"exterior_facet", "interior_facet"}:
                 if integral_type == "exterior_facet":
                     iterset = plex.exterior_facets.set
@@ -1652,8 +1652,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     iterset = plex.interior_facets.set
 
                 index = iterset.index()
-                rmap = _facet_integral_pack_indices(Vrow, index)
-                cmap = _facet_integral_pack_indices(Vcol, index)
+                rmap = mesh.closure(mesh.support(index))
+                cmap = rmap
 
             loop = (index, rmap, cmap, (None, None))
             loops.append(loop)

@@ -25,7 +25,7 @@ import finat
 
 import firedrake
 from firedrake import tsfc_interface, utils, functionspaceimpl
-from firedrake.parloops import maybe_permute_packed_tensor, pack_tensor, pack_pyop3_tensor
+from firedrake.parloops import pack_tensor, pack_pyop3_tensor, transform_packed_cell_closure_dat, transform_packed_cell_closure_mat
 from firedrake.ufl_expr import Argument, Coargument, action, adjoint as expr_adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
@@ -1110,10 +1110,11 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
     expr_arguments = extract_arguments(expr)
     if len(expr_arguments) == 0:
-        packed_tensor = pack_pyop3_tensor(tensor, V, cell_index, "cell")
+        packed_tensor  = transform_packed_cell_closure_dat(tensor[V.mesh().closure(cell_index)], V, cell_index)
         local_kernel_args.append(packed_tensor)
     else:
-        raise NotImplementedError
+        if len(V) > 1:
+            raise NotImplementedError
         assert len(expr_arguments) == 1
         assert access == op3.WRITE  # Other access descriptors not done for Matrices.
         rows_map = V.mesh().topology.closure
@@ -1136,7 +1137,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
             bc_rows = [bc for bc in bcs if bc.function_space() == V]
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = [(V.local_to_global_map(bc_rows), Vcol.local_to_global_map(bc_cols))]
-        packed_tensor = maybe_permute_packed_tensor(tensor[rows_map(cell_index), columns_map(cell_index)], V.finat_element, Vcol.finat_element, V.shape, Vcol.shape)
+        packed_tensor = transform_packed_cell_closure_mat(tensor[rows_map(cell_index), columns_map(cell_index)], V, Vcol, cell_index)
+        breakpoint()
         local_kernel_args.append(packed_tensor)
 
     if kernel.oriented:

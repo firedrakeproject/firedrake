@@ -427,106 +427,10 @@ def _(
         cell = mesh.support(facet)
         packed_dat = dat[mesh.closure(cell)]
         depth = 1
-
-        # It is simplest to transform cell closures without having to think
-        # about things like whether there is an extra axis indicating the
-        # facet. We therefore drop the facet axis, perform the transformation,
-        # and then put everything back together at the end.
-        # cell_packed_dat = packed_dat[0]
-        # cell_dat_sequence = transform_packed_cell_closure_dat(cell_packed_dat, V, cell)
-        # dat_sequence = []
-        # for cell_dat in cell_dat_sequence:
-        #     transformed_axes = op3.AxisTree(packed_dat.axes.root)
-        #     transformed_axes = transformed_axes.add_subtree(None, cell_dat.axes)
-        #
-        #     # targets = ???
-        #     breakpoint()
-        #
-        #     transformed_axes = op3.IndexedAxisTree(transformed_axes, targets=targets, unindexed=cell_dat.axes.unindexed)
-        #
-        #     if cell_dat.buffer is not packed_dat.buffer:
-        #         raise NotImplementedError("Equivalent to having these pesky temporaries")
-        #     tranformed_packed_dat = cell_dat.with_axes(transformed_axes)
-        #     dat_sequence.append(transformed_packed_dat)
     else:
         raise NotImplementedError
 
-    dat_sequence = transform_packed_cell_closure_dat(packed_dat, V, cell, depth)
-
-    assert len(dat_sequence) % 2 == 1, "Must have an odd number"
-
-    # NOTE: This replicates some logic about packing that we already have, if we package up
-    # the pack and unpack instructions somehow we could delay actually doing them until
-    # the compiler could decide if they are needed.
-    if len(dat_sequence) > 1:
-        # need to have sequential assignments I think
-        raise NotImplementedError
-
-    kernel_dat = dat_sequence[len(dat_sequence) // 2]
-
-    return kernel_dat
-
-
-    # if integral_type == "cell":
-    #     pack_indices = _cell_integral_pack_indices(V, index)
-    # elif integral_type in {"exterior_facet", "interior_facet"}:
-    #     pack_indices = _facet_integral_pack_indices(V, index)
-    # else:
-    #     raise NotImplementedError
-    #
-    # return maybe_permute_packed_tensor(array[pack_indices], V.finat_element, V.shape)
-    #
-    # # TODO: use maybe_permute_packed_tensor here
-    #
-    # plex = V.mesh().topology  # used?
-    #
-    # # handle entity_dofs - this is done treating all nodes as equivalent so we have to
-    # # discard shape beforehand
-    # subaxes = []
-    # sub_perms = []
-    # permutation_needed = False
-    # for subspace in V:
-    #     dof_numbering = _flatten_entity_dofs(subspace.finat_element.entity_dofs())
-    #     perm = invert_permutation(dof_numbering)
-    #
-    #     # skip if identity
-    #     if not np.all(perm == np.arange(perm.size, dtype=IntType)):
-    #         permutation_needed = True
-    #
-    #     perm_dat = op3.Dat.from_array(perm, prefix="perm", buffer_kwargs={"constant": True})
-    #     perm_axis = perm_dat.axes.root
-    #     perm_subset = op3.Slice(perm_axis.label, [op3.Subset(perm_axis.component.label, perm_dat)])
-    #     sub_perms.append(perm_subset)
-    #
-    #     indexed_axes = op3.AxisTree.from_iterable([perm_axis, *subspace.shape])
-    #     subaxes.append(indexed_axes)
-    #
-    # if permutation_needed:
-    #     if len(V) > 1:
-    #         indexed_axes = op3.AxisTree(indexed.axes.root)
-    #         for subspace, subtree in zip(V, subaxes, strict=True):
-    #             indexed_axes = indexed_axes.add_subtree(idict({"field": subspace.index}), subtree)
-    #
-    #         field_slice = op3.Slice("field", [op3.AffineSliceComponent(subspace.index, label=subspace.index) for subspace in V], label="field")
-    #         index_tree = op3.IndexTree.from_nest({field_slice: sub_perms})
-    #
-    #         # indexed = indexed.reshape(indexed_axes)[:, sub_perms]
-    #         indexed = indexed.reshape(indexed_axes)[index_tree]
-    #     else:
-    #         # TODO: Should be able to just pass a Dat here and have it DTRT
-    #         indexed_axes = utils.just_one(subaxes)
-    #         perm_subset = utils.just_one(sub_perms)
-    #         indexed = indexed.reshape(indexed_axes)[perm_subset]
-    #
-    # if plex.ufl_cell() == ufl.hexahedron:
-    #     raise NotImplementedError
-    #     perms = _entity_permutations(V)
-    #     mytree = _orientations(plex, perms, index, integral_type)
-    #     mytree = _with_shape_indices(V, mytree, integral_type in {"exterior_facet", "interior_facet"})
-    #
-    #     indexed = indexed.getitem(mytree, strict=True)
-    #
-    # return indexed
+    return transform_packed_cell_closure_dat(packed_dat, V, cell, depth=depth)
 
 
 @pack_pyop3_tensor.register(op3.Mat)
@@ -579,36 +483,9 @@ def _(
 
     return kernel_dat
 
-    # # First collect the DoFs in the cell closure in FIAT order.
-    # if integral_type == "cell":
-    #     rmap = _cell_integral_pack_indices(Vrow, index)
-    #     cmap = _cell_integral_pack_indices(Vcol, index)
-    # elif integral_type in {"exterior_facet", "interior_facet"}:
-    #     rmap = _facet_integral_pack_indices(Vrow, index)
-    #     cmap = _facet_integral_pack_indices(Vcol, index)
-    # else:
-    #     raise NotImplementedError
-    #
-    # indexed = mat[rmap, cmap]
-    #
-    # return maybe_permute_packed_tensor(indexed, Vrow.finat_element, Vcol.finat_element, Vrow.shape, Vcol.shape)
 
-
-@functools.singledispatch
-def maybe_permute_packed_tensor(tensor: op3.Tensor, *spaces) -> op3.Tensor:
-    raise TypeError
-
-
-def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op3.LoopIndex, depth):
+def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op3.LoopIndex, *, depth: int = 0):
     dat_sequence = [packed_dat]
-
-    outer_axes = []
-    path = idict()
-    for _ in range(depth):
-        outer_axis = packed_dat.axes.node_map[path]
-        # don't think this makes sense otherwise, mixed done via recombination higher up
-        assert len(outer_axis.components) == 1
-        outer_axes.append(outer_axis)
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
     # TODO: Can be more fussy I think, only higher degree?
@@ -617,67 +494,48 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
         orientation_perm = _orientations(space, perms, loop_index)
         dat_sequence[-1] = dat_sequence[-1][*(slice(None),)*depth, orientation_perm]
 
-    dof_numbering = _flatten_entity_dofs(space.finat_element.entity_dofs())
-    dof_perm = invert_permutation(dof_numbering)
-    # skip if identity
-    if (dof_perm != np.arange(dof_perm.size, dtype=IntType)).any():
+    if _needs_static_permutation(space.finat_element):
+        nodal_axis_tree, dof_perm_slice = _static_node_permutation_slice(packed_dat.axes, space, depth)
+        dat_sequence[-1] = dat_sequence[-1].reshape(nodal_axis_tree)[dof_perm_slice]
 
-        nodal_axis = op3.Axis(len(dof_numbering))
-        nodal_axis_tree = op3.AxisTree.from_iterable([*outer_axes, nodal_axis, *space.shape])
-
-        dof_perm_dat = op3.Dat(nodal_axis, data=dof_perm, prefix="perm", buffer_kwargs={"constant": True})
-        dof_perm_slice = op3.Slice(
-            nodal_axis.label,
-            [op3.Subset(None, dof_perm_dat)],
-        )
-
-        dat_sequence[-1] = dat_sequence[-1].reshape(nodal_axis_tree)[*(slice(None),)*depth, dof_perm_slice]
-
-    return dat_sequence
+    assert len(dat_sequence) % 2 == 1, "Must have an odd number"
+    # I want to return a 'PackUnpackKernelArg' type that has information
+    # about how to transform something before and after passing to a function. We can then defer
+    # emitting these instructions until the intent information dicates that it is needed.
+    if len(dat_sequence) > 1:
+        # need to have sequential assignments I think
+        raise NotImplementedError
+    return dat_sequence[len(dat_sequence) // 2]
 
 
-def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_space, cell_index: op3.Index):
+def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_space, cell_index: op3.Index, *, row_depth=0, column_depth=0):
+    mat_sequence = [packed_mat]
+
     row_element = row_space.finat_element
     column_element = column_space.finat_element
 
-    row_perm = _flatten_entity_dofs(row_element.entity_dofs())
-    row_perm = invert_permutation(row_perm)
-    col_perm = _flatten_entity_dofs(column_element.entity_dofs())
-    col_perm = invert_permutation(col_perm)
+    # Do this before the DoF transformations because this occurs at the level of entities, not nodes
+    # TODO: Can be more fussy I think, only higher degree?
+    if utils.single_valued(space.ufl_element().cell == ufl.hexahedron for space in {row_space, column_space}):
+        row_orientation_perm = _orientations(row_space, _entity_permutations(row_space), cell_index)
+        column_orientation_perm = _orientations(column_space, _entity_permutations(column_space), cell_index)
+        row_perm = [*(slice(None),)*row_depth, row_orientation_perm]
+        column_perm = [*(slice(None),)*column_depth, column_orientation_perm]
+        mat_sequence[-1] = mat_sequence[-1][row_perm, column_perm]
 
-    # skip if identity
-    if (
-        np.any(row_perm != np.arange(row_perm.size, dtype=IntType))
-        or np.any(col_perm != np.arange(col_perm.size, dtype=IntType))
-    ):
-        row_perm_dat = op3.Dat.from_array(row_perm, prefix="perm", buffer_kwargs={"constant": True})
-        row_perm_axis = row_perm_dat.axes.root
-        row_perm_subset = op3.Slice(row_perm_axis.label, [op3.Subset(row_perm_axis.component.label, row_perm_dat)])
+    if _needs_static_permutation(row_space.finat_element) or _needs_static_permutation(column_space.finat_element):
+        row_nodal_axis_tree, row_dof_perm_slice = _static_node_permutation_slice(packed_mat.row_axes, row_space, row_depth)
+        column_nodal_axis_tree, column_dof_perm_slice = _static_node_permutation_slice(packed_mat.column_axes, column_space, column_depth)
+        mat_sequence[-1] = mat_sequence[-1].reshape(row_nodal_axis_tree, column_nodal_axis_tree)[row_dof_perm_slice, column_dof_perm_slice]
 
-        col_perm_dat = op3.Dat.from_array(col_perm, prefix="perm", buffer_kwargs={"constant": True})
-        col_perm_axis = col_perm_dat.axes.root
-        col_perm_subset = op3.Slice(col_perm_axis.label, [op3.Subset(col_perm_axis.component.label, col_perm_dat)])
-
-        indexed_row_axes = op3.AxisTree.from_iterable([row_perm_axis, *row_space.shape])
-        indexed_col_axes = op3.AxisTree.from_iterable([col_perm_axis, *column_space.shape])
-
-        packed_mat = packed_mat.reshape(indexed_row_axes, indexed_col_axes)[row_perm_subset, col_perm_subset]
-
-    return (packed_mat,)
-
-def _cell_integral_pack_indices(V: WithGeometry, cell: op3.LoopIndex) -> op3.IndexTree:
-    if len(V) > 1:
-        return (slice(None), V._mesh.closure(cell))
-    else:
-        return V._mesh.closure(cell)
-
-
-def _facet_integral_pack_indices(V: WithGeometry, facet: op3.LoopIndex) -> op3.IndexTree:
-    mesh = V._mesh
-    if len(V) > 1:
-        return (slice(None), mesh.closure(mesh.support(facet)))
-    else:
-        return mesh.closure(mesh.support(facet))
+    assert len(mat_sequence) % 2 == 1, "Must have an odd number"
+    # I want to return a 'PackUnpackKernelArg' type that has information
+    # about how to transform something before and after passing to a function. We can then defer
+    # emitting these instructions until the intent information dicates that it is needed.
+    if len(mat_sequence) > 1:
+        # need to have sequential assignments I think
+        raise NotImplementedError
+    return mat_sequence[len(mat_sequence) // 2]
 
 
 @serial_cache(lambda fs: fs.finat_element)
@@ -788,3 +646,37 @@ def _flatten_entity_dofs(entity_dofs):
             flat_entity_dofs.extend(dofs)
     flat_entity_dofs = np.asarray(flat_entity_dofs, dtype=IntType)
     return readonly(flat_entity_dofs)
+
+
+def _static_node_permutation_slice(packed_axis_tree: op3.AxisTree, space: WithGeometry, depth: int) -> tuple[op3.AxisTree, tuple]:
+    permutation = _node_permutation_from_element(space.finat_element)
+
+    # TODO: Could be 'AxisTree.linear_to_depth()' or similar
+    outer_axes = []
+    path = idict()
+    for _ in range(depth):
+        outer_axis = packed_axis_tree.node_map[path]
+        assert len(outer_axis.components) == 1
+        outer_axes.append(outer_axis)
+
+    nodal_axis = op3.Axis(permutation.size)
+    nodal_axis_tree = op3.AxisTree.from_iterable([*outer_axes, nodal_axis, *space.shape])
+
+    dof_perm_dat = op3.Dat(nodal_axis, data=permutation, prefix="perm", buffer_kwargs={"constant": True})
+    dof_perm_slice = op3.Slice(
+        nodal_axis.label,
+        [op3.Subset(None, dof_perm_dat)],
+    )
+
+    return nodal_axis_tree, (*[slice(None)]*depth, dof_perm_slice)
+
+
+@functools.cache
+def _node_permutation_from_element(element) -> np.ndarray:
+    return readonly(invert_permutation(_flatten_entity_dofs(element.entity_dofs())))
+
+
+@functools.cache
+def _needs_static_permutation(element) -> bool:
+    perm = _node_permutation_from_element(element)
+    return any(perm != np.arange(perm.size, dtype=perm.dtype))

@@ -284,17 +284,8 @@ def test_cellvolume_higher_order_coords():
     def warp(x):
         return x * (x - 1)*(x + 19/12.0)
 
-    for edge_dof in range(2):
-        coord = f.dat.get_value(
-            {m.topology.name: 0, "dof": edge_dof, "dim0": 0},
-            path={m.topology.name: m.edge_label, "dof": "XXX", "dim0": "XXX"}
-        )
-        warped = warp(coord)
-        f.dat.set_value(
-            {m.topology.name: 0, "dof": edge_dof, "dim0": 1},
-            warped,
-            path={m.topology.name: m.edge_label, "dof": "XXX", "dim0": "XXX"}
-        )
+    f_data = f.dat.data_rw.reshape((-1, 2))
+    f_data[1:3, 1] = warp(f_data[1:3, 0])
 
     mesh = Mesh(f)
     g = assemble(interpolate(CellVolume(mesh), FunctionSpace(mesh, 'DG', 0)))

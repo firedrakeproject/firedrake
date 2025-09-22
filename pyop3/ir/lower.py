@@ -372,8 +372,8 @@ class ModuleExecutor:
         for index in self._modified_buffer_indices:
             buffers[index].inc_state()
 
-        # if len(self.loopy_code.callables_table) > 1:
-        #     breakpoint()
+        if len(self.loopy_code.callables_table) > 1:
+            breakpoint()
         # if "MatSetValues" in str(self):
         #     breakpoint()
         # if "integral" in str(self):
@@ -908,10 +908,10 @@ def _compile_petsc_mat(assignment: ConcretizedNonEmptyArrayAssignment, loop_indi
 
     # hacky
     myargs = [
-        # assignment, mat_name, array_name, rsize_var, csize_var, irow_var_name, icol_var_name, blocked
         assignment, mat_name, array_name, rsize_var, csize_var, irow, icol, blocked
     ]
     if setting_mat_values:
+        breakpoint()
         match assignment.assignment_type:
             case AssignmentType.WRITE:
                 call_str = _petsc_mat_store(*myargs)

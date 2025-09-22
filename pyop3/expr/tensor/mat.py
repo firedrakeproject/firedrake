@@ -296,12 +296,21 @@ class Mat(Tensor):
         col_axes = self.caxes.context_free
         return self.__record_init__(raxes=row_axes, caxes=col_axes)
 
-    # TODO: deprecate for row_axes
     @property
-    def raxes(self):
+    def row_axes(self):
         return self.row_axis_forest.trees[0]
 
     @property
+    def column_axes(self):
+        return self.column_axis_forest.trees[0]
+
+    @property
+    @utils.deprecated("row_axes")
+    def raxes(self):
+        return self.row_axes
+
+    @property
+    @utils.deprecated("row_axes")
     def caxes(self):
         return self.column_axis_forest.trees[0]
 
