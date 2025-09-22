@@ -233,12 +233,13 @@ class L2TransformedFunctional(AbstractReducedFunctional):
     @no_annotations
     def __call__(self, values):
         values = Enlist(values)
-        m_D, m_J = self._m_k = self._dual_transform(values)
+        m_D, m_J = self._dual_transform(values)
         J = self._J(m_J)
         if self._alpha != 0:
-            for space, space_D, m_D, m_J in zip(self._space, self._space_D, *self._m_k):
+            for space, space_D, m_D_i, m_J_i in zip(self._space, self._space_D, m_D, m_J):
                 if space is not space_D:
-                    J += fd.assemble(0.5 * fd.Constant(self._alpha) * fd.inner(m_D - m_J, m_D - m_J) * fd.dx)
+                    J += fd.assemble(0.5 * fd.Constant(self._alpha) * fd.inner(m_D_i - m_J_i, m_D_i - m_J_i) * fd.dx)
+        self._m_k = m_D, m_J
         return J
 
     @no_annotations
