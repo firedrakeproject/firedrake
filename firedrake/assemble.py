@@ -593,15 +593,6 @@ class BaseFormAssembler(AbstractFormAssembler):
             # Get the interpolator
             interp_data = expr.interp_data.copy()
             default_missing_val = interp_data.pop('default_missing_val', None)
-
-            target_mesh = V.mesh()
-            source_mesh = extract_unique_domain(operand) or target_mesh
-            if (source_mesh is target_mesh) and ((is_adjoint and rank == 1) or rank == 0):
-                # Adjoint interpolation of a Cofunction or the action of a
-                # Cofunction on an interpolated Function require INC access
-                # on the output tensor
-                interp_data["access"] = op2.INC
-
             if rank == 1 and isinstance(tensor, firedrake.Function):
                 V = tensor
             interpolator = firedrake.Interpolator(expr, V, **interp_data)
