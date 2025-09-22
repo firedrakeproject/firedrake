@@ -28,7 +28,7 @@ def run_CG_problem(r, degree, quads=False):
     f = -div(grad(u_exact))
 
     # Set up function spaces
-    e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=degree)
+    e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=degree, variant="integral")
     V = FunctionSpace(mesh, MixedElement(e["interior"], e["facet"]))
     uh = Function(V)
 
@@ -48,14 +48,12 @@ def run_CG_problem(r, degree, quads=False):
             "mat_type": "aij",
             "ksp_monitor": None,
             "ksp_type": "cg",
-            "ksp_rtol": 1E-14,
-            "ksp_atol": 0E-14,
+            "ksp_rtol": 1E-10,
+            "ksp_atol": 0E-10,
             "ksp_norm_type": "natural",
             "pc_type": "mg",
             "mg_levels": {
                 "ksp_type": "chebyshev",
-                "ksp_chebyshev_kind": "fourth",
-                "ksp_chebyshev_esteig": "0,0.99,0,1.01",
                 "pc_type": "python",
                 "pc_python_type": "firedrake.ASMStarPC",
                 "pc_star_construct_dim": 0,
@@ -88,7 +86,7 @@ def test_cg_convergence(degree, quads, rate):
     for r in range(2, 5):
         error, its = run_CG_problem(r, degree, quads)
         errors.append(error)
-        assert its <= 21
+        assert its <= 13
 
     diff = np.array(errors)
     conv = np.log2(diff[:-1] / diff[1:])
