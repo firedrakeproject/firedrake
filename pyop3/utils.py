@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import pytools
 from immutabledict import immutabledict
+from pyop2 import mpi
 
 from pyop3.config import config
 from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception
@@ -707,6 +708,24 @@ def single_comm(objects, /, comm_attr: str, *, allow_nones: bool = False) -> MPI
         elif item_comm != comm:
             raise CommMismatchException("Multiple communicators found")
     return comm
+
+
+@mpi.collective
+def common_comm(objects, /, comm_attr: str) -> MPI.Comm:
+    """Return a communicator valid for all objects.
+
+    This is defined as the communicator with the largest size. I *think* that
+    this is the right way to think about this.
+
+    """
+    selected_comm = None
+    for item in iterflat(objects):
+        item_comm = getattr(item, comm_attr)
+
+        if selected_comm is None or item_comm.size > selected_comm.size:
+            selected_comm = item_comm
+    assert selected_comm is not None
+    return selected_comm
 
 
 def iterflat(iterable):
