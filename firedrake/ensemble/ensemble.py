@@ -243,6 +243,7 @@ class Ensemble(object):
             raise ValueError("Need to provide enough status objects for all parts of the Function")
         for dat, status in zip_longest(f.dat, statuses or (), fillvalue=None):
             self._ensemble_comm.Recv(dat.data, source=source, tag=tag, status=status)
+        return f
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
@@ -301,6 +302,7 @@ class Ensemble(object):
             self._ensemble_comm.Sendrecv(sendvec, dest, sendtag=sendtag,
                                          recvbuf=recvvec, source=source, recvtag=recvtag,
                                          status=status)
+        return frecv
 
     @PETSc.Log.EventDecorator()
     @_ensemble_mpi_dispatch
