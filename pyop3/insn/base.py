@@ -26,6 +26,7 @@ from pyop3 import utils
 from pyop3.tree.axis_tree import AxisTree
 from pyop3.tree.axis_tree.tree import UNIT_AXIS_TREE, ContextFree, ContextSensitive
 from pyop3.expr import BufferExpression
+from pyop3.sf import DistributedObject
 from pyop3.config import config
 from pyop3.dtypes import dtype_limits
 from pyop3.exceptions import Pyop3Exception
@@ -178,13 +179,7 @@ class UnprocessedExpressionException(Pyop3Exception):
     """Exception raised when pyop3 expected a preprocessed expression."""
 
 
-@dataclasses.dataclass(frozen=True)
-class PreprocessedExpression:
-    """Wrapper for an expression indicating that it has been prepared for code generation."""
-    expression: Instruction
-
-
-class Instruction(abc.ABC):
+class Instruction(DistributedObject, abc.ABC):
 
     @property
     def _cache(self) -> collections.defaultdict[dict]:
@@ -224,7 +219,7 @@ class Instruction(abc.ABC):
 
         insn = materialize_indirections(insn, compress=compiler_parameters.compress_indirection_maps)
 
-        return PreprocessedExpression(insn)
+        return insn
 
     def compile(self, compiler_parameters=None):
         compiler_parameters = parse_compiler_parameters(compiler_parameters)
@@ -261,8 +256,6 @@ class Loop(Instruction):
     index: LoopIndex
     statements: tuple[Instruction]
 
-    # }}}
-
     def __init__(
         self,
         index: LoopIndex,
@@ -272,6 +265,16 @@ class Loop(Instruction):
 
         object.__setattr__(self, "index", index)
         object.__setattr__(self, "statements", statements)
+
+    # }}}
+
+    # {{{ interface impls
+
+    @property
+    def user_comm(self) -> MPI.Comm:
+        return utils.single_comm(self.statements, "user_comm")
+
+    # }}}
 
     def __str__(self) -> str:
         stmt_strs = [textwrap.indent(str(stmt), "    ") for stmt in self.statements]
@@ -292,23 +295,10 @@ class Loop(Instruction):
 
         code = self.compile(compiler_parameters)
 
-        initializers = []
-        reductions = []
-        broadcasts = []
-        if self.comm.size > 1:
-            for data_arg in code.data_arguments:
-                if not isinstance(data_arg, ArrayBuffer):
-                    continue
-
-                inits, reds, bcasts = Loop._buffer_exchanges(
-                    data_arg, code.global_buffer_intents[data_arg.name]
-                )
-                initializers.extend(inits)
-                reductions.extend(reds)
-                broadcasts.extend(bcasts)
-
+        # TODO: Move to executor class
         # TODO: handle interleaving as a compiler_parameter somehow
         if compiler_parameters.interleave_comp_comm:
+            raise NotImplementedError
             new_index, (icore, iroot, ileaf) = partition_iterset(
                 self.index, [a for a, _ in self.function_arguments]
             )
@@ -357,19 +347,12 @@ class Loop(Instruction):
 
             # also may need to eagerly assemble Mats, or be clever and spike the accessors?
         else:
-            # Unoptimised case: perform all transfers eagerly
-            for init in initializers:
-                init()
-            for red in reductions:
-                red()
-            for bcast in broadcasts:
-                bcast()
-
             # TODO: reenable logging (what is 'self.name')?
             # with PETSc.Log.Event(f"apply_{self.name}"):
             code(replacement_buffers)
 
     @property
+    @utils.deprecated()
     def comm(self):
         # maybe collect the comm by looking at everything?
         return self.index.iterset.comm
@@ -394,125 +377,6 @@ class Loop(Instruction):
                 args.add(arg)
         return tuple(args)
 
-    def _array_updates(self):
-        """Collect appropriate callables for updating shared values in the right order.
-
-        Returns
-        -------
-        (initializers, (finalizers0, finalizers1))
-            Collections of callables to be executed at the right times.
-
-        """
-        from pyop3 import Dat, Mat
-        from pyop3.buffer import ArrayBuffer
-
-        initializers = []
-        reductions = []
-        broadcasts = []
-        for arg, intent in self.function_arguments:
-            if isinstance(arg, Dat):
-                buffer = arg.buffer
-                if isinstance(buffer, ArrayBuffer) and buffer.is_distributed:
-                    # for now assume the most conservative case
-                    touches_ghost_points = True
-
-                    inits, reds, bcasts = self._buffer_exchanges(
-                        buffer, intent, touches_ghost_points=touches_ghost_points
-                    )
-                    initializers.extend(inits)
-                    reductions.extend(reds)
-                    broadcasts.extend(bcasts)
-            elif isinstance(arg, ContextSensitiveDat):
-                # assumed to not be distributed
-                pass
-            else:
-                assert isinstance(arg, Mat)
-                # just in case
-                broadcasts.append(arg.assemble)
-
-        return initializers, reductions, broadcasts
-
-    # I hate staticmethods now, refactor
-    @staticmethod
-    def _buffer_exchanges(buffer, intent):
-        initializers, reductions, broadcasts = [], [], []
-
-        # Possibly instead of touches_ghost_points we could produce custom SFs for each loop
-        # (we have filter_star_forest())
-        # For now we just disregard the optimisation
-        touches_ghost_points = True
-
-        if intent in {READ, RW}:
-            if touches_ghost_points:
-                if not buffer._roots_valid:
-                    initializers.append(buffer._reduce_leaves_to_roots_begin)
-                    reductions.extend([
-                        buffer._reduce_leaves_to_roots_end,
-                        buffer._broadcast_roots_to_leaves_begin,
-                    ])
-                    broadcasts.append(buffer._broadcast_roots_to_leaves_end)
-                else:
-                    initializers.append(buffer._broadcast_roots_to_leaves_begin)
-                    broadcasts.append(buffer._broadcast_roots_to_leaves_end)
-            else:
-                if not buffer._roots_valid:
-                    initializers.append(buffer._reduce_leaves_to_roots_begin)
-                    reductions.append(buffer._reduce_leaves_to_roots_end)
-
-        elif intent == WRITE:
-            # Assumes that all points are written to (i.e. not a subset). If
-            # this is not the case then a manual reduction is needed.
-            buffer._leaves_valid = False
-            buffer._pending_reduction = None
-
-        else:
-            # reductions
-            assert intent in {INC, MIN_WRITE, MIN_RW, MAX_WRITE, MAX_RW}
-            # We don't need to update roots if performing the same reduction
-            # again. For example we can increment into a buffer as many times
-            # as we want. The reduction only needs to be done when the
-            # data is read.
-            if buffer._roots_valid or intent == buffer._pending_reduction:
-                pass
-            else:
-                # We assume that all points are visited, and therefore that
-                # WRITE accesses do not need to update roots. If only a subset
-                # of entities are written to then a manual reduction is required.
-                # This is the same assumption that we make for data_wo.
-                if intent in {INC, MIN_RW, MAX_RW}:
-                    assert buffer._pending_reduction is not None
-                    initializers.append(buffer._reduce_leaves_to_roots_begin)
-                    reductions.append(buffer._reduce_leaves_to_roots_end)
-
-                # set leaves to appropriate nil value
-                if intent == INC:
-                    nil = 0
-                elif intent in {MIN_WRITE, MIN_RW}:
-                    nil = dtype_limits(buffer.dtype).max
-                else:
-                    assert intent in {MAX_WRITE, MAX_RW}
-                    nil = dtype_limits(buffer.dtype).min
-
-                def _init_nil():
-                    buffer._data[buffer.sf.ileaf] = nil
-
-                reductions.append(_init_nil)
-
-            # We are modifying owned values so the leaves must now be wrong
-            buffer._leaves_valid = False
-
-            # If ghost points are not modified then no future reduction is required
-            if not touches_ghost_points:
-                buffer._pending_reduction = None
-            else:
-                buffer._pending_reduction = intent
-
-        return tuple(initializers), tuple(reductions), tuple(broadcasts)
-
-    @cached_property
-    def datamap(self):
-        return self.index.datamap | merge_dicts(stmt.datamap for stmt in self.statements)
-
 
 @utils.frozenrecord()
 class InstructionList(Instruction):
@@ -522,11 +386,19 @@ class InstructionList(Instruction):
 
     instructions: tuple[Instruction]
 
-    # }}}
-
     def __init__(self, instructions: Iterable[Instruction]) -> None:
         instructions = tuple(instructions)
         object.__setattr__(self, "instructions", instructions)
+
+    # }}}
+
+    # {{{ interface impls
+
+    @property
+    def user_comm(self) -> MPI.Comm:
+        return utils.single_comm(self.instructions, "user_comm")
+
+    # }}}
 
     def __iter__(self):
         return iter(self.instructions)
@@ -839,25 +711,30 @@ class ArrayAssignment(AbstractAssignment):
     _assignee: Any
     _expression: Any
     _assignment_type: AssignmentType
+    _comm: MPI.Comm
 
-    # }}}
-
-    # {{{ interface impls
-
-    assignee: ClassVar[property] = property(lambda self: self._assignee)
-    expression: ClassVar[property] = property(lambda self: self._expression)
-    assignment_type: ClassVar[property] = property(lambda self: self._assignment_type)
-
-    # }}}
-
-    def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str) -> None:
+    def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str, *, comm: MPI.Comm) -> None:
         assignment_type = AssignmentType(assignment_type)
 
         object.__setattr__(self, "_assignee", assignee)
         object.__setattr__(self, "_expression", expression)
         object.__setattr__(self, "_assignment_type", assignment_type)
+        object.__setattr__(self, "_comm", comm)
+
+    # }}}
+
+    # {{{ interface impls
+
+    assignee: ClassVar[property] = utils.attr("_assignee")
+    expression: ClassVar[property] = utils.attr("_expression")
+    assignment_type: ClassVar[property] = utils.attr("_assignment_type")
+    user_comm: ClassVar[property] = utils.attr("_comm")
+
+    # }}}
 
 
+
+# FIXME: inconsistent argument ordering vs Concretized
 @utils.frozenrecord()
 class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
 
@@ -867,15 +744,26 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
     _expression: Any
     _axis_trees: tuple[AxisTree, ...]
     _assignment_type: AssignmentType
+    _comm: MPI.Comm
+
+    def __init__(self, assignee: Any, expression: Any, axis_trees, assignment_type: AssignmentType | str, *, comm: MPI.Comm) -> None:
+        assignment_type = AssignmentType(assignment_type)
+
+        object.__setattr__(self, "_assignee", assignee)
+        object.__setattr__(self, "_expression", expression)
+        object.__setattr__(self, "_axis_trees", axis_trees)
+        object.__setattr__(self, "_assignment_type", assignment_type)
+        object.__setattr__(self, "_comm", comm)
 
     # }}}
 
     # {{{ interface impls
 
-    assignee: ClassVar[property] = property(lambda self: self._assignee)
-    expression: ClassVar[property] = property(lambda self: self._expression)
-    axis_trees: ClassVar[property] = property(lambda self: self._axis_trees)
-    assignment_type: ClassVar[property] = property(lambda self: self._assignment_type)
+    assignee: ClassVar[property] = utils.attr("_assignee")
+    expression: ClassVar[property] = utils.attr("_expression")
+    axis_trees: ClassVar[property] = utils.attr("_axis_trees")
+    assignment_type: ClassVar[property] = utils.attr("_assignment_type")
+    user_comm: ClassVar[property] = utils.attr("_comm")
 
     # }}}
 
@@ -889,6 +777,16 @@ class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
     _expression: Any
     _assignment_type: AssignmentType
     _axis_trees: tuple[AxisTree, ...]
+    _comm: MPI.Comm
+
+    def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str, axis_trees, *, comm: MPI.Comm) -> None:
+        assignment_type = AssignmentType(assignment_type)
+
+        object.__setattr__(self, "_assignee", assignee)
+        object.__setattr__(self, "_expression", expression)
+        object.__setattr__(self, "_assignment_type", assignment_type)
+        object.__setattr__(self, "_axis_trees", axis_trees)
+        object.__setattr__(self, "_comm", comm)
 
     # }}}
 
@@ -898,6 +796,7 @@ class ConcretizedNonEmptyArrayAssignment(AbstractAssignment):
     expression: ClassVar[property] = property(lambda self: self._expression)
     assignment_type: ClassVar[property] = property(lambda self: self._assignment_type)
     axis_trees: ClassVar[property] = property(lambda self: self._axis_trees)
+    user_comm: ClassVar[property] = utils.attr("_comm")
 
     # }}}
 
@@ -911,6 +810,7 @@ class Exscan(Terminal):
     expression: Any
     scan_type: Any
     scan_axis: Axis
+    _comm: MPI.Comm
 
     # }}}
 
@@ -919,6 +819,10 @@ class Exscan(Terminal):
     @property
     def arguments(self) -> tuple[Any, Any]:
         return (self.assignee, self.expression)
+
+    @property
+    def user_comm(self) -> MPI.Comm:
+        return self._comm
 
     # }}}
 

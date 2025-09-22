@@ -13,11 +13,67 @@ from pyop2.mpi import internal_comm
 from pyop3.utils import just_one, strict_int
 
 
+# This is so we can more easily distinguish internal and external comms
+# It is still necessary to register weakref finalizers for these (see what
+# we do in Firedrake).
+class Pyop3Comm(MPI.Comm):
+    pass
+
+
+class ParallelAwareObject(abc.ABC):
+    """Abstract class for objects that know about communicators.
+
+    Unlike `DistributedObject`s, it is allowed for objects inheriting from
+    this class to have `None` for communicator values.
+
+    """
+
+    @property
+    @abc.abstractmethod
+    def user_comm(self) -> MPI.Comm | None:
+        pass
+
+    # TODO: probably decorate as 'collective'
+    @property
+    def internal_comm(self) -> Pyop3Comm | None:
+        if self.user_comm is None:
+            return None
+
+        # this is where the magic happens...
+        # but not yet
+        return self.user_comm
+
+    # TODO: cast to a Pyop3 and register a weakref handler of some kind
+    @staticmethod
+    def register_comm(self, comm) -> Pyop3Comm:
+        pass
+
+
+class DistributedObject(ParallelAwareObject, metaclass=abc.ABCMeta):
+    """Abstract class for objects that have a parallel execution context.
+
+    The expected usage is for classes to implement the attribute `user_comm`.
+
+    """
+
+    @property
+    def internal_comm(self) -> Pyop3Comm:
+        # this is where the magic happens...
+        # but not yet
+        assert self.user_comm is not None
+        return self.user_comm
+
+    @property
+    @abc.abstractmethod
+    def user_comm(self) -> MPI.Comm:
+        pass
+
+
 class BufferSizeMismatchException(Exception):
     pass
 
 
-class AbstractStarForest(abc.ABC):
+class AbstractStarForest(DistributedObject, abc.ABC):
 
     # {{{ abstract methods
 
@@ -86,7 +142,7 @@ class StarForest(AbstractStarForest):
         return cls(sf, size)
 
     @property
-    def comm(self) -> MPI.Comm:
+    def user_comm(self) -> MPI.Comm:
         return self.sf.comm.tompi4py()
 
     @cached_property
@@ -186,6 +242,10 @@ class StarForest(AbstractStarForest):
 
 
 class NullStarForest(AbstractStarForest):
+
+    @property
+    def user_comm(self) -> MPI.Comm:
+        return MPI.COMM_SELF
 
     def __eq__(self, other):
         return type(other) is type(self)

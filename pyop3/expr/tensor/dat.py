@@ -135,6 +135,10 @@ class Dat(Tensor):
     def axis_trees(self) -> tuple[AbstractAxisTree]:
         return (self.axes,)
 
+    @property
+    def user_comm(self) -> MPI.Comm:
+        return self.axis_forest.user_comm
+
     # }}}
 
     # {{{ constructors

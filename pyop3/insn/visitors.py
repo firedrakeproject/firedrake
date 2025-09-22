@@ -135,7 +135,7 @@ def _(func: CalledFunction, /, *, loop_context_acc) -> CalledFunction:
 def _(assignment: ArrayAssignment, /, *, loop_context_acc) -> ArrayAssignment:
     assignee = restrict_expression_to_context(assignment.assignee, loop_context_acc)
     expression = restrict_expression_to_context(assignment.expression, loop_context_acc)
-    return ArrayAssignment(assignee, expression, assignment.assignment_type)
+    return assignment.__record_init__(_assignee=assignee, _expression=expression)
 
 
 # for now assume we are fine
@@ -389,9 +389,10 @@ def _(assignment: ArrayAssignment, /) -> InstructionList:
     )
 
     if bare_assignee == assignment.assignee:
-        bare_assignment = ArrayAssignment(bare_assignee, bare_expression, assignment.assignment_type)
+        # no extra assignments
+        bare_assignment = assignment.__record_init__(_assignee=bare_assignee, _expression=bare_expression)
     else:
-        bare_assignment = ArrayAssignment(bare_assignee, bare_expression, "write")
+        bare_assignment = assignment.__record_init__(_assignee=bare_assignee, _expression=bare_expression, _assignment_type="write")
 
     return maybe_enlist((*extra_input_insns, bare_assignment, *reversed(extra_output_insns)))
 
@@ -537,7 +538,7 @@ def _(assignment: ArrayAssignment, /) -> NonEmptyArrayAssignment | NullInstructi
     assignee = concretize_expression_layouts(assignment.assignee, axis_trees)
     expression = concretize_expression_layouts(assignment.expression, axis_trees)
 
-    return NonEmptyArrayAssignment(assignee, expression, axis_trees, assignment.assignment_type)
+    return NonEmptyArrayAssignment(assignee, expression, axis_trees, assignment.assignment_type, comm=assignment.internal_comm)
 
 
 MAX_COST_CONSIDERATION_FACTOR = 5
@@ -694,5 +695,5 @@ def _(assignment: NonEmptyArrayAssignment, /, layouts: Mapping[Any, Any]) -> Con
         for i, arg in enumerate(assignment.arguments)
     )
     return ConcretizedNonEmptyArrayAssignment(
-        assignee, expression, assignment.assignment_type, assignment.axis_trees
+        assignee, expression, assignment.assignment_type, assignment.axis_trees, comm=assignment.user_comm
     )

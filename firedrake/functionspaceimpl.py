@@ -957,7 +957,7 @@ class FunctionSpace:
         """Dummy PETSc Vec of the right size for this set of axes."""
         vec = PETSc.Vec().create(comm=self.comm)
         vec.setSizes(
-            (self.layout_axes.owned.size, self.layout_axes.size),
+            (self.layout_axes.owned.size, self.layout_axes.global_size),
             bsize=self.block_size,
         )
         vec.setUp()
@@ -1933,7 +1933,7 @@ class MixedFunctionSpace:
         if self.comm.size > 1:
             raise NotImplementedError
         vec = PETSc.Vec().create(comm=self.comm)
-        vec.setSizes((self.axes.owned.size, self.axes.size), bsize=1)
+        vec.setSizes((self.axes.owned.size, self.axes.global_size), bsize=1)
         vec.setUp()
         return vec
 

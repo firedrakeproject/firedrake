@@ -452,13 +452,13 @@ def _accumulate_dat_expr(size_expr: LinearDatBufferExpression, linear_axis: Axis
         assignee = offset_dat[ix].concretize()
         scan_axis = replace_exprs(linear_axis, axis_to_loop_var_replace_map)
         loop_(
-            ix, exscan(assignee, size_expr_alt, "+", scan_axis), eager=True
+            ix, exscan(assignee, size_expr_alt, "+", scan_axis, assignee.user_comm), eager=True
         )
 
     else:
         # import pyop3
         # pyop3.extras.debug.maybe_breakpoint("b")
-        exscan(offset_dat.concretize(), size_expr, "+", linear_axis, eager=True)
+        exscan(offset_dat.concretize(), size_expr, "+", linear_axis, offset_dat.user_comm, eager=True)
 
     offset_expr = offset_dat.concretize()
 

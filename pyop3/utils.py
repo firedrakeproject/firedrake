@@ -16,7 +16,7 @@ import pytools
 from immutabledict import immutabledict
 
 from pyop3.config import config
-from pyop3.exceptions import Pyop3Exception
+from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception
 from pyop3.dtypes import DTypeT, IntType
 
 from mpi4py import MPI
@@ -670,20 +670,49 @@ def _(hashable: Hashable) -> Hashable:
     return hashable
 
 
-def unique_comm(iterable) -> MPI.Comm | None:
-    if isinstance(iterable, np.ndarray):
-        iterable = iterable.flatten()
+# def match_attr(iterable, /, attr_name: str, *, allow_missing=False) -> Any:
+#     attr = None
+#     attr_found = False
+#     for item in iterflat(iterable):
+#         if hasattr(item, attr_name):
+#             new_attr = getattr(item, attr_name)
+#
+#             if attr_found:
+#                 assert new_attr == attr
+#             else:
+#                 attr = new_attr
+#
+#             attr_found = True
+#         elif not allow_missing:
+#             raise RuntimeError
+#
+#     assert attr_found
+#     return attr
 
+
+
+def single_comm(objects, /, comm_attr: str, *, allow_nones: bool = False) -> MPI.Comm | None:
     comm = None
-    for item in iterable:
-        if not item.comm:
-            continue
+    for item in iterflat(objects):
+        item_comm = getattr(item, comm_attr)
+
+        if item_comm is None:
+            if allow_nones:
+                continue
+            else:
+                raise CommNotFoundException("Object does not have an associated communicator")
 
         if comm is None:
-            comm = item.comm
-        elif item.comm != comm:
-            raise ValueError("More than a single comm provided")
+            comm = item_comm
+        elif item_comm != comm:
+            raise CommMismatchException("Multiple communicators found")
     return comm
+
+
+def iterflat(iterable):
+    if isinstance(iterable, np.ndarray):
+        iterable = iterable.flatten()
+    return iter(iterable)
 
 
 def as_numpy_scalar(value: numbers.Number) -> np.number:

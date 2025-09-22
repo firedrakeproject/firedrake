@@ -2160,6 +2160,7 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
     if len(regions) == 1:
         region = utils.just_one(regions)
         region_size = utils.ceildiv((stop - start), step)
+        region_size = expr_replace(region_size, parent_exprs)
         indexed_region = AxisComponentRegion(region_size, region.label)
         return (indexed_region,)
 

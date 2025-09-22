@@ -19,3 +19,7 @@ class CommMismatchException(Pyop3Exception):
 
 class InvalidIndexTargetException(Pyop3Exception):
     """Exception raised when we try to match index information to a mismatching axis tree."""
+
+
+class CommNotFoundException(Pyop3Exception):
+    pass

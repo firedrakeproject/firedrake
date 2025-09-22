@@ -8,13 +8,14 @@ from typing import ClassVar
 
 from pyop3 import utils
 from pyop3.buffer import BufferRef, AbstractBuffer
+from pyop3.sf import DistributedObject
 
 from .base import Expression, as_str
 from .tensor import Dat, NonlinearCompositeDat
 
 
 # TODO: Should inherit from Terminal (but Terminal has odd attrs)
-class BufferExpression(Expression, metaclass=abc.ABCMeta):
+class BufferExpression(Expression, DistributedObject, metaclass=abc.ABCMeta):
 
     # {{{ abstract methods
 
@@ -22,6 +23,14 @@ class BufferExpression(Expression, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def buffer(self) -> AbstractBuffer:
         pass
+
+    # }}}
+
+    # {{{ interface impls
+
+    @property
+    def user_comm(self) -> MPI.Comm:
+        return self.buffer.user_comm
 
     # }}}
 
@@ -36,12 +45,12 @@ class BufferExpression(Expression, metaclass=abc.ABCMeta):
     def assign(self, other) -> ArrayAssignment:
         from pyop3.insn import ArrayAssignment
 
-        return ArrayAssignment(self, other, "write")
+        return ArrayAssignment(self, other, "write", comm=self.user_comm)
 
     def iassign(self, other) -> ArrayAssignment:
         from pyop3.insn import ArrayAssignment
 
-        return ArrayAssignment(self, other, "inc")
+        return ArrayAssignment(self, other, "inc", comm=self.user_comm)
 
 
 # class ArrayBufferExpression(BufferExpression, metaclass=abc.ABCMeta):

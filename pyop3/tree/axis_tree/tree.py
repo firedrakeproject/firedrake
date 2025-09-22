@@ -29,7 +29,7 @@ from petsc4py import PETSc
 from pyop2.caching import active_scoped_cache, cached_on, CacheMixin
 from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
 from pyop3.dtypes import IntType
-from pyop3.sf import NullStarForest, StarForest, local_sf, single_star_sf
+from pyop3.sf import DistributedObject, NullStarForest, ParallelAwareObject, StarForest, local_sf, single_star_sf
 from pyop2.mpi import collective
 from pyop3 import utils
 from pyop3.tree.labelled_tree import (
@@ -53,7 +53,6 @@ from pyop3.tree.labelled_tree import (
 )
 from pyop3.utils import (
     has_unique_entries,
-    unique_comm,
     debug_assert,
     deprecated,
     invert,
@@ -477,8 +476,8 @@ class AxisComponent(LabelledNodeComponent):
         return utils.strictly_all(r.label is not None for r in self.regions)
 
     @property
-    def comm(self) -> MPI.Comm | None:
-        return self.sf.comm if self.sf else None
+    def user_comm(self) -> MPI.Comm | None:
+        return self.sf.user_comm if self.sf else None
 
     @property
     def _region_labels(self) -> tuple[ComponentRegionLabelT]:
@@ -496,7 +495,7 @@ class AxisComponent(LabelledNodeComponent):
         return self.copy(sf=None)
 
 
-class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
+class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareObject):
     fields = MultiComponentLabelledNode.fields | {"components"}
 
     def __init__(
@@ -579,8 +578,12 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
         return self.components[self.component_index(component_label)]
 
     @property
-    def comm(self) -> MPI.Comm | None:
-        return unique_comm(self.components)
+    def user_comm(self) -> MPI.Comm | None:
+        return utils.single_comm(self.components, "user_comm", allow_nones=True)
+
+    @property
+    def user_comm(self) -> MPI.Comm | None:
+        return utils.single_comm(self.components, "user_comm", allow_nones=True)
 
     @property
     def size(self):
@@ -709,7 +712,7 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin):
             return (as_axis_component(components),)
 
 
-class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree):
+class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject):
 
     # {{{ abstract methods
 
@@ -1018,8 +1021,9 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree):
         return section
 
     @property
+    @utils.deprecated("internal_comm")
     def comm(self) -> MPI.Comm:
-        return unique_comm(self.nodes) or MPI.COMM_SELF
+        return self.internal_comm
 
     @cached_property
     def owned(self):
@@ -1031,7 +1035,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree):
 
     def with_region_label(self, region_label: str) -> IndexedAxisTree:
         """TODO"""
-        return self.with_region_labels([region_label])
+        return self.with_region_labels({region_label})
 
     def with_region_labels(self, region_labels: Sequence[ComponentRegionLabelT], *, allow_missing: bool = False) -> IndexedAxisTree:
         """TODO"""
@@ -1046,6 +1050,8 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree):
     # NOTE: Unsure if this should be a method
     def _region_slice(self, region_labels: set, *, path: PathT = idict()) -> "IndexTree":
         from pyop3.tree.index_tree import AffineSliceComponent, RegionSliceComponent, IndexTree, Slice
+
+        region_labels = set(region_labels)
 
         path = as_path(path)
         axis = self.node_map[path]
@@ -1311,6 +1317,10 @@ class AxisTree(MutableLabelledTreeMixin, AbstractAxisTree):
         else:
             return self[self._block_indices(block_shape)].materialize()
 
+    @property
+    def user_comm(self):
+        return utils.single_comm(self.nodes, "user_comm", allow_nones=True) or MPI.COMM_SELF
+
     # }}}
 
     def localize(self) -> AxisTree:
@@ -1547,8 +1557,8 @@ class IndexedAxisTree(AbstractAxisTree):
         return self.targets
 
     @property
-    def comm(self):
-        return self.unindexed.comm
+    def user_comm(self):
+        return self.unindexed.user_comm
 
     # ideally this is ordered
     # TODO: should include source I think to be consistent with AxisTree
@@ -1869,7 +1879,7 @@ def find_matching_target(self):
     return utils.single_valued(matching_targets)
 
 
-class AxisForest:
+class AxisForest(DistributedObject):
     """A collection of equivalent axis trees.
 
     Axis forests are useful to describe circumstances where there are multiple
@@ -1904,6 +1914,10 @@ class AxisForest:
 
         return type(self)(indexed_trees)
 
+    @property
+    def user_comm(self) -> MPI.Comm:
+        return utils.single_comm(self.trees, "user_comm")
+
     def materialize(self):
         return type(self)((tree.materialize() for tree in self.trees))
 
@@ -1932,8 +1946,9 @@ class AxisForest:
         return utils.single_valued(tree.unindexed for tree in self.trees)
 
     @property
+    @utils.deprecated("internal_comm")
     def comm(self) -> MPI.Comm:
-        return utils.unique_comm(self.trees)
+        return self.internal_comm
 
     @property
     def owned(self) -> AxisForest:

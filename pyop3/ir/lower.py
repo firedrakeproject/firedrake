@@ -53,9 +53,6 @@ from pyop3.insn.base import (
     AssignmentType,
     ConcretizedNonEmptyArrayAssignment,
     StandaloneCalledFunction,
-    # NonEmptyPetscMatAssignment,
-    PreprocessedExpression,
-    UnprocessedExpressionException,
     Loop,
     InstructionList,
 )
@@ -315,7 +312,7 @@ class DummyModuleExecutor:
         pass
 
 
-class ModuleExecutor:
+class CompiledCodeExecutor:
     """
     Notes
     -----
@@ -325,11 +322,12 @@ class ModuleExecutor:
     """
 
     # TODO: intents and datamap etc maybe all go together. All relate to the same objects
-    def __init__(self, loopy_code: lp.TranslationUnit, buffer_map: WeakValueDictionary[str, ConcretBuffer], buffer_intents: Mapping[str, Intent], compiler_parameters: Mapping):
+    def __init__(self, loopy_code: lp.TranslationUnit, buffer_map: WeakValueDictionary[str, ConcretBuffer], buffer_intents: Mapping[str, Intent], compiler_parameters: Mapping, comm: Pyop3Comm):
         self.loopy_code = loopy_code
         self.buffer_map = buffer_map
         self.buffer_intents = buffer_intents
         self.compiler_parameters = compiler_parameters
+        self.comm = comm
 
     @property
     def loopy_kernel(self) -> lp.LoopKernel:
@@ -348,6 +346,12 @@ class ModuleExecutor:
         return compile_loopy(self.loopy_code, pyop3_compiler_parameters=self.compiler_parameters)
 
     def __call__(self, replacement_buffers: Mapping[Hashable, ConcreteBuffer] | None = None) -> None:
+        """
+        Notes
+        -----
+        This code is performance critical.
+
+        """
         if replacement_buffers is None:  # shortcut for the most common case
             buffers = self._default_buffers
             exec_arguments = self._default_exec_arguments
@@ -379,8 +383,37 @@ class ModuleExecutor:
         # if "integral" in str(self):
         # pyop3.extras.debug.maybe_breakpoint()
 
-        self.executable(*exec_arguments)
-        pass
+        if self.comm.size > 1:
+            if compiler_parameters.interleave_comp_comm:
+                raise NotImplementedError
+
+            initializers = []
+            reductions = []
+            broadcasts = []
+
+            breakpoint()
+            for data_arg in code.data_arguments:
+                if not isinstance(data_arg, ArrayBuffer):
+                    continue
+
+                inits, reds, bcasts = Loop._buffer_exchanges(
+                    data_arg, code.global_buffer_intents[data_arg.name]
+                )
+                initializers.extend(inits)
+                reductions.extend(reds)
+                broadcasts.extend(bcasts)
+
+            # Unoptimised case: perform all transfers eagerly
+            for init in initializers:
+                init()
+            for red in reductions:
+                red()
+            for bcast in broadcasts:
+                bcast()
+
+            self.executable(*exec_arguments)
+        else:
+            self.executable(*exec_arguments)
 
     def __str__(self) -> str:
         sep = "*" * 80
@@ -448,6 +481,83 @@ class ModuleExecutor:
         if not valid:
             raise exc.BufferMismatchException()
 
+    # NOTE: This is probably very slow to have to do every time - a lot of this can be cached
+    # the rest (initial state) can be checked each time
+    def _buffer_exchanges(self, buffer, intent):
+        initializers, reductions, broadcasts = [], [], []
+
+        # Possibly instead of touches_ghost_points we could produce custom SFs for each loop
+        # (we have filter_star_forest())
+        # For now we just disregard the optimisation
+        touches_ghost_points = True
+
+        if intent in {READ, RW}:
+            if touches_ghost_points:
+                if not buffer._roots_valid:
+                    initializers.append(buffer._reduce_leaves_to_roots_begin)
+                    reductions.extend([
+                        buffer._reduce_leaves_to_roots_end,
+                        buffer._broadcast_roots_to_leaves_begin,
+                    ])
+                    broadcasts.append(buffer._broadcast_roots_to_leaves_end)
+                else:
+                    initializers.append(buffer._broadcast_roots_to_leaves_begin)
+                    broadcasts.append(buffer._broadcast_roots_to_leaves_end)
+            else:
+                if not buffer._roots_valid:
+                    initializers.append(buffer._reduce_leaves_to_roots_begin)
+                    reductions.append(buffer._reduce_leaves_to_roots_end)
+
+        elif intent == WRITE:
+            # Assumes that all points are written to (i.e. not a subset). If
+            # this is not the case then a manual reduction is needed.
+            buffer._leaves_valid = False
+            buffer._pending_reduction = None
+
+        else:
+            # reductions
+            assert intent in {INC, MIN_WRITE, MIN_RW, MAX_WRITE, MAX_RW}
+            # We don't need to update roots if performing the same reduction
+            # again. For example we can increment into a buffer as many times
+            # as we want. The reduction only needs to be done when the
+            # data is read.
+            if buffer._roots_valid or intent == buffer._pending_reduction:
+                pass
+            else:
+                # We assume that all points are visited, and therefore that
+                # WRITE accesses do not need to update roots. If only a subset
+                # of entities are written to then a manual reduction is required.
+                # This is the same assumption that we make for data_wo.
+                if intent in {INC, MIN_RW, MAX_RW}:
+                    assert buffer._pending_reduction is not None
+                    initializers.append(buffer._reduce_leaves_to_roots_begin)
+                    reductions.append(buffer._reduce_leaves_to_roots_end)
+
+                # set leaves to appropriate nil value
+                if intent == INC:
+                    nil = 0
+                elif intent in {MIN_WRITE, MIN_RW}:
+                    nil = dtype_limits(buffer.dtype).max
+                else:
+                    assert intent in {MAX_WRITE, MAX_RW}
+                    nil = dtype_limits(buffer.dtype).min
+
+                def _init_nil():
+                    buffer._data[buffer.sf.ileaf] = nil
+
+                reductions.append(_init_nil)
+
+            # We are modifying owned values so the leaves must now be wrong
+            buffer._leaves_valid = False
+
+            # If ghost points are not modified then no future reduction is required
+            if not touches_ghost_points:
+                buffer._pending_reduction = None
+            else:
+                buffer._pending_reduction = intent
+
+        return tuple(initializers), tuple(reductions), tuple(broadcasts)
+
 
 class BinarySearchCallable(lp.ScalarCallable):
     def __init__(self, name="bsearch", **kwargs):
@@ -499,11 +609,8 @@ class BinarySearchCallable(lp.ScalarCallable):
 
 
 # prefer generate_code?
-def compile(expr: PreprocessedExpression, compiler_parameters=None):
-    if not isinstance(expr, PreprocessedExpression):
-        raise UnprocessedExpressionException("Expected a preprocessed expression")
-
-    insn = expr.expression
+def compile(expr, compiler_parameters=None):
+    insn = expr
 
     compiler_parameters = parse_compiler_parameters(compiler_parameters)
 
@@ -609,7 +716,7 @@ def compile(expr: PreprocessedExpression, compiler_parameters=None):
         buffer_key = kernel_to_buffer_names[kernel_arg.name]
         sorted_buffers[kernel_arg.name] = context.global_buffers[buffer_key]
 
-    return ModuleExecutor(translation_unit, sorted_buffers, context.global_buffer_intents, compiler_parameters)
+    return CompiledCodeExecutor(translation_unit, sorted_buffers, context.global_buffer_intents, compiler_parameters, expr.internal_comm)
 
 
 # put into a class in transform.py?

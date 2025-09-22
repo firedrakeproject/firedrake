@@ -9,13 +9,14 @@ from immutabledict import immutabledict as idict
 from mpi4py import MPI
 
 from pyop3 import utils
+from pyop3.sf import DistributedObject
 from pyop3.tree.axis_tree import ContextAware
 from pyop3.tree.axis_tree.tree import AbstractAxisTree
 from pyop3.expr import Expression
 from pyop3.exceptions import InvalidIndexCountException
 
 
-class Tensor(ContextAware, Expression, abc.ABC):
+class Tensor(ContextAware, Expression, DistributedObject, abc.ABC):
 
     DEFAULT_PREFIX: ClassVar[str] = "array"
 
@@ -134,7 +135,7 @@ class Tensor(ContextAware, Expression, abc.ABC):
         # that nothing is indexed. This could also catch the case of x.assign(x).
         # This will need to include expanding things like a(x + y) into ax + ay
         # (distributivity).
-        expr = ArrayAssignment(self, other, mode)
+        expr = ArrayAssignment(self, other, mode, comm=self.internal_comm)
         return expr() if eager else expr
 
     def duplicate(self, *, copy: bool = False) -> Tensor:

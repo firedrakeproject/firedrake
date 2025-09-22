@@ -9,9 +9,9 @@ from immutabledict import immutabledict
 from mpi4py import MPI
 from pyop3.tree.axis_tree.tree import AbstractAxisTree
 
+from pyop3 import utils
 from pyop3.dtypes import IntType, as_numpy_dtype
 from pyop3.sf import StarForest
-from pyop3.utils import unique_comm
 
 
 def reduction_op(op, invec, inoutvec, datatype):
@@ -114,7 +114,7 @@ def concatenate_star_forests(star_forests: Sequence[StarForest]) -> StarForest:
         size += sf.size
     ilocal = np.concatenate(ilocals)
     iremote = np.concatenate(iremotes)
-    comm = unique_comm(star_forests)
+    comm = utils.single_comm(star_forests, "internal_comm")
     return StarForest.from_graph(size, num_roots, ilocal, iremote, comm)
 
 

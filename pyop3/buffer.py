@@ -18,7 +18,7 @@ from pyop3 import utils
 from pyop3.config import config
 from pyop3.dtypes import IntType, ScalarType, DTypeT
 from pyop2.mpi import COMM_SELF
-from pyop3.sf import NullStarForest, StarForest, local_sf
+from pyop3.sf import DistributedObject, NullStarForest, StarForest, local_sf
 from pyop3.utils import UniqueNameGenerator, as_tuple, deprecated, maybe_generate_name, readonly
 
 
@@ -58,7 +58,7 @@ def record_modified(func):
     return wrapper
 
 
-class AbstractBuffer(metaclass=abc.ABCMeta):
+class AbstractBuffer(DistributedObject, metaclass=abc.ABCMeta):
 
     DEFAULT_PREFIX = "buffer"
     DEFAULT_DTYPE = ScalarType
@@ -128,6 +128,18 @@ class NullBuffer(AbstractArrayBuffer):
     _max_value: np.number | None
     _ordered: bool
 
+    def __init__(self, size: int, dtype: DTypeT | None = None, *, name: str | None = None, prefix: str | None = None, max_value: numbers.Number | None = None, ordered:bool=False):
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+        dtype = utils.as_dtype(dtype, self.DEFAULT_DTYPE)
+        if max_value is not None:
+            max_value = utils.as_numpy_scalar(max_value)
+
+        self._size = size
+        self._name = name
+        self._dtype = dtype
+        self._max_value = max_value
+        self._ordered = ordered
+
     # }}}
 
     # {{{ class attrs
@@ -150,19 +162,11 @@ class NullBuffer(AbstractArrayBuffer):
 
     is_nested: ClassVar[bool] = False
 
+    @property
+    def user_comm(self) -> MPI.Comm:
+        return MPI.COMM_SELF
+
     # }}}
-
-    def __init__(self, size: int, dtype: DTypeT | None = None, *, name: str | None = None, prefix: str | None = None, max_value: numbers.Number | None = None, ordered:bool=False):
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-        dtype = utils.as_dtype(dtype, self.DEFAULT_DTYPE)
-        if max_value is not None:
-            max_value = utils.as_numpy_scalar(max_value)
-
-        self._size = size
-        self._name = name
-        self._dtype = dtype
-        self._max_value = max_value
-        self._ordered = ordered
 
 
 class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
@@ -272,6 +276,10 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         assert not nest_indices
         return self._data
 
+    @property
+    def user_comm(self) -> MPI.Comm:
+        return self.sf.user_comm if self.sf is not None else MPI.COMM_SELF
+
     # }}}
 
     # {{{ constructors
@@ -306,8 +314,9 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # }}}
 
     @property
+    @utils.deprecated("internal_comm")
     def comm(self) -> MPI.Comm | None:
-        return self.sf.comm if self.sf else None
+        return self.internal_comm
 
     @property
     @not_in_flight
@@ -806,10 +815,14 @@ def duplicate_mat(mat: PETSc.Mat, copy: bool = False) -> PETSc.Mat:
 # TODO: Currently we assume that the nest structure of the underlying data
 # matches that of the axis tree. This isn't necessarily true.
 @dataclasses.dataclass(frozen=True)
-class BufferRef:
+class BufferRef(DistributedObject):
     buffer: AbstractBuffer
     nest_indices: tuple[tuple[int, ...], ...] = ()
 
     @property
     def handle(self):
         return self.buffer.handle(nest_indices=self.nest_indices)
+
+    @property
+    def user_comm(self) -> MPI.Comm:
+        return self.buffer.user_comm
