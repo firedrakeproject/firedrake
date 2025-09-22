@@ -242,8 +242,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     
     def inc_state(self) -> None:
         from firedrake.device import compute_device
-        if compute_device.identity == "gpu" and self._by_device["gpu"][0] < self._by_device["cpu"][0]:
-            breakpoint()
         self._by_device[compute_device.identity][0] += 1
 
     def duplicate(self, *, copy: bool = False) -> ArrayBuffer:

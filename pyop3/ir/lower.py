@@ -722,8 +722,6 @@ class ModuleExecutor:
         #if len(self.code.callables_table) > 1:
         #    breakpoint()
         # pyop3.extras.debug.maybe_breakpoint()
-        import os
-        #if "FIREDRAKE_USE_GPU" not in os.environ:
         self.executable(*exec_arguments)
         pass
 
@@ -1153,6 +1151,7 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
     context.add_subkernel(subkernel)
 
 def _cupy(call: StandaloneCalledFunction, loop_indices, context: CuPyCodegenContext) -> None:
+    # constructs a CodeGen context for converting to GPU code, either pure CuPy or part cupy part Triton
     from firedrake.device import compute_device
     subarrayrefs = {}
     entry_args = call.function.code.default_entrypoint.args
@@ -1174,7 +1173,6 @@ def _cupy(call: StandaloneCalledFunction, loop_indices, context: CuPyCodegenCont
     for t in call.function.code.temps:
         initializer =  [a[1] for a in compute_device.kernel_data["arrays"] if a[0] == t][0]
         args += [context.add_temporary("temp", shape=initializer.shape, initializer=initializer, dtype=initializer.dtype)]
-    #handle grids and blocks here too
 
     blocks = compute_device.blocks
     if compute_device.kernel_type == "triton":

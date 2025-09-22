@@ -100,7 +100,7 @@ def lower_buffer_access(buffer: AbstractBuffer, layouts, iname_maps, loop_indice
     for stride, layout, iname_map in zip(strides, layouts, iname_maps, strict=True):
         offset_expr += stride * lower_expr(layout, [iname_map], loop_indices, context)
     indices = maybe_multiindex(buffer, offset_expr, context)
-    # TODO way to check indices is a map vs a single indexLw
+    # TODO way to check indices is a map vs a single index
     if intent == INC:
         return f"cpx.scatter_add({name_in_kernel}, {indices}, {{rhs}})"
     if intent == READ:
@@ -167,7 +167,6 @@ class CuPyTranslationUnit():
         
             if compute_device.kernel_type == "triton" and temp.name[:4] == "temp":
                 code_lines += ['\t'*indent + f"{temp.name} = torch.from_numpy({temp.name}.get()).float().to(DEVICE)"]
-        #code_lines += ["\t"*indent + "breakpoint()"]
 
         current_inames = set()
         for insn in self._instructions:
@@ -186,7 +185,7 @@ class CuPyTranslationUnit():
 
         self.code_string = "\n".join(code_lines)
 
-    def construct(self):
+    def construct(self) -> str:
         with open(f"./{self.filename}.py", "w") as file:
             file.write(self.code_string)
         temp_file = importlib.reload(__import__(f"{self.filename}"))
@@ -230,10 +229,3 @@ def _pymbolic_to_str(obj: Any, /, *args, **kwargs) -> str:
 def _pymbolic_to_str_var(obj):
     return obj.name
 
-#@_pymbolic_to_str.register(pym.subscript)
-#def _pymbolic_to_str_var(obj):
-#    return f"{pymbolic_to_str(obj.aggregate)}[{",".join([pymbolic_to_str(i) for i in obj.index])}]"
-
-#@_pymbolic_to_str.register(pym.Call)
-#def _pymbolic_to_str_call(obj):
-#   return f"{pymbolic_to_str(obj.function)}({",".join(*[pymbolic_to_str(a) for a in obj.parameters])})"
