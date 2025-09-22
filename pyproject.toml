@@ -111,6 +111,7 @@ ci = [
   "pdf2image",
   "pygraphviz",
   "pylit",
+  "pyroltrilinos",
   "pytest",
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
