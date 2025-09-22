@@ -38,7 +38,6 @@ class L2Cholesky:
     def pc(self):
         import petsc4py.PETSc as PETSc
 
-        pc = self._pc
         if self._pc is None:
             M = fd.assemble(fd.inner(fd.TrialFunction(self.space), fd.TestFunction(self.space)) * fd.dx,
                             mat_type="aij")
@@ -49,8 +48,11 @@ class L2Cholesky:
             pc.setFactorSolverType(PETSc.Mat.SolverType.PETSC)
             pc.setOperators(M_local)
             pc.setUp()
-        if self._constant_jacobian:
-            self._pc = pc
+
+            if self._constant_jacobian:
+                self._pc = M, M_local, pc
+        else:
+            _, _, pc = self._pc
 
         return pc
 
