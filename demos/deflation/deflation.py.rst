@@ -24,7 +24,7 @@ We demonstrate the use of deflation in Firedrake on the `Liouville–Bratu–Gel
 
     \nabla^2 u + \lambda \exp{u} = 0 \text{ in } \Omega, \quad u = 0 \text{ on } \partial \Omega.
 
-If :math:`\Omega = (0, 1)`, then for :math:`\lambda \in (0, \lambda^\star)` the equation has two solutions, for :math:`\lambda \in \{0, \lambda^\star\}` it has one solution, and for :math:`\lambda > \lambda^\star` it has no solutions. Here :math:`\lambda^\star \approx 3.51` is a constant with a known analytical expression.
+If :math:`\Omega = (0, 1)`, then for :math:`\lambda \in (0, \lambda^\star)` the equation has two solutions, for :math:`\lambda \in \{0, \lambda^\star\}` it has one solution, and for :math:`\lambda > \lambda^\star` it has no solutions. Here :math:`\lambda^\star \approx 3.51` is a constant with a known analytical expression. We will fix :math:`\lambda = 2` and prescribe :math:`6x(1-x)` as our initial guess.
 
 We implement the usual weak formulation of the equation in Firedrake as standard: ::
 
@@ -44,7 +44,7 @@ We implement the usual weak formulation of the equation in Firedrake as standard
     bcs = DirichletBC(V, 0, "on_boundary")
     problem = NonlinearVariationalProblem(F, u, bcs)
 
-Applying deflation requires two ingredients: the ``DeflatedSNES`` nonlinear solver, and a ``Deflation`` object. The ``Deflation`` object records the solutions to be deflated, and specifies the sense of distance to use in deflation. In this example we use the metric induced by the :math:`L^2(\Omega)` inner product: ::
+Applying deflation requires two ingredients: the :class:`~.DeflatedSNES` nonlinear solver, and a :class:`~.Deflation` object. The :class:`~.Deflation` object records the solutions to be deflated, and specifies the sense of distance to use in deflation. In this example we use the metric induced by the :math:`L^2(\Omega)` inner product: ::
 
     sp = {"snes_type": "python",
           "snes_python_type": "firedrake.DeflatedSNES",
