@@ -2842,7 +2842,7 @@ class ExtrudedMeshTopology(MeshTopology):
         npoints = base_mesh_axis.component.local_size * (2*n_extr_cells+1)
 
         base_point_sf = base_mesh_axis.component.sf
-        section = PETSc.Section().create(comm=base_point_sf.comm)
+        section = PETSc.Section().create(comm=base_point_sf.internal_comm)
         section.setChart(0, base_point_sf.size)
         for pt in range(base_point_sf.size):
             section.setDof(pt, 2*n_extr_cells+1)

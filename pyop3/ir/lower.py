@@ -879,9 +879,14 @@ def _(call: StandaloneCalledFunction, loop_indices, context: LoopyCodegenContext
         if not isinstance(loopy_arg, lp.ArrayArg):
             raise NotImplementedError
 
+        if loopy_arg.shape is not None:
+            shape = loopy_arg.shape
+        else:
+            shape = (np.prod(*(axis_tree.size for axis_tree in arg.shape), dtype=int),)
+
         # subarrayref nonsense/magic
         indices = []
-        for s in loopy_arg.shape:
+        for s in shape:
             iname = context.unique_name("i")
             context.add_domain(iname, s)
             indices.append(pym.var(iname))
@@ -1242,7 +1247,10 @@ def _(cond, /, *args, **kwargs) -> pym.Expression:
 
 @_lower_expr.register(op3_expr.AxisVar)
 def _(axis_var: op3_expr.AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
-    return just_one(iname_maps)[axis_var.axis_label]
+    try:
+        return just_one(iname_maps)[axis_var.axis_label]
+    except KeyError:
+        breakpoint()  # debug
 
 
 @_lower_expr.register(op3_expr.LoopIndexVar)

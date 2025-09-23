@@ -160,7 +160,7 @@ def test_nested_parallel_axes_produce_correct_sf(comm, paxis):
     array._leaves_valid = False
 
     # update ghost points
-    array._broadcast_roots_to_leaves()
+    array.broadcast_roots_to_leaves()
 
     nghost = array.sf.nleaves
     assert nghost == 4

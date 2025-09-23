@@ -62,8 +62,8 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
         PetscInt fine_layer, fine_layers, coarse_layer, coarse_layers, ratio
         bint extruded
 
-    fine_map = Vf.cell_node_map().values
-    coarse_map = Vc.cell_node_map().values
+    fine_map = Vf.cell_node_list
+    coarse_map = Vc.cell_node_list
 
     fine_cell_per_coarse_cell = coarse_to_fine_cells.shape[1]
     extruded = Vc.extruded
@@ -83,7 +83,7 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
     ndof = fine_per_cell * fine_cell_per_coarse_cell
     if extruded:
         ndof *= ratio
-    coarse_to_fine_map = np.full((Vc.dof_dset.total_size,
+    coarse_to_fine_map = np.full((Vc.axes.local_size,
                                   ndof),
                                  -1,
                                  dtype=IntType)
@@ -122,8 +122,8 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray fine_to_coarse_cells):
         PetscInt coarse_per_cell, fine_per_cell, coarse_cell, fine_cells
         bint extruded
 
-    fine_map = Vf.cell_node_map().values
-    coarse_map = Vc.cell_node_map().values
+    fine_map = Vf.cell_node_list
+    coarse_map = Vc.cell_node_list
 
     extruded = Vc.extruded
 
@@ -140,7 +140,7 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray fine_to_coarse_cells):
     coarse_per_fine = fine_to_coarse_cells.shape[1]
     coarse_per_cell = coarse_map.shape[1]
     fine_per_cell = fine_map.shape[1]
-    fine_to_coarse_map = np.full((Vf.dof_dset.total_size,
+    fine_to_coarse_map = np.full((Vf.axes.local_size,
                                   coarse_per_fine*coarse_per_cell),
                                  -1,
                                  dtype=IntType)

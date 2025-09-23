@@ -65,6 +65,10 @@ class Tensor(ContextAware, Expression, DistributedObject, abc.ABC):
     def getitem(self, *indices, strict=False):
         pass
 
+    def assemble(self) -> None:
+        """Ensure that values are up-to-date."""
+        self.buffer.assemble()
+
     # TODO: remove these
     @abc.abstractmethod
     def with_context(self):

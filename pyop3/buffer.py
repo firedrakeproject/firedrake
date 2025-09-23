@@ -329,7 +329,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @not_in_flight
     def data_rw(self):
         if not self._roots_valid:
-            self._reduce_leaves_to_roots()
+            self.reduce_leaves_to_roots()
 
         # modifying owned values invalidates ghosts
         self._leaves_valid = False
@@ -339,7 +339,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @not_in_flight
     def data_ro(self):
         if not self._roots_valid:
-            self._reduce_leaves_to_roots()
+            self.reduce_leaves_to_roots()
         return readonly(self._owned_data)
 
     @property
@@ -369,9 +369,9 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @not_in_flight
     def data_rw_with_halos(self):
         if not self._roots_valid:
-            self._reduce_leaves_to_roots()
+            self.reduce_leaves_to_roots()
         if not self._leaves_valid:
-            self._broadcast_roots_to_leaves()
+            self.broadcast_roots_to_leaves()
 
         # modifying owned values invalidates ghosts
         self._leaves_valid = False
@@ -381,9 +381,9 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @not_in_flight
     def data_ro_with_halos(self):
         if not self._roots_valid:
-            self._reduce_leaves_to_roots()
+            self.reduce_leaves_to_roots()
         if not self._leaves_valid:
-            self._broadcast_roots_to_leaves()
+            self.broadcast_roots_to_leaves()
         return readonly(self._data)
 
     @property
@@ -444,26 +444,26 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         }
 
     @not_in_flight
-    def _reduce_leaves_to_roots(self):
-        self._reduce_leaves_to_roots_begin()
-        self._reduce_leaves_to_roots_end()
+    def reduce_leaves_to_roots(self):
+        self.reduce_leaves_to_roots_begin()
+        self.reduce_leaves_to_roots_end()
 
     @not_in_flight
-    def _reduce_leaves_to_roots_begin(self):
+    def reduce_leaves_to_roots_begin(self):
         if not self._roots_valid:
             self.sf.reduce_begin(
                 self._data, self._reduction_ops[self._pending_reduction]
             )
             self._leaves_valid = False
-        self._finalizer = self._reduce_leaves_to_roots_end
+        self._finalizer = self.reduce_leaves_to_roots_end
 
-    def _reduce_leaves_to_roots_end(self):
+    def reduce_leaves_to_roots_end(self):
         if self._finalizer is None:
             raise BadOrderingException(
                 "Should not call _reduce_leaves_to_roots_end without first calling "
                 "_reduce_leaves_to_roots_begin"
             )
-        if self._finalizer != self._reduce_leaves_to_roots_end:
+        if self._finalizer != self.reduce_leaves_to_roots_end:
             raise DataTransferInFlightException("Wrong finalizer called")
 
         if not self._roots_valid:
@@ -472,26 +472,26 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         self._finalizer = None
 
     @not_in_flight
-    def _broadcast_roots_to_leaves(self):
-        self._broadcast_roots_to_leaves_begin()
-        self._broadcast_roots_to_leaves_end()
+    def broadcast_roots_to_leaves(self):
+        self.broadcast_roots_to_leaves_begin()
+        self.broadcast_roots_to_leaves_end()
 
     @not_in_flight
-    def _broadcast_roots_to_leaves_begin(self):
+    def broadcast_roots_to_leaves_begin(self):
         if not self._roots_valid:
             raise RuntimeError("Cannot broadcast invalid roots")
 
         if not self._leaves_valid:
             self.sf.broadcast_begin(self._data, MPI.REPLACE)
-        object.__setattr__(self, "_finalizer", self._broadcast_roots_to_leaves_end)
+        object.__setattr__(self, "_finalizer", self.broadcast_roots_to_leaves_end)
 
-    def _broadcast_roots_to_leaves_end(self):
+    def broadcast_roots_to_leaves_end(self):
         if self._finalizer is None:
             raise BadOrderingException(
                 "Should not call _broadcast_roots_to_leaves_end without first "
                 "calling _broadcast_roots_to_leaves_begin"
             )
-        if self._finalizer != self._broadcast_roots_to_leaves_end:
+        if self._finalizer != self.broadcast_roots_to_leaves_end:
             raise DataTransferInFlightException("Wrong finalizer called")
 
         if not self._leaves_valid:
@@ -501,8 +501,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @not_in_flight
     def _reduce_then_broadcast(self):
-        self._reduce_leaves_to_roots()
-        self._broadcast_roots_to_leaves()
+        self.reduce_leaves_to_roots()
+        self.broadcast_roots_to_leaves()
 
     def localize(self) -> ArrayBuffer:
         return self._localized

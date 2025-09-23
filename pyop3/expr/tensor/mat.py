@@ -354,10 +354,6 @@ class Mat(Tensor):
     def alloc_size(self) -> int:
         return self.raxes.alloc_size * self.caxes.alloc_size
 
-    # TODO: push onto buffer class
-    def assemble(self):
-        self.buffer.mat.assemble()
-
     @property
     def nested(self):
         assert False, "old code"
