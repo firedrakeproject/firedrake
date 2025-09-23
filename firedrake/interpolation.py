@@ -174,6 +174,11 @@ def interpolate(expr, V, subset=None, access=None, allow_missing_dofs=False, def
        reduction (hence using MIN will compute the MIN between the
        existing values and any new values).
     """
+    if isinstance(V, functionspaceimpl.WithGeometry):
+        # Need to create a Firedrake Argument so that it has a .function_space() method
+        expr_args = extract_arguments(ufl.as_ufl(expr))
+        is_adjoint = len(expr_args) and expr_args[0].number() == 0
+        V = Argument(V.dual(), 1 if is_adjoint else 0)
     return Interpolate(
         expr, V, subset=subset, access=access, allow_missing_dofs=allow_missing_dofs,
         default_missing_val=default_missing_val, matfree=matfree
