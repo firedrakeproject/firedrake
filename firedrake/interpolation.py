@@ -27,11 +27,10 @@ import finat
 import firedrake
 import firedrake.bcs
 from firedrake import tsfc_interface, utils, functionspaceimpl
-from firedrake.ufl_expr import Argument, Coargument, action, adjoint as expr_adjoint
+from firedrake.ufl_expr import Argument, action, adjoint as expr_adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype as get_dat_mpi_type
-from firedrake.cofunction import Cofunction
 from mpi4py import MPI
 
 from pyadjoint import stop_annotating, no_annotations
