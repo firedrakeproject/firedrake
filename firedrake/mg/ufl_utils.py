@@ -300,6 +300,8 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
     coarse._fine = context
     context._coarse = coarse
 
+    solutiondm = context._problem.u_restrict.function_space().dm
+    parentdm = get_parent(solutiondm)
     # Now that we have the coarse snescontext, push it to the coarsened DMs
     # Otherwise they won't have the right transfer manager when they are
     # coarsened in turn
@@ -307,13 +309,12 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
         if isinstance(val, (firedrake.Function, firedrake.Cofunction)):
             V = val.function_space()
             coarseneddm = V.dm
-            parentdm = get_parent(context._problem.u_restrict.function_space().dm)
 
             # Now attach the hook to the parent DM
             if get_appctx(coarseneddm) is None:
                 push_appctx(coarseneddm, coarse)
-                teardown = partial(pop_appctx, coarseneddm, coarse)
-                add_hook(parentdm, teardown=teardown)
+                if parentdm.getAttr("__setup_hooks__"):
+                    add_hook(parentdm, teardown=partial(pop_appctx, coarseneddm, coarse))
 
     ises = problem.J.arguments()[0].function_space()._ises
     coarse._nullspace = self(context._nullspace, self, coefficient_mapping=coefficient_mapping)
@@ -396,8 +397,6 @@ def create_interpolation(dmc, dmf):
     cctx = get_appctx(dmc)
     fctx = get_appctx(dmf)
 
-    manager = get_transfer_manager(dmf)
-
     V_c = cctx._problem.u_restrict.function_space()
     V_f = fctx._problem.u_restrict.function_space()
 
@@ -406,20 +405,26 @@ def create_interpolation(dmc, dmf):
     cbcs = tuple(cctx._problem.dirichlet_bcs())
     fbcs = tuple(fctx._problem.dirichlet_bcs())
 
+    manager = get_transfer_manager(dmf)
     ctx = Interpolation(V_c, V_f, manager, cbcs, fbcs)
     mat = PETSc.Mat().create(comm=dmc.comm)
     mat.setSizes((row_size, col_size))
     mat.setType(mat.Type.PYTHON)
     mat.setPythonContext(ctx)
     mat.setUp()
-    return mat, None
+    if row_size == col_size:
+        # PETSc cannot determine the coarse space if the dimensions are equal.
+        # The coarse space is identified by the dimension of rscale, so we provide one.
+        rscale = mat.createVecRight()
+        rscale.set(1.0)
+    else:
+        rscale = None
+    return mat, rscale
 
 
 def create_injection(dmc, dmf):
     cctx = get_appctx(dmc)
     fctx = get_appctx(dmf)
-
-    manager = get_transfer_manager(dmf)
 
     V_c = cctx._problem.u_restrict.function_space()
     V_f = fctx._problem.u_restrict.function_space()
@@ -427,6 +432,18 @@ def create_injection(dmc, dmf):
     row_size = V_c.dof_dset.layout_vec.getSizes()
     col_size = V_f.dof_dset.layout_vec.getSizes()
 
+    if (V_c.ufl_element().family() == "Real"
+            and V_f.ufl_element().family() == "Real"):
+        assert row_size == col_size
+        # If the coarse and fine spaces have equal size
+        # PETSc will apply the transpose of the injection.
+        # It does not make sense to implement Injection.multTranspose,
+        # instead we return a concrete identity matrix.
+        dvec = V_c.dof_dset.layout_vec.duplicate()
+        dvec.set(1.0)
+        return PETSc.Mat().createDiagonal(dvec)
+
+    manager = get_transfer_manager(dmf)
     ctx = Injection(V_c, V_f, manager)
     mat = PETSc.Mat().create(comm=dmc.comm)
     mat.setSizes((row_size, col_size))
