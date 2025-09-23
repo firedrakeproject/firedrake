@@ -692,13 +692,15 @@ def _(hashable: Hashable) -> Hashable:
 
 
 
-def single_comm(objects, /, comm_attr: str, *, allow_nones: bool = False) -> MPI.Comm | None:
+def single_comm(objects, /, comm_attr: str, *, allow_undefined: bool = False) -> MPI.Comm | None:
+    assert len(objects) > 0
+
     comm = None
     for item in iterflat(objects):
-        item_comm = getattr(item, comm_attr)
+        item_comm = getattr(item, comm_attr, None)
 
         if item_comm is None:
-            if allow_nones:
+            if allow_undefined:
                 continue
             else:
                 raise CommNotFoundException("Object does not have an associated communicator")
@@ -711,16 +713,24 @@ def single_comm(objects, /, comm_attr: str, *, allow_nones: bool = False) -> MPI
 
 
 @mpi.collective
-def common_comm(objects, /, comm_attr: str) -> MPI.Comm:
+def common_comm(objects, /, comm_attr: str, *, allow_undefined: bool = False) -> MPI.Comm | None:
     """Return a communicator valid for all objects.
 
     This is defined as the communicator with the largest size. I *think* that
     this is the right way to think about this.
 
     """
+    assert len(objects) > 0
+
     selected_comm = None
     for item in iterflat(objects):
-        item_comm = getattr(item, comm_attr)
+        item_comm = getattr(item, comm_attr, None)
+
+        if item_comm is None:
+            if allow_undefined:
+                continue
+            else:
+                raise CommNotFoundException("Object does not have an associated communicator")
 
         if selected_comm is None or item_comm.size > selected_comm.size:
             selected_comm = item_comm

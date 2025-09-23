@@ -19,6 +19,7 @@ import loopy as lp
 import numpy as np
 import pytools
 from cachetools import cachedmethod
+from mpi4py import MPI
 from petsc4py import PETSc
 from pyrsistent import PMap, pmap
 
@@ -272,7 +273,7 @@ class Loop(Instruction):
 
     @property
     def user_comm(self) -> MPI.Comm:
-        return utils.single_comm(self.statements, "user_comm")
+        return utils.common_comm(self.statements, "user_comm")
 
     # }}}
 
@@ -396,7 +397,7 @@ class InstructionList(Instruction):
 
     @property
     def user_comm(self) -> MPI.Comm:
-        return utils.single_comm(self.instructions, "user_comm")
+        return utils.common_comm(self.instructions, "user_comm")
 
     # }}}
 
@@ -539,6 +540,11 @@ class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
         pass
 
     @property
+    @abc.abstractmethod
+    def arguments(self) -> tuple[Any]:
+        pass
+
+    @property
     def axis_trees(self) -> tuple[AxisTree, ...]:
         return (UNIT_AXIS_TREE,)
 
@@ -561,21 +567,34 @@ class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
             for arg in self.function.code.default_entrypoint.args
         )
 
+    @property
+    def user_comm(self) -> MPI.Comm:
+        return utils.common_comm(self.arguments, "user_comm", allow_undefined=True) or MPI.COMM_SELF
+
 
 @utils.frozenrecord()
 class CalledFunction(AbstractCalledFunction):
 
+    # {{{ instance attrs
+
     _function: Function
     _arguments: tuple[Any]
-
-    function: ClassVar[property] = property(lambda self: self._function)
-    arguments: ClassVar[property] = property(lambda self: self._arguments)
 
     def __init__(self, function: Function, arguments: Iterable):
         arguments = tuple(arguments)
 
         object.__setattr__(self, "_function", function)
         object.__setattr__(self, "_arguments", arguments)
+
+    # }}}
+
+    # {{{ interface impls
+
+    function: ClassVar[property] = utils.attr("_function")
+    arguments: ClassVar[property] = utils.attr("_arguments")
+
+    # }}}
+
 
 
 @utils.frozenrecord()
@@ -600,6 +619,8 @@ class NullInstruction(Terminal):
     """An instruction that does nothing."""
 
     arguments = ()
+
+    user_comm = MPI.COMM_SELF
 
 
 # TODO: With Python 3.11 can be made a StrEnum
@@ -711,15 +732,13 @@ class ArrayAssignment(AbstractAssignment):
     _assignee: Any
     _expression: Any
     _assignment_type: AssignmentType
-    _comm: MPI.Comm
 
-    def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str, *, comm: MPI.Comm) -> None:
+    def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str) -> None:
         assignment_type = AssignmentType(assignment_type)
 
         object.__setattr__(self, "_assignee", assignee)
         object.__setattr__(self, "_expression", expression)
         object.__setattr__(self, "_assignment_type", assignment_type)
-        object.__setattr__(self, "_comm", comm)
 
     # }}}
 
@@ -728,7 +747,10 @@ class ArrayAssignment(AbstractAssignment):
     assignee: ClassVar[property] = utils.attr("_assignee")
     expression: ClassVar[property] = utils.attr("_expression")
     assignment_type: ClassVar[property] = utils.attr("_assignment_type")
-    user_comm: ClassVar[property] = utils.attr("_comm")
+
+    @property
+    def user_comm(self) -> MPI.Comm:
+        return utils.common_comm([self.assignee, self.expression], "user_comm", allow_undefined=True) or MPI.COMM_SELF
 
     # }}}
 

@@ -45,12 +45,12 @@ class BufferExpression(Expression, DistributedObject, metaclass=abc.ABCMeta):
     def assign(self, other) -> ArrayAssignment:
         from pyop3.insn import ArrayAssignment
 
-        return ArrayAssignment(self, other, "write", comm=self.user_comm)
+        return ArrayAssignment(self, other, "write")
 
     def iassign(self, other) -> ArrayAssignment:
         from pyop3.insn import ArrayAssignment
 
-        return ArrayAssignment(self, other, "inc", comm=self.user_comm)
+        return ArrayAssignment(self, other, "inc")
 
 
 # class ArrayBufferExpression(BufferExpression, metaclass=abc.ABCMeta):

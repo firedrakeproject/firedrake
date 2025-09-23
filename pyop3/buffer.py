@@ -603,6 +603,10 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
 
         return handle_
 
+    @property
+    def user_comm(self) -> MPI.Comm:
+        return self.mat.comm.tompi4py()
+
     # }}}
 
     @classmethod
@@ -635,7 +639,7 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
                 submat = cls._make_petsc_mat(submat_spec, preallocator=preallocator)
                 submats[i, j] = submat
 
-            comm = utils.unique_comm(submats.flatten())
+            comm = utils.single_comm(submats.flatten(), "comm")
             return PETSc.Mat().createNest(submats, comm=comm)
         else:
             assert isinstance(mat_spec, FullPetscMatBufferSpec)
@@ -663,7 +667,7 @@ class PetscMatBuffer(ConcreteBuffer, metaclass=abc.ABCMeta):
             if preallocator:
                 mat_type = PETSc.Mat.Type.PREALLOCATOR
 
-            comm = utils.unique_comm([row_spec.lgmap, column_spec.lgmap])
+            comm = utils.single_comm([row_spec.lgmap, column_spec.lgmap], "comm")
 
             mat = PETSc.Mat().create(comm)
             mat.setType(mat_type)

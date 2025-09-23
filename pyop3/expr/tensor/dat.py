@@ -124,8 +124,9 @@ class Dat(Tensor):
     dim: ClassVar[int] = 1
 
     @property
+    @utils.deprecated("internal_comm")
     def comm(self) -> MPI.Comm:
-        return self.buffer.comm
+        return self.internal_comm
 
     @cached_property
     def shape(self) -> tuple[AxisTree]:
@@ -137,7 +138,7 @@ class Dat(Tensor):
 
     @property
     def user_comm(self) -> MPI.Comm:
-        return self.axis_forest.user_comm
+        return self.buffer.user_comm
 
     # }}}
 

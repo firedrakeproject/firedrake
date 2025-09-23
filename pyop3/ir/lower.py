@@ -384,21 +384,19 @@ class CompiledCodeExecutor:
         # pyop3.extras.debug.maybe_breakpoint()
 
         if self.comm.size > 1:
-            if compiler_parameters.interleave_comp_comm:
+            if self.compiler_parameters.interleave_comp_comm:
                 raise NotImplementedError
 
             initializers = []
             reductions = []
             broadcasts = []
-
-            breakpoint()
-            for data_arg in code.data_arguments:
-                if not isinstance(data_arg, ArrayBuffer):
+            for buffer_ref, intent in zip(self.buffer_map.values(), self.buffer_intents.values(), strict=True):
+                if isinstance(buffer_ref.buffer, PetscMatBuffer):
                     continue
+                else:
+                    assert isinstance(buffer_ref.buffer, ArrayBuffer)
 
-                inits, reds, bcasts = Loop._buffer_exchanges(
-                    data_arg, code.global_buffer_intents[data_arg.name]
-                )
+                inits, reds, bcasts = self._buffer_exchanges(buffer_ref.buffer, intent)
                 initializers.extend(inits)
                 reductions.extend(reds)
                 broadcasts.extend(bcasts)

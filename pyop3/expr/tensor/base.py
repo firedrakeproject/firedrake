@@ -20,10 +20,9 @@ class Tensor(ContextAware, Expression, DistributedObject, abc.ABC):
 
     DEFAULT_PREFIX: ClassVar[str] = "array"
 
-    def __init__(self, name: str | None=None, *, prefix: str | None=None, parent: Array|None=None) -> None:
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-        object.__setattr__(self, "name", name)
-        object.__setattr__(self, "parent", parent)
+    @property
+    def user_comm(self) -> MPI.Comm:
+        return self.buffer.user_comm
 
     def __getitem__(self, indices):
         # Handle the fact that 'obj[123]' sets 'indices' to '123' (not a tuple)
@@ -113,9 +112,10 @@ class Tensor(ContextAware, Expression, DistributedObject, abc.ABC):
             self.assign(self//other, eager=True)
         return self
 
-    @property
-    def comm(self) -> MPI.Comm:
-        return self.buffer.comm
+    # @property
+    # @utils.deprecated("internal_comm")
+    # def comm(self) -> MPI.Comm:
+    #     return self.buffer.comm
 
     @property
     def dtype(self) -> np.dtype:
@@ -135,7 +135,7 @@ class Tensor(ContextAware, Expression, DistributedObject, abc.ABC):
         # that nothing is indexed. This could also catch the case of x.assign(x).
         # This will need to include expanding things like a(x + y) into ax + ay
         # (distributivity).
-        expr = ArrayAssignment(self, other, mode, comm=self.internal_comm)
+        expr = ArrayAssignment(self, other, mode)
         return expr() if eager else expr
 
     def duplicate(self, *, copy: bool = False) -> Tensor:

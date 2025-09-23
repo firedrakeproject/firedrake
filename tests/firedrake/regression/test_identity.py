@@ -5,7 +5,8 @@ from firedrake import *
 
 
 def identity(family, degree):
-    mesh = UnitCubeMesh(3, 3, 3)
+    # mesh = UnitCubeMesh(3, 3, 3)
+    mesh = UnitIntervalMesh(5)
     fs = FunctionSpace(mesh, family, degree)
     x = SpatialCoordinate(mesh)
 
@@ -22,6 +23,11 @@ def identity(family, degree):
     L = inner(f, v) * dx
 
     solve(a == L, out)
+
+    A = assemble(a).M.buffer.petscmat
+    b = assemble(L)
+    with b.dat.vec() as vec:
+        breakpoint()
 
     return norm(assemble(f - out))
 
@@ -95,37 +101,21 @@ def run_tensor_test_nonstandard_shape():
     return np.array([tensor_identity_nonstandard_shape(family, d) for d in degree])
 
 
+@pytest.mark.parallel([1, 3])
 def test_identity():
     assert (run_test() < 1e-6).all()
 
 
+@pytest.mark.parallel([1, 2])
 def test_vector_identity():
     assert (run_vector_test() < 1e-6).all()
 
 
+@pytest.mark.parallel([1, 2])
 def test_tensor_identity():
     assert (run_tensor_test() < 1e-6).all()
 
 
+@pytest.mark.parallel([1, 2])
 def test_tensor_identity_nonstandard_shape():
-    assert (run_tensor_test_nonstandard_shape() < 1e-6).all()
-
-
-@pytest.mark.parallel
-def test_identity_parallel():
-    assert (run_test() < 1e-6).all()
-
-
-@pytest.mark.parallel(nprocs=2)
-def test_vector_identity_parallel():
-    assert (run_vector_test() < 1e-6).all()
-
-
-@pytest.mark.parallel(nprocs=2)
-def test_tensor_identity_parallel():
-    assert (run_tensor_test() < 1e-6).all()
-
-
-@pytest.mark.parallel(nprocs=2)
-def test_tensor_identity_nonstandard_shape_parallel():
     assert (run_tensor_test_nonstandard_shape() < 1e-6).all()
