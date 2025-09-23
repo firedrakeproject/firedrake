@@ -729,7 +729,7 @@ def test_copy_function():
     g = f.copy(deepcopy=True)
     J = assemble(g*dx)
     rf = ReducedFunctional(J, Control(f))
-    a = assemble(Interpolate(-one, V))
+    a = assemble(interpolate(-one, V))
     assert np.isclose(rf(a), -J)
 
 
