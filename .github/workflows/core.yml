@@ -210,6 +210,7 @@ jobs:
             --extra-index-url https://download.pytorch.org/whl/cpu \
             "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci]"
 
+          pip install -I "fenics-ufl @ git+https://github.com/firedrakeproject/ufl.git@leo/sanitise-interpolate"
           firedrake-clean
           pip list
 
