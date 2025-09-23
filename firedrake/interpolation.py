@@ -92,11 +92,6 @@ class Interpolate(ufl.Interpolate):
                 between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
                 and reduce operations.
         """
-        # Check function space
-        if isinstance(v, functionspaceimpl.WithGeometry):
-            expr_args = extract_arguments(ufl.as_ufl(expr))
-            is_adjoint = len(expr_args) and expr_args[0].number() == 0
-            v = Argument(v.dual(), 1 if is_adjoint else 0)
         super().__init__(expr, v)
 
         # -- Interpolate data (e.g. `subset` or `access`) -- #
@@ -163,33 +158,10 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
        reduction (hence using MIN will compute the MIN between the
        existing values and any new values).
     """
-    if isinstance(V, (Cofunction, Coargument)):
-        dual_arg = V
-    elif isinstance(V, ufl.Form):
-        rank = len(V.arguments())
-        if rank == 1:
-            dual_arg = V
-        else:
-            raise TypeError(f"Expected a one-form, provided form had {rank} arguments")
-    elif isinstance(V, functionspaceimpl.WithGeometry):
-        dual_arg = Coargument(V.dual(), 0)
-        expr_args = extract_arguments(expr)
-        if expr_args and expr_args[0].number() == 0:
-            # In this case we are doing adjoint interpolation
-            # When V is a FunctionSpace and expr contains Argument(0),
-            # we need to change expr argument number to 1 (in our current implementation)
-            v, = expr_args
-            expr = replace(expr, {v: v.reconstruct(number=1)})
-    else:
-        raise TypeError(f"V must be a FunctionSpace, Cofunction, Coargument or one-form, not a {type(V).__name__}")
-
-    interp = Interpolate(expr, dual_arg,
-                         subset=subset, access=access,
-                         allow_missing_dofs=allow_missing_dofs,
-                         default_missing_val=default_missing_val,
-                         matfree=matfree)
-
-    return interp
+    return Interpolate(
+        expr, V, subset=subset, access=access, allow_missing_dofs=allow_missing_dofs,
+        default_missing_val=default_missing_val, matfree=matfree
+    )
 
 
 class Interpolator(abc.ABC):
