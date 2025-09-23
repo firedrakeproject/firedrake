@@ -5,8 +5,7 @@ from firedrake import *
 
 
 def identity(family, degree):
-    # mesh = UnitCubeMesh(3, 3, 3)
-    mesh = UnitIntervalMesh(5)
+    mesh = UnitCubeMesh(3, 3, 3)
     fs = FunctionSpace(mesh, family, degree)
     x = SpatialCoordinate(mesh)
 
@@ -23,11 +22,6 @@ def identity(family, degree):
     L = inner(f, v) * dx
 
     solve(a == L, out)
-
-    # A = assemble(a).M.buffer.petscmat
-    # b = assemble(L)
-    # with b.dat.vec() as vec:
-    #     breakpoint()
 
     return norm(assemble(f - out))
 

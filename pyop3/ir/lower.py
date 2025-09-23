@@ -322,10 +322,9 @@ class CompiledCodeExecutor:
     """
 
     # TODO: intents and datamap etc maybe all go together. All relate to the same objects
-    def __init__(self, loopy_code: lp.TranslationUnit, buffer_map: WeakValueDictionary[str, ConcretBuffer], buffer_intents: Mapping[str, Intent], compiler_parameters: Mapping, comm: Pyop3Comm):
+    def __init__(self, loopy_code: lp.TranslationUnit, buffer_map: WeakValueDictionary[str, ConcretBuffer], compiler_parameters: Mapping, comm: Pyop3Comm):
         self.loopy_code = loopy_code
         self.buffer_map = buffer_map
-        self.buffer_intents = buffer_intents
         self.compiler_parameters = compiler_parameters
         self.comm = comm
 
@@ -335,7 +334,7 @@ class CompiledCodeExecutor:
 
     @cached_property
     def _buffer_refs(self) -> tuple[BufferRef]:
-        return tuple(self.buffer_map.values())
+        return tuple(ref for ref, _ in self.buffer_map.values())
 
     @cached_property
     def _default_buffers(self) -> tuple[ConcreteBuffer]:
@@ -390,7 +389,7 @@ class CompiledCodeExecutor:
             initializers = []
             reductions = []
             broadcasts = []
-            for buffer_ref, intent in zip(self.buffer_map.values(), self.buffer_intents.values(), strict=True):
+            for buffer_ref, intent in self.buffer_map.values():
                 if isinstance(buffer_ref.buffer, PetscMatBuffer):
                     continue
                 else:
@@ -409,6 +408,7 @@ class CompiledCodeExecutor:
             for bcast in broadcasts:
                 bcast()
 
+            # Now all the data is correct, compute!
             self.executable(*exec_arguments)
         else:
             self.executable(*exec_arguments)
@@ -421,7 +421,7 @@ class CompiledCodeExecutor:
         str_.append(sep)
 
         for arg in self.loopy_code.default_entrypoint.args:
-            size, buffer = self._buffer_str(self.buffer_map[arg.name].buffer)
+            size, buffer = self._buffer_str(self.buffer_map[arg.name][0].buffer)
             str_.append(f"{arg.name} {size} : {buffer}")
 
         str_.append(sep)
@@ -449,7 +449,7 @@ class CompiledCodeExecutor:
     def _modified_buffer_indices(self) -> tuple[int]:
         return tuple(
             i
-            for i, intent in enumerate(self.buffer_intents.values())
+            for i, (_, intent) in enumerate(self.buffer_map.values())
             if intent != READ
         )
 
@@ -712,9 +712,9 @@ def compile(expr, compiler_parameters=None):
     sorted_buffers = {}
     for kernel_arg in entrypoint.args:
         buffer_key = kernel_to_buffer_names[kernel_arg.name]
-        sorted_buffers[kernel_arg.name] = context.global_buffers[buffer_key]
+        sorted_buffers[kernel_arg.name] = (context.global_buffers[buffer_key], context.global_buffer_intents[buffer_key])
 
-    return CompiledCodeExecutor(translation_unit, sorted_buffers, context.global_buffer_intents, compiler_parameters, expr.internal_comm)
+    return CompiledCodeExecutor(translation_unit, sorted_buffers, compiler_parameters, expr.internal_comm)
 
 
 # put into a class in transform.py?

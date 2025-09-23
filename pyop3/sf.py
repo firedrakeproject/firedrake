@@ -259,6 +259,12 @@ class NullStarForest(AbstractStarForest):
     def broadcast_end(self, *args):
         pass
 
+    def reduce_begin(self, *args):
+        pass
+
+    def reduce_end(self, *args):
+        pass
+
 
 def single_star_sf(comm, size=1, root=0):
     """Construct a star forest containing a single star.
