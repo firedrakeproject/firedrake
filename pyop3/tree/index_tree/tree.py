@@ -38,7 +38,7 @@ from pyop3.tree.axis_tree.tree import (
     GHOST_REGION_LABEL,
 )
 from pyop3.dtypes import IntType
-from pyop3.sf import StarForest
+from pyop3.sf import StarForest, local_sf
 from pyop3.tree.labelled_tree import (
     ConcretePathT,
     as_node_map,
@@ -1237,29 +1237,20 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
             # component with variable extent
             assert isinstance(target_component.local_size, numbers.Integral)
 
-            # If we are specially filtering the owned entries we want to drop the SF
-            # to disallow things like `axes.owned.owned`.
-            # NOTE: Is this actually an issue? It would reduce the special casing
-            if (
-                isinstance(slice_component, RegionSliceComponent)
-                and slice_component.region in {OWNED_REGION_LABEL, GHOST_REGION_LABEL}
-            ):
-                sf = None
+            if isinstance(slice_component, RegionSliceComponent):
+                region_index = target_component._all_region_labels.index(slice_component.region)
+                steps = utils.steps([r.size for r in target_component._all_regions], drop_last=False)
+                start, stop = steps[region_index:region_index+2]
+                indices = np.arange(start, stop, dtype=IntType)
+            elif isinstance(slice_component, AffineSliceComponent):
+                indices = np.arange(*slice_component.with_size(target_component.local_size), dtype=IntType)
             else:
-                if isinstance(slice_component, RegionSliceComponent):
-                    region_index = target_component._all_region_labels.index(slice_component.region_label)
-                    steps = utils.steps([r[1] for r in target_component._all_regions], drop_last=False)
-                    start, stop = steps[region_index:region_index+2]
-                    indices = np.arange(start, stop, dtype=IntType)
-                elif isinstance(slice_component, AffineSliceComponent):
-                    indices = np.arange(*slice_component.with_size(target_component.local_size), dtype=IntType)
-                else:
-                    assert isinstance(slice_component, SubsetSliceComponent)
-                    indices = slice_component.array.buffer.buffer.data_ro
+                assert isinstance(slice_component, SubsetSliceComponent)
+                indices = slice_component.array.buffer.buffer.data_ro
 
-                petsc_sf = filter_sf(target_component.sf.sf, indices, 0, target_component.local_size)
-                indexed_size = sum(r.size for r in indexed_regions)
-                sf = StarForest(petsc_sf, indexed_size)
+            petsc_sf = filter_sf(target_component.sf.sf, indices, 0, target_component.local_size)
+            indexed_size = sum(r.size for r in indexed_regions)
+            sf = StarForest(petsc_sf, indexed_size)
         else:
             sf = None
 

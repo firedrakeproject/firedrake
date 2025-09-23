@@ -24,10 +24,10 @@ def identity(family, degree):
 
     solve(a == L, out)
 
-    A = assemble(a).M.buffer.petscmat
-    b = assemble(L)
-    with b.dat.vec() as vec:
-        breakpoint()
+    # A = assemble(a).M.buffer.petscmat
+    # b = assemble(L)
+    # with b.dat.vec() as vec:
+    #     breakpoint()
 
     return norm(assemble(f - out))
 

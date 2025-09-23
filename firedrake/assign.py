@@ -252,9 +252,9 @@ class Assigner:
                 lhs_dat.data_wo_with_halos = rvalue
             else:
                 lhs_dat.data_wo = rvalue
-        elif assign_to_halos and rvalue.size == lhs_dat.axes.size:
+        elif assign_to_halos and rvalue.size == lhs_dat.axes.local_size:
             lhs_dat.data_wo_with_halos = rvalue.flatten()
-        elif not assign_to_halos and rvalue.size == lhs_dat.axes.owned.size:
+        elif not assign_to_halos and rvalue.size == lhs_dat.axes.owned.local_size:
             lhs_dat.data_wo = rvalue.flatten()
         else:
             block_shape = self._assignee.function_space().shape
