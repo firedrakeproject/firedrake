@@ -48,7 +48,7 @@ __all__ = (
 
 class Interpolate(ufl.Interpolate):
 
-    def __init__(self, expr, v,
+    def __init__(self, expr, V,
                  subset=None,
                  access=None,
                  allow_missing_dofs=False,
@@ -60,7 +60,7 @@ class Interpolate(ufl.Interpolate):
         ----------
         expr : ufl.core.expr.Expr or ufl.BaseForm
                The UFL expression to interpolate.
-        v : firedrake.functionspaceimpl.WithGeometryBase or firedrake.ufl_expr.Coargument
+        V : firedrake.functionspaceimpl.WithGeometryBase or firedrake.ufl_expr.Coargument
             The function space to interpolate into or the coargument defined
             on the dual of the function space to interpolate into.
         subset : pyop2.types.set.Subset
@@ -95,20 +95,12 @@ class Interpolate(ufl.Interpolate):
                 between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
                 and reduce operations.
         """
-        # Check function space
-        expr = ufl.as_ufl(expr)
-        if isinstance(v, functionspaceimpl.WithGeometry):
-            expr_args = extract_arguments(expr)
+        if isinstance(V, functionspaceimpl.WithGeometry):
+            # Need to create a Firedrake Argument so that it has a .function_space() method
+            expr_args = extract_arguments(ufl.as_ufl(expr))
             is_adjoint = len(expr_args) and expr_args[0].number() == 0
-            v = Argument(v.dual(), 1 if is_adjoint else 0)
-
-        V = v.arguments()[0].function_space()
-        if len(expr.ufl_shape) != len(V.value_shape):
-            raise RuntimeError(f'Rank mismatch: Expression rank {len(expr.ufl_shape)}, FunctionSpace rank {len(V.value_shape)}')
-
-        if expr.ufl_shape != V.value_shape:
-            raise RuntimeError('Shape mismatch: Expression shape {expr.ufl_shape}, FunctionSpace shape {V.value_shape}')
-        super().__init__(expr, v)
+            V = Argument(V.dual(), 1 if is_adjoint else 0)
+        super().__init__(expr, V)
 
         # -- Interpolate data (e.g. `subset` or `access`) -- #
         self.interp_data = {"subset": subset,
@@ -174,11 +166,6 @@ def interpolate(expr, V, subset=None, access=None, allow_missing_dofs=False, def
        reduction (hence using MIN will compute the MIN between the
        existing values and any new values).
     """
-    if isinstance(V, functionspaceimpl.WithGeometry):
-        # Need to create a Firedrake Argument so that it has a .function_space() method
-        expr_args = extract_arguments(ufl.as_ufl(expr))
-        is_adjoint = len(expr_args) and expr_args[0].number() == 0
-        V = Argument(V.dual(), 1 if is_adjoint else 0)
     return Interpolate(
         expr, V, subset=subset, access=access, allow_missing_dofs=allow_missing_dofs,
         default_missing_val=default_missing_val, matfree=matfree
