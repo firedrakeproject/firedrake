@@ -708,7 +708,7 @@ class FunctionSpace:
         import pyop3.extras.debug
 
         mesh_axis = self._mesh.flat_points
-        num_points = mesh_axis.size
+        num_points = mesh_axis.local_size
         plex = self._mesh.topology_dm
 
         constraints = [AxisConstraint(mesh_axis)]
@@ -738,7 +738,7 @@ class FunctionSpace:
 
         num_unconstrained_dofs = numpy.empty(num_points, dtype=IntType)
         num_constrained_dofs = numpy.empty_like(num_unconstrained_dofs)
-        for pt in range(mesh_axis.size):
+        for pt in range(mesh_axis.local_size):
             if self._mesh._dm_renumbering:
                 pt_renum = self._mesh._dm_renumbering.indices[pt]
             else:
@@ -816,7 +816,7 @@ class FunctionSpace:
         # NOTE: This might be a good candidate for axis forests so we could have
         # V.axes and index it with node things or mesh things
         scalar_axis_tree = self.plex_axes.blocked(self.shape)
-        num_nodes = scalar_axis_tree.size
+        num_nodes = scalar_axis_tree.local_size
 
         node_axis = op3.Axis([op3.AxisComponent(num_nodes, sf=scalar_axis_tree.sf)], "nodes")
         axis_tree = op3.AxisTree(node_axis)
@@ -957,7 +957,7 @@ class FunctionSpace:
         """Dummy PETSc Vec of the right size for this set of axes."""
         vec = PETSc.Vec().create(comm=self.comm)
         vec.setSizes(
-            (self.layout_axes.owned.size, self.layout_axes.global_size),
+            (self.layout_axes.owned.local_size, self.layout_axes.global_size),
             bsize=self.block_size,
         )
         vec.setUp()
@@ -976,7 +976,7 @@ class FunctionSpace:
             raise NotImplementedError
         # for dset in self:
             # nlocal_rows += dset.size * dset.cdim
-        nlocal_rows += self.axes.size
+        nlocal_rows += self.axes.local_size
         offset = self.comm.scan(nlocal_rows)
         offset -= nlocal_rows
 
@@ -987,7 +987,7 @@ class FunctionSpace:
         #     iset.setBlockSize(dset.cdim)
         #     ises.append(iset)
         #     offset += nrows
-        nrows = self.axes.size
+        nrows = self.axes.local_size
         iset = PETSc.IS().createStride(nrows, first=offset, step=1,
                                        comm=self.comm)
         iset.setBlockSize(self.block_size)

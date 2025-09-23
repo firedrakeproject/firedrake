@@ -442,6 +442,7 @@ class AxisComponent(LabelledNodeComponent):
     def size(self) -> Any:
         from pyop3 import Scalar
 
+        # TODO: check the communicator instead?
         if self.sf is not None:
             if not isinstance(self.local_size, numbers.Integral):
                 raise NotImplementedError(
@@ -588,6 +589,10 @@ class Axis(LoopIterable, MultiComponentLabelledNode, CacheMixin, ParallelAwareOb
     @property
     def size(self):
         return self._tree.size
+
+    @property
+    def local_size(self):
+        return self._tree.local_size
 
     @property
     def count(self):
@@ -927,12 +932,12 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         if not self.comm:  # maybe goes away if we disallow comm=None
             numbering = np.arange(self.size, dtype=IntType)
         else:
-            start = self.sf.internal_comm.exscan(self.owned.size) or 0
-            numbering = np.arange(start, start + self.size, dtype=IntType)
+            start = self.sf.internal_comm.exscan(self.owned.local_size) or 0
+            numbering = np.arange(start, start + self.local_size, dtype=IntType)
 
             # set ghost entries to -1 to make sure they are overwritten
             # TODO: if config.debug:
-            numbering[self.owned.size:] = -1
+            numbering[self.owned.local_size:] = -1
             self.sf.broadcast(numbering, MPI.REPLACE)
             debug_assert(lambda: (numbering >= 0).all())
         return numbering
@@ -957,6 +962,17 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
 
     @cached_property
     def size(self):
+        from pyop3 import Scalar
+
+        if  self.is_empty:
+            return 0
+        elif self.internal_comm.size > 1:
+            return Scalar(self.local_size)
+        else:
+            return self.local_size
+
+    @cached_property
+    def local_size(self):
         from .visitors import compute_axis_tree_size
 
         return compute_axis_tree_size(self)
@@ -965,12 +981,12 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
     def max_size(self):
         from pyop3.expr.visitors import max_value
 
-        return max_value(self.size)
+        return max_value(self.local_size)
 
     @cached_property
     @collective
     def global_size(self):
-        return self.comm.allreduce(self.owned.size)
+        return self.comm.allreduce(self.owned.local_size)
 
     # old
     @cached_property
@@ -996,7 +1012,7 @@ class AbstractAxisTree(ContextFreeLoopIterable, LabelledTree, DistributedObject)
         axis = self.node_map[path]
 
         subpath = path | {axis.label: component.label}
-        size_expr = self.materialize().subtree(subpath).size
+        size_expr = self.materialize().subtree(subpath).local_size
 
         # # NOTE: This is bizarre, what was I doing?
         # if isinstance(size_expr, numbers.Integral):
@@ -1939,8 +1955,14 @@ class AxisForest(DistributedObject):
     #     return type(self)((tree.regionless for tree in self.trees))
 
     @property
-    def size(self) -> int:
-        return utils.single_valued((tree.size for tree in self.trees))
+    def size(self):
+        from pyop3 import Scalar
+
+        return self.trees[0].size
+
+    @property
+    def local_size(self):
+        return utils.single_valued((tree.local_size for tree in self.trees))
 
     def with_context(self, context):
         return type(self)((tree.with_context(context) for tree in self.trees))

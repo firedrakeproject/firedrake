@@ -81,9 +81,6 @@ def compute_axis_tree_component_size(axis_tree: AbstractAxisTree, path: PathT, c
         #
         # Then the size is just the subtree size and no loop is needed.
 
-        import pyop3.extras.debug
-        # pyop3.extras.debug.maybe_breakpoint()
-
         subtree_size_axes, outer_loop_to_axis_var_replace_map = loopified_shape(subtree_size)
         assert subtree_size_axes.is_linear
 

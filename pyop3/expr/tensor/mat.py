@@ -525,8 +525,8 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
         else:
             comm = utils.common_comm((row_axes, column_axes), "internal_comm")
 
-            nrows = row_axes.unindexed.owned.size
-            ncolumns = column_axes.unindexed.owned.size
+            nrows = row_axes.unindexed.owned.local_size
+            ncolumns = column_axes.unindexed.owned.local_size
 
             row_block_shape, column_block_shape = partial_spec.block_shape
             if row_block_shape:
