@@ -25,20 +25,36 @@ def local_vector(u, *, readonly=False):
 
 
 class L2Cholesky:
+    """Mass matrix Cholesky factorization for a (real) DG space.
+
+    Parameters
+    ----------
+
+    space : WithGeometry
+        DG space.
+    constant_jacobian : bool
+        Whether the mass matrix is constant.
+    """
+
     def __init__(self, space, *, constant_jacobian=True):
+        if fd.utils.complex_mode:
+            raise NotImplementedError("complex not supported")
+
         self._space = space
         self._constant_jacobian = constant_jacobian
-        self._pc = None
+        self._cached_pc = None
 
     @property
-    def space(self):
+    def space(self) -> fd.functionspaceimpl.WithGeometry:
+        """Function space.
+        """
+
         return self._space
 
-    @property
-    def pc(self):
+    def _pc(self):
         import petsc4py.PETSc as PETSc
 
-        if self._pc is None:
+        if self._cached_pc is None:
             M = fd.assemble(fd.inner(fd.TrialFunction(self.space), fd.TestFunction(self.space)) * fd.dx,
                             mat_type="aij")
             M_local = M.petscmat.getDiagonalBlock()
@@ -50,24 +66,70 @@ class L2Cholesky:
             pc.setUp()
 
             if self._constant_jacobian:
-                self._pc = M, M_local, pc
+                self._cached_pc = M, M_local, pc
         else:
-            _, _, pc = self._pc
+            _, _, pc = self._cached_pc
 
         return pc
 
     def C_inv_action(self, u):
+        """For the Cholesky factorization
+
+        ... math :
+
+            M = C C^T,
+
+        compute the action of :math:`C^{-1}`.
+
+        Parameters
+        ----------
+
+        u : Function or Cofunction
+            Compute :math:`C^{-1} \tilde{u}` where :math:`\tilde{u}` is the
+            vector of degrees of freedom for :math:`u`.
+
+        Returns
+        -------
+
+        v : Cofunction
+            Has vector of degrees of freedom :math:`C^{-1} \tilde{u}`.
+        """
+
+        pc = self._pc()
         v = fd.Cofunction(self.space.dual())
         with u.dat.vec_ro as u_v, v.dat.vec_wo as v_v:
             with local_vector(u_v, readonly=True) as u_v_s, local_vector(v_v) as v_v_s:
-                self.pc.applySymmetricLeft(u_v_s, v_v_s)
+                pc.applySymmetricLeft(u_v_s, v_v_s)
         return v
 
     def C_T_inv_action(self, u):
+        """For the Cholesky factorization
+
+        ... math :
+
+            M = C C^T,
+
+        compute the action of :math:`C^{-T}`.
+
+        Parameters
+        ----------
+
+        u : Function or Cofunction
+            Compute :math:`C^{-T} \tilde{u}` where :math:`\tilde{u}` is the
+            vector of degrees of freedom for :math:`u`.
+
+        Returns
+        -------
+
+        v : Function
+            Has vector of degrees of freedom :math:`C^{-T} \tilde{u}`.
+        """
+
+        pc = self._pc()
         v = fd.Function(self.space)
         with u.dat.vec_ro as u_v, v.dat.vec_wo as v_v:
             with local_vector(u_v, readonly=True) as u_v_s, local_vector(v_v) as v_v_s:
-                self.pc.applySymmetricRight(u_v_s, v_v_s)
+                pc.applySymmetricRight(u_v_s, v_v_s)
         return v
 
 
@@ -78,7 +140,7 @@ class L2RieszMap(fd.RieszMap):
     ----------
 
     target : WithGeometry
-        Target space.
+        Function space.
 
     Keyword arguments are passed to the :class:`firedrake.RieszMap`
     constructor.
@@ -91,11 +153,41 @@ class L2RieszMap(fd.RieszMap):
 
 
 def is_dg_space(space):
+    """Return whether a function space is DG.
+
+    Parameters
+    ----------
+
+    space : WithGeometry
+        The function space.
+
+    Returns
+    -------
+
+    bool
+        Whether the function space is DG.
+    """
+
     e, _ = finat.element_factory.convert(space.ufl_element())
     return e.is_dg()
 
 
 def dg_space(space):
+    """Construct a DG space containing a given function space as a subspace.
+
+    Parameters
+    ----------
+
+    space : WithGeometry
+        A function space.
+
+    Returns
+    -------
+
+    WithGeometry
+        A DG space containing `space` as a subspace. May be `space`.
+    """
+
     if is_dg_space(space):
         return space
     else:
@@ -112,15 +204,13 @@ class L2TransformedFunctional(AbstractReducedFunctional):
     where
 
         - :math:`J` is the functional definining an optimization problem.
-        - :math:`\Pi` is the :math:`L^2` projection from a discontinuous
-          superspace of the control space.
+        - :math:`\Pi` is the :math:`L^2` projection from a DG space containing
+        the control space as a subspace.
         - :math:`\Xi` represents a change of basis from an :math:`L^2`
-          orthonormal basis to the finite element basis for the discontinuous
-          superspace.
+          orthonormal basis to the finite element basis for the DG space.
 
     The optimization is therefore transformed into an optimization problem
-    using an :math:`L^2` orthonormal basis for a discontinuous finite element
-    space.
+    using an :math:`L^2` orthonormal basis for a DG finite element space.
 
     The transformation is related to the factorization in section 4.1 of
     https://doi.org/10.1137/18M1175239 -- specifically the factorization
@@ -134,8 +224,8 @@ class L2TransformedFunctional(AbstractReducedFunctional):
     controls : Control or Sequence[Control]
         Controls. Must be :class:`firedrake.Function` objects.
     riesz_map : L2RieszMap or Sequence[L2RieszMap]
-        Used for projecting from the discontinuous space onto the control
-        space. Ignored for DG controls.
+        Used for projecting from the DG space onto the control space. Ignored
+        for DG controls.
     alpha : Real
         Modifies the functional, equivalent to adding an extra term to
         :math:`J \circ \Pi`
@@ -145,8 +235,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
             \frac{1}{2} \alpha \left\| m_D - \Pi ( m_D ) \right\|_{L^2}^2.
 
         e.g. in a minimization problem this adds a penalty term which can
-        be used to avoid ill-posedness due to the use of a larger discontinuous
-        space.
+        be used to avoid ill-posedness due to the use of a larger DG space.
     tape : Tape
         Tape used in evaluations involving :math:`J`.
     """
@@ -239,7 +328,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
 
         m : firedrake.Function or Sequence[firedrake.Function]
             The result of the optimization. Represents an expansion in an
-            :math:`L^2` orthonormal basis for the discontinuous space.
+            :math:`L^2` orthonormal basis for the DG space.
 
         Returns
         -------
