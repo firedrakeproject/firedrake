@@ -5,7 +5,7 @@ from ufl.constantvalue import as_ufl
 
 import firedrake.ufl_expr as ufl_expr
 from firedrake.assemble import assemble
-from firedrake.interpolation import Interpolate
+from firedrake.interpolation import interpolate
 from firedrake.external_operators import AbstractExternalOperator, assemble_method
 
 
@@ -58,7 +58,7 @@ class PointexprOperator(AbstractExternalOperator):
         V = self.function_space()
         expr = as_ufl(self.expr(*self.ufl_operands))
         if len(V) < 2:
-            interp = Interpolate(expr, self.function_space())
+            interp = interpolate(expr, self.function_space())
             return assemble(interp)
         # Interpolation of UFL expressions for mixed functions is not yet supported
         # -> `Function.assign` might be enough in some cases.
@@ -72,7 +72,7 @@ class PointexprOperator(AbstractExternalOperator):
     def assemble_Jacobian_action(self, *args, **kwargs):
         V = self.function_space()
         expr = as_ufl(self.expr(*self.ufl_operands))
-        interp = Interpolate(expr, V)
+        interp = interpolate(expr, V)
 
         u, = [e for i, e in enumerate(self.ufl_operands) if self.derivatives[i] == 1]
         w = self.argument_slots()[-1]
@@ -83,7 +83,7 @@ class PointexprOperator(AbstractExternalOperator):
     def assemble_Jacobian(self, *args, assembly_opts, **kwargs):
         V = self.function_space()
         expr = as_ufl(self.expr(*self.ufl_operands))
-        interp = Interpolate(expr, V)
+        interp = interpolate(expr, V)
 
         u, = [e for i, e in enumerate(self.ufl_operands) if self.derivatives[i] == 1]
         jac = ufl_expr.derivative(interp, u)
@@ -99,7 +99,7 @@ class PointexprOperator(AbstractExternalOperator):
     def assemble_Jacobian_adjoint_action(self, *args, **kwargs):
         V = self.function_space()
         expr = as_ufl(self.expr(*self.ufl_operands))
-        interp = Interpolate(expr, V)
+        interp = interpolate(expr, V)
 
         u, = [e for i, e in enumerate(self.ufl_operands) if self.derivatives[i] == 1]
         ustar = self.argument_slots()[0]
