@@ -4153,7 +4153,7 @@ def _parent_mesh_embedding(
     # nessesary, to other processes.
     P0DG = functionspace.FunctionSpace(parent_mesh, "DG", 0)
     with stop_annotating():
-        visible_ranks = interpolation.Interpolate(
+        visible_ranks = interpolation.interpolate(
             constant.Constant(parent_mesh.comm.rank), P0DG
         )
         visible_ranks = assemble(visible_ranks).dat.data_ro_with_halos.real
