@@ -506,7 +506,7 @@ def interpolate_function(
 
     # output argument works
     f_dest = Function(V_dest)
-    assemble(Interpolate(f_src, V_dest), tensor=f_dest)
+    assemble(interpolate(f_src, V_dest), tensor=f_dest)
     assert extract_unique_domain(f_dest) is m_dest
     got = f_dest.at(coords)
     assert np.allclose(got, expected, atol=atol)
@@ -527,7 +527,7 @@ def interpolate_expression(
 
     # output argument works for expressions
     f_dest = Function(V_dest)
-    assemble(Interpolate(expr_src, V_dest), tensor=f_dest)
+    assemble(interpolate(expr_src, V_dest), tensor=f_dest)
     assert extract_unique_domain(f_dest) is m_dest
     got = f_dest.at(coords)
     assert np.allclose(got, expected, atol=atol)
