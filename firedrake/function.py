@@ -384,7 +384,10 @@ class Function(ufl.Coefficient, FunctionMixin):
         """
         from firedrake import interpolation, assemble
         V = self.function_space()
-        interp = interpolation.Interpolate(expression, V, **kwargs)
+        interp = interpolate(
+            expression, V, subset=subset, allow_missing_dofs=allow_missing_dofs,
+            default_missing_val=default_missing_val
+        )
         return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
 
     def zero(self, subset=None):
