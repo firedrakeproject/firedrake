@@ -148,18 +148,25 @@ def test_cached_transfer(family, degree):
 
     V = FunctionSpace(mesh, family, degree)
     u = Function(V)
-    F = inner(u - 1, TestFunction(V)) * dx
+
+    R1 = FunctionSpace(mesh, "R", 0)
+    R2 = FunctionSpace(mesh, "R", 0)
+    c1 = Function(R1).assign(1)
+    c2 = Function(R2).assign(1)
+
+    F = inner(u - 1, (c1 + c2)*TestFunction(V)) * dx
+    problem = NonlinearVariationalProblem(F, u)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
+
+    transfer = TransferManager()
+    solver.set_transfer_manager(transfer)
 
     # This test will fail if we raise this warning
     with warnings.catch_warnings():
         warnings.filterwarnings("error", "Creating new TransferManager", RuntimeWarning)
-        problem = NonlinearVariationalProblem(F, u)
-        solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
         solver.solve()
 
     ctx = solver._ctx
-    transfer = ctx.transfer_manager
-    assert transfer is not None
     while ctx:
         assert ctx.transfer_manager is transfer
         ctx = ctx._coarse

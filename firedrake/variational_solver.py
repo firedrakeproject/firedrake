@@ -328,9 +328,10 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         problem = self._problem
         forms = (problem.F, problem.J, problem.Jp)
         coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
+        spaces = chain.from_iterable(c.function_space() for c in coefficients)
         # Make sure the solution dm is visited last
         solution_dm = self.snes.getDM()
-        problem_dms = [V.dm for V in utils.unique(chain.from_iterable(c.function_space() for c in coefficients)) if V.dm != solution_dm]
+        problem_dms = [V.dm for V in spaces if V.dm != solution_dm]
         problem_dms.append(solution_dm)
 
         if self._ctx.pre_apply_bcs:
