@@ -388,12 +388,12 @@ class Function(ufl.Coefficient, FunctionMixin):
         :kwarg ad_block_tag: An optional string for tagging the resulting assemble block on
             the Pyadjoint tape.
         :returns: this :class:`Function` object"""
-        from firedrake import interpolation, assemble
+        from firedrake import interpolate, assemble
         V = self.function_space()
-        interp = interpolation.Interpolate(expression, V,
-                                           subset=subset,
-                                           allow_missing_dofs=allow_missing_dofs,
-                                           default_missing_val=default_missing_val)
+        interp = interpolate(
+            expression, V, subset=subset, allow_missing_dofs=allow_missing_dofs,
+            default_missing_val=default_missing_val
+        )
         return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
 
     def zero(self, subset=None):
