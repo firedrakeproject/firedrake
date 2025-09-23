@@ -51,7 +51,7 @@ def _test_submesh_interpolate_cell_cell(mesh, subdomain_cond, fe_fesub):
     f = Function(V_).interpolate(f)
     v0 = Coargument(V.dual(), 0)
     v1 = TrialFunction(Vsub)
-    interp = Interpolate(v1, v0, allow_missing_dofs=True)
+    interp = interpolate(v1, v0, allow_missing_dofs=True)
     A = assemble(interp)
     g = assemble(action(A, gsub))
     assert assemble(inner(g - f, g - f) * dx(label_value)).real < 1e-14
@@ -165,7 +165,7 @@ def test_submesh_interpolate_subcell_subcell_2_processes():
     f_l.dat.data_with_halos[:] = 3.0
     v0 = Coargument(V_r.dual(), 0)
     v1 = TrialFunction(V_l)
-    interp = Interpolate(v1, v0, allow_missing_dofs=True)
+    interp = interpolate(v1, v0, allow_missing_dofs=True)
     A = assemble(interp)
     f_r = assemble(action(A, f_l))
     g_r = Function(V_r).interpolate(conditional(x < 2.001, 3.0, 0.0))

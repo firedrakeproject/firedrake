@@ -511,7 +511,7 @@ class CrossMeshInterpolator(Interpolator):
 
         from firedrake.assemble import assemble
         V_dest_vec = firedrake.VectorFunctionSpace(dest_mesh, ufl_scalar_element)
-        f_dest_node_coords = Interpolate(dest_mesh.coordinates, V_dest_vec)
+        f_dest_node_coords = interpolate(dest_mesh.coordinates, V_dest_vec)
         f_dest_node_coords = assemble(f_dest_node_coords)
         dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, dest_mesh_gdim)
         try:
@@ -536,7 +536,7 @@ class CrossMeshInterpolator(Interpolator):
         else:
             fs_type = partial(firedrake.TensorFunctionSpace, shape=shape)
         P0DG_vom = fs_type(self.vom_dest_node_coords_in_src_mesh, "DG", 0)
-        self.point_eval_interpolate = Interpolate(self.expr_renumbered, P0DG_vom)
+        self.point_eval_interpolate = interpolate(self.expr_renumbered, P0DG_vom)
         # The parallel decomposition of the nodes of V_dest in the DESTINATION
         # mesh (dest_mesh) is retrieved using the input_ordering attribute of the
         # VOM. This again is an interpolation operation, which, under the hood
@@ -544,7 +544,7 @@ class CrossMeshInterpolator(Interpolator):
         P0DG_vom_i_o = fs_type(
             self.vom_dest_node_coords_in_src_mesh.input_ordering, "DG", 0
         )
-        self.to_input_ordering_interpolate = Interpolate(
+        self.to_input_ordering_interpolate = interpolate(
             firedrake.TrialFunction(P0DG_vom), P0DG_vom_i_o
         )
         # The P0DG function outputted by the above interpolation has the
