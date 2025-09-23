@@ -10,7 +10,6 @@ except ModuleNotFoundError as e:
         "pip install matplotlib"
     ) from e
 import matplotlib.colors
-import matplotlib.patches
 import matplotlib.tri
 from matplotlib.path import Path
 from matplotlib.lines import Line2D
@@ -19,9 +18,9 @@ import mpl_toolkits.mplot3d
 from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 from math import factorial
 from firedrake import (Interpolate, sqrt, inner, Function, SpatialCoordinate,
-                       FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
-                       Constant, assemble, dx)
-from firedrake.mesh import MeshGeometry
+                       FunctionSpace, VectorFunctionSpace, Constant, assemble, dx,
+                       PointEvaluator)
+from firedrake.mesh import MeshGeometry, VertexOnlyMeshMissingPointsError
 from firedrake.petsc import PETSc
 from ufl.domain import extract_unique_domain
 
@@ -391,8 +390,9 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
     cell_sizes = mesh.cell_sizes
 
     x = np.array(point)
-    v1 = toreal(direction * function.at(x, tolerance=loc_tolerance), complex_component)
-    r = toreal(cell_sizes.at(x, tolerance=loc_tolerance), "real")
+    eval_x = PointEvaluator(mesh, x, tolerance=loc_tolerance)
+    v1 = toreal(direction * eval_x.evaluate(function), complex_component)
+    r = toreal(eval_x.evaluate(cell_sizes), "real")
     v1norm = np.sqrt(np.sum(v1**2))
     if np.isclose(v1norm, 0.0):
         # Bail early for zero fields.
@@ -402,12 +402,14 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
 
     while True:
         try:
-            v2 = toreal(direction * function.at(x + dt * v1, tolerance=loc_tolerance),
+            eval_xdt = PointEvaluator(mesh, x + dt * v1, tolerance=loc_tolerance)
+            v2 = toreal(direction * eval_xdt.evaluate(function),
                         complex_component)
-        except PointNotInDomainError:
+        except VertexOnlyMeshMissingPointsError:
             ds = _step_to_boundary(mesh, x, v1, dt, loc_tolerance)
             y = x + ds * v1
-            v1 = toreal(direction * function.at(y, tolerance=loc_tolerance),
+            eval_y = PointEvaluator(mesh, y, tolerance=loc_tolerance)
+            v1 = toreal(direction * eval_y.evaluate(function),
                         complex_component)
             yield y, v1, ds
             break
@@ -419,14 +421,16 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
         if error <= tolerance:
             y = x + dx2
             try:
-                vy = toreal(direction * function.at(y, tolerance=loc_tolerance),
+                eval_y = PointEvaluator(mesh, y, tolerance=loc_tolerance)
+                vy = toreal(direction * eval_y.evaluate(function),
                             complex_component)
-                r = toreal(cell_sizes.at(y, tolerance=loc_tolerance), "real")
-            except PointNotInDomainError:
+                r = toreal(eval_y.evaluate(cell_sizes), "real")
+            except VertexOnlyMeshMissingPointsError:
                 v = (v1 + v2) / 2
                 ds = _step_to_boundary(mesh, x, v, dt, loc_tolerance)
                 y = x + ds * v
-                v1 = toreal(direction * function.at(y, tolerance=loc_tolerance),
+                eval_y = PointEvaluator(mesh, y, tolerance=loc_tolerance)
+                v1 = toreal(direction * eval_y.evaluate(function),
                             complex_component)
                 yield y, v1, ds
                 break
@@ -504,7 +508,7 @@ class Streamplotter(object):
                                    self.tolerance, self.loc_tolerance,
                                    complex_component=self.complex_component):
             delta = x - s[-1]
-            s.append(x)
+            s.append(x[0])
             T += dt
             L += np.sqrt(np.sum(delta**2))
 
@@ -654,7 +658,8 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     speeds = []
     widths = []
     for streamline in streamplotter.streamlines:
-        velocity = toreal(np.array(function.at(streamline, tolerance=loc_tolerance)),
+        eval_streamline = PointEvaluator(mesh, streamline, tolerance=loc_tolerance)
+        velocity = toreal(np.array(eval_streamline.evaluate(function)),
                           complex_component)
         speed = np.sqrt(np.sum(velocity**2, axis=1))
         speeds.extend(speed[:-1])
