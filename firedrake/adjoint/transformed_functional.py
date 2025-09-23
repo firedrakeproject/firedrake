@@ -223,6 +223,8 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         Functional defining the optimization problem, :math:`J`.
     controls : Control or Sequence[Control]
         Controls. Must be :class:`firedrake.Function` objects.
+    space_D : None, WithGeometry, or Sequence[None or WithGeometry]
+        DG space containing the control space.
     riesz_map : L2RieszMap or Sequence[L2RieszMap]
         Used for projecting from the DG space onto the control space. Ignored
         for DG controls.
@@ -241,18 +243,27 @@ class L2TransformedFunctional(AbstractReducedFunctional):
     """
 
     @no_annotations
-    def __init__(self, functional, controls, *, riesz_map=None, alpha=0, tape=None):
+    def __init__(self, functional, controls, *, space_D=None, riesz_map=None, alpha=0, tape=None):
         if not all(isinstance(control.control, fd.Function) for control in Enlist(controls)):
             raise TypeError("controls must be Function objects")
 
         super().__init__()
         self._J = ReducedFunctional(functional, controls, tape=tape)
+
         self._space = tuple(control.control.function_space()
                             for control in self._J.controls)
-        self._space_D = tuple(map(dg_space, self._space))
+        if space_D is None:
+            space_D = tuple(None for _ in self._space)
+        self._space_D = Enlist(space_D)
+        if len(self._space_D) != len(self._space):
+            raise ValueError("Invalid length")
+        self._space_D = tuple(dg_space(space) if space_D is None else space_D
+                              for space, space_D in zip(self._space, self._space_D))
+
         self._controls = tuple(Control(fd.Function(space_D), riesz_map="l2")
                                for space_D in self._space_D)
         self._controls = Enlist(Enlist(controls).delist(self._controls))
+
         self._alpha = alpha
         self._m_k = None
 
