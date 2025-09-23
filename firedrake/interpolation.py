@@ -174,32 +174,10 @@ def interpolate(expr, V, subset=None, access=None, allow_missing_dofs=False, def
        reduction (hence using MIN will compute the MIN between the
        existing values and any new values).
     """
-    if isinstance(V, (Cofunction, Coargument)):
-        dual_arg = V
-    elif isinstance(V, ufl.BaseForm):
-        rank = len(V.arguments())
-        if rank == 1:
-            dual_arg = V
-        else:
-            raise TypeError(f"Expected a one-form, provided form had {rank} arguments")
-    elif isinstance(V, functionspaceimpl.WithGeometry):
-        dual_arg = Coargument(V.dual(), 0)
-        expr_args = extract_arguments(ufl.as_ufl(expr))
-        if expr_args and expr_args[0].number() == 0:
-            warnings.warn("Passing argument numbered 0 in expression for forward interpolation is deprecated. "
-                          "Use a TrialFunction in the expression.")
-            v, = expr_args
-            expr = replace(expr, {v: v.reconstruct(number=1)})
-    else:
-        raise TypeError(f"V must be a FunctionSpace, Cofunction, Coargument or one-form, not a {type(V).__name__}")
-
-    interp = Interpolate(expr, dual_arg,
-                         subset=subset, access=access,
-                         allow_missing_dofs=allow_missing_dofs,
-                         default_missing_val=default_missing_val,
-                         matfree=matfree)
-
-    return interp
+    return Interpolate(
+        expr, V, subset=subset, access=access, allow_missing_dofs=allow_missing_dofs,
+        default_missing_val=default_missing_val, matfree=matfree
+    )
 
 
 class Interpolator(abc.ABC):
