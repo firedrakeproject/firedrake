@@ -1,0 +1,15 @@
+# Core build dependencies (adapted from pyproject.toml)
+Cython>=3.0
+libsupermesh
+mpi4py>3; python_version >= '3.13'
+mpi4py; python_version < '3.13'
+numpy
+pkgconfig
+petsctools
+pybind11
+setuptools>=77.0.3
+rtree>=1.2
+
+# Transitive build dependencies
+hatchling
+meson-python

@@ -1,7 +1,6 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.__future__ import *
 
 try:
     from firedrake.pyplot import *
@@ -101,16 +100,19 @@ def test_tripcolor_shading():
     f0.project(x[0] + x[1])
     f1.project(x[0] + x[1])
 
-    fig, axes = plt.subplots(ncols=3, sharex=True, sharey=True)
+    fig, axes = plt.subplots(ncols=4, sharex=True, sharey=True)
 
     collection = tripcolor(f0, num_sample_points=1, axes=axes[0])
-    assert collection.get_array().shape == f0.dat.data_ro[:].shape
+    assert collection.get_array().shape[0] == 3 * mesh.num_cells()
 
     collection = tripcolor(f1, num_sample_points=1, axes=axes[1])
-    assert collection.get_array().shape == f1.dat.data_ro[:].shape
+    assert collection.get_array().shape[0] == 3 * mesh.num_cells()
 
-    collection = tripcolor(f1, num_sample_points=1, shading="flat", axes=axes[2])
-    assert collection.get_array().shape == f0.dat.data_ro[:].shape
+    collection = tripcolor(f0, num_sample_points=1, shading="flat", axes=axes[2])
+    assert collection.get_array().shape[0] == mesh.num_cells()
+
+    collection = tripcolor(f1, num_sample_points=1, shading="flat", axes=axes[3])
+    assert collection.get_array().shape[0] == mesh.num_cells()
 
 
 @pytest.mark.skipplot
@@ -166,6 +168,15 @@ def test_tricontour_extruded_mesh():
 
 
 @pytest.mark.skipplot
+def test_fn_plotter_extruded_mesh_multiple_layers():
+    nx, nz = 8, 4
+    interval = UnitIntervalMesh(nx)
+    rectangle = ExtrudedMesh(interval, nz)
+    fn_plotter = FunctionPlotter(rectangle, num_sample_points=1)
+    assert fn_plotter.triangulation.triangles.shape[0] == 2 * nx * nz
+
+
+@pytest.mark.skipplot
 def test_quiver_plot():
     mesh = UnitSquareMesh(10, 10)
     V = VectorFunctionSpace(mesh, "CG", 1)
@@ -191,8 +202,9 @@ def test_streamplot():
     saddle = assemble(interpolate(2 * as_vector((v[0], -v[1])), V))
     r = Constant(.5)
     sink = assemble(interpolate(center - r * v, V))
+    zero = Function(V)
 
-    fig, axes = plt.subplots(ncols=1, nrows=3, sharex=True, sharey=True)
+    fig, axes = plt.subplots(ncols=1, nrows=4, sharex=True, sharey=True)
     for ax in axes:
         ax.set_aspect("equal")
 
@@ -200,9 +212,10 @@ def test_streamplot():
     kwargses = [
         {'resolution': 1/48, 'tolerance': 2e-2, 'norm': color_norm, 'seed': 0},
         {'loc_tolerance': 1e-5, 'cmap': 'bone', 'vmax': 1., 'seed': 0},
-        {'min_length': 1/4, 'max_time': 5., 'seed': 0}
+        {'min_length': 1/4, 'max_time': 5., 'seed': 0},
+        {}
     ]
-    for ax, function, kwargs in zip(axes, [center, saddle, sink], kwargses):
+    for ax, function, kwargs in zip(axes, [center, saddle, sink, zero], kwargses):
         lines = streamplot(function, axes=ax, **kwargs)
         colorbar = fig.colorbar(lines, ax=ax)
         assert lines is not None

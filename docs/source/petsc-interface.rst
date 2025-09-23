@@ -351,7 +351,7 @@ and the `PETSc manual`_ for details.
 
 If vertex coordinate information is to be accessed from the
 DMPlex then we must first establish a mapping between
-`its numbering`_ and the coordinates in the Firedrake mesh. This is done
+its numbering and the coordinates in the Firedrake mesh. This is done
 by establishing a 'section'. A section provides a way of associating
 data with the mesh - in this case, coordinate field data.
 For a :math:`d`-dimensional mesh, we seek to establish offsets to recover
@@ -408,4 +408,3 @@ entity ``d`` (according to the DMPlex numbering) by
 .. _Sherman-Morrison formula: https://en.wikipedia.org/wiki/Sherman%E2%80%93Morrison_formula
 .. _Firedrake DMPlex paper: https://arxiv.org/abs/1506.07749
 .. _PETSc manual: https://petsc.org/release/manual/dmplex/
-.. _its numbering: https://petsc.org/release/manual/dmplex/#data-layout-by-hand

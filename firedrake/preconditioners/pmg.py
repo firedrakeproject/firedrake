@@ -106,7 +106,7 @@ class PMGBase(PCSNESBase):
         if test.function_space() != trial.function_space():
             raise NotImplementedError("test and trial spaces must be the same")
 
-        prefix = obj.getOptionsPrefix()
+        prefix = obj.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
         pdm = PETSc.DMShell().create(comm=obj.comm)
         pdm.setOptionsPrefix(options_prefix)
@@ -119,7 +119,7 @@ class PMGBase(PCSNESBase):
             default_mat_type = "matfree"
 
         # Get the coarse degree from PETSc options
-        copts = PETSc.Options(ppc.getOptionsPrefix() + ppc.getType() + "_coarse_")
+        copts = PETSc.Options((ppc.getOptionsPrefix() or "") + ppc.getType() + "_coarse_")
         self.coarse_degree = copts.getInt("degree", default=1)
         self.coarse_mat_type = copts.getString("mat_type", default=default_mat_type)
         self.coarse_pmat_type = copts.getString("pmat_type", default=self.coarse_mat_type)
@@ -181,21 +181,21 @@ class PMGBase(PCSNESBase):
         assert parent is not None
 
         test, trial = fctx.J.arguments()
-        fV = test.function_space()
+        fV = trial.function_space()
         cele = self.coarsen_element(fV.ufl_element())
 
         # Have we already done this?
         cctx = fctx._coarse
         if cctx is not None:
-            cV = cctx.J.arguments()[0].function_space()
-            if (cV.ufl_element() == cele) and (cV.mesh() == fV.mesh()):
+            cV = cctx.J.arguments()[1].function_space()
+            if (cV.ufl_element() == cele) and (cV.mesh() == fV.mesh()) and all(cV_.boundary_set == fV_.boundary_set for cV_, fV_ in zip(cV, fV)):
                 return cV.dm
 
-        cV = firedrake.FunctionSpace(fV.mesh(), cele)
+        cV = fV.reconstruct(element=cele)
         cdm = cV.dm
 
         fproblem = fctx._problem
-        fu = fproblem.u
+        fu = fproblem.u_restrict
         cu = firedrake.Function(cV)
 
         fdeg = PMGBase.max_degree(fV.ufl_element())
@@ -370,8 +370,8 @@ class PMGBase(PCSNESBase):
                 construct_mat = prolongation_matrix_aij
             else:
                 raise ValueError("Unknown matrix type")
-            cV = cctx.J.arguments()[0].function_space()
-            fV = fctx.J.arguments()[0].function_space()
+            cV = cctx._problem.u_restrict.function_space()
+            fV = fctx._problem.u_restrict.function_space()
             cbcs = tuple(cctx._problem.bcs) if cbcs else tuple()
             fbcs = tuple(fctx._problem.bcs) if fbcs else tuple()
             return cache.setdefault(key, construct_mat(cV, fV, cbcs, fbcs))
@@ -423,7 +423,7 @@ class PMGBase(PCSNESBase):
             return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e) + shift) for e in ele._elements))
         elif isinstance(ele, finat.ufl.TensorProductElement):
             shift = degree - PMGBase.max_degree(ele)
-            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e) + shift) for e in ele.sub_elements), cell=ele.cell)
+            return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e) + shift) for e in ele.factor_elements), cell=ele.cell)
         elif isinstance(ele, finat.ufl.MixedElement):
             shift = degree - PMGBase.max_degree(ele)
             return type(ele)(*(PMGBase.reconstruct_degree(e, PMGBase.max_degree(e) + shift) for e in ele.sub_elements))
@@ -443,7 +443,7 @@ class PMGPC(PCBase, PMGBase):
     def configure_pmg(self, pc, pdm):
         odm = pc.getDM()
         ppc = PETSc.PC().create(comm=pc.comm)
-        ppc.setOptionsPrefix(pc.getOptionsPrefix() + self._prefix)
+        ppc.setOptionsPrefix((pc.getOptionsPrefix() or "") + self._prefix)
         ppc.setType("mg")
         ppc.setOperators(*pc.getOperators())
         ppc.setDM(pdm)
@@ -458,7 +458,7 @@ class PMGPC(PCBase, PMGBase):
         # other way to get PETSc to know this at the right time.
         max_levels = odm.getRefineLevel() + 1
         if max_levels > 1:
-            opts = PETSc.Options(pc.getOptionsPrefix() + "pmg_")
+            opts = PETSc.Options((pc.getOptionsPrefix() or "") + "pmg_")
             if opts.getString("mg_coarse_pc_type") == "mg":
                 opts["mg_coarse_pc_mg_levels"] = min(opts.getInt("mg_coarse_pc_mg_levels", max_levels), max_levels)
         return ppc
@@ -479,7 +479,7 @@ class PMGSNES(SNESBase, PMGBase):
     def configure_pmg(self, snes, pdm):
         odm = snes.getDM()
         psnes = PETSc.SNES().create(comm=snes.comm)
-        psnes.setOptionsPrefix(snes.getOptionsPrefix() + self._prefix)
+        psnes.setOptionsPrefix((snes.getOptionsPrefix() or "") + self._prefix)
         psnes.setType("fas")
         psnes.setDM(pdm)
         psnes.setTolerances(max_it=1)
@@ -503,7 +503,7 @@ class PMGSNES(SNESBase, PMGBase):
         # other way to get PETSc to know this at the right time.
         max_levels = odm.getRefineLevel() + 1
         if max_levels > 1:
-            opts = PETSc.Options(snes.getOptionsPrefix() + "pfas_")
+            opts = PETSc.Options((snes.getOptionsPrefix() or "") + "pfas_")
             if opts.getString("fas_coarse_pc_type") == "mg":
                 opts["fas_coarse_pc_mg_levels"] = min(opts.getInt("fas_coarse_pc_mg_levels", max_levels), max_levels)
             if opts.getString("fas_coarse_snes_type") == "fas":
@@ -1179,7 +1179,7 @@ def make_permutation_code(V, vshape, pshape, t_in, t_out, array_name):
 
 def reference_value_space(V):
     element = finat.ufl.WithMapping(V.ufl_element(), mapping="identity")
-    return firedrake.FunctionSpace(V.mesh(), element)
+    return V.collapse().reconstruct(element=element)
 
 
 class StandaloneInterpolationMatrix(object):
@@ -1206,13 +1206,13 @@ class StandaloneInterpolationMatrix(object):
             self.Vf = reference_value_space(self.Vf)
             self.uc = firedrake.Function(self.Vc, val=self.uc.dat)
             self.uf = firedrake.Function(self.Vf, val=self.uf.dat)
-            self.Vc_bcs = [bc.reconstruct(V=self.Vc) for bc in self.Vc_bcs]
-            self.Vf_bcs = [bc.reconstruct(V=self.Vf) for bc in self.Vf_bcs]
+            self.Vc_bcs = [bc.reconstruct(V=self.Vc, g=0) for bc in self.Vc_bcs]
+            self.Vf_bcs = [bc.reconstruct(V=self.Vf, g=0) for bc in self.Vf_bcs]
 
     def work_function(self, V):
         if isinstance(V, firedrake.Function):
             return V
-        key = (V.ufl_element(), V.mesh())
+        key = (V.ufl_element(), V.mesh(), V.boundary_set)
         try:
             return self._cache_work[key]
         except KeyError:
@@ -1337,17 +1337,14 @@ class StandaloneInterpolationMatrix(object):
             restrict = [""]*5
             # get embedding element for Vf with identity mapping and collocated vector component DOFs
             try:
-                qelem = felem
-                if qelem.mapping() != "identity":
-                    qelem = qelem.reconstruct(mapping="identity")
-                Qf = Vf if qelem == felem else firedrake.FunctionSpace(Vf.mesh(), qelem)
+                Qf = Vf if felem.mapping() == "identity" else Vf.reconstruct(mapping="identity")
                 mapping_output = make_mapping_code(Qf, cmapping, fmapping, "t0", "t1")
                 in_place_mapping = True
             except Exception:
                 qelem = finat.ufl.FiniteElement("DQ", cell=felem.cell, degree=PMGBase.max_degree(felem))
                 if Vf.value_shape:
                     qelem = finat.ufl.TensorElement(qelem, shape=Vf.value_shape, symmetry=felem.symmetry())
-                Qf = firedrake.FunctionSpace(Vf.mesh(), qelem)
+                Qf = Vf.reconstruct(element=qelem)
                 mapping_output = make_mapping_code(Qf, cmapping, fmapping, "t0", "t1")
 
             qshape = (Qf.block_size, Qf.finat_element.space_dimension())

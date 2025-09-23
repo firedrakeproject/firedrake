@@ -153,4 +153,13 @@ def test_cached_transfer(family, degree):
     # This test will fail if we raise this warning
     with warnings.catch_warnings():
         warnings.filterwarnings("error", "Creating new TransferManager", RuntimeWarning)
-        solve(F == 0, u, solver_parameters=sp)
+        problem = NonlinearVariationalProblem(F, u)
+        solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
+        solver.solve()
+
+    ctx = solver._ctx
+    transfer = ctx.transfer_manager
+    assert transfer is not None
+    while ctx:
+        assert ctx.transfer_manager is transfer
+        ctx = ctx._coarse

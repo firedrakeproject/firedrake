@@ -7,12 +7,11 @@ RUN pip install --verbose \
         --extra-index-url https://download.pytorch.org/whl/cpu \
         jax ngsPETSc torch vtk
 
+# Set PYTHONPATH so netgen can be found
+# (see https://github.com/NGSolve/netgen/issues/213)
+ENV PYTHONPATH=/usr/local/lib/python3.12/site-packages:$PYTHONPATH
+
 # Install Firedrake apps
-# FIXME: Thetis and icepack use legacy installation methods and are not installable
-# (Thetis fixed in https://github.com/thetisproject/thetis/pull/392)
-# Once they are fixed the following lines can be added back in:
-# -e git+https://github.com/thetisproject/thetis.git#egg=thetis
-# -e git+https://github.com/icepack/icepack.git#egg=icepack
 RUN pip install --verbose --src /opt \
         -e git+https://github.com/firedrakeproject/asQ.git#egg=asQ \
         -e git+https://bitbucket.org/pefarrell/defcon.git#egg=defcon \
@@ -20,9 +19,11 @@ RUN pip install --verbose --src /opt \
         -e git+https://github.com/FEMlium/FEMlium.git#egg=FEMlium \
         -e git+https://github.com/g-adopt/g-adopt.git#egg=gadopt \
         -e git+https://github.com/firedrakeproject/gusto.git#egg=gusto \
-        -e git+https://github.com/firedrakeproject/Irksome.git#egg=Irksome
+        -e git+https://github.com/firedrakeproject/Irksome.git#egg=Irksome \
+        -e git+https://github.com/icepack/icepack.git#egg=icepack \
+        -e git+https://github.com/thetisproject/thetis.git#egg=thetis
 
 # Install some other niceties
 RUN apt-get update \
-    && apt-get -y install nano vim \
+    && apt-get -y install graphviz graphviz-dev nano vim \
     && rm -rf /var/lib/apt/lists/*

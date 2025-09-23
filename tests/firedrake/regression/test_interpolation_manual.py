@@ -1,5 +1,4 @@
 from firedrake import *
-from firedrake.__future__ import *
 import pytest
 import numpy as np
 
@@ -174,31 +173,20 @@ def test_cross_mesh():
     assert np.isclose(f_dest.at(0.5, 0.5), 0.5)
     assert np.isnan(f_dest.at(1.5, 1.5))
 
-    # When creating interpolators, the allow_missing_dofs keyword argument is
-    # set when creating the interpolator, rather than when calling interpoalate.
-    # [test_cross_mesh 13]
-    interpolator = Interpolator(f_src, V_dest, allow_missing_dofs=True)
-    # [test_cross_mesh 14]
-
-    # A default missing value can be specified when calling interpolate.
-    # [test_cross_mesh 15]
-    f_dest = assemble(interpolator.interpolate(default_missing_val=np.nan))
-    # [test_cross_mesh 16]
-
     # If we supply an output function and don't set default_missing_val
     # then any points outside the domain are left as they were.
-    # [test_cross_mesh 17]
+    # [test_cross_mesh 13]
     x_dest, y_dest = SpatialCoordinate(dest_mesh)
     f_dest = Function(V_dest).interpolate(x_dest + y_dest)
     f_dest.at(0.5, 0.5)  # returns x_dest + y_dest = 1.0
-    # [test_cross_mesh 18]
+    # [test_cross_mesh 14]
 
     assert np.isclose(f_dest.at(0.5, 0.5), 1.0)
 
-    # [test_cross_mesh 19]
-    assemble(interpolator.interpolate(), tensor=f_dest)
+    # [test_cross_mesh 15]
+    assemble(interpolate(f_src, V_dest, allow_missing_dofs=True), tensor=f_dest)
     f_dest.at(0.5, 0.5)  # now returns x_src^2 + y_src^2 = 0.5
-    # [test_cross_mesh 20]
+    # [test_cross_mesh 16]
 
     assert np.isclose(f_dest.at(0.5, 0.5), 0.5)
 
@@ -208,11 +196,11 @@ def test_cross_mesh():
     f_dest.interpolate(x_dest + y_dest)
     assert np.isclose(f_dest.at(0.5, 0.5), 1.0)  # x_dest + y_dest = 1.0
 
-    # [test_cross_mesh 21]
     # Similarly, using the interpolate method on a function will not overwrite
     # the pre-existing values if default_missing_val is not set
+    # [test_cross_mesh 17]
     f_dest.interpolate(f_src, allow_missing_dofs=True)
-    # [test_cross_mesh 22]
+    # [test_cross_mesh 18]
 
     assert np.isclose(f_dest.at(0.5, 0.5), 0.5)  # x_src^2 + y_src^2 = 0.5
     assert np.isclose(f_dest.at(1.5, 1.5), 3.0)  # x_dest + y_dest = 3.0

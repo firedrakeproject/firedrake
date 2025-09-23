@@ -86,8 +86,15 @@ class GenericSolveBlock(Block):
         self.assemble_kwargs = {}
 
     def __str__(self):
-        return "solve({} = {})".format(ufl2unicode(self.lhs),
-                                       ufl2unicode(self.rhs))
+        try:
+            lhs_string = ufl2unicode(self.lhs)
+        except AttributeError:
+            lhs_string = str(self.lhs)
+        try:
+            rhs_string = ufl2unicode(self.rhs)
+        except AttributeError:
+            rhs_string = str(self.rhs)
+        return "solve({} = {})".format(lhs_string, rhs_string)
 
     def _create_F_form(self):
         # Process the equation forms, replacing values with checkpoints,
@@ -562,9 +569,9 @@ def solve_init_params(self, args, kwargs, varform):
                 )
             self.adj_kwargs.pop("appctx", None)
 
-    if "mat_type" in kwargs.get("solver_parameters", {}):
-        self.assemble_kwargs["mat_type"] = \
-            kwargs["solver_parameters"]["mat_type"]
+    solver_params = kwargs.get("solver_parameters", None)
+    if solver_params is not None and "mat_type" in solver_params:
+        self.assemble_kwargs["mat_type"] = solver_params["mat_type"]
 
     if varform:
         if "appctx" in kwargs:
@@ -603,14 +610,13 @@ class SolveVarFormBlock(GenericSolveBlock):
 
 class NonlinearVariationalSolveBlock(GenericSolveBlock):
     def __init__(self, equation, func, bcs, adj_cache, problem_J,
-                 solver_params, solver_kwargs, **kwargs):
+                 solver_kwargs, **kwargs):
         lhs = equation.lhs
         rhs = equation.rhs
 
         self._adj_cache = adj_cache
         self._dFdm_cache = adj_cache.setdefault("dFdm_cache", {})
         self.problem_J = problem_J
-        self.solver_params = solver_params.copy()
         self.solver_kwargs = solver_kwargs
 
         super().__init__(lhs, rhs, func, bcs, **{**solver_kwargs, **kwargs})
@@ -635,7 +641,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
     def _forward_solve(self, lhs, rhs, func, bcs, **kwargs):
         self._ad_solver_replace_forms()
-        self._ad_solvers["forward_nlvs"].parameters.update(self.solver_params)
         self._ad_solvers["forward_nlvs"].solve()
         func.assign(self._ad_solvers["forward_nlvs"]._problem.u)
         return func
@@ -744,7 +749,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         c = block_variable.output
         c_rep = block_variable.saved_output
 
-        if isinstance(c, firedrake.Function):
+        if isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             trial_function = firedrake.TrialFunction(c.function_space())
         elif isinstance(c, firedrake.Constant):
             mesh = F_form.ufl_domain()
@@ -781,7 +786,12 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         replace_map[self.func] = self.get_outputs()[0].saved_output
         dFdm = replace(dFdm, replace_map)
 
-        dFdm = dFdm * adj_sol
+        if isinstance(dFdm, firedrake.Argument):
+            #  Corner case. Should be fixed more permanently upstream in UFL.
+            #  See: https://github.com/FEniCS/ufl/issues/395
+            dFdm = ufl.Action(dFdm, adj_sol)
+        else:
+            dFdm = dFdm * adj_sol
         dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
 
         return dFdm
