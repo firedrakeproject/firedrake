@@ -224,6 +224,7 @@ def compile_expression_dual_evaluation(expression, to_element, ufl_element, *,
     # Apply UFL preprocessing
     operand = ufl_utils.preprocess_expression(operand, complex_mode=complex_mode)
 
+    # Reconstructed Interpolate with mapped operand
     expression = ufl.Interpolate(operand, v)
 
     # Initialise kernel builder
