@@ -2,6 +2,7 @@ import numpy as np
 import rtree
 import sys
 import ufl
+import warnings
 from ufl.duals import is_dual
 from ufl.formatting.ufl2unicode import ufl2unicode
 from ufl.domain import extract_unique_domain
@@ -558,10 +559,18 @@ class Function(ufl.Coefficient, FunctionMixin):
         # Called by UFL when evaluating expressions at coordinates
         if component or index_values:
             raise NotImplementedError("Unsupported arguments when attempting to evaluate Function.")
-        return self.at(coord)
+        evaluator = PointEvaluator(self.function_space().mesh(), coord)
+        return evaluator.evaluate(self)
+
+    def at(self, arg, *args, **kwargs):
+        warnings.warn(
+            "The ``Function.at`` method is deprecated and will be removed in a future release. "
+            "Please use the ``PointEvaluator`` class instead.", FutureWarning
+        )
+        return self._at(arg, *args, **kwargs)
 
     @PETSc.Log.EventDecorator()
-    def at(self, arg, *args, **kwargs):
+    def _at(self, arg, *args, **kwargs):
         r"""Evaluate function at points.
 
         :arg arg: The point to locate.
@@ -599,7 +608,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         else:
             mesh.tolerance = tolerance
 
-        # Handle f.at(0.3)
+        # Handle f._at(0.3)
         if not arg.shape:
             arg = arg.reshape(-1)
 
@@ -643,7 +652,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         for i, p in enumerate(points):
             try:
                 if mixed:
-                    l_result.append((i, tuple(f.at(p) for f in subfunctions)))
+                    l_result.append((i, tuple(f._at(p) for f in subfunctions)))
                 else:
                     p_result = np.zeros(value_shape, dtype=ScalarType)
                     single_eval(points[i:i+1], p_result)
