@@ -1,10 +1,10 @@
+import petsctools
+
 from firedrake.preconditioners.base import SNESBase
 from firedrake import dmhooks
 from firedrake.dmhooks import get_appctx
 from firedrake.petsc import PETSc
 from firedrake import inner, dx
-
-from firedrake_citations import Citations
 
 import weakref
 
@@ -28,7 +28,7 @@ class DeflatedSNES(SNESBase):
         pass
 
     def initialize(self, snes):
-        Citations().register("Farrell2015")
+        petsctools.cite("Farrell2015")
         ctx = get_appctx(snes.getDM())
         problem = ctx._problem
         dm = problem.dm
