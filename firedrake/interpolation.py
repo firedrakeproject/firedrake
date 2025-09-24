@@ -293,7 +293,12 @@ class Interpolator(abc.ABC):
         # CrossMeshInterpolator is not yet aware of self.ufl_interpolate (which carries the dual arguments).
         # Instead, we always construct the forward ufl_interpolate and externally operate on the adjoint and
         # supply the cofunctions within assemble().
-        if not isinstance(self, SameMeshInterpolator):
+        target_mesh = as_domain(V)
+        source_mesh = extract_unique_domain(operand) or target_mesh
+        vom_onto_other_vom = ((source_mesh is not target_mesh)
+                              and isinstance(source_mesh.topology, VertexOnlyMeshTopology)
+                              and isinstance(target_mesh.topology, VertexOnlyMeshTopology))
+        if not isinstance(self, SameMeshInterpolator) or vom_onto_other_vom:
             if not isinstance(dual_arg, ufl.Coargument):
                 expr = expr._ufl_expr_reconstruct_(operand, dual_arg.function_space().dual())
             expr_args = extract_arguments(operand)
