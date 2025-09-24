@@ -506,7 +506,7 @@ def interpolate_function(
 
     # output argument works
     f_dest = Function(V_dest)
-    assemble(Interpolate(f_src, V_dest), tensor=f_dest)
+    assemble(interpolate(f_src, V_dest), tensor=f_dest)
     assert extract_unique_domain(f_dest) is m_dest
     got = f_dest.at(coords)
     assert np.allclose(got, expected, atol=atol)
@@ -527,7 +527,7 @@ def interpolate_expression(
 
     # output argument works for expressions
     f_dest = Function(V_dest)
-    assemble(Interpolate(expr_src, V_dest), tensor=f_dest)
+    assemble(interpolate(expr_src, V_dest), tensor=f_dest)
     assert extract_unique_domain(f_dest) is m_dest
     got = f_dest.at(coords)
     assert np.allclose(got, expected, atol=atol)
@@ -661,14 +661,14 @@ def test_interpolate_matrix_cross_mesh():
     vom = VertexOnlyMesh(source_mesh, X.dat.data_ro, redundant=False)
     P0DG = FunctionSpace(vom, "DG", 0)
     # We get the interpolation matrix U -> P0DG which performs point evaluation
-    A = assemble(interpolate(TestFunction(U), P0DG))
+    A = assemble(interpolate(TrialFunction(U), P0DG))
     f_at_points = assemble(A @ f)
     f_at_points2 = assemble(interpolate(f, P0DG))
     assert np.allclose(f_at_points.dat.data_ro, f_at_points2.dat.data_ro)
     # To get the points in the correct order in V we interpolate into vom.input_ordering
     # We pass matfree=False which constructs the permutation matrix instead of using SFs
     P0DG_io = FunctionSpace(vom.input_ordering, "DG", 0)
-    B = assemble(interpolate(TestFunction(P0DG), P0DG_io, matfree=False))
+    B = assemble(interpolate(TrialFunction(P0DG), P0DG_io, matfree=False))
     f_at_points_correct_order = assemble(B @ f_at_points)
     f_at_points_correct_order2 = assemble(interpolate(f_at_points, P0DG_io))
     assert np.allclose(f_at_points_correct_order.dat.data_ro, f_at_points_correct_order2.dat.data_ro)

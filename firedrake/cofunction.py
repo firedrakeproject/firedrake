@@ -313,8 +313,8 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
         :param expression: a UFL expression to interpolate
         :returns: this :class:`firedrake.cofunction.Cofunction` object"""
-        from firedrake import interpolation
-        interp = interpolation.Interpolate(ufl_expr.Argument(self.function_space().dual(), 0), expression)
+        from firedrake import interpolate
+        interp = interpolate(ufl_expr.Argument(self.function_space().dual(), 0), expression)
         return firedrake.assemble(interp, tensor=self)
 
     @property
