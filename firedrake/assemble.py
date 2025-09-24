@@ -493,18 +493,36 @@ class BaseFormAssembler(AbstractFormAssembler):
                 raise TypeError("Empty FormSum")
             if tensor:
                 tensor.zero()
+
+            # Assemble weights
+            weights = []
+            for w in expr.weights():
+                if isinstance(w, ufl.constantvalue.Zero):
+                    w = 0.0
+                elif isinstance(w, ufl.constantvalue.ScalarValue):
+                    w = w.value()
+                elif isinstance(w, (firedrake.Constant, firedrake.Function)):
+                    w = w.dat.data_ro
+
+                if isinstance(w, numpy.ndarray):
+                    # Assert singleton ndarray
+                    w = w.item()
+                if not isinstance(w, numbers.Complex):
+                    raise ValueError("Expecting a scalar weight expression")
+                weights.append(w)
+
             if all(isinstance(op, numbers.Complex) for op in args):
-                result = sum(weight * arg for weight, arg in zip(expr.weights(), args))
+                result = sum(weight * arg for weight, arg in zip(weights, args))
                 return tensor.assign(result) if tensor else result
             elif (all(isinstance(op, firedrake.Cofunction) for op in args)
                     or all(isinstance(op, firedrake.Function) for op in args)):
                 V, = set(a.function_space() for a in args)
                 result = tensor if tensor else firedrake.Function(V)
-                result.dat.maxpy(expr.weights(), [a.dat for a in args])
+                result.dat.maxpy(weights, [a.dat for a in args])
                 return result
             elif all(isinstance(op, ufl.Matrix) for op in args):
                 result = tensor.petscmat if tensor else PETSc.Mat()
-                for (op, w) in zip(args, expr.weights()):
+                for (op, w) in zip(args, weights):
                     if result:
                         # If result is not void, then accumulate on it
                         result.axpy(w, op.petscmat)
