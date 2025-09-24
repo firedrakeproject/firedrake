@@ -303,3 +303,20 @@ petsctools.add_citation("Brubeck2024", """
   year          = {2024}
 }
 """)
+
+Citations().add("Farrell2015", """
+@Article{Farrell2015,
+  author =       {Patrick E. Farrell and \'Asgeir Birkisson and Simon W. Funke},
+  title =        {{Deflation techniques for finding distinct solutions of nonlinear partial differential equations}},
+  journal =      {SIAM Journal on Scientific Computing},
+  year =         2015,
+  volume =       37,
+  number =       4,
+  pages =        {A2026--A2045},
+  doi =          {10.1137/140984798},
+  archiveprefix ={arXiv},
+  eprint =       {1410.5620},
+  primaryclass = {math.NA},
+  url =          {http://arxiv.org/abs/1410.5620}
+}
+""")

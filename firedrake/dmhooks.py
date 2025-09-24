@@ -269,8 +269,8 @@ def get_transfer_manager(dm):
     if appctx is None:
         # We're not in a solve, so all we can do is make a new one (not cached)
         import warnings
-        warnings.warn("Creating new TransferManager to transfer data to coarse grids", RuntimeWarning)
-        warnings.warn("This might be slow (you probably want to save it on an appctx)", RuntimeWarning)
+        warnings.warn("Creating new TransferManager to transfer data to coarse grids. "
+                      "This might be slow (you probably want to save it on an appctx)", RuntimeWarning)
         transfer = firedrake.TransferManager()
     else:
         transfer = appctx.transfer_manager
