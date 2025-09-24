@@ -32,7 +32,6 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """Provides common base classes for cached objects."""
-import atexit
 import cachetools
 import hashlib
 import os
