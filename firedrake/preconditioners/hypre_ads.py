@@ -1,7 +1,7 @@
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.function import Function
-from firedrake.ufl_expr import TestFunction
+from firedrake.ufl_expr import TrialFunction
 from firedrake.dmhooks import get_function_space
 from firedrake.preconditioners.hypre_ams import chop
 from firedrake.interpolation import interpolate
@@ -31,12 +31,12 @@ class HypreADS(PCBase):
         NC1 = V.reconstruct(family="N1curl" if mesh.ufl_cell().is_simplex else "NCE", degree=1)
         G_callback = appctx.get("get_gradient", None)
         if G_callback is None:
-            G = chop(assemble(interpolate(grad(TestFunction(P1)), NC1)).petscmat)
+            G = chop(assemble(interpolate(grad(TrialFunction(P1)), NC1)).petscmat)
         else:
             G = G_callback(P1, NC1)
         C_callback = appctx.get("get_curl", None)
         if C_callback is None:
-            C = chop(assemble(interpolate(curl(TestFunction(NC1)), V)).petscmat)
+            C = chop(assemble(interpolate(curl(TrialFunction(NC1)), V)).petscmat)
         else:
             C = C_callback(NC1, V)
 
