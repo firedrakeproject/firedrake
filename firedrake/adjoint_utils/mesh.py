@@ -15,7 +15,7 @@ class MeshGeometryMixin(OverloadedType):
             self._ad_coordinate_space = None
 
             # attach information to the mesh coordinates
-            f = self._coordinates
+            f = self._coordinates_function
             f.block_class = MeshInputBlock
             f._ad_floating_active = True
             f._ad_args = [self]
