@@ -621,7 +621,6 @@ class Mat(AbstractMat):
         rlgmap = rset.unblocked_lgmap
         clgmap = cset.unblocked_lgmap
         if self.mat_type == "is":
-            # FIXME monolithic lgmaps
             rlgmap, clgmap = self.sparsity._lgmaps
             create = mat.createIS
         else:
