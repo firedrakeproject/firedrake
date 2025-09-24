@@ -264,9 +264,6 @@ class L2TransformedFunctional(AbstractReducedFunctional):
                                for space_D in self._space_D)
         self._controls = Enlist(Enlist(controls).delist(self._controls))
 
-        self._alpha = alpha
-        self._m_k = None
-
         if riesz_map is None:
             riesz_map = tuple(map(L2RieszMap, self._space))
         self._riesz_map = Enlist(riesz_map)
@@ -275,8 +272,11 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         self._C = tuple(L2Cholesky(space_D, constant_jacobian=riesz_map.constant_jacobian)
                         for space_D, riesz_map in zip(self._space_D, self._riesz_map))
 
+        self._alpha = alpha
+        self._m_k = None
+
         # Map the initial guess
-        controls_t = self._primal_transform(tuple(control.control for control in self._J.controls), apply_riesz=False)
+        controls_t = self._dual_transform(tuple(control.control for control in self._J.controls), apply_riesz=False)
         for control, control_t in zip(self._controls, controls_t):
             control.control.assign(control_t)
 
@@ -284,7 +284,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
     def controls(self) -> Enlist[Control]:
         return Enlist(self._controls.delist())
 
-    def _primal_transform(self, u, u_D=None, *, apply_riesz=False):
+    def _dual_transform(self, u, u_D=None, *, apply_riesz=False):
         u = Enlist(u)
         if len(u) != len(self.controls):
             raise ValueError("Invalid length")
@@ -311,7 +311,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         v = tuple(map(transform, self._C, u, u_D, self._space, self._space_D, self._riesz_map))
         return u.delist(v)
 
-    def _dual_transform(self, u):
+    def _primal_transform(self, u):
         u = Enlist(u)
         if len(u) != len(self.controls):
             raise ValueError("Invalid length")
@@ -344,17 +344,17 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         Returns
         -------
 
-        firedrake.Function or list[firedrake.Function]
+        firedrake.Function or Sequence[firedrake.Function]
             The mapped result in the original control space.
         """
 
-        _, m_J = self._dual_transform(m)
+        _, m_J = self._primal_transform(m)
         return m_J
 
     @no_annotations
     def __call__(self, values):
         values = Enlist(values)
-        m_D, m_J = self._dual_transform(values)
+        m_D, m_J = self._primal_transform(values)
         J = self._J(m_J)
         if self._alpha != 0:
             for space, space_D, m_D_i, m_J_i in zip(self._space, self._space_D, m_D, m_J):
@@ -381,7 +381,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
                     if fd.utils.complex_mode:
                         raise RuntimeError("Not complex differentiable")
                     v_alpha.append(fd.assemble(fd.Constant(self._alpha) * fd.inner(m_D - m_J, fd.TestFunction(space_D)) * fd.dx))
-        v = self._primal_transform(u, v_alpha, apply_riesz=True)
+        v = self._dual_transform(u, v_alpha, apply_riesz=True)
         if apply_riesz:
             v = tuple(v_i._ad_convert_riesz(v_i, riesz_map=control.riesz_map)
                       for v_i, control in zip(v, self.controls))
@@ -393,7 +393,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
             raise NotImplementedError("hessian_input not None not supported")
 
         m_dot = Enlist(m_dot)
-        m_dot_D, m_dot_J = self._dual_transform(m_dot)
+        m_dot_D, m_dot_J = self._primal_transform(m_dot)
         u = Enlist(self._J.hessian(m_dot.delist(m_dot_J), evaluate_tlm=evaluate_tlm))
 
         if self._alpha == 0:
@@ -407,7 +407,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
                     if fd.utils.complex_mode:
                         raise RuntimeError("Not complex differentiable")
                     v_alpha.append(fd.assemble(fd.Constant(self._alpha) * fd.inner(m_dot_D_i - m_dot_J_i, fd.TestFunction(space_D)) * fd.dx))
-        v = self._primal_transform(u, v_alpha, apply_riesz=True)
+        v = self._dual_transform(u, v_alpha, apply_riesz=True)
         if apply_riesz:
             v = tuple(v_i._ad_convert_riesz(v_i, riesz_map=control.riesz_map)
                       for v_i, control in zip(v, self.controls))
@@ -416,7 +416,7 @@ class L2TransformedFunctional(AbstractReducedFunctional):
     @no_annotations
     def tlm(self, m_dot):
         m_dot = Enlist(m_dot)
-        m_dot_D, m_dot_J = self._dual_transform(m_dot)
+        m_dot_D, m_dot_J = self._primal_transform(m_dot)
         tau_J = self._J.tlm(m_dot.delist(m_dot_J))
 
         if self._alpha != 0:
