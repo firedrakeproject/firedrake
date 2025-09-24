@@ -2258,12 +2258,6 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         self.topology = topology
         self.geometric_shared_data_cache = defaultdict(dict)
 
-        V = functionspaceimpl.WithGeometry.create(coordinates.function_space(), self)
-        self._coordinates = function.Function(V, val=coordinates)
-
-        # Cache mesh object on the coordinateless coordinates function
-        coordinates._as_mesh_geometry = weakref.ref(self)
-
         # submesh
         self.submesh_parent = None
 
@@ -2271,7 +2265,13 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         self._spatial_index = None
         self._saved_coordinate_dat_version = coordinates.dat.dat_version
 
-        self.comm = topology.comm
+        # Cache mesh object on the coordinateless coordinates function
+        coordinates._as_mesh_geometry = weakref.ref(self)
+
+        # Save the coordinates as a 'CoordinatelessFunction' and as a 'Function'
+        self._coordinates = coordinates
+        V = functionspaceimpl.WithGeometry.create(coordinates.function_space(), self)
+        self._coordinates_function = function.Function(V, val=coordinates)
 
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.extruded, self.variable_layers,
@@ -2285,9 +2285,9 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         return self.topology
 
     @property
-    def coordinates(self):
-        """The :class:`.Function` containing the coordinates of this mesh."""
-        return self._coordinates
+    def coordinates(self) -> "Function":
+        """The coordinates of the mesh."""
+        return self._coordinates_function
 
     @coordinates.setter
     def coordinates(self, value):
@@ -4646,8 +4646,23 @@ def Submesh(mesh, subdim, subdomain_id, label_name=None, name=None):
     return submesh
 
 
-# TODO: docs
-def coordinates_from_topology(topology: AbstractMeshTopology, element):
+def coordinates_from_topology(topology: AbstractMeshTopology, element: finat.ufl.FiniteElement) -> "CoordinatelessFunction":
+    """Convert DMPlex coordinates into Firedrake coordinates.
+
+    Parameters
+    ----------
+    topology :
+        The mesh topology.
+    element :
+        The finite element defining the coordinate function space.
+
+    Returns
+    -------
+    CoordinatelessFunction :
+        The coordinates of the DMPlex reordered to agree with Firedrake's
+        element numbering.
+
+    """
     import firedrake.functionspace as functionspace
     import firedrake.function as function
 
