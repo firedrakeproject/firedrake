@@ -289,11 +289,11 @@ class Interpolator(abc.ABC):
         self._allow_missing_dofs = allow_missing_dofs
         self.matfree = matfree
         self.callable = None
-        # Workaround for adjoint of cross-mesh interpolation
-        # Assemble the forward operator and then take its adjoint
-        target_mesh = as_domain(V)
-        source_mesh = extract_unique_domain(operand) or target_mesh
-        if not ((target_mesh is source_mesh) or isinstance(target_mesh, VertexOnlyMeshTopology)):
+
+        # CrossMeshInterpolator is not yet aware of self.ufl_interpolate (which carries the dual arguments).
+        # Instead, we always construct the forward ufl_interpolate and externally operate on the adjoint and
+        # supply the cofunctions within assemble().
+        if not isinstance(self, SameMeshInterpolator):
             if not isinstance(dual_arg, ufl.Coargument):
                 expr = expr._ufl_expr_reconstruct_(operand, dual_arg.function_space().dual())
             expr_args = extract_arguments(operand)
@@ -887,8 +887,8 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
             # We make our own linear operator for this case using PETSc SFs
             tensor = None
         else:
-            Vrow_map = get_coefficient_map(source_mesh, target_mesh, Vrow)
-            Vcol_map = get_coefficient_map(source_mesh, target_mesh, Vcol)
+            Vrow_map = get_interp_node_map(source_mesh, target_mesh, Vrow)
+            Vcol_map = get_interp_node_map(source_mesh, target_mesh, Vcol)
             sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
                                     [(Vrow_map, Vcol_map, None)],  # non-mixed
                                     name="%s_%s_sparsity" % (Vrow.name, Vcol.name),
@@ -1047,15 +1047,15 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     if needs_weight:
         # Compute the reciprocal of the DOF multiplicity
         W = dual_arg.function_space()
-        shapes = (W.finat_element.space_dimension(), W.block_size)
-        domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
-        instructions = """
-        for i, j
-            w[i,j] = w[i,j] + 1
-        end
-        """
+        wsize = W.finat_element.space_dimension() * W.block_size
+        kernel_code = f"""
+        void multiplicity(PetscScalar *restrict w) {{
+            for (PetscInt i=0; i<{wsize}; i++) w[i] += 1;
+        }}"""
+        kernel = op2.Kernel(kernel_code, "multiplicity", requires_zeroed_output_arguments=False)
         weight = firedrake.Function(W)
-        firedrake.par_loop((domain, instructions), ufl.dx, {"w": (weight, op2.INC)})
+        m_ = get_interp_node_map(source_mesh, target_mesh, W)
+        op2.par_loop(kernel, cell_set, weight.dat(op2.INC, m_))
         with weight.dat.vec as w:
             w.reciprocal()
 
@@ -1103,15 +1103,15 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         parloop_args.append(tensor(access))
     elif isinstance(tensor, op2.Dat):
         V_dest = arguments[-1].function_space() if isinstance(dual_arg, ufl.Cofunction) else V
-        m_ = get_coefficient_map(source_mesh, target_mesh, V_dest)
+        m_ = get_interp_node_map(source_mesh, target_mesh, V_dest)
         parloop_args.append(tensor(access, m_))
     else:
         assert access == op2.WRITE  # Other access descriptors not done for Matrices.
         Vrow = arguments[0].function_space()
         Vcol = arguments[1].function_space()
         assert tensor.handle.getSize() == (Vrow.dim(), Vcol.dim())
-        rows_map = get_coefficient_map(source_mesh, target_mesh, Vrow)
-        columns_map = get_coefficient_map(source_mesh, target_mesh, Vcol)
+        rows_map = get_interp_node_map(source_mesh, target_mesh, Vrow)
+        columns_map = get_interp_node_map(source_mesh, target_mesh, Vcol)
 
         lgmaps = None
         if bcs:
@@ -1122,7 +1122,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
             bc_rows = [bc for bc in bcs if bc.function_space() == Vrow]
             bc_cols = [bc for bc in bcs if bc.function_space() == Vcol]
             lgmaps = [(Vrow.local_to_global_map(bc_rows), Vcol.local_to_global_map(bc_cols))]
-        parloop_args.append(tensor(op2.WRITE, (rows_map, columns_map), lgmaps=lgmaps))
+        parloop_args.append(tensor(access, (rows_map, columns_map), lgmaps=lgmaps))
     if oriented:
         co = target_mesh.cell_orientations()
         parloop_args.append(co.dat(op2.READ, co.cell_node_map()))
@@ -1131,7 +1131,7 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         parloop_args.append(cs.dat(op2.READ, cs.cell_node_map()))
 
     for coefficient in coefficients:
-        m_ = get_coefficient_map(source_mesh, target_mesh, coefficient.function_space())
+        m_ = get_interp_node_map(source_mesh, target_mesh, coefficient.function_space())
         parloop_args.append(coefficient.dat(op2.READ, m_))
 
     for const in extract_firedrake_constants(expr):
@@ -1169,7 +1169,8 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
         return copyin + callables + (parloop_compute_callable, ) + copyout
 
 
-def get_coefficient_map(source_mesh, target_mesh, fs):
+def get_interp_node_map(source_mesh, target_mesh, fs):
+    """Return the cell-to-node map required by a parloop on the target_mesh.cell_set."""
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
         coeff_mesh = fs.mesh()
         m_ = fs.cell_node_map()

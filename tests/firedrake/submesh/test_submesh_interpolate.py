@@ -27,14 +27,18 @@ def _get_expr(V):
         return as_vector([cos(x), sin(y)])
 
 
-def _test_submesh_interpolate_cell_cell(mesh, subdomain_cond, fe_fesub):
+def make_submesh(mesh, subdomain_cond, label_value):
     dim = mesh.topological_dimension()
-    (family, degree), (family_sub, degree_sub) = fe_fesub
     DG0 = FunctionSpace(mesh, "DG", 0)
     indicator_function = Function(DG0).interpolate(subdomain_cond)
-    label_value = 999
     mesh.mark_entities(indicator_function, label_value)
-    subm = Submesh(mesh, dim, label_value)
+    return Submesh(mesh, dim, label_value)
+
+
+def _test_submesh_interpolate_cell_cell(mesh, subdomain_cond, fe_fesub):
+    (family, degree), (family_sub, degree_sub) = fe_fesub
+    label_value = 999
+    subm = make_submesh(mesh, subdomain_cond, label_value)
     V = FunctionSpace(mesh, family, degree)
     V_ = FunctionSpace(mesh, family_sub, degree_sub)
     Vsub = FunctionSpace(subm, family_sub, degree_sub)
@@ -268,3 +272,65 @@ def test_submesh_interpolate_3Dcell_2Dfacet_simplex_sckelton():
     dg2d_ = Function(DG2d).interpolate(dg3d)
     error = assemble(inner(dg2d_ - expr(subm), dg2d_ - expr(subm)) * dx)**0.5
     assert abs(error) < 1.e-14
+
+
+@pytest.mark.parametrize('fe_fesub', [[("DG", 2), ("DG", 1)],
+                                      [("CG", 3), ("CG", 2)]])
+def test_submesh_interpolate_adjoint(fe_fesub):
+    (family, degree), (family_sub, degree_sub) = fe_fesub
+
+    mesh = UnitSquareMesh(4, 4)
+    x, y = SpatialCoordinate(mesh)
+    subdomain_cond = conditional(LT(x, 0.5), 1, 0)
+    label_value = 999
+    subm = make_submesh(mesh, subdomain_cond, label_value)
+
+    V1 = FunctionSpace(subm, family_sub, degree_sub)
+    V2 = FunctionSpace(mesh, family, degree)
+
+    x, y = SpatialCoordinate(V1.mesh())
+    expr = x * y
+    u1 = Function(V1).interpolate(expr)
+    ustar2 = assemble(inner(1, TestFunction(V2))*dx(label_value))
+
+    expected = assemble(inner(1, u1)*dx(label_value))
+
+    # Test forward 2-form
+    I = assemble(interpolate(TrialFunction(V1), TestFunction(V2.dual()), allow_missing_dofs=True))
+    assert I.arguments()[0].function_space() == V2.dual()
+    assert I.arguments()[1].function_space() == V1
+
+    result_forward_2 = assemble(action(ustar2, action(I, u1)))
+    assert np.isclose(result_forward_2, expected)
+
+    # Test adjoint 2-form
+    I_adj = assemble(interpolate(TestFunction(V1), TrialFunction(V2.dual()), allow_missing_dofs=True))
+    assert I_adj.arguments()[0].function_space() == V1
+    assert I_adj.arguments()[1].function_space() == V2.dual()
+
+    result_adjoint_2 = assemble(action(action(I_adj, ustar2), u1))
+    assert np.isclose(result_adjoint_2, expected)
+
+    # Test forward 1-form
+    Iu1 = assemble(interpolate(u1, TestFunction(V2.dual()), allow_missing_dofs=True))
+    assert Iu1.function_space() == V2
+
+    expected_primal = assemble(action(I, u1))
+    assert np.allclose(Iu1.dat.data, expected_primal.dat.data)
+
+    result_forward_1 = assemble(action(ustar2, Iu1))
+    assert np.isclose(result_forward_1, expected)
+
+    # Test adjoint 1-form
+    ustar2I = assemble(interpolate(TestFunction(V1), ustar2, allow_missing_dofs=True))
+    assert ustar2I.function_space() == V1.dual()
+
+    expected_dual = assemble(action(I_adj, ustar2))
+    assert np.allclose(ustar2I.dat.data, expected_dual.dat.data)
+
+    result_adjoint_1 = assemble(action(ustar2I, u1))
+    assert np.isclose(result_adjoint_1, expected)
+
+    # Test 0-form
+    result_0 = assemble(interpolate(u1, ustar2, allow_missing_dofs=True))
+    assert np.isclose(result_0, expected)
