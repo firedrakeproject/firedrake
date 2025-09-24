@@ -197,7 +197,7 @@ def parameters(request):
         expected = 2 * coords
         V_src = VectorFunctionSpace(m_src, "CG", 2)
         V_dest = FunctionSpace(m_dest, "SminusDiv", 2)  # Not point evaluation nodes
-        V_dest_2 = VectorFunctionSpace(m_dest, "DQ", 2)
+        V_dest_2 = FunctionSpace(m_dest, "SminusCurl", 2)  # Not point evaluation nodes
     elif request.param == "unitsquare_Regge_source":
         m_src, m_dest, coords = unitsquaresetup()
         expr_src = outer(SpatialCoordinate(m_src), SpatialCoordinate(m_src))
@@ -259,29 +259,12 @@ def parameters(request):
         V_dest_2 = FunctionSpace(m_dest, "DG", 2)
     else:
         raise ValueError("Unknown mesh pair")
-    return m_src, m_dest, coords, expr_src, expr_dest, expected, V_src, V_dest, V_dest_2
+
+    dest_eval = PointEvaluator(m_dest, coords)
+    return m_src, m_dest, dest_eval, expr_src, expr_dest, expected, V_src, V_dest, V_dest_2
 
 
-def test_interpolate_cross_mesh(parameters):
-    (
-        m_src,
-        m_dest,
-        coords,
-        expr_src,
-        expr_dest,
-        expected,
-        V_src,
-        V_dest,
-        V_dest_2,
-    ) = parameters
-    get_expected_values(
-        m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest
-    )
-    get_expected_values(
-        m_src, m_dest, V_src, V_dest_2, coords, expected, expr_src, expr_dest
-    )
-
-
+@pytest.mark.parallel([1, 3])
 def test_interpolate_unitsquare_mixed():
     # this has to be in its own test because UFL expressions on mixed function
     # spaces are not supported.
@@ -334,6 +317,7 @@ def test_interpolate_unitsquare_mixed():
         assemble(interpolate(f_src_2, V_dest))
 
 
+@pytest.mark.parallel([1, 3])
 def test_exact_refinement():
     # With an exact mesh refinement, we can do error checks to see if our
     # forward and adjoint interpolations are exact where we expect them to
@@ -433,6 +417,7 @@ def test_interpolate_cross_mesh_not_point_eval():
     coords = np.concatenate((coords, vertices_src))
     vertices_dest = allgather(m_dest.comm, m_dest.coordinates.dat.data_ro)
     coords = np.concatenate((coords, vertices_dest))
+    dest_eval = PointEvaluator(m_dest, coords)
     expr_src = 2 * SpatialCoordinate(m_src)
     expr_dest = 2 * SpatialCoordinate(m_dest)
     expected = 2 * coords
@@ -443,34 +428,16 @@ def test_interpolate_cross_mesh_not_point_eval():
     # the not implemented error for non-point evaluation nodes!
     with pytest.raises(NotImplementedError):
         interpolate_function(
-            m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
+            m_src, m_dest, V_src, V_dest, dest_eval, expected, expr_src, expr_dest, atol
         )
 
 
-def get_expected_values(
-    m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest
-):
-    if m_src.name == "src_sphere" and m_dest.name == "dest_sphere":
-        # Between immersed manifolds we will often be doing projection so we
-        # need a higher tolerance for our tests
-        atol = 1e-3
-    else:
-        atol = 1e-8  # default
-    interpolate_function(
-        m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
-    )
-    interpolate_expression(
-        m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
-    )
-
-
 def interpolate_function(
-    m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
+    m_src, m_dest, V_src, V_dest, dest_eval, expected, expr_src, expr_dest, atol
 ):
-    dest_eval = PointEvaluator(m_dest, coords)
-    f_src = Function(V_src).interpolate(expr_src)
-    f_dest = assemble(interpolate(f_src, V_dest))
+    f_dest = Function(V_dest).interpolate(expr_src)
     assert extract_unique_domain(f_dest) is m_dest
+
     got = dest_eval.evaluate(f_dest)
     assert np.allclose(got, expected, atol=atol)
 
@@ -483,7 +450,7 @@ def interpolate_function(
     f_dest_2 = Function(V_dest).interpolate(expr_dest)
     assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
 
-    # works with Function interpolate method
+    # test Function.interpolate(...)
     f_dest = Function(V_dest)
     f_dest.interpolate(f_src)
     assert extract_unique_domain(f_dest) is m_dest
@@ -491,9 +458,9 @@ def interpolate_function(
     assert np.allclose(got, expected, atol=atol)
     assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
 
-    # output argument works
+    # test assemble(interpolate(Function, ...), tensor=...)
     f_dest = Function(V_dest)
-    assemble(Interpolate(f_src, V_dest), tensor=f_dest)
+    assemble(interpolate(f_src, V_dest), tensor=f_dest)
     assert extract_unique_domain(f_dest) is m_dest
     got = dest_eval.evaluate(f_dest)
     assert np.allclose(got, expected, atol=atol)
@@ -501,10 +468,8 @@ def interpolate_function(
 
 
 def interpolate_expression(
-    m_src, m_dest, V_src, V_dest, coords, expected, expr_src, expr_dest, atol
+    m_src, m_dest, V_src, V_dest, dest_eval, expected, expr_src, expr_dest, atol
 ):
-    dest_eval = PointEvaluator(m_dest, coords)
-    f_src = Function(V_src).interpolate(expr_src)
 
     f_dest = assemble(interpolate(expr_src, V_dest))
     assert extract_unique_domain(f_dest) is m_dest
@@ -513,18 +478,26 @@ def interpolate_expression(
     f_dest_2 = Function(V_dest).interpolate(expr_dest)
     assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
 
-    # output argument works for expressions
+    # test assemble(interpolate(expr, ...), tensor=...)
     f_dest = Function(V_dest)
-    assemble(Interpolate(expr_src, V_dest), tensor=f_dest)
+    assemble(interpolate(expr_src, V_dest), tensor=f_dest)
     assert extract_unique_domain(f_dest) is m_dest
     got = dest_eval.evaluate(f_dest)
     assert np.allclose(got, expected, atol=atol)
     assert np.allclose(f_dest.dat.data_ro, f_dest_2.dat.data_ro, atol=atol)
 
-    # adjoint
+
+def interpolate_cofunction(
+    m_src, m_dest, V_src, V_dest, dest_eval, expected, expr_src, expr_dest, atol
+):
+    f_dest = Function(V_dest).interpolate(expr_dest)
+    assert extract_unique_domain(f_dest) is m_dest
+
     cofunction_dest = assemble(inner(f_dest, TestFunction(V_dest)) * dx)
     cofunction_dest_on_src = assemble(interpolate(TestFunction(V_src), cofunction_dest))
     assert cofunction_dest_on_src.function_space().mesh() is m_src
+
+    f_src = Function(V_src).interpolate(expr_src)
     assert np.isclose(
         assemble(action(cofunction_dest_on_src, f_src)),
         assemble(action(cofunction_dest, f_dest)), atol=atol
@@ -540,6 +513,34 @@ def interpolate_expression(
         )
 
 
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("space", [0, 1])
+@pytest.mark.parametrize("run_test", [interpolate_expression, interpolate_function, interpolate_cofunction])
+def test_interpolate_cross_mesh(run_test, space, parameters):
+    (
+        m_src,
+        m_dest,
+        dest_eval,
+        expr_src,
+        expr_dest,
+        expected,
+        V_src,
+        V_dest,
+        V_dest_2,
+    ) = parameters
+    V_dest = (V_dest, V_dest_2)[space]
+    if m_src.name == "src_sphere" and m_dest.name == "dest_sphere":
+        # Between immersed manifolds we will often be doing projection so we
+        # need a higher tolerance for our tests
+        atol = 1e-3
+    else:
+        atol = 1e-8  # default
+    run_test(
+        m_src, m_dest, V_src, V_dest, dest_eval, expected, expr_src, expr_dest, atol
+    )
+
+
+@pytest.mark.parallel([1, 3])
 def test_missing_dofs():
     m_src = UnitSquareMesh(2, 3)
     m_dest = UnitSquareMesh(4, 5)
@@ -632,6 +633,7 @@ def test_line_integral():
     assert np.isclose(assemble(f_line_square * dx), 1.0)
 
 
+@pytest.mark.parallel([1, 3])
 def test_interpolate_matrix_cross_mesh():
     source_mesh = UnitSquareMesh(4, 4)
     target_mesh = UnitSquareMesh(5, 5)
@@ -680,37 +682,13 @@ def test_interpolate_matrix_cross_mesh():
     assert np.allclose(f_interp2.dat.data_ro, g.dat.data_ro)
 
 
-@pytest.mark.parallel
-def test_interpolate_cross_mesh_parallel(parameters):
-    test_interpolate_cross_mesh(parameters)
-
-
-@pytest.mark.parallel
-def test_interpolate_unitsquare_mixed_parallel():
-    test_interpolate_unitsquare_mixed()
-
-
-@pytest.mark.parallel
-def test_missing_dofs_parallel():
-    test_missing_dofs()
-
-
-@pytest.mark.parallel
-def test_exact_refinement_parallel():
-    test_exact_refinement()
-
-
-@pytest.mark.parallel
-def test_interpolate_matrix_cross_mesh_parallel():
-    test_interpolate_matrix_cross_mesh()
-
-
-def voting_algorithm_edgecases(nprocs):
+@pytest.mark.parallel([2, 3, 4])
+def test_voting_algorithm_edgecases():
     # this triggers lots of cases where the VOM voting algorithm has to deal
     # with points being claimed by multiple ranks: there are cases where each
     # rank will claim another one owns a point, for example, and yet also all
     # claim zero distance to the reference cell!
-    s = nprocs
+    s = COMM_WORLD.size
     nx = 2 * s
     mx = 3 * nx
     mh = [UnitCubeMesh(nx, nx, nx),
@@ -723,21 +701,6 @@ def voting_algorithm_edgecases(nprocs):
     uf = Function(Vf).interpolate(uc)
     uf2 = Function(Vf).interpolate(SpatialCoordinate(mh[1])[0])
     assert np.isclose(errornorm(uf, uf2), 0.0)
-
-
-@pytest.mark.parallel(nprocs=2)
-def test_voting_algorithm_edgecases_2_ranks():
-    voting_algorithm_edgecases(2)
-
-
-@pytest.mark.parallel(nprocs=3)
-def test_voting_algorithm_edgecases_3_ranks():
-    voting_algorithm_edgecases(3)
-
-
-@pytest.mark.parallel(nprocs=4)
-def test_voting_algorithm_edgecases_4_ranks():
-    voting_algorithm_edgecases(4)
 
 
 @pytest.mark.parallel
