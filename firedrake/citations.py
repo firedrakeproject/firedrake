@@ -304,7 +304,7 @@ petsctools.add_citation("Brubeck2024", """
 }
 """)
 
-Citations().add("Farrell2015", """
+petsctools.add_citation("Farrell2015", """
 @Article{Farrell2015,
   author =       {Patrick E. Farrell and \'Asgeir Birkisson and Simon W. Funke},
   title =        {{Deflation techniques for finding distinct solutions of nonlinear partial differential equations}},
