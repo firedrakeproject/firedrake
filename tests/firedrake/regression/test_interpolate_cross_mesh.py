@@ -3,8 +3,7 @@ from firedrake.petsc import DEFAULT_PARTITIONER
 from firedrake.ufl_expr import extract_unique_domain
 import numpy as np
 import pytest
-from functools import reduce
-from operator import mul, add
+from ufl import product
 import subprocess
 
 
@@ -65,9 +64,9 @@ def make_high_order(m_low_order, degree):
 def parameters(request):
     if request.param == "unitsquare":
         m_src, m_dest, coords = unitsquaresetup()
-        expr_src = reduce(mul, SpatialCoordinate(m_src))
-        expr_dest = reduce(mul, SpatialCoordinate(m_dest))
-        expected = reduce(mul, coords.T)
+        expr_src = product(SpatialCoordinate(m_src))
+        expr_dest = product(SpatialCoordinate(m_dest))
+        expected = np.prod(coords, axis=-1)
         V_src = FunctionSpace(m_src, "CG", 3)
         V_dest = FunctionSpace(m_dest, "CG", 4)
         V_dest_2 = FunctionSpace(m_dest, "DG", 2)
@@ -90,9 +89,9 @@ def parameters(request):
         # only add target mesh vertices since they are common to both meshes
         vertices_dest = allgather(m_dest.comm, m_dest.coordinates.dat.data_ro)
         coords = np.concatenate((coords, vertices_dest))
-        expr_src = reduce(mul, SpatialCoordinate(m_src))
-        expr_dest = reduce(mul, SpatialCoordinate(m_dest))
-        expected = reduce(mul, coords.T)
+        expr_src = product(SpatialCoordinate(m_src))
+        expr_dest = product(SpatialCoordinate(m_dest))
+        expected = np.prod(coords, axis=-1)
         V_src = FunctionSpace(m_src, "CG", 3)
         V_dest = FunctionSpace(m_dest, "CG", 4)
         V_dest_2 = FunctionSpace(m_dest, "DG", 2)
@@ -118,27 +117,27 @@ def parameters(request):
         # only add target mesh vertices since they are common to both meshes
         vertices_dest = allgather(m_dest.comm, m_dest.coordinates.dat.data_ro)
         coords = np.concatenate((coords, vertices_dest))
-        expr_src = reduce(mul, SpatialCoordinate(m_src))
-        expr_dest = reduce(mul, SpatialCoordinate(m_dest))
-        expected = reduce(mul, coords.T)
+        expr_src = product(SpatialCoordinate(m_src))
+        expr_dest = product(SpatialCoordinate(m_dest))
+        expected = np.prod(coords, axis=-1)
         V_src = FunctionSpace(m_src, "CG", 3)
         V_dest = FunctionSpace(m_dest, "CG", 4)
         V_dest_2 = FunctionSpace(m_dest, "DG", 2)
     elif request.param == "unitsquare_from_high_order":
         m_low_order, m_dest, coords = unitsquaresetup()
         m_src = make_high_order(m_low_order, 2)
-        expr_src = reduce(mul, SpatialCoordinate(m_src))
-        expr_dest = reduce(mul, SpatialCoordinate(m_dest))
-        expected = reduce(mul, coords.T)
+        expr_src = product(SpatialCoordinate(m_src))
+        expr_dest = product(SpatialCoordinate(m_dest))
+        expected = np.prod(coords, axis=-1)
         V_src = FunctionSpace(m_src, "CG", 3)
         V_dest = FunctionSpace(m_dest, "CG", 4)
         V_dest_2 = FunctionSpace(m_dest, "DG", 2)
     elif request.param == "unitsquare_to_high_order":
         m_src, m_low_order, coords = unitsquaresetup()
         m_dest = make_high_order(m_low_order, 2)
-        expr_src = reduce(mul, SpatialCoordinate(m_src))
-        expr_dest = reduce(mul, SpatialCoordinate(m_dest))
-        expected = reduce(mul, coords.T)
+        expr_src = product(SpatialCoordinate(m_src))
+        expr_dest = product(SpatialCoordinate(m_dest))
+        expected = np.prod(coords, axis=-1)
         V_src = FunctionSpace(m_src, "CG", 3)
         V_dest = FunctionSpace(m_dest, "CG", 4)
         V_dest_2 = FunctionSpace(m_dest, "DG", 2)
@@ -155,12 +154,9 @@ def parameters(request):
         coords = np.concatenate((coords, vertices_src))
         vertices_dest = allgather(m_dest.comm, m_dest.coordinates.dat.data_ro)
         coords = np.concatenate((coords, vertices_dest))
-        # we use add to avoid TSFC complaints about too many indices for sum
-        # factorisation when interpolating expressions of SpatialCoordinates(m_src)
-        # into V_dest
-        expr_src = reduce(add, SpatialCoordinate(m_src))
-        expr_dest = reduce(add, SpatialCoordinate(m_dest))
-        expected = reduce(add, coords.T)
+        expr_src = sum(SpatialCoordinate(m_src))
+        expr_dest = sum(SpatialCoordinate(m_dest))
+        expected = sum(coords.T)
         V_src = FunctionSpace(m_src, "CG", 2)
         V_dest = FunctionSpace(m_dest, "CG", 3)
         V_dest_2 = FunctionSpace(m_dest, "CG", 1)
@@ -221,12 +217,9 @@ def parameters(request):
                 [-sqrt(3) / 2, 1 / 2, 0],
             ]
         )  # points that ought to be on the unit circle, at z=0
-        # We use add to avoid TSFC complaints about too many indices for sum
-        # factorisation when interpolating expressions of SpatialCoordinates(m_src)
-        # into V_dest
-        expr_src = reduce(add, SpatialCoordinate(m_src))
-        expr_dest = reduce(add, SpatialCoordinate(m_dest))
-        expected = reduce(add, coords.T)
+        expr_src = sum(SpatialCoordinate(m_src))
+        expr_dest = sum(SpatialCoordinate(m_dest))
+        expected = sum(coords.T)
         V_src = FunctionSpace(m_src, "CG", 3)
         V_dest = FunctionSpace(m_dest, "CG", 4)
         V_dest_2 = FunctionSpace(m_dest, "DG", 2)
@@ -248,12 +241,9 @@ def parameters(request):
                 [-sqrt(3) / 2 - sqrt(3) / 4, 1.0, 0],
             ]
         )  # points that ought to be on in the meshes, at z=0
-        # We use add to avoid TSFC complaints about too many indices for sum
-        # factorisation when interpolating expressions of SpatialCoordinates(m_src)
-        # into V_dest
-        expr_src = reduce(add, SpatialCoordinate(m_src))
-        expr_dest = reduce(add, SpatialCoordinate(m_dest))
-        expected = reduce(add, coords.T)
+        expr_src = sum(SpatialCoordinate(m_src))
+        expr_dest = sum(SpatialCoordinate(m_dest))
+        expected = sum(coords.T)
         V_src = FunctionSpace(m_src, "CG", 3)
         V_dest = FunctionSpace(m_dest, "CG", 4)
         V_dest_2 = FunctionSpace(m_dest, "DG", 2)
@@ -281,10 +271,10 @@ def test_interpolate_unitsquare_mixed():
     vertices_dest = allgather(m_dest.comm, m_dest.coordinates.dat.data_ro)
     coords = np.concatenate((coords, vertices_dest))
 
-    expr_1 = reduce(add, SpatialCoordinate(m_src))
-    expected_1 = reduce(add, coords.T)
-    expr_2 = reduce(mul, SpatialCoordinate(m_src))
-    expected_2 = reduce(mul, coords.T)
+    expr_1 = sum(SpatialCoordinate(m_src))
+    expected_1 = sum(coords.T)
+    expr_2 = product(SpatialCoordinate(m_src))
+    expected_2 = np.prod(coords, axis=-1)
 
     V_1 = FunctionSpace(m_src, "CG", 1)
     V_2 = FunctionSpace(m_src, "CG", 2)
