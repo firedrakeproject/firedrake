@@ -17,6 +17,7 @@ import abc
 import rtree
 from textwrap import dedent
 from pathlib import Path
+import typing
 
 from pyop2 import op2
 from pyop2.mpi import (
@@ -47,6 +48,10 @@ except ImportError:
 # Only for docstring
 import mpi4py  # noqa: F401
 from finat.element_factory import as_fiat_cell
+
+
+if typing.TYPE_CHECKING:
+    from firedrake import CoordinatelessFunction, Function
 
 
 __all__ = [
