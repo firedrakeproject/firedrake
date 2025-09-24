@@ -4,6 +4,7 @@ from pyop2 import op2, PermutedMap
 from finat.ufl import RestrictedElement, MixedElement, TensorElement, VectorElement
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
+from firedrake.bcs import restricted_function_space
 import firedrake.dmhooks as dmhooks
 import numpy
 
@@ -19,7 +20,7 @@ class FacetSplitPC(PCBase):
     This allows for statically-condensed preconditioners to be applied to
     linear systems involving the matrix applied to the full set of DOFs. Code
     generated for the matrix-free operator evaluation in the space with full
-    DOFs will run faster than the one with interior-facet decoposition, since
+    DOFs will run faster than the one with interior-facet decomposition, since
     the full element has a simpler structure.
     """
 
@@ -41,7 +42,7 @@ class FacetSplitPC(PCBase):
     def initialize(self, pc):
         from firedrake import FunctionSpace, TestFunction, TrialFunction, split
 
-        prefix = pc.getOptionsPrefix()
+        prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
         options = PETSc.Options(options_prefix)
         mat_type = options.getString("mat_type", "submatrix")
@@ -58,6 +59,8 @@ class FacetSplitPC(PCBase):
         element = V.ufl_element()
         elements = [restrict(element, domain) for domain in domains]
         W = FunctionSpace(V.mesh(), elements[0] if len(elements) == 1 else MixedElement(elements))
+        if V.boundary_set:
+            W = restricted_function_space(W, [V.boundary_set]*len(W))
 
         args = (TestFunction(W), TrialFunction(W))
         if len(W) > 1:

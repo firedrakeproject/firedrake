@@ -617,9 +617,9 @@ Firedrake uses the PETSc_ HDF5 Viewer_ object to write and read state.
 As such, writing data is collective across processes.  h5py_ is used
 for attribute manipulation.  To this end, h5py_ *must* be linked
 against the same version of the HDF5 library that PETSc was built
-with.  The ``firedrake-install`` script automates this, however, if
-you build PETSc manually, you will need to ensure that h5py_ is linked
-correctly following the instructions for custom installation here_.
+with. If you have a custom installation of Firedrake then it may be
+necessary to manually ensure that h5py is linked correctly.
+Instructions for how to do this can be found here_.
 
 .. warning::
 
@@ -634,9 +634,9 @@ correctly following the instructions for custom installation here_.
 
 .. _HDF5: https://www.hdfgroup.org/HDF5/
 
-.. _PETSc: http://www.mcs.anl.gov/petsc/
+.. _PETSc: https://petsc.org/
 
-.. _Viewer: http://www.mcs.anl.gov/petsc/petsc-current/manualpages/Viewer/index.html
+.. _Viewer: https://petsc.org/release/manualpages/Viewer/
 .. _h5py: http://www.h5py.org
 
 .. _here: https://docs.h5py.org/en/latest/build.html#custom-installation

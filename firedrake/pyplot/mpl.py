@@ -105,6 +105,9 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     BoundaryCollection, InteriorCollection = _get_collection_types(gdim, tdim)
     quad = mesh.ufl_cell().cellname() == "quadrilateral"
 
+    if mesh.extruded:
+        raise NotImplementedError("Visualizing extruded meshes not implemented yet!")
+
     if axes is None:
         figure = plt.figure()
         if gdim == 3:
@@ -268,9 +271,7 @@ def tripcolor(function, *args, complex_component="real", **kwargs):
     :arg kwargs: same as for matplotlib
     :return: matplotlib :class:`PolyCollection <matplotlib.collections.PolyCollection>` object
     """
-    element = function.ufl_element()
-    dg0 = (element.family() == "Discontinuous Lagrange") and (element.degree() == 0)
-    kwargs["shading"] = kwargs.get("shading", "flat" if dg0 else "gouraud")
+    kwargs["shading"] = kwargs.get("shading", "gouraud")
     return _plot_2d_field("tripcolor", function, *args, complex_component=complex_component, **kwargs)
 
 
@@ -392,7 +393,12 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
     x = np.array(point)
     v1 = toreal(direction * function.at(x, tolerance=loc_tolerance), complex_component)
     r = toreal(cell_sizes.at(x, tolerance=loc_tolerance), "real")
-    dt = 0.5 * r / np.sqrt(np.sum(v1**2))
+    v1norm = np.sqrt(np.sum(v1**2))
+    if np.isclose(v1norm, 0.0):
+        # Bail early for zero fields.
+        return
+
+    dt = 0.5 * r / v1norm
 
     while True:
         try:
@@ -622,7 +628,10 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     if max_time is None:
         area = assemble(Constant(1) * dx(mesh))
         average_speed = np.sqrt(assemble(inner(function, function) * dx) / area)
-        max_time = 50 * min_length / average_speed
+        if np.isclose(average_speed, 0.0):
+            max_time = 0.
+        else:
+            max_time = 50 * min_length / average_speed
 
     streamplotter = Streamplotter(function, resolution, min_length, max_time,
                                   tolerance, loc_tolerance,
@@ -666,9 +675,13 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
     widths = np.array(widths)
 
     points = np.asarray(points)
-    vmin = kwargs.pop("vmin", speeds.min())
-    vmax = kwargs.pop("vmax", speeds.max())
-    norm = kwargs.pop("norm", matplotlib.colors.Normalize(vmin=vmin, vmax=vmax))
+    if speeds.size > 0:
+        vmin = kwargs.pop("vmin", speeds.min())
+        vmax = kwargs.pop("vmax", speeds.max())
+        norm = kwargs.pop("norm", matplotlib.colors.Normalize(vmin=vmin, vmax=vmax))
+    else:
+        norm = None
+
     cmap = plt.get_cmap(kwargs.pop("cmap", None))
 
     collection = LineCollection(points, cmap=cmap, norm=norm, linewidth=widths)
@@ -923,7 +936,9 @@ class FunctionPlotter:
 
         # Now create a matching triangulation of the whole domain.
         num_vertices = self._reference_points.shape[0]
-        num_cells = mesh.coordinates.function_space().cell_node_list.shape[0]
+        # TODO: What do we do with variable layers?
+        num_layers = 1 if mesh.layers is None else mesh.layers - 1
+        num_cells = mesh.coordinates.function_space().cell_node_list.shape[0] * num_layers
         add_idx = np.arange(num_cells).reshape(-1, 1, 1) * num_vertices
         all_triangles = (triangles + add_idx).reshape(-1, 3)
 
@@ -942,12 +957,15 @@ class FunctionPlotter:
         # TODO: Make this more efficient on repeated calls -- for example reuse `elem`
         # if the function space is the same as the last one
         Q = function.function_space()
-        dimension = Q.mesh().topological_dimension()
+        mesh = Q.mesh()
+        dimension = mesh.topological_dimension()
         keys = {1: (0,), 2: (0, 0)}
 
         fiat_element = Q.finat_element.fiat_equivalent
         elem = fiat_element.tabulate(0, self._reference_points)[keys[dimension]]
         cell_node_list = Q.cell_node_list
+        if mesh.layers:
+            cell_node_list = np.vstack([cell_node_list + k for k in range(mesh.layers - 1)])
         data = function.dat.data_ro_with_halos[cell_node_list]
         if function.ufl_shape == ():
             vec_length = 1

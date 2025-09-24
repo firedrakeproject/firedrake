@@ -12,3 +12,4 @@ from firedrake.adjoint_utils.variational_solver import *     # noqa: F401
 from firedrake.adjoint_utils.solving import *                # noqa: F401
 from firedrake.adjoint_utils.mesh import *                   # noqa: F401
 from firedrake.adjoint_utils.checkpointing import *          # noqa: F401
+from firedrake.adjoint_utils.ensemble_function import *      # noqa: F401

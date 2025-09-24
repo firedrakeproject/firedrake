@@ -292,6 +292,22 @@ Citations().add("Hiptmair1998", """
 }
 """)
 
+Citations().add("Gopalakrishnan2009", """
+@article{Gopalakrishnan2009,
+  author    = {Jayadeep Gopalakrishnan and Shuguang Tan},
+  doi       = {10.1002/nla.636},
+  journal   = {Numerical Linear Algebra with Applications},
+  month     = {sep},
+  number    = {9},
+  pages     = {689--714},
+  publisher = {Wiley},
+  title     = {A convergent multigrid cycle for the hybridized mixed method},
+  url       = {https://doi.org/10.1002/nla.636},
+  volume    = {16},
+  year      = {2009}
+}
+""")
+
 Citations().add("nixonhill2023consistent", """
 @article{nixonhill2023consistent,
   author        = {Nixon-Hill, R. W. and Shapero, D. and Cotter, C. J. and Ham, D. A.},
@@ -374,4 +390,47 @@ Citations().add("Betteridge2024", """
             and Umberto Zerbinati},
   title = {ngsPETSc: A coupling between NETGEN/NGSolve and PETSc},
   journal = {Journal of Open Source Software} }
+""")
+
+Citations().add("Brubeck2022", """
+@article{Brubeck2022,
+  author        = {Brubeck, Pablo D. and Farrell, Patrick E.},
+  doi           = {10.1137/21M1444187},
+  journal       = {SIAM J. Sci. Comput.},
+  number        = {5},
+  pages         = {A2991-A3017},
+  title         = {A scalable and robust vertex-star relaxation for high-order {FEM}},
+  volume        = {44},
+  year          = {2022}
+}
+""")
+
+Citations().add("Brubeck2024", """
+@article{Brubeck2024,
+  author        = {Brubeck, Pablo D. and Farrell, Patrick E.},
+  doi           = {10.1137/22M1537370},
+  journal       = {SIAM J. Sci. Comput.},
+  number        = {3},
+  pages         = {A1549-A1573},
+  title         = {{Multigrid solvers for the de Rham complex with optimal complexity in polynomial degree}},
+  volume        = {46},
+  year          = {2024}
+}
+""")
+
+Citations().add("Farrell2015", """
+@Article{Farrell2015,
+  author =       {Patrick E. Farrell and \'Asgeir Birkisson and Simon W. Funke},
+  title =        {{Deflation techniques for finding distinct solutions of nonlinear partial differential equations}},
+  journal =      {SIAM Journal on Scientific Computing},
+  year =         2015,
+  volume =       37,
+  number =       4,
+  pages =        {A2026--A2045},
+  doi =          {10.1137/140984798},
+  archiveprefix ={arXiv},
+  eprint =       {1410.5620},
+  primaryclass = {math.NA},
+  url =          {http://arxiv.org/abs/1410.5620}
+}
 """)

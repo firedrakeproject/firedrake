@@ -80,8 +80,6 @@ Thomas H. Gibson
 
 Tim Greaves
 
-Thomas J. Gregory.............<https://www.imperial.ac.uk/people/t.gregory18>
-
 Alastair Gregory
 
 David A. Ham..................<https://www.imperial.ac.uk/people/david.ham>
@@ -124,7 +122,7 @@ Geordie McBain
 
 Andrew T. T. McRae
 
-Oliver Meister................<https://www5.in.tum.de/wiki/index.php/Dipl.-Inf._Oliver_Meister>
+Oliver Meister
 
 Lawrence Mitchell.............<https://www.wence.uk/>
 

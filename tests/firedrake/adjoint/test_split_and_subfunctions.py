@@ -133,7 +133,7 @@ def test_split_subvariables_update(Z):
     z = Function(Z)
     u = z.sub(0)
     u.project(Constant(1.))
-    assert np.allclose(z.sub(0).vector().dat.data, u.vector().dat.data)
+    assert np.allclose(z.sub(0).dat.data, u.dat.data)
 
 
 @pytest.mark.skipcomplex
@@ -183,6 +183,7 @@ def test_subfunctions_always_create_blocks():
         # force the subfunctions to be created
         _ = kappa.subfunctions
 
+    continue_annotation()
     with set_working_tape() as tape:
         u.assign(kappa.subfunctions[0])
         J = assemble(inner(u, u)*dx)
@@ -191,3 +192,24 @@ def test_subfunctions_always_create_blocks():
 
     rf.derivative()
     assert control.block_variable.adj_value is not None, "Functional should depend on Control"
+
+
+@pytest.mark.skipcomplex
+def test_writing_to_subfunctions():
+    with stop_annotating():
+        mesh = UnitIntervalMesh(1)
+        R = FunctionSpace(mesh, "R", 0)
+
+        kappa = Function(R).assign(2.0)
+        u = Function(R)
+        usub = u.subfunctions[0]
+
+    continue_annotation()
+    with set_working_tape() as tape:
+        u.assign(kappa)
+        usub *= 2
+        J = assemble(inner(u, u) * dx)
+        rf = ReducedFunctional(J, Control(kappa), tape=tape)
+    pause_annotation()
+
+    assert taylor_test(rf, kappa, Constant(0.1)) > 1.9

@@ -32,6 +32,12 @@ on:
         description: 'Firedrake arch to build'
         required: false
         type: string
+        default: 'default'
+      branch:
+        description: 'Firedrake branch to build'
+        required: false
+        type: string
+        default: 'release'
     secrets:
       # Docker login information
       DOCKERHUB_USER:
@@ -58,7 +64,7 @@ jobs:
           echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
 
       - name: Check out the repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -77,6 +83,7 @@ jobs:
           file: ${{ inputs.dockerfile }}
           build-args: |
             ARCH=${{ inputs.arch }}
+            BRANCH=${{ inputs.branch }}
           outputs: type=image,name=firedrakeproject/${{ inputs.target }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest

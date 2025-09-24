@@ -6,21 +6,30 @@
 
    .. sidebar:: Current development information.
 
-      Firedrake and PyOP2 are continually tested using `GitHub actions <https://docs.github.com/en/actions>`__.
+      Firedrake is continually tested using `GitHub actions <https://docs.github.com/en/actions>`__.
 
-      Latest Firedrake status: |firedrakebuild|_
-         .. |firedrakebuild| image:: https://github.com/firedrakeproject/firedrake/actions/workflows/build.yml/badge.svg
-         .. _firedrakebuild: https://github.com/firedrakeproject/firedrake/actions/workflows/build.yml
+      .. only:: release
+
+         Latest Firedrake **release** branch status:
+
+         |firedrakereleasebuild|_
+
+      .. only:: not release
+
+         Latest Firedrake **main** branch status:
+
+         |firedrakemainbuild|_
+
+      .. |firedrakereleasebuild| image:: https://github.com/firedrakeproject/firedrake/actions/workflows/push.yml/badge.svg?branch=release
+      .. _firedrakereleasebuild: https://github.com/firedrakeproject/firedrake/actions/workflows/push.yml?branch=release
+      .. |firedrakemainbuild| image:: https://github.com/firedrakeproject/firedrake/actions/workflows/push.yml/badge.svg?query=branch%3Amain
+      .. _firedrakemainbuild: https://github.com/firedrakeproject/firedrake/actions/workflows/push.yml?query=branch%3Amain
 
       Firedrake and its components are developed on `GitHub
-      <http://github.com>`__ where we also maintain Firedrake-ready
-      versions of the `FEniCS <http://fenicsproject.org>`__ components
-      UFL.
+      <http://github.com>`__.
 
       * `Firedrake on GitHub <https://github.com/firedrakeproject/firedrake/>`__
-      * `TSFC on GitHub <https://github.com/firedrakeproject/tsfc/>`__
       * `FIAT on GitHub <https://github.com/firedrakeproject/fiat>`__
-      * `Firedrake version of UFL on GitHub <https://github.com/firedrakeproject/ufl>`__
 
    Getting started
    ===============

@@ -31,18 +31,14 @@ num_procs=$1
 num_jobs=$2
 extra_args=${@:3}
 
-# Set per-job cache directories to avoid race conditions when multiple jobs attempt to compile the same form.
-cache_cmd="PYOP2_CACHE_DIR=\$VIRTUAL_ENV/.cache/pyop2/job{#} \
-           FIREDRAKE_TSFC_KERNEL_CACHE_DIR=\$VIRTUAL_ENV/.cache/tsfc/job{#}"
-
 if [ $num_procs = 1 ]; then
-    pytest_exec="python -m pytest"
-    marker_spec="\"parallel[1] or not parallel\""
+    # Cannot use mpiexec -n 1 because this can sometimes hang with
+    # OpenMPI at MPI_Finalize
+    pytest_exec="python3 -m pytest"
 else
-    pytest_exec="mpiexec -n ${num_procs} python -m pytest"
-    marker_spec="parallel[${num_procs}]"
+    pytest_exec="mpiexec -n ${num_procs} python3 -m pytest"
 fi
-
+marker_spec="parallel[${num_procs}]"
 pytest_cmd="${pytest_exec} -v \
             --splits ${num_jobs} --group {#} \
             -m ${marker_spec} ${extra_args}"
@@ -57,7 +53,7 @@ set -x
 # * Uses tee to pipe stdout+stderr to both stdout and a log file
 # * Writes pytest's exit code to a file called jobN.errcode (for later inspection)
 parallel --line-buffer --tag \
-    "${cache_cmd}; ${pytest_cmd} |& tee ${log_file_prefix}{#}.log; \
+    "${pytest_cmd} |& tee ${log_file_prefix}{#}.log; \
     echo \${PIPESTATUS[0]} > job{#}.errcode" \
     ::: $(seq ${num_jobs})
 
