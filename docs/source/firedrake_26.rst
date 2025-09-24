@@ -5,10 +5,6 @@
 PETSc annual user meeting and Firedrake '26
 -------------------------------------------
 
-.. warning::
-   This page is for the Firedrake workshop to be held in 2026. For the
-   2025 workshop please see :doc:`here <firedrake_25>`.
-
 The eleventh Firedrake user and developer workshop will be held jointly
 with the `PETSc annual user meeting <https://petsc.org/release/community/meetings/meeting/#upcoming-meetings>`__
 near London between 1-5 June 2026.
