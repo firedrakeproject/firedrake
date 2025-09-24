@@ -274,12 +274,13 @@ def test_submesh_interpolate_3Dcell_2Dfacet_simplex_sckelton():
     assert abs(error) < 1.e-14
 
 
+@pytest.mark.parallel(nprocs=[1, 3])
 @pytest.mark.parametrize('fe_fesub', [[("DG", 2), ("DG", 1)],
                                       [("CG", 3), ("CG", 2)]])
 def test_submesh_interpolate_adjoint(fe_fesub):
     (family, degree), (family_sub, degree_sub) = fe_fesub
 
-    mesh = UnitSquareMesh(4, 4)
+    mesh = UnitSquareMesh(8, 8)
     x, y = SpatialCoordinate(mesh)
     subdomain_cond = conditional(LT(x, 0.5), 1, 0)
     label_value = 999
@@ -311,15 +312,24 @@ def test_submesh_interpolate_adjoint(fe_fesub):
     result_adjoint_2 = assemble(action(action(I_adj, ustar2), u1))
     assert np.isclose(result_adjoint_2, expected)
 
-    # Test forward 1-form
-    Iu1 = assemble(interpolate(u1, TestFunction(V2.dual()), allow_missing_dofs=True))
-    assert Iu1.function_space() == V2
+    # Test forward 1-form (only in serial for now)
+    if V1.comm.size == 1:
+        # Matfree forward interpolation with Submesh currently fails in parallel.
+        # The ghost nodes of the parent mesh may be redistributed
+        # into different processes as non-ghost dofs of the submesh.
+        # The submesh kernel will write into ghost nodes of the parent mesh,
+        # but this will be ignored in the halo exchange if access=op2.WRITE.
 
-    expected_primal = assemble(action(I, u1))
-    assert np.allclose(Iu1.dat.data, expected_primal.dat.data)
+        # See https://github.com/firedrakeproject/firedrake/issues/4483
 
-    result_forward_1 = assemble(action(ustar2, Iu1))
-    assert np.isclose(result_forward_1, expected)
+        Iu1 = assemble(interpolate(u1, TestFunction(V2.dual()), allow_missing_dofs=True))
+        assert Iu1.function_space() == V2
+
+        expected_primal = assemble(action(I, u1))
+        assert np.allclose(Iu1.dat.data, expected_primal.dat.data)
+
+        result_forward_1 = assemble(action(ustar2, Iu1))
+        assert np.isclose(result_forward_1, expected)
 
     # Test adjoint 1-form
     ustar2I = assemble(interpolate(TestFunction(V1), ustar2, allow_missing_dofs=True))
