@@ -121,7 +121,7 @@ def functionspace_tests(vm, petsc_raises):
     assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == -1)
     # Using permutation matrix
-    perm_mat = assemble(interpolate(TestFunction(V), W, matfree=False))
+    perm_mat = assemble(interpolate(TrialFunction(V), W, matfree=False))
     h2 = assemble(perm_mat @ g)
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
     h2 = assemble(interpolate(g, W))
@@ -216,7 +216,7 @@ def vectorfunctionspace_tests(vm, petsc_raises):
     assert np.allclose(h.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
     assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == -1)
     # Using permutation matrix
-    perm_mat = assemble(interpolate(TestFunction(V), W, matfree=False))
+    perm_mat = assemble(interpolate(TrialFunction(V), W, matfree=False))
     h2 = assemble(perm_mat @ g)
     assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], h.dat.data_ro_with_halos[idxs_to_include])
     # check other interpolation APIs work identically
@@ -373,9 +373,9 @@ def test_tensorfs_permutation(tensorfs_and_expr):
     f = Function(V)
     f.interpolate(expr)
     f_in_W = assemble(interpolate(f, W))
-    python_mat = assemble(interpolate(TestFunction(V), W, matfree=False))
+    python_mat = assemble(interpolate(TrialFunction(V), W, matfree=False))
     f_in_W_2 = assemble(python_mat @ f)
     assert np.allclose(f_in_W.dat.data_ro, f_in_W_2.dat.data_ro)
-    petsc_mat = assemble(interpolate(TestFunction(V), W, matfree=True))
+    petsc_mat = assemble(interpolate(TrialFunction(V), W, matfree=True))
     f_in_W_petsc = assemble(petsc_mat @ f)
     assert np.allclose(f_in_W.dat.data_ro, f_in_W_petsc.dat.data_ro)
