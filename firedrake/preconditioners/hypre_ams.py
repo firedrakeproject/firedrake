@@ -2,7 +2,7 @@ import petsctools
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 from firedrake.function import Function
-from firedrake.ufl_expr import TestFunction
+from firedrake.ufl_expr import TrialFunction
 from firedrake.dmhooks import get_function_space
 from firedrake.utils import complex_mode
 from firedrake.interpolation import interpolate
@@ -51,7 +51,7 @@ class HypreAMS(PCBase):
         P1 = V.reconstruct(family="Lagrange", degree=1)
         G_callback = appctx.get("get_gradient", None)
         if G_callback is None:
-            G = chop(assemble(interpolate(grad(TestFunction(P1)), V)).petscmat)
+            G = chop(assemble(interpolate(grad(TrialFunction(P1)), V)).petscmat)
         else:
             G = G_callback(P1, V)
 
