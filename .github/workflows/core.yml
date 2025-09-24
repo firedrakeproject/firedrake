@@ -91,7 +91,6 @@ jobs:
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
       FIREDRAKE_CI: 1
-      PYOP2_CI_TESTS: 1
       PYOP2_SPMD_STRICT: 1
       # NOTE: One should occasionally update test_durations.json by running
       # 'make test_durations' inside a 'firedrake:latest' Docker image.
