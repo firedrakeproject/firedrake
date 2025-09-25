@@ -5,7 +5,7 @@ import abc
 import warnings
 from functools import partial, singledispatch
 from typing import Hashable, Optional
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 import FIAT
 import ufl
@@ -103,12 +103,7 @@ class InterpolateOptions:
 
 class Interpolate(ufl.Interpolate):
 
-    def __init__(self, expr, v,
-                 subset=None,
-                 access=op2.WRITE,
-                 allow_missing_dofs=False,
-                 default_missing_val=None,
-                 matfree=True):
+    def __init__(self, expr, v, **kwargs):
         """Symbolic representation of the interpolation operator.
 
         Parameters
@@ -167,12 +162,8 @@ class Interpolate(ufl.Interpolate):
                                % (expr.ufl_shape, V.value_shape))
         super().__init__(expr, v)
 
-        # -- Interpolate data (e.g. `subset` or `access`) -- #
-        self.interp_data = {"subset": subset,
-                            "access": access,
-                            "allow_missing_dofs": allow_missing_dofs,
-                            "default_missing_val": default_missing_val,
-                            "matfree": matfree}
+        self._options = InterpolateOptions(**kwargs)
+        self.interp_data = asdict(self._options)
 
     function_space = ufl.Interpolate.ufl_function_space
 
@@ -182,7 +173,7 @@ class Interpolate(ufl.Interpolate):
 
 
 @PETSc.Log.EventDecorator()
-def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False, default_missing_val=None, matfree=True):
+def interpolate(expr, V, **kwargs):
     """Returns a UFL expression for the interpolation operation of ``expr`` into ``V``.
 
     :arg expr: a UFL expression.
@@ -250,13 +241,7 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
     else:
         raise TypeError(f"V must be a FunctionSpace, Cofunction, Coargument or one-form, not a {type(V).__name__}")
 
-    interp = Interpolate(expr, dual_arg,
-                         subset=subset, access=access,
-                         allow_missing_dofs=allow_missing_dofs,
-                         default_missing_val=default_missing_val,
-                         matfree=matfree)
-
-    return interp
+    return Interpolate(expr, dual_arg, **kwargs)
 
 
 class Interpolator(abc.ABC):
