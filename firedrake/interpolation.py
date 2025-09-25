@@ -25,12 +25,13 @@ import gem
 import finat
 
 import firedrake
-from firedrake import tsfc_interface, utils, functionspaceimpl
+from firedrake import tsfc_interface, utils
 from firedrake.ufl_expr import Argument, Coargument, action, adjoint as expr_adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype as get_dat_mpi_type
 from firedrake.cofunction import Cofunction
+from firedrake.functionspaceimpl import WithGeometry
 from mpi4py import MPI
 
 from pyadjoint import stop_annotating, no_annotations
@@ -103,67 +104,30 @@ class InterpolateOptions:
 
 class Interpolate(ufl.Interpolate):
 
-    def __init__(self, expr, v, **kwargs):
+    def __init__(self, expr, V, **kwargs):
         """Symbolic representation of the interpolation operator.
 
         Parameters
         ----------
-        expr : ufl.core.expr.Expr or ufl.BaseForm
+        expr : ufl.core.expr.Expr
                The UFL expression to interpolate.
-        v : firedrake.functionspaceimpl.WithGeometryBase or firedrake.ufl_expr.Coargument
+        V : firedrake.functionspaceimpl.WithGeometry or ufl.BaseForm
             The function space to interpolate into or the coargument defined
             on the dual of the function space to interpolate into.
-        subset : pyop2.types.set.Subset
-                 An optional subset to apply the interpolation over.
-                 Cannot, at present, be used when interpolating across meshes unless
-                 the target mesh is a :func:`.VertexOnlyMesh`.
-        access : pyop2.types.access.Access
-                 The pyop2 access descriptor for combining updates to shared
-                 DoFs. Possible values include ``WRITE`` and ``INC``. Only ``WRITE`` is
-                 supported at present when interpolating across meshes. See note in
-                 :func:`.interpolate` if changing this from default.
-        allow_missing_dofs : bool
-                             For interpolation across meshes: allow degrees of freedom (aka DoFs/nodes)
-                             in the target mesh that cannot be defined on the source mesh.
-                             For example, where nodes are point evaluations, points in the target mesh
-                             that are not in the source mesh. When ``False`` this raises a ``ValueError``
-                             should this occur. When ``True`` the corresponding values are either
-                             (a) unchanged if some ``output`` is given to the :meth:`interpolate` method
-                             or (b) set to zero.
-                             Can be overwritten with the ``default_missing_val`` kwarg of :meth:`interpolate`.
-                             This does not affect adjoint interpolation. Ignored if interpolating within
-                             the same mesh or onto a :func:`.VertexOnlyMesh` (the behaviour of a
-                             :func:`.VertexOnlyMesh` in this scenario is, at present, set when it is created).
-        default_missing_val : float
-                              For interpolation across meshes: the optional value to assign to DoFs
-                              in the target mesh that are outside the source mesh. If this is not set
-                              then the values are either (a) unchanged if some ``output`` is given to
-                              the :meth:`interpolate` method or (b) set to zero.
-                              Ignored if interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`.
-        matfree : bool
-                If ``False``, then construct the permutation matrix for interpolating
-                between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
-                and reduce operations.
+        **kwargs
+            Additional interpolation options. See :class:`InterpolateOptions` 
+            for available parameters and their descriptions.
         """
-        # Check function space
-        expr = ufl.as_ufl(expr)
-        if isinstance(v, functionspaceimpl.WithGeometry):
-            expr_args = extract_arguments(expr)
+        # TODO: should we allow RHS to be FiredrakeDualSpace?
+        if isinstance(V, WithGeometry):
+            # Need to create a Firedrake Coargument so it has a .function_space() method
+            expr_args = extract_arguments(ufl.as_ufl(expr))
             is_adjoint = len(expr_args) and expr_args[0].number() == 0
-            v = Argument(v.dual(), 1 if is_adjoint else 0)
-
-        V = v.arguments()[0].function_space()
-        if len(expr.ufl_shape) != len(V.value_shape):
-            raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
-                               % (len(expr.ufl_shape), len(V.value_shape)))
-
-        if expr.ufl_shape != V.value_shape:
-            raise RuntimeError('Shape mismatch: Expression shape %r, FunctionSpace shape %r'
-                               % (expr.ufl_shape, V.value_shape))
-        super().__init__(expr, v)
+            V = Argument(V.dual(), 1 if is_adjoint else 0)
+        super().__init__(expr, V)
 
         self._options = InterpolateOptions(**kwargs)
-        self.interp_data = asdict(self._options)
+        self.interp_data = asdict(self._options)  # TODO: remove this
 
     function_space = ufl.Interpolate.ufl_function_space
 
