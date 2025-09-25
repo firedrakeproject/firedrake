@@ -57,7 +57,7 @@ livehtml:
 	sphinx-autobuild -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
 
 serve: html
-	cd $(BUILDDIR)/html; python -m SimpleHTTPServer $(PORT)
+	cd $(BUILDDIR)/html; python3 -m SimpleHTTPServer $(PORT)
 
 .PHONY: copy_demos
 
@@ -79,10 +79,10 @@ reset_notebooks:
 		./notebooks/*.ipynb
 
 source/element_list.csv: source/element_list.py
-	cd source; python element_list.py
+	cd source; python3 element_list.py
 
 source/team.rst: source/team2.py
-	cd source; python team2.py; mv AUTHORS.rst ../..
+	cd source; python3 team2.py; mv AUTHORS.rst ../..
 
 source/firedrake_citations.rst:
 	sphinx-apidoc -f -T -o source/ ../firedrake_citations
@@ -90,26 +90,26 @@ source/firedrake_citations.rst:
 	mv source/firedrake_citations.tmp source/firedrake_citations.rst
 
 source/apt_deps.txt:
-	python ../scripts/firedrake-configure \
+	python3 ../scripts/firedrake-configure \
 		--package-manager apt-x86_64 \
 		--show-system-packages > source/apt_deps.tmp
 	mv source/apt_deps.tmp source/apt_deps.txt
 
 source/homebrew_deps.txt:
-	python ../scripts/firedrake-configure \
+	python3 ../scripts/firedrake-configure \
 		--package-manager brew-arm64 \
 		--show-system-packages > source/homebrew_deps.tmp
 	mv source/homebrew_deps.tmp source/homebrew_deps.txt
 
 source/minimal_apt_deps.txt:
-	python ../scripts/firedrake-configure \
+	python3 ../scripts/firedrake-configure \
 		--package-manager apt-x86_64 \
 		--show-minimal-system-packages > source/minimal_apt_deps.tmp
 	mv source/minimal_apt_deps.tmp source/minimal_apt_deps.txt
 
 
 source/petsc_configure_options.txt:
-	python ../scripts/firedrake-configure \
+	python3 ../scripts/firedrake-configure \
 		--no-package-manager \
 		--show-petsc-configure-options > source/petsc_configure_options.tmp
 	mv source/petsc_configure_options.tmp source/petsc_configure_options.txt

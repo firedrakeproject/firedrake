@@ -27,10 +27,6 @@ on:
         description: Whether to upload an sdist to PyPI
         type: boolean
         default: false
-      upload_testpypi:
-        description: Whether to upload an sdist to TestPyPI
-        type: boolean
-        default: false
 
   workflow_dispatch:
     inputs:
@@ -58,10 +54,6 @@ on:
         description: Whether to upload an sdist to PyPI
         type: boolean
         default: false
-      upload_testpypi:
-        description: Whether to upload an sdist to TestPyPI
-        type: boolean
-        default: false
 
 concurrency:
   # Cancel running jobs if new commits are pushed
@@ -84,7 +76,6 @@ jobs:
       image: ubuntu:latest
     outputs:
       sdist_conclusion: ${{ steps.report_sdist.outputs.conclusion }}
-      docs_conclusion: ${{ steps.report_docs.outputs.conclusion }}
     env:
       OMPI_ALLOW_RUN_AS_ROOT: 1
       OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: 1
@@ -217,7 +208,7 @@ jobs:
           pip install --verbose $EXTRA_PIP_FLAGS \
             --no-binary h5py \
             --extra-index-url https://download.pytorch.org/whl/cpu \
-            "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci,docs]"
+            "$(echo ./firedrake-repo/dist/firedrake-*.tar.gz)[ci]"
 
           firedrake-clean
           pip list
@@ -379,67 +370,6 @@ jobs:
           name: firedrake-logs-${{ matrix.arch }}
           path: pytest_*.log
 
-      - name: Install system dependencies (3)
-        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
-        run: apt-get -y install inkscape texlive-full
-
-      - name: Check bibtex
-        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
-        run: |
-          . venv/bin/activate
-          make -C firedrake-repo/docs validate-bibtex
-
-      - name: Check documentation links
-        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
-        run: |
-          . venv/bin/activate
-          make -C firedrake-repo/docs linkcheck
-
-      - name: Build documentation
-        if: (success() || steps.install.conclusion == 'success') && matrix.arch == 'default'
-        id: build_docs
-        run: |
-          . venv/bin/activate
-          cd firedrake-repo/docs
-          make SPHINXOPTS="-t ${{ inputs.target_branch }}" html
-          make latex
-          make latexpdf
-          # : Copy manual to HTML tree
-          cp build/latex/Firedrake.pdf build/html/_static/manual.pdf
-
-      - name: Upload documentation
-        uses: actions/upload-pages-artifact@v3
-        id: upload_docs
-        if: (success() || steps.build_docs.conclusion == 'success') && matrix.arch == 'default'
-        with:
-          name: github-pages
-          path: firedrake-repo/docs/build/html
-          retention-days: 1
-
-      - name: Report docs build status
-        id: report_docs
-        if: success() || steps.upload_docs.conclusion == 'success'
-        run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
-
-      # Some files are automatically generated when we install or build the
-      # docs (e.g. AUTHORS.rst). These files are committed to the repository
-      # so uncommitted changes at this point reflect changes in the automatically
-      # generated files that ought to be committed.
-      - name: Check no untracked files
-        if: always()
-        working-directory: firedrake-repo
-        run: |
-          if [ -z "$( git status --porcelain )" ]; then
-            exit 0
-          else
-            echo Error: there are untracked files in the repository
-            echo The output from 'git status' is:
-            git status
-            echo The output from 'git diff' is:
-            git diff
-            exit 1
-          fi
-
       - name: Post-run cleanup
         if: always()
         run: find . -delete
@@ -553,16 +483,93 @@ jobs:
       - name: Lint codebase
         run: make lint GITHUB_ACTIONS_FORMATTING=1
 
+  build_docs:
+    name: Build documentation
+    runs-on: [self-hosted, Linux]
+    container:
+      image: firedrakeproject/firedrake-vanilla-default:dev-${{ inputs.target_branch }}
+    outputs:
+      conclusion: ${{ steps.report_docs.outputs.conclusion }}
+    steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get -y install inkscape texlive-full
+
+      - uses: actions/checkout@v5
+        with:
+          path: firedrake-repo
+          ref: ${{ inputs.source_ref }}
+
+      - name: Install Firedrake
+        id: install
+        run: |
+          CC=mpicc CXX=mpicxx \
+            pip install --verbose --no-build-isolation './firedrake-repo[docs]'
+          firedrake-clean
+          pip list
+
+      - name: Check bibtex
+        run: make -C firedrake-repo/docs validate-bibtex
+
+      - name: Check documentation links
+        if: success() || steps.install.conclusion == 'success'
+        run: make -C firedrake-repo/docs linkcheck
+
+      - name: Build documentation
+        if: success() || steps.install.conclusion == 'success'
+        id: build_docs
+        working-directory: firedrake-repo/docs
+        run: |
+          make SPHINXOPTS="-t ${{ inputs.target_branch }}" html
+          make latex
+          make latexpdf
+          # : Copy manual to HTML tree
+          cp build/latex/Firedrake.pdf build/html/_static/manual.pdf
+
+      - name: Upload documentation
+        uses: actions/upload-pages-artifact@v3
+        id: upload_docs
+        if: success() || steps.build_docs.conclusion == 'success'
+        with:
+          name: github-pages
+          path: firedrake-repo/docs/build/html
+          retention-days: 1
+
+      # Some files are automatically generated when we install or build the
+      # docs (e.g. AUTHORS.rst). These files are committed to the repository
+      # so uncommitted changes at this point reflect changes in the automatically
+      # generated files that ought to be committed.
+      - name: Check no untracked files
+        if: always()
+        working-directory: firedrake-repo
+        run: |
+          if [ -z "$( git status --porcelain )" ]; then
+            exit 0
+          else
+            echo Error: there are untracked files in the repository
+            echo The output from 'git status' is:
+            git status
+            echo The output from 'git diff' is:
+            git diff
+            exit 1
+          fi
+
+      - name: Report docs build status
+        id: report_docs
+        if: success() || steps.upload_docs.conclusion == 'success'
+        run: echo "conclusion=success" >> "$GITHUB_OUTPUT"
+
   deploy_website:
     name: Deploy GitHub pages (optional)
-    needs: test_linux
+    needs: build_docs
     # Only deploy the website for main here, the release branch is managed
     # by https://github.com/firedrakeproject/firedrakeproject.github.io
     if: |
       always() &&
       inputs.deploy_website &&
       inputs.target_branch == 'main' &&
-      needs.test_linux.outputs.docs_conclusion == 'success'
+      needs.build_docs.outputs.conclusion == 'success'
     permissions:
       pages: write
       id-token: write
@@ -594,26 +601,3 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
-
-  upload_testpypi:
-    name: Upload to TestPyPI (optional)
-    needs: test_linux
-    if: |
-      always() &&
-      inputs.upload_testpypi &&
-      inputs.target_branch == 'release' &&
-      needs.test_linux.outputs.sdist_conclusion == 'success'
-    runs-on: ubuntu-latest
-    environment:
-      name: testpypi
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist
-      - name: Push to TestPyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
