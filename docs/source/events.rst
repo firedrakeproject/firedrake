@@ -18,7 +18,7 @@ jointly with the PETSc annual user meeting near London between
 Firedrake '25
 ~~~~~~~~~~~~~
 
-The tenth Firedrake user and developer workshop will be held
+The tenth Firedrake user and developer workshop was held
 between 15-17 September 2025 at the University of Leeds. For more
 information see :doc:`the workshop page <firedrake_25>`.
 
