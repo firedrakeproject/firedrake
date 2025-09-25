@@ -115,7 +115,6 @@ class SCPC(SCBase):
             P_reduced_sys, _ = self.condensed_system(P_tensor, self.residual, elim_fields,
                                                      prefix, pc)
             S_pc_expr = P_reduced_sys.lhs
-
             self.S_pc_expr = S_pc_expr
 
             # Allocate and set the condensed operator
