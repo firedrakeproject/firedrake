@@ -295,6 +295,7 @@ class Interpolator(abc.ABC):
 
         # TODO CrossMeshInterpolator and VomOntoVomXXX are not yet aware of
         # self.ufl_interpolate (which carries the dual argument).
+        # See github issue https://github.com/firedrakeproject/firedrake/issues/4592
         target_mesh = as_domain(V)
         source_mesh = extract_unique_domain(operand) or target_mesh
         vom_onto_other_vom = ((source_mesh is not target_mesh)
