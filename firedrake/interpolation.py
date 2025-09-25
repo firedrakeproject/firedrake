@@ -257,9 +257,7 @@ class Interpolator(abc.ABC):
                 petsc_mat.copy(res)
             else:
                 res = petsc_mat
-            if tensor is None:
-                tensor = firedrake.AssembledMatrix(arguments, self.bcs, res)
-            return tensor
+            return tensor or firedrake.AssembledMatrix(arguments, self.bcs, res)
         else:
             # Assembling the action
             cofunctions = ()
