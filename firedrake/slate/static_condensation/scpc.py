@@ -49,9 +49,8 @@ class SCPC(SCBase):
         if len(W) > 3:
             raise NotImplementedError("Only supports up to three function spaces.")
 
-        sentinel = object()
-        elim_fields = PETSc.Options().getString((pc.getOptionsPrefix() or "")
-                                                + "pc_sc_eliminate_fields",
+        elim_option = (pc.getOptionsPrefix() or "") + "pc_sc_eliminate_fields"
+        elim_fields = PETSc.Options().getIntArray(elim_option, range(len(W)-1))
                                                 sentinel)
         if elim_fields is sentinel:
             # By default, we condense down to the last field in the
