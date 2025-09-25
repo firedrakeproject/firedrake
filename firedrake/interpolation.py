@@ -311,7 +311,7 @@ class Interpolator(abc.ABC):
             # CrossMeshInterpolator._interpolate only supports forward interpolation (cases 1 and 3).
             # For case 2, we first redundantly assemble case 1 and then construct the transpose.
             # For cases 4 and 5, we take the forward Interpolate that corresponds to dropping the Cofunction,
-            # and we separately compute the action againt the dropped Cofunction within assemble().
+            # and we separately compute the action against the dropped Cofunction within assemble().
             if not isinstance(dual_arg, ufl.Coargument):
                 # Drop the Cofunction
                 expr = expr._ufl_expr_reconstruct_(operand, dual_arg.function_space().dual())
