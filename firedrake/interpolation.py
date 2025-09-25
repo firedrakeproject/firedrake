@@ -115,7 +115,7 @@ class Interpolate(ufl.Interpolate):
             The function space to interpolate into or the coargument defined
             on the dual of the function space to interpolate into.
         **kwargs
-            Additional interpolation options. See :class:`InterpolateOptions` 
+            Additional interpolation options. See :class:`InterpolateOptions`
             for available parameters and their descriptions.
         """
         # TODO: should we allow RHS to be FiredrakeDualSpace?
@@ -186,7 +186,6 @@ class Interpolator(abc.ABC):
         self.expr = operand
         self.V = V
         self.subset = expr.options.subset
-        self.freeze_expr = False
         self.access = expr.options.access
         self.bcs = bcs
         self._allow_missing_dofs = expr.options.allow_missing_dofs
@@ -335,11 +334,7 @@ class CrossMeshInterpolator(Interpolator):
     def __init__(self, expr, V, bcs=None):
         super().__init__(expr, V, bcs)
         if self.subset:
-            raise NotImplementedError("subset not implemented")
-        if self.freeze_expr:
-            # Probably just need to pass freeze_expr to the various
-            # interpolators for this to work.
-            raise NotImplementedError("freeze_expr not implemented")
+            raise NotImplementedError("Subset not implemented.")
         if self.access != op2.WRITE:
             raise NotImplementedError("access other than op2.WRITE not implemented")
         if self.bcs:
@@ -683,28 +678,12 @@ class SameMeshInterpolator(Interpolator):
         self.arguments = expr.arguments()
 
     @PETSc.Log.EventDecorator()
-    def _interpolate(self, *function, output=None, transpose=None, adjoint=False, **kwargs):
+    def _interpolate(self, *function, output=None, adjoint=False, **kwargs):
         """Compute the interpolation.
 
         For arguments, see :class:`.Interpolator`.
         """
-
-        if transpose is not None:
-            warnings.warn("'transpose' argument is deprecated, use 'adjoint' instead", FutureWarning)
-            adjoint = transpose or adjoint
-        try:
-            assembled_interpolator = self.frozen_assembled_interpolator
-            copy_required = True
-        except AttributeError:
-            assembled_interpolator = self.callable()
-            copy_required = False  # Return the original
-            if self.freeze_expr:
-                if len(self.arguments) == 2:
-                    # Interpolation operator
-                    self.frozen_assembled_interpolator = assembled_interpolator
-                else:
-                    # Interpolation action
-                    self.frozen_assembled_interpolator = assembled_interpolator.copy()
+        assembled_interpolator = self.callable()
 
         if len(self.arguments) == 2 and len(function) > 0:
             function, = function
@@ -734,14 +713,10 @@ class SameMeshInterpolator(Interpolator):
                 output.assign(assembled_interpolator)
                 return output
             if isinstance(self.V, firedrake.Function):
-                if copy_required:
-                    self.V.assign(assembled_interpolator)
                 return self.V
             else:
                 if len(self.arguments) == 0:
                     return assembled_interpolator.dat.data.item()
-                elif copy_required:
-                    return assembled_interpolator.copy()
                 else:
                     return assembled_interpolator
 
