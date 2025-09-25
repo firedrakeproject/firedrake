@@ -1508,6 +1508,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # Set diagonal entries on bc nodes to 1 if the current
             # block is on the matrix diagonal and its index matches the
             # index of the function space the bc is defined on.
+            if op2tensor.handle.getType() == "is":
+                op2tensor.handle.assemble()
             op2tensor[index, index].set_local_diagonal_entries(bc.nodes, idx=component, diag_val=self.weight)
             # Handle off-diagonal block involving real function space.
             # "lgmaps" is correctly constructed in _matrix_arg, but
