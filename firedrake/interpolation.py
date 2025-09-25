@@ -176,72 +176,23 @@ class Interpolate(ufl.Interpolate):
 def interpolate(expr, V, **kwargs):
     """Returns a UFL expression for the interpolation operation of ``expr`` into ``V``.
 
-    :arg expr: a UFL expression.
-    :arg V: a :class:`.FunctionSpace` to interpolate into, or a :class:`.Cofunction`,
-        or :class:`.Coargument`, or a :class:`ufl.form.Form` with one argument (a one-form).
-        If a :class:`.Cofunction` or a one-form is provided, then we do adjoint interpolation.
-    :kwarg subset: An optional :class:`pyop2.types.set.Subset` to apply the
-        interpolation over. Cannot, at present, be used when interpolating
-        across meshes unless the target mesh is a :func:`.VertexOnlyMesh`.
-    :kwarg access: The pyop2 access descriptor for combining updates to shared
-        DoFs. Possible values include ``WRITE`` and ``INC``. Only ``WRITE`` is
-        supported at present when interpolating across meshes unless the target
-        mesh is a :func:`.VertexOnlyMesh`. See note below.
-    :kwarg allow_missing_dofs: For interpolation across meshes: allow
-        degrees of freedom (aka DoFs/nodes) in the target mesh that cannot be
-        defined on the source mesh. For example, where nodes are point
-        evaluations, points in the target mesh that are not in the source mesh.
-        When ``False`` this raises a ``ValueError`` should this occur. When
-        ``True`` the corresponding values are either (a) unchanged if
-        some ``output`` is given to the :meth:`interpolate` method or (b) set
-        to zero. In either case, if ``default_missing_val`` is specified, that
-        value is used. This does not affect adjoint interpolation. Ignored if
-        interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`
-        (the behaviour of a :func:`.VertexOnlyMesh` in this scenario is, at
-        present, set when it is created).
-    :kwarg default_missing_val: For interpolation across meshes: the optional
-        value to assign to DoFs in the target mesh that are outside the source
-        mesh. If this is not set then the values are either (a) unchanged if
-        some ``output`` is given to the :meth:`interpolate` method or (b) set
-        to zero. Ignored if interpolating within the same mesh or onto a
-        :func:`.VertexOnlyMesh`.
-    :kwarg matfree: If ``False``, then construct the permutation matrix for interpolating
-        between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
-        and reduce operations.
-    :returns: A symbolic :class:`.Interpolate` object
+    Parameters
+    ----------
+    expr : ufl.core.expr.Expr
+        The UFL expression to interpolate.
+    V : firedrake.functionspaceimpl.WithGeometry or ufl.BaseForm
+        The function space to interpolate into or the coargument defined
+        on the dual of the function space to interpolate into.
+    **kwargs
+        Additional interpolation options. See :class:`InterpolateOptions` 
+        for available parameters and their descriptions.
 
-    .. note::
-
-       If you use an access descriptor other than ``WRITE``, the
-       behaviour of interpolation changes if interpolating into a
-       function space, or an existing function. If the former, then
-       the newly allocated function will be initialised with
-       appropriate values (e.g. for MIN access, it will be initialised
-       with MAX_FLOAT). On the other hand, if you provide a function,
-       then it is assumed that its values should take part in the
-       reduction (hence using MIN will compute the MIN between the
-       existing values and any new values).
+    Returns
+    -------
+    Interpolate
+        A symbolic :class:`Interpolate` object representing the interpolation operation.
     """
-    if isinstance(V, (Cofunction, Coargument)):
-        dual_arg = V
-    elif isinstance(V, (ufl.Form, ufl.BaseForm)):
-        rank = len(V.arguments())
-        if rank == 1:
-            dual_arg = V
-        else:
-            raise TypeError(f"Expected a one-form, provided form had {rank} arguments")
-    elif isinstance(V, functionspaceimpl.WithGeometry):
-        dual_arg = Coargument(V.dual(), 0)
-        expr_args = extract_arguments(ufl.as_ufl(expr))
-        if expr_args and expr_args[0].number() == 0:
-            warnings.warn("Passing argument numbered 0 in expression for forward interpolation is deprecated. "
-                          "Use a TrialFunction in the expression.")
-            v, = expr_args
-            expr = replace(expr, {v: v.reconstruct(number=1)})
-    else:
-        raise TypeError(f"V must be a FunctionSpace, Cofunction, Coargument or one-form, not a {type(V).__name__}")
-
-    return Interpolate(expr, dual_arg, **kwargs)
+    return Interpolate(expr, V, **kwargs)
 
 
 class Interpolator(abc.ABC):
