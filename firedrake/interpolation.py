@@ -269,11 +269,10 @@ class Interpolator(abc.ABC):
                     cofunctions = (dual_arg,)
 
             if needs_adjoint and len(arguments) == 0:
-                Iu = self._interpolate(default_missing_val=self.options.default_missing_val)
+                Iu = self._interpolate()
                 return assemble(ufl.Action(*cofunctions, Iu), tensor=tensor)
             else:
-                return self._interpolate(*cofunctions, output=tensor, adjoint=needs_adjoint,
-                                         default_missing_val=self.options.default_missing_val)
+                return self._interpolate(*cofunctions, output=tensor, adjoint=needs_adjoint)
 
 
 def _get_interpolator(expr: Interpolate, V) -> Interpolator:
@@ -466,24 +465,13 @@ class CrossMeshInterpolator(Interpolator):
         # interpolation method below.
 
     @PETSc.Log.EventDecorator()
-    def _interpolate(
-        self,
-        *function,
-        output=None,
-        transpose=None,
-        adjoint=False,
-        default_missing_val=None,
-        **kwargs,
-    ):
+    def _interpolate(self, *function, output=None, adjoint=False):
         """Compute the interpolation.
 
         For arguments, see :class:`.Interpolator`.
         """
         from firedrake.assemble import assemble
 
-        if transpose is not None:
-            warnings.warn("'transpose' argument is deprecated, use 'adjoint' instead", FutureWarning)
-            adjoint = transpose or adjoint
         if adjoint and not self.nargs:
             raise ValueError(
                 "Can currently only apply adjoint interpolation with arguments."
@@ -562,10 +550,10 @@ class CrossMeshInterpolator(Interpolator):
             )
             # We have to create the Function before interpolating so we can
             # set default missing values (if requested).
-            if default_missing_val is not None:
+            if self.options.default_missing_val is not None:
                 f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[
                     :
-                ] = default_missing_val
+                ] = self.options.default_missing_val
             elif self.options.allow_missing_dofs:
                 # If we have allowed missing points we know we might end up
                 # with points in the target mesh that are not in the source
@@ -580,7 +568,7 @@ class CrossMeshInterpolator(Interpolator):
             assemble(interp, tensor=f_src_at_dest_node_coords_dest_mesh_decomp)
 
             # we can now confidently assign this to a function on V_dest
-            if self.options.allow_missing_dofs and default_missing_val is None:
+            if self.options.allow_missing_dofs and self.options.default_missing_val is None:
                 indices = numpy.where(
                     ~numpy.isnan(f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_ro)
                 )[0]
@@ -676,7 +664,7 @@ class SameMeshInterpolator(Interpolator):
         self.arguments = expr.arguments()
 
     @PETSc.Log.EventDecorator()
-    def _interpolate(self, *function, output=None, adjoint=False, **kwargs):
+    def _interpolate(self, *function, output=None, adjoint=False):
         """Compute the interpolation.
 
         For arguments, see :class:`.Interpolator`.
