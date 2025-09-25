@@ -50,6 +50,7 @@ class SCPC(SCBase):
             raise NotImplementedError("Only supports up to three function spaces.")
 
         elim_option = (pc.getOptionsPrefix() or "") + "pc_sc_eliminate_fields"
+        # By default, we condense down to the last field in the mixed space.
         elim_fields = PETSc.Options().getIntArray(elim_option, range(len(W)-1))
         elim_fields = list(map(int, elim_fields))
 
