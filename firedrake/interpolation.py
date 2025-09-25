@@ -293,19 +293,31 @@ class Interpolator(abc.ABC):
         self.matfree = matfree
         self.callable = None
 
-        # CrossMeshInterpolator is not yet aware of self.ufl_interpolate (which carries the dual arguments).
-        # Instead, we always construct the forward ufl_interpolate and externally operate on the adjoint and
-        # supply the cofunctions within assemble().
+        # TODO CrossMeshInterpolator and VomOntoVomXXX are not yet aware of
+        # self.ufl_interpolate (which carries the dual argument).
         target_mesh = as_domain(V)
         source_mesh = extract_unique_domain(operand) or target_mesh
         vom_onto_other_vom = ((source_mesh is not target_mesh)
                               and isinstance(source_mesh.topology, VertexOnlyMeshTopology)
                               and isinstance(target_mesh.topology, VertexOnlyMeshTopology))
         if not isinstance(self, SameMeshInterpolator) or vom_onto_other_vom:
+            # For bespoke interpolation, we currently rely on different assembly procedures:
+            # 1) Interpolate(Argument(V1, 1), Argument(V2.dual(), 0)) -> Forward operator (2-form)
+            # 2) Interpolate(Argument(V1, 0), Argument(V2.dual(), 1)) -> Adjoint operator (2-form)
+            # 3) Interpolate(Coefficient(V1), Argument(V2.dual(), 0)) -> Forward action (1-form)
+            # 4) Interpolate(Argument(V1, 0), Cofunction(V2.dual()) -> Adjoint action (1-form)
+            # 5) Interpolate(Coefficient(V1), Cofunction(V2.dual()) -> Double action (0-form)
+
+            # CrossMeshInterpolator._interpolate only supports forward interpolation (cases 1 and 3).
+            # For case 2, we first redundantly assemble case 1 and then construct the transpose.
+            # For cases 4 and 5, we take the forward Interpolate that corresponds to dropping the Cofunction,
+            # and we separately compute the action againt the dropped Cofunction within assemble().
             if not isinstance(dual_arg, ufl.Coargument):
+                # Drop the Cofunction
                 expr = expr._ufl_expr_reconstruct_(operand, dual_arg.function_space().dual())
             expr_args = extract_arguments(operand)
             if expr_args and expr_args[0].number() == 0:
+                # Construct the symbolic forward Interpolate
                 v0, v1 = expr.arguments()
                 expr = ufl.replace(expr, {v0: v0.reconstruct(number=v1.number()),
                                           v1: v1.reconstruct(number=v0.number())})
@@ -342,7 +354,7 @@ class Interpolator(abc.ABC):
     def assemble(self, tensor=None, default_missing_val=None):
         """Assemble the operator (or its action)."""
         from firedrake.assemble import assemble
-        renumbered = self.ufl_interpolate_renumbered != self.ufl_interpolate
+        needs_adjoint = self.ufl_interpolate_renumbered != self.ufl_interpolate
         arguments = self.ufl_interpolate.arguments()
         if len(arguments) == 2:
             # Assembling the operator
@@ -350,7 +362,7 @@ class Interpolator(abc.ABC):
             # Get the interpolation matrix
             op2mat = self.callable()
             petsc_mat = op2mat.handle
-            if renumbered:
+            if needs_adjoint:
                 # Out-of-place Hermitian transpose
                 petsc_mat.hermitianTranspose(out=res)
             elif res:
@@ -363,18 +375,18 @@ class Interpolator(abc.ABC):
         else:
             # Assembling the action
             cofunctions = ()
-            if renumbered:
+            if needs_adjoint:
                 # The renumbered Interpolate has dropped Cofunctions.
                 # We need to explicitly operate on them.
                 dual_arg, _ = self.ufl_interpolate.argument_slots()
                 if not isinstance(dual_arg, ufl.Coargument):
                     cofunctions = (dual_arg,)
 
-            if renumbered and len(arguments) == 0:
+            if needs_adjoint and len(arguments) == 0:
                 Iu = self._interpolate(default_missing_val=default_missing_val)
                 return assemble(ufl.Action(*cofunctions, Iu), tensor=tensor)
             else:
-                return self._interpolate(*cofunctions, output=tensor, adjoint=renumbered,
+                return self._interpolate(*cofunctions, output=tensor, adjoint=needs_adjoint,
                                          default_missing_val=default_missing_val)
 
 
@@ -850,11 +862,9 @@ def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
     dual_arg, operand = expr.argument_slots()
     target_mesh = as_domain(dual_arg)
     source_mesh = extract_unique_domain(operand) or target_mesh
-    vom_onto_other_vom = (
-        isinstance(target_mesh.topology, VertexOnlyMeshTopology)
-        and isinstance(source_mesh.topology, VertexOnlyMeshTopology)
-        and target_mesh is not source_mesh
-    )
+    vom_onto_other_vom = ((source_mesh is not target_mesh)
+                          and isinstance(source_mesh.topology, VertexOnlyMeshTopology)
+                          and isinstance(target_mesh.topology, VertexOnlyMeshTopology))
 
     arguments = expr.arguments()
     rank = len(arguments)
