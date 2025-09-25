@@ -45,7 +45,7 @@ __all__ = (
     "SameMeshInterpolator",
 )
 
-@dataclass(frozen=True)
+@dataclass
 class InterpolateOptions:
     """Options for interpolation operations.
     
@@ -185,11 +185,8 @@ class Interpolator(abc.ABC):
         self.ufl_interpolate = expr
         self.expr = operand
         self.V = V
-        self.subset = expr.options.subset
-        self.access = expr.options.access
+        self.options = expr.options
         self.bcs = bcs
-        self._allow_missing_dofs = expr.options.allow_missing_dofs
-        self.matfree = expr.options.matfree
         self.callable = None
 
         # TODO CrossMeshInterpolator and VomOntoVomXXX are not yet aware of
@@ -227,7 +224,7 @@ class Interpolator(abc.ABC):
         self.ufl_interpolate_renumbered = expr
         if not isinstance(dual_arg, ufl.Coargument):
             # Matrix-free assembly of 0-form or 1-form requires INC access
-            self.access = op2.INC
+            self.options.access = op2.INC
 
     @abc.abstractmethod
     def _interpolate(self, *args, **kwargs):
@@ -331,14 +328,14 @@ class CrossMeshInterpolator(Interpolator):
     """
 
     @no_annotations
-    def __init__(self, expr, V, bcs=None):
+    def __init__(self, expr: Interpolate, V, bcs=None):
         super().__init__(expr, V, bcs)
-        if self.subset:
-            raise NotImplementedError("Subset not implemented.")
-        if self.access != op2.WRITE:
-            raise NotImplementedError("access other than op2.WRITE not implemented")
+        if self.options.access != op2.WRITE:
+            raise NotImplementedError(
+                "Access other than op2.WRITE not implemented for cross-mesh interpolation."
+            )
         if self.bcs:
-            raise NotImplementedError("bcs not implemented")
+            raise NotImplementedError("bcs not implemented.")
         if V.ufl_element().mapping() != "identity":
             # Identity mapping between reference cell and physical coordinates
             # implies point evaluation nodes. A more general version would
@@ -352,7 +349,7 @@ class CrossMeshInterpolator(Interpolator):
         self.arguments = extract_arguments(expr)
         self.nargs = len(self.arguments)
 
-        if self._allow_missing_dofs:
+        if self.options.allow_missing_dofs:
             missing_points_behaviour = MissingPointsBehaviour.IGNORE
         else:
             missing_points_behaviour = MissingPointsBehaviour.ERROR
@@ -420,7 +417,7 @@ class CrossMeshInterpolator(Interpolator):
                     expr_subfunctions, V_dest.subspaces
                 ):
                     self.sub_interpolators.append(
-                        interpolate(input_sub_func, target_subspace, **self.interp_data)
+                        interpolate(input_sub_func, target_subspace, **asdict(self.options))
                     )
                 return
 
@@ -568,7 +565,7 @@ class CrossMeshInterpolator(Interpolator):
                 f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[
                     :
                 ] = default_missing_val
-            elif self._allow_missing_dofs:
+            elif self.options.allow_missing_dofs:
                 # If we have allowed missing points we know we might end up
                 # with points in the target mesh that are not in the source
                 # mesh. However, since we haven't specified a default missing
@@ -582,7 +579,7 @@ class CrossMeshInterpolator(Interpolator):
             assemble(interp, tensor=f_src_at_dest_node_coords_dest_mesh_decomp)
 
             # we can now confidently assign this to a function on V_dest
-            if self._allow_missing_dofs and default_missing_val is None:
+            if self.options.allow_missing_dofs and default_missing_val is None:
                 indices = numpy.where(
                     ~numpy.isnan(f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_ro)
                 )[0]
@@ -646,7 +643,7 @@ class SameMeshInterpolator(Interpolator):
     @no_annotations
     def __init__(self, expr, V, bcs=None):
         super().__init__(expr, V, bcs=bcs)
-        subset = self.subset
+        subset = self.options.subset
         if subset is None:
             if isinstance(expr, ufl.Interpolate):
                 operand, = expr.ufl_operands
@@ -664,7 +661,7 @@ class SameMeshInterpolator(Interpolator):
                 make_subset = not indices_active.all()
                 make_subset = target.comm.allreduce(make_subset, op=MPI.LOR)
                 if make_subset:
-                    if not self._allow_missing_dofs:
+                    if not self.options.allow_missing_dofs:
                         raise ValueError("iteration (sub)set unclear: run with `allow_missing_dofs=True`")
                     subset = op2.Subset(target.cell_set, numpy.where(indices_active))
                 else:
@@ -672,7 +669,7 @@ class SameMeshInterpolator(Interpolator):
                     pass
         expr = self.ufl_interpolate_renumbered
         try:
-            self.callable = make_interpolator(expr, V, subset, self.access, bcs=bcs, matfree=self.matfree)
+            self.callable = make_interpolator(expr, V, subset, self.options.access, bcs=bcs, matfree=self.options.matfree)
         except FIAT.hdiv_trace.TraceError:
             raise NotImplementedError("Can't interpolate onto traces sorry")
         self.arguments = expr.arguments()
