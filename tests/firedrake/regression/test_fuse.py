@@ -2,11 +2,16 @@ from test_helmholtz import helmholtz
 from test_poisson_strong_bcs import run_test
 from test_steady_advection_3D import run_near_to_far
 from fuse.cells import ufc_triangle
+from firedrake.utils import IntType
 from firedrake import *
+import os
 import pytest
 import numpy as np
 import firedrake.cython.dmcommon as dmcommon
-from firedrake.utils import IntType
+
+@pytest.fixture(scope="module", autouse=True)
+def set_env():
+    os.environ["FIREDRAKE_USE_FUSE"] = "True"
 
 
 @pytest.mark.parametrize(['params', 'degree', 'quadrilateral'],
@@ -63,3 +68,4 @@ def test_reorder_closure():
         entity_per_cell[d] = len(ents)
     print(entity_per_cell)
     print(dmcommon.derive_closure_ordering(plex, cell_numbering, closureSize, entity_per_cell, verts_per_entity))
+
