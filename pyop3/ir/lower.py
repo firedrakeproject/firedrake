@@ -492,19 +492,19 @@ class CompiledCodeExecutor:
         if intent in {READ, RW}:
             if touches_ghost_points:
                 if not buffer._roots_valid:
-                    initializers.append(buffer._reduce_leaves_to_roots_begin)
+                    initializers.append(buffer.reduce_leaves_to_roots_begin)
                     reductions.extend([
-                        buffer._reduce_leaves_to_roots_end,
-                        buffer._broadcast_roots_to_leaves_begin,
+                        buffer.reduce_leaves_to_roots_end,
+                        buffer.broadcast_roots_to_leaves_begin,
                     ])
-                    broadcasts.append(buffer._broadcast_roots_to_leaves_end)
+                    broadcasts.append(buffer.broadcast_roots_to_leaves_end)
                 else:
-                    initializers.append(buffer._broadcast_roots_to_leaves_begin)
-                    broadcasts.append(buffer._broadcast_roots_to_leaves_end)
+                    initializers.append(buffer.broadcast_roots_to_leaves_begin)
+                    broadcasts.append(buffer.broadcast_roots_to_leaves_end)
             else:
                 if not buffer._roots_valid:
-                    initializers.append(buffer._reduce_leaves_to_roots_begin)
-                    reductions.append(buffer._reduce_leaves_to_roots_end)
+                    initializers.append(buffer.reduce_leaves_to_roots_begin)
+                    reductions.append(buffer.reduce_leaves_to_roots_end)
 
         elif intent == WRITE:
             # Assumes that all points are written to (i.e. not a subset). If

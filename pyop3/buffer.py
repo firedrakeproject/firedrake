@@ -501,8 +501,25 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @not_in_flight
     def _reduce_then_broadcast(self):
+        self.reduce_then_broadcast_begin()
+        self.reduce_then_broadcast_end()
+
+    @not_in_flight
+    def reduce_then_broadcast_begin(self):
+        # TODO: To make this non-blocking we can use Python's 'threading' library
+        #
+        # For example:
+        #
+        #   lock = threading.Lock()
+        #   with lock:
+        #       trigger nonblocking send/recvs
+        #
+        # For now do the dumb thing.
         self.reduce_leaves_to_roots()
-        self.broadcast_roots_to_leaves()
+        self.broadcast_roots_to_leaves_begin()
+
+    def reduce_then_broadcast_end(self):
+        self.broadcast_roots_to_leaves_end()
 
     def localize(self) -> ArrayBuffer:
         return self._localized

@@ -253,8 +253,8 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
     fdm = mf.topology_dm
     dim = cdm.getDimension()
     nref = <PetscInt> 2 ** dim
-    ncoarse = mc.cell_set.size
-    nfine = mf.cell_set.size
+    ncoarse = mc.cells.owned.local_size
+    nfine = mf.cells.owned.local_size
     co2n, _ = get_entity_renumbering(cdm, mc._cell_numbering, "cell")
     _, fn2o = get_entity_renumbering(fdm, mf._cell_numbering, "cell")
     coarse_to_fine = np.full((ncoarse, nref), -1, dtype=PETSc.IntType)
@@ -272,7 +272,7 @@ def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
         # Need to permute order of co2n so it maps from non-overlapped
         # cells to new cells (these may have changed order).  Need to
         # map all known cells through.
-        idx = np.arange(mc.cell_set.total_size, dtype=PETSc.IntType)
+        idx = np.arange(mc.cells.local_size, dtype=PETSc.IntType)
         # LocalToGlobal
         co.apply(idx, result=idx)
         # GlobalToLocal

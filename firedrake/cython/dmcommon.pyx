@@ -2404,6 +2404,7 @@ def compute_dm_renumbering(
     cdef:
         PETSc.IS renumbering_is
         PETSc.DM dm
+        np.ndarray reordering_inv
 
         PetscInt pStart_c, pEnd_c, nPoints_c
         PetscInt nOwned_c, nGhost_c
@@ -2415,6 +2416,8 @@ def compute_dm_renumbering(
         PetscInt is_ghost
         DMLabel clabel
         bint reorder = reordering is not None
+
+    reordering_inv = utils.invert(reordering)
 
     dm = mesh.topology_dm
 
@@ -2436,10 +2439,6 @@ def compute_dm_renumbering(
     # CHKERR(DMGetLabel(dm.dm, b"pyop2_ghost", &labels[2]))
     # for idx in range(3):
     #     CHKERR(DMLabelCreateIndex(labels[idx], pStart, pEnd))
-    # TODO: Make a constant somewhere
-    CHKERR(DMGetLabel(dm.dm, b"firedrake_is_ghost", &clabel))
-    DMLabelGetStratumSize(clabel, 1, &nGhost_c)
-    nOwned_c = nPoints_c - nGhost_c
 
     # Get boundary points (if the boundary_set exists) and count each type
     # constrained_core = 0
@@ -2472,8 +2471,7 @@ def compute_dm_renumbering(
 
     for cell in range(cStart, cEnd):
         if reorder:
-            # is this wrong? invert! YES
-            cell = reordering[cell]
+            cell = reordering_inv[cell]
 
         get_transitive_closure(dm.dm, cell, PETSC_TRUE, &nclosure, &closure)
         for i in range(nclosure):
@@ -4007,7 +4005,7 @@ def submesh_correct_entity_classes(PETSc.DM dm,
         const PetscInt *subpoint_indices = NULL
         np.ndarray ownership_loss
         np.ndarray ownership_gain
-        DMLabel lbl_core, lbl_owned, lbl_ghost
+        DMLabel is_ghost
         PetscBool has
 
     if dm.comm.size == 1:
@@ -4030,31 +4028,19 @@ def submesh_correct_entity_classes(PETSc.DM dm,
     assert nsubpoints == subpEnd - subpStart
     assert subpStart == 0
     CHKERR(ISGetIndices(subpoint_is.iset, &subpoint_indices))
-    CHKERR(DMGetLabel(subdm.dm, b"pyop2_core", &lbl_core))
-    CHKERR(DMGetLabel(subdm.dm, b"pyop2_owned", &lbl_owned))
-    CHKERR(DMGetLabel(subdm.dm, b"pyop2_ghost", &lbl_ghost))
-    CHKERR(DMLabelCreateIndex(lbl_core, subpStart, subpEnd))
-    CHKERR(DMLabelCreateIndex(lbl_owned, subpStart, subpEnd))
-    CHKERR(DMLabelCreateIndex(lbl_ghost, subpStart, subpEnd))
+    CHKERR(DMGetLabel(subdm.dm, b"firedrake_is_ghost", &is_ghost))
+    CHKERR(DMLabelCreateIndex(is_ghost, subpStart, subpEnd))
     for subp in range(subpStart, subpEnd):
         p = subpoint_indices[subp]
         if ownership_loss[p] == 1:
-            CHKERR(DMLabelHasPoint(lbl_core, subp, &has))
-            assert has == PETSC_FALSE
-            CHKERR(DMLabelHasPoint(lbl_owned, subp, &has))
-            assert has == PETSC_TRUE
-            CHKERR(DMLabelClearValue(lbl_owned, subp, 1))
-            CHKERR(DMLabelSetValue(lbl_ghost, subp, 1))
+            CHKERR(DMLabelHasPoint(is_ghost, subp, &has))
+            assert has == 0
+            CHKERR(DMLabelSetValue(is_ghost, subp, 1))
         if ownership_gain[p] == 1:
-            CHKERR(DMLabelHasPoint(lbl_core, subp, &has))
-            assert has == PETSC_FALSE
-            CHKERR(DMLabelHasPoint(lbl_ghost, subp, &has))
-            assert has == PETSC_TRUE
-            CHKERR(DMLabelClearValue(lbl_ghost, subp, 1))
-            CHKERR(DMLabelSetValue(lbl_owned, subp, 1))
-    CHKERR(DMLabelDestroyIndex(lbl_core))
-    CHKERR(DMLabelDestroyIndex(lbl_owned))
-    CHKERR(DMLabelDestroyIndex(lbl_ghost))
+            CHKERR(DMLabelHasPoint(is_ghost, subp, &has))
+            assert has == 1
+            CHKERR(DMLabelSetValue(is_ghost, subp, 0))
+    CHKERR(DMLabelDestroyIndex(is_ghost))
     CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
 
 

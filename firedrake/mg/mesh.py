@@ -137,9 +137,7 @@ def MeshHierarchy(mesh, refinement_levels,
     dm_cell_type, = mesh.dm_cell_types
     tdim = mesh.topology_dm.getDimension()
     cdm = dmcommon.submesh_create(mesh.topology_dm, tdim, "celltype", dm_cell_type, True)
-    cdm.removeLabel("pyop2_core")
-    cdm.removeLabel("pyop2_owned")
-    cdm.removeLabel("pyop2_ghost")
+    cdm.removeLabel("firedrake_is_ghost")
     cdm.setRefinementUniform(True)
     dms = [cdm]
     if callbacks is not None:
