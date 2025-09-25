@@ -360,26 +360,24 @@ class Function(ufl.Coefficient, FunctionMixin):
         return self._function_space
 
     @PETSc.Log.EventDecorator()
-    def interpolate(self, expression, ad_block_tag=None, **kwargs):
+    def interpolate(self, expression: ufl.classes.Expr, ad_block_tag: str = None, **kwargs):
         """Interpolate an expression onto this :class:`Function`.
 
         Parameters
         ----------
-        expression: ufl.Expr
-                    A UFL expression to interpolate.
-
-        ad_block_tag: str
-                      An optional string for tagging the resulting assemble
-                      block on the Pyadjoint tape.
+        expression
+            A UFL expression to interpolate.
+        ad_block_tag
+            An optional string for tagging the resulting assemble
+            block on the Pyadjoint tape.
+        **kwargs
+            Any extra kwargs are passed on to the interpolate method.
+            For details see `firedrake.interpolation.interpolate`.
 
         Returns
         -------
         firedrake.function.Function
             Returns `self`
-
-        Any extra kwargs are passed on to the interpolate method.
-        For details see `firedrake.interpolation.interpolate`.
-
         """
         from firedrake import interpolate, assemble
         V = self.function_space()

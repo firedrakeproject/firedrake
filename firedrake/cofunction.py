@@ -309,26 +309,24 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         return NotImplemented
 
     @PETSc.Log.EventDecorator()
-    def interpolate(self, expression, ad_block_tag=None, **kwargs):
+    def interpolate(self, expression: ufl.BaseForm, ad_block_tag: str = None, **kwargs):
         """Interpolate a dual expression onto this :class:`Cofunction`.
 
         Parameters
         ----------
-        expression: ufl.BaseForm
-                    A dual UFL expression to interpolate.
-
-        ad_block_tag: str
-                      An optional string for tagging the resulting assemble
-                      block on the Pyadjoint tape.
+        expression
+            A dual UFL expression to interpolate.
+        ad_block_tag
+            An optional string for tagging the resulting assemble
+            block on the Pyadjoint tape.
+        **kwargs
+            Any extra kwargs are passed on to the interpolate method.
+            For details see `firedrake.interpolation.interpolate`.
 
         Returns
         -------
         firedrake.cofunction.Cofunction
             Returns `self`
-
-        Any extra kwargs are passed on to the interpolate method.
-        For details see `firedrake.interpolation.interpolate`.
-
         """
         from firedrake import interpolate, assemble
         v, = self.arguments()
