@@ -24,6 +24,7 @@ from firedrake.ufl_expr import extract_unique_domain
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
+from firedrake.interpolation import _get_interpolator
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
@@ -607,7 +608,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             default_missing_val = interp_data.pop('default_missing_val', None)
             if rank == 1 and isinstance(tensor, firedrake.Function):
                 V = tensor
-            interpolator = firedrake.Interpolator(expr, V, **interp_data)
+            interpolator = _get_interpolator(expr, V, **interp_data)
             # Assembly
             return interpolator.assemble(tensor=tensor, default_missing_val=default_missing_val)
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):

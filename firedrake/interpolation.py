@@ -134,6 +134,10 @@ class Interpolate(ufl.Interpolate):
     def _ufl_expr_reconstruct_(self, expr, v=None, **interp_data):
         interp_data = interp_data or self.interp_data.copy()
         return ufl.Interpolate._ufl_expr_reconstruct_(self, expr, v=v, **interp_data)
+    
+    @property
+    def target_space(self):
+        return self.argument_slots()[0].function_space().dual()
 
 
 @PETSc.Log.EventDecorator()
@@ -206,24 +210,6 @@ class Interpolator(abc.ABC):
        :class:`Interpolator` is also collected).
 
     """
-
-    def __new__(cls, expr, V, **kwargs):
-        if isinstance(expr, ufl.Interpolate):
-            expr, = expr.ufl_operands
-        target_mesh = as_domain(V)
-        source_mesh = extract_unique_domain(expr) or target_mesh
-        submesh_interp_implemented = \
-            all(isinstance(m.topology, firedrake.mesh.MeshTopology) for m in [target_mesh, source_mesh]) and \
-            target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1] and \
-            target_mesh.topological_dimension() == source_mesh.topological_dimension()
-        if target_mesh is source_mesh or submesh_interp_implemented:
-            return object.__new__(SameMeshInterpolator)
-        else:
-            if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-                return object.__new__(SameMeshInterpolator)
-            else:
-                return object.__new__(CrossMeshInterpolator)
-
     def __init__(
         self,
         expr,
@@ -346,6 +332,24 @@ class Interpolator(abc.ABC):
             else:
                 return self._interpolate(*cofunctions, output=tensor, adjoint=needs_adjoint,
                                          default_missing_val=default_missing_val)
+
+
+def _get_interpolator(expr, V, **kwargs) -> Interpolator:
+    if isinstance(expr, ufl.Interpolate):
+        expr, = expr.ufl_operands
+    target_mesh = as_domain(V)
+    source_mesh = extract_unique_domain(expr) or target_mesh
+    submesh_interp_implemented = \
+        all(isinstance(m.topology, firedrake.mesh.MeshTopology) for m in [target_mesh, source_mesh]) and \
+        target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1] and \
+        target_mesh.topological_dimension() == source_mesh.topological_dimension()
+    if target_mesh is source_mesh or submesh_interp_implemented:
+        return SameMeshInterpolator(expr, V, **kwargs)
+    else:
+        if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
+            return SameMeshInterpolator(expr, V, **kwargs)
+        else:
+            return CrossMeshInterpolator(expr, V, **kwargs)
 
 
 class DofNotDefinedError(Exception):
