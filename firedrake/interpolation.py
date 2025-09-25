@@ -127,17 +127,20 @@ class Interpolate(ufl.Interpolate):
         super().__init__(expr, V)
 
         self._options = InterpolateOptions(**kwargs)
-        self.interp_data = asdict(self._options)  # TODO: remove this
 
     function_space = ufl.Interpolate.ufl_function_space
 
     def _ufl_expr_reconstruct_(self, expr, v=None, **interp_data):
-        interp_data = interp_data or self.interp_data.copy()
+        interp_data = interp_data or asdict(self.options)
         return ufl.Interpolate._ufl_expr_reconstruct_(self, expr, v=v, **interp_data)
     
     @property
     def target_space(self):
         return self.argument_slots()[0].function_space().dual()
+
+    @property
+    def source_space(self):
+        return self.argument_slots()[1].function_space()
     
     @property
     def options(self):
@@ -236,7 +239,7 @@ class Interpolator(abc.ABC):
         """
         pass
 
-    def assemble(self, tensor=None, default_missing_val=None):
+    def assemble(self, tensor=None):
         """Assemble the operator (or its action)."""
         from firedrake.assemble import assemble
         needs_adjoint = self.ufl_interpolate_renumbered != self.ufl_interpolate
@@ -268,11 +271,11 @@ class Interpolator(abc.ABC):
                     cofunctions = (dual_arg,)
 
             if needs_adjoint and len(arguments) == 0:
-                Iu = self._interpolate(default_missing_val=default_missing_val)
+                Iu = self._interpolate(default_missing_val=self.options.default_missing_val)
                 return assemble(ufl.Action(*cofunctions, Iu), tensor=tensor)
             else:
                 return self._interpolate(*cofunctions, output=tensor, adjoint=needs_adjoint,
-                                         default_missing_val=default_missing_val)
+                                         default_missing_val=self.options.default_missing_val)
 
 
 def _get_interpolator(expr: Interpolate, V) -> Interpolator:
