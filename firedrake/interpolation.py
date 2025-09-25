@@ -1185,7 +1185,11 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
 
 def get_interp_node_map(source_mesh, target_mesh, fs):
-    """Return the cell-to-node map required by a parloop on the target_mesh.cell_set."""
+    """Return the map between cells of the target mesh and nodes of the function space. 
+    
+    If the function space is defined on the source mesh then the node map is composed 
+    with a map between target and source cells.
+    """
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
         coeff_mesh = fs.mesh()
         m_ = fs.cell_node_map()
