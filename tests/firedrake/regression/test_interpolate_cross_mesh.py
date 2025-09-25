@@ -480,7 +480,7 @@ def interpolate_expression(
 def interpolate_cofunction(
     m_src, m_dest, V_src, V_dest, dest_eval, expected, expr_src, expr_dest, atol
 ):
-    f_dest = Function(V_dest).interpolate(expr_dest)
+    f_dest = Function(V_dest).interpolate(expr_src)
     assert extract_unique_domain(f_dest) is m_dest
 
     cofunction_dest = assemble(inner(f_dest, TestFunction(V_dest)) * dx)
