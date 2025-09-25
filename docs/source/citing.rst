@@ -23,7 +23,7 @@ would cite the `Firedrake user manual
 The simplest way to determine any additional relevant papers to cite is
 by asking Firedrake itself.  You can ask that a list of citations
 relevant to your computation be printed when exiting by calling
-:meth:`petsctools.print_citations_at_exit` after importing Firedrake::
+:meth:`~petsctools.citation.print_citations_at_exit` after importing Firedrake::
 
   import petsctools
 
