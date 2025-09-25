@@ -335,8 +335,6 @@ class Interpolator(abc.ABC):
 
 
 def _get_interpolator(expr, V, **kwargs) -> Interpolator:
-    if isinstance(expr, ufl.Interpolate):
-        expr, = expr.ufl_operands
     target_mesh = as_domain(V)
     source_mesh = extract_unique_domain(expr) or target_mesh
     submesh_interp_implemented = \
