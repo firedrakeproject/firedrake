@@ -51,12 +51,7 @@ class SCPC(SCBase):
 
         elim_option = (pc.getOptionsPrefix() or "") + "pc_sc_eliminate_fields"
         elim_fields = PETSc.Options().getIntArray(elim_option, range(len(W)-1))
-        if elim_fields is sentinel:
-            # By default, we condense down to the last field in the
-            # mixed space.
-            elim_fields = [i for i in range(0, len(W) - 1)]
-        else:
-            elim_fields = [int(i) for i in elim_fields.split(',')]
+        elim_fields = list(map(int, elim_fields))
 
         condensed_fields = list(set(range(len(W))) - set(elim_fields))
         if len(condensed_fields) != 1:
