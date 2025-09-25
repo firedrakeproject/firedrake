@@ -2,11 +2,10 @@ name: Publish release
 
 on:
   release:
-    types: [published]
+    types: [released]
 
 jobs:
   deploy:
-    if: '!startsWith( github.ref_name, ''Zenodo'' )'
     uses: ./.github/workflows/core.yml
     with:
       source_ref: release
@@ -16,9 +15,10 @@ jobs:
     secrets: inherit
 
   docker:
-    if: '!startsWith( github.ref_name, ''Zenodo'' )'
     name: Build Docker containers
     uses: ./.github/workflows/docker.yml
     with:
-      tag: ${{ github.ref }}
+      tag: ${{ github.ref_name }}
+      branch: ${{ github.ref_name }}
+      build_dev: false
     secrets: inherit

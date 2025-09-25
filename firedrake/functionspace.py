@@ -172,12 +172,8 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
     -----
     The ``family`` argument may be an existing
     :class:`finat.ufl.finiteelementbase.FiniteElementBase`, in which case all other arguments
-    are ignored and the appropriate :class:`.FunctionSpace` is returned.  In
-    this case, the provided element must have an empty
-    :attr:`finat.ufl.finiteelementbase.FiniteElementBase.value_shape`.
-
-    The element that you provide need be a scalar element (with empty
-    ``value_shape``), however, it should not be an existing
+    are ignored and the appropriate :class:`.FunctionSpace` is returned.
+    The element that you provide need be a scalar element, however, it should not be an existing
     :class:`finat.ufl.mixedelement.VectorElement`.  If you already have an
     existing :class:`finat.ufl.mixedelement.VectorElement`, you should
     pass it to :class:`.FunctionSpace` directly instead.
@@ -228,17 +224,16 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
     The ``family`` argument may be an existing
     :class:`finat.ufl.finiteelementbase.FiniteElementBase`, in which case all other arguments
     are ignored and the appropriate `FunctionSpace` is
-    returned.  In this case, the provided element must have an empty
-    :attr:`finat.ufl.finiteelementbase.FiniteElementBase.value_shape`.
+    returned.
 
-    The element that you provide must be a scalar element (with empty
-    ``value_shape``).  If you already have an existing
+    The element that you provide must be a scalar element.  If you already have an existing
     :class:`finat.ufl.mixedelement.TensorElement`, you should pass it to
     `FunctionSpace` directly instead.
 
     """
     sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant)
-    shape = shape or (mesh.geometric_dimension(),) * 2
+    if shape is None:
+        shape = (mesh.geometric_dimension(),) * 2
     element = finat.ufl.TensorElement(sub_element, shape=shape, symmetry=symmetry)
     return FunctionSpace(mesh, element, name=name)
 

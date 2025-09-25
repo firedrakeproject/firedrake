@@ -31,10 +31,10 @@ a few points.
    # evaluate f at one 2-dimensional point
    f.at([0.2, 0.4])
 
-   # evaluate f at two 2-dimensional point
+   # evaluate f at two 2-dimensional points
    f.at([0.2, 0.4], [1.2, 0.5])
 
-   # evaluate f at two 2-dimensional point (same as above)
+   # evaluate f at two 2-dimensional points (same as above)
    f.at([[0.2, 0.4], [1.2, 0.5]])
 
 While in these examples we have only shown lists, other *iterables*
@@ -146,18 +146,6 @@ at construction. In general :func:`~.VertexOnlyMesh` accepts any numpy array of
 shape ``(num_points, point_dim)`` (or equivalent list) as the set of points to
 create disconnected vertices at.
 
-The operator for evaluation at the points specified can be
-created by making an :py:class:`~.Interpolator` acting on a
-:py:func:`~.TestFunction`
-
-.. code-block:: python3
-
-   u = TestFunction(V)
-   Interpolator(u, P0DG)
-
-For more on :py:class:`~.Interpolator`\s and interpolation see the
-:doc:`interpolation <interpolation>` section.
-
 
 Vector and tensor valued function spaces
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -210,15 +198,16 @@ by rank B then they will be moved to rank B.
 
 If the same coordinates are supplied more than once, they are always assumed to
 be a new vertex: this is true for both ``redundant = True`` and
-``redunant = False``. So if we have the same set of points on all MPI processes
+``redundant = False``. So if we have the same set of points on all MPI processes
 and switch from ``redundant = True`` to ``redundant = False`` we will get point
 duplication.
 
+.. _missing_points:
 
 Points outside the domain
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Be default points outside the domain by more than the :ref:`specified
+By default points outside the domain by more than the :ref:`specified
 tolerance <tolerance>` will generate
 a :class:`~.VertexOnlyMeshMissingPointsError`. This can be switched to a
 warning or switched off entirely:
@@ -241,6 +230,51 @@ warning or switched off entirely:
    :start-after: [test_vom_manual_points_outside_domain 5]
    :end-before: [test_vom_manual_points_outside_domain 6]
 
+.. _point_evaluator:
+
+``PointEvaluator`` convenience object
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The :py:class:`~.PointEvaluator` class performs point evaluation using vertex-only meshes,
+as described above. This is a convenience object for users who want to evaluate
+functions at points without writing the vertex-only mesh boilerplate code each time.
+
+First, create a :py:class:`~.PointEvaluator` object by passing the 
+parent mesh and the points to evaluate at:
+
+.. code-block:: python3
+
+   point_evaluator = PointEvaluator(mesh, points)
+
+Internally, this creates a vertex-only mesh at the given points, immersed in the given mesh.
+To evaluate a :py:class:`~.Function` defined on the parent mesh at the given points,
+we use :meth:`~.PointEvaluator.evaluate`:
+
+.. code-block:: python3
+
+   f_at_points = point_evaluator.evaluate(f)
+
+Under the hood, this creates the appropriate P0DG function space on the vertex-only mesh
+and performs the interpolation. The points are then reordered to match the input ordering,
+as described in :ref:`the section on the input ordering property <input_ordering>`. The result
+is a Numpy array containing the values of ``f`` at the given points, in the order the points were
+provided to the :py:class:`~.PointEvaluator` constructor.
+
+If ``redundant=True`` (the default) was used when creating the :py:class:`~.PointEvaluator`,
+then only the points given to the constructor on rank 0 will be evaluated. The result is then
+broadcast to all ranks. Use this option if the same points are given on all ranks.
+If ``redundant=False`` was used when creating the :py:class:`~.PointEvaluator`, then
+each rank will evaluate the points it was given. Use this option if different points are given
+on different ranks, for example when using external point data.
+
+The parameters ``missing_points_behaviour`` and ``tolerance`` (discussed :ref:`here <missing_points>` 
+and :ref:`here <tolerance>` respectively) can be set when creating the :py:class:`~.PointEvaluator` 
+and will be passed to the :func:`~.VertexOnlyMesh` it creates internally.
+
+If the :ref:`coordinates <changing_coordinate_fs>` or the :ref:`tolerance <tolerance>` of the parent mesh
+are changed after creating the :py:class:`~.PointEvaluator`, then the vertex-only mesh
+will be reconstructed on the new mesh the next time :meth:`~.PointEvaluator.evaluate` is called.
+
 
 Expressions with point evaluations
 ----------------------------------
@@ -262,7 +296,7 @@ These equivalent expressions for point evaluation
 
 where :math:`N` is the number of points, :math:`x_i` is the :math:`i`\th point,
 :math:`\Omega` is a 'parent' mesh, :math:`f` is a function on that mesh,
-:math:`\delta` is a dirac delta distribition can therefore be written in
+:math:`\delta` is a Dirac delta distribution can therefore be written in
 Firedrake using :func:`~.VertexOnlyMesh` and :func:`~.interpolate` as
 
 .. literalinclude:: ../../tests/firedrake/vertexonly/test_vertex_only_manual.py
@@ -320,7 +354,7 @@ distributed** we can use :py:attr:`~.VertexOnlyMeshTopology.input_ordering` as f
 
 .. note::
 
-   When a a vertex-only mesh is created with ``redundant = True`` (which is the
+   When a vertex-only mesh is created with ``redundant = True`` (which is the
    default when creating a :func:`~.VertexOnlyMesh`) the
    :py:attr:`~.VertexOnlyMeshTopology.input_ordering` method will return a vertex-only
    mesh with all points on rank 0.
@@ -331,7 +365,7 @@ If we ran the example in parallel, the above code would print
 print ``[0.02, 0.08, 0.18]`` on all ranks and we would have point duplication.
 
 If any of the specified points were not found in the mesh, the value on the
-input ordering vertex-only mesh will not be effected by the interpolation from
+input ordering vertex-only mesh will not be affected by the interpolation from
 the original vertex-only mesh. In the above example, the values would be zero
 at those points. To make it more obvious that those points were not found, it's
 a good idea to set the values to ``nan`` before the interpolation:
@@ -430,7 +464,7 @@ works on any :py:class:`~.ufl.core.expr.Expr`, for example:
 
 .. code-block:: python3
 
-   (f*sin(f)([0.2, 0.4])
+   (f*sin(f))([0.2, 0.4])
 
 will evaluate :math:`f \cdot \sin(f)` at :math:`(0.2, 0.4)`.
 

@@ -7,6 +7,11 @@ from numpy.random import default_rng
 rng = default_rng()
 
 
+@pytest.fixture
+def rg():
+    return RandomGenerator(PCG64(seed=1234))
+
+
 @pytest.fixture(autouse=True)
 def handle_taping():
     yield
@@ -25,15 +30,14 @@ def handle_annotation():
 
 
 @pytest.mark.skipcomplex
-def test_simple_solve():
+def test_simple_solve(rg):
     tape = Tape()
     set_working_tape(tape)
 
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
 
-    f = Function(V)
-    f.vector()[:] = 2
+    f = Function(V).assign(2)
 
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -54,31 +58,28 @@ def test_simple_solve():
     c = Control(f)
     Jhat = ReducedFunctional(J, c)
 
-    h = Function(V)
-    h.vector()[:] = rng.random(V.dim())
+    h = rg.uniform(V)
 
     tape.evaluate_adj()
 
     m = f.copy(deepcopy=True)
-    dJdm = assemble(inner(Jhat.derivative(), h)*dx)
-    Hm = assemble(inner(Jhat.hessian(h), h)*dx)
+    dJdm = assemble(inner(Jhat.derivative(apply_riesz=True), h)*dx)
+    Hm = assemble(inner(Jhat.hessian(h, apply_riesz=True), h)*dx)
     assert taylor_test(Jhat, m, h, dJdm=dJdm, Hm=Hm) > 2.9
 
 
 @pytest.mark.skipcomplex
-def test_mixed_derivatives():
+def test_mixed_derivatives(rg):
     tape = Tape()
     set_working_tape(tape)
 
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
 
-    f = Function(V)
-    f.vector()[:] = 2
+    f = Function(V).assign(2)
     control_f = Control(f)
 
-    g = Function(V)
-    g.vector()[:] = 3
+    g = Function(V).assign(3)
     control_g = Control(g)
 
     u = TrialFunction(V)
@@ -94,8 +95,7 @@ def test_mixed_derivatives():
     Jhat = ReducedFunctional(J, [control_f, control_g])
 
     # Direction to take a step for convergence test
-    h = Function(V)
-    h.vector()[:] = rng.random(V.dim())
+    h = rg.uniform(V)
 
     # Evaluate TLM
     control_f.tlm_value = h
@@ -111,13 +111,13 @@ def test_mixed_derivatives():
     tape.evaluate_hessian()
 
     dJdm = J.block_variable.tlm_value
-    Hm = control_f.hessian_value.vector().inner(h.vector()) + control_g.hessian_value.vector().inner(h.vector())
+    Hm = control_f.hessian_value.dat.inner(h.dat) + control_g.hessian_value.dat.inner(h.dat)
 
     assert taylor_test(Jhat, [f, g], [h, h], dJdm, Hm) > 2.9
 
 
 @pytest.mark.skipcomplex
-def test_function():
+def test_function(rg):
     tape = Tape()
     set_working_tape(tape)
 
@@ -126,8 +126,7 @@ def test_function():
     R = FunctionSpace(mesh, "R", 0)
     c = Function(R, val=4)
     control_c = Control(c)
-    f = Function(V)
-    f.vector()[:] = 3
+    f = Function(V).assign(3)
     control_f = Control(f)
 
     u = Function(V)
@@ -140,33 +139,31 @@ def test_function():
     J = assemble(c ** 2 * u ** 2 * dx)
 
     Jhat = ReducedFunctional(J, [control_c, control_f])
-    dJdc, dJdf = compute_gradient(J, [control_c, control_f])
+    dJdc, dJdf = compute_gradient(J, [control_c, control_f], apply_riesz=True)
 
     # Step direction for derivatives and convergence test
     h_c = Function(R, val=1.0)
-    h_f = Function(V)
-    h_f.vector()[:] = 10*rng.random(V.dim())
+    h_f = rg.uniform(V, 0, 10)
 
     # Total derivative
-    dJdc, dJdf = compute_gradient(J, [control_c, control_f])
+    dJdc, dJdf = compute_gradient(J, [control_c, control_f], apply_riesz=True)
     dJdm = assemble(dJdc * h_c * dx + dJdf * h_f * dx)
 
     # Hessian
-    Hcc, Hff = compute_hessian(J, [control_c, control_f], [h_c, h_f])
+    Hcc, Hff = compute_hessian(J, [control_c, control_f], [h_c, h_f], apply_riesz=True)
     Hm = assemble(Hcc * h_c * dx + Hff * h_f * dx)
     assert taylor_test(Jhat, [c, f], [h_c, h_f], dJdm=dJdm, Hm=Hm) > 2.9
 
 
 @pytest.mark.skipcomplex
-def test_nonlinear():
+def test_nonlinear(rg):
     tape = Tape()
     set_working_tape(tape)
 
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "Lagrange", 1)
     R = FunctionSpace(mesh, "R", 0)
-    f = Function(V)
-    f.vector()[:] = 5
+    f = Function(V).assign(5)
 
     u = Function(V)
     v = TestFunction(V)
@@ -178,8 +175,7 @@ def test_nonlinear():
     J = assemble(u ** 4 * dx)
     Jhat = ReducedFunctional(J, Control(f))
 
-    h = Function(V)
-    h.vector()[:] = 10*rng.random(V.dim())
+    h = rg.uniform(V, 0, 10)
 
     J.block_variable.adj_value = 1.0
     f.block_variable.tlm_value = h
@@ -193,25 +189,23 @@ def test_nonlinear():
     g = f.copy(deepcopy=True)
 
     dJdm = J.block_variable.tlm_value
-    Hm = f.block_variable.hessian_value.vector().inner(h.vector())
+    Hm = f.block_variable.hessian_value.dat.inner(h.dat)
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.8
 
 
 @pytest.mark.skipcomplex
-def test_dirichlet():
+def test_dirichlet(rg):
     tape = Tape()
     set_working_tape(tape)
 
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "Lagrange", 1)
 
-    f = Function(V)
-    f.vector()[:] = 30
+    f = Function(V).assign(30)
 
     u = Function(V)
     v = TestFunction(V)
-    c = Function(V)
-    c.vector()[:] = 1
+    c = Function(V).assign(1)
     bc = DirichletBC(V, c, "on_boundary")
 
     F = inner(grad(u), grad(v)) * dx + u**4*v*dx - f**2 * v * dx
@@ -220,8 +214,7 @@ def test_dirichlet():
     J = assemble(u ** 4 * dx)
     Jhat = ReducedFunctional(J, Control(c))
 
-    h = Function(V)
-    h.vector()[:] = rng.random(V.dim())
+    h = rg.uniform(V)
 
     J.block_variable.adj_value = 1.0
     c.block_variable.tlm_value = h
@@ -236,12 +229,13 @@ def test_dirichlet():
 
     dJdm = J.block_variable.tlm_value
 
-    Hm = c.block_variable.hessian_value.vector().inner(h.vector())
+    Hm = c.block_variable.hessian_value.dat.inner(h.dat)
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
 
 
 @pytest.mark.skipcomplex
-def test_burgers():
+@pytest.mark.parametrize("solve_type", ["solve", "nlvs"])
+def test_burgers(solve_type, rg):
     tape = Tape()
     set_working_tape(tape)
     n = 100
@@ -253,8 +247,7 @@ def test_burgers():
 
     x, = SpatialCoordinate(mesh)
     pr = project(sin(2*pi*x), V, annotate=False)
-    ic = Function(V)
-    ic.vector()[:] = pr.vector()[:]
+    ic = Function(V).assign(pr)
 
     u_ = Function(V)
     u = Function(V)
@@ -264,12 +257,33 @@ def test_burgers():
 
     timestep = Constant(1.0/n)
 
+    params = {
+        'snes_rtol': 1e-10,
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+    }
+
     F = (Dt(u, ic, timestep)*v
          + u*u.dx(0)*v + nu*u.dx(0)*v.dx(0))*dx
     bc = DirichletBC(V, 0.0, "on_boundary")
-
     t = 0.0
-    solve(F == 0, u, bc)
+
+    if solve_type == "nlvs":
+        use_nlvs = True
+    elif solve_type == "solve":
+        use_nlvs = False
+    else:
+        raise ValueError(f"Unrecognised solve type {solve_type}")
+
+    if use_nlvs:
+        solver = NonlinearVariationalSolver(
+            NonlinearVariationalProblem(F, u),
+            solver_parameters=params)
+
+    if use_nlvs:
+        solver.solve()
+    else:
+        solve(F == 0, u, bc, solver_parameters=params)
     u_.assign(u)
     t += float(timestep)
 
@@ -278,7 +292,10 @@ def test_burgers():
 
     end = 0.2
     while (t <= end):
-        solve(F == 0, u, bc)
+        if use_nlvs:
+            solver.solve()
+        else:
+            solve(F == 0, u, bc, solver_parameters=params)
         u_.assign(u)
 
         t += float(timestep)
@@ -286,8 +303,7 @@ def test_burgers():
     J = assemble(u_*u_*dx + ic*ic*dx)
 
     Jhat = ReducedFunctional(J, Control(ic))
-    h = Function(V)
-    h.vector()[:] = rng.random(V.dim())
+    h = rg.uniform(V)
     g = ic.copy(deepcopy=True)
     J.block_variable.adj_value = 1.0
     ic.block_variable.tlm_value = h
@@ -298,5 +314,5 @@ def test_burgers():
     tape.evaluate_hessian()
 
     dJdm = J.block_variable.tlm_value
-    Hm = ic.block_variable.hessian_value.vector().inner(h.vector())
+    Hm = ic.block_variable.hessian_value.dat.inner(h.dat)
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9

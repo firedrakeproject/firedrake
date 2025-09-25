@@ -15,10 +15,12 @@ __pycache__/
 /demos/immersed_fem/immersed_domain.msh
 /docs/build/
 /docs/notebooks/.ipynb_checkpoints/
+/docs/notebooks/tape.pdf
 /docs/source/apt_deps.txt
 /docs/source/firedrake.rst
 /docs/source/firedrake.*.rst
 /docs/source/homebrew_deps.txt
+/docs/source/minimal_apt_deps.txt
 /docs/source/obtaining_pyop2.rst
 /docs/source/petsc_configure_options.txt
 /docs/source/team.rst
@@ -27,7 +29,8 @@ __pycache__/
 /docs/source/demos
 /firedrake/cython/*.c
 /firedrake.egg-info
-/firedrake_check/
+/firedrake/_check/Makefile
+/firedrake/_check/tests
 /docs/source/element_list.csv
 
 

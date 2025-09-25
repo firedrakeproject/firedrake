@@ -7,9 +7,7 @@ passing to the backends.
 from os import path, environ, getuid, makedirs
 import tempfile
 import collections
-import functools
 
-from tsfc.kernel_interface.firedrake_loopy import KernelBuilder
 import ufl
 import finat.ufl
 from ufl import conj, Form, ZeroBaseForm
@@ -54,12 +52,12 @@ _cachedir = environ.get(
 )
 
 
-def tsfc_compile_form_hashkey(form, prefix, parameters, interface, diagonal):
+def tsfc_compile_form_hashkey(form, prefix, parameters, dont_split_numbers, diagonal):
     return default_parallel_hashkey(
         form.signature(),
         prefix,
         utils.tuplify(parameters),
-        _make_interface_key(interface, form),
+        dont_split_numbers,
         diagonal,
     )
 
@@ -71,7 +69,7 @@ def _compile_form_comm(form, *args, **kwargs):
 # Decorate the original tsfc.compile_form with a cache
 tsfc_compile_form = memory_and_disk_cache(
     hashkey=tsfc_compile_form_hashkey,
-    comm_getter=_compile_form_comm,
+    get_comm=_compile_form_comm,
     cachedir=_cachedir
 )(original_tsfc_compile_form)
 
@@ -84,21 +82,31 @@ class TSFCKernel:
         parameters,
         coefficient_numbers,
         constant_numbers,
-        interface,
+        dont_split_numbers,
         diagonal=False
     ):
         """A wrapper object for one or more TSFC kernels compiled from a given :class:`~ufl.classes.Form`.
 
-        :arg form: the :class:`~ufl.classes.Form` from which to compile the kernels.
-        :arg name: a prefix to be applied to the compiled kernel names. This is primarily useful for debugging.
-        :arg parameters: a dict of parameters to pass to the form compiler.
-        :arg coefficient_numbers: Map from coefficient numbers in the provided (split) form to coefficient numbers in the original form.
-        :arg constant_numbers: Map from local constant numbers in the provided (split) form to constant numbers in the original form.
-        :arg interface: the KernelBuilder interface for TSFC (may be None)
-        :arg diagonal: If assembling a matrix is it diagonal?
+        Parameters
+        ----------
+        form : ufl.classes.Form
+            The :class:`~ufl.classes.Form` from which to compile the kernels.
+        name : str
+            A prefix to be applied to the compiled kernel names. This is primarily useful for debugging.
+        parameters : dict
+            A dict of parameters to pass to the form compiler.
+        coefficient_numbers : dict
+            Map from coefficient numbers in the provided (split) form to coefficient numbers in the original form.
+        constant_numbers : dict
+            Map from local constant numbers in the provided (split) form to constant numbers in the original form.
+        dont_split_numbers : tuple
+            Block-local coefficient numbers of coefficients that are not to be split into components by form compiler.
+        diagonal : bool
+            If assembling a matrix is it diagonal?
+
         """
         tree = tsfc_compile_form(form, prefix=name, parameters=parameters,
-                                 interface=interface,
+                                 dont_split_numbers=dont_split_numbers,
                                  diagonal=diagonal)
         kernels = []
         for kernel in tree:
@@ -138,13 +146,13 @@ class TSFCKernel:
 SplitKernel = collections.namedtuple("SplitKernel", ["indices", "kinfo"])
 
 
-def _compile_form_hashkey(form, name, parameters=None, split=True, interface=None, diagonal=False):
+def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=(), diagonal=False):
     return (
         form.signature(),
         name,
         utils.tuplify(parameters),
         split,
-        _make_interface_key(interface, form),
+        _make_dont_split_numbers(dont_split, form),
         diagonal,
     )
 
@@ -152,24 +160,39 @@ def _compile_form_hashkey(form, name, parameters=None, split=True, interface=Non
 @PETSc.Log.EventDecorator()
 @memory_and_disk_cache(
     hashkey=_compile_form_hashkey,
-    comm_getter=_compile_form_comm,
+    get_comm=_compile_form_comm,
     cachedir=_cachedir
 )
 @PETSc.Log.EventDecorator()
-def compile_form(form, name, parameters=None, split=True, interface=None, diagonal=False):
+def compile_form(form, name, parameters=None, split=True, dont_split=(), diagonal=False):
     """Compile a form using TSFC.
 
-    :arg form: the :class:`~ufl.classes.Form` to compile.
-    :arg name: a prefix for the generated kernel functions.
-    :arg parameters: optional dict of parameters to pass to the form
-         compiler. If not provided, parameters are read from the
-         ``form_compiler`` slot of the Firedrake
-         :data:`~.parameters` dictionary (which see).
-    :arg split: If ``False``, then don't split mixed forms.
+    Parameters
+    ----------
+    form : ufl.classes.Form
+        The :class:`~ufl.classes.Form` to compile.
+    name : str
+        A prefix for the generated kernel functions.
+    parameters : dict
+        Optional dict of parameters to pass to the form
+        compiler. If not provided, parameters are read from the
+        ``form_compiler`` slot of the Firedrake
+        :data:`~.parameters` dictionary (which see).
+    split : bool
+        If ``False``, then don't split mixed forms.
+    dont_split : tuple
+        Coefficients that are not to be split into components by form compiler.
+    diagonal : bool
+        If assembling a matrix is it diagonal?
 
-    Returns a tuple of tuples of
-    (index, integral type, subdomain id, coordinates, coefficients, needs_orientations, ``pyop2.op2.Kernel``).
+    Returns
+    -------
+    Tuple
+        A tuple of tuples of
+        (index, integral type, subdomain id, coordinates, coefficients, needs_orientations, ``pyop2.op2.Kernel``).
 
+    Notes
+    ----
     ``needs_orientations`` indicates whether the form requires cell
     orientation information (for correctly pulling back to reference
     elements on embedded manifolds).
@@ -215,6 +238,7 @@ def compile_form(form, name, parameters=None, split=True, interface=None, diagon
         constant_numbers = tuple(
             numbering[c] for c in extract_firedrake_constants(f)
         )
+        dont_split_numbers = _make_dont_split_numbers(dont_split, f)
         prefix = name + "".join(map(str, (i for i in idx if i is not None)))
         tsfc_kernel = TSFCKernel(
             f,
@@ -222,7 +246,8 @@ def compile_form(form, name, parameters=None, split=True, interface=None, diagon
             parameters,
             coefficient_numbers,
             constant_numbers,
-            interface, diagonal
+            dont_split_numbers,
+            diagonal,
         )
         for kinfo in tsfc_kernel.kernels:
             kernels.append(SplitKernel(idx, kinfo))
@@ -314,14 +339,11 @@ def extract_numbered_coefficients(expr, numbers):
     return coefficients
 
 
-def _make_interface_key(interface, form):
-    if interface:
-        # The 'interface' argument is a small hack done in patch.py. When
-        # specified, what really matters for caching is which coeffients
-        # are passed to the 'dont_split' kwarg.
-        assert isinstance(interface, functools.partial)
-        assert interface.func is KernelBuilder
-        coefficients = form.coefficients()
-        return tuple(coefficients.index(f) for f in interface.keywords["dont_split"])
-    else:
-        return None
+def _make_dont_split_numbers(dont_split, form):
+    return tuple(
+        sorted(
+            form.coefficients().index(c)
+            for c in dont_split
+            if c in form.coefficients()
+        )
+    )

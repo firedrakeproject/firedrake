@@ -5,7 +5,6 @@ from pyop2.utils import as_tuple
 from firedrake.bcs import DirichletBC
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
-from firedrake.functionspace import FunctionSpace
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.preconditioners.hypre_ams import chop
 from firedrake.preconditioners.facet_split import restrict
@@ -146,7 +145,6 @@ class HiptmairPC(TwoLevelPC):
 
         a, bcs = self.form(pc)
         V = a.arguments()[-1].function_space()
-        mesh = V.mesh()
         element = V.ufl_element()
         formdegree = V.finat_element.formdegree
         if formdegree == 1:
@@ -163,7 +161,7 @@ class HiptmairPC(TwoLevelPC):
         if domain:
             celement = restrict(celement, domain)
 
-        coarse_space = FunctionSpace(mesh, celement)
+        coarse_space = V.reconstruct(element=celement)
         assert coarse_space.finat_element.formdegree + 1 == formdegree
         coarse_space_bcs = [bc.reconstruct(V=coarse_space, g=0) for bc in bcs]
 
@@ -250,7 +248,7 @@ def div_to_curl(ele):
     elif isinstance(ele, finat.ufl.EnrichedElement):
         return type(ele)(*(div_to_curl(e) for e in reversed(ele._elements)))
     elif isinstance(ele, finat.ufl.TensorProductElement):
-        return type(ele)(*(div_to_curl(e) for e in ele.sub_elements), cell=ele.cell)
+        return type(ele)(*(div_to_curl(e) for e in ele.factor_elements), cell=ele.cell)
     elif isinstance(ele, finat.ufl.WithMapping):
         return type(ele)(div_to_curl(ele.wrapee), ele.mapping())
     elif isinstance(ele, finat.ufl.BrokenElement):

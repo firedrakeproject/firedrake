@@ -1,11 +1,11 @@
-import firedrake.assemble as assemble
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
-from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
+from firedrake.function import Function
 from firedrake.ufl_expr import TestFunction
 from firedrake.dmhooks import get_function_space
 from firedrake.preconditioners.hypre_ams import chop
-from firedrake.__future__ import interpolate
+from firedrake.interpolation import interpolate
+from finat.ufl import VectorElement
 from ufl import grad, curl, SpatialCoordinate
 from pyop2.utils import as_tuple
 
@@ -14,6 +14,7 @@ __all__ = ("HypreADS",)
 
 class HypreADS(PCBase):
     def initialize(self, obj):
+        from firedrake.assemble import assemble
         A, P = obj.getOperators()
         appctx = self.get_appctx(obj)
         prefix = obj.getOptionsPrefix() or ""
@@ -26,16 +27,16 @@ class HypreADS(PCBase):
         if formdegree != 2 or degree != 1:
             raise ValueError("Hypre ADS requires lowest order RT elements! (not %s of degree %d)" % (family, degree))
 
-        P1 = FunctionSpace(mesh, "Lagrange", 1)
-        NC1 = FunctionSpace(mesh, "N1curl" if mesh.ufl_cell().is_simplex() else "NCE", 1)
+        P1 = V.reconstruct(family="Lagrange", degree=1)
+        NC1 = V.reconstruct(family="N1curl" if mesh.ufl_cell().is_simplex() else "NCE", degree=1)
         G_callback = appctx.get("get_gradient", None)
         if G_callback is None:
-            G = chop(assemble.assemble(interpolate(grad(TestFunction(P1)), NC1)).petscmat)
+            G = chop(assemble(interpolate(grad(TestFunction(P1)), NC1)).petscmat)
         else:
             G = G_callback(P1, NC1)
         C_callback = appctx.get("get_curl", None)
         if C_callback is None:
-            C = chop(assemble.assemble(interpolate(curl(TestFunction(NC1)), V)).petscmat)
+            C = chop(assemble(interpolate(curl(TestFunction(NC1)), V)).petscmat)
         else:
             C = C_callback(NC1, V)
 
@@ -49,9 +50,9 @@ class HypreADS(PCBase):
         pc.setHYPREDiscreteGradient(G)
         pc.setHYPREDiscreteCurl(C)
 
-        VectorP1 = VectorFunctionSpace(mesh, "Lagrange", 1)
-        interp = interpolate(SpatialCoordinate(mesh), VectorP1)
-        pc.setCoordinates(assemble.assemble(interp).dat.data_ro.copy())
+        VectorP1 = P1.reconstruct(element=VectorElement(P1.ufl_element()))
+        coords = Function(VectorP1).interpolate(SpatialCoordinate(mesh))
+        pc.setCoordinates(coords.dat.data_ro.copy())
 
         pc.setFromOptions()
         self.pc = pc

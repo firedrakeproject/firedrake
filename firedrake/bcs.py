@@ -243,7 +243,7 @@ class BCBase(object):
         for bc in itertools.chain(*self.bcs):
             bc._bc_depth += 1
 
-    def extract_forms(self, form_type):
+    def extract_form(self, form_type):
         # Return boundary condition objects actually used in assembly.
         raise NotImplementedError("Method to extract form objects not implemented.")
 
@@ -319,6 +319,8 @@ class DirichletBC(BCBase, DirichletBCMixin):
             V = V.sub(index)
         if g is None:
             g = self._original_arg
+            if isinstance(g, firedrake.Function) and g.function_space() != V:
+                g = firedrake.Function(V).interpolate(g)
         if sub_domain is None:
             sub_domain = self.sub_domain
         if field is not None:
@@ -451,7 +453,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
             if u:
                 u = u.sub(idx)
         if u:
-            r.assign(u - self.function_arg, subset=self.node_set)
+            if self.function_arg == 0:
+                bc_residual = u
+            else:
+                bc_residual = u - self.function_arg
+            r.assign(bc_residual, subset=self.node_set)
         else:
             r.assign(self.function_arg, subset=self.node_set)
 
@@ -520,6 +526,7 @@ class EquationBC(object):
                 J = J or ufl_expr.derivative(F, u)
                 Jp = Jp or J
                 self.is_linear = False
+            self.eq = eq
             # Check form style consistency
             is_form_consistent(self.is_linear, bcs)
             # Argument checking
@@ -739,11 +746,11 @@ def restricted_function_space(V, ids):
         return V
 
     assert len(ids) == len(V)
-    spaces = [Vsub if len(boundary_set) == 0 else
-              firedrake.RestrictedFunctionSpace(Vsub, boundary_set=boundary_set)
-              for Vsub, boundary_set in zip(V, ids)]
+    spaces = [V_ if len(boundary_set) == 0 else
+              firedrake.RestrictedFunctionSpace(V_, boundary_set=boundary_set, name=V_.name)
+              for V_, boundary_set in zip(V, ids)]
 
     if len(spaces) == 1:
         return spaces[0]
     else:
-        return firedrake.MixedFunctionSpace(spaces)
+        return firedrake.MixedFunctionSpace(spaces, name=V.name)

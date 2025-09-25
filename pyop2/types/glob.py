@@ -66,6 +66,11 @@ class SetFreeDataCarrier(DataCarrier, EmptyDataMixin):
         return self._data
 
     @property
+    def global_data(self):
+        # Return a copy to match the semantics of Dat.global_data
+        return self.data_ro.copy()
+
+    @property
     def dtype(self):
         return self._dtype
 
