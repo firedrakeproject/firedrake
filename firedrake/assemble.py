@@ -607,7 +607,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             default_missing_val = interp_data.pop('default_missing_val', None)
             if rank == 1 and isinstance(tensor, firedrake.Function):
                 V = tensor
-            interpolator = _get_interpolator(expr, V, **interp_data)
+            interpolator = _get_interpolator(expr, V)
             return interpolator.assemble(tensor=tensor, default_missing_val=default_missing_val)
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
             return tensor.assign(expr)

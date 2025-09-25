@@ -138,6 +138,10 @@ class Interpolate(ufl.Interpolate):
     @property
     def target_space(self):
         return self.argument_slots()[0].function_space().dual()
+    
+    @property
+    def options(self):
+        return self._options
 
 
 @PETSc.Log.EventDecorator()
@@ -164,76 +168,29 @@ def interpolate(expr, V, **kwargs):
 
 
 class Interpolator(abc.ABC):
-    """A reusable interpolation object.
 
-    :arg expr: The expression to interpolate.
-    :arg V: The :class:`.FunctionSpace` or :class:`.Function` to
-        interpolate into.
-    :kwarg subset: An optional :class:`pyop2.types.set.Subset` to apply the
-        interpolation over. Cannot, at present, be used when interpolating
-        across meshes unless the target mesh is a :func:`.VertexOnlyMesh`.
-    :kwarg freeze_expr: Set to True to prevent the expression being
-        re-evaluated on each call. Cannot, at present, be used when
-        interpolating across meshes unless the target mesh is a
-        :func:`.VertexOnlyMesh`.
-    :kwarg access: The pyop2 access descriptor for combining updates to shared
-        DoFs. Possible values include ``WRITE`` and ``INC``. Only ``WRITE`` is
-        supported at present when interpolating across meshes. See note in
-        :func:`.interpolate` if changing this from default.
-    :kwarg bcs: An optional list of boundary conditions to zero-out in the
-        output function space. Interpolator rows or columns which are
-        associated with boundary condition nodes are zeroed out when this is
-        specified.
-    :kwarg allow_missing_dofs: For interpolation across meshes: allow
-        degrees of freedom (aka DoFs/nodes) in the target mesh that cannot be
-        defined on the source mesh. For example, where nodes are point
-        evaluations, points in the target mesh that are not in the source mesh.
-        When ``False`` this raises a ``ValueError`` should this occur. When
-        ``True`` the corresponding values are either (a) unchanged if
-        some ``output`` is given to the :meth:`interpolate` method or (b) set
-        to zero. Can be overwritten with the ``default_missing_val`` kwarg
-        of :meth:`interpolate`. This does not affect adjoint interpolation.
-        Ignored if interpolating within the same mesh or onto a
-        :func:`.VertexOnlyMesh` (the behaviour of a :func:`.VertexOnlyMesh` in
-        this scenario is, at present, set when it is created).
-    :kwarg matfree: If ``False``, then construct the permutation matrix for interpolating
-        between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
-        and reduce operations.
+    def __init__(self, expr: Interpolate, V, bcs=None):
+        """Initialise Interpolator.
 
-    This object can be used to carry out the same interpolation
-    multiple times (for example in a timestepping loop).
-
-    .. note::
-
-       The :class:`Interpolator` holds a reference to the provided
-       arguments (such that they won't be collected until the
-       :class:`Interpolator` is also collected).
-
-    """
-    def __init__(
-        self,
-        expr,
-        V,
-        subset=None,
-        freeze_expr=False,
-        access=op2.WRITE,
-        bcs=None,
-        allow_missing_dofs=False,
-        matfree=True
-    ):
-        if not isinstance(expr, ufl.Interpolate):
-            fs = V if isinstance(V, ufl.FunctionSpace) else V.function_space()
-            expr = interpolate(expr, fs)
+        Parameters
+        ----------
+        expr : Interpolate
+            The symbolic interpolation expression.
+        V : FunctionSpace or Function to interpolate into.
+            _description_
+        bcs : list, optional
+            List of boundary conditions to zero-out in the output function space. By default None.
+        """
         dual_arg, operand = expr.argument_slots()
         self.ufl_interpolate = expr
         self.expr = operand
         self.V = V
-        self.subset = subset
-        self.freeze_expr = freeze_expr
-        self.access = access
+        self.subset = expr.options.subset
+        self.freeze_expr = False
+        self.access = expr.options.access
         self.bcs = bcs
-        self._allow_missing_dofs = allow_missing_dofs
-        self.matfree = matfree
+        self._allow_missing_dofs = expr.options.allow_missing_dofs
+        self.matfree = expr.options.matfree
         self.callable = None
 
         # TODO CrossMeshInterpolator and VomOntoVomXXX are not yet aware of
@@ -272,18 +229,6 @@ class Interpolator(abc.ABC):
         if not isinstance(dual_arg, ufl.Coargument):
             # Matrix-free assembly of 0-form or 1-form requires INC access
             self.access = op2.INC
-
-    def interpolate(self, *function, transpose=None, adjoint=False, default_missing_val=None):
-        """
-        .. warning::
-
-            This method has been removed. Use the function :func:`interpolate` to return a symbolic
-            :class:`Interpolate` object.
-        """
-        raise FutureWarning(
-            "The 'interpolate' method on `Interpolator` objects has been "
-            "removed. Use the `interpolate` function instead."
-        )
 
     @abc.abstractmethod
     def _interpolate(self, *args, **kwargs):
@@ -334,7 +279,7 @@ class Interpolator(abc.ABC):
                                          default_missing_val=default_missing_val)
 
 
-def _get_interpolator(expr, V, **kwargs) -> Interpolator:
+def _get_interpolator(expr: Interpolate, V) -> Interpolator:
     target_mesh = as_domain(V)
     source_mesh = extract_unique_domain(expr) or target_mesh
     submesh_interp_implemented = \
@@ -342,12 +287,12 @@ def _get_interpolator(expr, V, **kwargs) -> Interpolator:
         target_mesh.submesh_ancesters[-1] is source_mesh.submesh_ancesters[-1] and \
         target_mesh.topological_dimension() == source_mesh.topological_dimension()
     if target_mesh is source_mesh or submesh_interp_implemented:
-        return SameMeshInterpolator(expr, V, **kwargs)
+        return SameMeshInterpolator(expr, V)
     else:
         if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-            return SameMeshInterpolator(expr, V, **kwargs)
+            return SameMeshInterpolator(expr, V)
         else:
-            return CrossMeshInterpolator(expr, V, **kwargs)
+            return CrossMeshInterpolator(expr, V)
 
 
 class DofNotDefinedError(Exception):
@@ -387,26 +332,17 @@ class CrossMeshInterpolator(Interpolator):
     """
 
     @no_annotations
-    def __init__(
-        self,
-        expr,
-        V,
-        subset=None,
-        freeze_expr=False,
-        access=op2.WRITE,
-        bcs=None,
-        allow_missing_dofs=False,
-        matfree=True
-    ):
-        if subset:
+    def __init__(self, expr, V, bcs=None):
+        super().__init__(expr, V, bcs)
+        if self.subset:
             raise NotImplementedError("subset not implemented")
-        if freeze_expr:
+        if self.freeze_expr:
             # Probably just need to pass freeze_expr to the various
             # interpolators for this to work.
             raise NotImplementedError("freeze_expr not implemented")
-        if access != op2.WRITE:
+        if self.access != op2.WRITE:
             raise NotImplementedError("access other than op2.WRITE not implemented")
-        if bcs:
+        if self.bcs:
             raise NotImplementedError("bcs not implemented")
         if V.ufl_element().mapping() != "identity":
             # Identity mapping between reference cell and physical coordinates
@@ -416,7 +352,6 @@ class CrossMeshInterpolator(Interpolator):
             raise NotImplementedError(
                 "Can only interpolate into spaces with point evaluation nodes."
             )
-        super().__init__(expr, V, subset, freeze_expr, access, bcs, allow_missing_dofs, matfree)
 
         expr = self.expr_renumbered
         self.arguments = extract_arguments(expr)
@@ -490,10 +425,7 @@ class CrossMeshInterpolator(Interpolator):
                     expr_subfunctions, V_dest.subspaces
                 ):
                     self.sub_interpolators.append(
-                        interpolate(
-                            input_sub_func, target_subspace, subset=subset,
-                            access=access, allow_missing_dofs=allow_missing_dofs
-                        )
+                        interpolate(input_sub_func, target_subspace, **self.interp_data)
                     )
                 return
 
@@ -717,8 +649,9 @@ class SameMeshInterpolator(Interpolator):
     """
 
     @no_annotations
-    def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE,
-                 bcs=None, matfree=True, allow_missing_dofs=False, **kwargs):
+    def __init__(self, expr, V, bcs=None):
+        super().__init__(expr, V, bcs=bcs)
+        subset = self.subset
         if subset is None:
             if isinstance(expr, ufl.Interpolate):
                 operand, = expr.ufl_operands
@@ -736,17 +669,15 @@ class SameMeshInterpolator(Interpolator):
                 make_subset = not indices_active.all()
                 make_subset = target.comm.allreduce(make_subset, op=MPI.LOR)
                 if make_subset:
-                    if not allow_missing_dofs:
+                    if not self._allow_missing_dofs:
                         raise ValueError("iteration (sub)set unclear: run with `allow_missing_dofs=True`")
                     subset = op2.Subset(target.cell_set, numpy.where(indices_active))
                 else:
                     # Do not need subset as target <= source.
                     pass
-        super().__init__(expr, V, subset=subset, freeze_expr=freeze_expr,
-                         access=access, bcs=bcs, matfree=matfree, allow_missing_dofs=allow_missing_dofs)
         expr = self.ufl_interpolate_renumbered
         try:
-            self.callable = make_interpolator(expr, V, subset, self.access, bcs=bcs, matfree=matfree)
+            self.callable = make_interpolator(expr, V, subset, self.access, bcs=bcs, matfree=self.matfree)
         except FIAT.hdiv_trace.TraceError:
             raise NotImplementedError("Can't interpolate onto traces sorry")
         self.arguments = expr.arguments()
