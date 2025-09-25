@@ -82,6 +82,7 @@ docs = [
   "sphinxcontrib-jquery",
   "sphinxcontrib-svg2pdfconverter",
   "sphinxcontrib-youtube",
+  "sphinx-copybutton",
   "vtk",  # needed to resolve API
 ]
 jax = [
@@ -147,6 +148,7 @@ requires = [
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
   "numpy",
+  "petsctools",
   "pkgconfig",
   "pybind11",
   "setuptools>=77.0.3",

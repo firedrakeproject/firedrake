@@ -43,10 +43,6 @@ def test_poisson_inverse_conductivity(num_points):
     # Use pyadjoint to estimate an unknown conductivity in a
     # poisson-like forward model from point measurements
     m = UnitSquareMesh(2, 2)
-    if m.comm.size > 1:
-        # lower tolerance avoids issues with .at getting different results
-        # across ranks
-        m.tolerance = 1e-10
     V = FunctionSpace(m, family='CG', degree=2)
     Q = FunctionSpace(m, family='CG', degree=2)
 
@@ -79,9 +75,10 @@ def test_poisson_inverse_conductivity(num_points):
     signal_to_noise = 20
     U = u_true.dat.data_ro[:]
     u_range = U.max() - U.min()
-    σ = Constant(u_range / signal_to_noise)
-    ζ = generator.standard_normal(len(xs))
-    u_obs_vals = np.array(u_true.at(xs)) + float(σ) * ζ
+    sigma = Constant(u_range / signal_to_noise)
+    zeta = generator.standard_normal(len(xs))
+    eval_xs = PointEvaluator(m, xs)
+    u_obs_vals = eval_xs.evaluate(u_true) + float(sigma) * zeta
 
     # Store data on the point_cloud by setting input ordering dat
     P0DG_input_ordering = FunctionSpace(point_cloud.input_ordering, 'DG', 0)
@@ -101,17 +98,17 @@ def test_poisson_inverse_conductivity(num_points):
     solve(F == 0, u, bc)
 
     # Two terms in the functional
-    misfit_expr = 0.5 * ((u_obs - assemble(interpolate(u, P0DG))) / σ)**2
-    α = Constant(0.5)
-    regularisation_expr = 0.5 * α**2 * inner(grad(q), grad(q))
+    misfit_expr = 0.5 * ((u_obs - assemble(interpolate(u, P0DG))) / sigma)**2
+    alpha = Constant(0.5)
+    regularisation_expr = 0.5 * alpha**2 * inner(grad(q), grad(q))
 
     # Form functional and reduced functional
     J = assemble(misfit_expr * dx) + assemble(regularisation_expr * dx)
-    q̂ = Control(q)
-    Ĵ = ReducedFunctional(J, q̂)
+    q_hat = Control(q)
+    J_hat = ReducedFunctional(J, q_hat)
 
     # Estimate q using Newton-CG which evaluates the hessian action
-    minimize(Ĵ, method='Newton-CG', options={'maxiter': 10, 'xtol': 1e-1, 'disp': True})
+    minimize(J_hat, method='Newton-CG', options={'maxiter': 10, 'xtol': 1e-1, 'disp': True})
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
