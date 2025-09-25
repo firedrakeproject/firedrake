@@ -21,8 +21,7 @@ dependencies = [
   "mpi4py; python_version < '3.13'",
   # TODO RELEASE: use releases
   "fenics-ufl @ git+https://github.com/FEniCS/ufl.git",
-  # UNDO ME
-  "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git@connorjward/citations",
+  "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git",
   "h5py>3.12.1",
   "libsupermesh",
   "loopy>2024.1",
