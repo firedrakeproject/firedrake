@@ -309,43 +309,30 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         return NotImplemented
 
     @PETSc.Log.EventDecorator()
-    def interpolate(
-        self,
-        expression,
-        subset=None,
-        allow_missing_dofs=False,
-        default_missing_val=None,
-        ad_block_tag=None
-    ):
-        r"""Interpolate a dual expression onto this :class:`Cofunction`.
+    def interpolate(self, expression, ad_block_tag=None, **kwargs):
+        """Interpolate a dual expression onto this :class:`Cofunction`.
 
-        :param expression: a dual UFL expression to interpolate
-        :kwarg subset: An optional :class:`pyop2.types.set.Subset` to apply the
-            interpolation over. Cannot, at present, be used when interpolating
-            across meshes unless the target mesh is a :func:`.VertexOnlyMesh`.
-        :kwarg allow_missing_dofs: For interpolation across meshes: allow
-            degrees of freedom (aka DoFs/nodes) in the target mesh that cannot be
-            defined on the source mesh. For example, where nodes are point
-            evaluations, points in the target mesh that are not in the source mesh.
-            When ``False`` this raises a ``ValueError`` should this occur. When
-            ``True`` the corresponding values are set to zero or to the value
-            ``default_missing_val`` if given. Ignored if interpolating within the
-            same mesh or onto a :func:`.VertexOnlyMesh` (the behaviour of a
-            :func:`.VertexOnlyMesh` in this scenario is, at present, set when
-            it is created).
-        :kwarg default_missing_val: For interpolation across meshes: the optional
-            value to assign to DoFs in the target mesh that are outside the source
-            mesh. If this is not set then zero is used. Ignored if interpolating
-            within the same mesh or onto a :func:`.VertexOnlyMesh`.
-        :kwarg ad_block_tag: An optional string for tagging the resulting assemble block on
-            the Pyadjoint tape.
-        :returns: this :class:`firedrake.cofunction.Cofunction` object"""
+        Parameters
+        ----------
+        expression: ufl.BaseForm
+                    A dual UFL expression to interpolate.
+
+        ad_block_tag: str
+                      An optional string for tagging the resulting assemble
+                      block on the Pyadjoint tape.
+
+        Returns
+        -------
+        firedrake.cofunction.Cofunction
+            Returns `self`
+
+        Any extra kwargs are passed on to the interpolate method.
+        For details see `firedrake.interpolation.interpolate`.
+
+        """
         from firedrake import interpolate, assemble
         v, = self.arguments()
-        interp = interpolate(v, expression,
-                             subset=subset,
-                             allow_missing_dofs=allow_missing_dofs,
-                             default_missing_val=default_missing_val)
+        interp = interpolate(v, expression, **kwargs)
         return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
 
     @property
