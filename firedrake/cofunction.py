@@ -309,7 +309,10 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         return NotImplemented
 
     @PETSc.Log.EventDecorator()
-    def interpolate(self, expression: ufl.BaseForm, ad_block_tag: str = None, **kwargs):
+    def interpolate(self,
+                    expression: ufl.BaseForm,
+                    ad_block_tag: str | None = None,
+                    **kwargs):
         """Interpolate a dual expression onto this :class:`Cofunction`.
 
         Parameters

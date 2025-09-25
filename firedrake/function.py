@@ -360,7 +360,10 @@ class Function(ufl.Coefficient, FunctionMixin):
         return self._function_space
 
     @PETSc.Log.EventDecorator()
-    def interpolate(self, expression: ufl.classes.Expr, ad_block_tag: str = None, **kwargs):
+    def interpolate(self,
+                    expression: ufl.classes.Expr,
+                    ad_block_tag: str | None = None,
+                    **kwargs):
         """Interpolate an expression onto this :class:`Function`.
 
         Parameters
