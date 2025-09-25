@@ -51,7 +51,6 @@ class SCPC(SCBase):
 
         elim_option = (pc.getOptionsPrefix() or "") + "pc_sc_eliminate_fields"
         elim_fields = PETSc.Options().getIntArray(elim_option, range(len(W)-1))
-                                                sentinel)
         if elim_fields is sentinel:
             # By default, we condense down to the last field in the
             # mixed space.
@@ -76,7 +75,6 @@ class SCPC(SCBase):
             bcs.append(DirichletBC(Vc, 0, bc.sub_domain))
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
-        element_inverse = PETSc.Options().getBool(prefix + "element_inverse", False)
 
         self.c_field = c_field
         self.condensed_rhs = Cofunction(Vc.dual())
@@ -115,18 +113,13 @@ class SCPC(SCBase):
 
         # If a different matrix is used for preconditioning,
         # assemble this as well
-        if A != P or element_inverse:
-            if A == P:
-                S_pc_expr = S_expr
-            else:
-                self.cxt_pc = P.getPythonContext()
-                P_tensor = Tensor(self.cxt_pc.a)
-                P_reduced_sys, _ = self.condensed_system(P_tensor, self.residual, elim_fields,
-                                                         prefix, pc)
-                S_pc_expr = P_reduced_sys.lhs
+        if A != P:
+            self.cxt_pc = P.getPythonContext()
+            P_tensor = Tensor(self.cxt_pc.a)
+            P_reduced_sys, _ = self.condensed_system(P_tensor, self.residual, elim_fields,
+                                                     prefix, pc)
+            S_pc_expr = P_reduced_sys.lhs
 
-            if element_inverse:
-                S_pc_expr = S_pc_expr.inv
             self.S_pc_expr = S_pc_expr
 
             # Allocate and set the condensed operator
