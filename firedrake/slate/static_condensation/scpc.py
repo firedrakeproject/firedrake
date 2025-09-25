@@ -50,6 +50,7 @@ class SCPC(SCBase):
             raise NotImplementedError("Only supports up to three function spaces.")
 
         elim_option = (pc.getOptionsPrefix() or "") + "pc_sc_eliminate_fields"
+        # By default, we condense down to the last field in the mixed space.
         elim_fields = PETSc.Options().getIntArray(elim_option, range(len(W)-1))
         elim_fields = list(map(int, elim_fields))
 
@@ -114,7 +115,6 @@ class SCPC(SCBase):
             P_reduced_sys, _ = self.condensed_system(P_tensor, self.residual, elim_fields,
                                                      prefix, pc)
             S_pc_expr = P_reduced_sys.lhs
-
             self.S_pc_expr = S_pc_expr
 
             # Allocate and set the condensed operator
