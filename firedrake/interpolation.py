@@ -4,7 +4,8 @@ import tempfile
 import abc
 import warnings
 from functools import partial, singledispatch
-from typing import Hashable
+from typing import Hashable, Optional
+from dataclasses import dataclass
 
 import FIAT
 import ufl
@@ -14,6 +15,7 @@ from ufl.domain import as_domain, extract_unique_domain
 
 from pyop2 import op2
 from pyop2.caching import memory_and_disk_cache
+from pyop2.types import Access
 
 from finat.element_factory import create_element, as_fiat_cell
 from tsfc import compile_expression_dual_evaluation
@@ -41,6 +43,62 @@ __all__ = (
     "CrossMeshInterpolator",
     "SameMeshInterpolator",
 )
+
+@dataclass(frozen=True)
+class InterpolateOptions:
+    """Options for interpolation operations.
+    
+    Attributes
+    ----------
+    subset : pyop2.types.set.Subset, optional
+        An optional subset to apply the interpolation over.
+        Cannot, at present, be used when interpolating across meshes unless
+        the target mesh is a :func:`.VertexOnlyMesh`.
+    access : pyop2.types.access.Access, default op2.WRITE
+        The pyop2 access descriptor for combining updates to shared
+        DoFs. Possible values include ``WRITE`` and ``INC``. Only ``WRITE`` is
+        supported at present when interpolating across meshes unless the target
+        mesh is a :func:`.VertexOnlyMesh`. 
+        
+        .. note::
+            If you use an access descriptor other than ``WRITE``, the
+            behaviour of interpolation changes if interpolating into a
+            function space, or an existing function. If the former, then
+            the newly allocated function will be initialised with
+            appropriate values (e.g. for MIN access, it will be initialised
+            with MAX_FLOAT). On the other hand, if you provide a function,
+            then it is assumed that its values should take part in the
+            reduction (hence using MIN will compute the MIN between the
+            existing values and any new values).
+            
+    allow_missing_dofs : bool, default False
+        For interpolation across meshes: allow degrees of freedom (aka DoFs/nodes)
+        in the target mesh that cannot be defined on the source mesh.
+        For example, where nodes are point evaluations, points in the target mesh
+        that are not in the source mesh. When ``False`` this raises a ``ValueError``
+        should this occur. When ``True`` the corresponding values are either
+        (a) unchanged if some ``output`` is given to the :meth:`interpolate` method
+        or (b) set to zero.
+        Can be overwritten with the ``default_missing_val`` kwarg of :meth:`interpolate`.
+        This does not affect adjoint interpolation. Ignored if interpolating within
+        the same mesh or onto a :func:`.VertexOnlyMesh` (the behaviour of a
+        :func:`.VertexOnlyMesh` in this scenario is, at present, set when it is created).
+    default_missing_val : float, optional
+        For interpolation across meshes: the optional value to assign to DoFs
+        in the target mesh that are outside the source mesh. If this is not set
+        then the values are either (a) unchanged if some ``output`` is given to
+        the :meth:`interpolate` method or (b) set to zero.
+        Ignored if interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`.
+    matfree : bool, default True
+        If ``False``, then construct the permutation matrix for interpolating
+        between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
+        and reduce operations.
+    """
+    subset: Optional[op2.Subset] = None
+    access: Access = op2.WRITE
+    allow_missing_dofs: bool = False
+    default_missing_val: Optional[float] = None
+    matfree: bool = True
 
 
 class Interpolate(ufl.Interpolate):
