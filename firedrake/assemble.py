@@ -567,12 +567,6 @@ class BaseFormAssembler(AbstractFormAssembler):
             if (v, operand) != expr.argument_slots():
                 expr = reconstruct_interp(operand, v=v)
 
-            # Different assembly procedures:
-            # 1) Interpolate(Argument(V1, 1), Argument(V2.dual(), 0)) -> Jacobian (Interpolate matrix)
-            # 2) Interpolate(Coefficient(...), Argument(V2.dual(), 0)) -> Operator (or Jacobian action)
-            # 3) Interpolate(Argument(V1, 0), Argument(V2.dual(), 1)) -> Jacobian adjoint
-            # 4) Interpolate(Argument(V1, 0), Cofunction(...)) -> Action of the Jacobian adjoint
-            # This can be generalized to the case where the first slot is an arbitray expression.
             rank = len(expr.arguments())
             if rank > 2:
                 raise ValueError("Cannot assemble an Interpolate with more than two arguments")
