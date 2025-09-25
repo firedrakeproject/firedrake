@@ -473,15 +473,9 @@ class CrossMeshInterpolator(Interpolator):
         from firedrake.assemble import assemble
 
         if adjoint and not self.nargs:
-            raise ValueError(
-                "Can currently only apply adjoint interpolation with arguments."
-            )
+            raise ValueError("Can currently only apply adjoint interpolation with arguments.")
         if self.nargs != len(function):
-            raise ValueError(
-                "Passed %d Functions to interpolate, expected %d"
-                % (len(function), self.nargs)
-            )
-
+            raise ValueError(f"Passed {len(function)} Functions to interpolate, expected {self.nargs}")
         if self.nargs:
             (f_src,) = function
             if not hasattr(f_src, "dat"):
