@@ -78,7 +78,8 @@ def test_poisson_inverse_conductivity(num_points):
     sigma = Constant(u_range / signal_to_noise)
     zeta = generator.standard_normal(len(xs))
     eval_xs = PointEvaluator(m, xs)
-    u_obs_vals = eval_xs.evaluate(u_true) + float(sigma) * zeta
+    with stop_annotating():
+        u_obs_vals = eval_xs.evaluate(u_true) + float(sigma) * zeta
 
     # Store data on the point_cloud by setting input ordering dat
     P0DG_input_ordering = FunctionSpace(point_cloud.input_ordering, 'DG', 0)
