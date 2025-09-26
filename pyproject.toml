@@ -179,3 +179,17 @@ pyop2 = [
   "*.pyx",
   "codegen/c/*.c",
 ]
+
+# mypy options
+
+[[tool.mypy.overrides]]
+module = [
+  "finat.*",
+  "jax.*",
+  "petsc4py.*",
+  "petsctools.*",
+  "pyadjoint.*",
+  "torch.*",
+  "ufl.*",
+]
+ignore_missing_imports = true
