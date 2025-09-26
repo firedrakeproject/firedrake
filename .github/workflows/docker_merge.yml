@@ -28,15 +28,21 @@ on:
 jobs:
   docker_merge:
     runs-on: [self-hosted, Linux]
+    container: ubuntu:latest
     steps:
       - name: Pre-cleanup
         if: always()
-        run: rm -rf ${{ runner.temp }}/digests
+        run: find . -delete
+
+      - name: Set up Docker
+        run: |
+          apt-get update
+          apt-get -y install docker.io
 
       - name: Download digests
         uses: actions/download-artifact@v4
         with:
-          path: ${{ runner.temp }}/digests
+          path: digests
           pattern: digests_${{ inputs.target }}_*
           merge-multiple: true
 
@@ -49,21 +55,22 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # NOTE: This action pushes a new image with the given tag but also updates
-      # the 'latest' tag.
-      - name: Merge and push the per-platform images
-        working-directory: ${{ runner.temp }}/digests
+      - name: Merge and push the per-platform images (release)
+        if: inputs.tag_latest
+        working-directory: digests
         run: |
-          if [[ "${{ inputs.tag_latest }}" == "true" ]]; then
-            docker buildx imagetools create \
-              -t firedrakeproject/${{ inputs.target }}:${{ inputs.tag }} \
-              -t firedrakeproject/${{ inputs.target }}:latest \
-              $(printf "firedrakeproject/${{ inputs.target }}@sha256:%s " *)
-          else
-            docker buildx imagetools create \
-              -t firedrakeproject/${{ inputs.target }}:${{ inputs.tag }} \
-              $(printf "firedrakeproject/${{ inputs.target }}@sha256:%s " *)
-          fi
+          docker buildx imagetools create \
+            -t firedrakeproject/${{ inputs.target }}:${{ inputs.tag }} \
+            -t firedrakeproject/${{ inputs.target }}:latest \
+            $(printf "firedrakeproject/${{ inputs.target }}@sha256:%s " *)
+
+      - name: Merge and push the per-platform images (dev)
+        if: ${{ ! inputs.tag_latest }}
+        working-directory: digests
+        run: |
+          docker buildx imagetools create \
+            -t firedrakeproject/${{ inputs.target }}:${{ inputs.tag }} \
+            $(printf "firedrakeproject/${{ inputs.target }}@sha256:%s " *)
 
       - name: Inspect image
         run: |
@@ -71,4 +78,4 @@ jobs:
 
       - name: Post-cleanup
         if: always()
-        run: rm -rf ${{ runner.temp }}/digests
+        run: find . -delete
