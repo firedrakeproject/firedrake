@@ -483,7 +483,7 @@ class TransformedFunctionArgument(FunctionArgument):
 
     @property
     def transform_in_insns(self) -> tuple[Instruction]:
-        return tuple(in for in, _ in self.transform_insns)
+        return tuple(in_insn for in_insn, _ in self.transform_insns)
 
     @property
     def transform_out_insns(self) -> tuple[Instruction]:

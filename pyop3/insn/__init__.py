@@ -14,6 +14,7 @@ from .base import (  # noqa: F401
     ArrayAssignment,
     FunctionArgument,
     TransformedFunctionArgument,
+    AssignmentType,
     KernelArgument,
     Intent,
     AbstractAssignment,
