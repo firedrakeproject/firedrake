@@ -2,9 +2,7 @@ import numpy
 import os
 import tempfile
 import abc
-import warnings
-from collections.abc import Iterable
-from typing import Literal
+
 from functools import partial, singledispatch
 from typing import Hashable, Optional
 from dataclasses import asdict, dataclass
@@ -12,7 +10,7 @@ from dataclasses import asdict, dataclass
 import FIAT
 import ufl
 import finat.ufl
-from ufl.algorithms import extract_arguments, extract_coefficients, replace
+from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.domain import as_domain, extract_unique_domain
 
 from pyop2 import op2
@@ -27,8 +25,6 @@ import gem
 import finat
 
 import firedrake
-import firedrake.bcs
-from firedrake import tsfc_interface, utils, functionspaceimpl
 from firedrake import tsfc_interface, utils
 from firedrake.ufl_expr import Argument, Coargument, action, adjoint as expr_adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology
@@ -49,10 +45,11 @@ __all__ = (
     "SameMeshInterpolator",
 )
 
+
 @dataclass
 class InterpolateOptions:
     """Options for interpolation operations.
-    
+
     Attributes
     ----------
     subset : pyop2.types.set.Subset, optional
@@ -63,8 +60,8 @@ class InterpolateOptions:
         The pyop2 access descriptor for combining updates to shared
         DoFs. Possible values include ``WRITE`` and ``INC``. Only ``WRITE`` is
         supported at present when interpolating across meshes unless the target
-        mesh is a :func:`.VertexOnlyMesh`. 
-        
+        mesh is a :func:`.VertexOnlyMesh`.
+
         .. note::
             If you use an access descriptor other than ``WRITE``, the
             behaviour of interpolation changes if interpolating into a
@@ -75,7 +72,7 @@ class InterpolateOptions:
             then it is assumed that its values should take part in the
             reduction (hence using MIN will compute the MIN between the
             existing values and any new values).
-            
+
     allow_missing_dofs : bool, default False
         For interpolation across meshes: allow degrees of freedom (aka DoFs/nodes)
         in the target mesh that cannot be defined on the source mesh.
@@ -136,7 +133,7 @@ class Interpolate(ufl.Interpolate):
     def _ufl_expr_reconstruct_(self, expr, v=None, **interp_data):
         interp_data = interp_data or asdict(self.options)
         return ufl.Interpolate._ufl_expr_reconstruct_(self, expr, v=v, **interp_data)
-    
+
     @property
     def options(self):
         return self._options
@@ -154,7 +151,7 @@ def interpolate(expr, V, **kwargs):
         The function space to interpolate into or the coargument defined
         on the dual of the function space to interpolate into.
     **kwargs
-        Additional interpolation options. See :class:`InterpolateOptions` 
+        Additional interpolation options. See :class:`InterpolateOptions`
         for available parameters and their descriptions.
 
     Returns
@@ -418,8 +415,8 @@ class CrossMeshInterpolator(Interpolator):
     def _mixed_function_space(self):
         """Builds symbolic Interpolate expressions for each sub-element of a MixedFunctionSpace.
         """
-        # NOTE: since we can't have expressions for MixedFunctionSpaces 
-        # we know that the input argument ``expr`` must be a Function. 
+        # NOTE: since we can't have expressions for MixedFunctionSpaces
+        # we know that the input argument ``expr`` must be a Function.
         # V_dest can be a Function or a FunctionSpace, and subfunctions works for both.
         if self.nargs == 1:
             # Arguments don't have a subfunctions property so I have to
@@ -630,15 +627,15 @@ class SameMeshInterpolator(Interpolator):
         except FIAT.hdiv_trace.TraceError:
             raise NotImplementedError("Can't interpolate onto traces.")
         self.arguments = self.ufl_interpolate_renumbered.arguments()
-    
+
     def _get_callable(self, V):
         expr = self.ufl_interpolate_renumbered
         dual_arg, operand = expr.argument_slots()
         target_mesh = as_domain(dual_arg)
         source_mesh = extract_unique_domain(operand) or target_mesh
         vom_onto_other_vom = ((source_mesh is not target_mesh)
-                            and isinstance(source_mesh.topology, VertexOnlyMeshTopology)
-                            and isinstance(target_mesh.topology, VertexOnlyMeshTopology))
+                              and isinstance(source_mesh.topology, VertexOnlyMeshTopology)
+                              and isinstance(target_mesh.topology, VertexOnlyMeshTopology))
 
         arguments = expr.arguments()
         rank = len(arguments)
@@ -771,7 +768,6 @@ class SameMeshInterpolator(Interpolator):
                 return f
 
             return partial(callable, loops, f)
-
 
     @PETSc.Log.EventDecorator()
     def _interpolate(self, *function, output=None, adjoint=False):
