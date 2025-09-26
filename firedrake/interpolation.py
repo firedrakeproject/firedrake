@@ -2,7 +2,6 @@ import numpy
 import os
 import tempfile
 import abc
-import warnings
 from functools import partial, singledispatch
 from typing import Hashable, Optional
 from dataclasses import asdict, dataclass
@@ -413,7 +412,7 @@ class CrossMeshInterpolator(Interpolator):
 
         # Interpolate into the input-ordering
         P0DG_vom_i_o = fs_type(self.vom.input_ordering, "DG", 0)
-        self.point_eval_io = interpolate(firedrake.TrialFunction(P0DG_vom), P0DG_vom_i_o)
+        self.point_eval_input_ordering = interpolate(firedrake.TrialFunction(P0DG_vom), P0DG_vom_i_o)
 
     def _mixed_function_space(self):
         """Builds symbolic Interpolate expressions for each sub-element of a MixedFunctionSpace.
@@ -519,7 +518,7 @@ class CrossMeshInterpolator(Interpolator):
                     assemble(action(self.point_eval, f_src))
                 )
             f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Function(
-                self.point_eval_io.function_space()
+                self.point_eval_input_ordering.function_space()
             )
             # We have to create the Function before interpolating so we can
             # set default missing values (if requested).
@@ -537,7 +536,7 @@ class CrossMeshInterpolator(Interpolator):
                 # the output function.
                 f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[:] = numpy.nan
 
-            interp = action(self.point_eval_io, f_src_at_dest_node_coords_src_mesh_decomp)
+            interp = action(self.point_eval_input_ordering, f_src_at_dest_node_coords_src_mesh_decomp)
             assemble(interp, tensor=f_src_at_dest_node_coords_dest_mesh_decomp)
 
             # we can now confidently assign this to a function on V_dest
@@ -564,7 +563,7 @@ class CrossMeshInterpolator(Interpolator):
             # cofunction on the input-ordering VOM (which has this parallel
             # decomposition and ordering) and assign the dat values.
             f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Cofunction(
-                self.point_eval_io.function_space().dual()
+                self.point_eval_input_ordering.function_space().dual()
             )
             f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[
                 :
@@ -575,7 +574,7 @@ class CrossMeshInterpolator(Interpolator):
             # don't have to worry about skipping over missing points here
             # because I'm going from the input ordering VOM to the original VOM
             # and all points from the input ordering VOM are in the original.
-            interp = action(expr_adjoint(self.point_eval_io), f_src_at_dest_node_coords_dest_mesh_decomp)
+            interp = action(expr_adjoint(self.point_eval_input_ordering), f_src_at_dest_node_coords_dest_mesh_decomp)
             f_src_at_src_node_coords = assemble(interp)
             # NOTE: if I wanted the default missing value to be applied to
             # adjoint interpolation I would have to do it here. However,
@@ -618,13 +617,13 @@ class SameMeshInterpolator(Interpolator):
             if all(isinstance(m, firedrake.mesh.MeshTopology) for m in [target, source]) and target is not source:
                 composed_map, result_integral_type = source.trans_mesh_entity_map(target, "cell", "everywhere", None)
                 if result_integral_type != "cell":
-                    raise AssertionError("Only cell-cell interpolation supported")
+                    raise AssertionError("Only cell-cell interpolation supported.")
                 indices_active = composed_map.indices_active_with_halo
                 make_subset = not indices_active.all()
                 make_subset = target.comm.allreduce(make_subset, op=MPI.LOR)
                 if make_subset:
                     if not self.options.allow_missing_dofs:
-                        raise ValueError("iteration (sub)set unclear: run with `allow_missing_dofs=True`")
+                        raise ValueError("Iteration (sub)set unclear: run with `allow_missing_dofs=True`.")
                     subset = op2.Subset(target.cell_set, numpy.where(indices_active))
                 else:
                     # Do not need subset as target <= source.
@@ -633,7 +632,7 @@ class SameMeshInterpolator(Interpolator):
         try:
             self.callable = make_interpolator(expr, V, subset, self.options.access, bcs=bcs, matfree=self.options.matfree)
         except FIAT.hdiv_trace.TraceError:
-            raise NotImplementedError("Can't interpolate onto traces sorry")
+            raise NotImplementedError("Can't interpolate onto traces.")
         self.arguments = expr.arguments()
 
     @PETSc.Log.EventDecorator()
