@@ -356,7 +356,7 @@ class CrossMeshInterpolator(Interpolator):
         if self.src_mesh.geometric_dimension() != self.dest_mesh.geometric_dimension():
             raise ValueError("Geometric dimensions of source and destination meshes must match.")
 
-        self.sub_interpolators = []
+        self.sub_interpolates = []
         dest_element = self.V_dest.ufl_element()
         if isinstance(dest_element, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
             # In this case all sub elements are equal
@@ -398,7 +398,7 @@ class CrossMeshInterpolator(Interpolator):
         except VertexOnlyMeshMissingPointsError:
             raise DofNotDefinedError(self.src_mesh, self.dest_mesh)
 
-        # Evaluate expr at the immersed coordinates
+        # Get the correct type of function space
         shape = self.V_dest.ufl_function_space().value_shape
         if len(shape) == 0:
             fs_type = firedrake.FunctionSpace
@@ -406,10 +406,12 @@ class CrossMeshInterpolator(Interpolator):
             fs_type = partial(firedrake.VectorFunctionSpace, dim=shape[0])
         else:
             fs_type = partial(firedrake.TensorFunctionSpace, shape=shape)
+
+        # Get expression for point evaluation at the dest_node_coords
         P0DG_vom = fs_type(self.vom, "DG", 0)
         self.point_eval = interpolate(self.expr_renumbered, P0DG_vom)
 
-        # Interpolate into the input-ordering
+        # Interpolate into the input-ordering VOM
         P0DG_vom_i_o = fs_type(self.vom.input_ordering, "DG", 0)
         self.point_eval_input_ordering = interpolate(firedrake.TrialFunction(P0DG_vom), P0DG_vom_i_o)
 
@@ -434,15 +436,10 @@ class CrossMeshInterpolator(Interpolator):
             expr_subfunctions = self.expr.subfunctions
 
         if len(expr_subfunctions) != len(self.V_dest.subspaces):
-            raise NotImplementedError(
-                "Can't interpolate from a non-mixed function space into a mixed function space."
-            )
-        for input_sub_func, target_subspace in zip(
-            expr_subfunctions, self.V_dest.subspaces
-        ):
-            self.sub_interpolators.append(
-                interpolate(input_sub_func, target_subspace, **asdict(self.options))
-            )
+            raise NotImplementedError("Can't interpolate from a non-mixed function space into a mixed function space.")
+
+        for sub_func, subspace in zip(expr_subfunctions, self.V_dest.subspaces):
+            self.sub_interpolates.append(interpolate(sub_func, subspace, **asdict(self.options)))
 
     @PETSc.Log.EventDecorator()
     def _interpolate(self, *function, output=None, adjoint=False):
@@ -490,14 +487,14 @@ class CrossMeshInterpolator(Interpolator):
             else:
                 output = firedrake.Function(V_dest)
 
-        if len(self.sub_interpolators):
+        if len(self.sub_interpolates):
             # MixedFunctionSpace case
             for sub_interpolate, f_src_sub_func, output_sub_func in zip(
-                self.sub_interpolators, f_src.subfunctions, output.subfunctions
+                self.sub_interpolates, f_src.subfunctions, output.subfunctions
             ):
                 if f_src is self.expr:
                     # f_src is already contained in self.point_eval_interpolate,
-                    # so the sub_interpolators are already prepared to interpolate
+                    # so the sub_interpolates are already prepared to interpolate
                     # without needing to be given a Function
                     assert not self.nargs
                     assemble(sub_interpolate, tensor=output_sub_func)
