@@ -131,56 +131,74 @@ Reason:
 
 
 class _SNESContext(object):
-    r"""
-    Context holding information for SNES callbacks.
+    """Context holding information for SNES callbacks.
 
-    :arg problem: a :class:`NonlinearVariationalProblem`.
-    :arg mat_type: Indicates whether the Jacobian is assembled
+    Parameters
+    ----------
+    problem
+        The NonlinearVariationalProblem.
+    mat_type
+        Indicates whether the Jacobian is assembled
         monolithically ('aij'), as a block sparse matrix ('nest') or
         matrix-free (as :class:`~.ImplicitMatrix`, 'matfree').
-    :arg pmat_type: Indicates whether the preconditioner (if present) is assembled
+    pmat_type
+        Indicates whether the preconditioner (if present) is assembled
         monolithically ('aij'), as a block sparse matrix ('nest') or
         matrix-free (as :class:`~.ImplicitMatrix`, 'matfree').
-    :arg sub_mat_type: Indicates the matrix type for the sparse blocks
+    sub_mat_type
+        Indicates the matrix type for the sparse blocks in the Jacobian
         if mat_type='nest', ignored otherwise.
-    :arg appctx: Any extra information used in the assembler.  For the
-        matrix-free case this will contain the Newton state in
-        ``"state"``.
-    :arg pre_jacobian_callback: User-defined function called immediately
-        before Jacobian assembly
-    :arg post_jacobian_callback: User-defined function called immediately
-        after Jacobian assembly
-    :arg pre_function_callback: User-defined function called immediately
-        before residual assembly
-    :arg post_function_callback: User-defined function called immediately
-        after residual assembly
-    :arg options_prefix: The options prefix of the SNES.
-    :arg transfer_manager: Object that can transfer functions between
-        levels, typically a :class:`~.TransferManager`
-    :arg pre_apply_bcs: If `False`, the problem is linearised
-        around the initial guess before imposing the boundary conditions.
+    sub_pmat_type
+        Indicates the matrix type for the sparse blocks in the preconditioner
+        if pmat_type='nest', ignored otherwise.
+    appctx
+        Any extra information used in the assembler.  For the
+        matrix-free case this will contain the Newton state in ``"state"``.
+    pre_jacobian_callback
+        User-defined function called immediately before Jacobian assembly.
+    post_jacobian_callback
+        User-defined function called immediately after Jacobian assembly.
+    pre_function_callback
+        User-defined function called immediately before residual assembly.
+    post_function_callback
+        User-defined function called immediately after residual assembly.
+    options_prefix
+        The options prefix of the SNES.
+    transfer_manager
+        Object that can transfer functions between levels,
+        typically a :class:`~.TransferManager`.
+    pre_apply_bcs
+        If `False`, the problem is linearised around the initial guess before
+        imposing the boundary conditions.
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
     user form_function code, we pull the DM out of the SNES and then
     get the context (which is one of these objects) to find the
     Firedrake level information.
+
     """
     @PETSc.Log.EventDecorator()
-    def __init__(self, problem, mat_type, pmat_type,
-                 sub_mat_type=None, appctx=None,
+    def __init__(self, problem,
+                 mat_type: str, pmat_type: str,
+                 sub_mat_type: str | None = None,
+                 sub_pmat_type: str | None = None,
+                 appctx: dict | None = None,
                  pre_jacobian_callback=None, pre_function_callback=None,
                  post_jacobian_callback=None, post_function_callback=None,
-                 options_prefix=None,
+                 options_prefix: str | None = None,
                  transfer_manager=None,
-                 pre_apply_bcs=True):
+                 pre_apply_bcs: bool = True):
         from firedrake.assemble import get_assembler
 
         if pmat_type is None:
             pmat_type = mat_type
+        if sub_pmat_type is None:
+            sub_pmat_type = sub_mat_type
         self.mat_type = mat_type
         self.pmat_type = pmat_type
         self.sub_mat_type = sub_mat_type
+        self.sub_pmat_type = sub_pmat_type
         self.options_prefix = options_prefix
         self.pre_apply_bcs = pre_apply_bcs
 
@@ -532,7 +550,9 @@ class _SNESContext(object):
     def _assembler_pjac(self):
         from firedrake.assemble import get_assembler
         if self.mat_type != self.pmat_type or self._problem.Jp is not None:
-            return get_assembler(self.Jp, bcs=self.bcs_Jp, form_compiler_parameters=self.fcp, mat_type=self.pmat_type, options_prefix=self.options_prefix, appctx=self.appctx)
+            return get_assembler(self.Jp, bcs=self.bcs_Jp, form_compiler_parameters=self.fcp,
+                                 mat_type=self.pmat_type, sub_mat_type=self.sub_pmat_type,
+                                 options_prefix=self.options_prefix, appctx=self.appctx)
         else:
             return self._assembler_jac
 
