@@ -25,7 +25,7 @@ import gem
 import finat
 
 import firedrake
-from firedrake import tsfc_interface, utils, TrialFunction
+from firedrake import tsfc_interface, utils
 from firedrake.ufl_expr import Argument, Coargument, action, adjoint as expr_adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
@@ -406,7 +406,7 @@ class CrossMeshInterpolator(Interpolator):
 
         # Interpolate into the input-ordering
         P0DG_vom_i_o = fs_type(self.vom.input_ordering, "DG", 0)
-        self.point_eval_io = interpolate(TrialFunction(P0DG_vom), P0DG_vom_i_o)
+        self.point_eval_io = interpolate(firedrake.TrialFunction(P0DG_vom), P0DG_vom_i_o)
 
     def _mixed_function_space(self):
         # Build and save an interpolator for each sub-element
