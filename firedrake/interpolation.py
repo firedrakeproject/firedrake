@@ -2,6 +2,9 @@ import numpy
 import os
 import tempfile
 import abc
+import warnings
+from collections.abc import Iterable
+from typing import Literal
 from functools import partial, singledispatch
 from typing import Hashable, Optional
 from dataclasses import asdict, dataclass
@@ -24,6 +27,8 @@ import gem
 import finat
 
 import firedrake
+import firedrake.bcs
+from firedrake import tsfc_interface, utils, functionspaceimpl
 from firedrake import tsfc_interface, utils
 from firedrake.ufl_expr import Argument, Coargument, action, adjoint as expr_adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology
@@ -215,6 +220,7 @@ class Interpolator(abc.ABC):
         dual_arg, operand = expr.argument_slots()
         self.expr_renumbered = operand
         self.ufl_interpolate_renumbered = expr
+
         if not isinstance(dual_arg, ufl.Coargument):
             # Matrix-free assembly of 0-form or 1-form requires INC access
             self.options.access = op2.INC
@@ -879,6 +885,9 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
     if access == op2.INC:
         callables += (tensor.zero,)
 
+    # For the matfree adjoint 1-form and the 0-form, the cellwise kernel will add multiple
+    # contributions from the facet DOFs of the dual argument.
+    # The incoming Cofunction needs to be weighted by the reciprocal of the DOF multiplicity.
     needs_weight = isinstance(dual_arg, ufl.Cofunction) and not to_element.is_dg()
     if needs_weight:
         # Compute the reciprocal of the DOF multiplicity
@@ -1006,9 +1015,9 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
 
 def get_interp_node_map(source_mesh, target_mesh, fs):
-    """Return the map between cells of the target mesh and nodes of the function space. 
-    
-    If the function space is defined on the source mesh then the node map is composed 
+    """Return the map between cells of the target mesh and nodes of the function space.
+
+    If the function space is defined on the source mesh then the node map is composed
     with a map between target and source cells.
     """
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
