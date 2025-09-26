@@ -281,26 +281,30 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
         if coarse_mat_type == "":
             coarse_mat_type = context.mat_type
             default_pmat_type = context.pmat_type
-            default_sub_mat_type = context.sub_mat_type or ""
         else:
             default_pmat_type = coarse_mat_type
-            default_sub_mat_type = ""
-
         coarse_pmat_type = opts.getString(f"{solver_prefix}coarse_pmat_type",
                                           default_pmat_type)
-        coarse_sub_mat_type = opts.getString(f"{solver_prefix}coarse_sub_mat_type",
-                                             default_sub_mat_type)
+
+        coarse_sub_mat_type = opts.getString(f"{solver_prefix}coarse_sub_mat_type", "")
         if coarse_sub_mat_type == "":
-            coarse_sub_mat_type = None
+            coarse_sub_mat_type = context.sub_mat_type
+            default_sub_pmat_type = context.sub_pmat_type
+        else:
+            default_sub_pmat_type = coarse_sub_mat_type
+        coarse_sub_pmat_type = opts.getString(f"{solver_prefix}coarse_sub_pmat_type",
+                                              default_sub_pmat_type or "") or None
     else:
         coarse_mat_type = context.mat_type
         coarse_pmat_type = context.pmat_type
         coarse_sub_mat_type = context.sub_mat_type
+        coarse_sub_pmat_type = context.sub_pmat_type
 
     coarse = _SNESContext(problem,
                           mat_type=coarse_mat_type,
                           pmat_type=coarse_pmat_type,
                           sub_mat_type=coarse_sub_mat_type,
+                          sub_pmat_type=coarse_sub_pmat_type,
                           appctx=new_appctx,
                           options_prefix=context.options_prefix,
                           transfer_manager=context.transfer_manager,
