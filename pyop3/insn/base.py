@@ -476,20 +476,6 @@ class FunctionArgument(abc.ABC):
     """Abstract class for types that may be passed to functions."""
 
 
-class TransformedFunctionArgument(FunctionArgument):
-    def __init__(self, transformed_arg, transform_insns):
-        self.transformed_arg = transformed_arg
-        self.transform_insns = transform_insns
-
-    @property
-    def transform_in_insns(self) -> tuple[Instruction]:
-        return tuple(in_insn for in_insn, _ in self.transform_insns)
-
-    @property
-    def transform_out_insns(self) -> tuple[Instruction]:
-        return tuple(reversed(out for _, out in self.transform_insns))
-
-
 class Function:
     """A callable function."""
 

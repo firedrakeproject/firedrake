@@ -475,8 +475,6 @@ def _(
 
 
 def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op3.LoopIndex, *, depth: int = 0):
-    transform_insns = []
-
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
     # TODO: Can be more fussy I think, only higher degree?
     # NOTE: This is now a special case of the fuse stuff below
@@ -510,14 +508,56 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
         function_args += [transformed_temp]
 
         # TODO: this should be the inverse transform
-        transform_in_insn = op3.ArrayAssignment(temp, op3_arg, op3.AssignmentType.WRITE)
+        # transform_in_insn = op3.ArrayAssignment(temp, op3_arg, op3.AssignmentType.WRITE)
+        #
+        # transform_out_insn = transform_kernel(*function_args)
 
-        transform_out_insn = transform_kernel(*function_args)
+        # This is currently not implemented. To record my thoughts:
+        #
+        # * We can't only represent transformations as pyop3 instructions. This
+        #   is because:
+        #
+        #     * Instructions do not have a concept of having a single input and
+        #       output. If we have the transformation 't1 <- f(t0, X)' where 'X'
+        #       is another array (e.g. the orientation dat) then the instruction
+        #       is not able to determine which of 't0' and 'X' is the input to
+        #       the transformation.
+        #
+        #     * Dealing with instructions makes it really awkward to deal with
+        #       access descriptors. When we hit the compiler we want to inspect
+        #       the accesses of function calls and emit zeros, incs etc at that
+        #       time. It is clunky to also deal with that here.
+        #
+        # * We already have the trivial transformation implemented: 'reshape'.
+        #   We have a dat that is a transformed version of another and the
+        #   input and output dats are accessible by traversing Dat.parent.
+        """Some old exposition:
 
-        transform_insns.append((transform_in_insn, transform_out_insn))
+        Consider the general case:
 
-        # FIXME: something like this, just a guess
-        packed_dat = transformed_temp
+        t0 <- dat[f(p)]
+        t1 <- g(t0)
+        func(t1)
+        t2 <- ginv(t1)
+        dat[f(p)] <- t2
+
+        but with READ:
+
+            t0 <- dat[f(p)]
+            t1 <- g(t0)
+            func(t1)
+
+        and INC:
+
+            t1 <- 0
+            func(t1)
+            t2 <- ginv(t1)
+            dat[f(p)] += t2
+        """
+        # in_transform and out_transform are instructions that take in op3_arg and temp
+        # and DTRT
+        packed_dat = temp.from_transform(op3_arg, in_transform, out_transform)
+
 
     # /THIS IS NEW
 
@@ -525,13 +565,7 @@ def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op
         nodal_axis_tree, dof_perm_slice = _static_node_permutation_slice(packed_dat.axes, space, depth)
         packed_dat = packed_dat.reshape(nodal_axis_tree)[dof_perm_slice]
 
-    # I want to return a 'PackUnpackKernelArg' type that has information
-    # about how to transform something before and after passing to a function. We can then defer
-    # emitting these instructions until the intent information dicates that it is needed.
-    if transform_insns:
-        return op3.TransformedFunctionArgument(packed_dat, transform_insns)
-    else:
-        return packed_dat
+    return packed_dat
 
 
 def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_space, cell_index: op3.Index, *, row_depth=0, column_depth=0):

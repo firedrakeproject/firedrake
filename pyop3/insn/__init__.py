@@ -13,7 +13,6 @@ from .base import (  # noqa: F401
     OpaqueKernelArgument,
     ArrayAssignment,
     FunctionArgument,
-    TransformedFunctionArgument,
     AssignmentType,
     KernelArgument,
     Intent,

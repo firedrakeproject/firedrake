@@ -77,7 +77,6 @@ from pyop3.insn import (  # noqa: F401
     READ,
     RW,
     WRITE,
-    TransformedFunctionArgument,
     DummyKernelArgument,
     Function,
     Loop,
