@@ -202,7 +202,7 @@ class HiptmairPC(TwoLevelPC):
 
         coarse_space_bcs = tuple(coarse_space_bcs)
         if G_callback is None:
-            interp_petscmat = chop(Interpolator(dminus(test), V, bcs=bcs + coarse_space_bcs).callable().handle)
+            interp_petscmat = chop(Interpolator(dminus(trial), V, bcs=bcs + coarse_space_bcs).callable().handle)
         else:
             interp_petscmat = G_callback(coarse_space, V, coarse_space_bcs, bcs)
 
