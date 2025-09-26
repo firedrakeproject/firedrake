@@ -117,7 +117,6 @@ class Interpolate(ufl.Interpolate):
             Additional interpolation options. See :class:`InterpolateOptions`
             for available parameters and their descriptions.
         """
-        # TODO: should we allow RHS to be FiredrakeDualSpace?
         if isinstance(V, WithGeometry):
             # Need to create a Firedrake Coargument so it has a .function_space() method
             expr_args = extract_arguments(ufl.as_ufl(expr))
