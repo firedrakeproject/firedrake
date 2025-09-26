@@ -62,7 +62,7 @@ class SCPC(SCBase):
 
         # Need to duplicate a space which is NOT
         # associated with a subspace of a mixed space.
-        Vc = FunctionSpace(W.mesh(), W[c_field].ufl_element())
+        Vc = FunctionSpace(W.mesh()[c_field], W[c_field].ufl_element())
         bcs = []
         cxt_bcs = self.cxt.row_bcs
         for bc in cxt_bcs:

@@ -92,7 +92,7 @@ class EnsembleFunctionSpaceBase:
     - Dual ensemble objects: :class:`EnsembleDualSpace` and :class:`~firedrake.ensemble.ensemble_function.EnsembleCofunction`.
     """
     def __init__(self, local_spaces: Collection, ensemble: Ensemble):
-        meshes = set(V.mesh() for V in local_spaces)
+        meshes = set(V.mesh().unique() for V in local_spaces)
         nlocal_meshes = len(meshes)
         max_local_meshes = ensemble.ensemble_comm.allreduce(nlocal_meshes, MPI.MAX)
         if max_local_meshes > 1:

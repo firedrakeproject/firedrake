@@ -133,7 +133,7 @@ def test_scalar_formsum(f, scale):
         s2 = Constant(s2)
     elif scale == "Real":
         mesh = f.function_space().mesh()
-        R = FunctionSpace(mesh, "R", 0)
+        R = FunctionSpace(mesh.unique(), "R", 0)
         s1 = Function(R, val=s1)
         s2 = Function(R, val=s2)
 
@@ -142,7 +142,7 @@ def test_scalar_formsum(f, scale):
     res2 = assemble(formsum)
     assert res2 == expected
 
-    mesh = f.function_space().mesh()
+    mesh = f.function_space().mesh().unique()
     R = FunctionSpace(mesh, "R", 0)
     tensor = Cofunction(R.dual())
 
