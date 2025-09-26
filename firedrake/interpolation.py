@@ -25,7 +25,7 @@ import gem
 import finat
 
 import firedrake
-from firedrake import tsfc_interface, utils
+from firedrake import tsfc_interface, utils, TrialFunction
 from firedrake.ufl_expr import Argument, Coargument, action, adjoint as expr_adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
@@ -241,7 +241,6 @@ class Interpolator(abc.ABC):
 
     def assemble(self, tensor=None):
         """Assemble the operator (or its action)."""
-        from firedrake.assemble import assemble
         needs_adjoint = self.ufl_interpolate_renumbered != self.ufl_interpolate
         arguments = self.ufl_interpolate.arguments()
         if len(arguments) == 2:
@@ -270,7 +269,7 @@ class Interpolator(abc.ABC):
 
             if needs_adjoint and len(arguments) == 0:
                 Iu = self._interpolate()
-                return assemble(ufl.Action(*cofunctions, Iu), tensor=tensor)
+                return firedrake.assemble(ufl.Action(*cofunctions, Iu), tensor=tensor)
             else:
                 return self._interpolate(*cofunctions, output=tensor, adjoint=needs_adjoint)
 
@@ -350,119 +349,97 @@ class CrossMeshInterpolator(Interpolator):
         self.nargs = len(self.arguments)
 
         if self.options.allow_missing_dofs:
-            missing_points_behaviour = MissingPointsBehaviour.IGNORE
+            self.missing_points_behaviour = MissingPointsBehaviour.IGNORE
         else:
-            missing_points_behaviour = MissingPointsBehaviour.ERROR
+            self.missing_points_behaviour = MissingPointsBehaviour.ERROR
 
         # setup
-        V_dest = V.function_space() if isinstance(V, firedrake.Function) else V
-        src_mesh = extract_unique_domain(expr)
-        dest_mesh = as_domain(V_dest)
-        src_mesh_gdim = src_mesh.geometric_dimension()
-        dest_mesh_gdim = dest_mesh.geometric_dimension()
-        if src_mesh_gdim != dest_mesh_gdim:
-            raise ValueError(
-                "geometric dimensions of source and destination meshes must match"
-            )
-        self.src_mesh = src_mesh
-        self.dest_mesh = dest_mesh
+        self.V_dest = V.function_space() if isinstance(V, firedrake.Function) else V
+        self.src_mesh = extract_unique_domain(expr)
+        self.dest_mesh = as_domain(self.V_dest)
+        if self.src_mesh.geometric_dimension() != self.dest_mesh.geometric_dimension():
+            raise ValueError("Geometric dimensions of source and destination meshes must match.")
 
         self.sub_interpolators = []
-
-        # Create a VOM at the nodes of V_dest in src_mesh. We don't include halo
-        # node coordinates because interpolation doesn't usually include halos.
-        # NOTE: it is very important to set redundant=False, otherwise the
-        # input ordering VOM will only contain the points on rank 0!
-        # QUESTION: Should any of the below have annotation turned off?
-        ufl_scalar_element = V_dest.ufl_element()
-        if isinstance(ufl_scalar_element, finat.ufl.MixedElement):
-            if all(
-                ufl_scalar_element.sub_elements[0] == e
-                for e in ufl_scalar_element.sub_elements
-            ):
-                # For a VectorElement or TensorElement the correct
-                # VectorFunctionSpace equivalent is built from the scalar
-                # sub-element.
-                ufl_scalar_element = ufl_scalar_element.sub_elements[0]
-                if ufl_scalar_element.reference_value_shape != ():
+        dest_element = self.V_dest.ufl_element()
+        if isinstance(dest_element, finat.ufl.MixedElement):
+            if isinstance(dest_element, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
+                base_element = dest_element.sub_elements[0]
+                if base_element.reference_value_shape != ():
                     raise NotImplementedError(
                         "Can't yet cross-mesh interpolate onto function spaces made from VectorElements or TensorElements made from sub elements with value shape other than ()."
                     )
+                self.dest_element = base_element
+                self._symbolic_expression()
             else:
-                # Build and save an interpolator for each sub-element
-                # separately for MixedFunctionSpaces. NOTE: since we can't have
-                # expressions for MixedFunctionSpaces we know that the input
-                # argument ``expr`` must be a Function. V_dest can be a Function
-                # or a FunctionSpace, and subfunctions works for both.
-                if self.nargs == 1:
-                    # Arguments don't have a subfunctions property so I have to
-                    # make them myself. NOTE: this will not be correct when we
-                    # start allowing interpolators created from an expression
-                    # with arguments, as opposed to just being the argument.
-                    expr_subfunctions = [
-                        firedrake.TestFunction(V_src_sub_func)
-                        for V_src_sub_func in self.expr.function_space().subspaces
-                    ]
-                elif self.nargs > 1:
-                    raise NotImplementedError(
-                        "Can't yet create an interpolator from an expression with multiple arguments."
-                    )
-                else:
-                    expr_subfunctions = self.expr.subfunctions
-                if len(expr_subfunctions) != len(V_dest.subspaces):
-                    raise NotImplementedError(
-                        "Can't interpolate from a non-mixed function space into a mixed function space."
-                    )
-                for input_sub_func, target_subspace in zip(
-                    expr_subfunctions, V_dest.subspaces
-                ):
-                    self.sub_interpolators.append(
-                        interpolate(input_sub_func, target_subspace, **asdict(self.options))
-                    )
-                return
+                self._mixed_function_space()
+        else:
+            self.dest_element = dest_element
+            self._symbolic_expression()
 
+    def _symbolic_expression(self):
         from firedrake.assemble import assemble
-        V_dest_vec = firedrake.VectorFunctionSpace(dest_mesh, ufl_scalar_element)
-        f_dest_node_coords = Interpolate(dest_mesh.coordinates, V_dest_vec)
-        f_dest_node_coords = assemble(f_dest_node_coords)
-        dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, dest_mesh_gdim)
+        # Immerse coordinates of V_dest point evaluation dofs in src_mesh
+        V_dest_vec = firedrake.VectorFunctionSpace(self.dest_mesh, self.dest_element)
+        f_dest_node_coords = assemble(interpolate(self.dest_mesh.coordinates, V_dest_vec))
+        dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, self.dest_mesh.geometric_dimension())
         try:
-            self.vom_dest_node_coords_in_src_mesh = firedrake.VertexOnlyMesh(
-                src_mesh,
+            self.vom = firedrake.VertexOnlyMesh(
+                self.src_mesh,
                 dest_node_coords,
                 redundant=False,
-                missing_points_behaviour=missing_points_behaviour,
+                missing_points_behaviour=self.missing_points_behaviour,
             )
         except VertexOnlyMeshMissingPointsError:
-            raise DofNotDefinedError(src_mesh, dest_mesh)
-        # vom_dest_node_coords_in_src_mesh uses the parallel decomposition of
-        # the global node coordinates of V_dest in the SOURCE mesh (src_mesh).
-        # I first point evaluate my expression at these locations, giving a
-        # P0DG function on the VOM. As described in the manual, this is an
-        # interpolation operation.
-        shape = V_dest.ufl_function_space().value_shape
+            raise DofNotDefinedError(self.src_mesh, self.dest_mesh)
+
+        # Evaluate expr at the immersed coordinates
+        shape = self.V_dest.ufl_function_space().value_shape
         if len(shape) == 0:
             fs_type = firedrake.FunctionSpace
         elif len(shape) == 1:
             fs_type = partial(firedrake.VectorFunctionSpace, dim=shape[0])
         else:
             fs_type = partial(firedrake.TensorFunctionSpace, shape=shape)
-        P0DG_vom = fs_type(self.vom_dest_node_coords_in_src_mesh, "DG", 0)
-        self.point_eval_interpolate = Interpolate(self.expr_renumbered, P0DG_vom)
-        # The parallel decomposition of the nodes of V_dest in the DESTINATION
-        # mesh (dest_mesh) is retrieved using the input_ordering attribute of the
-        # VOM. This again is an interpolation operation, which, under the hood
-        # is a PETSc SF reduce.
-        P0DG_vom_i_o = fs_type(
-            self.vom_dest_node_coords_in_src_mesh.input_ordering, "DG", 0
-        )
-        self.to_input_ordering_interpolate = Interpolate(
-            firedrake.TrialFunction(P0DG_vom), P0DG_vom_i_o
-        )
-        # The P0DG function outputted by the above interpolation has the
-        # correct parallel decomposition for the nodes of V_dest in dest_mesh so
-        # we can safely assign the dat values. This is all done in the actual
-        # interpolation method below.
+        P0DG_vom = fs_type(self.vom, "DG", 0)
+        self.point_eval = interpolate(self.expr_renumbered, P0DG_vom)
+
+        # Interpolate into the input-ordering
+        P0DG_vom_i_o = fs_type(self.vom.input_ordering, "DG", 0)
+        self.point_eval_io = interpolate(TrialFunction(P0DG_vom), P0DG_vom_i_o)
+
+    def _mixed_function_space(self):
+        # Build and save an interpolator for each sub-element
+        # separately for MixedFunctionSpaces. NOTE: since we can't have
+        # expressions for MixedFunctionSpaces we know that the input
+        # argument ``expr`` must be a Function. V_dest can be a Function
+        # or a FunctionSpace, and subfunctions works for both.
+        if self.nargs == 1:
+            # Arguments don't have a subfunctions property so I have to
+            # make them myself. NOTE: this will not be correct when we
+            # start allowing interpolators created from an expression
+            # with arguments, as opposed to just being the argument.
+            expr_subfunctions = [
+                firedrake.TestFunction(V_src_sub_func)
+                for V_src_sub_func in self.expr.function_space().subspaces
+            ]
+        elif self.nargs > 1:
+            raise NotImplementedError(
+                "Can't yet create an interpolator from an expression with multiple arguments."
+            )
+        else:
+            expr_subfunctions = self.expr.subfunctions
+
+        if len(expr_subfunctions) != len(self.V_dest.subspaces):
+            raise NotImplementedError(
+                "Can't interpolate from a non-mixed function space into a mixed function space."
+            )
+        for input_sub_func, target_subspace in zip(
+            expr_subfunctions, self.V_dest.subspaces
+        ):
+            self.sub_interpolators.append(
+                interpolate(input_sub_func, target_subspace, **asdict(self.options))
+            )
 
     @PETSc.Log.EventDecorator()
     def _interpolate(self, *function, output=None, adjoint=False):
@@ -471,7 +448,6 @@ class CrossMeshInterpolator(Interpolator):
         For arguments, see :class:`.Interpolator`.
         """
         from firedrake.assemble import assemble
-
         if adjoint and not self.nargs:
             raise ValueError("Can currently only apply adjoint interpolation with arguments.")
         if self.nargs != len(function):
@@ -533,14 +509,14 @@ class CrossMeshInterpolator(Interpolator):
                 # f_src is already contained in self.point_eval_interpolate
                 assert not self.nargs
                 f_src_at_dest_node_coords_src_mesh_decomp = (
-                    assemble(self.point_eval_interpolate)
+                    assemble(self.point_eval)
                 )
             else:
                 f_src_at_dest_node_coords_src_mesh_decomp = (
-                    assemble(action(self.point_eval_interpolate, f_src))
+                    assemble(action(self.point_eval, f_src))
                 )
             f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Function(
-                self.to_input_ordering_interpolate.function_space()
+                self.point_eval_io.function_space()
             )
             # We have to create the Function before interpolating so we can
             # set default missing values (if requested).
@@ -558,7 +534,7 @@ class CrossMeshInterpolator(Interpolator):
                 # the output function.
                 f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[:] = numpy.nan
 
-            interp = action(self.to_input_ordering_interpolate, f_src_at_dest_node_coords_src_mesh_decomp)
+            interp = action(self.point_eval_io, f_src_at_dest_node_coords_src_mesh_decomp)
             assemble(interp, tensor=f_src_at_dest_node_coords_dest_mesh_decomp)
 
             # we can now confidently assign this to a function on V_dest
@@ -585,7 +561,7 @@ class CrossMeshInterpolator(Interpolator):
             # cofunction on the input-ordering VOM (which has this parallel
             # decomposition and ordering) and assign the dat values.
             f_src_at_dest_node_coords_dest_mesh_decomp = firedrake.Cofunction(
-                self.to_input_ordering_interpolate.function_space().dual()
+                self.point_eval_io.function_space().dual()
             )
             f_src_at_dest_node_coords_dest_mesh_decomp.dat.data_wo[
                 :
@@ -596,7 +572,7 @@ class CrossMeshInterpolator(Interpolator):
             # don't have to worry about skipping over missing points here
             # because I'm going from the input ordering VOM to the original VOM
             # and all points from the input ordering VOM are in the original.
-            interp = action(expr_adjoint(self.to_input_ordering_interpolate), f_src_at_dest_node_coords_dest_mesh_decomp)
+            interp = action(expr_adjoint(self.point_eval_io), f_src_at_dest_node_coords_dest_mesh_decomp)
             f_src_at_src_node_coords = assemble(interp)
             # NOTE: if I wanted the default missing value to be applied to
             # adjoint interpolation I would have to do it here. However,
@@ -609,7 +585,7 @@ class CrossMeshInterpolator(Interpolator):
             # SameMeshInterpolator.interpolate did not effect the result. For
             # now, I say in the docstring that it only applies to forward
             # interpolation.
-            interp = action(expr_adjoint(self.point_eval_interpolate), f_src_at_src_node_coords)
+            interp = action(expr_adjoint(self.point_eval), f_src_at_src_node_coords)
             assemble(interp, tensor=output)
 
         return output
