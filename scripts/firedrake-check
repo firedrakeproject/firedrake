@@ -27,7 +27,7 @@ TESTS = {
     3: (
         "tests/firedrake/regression/test_dg_advection.py::test_dg_advection_icosahedral_sphere[nprocs=3]",
         # vertex-only mesh
-        "tests/firedrake/regression/test_interpolate_cross_mesh.py::test_interpolate_cross_mesh_parallel[extrudedcube]",
+        "tests/firedrake/regression/test_interpolate_cross_mesh.py::test_interpolate_cross_mesh[extrudedcube-nprocs=3-interpolate_function-0]"
     ),
 }
 
