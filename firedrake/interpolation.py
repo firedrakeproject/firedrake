@@ -425,7 +425,7 @@ class CrossMeshInterpolator(Interpolator):
             # Arguments don't have a subfunctions property so I have to
             # make them myself.
             expr_subfunctions = [
-                firedrake.TestFunction(V_src_sub_func)
+                firedrake.TrialFunction(V_src_sub_func)
                 for V_src_sub_func in self.expr.function_space().subspaces
             ]
         elif self.nargs > 1:
