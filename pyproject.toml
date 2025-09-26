@@ -29,7 +29,8 @@ dependencies = [
   "packaging",
   # TODO RELEASE
   # "petsc4py==3.23.4",
-  "petsctools",
+  # TODO RELEASE
+  # "petsctools",
   "pkgconfig",
   "progress",
   # TODO RELEASE: use a release
