@@ -541,7 +541,7 @@ def test_missing_dofs():
     V_src = FunctionSpace(m_src, "CG", 2)
     V_dest = FunctionSpace(m_dest, "CG", 3)
     with pytest.raises(DofNotDefinedError):
-        Interpolator(TestFunction(V_src), V_dest)
+        assemble(interpolate(TrialFunction(V_src), V_dest))
     f_src = Function(V_src).interpolate(expr)
     f_dest = assemble(interpolate(f_src, V_dest, allow_missing_dofs=True))
     dest_eval = PointEvaluator(m_dest, coords)
