@@ -382,9 +382,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         firedrake.function.Function
             Returns `self`
         """
-        from firedrake import interpolate, assemble
+        from firedrake import interpolation, assemble
         V = self.function_space()
-        interp = interpolate(expression, V, **kwargs)
+        interp = interpolation.Interpolate(expression, V, **kwargs)
         return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
 
     def zero(self, subset=None):

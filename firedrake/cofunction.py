@@ -331,9 +331,9 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         firedrake.cofunction.Cofunction
             Returns `self`
         """
-        from firedrake import interpolate, assemble
+        from firedrake import interpolation, assemble
         v, = self.arguments()
-        interp = interpolate(v, expression, **kwargs)
+        interp = interpolation.Interpolate(v, expression, **kwargs)
         return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
 
     @property
