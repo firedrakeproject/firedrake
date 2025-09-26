@@ -284,6 +284,8 @@ def _get_interpolator(expr: Interpolate, V) -> Interpolator:
         return SameMeshInterpolator(expr, V)
     else:
         if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
+            if isinstance(source_mesh.topology, VertexOnlyMeshTopology):
+                return VomOntoVomInterpolator(expr, V)
             return SameMeshInterpolator(expr, V)
         else:
             return CrossMeshInterpolator(expr, V)
@@ -628,12 +630,154 @@ class SameMeshInterpolator(Interpolator):
                 else:
                     # Do not need subset as target <= source.
                     pass
-        expr = self.ufl_interpolate_renumbered
+        self.subset = subset
         try:
-            self.callable = make_interpolator(expr, V, subset, self.options.access, bcs=bcs, matfree=self.options.matfree)
+            self.callable = self._get_callable(V)
         except FIAT.hdiv_trace.TraceError:
             raise NotImplementedError("Can't interpolate onto traces.")
-        self.arguments = expr.arguments()
+        self.arguments = self.ufl_interpolate_renumbered.arguments()
+    
+    def _get_callable(self, V):
+        expr = self.ufl_interpolate_renumbered
+        dual_arg, operand = expr.argument_slots()
+        target_mesh = as_domain(dual_arg)
+        source_mesh = extract_unique_domain(operand) or target_mesh
+        vom_onto_other_vom = ((source_mesh is not target_mesh)
+                            and isinstance(source_mesh.topology, VertexOnlyMeshTopology)
+                            and isinstance(target_mesh.topology, VertexOnlyMeshTopology))
+
+        arguments = expr.arguments()
+        rank = len(arguments)
+        if rank <= 1:
+            if rank == 0:
+                R = firedrake.FunctionSpace(target_mesh, "Real", 0)
+                f = firedrake.Function(R, dtype=utils.ScalarType)
+            elif isinstance(V, firedrake.Function):
+                f = V
+                V = f.function_space()
+            else:
+                V_dest = arguments[0].function_space().dual()
+                f = firedrake.Function(V_dest)
+                if self.options.access in {firedrake.MIN, firedrake.MAX}:
+                    finfo = numpy.finfo(f.dat.dtype)
+                    if self.options.access == firedrake.MIN:
+                        val = firedrake.Constant(finfo.max)
+                    else:
+                        val = firedrake.Constant(finfo.min)
+                    f.assign(val)
+            tensor = f.dat
+        elif rank == 2:
+            if isinstance(V, firedrake.Function):
+                raise ValueError("Cannot interpolate an expression with an argument into a Function")
+            Vrow = arguments[0].function_space()
+            Vcol = arguments[1].function_space()
+            if len(Vrow) > 1 or len(Vcol) > 1:
+                raise NotImplementedError("Interpolation of mixed expressions with arguments is not supported")
+            if isinstance(target_mesh.topology, VertexOnlyMeshTopology) and target_mesh is not source_mesh and not vom_onto_other_vom:
+                if not isinstance(target_mesh.topology, VertexOnlyMeshTopology):
+                    raise NotImplementedError("Can only interpolate onto a Vertex Only Mesh")
+                if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
+                    raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
+                if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
+                    raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
+
+            if vom_onto_other_vom:
+                # We make our own linear operator for this case using PETSc SFs
+                tensor = None
+            else:
+                Vrow_map = get_interp_node_map(source_mesh, target_mesh, Vrow)
+                Vcol_map = get_interp_node_map(source_mesh, target_mesh, Vcol)
+                sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
+                                        [(Vrow_map, Vcol_map, None)],  # non-mixed
+                                        name="%s_%s_sparsity" % (Vrow.name, Vcol.name),
+                                        nest=False,
+                                        block_sparse=True)
+                tensor = op2.Mat(sparsity)
+            f = tensor
+        else:
+            raise ValueError(f"Cannot interpolate an expression with {rank} arguments")
+
+        if vom_onto_other_vom:
+            wrapper = VomOntoVomWrapper(V, source_mesh, target_mesh, operand, self.options.matfree)
+            # NOTE: get_dat_mpi_type ensures we get the correct MPI type for the
+            # data, including the correct data size and dimensional information
+            # (so for vector function spaces in 2 dimensions we might need a
+            # concatenation of 2 MPI.DOUBLE types when we are in real mode)
+            if tensor is not None:
+                # Callable will do interpolation into our pre-supplied function f
+                # when it is called.
+                assert f.dat is tensor
+                wrapper.mpi_type, _ = get_dat_mpi_type(f.dat)
+                assert len(arguments) == 1
+
+                def callable():
+                    wrapper.forward_operation(f.dat)
+                    return f
+            else:
+                assert len(arguments) == 2
+                assert tensor is None
+                # we know we will be outputting either a function or a cofunction,
+                # both of which will use a dat as a data carrier. At present, the
+                # data type does not depend on function space dimension, so we can
+                # safely use the argument function space. NOTE: If this changes
+                # after cofunctions are fully implemented, this will need to be
+                # reconsidered.
+                temp_source_func = firedrake.Function(Vcol)
+                wrapper.mpi_type, _ = get_dat_mpi_type(temp_source_func.dat)
+
+                # Leave wrapper inside a callable so we can access the handle
+                # property. If matfree is True, then the handle is a PETSc SF
+                # pretending to be a PETSc Mat. If matfree is False, then this
+                # will be a PETSc Mat representing the equivalent permutation
+                # matrix
+                def callable():
+                    return wrapper
+
+            return callable
+        else:
+            loops = []
+            if len(V) == 1:
+                expressions = (expr,)
+            else:
+                if (hasattr(operand, "subfunctions") and len(operand.subfunctions) == len(V)
+                        and all(sub_op.ufl_shape == Vsub.value_shape for Vsub, sub_op in zip(V, operand.subfunctions))):
+                    # Use subfunctions if they match the target shapes
+                    operands = operand.subfunctions
+                else:
+                    # Unflatten the expression into the shapes of the mixed components
+                    offset = 0
+                    operands = []
+                    for Vsub in V:
+                        if len(Vsub.value_shape) == 0:
+                            operands.append(operand[offset])
+                        else:
+                            components = [operand[offset + j] for j in range(Vsub.value_size)]
+                            operands.append(ufl.as_tensor(numpy.reshape(components, Vsub.value_shape)))
+                        offset += Vsub.value_size
+
+                # Split the dual argument
+                if isinstance(dual_arg, Cofunction):
+                    duals = dual_arg.subfunctions
+                elif isinstance(dual_arg, Coargument):
+                    duals = [Coargument(Vsub, number=dual_arg.number()) for Vsub in dual_arg.function_space()]
+                else:
+                    duals = [v for _, v in sorted(firedrake.formmanipulation.split_form(dual_arg))]
+                expressions = map(expr._ufl_expr_reconstruct_, operands, duals)
+
+            # Interpolate each sub expression into each function space
+            for Vsub, sub_tensor, sub_expr in zip(V, tensor, expressions):
+                loops.extend(_interpolator(Vsub, sub_tensor, sub_expr, self.subset, arguments, self.options.access, bcs=self.bcs))
+
+            if self.bcs and rank == 1:
+                loops.extend(partial(bc.apply, f) for bc in self.bcs)
+
+            def callable(loops, f):
+                for l in loops:
+                    l()
+                return f
+
+            return partial(callable, loops, f)
+
 
     @PETSc.Log.EventDecorator()
     def _interpolate(self, *function, output=None, adjoint=False):
@@ -679,148 +823,10 @@ class SameMeshInterpolator(Interpolator):
                     return assembled_interpolator
 
 
-@PETSc.Log.EventDecorator()
-def make_interpolator(expr, V, subset, access, bcs=None, matfree=True):
-    if not isinstance(expr, ufl.Interpolate):
-        raise ValueError(f"Expecting to interpolate a ufl.Interpolate, got {type(expr).__name__}.")
-    dual_arg, operand = expr.argument_slots()
-    target_mesh = as_domain(dual_arg)
-    source_mesh = extract_unique_domain(operand) or target_mesh
-    vom_onto_other_vom = ((source_mesh is not target_mesh)
-                          and isinstance(source_mesh.topology, VertexOnlyMeshTopology)
-                          and isinstance(target_mesh.topology, VertexOnlyMeshTopology))
+class VomOntoVomInterpolator(SameMeshInterpolator):
 
-    arguments = expr.arguments()
-    rank = len(arguments)
-    if rank <= 1:
-        if rank == 0:
-            R = firedrake.FunctionSpace(target_mesh, "Real", 0)
-            f = firedrake.Function(R, dtype=utils.ScalarType)
-        elif isinstance(V, firedrake.Function):
-            f = V
-            V = f.function_space()
-        else:
-            V_dest = arguments[0].function_space().dual()
-            f = firedrake.Function(V_dest)
-            if access in {firedrake.MIN, firedrake.MAX}:
-                finfo = numpy.finfo(f.dat.dtype)
-                if access == firedrake.MIN:
-                    val = firedrake.Constant(finfo.max)
-                else:
-                    val = firedrake.Constant(finfo.min)
-                f.assign(val)
-        tensor = f.dat
-    elif rank == 2:
-        if isinstance(V, firedrake.Function):
-            raise ValueError("Cannot interpolate an expression with an argument into a Function")
-        Vrow = arguments[0].function_space()
-        Vcol = arguments[1].function_space()
-        if len(Vrow) > 1 or len(Vcol) > 1:
-            raise NotImplementedError("Interpolation of mixed expressions with arguments is not supported")
-        if isinstance(target_mesh.topology, VertexOnlyMeshTopology) and target_mesh is not source_mesh and not vom_onto_other_vom:
-            if not isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-                raise NotImplementedError("Can only interpolate onto a Vertex Only Mesh")
-            if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
-                raise ValueError("Cannot interpolate onto a mesh of a different geometric dimension")
-            if not hasattr(target_mesh, "_parent_mesh") or target_mesh._parent_mesh is not source_mesh:
-                raise ValueError("Can only interpolate across meshes where the source mesh is the parent of the target")
-
-        if vom_onto_other_vom:
-            # We make our own linear operator for this case using PETSc SFs
-            tensor = None
-        else:
-            Vrow_map = get_interp_node_map(source_mesh, target_mesh, Vrow)
-            Vcol_map = get_interp_node_map(source_mesh, target_mesh, Vcol)
-            sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
-                                    [(Vrow_map, Vcol_map, None)],  # non-mixed
-                                    name="%s_%s_sparsity" % (Vrow.name, Vcol.name),
-                                    nest=False,
-                                    block_sparse=True)
-            tensor = op2.Mat(sparsity)
-        f = tensor
-    else:
-        raise ValueError(f"Cannot interpolate an expression with {rank} arguments")
-
-    if vom_onto_other_vom:
-        wrapper = VomOntoVomWrapper(V, source_mesh, target_mesh, operand, matfree)
-        # NOTE: get_dat_mpi_type ensures we get the correct MPI type for the
-        # data, including the correct data size and dimensional information
-        # (so for vector function spaces in 2 dimensions we might need a
-        # concatenation of 2 MPI.DOUBLE types when we are in real mode)
-        if tensor is not None:
-            # Callable will do interpolation into our pre-supplied function f
-            # when it is called.
-            assert f.dat is tensor
-            wrapper.mpi_type, _ = get_dat_mpi_type(f.dat)
-            assert len(arguments) == 1
-
-            def callable():
-                wrapper.forward_operation(f.dat)
-                return f
-        else:
-            assert len(arguments) == 2
-            assert tensor is None
-            # we know we will be outputting either a function or a cofunction,
-            # both of which will use a dat as a data carrier. At present, the
-            # data type does not depend on function space dimension, so we can
-            # safely use the argument function space. NOTE: If this changes
-            # after cofunctions are fully implemented, this will need to be
-            # reconsidered.
-            temp_source_func = firedrake.Function(Vcol)
-            wrapper.mpi_type, _ = get_dat_mpi_type(temp_source_func.dat)
-
-            # Leave wrapper inside a callable so we can access the handle
-            # property. If matfree is True, then the handle is a PETSc SF
-            # pretending to be a PETSc Mat. If matfree is False, then this
-            # will be a PETSc Mat representing the equivalent permutation
-            # matrix
-            def callable():
-                return wrapper
-
-        return callable
-    else:
-        loops = []
-        if len(V) == 1:
-            expressions = (expr,)
-        else:
-            if (hasattr(operand, "subfunctions") and len(operand.subfunctions) == len(V)
-                    and all(sub_op.ufl_shape == Vsub.value_shape for Vsub, sub_op in zip(V, operand.subfunctions))):
-                # Use subfunctions if they match the target shapes
-                operands = operand.subfunctions
-            else:
-                # Unflatten the expression into the shapes of the mixed components
-                offset = 0
-                operands = []
-                for Vsub in V:
-                    if len(Vsub.value_shape) == 0:
-                        operands.append(operand[offset])
-                    else:
-                        components = [operand[offset + j] for j in range(Vsub.value_size)]
-                        operands.append(ufl.as_tensor(numpy.reshape(components, Vsub.value_shape)))
-                    offset += Vsub.value_size
-
-            # Split the dual argument
-            if isinstance(dual_arg, Cofunction):
-                duals = dual_arg.subfunctions
-            elif isinstance(dual_arg, Coargument):
-                duals = [Coargument(Vsub, number=dual_arg.number()) for Vsub in dual_arg.function_space()]
-            else:
-                duals = [v for _, v in sorted(firedrake.formmanipulation.split_form(dual_arg))]
-            expressions = map(expr._ufl_expr_reconstruct_, operands, duals)
-
-        # Interpolate each sub expression into each function space
-        for Vsub, sub_tensor, sub_expr in zip(V, tensor, expressions):
-            loops.extend(_interpolator(Vsub, sub_tensor, sub_expr, subset, arguments, access, bcs=bcs))
-
-        if bcs and rank == 1:
-            loops.extend(partial(bc.apply, f) for bc in bcs)
-
-        def callable(loops, f):
-            for l in loops:
-                l()
-            return f
-
-        return partial(callable, loops, f)
+    def __init__(self, expr: Interpolate, V, bcs=None):
+        super().__init__(expr, V, bcs=bcs)
 
 
 @utils.known_pyop2_safe
