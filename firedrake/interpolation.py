@@ -133,14 +133,6 @@ class Interpolate(ufl.Interpolate):
         return ufl.Interpolate._ufl_expr_reconstruct_(self, expr, v=v, **interp_data)
     
     @property
-    def target_space(self):
-        return self.argument_slots()[0].function_space().dual()
-
-    @property
-    def source_space(self):
-        return self.argument_slots()[1].function_space()
-    
-    @property
     def options(self):
         return self._options
 
