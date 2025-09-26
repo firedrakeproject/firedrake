@@ -4,6 +4,7 @@ import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 
+# TODO: INT_TYPE? op3.INT_TYPE? op3.INT?
 ScalarType = np.dtype(PETSc.ScalarType)
 IntType = np.dtype(PETSc.IntType)
 PointerType = np.uintp

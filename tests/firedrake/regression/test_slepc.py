@@ -2,18 +2,15 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.petsc import PETSc
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 def topetsc(A):
     return A.petscmat
 
 
+@pytest.mark.skipslepc
 def test_laplace_physical_ev(parallel=False):
-    try:
-        from slepc4py import SLEPc
-    except ImportError:
-        pytest.skip(reason="SLEPc unavailable, skipping eigenvalue test")
+    from slepc4py import SLEPc
 
     mesh = UnitSquareMesh(64, 64)
     V = FunctionSpace(mesh, 'CG', 1)
@@ -65,6 +62,7 @@ def test_laplace_physical_ev(parallel=False):
     assert np.allclose(ev_exact, np.array(ev)[:3], atol=1e-1)
 
 
+@pytest.mark.skipslepc
 @pytest.mark.parallel
 def test_laplace_parallel():
     test_laplace_physical_ev(parallel=True)

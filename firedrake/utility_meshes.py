@@ -33,6 +33,7 @@ from firedrake.cython import dmcommon
 from firedrake import mesh
 from firedrake import function
 from firedrake import functionspace
+from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
 
 from pyadjoint.tape import no_annotations
@@ -87,10 +88,12 @@ def _postprocess_periodic_mesh(coords, comm, distribution_parameters, reorder, n
     dm.removeLabel("exterior_facets")
     dm.removeLabel("interior_facets")
     V = coords.function_space()
-    dmcommon._set_dg_coordinates(dm,
-                                 V.finat_element,
-                                 V.dm.getLocalSection(),
-                                 coords.dat._vec)
+
+    with coords.dat.vec(bsize=dm.getDimension()) as coords_vec:
+        dmcommon._set_dg_coordinates(dm,
+                                     V.finat_element,
+                                     V.dm.getLocalSection(),
+                                     coords_vec)
     return mesh.Mesh(
         dm,
         comm=comm,
@@ -375,9 +378,14 @@ def OneElementThickMesh(
     plex = mesh.plex_from_cell_list(
         2, cells, coords, comm, mesh._generate_default_mesh_topology_name(name)
     )
-    mesh1 = mesh.Mesh(plex, distribution_parameters=distribution_parameters, comm=comm)
-    mesh1.topology.init()
-    cell_numbering = mesh1._cell_numbering
+    tmesh1 = mesh.MeshTopology(
+        plex,
+        plex.getName(),
+        reorder=parameters["reorder_meshes"],
+        distribution_parameters=distribution_parameters,
+        comm=comm,
+    )
+    cell_numbering = tmesh1._cell_numbering
     cell_range = plex.getHeightStratum(0)
     cell_closure = np.zeros((cell_range[1], 9), dtype=IntType)
 
@@ -474,10 +482,8 @@ def OneElementThickMesh(
 
         cell_closure[row][0:4] = [v1, v1, v2, v2]
 
-    mesh1.topology.cell_closure = np.array(cell_closure, dtype=IntType)
-
-    mesh1.init()
-
+    tmesh1.cell_closure = np.array(cell_closure, dtype=IntType)
+    mesh1 = mesh.make_mesh_from_mesh_topology(tmesh1, "temp")
     fe_dg = FiniteElement("DQ", mesh1.ufl_cell(), 1, variant="equispaced")
     Vc = VectorFunctionSpace(mesh1, fe_dg)
     fc = Function(
@@ -2191,9 +2197,8 @@ def IcosahedralSphereMesh(
         )
         new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to sphere
-        new_coords.dat.data[:] *= (
-            radius / np.linalg.norm(new_coords.dat.data, axis=1)
-        ).reshape(-1, 1)
+        new_coords_data = new_coords.dat.data_rw.reshape((-1, 3))
+        new_coords_data *= radius / np.linalg.norm(new_coords_data, axis=1)[:, np.newaxis]
         m = mesh.Mesh(
             new_coords,
             name=name,
@@ -2645,10 +2650,9 @@ def CubedSphereMesh(
             functionspace.VectorFunctionSpace(m, "Q", degree)
         )
         new_coords.interpolate(ufl.SpatialCoordinate(m))
+        new_coords_data = new_coords.dat.data_rw.reshape((-1, 3))
         # "push out" to sphere
-        new_coords.dat.data[:] *= (
-            radius / np.linalg.norm(new_coords.dat.data, axis=1)
-        ).reshape(-1, 1)
+        new_coords_data[...] *= radius / np.linalg.norm(new_coords_data, axis=1)[:, np.newaxis]
         m = mesh.Mesh(
             new_coords,
             distribution_name=distribution_name,

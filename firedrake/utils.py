@@ -1,5 +1,7 @@
 # Some generic python utilities not really specific to our work.
 import collections.abc
+import warnings
+
 from decorator import decorator
 from pyop2.utils import cached_property  # noqa: F401
 from pyop2.datatypes import ScalarType, as_cstr
@@ -7,7 +9,22 @@ from pyop2.datatypes import RealType     # noqa: F401
 from pyop2.datatypes import IntType      # noqa: F401
 from pyop2.datatypes import as_ctypes    # noqa: F401
 from pyop2.mpi import MPI
-from firedrake.petsc import get_petsc_variables
+from pyop3.utils import (  # noqa: F401
+    readonly,
+    just_one,
+    single_valued,
+    is_single_valued,
+    has_unique_entries,
+    strictly_all,
+    debug_assert,
+    freeze,
+    StrictlyUniqueDict,
+    invert,
+    split_by,
+)
+
+import petsctools
+
 
 
 # MPI key value for storing a per communicator universal identifier
@@ -17,7 +34,7 @@ RealType_c = as_cstr(RealType)
 ScalarType_c = as_cstr(ScalarType)
 IntType_c = as_cstr(IntType)
 
-complex_mode = (get_petsc_variables()["PETSC_SCALAR"].lower() == "complex")
+complex_mode = (petsctools.get_petscvariables()["PETSC_SCALAR"].lower() == "complex")
 
 # Remove this (and update test suite) when Slate supports complex mode.
 SLATE_SUPPORTS_COMPLEX = False
@@ -113,25 +130,6 @@ def tuplify(item):
     return tuple((k, tuplify(item[k])) for k in sorted(item))
 
 
-def split_by(condition, items):
-    """Split an iterable in two according to some condition.
-
-    :arg condition: Callable applied to each item in ``items``, returning ``True``
-        or ``False``.
-    :arg items: Iterable to split apart.
-    :returns: A 2-tuple of the form ``(yess, nos)``, where ``yess`` is a tuple containing
-        the entries of ``items`` where ``condition`` is ``True`` and ``nos`` is a tuple
-        of those where ``condition`` is ``False``.
-    """
-    result = [], []
-    for item in items:
-        if condition(item):
-            result[0].append(item)
-        else:
-            result[1].append(item)
-    return tuple(result[0]), tuple(result[1])
-
-
 def assert_empty(iterator):
     """Check that an iterator has been fully consumed.
 
@@ -152,3 +150,18 @@ def assert_empty(iterator):
         raise AssertionError("Iterator is not empty")
     except StopIteration:
         pass
+
+
+# NOTE: Python 3.13 has warnings.deprecated which does exactly this
+def deprecated(prefer=None, internal=False):
+    """Decorator that emits a warning saying that the function is deprecated."""
+    def decorator(fn):
+        def wrapper(*args, **kwargs):
+            msg = f"{fn.__qualname__} is deprecated and will be removed"
+            if prefer:
+                msg += f", please use {prefer} instead"
+            warning_type = DeprecationWarning if internal else FutureWarning
+            warnings.warn(msg, warning_type)
+            return fn(*args, **kwargs)
+        return wrapper
+    return decorator

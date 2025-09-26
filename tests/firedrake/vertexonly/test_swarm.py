@@ -1,5 +1,4 @@
 from firedrake import *
-from firedrake.__future__ import *
 from firedrake.utils import IntType, RealType
 import pytest
 import numpy as np
@@ -17,7 +16,6 @@ def cell_midpoints(m):
     `midpoints` are the midpoints for the entire mesh even if the mesh is
     distributed and `local_midpoints` are the midpoints of only the
     rank-local non-ghost cells."""
-    m.init()
     V = VectorFunctionSpace(m, "DG", 0)
     f = Function(V).interpolate(SpatialCoordinate(m))
     # since mesh may be distributed, the number of cells on the MPI rank
@@ -47,7 +45,6 @@ def cell_ownership(m):
     m.locate_cell(point).
 
     """
-    m.init()
     # Interpolating Constant(parent_mesh.comm.rank) into P0DG cleverly creates
     # a Function whose dat contains rank ownership information in an ordering
     # that is accessible using Firedrake's cell numbering. This is because, on
@@ -159,7 +156,6 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
 
     # Setup
 
-    parentmesh.init()
     inputpointcoords, inputlocalpointcoords = cell_midpoints(parentmesh)
     inputcoordindices = np.arange(len(inputpointcoords))
     inputlocalpointcoordranks = point_ownership(parentmesh, inputpointcoords, inputlocalpointcoords)
@@ -218,8 +214,9 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     nptslocal = len(localpointcoords)
     nptsglobal = MPI.COMM_WORLD.allreduce(nptslocal, op=MPI.SUM)
     # Get parent PETSc cell indices on current MPI rank
-    localparentcellindices = np.copy(swarm.getField("DMSwarm_cellid").ravel())
-    swarm.restoreField("DMSwarm_cellid")
+    cell_id = swarm.getCellDMActive().getCellID()
+    localparentcellindices = np.copy(swarm.getField(cell_id).ravel())
+    swarm.restoreField(cell_id)
 
     # also get the global coordinate numbering
     globalindices = np.copy(swarm.getField("globalindex").ravel())
@@ -242,7 +239,6 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     # Check swarm fields are correct
     default_fields = [
         ("DMSwarmPIC_coor", parentmesh.geometric_dimension(), RealType),
-        ("DMSwarm_cellid", 1, IntType),
         ("DMSwarm_rank", 1, IntType),
     ]
     default_extra_fields = [
@@ -378,8 +374,9 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     ):
         swarm.setPointCoordinates(localpointcoords, redundant=False,
                                   mode=PETSc.InsertMode.INSERT_VALUES)
-        petsclocalparentcellindices = np.copy(swarm.getField("DMSwarm_cellid").ravel())
-        swarm.restoreField("DMSwarm_cellid")
+        cell_id = swarm.getCellDMActive().getCellID()
+        petsclocalparentcellindices = np.copy(swarm.getField(cell_id).ravel())
+        swarm.restoreField(cell_id)
         if exclude_halos:
             assert np.all(petsclocalparentcellindices == localparentcellindices)
         elif parentmesh.comm.size > 1:

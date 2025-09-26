@@ -8,19 +8,31 @@ import itertools
 import numbers
 import operator
 import warnings
-from collections.abc import Callable, Iterable, Mapping
-from typing import Any, Collection, Hashable, Optional
+from collections.abc import Callable, Iterable, Mapping, Hashable, Collection
+from typing import Any
 
 import numpy as np
 import pytools
 from immutabledict import immutabledict
-from pyrsistent import pmap
+from pyop2 import mpi
 
 from pyop3.config import config
-from pyop3.exceptions import Pyop3Exception
+from pyop3.exceptions import CommMismatchException, CommNotFoundException, Pyop3Exception
 from pyop3.dtypes import DTypeT, IntType
 
 from mpi4py import MPI
+
+import pyop3.extras.debug
+
+
+# NOTE: Perhaps better inside another module
+PYOP3_DECIDE = object()
+"""Placeholder indicating that a value should be set by pyop3.
+
+This is important in cases where the more traditional `None` is actually
+meaningful.
+
+"""
 
 
 class UnorderedCollectionException(Pyop3Exception):
@@ -242,10 +254,13 @@ single_valued = pytools.single_valued
 is_single_valued = pytools.is_single_valued
 
 
-def merge_dicts(dicts: Iterable[Mapping]) -> immutabledict:
+def merge_dicts(dicts: Iterable[Mapping], *, allow_duplicates=False) -> immutabledict:
     merged = {}
     for dict_ in dicts:
         merged.update(dict_)
+    if not allow_duplicates and len(merged) != sum(map(len, dicts)):
+        pyop3.extras.debug.warn_todo("duplicates found, this will become a hard error")
+        # raise ValueError("Duplicates found")
     return immutabledict(merged)
 
 
@@ -310,14 +325,19 @@ def strictly_all(iterable):
 
 
 def just_one(iterable):
-    # bit of a hack
-    iterable = list(iterable)
+    iterator = iter(iterable)
 
-    if len(iterable) == 0:
+    try:
+        first = next(iterator)
+    except StopIteration:
         raise ValueError("Empty iterable found")
-    if len(iterable) > 1:
-        raise ValueError("Too many values")
-    return iterable[0]
+
+    try:
+        second = next(iterator)
+    except StopIteration:
+        return first
+
+    raise ValueError("Too many values")
 
 
 class MultiStack:
@@ -357,22 +377,43 @@ def popwhen(predicate, iterable):
     raise KeyError("Predicate does not hold for any items in iterable")
 
 
-def steps(sizes, *, drop_last=None):
-    if drop_last is None:
-        pyop3.extras.warn_todo("The default here is changing!")
-        drop_last = False
-
+def steps(sizes, *, drop_last=True):
     steps_ = np.concatenate([[0], np.cumsum(sizes)])
     return readonly(steps_[:-1]) if drop_last else readonly(steps_)
 
 
 def strides(sizes, *, drop_last=True) -> np.ndarray[int]:
-    strides_ = np.concatenate([[1], np.cumprod(sizes)], dtype=int)
-    return readonly(strides_[:-1]) if drop_last else readonly(strides_)
+    """
+    Examples
+    --------
+
+    # I think...
+    (2, 2) returns (2, 2) - 2i + j
+    (1, 2) returns (2, 1) - 2i + j
+    (2, 1) returns (1, 1) - i + j
+
+    """
+    assert drop_last, "old code otherwise"
+    # reversed_sizes = np.asarray(sizes, dtype=int)[::-1]
+    # strides_ = np.concatenate([[1], np.cumprod(reversed_sizes[:-1])], dtype=int)
+    reversed_sizes = np.asarray(sizes)[::-1]
+    strides_ = np.concatenate([[1], np.cumprod(reversed_sizes[:-1])])
+    return readonly(strides_[::-1])
 
 
-def pairwise(iterable):
-    return zip(iterable, iterable[1:])
+_nothing = object()
+"""Sentinel value indicating nothing should be done.
+
+This is useful in cases where `None` holds some meaning.
+
+"""
+
+
+def pairwise(iterable, *, final=_nothing):
+    if final is not _nothing:
+        return itertools.zip_longest(iterable, iterable[1:], fillvalue=final)
+    else:
+        return zip(iterable, iterable[1:])
 
 
 # stolen from stackoverflow
@@ -506,6 +547,27 @@ def _expand_dict_of_iterables_rec(compressed_mut):
     return tuple(expanded)
 
 
+def split_by(condition, items):
+    """Split an iterable in two according to some condition.
+
+    :arg condition: Callable applied to each item in ``items``, returning ``True``
+        or ``False``.
+    :arg items: Iterable to split apart.
+    :returns: A 2-tuple of the form ``(yess, nos)``, where ``yess`` is a tuple containing
+        the entries of ``items`` where ``condition`` is ``True`` and ``nos`` is a tuple
+        of those where ``condition`` is ``False``.
+    """
+    result = [], []
+    for item in items:
+        if condition(item):
+            result[0].append(item)
+        else:
+            result[1].append(item)
+    return tuple(result[0]), tuple(result[1])
+
+
+
+
 def popfirst(dict_: dict) -> Any:
     """Remove the first item from a dictionary and return it with its key."""
     if not dict_:
@@ -513,20 +575,6 @@ def popfirst(dict_: dict) -> Any:
 
     key = next(iter(dict_))
     return (key, dict_.pop(key))
-
-
-def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
-    new = object.__new__(type(self))
-    for field in dataclasses.fields(self):
-        attr = attrs.pop(field.name, getattr(self, field.name))
-        object.__setattr__(new, field.name, attr)
-
-    if attrs:
-        raise ValueError(
-            f"Unrecognised arguments encountered during initialisation: {', '.join(attrs)}"
-        )
-
-    return new
 
 
 def record():
@@ -541,26 +589,195 @@ def _make_record(**kwargs):
     def wrapper(cls):
         cls = dataclasses.dataclass(**kwargs)(cls)
         cls.__record_init__ = _record_init
+
+        if kwargs.get("frozen", False):
+            cls.__hash__ = _frozenrecord_hash
+
         return cls
     return wrapper
+
+
+def _record_init(self: Any, **attrs: Mapping[str,Any]) -> Any:
+    changed_attrs = {}
+    for attr_name, attr in attrs.items():
+        assert attr_name in self.__dataclass_fields__
+        try:
+            if getattr(self, attr_name) != attr:
+                changed_attrs[attr_name] = attr
+        except ValueError:  # __eq__ not always available (e.g. numpy arrays)
+            changed_attrs[attr_name] = attr
+
+    if not changed_attrs:
+        return self
+
+    new = object.__new__(type(self))
+    for field in dataclasses.fields(self):
+        attr = changed_attrs.pop(field.name, getattr(self, field.name))
+        object.__setattr__(new, field.name, attr)
+
+    # FIXME: __post_init__ is not called when a custom __init__ method is provided
+    if hasattr(new, "__post_init__"):
+        new.__post_init__()
+
+    return new
+
+
+def _frozenrecord_hash(self):
+    if hasattr(self, "_cached_hash"):
+        return self._cached_hash
+
+    hash_ = hash(dataclasses.fields(self))
+    object.__setattr__(self, "_cached_hash", hash_)
+    return hash_
 
 
 def attr(attr_name: str) -> property:
     return property(lambda self: getattr(self, attr_name))
 
 
-def unique_comm(iterable) -> MPI.Comm | None:
+@functools.singledispatch
+def freeze(obj: Any) -> Hashable:
+    raise TypeError
+
+
+@freeze.register
+def _(tuple_: tuple) -> tuple:
+    return tuple(map(freeze, tuple_))
+
+
+@freeze.register
+def _(list_: list) -> tuple:
+    return tuple(map(freeze, list_))
+
+
+@freeze.register
+def _(immutabledict_: immutabledict) -> immutabledict:
+    return immutabledict({
+        key: freeze(value)
+        for key, value in immutabledict_.items()
+    })
+
+
+@freeze.register
+def _(dict_: dict) -> immutabledict:
+    return immutabledict({
+        key: freeze(value)
+        for key, value in dict_.items()
+    })
+
+
+@freeze.register
+def _(hashable: Hashable) -> Hashable:
+    return hashable
+
+
+# def match_attr(iterable, /, attr_name: str, *, allow_missing=False) -> Any:
+#     attr = None
+#     attr_found = False
+#     for item in iterflat(iterable):
+#         if hasattr(item, attr_name):
+#             new_attr = getattr(item, attr_name)
+#
+#             if attr_found:
+#                 assert new_attr == attr
+#             else:
+#                 attr = new_attr
+#
+#             attr_found = True
+#         elif not allow_missing:
+#             raise RuntimeError
+#
+#     assert attr_found
+#     return attr
+
+
+
+def single_comm(objects, /, comm_attr: str, *, allow_undefined: bool = False) -> MPI.Comm | None:
+    assert len(objects) > 0
+
     comm = None
-    for item in iterable:
-        if not item.comm:
-            continue
+    for item in iterflat(objects):
+        item_comm = getattr(item, comm_attr, None)
+
+        if item_comm is None:
+            if allow_undefined:
+                continue
+            else:
+                raise CommNotFoundException("Object does not have an associated communicator")
 
         if comm is None:
-            comm = item.comm
-        elif item.comm != comm:
-            raise ValueError("More than a single comm provided")
+            comm = item_comm
+        elif item_comm != comm:
+            raise CommMismatchException("Multiple communicators found")
     return comm
+
+
+@mpi.collective
+def common_comm(objects, /, comm_attr: str, *, allow_undefined: bool = False) -> MPI.Comm | None:
+    """Return a communicator valid for all objects.
+
+    This is defined as the communicator with the largest size. I *think* that
+    this is the right way to think about this.
+
+    """
+    assert len(objects) > 0
+
+    selected_comm = None
+    for item in iterflat(objects):
+        item_comm = getattr(item, comm_attr, None)
+
+        if item_comm is None:
+            if allow_undefined:
+                continue
+            else:
+                raise CommNotFoundException("Object does not have an associated communicator")
+
+        if selected_comm is None or item_comm.size > selected_comm.size:
+            selected_comm = item_comm
+    assert selected_comm is not None
+    return selected_comm
+
+
+def iterflat(iterable):
+    if isinstance(iterable, np.ndarray):
+        iterable = iterable.flatten()
+    return iter(iterable)
 
 
 def as_numpy_scalar(value: numbers.Number) -> np.number:
     return just_one(np.asarray([value]))
+
+
+def filter_type(type_: type, iterable: Iterable):
+    return filter(lambda item: isinstance(item, type_), iterable)
+
+
+def ceildiv(a, b, /):
+    assert b != 0
+    if b == 1:
+        return a
+    else:
+        # See https://stackoverflow.com/a/17511341
+        return -(a // -b)
+
+
+def regexify(pattern: str):
+    """Convert an expression pattern into a regex pattern.
+
+    This is useful for testing.
+
+    """
+    # Escape common characters
+    for char in ["(", ")", "[", "]", "*", "+"]:
+        pattern = pattern.replace(char, f"\\{char}")
+
+    # Convert '#' to '\d+' (to avoid numbering issues with arrays)
+    pattern = pattern.replace("#", r"\d+")
+
+    return pattern
+
+
+def unsafe_cache(*args, **kwargs):
+    import pyop3
+    pyop3.extras.debug.warn_todo("This cache is not safe in parallel and can also get very big!")
+    return functools.cache(*args, **kwargs)

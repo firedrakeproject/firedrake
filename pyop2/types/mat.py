@@ -32,7 +32,7 @@ class Sparsity(caching.ObjectCached):
         Sparsity((row_dset, col_dset),
                  [(first_rowmap, first_colmap), (second_rowmap, second_colmap), None])
 
-    .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html
+    .. _MatMPIAIJSetPreallocation: https://petsc.org/release/manualpages/Mat/MatMPIAIJSetPreallocation/
     """
 
     def __init__(self, dsets, maps_and_regions, name=None, nest=None, block_sparse=None, diagonal_block=True):
@@ -549,6 +549,9 @@ class AbstractMat(DataCarrier, abc.ABC):
     def __repr__(self):
         return "Mat(%r, %r, %r)" \
                % (self._sparsity, self._datatype, self._name)
+
+    def increment_dat_version(self):
+        pass
 
 
 class Mat(AbstractMat):

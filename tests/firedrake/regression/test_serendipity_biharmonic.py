@@ -1,10 +1,6 @@
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 import numpy
-import pytest
-
-
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 def test_serendipity_biharmonic():

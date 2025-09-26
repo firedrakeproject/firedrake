@@ -144,26 +144,24 @@ class LocalLoopyKernelBuilder:
 
         # Pick the coefficients associated with a Tensor()/TSFC kernel
         tsfc_coefficients = {tsfc_coefficients[i]: indices for i, indices in kinfo.coefficient_numbers}
-        for c, cinfo in wrapper_coefficients.items():
-            if c in tsfc_coefficients:
-                if isinstance(cinfo, tuple):
-                    if tsfc_coefficients[c]:
-                        ind, = tsfc_coefficients[c]
-                        if ind != 0:
-                            raise ValueError(f"Active indices of non-mixed function must be (0, ), not {tsfc_coefficients[c]}")
-                        kernel_data.append((c, cinfo[0]))
-                else:
-                    for ind, (c_, info) in enumerate(cinfo.items()):
-                        if ind in tsfc_coefficients[c]:
-                            kernel_data.append((c_, info[0]))
+        for c in tsfc_coefficients:
+            cinfo = wrapper_coefficients[c]
+            if isinstance(cinfo, tuple):
+                if tsfc_coefficients[c]:
+                    ind, = tsfc_coefficients[c]
+                    if ind != 0:
+                        raise ValueError(f"Active indices of non-mixed function must be (0, ), not {tsfc_coefficients[c]}")
+                    kernel_data.append((c, cinfo[0]))
+            else:
+                for ind, (c_, info) in enumerate(cinfo.items()):
+                    if ind in tsfc_coefficients[c]:
+                        kernel_data.append((c_, info[0]))
 
         # Pick the constants associated with a Tensor()/TSFC kernel
         tsfc_constants = tuple(tsfc_constants[i] for i in kinfo.constant_numbers)
-        kernel_data.extend([
-            (constant, constant_name)
-            for constant, constant_name in wrapper_constants
-            if constant in tsfc_constants
-        ])
+        wrapper_constants = dict(wrapper_constants)
+        for c in tsfc_constants:
+            kernel_data.append((c, wrapper_constants[c]))
         return kernel_data
 
     def loopify_tsfc_kernel_data(self, kernel_data):

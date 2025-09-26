@@ -8,7 +8,6 @@ import numpy as np
 from firedrake import *
 
 cwd = abspath(dirname(__file__))
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.mark.parametrize('mesh_thunk',

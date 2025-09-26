@@ -36,30 +36,6 @@ import finat
 import numpy
 import ctypes
 
-Citations().add("Brubeck2022", """
-@article{Brubeck2022,
-  title={A scalable and robust vertex-star relaxation for high-order {FEM}},
-  author={Brubeck, Pablo D. and Farrell, Patrick E.},
-  journal = {SIAM J. Sci. Comput.},
-  volume = {44},
-  number = {5},
-  pages = {A2991-A3017},
-  year = {2022},
-  doi = {10.1137/21M1444187}
-""")
-
-Citations().add("Brubeck2024", """
-@article{Brubeck2024,
-  title={{Multigrid solvers for the de Rham complex with optimal complexity in polynomial degree}},
-  author={Brubeck, Pablo D. and Farrell, Patrick E.},
-  journal = {SIAM J. Sci. Comput.},
-  volume = {46},
-  number = {3},
-  pages = {A1549-A1573},
-  year = {2024},
-  doi = {10.1137/22M1537370}
-""")
-
 
 __all__ = ("FDMPC", "PoissonFDMPC")
 
@@ -121,7 +97,7 @@ class FDMPC(PCBase):
         Citations().register(self._citation)
         self.comm = pc.comm
         Amat, Pmat = pc.getOperators()
-        prefix = pc.getOptionsPrefix()
+        prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
         options = PETSc.Options(options_prefix)
 
@@ -261,7 +237,8 @@ class FDMPC(PCBase):
             self.fises = PETSc.IS().createBlock(Vbig.block_size, fdofs, comm=COMM_SELF)
 
         # Create data structures needed for assembly
-        self.lgmaps = {Vsub: Vsub.local_to_global_map([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
+        # FIXME: This won't work as there is not mat_spec
+        self.lgmaps = {Vsub: Vsub.mask_lgmap([bc for bc in bcs if bc.function_space() == Vsub]) for Vsub in V}
         self.indices_acc = {Vsub: mask_local_indices(Vsub, self.lgmaps[Vsub], self.allow_repeated) for Vsub in V}
         self.coefficients, assembly_callables = self.assemble_coefficients(J, fcp)
         self.assemblers = {}
@@ -720,10 +697,7 @@ class FDMPC(PCBase):
 
     @cached_property
     def insert_mode(self):
-        is_dg = {}
-        for Vsub in self.V:
-            element = Vsub.finat_element
-            is_dg[Vsub] = element.entity_dofs() == element.entity_closure_dofs()
+        is_dg = {Vsub: Vsub.finat_element.is_dg() for Vsub in self.V}
 
         insert_mode = {}
         for Vrow, Vcol in product(self.V, self.V):
@@ -780,10 +754,11 @@ class FDMPC(PCBase):
         P.setISAllowRepeated(self.allow_repeated)
         P.setLGMap(rmap, cmap)
         if on_diag and ptype == "is" and self.allow_repeated:
-            bsize = Vrow.finat_element.space_dimension() * Vrow.value_size
+            bsize = Vrow.finat_element.space_dimension() * Vrow.block_size
             local_mat = P.getISLocalMat()
             nblocks = local_mat.getSize()[0] // bsize
-            local_mat.setVariableBlockSizes([bsize] * nblocks)
+            sizes = numpy.full((nblocks,), bsize, dtype=PETSc.IntType)
+            local_mat.setVariableBlockSizes(sizes)
         P.setPreallocationNNZ((dnz, onz))
 
         if not (ptype.endswith("sbaij") or ptype == "is"):
@@ -1867,8 +1842,9 @@ class SparseAssembler:
                                   InsertMode addv)
             {{
                 PetscInt m, ncols, irow, icol;
-                PetscInt *indices, *cols;
-                PetscScalar *vals;
+                PetscInt *indices;
+                const PetscInt *cols;
+                const PetscScalar *vals;
                 PetscCall(MatGetSize(B, &m, NULL));
                 PetscCall(MatSeqAIJGetMaxRowNonzeros(B, &ncols));
                 PetscCall(PetscMalloc1(ncols, &indices));
@@ -1934,9 +1910,7 @@ class PoissonFDMPC(FDMPC):
 
         degree = max(e.degree() for e in line_elements)
         eta = float(self.appctx.get("eta", degree*(degree+1)))
-        element = V.finat_element
-        is_dg = element.entity_dofs() == element.entity_closure_dofs()
-
+        is_dg = V.finat_element.is_dg()
         Afdm = []  # sparse interval mass and stiffness matrices for each direction
         Dfdm = []  # tabulation of normal derivatives at the boundary for each direction
         bdof = []  # indices of point evaluation dofs for each direction

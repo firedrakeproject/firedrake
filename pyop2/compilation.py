@@ -47,11 +47,12 @@ from functools import partial
 from pathlib import Path
 from contextlib import contextmanager
 from tempfile import gettempdir, mkstemp
+from typing import Hashable
 from random import randint
 
 
 from pyop2 import mpi
-from pyop2.caching import parallel_cache, memory_cache, default_parallel_hashkey, _as_hexdigest, DictLikeDiskAccess
+from pyop2.caching import parallel_cache, memory_cache, default_parallel_hashkey, DictLikeDiskAccess, as_hexdigest
 from pyop2.configuration import configuration
 from pyop2.logger import warning, debug, progress, INFO
 from pyop2.exceptions import CompilationError
@@ -158,7 +159,7 @@ def sniff_compiler(exe, comm=mpi.COMM_WORLD):
         # Find the name of the compiler family
         if output.startswith("gcc") or output.startswith("g++"):
             name = "GNU"
-        elif output.startswith("clang"):
+        elif output.startswith("clang") or output.startswith("Homebrew clang"):
             name = "clang"
         elif output.startswith("Apple LLVM") or output.startswith("Apple clang"):
             name = "clang"
@@ -250,6 +251,24 @@ class Compiler(ABC):
 
     def __str__(self):
         return f"<{self._name} compiler, version {self._version or 'unknown'}>"
+
+    def __hash__(self) -> int:
+        return hash((
+            type(self),
+            self._extra_compiler_flags,
+            self._extra_linker_flags,
+            self._version,
+            self._debug,
+        ))
+
+    def __eq__(self, other) -> bool:
+        return (
+            type(other) is type(self)
+            and other._extra_compiler_flags == self._extra_compiler_flags
+            and other._extra_linker_flags == self._extra_linker_flags
+            and other._version == self._version
+            and other._debug == self._debug
+        )
 
     @property
     def cc(self):
@@ -412,9 +431,10 @@ class AnonymousCompiler(Compiler):
     _name = "Unknown"
 
 
-def load_hashkey(*args, **kwargs):
-    code_hash = md5(args[0].encode()).hexdigest()
-    return default_parallel_hashkey(code_hash, *args[1:], **kwargs)
+def load_hashkey(code, extension, cppargs=(), ldargs=(), comm=None):
+    cppargs = tuple(cppargs)
+    ldargs = tuple(ldargs)
+    return default_parallel_hashkey(code, extension, cppargs, ldargs)
 
 
 @mpi.collective
@@ -430,7 +450,6 @@ def load(code, extension, cppargs=(), ldargs=(), comm=None):
     :kwarg comm: Optional communicator to compile the code on (only
         rank 0 compiles code) (defaults to pyop2.mpi.COMM_WORLD).
     """
-    global _compiler
     if _compiler:
         # Use the global compiler if it has been set
         compiler = _compiler
@@ -485,7 +504,7 @@ class CompilerDiskAccess(DictLikeDiskAccess):
         return self[key]
 
 
-def _make_so_hashkey(compiler, code, extension, comm):
+def _make_so_hashkey(compiler, code, extension, comm) -> tuple[Hashable, ...]:
     if extension == "cpp":
         exe = compiler.cxx
         compiler_flags = compiler.cxxflags
@@ -505,7 +524,7 @@ def check_source_hashes(compiler, code, extension, comm):
     :arg comm: Communicator over which to perform compilation.
     """
     # Reconstruct hash from filename
-    hashval = _as_hexdigest(_make_so_hashkey(compiler, code, extension, comm))
+    hashval = as_hexdigest(_make_so_hashkey(compiler, code, extension, comm))
     with mpi.temp_internal_comm(comm) as icomm:
         matching = icomm.allreduce(hashval, op=_check_op)
         if matching != hashval:
@@ -524,7 +543,7 @@ def check_source_hashes(compiler, code, extension, comm):
 @mpi.collective
 @parallel_cache(
     hashkey=_make_so_hashkey,
-    cache_factory=lambda: CompilerDiskAccess(configuration['cache_dir'], extension=".so")
+    make_cache=lambda: CompilerDiskAccess(configuration['cache_dir'], extension=".so")
 )
 @PETSc.Log.EventDecorator()
 def make_so(compiler, code, extension, comm, filename=None):

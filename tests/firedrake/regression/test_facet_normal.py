@@ -2,7 +2,6 @@ import numpy
 import pytest
 
 from firedrake import *
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 def test_facet_normal_unit_interval():

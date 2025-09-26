@@ -3,9 +3,6 @@ from firedrake import *
 import numpy as np
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 @pytest.fixture(scope="module",
                 params=[0, 1, 2, 3],
                 ids=lambda x: "DG%d" % x)

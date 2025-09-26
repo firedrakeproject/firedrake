@@ -6,9 +6,6 @@ from firedrake.utils import IntType
 import shutil
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO (very slow!)")
-
-
 test_version = "2024_01_27"
 
 
@@ -42,6 +39,8 @@ basename = "test_io_backward_compat"
 mesh_name = "m"
 func_name = "f"
 
+stokes_control_mesh_file = join(cwd, "..", "..", "..", "docs", "notebooks/stokes-control.msh")
+
 
 def _initialise_function(f, _f):
     f.project(_f, solver_parameters={"ksp_type": "cg", "pc_type": "jacobi", "ksp_rtol": 1.e-16})
@@ -66,7 +65,7 @@ def _compute_random_layers(base):
 def _get_mesh_and_V(params):
     cell_type, periodic, extruded, extruded_periodic, extruded_real, immersed, mixed = params
     if mixed:
-        mesh = Mesh("./docs/notebooks/stokes-control.msh", name=mesh_name)
+        mesh = Mesh(stokes_control_mesh_file, name=mesh_name)
         if cell_type == "triangle":
             BDM = FunctionSpace(mesh, "BDM", 1)
             DG = FunctionSpace(mesh, "DG", 0)
@@ -103,7 +102,7 @@ def _get_mesh_and_V(params):
             raise NotImplementedError
     elif extruded and extruded_real:
         if cell_type == "triangle":
-            base = Mesh("./docs/notebooks/stokes-control.msh", name=mesh_name + "_base")
+            base = Mesh(stokes_control_mesh_file, name=mesh_name + "_base")
             layers = 3
             mesh = ExtrudedMesh(base, layers=layers, layer_height=1.0, name=mesh_name)
             V = VectorFunctionSpace(mesh, "P", 4, vfamily="Real", vdegree=0, dim=3)
@@ -112,7 +111,7 @@ def _get_mesh_and_V(params):
     elif extruded:
         # Test variable layers; see also issue #2169.
         if cell_type == "triangle":
-            base = Mesh("./docs/notebooks/stokes-control.msh", name=mesh_name + "_base")
+            base = Mesh(stokes_control_mesh_file, name=mesh_name + "_base")
             layers = _compute_random_layers(base)
             mesh = ExtrudedMesh(base, layers=layers, layer_height=1.0, name=mesh_name)
             helem = FiniteElement("DP", cell_type, 4)
@@ -131,7 +130,7 @@ def _get_mesh_and_V(params):
         else:
             raise NotImplementedError
     elif cell_type == "triangle":
-        mesh = Mesh("./docs/notebooks/stokes-control.msh", name=mesh_name)
+        mesh = Mesh(stokes_control_mesh_file, name=mesh_name)
         V = FunctionSpace(mesh, "BDM", 3)
     elif cell_type == "tetrahedron":
         mesh = UnitCubeMesh(16, 16, 16, name=mesh_name)

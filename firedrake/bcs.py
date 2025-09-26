@@ -3,6 +3,7 @@ import numpy as np
 
 import functools
 import itertools
+from functools import cached_property
 
 import ufl
 from ufl import as_ufl, as_tensor
@@ -41,7 +42,7 @@ class BCBase:
     @PETSc.Log.EventDecorator()
     def __init__(self, V, sub_domain):
         self._function_space = V
-        self.sub_domain = (sub_domain, ) if isinstance(sub_domain, str) else as_tuple(sub_domain)
+        self.sub_domain = (sub_domain,) if isinstance(sub_domain, str) else as_tuple(sub_domain)
         # If this BC is defined on a subspace (IndexedFunctionSpace or
         # ComponentFunctionSpace, possibly recursively), pull out the appropriate
         # indices.
@@ -118,7 +119,11 @@ class BCBase:
 
     @utils.cached_property
     def nodes(self):
-        '''The list of nodes at which this boundary condition applies.'''
+        '''The list of nodes at which this boundary condition applies.
+
+        These must be unique.
+
+        '''
 
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
         V = self._function_space
@@ -141,6 +146,20 @@ class BCBase:
                     bcnodes = np.setdiff1d(bcnodes, deriv_ids)
             return bcnodes
 
+         # 'subdomain_id' has the form
+         #
+         #     (A, B, C)
+         #
+         # where each entry is either itself a tuple or a string. For instance
+         # 'A' may be
+         #
+         #     (1, 2, 3)
+         #
+         # or a special string like "on_boundary".
+         #
+         # The points constrained by the boundary condition is the *intersection
+         # of the inner entries* (e.g. 1 ∩ 2 ∩ 3), but the *union of the outer
+         # entries* (e.g. A ∪ B ∪ C).
         sub_d = (self.sub_domain, ) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
         sub_d = [s if isinstance(s, str) else as_tuple(s) for s in sub_d]
         bcnodes = []
@@ -164,82 +183,103 @@ class BCBase:
                     bcnodes1.append(hermite_stride(self._function_space.boundary_nodes(ss)))
                 bcnodes1 = functools.reduce(np.intersect1d, bcnodes1)
                 bcnodes.append(bcnodes1)
-        return np.concatenate(bcnodes)
+        return np.unique(np.concatenate(bcnodes))
 
-    # TODO: this should return an axis tree instead of a slice - more flexible
-    @utils.cached_property
-    def constrained_points(self):
-        """Return the subset of mesh points constrained by the boundary condition."""
-        # NOTE: This returns facets, whose closure is then used when applying the BC
-        mesh = self._function_space.mesh().topology
-        tdim = mesh.dimension
+    @cached_property
+    def node_set(self) -> op3.Slice:
+        subset_dat = op3.Dat.from_sequence(self.nodes, dtype=utils.IntType)
+        subset = op3.Subset(None, subset_dat)
+        return op3.Slice("nodes", [subset])
 
-        # 1D Hermite elements have strange vertex properties, we only want every
-        # other entry
-        if isinstance(self._function_space.finat_element, finat.Hermite) and tdim == 1:
-            raise NotImplementedError("TODO, need to have inner slice with stride 2")
-
-        subset_data_per_dim = {
-            dim: [] for dim in range(tdim + 1)
-        }
-
-        if isinstance(self.sub_domain, str):
-            subdomain_ids = ((self.sub_domain,),)
-        else:
-            # bit convoluted
-            subdomain_ids = tuple(as_tuple(s) for s in as_tuple(self.sub_domain))
-
-        # This check should be moved into __init__
-        mesh = self.function_space().mesh().topology
-        valid_markers = set(mesh.interior_facets.unique_markers)
-        valid_markers |= set(mesh.exterior_facets.unique_markers)
-
-        for subdomain_id in subdomain_ids:
-            # subdomain_id is of one of the following formats:
-            # facet: (i,)
-            # edge: (i, j)
-            # vertex: (i, j, k)
-            # i, j, k can also be strings.
-            if (
-                len(subdomain_id) > 1
-                and not isinstance(
-                    self._function_space.finat_element,
-                    (finat.Lagrange, finat.GaussLobattoLegendre)
-                )
-            ):
-                raise TypeError(
-                    "Currently, edge conditions have only been tested with "
-                    "CG Lagrange elements"
-                )
-
-            if len(subdomain_id) > 1:
-                raise NotImplementedError(
-                    "TODO pyop3, need to intersect (see previous `nodes` method)"
-                )
-
-            if subdomain_id not in {("on_boundary",), ("top",), ("bottom",)}:
-                invalid = set(subdomain_id) - valid_markers
-                if invalid:
-                    raise LookupError(f"BC construction got invalid markers {invalid}. "
-                                      f"Valid markers are '{valid_markers}'")
-
-            subsets = mesh.subdomain_points(subdomain_id)
-            for dim, subset_data in subset_data_per_dim.items():
-                subset_data.append(subsets[dim])
-
-        flat_subset_data = {
-            dim: functools.reduce(np.union1d, data)
-            for dim, data in subset_data_per_dim.items()
-        }
-
-        subsets = []
-        for dim, data in flat_subset_data.items():
-            point_label = str(dim)
-            n, = data.shape
-            array = op3.Dat(op3.Axis(n), data=data, prefix="subset", dtype=utils.IntType)
-            subset = op3.Subset(point_label, array)
-            subsets.append(subset)
-        return op3.Slice(mesh.points.label, subsets)
+    # @cached_property
+    # def subset(self):
+    #     """Return the subset of mesh points constrained by the boundary condition."""
+    #     # NOTE: This returns facets, whose closure is then used when applying the BC
+    #     mesh = self._function_space.mesh().topology
+    #     tdim = mesh.dimension
+    #
+    #     # 1D Hermite elements have strange vertex properties, we only want every
+    #     # other entry
+    #     if isinstance(self._function_space.finat_element, finat.Hermite) and tdim == 1:
+    #         raise NotImplementedError("TODO, need to have inner slice with stride 2")
+    #
+    #     # 'subdomain_id' has the form
+    #     #
+    #     #     (A, B, C)
+    #     #
+    #     # where each entry is either itself a tuple or a string. For instance
+    #     # 'A' may be
+    #     #
+    #     #     (1, 2, 3)
+    #     #
+    #     # or a special string like "on_boundary".
+    #     #
+    #     # The points constrained by the boundary condition is the *intersection
+    #     # of the inner entries* (e.g. 1 ∩ 2 ∩ 3), but the *union of the outer
+    #     # entries* (e.g. A ∪ B ∪ C).
+    #
+    #
+    #     # very convoluted
+    #     # if isinstance(self.sub_domain, str):
+    #     #     subdomain_ids = ((self.sub_domain,),)
+    #     # else:
+    #     #     subdomain_ids = tuple(as_tuple(s) for s in as_tuple(self.sub_domain))
+    #
+    #     # This check should be moved into __init__
+    #     mesh = self.function_space().mesh().topology
+    #     valid_markers = set(mesh.interior_facets.unique_markers)
+    #     valid_markers |= set(mesh.exterior_facets.unique_markers)
+    #
+    #     subsets_ = []
+    #     for intersecting_subdomain_ids in self.sub_domain:
+    #         subdomain_subsets = tuple([] for _ in range(tdim+1))
+    #         # TODO: Where should this check go?
+    #         if isinstance(intersecting_subdomain_ids, str):
+    #             subdomain_id = intersecting_subdomain_ids
+    #
+    #             if intersecting_subdomain_ids not in {"on_boundary", "top", "bottom"}:
+    #                 invalid = set(intersecting_subdomain_ids) - valid_markers
+    #                 if invalid:
+    #                     raise LookupError(f"BC construction got invalid markers {invalid}. "
+    #                                       f"Valid markers are '{valid_markers}'")
+    #
+    #         else:
+    #             if (
+    #                 isinstance(intersecting_subdomain_ids, tuple)
+    #                 and len(intersecting_subdomain_ids) > 1
+    #                 and not isinstance(
+    #                     self._function_space.finat_element,
+    #                     (finat.Lagrange, finat.GaussLobattoLegendre)
+    #                 )
+    #             ):
+    #                 raise TypeError(
+    #                     "subdomain intersection conditions have only "
+    #                     "been tested with CG Lagrange elements"
+    #                 )
+    #
+    #         for dim, subset in enumerate(mesh.subdomain_subset(intersecting_subdomain_ids)):
+    #             subdomain_subsets[dim].append(subset)
+    #
+    #         subdomain_subsets = tuple(
+    #             functools.reduce(np.union1d, subset_data) for subset_data in subdomain_subsets
+    #         )
+    #         subsets_.append(subdomain_subsets)
+    #
+    #     # take the union of 'subsets_'
+    #     if len(subsets_) > 1:
+    #         raise NotImplementedError("TODO")
+    #     else:
+    #         subsets_ = op3.utils.just_one(subsets_)
+    #
+    #     slices = []
+    #     for dim, data in enumerate(subsets_):
+    #         if len(data) == 0:
+    #             continue
+    #
+    #         subset_dat = op3.Dat(op3.Axis(data.size), data=data, prefix="subset")
+    #         subset = op3.Subset(str(dim), subset_dat)
+    #         slices.append(subset)
+    #     return op3.Slice(mesh.points.root.label, slices)
 
     @PETSc.Log.EventDecorator()
     def zero(self, r):
@@ -255,10 +295,10 @@ class BCBase:
         for idx in self._indices:
             r = r.sub(idx)
 
-        if r.function_space() != self._function_space:
+        if r.function_space().axes != self._function_space.axes:
             raise RuntimeError(f"{r} defined on an incompatible FunctionSpace")
 
-        r.dat.zero(subset=self.constrained_points)
+        r.zero(subset=self.node_set)
 
     @PETSc.Log.EventDecorator()
     def set(self, r, val):
@@ -274,7 +314,7 @@ class BCBase:
                 val = val.sub(idx)
         else:
             assert np.isscalar(val)
-        r.assign(val, subset=self.constrained_points)
+        r.assign(val, subset=self.node_set)
 
     def integrals(self):
         raise NotImplementedError("integrals() method has to be overwritten")
@@ -293,7 +333,7 @@ class BCBase:
             if len(field) == 1:
                 W = V
             else:
-                W = V.subfunctions[field_renumbering[index]] if use_split else V.sub(field_renumbering[index])
+                W = V.subspaces[field_renumbering[index]] if use_split else V.sub(field_renumbering[index])
             if cmpt is not None:
                 W = W.sub(cmpt)
             return W
@@ -307,7 +347,7 @@ class BCBase:
         for bc in itertools.chain(*self.bcs):
             bc._bc_depth += 1
 
-    def extract_forms(self, form_type):
+    def extract_form(self, form_type):
         # Return boundary condition objects actually used in assembly.
         raise NotImplementedError("Method to extract form objects not implemented.")
 
@@ -524,9 +564,13 @@ class DirichletBC(BCBase, DirichletBCMixin):
             if u:
                 u = u.sub(idx)
         if u:
-            r.assign(u - self.function_arg, subset=self.constrained_points)
+            if self.function_arg == 0:
+                bc_residual = u
+            else:
+                bc_residual = u - self.function_arg
+            r.assign(bc_residual, subset=self.node_set)
         else:
-            r.assign(self.function_arg, subset=self.constrained_points)
+            r.assign(self.function_arg, subset=self.node_set)
 
     def integrals(self):
         return []
@@ -535,7 +579,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         # DirichletBC is directly used in assembly.
         return self
 
-    def _as_nonlinear_variational_problem_arg(self):
+    def _as_nonlinear_variational_problem_arg(self, is_linear=False):
         return self
 
 
@@ -574,15 +618,16 @@ class EquationBC(object):
             # linear
             if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
                 J = eq.lhs
+                L = eq.rhs
                 Jp = Jp or J
-                if eq.rhs == 0:
+                if L == 0 or L.empty():
                     F = ufl_expr.action(J, u)
                 else:
-                    if not isinstance(eq.rhs, (ufl.Form, slate.slate.TensorBase)):
-                        raise TypeError("Provided BC RHS is a '%s', not a Form or Slate Tensor" % type(eq.rhs).__name__)
-                    if len(eq.rhs.arguments()) != 1:
+                    if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)):
+                        raise TypeError("Provided BC RHS is a '%s', not a BaseForm or Slate Tensor" % type(L).__name__)
+                    if len(L.arguments()) != 1:
                         raise ValueError("Provided BC RHS is not a linear form")
-                    F = ufl_expr.action(J, u) - eq.rhs
+                    F = ufl_expr.action(J, u) - L
                 self.is_linear = True
             # nonlinear
             else:
@@ -592,6 +637,7 @@ class EquationBC(object):
                 J = J or ufl_expr.derivative(F, u)
                 Jp = Jp or J
                 self.is_linear = False
+            self.eq = eq
             # Check form style consistency
             is_form_consistent(self.is_linear, bcs)
             # Argument checking
@@ -604,9 +650,7 @@ class EquationBC(object):
             # reconstruction for splitting `solving_utils.split`
             self.Jp_eq_J = Jp_eq_J
             self.is_linear = is_linear
-            self._F = args[0]
-            self._J = args[1]
-            self._Jp = args[2]
+            self._F, self._J, self._Jp = args[:3]
         else:
             raise TypeError("Wrong EquationBC arguments")
 
@@ -635,7 +679,7 @@ class EquationBC(object):
         if all([_F is not None, _J is not None, _Jp is not None]):
             return EquationBC(_F, _J, _Jp, Jp_eq_J=self.Jp_eq_J, is_linear=is_linear)
 
-    def _as_nonlinear_variational_problem_arg(self):
+    def _as_nonlinear_variational_problem_arg(self, is_linear=False):
         return self
 
 
@@ -727,7 +771,7 @@ class EquationBCSplit(BCBase):
                     ebc.add(bc_temp)
         return ebc
 
-    def _as_nonlinear_variational_problem_arg(self):
+    def _as_nonlinear_variational_problem_arg(self, is_linear=False):
         # NonlinearVariationalProblem expects EquationBC, not EquationBCSplit.
         # -- This method is required when NonlinearVariationalProblem is constructed inside PC.
         if len(self.f.arguments()) != 2:
@@ -735,11 +779,12 @@ class EquationBCSplit(BCBase):
         J = self.f
         Vcol = J.arguments()[-1].function_space()
         u = firedrake.Function(Vcol)
-        F = ufl_expr.action(J, u)
         Vrow = self._function_space
         sub_domain = self.sub_domain
-        bcs = tuple(bc._as_nonlinear_variational_problem_arg() for bc in self.bcs)
-        return EquationBC(F == 0, u, sub_domain, bcs=bcs, J=J, V=Vrow)
+        bcs = tuple(bc._as_nonlinear_variational_problem_arg(is_linear=is_linear) for bc in self.bcs)
+        lhs = J if is_linear else ufl_expr.action(J, u)
+        rhs = ufl.Form([]) if is_linear else 0
+        return EquationBC(lhs == rhs, u, sub_domain, bcs=bcs, J=J, V=Vrow)
 
 
 @PETSc.Log.EventDecorator()

@@ -29,7 +29,7 @@ class ASMPatchPC(PCBase):
         # Get context from pc
         _, P = pc.getOperators()
         dm = pc.getDM()
-        self.prefix = pc.getOptionsPrefix() + self._prefix
+        self.prefix = (pc.getOptionsPrefix() or "") + self._prefix
 
         # Extract function space and mesh to obtain plex and indexing functions
         V = get_function_space(dm)
@@ -379,6 +379,13 @@ def get_basemesh_nodes(W):
         basemeshdof[p - pstart] = dof_per_layer
         basemeshlayeroffset[p - pstart] = layer_offset
 
+    if W.mesh().extruded_periodic:
+        # Account for missing dofs from the top layer
+        for dim in range(W.mesh().topological_dimension()):
+            qstart, qend = W.mesh().topology_dm.getDepthStratum(dim)
+            quotient = len(W.finat_element.entity_dofs()[(dim, 0)][0])
+            basemeshdof[qstart-pstart:qend-pstart] += quotient
+
     return basemeshoff, basemeshdof, basemeshlayeroffset
 
 
@@ -399,6 +406,7 @@ class ASMExtrudedStarPC(ASMStarPC):
         nlayers = mesh.layers
         if not mesh.cell_set._extruded:
             return super(ASMExtrudedStarPC, self).get_patches(V)
+        periodic = mesh.extruded_periodic
 
         # Obtain the topological entities to use to construct the stars
         opts = PETSc.Options(self.prefix)
@@ -433,13 +441,19 @@ class ASMExtrudedStarPC(ASMStarPC):
         # Face-stars: depth = 2 = 2 + 0 = 1 + 1.
         # 2 + 0 -> horizontal face-star = (2D interior) x (1D vertex-star)
         # 1 + 1 -> vertical face-star = (2D edge-star) x (1D interior)
+        pstart, _ = mesh_dm.getChart()
         for base_depth in range(depth+1):
             interval_depth = depth - base_depth
-            if interval_depth > 1:
+            if interval_depth == 0:
+                # extrude by 1D vertex-star
+                layer_entities = [(1, 1), (1, 0), (0, 0)]
+            elif interval_depth == 1:
+                # extrude by 1D interior
+                layer_entities = [(1, 0)]
+            else:
                 continue
 
             start, end = mesh_dm.getDepthStratum(base_depth)
-            pstart, _ = mesh_dm.getChart()
             for seed in range(start, end):
                 # Only build patches over owned DoFs
                 if mesh_dm.getLabelValue("pyop2_ghost", seed) != -1:
@@ -449,25 +463,24 @@ class ASMExtrudedStarPC(ASMStarPC):
                 points, _ = mesh_dm.getTransitiveClosure(seed, useCone=False)
                 points = order_points(mesh_dm, points, ordering, self.prefix)
                 points -= pstart  # offset by chart start
-                for k in range(nlayers-interval_depth):
-                    if interval_depth == 1:
-                        # extrude by 1D interior
-                        planes = [1]
-                    elif k == 0:
-                        # extrude by 1D vertex-star on the bottom
-                        planes = [1, 0]
-                    elif k == nlayers - 1:
-                        # extrude by 1D vertex-star on the top
-                        planes = [-1, 0]
-                    else:
-                        # extrude by 1D vertex-star
-                        planes = [-1, 1, 0]
 
+                num_seeds = nlayers
+                if periodic or interval_depth:
+                    num_seeds -= 1
+                for layer_seed in range(num_seeds):
                     indices = []
                     # Get DoF indices for patch
                     for i, W in enumerate(V):
                         iset = V_ises[i]
-                        for plane in planes:
+                        for layer_dim, layer_shift in layer_entities:
+                            layer = layer_seed - layer_shift
+                            if periodic:
+                                # Handle periodic case
+                                layer = layer % (nlayers-1)
+                            elif layer < 0 or (layer + layer_dim) >= nlayers:
+                                # We are out of bounds
+                                continue
+
                             for p in points:
                                 # How to walk up one layer
                                 blayer_offset = basemeshlayeroffsets[i][p]
@@ -483,12 +496,12 @@ class ASMExtrudedStarPC(ASMStarPC):
                                 # entity
                                 dof = basemeshdof[i][p]
                                 # Hard-code taking the star
-                                if plane == 0:
-                                    begin = off + k * blayer_offset
-                                    end = off + k * blayer_offset + dof
+                                if layer_dim == 0:
+                                    begin = off + layer * blayer_offset
+                                    end = off + layer * blayer_offset + dof
                                 else:
-                                    begin = off + min(k, k+plane) * blayer_offset + dof
-                                    end = off + max(k, k+plane) * blayer_offset
+                                    begin = off + layer * blayer_offset + dof
+                                    end = off + (layer + 1) * blayer_offset
                                 zlice = slice(W.block_size * begin, W.block_size * end)
                                 indices.extend(iset[zlice])
 

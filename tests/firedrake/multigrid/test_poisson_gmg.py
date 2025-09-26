@@ -82,7 +82,7 @@ def manufacture_solution(V):
     return exact, f
 
 
-def run_poisson(solver_type):
+def run_poisson(solver_type, rhs_type="form"):
     parameters = solver_parameters(solver_type)
     mesh = UnitSquareMesh(10, 10)
 
@@ -94,7 +94,13 @@ def run_poisson(solver_type):
     exact, f = manufacture_solution(V)
     u = function.Function(V)
     v = TestFunction(V)
-    F = inner(grad(u), grad(v))*dx - inner(f, v)*dx
+
+    L = inner(f, v)*dx
+    if rhs_type == "cofunction":
+        L = assemble(L)
+    elif rhs_type != "form":
+        raise ValueError("Unexpected RHS type")
+    F = inner(grad(u), grad(v))*dx - L
     bcs = DirichletBC(V, 0.0, (1, 2, 3, 4))
 
     solve(F == 0, u, bcs=bcs, solver_parameters=parameters)
@@ -106,6 +112,10 @@ def run_poisson(solver_type):
                          ["mg", "mgmatfree", "fas", "newtonfas"])
 def test_poisson_gmg(solver_type):
     assert run_poisson(solver_type) < 4e-6
+
+
+def test_poisson_gmg_cofunction():
+    assert run_poisson("mg", rhs_type="cofunction") < 4e-6
 
 
 @pytest.mark.parallel

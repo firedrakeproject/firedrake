@@ -41,7 +41,7 @@ class TwoLevelPC(PCBase):
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
 
-        prefix = pc.getOptionsPrefix()
+        prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
         opts = PETSc.Options()
 
@@ -156,7 +156,7 @@ class HiptmairPC(TwoLevelPC):
         else:
             raise ValueError("Hiptmair decomposition not available for", element)
 
-        prefix = pc.getOptionsPrefix()
+        prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
         opts = PETSc.Options(options_prefix)
         domain = opts.getString("mg_coarse_restriction_domain", "")
@@ -250,7 +250,7 @@ def div_to_curl(ele):
     elif isinstance(ele, finat.ufl.EnrichedElement):
         return type(ele)(*(div_to_curl(e) for e in reversed(ele._elements)))
     elif isinstance(ele, finat.ufl.TensorProductElement):
-        return type(ele)(*(div_to_curl(e) for e in ele.sub_elements), cell=ele.cell)
+        return type(ele)(*(div_to_curl(e) for e in ele.factor_elements), cell=ele.cell)
     elif isinstance(ele, finat.ufl.WithMapping):
         return type(ele)(div_to_curl(ele.wrapee), ele.mapping())
     elif isinstance(ele, finat.ufl.BrokenElement):

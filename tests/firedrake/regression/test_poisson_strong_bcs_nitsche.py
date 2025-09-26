@@ -34,7 +34,6 @@ and take \lim_{\epsilon \rightarrow 0}
 import pytest
 from firedrake import *
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 def run_test(x, degree, quadrilateral=False):
     mesh = UnitSquareMesh(2 ** x, 2 ** x, quadrilateral=quadrilateral)

@@ -1,7 +1,6 @@
 from firedrake import *
 import numpy
 import pytest
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 def form(test, trial, degree=None):

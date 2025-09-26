@@ -53,6 +53,9 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
                (defaults to ``ScalarType``).
         """
 
+        # debugging
+        self._dat = None
+
         V = function_space
         if isinstance(V, Cofunction):
             V = V.function_space()
@@ -86,6 +89,16 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         if isinstance(function_space, Cofunction):
             self.dat.copy(function_space.dat)
 
+    # debug
+    @property
+    def dat(self):
+        return self._dat
+
+    @dat.setter
+    def dat(self, new):
+        assert isinstance(new, op3.Dat)
+        self._dat = new
+
     @PETSc.Log.EventDecorator()
     def copy(self, deepcopy=True):
         r"""Return a copy of this :class:`firedrake.function.CoordinatelessFunction`.
@@ -95,12 +108,9 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
             and copy values.  If ``False``, then the new
             :class:`firedrake.function.CoordinatelessFunction` will share the dof values.
         """
-        if deepcopy:
-            val = type(self.dat)(self.dat)
-        else:
-            val = self.dat
+        dat = self.dat.copy() if deepcopy else self.dat
         return type(self)(self.function_space(),
-                          val=val, name=self.name(),
+                          val=dat, name=self.name(),
                           dtype=self.dat.dtype)
 
     def _analyze_form_arguments(self):
@@ -115,16 +125,9 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         of this this :class:`Cofunction`'s :class:`.FunctionSpace`."""
         if len(self.function_space()) > 1:
             subfuncs = []
-            for subspace in self.function_space():
+            for i in range(len(self.function_space())):
+                subspace = self.function_space().sub(i, weak=True)
                 subdat = self.dat[subspace.index]
-                # relabel the axes (remove suffix)
-                subaxes = subdat.axes.relabel({
-                    label: label.removesuffix(f"_{subspace.index}")
-                    for label in subdat.axes.node_labels
-                    if label.startswith("dof")
-                })
-                # .with_axes
-                subdat = op3.Dat(subaxes, data=subdat.buffer, name=subdat.name)
                 subfunc = type(self)(
                     subspace, subdat, name=f"{self.name()}[{subspace.index}]"
                 )
@@ -133,16 +136,9 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         else:
             return (self,)
 
-    @FunctionMixin._ad_annotate_subfunctions
-    def split(self):
-        import warnings
-        warnings.warn("The .split() method is deprecated, please use the .subfunctions property instead", category=FutureWarning)
-        return self.subfunctions
-
-    # exact copy from function.py
     @utils.cached_property
     def _components(self):
-        if self.function_space()._cdim == 1:
+        if self.function_space().value_size == 1:
             return (self,)
         else:
             if len(self.function_space().shape) > 1:
@@ -175,7 +171,7 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
                     indices = indices.add_subtree(subtree, *leaf, uniquify_ids=True)
 
                 subfunc = type(self)(
-                    self.function_space().sub(i),
+                    self.function_space().sub(i, weak=False),
                     # val=self.dat[indices],
                     val=self.dat.getitem(indices, strict=True),
                     name=f"view[{i}]({self.name()})"
@@ -253,10 +249,14 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
         current method. `expr_from_assemble` is required for the
         `CofunctionAssignBlock`.
         """
+        from firedrake.assign import Assigner, parse_subset
+
+        subset = parse_subset(subset)
+
         expr = ufl.as_ufl(expr)
         if isinstance(expr, ufl.classes.Zero):
             with stop_annotating(modifies=(self,)):
-                self.dat.zero(subset=subset)
+                self.dat[subset].zero(eager=True)
             return self
         elif (isinstance(expr, Cofunction)
               and expr.function_space() == self.function_space()):
@@ -273,7 +273,11 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
                         self, expr, rhs_from_assemble=expr_from_assemble)
                 )
 
-            expr.dat.copy(self.dat, subset=subset)
+            # TODO: Shouldn't need to cast the axes
+            # self.dat[subset].assign(expr.dat[subset], eager=True)
+            lhs = self.dat[subset]
+            rhs = expr.dat[subset]
+            lhs.assign(rhs, eager=True)
             return self
         elif isinstance(expr, BaseForm):
             # Enable c.assign(B) where c is a Cofunction and B an appropriate
@@ -284,7 +288,6 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
                 assembled_expr, subset=subset,
                 expr_from_assemble=True)
         else:
-            from firedrake.assign import Assigner
             Assigner(self, expr, subset).assign()
         return self
 
@@ -432,3 +435,16 @@ class Cofunction(ufl.Cofunction, FunctionMixin):
 
     def cell_node_map(self):
         return self.function_space().cell_node_map()
+
+    @property
+    def vec_ro(self):
+        return self.dat.vec_ro(bsize=self.function_space().block_size)
+
+    @property
+    def vec_wo(self):
+        return self.dat.vec_wo(bsize=self.function_space().block_size)
+
+    @property
+    def vec_rw(self):
+        return self.dat.vec_rw(bsize=self.function_space().block_size)
+

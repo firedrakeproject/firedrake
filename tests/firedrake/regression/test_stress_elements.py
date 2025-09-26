@@ -1,7 +1,6 @@
 from firedrake import *
 import pytest
 import numpy as np
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 relative_magnitudes = lambda x: np.array(x)[1:] / np.array(x)[:-1]
@@ -153,8 +152,7 @@ def test_mass_conditioning(stress_element, mesh_hierarchy):
         tau = TestFunction(Sig)
         mass = inner(sigh, tau)*dx
         a = derivative(mass, sigh)
-        B = assemble(a, mat_type="aij").M.handle
-        A = B.convert("dense").getDenseArray()
+        A = assemble(a, mat_type="aij").petscmat[:, :]
         kappa = np.linalg.cond(A)
 
         mass_cond.append(kappa)

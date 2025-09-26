@@ -4,7 +4,6 @@ from firedrake import *
 import numpy as np
 from mpi4py import MPI
 import math
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 
 @pytest.fixture(scope="module",
@@ -67,7 +66,7 @@ def run_write_read(mesh, fs, degree, dumpfile):
         h5.read(f2, "/solution", timestamp=math.pi)
         h5.read(g2, "/solution", timestamp=0.1)
 
-        with g2.dat.vec as x, f2.dat.vec as y:
+        with g2.vec_ro as x, f2.vec_ro as y:
             assert x.max() > y.max()
 
     assert np.allclose(f.dat.data_ro, f2.dat.data_ro)
@@ -84,7 +83,6 @@ def test_write_read(mesh, fs, degree, dumpfile):
     run_write_read(mesh, fs, degree, dumpfile)
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
 @pytest.mark.parallel(nprocs=2)
 def test_write_read_parallel(mesh, fs, degree, dumpfile):
     run_write_read(mesh, fs, degree, dumpfile)
@@ -109,9 +107,9 @@ def test_attributes(f, dumpfile):
 
         h5.write(mesh.coordinates, "/coords")
         attrs = h5.attributes("/coords")
-        attrs["dimension"] = mesh.coordinates.dat.cdim
+        attrs["dimension"] = mesh.coordinates.function_space().block_size
 
-        assert attrs["dimension"] == mesh.coordinates.dat.cdim
+        assert attrs["dimension"] == mesh.coordinates.function_space().block_size
 
 
 def test_write_read_only_ioerror(f, dumpfile):

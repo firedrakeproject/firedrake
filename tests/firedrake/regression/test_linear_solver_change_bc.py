@@ -3,7 +3,6 @@ import numpy
 
 import pytest
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
 
 def test_linear_solver_change_bc():
     mesh = UnitSquareMesh(4, 4, quadrilateral=False)

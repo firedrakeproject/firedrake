@@ -1,9 +1,10 @@
 [project]
 name = "firedrake"
-version = "0.14_dev"
+# <year>.<month>.<patch>
+version = "2025.5.0.dev0"
 description = "An automated system for the portable solution of partial differential equations using the finite element method"
 readme = "README.rst"
-license = {file = "LICENSE"}
+license = "LGPL-3.0-or-later"
 maintainers = [
   {name = "Pablo D. Brubeck"},
   {name = "Daiane I. Dolci"},
@@ -18,32 +19,31 @@ dependencies = [
   "decorator<=4.4.2",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
-  # TODO: We are only using our fork here because the most recent PyPI release
-  # does not yet work with build isolation for Python 3.13. Once a version
-  # newer than 3.12.1 is released we can revert to simply using "h5py".
-  "h5py @ git+https://github.com/firedrakeproject/h5py.git ; python_version >= '3.13'",
-  "h5py; python_version < '3.13'",
-  "petsc4py",
+  # TODO RELEASE: use releases
+  "fenics-ufl @ git+https://github.com/FEniCS/ufl.git",
+  "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git",
+  "fuse-element @ git+https://github.com/indiamai/fuse.git",
+  "h5py>3.12.1",
+  "libsupermesh",
+  "loopy>2024.1",
   "numpy",
   "packaging",
+  # TODO RELEASE
+  # "petsc4py==3.23.4",
+  "petsctools",
   "pkgconfig",
   "progress",
+  "pyadjoint-ad>=2025.04.1",
   "pycparser",
   "pytools[siphash]",
   "requests",
   "rtree>=1.2",
   "scipy",
   "sympy",
-  "fenics-ufl @ git+https://github.com/firedrakeproject/ufl.git",
-  "fenics-fiat @ git+https://github.com/firedrakeproject/fiat.git",
-  "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint.git",
-  "loopy @ git+https://github.com/firedrakeproject/loopy.git@main",
-  "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git",
-  "fuse-element @ git+https://github.com/indiamai/fuse.git",
+  "islpy>=2025.1.5; sys_platform == 'darwin'",
 ]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
-  "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)",
   "Intended Audience :: Science/Research",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
@@ -62,51 +62,121 @@ Issues = "https://github.com/firedrakeproject/firedrake/issues/new/choose"
 [project.scripts]
 firedrake-clean = "firedrake.scripts.firedrake_clean:main"
 firedrake-preprocess-bibtex = "firedrake.scripts.firedrake_preprocess_bibtex:main"
-firedrake-status = "firedrake.scripts.firedrake_status:main"
 pyop2-clean = "pyop2.compilation:clear_compiler_disk_cache"
-spydump = "pyop2.scripts.spydump:main"
 
 [project.optional-dependencies]
-test = [
-  "pylit",
-  "nbval",
+check = [
+  "mpi-pytest>=2025.7",
   "pytest",
-  "pytest-xdist",
-  "pytest-mpi @ git+https://github.com/firedrakeproject/pytest-mpi.git@main",
 ]
-dev = [
-  "flake8",
-  "pylint",
+jax = [
+  "jax",
 ]
-docs = [
-  "sphinx",
-  "sphinx-autobuild",
-  "sphinxcontrib-bibtex",
-  "sphinxcontrib-svg2pdfconverter",
-  "sphinxcontrib-jquery",
-  "bibtexparser",
-  "sphinxcontrib-youtube",
-  "numpydoc",
+netgen = [
+  # TODO RELEASE
+  # "ngsPETSc",
+]
+slepc = [
+  # TODO RELEASE
+  # "slepc4py==3.23.2",
+]
+torch = [  # requires passing '--extra-index-url' to work
+  "torch",
+]
+vtk = [
+  "vtk",
 ]
 
 [build-system]
 requires = [
-  "setuptools>61.2",
   "Cython>=3.0",
-  "pybind11",
-  "pkgconfig",
-  "numpy",
+  "libsupermesh",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
-  "petsc4py",
+  "numpy",
+  "pkgconfig",
+  "pybind11",
+  "setuptools>=77.0.3",
+  # TODO RELEASE
+  # "petsc4py==3.23.4",
   "rtree>=1.2",
-  "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git",
 ]
 build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+docs = [
+  "bibtexparser",
+  "matplotlib",  # needed to resolve API
+  "numpydoc",
+  "pylit",
+  "sphinx<8.2.0",  # https://github.com/firedrakeproject/firedrake/issues/4059
+  "sphinx-autobuild",
+  "sphinx-reredirects",
+  "sphinxcontrib-bibtex",
+  "sphinxcontrib-jquery",
+  "sphinxcontrib-svg2pdfconverter",
+  "sphinxcontrib-youtube",
+  "vtk",  # needed to resolve API
+]
+test = [
+  "pytest",
+  "mpi-pytest>=2025.7",
+]
+dev = [
+  {include-group = "docs"},
+  {include-group = "test"},
+  "pytest-timeout",
+  "pytest-xdist",
+]
+fulltest = [
+  {include-group = "test"},
+  "ipympl",  # needed for notebook testing
+  "jax",
+  "matplotlib",
+  "nbval",
+  "networkx",
+  # TODO RELEASE
+  # "ngsPETSc",
+  "pdf2image",
+  "pygraphviz",
+  "pylit",
+  # TODO RELEASE
+  # "slepc4py==3.23.2",
+  "torch",  # requires passing '--extra-index-url' to work
+  "vtk",
+]
+docker = [  # used in firedrake-vanilla containers
+  {include-group = "fulltest"},
+  "pytest-split",  # needed for firedrake-run-split-tests
+  "pytest-timeout",
+  "pytest-xdist",
+]
+ci = [
+  {include-group = "docs"},
+  {include-group = "docker"},
+]
 
 # TODO: Convert firedrake-zenodo to a proper entrypoint script.
 [tool.setuptools]
 script-files = [
   "firedrake/scripts/firedrake-zenodo",
+  "scripts/firedrake-check",
   "scripts/firedrake-run-split-tests",
+  "pyop2/scripts/spydump",
+]
+
+[tool.setuptools.package-data]
+# Unless specified these files will not be installed along with the
+# rest of the package
+firedrake = [
+  "evaluate.h",
+  "locate.c",
+  "icons/*.png",
+  "_check/**",
+]
+pyop2 = [
+  "*.h",
+  "*.pxd",
+  "*.pyx",
+  "codegen/c/*.c",
 ]

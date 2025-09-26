@@ -2,9 +2,6 @@ import pytest
 from firedrake import *
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 @pytest.fixture(params=["Interval", "Triangle", "Quad"])
 def mesh_type(request):
     return request.param

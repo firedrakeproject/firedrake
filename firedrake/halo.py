@@ -11,6 +11,7 @@ _MPI_types = {}
 
 
 def _get_mtype(dat):
+    assert False, "old code"
     """Get an MPI datatype corresponding to a Dat.
 
     This builds (if necessary a contiguous derived datatype of the
@@ -81,6 +82,7 @@ _contig_min_op = MPI.Op.Create(partial(reduction_op, numpy.minimum), commute=Tru
 _contig_max_op = MPI.Op.Create(partial(reduction_op, numpy.maximum), commute=True)
 
 
+# TODO: delete me
 class Halo(op2.Halo):
     """Build a Halo for a function space.
 

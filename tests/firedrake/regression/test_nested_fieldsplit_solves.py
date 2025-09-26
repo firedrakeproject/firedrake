@@ -2,9 +2,6 @@ from firedrake import *
 import pytest
 
 
-pytest.skip(allow_module_level=True, reason="pyop3 TODO")
-
-
 @pytest.fixture
 def W():
     m = UnitSquareMesh(4, 4)

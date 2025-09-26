@@ -34,11 +34,11 @@ def _test_submesh_interpolate_cell_cell(mesh, subdomain_cond, fe_fesub):
     indicator_function = Function(DG0).interpolate(subdomain_cond)
     label_value = 999
     mesh.mark_entities(indicator_function, label_value)
-    msub = Submesh(mesh, dim, label_value)
+    subm = Submesh(mesh, dim, label_value)
     V = FunctionSpace(mesh, family, degree)
     V_ = FunctionSpace(mesh, family_sub, degree_sub)
-    Vsub = FunctionSpace(msub, family_sub, degree_sub)
-    Vsub_ = FunctionSpace(msub, family, degree)
+    Vsub = FunctionSpace(subm, family_sub, degree_sub)
+    Vsub_ = FunctionSpace(subm, family, degree)
     f = Function(V).interpolate(_get_expr(V))
     gsub_ = Function(Vsub_).interpolate(_get_expr(Vsub_))
     gsub = Function(Vsub).interpolate(gsub_)
@@ -104,7 +104,8 @@ def test_submesh_interpolate_cell_cell_hex_3_processes(fe_fesub, nelem, condx, c
 @pytest.mark.parametrize('condy', [LT, GT])
 @pytest.mark.parametrize('distribution_parameters', [None, {"overlap_type": (DistributedMeshOverlapType.NONE, 0)}])
 def test_submesh_interpolate_cell_cell_tri_3_processes(fe_fesub, condx, condy, distribution_parameters):
-    mesh = Mesh("./docs/notebooks/stokes-control.msh", distribution_parameters=distribution_parameters)
+    mesh_file = join(cwd, "..", "..", "..", "docs", "notebooks/stokes-control.msh")
+    mesh = Mesh(mesh_file, distribution_parameters=distribution_parameters)
     x, y = SpatialCoordinate(mesh)
     cond = conditional(condx(x, 15.), 1,
            conditional(condy(y, 2.5), 1, 0))  # noqa: E128
@@ -123,3 +124,105 @@ def test_submesh_interpolate_cell_cell_quad_3_processes(fe_fesub, condx, condy, 
     cond = conditional(condx(x, 0.5), 1,
            conditional(condy(y, 0.5), 1, 0))  # noqa: E128
     _test_submesh_interpolate_cell_cell(mesh, cond, fe_fesub)
+
+
+@pytest.mark.parallel(nprocs=5)
+@pytest.mark.parametrize('hexahedral', [False, True])
+@pytest.mark.parametrize('direction', ['x', 'y', 'z'])
+@pytest.mark.parametrize('facet_type', ['interior', 'exterior'])
+def test_submesh_interpolate_3Dcell_2Dfacet(hexahedral, direction, facet_type):
+    def expr(m):
+        x, y, z = SpatialCoordinate(m)
+        return x + y**2 + z**3
+    degree = 3
+    distribution_parameters = {
+        "partition": True,
+        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1),
+    }
+    if hexahedral:
+        mesh = Mesh(
+            join(cwd, "..", "meshes", "cube_hex.msh"),
+            distribution_parameters=distribution_parameters,
+        )
+        V = FunctionSpace(mesh, "CG", 2)
+    else:
+        mesh = UnitCubeMesh(8, 8, 8)
+        V = FunctionSpace(mesh, "HDiv Trace", 0)
+    x, y, z = SpatialCoordinate(mesh)
+    facet_function = Function(V).interpolate(
+        conditional(
+            {
+                ('x', 'interior'): And(x > .499, x < .501),
+                ('y', 'interior'): And(y > .499, y < .501),
+                ('z', 'interior'): And(z > .499, z < .501),
+                ('x', 'exterior'): x > .999,
+                ('y', 'exterior'): y > .999,
+                ('z', 'exterior'): z > .999,
+            }[(direction, facet_type)],
+            1., 0.,
+        )
+    )
+    facet_value = 999
+    mesh = RelabeledMesh(mesh, [facet_function], [facet_value])
+    subm = Submesh(mesh, mesh.topological_dimension() - 1, facet_value)
+    DG3d = FunctionSpace(mesh, "DG", degree)
+    dg3d = Function(DG3d).interpolate(expr(mesh))
+    DG2d = FunctionSpace(subm, "DG", degree)
+    dg2d = Function(DG2d).interpolate(expr(subm))
+    value3d_int = assemble(inner(dg3d('+'), dg3d('-')) * dS(facet_value))
+    value3d_ext = assemble(inner(dg3d, dg3d) * ds(facet_value))
+    value2d = assemble(inner(dg2d, dg2d) * dx)
+    assert abs(value2d - (value3d_int + value3d_ext)) < 1.e-14
+    if facet_type == 'exterior':
+        x, y, z = SpatialCoordinate(subm)
+        RT2d = FunctionSpace(subm, "RTCE" if hexahedral else "RTE", 4)
+        tangent_expr = {
+            'x': as_vector([0, y**2, z**3]),
+            'y': as_vector([x, 0, z**3]),
+            'z': as_vector([x, y**2, 0]),
+        }[direction]
+        rt2d = Function(RT2d).project(
+            tangent_expr,
+            solver_parameters={
+                "ksp_rtol": 1.e-14,
+            },
+        )
+        error_expr = rt2d - tangent_expr
+        error = assemble(inner(error_expr, error_expr) * dx)**0.5
+        assert abs(error) < 1.e-14
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_submesh_interpolate_3Dcell_2Dfacet_simplex_sckelton():
+    # The usage of sckelton meshes is limited as
+    # number of support cells of a facet can be > 2.
+    # We can not make sckelton mesh of hex meshes as,
+    # already in the quad orientation implementation,
+    # we assume that number of support cells <= 2.
+    def expr(m):
+        x, y, z = SpatialCoordinate(m)
+        return x + y**2 + z**3
+    degree = 3
+    distribution_parameters = {
+        "partition": True,
+        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1),
+    }
+    mesh = UnitCubeMesh(8, 8, 8, distribution_parameters=distribution_parameters)
+    V = FunctionSpace(mesh, "HDiv Trace", 0)
+    facet_function = Function(V).interpolate(Constant(1.))
+    facet_value = 999
+    mesh = RelabeledMesh(mesh, [facet_function], [facet_value])
+    subm = Submesh(mesh, mesh.topological_dimension() - 1, facet_value)
+    HDivT3d = FunctionSpace(mesh, "HDiv Trace", degree)
+    hdivt3d = Function(HDivT3d).interpolate(expr(mesh))
+    DG2d = FunctionSpace(subm, "DG", degree)
+    dg2d = Function(DG2d).interpolate(expr(subm))
+    value3d_int = assemble(inner(hdivt3d('+'), hdivt3d('-')) * dS(facet_value))
+    value3d_ext = assemble(inner(hdivt3d, hdivt3d) * ds(facet_value))
+    value2d = assemble(inner(dg2d, dg2d) * dx)
+    assert abs(value2d - (value3d_int + value3d_ext)) < 5.e-13
+    DG3d = FunctionSpace(mesh, "DG", degree)
+    dg3d = Function(DG3d).interpolate(expr(mesh))
+    dg2d_ = Function(DG2d).interpolate(dg3d)
+    error = assemble(inner(dg2d_ - expr(subm), dg2d_ - expr(subm)) * dx)**0.5
+    assert abs(error) < 1.e-14
