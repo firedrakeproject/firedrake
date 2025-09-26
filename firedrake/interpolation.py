@@ -344,8 +344,7 @@ class CrossMeshInterpolator(Interpolator):
                 "Can only interpolate into spaces with point evaluation nodes."
             )
 
-        expr = self.expr_renumbered
-        self.arguments = extract_arguments(expr)
+        self.arguments = extract_arguments(self.expr_renumbered)
         self.nargs = len(self.arguments)
 
         if self.options.allow_missing_dofs:
@@ -353,31 +352,39 @@ class CrossMeshInterpolator(Interpolator):
         else:
             self.missing_points_behaviour = MissingPointsBehaviour.ERROR
 
-        # setup
         self.V_dest = V.function_space() if isinstance(V, firedrake.Function) else V
-        self.src_mesh = extract_unique_domain(expr)
+        self.src_mesh = extract_unique_domain(self.expr_renumbered)
         self.dest_mesh = as_domain(self.V_dest)
         if self.src_mesh.geometric_dimension() != self.dest_mesh.geometric_dimension():
             raise ValueError("Geometric dimensions of source and destination meshes must match.")
 
         self.sub_interpolators = []
         dest_element = self.V_dest.ufl_element()
-        if isinstance(dest_element, finat.ufl.MixedElement):
-            if isinstance(dest_element, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
-                base_element = dest_element.sub_elements[0]
-                if base_element.reference_value_shape != ():
-                    raise NotImplementedError(
-                        "Can't yet cross-mesh interpolate onto function spaces made from VectorElements or TensorElements made from sub elements with value shape other than ()."
-                    )
-                self.dest_element = base_element
-                self._symbolic_expression()
-            else:
-                self._mixed_function_space()
+        if isinstance(dest_element, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
+            # In this case all sub elements are equal
+            base_element = dest_element.sub_elements[0]
+            if base_element.reference_value_shape != ():
+                raise NotImplementedError(
+                    "Can't yet cross-mesh interpolate onto function spaces made from VectorElements or TensorElements made from sub elements with value shape other than ()."
+                )
+            self.dest_element = base_element
+            self._get_symbolic_expressions()
+        elif isinstance(dest_element, finat.ufl.MixedElement):
+            self._mixed_function_space()
         else:
+            # scalar fiat/finat element
             self.dest_element = dest_element
-            self._symbolic_expression()
+            self._get_symbolic_expressions()
 
-    def _symbolic_expression(self):
+    def _get_symbolic_expressions(self):
+        """Constructs the symbolic Interpolate expressions for cross-mesh interpolation.
+
+        Raises
+        ------
+        DofNotDefinedError
+            If some DoFs in the target function space cannot be defined
+            in the source function space.
+        """
         from firedrake.assemble import assemble
         # Immerse coordinates of V_dest point evaluation dofs in src_mesh
         V_dest_vec = firedrake.VectorFunctionSpace(self.dest_mesh, self.dest_element)
@@ -409,16 +416,14 @@ class CrossMeshInterpolator(Interpolator):
         self.point_eval_io = interpolate(firedrake.TrialFunction(P0DG_vom), P0DG_vom_i_o)
 
     def _mixed_function_space(self):
-        # Build and save an interpolator for each sub-element
-        # separately for MixedFunctionSpaces. NOTE: since we can't have
-        # expressions for MixedFunctionSpaces we know that the input
-        # argument ``expr`` must be a Function. V_dest can be a Function
-        # or a FunctionSpace, and subfunctions works for both.
+        """Builds symbolic Interpolate expressions for each sub-element of a MixedFunctionSpace.
+        """
+        # NOTE: since we can't have expressions for MixedFunctionSpaces 
+        # we know that the input argument ``expr`` must be a Function. 
+        # V_dest can be a Function or a FunctionSpace, and subfunctions works for both.
         if self.nargs == 1:
             # Arguments don't have a subfunctions property so I have to
-            # make them myself. NOTE: this will not be correct when we
-            # start allowing interpolators created from an expression
-            # with arguments, as opposed to just being the argument.
+            # make them myself.
             expr_subfunctions = [
                 firedrake.TestFunction(V_src_sub_func)
                 for V_src_sub_func in self.expr.function_space().subspaces
@@ -444,8 +449,6 @@ class CrossMeshInterpolator(Interpolator):
     @PETSc.Log.EventDecorator()
     def _interpolate(self, *function, output=None, adjoint=False):
         """Compute the interpolation.
-
-        For arguments, see :class:`.Interpolator`.
         """
         from firedrake.assemble import assemble
         if adjoint and not self.nargs:
