@@ -462,8 +462,6 @@ class CrossMeshInterpolator(Interpolator):
             # Probably just need to pass freeze_expr to the various
             # interpolators for this to work.
             raise NotImplementedError("freeze_expr not implemented")
-        if access != op2.WRITE:
-            raise NotImplementedError("access other than op2.WRITE not implemented")
         if bcs:
             raise NotImplementedError("bcs not implemented")
         if V.ufl_element().mapping() != "identity":
@@ -475,6 +473,9 @@ class CrossMeshInterpolator(Interpolator):
                 "Can only interpolate into spaces with point evaluation nodes."
             )
         super().__init__(expr, V, subset, freeze_expr, access, bcs, allow_missing_dofs, matfree)
+
+        if self.access != op2.WRITE:
+            raise NotImplementedError("access other than op2.WRITE not implemented")
 
         expr = self.expr_renumbered
         self.arguments = extract_arguments(expr)
