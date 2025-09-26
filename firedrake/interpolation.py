@@ -633,10 +633,6 @@ class SameMeshInterpolator(Interpolator):
         dual_arg, operand = expr.argument_slots()
         target_mesh = as_domain(dual_arg)
         source_mesh = extract_unique_domain(operand) or target_mesh
-        vom_onto_other_vom = ((source_mesh is not target_mesh)
-                              and isinstance(source_mesh.topology, VertexOnlyMeshTopology)
-                              and isinstance(target_mesh.topology, VertexOnlyMeshTopology))
-
         arguments = expr.arguments()
         rank = len(arguments)
         if rank <= 1:
@@ -664,6 +660,7 @@ class SameMeshInterpolator(Interpolator):
             Vcol = arguments[1].function_space()
             if len(Vrow) > 1 or len(Vcol) > 1:
                 raise NotImplementedError("Interpolation of mixed expressions with arguments is not supported")
+            vom_onto_other_vom = isinstance(self, VomOntoVomInterpolator)
             if isinstance(target_mesh.topology, VertexOnlyMeshTopology) and target_mesh is not source_mesh and not vom_onto_other_vom:
                 if not isinstance(target_mesh.topology, VertexOnlyMeshTopology):
                     raise NotImplementedError("Can only interpolate onto a Vertex Only Mesh")
@@ -680,7 +677,7 @@ class SameMeshInterpolator(Interpolator):
                 Vcol_map = get_interp_node_map(source_mesh, target_mesh, Vcol)
                 sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
                                         [(Vrow_map, Vcol_map, None)],  # non-mixed
-                                        name="%s_%s_sparsity" % (Vrow.name, Vcol.name),
+                                        name=f"{Vrow.name}_{Vcol.name}_sparsity",
                                         nest=False,
                                         block_sparse=True)
                 tensor = op2.Mat(sparsity)
