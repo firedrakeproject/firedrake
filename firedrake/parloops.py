@@ -475,75 +475,63 @@ def _(
 
 
 def transform_packed_cell_closure_dat(packed_dat: op3.Dat, space, loop_index: op3.LoopIndex, *, depth: int = 0):
-    dat_sequence = [packed_dat]
+    transform_insns = []
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
     # TODO: Can be more fussy I think, only higher degree?
-    if space.ufl_element().cell == ufl.hexahedron:
-        perms = _entity_permutations(space)
-        orientation_perm = _orientations(space, perms, loop_index)
-        dat_sequence[-1] = dat_sequence[-1][*(slice(None),)*depth, orientation_perm]
+    # NOTE: This is now a special case of the fuse stuff below
+    # if space.ufl_element().cell == ufl.hexahedron:
+    #     perms = _entity_permutations(space)
+    #     orientation_perm = _orientations(space, perms, loop_index)
+    #     dat_sequence[-1] = dat_sequence[-1][*(slice(None),)*depth, orientation_perm]
 
 
     # THIS IS NEW
     transform_kernel, form_shapes = self.fuse_orientations()
     if transform_kernel:
-        cells_axis_component = op3.utils.just_one(c for c in self._mesh.points.root.components if c.label == str(self._mesh.dimension))
-        cells_axis = op3.Axis([cells_axis_component.copy(sf=None)], self._mesh.name)
-        # orientations needs to be the list from mesh.entity_orientations()
-        # also need to pass the list from mesh.closure_sizes()
-        orientations = op3.Dat(cells_axis, data=numpy.zeros(cells_axis.size, dtype=numpy.uint8), name="orts")
-        # orientations = op3.Dat(cells_axis, data=self._mesh.entity_orientations[:, -1], name="orts")
-        p = self._iterset.index()
-        o_packed = orientations[p]
+        orientations = space.mesh().entity_orientations_dat
+        o_packed = orientations[loop_index]
         o_temp = op3.Dat.null(
             o_packed.axes.materialize(),
             dtype=o_packed.dtype,
             prefix="t")
-        args = []
-        pack_insns = []
-        unpack_insns = []
-        for tsfc_arg in self._kinfo.arguments:
-            op3_arg = self._as_parloop_arg(tsfc_arg, p)
-            temp = op3_arg.materialize()
-            
-            transformed_temp = temp.copy()
 
-            if isinstance(tsfc_arg, kernel_args.OutputKernelArg):
-                function_args = [o_temp]
-                for n in form_shapes:
-                    function_args += [op3.Dat.null(op3.Axis(n*n), dtype=temp.dtype)]
-                function_args += [temp]
-                for n in form_shapes[:-1]:
-                    function_args += [temp.copy()]
-                function_args += [transformed_temp]
+        op3_arg = self._as_parloop_arg(tsfc_arg, p)
+        temp = op3_arg.materialize()
+        
+        transformed_temp = temp.copy()
 
-                unpack_insns.extend([
-                    o_temp.assign(o_packed),
-                    transform_kernel(*function_args),
-                    op3_arg.iassign(transformed_temp),
-                ])
-            else:
-                pack_insns.append(op3.ArrayAssignment(temp, op3_arg, op3.AssignmentType.WRITE))
+        function_args = [o_temp]
+        for n in form_shapes:
+            function_args += [op3.Dat.null(op3.Axis(n*n), dtype=temp.dtype)]
+        function_args += [temp]
+        for n in form_shapes[:-1]:
+            function_args += [temp.copy()]
+        function_args += [transformed_temp]
 
-            args.append(temp)
+        # TODO: this should be the inverse transform
+        transform_in_insn = op3.ArrayAssignment(temp, op3_arg, op3.AssignmentType.WRITE)
 
+        transform_out_insn = transform_kernel(*function_args)
+
+        transform_insns.append((transform_in_insn, transform_out_insn))
+
+        # FIXME: something like this, just a guess
+        packed_dat = transformed_temp
 
     # /THIS IS NEW
 
-
     if _needs_static_permutation(space.finat_element):
         nodal_axis_tree, dof_perm_slice = _static_node_permutation_slice(packed_dat.axes, space, depth)
-        dat_sequence[-1] = dat_sequence[-1].reshape(nodal_axis_tree)[dof_perm_slice]
+        packed_dat = packed_dat.reshape(nodal_axis_tree)[dof_perm_slice]
 
-    assert len(dat_sequence) % 2 == 1, "Must have an odd number"
     # I want to return a 'PackUnpackKernelArg' type that has information
     # about how to transform something before and after passing to a function. We can then defer
     # emitting these instructions until the intent information dicates that it is needed.
-    if len(dat_sequence) > 1:
-        # need to have sequential assignments I think
-        raise NotImplementedError
-    return dat_sequence[len(dat_sequence) // 2]
+    if transform_insns:
+        return op3.TransformedFunctionArgument(packed_dat, transform_insns)
+    else:
+        return packed_dat
 
 
 def transform_packed_cell_closure_mat(packed_mat: op3.Mat, row_space, column_space, cell_index: op3.Index, *, row_depth=0, column_depth=0):
@@ -619,28 +607,6 @@ def _orientations(space, perms, cell):
         # the orientations for these entities
         inner_subset = orientations[cell, all_bits]
 
-        # I am struggling to index this...
-        # perm = perms_[inner_subset]
-        # (root_label, root_clabel), (leaf_label, leaf_clabel) = utils.just_one(perms_.axes.ordered_leaf_paths)
-
-        # source_path = inner_subset.axes.path_with_nodes(*inner_subset.axes.leaf)
-        # index_keys = [None] + [
-        #     (axis.id, cpt) for axis, cpt in source_path.items()
-        # ]
-        # target_path = op3.utils.merge_dicts(
-        #     inner_subset.axes.target_paths.get(key, {}) for key in index_keys
-        # )
-        # myindices = op3.utils.merge_dicts(
-        #     inner_subset.axes.index_exprs.get(key, {}) for key in index_keys
-        # )
-        # inner_subset_var = ArrayVar(inner_subset, myindices, target_path)
-        # inner_subset_var = inner_subset
-        #
-        # mypermindices = (
-        #     op3.ScalarIndex(root_label, root_clabel, inner_subset_var),
-        #     op3.Slice(leaf_label, [op3.AffineSliceComponent(leaf_clabel)]),
-        # )
-        # perm = perms_[mypermindices]
         root = perms_.axes.root
         inner_subset_really  = op3.ScalarIndex(root.label, root.component.label, op3.as_linear_buffer_expression(inner_subset)),
         perm = perms_[inner_subset_really]
@@ -651,13 +617,7 @@ def _orientations(space, perms, cell):
         subtree = op3.Slice(f"dof{dim}", [op3.Subset("XXX", perm, label="XXX")], label=f"dof")  # I think the label must match 'perm'
         subtrees.append(subtree)
 
-    # return op3.IndexTree.from_nest({slice(None): subtrees})
-
     myroot = op3.Slice("closure", subsets, label="closure")
-    # mychildren = {myroot.id: subtrees}
-    # mynodemap = {None: (myroot,)}
-    # mynodemap.update(mychildren)
-    # return op3.IndexTree(myroot)  # dbueg
     return op3.IndexTree.from_nest({myroot: subtrees})
 
 
