@@ -1,76 +1,7 @@
-import petsc4py
-import sys
-petsc4py.init(sys.argv)
-from petsc4py import PETSc
+import petsctools
 
 
-__all__ = ["Citations"]
-
-
-class Citations(dict):
-
-    """Entry point to citations management.
-
-    This singleton object may be used to record Bibtex citation
-    information and then register that a particular citation is
-    relevant for a particular computation.  It hooks up with PETSc's
-    citation registration mechanism, so that running with
-    ``-citations`` does the right thing.
-
-    Example usage::
-
-        Citations().add("key", "bibtex-entry-for-my-funky-method")
-
-        ...
-
-        if using_funky_method:
-            Citations().register("key")
-    """
-    _instance = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(Citations, cls).__new__(cls)
-
-        return cls._instance
-
-    def add(self, key, entry):
-        """Add a paper to the database of possible citations.
-
-        :arg key: The key to use.
-        :arg entry: The bibtex entry.
-        """
-        self[key] = entry
-
-    def register(self, key):
-        """Register a paper to be cited so that PETSc knows about it.
-
-        :arg key: The key of the relevant citation.
-
-        :raises: :exc:`KeyError` if no such citation is
-            found in the database.
-
-        Papers to be cited can be added using :meth:`add`.
-
-        .. note::
-
-           The intended use is that :meth:`register` should be called
-           only when the referenced functionality is actually being
-           used.
-        """
-        cite = self.get(key, None)
-        if cite is None:
-            raise KeyError("Did not find a citation for '%s', did you forget to add it?" % key)
-        PETSc.Sys.registerCitation(cite)
-
-    @classmethod
-    def print_at_exit(cls):
-        """Print citations when exiting."""
-        # We devolve to PETSc for actually printing citations.
-        PETSc.Options()["citations"] = None
-
-
-Citations().add("Rathgeber2016", """
+petsctools.add_citation("Rathgeber2016", """
 @Article{Rathgeber2016,
   author =       {Florian Rathgeber and David A. Ham and Lawrence
                   Mitchell and Michael Lange and Fabio Luporini and
@@ -92,7 +23,7 @@ Citations().add("Rathgeber2016", """
 }
 """)
 
-Citations().add("McRae2016", """
+petsctools.add_citation("McRae2016", """
 @Article{McRae2016,
   author =       {Andrew T. T. McRae and Gheorghe-Teodor Bercea and
                   Lawrence Mitchell and David A. Ham and Colin
@@ -112,7 +43,7 @@ Citations().add("McRae2016", """
 }
 """)
 
-Citations().add("Homolya2016", """
+petsctools.add_citation("Homolya2016", """
 @Article{Homolya2016,
   author =       {Mikl\'os Homolya and David A. Ham},
   title =        {A parallel edge orientation algorithm for
@@ -130,7 +61,7 @@ Citations().add("Homolya2016", """
 }
 """)
 
-Citations().add("Luporini2015", """
+petsctools.add_citation("Luporini2015", """
 @Article{Luporini2015,
   author =       {Fabio Luporini and Ana Lucia Varbanescu and Florian
                   Rathgeber and Gheorghe-Teodor Bercea and
@@ -148,25 +79,7 @@ Citations().add("Luporini2015", """
 }
 """)
 
-Citations().add("Luporini2016", """
-@article{Luporini2016,
-  author =       {Fabio Luporini and David A. Ham and Paul H. J. Kelly},
-  title =        {An algorithm for the optimization of finite element
-                  integration loops},
-  journal =      {ACM Transactions on Mathematical Software},
-  year =         2017,
-  volume =       44,
-  issue =        1,
-  pages =        {3:1--3:26},
-  archiveprefix ={arXiv},
-  eprint =       {1604.05872},
-  primaryclass = {cs.MS},
-  url =          {http://arxiv.org/abs/1604.05872},
-  doi =          {10.1145/3054944},
-}
-""")
-
-Citations().add("Bercea2016", """
+petsctools.add_citation("Bercea2016", """
 @Article{Bercea2016,
   author =       {Gheorghe{-}Teodor Bercea and Andrew T. T. McRae and
                   David A. Ham and Lawrence Mitchell and Florian
@@ -188,7 +101,7 @@ Citations().add("Bercea2016", """
 }
 """)
 
-Citations().add("Mitchell2016", """
+petsctools.add_citation("Mitchell2016", """
 @Article{Mitchell2016,
   author =       {Lawrence Mitchell and Eike Hermann M\"uller},
   title =        {High level implementation of geometric multigrid
@@ -206,20 +119,7 @@ Citations().add("Mitchell2016", """
 }
 """)
 
-Citations().add("Homolya2017", """
-@Misc{Homolya2017,
-  author =        {Mikl\'os Homolya and Lawrence Mitchell and Fabio Luporini and
-                   David A. Ham},
-  title =         {{TSFC: a structure-preserving form compiler}},
-  year =          2017,
-  archiveprefix = {arXiv},
-  eprint =        {1705.03667},
-  primaryclass =  {cs.MS},
-  url =           {http://arxiv.org/abs/1705.003667}
-}
-""")
-
-Citations().add("Kirby2017", """
+petsctools.add_citation("Kirby2017", """
 @Article{Kirby2017,
   author =       {Robert C. Kirby and Lawrence Mitchell},
   title =        {{Solver composition across the PDE/linear algebra
@@ -237,21 +137,7 @@ Citations().add("Kirby2017", """
 }
 """)
 
-Citations().add("Homolya2017a", """
-@Misc{Homolya2017a,
-  author =       {Mikl\'os Homolya and Robert C. Kirby and David
-                  A. Ham},
-  title =        {{Exposing and exploiting structure: optimal code
-                  generation for high-order finite element methods}},
-  year =         2017,
-  archiveprefix ={arXiv},
-  eprint =       {1711.02473},
-  primaryclass = {cs.MS},
-  url =          {http://arxiv.org/abs/1711.02473}
-}
-""")
-
-Citations().add("Gibson2018", """
+petsctools.add_citation("Gibson2018", """
 @Misc{Gibson2018,
   author =       {Thomas H. Gibson and Lawrence Mitchell and David
                   A. Ham and Colin J. Cotter},
@@ -265,7 +151,7 @@ Citations().add("Gibson2018", """
 }
 """)
 
-Citations().add("Kolev2009", """
+petsctools.add_citation("Kolev2009", """
 @Misc{Kolev2009,
   author =       {Kolev, Tzanio V and Vassilevski, Panayot S},
   title =        {{Parallel auxiliary space AMG for H (curl) problems}},
@@ -278,7 +164,7 @@ Citations().add("Kolev2009", """
 }
 """)
 
-Citations().add("Hiptmair1998", """
+petsctools.add_citation("Hiptmair1998", """
 @Misc{Hiptmair1998,
   author =       {Hiptmair, Ralf},
   title =        {{Multigrid Method for Maxwell's Equations}},
@@ -292,7 +178,7 @@ Citations().add("Hiptmair1998", """
 }
 """)
 
-Citations().add("Gopalakrishnan2009", """
+petsctools.add_citation("Gopalakrishnan2009", """
 @article{Gopalakrishnan2009,
   author    = {Jayadeep Gopalakrishnan and Shuguang Tan},
   doi       = {10.1002/nla.636},
@@ -308,7 +194,7 @@ Citations().add("Gopalakrishnan2009", """
 }
 """)
 
-Citations().add("nixonhill2023consistent", """
+petsctools.add_citation("nixonhill2023consistent", """
 @article{nixonhill2023consistent,
   author        = {Nixon-Hill, R. W. and Shapero, D. and Cotter, C. J. and Ham, D. A.},
   doi           = {10.5194/gmd-17-5369-2024},
@@ -322,7 +208,7 @@ Citations().add("nixonhill2023consistent", """
 }
 """)
 
-Citations().add("FiredrakeUserManual", """
+petsctools.add_citation("FiredrakeUserManual", """
 @manual{FiredrakeUserManual,
   author        = {David A. Ham and Paul H. J. Kelly and Lawrence
 Mitchell and Colin J. Cotter and Robert C. Kirby and Koki Sagiyama and
@@ -343,7 +229,7 @@ Baylor University and University of Washington},
 }
 """)
 
-Citations().add("Bouziani2021", """
+petsctools.add_citation("Bouziani2021", """
 @article{Bouziani2021,
   title={Escaping the abstraction: a foreign function interface for the {Unified} {Form} {Language} {[UFL]}},
   author={Bouziani, Nacime and Ham, David A},
@@ -354,7 +240,7 @@ Citations().add("Bouziani2021", """
 }
 """)
 
-Citations().add("Bouziani2023", """
+petsctools.add_citation("Bouziani2023", """
 @inproceedings{Bouziani2023,
  title = {Physics-driven machine learning models coupling {PyTorch} and {Firedrake}},
  author = {Bouziani, Nacime and Ham, David A.},
@@ -365,7 +251,7 @@ Citations().add("Bouziani2023", """
 """)
 
 
-Citations().add("Bouziani2024", """
+petsctools.add_citation("Bouziani2024", """
 @article{Bouziani2024,
   title = {Differentiable programming across the {PDE} and {Machine} {Learning} barrier},
   author = {Bouziani, Nacime and Ham, David A. and Farsi, Ado},
@@ -376,7 +262,7 @@ Citations().add("Bouziani2024", """
 }
 """)
 
-Citations().add("Betteridge2024", """
+petsctools.add_citation("Betteridge2024", """
 @article{Betteridge2024,
   doi = {10.21105/joss.07359},
   url = {https://doi.org/10.21105/joss.07359},
@@ -392,7 +278,7 @@ Citations().add("Betteridge2024", """
   journal = {Journal of Open Source Software} }
 """)
 
-Citations().add("Brubeck2022", """
+petsctools.add_citation("Brubeck2022", """
 @article{Brubeck2022,
   author        = {Brubeck, Pablo D. and Farrell, Patrick E.},
   doi           = {10.1137/21M1444187},
@@ -405,7 +291,7 @@ Citations().add("Brubeck2022", """
 }
 """)
 
-Citations().add("Brubeck2024", """
+petsctools.add_citation("Brubeck2024", """
 @article{Brubeck2024,
   author        = {Brubeck, Pablo D. and Farrell, Patrick E.},
   doi           = {10.1137/22M1537370},
@@ -418,7 +304,7 @@ Citations().add("Brubeck2024", """
 }
 """)
 
-Citations().add("Farrell2015", """
+petsctools.add_citation("Farrell2015", """
 @Article{Farrell2015,
   author =       {Patrick E. Farrell and \'Asgeir Birkisson and Simon W. Funke},
   title =        {{Deflation techniques for finding distinct solutions of nonlinear partial differential equations}},
