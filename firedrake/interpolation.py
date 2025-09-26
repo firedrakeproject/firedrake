@@ -3,6 +3,8 @@ import os
 import tempfile
 import abc
 import warnings
+from collections.abc import Iterable
+from typing import Literal
 from functools import partial, singledispatch
 from typing import Hashable
 
@@ -23,6 +25,7 @@ import gem
 import finat
 
 import firedrake
+import firedrake.bcs
 from firedrake import tsfc_interface, utils, functionspaceimpl
 from firedrake.ufl_expr import Argument, Coargument, action, adjoint as expr_adjoint
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshMissingPointsError, VertexOnlyMeshTopology
@@ -47,7 +50,7 @@ class Interpolate(ufl.Interpolate):
 
     def __init__(self, expr, v,
                  subset=None,
-                 access=op2.WRITE,
+                 access=None,
                  allow_missing_dofs=False,
                  default_missing_val=None,
                  matfree=True):
@@ -122,7 +125,7 @@ class Interpolate(ufl.Interpolate):
 
 
 @PETSc.Log.EventDecorator()
-def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False, default_missing_val=None, matfree=True):
+def interpolate(expr, V, subset=None, access=None, allow_missing_dofs=False, default_missing_val=None, matfree=True):
     """Returns a UFL expression for the interpolation operation of ``expr`` into ``V``.
 
     :arg expr: a UFL expression.
@@ -203,25 +206,34 @@ def interpolate(expr, V, subset=None, access=op2.WRITE, allow_missing_dofs=False
 class Interpolator(abc.ABC):
     """A reusable interpolation object.
 
-    :arg expr: The expression to interpolate.
-    :arg V: The :class:`.FunctionSpace` or :class:`.Function` to
+    Parameters
+    ----------
+    expr
+        The underlying ufl.Interpolate or the operand to the ufl.Interpolate.
+    V
+        The :class:`.FunctionSpace` or :class:`.Function` to
         interpolate into.
-    :kwarg subset: An optional :class:`pyop2.types.set.Subset` to apply the
+    subset
+        An optional :class:`pyop2.types.set.Subset` to apply the
         interpolation over. Cannot, at present, be used when interpolating
         across meshes unless the target mesh is a :func:`.VertexOnlyMesh`.
-    :kwarg freeze_expr: Set to True to prevent the expression being
+    freeze_expr
+        Set to True to prevent the expression being
         re-evaluated on each call. Cannot, at present, be used when
         interpolating across meshes unless the target mesh is a
         :func:`.VertexOnlyMesh`.
-    :kwarg access: The pyop2 access descriptor for combining updates to shared
-        DoFs. Possible values include ``WRITE`` and ``INC``. Only ``WRITE`` is
-        supported at present when interpolating across meshes. See note in
-        :func:`.interpolate` if changing this from default.
-    :kwarg bcs: An optional list of boundary conditions to zero-out in the
+    access
+        The pyop2 access descriptor for combining updates to shared DoFs.
+        Only ``op2.WRITE`` is supported at present when interpolating across meshes.
+        Only ``op2.INC`` is supported for the matrix-free adjoint interpolation.
+        See note in :func:`.interpolate` if changing this from default.
+    bcs
+        An optional list of boundary conditions to zero-out in the
         output function space. Interpolator rows or columns which are
         associated with boundary condition nodes are zeroed out when this is
         specified.
-    :kwarg allow_missing_dofs: For interpolation across meshes: allow
+    allow_missing_dofs
+        For interpolation across meshes: allow
         degrees of freedom (aka DoFs/nodes) in the target mesh that cannot be
         defined on the source mesh. For example, where nodes are point
         evaluations, points in the target mesh that are not in the source mesh.
@@ -233,14 +245,16 @@ class Interpolator(abc.ABC):
         Ignored if interpolating within the same mesh or onto a
         :func:`.VertexOnlyMesh` (the behaviour of a :func:`.VertexOnlyMesh` in
         this scenario is, at present, set when it is created).
-    :kwarg matfree: If ``False``, then construct the permutation matrix for interpolating
+    matfree
+        If ``False``, then construct the permutation matrix for interpolating
         between a VOM and its input ordering. Defaults to ``True`` which uses SF broadcast
         and reduce operations.
 
     This object can be used to carry out the same interpolation
     multiple times (for example in a timestepping loop).
 
-    .. note::
+    Note
+    ----
 
        The :class:`Interpolator` holds a reference to the provided
        arguments (such that they won't be collected until the
@@ -267,14 +281,14 @@ class Interpolator(abc.ABC):
 
     def __init__(
         self,
-        expr,
-        V,
-        subset=None,
-        freeze_expr=False,
-        access=op2.WRITE,
-        bcs=None,
-        allow_missing_dofs=False,
-        matfree=True
+        expr: ufl.Interpolate | ufl.classes.Expr,
+        V: ufl.FunctionSpace | firedrake.function.Function,
+        subset: op2.Subset | None = None,
+        freeze_expr: bool = False,
+        access: Literal[op2.WRITE, op2.MIN, op2.MAX, op2.INC] | None = None,
+        bcs: Iterable[firedrake.bcs.BCBase] | None = None,
+        allow_missing_dofs: bool = False,
+        matfree: bool = True
     ):
         if not isinstance(expr, ufl.Interpolate):
             fs = V if isinstance(V, ufl.FunctionSpace) else V.function_space()
@@ -285,7 +299,6 @@ class Interpolator(abc.ABC):
         self.V = V
         self.subset = subset
         self.freeze_expr = freeze_expr
-        self.access = access
         self.bcs = bcs
         self._allow_missing_dofs = allow_missing_dofs
         self.matfree = matfree
@@ -324,9 +337,16 @@ class Interpolator(abc.ABC):
         dual_arg, operand = expr.argument_slots()
         self.expr_renumbered = operand
         self.ufl_interpolate_renumbered = expr
+
         if not isinstance(dual_arg, ufl.Coargument):
             # Matrix-free assembly of 0-form or 1-form requires INC access
-            self.access = op2.INC
+            if access and access != op2.INC:
+                raise ValueError("Matfree adjoint interpolation requires INC access")
+            access = op2.INC
+        elif access is None:
+            # Default access for forward 1-form or 2-form (forward and adjoint)
+            access = op2.WRITE
+        self.access = access
 
     def interpolate(self, *function, transpose=None, adjoint=False, default_missing_val=None):
         """
@@ -432,7 +452,7 @@ class CrossMeshInterpolator(Interpolator):
         V,
         subset=None,
         freeze_expr=False,
-        access=op2.WRITE,
+        access=None,
         bcs=None,
         allow_missing_dofs=False,
         matfree=True
@@ -756,7 +776,7 @@ class SameMeshInterpolator(Interpolator):
     """
 
     @no_annotations
-    def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE,
+    def __init__(self, expr, V, subset=None, freeze_expr=False, access=None,
                  bcs=None, matfree=True, allow_missing_dofs=False, **kwargs):
         if subset is None:
             if isinstance(expr, ufl.Interpolate):
@@ -1187,9 +1207,9 @@ def _interpolator(V, tensor, expr, subset, arguments, access, bcs=None):
 
 
 def get_interp_node_map(source_mesh, target_mesh, fs):
-    """Return the map between cells of the target mesh and nodes of the function space. 
-    
-    If the function space is defined on the source mesh then the node map is composed 
+    """Return the map between cells of the target mesh and nodes of the function space.
+
+    If the function space is defined on the source mesh then the node map is composed
     with a map between target and source cells.
     """
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):

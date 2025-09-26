@@ -1,6 +1,7 @@
 import pytest
 from firedrake import *
 import numpy as np
+from mpi4py import MPI
 from ufl.conditional import GT, LT
 from os.path import abspath, dirname, join
 
@@ -282,7 +283,7 @@ def test_submesh_interpolate_adjoint(fe_fesub):
 
     mesh = UnitSquareMesh(8, 8)
     x, y = SpatialCoordinate(mesh)
-    subdomain_cond = conditional(LT(x, 0.5), 1, 0)
+    subdomain_cond = conditional(And(LT(x, 0.5), LT(y, 0.5)), 1, 0)
     label_value = 999
     subm = make_submesh(mesh, subdomain_cond, label_value)
 
@@ -312,24 +313,27 @@ def test_submesh_interpolate_adjoint(fe_fesub):
     result_adjoint_2 = assemble(action(action(I_adj, ustar2), u1))
     assert np.isclose(result_adjoint_2, expected)
 
-    # Test forward 1-form (only in serial for now)
-    if V1.comm.size == 1:
-        # Matfree forward interpolation with Submesh currently fails in parallel.
-        # The ghost nodes of the parent mesh may be redistributed
-        # into different processes as non-ghost dofs of the submesh.
-        # The submesh kernel will write into ghost nodes of the parent mesh,
-        # but this will be ignored in the halo exchange if access=op2.WRITE.
+    # Test forward 1-form (only works in serial for continuous elements)
+    # Matfree forward interpolation with Submesh currently fails in parallel.
+    # The ghost nodes of the parent mesh may be redistributed
+    # into different processes as non-ghost dofs of the submesh.
+    # The submesh kernel will write into ghost nodes of the parent mesh,
+    # but this will be ignored in the halo exchange if access=op2.WRITE.
 
-        # See https://github.com/firedrakeproject/firedrake/issues/4483
+    # See https://github.com/firedrakeproject/firedrake/issues/4483
+    expected_to_pass = (V2.comm.size == 1 or V2.finat_element.is_dg())
 
-        Iu1 = assemble(interpolate(u1, TestFunction(V2.dual()), allow_missing_dofs=True))
-        assert Iu1.function_space() == V2
+    Iu1 = assemble(interpolate(u1, TestFunction(V2.dual()), allow_missing_dofs=True))
+    assert Iu1.function_space() == V2
 
-        expected_primal = assemble(action(I, u1))
-        assert np.allclose(Iu1.dat.data, expected_primal.dat.data)
+    expected_primal = assemble(action(I, u1))
+    test1 = np.allclose(Iu1.dat.data, expected_primal.dat.data)
+    test1 = V2.comm.allreduce(test1, MPI.LAND)
+    assert test1 == expected_to_pass
 
-        result_forward_1 = assemble(action(ustar2, Iu1))
-        assert np.isclose(result_forward_1, expected)
+    result_forward_1 = assemble(action(ustar2, Iu1))
+    test0 = np.isclose(result_forward_1, expected)
+    assert test0 == expected_to_pass
 
     # Test adjoint 1-form
     ustar2I = assemble(interpolate(TestFunction(V1), ustar2, allow_missing_dofs=True))
