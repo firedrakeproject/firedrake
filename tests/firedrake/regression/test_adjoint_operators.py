@@ -112,8 +112,8 @@ def test_interpolate_scalar_valued(rg):
 def test_interpolate_vector_valued():
     mesh = UnitSquareMesh(10, 10)
     V1 = VectorFunctionSpace(mesh, "CG", 1)
-    V2 = VectorFunctionSpace(mesh, "DG", 0)
-    V3 = VectorFunctionSpace(mesh, "CG", 2)
+    V2 = VectorFunctionSpace(mesh, "CG", 2)
+    V3 = VectorFunctionSpace(mesh, "CG", 3)
 
     x = SpatialCoordinate(mesh)
     f = assemble(interpolate(as_vector((x[0]*x[1], x[0]+x[1])), V1))
