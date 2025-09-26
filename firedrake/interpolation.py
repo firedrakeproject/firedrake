@@ -101,12 +101,10 @@ class Interpolate(ufl.Interpolate):
 
         V = v.arguments()[0].function_space()
         if len(expr.ufl_shape) != len(V.value_shape):
-            raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
-                               % (len(expr.ufl_shape), len(V.value_shape)))
+            raise RuntimeError(f'Rank mismatch: Expression rank {len(expr.ufl_shape)}, FunctionSpace rank {len(V.value_shape)}')
 
         if expr.ufl_shape != V.value_shape:
-            raise RuntimeError('Shape mismatch: Expression shape %r, FunctionSpace shape %r'
-                               % (expr.ufl_shape, V.value_shape))
+            raise RuntimeError('Shape mismatch: Expression shape {expr.ufl_shape}, FunctionSpace shape {V.value_shape}')
         super().__init__(expr, v)
 
         # -- Interpolate data (e.g. `subset` or `access`) -- #
