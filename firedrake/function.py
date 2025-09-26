@@ -374,7 +374,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             An optional string for tagging the resulting assemble
             block on the Pyadjoint tape.
         **kwargs
-            Any extra kwargs are passed on to the interpolate method.
+            Any extra kwargs are passed on to the interpolate function.
             For details see `firedrake.interpolation.interpolate`.
 
         Returns
