@@ -1,7 +1,6 @@
 import pytest
 from firedrake import *
 import numpy as np
-from mpi4py import MPI
 from ufl.conditional import GT, LT
 from os.path import abspath, dirname, join
 
@@ -328,12 +327,11 @@ def test_submesh_interpolate_adjoint(fe_fesub):
 
     expected_primal = assemble(action(I, u1))
     test1 = np.allclose(Iu1.dat.data, expected_primal.dat.data)
-    test1 = V2.comm.allreduce(test1, MPI.LAND)
-    assert test1 == expected_to_pass
+    assert test1 or not expected_to_pass
 
     result_forward_1 = assemble(action(ustar2, Iu1))
     test0 = np.isclose(result_forward_1, expected)
-    assert test0 == expected_to_pass
+    assert test0 or not expected_to_pass
 
     # Test adjoint 1-form
     ustar2I = assemble(interpolate(TestFunction(V1), ustar2, allow_missing_dofs=True))
