@@ -73,7 +73,7 @@ docs = [
   "matplotlib",  # needed to resolve API
   "numpydoc",
   "pylit",
-  "sphinx<8.2.0",  # https://github.com/firedrakeproject/firedrake/issues/4059
+  "sphinx",
   "sphinx-autobuild",
   "sphinx-reredirects",
   "sphinxcontrib-bibtex",
