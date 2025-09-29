@@ -58,7 +58,6 @@ class Sparsity(caching.ObjectCached):
         if self._initialized:
             return
         self._dsets = dsets
-        self._lgmaps = None
         self._maps_and_regions = maps_and_regions
         self._block_sparse = block_sparse
         self._diagonal_block = diagonal_block
@@ -342,6 +341,16 @@ def masked_lgmap(lgmap, mask, block=True):
     return PETSc.LGMap().create(indices=indices, bsize=bsize, comm=lgmap.comm)
 
 
+def unghosted_lgmap(dset, node_maps):
+    lgmap = dset.lgmap
+    ndofs = lgmap.getBlockIndices().size
+    mask = np.arange(ndofs, dtype=PETSc.IntType)
+    for local_ises, node_map in zip(dset.local_ises, node_maps):
+        mask[local_ises.indices[node_map.values]] = -1
+    mask = mask[mask > -1]
+    return masked_lgmap(lgmap, mask)
+
+
 class AbstractMat(DataCarrier, abc.ABC):
     r"""OP2 matrix data. A ``Mat`` is defined on a sparsity pattern and holds a value
     for each element in the :class:`Sparsity`.
@@ -618,12 +627,17 @@ class Mat(AbstractMat):
     def _init_monolithic(self):
         mat = PETSc.Mat()
         rset, cset = self.sparsity.dsets
-        rlgmap = rset.unblocked_lgmap
-        clgmap = cset.unblocked_lgmap
         if self.mat_type == "is":
-            rlgmap, clgmap = self.sparsity._lgmaps
+            rmaps = [None for _ in range(len(rset.local_ises))]
+            cmaps = [None for _ in range(len(cset.local_ises))]
+            for (i, j) in self.sparsity._maps_and_regions:
+                rmaps[i], cmaps[j], _ = tuple(self.sparsity._maps_and_regions[(i, j)])[0]
+            rlgmap = unghosted_lgmap(rset, rmaps)
+            clgmap = unghosted_lgmap(cset, cmaps)
             create = mat.createIS
         else:
+            rlgmap = rset.unblocked_lgmap
+            clgmap = cset.unblocked_lgmap
             create = mat.createAIJ
         size = ((self.nrows, None), (self.ncols, None))
         create(size, bsize=1, comm=self.comm)
@@ -695,7 +709,9 @@ class Mat(AbstractMat):
         rdim, cdim = self.dims[0][0]
 
         if self.mat_type == "is":
-            row_lg, col_lg = self.sparsity._lgmaps
+            rmap, cmap, _ = tuple(self.sparsity._maps_and_regions[(0, 0)])[0]
+            row_lg = unghosted_lgmap(rset, [rmap])
+            col_lg = unghosted_lgmap(cset, [cmap])
             block_sparse = False
             create = mat.createIS
         elif rdim == cdim and rdim > 1 and self.sparsity._block_sparse:
