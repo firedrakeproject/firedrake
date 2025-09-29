@@ -93,6 +93,9 @@ netgen = [
   # TODO RELEASE
   # "ngsPETSc",
 ]
+pyrol = [
+  "pyroltrilinos",
+]
 slepc = [
   # TODO RELEASE
   # "slepc4py==3.23.2",

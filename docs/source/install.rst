@@ -423,6 +423,17 @@ dependency. For example::
    $ pip install --no-binary h5py 'firedrake[check,jax]'
 
 
+PyROL
+~~~~~
+
+To install Firedrake with `ROL <https://trilinos.github.io/rol.html>`_, it should
+be installed using the ``pyrol`` optional dependency. This installs the
+``pyroltrilinos`` package, which includes both the PyROL interface and a
+compatible version of the ROL library. For example::
+
+   $ pip install --no-binary h5py 'firedrake[check,pyrol]'
+
+
 Netgen
 ~~~~~~
 
